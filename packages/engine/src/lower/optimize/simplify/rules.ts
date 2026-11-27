@@ -30,6 +30,7 @@ import {
 	noColumns
 } from "#compiler/lower/optimize/simplify/boolean.ts"
 import { firstOperand, nativeOp } from "#compiler/scalar/compute/registry.ts"
+import { compatible } from "#compiler/scalar/compute/types.ts"
 
 const simplifyRules = {
 	fold: "simplify.fold",
@@ -50,7 +51,7 @@ const isEmptyRelation = (node: EditNode): boolean =>
  * may then change its set as long as that one reader's set is unchanged. A node one reader reads twice (a semi-join's
  * both sides, a region's two occurrences) is no exclusive input of either.
  */
-export const exclusive = (cx: RewriteCx, cell: Cell): boolean =>
+const exclusive = (cx: RewriteCx, cell: Cell): boolean =>
 	cx.cells.references(cell) === 1 && !cx.editor.isRoot(cell) && !cx.cells.lateral(cell)
 
 const certify = (
@@ -491,7 +492,11 @@ type VarPair = { readonly a: VarDecl; readonly b: VarDecl }
 const samePair = (p: VarPair, q: VarPair): boolean =>
 	(p.a.id === q.a.id && p.b.id === q.b.id) || (p.a.id === q.b.id && p.b.id === q.a.id)
 
-/** A `var = var` conjunct over the region's own variables, as the pair of variables, or undefined. */
+/**
+ * A `var = var` conjunct over the region's own variables, as the pair of variables, or undefined: two variables of
+ * compatible types (types.ts compatible), as the checker equates a variable's columns (check/checker.ts RuleCheck
+ * `#equated`), their refinements and typmods free, compared at their carrier's own equality.
+ */
 const variableEquality = (
 	regionId: NodeId,
 	region: Region,
@@ -514,7 +519,7 @@ const variableEquality = (
 	if (a === undefined || b === undefined || a.id === b.id) {
 		return undefined
 	}
-	if (!sameScalarType(baseOf(a.type), baseOf(b.type))) {
+	if (!compatible(a.type, b.type)) {
 		return undefined
 	}
 	const native = nativeOp(conjunct.op)
@@ -578,7 +583,7 @@ const equality: Rule = {
 
 /**
  * Semantic simplification: literal and finite folding, equality propagation, branch
- * removal, and the normalizations that let fusion and pushdown see one stage where the builder wrote several and one
+ * removal, and the normalizations that let fusion see one stage where the builder wrote several and one
  * span relation where it wrote endpoint comparisons.
  *
  * Each rule replaces a node by an equivalent one and records a certificate whose rule id names it:

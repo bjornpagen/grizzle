@@ -1,5 +1,11 @@
 import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
-import { codeColumn, type DecoderForm, decoderOf, type RowDecoder } from "#compiler/core/decoder.ts"
+import {
+	codeColumn,
+	type DecoderForm,
+	type Delivery,
+	decoderOf,
+	type RowDecoder
+} from "#compiler/core/decoder.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isPlainRecord } from "#compiler/core/record.ts"
@@ -38,7 +44,6 @@ import { emptyHeading } from "#compiler/schema/record.ts"
 import { derivedDraftOf, namedRelation, relationDescOf } from "#compiler/schema/relation.ts"
 import { contextDescOf, worldDraftOf } from "#compiler/schema/world.ts"
 import type { Carrier, Carriers, Headed } from "#compiler/types/core/phantom.ts"
-import type { AttachmentDelivery } from "#compiler/types/query/query.ts"
 
 /**
  * A described arm or query: some head term or source of it has no column (a source rebuilt from its Description
@@ -110,7 +115,7 @@ export interface QueryState<C extends Carriers = Carriers> {
  */
 export interface AttachedChild {
 	readonly name: string
-	readonly delivery: AttachmentDelivery
+	readonly delivery: Delivery
 	readonly child: QueryState
 }
 

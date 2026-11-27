@@ -10,8 +10,6 @@ import {
 import {
 	type DeploySnapshot,
 	joinedSnapshot,
-	recordedSnapshot,
-	type SealedRecord,
 	type ServedSnapshot,
 	servedSnapshot,
 	type SnapshotFiles,
@@ -19,13 +17,15 @@ import {
 } from "#compiler/plan/serve.ts"
 
 /**
- * The committed snapshot a revived JSON value of both files joined is: the value itself, trusted as the record it seals
- * once the seal manifest.json carries is the digest of the whole (build.ts snapshotSeal), which is total over any
- * value, then read as this grizzle's snapshot (build.ts recordedSnapshot), which refuses an object of a kind this
- * grizzle does not install. The generator writes snapshot.json and manifest.json as exactly the record it seals, laid
- * out over the two, so a value whose seal holds is a record a generator wrote, and one whose seal does not (either file
+ * The committed snapshot a revived JSON value of both files joined is: the value itself, trusted as the snapshot it
+ * seals once the seal manifest.json carries is the digest of the whole (build.ts snapshotSeal), which is total over any
+ * value. The generator writes snapshot.json and manifest.json as exactly the record it seals, laid out over the two, so
+ * a value whose seal holds is a record a generator of this format wrote, and one whose seal does not (either file
  * hand-edited, corrupted or merged, or one from another snapshot than the other) is refused before anything reads it as
- * a snapshot.
+ * a snapshot. The seal digests the record under this grizzle's format, whose shape is the digest of DeploySnapshot's
+ * type, the roster of every object kind among it (core/format.ts recordShapes), so a sealed record holds only kinds
+ * this grizzle installs: a kind's removal is a change of the format, refused before the record is read
+ * (build.ts joinedSnapshot).
  */
 const sealedSnapshot = (
 	value: Readonly<Record<string, unknown>>,
@@ -33,7 +33,7 @@ const sealedSnapshot = (
 ): Result.Result<DeploySnapshot, CompileError> =>
 	Result.flatMap(toResult(snapshotSeal(value)), (computed) =>
 		computed === seal
-			? toResult(recordedSnapshot(trusted<SealedRecord>(value)))
+			? Result.succeed(trusted<DeploySnapshot>(value))
 			: Result.fail(
 					malformedArtifact(
 						"snapshot",

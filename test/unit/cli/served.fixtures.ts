@@ -13,7 +13,7 @@ import {
 	unicodeScalar
 } from "@bjornpagen/testing/gen"
 import { type Need, NeedFailed } from "@bjornpagen/testing/property"
-import { Array as Arr, Cause, DateTime, Effect, FileSystem, Order, String as Str } from "effect"
+import { Array as Arr, Cause, Effect, FileSystem, Order, String as Str } from "effect"
 import { type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
@@ -134,23 +134,13 @@ export const schemaDir = `migrations/${ident}`
 export const login = "server"
 
 export const config = defineConfig({
+	contracts: [],
 	schemas: [servedShop.schema],
 	logins: [servedShop.server],
 	migrations: "migrations",
 	rolePrefixBytes: 0,
 	connection: () => offlineOwner
 })
-
-export const at = (second: number) =>
-	DateTime.makeUnsafe({
-		year: 2026,
-		month: 11,
-		day: 9,
-		hour: 12,
-		minute: 0,
-		second,
-		millisecond: 0
-	})
 
 /**
  * Every program of a served file, as a layer reads it (served/json.ts servedFile), that states SQL under a member named
@@ -415,13 +405,13 @@ export const baseNeed = {
 	open: Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const base = yield* workspace("served-base")
-		const drafted = yield* cliOver(base, config, ["generate", configName, "--name", "init"], at(0))
+		const drafted = yield* cliOver(base, config, ["generate", configName, "--name", "init"])
 		assert.equal(drafted.code, 0, drafted.stderr)
 		assert.ok(
 			Str.includes(`${schemaDir}/${servedPath(login)}`)(drafted.stdout),
 			`generate names the served file it writes: ${drafted.stdout}`
 		)
-		const passed = yield* cliOver(base, config, ["check", configName], at(1))
+		const passed = yield* cliOver(base, config, ["check", configName])
 		assert.equal(passed.code, 0, `check passes on the first draft: ${passed.stdout}`)
 		const domains = nonEmpty(
 			Arr.map(

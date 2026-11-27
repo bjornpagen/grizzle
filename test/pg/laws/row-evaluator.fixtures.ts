@@ -13,7 +13,7 @@ import { rowEvaluator } from "#adapter/public/host.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { constraintNamesOf } from "#compiler/program/laws.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { closedId, contract, pg } from "#compiler/public/fields.ts"
+import { closedId, contract, mintOf, pg } from "#compiler/public/fields.ts"
 import { closed, derived, relation, schema, type RelationName } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { query, v } from "#compiler/query/build/query.ts"
@@ -141,7 +141,9 @@ export const required: NonEmptyReadonlyArray<Feature> = [
 ]
 
 const Short = str.regex("^[a-c]{0,3}$")
-const Units = contract("Units", pg.integer, (x) => Logic.le(x, 5))
+const unitsKey = Symbol("Units")
+const Units = contract<typeof unitsKey>()("Units", pg.integer, (x) => Logic.le(x, 5))
+const toUnits = mintOf(unitsKey)
 
 const letters = (spelled: string) => characterOf(nonEmpty(Arr.fromIterable(spelled), spelled))
 
@@ -414,7 +416,6 @@ export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 		const installed = yield* installMigrated(built.declared, {
 			ambient: ordinarySession,
 			label: "row_evaluator",
-			logins: [],
 			extensions: []
 		})
 		const names = namesOf(installed)
@@ -449,7 +450,7 @@ export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 		const hostSelected: Array<string> = []
 		for (const [id, row] of ec.rows.entries()) {
 			const at = `row ${id}, ${Formatter.format(row)}, of ${Formatter.format(ec)}`
-			const fact = { ...itemFact(built.c, row.item, id), p: row.p, u: Units(row.u) }
+			const fact = { ...itemFact(built.c, row.item, id), p: row.p, u: toUnits(row.u) }
 			const asGen = evaluate.admit(Gen, fact)
 			const ofGen = Result.map(asGen, (admitted) => evaluate(Gen, admitted))
 			const ofAll = Result.map(evaluate.admit(All, fact), (admitted) => evaluate(All, admitted))
@@ -458,7 +459,7 @@ export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 				evaluate.admit(built.Refined, {
 					kind: kindOf(row.item.kind),
 					p: row.p,
-					u: Units(row.u)
+					u: toUnits(row.u)
 				}),
 				(admitted) => evaluate(built.Refined, admitted)
 			)

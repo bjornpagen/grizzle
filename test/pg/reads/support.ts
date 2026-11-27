@@ -1,16 +1,6 @@
 import { Array as Arr, Effect, Record as Rec, type Scope, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
-import {
-	type AnyClosed,
-	type AnyRelation,
-	type Declared,
-	type Schema,
-	type Statement,
-	type StatementsByName,
-	type StatementsReadBack,
-	type StatementsWithin
-} from "#compiler/public/schema.ts"
-import { schemaBuilder as builtSchema } from "#compiler/schema/schema.ts"
+import type { AnyClosed, AnyRelation, Statement } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import {
 	type Generated,
@@ -20,6 +10,7 @@ import {
 	installGenerated,
 	loadMigrated as load
 } from "#test/support/install-migrate.ts"
+import { fullVersion, type Rebuildable, type Rebuilt, rebuild } from "#test/support/installed.ts"
 import type { FactSet } from "#test/support/oracle/install/load.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { type ServedFixture, servedGenerated } from "#test/support/served-db.ts"
@@ -42,9 +33,9 @@ type WorldOver<S extends Reality, P extends Readonly<Record<string, unknown>>> =
 export interface Opened<S extends Reality, P extends Readonly<Record<string, unknown>>> {
 	readonly installed: Installed
 	/**
-	 * The fixture rebuilt under the installed schema name: its relations and statements, under a name known only at
-	 * run time, which places the installation. A query or ChangeSet built over the fixture runs against it too: a level
-	 * is its content, not its name (program/schema.ts levelSchema).
+	 * The fixture rebuilt under the installed schema name (installed.ts rebuild): its relations, functions and
+	 * statements, under a name known only at run time, which places the installation. A query or ChangeSet built over
+	 * the fixture runs against it too: a level is its content, not its name (program/schema.ts levelSchema).
 	 */
 	readonly schema: S
 	/**
@@ -85,71 +76,21 @@ export const installed = <
 	const St extends ReadonlyArray<Statement>,
 	const P extends Readonly<Record<string, unknown>>
 >(
-	fixture: ReadFixture<N, R, St>,
+	fixture: Rebuildable<N, R, St>,
 	facts: FactSet,
 	options: FixtureInstall<P>
 ): Effect.Effect<
-	Opened<FixtureSchema<R, St>, P>,
+	Opened<Rebuilt<R, St>, P>,
 	CompileError | SqlError | TransactionRolledBack,
 	Substrate | Scope.Scope
 > =>
 	Effect.gen(function* () {
-		const named = namedFixture(fixture)
 		const generated = yield* installGenerated(
-			(name) => ({
-				schema: named(name),
-				logins: [fullWorld(named(name), options.programs).server]
-			}),
+			(name) => fullVersion(fixture, options.programs, name),
 			{ label: options.label, ambient: ordinarySession }
 		)
 		return yield* openedOver(fixture, facts, options, generated)
 	})
-
-/**
- * A read fixture: a schema value whose relations sit under their own names and whose statements name only its
- * relations and read back from their names as themselves, as schema(...) checked when it was built.
- */
-type ReadFixture<
-	N extends string,
-	R extends Record<string, AnyRelation | AnyClosed>,
-	St extends ReadonlyArray<Statement>
-> = Schema<N, R, StatementsByName<St, R>> & {
-	readonly statements: St &
-		StatementsWithin<St, R> &
-		StatementsReadBack<St, Declared<ReadonlyArray<R[keyof R]>>>
-}
-
-/** A read fixture rebuilt under a name known only at run time: its relations and statements, under that name. */
-type FixtureSchema<
-	R extends Record<string, AnyRelation | AnyClosed>,
-	St extends ReadonlyArray<Statement>
-> = Schema<
-	string,
-	Declared<ReadonlyArray<R[keyof R]>>,
-	StatementsByName<St, Declared<ReadonlyArray<R[keyof R]>>>
->
-
-/** `fixture` built under a name: its relations and statements, as installed and as rebuilt over an installation. */
-const namedFixture =
-	<
-		N extends string,
-		R extends Record<string, AnyRelation | AnyClosed>,
-		St extends ReadonlyArray<Statement>
-	>(
-		fixture: ReadFixture<N, R, St>
-	) =>
-	(name: string): FixtureSchema<R, St> => {
-		const relations: Array<R[keyof R]> = []
-		for (const relation in fixture.relations) {
-			relations.push(fixture.relations[relation])
-		}
-		return builtSchema<string, ReadonlyArray<R[keyof R]>, St>(
-			name,
-			relations,
-			fixture.statements,
-			[]
-		)
-	}
 
 /**
  * The installation `generated`, opened as a read fixture's: `facts` loaded as the owner, the fixture rebuilt under the
@@ -161,19 +102,19 @@ const openedOver = <
 	St extends ReadonlyArray<Statement>,
 	P extends Readonly<Record<string, unknown>>
 >(
-	fixture: ReadFixture<N, R, St>,
+	fixture: Rebuildable<N, R, St>,
 	facts: FactSet,
 	options: FixtureInstall<P>,
 	generated: Generated
 ): Effect.Effect<
-	Opened<FixtureSchema<R, St>, P>,
+	Opened<Rebuilt<R, St>, P>,
 	CompileError | SqlError | TransactionRolledBack,
 	Substrate
 > =>
 	Effect.gen(function* () {
 		const done = generated.installed
 		yield* load(done, facts)
-		const rebuilt = namedFixture(fixture)(done.declared)
+		const rebuilt = rebuild(fixture, done.declared)
 		const world = fullWorld(rebuilt, options.programs)
 		return {
 			installed: done,
@@ -198,7 +139,7 @@ export const fixtureTemplate = <
 	const P extends Readonly<Record<string, unknown>>
 >(
 	declaredIn: ImportMeta,
-	fixture: ReadFixture<N, R, St>,
+	fixture: Rebuildable<N, R, St>,
 	options: FixtureInstall<P>
 ): SubstrateTemplate<Generated> => generatedTemplate(fixtureSpec(declaredIn, fixture, options))
 
@@ -206,32 +147,26 @@ export const fixtureTemplate = <
  * A read fixture's generated template's spec (fixtureTemplate): its full world's login, whose workload holds
  * `options.programs`, its content the fixture's name, the label and the programs' names.
  */
-const fixtureSpec = <
+export const fixtureSpec = <
 	const N extends string,
 	R extends Record<string, AnyRelation | AnyClosed>,
 	const St extends ReadonlyArray<Statement>,
 	const P extends Readonly<Record<string, unknown>>
 >(
 	declaredIn: ImportMeta,
-	fixture: ReadFixture<N, R, St>,
+	fixture: Rebuildable<N, R, St>,
 	options: FixtureInstall<P>
-): GeneratedSpec => {
-	const named = namedFixture(fixture)
-	return {
-		declaredIn,
-		name: options.label,
-		content: {
-			fixture: fixture.name,
-			label: options.label,
-			programs: Arr.sort(Rec.keys(options.programs), Str.Order)
-		},
-		build: (name) => ({
-			schema: named(name),
-			logins: [fullWorld(named(name), options.programs).server]
-		}),
-		ambient: ordinarySession
-	}
-}
+): GeneratedSpec => ({
+	declaredIn,
+	name: options.label,
+	content: {
+		fixture: fixture.name,
+		label: options.label,
+		programs: Arr.sort(Rec.keys(options.programs), Str.Order)
+	},
+	build: (name) => fullVersion(fixture, options.programs, name),
+	ambient: ordinarySession
+})
 
 /**
  * A case of `fixtureTemplate(_, fixture, options)` opened as `installed` opens one (Opened): `facts` loaded into the
@@ -244,14 +179,11 @@ export const openedIn = <
 	const St extends ReadonlyArray<Statement>,
 	const P extends Readonly<Record<string, unknown>>
 >(
-	fixture: ReadFixture<N, R, St>,
+	fixture: Rebuildable<N, R, St>,
 	facts: FactSet,
 	options: FixtureInstall<P>,
 	taken: SubstrateCase<Generated>
-): Effect.Effect<
-	Opened<FixtureSchema<R, St>, P>,
-	CompileError | SqlError | TransactionRolledBack
-> =>
+): Effect.Effect<Opened<Rebuilt<R, St>, P>, CompileError | SqlError | TransactionRolledBack> =>
 	Effect.provideService(
 		openedOver(fixture, facts, options, taken.value),
 		Substrate,

@@ -208,7 +208,7 @@ export const labelled = weighted([
 export type Clash = "two nodes" | "two expressions" | "a DAG holding no two of a kind"
 
 /** The digest of the fixture DAG. */
-export const digest = succeeded(dagDigest(dag, "dag", new DagTemplates()))
+export const digest = succeeded(dagDigest(dag, "dag", new DagTemplates("derivation")))
 
 /** A rewrite the digest must not see: the fixture built from an advanced supply, its labels respelled, a location moved. */
 export type Invariance = "a supply advanced" | "labels respelled" | "a location moved"
@@ -238,6 +238,8 @@ export const build = (yFirst: boolean) => {
 		keys: [],
 		relationKind: "relation",
 		generated: [],
+		unit: [],
+		determined: [],
 		heading: heading(["x", scalarTypes.uuid], ["y", scalarTypes.uuid]),
 		loc: undefined,
 		meta: conservativeMeta
@@ -426,6 +428,8 @@ export const buildNeed = {
 				keys: [],
 				relationKind: "relation",
 				generated: [],
+				unit: [],
+				determined: [],
 				heading: heading(["amount", type]),
 				loc: undefined,
 				meta: conservativeMeta
@@ -441,7 +445,7 @@ export const buildNeed = {
 			dagDigest(
 				build(cents(succeeded(normalizeExprTable(predicate("e3", "e1", "e2")))), makeIdSupply()),
 				"dag",
-				new DagTemplates()
+				new DagTemplates("derivation")
 			)
 		)
 		return Effect.succeed({ build, reference })

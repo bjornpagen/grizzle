@@ -1,4 +1,4 @@
-import type { Option, Stream } from "effect"
+import type { Stream } from "effect"
 import type { Delivered, Delivery, FieldHost, RowDecoder } from "#compiler/core/decoder.ts"
 import type { Direction } from "#compiler/core/order.ts"
 import type { Built, Delivering, phantom, Phantom } from "#compiler/core/phantom.ts"
@@ -65,7 +65,6 @@ import type {
 	EmptyLevel,
 	HigherLevel,
 	HighestLevel,
-	LevelPhantom,
 	LevelsOf
 } from "#compiler/types/schema/schema.ts"
 import type { AnyRole } from "#compiler/types/schema/world.ts"
@@ -93,8 +92,7 @@ import type { ApproximateNearestSpec } from "#compiler/types/vector/vector.ts"
  *   none: it cannot be upcast to `Query<S, Head, any, unknown>` and then executed with `{}` or matched without bind.
  * - IHead is the heading a read inside a write transaction delivers, a read-back, the records `immediate` decodes
  *   (ImmediateHeadOf). Such a read may rely on immediate-constraint evidence only, so it differs from Head only in its
- *   attachments: a child stated as the one child is an Option there, and an alternatives arm is an Option rather than
- *   Some or None by the handle (ReadBack).
+ *   attachments: a child stated as the one child is an Option there (ReadBack).
  * - Hc is the query's heading of carriers, a real member: the record of column carriers v mints variables over and an
  *   attachment mints its parent variables over. A find's is its head; a union's the arms' (UnionHeading); a recursive
  *   definition's its row.
@@ -364,41 +362,6 @@ type OneHeading<CH> = Requires<
 >
 
 /**
- * How an attachment delivers its child's records, as its author states it: every child ("array"), at most one
- * ("option"), exactly one ("one"), or the arm of one handle of an alternatives law (arm(field, handle)).
- */
-export type DeliveryKind = Delivery | "arm"
-
-/**
- * arm(field, handle): the attachment is the arm of `handle` of an alternatives law keyed by the parent's key, and
- * `field` the parent's head field that holds the parent's discriminator.
- */
-export interface Arm<out K, out F, out Hd> {
-	readonly kind: K
-	readonly field: F
-	readonly handle: Hd
-}
-
-/**
- * The delivery argument of attach: a delivery name, or an arm. K, the delivery's kind, is read off either: a name is its
- * own kind, an arm's kind is "arm"; F and Hd are an arm's field and handle.
- */
-export type DeliveryArg<K, F, Hd> = (K & Delivery) | Arm<K, F, Hd>
-
-/**
- * What an attachment's delivery argument states, by its kind K: a delivery name, or the arm of handle Hd held in the
- * parent's field F.
- */
-interface StatedDeliveries<out F, out Hd> {
-	readonly array: "array"
-	readonly option: "option"
-	readonly one: "one"
-	readonly arm: Arm<"arm", F, Hd>
-}
-/** Any delivery an attachment states. */
-export type AttachmentDelivery = StatedDeliveries<string, string>[DeliveryKind]
-
-/**
  * An attachment as the relations holding its query's records read it (types/schema/records.ts): the delivery D its
  * author stated, its child's heading of carriers Hc, and the child's own attachments At, by name. A query's attachments
  * are a record of these by name, its phantom `attached`.
@@ -420,48 +383,32 @@ export interface NoAttachments {
 	readonly [noAttachment]?: never
 }
 
-/** The attachments At with the child C attached under Name, as the delivery of kind K, field F and handle Hd states. */
+/** The attachments At with the child C attached under Name, as the delivery K states. */
 type AttachedWith<
 	At,
 	Name extends string,
 	C extends Phantom<ChildReads>,
-	K extends DeliveryKind,
-	F,
-	Hd
+	K extends Delivery
 > = At & {
-	readonly [N in Name]: Attachment<StatedDeliveries<F, Hd>[K], ChildCarriers<C>, ChildAttached<C>>
+	readonly [N in Name]: Attachment<K, ChildCarriers<C>, ChildAttached<C>>
 }
 
 /**
- * The records an attachment's parent decodes to, by the stated delivery: the parent's heading with the child's records
- * under Name as an array, an Option or the one child; or, for the arm of handle Hd held in field F, Some in the records
- * whose F is Hd and None in the others, so that narrowing on F narrows the attachment.
+ * The records an attachment's parent decodes to, by the stated delivery D: the parent's heading with the child's
+ * records under Name as an array, an Option or the one child.
  */
-export type AttachedHeads<Head, Name extends string, CH, F extends keyof Head, Hd> = {
-	readonly [D in Delivery]: WithChild<Head, Name, CH, D>
-} & { readonly arm: ArmSome<Head, Name, CH, F, Hd> | ArmNone<Head, Name, CH, F, Hd> }
-
 export type WithChild<Head, Name extends string, CH, D extends Delivery> = Simplify<
 	Head & { readonly [N in Name]: Delivered<CH>[D] }
 >
 
-export type ArmSome<Head, Name extends string, CH, F extends keyof Head, Hd> = Simplify<
-	Head & { readonly [K in F]: Hd } & { readonly [N in Name]: Option.Some<CH> }
->
-
-export type ArmNone<Head, Name extends string, CH, F extends keyof Head, Hd> = Simplify<
-	Head & { readonly [K in F]: Exclude<Head[F], Hd> } & { readonly [N in Name]: Option.None<CH> }
->
-
 /**
- * How each stated delivery is read inside a write transaction: the one child and an arm are Options there, since the
- * evidence a read-back may rely on proves at most one child where a snapshot read proves exactly one.
+ * How each stated delivery is read inside a write transaction: the one child is an Option there, since the evidence a
+ * read-back may rely on proves at most one child where a snapshot read proves exactly one.
  */
 export interface ReadBack {
 	readonly array: "array"
 	readonly option: "option"
 	readonly one: "option"
-	readonly arm: "option"
 }
 
 /**
@@ -522,7 +469,7 @@ export type QueryRows<X, Row, S> = (SameKeys<HeadOfSource<X>, Row> extends true
 
 /**
  * The schema a source is written over, read off its phantom: a query's or a bound import's; never for any other, and
- * never for the empty level, below every level, which raises no program it is bound in (LevelPhantom).
+ * never for the empty level, below every level, which raises no program it is bound in (EmptyLevel).
  */
 type WrittenOver<X> =
 	X extends Phantom<{ readonly schema: Invariant<infer SX> }>
@@ -574,7 +521,7 @@ export interface QueryBase extends Built, Decoders<unknown, unknown> {
 }
 
 export interface QueryOver<in out S>
-	extends QueryBase, Phantom<{ readonly schema: Invariant<S> }> {}
+	extends QueryBase, Phantom<{ readonly schema: Invariant<S> | Invariant<EmptyLevel> }> {}
 
 export interface OrderedBase extends Built, Decoders<unknown, unknown> {
 	take(k: number): QueryBase
@@ -632,7 +579,7 @@ type StandsAt<X, F> =
 interface QueryPhantom<S, Head, Ev, P, Cx, Arms, At> {
 	readonly heading: Head
 	readonly sourceParams: unknown
-	readonly schema: LevelPhantom<S>
+	readonly schema: Invariant<S>
 	readonly evidence: Ev
 	readonly params: P
 	readonly paramsInvariant: Invariant<P>
@@ -694,35 +641,23 @@ export interface Query<
 		At
 	>
 	/**
-	 * A nested sub-result per parent fact, delivered as its author states: every child, an Option, the one child, or
-	 * an alternatives arm (AttachedHeads). The parent set is unchanged. The child's evidence must prove the stated
+	 * A nested sub-result per parent fact, delivered as its author states: every child, an Option or the one child
+	 * (WithChild). The parent set is unchanged. The child's evidence must prove the stated
 	 * delivery (DeliveryClaim, checked on the child the callback returns: a claim on the delivery argument would be read
 	 * before the callback is, when the child is not yet inferred), and the analysis proves it again where the program
 	 * binds its decoder. Parent variables are inputs to the child, minted over the columns the parent delivers
 	 * (DeliveredHeading), and keep the origins the parent's evidence records.
 	 */
-	attach<
-		Over,
-		const Name extends string,
-		C extends Child<Over>,
-		CH,
-		CI,
-		const K extends DeliveryKind,
-		const F extends keyof Head & string,
-		const Hd extends string
-	>(
+	attach<Over, const Name extends string, C extends Child<Over>, CH, CI, const K extends Delivery>(
 		this: OverSchema<Over>,
 		name: AttachmentName<Name, Head>,
 		child: (
 			parent: ParentVars<DeliveredHeading<Head, Hc>, Ev>
-		) => C &
-			Decoders<CH, CI> &
-			DeliveryClaim<K, F, Hd, ChildEvidence<C>, Ev, Head> &
-			OneHeading<CH>,
-		delivery: DeliveryArg<K, F, Hd>
+		) => C & Decoders<CH, CI> & DeliveryClaim<K, ChildEvidence<C>> & OneHeading<CH>,
+		delivery: K
 	): Query<
 		Over,
-		AttachedHeads<Head, Name, CH, F, Hd>[K],
+		WithChild<Head, Name, CH, K>,
 		Ev,
 		Simplify<P & ChildParams<C>>,
 		WithChild<IHead, Name, CI, ReadBack[K]>,
@@ -731,12 +666,12 @@ export interface Query<
 		readonly [
 			UnionArm<
 				AsOneArm<Arms, Head, Hc>["carriers"],
-				AttachedNames<AttachedHeads<Head, Name, CH, F, Hd>[K], Hc>,
+				AttachedNames<WithChild<Head, Name, CH, K>, Hc>,
 				"attach",
 				AsOneArm<Arms, Head, Hc>["bounded"]
 			>
 		],
-		AttachedWith<At, Name, C, K, F, Hd>
+		AttachedWith<At, Name, C, K>
 	>
 	named(name: string): Query<S, Head, Ev, P, IHead, Hc, Cx, Arms, At>
 	/**
@@ -850,7 +785,7 @@ type AnyArm = UnionArm<Carriers, PropertyKey, ArmStage, boolean>
 
 /**
  * The attachments an arm's records, Head, carry over its carriers, Hc: the keys of the records the carriers lack, each
- * a nested delivery (AttachedHeads), under whatever stage keeps the records, as the checker reads them off the arm's
+ * a nested delivery (WithChild), under whatever stage keeps the records, as the checker reads them off the arm's
  * rows (check/checker.ts #carried); never for an arm that attaches nothing.
  */
 type AttachedNames<Head, Hc> = Exclude<KeyOfAnyArm<Head>, keyof Hc>
@@ -1042,7 +977,7 @@ export interface BoundSource<S, Head, SP, Hc, Cx, Ev, Rd> extends Built, Headed<
 		| {
 				readonly heading: Head
 				readonly sourceParams: SP
-				readonly schema: LevelPhantom<S>
+				readonly schema: Invariant<S>
 				readonly readsContexts: (read: Cx) => void
 				readonly evidence: Ev
 				readonly reads: Rd
@@ -1059,7 +994,7 @@ export interface InteriorSource<S, Head, SP, Hc, Cx, Ev> extends Built, Headed<H
 		| {
 				readonly heading: Head
 				readonly sourceParams: SP
-				readonly schema: LevelPhantom<S>
+				readonly schema: Invariant<S>
 				readonly readsContexts: (read: Cx) => void
 				readonly evidence: Ev
 				readonly reads: never
@@ -1269,6 +1204,13 @@ type HeadingCarriers<Head> = {
  * schema has none, so it attaches nothing until it is read as the Finished of a rule over a schema. Whether it attaches
  * is its records' (AttachedNames): an attachment adds a key to Head that its carriers lack, which a union of arms of
  * one heading refuses (ArmsMeet).
+ *
+ * Hc, the arm's carriers, is declared invariant, `in out`, the variance the checker measures of it, so that variance
+ * is reliable. attach mints the arm's parent variables over Hc, a mapped type of it (ParentVars), which leaves the
+ * measured variance unreliable, and where two Finished types meet whose carriers that variance does not relate, an
+ * unreliable variance has the checker compare them member by member, attach's signature instantiated at each: every
+ * further arm of a union paid for it, 189 instantiations an arm of the plain union of two rules
+ * (test/types/query/budget/plain.ts), and the type tier reads every program alike without it.
  */
 export interface Finished<
 	Head,
@@ -1276,14 +1218,14 @@ export interface Finished<
 	P = unknown,
 	S = never,
 	IHead = Head,
-	Hc extends Carriers = HeadingCarriers<Head>,
+	in out Hc extends Carriers = HeadingCarriers<Head>,
 	Cx = never,
 	At = NoAttachments
 >
 	extends
 		Phantom<{
 			readonly headingInvariant: Invariant<Head>
-			readonly schema: LevelPhantom<S>
+			readonly schema: Invariant<S>
 			readonly evidence: Ev
 			readonly params: P
 			readonly readsContexts: (read: Cx) => void
@@ -1292,34 +1234,22 @@ export interface Finished<
 		Headed<Hc>,
 		Decoders<Head, IHead> {
 	/** An arm may attach before it joins a union; the arm keeps its own attached heading. */
-	attach<
-		Over,
-		const Name extends string,
-		C extends Child<Over>,
-		CH,
-		CI,
-		const K extends DeliveryKind,
-		const F extends keyof Head & string,
-		const Hd extends string
-	>(
+	attach<Over, const Name extends string, C extends Child<Over>, CH, CI, const K extends Delivery>(
 		this: OverSchema<Over>,
 		name: AttachmentName<Name, Head>,
 		child: (
 			parent: ParentVars<Hc, Ev>
-		) => C &
-			Decoders<CH, CI> &
-			DeliveryClaim<K, F, Hd, ChildEvidence<C>, Ev, Head> &
-			OneHeading<CH>,
-		delivery: DeliveryArg<K, F, Hd>
+		) => C & Decoders<CH, CI> & DeliveryClaim<K, ChildEvidence<C>> & OneHeading<CH>,
+		delivery: K
 	): Finished<
-		AttachedHeads<Head, Name, CH, F, Hd>[K],
+		WithChild<Head, Name, CH, K>,
 		Ev,
 		Simplify<P & ChildParams<C>>,
 		Over,
 		WithChild<IHead, Name, CI, ReadBack[K]>,
 		Hc,
 		Cx | ChildContexts<C>,
-		AttachedWith<At, Name, C, K, F, Hd>
+		AttachedWith<At, Name, C, K>
 	>
 }
 
@@ -1343,7 +1273,7 @@ export interface Ordered<
 			readonly evidence: Ev
 			readonly params: P
 			readonly paramsInvariant: Invariant<P>
-			readonly schema: LevelPhantom<S>
+			readonly schema: Invariant<S>
 			readonly readsContexts: (read: Cx) => void
 			readonly arms: Arms
 			readonly attached: At

@@ -21,8 +21,8 @@ import {
 	unsupported
 } from "#compiler/core/errors.ts"
 import type { RosterDigest } from "#compiler/core/fingerprint.ts"
-import { formatKey, formatOf, isFormatOf } from "#compiler/core/format.ts"
-import type { DeclaredName } from "#compiler/core/identity.ts"
+import { type FormattedFile, formatKey, formatOf, isFormatOf } from "#compiler/core/format.ts"
+import type { HeldName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { isList, isPlainRecord } from "#compiler/core/record.ts"
@@ -34,6 +34,7 @@ import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
 import { internedRangeOp, rangeOpNamed } from "#compiler/ir/expr.ts"
 import { Roster, type RosterOrder } from "#compiler/ir/scalar.ts"
+import type { ContractFile } from "#compiler/runtime/contract.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
@@ -418,11 +419,11 @@ const recordForm = (members: ReadonlyArray<readonly [string, Json]>): JsonRecord
 /** A Map's entry as the writer writes it: its key and its value. */
 const entryOf = (entry: Json): readonly [Json, Json] => {
 	if (!isList(entry) || entry.length !== 2) {
-		throw defect("a served Map's entry, its key and its value")
+		defect("a served Map's entry, its key and its value")
 	}
 	const [key, value] = entry
 	if (key === undefined || value === undefined) {
-		throw defect("a served Map's entry, its key and its value")
+		defect("a served Map's entry, its key and its value")
 	}
 	return [key, value]
 }
@@ -522,18 +523,29 @@ export const rosterCodesOf = (wire: RosterWire): RosterCodes =>
 /** The record the file's members are written as: a record, never a reference, since it stands once. */
 const membersRecord = (json: Json): JsonRecord => {
 	if (typeof json !== "object" || isList(json)) {
-		throw defect("a served file's members written as one record")
+		defect("a served file's members written as one record")
 	}
 	return json
 }
 
+/** A served artifact's form (see the header): its members beside its rosters' codes, which a load reads first. */
+interface ArtifactForm {
+	readonly rosters: ReadonlyMap<HeldName, RosterCodes>
+}
+
+/** The kinds of file the served writer writes and its reader reads: a login's served file and a contract's checker. */
+type ServedArtifact = Extract<FormattedFile, "served" | "contract">
+
 /**
- * The served file's text of `file` (see the header), ending in a newline; refused where a form holds no served value.
- * Its members are walked as one record, each repeated shape written once in its table (servedSharing), and beside
- * them its rosters in their own form (rosterWire) and its table, which a load reads first and by name (servedFile), so
- * the record's `~` lists only the members a load walks to a revived value.
+ * The text of a served artifact of `kind` (see the header), its form `file`, ending in a newline; refused where a form
+ * holds no served value. Its members are walked as one record, each repeated shape written once in its table
+ * (servedSharing), and beside them its format, its rosters in their own form (rosterWire) and its table, which a load
+ * reads first and by name (artifactOf), so the record's `~` lists only the members a load walks to a revived value.
  */
-export const servedText = (file: ServedFile): Result.Result<TextChunks, CompileError> =>
+const artifactText = (
+	kind: ServedArtifact,
+	file: ArtifactForm
+): Result.Result<TextChunks, CompileError> =>
 	Result.flatMap(
 		catchRefusal(() => {
 			const { rosters, ...members } = file
@@ -543,8 +555,8 @@ export const servedText = (file: ServedFile): Result.Result<TextChunks, CompileE
 			)
 			const [root] = written.roots
 			return {
-				...membersRecord(defined(root, "a served file's members")),
-				[formatKey]: formatOf.served,
+				...membersRecord(defined(root, `a ${kind} file's members`)),
+				[formatKey]: formatOf[kind],
 				[rostersKey]: wire,
 				[sharedKey]: written.table.map((entry) => entry.node)
 			}
@@ -552,13 +564,21 @@ export const servedText = (file: ServedFile): Result.Result<TextChunks, CompileE
 		writeArtifactJson
 	)
 
+/** The served file's text of `file` (artifactText). */
+export const servedText = (file: ServedFile): Result.Result<TextChunks, CompileError> =>
+	artifactText("served", file)
+
+/** A contract's checker file's text of `file` (artifactText). */
+export const contractText = (file: ContractFile): Result.Result<TextChunks, CompileError> =>
+	artifactText("contract", file)
+
 /**
  * The file's rosters as a load reads them, once (fileRosters): each roster's codes, which ServedFile holds, and its
  * live handles in code order, which every Roster the file names is rebuilt over, in the roster's order.
  */
 interface FileRosters {
-	readonly codes: ReadonlyMap<DeclaredName, RosterCodes>
-	readonly handles: ReadonlyMap<DeclaredName, ReadonlyArray<string>>
+	readonly codes: ReadonlyMap<HeldName, RosterCodes>
+	readonly handles: ReadonlyMap<HeldName, ReadonlyArray<string>>
 }
 
 /**
@@ -566,8 +586,8 @@ interface FileRosters {
  * the file, its rosters, the table entry a form was read in, or none for a form read in its members. A function
  * declaration, so that control flow knows a call never returns.
  */
-function unread(at: Path, what: string): never {
-	throw new Refusal(malformedArtifact("served", at, what))
+function unread(artifact: ServedArtifact, at: Path, what: string): never {
+	throw new Refusal(malformedArtifact(artifact, at, what))
 }
 
 /** A RosterWire's slot: a live code's handle, or a hole. */
@@ -579,17 +599,25 @@ const isRosterSlot = (slot: unknown): slot is string | false =>
  * record of rosters' codes: a roster's live handles are its codes' handles, none for an empty roster, the empty domain
  * a declaration of no handle is, as the compile wrote it.
  */
-const fileRosters = (wire: unknown): FileRosters => {
+const fileRosters = (artifact: ServedArtifact, wire: unknown): FileRosters => {
 	if (!isPlainRecord(wire)) {
-		return unread([rostersKey], "the file's rosters, each roster's codes under its declared name")
+		return unread(
+			artifact,
+			[rostersKey],
+			"the file's rosters, each roster's codes under its declared name"
+		)
 	}
-	const codes = new Map<DeclaredName, RosterCodes>()
-	const handles = new Map<DeclaredName, ReadonlyArray<string>>()
+	const codes = new Map<HeldName, RosterCodes>()
+	const handles = new Map<HeldName, ReadonlyArray<string>>()
 	for (const [roster, slots] of Object.entries(wire)) {
 		if (!isList(slots) || !slots.every(isRosterSlot)) {
-			return unread([rostersKey, roster], "a roster's codes, each a handle or a hole (false)")
+			return unread(
+				artifact,
+				[rostersKey, roster],
+				"a roster's codes, each a handle or a hole (false)"
+			)
 		}
-		const name = trusted<DeclaredName>(roster)
+		const name = trusted<HeldName>(roster)
 		const live = slots.filter((slot) => slot !== false)
 		codes.set(name, rosterCodesOf(slots))
 		handles.set(name, live)
@@ -612,16 +640,17 @@ const rosterTag = {
  * handlesInOrder); refused, read `within`, where the file holds no codes of it.
  */
 const rosterOf = (
-	handles: ReadonlyMap<DeclaredName, ReadonlyArray<string>>,
+	artifact: ServedArtifact,
+	handles: ReadonlyMap<HeldName, ReadonlyArray<string>>,
 	order: RosterOrder,
 	payload: string,
 	within: Path
 ): Roster => {
 	const at = payload.lastIndexOf(":")
-	const name = trusted<DeclaredName>(payload.slice(0, at))
+	const name = trusted<HeldName>(payload.slice(0, at))
 	const live = handles.get(name)
 	if (live === undefined) {
-		return unread(within, `a roster the file's rosters hold the codes of, not ${payload}`)
+		return unread(artifact, within, `a roster the file's rosters hold the codes of, not ${payload}`)
 	}
 	return new Roster(name, order, live, trusted<RosterDigest>(payload.slice(at + 1)))
 }
@@ -635,13 +664,16 @@ const rosterOf = (
  * is no pair.
  */
 class ServedReader {
+	readonly #artifact: ServedArtifact
 	readonly #shared: ReadonlyArray<unknown>
-	readonly #handles: ReadonlyMap<DeclaredName, ReadonlyArray<string>>
+	readonly #handles: ReadonlyMap<HeldName, ReadonlyArray<string>>
 
 	constructor(
+		artifact: ServedArtifact,
 		shared: ReadonlyArray<unknown>,
-		handles: ReadonlyMap<DeclaredName, ReadonlyArray<string>>
+		handles: ReadonlyMap<HeldName, ReadonlyArray<string>>
 	) {
+		this.#artifact = artifact
 		this.#shared = shared
 		this.#handles = handles
 	}
@@ -659,7 +691,7 @@ class ServedReader {
 			const map = new Map<unknown, unknown>()
 			for (const entry of entries) {
 				if (!isList(entry) || entry.length !== 2) {
-					return unread(within, "a Map's entry, a pair of its key and its value")
+					return unread(this.#artifact, within, "a Map's entry, a pair of its key and its value")
 				}
 				map.set(this.value(entry[0], within), this.value(entry[1], within))
 			}
@@ -700,7 +732,11 @@ class ServedReader {
 		const colon = text.indexOf(":")
 		const tag = text.slice(1, colon)
 		if (colon < 0 || !isServedTag(tag)) {
-			return unread(within, `a revived value under a tag the writer writes, not ${text}`)
+			return unread(
+				this.#artifact,
+				within,
+				`a revived value under a tag the writer writes, not ${text}`
+			)
 		}
 		return this.#revive(tag, text.slice(colon + 1), within)
 	}
@@ -714,57 +750,84 @@ class ServedReader {
 			case tags.bigint:
 				return isCanonicalInteger(payload)
 					? BigInt(payload)
-					: unread(within, `a bigint's digits, not ~${tag}:${payload}`)
+					: unread(this.#artifact, within, `a bigint's digits, not ~${tag}:${payload}`)
 			case tags.float:
 				return (
 					floatSpecialOf(payload) ??
-					unread(within, `a float named by a word, not ~${tag}:${payload}`)
+					unread(this.#artifact, within, `a float named by a word, not ~${tag}:${payload}`)
 				)
 			case tags.shared:
 				return (
 					(String(Number(payload)) === payload ? this.#shared[Number(payload)] : undefined) ??
 					unread(
+						this.#artifact,
 						within,
 						`a reference to an entry of the file's table read before it, one of ${this.#shared.length}, not ~${tag}:${payload}`
 					)
 				)
 			case tags.roster:
-				return rosterOf(this.#handles, "ordered", payload, within)
+				return rosterOf(this.#artifact, this.#handles, "ordered", payload, within)
 			case tags.unorderedRoster:
-				return rosterOf(this.#handles, "unordered", payload, within)
+				return rosterOf(this.#artifact, this.#handles, "unordered", payload, within)
 			case tags.zoneRoster:
-				return rosterOf(this.#handles, "zones", payload, within)
+				return rosterOf(this.#artifact, this.#handles, "zones", payload, within)
 			case tags.rangeOp: {
 				const at = payload.lastIndexOf(":")
 				return (
 					rangeOpNamed(payload.slice(0, at), payload.slice(at + 1)) ??
-					unread(within, `a range overload's code and carrier, not ~${tag}:${payload}`)
+					unread(
+						this.#artifact,
+						within,
+						`a range overload's code and carrier, not ~${tag}:${payload}`
+					)
 				)
 			}
 			case tags.decimal:
-				return revivedOf(Decimal.fromCanonical(payload), within, `~${tag}:${payload}`)
+				return revivedOf(
+					this.#artifact,
+					Decimal.fromCanonical(payload),
+					within,
+					`~${tag}:${payload}`
+				)
 			case tags.money:
-				return revivedOf(Money.fromCanonical(payload), within, `~${tag}:${payload}`)
+				return revivedOf(this.#artifact, Money.fromCanonical(payload), within, `~${tag}:${payload}`)
 			case tags.vector:
-				return revivedOf(Vector.fromCanonical(payload), within, `~${tag}:${payload}`)
+				return revivedOf(
+					this.#artifact,
+					Vector.fromCanonical(payload),
+					within,
+					`~${tag}:${payload}`
+				)
 			case tags.decimalText:
 				return (
-					DecimalText.parse(payload) ?? unread(within, `a decimal text, not ~${tag}:${payload}`)
+					DecimalText.parse(payload) ??
+					unread(this.#artifact, within, `a decimal text, not ~${tag}:${payload}`)
 				)
 			case tags.moneyText:
-				return MoneyText.parse(payload) ?? unread(within, `a money text, not ~${tag}:${payload}`)
+				return (
+					MoneyText.parse(payload) ??
+					unread(this.#artifact, within, `a money text, not ~${tag}:${payload}`)
+				)
 			case tags.vectorText:
-				return VectorText.parse(payload) ?? unread(within, `a vector text, not ~${tag}:${payload}`)
+				return (
+					VectorText.parse(payload) ??
+					unread(this.#artifact, within, `a vector text, not ~${tag}:${payload}`)
+				)
 		}
 	}
 }
 
 /** The value a served payload's reviver restores, refused, read `within`, where `text` is no value's one text. */
-const revivedOf = <A, E>(result: Result.Result<A, E>, within: Path, text: string): A =>
-	result.ok ? result.value : unread(within, `the one text of a value, not ${text}`)
+const revivedOf = <A, E>(
+	artifact: ServedArtifact,
+	result: Result.Result<A, E>,
+	within: Path,
+	text: string
+): A =>
+	result.ok ? result.value : unread(artifact, within, `the one text of a value, not ${text}`)
 
 /**
- * The served file a served file's JSON value holds (what an import of the file, or JSON.parse of its text, yields),
+ * The served artifact of `kind` a file's JSON value holds (what an import of the file, or JSON.parse of its text, yields),
  * trusted as the file `grizzle generate` wrote and `grizzle check` holds equal to the compile: its rosters first, read
  * once (fileRosters), then its table, each entry over those before it, then its members, each walked only along the
  * paths it lists to revived values, every other value the JSON value's own. A value whose frame or revived forms are
@@ -772,30 +835,44 @@ const revivedOf = <A, E>(result: Result.Result<A, E>, within: Path, text: string
  * format than this grizzle's or none (core/format.ts formatOf), holds no table (`shared`, a list) or no rosters'
  * codes, or a form on a path to a revived value that ServedReader refuses. The members' forms beside them are the file's own, trusted.
  */
-export const servedFile = (json: unknown): Result.Result<ServedFile, CompileError> => {
+const artifactOf = <F extends ArtifactForm>(
+	kind: ServedArtifact,
+	json: unknown
+): Result.Result<F, CompileError> => {
 	if (!isPlainRecord(json)) {
-		return Result.err(malformedArtifact("served", [], "a served file's JSON form, a record"))
+		return Result.err(malformedArtifact(kind, [], `a ${kind} file's JSON form, a record`))
 	}
 	const { [formatKey]: format, [sharedKey]: shared, [rostersKey]: rosters, ...members } = json
-	if (!isFormatOf("served", format)) {
-		return Result.err(formatRefused("served", format))
+	if (!isFormatOf(kind, format)) {
+		return Result.err(formatRefused(kind, format))
 	}
 	if (!isList(shared)) {
 		return Result.err(
 			malformedArtifact(
-				"served",
+				kind,
 				[sharedKey],
-				"the file's table of shared shapes, a list, which grizzle generate writes in every served file: run grizzle generate"
+				`the file's table of shared shapes, a list, which grizzle generate writes in every ${kind} file: run grizzle generate`
 			)
 		)
 	}
 	return catchRefusal(() => {
-		const { codes, handles } = fileRosters(rosters)
+		const { codes, handles } = fileRosters(kind, rosters)
 		const table: Array<unknown> = []
-		const reader = new ServedReader(table, handles)
+		const reader = new ServedReader(kind, table, handles)
 		for (const [at, entry] of shared.entries()) {
 			table.push(reader.value(entry, [sharedKey, at]))
 		}
-		return trusted<ServedFile>({ ...trusted<object>(reader.value(members, [])), rosters: codes })
+		return trusted<F>({ ...trusted<object>(reader.value(members, [])), rosters: codes })
 	})
 }
+
+/** The served file a served file's JSON value holds (artifactOf). */
+export const servedFile = (json: unknown): Result.Result<ServedFile, CompileError> =>
+	artifactOf<ServedFile>("served", json)
+
+/**
+ * The contract's checker file a checker file's JSON value holds (artifactOf), what an import of
+ * `<migrations>/contract-checks/<name>.json` yields, trusted as `grizzle generate` wrote it and `grizzle check` holds it.
+ */
+export const contractFile = (json: unknown): Result.Result<ContractFile, CompileError> =>
+	artifactOf<ContractFile>("contract", json)

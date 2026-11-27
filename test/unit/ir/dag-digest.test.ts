@@ -1,9 +1,9 @@
 /**
  * Share and evaluation keys from encoded templates (ir/dag-digest.ts DagDigests): one DAG's digests, each node's and
- * expression's claimed form written once as its template, beside its namings.
+ * expression's derivation form written once as its template, beside its namings.
  *
  * - Exactness: every sub-query's digest, and the roots' together, is the digest of its normal form's table encoded
- *   whole (normalizeReach, claimedNode, digest), whichever way its enclosing nodes are read. Oracle: the table's own
+ *   whole (normalizeReach, derivationForm, digest), whichever way its enclosing nodes are read. Oracle: the table's own
  *   digest, a second implementation of the same bytes. Its DAGs call no volatile function, whose form also holds its
  *   label (test/unit/lower/shapes/share-statements pins that).
  * - Work: digesting every node of a DAG writes at most one template for each node and expression it holds, however
@@ -42,7 +42,7 @@ export const everySubQuerysDigestFromItsDAGsTemplatesIsItsNormalFormsTablesDiges
 		] satisfies ReadonlyArray<Reached<DigestFeature>>,
 		check: (_, c: Case<DigestFeature>) => (k) =>
 			Effect.sync(() => {
-				const templates = new DagTemplates()
+				const templates = new DagTemplates("derivation")
 				const digests = new DagDigests(() => nodesByLabel(k.dag), maxStringLength, templates)
 				const nodes = topoOrder(k.dag)
 				for (const node of nodes) {
@@ -72,7 +72,7 @@ export const everySubQuerysDigestFromItsDAGsTemplatesIsItsNormalFormsTablesDiges
 			}),
 		oracle: {
 			kind: "second-implementation",
-			name: "the digest of the normal form's table encoded whole (normalizeReach, claimedNode, digest)"
+			name: "the digest of the normal form's table encoded whole (normalizeReach, derivationForm, digest)"
 		},
 		kept: [],
 		kills: [
@@ -109,11 +109,11 @@ export const aKeyWhoseTablesTextPassesItsLimitIsRefusedItsLengthStatedAsATrueLow
 				const length = succeeded(tableUnits(k.dag, roots, k.outer))
 				/** The refusal under `limit`, its length stated past the limit and within the text's. */
 				const atLeast = (limit: number): number => {
-					const under = new DagDigests(() => nodesByLabel(k.dag), limit, new DagTemplates()).digest(
-						roots,
-						"bound",
-						k.outer
-					)
+					const under = new DagDigests(
+						() => nodesByLabel(k.dag),
+						limit,
+						new DagTemplates("derivation")
+					).digest(roots, "bound", k.outer)
 					const reason = refused(under, "ResourceBound").reason
 					assert.ok(
 						reason._tag === "ResourceBound" && reason.bound.kind === "stringLengthAtLeast",
@@ -134,7 +134,7 @@ export const aKeyWhoseTablesTextPassesItsLimitIsRefusedItsLengthStatedAsATrueLow
 				)
 				c.note("refused")
 				succeeded(
-					new DagDigests(() => nodesByLabel(k.dag), length, new DagTemplates()).digest(
+					new DagDigests(() => nodesByLabel(k.dag), length, new DagTemplates("derivation")).digest(
 						roots,
 						"bound",
 						k.outer
@@ -144,7 +144,7 @@ export const aKeyWhoseTablesTextPassesItsLimitIsRefusedItsLengthStatedAsATrueLow
 			}),
 		oracle: {
 			kind: "specification",
-			name: "the table's canonical text's length (normalizeReach, claimedNode, encode), the bound's limit"
+			name: "the table's canonical text's length (normalizeReach, derivationForm, encode), the bound's limit"
 		},
 		kept: [],
 		kills: [

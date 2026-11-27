@@ -5,6 +5,9 @@
 		"test/support/programs/**/*.ts",
 		"test/unit/deps/runtime-probe.ts",
 		"test/support/load-probe.ts",
+		// The read trace's probe, which a child Node process imports by path before its entry point (node --import,
+		// test/unit/cli/draft-key.fixtures.ts).
+		"test/support/read-trace-probe.ts",
 		"bench/**/main.ts",
 		// The performance gates, which the bench runner discovers by name (bench/harness/runner.ts).
 		"bench/**/*.bench.ts",
@@ -18,6 +21,9 @@
 		"scripts/gen/unicode/main.ts",
 		"packages/pg/src/foreign-postmasters.ts",
 		"scripts/dev/toolchain-imports.ts",
+		// The one-list connectives' codemod, which a consumer runs by path, and the oxlint plugin it hands its rewrites to.
+		"scripts/dev/connective-list.ts",
+		"scripts/dev/connective-list-plugin.ts",
 		"oxlint.ast.config.ts",
 		// The runner config, which toolchain-test loads by its path at the package root, and the test modules it includes.
 		"test.config.ts",
@@ -112,6 +118,7 @@
 					"packages/grizzle/src/adapter/page/window.ts",
 					"packages/grizzle/src/adapter/pool/live.ts",
 					"packages/grizzle/src/adapter/pool/served.ts",
+					"packages/grizzle/src/adapter/public/contract.ts",
 					"packages/grizzle/src/adapter/public/db.ts",
 					"packages/grizzle/src/adapter/public/errors.ts",
 					"packages/grizzle/src/adapter/public/layer.ts",
@@ -147,7 +154,8 @@
 			{
 				// What only generate, check and migrate load: drafting and rendering a migration, migrate's decision of a
 				// pending folder against the ledger (deploy/ledger/decide.ts), a migration's lock demand (deploy/locks), the
-				// installation's DDL and its indexes, the workload's access compile, and their facade (plan/migration.ts). No
+				// installation's DDL and its indexes, a data step's re-check (physical/ddl/recheck.ts), the workload's access
+				// compile, and their facade (plan/migration.ts). No
 				// zone a login's runtime loads imports one, so DbLayer.make and a Db load none of them; plan/serve.ts is the
 				// runtime's facade. plan/usage.ts is the command line's usage's facade over one module of constants of it
 				// (deploy/render/layout.ts), which `grizzle --help` loads alone.
@@ -170,6 +178,7 @@
 					"packages/engine/src/physical/ddl/advance.ts",
 					"packages/engine/src/physical/ddl/literal.ts",
 					"packages/engine/src/physical/ddl/rules.ts",
+					"packages/engine/src/physical/ddl/recheck.ts",
 					"packages/engine/src/physical/ddl/tables.ts",
 					"packages/engine/src/physical/indexes/**",
 					"packages/engine/src/physical/numeric/storage.ts",
@@ -177,21 +186,19 @@
 					"packages/engine/src/physical/install/compile.ts",
 					"packages/engine/src/physical/refined/constants.ts",
 					"packages/engine/src/physical/statistics/statistics.ts",
+					"packages/engine/src/program/install.ts",
 					"packages/engine/src/program/workload/compile.ts",
 					"packages/engine/src/program/workload/world.ts"
 				]
 			},
 			{
-				// The shell's migration, drift and manifest readers, which only generate, check, migrate and upgrade run (upgrade's
-				// history and live objects among them), the one compile
+				// The shell's migration, drift and manifest readers, which only generate, check and migrate run, the one compile
 				// of a login's workload, whose served file generate writes and check holds to it, and the lock demand a
 				// migrations directory states (@bjornpagen/grizzle/locks).
 				"name": "adapter-install",
 				"patterns": [
 					"packages/grizzle/src/adapter/admission/drift.ts",
 					"packages/grizzle/src/adapter/admission/expectation.ts",
-					"packages/grizzle/src/adapter/admission/history.ts",
-					"packages/grizzle/src/adapter/admission/upgrade.ts",
 					"packages/grizzle/src/adapter/boundary/laid-out.ts",
 					"packages/grizzle/src/adapter/boundary/meta.ts",
 					"packages/grizzle/src/adapter/migrate/**",
@@ -271,7 +278,7 @@
 			{
 				"name": "dsl-sql",
 				"patterns": [
-					"packages/engine/src/sql/{ast,build,catalog,escape,generation,lexer,print,print-once,transform}.ts"
+					"packages/engine/src/sql/{ast,build,catalog,escape,generation,lexer,print,print-once,pull-up,scope,transform}.ts"
 				]
 			},
 			{
@@ -287,10 +294,10 @@
 			{
 				"name": "dsl-scalar",
 				"patterns": [
-					"packages/engine/src/scalar/{aggregate,bytes,closed-id,contract,date,exact,instant,lexical,literal,minted,native,natural,pg,registry,search,sha256,span,uuid,vector}.ts",
+					"packages/engine/src/scalar/{aggregate,bytes,closed-id,contract,date,exact,instant,lexical,literal,minted,native,natural,pg,registry,search,sha256,span,uuid,variant-digest,vector}.ts",
 					"packages/engine/src/scalar/compute/{bounds,builders,cast,closed,evaluate,float,literal,native,numeric,registry,spelling,tables,term,types,typing}.ts",
 					"packages/engine/src/scalar/regex/{admit,matcher,pattern,patterns,stretch,translate,whitespace}.ts",
-					"packages/engine/src/scalar/values/{bits,bytes,convert,identity,integer,sha256}.ts"
+					"packages/engine/src/scalar/values/{bits,bytes,convert,identity,integer,record,sha256}.ts"
 				]
 			},
 			{
@@ -300,7 +307,7 @@
 			{
 				"name": "dsl-schema",
 				"patterns": [
-					"packages/engine/src/schema/{admit,api,declared-entries,entry,field-desc,fragment,function,function-own,law-entries,level,levels,literal,literals,own,protocol,record,relation,representability,schema,scope,statements,stem,terms,walk,world}.ts"
+					"packages/engine/src/schema/{admit,api,declared-entries,entry,field-desc,fragment,function,function-own,law-entries,level,levels,literal,literals,own,protocol,record,relation,representability,schema,scope,statements,stem,terms,variant,walk,world}.ts"
 				]
 			},
 			{
@@ -2038,7 +2045,7 @@
 		{ "file": "packages/engine/src/core/canonical.ts", "exports": ["Refusal"] },
 		{
 			"file": "packages/engine/src/core/decoder.ts",
-			"exports": ["Column", "Delivered", "Delivery", "Layout", "Part", "columnAt"]
+			"exports": ["Column", "Delivered", "Delivery", "Layout", "Part", "Row", "columnAt"]
 		},
 		{
 			"file": "packages/engine/src/core/errors.ts",

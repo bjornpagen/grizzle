@@ -5,10 +5,12 @@
  * again and made every offer again: an equality offers its other column's names as they are given, so a chain of
  * equalities settles a round per link, and every round re-read the whole table.
  *
- * The box, exhausted: a rule over R whose columns a, b, c and d are chained by one to three equalities, the last of the
- * chain a constant and none, one or two of its columns, from the last back, also parameters of their own
- * (fixed-names.fixtures.ts), analyzed in a transaction with no containment, every node's names worked out again from
- * its properties.
+ * The box, exhausted: R's region under a filter whose equalities chain its columns a, b, c and d, one to three of
+ * them, the last of the chain a constant and none, one or two of its columns, from the last back, also parameters of
+ * their own (fixed-names.fixtures.ts chainDag), analyzed in a transaction with no containment, every node's names
+ * worked out again from its properties. The chain is a filter's equalities of columns, built as the DAG, as a rewrite
+ * leaves them: a rule's equality of two of its variables is one class of its region (check/checker.ts RuleCheck
+ * #equated), whose names settle in one round.
  *
  * Property, per node: the offers made are the offers the steps offer when the names settle, each made once. Oracle:
  * specification. Kill: a step makes every offer again each round.
@@ -19,7 +21,8 @@
  * analysis lived. Per node of the same box: its properties hold no `sources`. Kill: the properties spread the table.
  *
  * And an offered name is found among those its column holds by its identity, in one lookup (logical/props.ts
- * HeldNames): over a relation of m columns, each equal to the next and each a parameter of its own, whose columns each
+ * HeldNames): over a relation of m columns under a filter of each equal to the next and each to a parameter of its own
+ * (fixed-names.fixtures.ts namedChainDag), whose columns each
  * hold m names offered by every step that fixes them, the identities the analysis reads are one for each offer made and
  * one for each name held, every node's names worked out again from its properties to count them, where each offer was
  * compared with every name its column held. Box: m at 4, 8 and 12. Oracle: specification. Kill: an offer compared with
@@ -40,8 +43,8 @@ import { succeeded } from "#test/support/assert.ts"
 import { callCounts, type CountedFunction } from "#test/support/kernel/calls.ts"
 import {
 	chainGen,
-	chainQuery,
-	namedChainQuery
+	chainDag,
+	namedChainDag
 } from "#test/unit/analysis/logical/fixed-names.fixtures.ts"
 
 type Feature = "names settled in one round" | "names given in a later round"
@@ -56,7 +59,7 @@ export const eachStepThatFixesAColumnMakesEachNameItOffersOnceHoweverManyRoundsT
 		] satisfies ReadonlyArray<Reached<Feature>>,
 		check: (_, c: Case<Feature>) => (chain) =>
 			Effect.sync(() => {
-				const dag = chainQuery(chain).dag
+				const dag = chainDag(chain)
 				const analysis = analyzeLogical(
 					dag,
 					{
@@ -96,7 +99,7 @@ export const aNodesPropertiesHoldNoStepSourcesTheyAreWorkedOutAndReadInFinishAlo
 		situations: [],
 		check: () => (chain) =>
 			Effect.sync(() => {
-				const dag = chainQuery(chain).dag
+				const dag = chainDag(chain)
 				const analysis = analyzeLogical(
 					dag,
 					{
@@ -154,7 +157,7 @@ export const anOfferedNameIsFoundAmongTheNamesItsColumnHoldsInOneLookup = proper
 			Effect.gen(function* () {
 				const m = 4 * k
 				c.note(k === 1 ? "m = 4" : k === 2 ? "m = 8" : "m = 12")
-				const { dag } = namedChainQuery(m)
+				const dag = namedChainDag(m)
 				const [, counts] = yield* callCounts(
 					Effect.sync(() => analyzeLogical(dag, chainEnv, everyNode)),
 					nameChecks

@@ -7,21 +7,32 @@ import {
 	type ClockBinding,
 	type ClockSource,
 	clockInstantName,
+	type Int8Type,
 	isInt8Type
 } from "#compiler/ir/clock.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { ownedLevels } from "#compiler/scalar/contract.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 
 /**
- * Whether `binding` may bind `name` among `params`: a scalar parameter of the program of an int8 type, bigint or a
- * contract over it, the only type a reading of the clock is; never an undeclared name or a relation parameter.
+ * Whether a parameter's type is one a clock reading binds: an int8 type of at most one consumer's contract
+ * (scalar/contract.ts ownedLevels), whose key its member's binding takes, which a contract over another's would not
+ * make alone.
+ */
+const isReadingType = (t: ScalarType): t is Int8Type => isInt8Type(t) && ownedLevels(t) <= 1
+
+/**
+ * Whether `binding` may bind `name` among `params`: a scalar parameter of the program of an int8 type, bigint, natural or
+ * one consumer's contract over either (isReadingType), the only types a reading of the clock is, which the reading is
+ * cast to at bind so the contract judges it there; never an undeclared name or a relation parameter.
  */
 const bindsReading = (params: ReadonlyArray<ParamDecl>, name: string): boolean => {
 	const decl = params.find((p) => p.name === name)
 	switch (decl?.kind) {
 		case "scalar":
 		case "clock":
-			return isInt8Type(decl.type)
+			return isReadingType(decl.type)
 		case "relation":
 		case undefined:
 			return false
@@ -45,14 +56,14 @@ export const clockParams = (
 		return Result.err(
 			ruleRefused(
 				SourceLoc(label, ["clock", unbound]),
-				"clocked binds only parameters of the program whose values are bigints: bigint or a contract over it"
+				"clocked binds only parameters of the program whose values are bigints: bigint, natural, or one consumer's contract over either, under its key"
 			)
 		)
 	}
 	return Result.ok(
 		params.map((p): ParamDecl => {
 			const unit = Object.hasOwn(binding, p.name) ? binding[p.name] : undefined
-			return unit !== undefined && p.kind === "scalar" && isInt8Type(p.type)
+			return unit !== undefined && p.kind === "scalar" && isReadingType(p.type)
 				? { id: p.id, name: p.name, kind: "clock", type: p.type, unit }
 				: p
 		})

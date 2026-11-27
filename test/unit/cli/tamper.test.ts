@@ -6,7 +6,9 @@
  * oldest folder where the tampering applies to either: the snapshot's files replaced by another schema's or removed,
  * or manifest.json removed from beside snapshot.json; a folder renamed out of `<YYYYMMDDHHMMSS>_<name>`, removed, or
  * holding a directory; a meta.json removed, malformed, naming another schema, or breaking the chain (a source that is
- * no previous target); a stray file beside the folders; two parts of manifest.json beside the whole file, or a
+ * no previous target); a fork, a second folder at a folder's second as two lines of work on one chain draft it, a custom
+ * migration of the chain before the folder sorting first, whose source is its target, so its links alone would pass it,
+ * or a copy of the folder under a name sorting after it; a stray file beside the folders; two parts of manifest.json beside the whole file, or a
  * migration file renamed as a lone part of itself, neither a layout generate writes (deploy/render/parts.ts laidOutFiles). Every
  * kind of tampering runs in every case, on directories and folders the case draws.
  *
@@ -23,14 +25,14 @@
  *
  * A second property edits a drafted folder's meta.json by hand under the seal grizzle wrote for it, a statement's
  * recorded digest or a decision's text, and reads it with each of meta.json's readers: generate's committed tree,
- * check, migrate before it connects, upgrade's chain before it connects, and the lock report. Each refuses it, by the
+ * check, migrate before it connects, and the lock report. Each refuses it, by the
  * reason or the finding that names the folder's meta.json, since every reader decodes meta.json through its seal and
  * none proves its record again.
  */
 import { type Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
-import { cliClock } from "#test/pg/cli/support.ts"
+
 import {
 	casesGen,
 	committedNeed,
@@ -51,7 +53,8 @@ import {
  * Budget: its suite's count before the conversion (unit/cli/tamper: 2 independent cases and 0 steered, Vitest at
  * grizzle 4ca3036a). Every case tampers with both committed directories, of one folder and of two (casesGen), so each
  * kill turns its floor's one case red: at TEST_SEED=1 to 5 (toolchain-test run, 2026-11-16) every required kind is
- * reached and its three kills are killed.
+ * reached and its three kills are killed. Its kept case is the fork a custom migration hides, which its search found
+ * under the fork check's kill.
  */
 export const aCommittedMigrationsDirectoryTamperedWithGeneratedGenerateRefusesByTheReasonNamingTheEntryAndWritesNothingAndCheckReportsIt =
 	property.explore(casesGen, {
@@ -61,7 +64,6 @@ export const aCommittedMigrationsDirectoryTamperedWithGeneratedGenerateRefusesBy
 			({ committedNeed }, c: Case<Kind>) =>
 			(cases) =>
 				Effect.gen(function* () {
-					const nextNow = cliClock()
 					const committed = yield* committedNeed
 					yield* Effect.forEach(
 						cases,
@@ -70,7 +72,7 @@ export const aCommittedMigrationsDirectoryTamperedWithGeneratedGenerateRefusesBy
 								Effect.sync(() => {
 									c.note(x.kind)
 								}),
-								tampered(x, committed, nextNow)
+								tampered(x, committed)
 							),
 						{ discard: true }
 					)
@@ -80,7 +82,16 @@ export const aCommittedMigrationsDirectoryTamperedWithGeneratedGenerateRefusesBy
 			name: "the reason and the finding the committed directory's reading gives each tampering"
 		},
 		budget: { runs: 2, steered: 0 },
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/cli/tamper.test.ts#aCommittedMigrationsDirectoryTamperedWithGeneratedGenerateRefusesByTheReasonNamingTheEntryAndWritesNothingAndCheckReportsIt:7fff.0:0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+				),
+				reason:
+					"under the fork check dropped (its kill), shrunk in 17 candidates: two folders at one second, the first a custom migration of the empty chain, 19700101000000_a beside 19700101000000_init, whose source is its target, so the chain links and generate drafted on the forked chain",
+				since: "2026-11-26"
+			}
+		],
 		kills: [
 			{
 				file: "packages/grizzle/src/cli/committed.ts",
@@ -93,6 +104,12 @@ export const aCommittedMigrationsDirectoryTamperedWithGeneratedGenerateRefusesBy
 				original: '\t\tat("chainEnd", path(snapshotFileName), refusalText.chainEnd.problem)\n',
 				replacement: "",
 				why: "check drops a chain that does not end at snapshot.json."
+			},
+			{
+				file: "packages/grizzle/src/cli/committed.ts",
+				original: "\t\tOption.isSome(before) && before.value.second === second\n",
+				replacement: "\t\tfalse\n",
+				why: "Two folders of one second are no fork: a custom migration forked before a folder, sorting first, its source its target, links, and generate drafts on the forked chain; a copy of a folder sorting after it is refused only as a broken chain."
 			},
 			{
 				file: "packages/engine/src/deploy/render/folder.ts",
@@ -120,9 +137,9 @@ export const aCommittedMigrationsDirectoryTamperedWithGeneratedGenerateRefusesBy
 /**
  * A meta.json edited by hand under its seal, generated: a recorded statement's digest changed at any digit, or a
  * decision's text changed by words, a comment or whitespace, is refused by every reader of meta.json (generate, check,
- * migrate, upgrade and the lock report), each naming the folder's meta.json, where the folder as drafted reads.
+ * migrate and the lock report), each naming the folder's meta.json, where the folder as drafted reads.
  *
- * Budget: every case edits a copy of the drafted directory (decidedNeed) each way, where it draws, and runs the five
+ * Budget: every case edits a copy of the drafted directory (decidedNeed) each way, where it draws, and runs the four
  * readers over each, so each kill turns its floor's one case red; four cases.
  */
 export const aMetaJsonEditedByHandUnderItsSealIsRefusedByEveryReaderOfMetaJsonEachNamingTheFolder =

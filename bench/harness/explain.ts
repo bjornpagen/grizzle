@@ -3,6 +3,7 @@ import { type Summary, summarize } from "#bench/cold/stats.ts"
 import type { BenchSession } from "#bench/harness/session.ts"
 import { quoteString } from "#compiler/core/text.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
+import { genericPlans } from "#compiler/physical/ddl/roles.ts"
 import type { SqlError } from "#test/support/pg.ts"
 
 /**
@@ -106,7 +107,8 @@ interface NodeKeys {
 	readonly nodeType: string
 	/**
 	 * How the node feeds its parent: Outer, Inner, Member, Subquery, or SubPlan and InitPlan for a subquery expression's
-	 * plan, which its parent runs once per evaluation of the expression; none on the root.
+	 * plan, which its parent runs once per evaluation of the expression, and InitPlan too for a WITH query's plan, which
+	 * the statement runs once for the CTE Scans that read it (`subplanName`); none on the root.
 	 */
 	readonly parentRelationship: Option.Option<string>
 	/**
@@ -514,6 +516,17 @@ export const parsePlan = (value: unknown): Result.Result<Explained, MalformedPla
 	reading(() => readPlan(value))
 
 /**
+ * Whether a plan node roots a plan of its own, a SubPlan's or an InitPlan's (NodeKeys `parentRelationship`): a subquery
+ * expression its parent's conditions run, once or for each row they are evaluated over, so its scans are read apart from
+ * its parent's, their bindings their own conditions' equalities to the outer row's columns.
+ */
+export const plansApart = (node: Pick<NodeKeys, "parentRelationship">): boolean =>
+	Option.match(node.parentRelationship, {
+		onNone: () => false,
+		onSome: (r) => r === "InitPlan" || r === "SubPlan"
+	})
+
+/**
  * The plan tree of one EXPLAIN (..., FORMAT JSON) result without ANALYZE, such as a GENERIC_PLAN: no actual figures,
  * buffers or timings, so only the tree is read.
  */
@@ -588,12 +601,55 @@ export const explain = (
 export type PlanMode = "generic" | "custom"
 
 /**
+ * `use` run on `session` under the generic plans every session grizzle opens plans its statements under
+ * (physical/ddl/roles.ts genericPlans, the setting ownerStartupOptions and every login's defaults state), applied by
+ * reference and reset after, however it ends: the one way a measurement reads a generic plan, since a generic plan run
+ * needs EXPLAIN ANALYZE, which EXPLAIN (GENERIC_PLAN) cannot combine with, and a statement's parameters bound over the
+ * extended protocol, the one every session here speaks, EXPLAIN (GENERIC_PLAN) plans at their values. No other
+ * planner setting is ever set beside it. A reset that fails leaves the session in a state no later measurement may run
+ * on, so it is a defect.
+ */
+export const underGenericPlans = <A, E, R>(
+	session: BenchSession,
+	use: Effect.Effect<A, E, R>
+): Effect.Effect<A, E | SqlError, R> =>
+	Effect.acquireUseRelease(
+		session.values(`SET ${genericPlans.parameter} = ${quoteString(genericPlans.value)}`, []),
+		() => use,
+		() => Effect.orDie(session.values(`RESET ${genericPlans.parameter}`, []))
+	)
+
+/** A statement's EXECUTE arguments: none, or each of `terms` in order. */
+const executeArguments = (terms: ReadonlyArray<string>): string =>
+	terms.length === 0 ? "" : `(${Arr.join(terms, ", ")})`
+
+/**
+ * `sql` PREPAREd on `session` as `name`, `explain` of its EXECUTE with the arguments `args` run under `mode`, and the
+ * statement released before the effect ends, however it ends: a generic plan under grizzle's own generic plans
+ * (`underGenericPlans`), a custom one as the first execution of a statement just prepared, which PostgreSQL plans at
+ * its values (plancache.c choose_custom_plan, its first five executions). A release that fails is a defect.
+ */
+const preparedExplain = (
+	session: BenchSession,
+	name: string,
+	sql: string,
+	args: string,
+	mode: PlanMode,
+	explain: (execute: string) => string
+): Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, SqlError> => {
+	const explained = session.values(explain(`EXECUTE ${name}${args}`), [])
+	return Effect.acquireUseRelease(
+		session.values(`PREPARE ${name} AS ${sql}`, []),
+		() => (mode === "generic" ? underGenericPlans(session, explained) : explained),
+		() => Effect.orDie(session.values(`DEALLOCATE ${name}`, []))
+	)
+}
+
+/**
  * A server statement planned as `mode`: R04 "test generic and custom plans separately". The statement is PREPAREd
- * with its own casts typing its parameters, plan_cache_mode forces the mode for one EXPLAIN EXECUTE with `params` as
- * literals, and both the statement and the setting are released before the effect ends, however it ends; a release that
- * fails leaves the session in a state no later measurement may run on, so it is a defect. Its name is the mode's
- * alone: the statement is released before the effect ends, so no two are prepared on a session at once. Like every
- * EXPLAIN here it executes the statement. The session must not be in a failed transaction.
+ * with its own casts typing its parameters and EXPLAIN EXECUTEd once with `params` as literals (`preparedExplain`). Its
+ * name is the mode's alone: the statement is released before the effect ends, so no two are prepared on a session at
+ * once. Like every EXPLAIN here it executes the statement. The session must not be in a failed transaction.
  */
 export const explainServerStatement = (
 	session: BenchSession,
@@ -601,26 +657,36 @@ export const explainServerStatement = (
 	params: ReadonlyArray<string>,
 	mode: PlanMode,
 	options: ExplainOptions
-): Effect.Effect<Explained, SqlError | MalformedPlan> => {
-	const name = `gz_bench_${mode}`
-	const args = params.length === 0 ? "" : `(${Arr.join(Arr.map(params, quoteString), ", ")})`
-	return Effect.acquireUseRelease(
-		session.values(`PREPARE ${name} AS ${sql}`, []),
-		() =>
-			Effect.andThen(
-				session.values(`SET plan_cache_mode = force_${mode}_plan`, []),
-				Effect.flatMap(
-					session.values(explainStatementWith(`EXECUTE ${name}${args}`, options), []),
-					parseRows
-				)
-			),
-		() =>
-			Effect.andThen(
-				Effect.orDie(session.values("RESET plan_cache_mode", [])),
-				Effect.orDie(session.values(`DEALLOCATE ${name}`, []))
-			)
+): Effect.Effect<Explained, SqlError | MalformedPlan> =>
+	Effect.flatMap(
+		preparedExplain(
+			session,
+			`gz_bench_${mode}`,
+			sql,
+			executeArguments(Arr.map(params, quoteString)),
+			mode,
+			(execute) => explainStatementWith(execute, options)
+		),
+		parseRows
 	)
-}
+
+/**
+ * The generic plan of `sql` as every session grizzle opens plans it (`underGenericPlans`), estimated, never run: EXPLAIN
+ * (VERBOSE, FORMAT JSON) of its EXECUTE with every one of its `parameters` NULL, which a generic plan never reads.
+ */
+export const genericPlanOf = (
+	session: BenchSession,
+	sql: string,
+	parameters: number
+): Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, SqlError> =>
+	preparedExplain(
+		session,
+		"gz_generic",
+		sql,
+		executeArguments(Array.from({ length: parameters }, () => "NULL")),
+		"generic",
+		(execute) => `EXPLAIN (VERBOSE, FORMAT JSON) ${execute}`
+	)
 
 /** Every node of a plan, depth first, the root first. */
 export function* planNodes<N extends { readonly children: ReadonlyArray<N> }>(

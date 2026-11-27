@@ -17,13 +17,24 @@ import {
 	type VarDecl
 } from "#compiler/ir/rel.ts"
 import { conjuncts } from "#compiler/logical/props.ts"
-import { restrictsInside } from "#compiler/lower/conservative/context.ts"
+import { queryInputs, restrictsInside } from "#compiler/lower/conservative/context.ts"
 import {
 	attachmentRead,
+	correlatedSites,
 	renamedSource,
 	restrictedByValues,
+	semiJoinDriven,
 	valueFixings
 } from "#compiler/lower/optimize/cte-policy/index.ts"
+import {
+	type ChainSite,
+	chainSites,
+	regionChain,
+	sitesAtRows,
+	statementValue,
+	unitAtValues
+} from "#compiler/lower/shapes/share/sites.ts"
+import { inPartition } from "#compiler/lower/shapes/take/partition.ts"
 
 /**
  * The keys a shared node is read at, by every one of its reads (magic sets): the rows a statement needs of the node are
@@ -43,10 +54,11 @@ export type KeyRestriction =
  * One read's keys: a conjunctive query over slots, its atoms each a relation the statement reads where the key source
  * stands, each column it binds at a slot, two atoms equal where they bind one slot, and `keys` the slot each of the
  * node's restricted columns is at. Its `seeds` are what the statement fixes (a carried or value-restricted source, a
- * stored relation read at a value, the reading region's own keys, an existence test's left side, an outer row a
- * correlation reads), joined where they stand; its `steps` the fewest occurrences of the reading region that join them
- * to the read's variables, in the order the crossing reached them, each read at the slots an atom before it binds, as a
- * navigation's step is read at the values the steps before it bound.
+ * stored relation read at a value that binds one of its keys or its unit's (share/sites.ts unitAtValues; one a value
+ * binds looser seeds only where nothing tighter reaches the read), the reading region's own keys, an existence test's
+ * left side, an outer row a correlation reads), joined where they stand; its `steps` the fewest occurrences of the
+ * reading region that join them to the read's variables, in the order the crossing reached them, each read at the
+ * slots an atom before it binds, as a navigation's step is read at the values the steps before it bound.
  */
 export interface KeySource {
 	readonly seeds: ReadonlyArray<KeyAtom>
@@ -127,17 +139,28 @@ interface Candidate {
 /** The key set of a node every row of which a statement reads. */
 export const whole: KeyRestriction = { kind: "whole" }
 
-/** Whether an expression is a value of the statement's own: it reads a parameter and no relation. */
-const statementValue = (e: ScalarExpr): boolean =>
-	e.deps.params.length > 0 && e.deps.nodes.length === 0
+/**
+ * A page's rows read once per window row, at the key of the window's driver (lower/shapes/page/driver.ts): `reader`, the
+ * node over `rows` (its lowest attachment, or its ordered result), reads them at the `key` columns, each fixed to the
+ * window row's value, so they read no key set (rowReads).
+ */
+export interface PagedRead {
+	readonly reader: RelNode
+	readonly rows: RelNode
+	readonly key: ReadonlyArray<string>
+}
+
+/** No page's rows: a statement no window reads per row. */
+export const noPagedReads: ReadonlyArray<PagedRead> = []
 
 /**
  * The key sets of a statement's nodes (keysOf), worked out top-down, a node's from its readers' among the statement's:
  * each read of a node gives its keys, a region's by the fewest of its occurrences that join what the statement fixes
  * there to the variables the read binds (`crossing`), a node that keeps or renames its input's rows (a filter, a step, a
- * union's arm, an existence test's or a set difference's left side, a projection, a fold on its grouping keys) by its own
- * keys mapped to the input's columns, an existence test's right side by its left side at the test's pairs; a root, and a
- * node any reader keeps none of the keys of (a take's bound, a recursion, a call's argument, an attachment), is whole,
+ * union's arm, an existence test's or a set difference's left side, a projection, a fold on its grouping keys, a take on
+ * its partition) by its own keys mapped to the input's columns, an existence test's right side by its left side at the
+ * test's pairs; a root, and a node any reader keeps none of the keys of (a take's bound beyond its partition, a
+ * recursion, a call's argument, an attachment), is whole,
  * and so is every node below it on that path alone. The node's key set is the union of its reads' over the columns
  * every read restricts, each region's read crossing to those columns alone.
  *
@@ -148,7 +171,8 @@ const statementValue = (e: ScalarExpr): boolean =>
  * test's verdict for a left row reads only right rows at that row's pair values. So the node at its key set's rows meets
  * every read as the whole node does, and a key set may always be relaxed (an atom dropped, a constant left out): only
  * K ⊇ π(keys)(the bindings the reads need) is required. A union is restricted inside each arm, a fold only on its
- * grouping keys (a group being its input rows at one key), never on an aggregate. The crossing steps only through a
+ * grouping keys (a group being its input rows at one key), never on an aggregate, and a take only on its partition (a
+ * group's rank reading its group's rows alone, take/partition.ts), never on a column it orders by. The crossing steps only through a
  * region's occurrences, every one a positive conjunct (a negation is an anti-join, whose right side reads its left only
  * as a seed, never a step), and through no source that reads an outer row, which no key source can read.
  */
@@ -170,17 +194,18 @@ export class KeyAnalysis {
 	 * The key sets of `nodes`, a statement's, each read by those of them that read it, each of `roots` at the key set it
 	 * is given: whole for a statement's own, the keys every read of a share reads it at for the statement that fills it;
 	 * a correlated read's columns equal to the outer columns `fixed` fixes them to; each step of a key source a node
-	 * `lookups` reads by an index lookup.
+	 * `lookups` reads by an index lookup; each page's rows `paged` reads per window row (rowReads).
 	 */
 	constructor(
 		nodes: Iterable<RelNode>,
 		roots: ReadonlyMap<RelNode, KeyRestriction>,
 		fixed: FixedOf,
-		lookups: Lookups
+		lookups: Lookups,
+		paged: ReadonlyArray<PagedRead>
 	) {
 		this.#fixed = fixed
 		this.#lookups = lookups
-		this.#rowReads = rowReads(nodes)
+		this.#rowReads = rowReading(nodes, paged).readers
 		for (const node of nodes) {
 			this.#byId.set(node.id, node)
 			for (const input of inputsOf(node)) {
@@ -286,12 +311,14 @@ export class KeyAnalysis {
 			case "Difference":
 				return reader.left === node ? this.keysOf(reader) : whole
 			case "SemiJoin":
-			case "AntiJoin":
-				return reader.left === node
-					? this.keysOf(reader)
-					: reader.right === node
+			case "AntiJoin": {
+				if (reader.left !== node) {
+					return reader.right === node
 						? this.#atLeftRows(reader, reader.left, reader.on, wanted)
 						: whole
+				}
+				return this.keysOf(reader)
+			}
 			case "Attach":
 				return reader.child === node && attachmentRead(reader).kind === "coGroup"
 					? whole
@@ -318,6 +345,10 @@ export class KeyAnalysis {
 					? whole
 					: renamed(above, (column) => (reader.keys.includes(column) ? column : undefined))
 			}
+			case "Take": {
+				const above = this.keysOf(reader)
+				return above.kind === "whole" ? whole : partitionKeys(reader, above)
+			}
 			case "ApproximateNearest":
 			case "Base":
 			case "Call":
@@ -331,7 +362,6 @@ export class KeyAnalysis {
 			case "Produce":
 			case "Recursive":
 			case "SelfRef":
-			case "Take":
 			case "Window":
 				return whole
 		}
@@ -455,7 +485,12 @@ export class KeyAnalysis {
 	 * A region's read of a node at occurrence `o`: the fewest of the region's occurrences that join what the statement
 	 * fixes there to the variables `o` binds (of its `wanted` columns, where given), by a breadth-first reach over the
 	 * region's variable classes from its seeds, each occurrence reached kept only where a path to one of those variables
-	 * passes it; the columns of the node whose variables it reaches are its keys, whole where it reaches none.
+	 * passes it; the columns of the node whose variables it reaches are its keys, whole where it reaches none. A stored
+	 * relation a constant of the statement's holds at no key and no unit seeds the reach only where the tighter seeds
+	 * reach none of those variables, else it is a step read at the slots before it, its constants beside them: metis's
+	 * myOpenSittingsOf derived each sitting's status at every learner's assignments of the test the call names, the key
+	 * set of the test's assignments alone, 633 rows beside 105 learners, where the claims' Clerk user, its person and the
+	 * person's assignments of the test reach one.
 	 */
 	#crossing(
 		region: NodeOf<"MatchRegion">,
@@ -596,8 +631,16 @@ export class KeyAnalysis {
 			reach({ seed: true, atom: { kind: "outer", node: row.node, bindings: row.bindings } })
 		}
 		/**
+		 * The occurrences a constant of the statement's holds at no key and no unit (share/sites.ts unitAtValues), each its
+		 * seed and its step where an index reads it at keys: a seed only where nothing the statement fixes tighter reaches
+		 * the read's variables, else a step read at the slots an atom before it binds, its constants beside them.
+		 */
+		const loose: Array<{ readonly seed: Candidate; readonly step: Candidate | undefined }> = []
+		/**
 		 * Each other occurrence as the atoms the key source reads for it: its source where it reads no outer row, or a
-		 * correlated one decorrelated (#decorrelated); a seed where what the statement fixes restricts it.
+		 * correlated one decorrelated (#decorrelated); a seed where what the statement fixes restricts it, its rows a
+		 * set the statement's values restrict or a stored relation's at a key or a unit its constants bind (`loose` for
+		 * any other a constant holds).
 		 */
 		const pending = new Set(
 			region.occurrences.flatMap((q): ReadonlyArray<Candidate> => {
@@ -606,19 +649,19 @@ export class KeyAnalysis {
 				}
 				if (readable(q)) {
 					const atom = readOf(q)
-					const seed =
-						restrictedByValues(q.source) || q.constants.some((c) => statementValue(c.expr))
-					/** A source no index reads at keys (#lookup), a fold, a union or a computed node among them, is no step: a seed alone. */
-					const readWhole = !seed && !this.#lookups.readByLookup(q.source)
-					return readWhole
-						? []
-						: [
-								{
-									slots: atom.bindings.map((b) => b.slot),
-									seeds: seed ? [atom] : [],
-									steps: seed ? [] : [atom]
-								}
-							]
+					const slots = atom.bindings.map((b) => b.slot)
+					const held = q.constants.some((c) => statementValue(c.expr))
+					/** A source no index reads at keys (#lookup), a fold, a union or a computed node among them, is no step. */
+					const step = this.#lookups.readByLookup(q.source)
+						? { slots, seeds: [], steps: [atom] }
+						: undefined
+					if (restrictedByValues(q.source) || (held && unitAtValues(region, q))) {
+						return [{ slots, seeds: [atom], steps: [] }]
+					}
+					if (held) {
+						loose.push({ seed: { slots, seeds: [atom], steps: [] }, step })
+					}
+					return step === undefined ? [] : [step]
 				}
 				const decorrelated = this.#decorrelated(q, slot, (id, column) => {
 					if (id === region.id) {
@@ -664,20 +707,32 @@ export class KeyAnalysis {
 		const aimed = o.bindings.filter((b) => wanted === undefined || wanted.has(b.column))
 		const targets = new Set(aimed.map((b) => slot(b.var)))
 		const done = (): boolean => [...targets].every((t) => reached.has(t))
-		for (let grew = true; grew && !done();) {
-			grew = false
-			for (const c of pending) {
-				const via = c.slots.map((at) => reached.get(at)).find((x) => x !== undefined)
-				if (via === undefined) {
-					continue
-				}
-				pending.delete(c)
-				take(c, via)
-				grew = true
-				if (done()) {
-					break
+		/** Each pending candidate an atom reached taken, from the first atom that reached it, until the targets are reached. */
+		const grow = (): void => {
+			for (let grew = true; grew && !done();) {
+				grew = false
+				for (const c of pending) {
+					const via = c.slots.map((at) => reached.get(at)).find((x) => x !== undefined)
+					if (via === undefined) {
+						continue
+					}
+					pending.delete(c)
+					take(c, via)
+					grew = true
+					if (done()) {
+						break
+					}
 				}
 			}
+		}
+		grow()
+		if (!done()) {
+			for (const l of loose) {
+				if (l.step === undefined || pending.delete(l.step)) {
+					take(l.seed, undefined)
+				}
+			}
+			grow()
 		}
 		const keys = [
 			...own,
@@ -1089,6 +1144,13 @@ const renamed = (keys: Keys, rename: (column: string) => string | undefined): Ke
 }
 
 /**
+ * The keys a take's readers read it at, on its partition's columns alone (take/partition.ts): a group's rank reads only
+ * its group's rows, so its input at those keys ranks as the whole input does; whole where they restrict none of them.
+ */
+const partitionKeys = (take: NodeOf<"Take">, keys: Keys): KeyRestriction =>
+	renamed(keys, (column) => (inPartition(take, column) ? column : undefined))
+
+/**
  * The key set a node is computed at by itself: a fold's on its grouping columns alone, a group being its input's rows
  * at one key, its aggregate known only once the group is whole; a call's none, its rows its function's at its
  * arguments, evaluated whole wherever it stands and held by the statement once (lower/conservative/call
@@ -1198,47 +1260,100 @@ const readsWithin = (root: RelNode): ReadonlyMap<RelNode, number> => {
 }
 
 /**
- * One node a restriction reaches (restrictionWalk): lowered where `reader` reads it, never as a CTE or a carrier of
- * its, its rows kept at `equalities` where they stand on it, none where it only passes them on to nodes under it.
+ * One node a restriction reaches (restrictionWalk): lowered where its `readers` read it, never as a CTE or a carrier of
+ * its, its rows read at `reached`, the part of its reads' restrictions every one of them holds (commonRestriction), and
+ * kept at `equalities` where they stand on it, none where it only passes them on to nodes under it.
  */
 export interface RestrictionReach<V> {
 	readonly node: RelNode
-	readonly reader: RelNode
+	readonly readers: NonEmptyReadonlyArray<RelNode>
+	readonly reached: ReadonlyArray<{ readonly column: string; readonly value: V }>
 	readonly equalities: ReadonlyArray<{ readonly column: string; readonly value: V }>
 }
 
 /**
+ * Which nodes under a root its restriction reaches (restrictionWalk): `once`, a node the root's subtree reads once alone,
+ * the reach of a root the statement computes at its key set (KeyedLowering atKeys), whose every other node its reads key
+ * (KeyAnalysis), computed once at their keys; `held`, a node every read of which under the root arrives at one
+ * restriction, the reach of a row site's root, read per row of its driver, under which no read keys a node.
+ */
+export type WalkReach = "once" | "held"
+
+/**
  * The nodes under `root` a restriction of its rows reaches (the one walk of a restriction into a node, the lowering's
  * and the key analysis's, share/keys.ts KeyAnalysis rowRead), each lowered where it is read, at the values: the root's
- * rows at `restriction`, each column by the name it has there, carried through a projection of columns, a filter, the
- * left side of an existence test, an intersection or a difference, a step, and a region to every source that binds the
- * column's variable or one its equalities join, each keeping the rows at those values alone of what it reads; and a
- * union's arms and a fold's input at its grouping keys. Where PostgreSQL moves no restriction, it stands on the node
- * itself: a step's input, inside its fence (step/index.ts fencedRead, a subquery with an OFFSET), and a union or a fold
- * a region reads, each arm at the values or the keys below its aggregate (lower/shapes/union keyedUnion,
- * lower/shapes/aggregate keyedGroup), which a restriction over either would reach no arm and no group of; every other
- * node on the way passes the values on, PostgreSQL moving a restriction of a derived table into it. A root that is a
- * union or a fold restricts its arms or its groups itself (KeyedLowering atKeys). A node is reached only where the
- * root's subtree reads it once (`readsWithin`), so the restriction keeps the rows of that one read, wherever else the
- * statement reads it whole or as a CTE. metis's hold gate read the read-aloud stamps of the due assignments, a union of
- * three rules each a navigation's chain of steps, its first step every assignment, which per due key read all 97,379
- * assignments again; edullm's latest decision read the latest attempt of each session of its stage, a fold every item
- * session's attachment read beside it, derived whole for the database.
+ * rows at `restriction`, each column by the name it has there, carried through a projection of columns, a filter, both
+ * sides of an existence test (its right side at each pair whose left column the restriction holds: a left row at the
+ * value tests the right side's rows at it alone), of an intersection and of a difference, a step, an attachment to the
+ * parent whose rows it delivers and to its child at each column its correlation names the restriction holds (a child
+ * row is read only at its parent row's values: qti-pie's ItemSessionControl, which metis's resume reads at each item
+ * session's key for its control and again under it for the attempts it leaves, was reached by neither read and derived
+ * whole for every learner), and a region to every source each occurrence binds the column's variable or one its
+ * equalities join to, each keeping the rows at those values alone of what it reads; and a union's arms, a fold's input
+ * at its grouping keys and a take's input at its partition (take/partition.ts), never at a column it orders by.
+ * Where PostgreSQL moves no restriction, it stands on the node itself: a step's input, inside its fence (step/index.ts
+ * fencedRead, a subquery with an OFFSET), a take's input, below its ORDER BY and LIMIT, which PostgreSQL moves no
+ * restriction of the take's rows past (metis's results page read each session's latest credit as a take over the credit
+ * of every attempt of the database), and a union or a fold a region reads, each arm
+ * at the values or the keys below its aggregate (lower/shapes/union keyedUnion, lower/shapes/aggregate keyedGroup),
+ * which a restriction over either would reach no arm and no group of; every other node on the way passes the values
+ * on, PostgreSQL moving a restriction of a derived table into it. A root that is a union or a fold restricts its arms or
+ * its groups itself (KeyedLowering atKeys). Under a row site's root (`reach` held) a node is reached where every read
+ * of it under the root (`readsWithin`) is a read the restriction reached, at the part of their restrictions they all
+ * hold (commonRestriction), so each read keeps the rows of that part and its own other columns where it stands,
+ * wherever else the statement reads it whole or as a CTE: a node read
+ * twice under the root at the key, as edullm's credit reads the attempt's numeric value in force for its score and its
+ * maximum, is derived once at the key and read at both (keyed.ts pushedInto, context.ts Holding), where reaching only a
+ * node read once left it the statement's CTE, derived whole. Under a root the statement computes at its key set (`reach`
+ * once) a node is reached only where the root's subtree reads it once: one read at several reads is its own CTE, keyed
+ * at the root's keys through its readers (KeyAnalysis), printed once, where lowered at each read edullm's takenSessions
+ * printed its session control twice in each of four such roots and planned nine times as long. The nodes are visited
+ * readers first (the reverse of a postorder), so a node's reads have all arrived when it is visited. metis's hold gate
+ * read the read-aloud stamps of the due assignments, a union of three rules each a navigation's chain of steps, its
+ * first step every assignment, which per due key read all 97,379 assignments again; edullm's latest decision read the
+ * latest attempt of each session of its stage, a fold every item session's attachment read beside it, derived whole
+ * for the database.
  */
 export const restrictionWalk = <V>(
 	root: RelNode,
-	restriction: ReadonlyArray<{ readonly column: string; readonly value: V }>
+	restriction: ReadonlyArray<{ readonly column: string; readonly value: V }>,
+	reach: WalkReach
 ): ReadonlyArray<RestrictionReach<V>> => {
 	type Equalities = ReadonlyArray<{ readonly column: string; readonly value: V }>
 	const reads = readsWithin(root)
-	const out: Array<RestrictionReach<V>> = []
-	const reached = new Set<RelNode>()
-	/** `at`'s inputs, `at` read at `equalities`, the restriction its own or the reader's. */
+	/** Each node's reads the restriction reached so far: the reader, the restriction, and whether a step's input. */
+	const arrived = new Map<
+		RelNode,
+		Array<{ readonly reader: RelNode; readonly equalities: Equalities; readonly fenced: boolean }>
+	>()
+	/**
+	 * `node` read by `reader` at `equalities`; a fold at those of its grouping keys alone, a value of an aggregate no
+	 * restriction below its grouping reaches (lower/shapes/aggregate keyedGroup), which the reader that holds it keeps
+	 * where the fold delivers it: a region's held condition, a union's arm, the root.
+	 */
+	const deliver = (
+		reader: RelNode,
+		node: RelNode,
+		equalities: Equalities,
+		fenced: boolean
+	): void => {
+		arrived
+			.getOrInsertComputed(node, () => [])
+			.push({
+				reader,
+				equalities:
+					node.kind === "Group"
+						? equalities.filter((e) => node.keys.includes(e.column))
+						: equalities,
+				fenced
+			})
+	}
+	/** `at`'s inputs, each read at what `at` read at `equalities` keeps of it. */
 	const into = (at: RelNode, equalities: Equalities): void => {
 		switch (at.kind) {
 			case "ProjectSet": {
 				const input = at.input
-				enter(
+				deliver(
 					at,
 					input,
 					equalities.flatMap((e) => {
@@ -1252,42 +1367,59 @@ export const restrictionWalk = <V>(
 				return
 			}
 			case "Filter":
-				enter(at, at.input, equalities, false)
+				deliver(at, at.input, equalities, false)
 				return
 			case "SemiJoin":
 			case "AntiJoin":
+				deliver(at, at.left, equalities, false)
+				deliver(
+					at,
+					at.right,
+					equalities.flatMap((e) =>
+						at.on.flatMap((p) => (p.left === e.column ? [{ column: p.right, value: e.value }] : []))
+					),
+					false
+				)
+				return
 			case "Intersect":
 			case "Difference":
-				enter(at, at.left, equalities, false)
+				deliver(at, at.left, equalities, false)
+				deliver(at, at.right, equalities, false)
 				return
 			case "Step":
-				enter(at, at.input, equalities, true)
+				deliver(at, at.input, equalities, true)
+				return
+			case "Attach":
+				deliver(at, at.parent, equalities, false)
+				deliver(
+					at,
+					at.child,
+					equalities.flatMap((e) =>
+						at.correlation.flatMap((c) =>
+							c.parent === e.column ? [{ column: c.child, value: e.value }] : []
+						)
+					),
+					false
+				)
 				return
 			case "MatchRegion": {
 				const classOf = regionVarClasses(at)
-				const bySource = new Map<RelNode, Array<{ readonly column: string; readonly value: V }>>()
-				for (const e of equalities) {
-					const v = at.vars.find((x) => x.name === e.column)
-					if (v === undefined) {
+				for (const o of at.occurrences) {
+					const source = o.source
+					if (source.kind === "Base") {
 						continue
 					}
-					for (const o of at.occurrences) {
-						for (const b of o.bindings) {
-							if (o.source.kind !== "Base" && classOf(b.var) === classOf(v)) {
-								bySource
-									.getOrInsertComputed(o.source, () => [])
-									.push({ column: b.column, value: e.value })
-							}
-						}
-					}
-				}
-				for (const [source, columns] of bySource) {
-					enter(
+					deliver(
 						at,
 						source,
-						source.kind === "Group"
-							? columns.filter((c) => source.keys.includes(c.column))
-							: columns,
+						equalities.flatMap((e) => {
+							const v = at.vars.find((x) => x.name === e.column)
+							return v === undefined
+								? []
+								: o.bindings.flatMap((b) =>
+										classOf(b.var) === classOf(v) ? [{ column: b.column, value: e.value }] : []
+									)
+						}),
 						false
 					)
 				}
@@ -1295,19 +1427,26 @@ export const restrictionWalk = <V>(
 			}
 			case "Union":
 				for (const arm of unionArms(at.groups)) {
-					enter(at, arm, equalities, false)
+					deliver(at, arm, equalities, false)
 				}
 				return
 			case "Group":
-				enter(
+				deliver(
 					at,
 					at.input,
 					equalities.filter((e) => at.keys.includes(e.column)),
 					false
 				)
 				return
+			case "Take":
+				deliver(
+					at,
+					at.input,
+					equalities.filter((e) => inPartition(at, e.column)),
+					true
+				)
+				return
 			case "ApproximateNearest":
-			case "Attach":
 			case "Base":
 			case "Call":
 			case "Closed":
@@ -1320,51 +1459,221 @@ export const restrictionWalk = <V>(
 			case "Produce":
 			case "Recursive":
 			case "SelfRef":
-			case "Take":
 			case "Window":
 				return
 		}
 	}
-	/**
-	 * `node` as `reader` reads it, at `equalities`: standing on it where its lowering places them inside it
-	 * (context.ts restrictsInside) or where it is a step's fenced input (`fenced`), passed on to its inputs either way.
-	 */
-	const enter = (reader: RelNode, node: RelNode, equalities: Equalities, fenced: boolean): void => {
-		if (equalities.length === 0 || reads.get(node) !== 1 || reached.has(node)) {
-			return
-		}
-		reached.add(node)
-		out.push({ node, reader, equalities: fenced || restrictsInside(node) ? equalities : [] })
-		into(node, equalities)
-	}
 	into(root, restriction)
+	const out: Array<RestrictionReach<V>> = []
+	for (const node of postorder([root], inputsOf).toReversed()) {
+		const at = arrived.get(node) ?? []
+		const [first, ...rest] = at
+		if (
+			node === root ||
+			first === undefined ||
+			at.length !== reads.get(node) ||
+			(reach === "once" && at.length !== 1)
+		) {
+			continue
+		}
+		const common = commonRestriction(
+			first.equalities,
+			rest.map((a) => a.equalities)
+		)
+		if (common.length === 0) {
+			continue
+		}
+		const fenced = at.some((a) => a.fenced)
+		out.push({
+			node,
+			readers: [first.reader, ...rest.map((a) => a.reader)],
+			reached: common,
+			equalities: fenced || restrictsInside(node) ? common : []
+		})
+		into(node, common)
+	}
 	return out
 }
 
 /**
- * The reads of `nodes` made per row of a driver, each node with the readers that read it so: an attachment's read of
- * its child, once per parent key (cte-policy attachmentRead `perKey`), and every read the key's restriction reaches
- * under the child (restrictionWalk), each lowered there at the key's values, never as a CTE. They read no key set: a
- * node's key set is its other reads' (KeyAnalysis keysOf), so a node an attachment's child reads beside the head it
- * attaches to is computed at the head's keys alone, where reading it at the parents' rows, the head's own rows of it,
- * closed a cycle no order computes first (keyedOrder) and computed it whole.
+ * The nodes of `reaches`, a restriction's reach under `root` (restrictionWalk), the root's query holds once (keyed.ts
+ * pushedInto, context.ts heldEnv): each it reads at several reads, its CTE in the root's query's WITH, derived there at
+ * the restriction that reaches it (RestrictionReach `reached`) and read at every read, where lowered at each read it was
+ * printed and planned once for each; a read inside an attachment's child under the root is its attachment's own
+ * (context.ts queryInputs), so a node the root's query reads once beside it is lowered in place, never a CTE of one read,
+ * a tuplestore per row bought for nothing. A node that reads a row of the root or of a node under it is lowered at each
+ * read, that row in scope there alone.
  */
-const rowReads = (nodes: Iterable<RelNode>): ReadonlyMap<RelNode, ReadonlySet<RelNode>> => {
+export const heldOnce = <V>(
+	root: RelNode,
+	reaches: ReadonlyArray<RestrictionReach<V>>
+): ReadonlyArray<RestrictionReach<V>> => {
+	/** The root and the nodes under it: a CTE in the root's query reads no row of theirs, none in scope there. */
+	const within = new Set(postorder([root], inputsOf).map((n) => n.id))
+	/** The nodes the root's query lowers (context.ts queryInputs). */
+	const lowered = new Set(postorder([root], queryInputs))
+	return reaches.filter(
+		(r) =>
+			r.readers.filter((reader) => lowered.has(reader)).length > 1 &&
+			outerOf(r.node).every((c) => !within.has(c.node))
+	)
+}
+
+/**
+ * The part of a node's reads' restrictions every one of them holds (restrictionWalk): each column `first` holds at a
+ * value every other read holds it at too. The node read there holds every row each read needs, a key set relaxed to its
+ * reads' common columns (KeyAnalysis's soundness: K ⊇ π(keys) of what the reads need), and each read keeps its own
+ * other columns where it stands, a join or a filter over the node's rows: so a node read at restrictions that differ is
+ * derived once per row of its driver at the part they share, where reached at none it stayed the statement's CTE,
+ * derived whole for every row of the store and scanned once for each row of the driver (edullm's session control,
+ * read three times in controlOf at a session's stage and at the session; metis's review reads its session control and
+ * pending external scorings so). None where the reads share no column at one value.
+ */
+const commonRestriction = <V>(
+	first: ReadonlyArray<{ readonly column: string; readonly value: V }>,
+	rest: ReadonlyArray<ReadonlyArray<{ readonly column: string; readonly value: V }>>
+): ReadonlyArray<{ readonly column: string; readonly value: V }> =>
+	first.filter((e) =>
+		rest.every((r) => r.some((x) => x.column === e.column && x.value === e.value))
+	)
+
+/**
+ * The reads of `nodes` made per row of a driver, each node with the readers that read it so: an attachment's read of
+ * its child, once per parent key (cte-policy attachmentRead `perKey`), a driven semi-join's read of its left side once
+ * per right-side key (cte-policy semiJoinDriven), a correlated region's read of a source at the values its correlation
+ * fixes for each outer row (cte-policy correlatedSites), and the row sites of the chain of a region evaluated per outer
+ * row (cte-policy evaluatedPerRow), each read per row of the steps before it, a page's read of its rows once per window
+ * row at its driver's key (PagedRead, lower/shapes/page/driver.ts), every read the restriction reaches under any of them
+ * (restrictionWalk), and every row site those reads hold beneath them (share/sites.ts), walked in turn: a region's
+ * chain's row sites, each read per row of the steps before it (chainSites). Each is lowered there at the row's values, never as a CTE. They read no key
+ * set: a node's key set is its other reads' (KeyAnalysis keysOf), so a node an attachment's child reads beside the head
+ * it attaches to is computed at the head's keys alone, where reading it at the parents' rows, the head's own rows of
+ * it, closed a cycle no order computes first (keyedOrder) and computed it whole.
+ *
+ * Beside them, each region those reads hold at a restriction, with the columns of each restriction it is held at
+ * (`restricted`): the region its lowering chains at those columns (lower/shapes/region regionSelect, share/sites.ts
+ * chainSteps), whose steps physical/access extract.ts requests the paths of. And each node a row site's root holds once
+ * (`held`, heldOnce), with the columns of each restriction it is derived at there (RestrictionReach `reached`): its one
+ * CTE in the root's query's WITH, which every read of it under the root reads where it stands, so a chain step over it
+ * seeks nothing of it at the step's own columns (physical/access extract.ts `chained`).
+ */
+export interface RowReading {
+	readonly readers: ReadonlyMap<RelNode, ReadonlySet<RelNode>>
+	readonly restricted: ReadonlyMap<NodeOf<"MatchRegion">, ReadonlyArray<ReadonlyArray<string>>>
+	readonly held: ReadonlyMap<RelNode, ReadonlyArray<ReadonlyArray<string>>>
+}
+
+export const rowReading = (
+	nodes: Iterable<RelNode>,
+	paged: ReadonlyArray<PagedRead>
+): RowReading => {
 	const out = new Map<RelNode, Set<RelNode>>()
+	const restricted = new Map<NodeOf<"MatchRegion">, Array<ReadonlyArray<string>>>()
+	const heldAt = new Map<RelNode, Array<ReadonlyArray<string>>>()
 	const add = (reader: RelNode, node: RelNode): void => {
 		out.getOrInsertComputed(node, () => new Set()).add(reader)
 	}
+	/** The reads `restriction` reaches under `root`, read per row of its driver, and the row sites they hold. */
+	const walk = (
+		root: RelNode,
+		restriction: ReadonlyArray<{ readonly column: string; readonly value: unknown }>
+	): void => {
+		const reaches = restrictionWalk(root, restriction, "held")
+		const steps = [{ node: root, equalities: restriction }, ...reaches]
+		/** The nodes under the row sites found below, each read at its site's columns alone. */
+		const beneath = new Set<RelNode>()
+		/**
+		 * The row sites of the regions among them, each region's chain's (chainSites), each walked at the columns the
+		 * steps before it bind: every node under a site is read there, per row of those steps, the restriction reaching it
+		 * through the region standing nowhere the lowering reads it (lower/shapes/region siteReads), so a region under one,
+		 * the members of qti-pie's member controls read at the member's place, is held at the site's columns alone and
+		 * never at the region's weaker ones, a chain no statement prints, whose index no plan reads.
+		 */
+		const sites: Array<{ readonly region: NodeOf<"MatchRegion">; readonly site: ChainSite }> = []
+		for (const at of steps) {
+			const node = at.node
+			if (beneath.has(node) || node.kind !== "MatchRegion") {
+				continue
+			}
+			const columns = at.equalities.map((e) => e.column)
+			if (columns.length > 0) {
+				restricted.getOrInsertComputed(node, () => []).push(columns)
+			}
+			const chain = regionChain(node, columns, correlatedSites(node))
+			for (const site of chain === undefined ? [] : chainSites(node, chain, columns)) {
+				sites.push({ region: node, site })
+				for (const under of postorder([site.occurrence.source], inputsOf)) {
+					beneath.add(under)
+				}
+			}
+		}
+		for (const r of reaches) {
+			if (beneath.has(r.node)) {
+				continue
+			}
+			for (const reader of r.readers) {
+				add(reader, r.node)
+			}
+		}
+		for (const r of heldOnce(root, reaches)) {
+			if (!beneath.has(r.node)) {
+				heldAt.getOrInsertComputed(r.node, () => []).push(r.reached.map((e) => e.column))
+			}
+		}
+		for (const { region, site } of sites) {
+			walkSite(region, site)
+		}
+	}
+	/** A row site of `region`'s chain read per row of the steps before it, every node under it walked at its columns. */
+	const walkSite = (region: NodeOf<"MatchRegion">, site: ChainSite): void => {
+		add(region, site.occurrence.source)
+		walk(site.occurrence.source, [
+			...site.held.map((h) => ({ column: h.column, value: h })),
+			...site.columns.map((c) => ({ column: c.column, value: c }))
+		])
+	}
+	for (const page of paged) {
+		add(page.reader, page.rows)
+		walk(
+			page.rows,
+			page.key.map((column) => ({ column, value: column }))
+		)
+	}
 	for (const node of nodes) {
+		const driven = node.kind === "SemiJoin" ? semiJoinDriven(node) : undefined
+		if (node.kind === "SemiJoin" && driven !== undefined) {
+			add(node, node.left)
+			walk(
+				node.left,
+				driven.map((p) => ({ column: p.left, value: p.right }))
+			)
+			continue
+		}
+		if (node.kind === "MatchRegion") {
+			const correlated = correlatedSites(node)
+			for (const site of correlated) {
+				add(node, site.source)
+				walk(
+					site.source,
+					site.restriction.map((x) => ({ column: x.column, value: x.expr }))
+				)
+			}
+			const chain = sitesAtRows(node, false) ? regionChain(node, [], correlated) : undefined
+			for (const site of chain === undefined ? [] : chainSites(node, chain, [])) {
+				walkSite(node, site)
+			}
+			continue
+		}
 		if (node.kind !== "Attach" || attachmentRead(node).kind !== "perKey") {
 			continue
 		}
 		add(node, node.child)
-		const correlation = node.correlation.map((c) => ({ column: c.child, value: c.parent }))
-		for (const r of restrictionWalk(node.child, correlation)) {
-			add(r.reader, r.node)
-		}
+		walk(
+			node.child,
+			node.correlation.map((c) => ({ column: c.child, value: c.parent }))
+		)
 	}
-	return out
+	return { readers: out, restricted, held: heldAt }
 }
 
 /**
@@ -1476,6 +1785,8 @@ export const keyPlan = (statement: {
 	readonly roots: ReadonlyMap<RelNode, KeyRestriction>
 	readonly once: ReadonlyArray<ReadonlyArray<RelNode>>
 	readonly fixed: FixedOf
+	/** Each page's rows its windows read per window row (rowReads). */
+	readonly paged: ReadonlyArray<PagedRead>
 	readonly inputs: (node: RelNode) => ReadonlyArray<RelNode>
 	readonly height: (node: RelNode) => number
 }): {
@@ -1488,7 +1799,8 @@ export const keyPlan = (statement: {
 		statement.nodes,
 		statement.roots,
 		statement.fixed,
-		new Lookups((node) => computedOnce.has(node))
+		new Lookups((node) => computedOnce.has(node)),
+		statement.paged
 	)
 	/**
 	 * Whether a union's arm or a fold's input is a node the statement computes once, through projections, filters,

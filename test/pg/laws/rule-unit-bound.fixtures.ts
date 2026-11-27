@@ -6,16 +6,16 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { planNodes, rowsTouched } from "#bench/harness/explain.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, derived, relation, schema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
+import { type Installed, seededTemplate } from "#test/support/install-migrate.ts"
 import { judgedPlans, judgedStatementsOf, raisedRule, standUpJudge } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
-import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
+import { storedSeed } from "#test/support/stored.ts"
+import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 
 /**
  * pantry's catalog statements in their smallest shape (scope_duration_read_check_e_1_derived): a document's nodes and
@@ -71,28 +71,41 @@ const UnitBound = schema.extend(
 )
 
 /** UnitBound installed through its first migration, with no login: the template every case rolls back over. */
-export const unitBoundTemplate = migratedTemplate({
-	declaredIn: import.meta,
-	name: "unit bound",
-	content: { schema: "UnitBound", logins: [] },
-	versions: [{ schema: UnitBound, logins: [], declarations: noDeclarations }],
-	options: {
-		label: "unit_bound",
-		extensions: [],
-		compile: compileInstallation,
-		ambient: ordinarySession,
-		review: noPlaceholders
-	}
-})
-
 /** The nodes of a document, each size twice the one before. */
 const sizes = [64, 128, 256] as const
 
 /**
- * The documents stored beside the written one, each in a package of its own and as large as it, loaded with the
- * captures off: units a read of the written unit's alone never touches.
+ * The documents stored beside the written one, each in a package of its own and as large as it: units a read of the
+ * written unit's alone never touches.
  */
 const stored = 40
+
+/**
+ * UnitBound installed, and, at each written document's size, `stored` documents of that size, packages 2 to
+ * stored + 1, committed through the captures once per member and judged at their COMMIT (stored.ts storedSeed): the
+ * template a case of that size writes beside.
+ */
+const unitBoundTemplate = (nodes: (typeof sizes)[number]): SubstrateTemplate<Installed> =>
+	seededTemplate({
+		declaredIn: import.meta,
+		name: `unit bound ${nodes}`,
+		schema: UnitBound,
+		options: { ambient: ordinarySession, extensions: [], label: "unit_bound" },
+		seed: storedSeed((installed) =>
+			Arr.flatMap(
+				Array.from({ length: stored }, (_, i) => i + 2),
+				(pkg) => documentRows(installed, pkg, nodes)
+			)
+		)
+	})
+
+export const unitBoundTemplates: {
+	readonly [N in (typeof sizes)[number] as `${N}`]: SubstrateTemplate<Installed>
+} = {
+	"64": unitBoundTemplate(64),
+	"128": unitBoundTemplate(128),
+	"256": unitBoundTemplate(256)
+}
 
 /** A case: the written document's nodes, and the statistics PostgreSQL holds when the judge's statements are planned. */
 export interface Unit {
@@ -126,9 +139,9 @@ const documentRows = (installed: Installed, pkg: number, nodes: number): Readonl
 const writtenRows = (u: Unit): number => u.nodes + Math.floor((u.nodes - 1) / 2)
 
 /**
- * One case in its one transaction, which the case's end rolls back: `stored` documents, packages 2 to stored + 1,
- * loaded with the captures off, then the case's document of package 1 written through them, and ANALYZE where the case
- * draws it; then every statement the judge runs of the check, explained with ANALYZE as PL/pgSQL plans it over the
+ * One case in its one transaction over a clone of its size's template (unitBoundTemplates), which the case's end rolls
+ * back: the case's document of package 1 written through the captures beside the template's `stored` committed ones,
+ * and ANALYZE where the case draws it; then every statement the judge runs of the check, explained with ANALYZE as PL/pgSQL plans it over the
  * deltas that hold the rows (test/support/judge.ts judgedPlans), and the judge run, which accepts them. The check is
  * judged whole over the written unit, so each statement reads the written unit alone: its rows touched, every row each
  * node of its plan handled over all of its loops, at most its plan's nodes times the rows written. A read of Placed at
@@ -145,9 +158,6 @@ export const runUnit = (
 		const names = namesOf(installed)
 		const tables = Arr.map([Node, Ref], (t) => names.table(t))
 		for (const sql of [
-			...Arr.map(tables, (t) => `ALTER TABLE ${t} DISABLE TRIGGER USER`),
-			...Array.from({ length: stored }, (_, i) => documentRows(installed, i + 2, u.nodes)).flat(),
-			...Arr.map(tables, (t) => `ALTER TABLE ${t} ENABLE TRIGGER USER`),
 			...documentRows(installed, 1, u.nodes),
 			...(u.statistics === "analyzed" ? Arr.map(tables, (t) => `ANALYZE ${t}`) : [])
 		]) {

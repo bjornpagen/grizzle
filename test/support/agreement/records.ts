@@ -1,13 +1,13 @@
 /**
  * The records properties' space (test/types/schema/records.test.ts, test/pg/records/records.test.ts): a query over
  * Shelves (test/support/fixtures/records/shelves.ts) that reads one shelf, at the parameter `shelf`, and attaches its
- * books as an array, each book with a drawn subset of its blurb (an option or an array), its spine (one, an option or an
- * array, with its ink, one, an option or an array, below it), * array), its paper and digital details (each the arm of its kind, or an option) and its chapters (an array, each with
- * at most one remark, an option or an array): every delivery, at depths one to three. A book's head may hold its
- * column `at`, the name an array's place takes first, and a head literal; its order is its key's or its pages',
- * descending. Each attachment's name is drawn from a dictionary of the names the records' naming branches on: one that
- * repeats elsewhere in the tree, `row`, the root's own, and `at`, so an attachment's relation is qualified by its
- * parent's name and a place moves to `at2`. The owner is a run, or a run and a step, keyed by both.
+ * books as an array, each book with a drawn subset of its blurb (an option or an array), its spine (one, an option or
+ * an array, with its ink, one, an option or an array, below it), its paper and digital details (each an option) and its
+ * chapters (an array, each with at most one remark, an option or an array): every delivery, at depths one to three. A
+ * book's head may hold its column `at`, the name an array's place takes first, and a head literal; its order is its
+ * key's or its pages', descending. Each attachment's name is drawn from a dictionary of the names the records' naming
+ * branches on: one that repeats elsewhere in the tree, `row`, the root's own, and `at`, so an attachment's relation is
+ * qualified by its parent's name and a place moves to `at2`. The owner is a run, or a run and a step, keyed by both.
  *
  * Each shape is built twice: as a query value, through the builder's runtime view (shapeQuery), and as the text of a
  * typed program (shapeText), which states the records' types against the runtime records the value makes.
@@ -16,7 +16,6 @@ import { boolean, element, type Gen, option } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { pg } from "#compiler/public/fields.ts"
 import type { RecordOwner } from "#compiler/public/schema.ts"
-import { arm } from "#compiler/query/build/attach.ts"
 import {
 	type OrderedValue,
 	type QueryValue,
@@ -66,8 +65,8 @@ interface BooksShape {
 	readonly literal: boolean
 	readonly blurb: Option.Option<Named<"option" | "array">>
 	readonly spine: Option.Option<SpineShape>
-	readonly paper: Option.Option<Named<"arm" | "option">>
-	readonly digital: Option.Option<Named<"arm" | "option">>
+	readonly paper: Option.Option<Named<"option">>
+	readonly digital: Option.Option<Named<"option">>
 	readonly chapters: Option.Option<ChaptersShape>
 }
 
@@ -113,15 +112,10 @@ const booksGen: Gen<BooksShape> = (source) => {
 		}))
 	)
 	const paper = source.draw(
-		option(namedGen([...head, ...takenBy(blurb), ...takenBy(spine)], ["arm", "option"]))
+		option(namedGen([...head, ...takenBy(blurb), ...takenBy(spine)], ["option"]))
 	)
 	const digital = source.draw(
-		option(
-			namedGen(
-				[...head, ...takenBy(blurb), ...takenBy(spine), ...takenBy(paper)],
-				["arm", "option"]
-			)
-		)
+		option(namedGen([...head, ...takenBy(blurb), ...takenBy(spine), ...takenBy(paper)], ["option"]))
 	)
 	const chapters = source.draw(
 		option((s): ChaptersShape => ({
@@ -208,10 +202,6 @@ export const ownerOf = (shape: RecordsShape): Owner =>
 	shape.owner === "run"
 		? { fields: { run: Id }, key: ["run"] }
 		: { fields: { run: Id, step: pg.integer }, key: ["run", "step"] }
-
-/** The delivery of an attachment as the builder takes it, an arm of Book's kind at `handle`. */
-const deliveryValue = (delivery: string, handle: "Paper" | "Digital"): unknown =>
-	delivery === "arm" ? arm("kind", handle) : delivery
 
 /** A child over `over` of one rule over `relation`, its parent's fields bound at `bound`, its own matched and found. */
 const childOf = (
@@ -311,13 +301,13 @@ const booksOf = (
 			paper.name,
 			(b: Readonly<Record<string, unknown>>) =>
 				childOf(over, Paper, "paper", { book: b["id"] }, ["grams"]),
-			deliveryValue(paper.delivery, "Paper")
+			paper.delivery
 		]),
 		Option.map(shape.digital, (digital) => [
 			digital.name,
 			(b: Readonly<Record<string, unknown>>) =>
 				childOf(over, Digital, "digital", { book: b["id"] }, ["bytes"]),
-			deliveryValue(digital.delivery, "Digital")
+			digital.delivery
 		]),
 		Option.map(shape.chapters, (chapters) => [
 			chapters.name,
@@ -355,10 +345,6 @@ const childText = (
 	const bindings = Arr.join([...Arr.map(bound, ([f, t]) => `${f}: ${t}`), ...own], ", ")
 	return `query(Shelves).rule((r) => { const { ${vars} } = v(${relation}, "${scope}"); return r.match(${relation}, { ${bindings} }).find({ ${vars} }) })`
 }
-
-/** A delivery's text, an arm of Book's kind at `handle`. */
-const deliveryText = (delivery: string, handle: "Paper" | "Digital"): string =>
-	delivery === "arm" ? `arm("kind", "${handle}")` : `"${delivery}"`
 
 /** An attachment's text, if attached. */
 const attachText = (
@@ -440,14 +426,14 @@ export const shapeText = (shape: RecordsShape): string => {
 				Option.map(books.paper, (b): readonly [string, string, string] => [
 					b.name,
 					`(b) => ${childText("Paper", "paper", [["book", "b.id"]], ["grams"])}`,
-					deliveryText(b.delivery, "Paper")
+					`"${b.delivery}"`
 				])
 			),
 			...attachText(
 				Option.map(books.digital, (b): readonly [string, string, string] => [
 					b.name,
 					`(b) => ${childText("Digital", "digital", [["book", "b.id"]], ["bytes"])}`,
-					deliveryText(b.delivery, "Digital")
+					`"${b.delivery}"`
 				])
 			),
 			...attachText(chapters),

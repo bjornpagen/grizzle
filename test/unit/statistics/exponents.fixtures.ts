@@ -18,8 +18,27 @@ export type ExponentsFeature =
 	| "two anchors"
 	| "a key carried by its index"
 	| "a column at its cap"
+	| "a set apart of four rows"
 	| "edullm's Instance at a5f2531ed"
 	| "edullm's Instance at 71bd2dfc5"
+
+/** The exponent of the fewest rows a drawn set apart binds (Bound `least`): two rows three times in four, a set apart's;
+ * else four, a spanning pair's anchor's over a set apart over the pair (declared.ts). */
+const leastGen: Gen<number> = weighted([
+	[3, constant(1)],
+	[1, constant(2)]
+])
+
+/** A drawn bound: a key, or a set apart binding 2^`least` rows or more. */
+const boundOf = (
+	key: boolean,
+	anchor: number,
+	columns: ReadonlyArray<number>,
+	least: number
+): Bound => (key ? { kind: "key", anchor, columns } : { kind: "apart", anchor, columns, least })
+
+/** The exponent of the fewest rows a bound binds: a set apart's `least`, a key's none. */
+const leastOf = (b: Bound): number => (b.kind === "apart" ? b.least : 0)
 
 /** A column's cap (ExponentSystem `caps`): none three times in four, a column of many values; else a column of few
  * values', 1 to 3, a boolean's or a roster's of up to 15 handles. */
@@ -30,25 +49,29 @@ const capGen: Gen<number> = weighted([
 
 /**
  * A small system drawn free: one or two anchors, one to four columns, each with a drawn cap, one to six bounds over
- * them, each bound of its kind, its anchor and a subset of the columns; most cross.
+ * them, each bound of its kind, its anchor and a subset of the columns, a set apart of its least (`leastGen`); most
+ * cross.
  */
 const freeSystemGen: Gen<ExponentSystem> = (source) => {
 	const anchors = source.draw(int(1, 2))
 	const columns = source.draw(int(1, 4))
 	const caps = Array.from({ length: columns }, () => source.draw(capGen))
 	const indexes = Array.from({ length: columns }, (_, c) => c)
-	const bound: Gen<Bound> = (s) => ({
-		kind: s.draw(boolean) ? "key" : "apart",
-		anchor: s.draw(int(0, anchors - 1)),
-		columns: s.draw(subset(indexes, { min: 0, max: columns }))
-	})
+	const bound: Gen<Bound> = (s) =>
+		boundOf(
+			s.draw(boolean),
+			s.draw(int(0, anchors - 1)),
+			s.draw(subset(indexes, { min: 0, max: columns })),
+			s.draw(leastGen)
+		)
 	return { anchors, columns, caps, bounds: source.draw(array(bound, { min: 1, max: 6 })) }
 }
 
 /**
  * A system of exponents drawn first and bounds drawn after, each kept where the exponents meet it: one to `anchors`
  * anchors of exponents 0 to 11, one to `columns` columns, each with a drawn cap, of exponents 1 to the lesser of 5 and
- * its cap, up to `bounds` bounds, each a key or a set apart over an anchor and a subset of at most `width` columns.
+ * its cap, up to `bounds` bounds, each a key or a set apart of its least (`leastGen`) over an anchor and a subset of at
+ * most `width` columns.
  * Every such system holds a solution, the drawn one.
  */
 const plantedSystemGen =
@@ -69,11 +92,13 @@ const plantedSystemGen =
 		const indexes = Array.from({ length: columns }, (_, c) => c)
 		const drawn = source.draw(
 			array<Bound>(
-				(s) => ({
-					kind: s.draw(boolean) ? "key" : "apart",
-					anchor: s.draw(int(0, anchors - 1)),
-					columns: s.draw(subset(indexes, { min: 0, max: Math.min(columns, size.width) }))
-				}),
+				(s) =>
+					boundOf(
+						s.draw(boolean),
+						s.draw(int(0, anchors - 1)),
+						s.draw(subset(indexes, { min: 0, max: Math.min(columns, size.width) })),
+						s.draw(leastGen)
+					),
 				{ min: 1, max: size.bounds }
 			)
 		)
@@ -82,7 +107,7 @@ const plantedSystemGen =
 			anchors,
 			columns,
 			caps,
-			bounds: bounds.length > 0 ? bounds : [{ kind: "apart", anchor: 0, columns: [] }]
+			bounds: bounds.length > 0 ? bounds : [{ kind: "apart", anchor: 0, columns: [], least: 1 }]
 		}
 	}
 
@@ -98,7 +123,8 @@ const carriedSystemGen: Gen<ExponentSystem> = (source) => {
 	const apart = aparts[source.draw(int(0, aparts.length - 1))] ?? {
 		kind: "apart",
 		anchor: 0,
-		columns: []
+		columns: [],
+		least: 1
 	}
 	const boolean = planted.columns
 	return {
@@ -155,9 +181,9 @@ export const instanceSystems: Arr.NonEmptyReadonlyArray<{
 			columns: 28,
 			caps: Array.from({ length: 28 }, () => Number.POSITIVE_INFINITY),
 			bounds: [
-				{ kind: "apart", anchor: 0, columns: [] },
-				{ kind: "apart", anchor: 1, columns: [] },
-				{ kind: "apart", anchor: 2, columns: [] },
+				{ kind: "apart", anchor: 0, columns: [], least: 1 },
+				{ kind: "apart", anchor: 1, columns: [], least: 1 },
+				{ kind: "apart", anchor: 2, columns: [], least: 1 },
 				{ kind: "key", anchor: 0, columns: [12, 27] },
 				{ kind: "key", anchor: 1, columns: [18] },
 				{ kind: "key", anchor: 2, columns: [12, 23, 25] },
@@ -174,28 +200,28 @@ export const instanceSystems: Arr.NonEmptyReadonlyArray<{
 				{ kind: "key", anchor: 0, columns: [12, 27, 15] },
 				{ kind: "key", anchor: 0, columns: [18, 2] },
 				{ kind: "key", anchor: 0, columns: [18, 11] },
-				{ kind: "apart", anchor: 0, columns: [12] },
-				{ kind: "apart", anchor: 0, columns: [27] },
-				{ kind: "apart", anchor: 0, columns: [18] },
-				{ kind: "apart", anchor: 0, columns: [13, 12, 18] },
-				{ kind: "apart", anchor: 0, columns: [12, 13] },
-				{ kind: "apart", anchor: 0, columns: [18, 22] },
-				{ kind: "apart", anchor: 0, columns: [12, 3] },
-				{ kind: "apart", anchor: 0, columns: [26] },
-				{ kind: "apart", anchor: 0, columns: [13, 12, 18, 23] },
-				{ kind: "apart", anchor: 0, columns: [12, 13, 23] },
-				{ kind: "apart", anchor: 0, columns: [13, 12, 18, 23, 26] },
-				{ kind: "apart", anchor: 0, columns: [12, 13, 26, 18] },
-				{ kind: "apart", anchor: 0, columns: [12, 13, 23, 26] },
-				{ kind: "apart", anchor: 0, columns: [13, 12, 18, 23, 26, 25] },
-				{ kind: "apart", anchor: 0, columns: [12, 13, 26, 18, 25] },
-				{ kind: "apart", anchor: 0, columns: [12, 13, 23, 25, 26] },
-				{ kind: "apart", anchor: 0, columns: [12, 13, 25, 26] },
-				{ kind: "apart", anchor: 0, columns: [26, 25, 13] },
-				{ kind: "apart", anchor: 0, columns: [12, 13, 26] },
-				{ kind: "apart", anchor: 0, columns: [12, 18] },
-				{ kind: "apart", anchor: 0, columns: [12, 13, 25] },
-				{ kind: "apart", anchor: 0, columns: [13] }
+				{ kind: "apart", anchor: 0, columns: [12], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [27], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [18], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [13, 12, 18], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [12, 13], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [18, 22], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [12, 3], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [26], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [13, 12, 18, 23], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 23], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [13, 12, 18, 23, 26], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 26, 18], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 23, 26], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [13, 12, 18, 23, 26, 25], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 26, 18, 25], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 23, 25, 26], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 25, 26], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [26, 25, 13], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 26], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [12, 18], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 25], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [13], least: 1 }
 			]
 		}
 	},
@@ -207,9 +233,9 @@ export const instanceSystems: Arr.NonEmptyReadonlyArray<{
 			columns: 28,
 			caps: Array.from({ length: 28 }, () => Number.POSITIVE_INFINITY),
 			bounds: [
-				{ kind: "apart", anchor: 0, columns: [] },
-				{ kind: "apart", anchor: 1, columns: [] },
-				{ kind: "apart", anchor: 2, columns: [] },
+				{ kind: "apart", anchor: 0, columns: [], least: 1 },
+				{ kind: "apart", anchor: 1, columns: [], least: 1 },
+				{ kind: "apart", anchor: 2, columns: [], least: 1 },
 				{ kind: "key", anchor: 0, columns: [12, 27] },
 				{ kind: "key", anchor: 1, columns: [18] },
 				{ kind: "key", anchor: 2, columns: [12, 23, 25] },
@@ -226,33 +252,33 @@ export const instanceSystems: Arr.NonEmptyReadonlyArray<{
 				{ kind: "key", anchor: 0, columns: [12, 27, 15] },
 				{ kind: "key", anchor: 0, columns: [18, 2] },
 				{ kind: "key", anchor: 0, columns: [18, 11] },
-				{ kind: "apart", anchor: 0, columns: [12] },
-				{ kind: "apart", anchor: 0, columns: [27] },
-				{ kind: "apart", anchor: 0, columns: [18] },
-				{ kind: "apart", anchor: 0, columns: [13, 12, 18] },
-				{ kind: "apart", anchor: 0, columns: [12, 13] },
-				{ kind: "apart", anchor: 0, columns: [18, 22] },
-				{ kind: "apart", anchor: 0, columns: [18, 13] },
-				{ kind: "apart", anchor: 0, columns: [12, 18] },
-				{ kind: "apart", anchor: 0, columns: [27, 18] },
-				{ kind: "apart", anchor: 0, columns: [12, 3] },
-				{ kind: "apart", anchor: 0, columns: [26] },
-				{ kind: "apart", anchor: 0, columns: [13, 12, 18, 23] },
-				{ kind: "apart", anchor: 0, columns: [12, 13, 23] },
-				{ kind: "apart", anchor: 0, columns: [13, 12, 18, 23, 26] },
-				{ kind: "apart", anchor: 0, columns: [12, 13, 26, 18] },
-				{ kind: "apart", anchor: 0, columns: [12, 13, 23, 26] },
-				{ kind: "apart", anchor: 0, columns: [13, 12, 18, 23, 26, 25] },
-				{ kind: "apart", anchor: 0, columns: [12, 13, 26, 18, 25] },
-				{ kind: "apart", anchor: 0, columns: [12, 13, 23, 25, 26] },
-				{ kind: "apart", anchor: 0, columns: [12, 13, 25, 26] },
-				{ kind: "apart", anchor: 0, columns: [25, 26, 18] },
-				{ kind: "apart", anchor: 0, columns: [26, 25, 13] },
-				{ kind: "apart", anchor: 0, columns: [12, 13, 26] },
-				{ kind: "apart", anchor: 0, columns: [25, 26] },
-				{ kind: "apart", anchor: 0, columns: [12, 13, 25] },
-				{ kind: "apart", anchor: 0, columns: [25] },
-				{ kind: "apart", anchor: 0, columns: [13] }
+				{ kind: "apart", anchor: 0, columns: [12], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [27], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [18], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [13, 12, 18], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [12, 13], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [18, 22], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [18, 13], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [12, 18], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [27, 18], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [12, 3], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [26], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [13, 12, 18, 23], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 23], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [13, 12, 18, 23, 26], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 26, 18], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 23, 26], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [13, 12, 18, 23, 26, 25], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 26, 18, 25], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 23, 25, 26], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 25, 26], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [25, 26, 18], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [26, 25, 13], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 26], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [25, 26], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [12, 13, 25], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [25], least: 1 },
+				{ kind: "apart", anchor: 0, columns: [13], least: 1 }
 			]
 		}
 	}
@@ -269,13 +295,13 @@ export const meets = (
 	Arr.every(system.bounds, (b) => {
 		const sum = Arr.reduce(b.columns, 0, (s, c) => s + (columns[c] ?? 0))
 		const y = anchors[b.anchor] ?? 0
-		return b.kind === "key" ? sum >= y : sum <= y - 1
+		return b.kind === "key" ? sum >= y : sum <= y - b.least
 	})
 
 /**
  * Whether exponents meet `system` but for the keys `carried`, each of which its own index carries (exponents.ts): it is
  * a key whose sum falls short of its anchor's exponent, and each of its columns below its cap lies in a set apart over
- * its anchor whose sum is the anchor's exponent less one, a largest, so no exponent its type allows lifts the key's sum
+ * its anchor whose sum and least are the anchor's exponent, a largest, so no exponent its type allows lifts the key's sum
  * above every largest set apart's; and every other key and every set apart is met, each column within its cap.
  */
 export const admits = (
@@ -296,7 +322,7 @@ export const admits = (
 			const k = defined(system.bounds[i], "a carried bound")
 			const tops = Arr.filter(
 				system.bounds,
-				(b) => b.kind === "apart" && b.anchor === k.anchor && sum(b) === y(k) - 1
+				(b) => b.kind === "apart" && b.anchor === k.anchor && sum(b) + b.least === y(k)
 			)
 			return (
 				k.kind === "key" &&
@@ -347,7 +373,7 @@ const less = (a: Fraction, b: Fraction): boolean => a.n * b.d < b.n * a.d
 /**
  * The bounds as rows over the rational unknowns z ≥ 0, each `Σ coefficients·z ≤ limit`: z holds each anchor's exponent
  * first, then each column's exponent less 1, so z ≥ 0 states x ≥ 1. A key's row is y_a − Σ (x_c − 1) ≤ |columns|, a set
- * apart's Σ (x_c − 1) − y_a ≤ −1 − |columns|, and each column of a finite cap's x_c − 1 ≤ cap_c − 1.
+ * apart's Σ (x_c − 1) − y_a ≤ −least − |columns|, and each column of a finite cap's x_c − 1 ≤ cap_c − 1.
  */
 const rowsOf = (
 	system: ExponentSystem,
@@ -370,7 +396,7 @@ const rowsOf = (
 				defined(coefficients[system.anchors + c], "a column") + sense
 		}
 		const width = BigInt(b.columns.length)
-		return { coefficients, limit: b.kind === "key" ? width : -1n - width }
+		return { coefficients, limit: b.kind === "key" ? width : -BigInt(leastOf(b)) - width }
 	})
 ]
 
@@ -501,17 +527,17 @@ const indexed = (system: ExponentSystem, bounds: ReadonlyArray<Bound>): Indexed 
 
 /**
  * Each anchor's least exponent under the columns' exponents `x` (the lowest a partial assignment's completion can take
- * where `low` gives each column's least): 1 more than the largest sum of its sets apart, or 0.
+ * where `low` gives each column's least): the largest sum and least of its sets apart, or 0.
  */
 const anchorFloor = (ix: Indexed, anchor: number, low: (c: number) => number): number =>
 	Arr.reduce(defined(ix.apart[anchor], "an anchor's sets apart"), 0, (m, b) =>
-		Math.max(m, 1 + Arr.reduce(b.columns, 0, (s, c) => s + low(c)))
+		Math.max(m, leastOf(b) + Arr.reduce(b.columns, 0, (s, c) => s + low(c)))
 	)
 
 /**
  * Whether a partial assignment of the columns' exponents may complete under the largest anchor exponent `Y`: each
  * anchor's least exponent, every unassigned column at 1, at most the least of `Y` and each of its keys' sums, every
- * unassigned column at the most a set apart it is in leaves it (`Y` − 1 less the rest of the set at their least), or the
+ * unassigned column at the most a set apart it is in leaves it (`Y` less its least and the rest of the set at their least), or the
  * lesser of its cap and the greater of `Y` and 1. At a full assignment it is exact.
  */
 const atMost = (
@@ -532,7 +558,7 @@ const atMost = (
 			for (const b of family) {
 				if (b.columns.includes(c)) {
 					const rest = Arr.reduce(b.columns, 0, (s, other) => (other === c ? s : s + low(other)))
-					most = Math.min(most, Y - 1 - rest)
+					most = Math.min(most, Y - leastOf(b) - rest)
 				}
 			}
 		}

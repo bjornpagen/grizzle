@@ -12,7 +12,7 @@ import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { bitInputText, hexText, setBit, wholeByteBits, zeroDigits } from "#compiler/core/hex.ts"
-import type { DeclaredName } from "#compiler/core/identity.ts"
+import type { HeldName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type Reordered, type RosterCodes, rosterCodes } from "#compiler/ir/cells.ts"
 import { noSpellings, type Spellings } from "#compiler/ir/pattern.ts"
@@ -22,7 +22,7 @@ import type { Roster } from "#compiler/ir/scalar.ts"
 export type HandleRenames = ReadonlyMap<string, string>
 
 /** Every roster's declared renames, by roster. */
-export type RosterRenames = ReadonlyMap<DeclaredName, HandleRenames>
+export type RosterRenames = ReadonlyMap<HeldName, HandleRenames>
 
 /** No rename declared. */
 export const noRenames: RosterRenames = new Map()
@@ -56,7 +56,7 @@ export interface HandleOrder {
  * (HandleOrder); `names` is each code's handle in code order, a hole the empty name, which no handle is.
  */
 export interface RosterCodec extends HandleOrder {
-	readonly roster: DeclaredName
+	readonly roster: HeldName
 	readonly codes: RosterCodes
 	readonly size: number
 	readonly width: number
@@ -88,7 +88,7 @@ export const declaredOrder = (roster: Roster): HandleOrder => {
  * makes from the previous installation's, and what every compilation of the schema's artifacts reads.
  */
 export interface Codebook {
-	readonly rosters: ReadonlyMap<DeclaredName, RosterCodec>
+	readonly rosters: ReadonlyMap<HeldName, RosterCodec>
 	/**
 	 * The spelling the installation's history holds of each pattern language (ir/pattern.ts Spellings): a draft's, its
 	 * previous installation's, which a language it installs again keeps; a fresh installation's and a layer's, none,
@@ -102,11 +102,11 @@ export const emptyCodebook: Codebook = Object.freeze({ rosters: new Map(), spell
 
 /** A declaration that puts a roster's handles out of their codes' order, refused before anything is drafted. */
 export interface RosterReordered extends Reordered {
-	readonly roster: DeclaredName
+	readonly roster: HeldName
 }
 
 /** The codec of `roster`'s codes, frozen: each live handle's code and each code's name, a hole the empty name. */
-export const rosterCodec = (roster: DeclaredName, codes: RosterCodes): RosterCodec => {
+export const rosterCodec = (roster: HeldName, codes: RosterCodes): RosterCodec => {
 	const rank = new Map<string, number>()
 	const names = codes.map((slot, code): string => {
 		if (slot.kind === "hole") {
@@ -130,7 +130,7 @@ export const rosterCodec = (roster: DeclaredName, codes: RosterCodes): RosterCod
  * its codes on, or ended, its codes with it.
  */
 export type RosterFate =
-	| { readonly kind: "continued"; readonly as: DeclaredName }
+	| { readonly kind: "continued"; readonly as: HeldName }
 	| { readonly kind: "ended" }
 
 /**
@@ -171,7 +171,7 @@ export const draftCodebook = (
 			fate.kind === "continued" ? [[fate.as, codec.codes] as const] : []
 		)
 	)
-	const drafted = new Map<DeclaredName, RosterCodec>()
+	const drafted = new Map<HeldName, RosterCodec>()
 	for (const roster of rosters) {
 		const before = continued.get(roster.closed) ?? []
 		const codes = rosterCodes(before, renames.get(roster.closed) ?? noHandleRenames, roster)
@@ -190,7 +190,7 @@ export const draftCodebook = (
 export const firstCodebook = (rosters: ReadonlyArray<Roster>): Codebook => {
 	const drafted = draftCodebook(noPreviousRosters, noRenames, rosters, noSpellings)
 	if (!drafted.ok) {
-		throw defect("a roster drafted from no codes numbers its handles in declared order")
+		defect("a roster drafted from no codes numbers its handles in declared order")
 	}
 	return drafted.value
 }
@@ -255,7 +255,7 @@ export const liveHex = (codec: RosterCodec): string => {
 export const codecOf = (book: Codebook, roster: Roster): RosterCodec => {
 	const codec = book.rosters.get(roster.closed)
 	if (codec === undefined) {
-		throw defect(`the installation's codebook holds roster ${roster.closed}`)
+		defect(`the installation's codebook holds roster ${roster.closed}`)
 	}
 	return codec
 }
@@ -264,7 +264,7 @@ export const codecOf = (book: Codebook, roster: Roster): RosterCodec => {
 export const codeOf = (codec: RosterCodec, handle: string): number => {
 	const code = codec.rank.get(handle)
 	if (code === undefined) {
-		throw defect(`${JSON.stringify(handle)} is a live handle of roster ${codec.roster}`)
+		defect(`${JSON.stringify(handle)} is a live handle of roster ${codec.roster}`)
 	}
 	return code
 }
@@ -276,7 +276,7 @@ export const codeOf = (codec: RosterCodec, handle: string): number => {
 export const handleAt = (codec: RosterCodec, code: number): string => {
 	const name = codec.names[code]
 	if (name === undefined || name === "") {
-		throw defect(`code ${code} names a live handle of roster ${codec.roster}`)
+		defect(`code ${code} names a live handle of roster ${codec.roster}`)
 	}
 	return name
 }
@@ -293,7 +293,7 @@ export const codeNames = (book: Codebook): ((roster: string) => ReadonlyArray<st
 	return (roster) => {
 		const names = byName.get(roster)
 		if (names === undefined) {
-			throw defect(`the installation's codebook holds roster ${roster}`)
+			defect(`the installation's codebook holds roster ${roster}`)
 		}
 		return names
 	}
@@ -304,12 +304,65 @@ export const codeNames = (book: Codebook): ((roster: string) => ReadonlyArray<st
  * or a served file's, which `grizzle generate` wrote under names the declared-name rule admits and which their readers
  * trust as they read them, so none is parsed again here.
  */
-export const rosterCodebook = (
-	rosters: Iterable<readonly [DeclaredName, RosterCodes]>
-): Codebook => {
-	const book = new Map<DeclaredName, RosterCodec>()
+export const rosterCodebook = (rosters: Iterable<readonly [HeldName, RosterCodes]>): Codebook => {
+	const book = new Map<HeldName, RosterCodec>()
 	for (const [name, codes] of rosters) {
 		book.set(name, rosterCodec(name, codes))
 	}
 	return book.size === 0 ? emptyCodebook : Object.freeze({ rosters: book, spellings: noSpellings })
+}
+
+/**
+ * One field of an arm in a variant's layout (variantLayout): the field, `at`, the attribute its value is, and, for a
+ * float, `zero`, the attribute after it that holds whether the value is -0, which the variant's domain's CHECK holds
+ * equal to its sign (physical/ddl/variants.ts): so the composite's record equality, hash and order tell -0 from 0, as
+ * the variant's one equality, its identity, does (scalar/variant-digest.ts), where float8's own equality holds them one.
+ */
+export interface FieldLayout<F> {
+	readonly field: F
+	readonly at: number
+	readonly zero: number | undefined
+}
+
+/** One arm of a variant's layout (variantLayout): its handle, its code, and each of its fields' attributes. */
+export interface ArmLayout<F> {
+	readonly handle: string
+	readonly code: number
+	readonly fields: ReadonlyArray<FieldLayout<F>>
+}
+
+/**
+ * A variant's layout under its tag's codes (ir/scalar.ts VariantType): its arms in their codes' order, `names` each
+ * code's handle, a hole the empty name (RosterCodec names), each field at its attributes' positions in the variant's
+ * composite (FieldLayout), `float` telling a float field, which takes two: 1 past the tag, then every arm of a lower
+ * code's fields, its own in declared order. A handle no arm names, outside the subset of the roster the variant holds,
+ * takes no attribute. A handle keeps its code across every migration and a new one takes the next, so an arm appended
+ * to the roster, or of a handle past every arm's code, appends its attributes to the composite and a handle's rename
+ * moves none. The one layout the composite, its domain's CHECK, a term reading an arm's field, the codec's record text
+ * and the reader's conversion share.
+ */
+export const variantLayout = <F>(
+	arms: ReadonlyArray<{ readonly handle: string; readonly fields: ReadonlyArray<F> }>,
+	names: ReadonlyArray<string>,
+	float: (field: F) => boolean
+): ReadonlyArray<ArmLayout<F>> => {
+	const byHandle = new Map(arms.map((arm) => [arm.handle, arm] as const))
+	const layout: Array<ArmLayout<F>> = []
+	let at = 1
+	for (const [code, handle] of names.entries()) {
+		const arm = byHandle.get(handle)
+		if (arm !== undefined) {
+			const fields = arm.fields.map((field): FieldLayout<F> => {
+				const value = at
+				const zero = float(field) ? value + 1 : undefined
+				at = (zero ?? value) + 1
+				return { field, at: value, zero }
+			})
+			layout.push({ handle, code, fields })
+		}
+	}
+	if (layout.length !== arms.length) {
+		defect("each arm of a variant is of a live handle of its roster")
+	}
+	return layout
 }

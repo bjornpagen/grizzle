@@ -71,7 +71,23 @@ export const aComparisonOfTextsThatReadNoRowInstallsAndJudgesEachRowByItsValueIn
 				reason:
 					"GEN-NULL: a generated field whose condition ORs a row arm with 'ab' IN ('ab', 'bb'), and one comparing Pick.at at a handle written in the term with a literal",
 				since: "2026-11-19"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/closed/constant-texts.test.ts#aComparisonOfTextsThatReadNoRowInstallsAndJudgesEachRowByItsValueInEveryPosition:-:2.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.1.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+				),
+				reason:
+					"main at 38a1b476: a key's selection of '' || '' IN ('Z'), a list of one value, which the schema owns as the equality '' || '' = 'Z' (schema/own.ts), and an equation with a concatenation typed its literal as any text (scalar/compute/typing.ts concatEquation), so the schema installed where 'Z' is no value of a concatenation of no bytes (ContractLiteral)",
+				since: "2026-11-26"
 			}
 		],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/compute/typing.ts",
+				original:
+					"\t\t\tthis.opposite(desc.op, whole, this.textWithinBytes(concatBytes([p, ...rest]), here), here),\n",
+				replacement: "\t\t\tthis.opposite(desc.op, whole, wildcardText, here),\n",
+				why: "An equation's whole is typed opposite any text, not its concatenation's type, so a literal of more bytes than the parts take together is admitted, and a key's selection of '' || '' IN ('Z'), its equality once owned, installs."
+			}
+		]
 	})

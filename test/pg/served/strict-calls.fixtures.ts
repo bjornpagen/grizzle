@@ -37,7 +37,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
-import { compiledExpr, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
+import { compiledExpr, sqlNull, noParamLeaf } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -563,7 +563,8 @@ export const hostAnswers = (
 							return undefined
 						}
 						return at === 2 ? sqlNull : pickPayload[read.field][at]
-					}
+					},
+					param: noParamLeaf
 				},
 				ProgramPatterns.of(tablePatterns(table))
 			)

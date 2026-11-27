@@ -59,7 +59,7 @@ export const aReadThatJoinsAFoldByItsKeysFoldsEachBindingsGroupAloneSoItsWorkIsT
 			({ stored }, c) =>
 			(drawn) =>
 				Effect.flatMap(stored, ({ connection, value }) =>
-					runFoldProbe(value, connection, drawn, c)
+					runFoldProbe(value.installed, connection, drawn, c)
 				),
 		oracle: {
 			kind: "universal",

@@ -491,10 +491,10 @@ const ops = {
 	"and-or": {
 		arity: 3,
 		build: ([a, b, c]) =>
-			computeCore.or(
-				computeCore.and(computeCore.le(a, b), computeCore.not(computeCore.eq(b, c))),
+			computeCore.or([
+				computeCore.and([computeCore.le(a, b), computeCore.not(computeCore.eq(b, c))]),
 				computeCore.gt(c, a)
-			),
+			]),
 		predicate: true
 	},
 	"exact add": {
@@ -907,7 +907,8 @@ const isSpecial = (x: LiteralDesc): boolean =>
 /**
  * Whether a refusal is the operands' values': a nonzero precondition over a zero operand, a nonnegative one over a
  * negative operand, a finite one over NaN or an infinity. The others rest on magnitudes compilation bounds (a
- * narrowing's range, a power's, a bucket's, a digit bound), whose refusals are the residues it decides from intervals.
+ * narrowing's range, a power's, a bucket's, a digit bound, a scale), whose refusals are the residues it decides from
+ * intervals.
  */
 export const justified = (
 	precondition: PreconditionKind,
@@ -920,6 +921,7 @@ export const justified = (
 			return Arr.some(read, (o) => isNegative(o.value))
 		case "finite":
 			return Arr.some(read, (o) => isSpecial(o.value))
+		case "integral":
 		case "fits":
 		case "contract":
 		case "language":

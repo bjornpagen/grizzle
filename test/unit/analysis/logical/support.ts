@@ -24,7 +24,6 @@ import {
 	type LogicalEnv
 } from "#compiler/logical/annotate.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
-import { everySlice } from "#compiler/schema/reach.ts"
 import { succeeded } from "#test/support/assert.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { Identities, type Interned } from "#test/support/kernel/identity.ts"
@@ -59,9 +58,7 @@ export const theoryUnder = (
 	desc: SchemaDesc,
 	immediate: ReadonlySet<LawId>
 ): EvidencedTestTheory => {
-	const checked = succeeded(
-		Result.flatMap(ownedInput(desc), (owned) => checkedSchema(owned, everySlice(owned)))
-	)
+	const checked = succeeded(Result.flatMap(ownedInput(desc), (owned) => checkedSchema(owned)))
 	const t = succeeded(buildTheory(checked))
 	return Object.freeze({
 		...t,
@@ -73,7 +70,7 @@ export const theoryUnder = (
 /** The theory of a schema, or its first refusal. */
 export const theoryResultOf = (desc: SchemaDesc): Result.Result<Theory, CompileError> =>
 	Result.flatMap(
-		Result.flatMap(ownedInput(desc), (owned) => checkedSchema(owned, everySlice(owned))),
+		Result.flatMap(ownedInput(desc), (owned) => checkedSchema(owned)),
 		buildTheory
 	)
 

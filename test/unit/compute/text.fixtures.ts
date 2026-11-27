@@ -19,7 +19,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { PatternValue } from "#compiler/ir/pattern.ts"
-import { compiledExpr, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
+import { compiledExpr, sqlNull, noParamLeaf } from "#compiler/scalar/compute/evaluate.ts"
 import { matchAre, matchPattern } from "#compiler/scalar/regex/admit.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { HostValue } from "#compiler/scalar/values/identity.ts"
@@ -61,7 +61,12 @@ export const values = (
 	const host = succeeded(
 		Engine.mapError(
 			compiledExpr(table)(
-				{ value: undefined, column: (ref) => row.get(ref.name), closed: () => undefined },
+				{
+					value: undefined,
+					column: (ref) => row.get(ref.name),
+					closed: () => undefined,
+					param: noParamLeaf
+				},
 				ProgramPatterns.of(tablePatterns(table))
 			),
 			(stop) => new Error(Formatter.format(stop))

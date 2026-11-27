@@ -2,7 +2,6 @@ import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text
 import { hasProperties, isList, isPlainRecord } from "#compiler/core/record.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import {
-	type ArmDesc,
 	builtNode,
 	type ContainedDesc,
 	candidateKeyFields,
@@ -46,12 +45,10 @@ import {
 	finOf,
 	type NamedRelation,
 	namedRelation,
-	relationDescOf,
 	valueTypeOf
 } from "#compiler/schema/relation.ts"
 import { checkPredicate, derivedRowScalars, rowScalars } from "#compiler/schema/terms.ts"
 import type {
-	Alternatives,
 	AnyTerm,
 	Check,
 	Containment,
@@ -85,12 +82,11 @@ const admitted = (desc: StatementDesc): StatementDesc => builtNode(desc)
  * The statement builders.
  *
  * key, mutable and check name one relation or side; on, select and pred build law sides; contained relates two sides;
- * mirrors is sugar for the two containments between its sides; alternatives is one statement, whose containments
- * ir/desc.ts expandAlternatives states; fin names a count's slots, which ordered, counted and tree index a family by,
- * and fold combines a family's members into its owner. Each returns a frozen value with its StatementDesc (or
- * SideDesc, or the ExpansionDesc of the containments mirrors is sugar for)
- * under a non-enumerable `desc`. Only `check` and `contract` take a name, which is their identity; every other
- * statement's SQL identity derives from what it names.
+ * mirrors is sugar for the two containments between its sides; fin names a count's slots, which ordered, counted and
+ * tree index a family by, and fold combines a family's members into its owner. Each returns a frozen value with its
+ * StatementDesc (or SideDesc, or the ExpansionDesc of the containments mirrors is sugar for) under a non-enumerable
+ * `desc`. Only `check` and `contract` take a name, which is their identity; every other statement's SQL identity
+ * derives from what it names.
  *
  * Each builder is the one implementation of its value: its admission core first, then the literal of its arguments,
  * frozen copies, owned with the Description, so the value has its public type (types/schema/statements.ts) by
@@ -98,7 +94,7 @@ const admitted = (desc: StatementDesc): StatementDesc => builtNode(desc)
  * exporter of the public names, is a view that narrows them to the public signatures.
  *
  * The builders check what a JavaScript caller can get structurally wrong: a field that is not in the heading, pred of a
- * field that is not natural, a side pair of different widths, an arm map over handles the roster lacks. Semantic
+ * field that is not natural, a side pair of different widths. Semantic
  * judgments are ownership's (own.ts), because the same statement can arrive in a description TypeScript never
  * checked: which statements may read a derived relation, and its fields, which its definition infers. A check's and a
  * selection's callback over a derived relation reads its definition's heading as the builder typed it.
@@ -146,11 +142,10 @@ const isDeclaration = (value: Readonly<Record<string, unknown>>): boolean => {
 
 /**
  * The relations a statement value was built over, each once, in the order met: a side's source or its selection's
- * relation, a mutable's or a check's relation, a family's slots' owner, an alternatives law's parent, roster and arms,
- * a fold's step and end. A statement's Description names each by its name alone (ir/desc.ts SideDesc), which a schema
- * reads as its own relation of that name, so the schema's build holds each to the schema's declaration of its name
- * (schema.ts). The walk reads the members the builders froze into the value, and stops at a relation, whose members
- * are its own.
+ * relation, a mutable's or a check's relation, a family's slots' owner, a fold's step and end. A statement's
+ * Description names each by its name alone (ir/desc.ts SideDesc), which a schema reads as its own relation of that
+ * name, so the schema's build holds each to the schema's declaration of its name (schema.ts). The walk reads the
+ * members the builders froze into the value, and stops at a relation, whose members are its own.
  */
 const relationsOver = (value: unknown): ReadonlyArray<unknown> => {
 	const over: Array<unknown> = []
@@ -187,16 +182,6 @@ const fieldOf = (
 		)
 	}
 	return desc
-}
-
-/** The heading's field names, refusing a name that is not one where the heading is known. */
-const requireFields = (rel: NamedRelation, fields: ReadonlyArray<string>, label: string): void => {
-	if (rel.kind === "derived") {
-		return
-	}
-	for (const f of fields) {
-		fieldOf(rel, f, label)
-	}
 }
 
 /** A side as a label spells it: its relation, its terms, and whether it selects. */
@@ -252,37 +237,6 @@ export const candidateKeyOf = (
 	return fields === undefined || source === undefined
 		? undefined
 		: { key: owned.value, relation: source, fields }
-}
-
-/**
- * The relation and key fields a key position names: a relation stands for its primary key, a Key value over a whole
- * relation's fields for that candidate key.
- */
-const keyRef = (
-	value: unknown,
-	label: string,
-	derivedRefusal: Refused
-): {
-	readonly value: unknown
-	readonly rel: NamedRelation
-	readonly fields: ReadonlyArray<string>
-} => {
-	if (statementDescOf(value) !== undefined) {
-		const keyed = candidateKeyOf(value)
-		if (keyed === undefined) {
-			throw malformed(label, "a relation or a Key built by key(on(relation, ...fields))")
-		}
-		return {
-			value: keyed.relation,
-			rel: namedRelation(keyed.relation, label),
-			fields: keyed.fields
-		}
-	}
-	const rel = namedRelation(value, label)
-	if (rel.kind === "derived") {
-		throw builderRefusal(label, derivedRefusal)
-	}
-	return { value, rel, fields: rel.primaryKey }
 }
 
 /** The opt-in to in-place change; without it a relation is immutable, which is pinned. */
@@ -654,106 +608,6 @@ const ownExpansion = <V extends MirrorsBase>(value: V, expansion: ExpansionDesc)
 /** mirrors(left, right): sugar for contained(left, right) and contained(right, left), which the schema states. */
 export const mirrorsBuilder = <L, R>(left: L, right: R): Mirrors<L, R> =>
 	ownExpansion({ kind: "mirrors", left, right }, admitMirrors(left, right))
-
-/** A derived relation in an alternatives statement, refused. */
-const altDerived: Refused =
-	"alternatives relate stored relations: a derived relation's rows are its definition's, which no write draws"
-
-/**
- * The admission core of alternatives(...): the arguments checked and the statement described.
- *
- * alternatives(parentKey, discriminator, roster, arms) is one statement of a schema (ir/desc.ts expandAlternatives
- * states its containments): its parent's key side, its discriminator, its roster, and per handle with an arm, in roster
- * order, the arm's key side. No statement holds the discriminator to the roster's handles: its closedId type does.
- *
- * The discriminator must be a closedId field of the roster itself: the containments' selections refuse only a handle
- * the roster lacks, so a discriminator over another roster with the same handles would pass them. Each arm is keyed
- * like the parent, refused here rather than by the stated containments, which the caller never wrote; and each is a
- * relation other than the parent, whose own arm, keyed by a key of the parent, would hold every parent at its handle.
- */
-const admitAlternatives = (
-	parent: unknown,
-	discriminator: unknown,
-	roster: unknown,
-	arms: unknown
-): StatementDesc => {
-	const parentKey = keyRef(parent, "alternatives parent", altDerived)
-	const parentRel = parentKey.rel
-	const label = `alternatives ${parentRel.name}`
-	const disc = requireName(discriminator, label, "a discriminator field")
-	requireFields(parentRel, [disc], label)
-	const rosterDesc = relationDescOf(roster, `${label} roster`)
-	if (rosterDesc.kind !== "closed") {
-		throw malformed(
-			label,
-			"a roster built by closed.ordered(name, handles) or closed.unordered(name, handles)"
-		)
-	}
-	const discDesc = parentRel.kind === "derived" ? undefined : parentRel.fields[disc]
-	if (
-		discDesc !== undefined &&
-		!(discDesc.kind === "closedId" && discDesc.roster === rosterDesc.name)
-	) {
-		throw malformed(
-			label,
-			`a discriminator that is a closedId(${rosterDesc.name}) field of ${parentRel.name}`
-		)
-	}
-	if (!isPlainRecord(arms)) {
-		throw malformed(label, "an arm map from handles to key descriptors")
-	}
-	if (Object.keys(arms).length === 0) {
-		throw builderRefusal(label, "alternatives takes at least one arm")
-	}
-	for (const h of Object.keys(arms)) {
-		if (!rosterDesc.handles.includes(h)) {
-			throw builderRefusal(`${label} arm ${h}`, "an arm is keyed by a handle of its roster")
-		}
-	}
-	const armDescs: Array<ArmDesc> = []
-	for (const h of rosterDesc.handles) {
-		const arm = arms[h]
-		if (arm === undefined) {
-			continue
-		}
-		const armKey = keyRef(arm, `${label} arm ${h}`, altDerived)
-		if (armKey.rel.name === parentRel.name) {
-			throw builderRefusal(`${label} arm ${h}`, "an arm is a relation other than its parent")
-		}
-		if (armKey.fields.length !== parentKey.fields.length) {
-			throw builderRefusal(`${label} arm ${h}`, "the arm's key does not match the parent key")
-		}
-		armDescs.push(Object.freeze({ handle: h, arm: admitOn(armKey.value, armKey.fields) }))
-	}
-	const [first, ...rest] = armDescs
-	if (first === undefined) {
-		throw builderRefusal(label, "alternatives takes at least one arm")
-	}
-	const armList: readonly [ArmDesc, ...Array<ArmDesc>] = [first, ...rest]
-	Object.freeze(armList)
-	return admitted({
-		kind: "alternatives",
-		parent: admitOn(parentKey.value, parentKey.fields),
-		discriminator: disc,
-		roster: rosterDesc.name,
-		arms: armList,
-		loc: builderLoc(label, [parentRel.name, "alternatives", disc])
-	})
-}
-
-/** The value holds its four inputs, the arm map a frozen copy. */
-export const alternativesBuilder = <P, const D extends string, C, Arms extends object>(
-	parent: P,
-	discriminator: D,
-	roster: C,
-	arms: Arms
-): Alternatives<P, D, C, Arms> => {
-	const desc = admitAlternatives(parent, discriminator, roster, arms)
-	return ownedStatement(
-		{ kind: "alternatives", parent, discriminator, roster, arms: frozenCopy(arms) },
-		desc
-	)
-}
 
 /**
  * fin(O, n): the slots of O's count n, data a family's former or a closed relation's key reads: O an ordinary or a

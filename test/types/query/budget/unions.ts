@@ -51,9 +51,12 @@ const membersDimension: UnionDimension = {
 }
 
 /** The level every program is over: states, sidecars and the pool, and the roster a mismatch names its field by. */
-const level = (fields: number): string => `const ResultId = contract("ResultId", uuid)
-const StateId = contract("StateId", uuid)
-const TestId = contract("TestId", uuid)
+const level = (fields: number): string => `const resultIdKey = Symbol("ResultId")
+const ResultId = contract<typeof resultIdKey>()("ResultId", uuid)
+const stateIdKey = Symbol("StateId")
+const StateId = contract<typeof stateIdKey>()("StateId", uuid)
+const testIdKey = Symbol("TestId")
+const TestId = contract<typeof testIdKey>()("TestId", uuid)
 const Subject = str.regex("^[a-z]{1,16}$")
 export const Title = str.regex("^.*$", "su")
 export const Field = closed.unordered("Field", [${Arr.join(

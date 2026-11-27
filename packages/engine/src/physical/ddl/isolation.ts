@@ -103,7 +103,7 @@ export const isolationFunctionIdent = (schema: string): string =>
  * - Every BEGIN grizzle sends names its level: a served read's SERIALIZABLE READ ONLY, a served write's at its role's,
  *   and a migration file's transaction SERIALIZABLE (the shell's adapter/migrate/session.ts
  *   fileTransaction), the ledger's records in a migration's transaction, the drift check's SERIALIZABLE and rolled
- *   back, and the live leader's fanout READ COMMITTED; `grizzle check` and `grizzle upgrade` open those same sessions.
+ *   back, and the live leader's fanout READ COMMITTED; `grizzle check` opens those same sessions.
  *   A statement grizzle sends outside a BEGIN runs on an owner's session, the migration identity's (a survey or catalog
  *   read, a catalog's DDL, a `-- grizzle: no-transaction` file's statements), whose startup options state SERIALIZABLE
  *   as its default (the shell's adapter/wire/session.ts, owner startup), so each still runs SERIALIZABLE by grizzle's
@@ -132,9 +132,7 @@ export const isolationFunctionIdent = (schema: string): string =>
  * its guard refuses every write of it below SERIALIZABLE, so a direct writer of it either says SERIALIZABLE, and SSI
  * tracks it as it tracks every SERIALIZABLE role, or is refused. A table with no guard has only writers certified READ
  * COMMITTED that hold INSERT and SELECT alone; a direct insert of it through one of their grants falls outside the
- * certification at any level, since SSI never tracks the READ COMMITTED members beside it, as it did under the database
- * default format 7 set, which made such a write SERIALIZABLE and no more certified. So that default only ever let an
- * unlabeled direct write succeed where the guard now refuses it; no fact of the certification rested on it.
+ * certification at any level, since SSI never tracks the READ COMMITTED members beside it.
  *
  * With every writer of a guarded table SERIALIZABLE, PostgreSQL's SSI orders every write and every law function's reads
  * there: a transaction that would commit in no serial order with a concurrent one fails with 40001, a TransientFailure

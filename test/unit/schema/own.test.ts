@@ -8,7 +8,7 @@
  *   handle longer than a name's 63 bytes is refused, built or decoded. Oracles: the roster's own handles; NAMEDATALEN
  *   - 1, restated.
  * - Statements over a derived relation: a key, a check, a containment either way and mirrors own over one, and
- *   mutable, race and an alternatives arm are refused, from a description or the builders.
+ *   mutable and race are refused, from a description or the builders.
  * - Structure: a description naming what no level declares, or breaking a structural rule, is refused by its reason.
  *   Names no fixture declares are built so, ending in a digit, never drawn and filtered.
  *
@@ -37,7 +37,6 @@ import {
 } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import {
-	alternativesBuilder,
 	checkBuilder,
 	containedBuilder,
 	keyBuilder,
@@ -171,7 +170,7 @@ export const theOwnedProductFingerprintsCanonicalContentOrderRepeatsAndLocations
 					const bounded = (rewrite: boolean, change: boolean) =>
 						checkBuilder("Bounded", Limits, (r: LimitsRow) =>
 							change
-								? r.and(limitsPredicate(r, s.predicate, rewrite), r.ge(r.limit, -6n))
+								? r.and([limitsPredicate(r, s.predicate, rewrite), r.ge(r.limit, -6n)])
 								: limitsPredicate(r, s.predicate, rewrite)
 						)
 					const declare = (form: "written" | "rewritten" | "changed") => {
@@ -562,8 +561,8 @@ export const closedRelationsRefusesAHandleLongerThanANames63BytesTheMostARosters
 		}
 	)
 
-/** Statements over a derived relation owns a key, check, containment either way and mirrors over a derived relation, and refuses mutable, race and an alternatives arm over one, from a description or the builders. */
-export const statementsOverADerivedRelationOwnsAKeyCheckContainmentEitherWayAndMirrorsOverADerivedRelationAndRefusesMutableRaceAndAnAlternativesArmOverOneFromADescriptionOrTheBuilders =
+/** Statements over a derived relation owns a key, check, containment either way and mirrors over a derived relation, and refuses mutable and race over one, from a description or the builders. */
+export const statementsOverADerivedRelationOwnsAKeyCheckContainmentEitherWayAndMirrorsOverADerivedRelationAndRefusesMutableAndRaceOverOneFromADescriptionOrTheBuilders =
 	property.exhaust(finite(space), {
 		needs: {},
 		situations: Arr.map(
@@ -607,14 +606,6 @@ export const statementsOverADerivedRelationOwnsAKeyCheckContainmentEitherWayAndM
 									return contained(derivedSide, baseSide)
 								case "contained into":
 									return contained(baseSide, derivedSide)
-								case "an alternatives arm":
-									return {
-										kind: "alternatives",
-										parent: baseSide,
-										discriminator: "kind",
-										roster: "Kind",
-										arms: [{ handle: "Automatic", arm: derivedSide }]
-									}
 							}
 						})()
 						verdict(ownValue(withStatements(statement)))
@@ -629,12 +620,6 @@ export const statementsOverADerivedRelationOwnsAKeyCheckContainmentEitherWayAndM
 						case "check":
 							verdict(
 								extended(checkBuilder("Positive", TaskIds, (row: Row) => row.eq(row.id, row.id)))
-							)
-							return
-						case "an alternatives arm":
-							throwsRefused(
-								() => alternativesBuilder(Task, "kind", Kind, { Automatic: TaskIds }),
-								"Refused"
 							)
 							return
 						case "key":

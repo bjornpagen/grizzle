@@ -56,7 +56,7 @@ type Mutability = "mutable" | "immutable"
 type Refusal = "25000" | "42501"
 const refusalOf = (writer: Writer, statement: StatementKind, mutability: Mutability): Refusal => {
 	if (writer === "owner") {
-		return "25000"
+		return statement === "truncate" && mutability === "immutable" ? "42501" : "25000"
 	}
 	switch (statement) {
 		case "insert":

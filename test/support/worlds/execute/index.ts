@@ -39,7 +39,12 @@ import type { LoginRole } from "#compiler/types/schema/world.ts"
 import type { AmbientSession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { installedCodes, type TestCompileOptions, testCompile } from "#test/support/compile.ts"
-import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
+import {
+	appliedGenerated,
+	generatedDraft,
+	type Installed,
+	noPlaceholders
+} from "#test/support/install-migrate.ts"
 import {
 	type InstalledAt,
 	installationNamesOf,
@@ -494,8 +499,9 @@ export const worldPlanOf = (
 	})
 
 /**
- * Realizes `installSpec` in the substrate, its own install under the ambient session `ambient` (install-migrate.ts
- * installMigrated), planned after it (worldPlanOf), its decoder logins issued by the substrate as a layer first asks
+ * Realizes `installSpec` in the substrate, its own install under the ambient session `ambient`, built under its
+ * allocated name and drafted with its logins as `grizzle generate` drafts it (draftedWorld), applied by the real runner
+ * (install-migrate.ts appliedGenerated), planned after it (worldPlanOf), its decoder logins issued by the substrate as a layer first asks
  * (live-layer.ts decodersIn), every login's pool `poolSize` connections or the cluster pool's (worldOver).
  */
 const realizeWith = (
@@ -505,13 +511,12 @@ const realizeWith = (
 ) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
-		const declared = yield* baseBuild(installSpec)
-		const installed = yield* install(declared.base, {
-			ambient,
-			logins: Rec.values(declared.logins),
-			extensions: [],
-			label: "worlds"
-		}).pipe(
+		const name = yield* substrate.schema({ create: false, label: "worlds" })
+		const { installed } = yield* Effect.flatMap(draftedWorld(installSpec, name), (drafted) =>
+			appliedGenerated([drafted], name, ambient, (fresh) =>
+				Effect.map(Effect.orDie(draftedWorld(installSpec, fresh)), (again) => again.plan)
+			)
+		).pipe(
 			Effect.catchTags({
 				CompileError: (refusal) =>
 					Effect.fail(new RealizeRefused({ what: "the installation", refusal })),
@@ -522,6 +527,20 @@ const realizeWith = (
 		const scope = yield* Effect.scope
 		const decoderOf = yield* decodersIn(substrate, scope)
 		return yield* worldOver(plan, installed, decoderOf, poolSize)
+	})
+
+/**
+ * `install` built under the name `name` (build.ts buildInstall) and drafted with its logins as `grizzle generate`
+ * drafts its first migration (install-migrate.ts generatedDraft).
+ */
+export const draftedWorld = (install: InstallSpec, name: string) =>
+	Effect.gen(function* () {
+		const declared = yield* buildInstall(install, name)
+		return yield* generatedDraft(
+			{ schema: declared.base, logins: Rec.values(declared.logins), declarations: noDeclarations },
+			{ installation: identity.schema(parsedSchemaName(name)), previous: fromEmpty, step: 0 },
+			noPlaceholders
+		)
 	})
 
 /**
@@ -1465,7 +1484,7 @@ const worldOver = (
 		 */
 		const migrate = (action: Extract<Action, { readonly kind: "migrate" }>): Effect.Effect<Seen> =>
 			Effect.gen(function* () {
-				const built = yield* Effect.result(baseBuild(action.to))
+				const built = yield* Effect.result(buildInstall(action.to, installed.declared))
 				if (Result.isFailure(built)) {
 					return refusedWith({ kind: "compile-refused" }, built.failure.refusal)
 				}

@@ -194,11 +194,7 @@ const everyDoNothing = (insert: Insert): boolean => insert.onConflict?.kind === 
  */
 const readCommittedInsert = (d: OpenedDb, changes: unknown): Insert => {
 	const compiled = Engine.flatMap(parsedChange(d.role.schema, changes), (change) =>
-		Engine.flatMap(
-			d.role.programArtifacts({ kind: "changeSet", changeSet: change.desc }),
-			({ artifacts }) =>
-				compileParsed(artifacts, change, new Set(), "readCommitted", noClock, transactionClock)
-		)
+		compileParsed(d.role.artifacts, change, new Set(), "readCommitted", noClock, transactionClock)
 	)
 	if (!compiled.ok) {
 		throw new GateSetupError({ what: `the READ COMMITTED compile: ${compiled.error.message}` })
@@ -265,7 +261,7 @@ export default defineGate({
 			const s = yield* Substrate
 			const fx = yield* installWrites(build("Inserts"), "benchinsert", {
 				programs: {},
-				logins: []
+				logins: () => []
 			})
 			const S = build(fx.installed.declared)
 			const I = fx.table("Item")

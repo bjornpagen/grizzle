@@ -82,10 +82,10 @@ export const ${ns}w${i} = workload(${ns}Reader, {
 	top: ${ns}total${i}.orderBy(["kind", "asc"]).take(1)
 })
 export const ${ns}reads${i} = (db: DbOf<typeof ${ns}Reader, typeof ${ns}w${i}.programs>) => [
-	db.workload.byId.once({ params: { id: Id("00000000-0000-4000-8000-000000000001") }, facts: {} }),
-	db.workload.byFilter.once({ params: { id: Id("00000000-0000-4000-8000-000000000001") }, facts: {} }),
-	db.workload.key.once({ params: { id: Id("00000000-0000-4000-8000-000000000001") }, facts: {} }),
-	db.workload.byParent.once({ params: { parent: Id("00000000-0000-4000-8000-000000000002") }, facts: {} }),
+	db.workload.byId.once({ params: { id: toId("00000000-0000-4000-8000-000000000001") }, facts: {} }),
+	db.workload.byFilter.once({ params: { id: toId("00000000-0000-4000-8000-000000000001") }, facts: {} }),
+	db.workload.key.once({ params: { id: toId("00000000-0000-4000-8000-000000000001") }, facts: {} }),
+	db.workload.byParent.once({ params: { parent: toId("00000000-0000-4000-8000-000000000002") }, facts: {} }),
 	db.workload.arms.once({ params: {}, facts: {} }),
 	db.workload.top.once({ params: {}, facts: {} })
 ] as const

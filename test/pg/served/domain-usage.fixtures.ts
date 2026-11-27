@@ -22,8 +22,8 @@ import {
 	unit
 } from "#compiler/public/schema.ts"
 import { readOnce, writeOnce } from "#test/support/calls.ts"
-import { noPlaceholders } from "#test/support/install-migrate.ts"
-import { migrated, noObservation, type Version } from "#test/support/installed.ts"
+import { noPlaceholders, type Version } from "#test/support/install-migrate.ts"
+import { migrated, noObservation } from "#test/support/installed.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -41,6 +41,7 @@ export const calls: Gen<Call> = element<Call>([
 
 export type DomainUsageFeature = `${Call} by a role holding USAGE on no domain`
 
+const wordsKey = Symbol("Words")
 /**
  * The installation under `name`: the notes, `Note(k, n, tier, tags)`, `n` of the contract Words at least 0, `tier` a
  * closed id of the roster Tier and `tags` a set over it, mutable inside the unit of their key; the session's claim of
@@ -50,7 +51,7 @@ export type DomainUsageFeature = `${Call} by a role holding USAGE on no domain`
  */
 const builtOf = (name: string) => {
 	const Tier = closed.ordered("Tier", ["Free", "Pro"])
-	const Words = contract("Words", pg.integer, (x) => Logic.ge(x, 0))
+	const Words = contract<typeof wordsKey>()("Words", pg.integer, (x) => Logic.ge(x, 0))
 	const Note = relation(
 		"Note",
 		{ k: pg.integer, n: Words, tier: closedId(Tier, undefined), tags: bits(Tier) },

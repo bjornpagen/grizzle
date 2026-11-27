@@ -93,7 +93,7 @@ const targetColumns = (
 		return column.done === true ? [] : [{ target: t, column: column.value }]
 	})
 	if (out.length !== targets.length || each.next().done !== true) {
-		throw defect("a statement's outermost targets are its output's columns")
+		defect("a statement's outermost targets are its output's columns")
 	}
 	return out
 }
@@ -147,7 +147,7 @@ export const executableQueryFrom = (
 		ast.orderBy.map((item) => {
 			const ordered = outputs[outputTexts.indexOf(canonicalTextOf(item.expr))]
 			if (ordered === undefined) {
-				throw defect("an ORDER BY item that is an output column of a deduplicating statement")
+				defect("an ORDER BY item that is an output column of a deduplicating statement")
 			}
 			return { ...item, expr: col(alias, ordered.derived) }
 		}),
@@ -209,7 +209,7 @@ const collatedOrder = (
 	return orderBy.map((item) => {
 		const type = typeOf.get(canonicalTextOf(item.expr))
 		if (type === undefined) {
-			throw defect("an ORDER BY item of a delivered statement that is a target of its heading")
+			defect("an ORDER BY item of a delivered statement that is a target of its heading")
 		}
 		return baseOf(type).carrier === "text"
 			? { ...item, expr: { kind: "collate", expr: item.expr, collation: cUtf8Collation } }

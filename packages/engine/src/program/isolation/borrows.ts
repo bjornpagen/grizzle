@@ -78,14 +78,14 @@ const placeIn = (
 ): UnitPlace => {
 	const declared = units.get(unit)
 	if (declared === undefined) {
-		throw defect(`a relation under unit ${unit}, which its schema declares`)
+		defect(`a relation under unit ${unit}, which its schema declares`)
 	}
 	return {
 		unit,
 		fields: mapNonEmpty(declared.heading, (h, i) => {
 			const field = fields[i]
 			if (field === undefined) {
-				throw defect("a relation under a unit holds each field of the unit's declared heading")
+				defect("a relation under a unit holds each field of the unit's declared heading")
 			}
 			return { key: h.field, field }
 		})

@@ -1,137 +1,159 @@
 /**
- * scopedEntriesOf derives each scope along declared containments (schema/scope.ts deriveScopes), over drawn schemas
- * of two to four relations, keys of one or two fields, containments into keys from a relation's own key or from a field
- * of its own, and roots stated by a field (scope.fixtures.ts). Where it admits the schema: every root is a root by its
- * field; every relation a containment chain leads from to a root is scoped, by a scope in its shortest form, and every
- * other whole; a role holding the entries holds each scope as role(...) parses it back from its Description; and on
- * lawful databases of the schema, each scoped row is the owner's by its scope exactly where the model reads it the
- * owner's along any containment, and along every one. Where a relation's containments reach scoped keys in two forms,
- * it is ScopeRefused ambiguous.
+ * A role's scope (schema/scope.ts ownerOf, schema/world.ts admitRole, schema/own.ts ownRole): every owner it lists reads
+ * the role's contexts, and from them tables at a prefix of one of their keys, each a table the role holds whole; its
+ * head is one unit's heading, each field bound at the unit's type; and the role binds each unit by one owner. The box:
+ * one owner of each way it keeps the rules (a sign-in at its key, a coach's grants at a key prefix, a claim naming the
+ * child itself) and one breaking each rule (scope.fixtures.ts scopeForms). Each case builds the role and owns it.
  *
- * Oracle: the specification, ownership read along the schema's declared containments over lawful databases
- * (scope.fixtures.ts modelMember), and the scoped relations' closure (scopedModel).
- *
- * Features: a root, a reached scope, a chain held in its shortest form, a relation kept whole, an ambiguous relation
- * refused.
+ * Oracle: the rules restated per form (scope.fixtures.ts verdictOf): an admitted owner's role owns, and a broken one is
+ * refused by its rule, ScopeRefused naming it, or OutsideRole naming the access.
  */
 
-import { assert, defined } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
+import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Record as Rec, Result } from "effect"
+import { Effect, Result } from "effect"
 import { CompileError } from "#compiler/core/errors.ts"
-import { parseSchemaInput } from "#compiler/program/input.ts"
-import { role, scopedEntriesOf } from "#compiler/public/schema.ts"
+import { ownRole } from "#compiler/schema/own.ts"
+import { roleDescOf } from "#compiler/schema/world.ts"
 import {
-	built,
-	modelMember,
-	relationName,
-	rowText,
-	type ScopeCase,
-	scopeCaseGen,
-	type ScopeFeature,
-	scopedModel,
-	scopeMember,
-	Session,
-	shortest
+	roleOf,
+	type ScopeForm,
+	scopeFormGen,
+	verdictOf
 } from "#test/unit/schema/scope.fixtures.ts"
 
-/** scopedEntriesOf scopes exactly the relations a declared containment chain leads from to a root, each by one form. */
-export const scopedEntriesOfScopesExactlyTheRelationsAContainmentChainLeadsFromToARootEachByOneForm =
-	property.explore(scopeCaseGen, {
+/** The refusal a form's role meets where it is built or owned, or none where it owns. */
+const refusalOf = (form: ScopeForm): CompileError | undefined => {
+	const built = Result.try({ try: () => roleOf(form), catch: (e) => e })
+	if (Result.isFailure(built)) {
+		return built.failure instanceof CompileError ? built.failure : undefined
+	}
+	const desc = roleDescOf(built.success)
+	if (desc === undefined) {
+		return assert.fail(`${form}: role(...) builds a role's Description`)
+	}
+	const owned = ownRole(desc)
+	return owned.ok ? undefined : owned.error
+}
+
+/** A role's scope admits exactly the owners its rules admit, each refused one by the rule it breaks. */
+export const aRolesScopeAdmitsExactlyTheOwnersItsRulesAdmit = property.exhaust(
+	finite(scopeFormGen),
+	{
 		needs: {},
 		situations: [
-			"a root",
-			"a reached scope",
-			"a chain held in its shortest form",
-			"a relation kept whole",
-			"an ambiguous relation refused"
-		] satisfies ReadonlyArray<Reached<ScopeFeature>>,
-		check: (_, cx: Case<ScopeFeature>) => (c: ScopeCase) =>
-			Effect.sync(() => {
-				const { schema, owner } = built(c.shape)
-				const roots = Rec.fromEntries(
-					Arr.map(c.shape.roots, (i) => [relationName(i), "person"] as const)
-				)
-				const entries = Result.try({
-					try: () => scopedEntriesOf(schema, { owner, roots }),
-					catch: (e) => e
-				})
-				if (Result.isFailure(entries)) {
-					const e = entries.failure
-					assert.ok(
-						e instanceof CompileError &&
-							e.reason._tag === "ScopeRefused" &&
-							e.reason.rule.kind === "ambiguous",
-						`the derivation refuses only an ambiguous relation: ${String(e)}`
-					)
-					cx.note("an ambiguous relation refused")
-					return
-				}
-				const student = role(schema, "student", entries.success, { contexts: [Session] })
-				const parsed = parseSchemaInput(student)
-				assert.ok(parsed.ok && parsed.value.kind === "role", "the role parses")
-				const scoped = parsed.value.level.scoped
-				const expectedScoped = scopedModel(c.shape)
-				for (const [i] of c.shape.keys.entries()) {
-					const name = relationName(i)
-					const scope = scoped.get(name)
-					assert.equal(
-						scope !== undefined,
-						expectedScoped.has(i),
-						`${name} is scoped exactly where a containment chain leads from it to a root`
-					)
-					if (scope === undefined) {
-						cx.note("a relation kept whole")
-						continue
-					}
-					if (Arr.contains(c.shape.roots, i)) {
-						assert.ok(
-							scope.kind === "root" && scope.field === "person",
-							`${name} is a root by its person`
-						)
-						cx.note("a root")
-					}
-					if (scope.kind === "reached") {
-						cx.note("a reached scope")
-						if (scope.parent.kind === "reached") {
-							cx.note("a chain held in its shortest form")
+			"admitted",
+			"refused: owner",
+			"refused: unit",
+			"refused: unitType",
+			"refused: twice",
+			"refused: outside the role"
+		] satisfies ReadonlyArray<
+			Reached<
+				| "admitted"
+				| "refused: owner"
+				| "refused: unit"
+				| "refused: unitType"
+				| "refused: twice"
+				| "refused: outside the role"
+			>
+		>,
+		check:
+			(
+				_,
+				c: Case<
+					| "admitted"
+					| "refused: owner"
+					| "refused: unit"
+					| "refused: unitType"
+					| "refused: twice"
+					| "refused: outside the role"
+				>
+			) =>
+			(form) =>
+				Effect.sync(() => {
+					const verdict = verdictOf(form)
+					const refusal = refusalOf(form)
+					switch (verdict.kind) {
+						case "admitted":
+							assert.ok(
+								refusal === undefined,
+								`${form}: its role owns; it is refused ${refusal?.reason._tag}`
+							)
+							c.note("admitted")
+							return
+						case "scope": {
+							const reason = refusal?.reason
+							if (reason?._tag !== "ScopeRefused") {
+								return assert.fail(`${form}: ScopeRefused, not ${reason?._tag ?? "admitted"}`)
+							}
+							const rule =
+								reason.rule.kind === "owner" ? `owner ${reason.rule.why}` : reason.rule.kind
+							assert.equal(rule, verdict.rule, `${form}: refused by its rule`)
+							c.note(
+								reason.rule.kind === "owner"
+									? "refused: owner"
+									: reason.rule.kind === "unit"
+										? "refused: unit"
+										: reason.rule.kind === "unitType"
+											? "refused: unitType"
+											: "refused: twice"
+							)
+							return
+						}
+						case "outsideRole": {
+							const reason = refusal?.reason
+							if (reason?._tag !== "OutsideRole") {
+								return assert.fail(`${form}: OutsideRole, not ${reason?._tag ?? "admitted"}`)
+							}
+							assert.equal(reason.access.kind, verdict.access, `${form}: refused for its access`)
+							c.note("refused: outside the role")
+							return
 						}
 					}
-					assert.ok(shortest(scope), `${name}'s scope is in its shortest form`)
-					for (const db of c.databases) {
-						for (const row of defined(db[i], `${name}'s rows`)) {
-							const byScope = scopeMember(scope, db, row)
-							assert.ok(
-								modelMember(c.shape, db, "exists", i, row) === byScope,
-								`${name}'s row ${rowText(row)}: its scope and ownership along any containment`
-							)
-							assert.ok(
-								modelMember(c.shape, db, "every", i, row) === byScope,
-								`${name}'s row ${rowText(row)}: its scope and ownership along every containment`
-							)
-						}
-					}
-				}
-			}),
+				}),
 		oracle: {
 			kind: "specification",
-			name: "ownership read along the schema's declared containments over lawful databases"
+			name: "the scope's rules restated per form: an owner of the role's contexts, keyed from them, of one unit's heading, read from tables the role holds whole, one a unit"
 		},
+		box: "an owner of each admitted form (a sign-in at its key, a grant at a key prefix, a claim naming the child) and one breaking each rule",
 		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/schema/scope.ts",
-				original: "\t\tif (second !== undefined) {",
-				replacement: "\t\tif (second !== undefined && first === undefined) {",
-				why: "A relation whose containments reach scoped keys in two forms is scoped by the first; on a database where its two reached rows are different owners', the scope and ownership along every containment differ."
+				original:
+					'\t\tif (!arm.matches.some((m) => m.source.kind === "context")) {\n\t\t\treturn broken("noContext")\n\t\t}\n',
+				replacement: "",
+				why: "An owner reading no context is admitted: its rows are no session's own, the same keys for every session."
 			},
 			{
 				file: "packages/engine/src/schema/scope.ts",
+				original: "\t\t\treturn first !== undefined && settled(p.match.bindings[first])",
+				replacement: "\t\t\treturn first !== undefined",
+				why: "An owner reading a table at no key prefix the contexts bind is admitted: a coach's grants read at the child alone are every coach's."
+			},
+			{
+				file: "packages/engine/src/schema/own.ts",
 				original:
-					'\t\t\treturn field === undefined\n\t\t\t\t? { kind: "reached", reach, parent: target }\n\t\t\t\t: { kind: "root", field }',
-				replacement: '\t\t\treturn { kind: "reached", reach, parent: target }',
-				why: "A reach into a root's key that holds the root's field stays a reach where it is a root of its own field; the scope is not in its shortest form, and a stratum writing both would read the root."
+					"\t\t\t\treturn bound === undefined || keyed === undefined || !compatible(bound, keyed)",
+				replacement: "\t\t\t\treturn bound === undefined || keyed === undefined",
+				why: "An owner whose head holds another type than the unit keys by is admitted: its keys are no unit's."
+			},
+			{
+				file: "packages/engine/src/schema/scope.ts",
+				original: "\t\tif (owners.some((o) => o.unit === owner.value.unit)) {",
+				replacement:
+					"\t\tif (owners.some((o) => o.unit === owner.value.unit && o.unit !== o.unit)) {",
+				why: "Two owners of one unit are admitted, the unit bound twice."
+			},
+			{
+				file: "packages/engine/src/schema/own.ts",
+				original: '\t\t\tif (relations[read]?.kind !== "whole") {',
+				replacement: '\t\t\tif (relations[read]?.kind === "never") {',
+				why: "An owner reading a table the role holds through a query entry is admitted: its statements would read a table the role holds no SELECT on."
 			}
 		]
-	})
+	}
+)

@@ -3,7 +3,7 @@
  *
  * A read is one statement, and every placeholder of a caller parameter is cast to its checked type, so PostgreSQL
  * checks a value as it binds the statement. A parameter the read's logic leaves unread (a rule whose filter is the
- * constant false, r.or(), reads nothing of what it matches) has no placeholder of its logic's, so the statement holds an
+ * constant false, r.or([]), reads nothing of what it matches) has no placeholder of its logic's, so the statement holds an
  * admission of it (lower/conservative/admission.ts withAdmission), an entry of its WITH no query reads, which PostgreSQL
  * parses and so binds. Without it such a read answered a value outside its pattern, which the same read without the
  * filter refuses.

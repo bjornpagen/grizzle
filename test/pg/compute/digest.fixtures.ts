@@ -6,7 +6,7 @@ import type { Need } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { predicateTable } from "#compiler/ir/expr.ts"
-import { compiledExpr } from "#compiler/scalar/compute/evaluate.ts"
+import { compiledExpr, noParamLeaf } from "#compiler/scalar/compute/evaluate.ts"
 import type { Lowered } from "#compiler/scalar/compute/lower.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
@@ -127,7 +127,7 @@ export const hostDigest = (term: Lowered, body: Uint8Array<ArrayBuffer>): string
 	const admitted = new AdmittedBytes(body)
 	const value = succeeded(
 		compiledExpr(table)(
-			{ value: undefined, column: () => admitted, closed: () => undefined },
+			{ value: undefined, column: () => admitted, closed: () => undefined, param: noParamLeaf },
 			ProgramPatterns.of(tablePatterns(table))
 		),
 		"the host evaluates the digest"

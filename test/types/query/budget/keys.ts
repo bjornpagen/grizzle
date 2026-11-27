@@ -86,16 +86,23 @@ const step = 10
  *   (PERF-TYPES-tools/pins-*.log), the head's entries read once per head with a key's needs walked at once cost least
  *   at every pin: walked once per needed variable, 2,664 and 3,878; with the inputs' needs walked apart from the
  *   key's, 2,355 and 3,487. Of the facts cut's forms (METISREDS-logs/keys-rosterin.log), find's record narrowed by
- *   r.in over the facts read whole cost 2,293 and 3,417; read by their parts, with the narrowing, 2,240 and 3,306
- * @decision the bound is the cut's own cost, exactly: a change that makes a keyed rule cost more is refused here, and a
- *   change that lowers it lowers the bound
+ *   r.in over the facts read whole cost 2,293 and 3,417; read by their parts, with the narrowing, 2,240 and 3,306;
+ *   at REPLAYFIX's exact-bound car (2026-11-26, over ousxtqsu on train C's 1170fa12 and its empty-level car), every type
+ *   budget run with each program's count logged, width 8, load in the hundreds: a composite key 2,240 a query, a bound
+ *   query beside a composite key 3,306, as the bounds stood; at the merged tree of every lane (52df3631e,
+ *   2026-11-26), measured as this test measures it with each count logged, a composite key 2,220 and a bound query
+ *   beside it 3,293, the arm proof every rule's evidence read gone with alternatives (271ffecf2, ArmProofOf): 2,240 and
+ *   3,306 again with slice B's types restored.
+ * @decision the bound is the count at the tree it was last measured at, exactly, the counts being a function of the
+ *   tree: a change that makes a keyed rule cost more fails here and moves the bound in its own commit, its cost stated,
+ *   and a change that lowers it lowers the bound
  * @revalidate a TypeScript 7 or tsgo upgrade; another machine; any change to the evidence's key rule
  *   (types/evidence/evidence.ts HeadKeys) or the query facade's types that moves a keyed rule's cost, which states its
  *   cost here
  */
 const addedAtMost: { readonly [S in KeyedShape]: number } = {
-	"a composite key": 2240,
-	"a bound query beside a composite key": 3306
+	"a composite key": 2220,
+	"a bound query beside a composite key": 3293
 }
 
 /** How a shape prints. */

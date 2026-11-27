@@ -132,6 +132,7 @@ const exactWidening = (
 		case "exactInteger":
 		case "exactMoney":
 			return { into: t.carrier, digits: t.digits }
+		case "variant":
 		case "bool":
 		case "code":
 		case "bits":

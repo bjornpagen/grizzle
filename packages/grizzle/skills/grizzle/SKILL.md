@@ -29,6 +29,8 @@ export default defineConfig({
 	schemas: [Blog],
 	/** Required: every login, and through them every role a Db opens and every workload whose access paths earn indexes. */
 	logins: [Web, EtlJob],
+	/** Required: each contract a running application parses values of, compiled into migrations/contract-checks/<name>.json. */
+	contracts: [],
 	/** Required: the migrations directory, relative to this file. */
 	migrations: "migrations",
 	/** Required: the bytes of the longest role prefix an installation is under, 0 where none is (a test harness states its own). */
@@ -108,12 +110,13 @@ export default defineConfig({
   whose reads are all answered needs no `LiveSource` (a serverless route's ops login). The member
   `clocked(program, { now: "millis" })`
   binds the bigint parameter `now` of a query, an ordered query or a ChangeSet to the database's clock, the instant
-  the call's transaction began, in `"micros"` or `"millis"`: the input omits it, every statement of the call reads the
+  the call's transaction began, in `"micros"` or `"millis"`, a parameter of a consumer's contract under its key by the
+  parameter's name, `clocked(program, { now: "millis" }, { now: millisKey })`: the input omits it, every statement of the call reads the
   one instant, and a clocked read is an answered one with its clock, answering `once` alone, never live. Bind a lease's, a timer's or a due instant's `now`
   so, never the host's clock; a reading lies in PostgreSQL's timestamptz range in its unit, so `now + delay`, the delay a
   contract its predicate bounds, casts into its field with no guard where those bounds fit (millis: into a bigint).
   Rows an array or a Stream inserts take such a field from the call: `insertAllComputed({ Claim: [] }, { until:
-  Type.cast(Num.add(Type.base(param("now", Instant)), Type.base(param("budget", Budget))), Instant) })`, its rows
+  Type.cast(Num.add(Type.base(param("now", Instant)), Type.base(param("budget", Budget))), Instant, instantKey) })`, its rows
   leaving `until` out, the record evaluated once per call in the statement that writes the rows, a nested owner's
   members carrying a computed key field holding the owner's one value (README "Writes"). A
   reading is a value, a `bigint`, never an `instant`: a row records when it was written
@@ -121,7 +124,11 @@ export default defineConfig({
   `relation("SignIn", { user, at: instant, ... }, ["user", "at"])`: its `at` is a clock of child `user`, which an
   insert leaving it out stamps with the call's instant at the user, `greatest(clock, the user's latest + 1)`, from
   the user's head row, which two calls of one user take in turn, so a user's instants increase in the order their
-  calls commit at every level, and calls of different users never wait on each other. An instant a
+  calls commit at every level, and calls of different users never wait on each other. A clock of a relation under a
+  unit stamps from the unit's one head instead, keyed by its heading, so every clock of one unit at one key is
+  commit-ordered with every other: an end stamped after a learner's snapshots is above each of them. No writer states a
+  clock otherwise: a direct SQL writer, the owner and a migration's data step call the scope's stamp function first and
+  state the instant it returns, or the insert is refused (23514, `__clocked`). An instant a
   containment carries into another relation's instant is a reference, stamped beside an insert of its clock or stated
   from a stored instant (README "Instants"). A read delivers an instant as an `Instant`, a bigint only a read mints;
   `instant.stored` is a field of instant's type its caller writes as it read it, the database drawing nothing, so a
@@ -151,13 +158,13 @@ export default defineConfig({
   the statements: `unit("Sitting", { number: AssignmentNo })`. Every stored relation whose primary key leads with the
   heading's fields, by name and type in order, sits under it, at its level or any above, which states nothing more; so
   lead each member's key with the unit's fields, and give the key a named domain (a contract of its own,
-  `contract("AssignmentNo", pg.bigint, …)`), since a field of the same name and type that means something else joins the
+  `contract<typeof assignmentNoKey>()("AssignmentNo", pg.bigint, …)`), since a field of the same name and type that means something else joins the
   unit too, a coarser lock. A write of a unit's rows holds its key exclusively and a read of a unit it does not write
   holds it shared, as generate derives from the ChangeSet: no borrow is written. Refused (`MalformedDescription`): a unit
   whose heading leads with another's or that another's leads with (no unit nests: each relation sits under one at
   most), one name over two headings, and a unit stated above a level whose relation leads with its heading (state it at
   that level). A gapless number, one past the greatest, is `series(R)` over a relation keyed by one field of a type
-  grizzle draws, `natural` or a contract over an integer (an int4 number keeps its `contract(…, pg.integer, …)`, whose
+  grizzle draws, `natural` or a contract over an integer (an int4 number keeps its `contract<typeof key>()(…, pg.integer, …)`, whose
   CHECK refuses one past its bound): it states the predecessor law itself and every write of R holds its one lock, the
   only lock no key splits (README "Units").
 - A relation is closed or open. Closed, the default: its facts are inserted, never changed or deleted; a role that
@@ -249,20 +256,25 @@ For data-only work: `grizzle generate grizzle.config.ts --custom --name <name>`,
 commit and `migrate`.
 
 Commands: `grizzle generate <config> [--name <name>] [--schema <schema>] [--rename <old>=<new>]... [--drop <old>]...`,
-`grizzle generate <config> --custom --name <name> [--schema <schema>]`, `grizzle check <config>`, `grizzle migrate
+`grizzle generate <config> --custom --name <name> [--schema <schema>]`, `grizzle draft-key <config> [generate's flags]`
+(the key of the draft generate makes with those flags: the SHA-256 of every input it reads, which a cache of its
+output keys by; README "A draft is a function of its inputs"), `grizzle check <config>`, `grizzle migrate
 <config>`, `grizzle drift <config>`, `grizzle names <config>`, `grizzle roles <config>` (the installation's roles in
 the cluster), `grizzle uninstall <config>` (drops the installation's schemas, every row they hold, and its roles, in
 one transaction). Flags come anywhere after the command, as `--flag value`
 or `--flag=value`. A name is lowercase words joined by `_` or `-`, at most 240 characters, so that the folder
 `<timestamp>_<name>` fits one file name (NAME_MAX, 255 bytes). Without `--name`, a drafted folder is named after its
-change (`init`, `add_task_note`, `<first change>_and_more`); a custom one needs `--name`. `--schema` is accepted only
-when the config lists several installations, each by its top level's name; there it is required with `--custom`,
-`--rename` or `--drop`. Exit codes: 0 ok, 1
+change (`init`, `add_task_note`, `<first change>_and_more`); a custom one needs `--name`. The timestamp is the committed
+chain's, never a clock's: a schema's first folder is `19700101000000`, each later one the second after the newest
+folder's, so a draft is a function of the source and the committed chain, byte for byte, wherever and whenever it runs,
+and two drafts on one chain share a timestamp, which generate, check and migrate refuse as a forked chain. `--schema`
+is accepted only when the config lists several installations, each by its top level's name; there it is required with
+`--custom`, `--rename` or `--drop`. Exit codes: 0 ok, 1
 refused, 2 usage error, 130 interrupted.
 
 ## Reading a draft
 
-`migrations/<root>/<UTC timestamp>_<name>/` holds `NN-<phase>.sql` files and `meta.json`, `<root>` the PostgreSQL schema
+`migrations/<root>/<timestamp>_<name>/` holds `NN-<phase>.sql` files and `meta.json`, `<root>` the PostgreSQL schema
 of the installation's root level; one migration spans every level. Each file is one
 transaction, so a migration is several small files, in order. A migration is plain ordered SQL: what the schema no
 longer has is dropped in the same migration, as declared, and a declared rename or a type change happens in place. A
@@ -432,6 +444,23 @@ What a declaration drafts:
   a reorder alone is no change, and a comparison, `orderBy`, `least`, `greatest`, `min`, `max` or a fold's `max` over
   its closed ids is a type error naming `closed.ordered` as the fix. Declaring an existing roster `closed.unordered`
   moves no code: its migration holds no SQL.
+- **A variant's arms** grow in place: an arm appended to its roster takes the next code, so its fields come after
+  every attribute the variant's composite holds, and the draft adds them, `ALTER TYPE ... ADD ATTRIBUTE`, rewriting no
+  stored value, then replaces the variant's domain's CHECK `NOT VALID` and validates it in Publish. A handle renamed
+  keeps its code and so its arm's attributes: no SQL for the composite. A handle dropped from a roster an arm's field
+  holds is validated through the variant's domain, whose CHECK casts the field to the roster's domain, so a stored
+  value holding it refuses the migration, 23514: change those values in a data step first. A variant holds the subset
+  of its roster its arms name: an arm taken into it past every arm's code grows the composite in place, and an arm of
+  no field taken in or left out changes the domain's CHECK alone, validated in Publish, so a stored value of an arm
+  left out refuses the migration, 23514. A field added to an arm of a lower code, a field removed or retyped, or an arm
+  with fields removed from the roster or the subset or taken into it below an arm's code would rewrite every stored
+  value: the draft refuses it, and the change is a custom migration.
+- **`alternatives` and `arm(field, handle)` are gone.** A sum of values, a state and the data each state carries, is a
+  variant field (README "Variants"); a sum of relations, arms other relations refer to, is a tagged header with one
+  mirrors per arm relation, selecting its handle or handles: `mirrors(on(Arm, ...key), on(select(Header, (h) =>
+  h.eq(h.tag, "arm")), ...key))`, or `h.in(h.tag, ["a", "b"])` for an arm relation two handles share, which states
+  the same containments `alternatives` stood for. A query attaches an arm relation plainly at the header's key,
+  delivered as `"option"`.
 - **A roster continues one roster at most:** the one its `--rename` names, or else the one of its own name or an alike
   spelling, unless a rename of another takes that name; any other roster is new, its codes from 0. A closed id or a
   set keeps its codes only on the roster its own continues. Moved to another roster, to or from an integer, renamed
@@ -478,10 +507,10 @@ back as PostgreSQL's scanner reads it: whitespace, comments and the case of unqu
   `snapshot.json` and each served file record grizzle's format as their `format` member, and `manifest.json`'s seal
   digests both snapshot files under it. A pair whose `snapshot.json` records another format, or none, is read no
   further: `check` says: snapshot.json records another format than this grizzle's, with the format it records and the
-  one this grizzle reads and writes; run grizzle upgrade against the live database, which rebases the installation
-  onto this grizzle's compile of the source it was deployed from; an installation with no database is drafted afresh,
-  from an empty migrations directory: no grizzle reads another format's records. `generate`, `migrate`, `drift` and
-  `names` refuse it at stage `format`, writing nothing (see Upgrading across a format, below). Never edit one by hand; `grizzle generate` writes a served file
+  one this grizzle reads and writes; purge and regenerate: drop the installation (grizzle uninstall), empty its
+  migrations directory, then run grizzle generate, which drafts the schema afresh in this grizzle's format, and grizzle
+  migrate: no grizzle reads another format's records. `generate`, `migrate`, `drift` and `names` refuse it at stage
+  `format`, writing nothing (see A new format, below). Never edit one by hand; `grizzle generate` writes a served file
   again, and an application refuses a served file or a `snapshot.json` of another format where it loads it
   (`ArtifactFormat`).
 - `served/<login>.json`: a login's workload compiled under the snapshot beside it, which the application serves.
@@ -512,36 +541,13 @@ back as PostgreSQL's scanner reads it: whitespace, comments and the case of unqu
   the migration installs a rule the stored rows already break.
 - `CONCURRENTLY` turned into a plain build: a plain build blocks every write to the table while it runs.
 
-## Upgrading across a format
+## A new format
 
-A new grizzle refuses a committed snapshot of another format (stage `format`). A live installation moves to the new
-format with `grizzle upgrade <config>`, run from the commit the installation was deployed from, with the new grizzle:
-
-- It reads no `snapshot.json` or `manifest.json`: only the folders' meta.json (the chain they reach) and the database.
-  It compiles the source again under the database's history: each roster's codes read off the names constant its
-  domain reads (a hole and a renamed handle's code kept), each table's attribute numbers, and each pattern language's
-  spelling, one the schema writes of it. The drift check of that compile against the catalog proves each of them.
-- Where the database holds the compile whole under its fingerprint, it writes `snapshot.json` and `manifest.json`
-  again, in the new format, and the served files: commit them, run `grizzle check`, deploy. Nothing to migrate.
-- Otherwise it drafts `<timestamp>_upgrade`, with the normal diff from the compile's objects the database holds: an
-  object it lacks is created, one it holds otherwise is changed by its kind's own rule (a function replaced in place, a
-  key swapped, a CHECK added `NOT VALID` and validated, a trigger replaced under its table's lock), and one no object of
-  the compile is dropped at the end of Publish. A folder of no SQL file only moves the ledger to the new fingerprint.
-  Review it like any draft, commit, run `grizzle check`, then `grizzle migrate`.
-- It writes nothing to the database, and reads at most the catalog, the ledger and the roster constants.
-
-It refuses, at stage `upgrade`, naming what it found:
-
-- the database's ledger reaches another snapshot than the committed folders, or holds a folder partly applied: bring
-  the database to its committed snapshot with the grizzle that drafted it first;
-- no installed constant is a roster's names constant under the codes it holds;
-- no object the database holds as the compile's reads a pattern language as any spelling the schema writes of it;
-- an object holds stored rows (a table, grizzle's ledger or drift proofs) and the database holds it otherwise: a
-  format change after a production cutover leaves those unchanged unless it ships a carried conversion;
-- an object of a kind no draft changes is defined otherwise, or held under other keys (a function under another
-  signature, a domain under other constraints), or a key names another object;
-- a role's, grant's, membership's, setting's, default privilege's, extension's or publication's difference that no
-  object the upgrade creates or drops carries.
+A new grizzle refuses a committed snapshot of another format (stage `format`), and no installation crosses a format:
+grizzle reads, converts and rebases nothing another format wrote. Purge and regenerate: drop the installation
+(`grizzle uninstall <config>`), empty the schema's migrations directory, run `grizzle generate <config>`, which drafts
+the schema afresh as one init migration with its snapshot and served files, commit them, run `grizzle check`, then
+`grizzle migrate`.
 
 ## Custom migrations
 
@@ -577,18 +583,22 @@ schema or workload that does not compile) are `check`'s alone.
 | the OpenAPI document is of a login the configuration does not list over the schema | run grizzle generate, which removes the OpenAPI document |
 | the schema or a login's workload does not compile | fix the schema or workload it names, then run grizzle generate |
 | grizzle mints no ids (a `pg.serial` or `pg.uuidv7` field) | key the relation by what identifies its fact: its parent's key and its own name or place, `sha256` of its content, a published name and version, or an outside system's id under a contract of its own (README "Identity: natural keys") |
-| say whose id this is (a bare `uuid` column) | `contract("ClerkUserId", uuid)`: name the system the id is of, so two systems' ids are two types |
+| a variant's arms changed otherwise than in place: an arm of a code past every arm's (appended to its roster or taken into its subset), an arm of no field taken in or left out, or a field appended to the arm of its greatest code migrate in place; an arm with fields left out of the subset or taken in below an arm's code, and a field removed, retyped or added to another arm, rewrite every stored value: a custom migration | write a custom migration (`generate --custom`) that converts the stored values, or append the change as a new arm |
+| say whose id this is (a bare `uuid` column) | `contract<typeof clerkUserKey>()("ClerkUserId", uuid)`: name the system the id is of, so two systems' ids are two types; its values are the key's mint's, `mintOf(clerkUserKey)` |
+| a plain value, or another contract's, where a contract's value is written (a fact, a parameter, a closed row, `Type.literal`, a conditional's arm; a type error) | make it with the contract's key's mint, `mintOf(key)`, in the module that holds the key; a value compared with a contract's term is its base's |
+| a cast, a drawn or accumulated field, a clock binding or a declared function's result makes a contract's values without its key (a type error; `MalformedDescription` from JavaScript) | pass the key where the module that holds it declares the position: `Type.cast(x, C, key)`, `drawn(C, key)`, `accumulated(C, toC(0n), key)`, `clocked(program, { now: "millis" }, { now: key })`, `fn(name, definition, { C: key })`; a contract over another takes every key of its chain, its own first |
 | the schema no longer holds a name snapshot.json holds, and no --drop or --rename declares what became of it | run grizzle generate <config> --drop <name>, or --rename <old>=<new> where it was renamed |
 | an ordered roster declares a handle before one that holds a lower code in snapshot.json | append new handles, since an ordered roster's order is its codes' order, or declare the roster closed.unordered where its order means nothing |
 | unresolved placeholder | write the value or the UPDATE, then delete the marker line |
 | unconfirmed group | keep every statement below the marker as drafted, then delete the two marker lines |
 | unresolved data loss: a schema's first migration starts it empty beside a schema the configuration no longer lists, and the statement that loses that schema's rows is still commented | to start the new schema empty, uncomment the statement below its -- grizzle: data loss line; to keep the rows, keep the old schema's name and delete the folder |
 | snapshot.json and manifest.json do not decode as a snapshot, or are the snapshot of another schema | restore them from git |
-| snapshot.json records another format than this grizzle's | run grizzle upgrade against the live database, which rebases the installation onto this grizzle's compile of the source it was deployed from; an installation with no database is drafted afresh, from an empty migrations directory: no grizzle reads another format's records |
+| snapshot.json records another format than this grizzle's | purge and regenerate: drop the installation (grizzle uninstall), empty its migrations directory, then run grizzle generate, which drafts the schema afresh in this grizzle's format, and grizzle migrate: no grizzle reads another format's records |
 | meta.json does not decode as a migration's meta.json, or names another schema | restore it from git |
 | broken chain: this migration does not start where the previous one ends | regenerate; never hand-edit meta.json |
 | broken chain: the newest migration does not reach snapshot.json | regenerate; never hand-edit meta.json |
 | a migration folder is named <YYYYMMDDHHMMSS>_<name> | fix the file: rename the folder, or move it out of the migrations directory |
+| forked chain: two migrations share a timestamp, so both were drafted on one chain | keep one of the two and the snapshot.json its line reached, delete the other, and run grizzle generate again for its change (--custom --name for a custom migration's) |
 | a migration file is named NN-<words>.sql, one per NN | fix the file: rename it to NN-<words>.sql with an NN of its own |
 | a migration file runs as one transaction, or each statement alone with -- grizzle: no-transaction, and never controls the transaction itself | fix the file: delete the transaction control; SAVEPOINT and ROLLBACK TO are allowed |
 | -- grizzle: no-transaction counts only as a file's first line | fix the file: move the marker to the first line, or delete it |
@@ -601,7 +611,7 @@ Applied files, which only `migrate` can check against the ledger:
 - `<folder>/<file>` was applied but is missing; restore it from git
 - `<folder>/<file>` was added after its folder was applied; move it into a new migration (grizzle generate <config> --custom --name <name>)
 
-`migrate`, `drift`, `upgrade`, `roles` and `uninstall` name the stage they stopped at, and its fix:
+`migrate`, `drift`, `roles` and `uninstall` name the stage they stopped at, and its fix:
 
 | Stage | Fix |
 | --- | --- |
@@ -651,16 +661,15 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
 | environment | unset the variable it names in the environment grizzle runs in, then run the command again |
 | filesystem | fix the migrations directory, then run grizzle check |
 | snapshot | restore snapshot.json, manifest.json and the migration folders from git |
-| format | run grizzle upgrade against the live database, which rebases the installation onto this grizzle's compile of the source it was deployed from; an installation with no database is drafted afresh, from an empty migrations directory: no grizzle reads another format's records |
+| format | purge and regenerate: drop the installation (grizzle uninstall), empty its migrations directory, then run grizzle generate, which drafts the schema afresh in this grizzle's format, and grizzle migrate: no grizzle reads another format's records |
 | codes | append new handles, since an ordered roster's order is its codes' order, or declare the roster closed.unordered where its order means nothing |
 | generate | fix the schema or workload it names, then run grizzle generate again |
-| upgrade | bring the database to the snapshot its committed folders reach with the grizzle that drafted them (grizzle migrate, then grizzle drift), from the source it was deployed from; an object the refusal names is one this grizzle's format changes in a way no rebase may draft, which only a migration of that grizzle's own can carry |
 
 ## Deploy
 
 - Run `grizzle migrate` as the role that owns the schema and the database. No snapshot or migration names that role,
   so dev and prod may use different ones; a schema owned by another role is refused at the stage owner. grizzle sets
-  no database default; `grizzle upgrade` resets the SERIALIZABLE default an installation of format 7 or before set.
+  no database default.
   Each file first takes the ledger's exclusive lock, which waits for the
   `Db` transactions in flight; from then until the migration's last file commits, no `Db` call runs and no `Db` opens,
   so plan migrations as downtime.
@@ -772,7 +781,7 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   for a contract's pattern, whose law is the contract's. Key your names for laws by these ids and read a refusal by
   `id`, never through a table of ids you keep, and never keep a list of laws by hand. For one statement's laws, bind `const lawsOfStatement = lawsByStatement(schema)` once, which
   compiles, then look each statement up with `lawsOfStatement(statement)`: its laws from lawsOf's list, in its order, a
-  mirrors' two containments, an alternatives' containments, none for `mutable`, a law two statements state each
+  mirrors' two containments, none for `mutable`, a law two statements state each
   one's; a statement no level of the schema states throws `CompileError`. `every` names every law grizzle
   decides the write broke. `first` names the laws of the CHECK PostgreSQL tried first, where grizzle cannot decide a
   row's checks on the host (a row only PostgreSQL computes, such
@@ -787,7 +796,7 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   22012 or 2201F, around a query. Integer arithmetic is
   exact and delivers `bigint`, money arithmetic exact `Money`, and floats are IEEE 754 (`x / 0.0` is ±Infinity). A
   partial operation needs its precondition proved, by a literal's type (`Num.div(x, 7n)`), by a contract that
-  declares it (`contract("Divisor", pg.bigint, (v) => Logic.ne(v, 0n), { proves: ["nonzero"] })`) or by a guard:
+  declares it (`contract<typeof divisorKey>()("Divisor", pg.bigint, (v) => Logic.ne(v, 0n), { proves: ["nonzero"] })`) or by a guard:
   `Logic.when(Num.nonzero(b), (b) => Num.div(a, b), 0n)`, the guards `Num.nonzero`,
   `Num.nonnegative`, `Num.positive`, `Num.isFinite` and `Num.within(x, low, high)`. A guard's subject
   may be a parameter (`Logic.when(Num.nonzero(d), (d) => Num.div(x, d), 0n)` over `r.param("d",
@@ -875,7 +884,7 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   generated field's NOT NULL, on `{ kind: "generated", relation, field }` (23502 on its column to a direct writer;
   grizzle refuses a nested write or a family fill that reads the field before any SQL, with the same outcome), and
   `C.has(k…)` is false there, so say what holds where the key is absent with `has`, never with a null-object row:
-  `Logic.or(Logic.not(C.has(k…)), φ(C.at(field, k…)))`, or a value there,
+  `Logic.or([Logic.not(C.has(k…)), φ(C.at(field, k…))])`, or a value there,
   `Logic.cond(C.has(k…), C.at(field, k…), d)`. Every closed read is NULL where a key value is NULL.
 - A `bytes` field, a `Uint8Array`, is written and read back whole and nothing more: never in a key, a rule's side, a
   filter, a parameter, a contract, a generated or accumulated field, or a scalar term but `Crypto.sha256(x)`, its
@@ -933,11 +942,7 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   signer's user name is `roleNameOf(login, connection)`. grizzle never sets either. The migration that gives the
   installation its live source, once a login serves a read, creates its decoder login, which a reading login's served
   file names, `roleNameOf(served.decoder, connection)`; the operator gives it a password too, the one
-  `LiveSource.layer` takes. Never find it by scanning `pg_roles`. After a grizzle upgrade that derives the decoder
-  login's name otherwise (e1c1fc23 shortened `__live_<segments>_<digest>` to `__live_<digest>`), the next draft renames
-  it in place, `ALTER ROLE :"<old>" RENAME TO :"<new>"`, its password and replication right kept, and replaces the
-  publication and its slot: keep those statements, stop the old version's live leaders before `migrate`, and read the
-  role again from `roleNameOf(served.decoder, connection)`. A login holds only USAGE on the
+  `LiveSource.layer` takes. Never find it by scanning `pg_roles`. A login holds only USAGE on the
   schema, SELECT on the ledger and EXECUTE on the snapshot guard, the lock and the check every transaction takes;
   everything else it does as one of its roles, one per transaction. The drift check takes a membership beyond the
   login's roles as no drift only with SET FALSE and no ADMIN, and only while the login's effective privileges on the
@@ -961,7 +966,7 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
 - A role lists each entry it writes under the mode it writes that table by, least privilege per table: `insert` the
   entries it only adds to, where it holds INSERT and SELECT and no UPDATE or DELETE, and `write` the open ones it
   changes, each over a table declared `mutable` inside a unit, where it holds UPDATE and DELETE as well. A closed table
-  under `write` is a type error for a whole or scoped entry and `RoleRefused` (`writeClosed`) for any, so a writer that
+  under `write` is a type error for a whole entry and `RoleRefused` (`writeClosed`) for any, so a writer that
   puts one open table beside closed facts in one commit lists the open table under `write` and the rest under
   `insert`. A direct writer's UPDATE or DELETE of an `insert` entry is 42501, and a ChangeSet that deletes from or puts
   one, or adds an open one as a member under a mutable owner (which updates the owner's count), is `OutsideRole`
@@ -1058,9 +1063,14 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   parent's law, an array the parent's ordered family), insert `recordsFacts(level, R)(entries)` (each a row beside
   its owner; `insertAll(recordsFacts(level, R)([]))` is the member), and read them back with `recordsQuery(level, R)`,
   whose rows are the query's own type through its own decoder; never restate the columns, and name no relation of your
-  own the stem and a suffix. A derived name past PostgreSQL's 63 bytes is `RecordNameTooLong`, naming its path: state
-  that attachment's relation name in records' options, `{ names: { "<path>": "<Name>" } }`, or shorten the stem for the
-  root; never a name cut short or hashed by grizzle. Records' relations are deleted as any relation's rows are. Two
+  own the stem and a suffix. A derived name is admitted at any length, never cut short, its table and whole view
+  hashed over the name and spelled after the stem and its path; never state names only to shorten them. A library
+  that derives its own relations' and rosters' names builds them with `derivedName({ stem, path })` (the root's, or
+  the dynamic door's for names read at run time), whose `relation`, `generated` and `unordered` type as the root's:
+  each name readable at any length, what it installs hashed over it; its test holds every identifier
+  `installedIdentifiersOf(schema)` (`@bjornpagen/grizzle/compile`) lists to 63 bytes. A name stated in records' options,
+  `{ names: { "<path>": "<Name>" } }`, is a declared name, readable, refused past 63 bytes. Records' relations are
+  deleted as any relation's rows are. Two
   declared names that
   convert alike are one name (two fields of a relation, two head fields of a derived relation or a role's query, two
   relations of a role, two logins or roles of a schema, a contract a context names beside a relation, roster or

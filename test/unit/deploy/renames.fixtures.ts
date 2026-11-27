@@ -26,8 +26,17 @@ import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { CodeSlot } from "#compiler/ir/cells.ts"
 import { draftCodebook, reorderRefusal, type RosterRenames } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
-import { login, relation as relationValue, role, schema } from "#compiler/public/schema.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
+import { closedId, pg } from "#compiler/public/fields.ts"
+import { query, v } from "#compiler/public/query.ts"
+import {
+	closed as closedValue,
+	derived,
+	login,
+	relation as relationValue,
+	role,
+	schema
+} from "#compiler/public/schema.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { type OwnedLogin, ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { relationBuilder } from "#compiler/schema/relation.ts"
@@ -374,7 +383,7 @@ const heldOf = (box: Box, dimension: Dimension, at: "start" | "target"): Readonl
 	)
 
 /** What a box drafts at one state: its schema and its logins. */
-interface Subject {
+export interface Subject {
 	readonly desc: FixtureSchema
 	readonly logins: ReadonlyArray<OwnedLogin>
 }
@@ -850,3 +859,92 @@ export const goneDesc = (gone: Gone, held: boolean): SchemaDesc => ({
 	statements: [],
 	bases: []
 })
+
+/** How the relation beside an anonymous canonical relation fares from the first draft to the second (`canonicalDesc`). */
+export type CanonicalOp = "kept" | "renamed" | "respelled" | "dropped"
+
+export const canonicalOps: readonly [CanonicalOp, ...Array<CanonicalOp>] = [
+	"kept",
+	"renamed",
+	"respelled",
+	"dropped"
+]
+
+/** The relation's spellings: its first name, an alike spelling of it, and a name of its own a rename takes it to. */
+const canonicalGroup = nonEmpty(
+	Arr.filter(aliasGroups, (g) => g.length >= 2),
+	"an alias group of two spellings"
+)[0]
+export const canonicalFirst = defined(canonicalGroup[0], "a first spelling")
+const canonicalAlike = defined(canonicalGroup[1], "an alike spelling")
+export const canonicalRenamed = "Moved"
+
+/**
+ * A schema whose snapshot records an anonymous canonical relation beside the declared names (analysis/derived/
+ * canonical.ts canonicalName): a relation named `name`, a closed relation of ranks, and Ranked, the ranks above 15 by
+ * place, whose definition imports a query of them under an empty bind map, a canonical relation of its own, frozen at
+ * the installation as a relation over closed relations alone is, so the snapshot records it under its canonical name,
+ * which no declared name takes (den's slice, its queues the queries its programs import).
+ */
+const canonicalDesc = (name: string | undefined) => {
+	const Place = closedValue.ordered("Place", ["first", "second"])
+	const Rank = closedValue.relation(
+		"Rank",
+		{ at: closedId(Place), rank: pg.integer },
+		["at"],
+		[
+			{ at: "first", rank: 10 },
+			{ at: "second", rank: 20 }
+		]
+	)
+	const base = schema(
+		"Renames",
+		[...(name === undefined ? [] : [relationBuilder(name, { id: Id }, ["id"], [])]), Place, Rank],
+		[]
+	)
+	const ranks = query(base).rule((r) => {
+		const { at, rank } = v(Rank, "r")
+		return r.match(Rank, { at, rank }).where(r.ge(rank, 15)).find({ at, rank })
+	})
+	const Ranked = derived(
+		"Ranked",
+		query(base).rule((r) => {
+			const { at } = v(ranks, "k")
+			return r.match(ranks, { at }).find({ at })
+		})
+	)
+	return schema.extend([base], "Renames_ranked", [Ranked], [])
+}
+
+/** The schema of the first draft, and of the second under `op`. */
+export const canonicalSubject = (op: CanonicalOp, at: "start" | "target"): Subject => ({
+	desc: canonicalDesc(
+		at === "start"
+			? canonicalFirst
+			: op === "kept"
+				? canonicalFirst
+				: op === "renamed"
+					? canonicalRenamed
+					: op === "respelled"
+						? canonicalAlike
+						: undefined
+	),
+	logins: []
+})
+
+/** The declarations of the second draft under `op`: the rename or the drop it declares, none for a respelling. */
+export const canonicalDeclarations = (op: CanonicalOp): Declarations => {
+	const from: Named = { kind: "relation", relation: parsedName(canonicalFirst) }
+	switch (op) {
+		case "renamed":
+			return {
+				renames: [{ from, to: { kind: "relation", relation: parsedName(canonicalRenamed) } }],
+				drops: []
+			}
+		case "dropped":
+			return { renames: [], drops: [from] }
+		case "kept":
+		case "respelled":
+			return { renames: [], drops: [] }
+	}
+}

@@ -96,16 +96,14 @@ export const escapedValue = (content: string): string => {
 			const digits = content.slice(k + 2, k + 2 + unicodeEscapeDigits)
 			const unit = Number.parseInt(digits, 16)
 			if (escapeOf(unit) !== `\\u${digits}`) {
-				throw defect(
+				defect(
 					`an escape string grizzle wrote holds the escape \\u${digits}, which it never writes`
 				)
 			}
 			out += String.fromCharCode(unit)
 			from = k + 2 + unicodeEscapeDigits
 		} else {
-			throw defect(
-				`an escape string grizzle wrote holds the escape \\${name}, which it never writes`
-			)
+			defect(`an escape string grizzle wrote holds the escape \\${name}, which it never writes`)
 		}
 		k = content.indexOf("\\", from)
 	}

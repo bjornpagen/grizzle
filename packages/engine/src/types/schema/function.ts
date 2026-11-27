@@ -5,7 +5,14 @@ import type {
 } from "#compiler/core/function.ts"
 import type { Built } from "#compiler/core/phantom.ts"
 import type { Refusal } from "#compiler/types/core/phantom.ts"
-import type { FieldBase, StoredOnlySql, WritingTag } from "#compiler/types/fields/field.ts"
+import type {
+	FieldBase,
+	HandleOf,
+	Infer,
+	OwnKeyOf,
+	StoredOnlySql,
+	WritingTag
+} from "#compiler/types/fields/field.ts"
 
 /**
  * The heading of the rows a declared function takes as an argument or returns (schema/function.ts rows): its fields,
@@ -45,6 +52,15 @@ export type FunctionType = FieldBase | AnyRows | AnyRow
  */
 export interface FunctionBody extends Built {
 	readonly kind: "body"
+}
+
+/**
+ * A variant's spelling in a declared function's body (fn.body), its code of an arm, an arm field's attribute or a value
+ * of an arm (public/fields.ts variant `code`, `attribute`, `of`), which the installation prints under its codes and
+ * layout (ir/desc.ts VariantSpellingDesc).
+ */
+export interface VariantSpelling extends Built {
+	readonly kind: "spelling"
 }
 
 /**
@@ -98,7 +114,17 @@ type SignatureRefused<F> = F extends
 
 /** The refusal of a field no signature takes (SignatureRefused). */
 type SignatureRefusal =
-	Refusal<"a declared function takes and returns values of a base type, a closed id, a digest, a contract or a refined text over one: no serial, money, exact value, bytes, set, span or vector">
+	Refusal<"a declared function takes and returns values of a base type, a closed id, a digest, a contract or a refined text over one, or a variant: no serial, money, exact value, bytes, set, span or vector">
+
+/**
+ * Whether a field is a closed id of a subset of its roster, its host type short of the roster's handles: no function's
+ * body is a value of a subset, so a function's closed id is of its whole roster (schema/function-own.ts subsetId).
+ */
+type SubsetRefused<F> = F extends { readonly roster: infer C; readonly sql: "code" }
+	? [Exclude<HandleOf<C>, Infer<F>>] extends [never]
+		? false
+		: true
+	: false
 
 /**
  * A signature's type, or a heading's field: rows or a row of a heading, already checked where rows() built it, or a
@@ -108,7 +134,47 @@ export type SignatureCheck<T> = T extends Rows<unknown> | Row<unknown>
 	? unknown
 	: SignatureRefused<T> extends true
 		? SignatureRefusal
-		: unknown
+		: SubsetRefused<T> extends true
+			? Refusal<"a declared function's closed id is of its whole roster: no function's body is a value of a subset">
+			: unknown
+
+/**
+ * The consumers' contracts a field holds a value of, each as its name and its own key (types/fields OwnKeyOf): itself
+ * where it is one, then its base's down its chain.
+ */
+type OwnedOfField<F> = F extends { readonly base: infer B; readonly name: infer N extends string }
+	? ([OwnKeyOf<F>] extends [never] ? never : readonly [N, OwnKeyOf<F>]) | OwnedOfField<B>
+	: never
+
+/**
+ * The consumers' contracts a function type holds a value of, each as its name and its key (OwnedOfField): its value's,
+ * each field's of rows or a row of a heading, at any depth, and each field's of a variant's arms.
+ */
+type OwnedIn<T> =
+	T extends Rows<infer Fields>
+		? OwnedInFields<Fields>
+		: T extends Row<infer Heading>
+			? OwnedIn<Heading>
+			: T extends { readonly arms: infer Arms }
+				? { readonly [A in keyof Arms]: OwnedInFields<Arms[A]> }[keyof Arms]
+				: OwnedOfField<T>
+
+/**
+ * The consumers' contracts the fields of a heading or a variant's arm hold a value of (OwnedIn); none the types name for
+ * a heading of any fields, AnyRows', whose function the engine judges (schema/function.ts admitMints).
+ */
+type OwnedInFields<Fields> = string extends keyof Fields
+	? never
+	: { readonly [K in keyof Fields]: OwnedIn<Fields[K]> }[keyof Fields]
+
+/**
+ * What a declared function takes after its definition: where its result holds a value of a consumer's contract at any
+ * depth (OwnedIn), its body makes the contract's values, so it takes the contract's key by the contract's name,
+ * `{ QtiInteger: qtiIntegerKey }`, every such contract's, as mintOf takes each on the host; nothing otherwise.
+ */
+export type MintsOf<T> = [OwnedIn<T>] extends [never]
+	? readonly []
+	: readonly [mints: { readonly [P in OwnedIn<T> as P[0]]: P[1] }]
 
 /** Each field of a heading a signature takes, the others refused at their keys. */
 export type HeadingCheck<Fields> = { readonly [K in keyof Fields]: SignatureCheck<Fields[K]> }

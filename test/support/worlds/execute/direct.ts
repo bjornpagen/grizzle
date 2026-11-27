@@ -21,7 +21,6 @@ import {
 	provedSelect,
 	qualifiedCall,
 	table,
-	tableCol,
 	target,
 	types
 } from "#compiler/sql/build.ts"
@@ -267,7 +266,10 @@ const factTarget = (
  * only as its constraint and only to do nothing (ON CONSTRAINT, by overlap), since PostgreSQL infers no arbiter for it
  * from a column list (42P10). Its DO SELECT and DO UPDATE are spelled by the key's columns, as a writer would try them,
  * and PostgreSQL refuses them at planning (42P10; through the constraint, 42809), before any privilege is checked. The
- * target is aliased `r`, which the writer's predicate over the stored row names (`raising`).
+ * target is aliased `r`, which the writer's predicate over the stored row names (`raising`) and its RETURNING reads the
+ * row by, and DO UPDATE sets each column from EXCLUDED's: every name it reads is bound where it reads it, which the
+ * printer holds every statement to (sql/scope.ts, 962f3a9fd4), where its RETURNING named the columns unqualified and
+ * its SET read EXCLUDED as a relation no FROM binds.
  */
 const onConflictSql = (
 	names: DirectNames,
@@ -326,7 +328,7 @@ const onConflictSql = (
 							set: assignments(
 								ungenerated,
 								"r",
-								Arr.map(updated, (column) => ({ column, value: col("excluded", column) }))
+								Arr.map(updated, (column) => ({ column, value: { kind: "excluded", column } }))
 							),
 							where: yield* where(resolution.where)
 						}
@@ -341,7 +343,7 @@ const onConflictSql = (
 					? { kind: "constraint", constraint: t.primaryKey.name, action }
 					: { kind: "columns", columns: key, action },
 			returning:
-				resolution.kind === "select" ? Arr.map(read, (f) => target(tableCol(f.column))) : []
+				resolution.kind === "select" ? Arr.map(read, (f) => target(col("r", f.column))) : []
 		})
 		return { sql, reads: resolution.kind === "select" ? { kind: "rows", fields: read } : none }
 	})

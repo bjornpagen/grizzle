@@ -37,14 +37,14 @@ import {
 	judgedAt,
 	liveWhenJudged,
 	Moved,
-	type MovingFeature,
 	movedInstall,
 	movedTemplate,
+	type MovingFeature,
 	movingFeatures,
 	movingGen,
 	situations,
-	Span,
-	takenAt
+	takenAt,
+	toSpan
 } from "#test/pg/served/moved-clock.fixtures.ts"
 import { writeAnswerOf } from "#test/support/calls.ts"
 import { movedServedFixture } from "#test/support/served-db.ts"
@@ -73,7 +73,7 @@ export const aDbOverAMovedClockReadsEveryReadingAndStampOfACallAsExactlyTheInsta
 								const db = yield* Db.openMoved(moved.login.roles.app, {}, Ref.get(instant))
 								const answer = yield* db.workload.take
 									.once({
-										params: { budget: Span(c.budget) },
+										params: { budget: toSpan(c.budget) },
 										facts: { insert: { Lease: [{ id: 1 }], Mark: [{ id: 1 }] } }
 									})
 									.pipe(writeAnswerOf)

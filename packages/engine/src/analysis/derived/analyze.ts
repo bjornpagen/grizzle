@@ -1,4 +1,4 @@
-import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { appendAll, sameMembers } from "@bjornpagen/grizzle-text/base/array"
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	isNonEmpty,
@@ -6,6 +6,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { viewDependencies } from "#compiler/analysis/derived/drawn.ts"
 import { inferredFields } from "#compiler/analysis/derived/fields.ts"
 import {
 	type DerivedKeyLayout,
@@ -26,7 +27,7 @@ import {
 } from "#compiler/core/identity.ts"
 import type { ConstraintName, RelationIdent } from "#compiler/core/ids.ts"
 import { labeledChildLoc, type SourceLoc } from "#compiler/core/loc.ts"
-import type { FieldDesc, QueryDesc } from "#compiler/ir/desc.ts"
+import { candidateKeyFields, type FieldDesc, type QueryDesc } from "#compiler/ir/desc.ts"
 import {
 	classMembers,
 	type KeyProof,
@@ -47,15 +48,17 @@ import {
 	analyzeLogical,
 	keptNodes,
 	type LogicalAnalysis,
-	queryEvidence
+	queryEvidence,
+	type SharedAnalyses
 } from "#compiler/logical/annotate.ts"
-import { derivedKeyPremise } from "#compiler/logical/props.ts"
+import { derivedKeyPremise, storedKeyPremise } from "#compiler/logical/props.ts"
 import { ownedContractsByName } from "#compiler/schema/field-desc.ts"
-import type { OwnedRelation } from "#compiler/schema/own.ts"
+import type { Owned, OwnedRelation } from "#compiler/schema/own.ts"
+import { attachesHeading } from "#compiler/schema/walk.ts"
 
 export interface DerivedRelationAnalysis {
 	readonly name: string
-	/** Its stored table's identifier, ownership's. */
+	/** Its stored table's identifier, its canonical form's (DerivedSubject). */
 	readonly ident: RelationIdent
 	/** The derived level: 1 over base relations, n + 1 over a level-n derived relation. */
 	readonly level: number
@@ -98,10 +101,14 @@ interface DerivedKey extends DerivedKeyLayout {
  * A derived relation's inherited keys as a Base over its view reads them: each resting on its view's unique index, with
  * the columns its definition makes equal to its fields.
  */
-const viewKeysOf = (relation: string, keys: ReadonlyArray<DerivedKey>): ReadonlyArray<ViewKey> =>
+const viewKeysOf = (
+	relation: string,
+	table: string,
+	keys: ReadonlyArray<DerivedKey>
+): ReadonlyArray<ViewKey> =>
 	keys.map((k) => ({
 		fields: k.fields,
-		premises: [derivedKeyPremise(relation, k.fields)],
+		premises: [derivedKeyPremise(relation, table, k.fields)],
 		context: "immediate",
 		members: classMembers(k.proof),
 		alternatives: k.alternatives
@@ -109,6 +116,22 @@ const viewKeysOf = (relation: string, keys: ReadonlyArray<DerivedKey>): Readonly
 
 /** A derived relation as ownership resolved it. */
 export type OwnedDerived = Extract<OwnedRelation, { readonly kind: "derived" }>
+
+/**
+ * What a derived analysis is of: a canonical relation (analysis/derived/canonical.ts), named or anonymous. Its name,
+ * a named relation's declared name, the API's alias of its canonical relation, or an anonymous one's canonical name;
+ * where its definition was written; its table's identity, its canonical form's, whether or not it is stored; its
+ * derived level, one past every derived relation it reads; the relations its definition reads, sorted; and its
+ * definition.
+ */
+export interface DerivedSubject {
+	readonly name: string
+	readonly loc: SourceLoc
+	readonly ident: RelationIdent
+	readonly level: number
+	readonly reads: ReadonlyArray<string>
+	readonly query: QueryDesc
+}
 
 /** What a stored table's definition cannot have on its delivered rows. */
 type Obstacle = "attachment" | "headingGroups"
@@ -126,12 +149,17 @@ const obstacleRefusals: {
 }
 
 /**
- * The first attachment, or union of several heading groups, on the delivered rows of `root`: the spine of nodes whose
- * rows are their input's rows under the same heading (rel.ts keptRowsOf, the spine lower/conservative/deliver.ts
- * delivers), and every arm of a union of one heading group. An attachment off the spine is read as its parent, whose
- * heading is the consumer's, so it changes nothing the view stores.
+ * The first obstacle on the delivered rows of the definition `query` checked to `root`: an attachment its own stages
+ * deliver (schema/walk.ts attachesHeading), which a closed import of it carries beside its node and never in it
+ * (check/checker.ts StageOut carries); else a union of several heading groups on the spine of nodes whose rows are their
+ * input's rows under the same heading (rel.ts keptRowsOf, the spine lower/conservative/deliver.ts delivers), and every
+ * arm of a union of one heading group. An attachment of a query it imports is read as its parent, whose heading is the
+ * consumer's, so it changes nothing the view stores.
  */
-const spineObstacle = (root: RelNode): Obstacle | undefined => {
+const spineObstacle = (query: QueryDesc, root: RelNode): Obstacle | undefined => {
+	if (attachesHeading(query)) {
+		return "attachment"
+	}
 	const seen = new Set<RelNode>()
 	const queue: Array<RelNode> = [root]
 	for (let node = queue.pop(); node !== undefined; node = queue.pop()) {
@@ -139,9 +167,6 @@ const spineObstacle = (root: RelNode): Obstacle | undefined => {
 			continue
 		}
 		seen.add(node)
-		if (node.kind === "Attach") {
-			return "attachment"
-		}
 		if (node.kind === "Union" && node.groups.length > 1) {
 			return "headingGroups"
 		}
@@ -198,34 +223,26 @@ export interface AnalyzedDefinition {
 	readonly declared: NonEmptyReadonlyArray<DeclaredColumn>
 }
 
+/** A definition checked (check/index.ts AdmittedQuery), with its root and its heading, one column at least. */
+export interface ShapedDefinition {
+	readonly checked: AdmittedQuery
+	readonly root: RelNode
+	readonly heading: NonEmptyReadonlyArray<HeadingColumn>
+}
+
 /**
- * The definition `query` of the relation `relation` (a derived relation's, live or stored, or a world entry's, `label`
- * naming it to the checker), checked in `session`, and refused at `at` where its delivered rows carry an attachment or
- * several heading groups (spineObstacle) or its heading is empty: the shape every derived definition has, as its type
- * says (types/derived/derived.ts DefinitionShape), whether or not anything stores its rows.
+ * The checked definition `checked` of the relation `relation`, refused at `at` where its delivered rows carry an
+ * attachment or several heading groups (spineObstacle) or its heading is empty: the shape every derived definition
+ * has, as its type says (types/derived/derived.ts DefinitionShape), whether or not anything stores its rows.
  */
-export const shapedDefinition = (
-	schema: SchemaReading,
-	label: string,
+const definitionShape = (
+	checked: AdmittedQuery,
 	query: QueryDesc,
 	relation: string,
-	at: SourceLoc,
-	session: CheckSession
-): Result.Result<
-	{
-		readonly checked: AdmittedQuery
-		readonly root: RelNode
-		readonly heading: NonEmptyReadonlyArray<HeadingColumn>
-	},
-	CompileError
-> => {
-	const checkedResult = checkDefinition(schema, label, query, session)
-	if (!checkedResult.ok) {
-		return checkedResult
-	}
-	const checked = checkedResult.value
+	at: SourceLoc
+): Result.Result<ShapedDefinition, CompileError> => {
 	const root = checked.dag.roots[0]
-	const obstacle = spineObstacle(root)
+	const obstacle = spineObstacle(query, root)
 	if (obstacle !== undefined) {
 		return Result.err(obstacleRefusals[obstacle](at, relation))
 	}
@@ -235,6 +252,22 @@ export const shapedDefinition = (
 	}
 	return Result.ok({ checked, root, heading })
 }
+
+/**
+ * The definition `query` of the relation `relation` (a role's reading of a derived relation, or a world entry's,
+ * `label` naming it to the checker), checked in `session` and shaped (`definitionShape`).
+ */
+export const shapedDefinition = (
+	schema: SchemaReading,
+	label: string,
+	query: QueryDesc,
+	relation: string,
+	at: SourceLoc,
+	session: CheckSession
+): Result.Result<ShapedDefinition, CompileError> =>
+	Result.flatMap(checkDefinition(schema, label, query, session), (checked) =>
+		definitionShape(checked, query, relation, at)
+	)
 
 /**
  * The definition `query` of the relation `relation` shaped (`shapedDefinition`) in a session of its own, analyzed under
@@ -301,36 +334,69 @@ const provenKey = (key: { readonly columns: DeclaredKey; readonly proof: KeyProo
 })
 
 /**
- * The definition of the derived relation `owned` as every reader reads it (DerivedDefinition), checked in `session`, or
- * the first refusal of a definition no derived relation may have (`shapedDefinition`) or of its analysis.
+ * A stored derived relation's view as a Base over its table reads it: its definition's proven keys and each key a law
+ * states of its fields, every fact read (ir/desc.ts candidateKeyFields), which the law model installs as a UNIQUE of its
+ * table (laws/model/plan.ts projectedKey) and the theory states as its evidence (analysis/theory/theory.ts
+ * storedViewKey): a key of the view on that constraint, immediate, as a stored relation's declared key is. One status a
+ * sitting, which metis's laws state of its stored statuses, keys a sitting's status by the sitting, where its definition
+ * proves the sitting and the status together alone. Narrowest first.
+ */
+export const storedRead = (owned: Owned, relation: string, read: ViewRead): ViewRead => {
+	const declared = owned.statements.flatMap((s) => {
+		const fields =
+			s.kind === "key" && s.key.kind === "projected" && s.side.relation === relation
+				? candidateKeyFields(s.side)
+				: undefined
+		return fields === undefined || read.keys.some((k) => sameMembers(k.fields, fields))
+			? []
+			: [fields]
+	})
+	if (!isNonEmpty(declared)) {
+		return read
+	}
+	const keys = [
+		...read.keys,
+		...declared.map((fields): ViewKey => ({
+			fields,
+			premises: [storedKeyPremise(relation, fields, false)],
+			context: "immediate",
+			members: [],
+			alternatives: []
+		}))
+	].toSorted((a, b) => a.fields.length - b.fields.length)
+	return { ...read, keys }
+}
+
+/**
+ * The definition of the canonical relation `subject` as every reader reads it (DerivedDefinition), from `checked`, the
+ * closed import of its query its readers read (check/index.ts checkClosedImport), analyzed in `analyses`, the analyses
+ * of the schema's definitions, which annotate each closed import once however many definitions read it, the
+ * dependencies its columns hold read over `owned` (drawn.ts viewDependencies); or the first refusal of a definition no
+ * derived relation may have (`definitionShape`) or of its analysis.
  */
 export const derivedDefinition = (
-	schema: SchemaReading,
-	owned: OwnedDerived,
-	session: CheckSession
-): Result.Result<DerivedDefinition, CompileError> => {
-	const shaped = shapedDefinition(
-		schema,
-		`derived ${owned.name}`,
-		owned.desc.query,
-		owned.name,
-		owned.loc,
-		session
+	owned: Owned,
+	subject: DerivedSubject,
+	checked: AdmittedQuery,
+	analyses: SharedAnalyses
+): Result.Result<DerivedDefinition, CompileError> =>
+	Result.flatMap(
+		definitionShape(checked, subject.query, subject.name, subject.loc),
+		({ root, heading }) =>
+			Result.map(analyzeLogical(checked.dag, analyses, keptNodes([root])), (analyzed) => {
+				const props = defined(analyzed.props.get(root), "a definition's root, kept")
+				const keys = inheritedKeys(root, heading, props.keys, props.prove, () => true).map((k) =>
+					provenKey({ columns: mapNonEmpty(k.columns, (c) => c.name), proof: k.proof })
+				)
+				return {
+					checked,
+					root,
+					analyzed,
+					heading,
+					read: { heading, keys, determined: viewDependencies(owned, root) }
+				}
+			})
 	)
-	if (!shaped.ok) {
-		return shaped
-	}
-	const { checked, root, heading } = shaped.value
-	const analyzed = analyzeLogical(checked.dag, queryEvidence, keptNodes([root]))
-	if (!analyzed.ok) {
-		return analyzed
-	}
-	const props = defined(analyzed.value.props.get(root), "a definition's root, kept")
-	const keys = inheritedKeys(heading, props.keys, props.prove, () => true).map((k) =>
-		provenKey({ columns: mapNonEmpty(k.columns, (c) => c.name), proof: k.proof })
-	)
-	return Result.ok({ checked, root, analyzed: analyzed.value, heading, read: { heading, keys } })
-}
 
 /**
  * One derived relation of a checked schema, analyzed against the relations it holds so far, or the first refusal.
@@ -383,10 +449,10 @@ export const derivedDefinition = (
  */
 export const analyzeDerivedRelation = (
 	schema: SchemaReading,
-	owned: OwnedDerived,
+	subject: DerivedSubject,
 	definition: DerivedDefinition
 ): Result.Result<DerivedRelationAnalysis, CompileError> => {
-	const { name, loc } = owned
+	const { name, loc } = subject
 	const at = loc
 	const { checked, root, analyzed, heading } = definition
 	const declaredResult = declaredHeading(name, heading, at)
@@ -401,7 +467,13 @@ export const analyzeDerivedRelation = (
 		return described
 	}
 	const columns = described.value
-	const keySets = inheritedKeys(columns, props.keys, props.prove, oneColumnKeyRepresentable)
+	const keySets = inheritedKeys(
+		definition.root,
+		columns,
+		props.keys,
+		props.prove,
+		oneColumnKeyRepresentable
+	)
 	/** At most one fact: any one field is a key, and the first representable one was chosen (keys.ts). */
 	const oneFact = props.keys.some((k) => k.key.length === 0)
 	if (oneFact) {
@@ -449,6 +521,7 @@ export const analyzeDerivedRelation = (
 				index: identifierOf(
 					identity.derivedKey(
 						name,
+						subject.ident,
 						mapNonEmpty(key.columns, (c) => c.name)
 					)
 				),
@@ -461,15 +534,19 @@ export const analyzeDerivedRelation = (
 	})
 	return Result.ok({
 		name,
-		ident: owned.ident,
-		level: owned.desc.level,
-		reads: owned.reads,
+		ident: subject.ident,
+		level: subject.level,
+		reads: subject.reads,
 		loc,
 		query: { ...checked, dag: analyzed.dag },
 		heading: described.value,
 		keys,
 		wholeHeading,
 		card: props.card,
-		read: { heading, keys: viewKeysOf(name, keys) }
+		read: {
+			heading,
+			keys: viewKeysOf(name, subject.ident, keys),
+			determined: definition.read.determined
+		}
 	})
 }

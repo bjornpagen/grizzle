@@ -1,7 +1,12 @@
 import { Array as Arr, Effect, Option, Path, Predicate, Record as Rec, Result } from "effect"
 import { definedConfig } from "#adapter/config/define.ts"
 import { toResult } from "#adapter/engine.ts"
-import { type BuiltLogin, builtLogin, ownLoginOver } from "#adapter/served/login.ts"
+import {
+	type BuiltLogin,
+	builtLogin,
+	type LoginInput,
+	ownLoginOver
+} from "#adapter/served/login.ts"
 import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
 import {
 	type CliError,
@@ -13,6 +18,7 @@ import {
 	SettingRefused
 } from "#cli/errors.ts"
 import {
+	type BaseInput,
 	type BuiltSchema,
 	type CompileError,
 	declaredAlike,
@@ -47,7 +53,7 @@ import {
  *     import { connection, Web, Work } from "./src/db.ts"
  *
  *     export default defineConfig({
- *         schemas: [Work], logins: [Web], migrations: "migrations", rolePrefixBytes: 0, connection
+ *         schemas: [Work], logins: [Web], contracts: [], migrations: "migrations", rolePrefixBytes: 0, connection
  *     })
  *
  * - `schemas`: the installations to migrate, at least one, each listed by its top level, a schema(...) or
@@ -59,6 +65,9 @@ import {
  *   over a schema no configured installation holds refused. A role is installed exactly with its login. Each login's
  *   workloads (login(..., { workload })), which login(...) admitted, plan the schema's access paths; a schema whose
  *   logins own none drafts no access path.
+ * - `contracts`: the consumers' contracts a running application parses values of at a boundary, each a contract(...)
+ *   value: generate compiles each into its checker file, `<migrations>/contract-checks/<name>.json` (contracts.ts),
+ *   which the runtime's contractParser reads, loading no compiler, and check holds each current.
  * - `migrations`: the migrations directory, absolute or relative to the configuration file's directory.
  * - `rolePrefixBytes`: the bytes of the longest role prefix an installation of the configuration is under, 0 where
  *   none is (core/identity.ts RolePrefixBound). A login or role whose PostgreSQL role would pass PostgreSQL's 63 bytes
@@ -96,26 +105,38 @@ export interface ConfiguredSchema {
 	readonly logins: ReadonlyArray<ConfiguredLogin>
 }
 
-/** A login of a compiled schema: the login value, and the login owned over the schema's Owned. */
+/**
+ * A login of a compiled schema: the login read where it was given (adapter/served/login.ts LoginInput), and owned over
+ * the Owned of the level it is over.
+ */
 export interface CompiledLogin {
-	readonly login: BuiltLogin
+	readonly login: LoginInput
 	readonly owned: OwnedLogin
 }
 
 /**
- * A configured schema compiled, as generate and check draft it: the schema owned once, and each of its logins owned
- * over that Owned, in configured order (compileSchema).
+ * A schema compiled, as generate and check draft it, nothing of it a value any step reads again: its declared name,
+ * which a refusal of its draft names; the schema parsed (engine program/input.ts BaseInput), which its logins'
+ * workloads are planned over; the schema owned once; and each of its logins, in configured order, owned over that Owned
+ * or the Owned of the level below it is over. compileSchema compiles a configured schema's values to it; a schema and
+ * logins read from their Descriptions are one as well, each login with no workload (LoginInput).
  */
 export interface CompiledSchema {
-	readonly configured: ConfiguredSchema
+	readonly declared: string
+	readonly schema: BaseInput
 	readonly owned: Owned
 	readonly logins: ReadonlyArray<CompiledLogin>
 }
 
-/** The configuration file as the bin imported it: its path, and its default export, which resolveConfig checks. */
+/**
+ * The configuration file as the bin imported it: its path, its default export, which resolveConfig checks, and every
+ * file module its import loaded, absolute, its own first (main.ts configAt): what a draft's configuration is
+ * (draft-inputs.ts). A test that hands the command line a configuration's value imports none.
+ */
 export interface ConfigFile {
 	readonly file: string
 	readonly value: unknown
+	readonly closure: ReadonlyArray<string>
 }
 
 export interface ResolvedConfig {
@@ -128,6 +149,11 @@ export interface ResolvedConfig {
 	readonly rolePrefixBytes: RolePrefixBound
 	/** In configured order. */
 	readonly schemas: ReadonlyArray<ConfiguredSchema>
+	/**
+	 * The contracts whose checker files generate compiles, in configured order, each as given: generate and check
+	 * compile each (contracts.ts), which refuses a value that is no contract.
+	 */
+	readonly contracts: ReadonlyArray<unknown>
 	/**
 	 * The configuration's connection as given, a function only `grizzle migrate`, `grizzle drift`, `grizzle roles` and
 	 * `grizzle uninstall` call, and check what it returns (connection.ts).
@@ -166,7 +192,7 @@ const onlyKeys = (value: Record<string, unknown>): Result.Result<void, CliError>
 
 /** Refuses the value of `setting`, which is not of its kind. */
 const malformedSetting = (
-	setting: "schemas" | "logins" | "migrations" | "rolePrefixBytes"
+	setting: "schemas" | "logins" | "contracts" | "migrations" | "rolePrefixBytes"
 ): Result.Result<never, CliError> =>
 	Result.fail(cliError(new SettingRefused({ fault: { kind: "malformed", setting } })))
 
@@ -196,7 +222,7 @@ const roleTooLong = (
 	Arr.findFirst(
 		[
 			{ stem: read.stem, holder: { kind: "login", name: read.desc.name } as const },
-			...Arr.map(read.roles, (r) => ({
+			...Arr.map(read.stems, (r) => ({
 				stem: r.stem,
 				holder: { kind: "role", name: r.name, login: read.desc.name } as const
 			}))
@@ -235,11 +261,12 @@ const uncompiledSchema = (index: number) => (error: CompileError) =>
 	cliError(new SchemaEntryRefused({ index, fault: { kind: "uncompiled", error } }))
 
 /**
- * A configured installation compiled, for generate and check: its top level owned, once, and each of its logins owned
- * over the Owned of the level it is over, the top's itself or a lower level's owned alone, which login(...) held each
- * login's roles to; a schema or login that does not compile is its configuration entry's refusal. A schema's
- * unrepresentable keys, which its Owned carries for the compile to refuse where it ends, come before a login's refusal,
- * met after them: the schema entry is refused for them in its place (engine core/canonical.ts metFirst).
+ * A configured installation compiled, for generate and check (CompiledSchema): its top level owned, once, and each of
+ * its logins owned over the Owned of the level it is over, the top's itself or a lower level's owned alone, which
+ * login(...) held each login's roles to; a schema or login that does not compile is its configuration entry's refusal.
+ * A schema's unrepresentable keys, which its Owned carries for the compile to refuse where it ends, come before a
+ * login's refusal, met after them: the schema entry is refused for them in its place (engine core/canonical.ts
+ * metFirst).
  */
 export const compileSchema = (schema: ConfiguredSchema): Result.Result<CompiledSchema, CliError> =>
 	Result.flatMap(
@@ -266,7 +293,12 @@ export const compileSchema = (schema: ConfiguredSchema): Result.Result<CompiledS
 							)
 						)
 					),
-					(logins): CompiledSchema => ({ configured: schema, owned, logins })
+					(logins): CompiledSchema => ({
+						declared: schema.declared,
+						schema: schema.built,
+						owned,
+						logins
+					})
 				),
 				(refused) =>
 					Arr.isReadonlyArrayNonEmpty(owned.unrepresentable)
@@ -297,6 +329,7 @@ const resolveConfigWith = (
 		migrations: migrationsSetting,
 		schemas: schemaValues,
 		logins: loginValues,
+		contracts: contractValues,
 		rolePrefixBytes: rolePrefixSetting,
 		connection: connectionSetting
 	} = value
@@ -354,6 +387,9 @@ const resolveConfigWith = (
 	}
 	if (!isList(loginValues)) {
 		return malformedSetting("logins")
+	}
+	if (!isList(contractValues)) {
+		return malformedSetting("contracts")
 	}
 	for (const [i, l] of loginValues.entries()) {
 		const refuseLogin = (fault: LoginEntryRefused["fault"]): CliError =>
@@ -421,6 +457,7 @@ const resolveConfigWith = (
 		migrations,
 		rolePrefixBytes,
 		schemas,
+		contracts: contractValues,
 		connection: typed.value.connection
 	})
 }

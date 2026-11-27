@@ -409,7 +409,7 @@ export const taggedRows = (
 	})
 	const [firstCte, ...restCtes] = ctes
 	if (firstCte === undefined) {
-		throw defect("a family write of no CTE")
+		defect("a family write of no CTE")
 	}
 	const ast: Select = {
 		...select(unionAll("disjoint", arms)),
@@ -482,7 +482,7 @@ export const recountUpdate = <L extends RecountedLast>(
 	const [firstSet, ...restSets] = sets
 	const [firstChange, ...restChanges] = changed
 	if (firstSet === undefined || firstChange === undefined) {
-		throw defect(`a recount of ${name} sets its counts`)
+		defect(`a recount of ${name} sets its counts`)
 	}
 	const fields = recountFields(
 		owner,

@@ -28,7 +28,7 @@ import {
 	type AmbientSetting,
 	ambientSettingValues
 } from "#test/support/ambient.ts"
-import { Id, type IdValue } from "#test/support/ids.ts"
+import { Id, type IdValue, toId } from "#test/support/ids.ts"
 import { pickGen } from "#test/support/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -62,18 +62,18 @@ export const Shadowed = schema(
 
 /** The ids a case's facts take. */
 const ids = [
-	Id("00000000-0000-4000-8000-000000000001"),
-	Id("00000000-0000-4000-8000-000000000002"),
-	Id("00000000-0000-4000-8000-000000000003"),
-	Id("00000000-0000-4000-8000-000000000004")
+	toId("00000000-0000-4000-8000-000000000001"),
+	toId("00000000-0000-4000-8000-000000000002"),
+	toId("00000000-0000-4000-8000-000000000003"),
+	toId("00000000-0000-4000-8000-000000000004")
 ] as const
 
 type Id = (typeof ids)[number]
 
 /** The link into no text a case may add, and the text it names, which no case stores. */
-export const danglingLink: IdValue = Id("00000000-0000-4000-8000-0000000000fe")
+export const danglingLink: IdValue = toId("00000000-0000-4000-8000-0000000000fe")
 
-export const absentText: IdValue = Id("00000000-0000-4000-8000-0000000000ff")
+export const absentText: IdValue = toId("00000000-0000-4000-8000-0000000000ff")
 
 const notes = ["", "a", "two words", "zz"] as const
 

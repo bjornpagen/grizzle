@@ -9,7 +9,6 @@ import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import {
-	alternativesBuilder,
 	checkBuilder,
 	containedBuilder,
 	countedBuilder,
@@ -26,7 +25,6 @@ import {
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import {
 	A,
-	Arm,
 	B,
 	Folded,
 	IA,
@@ -287,10 +285,6 @@ const constructs: Readonly<Record<string, Form>> = {
 		(v) => `check("Positive", ${v}, (row) => row.gt(row.n, 0))`,
 		(m) => [checkBuilder("Positive", m, (row: MemberRow) => row.gt(row.n, 0))]
 	),
-	alternatives: member([Arm])(
-		(v) => `alternatives(${v}, "kind", Kind, { a: Arm })`,
-		(m) => [alternativesBuilder(m, "kind", Kind, { a: Arm })]
-	),
 	"a counted family and its fold": member([Folded])(
 		(v) =>
 			`[counted(on(${v}, "owner"), fin(Folded, "k"))].flatMap((f) => [f, fold(f, Monoid.count, on(${v}, "owner"), on(Folded, "id", "size"))])`,
@@ -368,13 +362,6 @@ const faults: Readonly<Record<string, { readonly refusal: Refused; readonly form
 		form: member([Target])(
 			(v) => `contained(on(${v}, "n"), on(Target, "id"))`,
 			(m) => [containedBuilder(onBuilder(m, ["n"]), onBuilder(Target, ["id"]))]
-		)
-	},
-	"an arm that may be the parent": {
-		refusal: "an arm is a relation other than its parent",
-		form: member([A])(
-			(v) => `alternatives(${v}, "kind", Kind, { a: A })`,
-			(m) => [alternativesBuilder(m, "kind", Kind, { a: A })]
 		)
 	},
 	"a family over another key": {

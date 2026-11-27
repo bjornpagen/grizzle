@@ -239,6 +239,8 @@ export class Q {
 			keys: [],
 			relationKind: "relation",
 			generated,
+			unit: [],
+			determined: [],
 			heading: relation.heading,
 			loc: undefined,
 			meta

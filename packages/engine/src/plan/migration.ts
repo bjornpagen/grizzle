@@ -2,7 +2,7 @@
  * The migration plan: what a migration is, and what generate, check and migrate draft, review and apply it by, every
  * module of it one a login's runtime never loads — the draft and its folder, its markers, the installation it installs
  * and the manifest it records, and the workload's access compile. What a runtime also reads, the snapshot, the ledger,
- * the slice and the basis, is plan/serve.ts's.
+ * the footprint and the basis, is plan/serve.ts's.
  */
 export {
 	type InstalledStatements,
@@ -28,7 +28,7 @@ export { proofsTableName } from "#compiler/physical/ddl/ledger.ts"
 export {
 	dataStepBracket,
 	immutableTriggerName,
-	type InstalledGuard,
+	immutableTruncateTriggerName,
 	standUpCalls
 } from "#compiler/physical/ddl/immutable.ts"
 export {
@@ -78,21 +78,14 @@ export {
 	customMigration,
 	type DraftInput,
 	draftMigration,
-	draftUpgrade,
-	freshSnapshot,
 	generateMigration,
-	generateUpgrade,
 	type GenerateResult,
-	type LiveInstallation,
 	type MigrationDraft,
-	type UpgradeInput
+	planMigration,
+	type PlannedDraft,
+	renderMigration
 } from "#compiler/deploy/render/generate.ts"
-export { type Departure, departureDrop } from "#compiler/deploy/diff/departed.ts"
-export { staleReplaced } from "#compiler/deploy/diff/diff.ts"
-export type { PhysicalKind } from "#compiler/ir/products.ts"
-export { type LiveNames, liveRosters } from "#compiler/deploy/upgrade/history.ts"
-export { spellingReaders } from "#compiler/physical/ddl/spellings.ts"
-export { type Spellings, spellingsHeld } from "#compiler/ir/pattern.ts"
+export type { Spellings } from "#compiler/ir/pattern.ts"
 export {
 	findMarkers,
 	isNoTransaction,
@@ -126,7 +119,14 @@ export {
 export { servedWorkloadExtension } from "#compiler/physical/access/extension.ts"
 export { completeInstallOptions } from "#compiler/physical/complete.ts"
 export { literalPackFault, type PackFault } from "#compiler/physical/ddl/literal.ts"
-export { type Installation, installationOver } from "#compiler/physical/install/compile.ts"
+export type { Installation } from "#compiler/physical/install/compile.ts"
+export { judgeSeeks, type SeekTargets } from "#compiler/physical/access/seeks.ts"
+export { seekProgram } from "#compiler/sql/seeks.ts"
+export {
+	type InstalledIdentifier,
+	installationOver,
+	installedIdentifiersOf
+} from "#compiler/program/install.ts"
 export {
 	accessDrift,
 	accessDriftText,
@@ -135,8 +135,10 @@ export {
 	planWorkload,
 	type ProgramFootprints,
 	type ServedWorkloadPlan,
+	servedPrograms,
 	servedWorkload,
 	servesRead,
+	withProgramAccess,
 	type WorkloadFootprints,
 	type WorkloadPlanRefused
 } from "#compiler/program/workload/compile.ts"
@@ -149,6 +151,7 @@ export { type UnservedMember, type UnservedReason } from "#compiler/served/unser
 export { filledText } from "#compiler/sql/emit.ts"
 export { leadingTokens, lex, type Token } from "#compiler/sql/lexer.ts"
 export {
+	dataStepRecheckName,
 	identifierOf,
 	identity,
 	type InstallationRole,
@@ -169,3 +172,11 @@ export {
 export { servedMembers } from "#compiler/write/program/served-members.ts"
 export { servedMatchers } from "#compiler/served/matchers.ts"
 export { dropLiveSlot } from "#compiler/physical/ddl/live.ts"
+export {
+	type PlannedCall,
+	type PlannedQueries,
+	plannedQueries,
+	readCall,
+	writeCall
+} from "#compiler/program/planned.ts"
+export { enterQuery } from "#compiler/deploy/ledger/ledger.ts"

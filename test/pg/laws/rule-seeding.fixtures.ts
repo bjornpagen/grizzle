@@ -1,12 +1,9 @@
 /** What the properties of rule-seeding.test.ts read: each shape's schema and template, its cases and aims, and its judges. */
-import { type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
-import { rowsRead } from "#bench/harness/explain.ts"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { type LawId } from "#compiler/core/ids.ts"
-import { quoteIdent } from "#compiler/core/text.ts"
 import { baselineRuleChecks, lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { countColumn } from "#compiler/physical/ddl/deltas.ts"
@@ -14,25 +11,28 @@ import { type Installation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, contained, derived, key, on, relation, schema } from "#compiler/public/schema.ts"
-import { type PlDeclaration, type PlStatement } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import {
 	type Seat,
 	type SeatCase,
 	type SeatTemplate,
 	seatIn,
-	seatTemplate
+	seatTemplate,
+	seededSeatTemplate
 } from "#test/pg/fin/installed.ts"
+import { dataStepOf, refusedByRecheck } from "#test/support/data-step.ts"
 import {
 	capturedDeltasOf,
 	foundQueryOf,
 	judgedDeltaReadsOf,
 	judgedPlans,
 	type JudgedStatement,
-	largeTables,
-	standUpJudge
+	keyedWork,
+	probeCostOf,
+	standUpJudge,
+	wideScans
 } from "#test/support/judge.ts"
-import { refusalOf } from "#test/support/substrate.ts"
+import { firstRefusalOf, refusalOf } from "#test/support/substrate.ts"
 import { type RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -509,16 +509,18 @@ export const caseGen =
 /**
  * How a constructed case's last transaction changes the facts it refuses by: by single-row deletes alone; by inserting
  * blocks alone, which withdraw the facts a negation of N admitted; by inserting marks alone, which bring back the facts
- * a standing block held out; or by deleting marks alone, which let a block stand again.
+ * a standing block held out; by deleting marks alone, which let a block stand again; or by chains alone whose L1s stood,
+ * each adding an L2 under its L1, which makes a rate-paced L1 paceless.
  */
-type Withdrawal = "deletes" | "block" | "mark" | "unmark"
+type Withdrawal = "deletes" | "block" | "mark" | "unmark" | "pace"
 
 /** The refusal a constructed case reaches by its withdrawal. */
 const refusedAfter = {
 	deletes: "refused once rows were deleted one at a time, and nothing else",
 	block: "refused once a block was inserted",
 	mark: "refused once a mark was inserted, and nothing else",
-	unmark: "refused once a mark was deleted, and nothing else"
+	unmark: "refused once a mark was deleted, and nothing else",
+	pace: "refused once an L2 was added under an L1 that stood, and nothing else"
 } as const satisfies Record<Withdrawal, EquivalenceFeature>
 
 /** An id of 1 to 3 other than `id`: `id` moved on by one or two, wrapping. */
@@ -604,11 +606,39 @@ const budgetUnblocked: Gen<Case> = (s) => {
 }
 
 /**
+ * budget's case refused by an L2 inserted under an L1 that stood, its values drawn: a chain of key k whose L1 a1 is of
+ * value 0 and whose L2 a2, its only one, is under a block, so a1 is rate-paced and out of Limited; then a chain at a1
+ * again, which inserts no L1 and an L2 b2 under it no block marks, a served insert of a relation under two negations, so
+ * a1 is paceless, no longer rate-paced, and its value 0 breaks the check.
+ */
+const budgetPaced: Gen<Case> = (s) => {
+	const k = s.draw(int(1, 2))
+	const [a1, a2, a3] = [s.draw(idGen), s.draw(idGen), s.draw(idGen)]
+	return {
+		shape: "budget",
+		history: [
+			[
+				{ kind: "chain", k, ids: [a1, a2, a3], values: [0, s.draw(valueGen), s.draw(valueGen)] },
+				{ kind: "block", id: a2 }
+			],
+			[
+				{
+					kind: "chain",
+					k,
+					ids: [a1, s.draw(otherThan(a2)), s.draw(idGen)],
+					values: [s.draw(valueGen), s.draw(valueGen), s.draw(valueGen)]
+				}
+			]
+		]
+	}
+}
+
+/**
  * The withdrawals that refuse a shape's rule, each with the case constructed to reach its refusal. A key's rule is
  * broken only by facts added: under standing's negation of a negation, deleting a block adds the facts it held out, and
  * a mark inserted does too. lifted's containment is refused by every fact its target holds a key by withdrawn while its
  * source keeps the key: a block inserted, or a mark deleted that lets a block stand again. budget's check is broken by
- * a block deleted under three negations.
+ * a block deleted under three negations, and by an L2 a served chain adds under an L1 that stood, under two.
  */
 const withdrawalsOf = (
 	shape: JudgedShape
@@ -625,7 +655,10 @@ const withdrawalsOf = (
 				["unmark", liftedWithdrawn("unmark")]
 			]
 		case "budget":
-			return [["deletes", budgetUnblocked]]
+			return [
+				["deletes", budgetUnblocked],
+				["pace", budgetPaced]
+			]
 	}
 }
 
@@ -640,6 +673,20 @@ export const aimsOf = (
 		withdrawalsOf(shape),
 		([withdrawal, constructed]) => [refusedAfter[withdrawal], constructed] as const
 	)
+
+/**
+ * Whether each write removes a row, a delete's, an unwind's, or a link's replacement, its row deleted and the new one
+ * inserted: which a closed relation loses only in a data step (data-step.ts asDataStep).
+ */
+const removes: { readonly [K in Op["kind"]]: boolean } = {
+	chain: false,
+	mark: false,
+	block: false,
+	delete: true,
+	unwind: true,
+	relink: true,
+	revalue: true
+}
 
 /** The statements of one write on `seat`. */
 const statementsOf = (seat: Seat, op: Op): ReadonlyArray<string> => {
@@ -762,13 +809,14 @@ export type EquivalenceFeature =
 	| "refused once a block was inserted"
 	| "refused once a mark was inserted, and nothing else"
 	| "refused once a mark was deleted, and nothing else"
+	| "refused once an L2 was added under an L1 that stood, and nothing else"
 
 /** Whether the first cell of the first row is true. */
 const truth = (rows: ReadonlyArray<ReadonlyArray<unknown>>): boolean => rows[0]?.[0] === true
 
 /**
  * One drawn history on its shape's seat, from empty: each transaction judged by the rule's whole check before its
- * triggers run, and committed exactly when the check finds nothing.
+ * triggers run, and committed exactly when the check finds nothing, one that removes a row a data step (`removes`).
  */
 export const judgeHistory = (
 	installed: Installed,
@@ -779,11 +827,25 @@ export const judgeHistory = (
 		const { seat } = installed
 		const shape = c.shape
 		const session = seat.session
+		if (shape !== "lifted") {
+			assert.deepEqual(
+				Arr.filter(deltasOf(seat, "N"), (d) => Arr.contains(d.columns, countColumn)),
+				[],
+				`${shape}: no capture writes the rows N gains, which the rule reads under an odd number of negations, so a block inserted only holds facts out`
+			)
+		}
+		/** The L1s that stand, by id, as the committed transactions leave them. */
+		const firsts = new Set<number>()
 		for (const [at, ops] of c.history.entries()) {
-			const statements = Arr.flatMap(ops, (op) => statementsOf(seat, op))
+			const written = Arr.flatMap(ops, (op) => statementsOf(seat, op))
+			/** A transaction that removes a closed relation's rows is a data step, inside the bracket a migration's runner
+			 * sends (data-step.ts dataStepOf), whose checks run after the state it leaves is read. */
+			const bracket = Arr.some(ops, (op) => removes[op.kind])
+				? dataStepOf(seat.installed.installation)
+				: { before: [], after: [] }
 			const where = `transaction ${at} of ${Formatter.format(c)}`
 			yield* session.begin
-			for (const sql of statements) {
+			for (const sql of [...bracket.before, ...written]) {
 				yield* Effect.onError(session.query(sql, []), () => Effect.ignore(session.rollback))
 			}
 			const judged = yield* Effect.onError(session.values(installed.whole, []), () =>
@@ -799,7 +861,12 @@ export const judgeHistory = (
 					message: `the check over every row finds ${truth(checked) ? "a row" : "none"} where the whole check finds ${broken ? "the rule broken" : "nothing"}, ${where}`
 				})
 			}
-			const refused = yield* refusalOf(session.query("SET CONSTRAINTS ALL IMMEDIATE", []))
+			/** The data step's bracket's checks, the judge and then the installation's re-check: a step that breaks the rule
+			 * is refused there, never past it. */
+			const bracketed = yield* firstRefusalOf(bracket.after, (sql) => session.query(sql, []))
+			const refused = Option.isSome(bracketed)
+				? bracketed
+				: yield* refusalOf(session.query("SET CONSTRAINTS ALL IMMEDIATE", []))
 			if (Option.isNone(refused)) {
 				if (broken) {
 					yield* Effect.ignore(session.rollback)
@@ -809,14 +876,32 @@ export const judgeHistory = (
 				}
 				yield* session.commit
 				note("committed")
+				for (const op of ops) {
+					if (op.kind === "chain") {
+						firsts.add(op.ids[0])
+					}
+					if (
+						(op.kind === "delete" || op.kind === "unwind") &&
+						(op.kind === "unwind" ? op.upper === "L1" : op.table === "L1")
+					) {
+						firsts.delete(op.id)
+					}
+				}
 				continue
 			}
 			yield* session.rollback
 			const fields = refused.value
-			const laws = refusedLaws(seat.installed.installation, fields)
-			if (!broken || fields.code !== codeOf(shape) || !Arr.contains(laws, installed.law)) {
+			const byJudge =
+				fields.code === codeOf(shape) &&
+				Arr.contains(refusedLaws(seat.installed.installation, fields), installed.law)
+			/** Refused under the rule's law: at COMMIT's checks by the judge; in a data step's bracket by the judge, where its
+			 * rows reach what the judge reads, or by the re-check, where its removals of closed rows alone break the rule. */
+			const refusedAsLaw = Option.isNone(bracketed)
+				? byJudge
+				: byJudge || refusedByRecheck(fields, installed.law)
+			if (!broken || !refusedAsLaw) {
 				return yield* new Disagreed({
-					message: `refused by ${fields.code} ${fields.constraint ?? "naming no constraint"} where the whole check finds ${broken ? "the rule broken" : "nothing"}, ${where}`
+					message: `refused ${Option.isSome(bracketed) ? "in the data step's bracket " : ""}by ${fields.code} ${fields.constraint ?? "naming no constraint"} where the whole check finds ${broken ? "the rule broken" : "nothing"}, its law ${installed.law}, ${where}`
 				})
 			}
 			note(`refused by ${shape}`)
@@ -832,14 +917,15 @@ export const judgeHistory = (
 			if (Arr.every(ops, (op) => op.kind === "delete" && op.table === "M")) {
 				note("refused once a mark was deleted, and nothing else")
 			}
+			if (Arr.every(ops, (op) => op.kind === "chain" && firsts.has(op.ids[0]))) {
+				note("refused once an L2 was added under an L1 that stood, and nothing else")
+			}
 		}
 	})
 
-/** A key's base, ten times the key: its rows' ids are base + 1 to base + 6. */
-const keyBase = (k: number): number => k * 10
-
 /**
- * The rows of keys `from` to `to`, each a chain of value 1, two marks and a block of no link (id base + 6), inserted by
+ * The rows of keys `from` to `to`, each a chain of value 1, ids ten times its key plus 1 to 6, two marks and a block
+ * of no link (id ten times the key plus 6), inserted by
  * one statement per table. The block holds no link out, so every rule reads the state as it would without it; it is
  * stored so that N's key index spans pages as every table's does: PostgreSQL 19 takes a SIRead lock on a whole B-tree
  * that holds no entry (nbtsearch.c _bt_first: "the index is completely empty. Lock relation because nothing finer to
@@ -861,35 +947,37 @@ const clusterSql = (seat: Seat, from: number, to: number): ReadonlyArray<string>
 	]
 }
 
-/** A row of key 1 a locality case touches: its table and id, a block of one of its links among them. */
-interface Touched {
-	readonly table: Table
-	readonly id: number
-	/** Whether the row is stored: a block is not, and is inserted and deleted again. */
-	readonly stored: boolean
-}
+/**
+ * The key a locality case's served write founds beside the drawn key `k`: past every key either template stores, so
+ * the write adds rows of a new key alone, as every served write of the schema's closed relations does, never rewriting
+ * or removing a stored one, which only a data step does, whose bracket's re-check judges it whole. The judge runs on the
+ * rows a served write adds, and that is where its work is measured.
+ */
+const foundedKey = (k: number): number => localitySizes.many + k
 
-/** Each row of key `k` on a table `seat`'s rule reads, and a block of each of its links where it reads N. */
-export const touchedOf = (seat: Seat, k: number): ReadonlyArray<Touched> => {
-	const b = keyBase(k)
+/**
+ * The served write a locality case of `shape` measures: key `k`'s chain, its marks and its block, founded as every
+ * stored key's is (`clusterSql`); and for budget, whose judge reads an L1 only where its value is not 1 (Budgeted's
+ * check, a selection of the reader of L1's added rows), an L1 of value 2 beside it, under no L2, so rate-paced and the
+ * write lawful, which the judge reads.
+ */
+const foundingSql = (seat: Seat, shape: Shape, k: number): ReadonlyArray<string> => [
+	...clusterSql(seat, k, k),
+	...(shape === "budget"
+		? [
+				`INSERT INTO ${seat.table("L1")} (${seat.column("L1", "id")}, ${seat.column("L1", "up")}, ${seat.column("L1", "v")}) VALUES (${k * 10 + 7}, ${k}, 2)`
+			]
+		: [])
+]
+
+/** The tables a locality case measures the probes of: each a rule of `seat` reads, in the chain's order. */
+export const touchedOf = (seat: Seat): ReadonlyArray<Table> => {
 	const read = new Set<string>(
 		Arr.flatMap(seat.installed.installation.laws.rules, (rule) =>
 			Arr.map(rule.tables, (t) => t.relation.name)
 		)
 	)
-	return Arr.filter<Touched>(
-		[
-			{ table: "L1", id: b + 1, stored: true },
-			{ table: "L2", id: b + 2, stored: true },
-			{ table: "L3", id: b + 3, stored: true },
-			{ table: "M", id: b + 4, stored: true },
-			{ table: "M", id: b + 5, stored: true },
-			{ table: "N", id: b + 1, stored: false },
-			{ table: "N", id: b + 2, stored: false },
-			{ table: "N", id: b + 3, stored: false }
-		],
-		(t) => read.has(t.table)
-	)
+	return Arr.filter(["L1", "L2", "L3", "M", "N"] as const, (t) => read.has(t))
 }
 
 /** A delta a capture writes: its table of pg_temp and its columns, the relation's columns by name. */
@@ -898,118 +986,9 @@ interface Delta {
 	readonly columns: ReadonlyArray<string>
 }
 
-/** Whether a session table's columns are the sentinel's: its written set (physical/ddl/rules.ts arming), no delta's. */
-const isSentinel = (columns: ReadonlyArray<{ readonly name: string }>): boolean =>
-	Arr.some(columns, (c) => c.name === "__written")
-
-/** Every statement of `body`, at any depth of the conditions it stands under, the conditions' own first. */
-const everyStatement = (body: ReadonlyArray<PlStatement>): ReadonlyArray<PlStatement> =>
-	Arr.flatMap(body, (s): ReadonlyArray<PlStatement> =>
-		s.kind === "if"
-			? [s, ...Arr.flatMap(s.branches, (b) => everyStatement(b.body)), ...everyStatement(s.else)]
-			: [s]
-	)
-
-/** Whether `s` is a condition whose first branch runs a statement `test` holds of. */
-const guards = (s: PlStatement, test: (inner: PlStatement) => boolean): boolean =>
-	s.kind === "if" && Arr.some(Arr.headNonEmpty(s.branches).body, test)
-
-/**
- * The statements of `table`'s capture (physical/ddl/rules.ts addCapture) that a write of a row runs around its rows,
- * each once: `standUp`, which reads which of the session's tables stand, each the session's stand-up made
- * (test/support/judge.ts standUpJudge), and writes the sentinel's row, naming the deltas that hold a row, none yet; and
- * `mark`, which names in the row's written set each delta that holds a row. A statement of the table that writes no row
- * runs none of them, so the footprint runs them itself, before SET CONSTRAINTS ALL IMMEDIATE, so the row's INSERT defers
- * the judge to it.
- */
-const armingOf = (seat: Seat, table: Table) => {
-	const statements = everyStatement(
-		bodyOf(seat.installed.installation, identifierOf(identity.ruleCapture(table)))
-	)
-	const once = (picked: ReadonlyArray<PlStatement>): ReadonlyArray<PlStatement> =>
-		Arr.dedupeWith(picked, (a, b) => printedPl(a) === printedPl(b))
-	const sentinels = new Set(
-		Arr.flatMap(statements, (s) =>
-			s.kind === "createSessionTable" && isSentinel(s.columns) ? [s.name] : []
-		)
-	)
-	const standUp = once(
-		Arr.filter(
-			statements,
-			(s) =>
-				guards(s, (inner) => inner.kind === "createSessionTable") ||
-				s.kind === "assign" ||
-				(s.kind === "modify" &&
-					s.statement.kind === "insert" &&
-					typeof s.statement.table !== "string" &&
-					sentinels.has(s.statement.table.name))
-		)
-	)
-	const mark = once(
-		Arr.filter(statements, (s) =>
-			guards(s, (inner) => inner.kind === "modify" && inner.statement.kind === "update")
-		)
-	)
-	const declare = Arr.flatMap(seat.installed.installation.statements, (s) =>
-		s.kind === "createFunction" &&
-		s.language === "plpgsql" &&
-		s.name.name === identifierOf(identity.ruleCapture(table))
-			? s.body.declare
-			: []
-	)
-	return { standUp, mark, declare }
-}
-
-/** `body` as a function of the session's own, pg_temp.`name`, its call printed beside it. */
-const sessionFunction = (
-	name: string,
-	body: ReadonlyArray<PlStatement>,
-	declare: ReadonlyArray<PlDeclaration>
-): ReadonlyArray<string> => {
-	const [first, ...rest] = body
-	return first === undefined
-		? []
-		: [
-				printStatement({
-					kind: "createFunction",
-					language: "plpgsql",
-					name: { schema: "pg_temp", name },
-					volatility: "VOLATILE",
-					parallel: "UNSAFE",
-					security: "DEFINER",
-					returns: "void",
-					params: [],
-					body: { declare, body: [first, ...rest] }
-				}),
-				`SELECT pg_temp.${quoteIdent(name)}()`
-			]
-}
-
-/** A statement's text as a function body prints it, by which two statements of a capture are one. */
-const printedPl = (statement: PlStatement): string =>
-	printStatement({
-		kind: "createFunction",
-		language: "plpgsql",
-		name: { schema: "pg_temp", name: "printed" },
-		volatility: "VOLATILE",
-		parallel: "UNSAFE",
-		security: "DEFINER",
-		returns: "void",
-		params: [],
-		body: { declare: [], body: [statement] }
-	})
-
 /** The deltas `table`'s capture writes (physical/ddl/rules.ts addRules), deduplicated by name. */
 const deltasOf = (seat: Seat, table: Table): ReadonlyArray<Delta> =>
 	Arr.dedupeWith(capturedDeltasOf(seat.installed.installation, table), (a, b) => a.name === b.name)
-
-/** The PL/pgSQL body of the installation's function named `name`. */
-const bodyOf = (installation: Installation, name: string): ReadonlyArray<PlStatement> =>
-	Arr.flatMap(installation.statements, (s) =>
-		s.kind === "createFunction" && s.language === "plpgsql" && s.name.name === name
-			? s.body.body
-			: []
-	)
 
 /**
  * Every probe of the judge over `table`'s rows, as the installation creates them: each statement the judge tests a rule
@@ -1054,52 +1033,21 @@ const siReadLocks = (session: RawSession) =>
 	)
 
 /**
- * The footprint of touching `touched`, on a fresh session planning for large tables, in two transactions rolled back,
- * each writing the touch alike. A stored row stands in every delta of its table as it is stored: the session's stand-up
- * makes the deltas, the capture's own statements arm the judge (`armingOf`), which a statement that writes no row runs
- * none of, the row's image is copied into each delta, and the capture's marks name each in the written set, so the
- * judge's region is the row and the table is not written, which would move the row's index entries. A touched row its
- * table does not store, a block, stands in each delta at its id alone, as a capture of its insert writes it. In the
- * first, each probe of the judge over the table is explained while the deltas hold the row's images, before the judge
- * reads and deletes them (test/support/judge.ts judgedPlans); in the second, SET CONSTRAINTS ALL IMMEDIATE runs the
- * judge over them and the SIRead locks the transaction holds are counted, the judge's alone, no explained read's.
+ * The footprint of the served write that founds key `k` (`foundedKey`, `foundingSql`) on table `table`'s probes,
+ * on a fresh session with no planner setting, in two transactions rolled back, each writing the chain alike through the
+ * captures, which fill the deltas as any served write's do. In the first, each probe of the judge over the table is
+ * explained while the deltas hold the chain's rows, before the judge reads and deletes them (test/support/judge.ts
+ * judgedPlans); in the second, SET CONSTRAINTS ALL IMMEDIATE runs the judge over them and the SIRead locks the
+ * transaction holds are counted, the judge's alone, no explained read's.
  */
-const footprintOf = (seat: Seat, touched: Touched) =>
+const footprintOf = (seat: Seat, shape: Shape, k: number, table: Table) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const session = yield* substrate.session({ ...ownerSession(), label: "rule seed locality" })
 		yield* standUpJudge(session, seat.installed.installation)
-		for (const setting of largeTables) {
-			yield* session.query(setting, [])
-		}
-		const table = touched.table
-		const t = seat.table(table)
-		const id = seat.column(table, "id")
-		const { standUp, mark, declare } = armingOf(seat, table)
-		const images = Arr.map(deltasOf(seat, table), (d) => {
-			const columns = Arr.join(Arr.map(d.columns, quoteIdent), ", ")
-			return touched.stored
-				? `INSERT INTO pg_temp.${quoteIdent(d.name)} (${columns}) SELECT ${Arr.join(
-						Arr.map(d.columns, (c) => (c === countColumn ? "1" : quoteIdent(c))),
-						", "
-					)} FROM ${t} WHERE ${id} = ${touched.id}`
-				: `INSERT INTO pg_temp.${quoteIdent(d.name)} (${columns}) SELECT ${Arr.join(
-						Arr.map(d.columns, (c) =>
-							c === countColumn
-								? "1"
-								: quoteIdent(c) === id
-									? `${touched.id}`
-									: assert.fail(`a block's delta holds ${c}`)
-						),
-						", "
-					)}`
-		})
-		const write = [
-			...sessionFunction("rule_seed_stand_up", standUp, declare),
-			...images,
-			...sessionFunction("rule_seed_mark", mark, declare)
-		]
-		/** `measured` after the touch's write, in a transaction rolled back after it. */
+		const probeCost = yield* probeCostOf((sql) => session.values(sql, []))
+		const write = foundingSql(seat, shape, foundedKey(k))
+		/** `measured` after the founding write, in a transaction rolled back after it. */
 		const touching = <A, E>(measured: Effect.Effect<A, E>) =>
 			Effect.gen(function* () {
 				yield* session.begin
@@ -1125,64 +1073,88 @@ const footprintOf = (seat: Seat, touched: Touched) =>
 		const locks = yield* touching(
 			Effect.andThen(session.query("SET CONSTRAINTS ALL IMMEDIATE", []), siReadLocks(session))
 		)
-		return { rows: Arr.map(judged, (p) => rowsRead(p.plan)), locks } satisfies Footprint
+		assert.deepEqual(
+			Arr.flatMap(judged, (p) => wideScans(p.plan, probeCost)),
+			[],
+			`a probe of ${table} reads no table larger than a probe whole`
+		)
+		return { rows: Arr.map(judged, (p) => keyedWork(p.plan, probeCost)), locks } satisfies Footprint
 	})
 
 export type LocalityFeature = `${Shape} measured`
 
 /**
- * One locality case: a shape, the keys it holds when first measured, 250 to 400, and when measured again, 600 to 900
- * more, and the key it measures among the first. 250 keys' rows fill more than one heap page of every table, and 600
- * more add three, so a probe that read every key would read more rows and lock more pages, or a relation, where a
- * probe of the key reads its own.
+ * One locality case: a shape, the keys it holds when first measured, 2,048, and when measured again, 1,024 more, and the
+ * key it measures among the first. 2,048 keys' rows make every table larger than one probe of it, so PostgreSQL looks a
+ * key up in it with no planner setting, and 1,024 more add pages, so a probe that read every key would read more rows
+ * and lock more pages, or a relation, where a probe of the key reads its own.
  */
 interface Locality {
 	readonly shape: Shape
-	readonly before: number
-	readonly after: number
 	readonly key: number
 }
 
 /** A locality case of one shape. */
 export const localityGen =
 	(shape: Shape): Gen<Locality> =>
-	(s) => {
-		const before = s.draw(int(250, 400))
-		return {
-			shape,
-			before,
-			after: s.draw(int(before + 600, before + 900)),
-			key: s.draw(int(1, before))
-		}
-	}
+	(s) => ({ shape, key: s.draw(int(1, localitySizes.few)) })
 
 /**
- * The statements loading keys `from` to `to` (`clusterSql`) with the tables' captures off: every key's rows are lawful,
- * so no judge of the load is the property's, and a judge that reads every key's rows, its kill's, would judge every
- * loaded row against every key at the load's COMMIT, which grows with the cube of the keys and ends no case.
+ * The keys a locality case's shape holds stored, a template's: 2,048, then half as many again, every key's
+ * rows lawful (`clusterSql`).
  */
-const loadedSql = (seat: Seat, from: number, to: number): ReadonlyArray<string> => [
-	...Arr.map(RELATIONS, (r) => `ALTER TABLE ${seat.table(r)} DISABLE TRIGGER USER`),
-	...clusterSql(seat, from, to),
-	...Arr.map(RELATIONS, (r) => `ALTER TABLE ${seat.table(r)} ENABLE TRIGGER USER`)
-]
+const localitySizes = { few: 2048, many: 3072 } as const
 
 /**
- * Every footprint of key `k` on `seat` once keys `from` to `to` are loaded beside those it holds, with the captures off
- * (`loadedSql`).
+ * Each shape's schema installed with its first `keys` keys committed through the captures once per member, judged at
+ * their COMMIT, then each table analyzed: the seat a locality case measures one key's footprint on. A judge that reads
+ * every key's rows, a kill's, judges every loaded row against every key at that COMMIT, once a member.
  */
-export const footprints = (seat: Seat, k: number, from: number, to: number) =>
-	Effect.gen(function* () {
-		yield* seat.session.begin
-		for (const sql of loadedSql(seat, from, to)) {
-			yield* Effect.onError(seat.session.query(sql, []), () => Effect.ignore(seat.session.rollback))
-		}
-		yield* seat.session.commit
-		for (const r of RELATIONS) {
-			yield* seat.session.query(`ANALYZE ${seat.table(r)}`, [])
-		}
-		return yield* Effect.forEach(touchedOf(seat, k), (touched) => footprintOf(seat, touched))
-	})
+const localityTemplate = (shape: Shape, keys: number): SeatTemplate =>
+	seededSeatTemplate(
+		import.meta,
+		schemaOf(shape, `Seed_${shape}`),
+		RELATIONS,
+		`rule_seed_${shape}_${keys}`,
+		(seat) =>
+			Effect.gen(function* () {
+				yield* standUpJudge(seat.session, seat.installed.installation)
+				yield* seat.session.begin
+				for (const sql of clusterSql(seat, 1, keys)) {
+					yield* seat.session.query(sql, [])
+				}
+				yield* seat.session.commit
+				for (const r of RELATIONS) {
+					yield* seat.session.query(`ANALYZE ${seat.table(r)}`, [])
+				}
+			})
+	)
+
+/** Each shape's locality templates, by the keys they hold. */
+const localityPair = (shape: Shape) => ({
+	few: localityTemplate(shape, localitySizes.few),
+	many: localityTemplate(shape, localitySizes.many)
+})
+
+export const localityTemplates: {
+	readonly [S in Shape]: { readonly few: SeatTemplate; readonly many: SeatTemplate }
+} = {
+	titles: localityPair("titles"),
+	viewed: localityPair("viewed"),
+	deep: localityPair("deep"),
+	key: localityPair("key"),
+	tagged: localityPair("tagged"),
+	standing: localityPair("standing"),
+	lifted: localityPair("lifted"),
+	budget: localityPair("budget")
+}
+
+/**
+ * Every footprint of key `k` on `seat`, beside the keys its template committed (localityTemplates), each measured on a
+ * session of its own that closes once it is read.
+ */
+export const footprints = (seat: Seat, shape: Shape, k: number) =>
+	Effect.forEach(touchedOf(seat), (table) => Effect.scoped(footprintOf(seat, shape, k, table)))
 
 /**
  * The refusals and commits a shape's search must reach: every shape commits, is refused by its rule, and is refused by

@@ -369,25 +369,9 @@ const draftedOf = (lossDrawn: boolean): ReadonlyArray<DraftedFile> => {
 	]
 }
 
-/** How a drawn meta records its draft's statements: as generate records them (provedRecord), or every statement by its
- * text, as a meta.json of format 7 or before records them, which `grizzle upgrade` reads. */
-type RecordForm = "as generate records it" | "every statement by its text"
-
-const recordForms: Arr.NonEmptyReadonlyArray<RecordForm> = [
-	"as generate records it",
-	"every statement by its text"
-]
-
-/** A draft's record in a form (RecordForm). */
-const recordOf = (lossDrawn: boolean, form: RecordForm): ReadonlyArray<MetaFile> => {
-	const drafted = draftedOf(lossDrawn)
-	switch (form) {
-		case "as generate records it":
-			return succeeded(provedRecord(drafted), "a drafted record proved")
-		case "every statement by its text":
-			return drafted
-	}
-}
+/** A draft's record as generate records it (provedRecord). */
+const recordOf = (lossDrawn: boolean): ReadonlyArray<MetaFile> =>
+	succeeded(provedRecord(draftedOf(lossDrawn)), "a drafted record proved")
 
 /** An installed identifier's spelling: a PostgreSQL schema's, an owner's, a constraint's or a law's. */
 const identGen: Gen<string> = matching(regex("^[a-z][a-z0-9_]{0,8}$"))
@@ -445,7 +429,7 @@ export const metaGen: Gen<MigrationMeta> = (source) => {
 	const target = SchemaFingerprint(source.draw(fingerprintGen))
 	const custom = source.draw(boolean)
 	const declared = source.draw(declaredGen)
-	const files = recordOf(source.draw(boolean), source.draw(element(recordForms)))
+	const files = recordOf(source.draw(boolean))
 	return custom
 		? { kind: "custom", ...fields, target: fields.source }
 		: { kind: "drafted", ...fields, target, declared, files }
@@ -570,10 +554,7 @@ export const faultedMeta = (
 	}
 }
 
-export type MetaFeature =
-	| "a drafted meta with a loss, read"
-	| "declarations, read"
-	| "a meta of format 7, every statement by its text, read"
+export type MetaFeature = "a drafted meta with a loss, read" | "declarations, read"
 
 export const namesGen = weighted<ReadonlyArray<string>>([
 	[4, array(folderEntryGen, { min: 0, max: 5 })],

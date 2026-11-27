@@ -1,8 +1,9 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { unixEpochDate } from "#compiler/ir/date.ts"
 import type { OpId, ScalarExpr } from "#compiler/ir/expr.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
-import { baseOf } from "#compiler/ir/scalar.ts"
+import { baseOf, type NonIdentityCarrier } from "#compiler/ir/scalar.ts"
 import { parseDoubleForm } from "#compiler/lower/conservative/expr/parse-double.ts"
 import { exactForm, ieeeForm } from "#compiler/lower/conservative/expr/total.ts"
 import { canonicalNanBits } from "#compiler/scalar/compute/float.ts"
@@ -215,6 +216,10 @@ const floatBitsForm = (from: "float4" | "float8", args: ReadonlyArray<Expr>): Ex
 	}
 }
 
+/** A float's identity image (floatBitsForm) over one operand `x` of carrier `from`: a variant's digest reads it. */
+export const floatImage = (x: Expr, from: "float4" | "float8"): Expr =>
+	defined(floatBitsForm(from, [x]), "a float's image of one operand")
+
 /** U+10000 to U+10FFFF, the supplementary planes, as an ARE's bracket expression: UTF-16's pairs. */
 const supplementaryClass = "[\\U00010000-\\U0010FFFF]"
 
@@ -381,15 +386,23 @@ const registryForm = (
 				: undefined
 		case "zoneLibrary":
 			return undefined
-		case "canonicalZero":
+		case "canonical":
 			return args.length === 1 && first !== undefined
-				? binary("+", first, lit.float(0, sql.carrier === "float4" ? types.real : types.double))
+				? canonicalForm(first, sql.carrier)
 				: undefined
 		case "searchPart":
 		case "textSearch":
 			return undefined
 	}
 }
+
+/**
+ * The canonical form of `x`, a value of a carrier whose equality is no identity (scalar/compute/registry.ts canonical):
+ * a float's `x + 0::type`, its -0 written +0. The one spelling of it: a query's (`defaultOps`) and a lock's key image
+ * (write/borrow/lock.ts).
+ */
+export const canonicalForm = (x: Expr, carrier: NonIdentityCarrier): Expr =>
+	binary("+", x, lit.float(0, carrier === "float4" ? types.real : types.double))
 
 /**
  * A native call's operands as PostgreSQL must read them (registry.ts OperandReading): as they are for an overload that

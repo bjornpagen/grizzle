@@ -88,12 +88,14 @@ export const caseText = (c: UnitCase): UnitFeature => {
 	}
 }
 
+const otherIdKey = Symbol("OtherId")
 /** An id of another type than Id, by its own contract over the same base. */
-const OtherId = contract("OtherId", uuid)
+const OtherId = contract<typeof otherIdKey>()("OtherId", uuid)
 
+const testNumberKey = Symbol("TestNumber")
 /** A number kept in an int4, bounded below the int4 serial's greatest value, as a test's number is. */
-const TestNumber = contract("TestNumber", pg.integer, (n) =>
-	Logic.and(Logic.ge(n, 0), Logic.le(n, 2147483646))
+const TestNumber = contract<typeof testNumberKey>()("TestNumber", pg.integer, (n) =>
+	Logic.and([Logic.ge(n, 0), Logic.le(n, 2147483646)])
 )
 
 /** R keyed as a member case says. */

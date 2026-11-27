@@ -166,7 +166,7 @@ export const checkBatch = (
 				Rec.values(Rec.fromEntries(Arr.map(relations, (r, i) => [relationName(i), r]))),
 				[]
 			),
-			{ ambient: ordinarySession, label: "bytes", logins: [], extensions: [] }
+			{ ambient: ordinarySession, label: "bytes", extensions: [] }
 		)
 		const substrate = yield* Substrate
 		const session = yield* substrate.session({ ...ownerSession(), label: "bytes writer" })

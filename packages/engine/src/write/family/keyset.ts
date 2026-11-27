@@ -79,7 +79,7 @@ export type Access =
 export const statedKey = (relation: RelationInfo): NonEmptyReadonlyArray<LawField> => {
 	const stated = relation.primaryFields.filter((f) => f.writing.kind !== "place")
 	if (!isNonEmpty(stated)) {
-		throw defect(`the primary key of ${relation.name}, a place alone`)
+		defect(`the primary key of ${relation.name}, a place alone`)
 	}
 	return stated
 }

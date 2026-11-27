@@ -43,15 +43,13 @@
  *    comparison; a JavaScript value adopts the base (LiteralOf); a constant's T is its domain and its column its value.
  *    A scope's name keeps the declared-name rule in its type (DeclaredName), so a name the builder refuses never types.
  *
- * 3. The seven statement-tuple readers. `schema(name, relations, statements)` captures its statements as a const
+ * 3. The six statement-tuple readers. `schema(name, relations, statements)` captures its statements as a const
  *    tuple, which the schema's type holds by name and reads back whole, and statement values carry the types they
- *    name. That one tuple is read seven times, each through a projection that is a property read, one Extract over
+ *    name. That one tuple is read six times, each through a projection that is a property read, one Extract over
  *    the tuple's element union, or a lookup in an index built once per schema, never a recursion over the schema graph:
  *    - attach: DeliveryClaim checks the stated delivery against the child's evidence, which reads KeysOf through
  *      HeadKeys and ContainmentsOf through ContainmentProof;
  *    - get: QueryReader.get accepts a query whose evidence card is atMostOne or one;
- *    - alternatives: ArmsCompatible checks each arm's key against the parent key, and DiscriminatorsOf the
- *      discriminator against the roster;
  *    - derived: KeysOf reads a derived relation's keys from its definition's evidence, which pin a match on it like
  *      declared keys (HeadKeys); a key's, a check's and a containment's side may read a derived relation, its terms
  *      typed by the definition's heading, and the statements that draw or put rows refuse one;
@@ -109,6 +107,7 @@
  * transaction (query/query.ts HeadOf, ImmediateHeadOf).
  */
 import type { Brand, Stream } from "effect"
+import type { HostKeysOf, HostMark } from "#compiler/core/brand.ts"
 import type { Column, FieldHost } from "#compiler/core/decoder.ts"
 import type {
 	Built,
@@ -124,6 +123,7 @@ import type { Refused } from "#compiler/core/refusals.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
+import type { VariantValue } from "#compiler/scalar/values/identity.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 import type { Vector } from "#compiler/scalar/values/vector.ts"
@@ -155,8 +155,8 @@ export interface HeldAt<out N extends string = string> {
  * Where a variable of a source that is no relation came from: the field of a relation parameter, a query, a bound import,
  * an interior stage or a recursive definition's self that `v` minted it over, and its scope N. Like an Origin it names
  * one variable of its rule, so a filter fixes it and an equality relates it, and the source's own keys determine the
- * variables a match of it binds (evidence/evidence.ts SourceKeys); but it names no relation, so no containment,
- * alternatives law or relation key reads it, and an attachment's parent keeps no origin of it.
+ * variables a match of it binds (evidence/evidence.ts SourceKeys); but it names no relation, so no containment or
+ * relation key reads it, and an attachment's parent keeps no origin of it.
  */
 export interface SourceOrigin<out F extends string = string, out N extends string = string> {
 	readonly sourceField: F
@@ -366,6 +366,13 @@ export interface Facts {
 
 /** A roster's identity in a domain: its closed relation's name, which tells two rosters of one member set apart. */
 export type Rostered<Name extends string> = Brand.Brand<`roster ${Name}`>
+
+/**
+ * A variant's identity, its declared name, which its domain carries beside its values (types/fields/field.ts
+ * VariantField), so two variants of one shape and two names never meet. Its name holds a space, which no contract's
+ * declared name does, and begins with no `roster `, so no contract's brand and no roster's identity is it.
+ */
+export type Varianted<Name extends string> = Brand.Brand<`variant ${Name}`>
 
 /**
  * The brand a closed id of an unordered roster (closed.unordered) carries beside its roster's identity: its codes are
@@ -653,8 +660,16 @@ export type NegationFree<X> =
 	true extends HoldsNegation<X>
 		? Refusal<"relational negation is a rule-level filter, alone or in a top-level conjunction">
 		: unknown
-/** Each predicate of a list at such a place (NegationFree). */
-export type NegationFreeEach<Ps> = { readonly [I in keyof Ps]: NegationFree<Ps[I]> }
+/**
+ * A list of predicates at such a place, each refused where it holds one (NegationFree): the list itself, mapped element
+ * by element, so the parameter a disjunction takes is the list its caller wrote in every form a caller can write one, a
+ * tuple, an array, or a list led or followed by a spread, whose spread elements are mapped as its array's element. A
+ * list's type intersected with a list of the refusals (`Ps & { [I in keyof Ps]: NegationFree<Ps[I]> }`) took no list led
+ * by a spread: an intersection of two tuples of a leading rest element has no element "0", so TypeScript typed the
+ * literal as an array, which no such tuple holds (TS2345), qti-pie's pantry at 3ab19845 (overlay-queries/expression.ts
+ * E1_derived, `p.or([...rootLanguages.map(…), p.and(…), p.and(…)])`, written so by scripts/dev/connective-list.ts).
+ */
+export type NegationFreeEach<Ps> = { readonly [I in keyof Ps]: Ps[I] & NegationFree<Ps[I]> }
 
 /**
  * A non-null SQL Boolean expression, the parameters it needs, and its origin: a comparison, a connective or a span
@@ -822,13 +837,34 @@ export type UnionToIntersection<U> = (U extends unknown ? (u: U) => void : never
 	: never
 
 /**
- * Strips a contract brand and the facts its domain declares (Declares): a contract contributes its base. The spelling
+ * Strips a contract's identity and the facts its domain declares (Declares), and a host type's consumer marks
+ * (core/brand.ts Marked): a contract contributes its base, as a domain and as a host value alike. The spelling
  * `E extends infer B & Brand.Brand<any> ? B : E` resolves to E itself in TypeScript; Brand.Brand.Unbranded, which
- * removes the brands it rebuilds from E's own keys, is the working spelling of the same intent, and Undeclared removes
- * the declarations the same way.
+ * removes the brands it rebuilds from E's own keys, is the working spelling of the same intent, and Unmarked and
+ * Undeclared remove the marks and the declarations the same way.
  */
 export type BaseOf<E> = Undeclared<
+	E extends HostMark<symbol> ? Unbranded<Unmarked<E>> : Unbranded<E>
+>
+
+/** A type without its contracts' identities, the Effect brands of their names (Brand.Brand.Unbranded). */
+type Unbranded<E> =
 	E extends Brand.Brand<infer K> ? (K extends string ? Brand.Brand.Unbranded<E> : E) : E
+
+/**
+ * A host type without its consumer marks (core/brand.ts HostMark): each mark rebuilt from the type's own keys, one per
+ * key, as the type holds them, and removed; a type no consumer marks is itself. A minted value keeps its literal type
+ * under its marks, `0n & HostMark<K>`, so unmarked it is the literal its mint was given.
+ */
+export type Unmarked<E> = [HostKeysOf<E>] extends [never]
+	? E
+	: E extends (infer U) & HostMarksOf<E>
+		? U
+		: E
+
+/** The marks of a host type's keys, each its own HostMark, as a host type over another host type holds them. */
+type HostMarksOf<E> = UnionToIntersection<
+	HostKeysOf<E> extends infer K ? (K extends symbol ? HostMark<K> : never) : never
 >
 type Undeclared<E> = [DeclaredKeys<E>] extends [never]
 	? E
@@ -952,12 +988,17 @@ export type IsInputValue<X> =
 		: false
 
 /**
- * The intersection of the parameter maps of a tuple of terms, predicates, aggregates or producers. A fold over the
- * tuple, not a union-to-intersection over arbitrary unions, so `unknown` members never absorb their neighbours.
+ * The intersection of the parameter maps of a list of terms, predicates, aggregates or producers: every one any of them
+ * may use. A fold over a tuple's leading positions, then the members of what remains, a spread array of unknown length
+ * or a list led by one, each of which may be one that runs, so each member's parameters are required (ParamsOfTerm), as
+ * a fixed position's are; never a union-to-intersection over a tuple's positions at once, so `unknown` members never
+ * absorb their neighbours.
  */
 export type ParamsOfEach<Xs> = Xs extends readonly [infer H, ...infer Rest]
 	? ParamsOfTerm<H> & ParamsOfEach<Rest>
-	: unknown
+	: Xs extends ReadonlyArray<infer X>
+		? ParamsOfTerm<X>
+		: unknown
 
 /**
  * A scalar parameter's entry in a parameter map: the type `r.param(name, descriptor)` declared it at, the descriptor's
@@ -977,11 +1018,13 @@ export type ArgumentOf<X> = X extends { readonly language: infer L } ? L : X
 
 /**
  * A value a parameter may hold: a scalar parameter's host value (a field's host type, a contract
- * over one, a closed handle, or a digest's 32 bytes), or a relation parameter's facts, an array or a Stream with no
- * error or requirement channel. Every argument a ParamsOf map's entries take is one of these, so every ParamArg is.
+ * over one, a closed handle, a digest's 32 bytes, or a variant's tagged record), or a relation parameter's facts, an
+ * array or a Stream with no error or requirement channel. Every argument a ParamsOf map's entries take is one of these,
+ * so every ParamArg is.
  */
 export type ParamValue =
 	| string
+	| VariantValue
 	| number
 	| bigint
 	| boolean

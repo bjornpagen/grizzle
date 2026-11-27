@@ -92,6 +92,8 @@ export const inlineWorlds = (query: QueryDesc, role: CheckedSchema): QueryDesc =
 			case "context":
 			case "row":
 				return s
+			case "arm":
+				return { ...s, value: expr(s.value) }
 		}
 	}
 	/** A bind map's terms and bound rows read through the worlds; a relation parameter of the importer as it is. */

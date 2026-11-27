@@ -1,7 +1,7 @@
 /**
  * A file generate lays out in parts, read back (deploy/render/parts.ts): its entries read in order, each a block at a
  * time (adapter/boundary/files.ts readText), and their texts joined into the one text generate laid out, before anything
- * of it is read. Only generate, check, migrate, upgrade and the lock report read such a file.
+ * of it is read. Only generate, check, migrate and the lock report read such a file.
  */
 import { joinedParts, type TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import { Array as Arr, Effect, FileSystem, Path, type PlatformError } from "effect"

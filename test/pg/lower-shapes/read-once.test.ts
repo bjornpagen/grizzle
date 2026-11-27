@@ -84,7 +84,7 @@ export const aWorkloadReadDerivesEachDerivedRelationOncePerStatementSoNoScanRead
 			({ ledger }, c) =>
 			(drawn) =>
 				Effect.flatMap(ledger, ({ connection, bare, value }) =>
-					runReadOnce(value, connection, bare, drawn, c)
+					runReadOnce(value.installed, connection, bare, drawn, c)
 				),
 		oracle: {
 			kind: "universal",
@@ -102,9 +102,9 @@ export const aWorkloadReadDerivesEachDerivedRelationOncePerStatementSoNoScanRead
 			{
 				file: "packages/engine/src/lower/shapes/attach/index.ts",
 				original:
-					"\t\t\t\tconst source = cx.wrapAs(keyedRows(cx, attach, env, parentMap), child.heading, origin, true)\n\t\t\t\treturn { from: [parent.item, source.item], keys: parentMap, child: source.map, where: [] }\n",
+					"\t\t\t\t\tconst source = cx.wrapAs(\n\t\t\t\t\t\tkeyedRows(cx, attach, env, parentMap, attach.correlation),\n\t\t\t\t\t\tchild.heading,\n\t\t\t\t\t\torigin,\n\t\t\t\t\t\ttrue\n\t\t\t\t\t)\n\t\t\t\t\treturn { from: [parent.item, source.item], keys: parentMap, child: source.map, where: [] }\n",
 				replacement:
-					"\t\t\t\tconst source = cx.sourceAs(child, env, true)\n\t\t\t\treturn { from: [parent.item, source.item], keys: parentMap, child: source.map, where: correlationEqualities(cx, attach, child.heading, source.map, parentMap) }\n",
+					"\t\t\t\t\tconst source = cx.sourceAs(child, env, true)\n\t\t\t\t\treturn { from: [parent.item, source.item], keys: parentMap, child: source.map, where: correlationEqualities(cx, attach, child.heading, source.map, parentMap) }\n",
 				why: "An attachment's child its key proves is joined to its parents' keys beside it: the heads read's classifications, derived beside every head, read 4.61 to 7.15 times the rows stored where read per key they read at most 1.79 times them, and take 4.7 times as long to plan."
 			}
 		]

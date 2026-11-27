@@ -130,6 +130,12 @@ export const theComputeCatalogueAgainstPostgreSQL19AgreesWithPostgreSQLOnTheResu
 						"\t\troundToFloat(v, carrier, signedZeroOf(v, carrier, floatLit(0, carrier)))\n",
 					replacement: "\t\troundToFloat(v, carrier, floatLit(0, carrier))\n",
 					why: "The exact path rounds a negative value below half the least subnormal to +0: the least magnitude's negative times the least, or over 2.5, is 0 in the SQL where the host's IEEE 754 arithmetic gives -0."
+				},
+				{
+					file: "packages/engine/src/lower/conservative/expr/ops.ts",
+					original: '\t\t\treturn args.map((a) => call("trim_scale", [a]))',
+					replacement: "\t\t\treturn args",
+					why: "A reading of a numeric's display scale takes its operands at the scale they are spelled at: numeric_div of an operand padded past its least scale computes its quotient at the padding's scale, where the host reads the value's least, and the two quotients differ. A numeric's display scale is then part of a value grizzle computes, and its equality no identity (ir/scalar.ts equalityIsIdentityOf)."
 				}
 			]
 		}

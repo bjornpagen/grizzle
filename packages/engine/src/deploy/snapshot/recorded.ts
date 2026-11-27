@@ -60,7 +60,8 @@ export const declaredHeader = (fn: CreateDeclaredFunction): DeclaredHeader => ({
 	returns: fn.returns,
 	language: fn.language,
 	volatility: fn.volatility,
-	nullInput: fn.nullInput
+	nullInput: fn.nullInput,
+	namedAlone: fn.namedAlone
 })
 
 /**
@@ -365,7 +366,8 @@ export const transformRecorded = (
 					...h,
 					name: t.name(h.name, "function"),
 					params: h.params.map((p) => t.functionParam(p)),
-					returns: t.declaredReturns(h.returns)
+					returns: t.declaredReturns(h.returns),
+					namedAlone: h.namedAlone.map((type) => t.type(type))
 				}
 			}
 		}

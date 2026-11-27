@@ -56,7 +56,7 @@ const referenced = (record: Readonly<Record<string, unknown>>): number | undefin
 		return undefined
 	}
 	if (!target.startsWith(sharedPointer)) {
-		throw defect(`a wire reference into ${sharedPointer}, not ${target}`)
+		defect(`a wire reference into ${sharedPointer}, not ${target}`)
 	}
 	return Number(target.slice(sharedPointer.length))
 }

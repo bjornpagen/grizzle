@@ -27,7 +27,7 @@ import {
 } from "#test/pg/closed/subset.fixtures.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { expectConstraint } from "#test/support/substrate/expect.ts"
-import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
+import { claimsOfNoFact, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 
 /** A closed id column of a subset stores a direct writer's code exactly when its subset holds the handle, and refuses every other by its subset CHECK. */
 export const aClosedIdColumnOfASubsetStoresADirectWritersCodeExactlyWhenItsSubsetHoldsTheHandleAndRefusesEveryOtherByItsSubsetCHECK =
@@ -38,10 +38,13 @@ export const aClosedIdColumnOfASubsetStoresADirectWritersCodeExactlyWhenItsSubse
 			({ fresh }, c: Case<Feature>) =>
 			({ held, handle }) =>
 				Effect.gen(function* () {
-					const { substrate: s, value: installed } = yield* fresh
+					const {
+						substrate: s,
+						value: { installed }
+					} = yield* fresh
 					const names = namesOf(installed)
 					const writer = yield* s.session({
-						...worldSession(installed.world(world.app)),
+						...worldSession(installed.world(world.app), claimsOfNoFact),
 						label: "writer"
 					})
 					const drawn = columnOf(held)
@@ -87,9 +90,9 @@ export const aClosedIdColumnOfASubsetStoresADirectWritersCodeExactlyWhenItsSubse
 			{
 				file: "packages/engine/src/physical/closed/storage.ts",
 				original:
-					"\t\t\tmapNonEmpty(only, (handle) => lit.int(codeOf(codec, handle), types.smallint))",
+					"\t\tmapNonEmpty(only, (handle) => lit.int(codeOf(codec, handle), types.smallint))",
 				replacement:
-					"\t\t\tmapNonEmpty(roster.handles, (handle) => lit.int(codeOf(codec, handle), types.smallint))",
+					"\t\tmapNonEmpty(roster.handles, (handle) => lit.int(codeOf(codec, handle), types.smallint))",
 				why: "The subset CHECK holds the whole roster's codes: a direct writer stores a handle outside the subset."
 			}
 		]

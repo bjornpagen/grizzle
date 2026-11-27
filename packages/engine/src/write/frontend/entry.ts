@@ -1,6 +1,6 @@
-import type { CheckedEntry } from "#compiler/analysis/schema.ts"
+import type { CheckedEntry, ClaimsMembership } from "#compiler/analysis/schema.ts"
 import type { MemberRelation } from "#compiler/check/schema.ts"
-import { ParamId } from "#compiler/core/ids.ts"
+import { EntryName, ParamId } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type {
@@ -125,6 +125,16 @@ export const entryKeyOf = (entry: CheckedEntry): EntryKey => ({
 	head: new Map([...entry.head].map(([head, { field }]) => [head, field.name] as const))
 })
 
+/**
+ * The key a write held to its role's claims states its facts by (analysis/schema.ts ClaimsMembership): the relation's
+ * own, under its name, each field its own, so a precheck's refusal names the relation and its witness the relation's
+ * fields as the write stated them.
+ */
+export const claimsKeyOf = (membership: ClaimsMembership): EntryKey => ({
+	entry: EntryName(membership.target.name),
+	head: new Map(membership.target.heading.map((f) => [f.name, f.name] as const))
+})
+
 /** A query entry as the host reads its facts back into facts of its target (runtime/write/witness.ts WitnessEntry): its
  * key (`entryKeyOf`), and each literal-fixed target field with its literal. */
 const witnessEntry = (entry: CheckedEntry): WitnessEntry => ({
@@ -175,6 +185,7 @@ export const entryFacts = (entry: CheckedEntry, target: HostChecks): SlotFacts =
 		})
 	return {
 		stated: { kind: "entry", entry: witnessEntry(entry) },
+		generations: [],
 		host: {
 			keys: target.keys.map((k) => ({
 				law: k.law,
@@ -200,14 +211,14 @@ export const entryFacts = (entry: CheckedEntry, target: HostChecks): SlotFacts =
 
 /**
  * The contexts a ChangeSet's compilation depends on for a role: those the fixed fields of every query entry it writes
- * read, by name, each once in code point order (entryFillable reads exactly these); a whole or scoped entry fixes no
- * field. A ChangeSet compiled once, ahead of the Dbs it runs on (a workload's, at startup), is compiled for each set of
- * them that may hold a fact.
+ * read, by name, each once in code point order (entryFillable reads exactly these); a whole entry fixes no field. A
+ * ChangeSet compiled once, ahead of the Dbs it runs on (a workload's, at startup), is compiled for each set of them that
+ * may hold a fact.
  */
 export const fillContexts = <Target, F>(
 	writes: ReadonlyMap<
 		string,
-		| { readonly kind: "whole" | "scoped" }
+		| { readonly kind: "whole" }
 		| { readonly kind: "rows"; readonly writable: WritableEntry<Target, F> }
 	>,
 	changeSet: ChangeSetDesc

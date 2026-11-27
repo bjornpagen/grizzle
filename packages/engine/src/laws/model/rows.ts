@@ -1,4 +1,9 @@
-import { heapTupleHeaderBytes } from "#compiler/core/page.ts"
+import {
+	blockSize,
+	heapTupleHeaderBytes,
+	itemIdBytes,
+	pageHeaderBytes
+} from "#compiler/core/page.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { alignUp, bitsPerByte, maxAlign } from "#compiler/schema/representability.ts"
 import { datumBound, isFixedWidth } from "#compiler/schema/representability.ts"
@@ -18,6 +23,45 @@ import { datumBound, isFixedWidth } from "#compiler/schema/representability.ts"
  * @verified 2026-11-20
  */
 const toastPointerBytes = 18
+
+/**
+ * The fewest tuples TOAST makes room for on one heap page, TOAST_TUPLES_PER_PAGE: a row longer than its share of a page
+ * has its values moved out of line or compressed until it fits.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19.0
+ * @unit tuples
+ * @scope the heap tuples one page of a table holds before TOAST is tried on an insert or an update of one
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/access/heaptoast.h#L46
+ * @quote #define TOAST_TUPLES_PER_PAGE 4
+ * @verified 2026-11-26
+ */
+const toastTuplesPerPage = 4
+
+/**
+ * The longest heap tuple PostgreSQL stores as it is, TOAST_TUPLE_THRESHOLD: an insert or an update of a longer one has
+ * its values moved out of line (heapam.c heap_prepare_insert, heap_update, then heaptoast.c heap_toast_insert_or_update),
+ * which opens the table's TOAST relation and keeps it locked (toast_internals.c toast_save_datum); a row within it never
+ * touches it.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19.0
+ * @unit bytes
+ * @scope one heap tuple, its header and alignment padding included, as an insert or an update stores it
+ * @derivation heaptoast.h's TOAST_TUPLE_THRESHOLD, MaximumBytesPerTuple(TOAST_TUPLES_PER_PAGE), "MAXALIGN_DOWN((BLCKSZ
+ *   - MAXALIGN(SizeOfPageHeaderData + (tuplesPerPage) * sizeof(ItemIdData))) / (tuplesPerPage))"
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/include/access/heaptoast.h#L23-L26, verified 2026-11-26):
+ *   a page less its header and the line pointers of its share of tuples, split among them, rounded down to the greatest
+ *   alignment
+ * @from {@link blockSize}, {@link pageHeaderBytes}, {@link toastTuplesPerPage}, {@link itemIdBytes}, {@link maxAlign}
+ */
+export const toastTupleThresholdBytes =
+	Math.floor(
+		(blockSize - alignUp(pageHeaderBytes + toastTuplesPerPage * itemIdBytes, maxAlign)) /
+			toastTuplesPerPage /
+			maxAlign
+	) * maxAlign
 
 /**
  * A heap row's size, as PostgreSQL stores it, for the one bound every relation's columns must fit: a row of its table

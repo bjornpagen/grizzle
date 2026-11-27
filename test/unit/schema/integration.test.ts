@@ -65,7 +65,7 @@ export const rowChecksOverTheFieldRegistryAndComputeComposesComputeArithmeticCas
 											Logic.ge(Num.numeric(r.bal), `${n}.5`)
 										)
 									: checkBuilder("short", Account, (r: Row) =>
-											Logic.and(Logic.le(Text.charLength(r.slug), bound), r.ne(r.kind, handle))
+											Logic.and([Logic.le(Text.charLength(r.slug), bound), r.ne(r.kind, handle)])
 										)
 						succeeded(
 							own(
@@ -90,6 +90,7 @@ export const rowChecksOverTheFieldRegistryAndComputeComposesComputeArithmeticCas
 		}
 	)
 
+const otherKey = Symbol("Other")
 /** Row checks over the field registry and the scalar catalogue refuses a row field's literal of another host kind or roster, and two contracts of different identity. Its budget is its suite's before it was a property (test/unit/schema/integration.test.ts at 4ca3036a): 60 runs and 60 steered cases. */
 export const rowChecksOverTheFieldRegistryAndComputeRefusesARowFieldsLiteralOfAnotherHostKindOrRosterAndTwoContractsOfDifferentIdentity =
 	property.explore(
@@ -126,9 +127,11 @@ export const rowChecksOverTheFieldRegistryAndComputeRefusesARowFieldsLiteralOfAn
 									return checkBuilder("bad", Account, (r: LooseRow) => r.eq(r.kind, "c"))
 								case "two contracts meeting": {
 									/** A contract's name is one literal by its type: the other identity is written here. */
-									const Pair = relation("Pair", { a: Cents, b: contract("Other", pg.bigint) }, [
-										"a"
-									])
+									const Pair = relation(
+										"Pair",
+										{ a: Cents, b: contract<typeof otherKey>()("Other", pg.bigint) },
+										["a"]
+									)
 									return checkBuilder("mixed", Pair, (r: SamePairRow) =>
 										Logic.ge(Num.add(r.a, r.b), 0n)
 									)

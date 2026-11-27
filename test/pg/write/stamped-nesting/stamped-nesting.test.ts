@@ -33,7 +33,7 @@ import { memberCalls } from "#adapter/db/handles.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
-import { installMigrated } from "#test/support/install-migrate.ts"
+import { installFullWorld } from "#test/support/installed.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { oneFlight } from "#test/support/one-flight.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
@@ -114,12 +114,11 @@ export const everyMemberOfANestedWriteUnderAStampedOwnerStoresExactlyItsOwnersSt
 					Effect.gen(function* () {
 						k.noteAll(featuresOf(c))
 						const declared = stampedSchemaOf(c, "Stamped").schema
-						const done = yield* installMigrated(declared, {
-							ambient: ordinarySession,
-							label: "stamped",
-							logins: [fullWorld(declared, {}).server],
-							extensions: []
-						})
+						const done = yield* installFullWorld(
+							declared,
+							{},
+							{ ambient: ordinarySession, label: "stamped" }
+						)
 						const built = stampedSchemaOf(c, done.schema)
 						const world = fullWorld(built.schema, {})
 						const db = yield* openServedDb(done, world.server.roles.app, {})

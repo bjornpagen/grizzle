@@ -182,7 +182,7 @@ export const aContainmentIsJudgedWhereItIsUnitLocalAndSelectedOrIntoATargetNoKey
 					if (c.mutable !== "none" && c.mutable !== "D") {
 						k.note("a judged plain containment into a target no key holds over a mutable relation")
 					}
-					const existence = Arr.filter(installation.laws.existence, (e) => e.law === law.id)
+					const existence = Arr.filter(installation.laws.existence, (e) => e.laws.includes(law.id))
 					assert.deepEqual(
 						Arr.map(existence, (e) => e.context),
 						["committedSnapshot"],

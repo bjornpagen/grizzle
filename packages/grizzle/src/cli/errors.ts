@@ -1,5 +1,4 @@
 import { Array as Arr, Data, Formatter, Redacted, Result } from "effect"
-import type { UpgradeFault } from "#adapter/admission/upgrade.ts"
 import { readHost } from "#adapter/engine.ts"
 import {
 	type ConnectionEnvironmentRefused,
@@ -13,7 +12,6 @@ import {
 	compileReasonText,
 	formatRefusal,
 	isCompileError,
-	jsonText,
 	maxRolePrefixBytes,
 	nominal,
 	type RecordedFormat,
@@ -49,9 +47,7 @@ import { maxMigrationNameLength } from "#compiler/plan/usage.ts"
  *   schema's folders disagree, so neither a draft nor an apply could continue the chain;
  * - `codes`: a roster declares its handles out of the order of the codes the committed snapshot records for them, so
  *   no draft could keep every stored code's meaning;
- * - `generate`: the compiler refused the schema, its logins' workloads or the draft, or a login's served workload;
- * - `upgrade`: `grizzle upgrade` cannot rebase a live installation onto this grizzle's compile of its source
- *   (UpgradeRefused).
+ * - `generate`: the compiler refused the schema, its logins' workloads or the draft, or a login's served workload.
  *
  * Every refusal happens before anything is written: a generate writes no folder of any schema until every configured
  * schema has drafted, and an apply hands nothing to the runner until every schema's directory reads.
@@ -71,7 +67,6 @@ export type CliStage =
 	| "format"
 	| "codes"
 	| "generate"
-	| "upgrade"
 
 /**
  * The operating system's error code a file system failure carries, as a refusal names it, or nothing. The failure is
@@ -169,10 +164,10 @@ const schemaListText = (schemas: ReadonlyArray<SchemaNames>): string =>
 /** The commands of the command line. */
 export type CommandName =
 	| "generate"
+	| "draft-key"
 	| "check"
 	| "migrate"
 	| "drift"
-	| "upgrade"
 	| "names"
 	| "roles"
 	| "uninstall"
@@ -316,7 +311,7 @@ export class ExportRefused extends Data.TaggedError("ExportRefused")<{
 			case "notAnObject":
 				return `the default export of ${this.file} must be a configuration object`
 			case "notDefined":
-				return `the default export of ${this.file} must be built by defineConfig, imported from @bjornpagen/grizzle: export default defineConfig({ schemas: [...], logins: [...], migrations: "...", connection: { ... } })`
+				return `the default export of ${this.file} must be built by defineConfig, imported from @bjornpagen/grizzle: export default defineConfig({ schemas: [...], logins: [...], contracts: [...], migrations: "...", connection: { ... } })`
 		}
 	}
 }
@@ -325,6 +320,7 @@ export class ExportRefused extends Data.TaggedError("ExportRefused")<{
 export const configSettings = [
 	"schemas",
 	"logins",
+	"contracts",
 	"migrations",
 	"rolePrefixBytes",
 	"connection"
@@ -334,12 +330,14 @@ export const configSettings = [
  * The settings whose value the configuration reads itself; `connection` is a function migrate and drift call and
  * check the result of, so the configuration refuses only a connection that is no function.
  */
-type ReadSetting = "schemas" | "logins" | "migrations" | "rolePrefixBytes"
+type ReadSetting = "schemas" | "logins" | "contracts" | "migrations" | "rolePrefixBytes"
 
 const malformedSettingText: Readonly<Record<ReadSetting, string>> = {
 	schemas: "schemas must be a nonempty list of the declared schema values to migrate",
 	logins:
 		"logins must be a list of the login values whose roles the migrations install, and whose workloads plan its indexes",
+	contracts:
+		"contracts must be a list of the consumers' contract values whose checker files generate compiles, each a contract a running application parses values of",
 	migrations:
 		"migrations must be a nonempty path of the migrations directory, absolute or relative to the configuration file's directory",
 	rolePrefixBytes: `rolePrefixBytes must be an integer from 0 to ${maxRolePrefixBytes}: the bytes of the longest role prefix an installation of the configuration is under, 0 where none is under one`
@@ -463,6 +461,30 @@ export class LoginEntryRefused extends Data.TaggedError("LoginEntryRefused")<{
 				return `${at} (${fault.login}) names ${fault.name}, one name with ${holderText(fault.holder)} of schema ${fault.schema}; logins and roles of one schema have names that convert apart, their PostgreSQL roles being <schema>__<name>, so rename one of them`
 			case "roleTooLong":
 				return `${at} (${fault.login}): the PostgreSQL role of ${holderText(fault.holder)}, ${fault.role}, takes ${fault.bytes} bytes under a role prefix of ${fault.prefixBytes} bytes (<prefix>__${fault.role}, rolePrefixBytes), past PostgreSQL's ${fault.limit}, which would cut it short; shorten its name or its schema's, or the prefix`
+		}
+	}
+}
+
+/**
+ * A `contracts` entry refused: one that does not compile, a value that is no contract among them (`uncompiled`, the
+ * engine's CompileError), or a contract of a name another entry holds (`shared`), since its file is named by it.
+ */
+type ContractEntryFault =
+	| { readonly kind: "uncompiled"; readonly error: CompileError }
+	| { readonly kind: "shared"; readonly name: string; readonly other: number }
+
+export class ContractEntryRefused extends Data.TaggedError("ContractEntryRefused")<{
+	readonly index: number
+	readonly fault: ContractEntryFault
+}> {
+	override get message(): string {
+		const at = `contracts[${this.index}]`
+		const fault = this.fault
+		switch (fault.kind) {
+			case "uncompiled":
+				return `${at} does not compile: ${fault.error.message}`
+			case "shared":
+				return `${at} is the contract ${fault.name}, as contracts[${fault.other}] is: a contract's checker file is named by its name, so list each contract once`
 		}
 	}
 }
@@ -622,6 +644,19 @@ export class MigrationsUnread extends Data.TaggedError("MigrationsUnread")<{
 	}
 }
 
+/**
+ * An input of the draft `grizzle draft-key` digests, of the roster's member `input` (draft-inputs.ts), could not be read,
+ * for `cause`.
+ */
+export class DraftInputUnread extends Data.TaggedError("DraftInputUnread")<{
+	readonly input: string
+	readonly cause: Error
+}> {
+	override get message(): string {
+		return `the draft's ${this.input} input could not be read: ${this.cause.message}${codeOf(this.cause)}`
+	}
+}
+
 /** The snapshot.json and manifest.json of `schema` in `directory` do not decode as a snapshot, for `error`. */
 export class SnapshotUnreadable extends Data.TaggedError("SnapshotUnreadable")<{
 	readonly schema: string
@@ -677,11 +712,13 @@ export type ChainFault =
 
 /**
  * Why a draft cannot continue a schema's committed chain: a folder not named `<YYYYMMDDHHMMSS>_<name>` (`misnamed`), a
- * ChainFault, or a whole chain that does not reach snapshot.json's fingerprint `snapshot`: no folder at all
- * (`unreached`), or a newest folder reaching `reached` (`diverged`).
+ * folder of the second the folder named before it, `previous`, names, two drafts on one chain (`forked`,
+ * cli/committed.ts FolderPlace), a ChainFault, or a whole chain that does not reach snapshot.json's fingerprint
+ * `snapshot`: no folder at all (`unreached`), or a newest folder reaching `reached` (`diverged`).
  */
 export type ChainBreak =
 	| { readonly kind: "misnamed"; readonly folder: string }
+	| { readonly kind: "forked"; readonly folder: string; readonly previous: string }
 	| ChainFault
 	| { readonly kind: "unreached"; readonly snapshot: string }
 	| {
@@ -704,6 +741,8 @@ export class ChainRefused extends Data.TaggedError("ChainRefused")<{
 		switch (fault.kind) {
 			case "misnamed":
 				return `${directory}/${fault.folder} is not named <YYYYMMDDHHMMSS>_<name>`
+			case "forked":
+				return `${directory}/${fault.folder} has the timestamp of ${fault.previous}: two migrations drafted on one chain, a fork; keep one, and draft the other's change again after it`
 			case "unreadableMeta":
 				return `${directory}/${fault.folder}/meta.json is malformed: ${compileReasonText(fault.failure.reason)}`
 			case "foreignMeta":
@@ -819,74 +858,6 @@ const servedRefusalText = (error: CompileError | UnservedMember | UncoveredRead)
 	}
 }
 
-/**
- * Why `grizzle upgrade` cannot rebase a live installation onto this grizzle's compile of the source it was deployed from
- * (cli/upgrade.ts):
- * - `pending`: the database is not at the snapshot its committed folders reach: a folder is not applied, or partly, or
- *   the ledger's latest target is another than the chain's, so the upgrade would rebase an installation its source does
- *   not describe;
- * - `rosterUnread`: a roster's codes do not read off the live database (compiler/deploy/upgrade/history.ts
- *   RosterUnread), so no draft keeps every stored code's meaning;
- * - `spellingUnproven`: no spelling the schema writes of a pattern language is the one an object the database holds as
- *   the target's reads, among `tried`, so no history of it is proven;
- * - `object`: an object the database holds as no rebase may change (adapter/admission/upgrade.ts UpgradeFault);
- * - `undescribed`: the previous installation the upgrade drafts from does not describe the database: facts the drift
- *   check of it finds beside the objects it changes and drops, a role's, a grant's or a setting's among them.
- */
-export type UpgradeFaultOf =
-	| {
-			readonly kind: "pending"
-			readonly reached: string
-			readonly latest: string
-			readonly partial: string | undefined
-	  }
-	| { readonly kind: "rosterUnread"; readonly roster: string; readonly found: "none" | "several" }
-	| {
-			readonly kind: "spellingUnproven"
-			readonly language: string
-			readonly tried: ReadonlyArray<string>
-	  }
-	| { readonly kind: "object"; readonly fault: UpgradeFault }
-	| { readonly kind: "undescribed"; readonly facts: ReadonlyArray<string> }
-
-const upgradeFaultText = (fault: UpgradeFaultOf): string => {
-	switch (fault.kind) {
-		case "pending":
-			return fault.partial === undefined
-				? `the database's ledger reaches ${fault.latest}, where the committed folders reach ${fault.reached}`
-				: `the database's ledger holds folder ${fault.partial} partly applied`
-		case "rosterUnread":
-			return fault.found === "none"
-				? `no installed constant is roster ${fault.roster}'s names constant under the codes it holds`
-				: `several installed constants are roster ${fault.roster}'s names constant`
-		case "spellingUnproven":
-			return `no object the database holds as the target's reads pattern language ${fault.language} as any spelling the schema writes of it (${Arr.join(Arr.map(fault.tried, jsonText), ", ")})`
-		case "object": {
-			const f = fault.fault
-			const what = {
-				stored:
-					"holds stored rows, which no rebase drops or rewrites, and the database holds it otherwise",
-				unreplaceable: "is of a kind no draft changes, and the database defines it otherwise",
-				reshaped: "is held by the database under other keys than the target's",
-				collision: "names a key the database holds as another object"
-			}[f.kind]
-			return `object ${f.object} ${what}: ${Arr.join(f.facts, "; ")}`
-		}
-		case "undescribed":
-			return `the database differs from the installation the upgrade drafts from beside what it changes: ${Arr.join(fault.facts, "; ")}`
-	}
-}
-
-/** `grizzle upgrade` cannot rebase the installation of `schema`, for `fault` (UpgradeFaultOf). */
-export class UpgradeRefused extends Data.TaggedError("UpgradeRefused")<{
-	readonly schema: string
-	readonly fault: UpgradeFaultOf
-}> {
-	override get message(): string {
-		return upgradeFaultText(this.fault)
-	}
-}
-
 /** Why a `grizzle` command stopped before the apply runner, or outside it. */
 type CliReason =
 	| ArgumentsRefused
@@ -899,6 +870,7 @@ type CliReason =
 	| SettingRefused
 	| SchemaEntryRefused
 	| LoginEntryRefused
+	| ContractEntryRefused
 	| ConnectionRefused
 	| ConnectionThrew
 	| ConnectionEnvironmentRefused
@@ -910,6 +882,7 @@ type CliReason =
 	| ServedUnwritten
 	| FileTooLarge
 	| MigrationsUnread
+	| DraftInputUnread
 	| SnapshotUnreadable
 	| SnapshotFormat
 	| SnapshotForeign
@@ -917,7 +890,6 @@ type CliReason =
 	| RosterReordered
 	| DraftRefused
 	| ServedRefused
-	| UpgradeRefused
 
 /** The stage each reason stops at. */
 const stageOf: { readonly [Tag in CliReason["_tag"]]: CliStage } = {
@@ -931,6 +903,7 @@ const stageOf: { readonly [Tag in CliReason["_tag"]]: CliStage } = {
 	SettingRefused: "config",
 	SchemaEntryRefused: "config",
 	LoginEntryRefused: "config",
+	ContractEntryRefused: "generate",
 	ConnectionRefused: "config",
 	ConnectionThrew: "config",
 	ConnectionEnvironmentRefused: "environment",
@@ -942,14 +915,14 @@ const stageOf: { readonly [Tag in CliReason["_tag"]]: CliStage } = {
 	ServedUnwritten: "filesystem",
 	FileTooLarge: "generate",
 	MigrationsUnread: "filesystem",
+	DraftInputUnread: "filesystem",
 	SnapshotUnreadable: "snapshot",
 	SnapshotFormat: "format",
 	SnapshotForeign: "snapshot",
 	ChainRefused: "snapshot",
 	RosterReordered: "codes",
 	DraftRefused: "generate",
-	ServedRefused: "generate",
-	UpgradeRefused: "upgrade"
+	ServedRefused: "generate"
 }
 
 /**

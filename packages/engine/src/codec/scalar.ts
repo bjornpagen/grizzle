@@ -10,10 +10,21 @@ import {
 	type Codebook,
 	declaredOrder,
 	emptyCodebook,
-	codecOf as rosterCodecOf
+	firstCodebook,
+	codecOf as rosterCodecOf,
+	variantLayout
 } from "#compiler/ir/codes.ts"
 import type { Encoder } from "#compiler/ir/products.ts"
-import { baseOf, type Carrier, onlyOf, type Roster, type ScalarType } from "#compiler/ir/scalar.ts"
+import {
+	baseOf,
+	type Carrier,
+	isFloatType,
+	onlyOf,
+	type Roster,
+	rosterOf,
+	type ScalarType,
+	type VariantInfo
+} from "#compiler/ir/scalar.ts"
 import type { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import {
 	admitHandles,
@@ -24,7 +35,8 @@ import {
 	type CarrierSpec,
 	canonicalText,
 	type LiveHandles,
-	type SpecOf
+	type SpecOf,
+	type VariantArmSpec
 } from "#compiler/scalar/values/identity.ts"
 
 /**
@@ -62,6 +74,7 @@ import {
  * | bits | X then bit(n)'s whole hex digits, position i code i, a hole and the padding 0 |
  * | range4, range8, rangeDate | [start,end) |
  * | vector | [c1,...,cn], shortest binary32 texts, one zero |
+ * | variant | its composite's record literal: the tag's code, then its arm's fields' texts at their attributes, every attribute quoted, every other arm's left NULL |
  *
  * Money never travels as its own locale-formatted text: it is written as numeric text and converted by the
  * statement. A contract column uses its base's codec: the brand has no runtime form, and the library evaluates no
@@ -123,6 +136,8 @@ export const carrierSpecOf = (descriptor: ScalarType, codes: Codebook): CarrierS
 		case "range8":
 		case "rangeDate":
 			return { carrier: type.carrier, width: type.span.width }
+		case "variant":
+			return variantSpecOf(type.variant, codes)
 		case "int2":
 		case "int4":
 		case "int8":
@@ -143,6 +158,54 @@ export const carrierSpecOf = (descriptor: ScalarType, codes: Codebook): CarrierS
 	}
 }
 
+/**
+ * The spec of a variant under an installation's codes: its tag's roster's codes, and each arm's fields' specs at their
+ * attributes of its composite, in its layout under those codes (ir/codes.ts variantLayout).
+ */
+const variantSpecOf = (variant: VariantInfo, codes: Codebook): CarrierSpec => {
+	const roster = rosterCodecOf(codes, variant.roster)
+	const layout = variantLayout(variant.arms, roster.names, (f) => isFloatType(f.type))
+	const arms = new Map<string, VariantArmSpec>(
+		layout.map((arm) => [
+			arm.handle,
+			Object.freeze({
+				fields: Object.freeze(
+					arm.fields.map(({ field, at, zero }) =>
+						Object.freeze({ name: field.name, spec: carrierSpecOf(field.type, codes), at, zero })
+					)
+				)
+			})
+		])
+	)
+	return {
+		carrier: "variant",
+		roster,
+		arms,
+		attributes:
+			1 +
+			layout.reduce(
+				(n, arm) => n + arm.fields.reduce((k, f) => k + (f.zero === undefined ? 1 : 2), 0),
+				0
+			)
+	}
+}
+
+/**
+ * Every roster a type reads codes of: a closed id's and a set's own, a variant's tag's and those of each of its arms'
+ * fields, through contracts.
+ */
+const rostersIn = (type: ScalarType): ReadonlyArray<Roster> => {
+	const base = baseOf(type)
+	if (base.carrier === "variant") {
+		return [
+			base.variant.roster,
+			...base.variant.arms.flatMap((arm) => arm.fields.flatMap((f) => rostersIn(f.type)))
+		]
+	}
+	const roster = rosterOf(type)
+	return roster === undefined ? [] : [roster]
+}
+
 /** A parameter text, minted by the encoders of this module alone: the canonical text of an admitted value. */
 const paramText = nominal<string, ParamText>()
 
@@ -155,7 +218,7 @@ const paramText = nominal<string, ParamText>()
  */
 export const paramOfText = (spec: CarrierSpec, text: string): ParamText => {
 	if (spec.carrier === "bytes") {
-		throw defect("a bytes value travels in binary, never as a parameter text")
+		defect("a bytes value travels in binary, never as a parameter text")
 	}
 	return paramText(text)
 }
@@ -213,7 +276,7 @@ export const cellOfText = (
 export const textParam = (value: string): ParamText => {
 	const admittedText = parseValue({ carrier: "text" }, value)
 	if (!admittedText.ok) {
-		throw defect(`a text parameter grizzle writes, refused as ${admittedText.error}`)
+		defect(`a text parameter grizzle writes, refused as ${admittedText.error}`)
 	}
 	return paramText(canonicalText({ carrier: "text" }, admittedText.value))
 }
@@ -267,8 +330,9 @@ export const handleList = (
 /**
  * A value's one text read under no installation (program/text.ts codecTextOver), a function of its host value alone: a
  * closed id's its handle (handleText); a set's its handles in its roster's declared order (handleList) as a JSON array,
- * a handle holding any text but NUL. Every other carrier's is its codec's encode, which reads no code: the exact parse
- * of the value and its canonical text.
+ * a handle holding any text but NUL; a variant's its codec's encode under the codes a first installation of its rosters
+ * would hold (ir/codes.ts firstCodebook), each in its declared order. Every other carrier's is its codec's encode,
+ * which reads no code: the exact parse of the value and its canonical text.
  */
 export const hostText = (
 	type: ScalarType
@@ -280,6 +344,9 @@ export const hostText = (
 	if (base.carrier === "bits") {
 		const handles = handleList(base.roster)
 		return (value) => Result.map(handles(value), jsonText)
+	}
+	if (base.carrier === "variant") {
+		return scalarCodec(type, firstCodebook(rostersIn(type))).encode
 	}
 	return scalarCodec(type, emptyCodebook).encode
 }
@@ -314,7 +381,7 @@ export type ResultStep = "numeric" | "text" | "wire"
 export const resultTextCasts = (type: ScalarType): ReadonlyArray<ResultStep> => {
 	switch (baseOf(type).carrier) {
 		case "bytes":
-			throw defect("a bytes value travels in chunks, never as its result text")
+			defect("a bytes value travels in chunks, never as its result text")
 		case "money":
 			return ["numeric", "text"]
 		case "sha256":
@@ -340,6 +407,7 @@ export const resultTextCasts = (type: ScalarType): ReadonlyArray<ResultStep> => 
 		case "tsvector":
 		case "exactInteger":
 		case "exactMoney":
+		case "variant":
 			return ["text"]
 	}
 }

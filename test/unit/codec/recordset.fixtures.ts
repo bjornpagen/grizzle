@@ -36,15 +36,15 @@ import { arraysEncoder } from "#test/support/arrays.ts"
 import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
-import { kindCodes, types } from "#test/unit/codec/support.ts"
+import { codecTypes, kindCodes } from "#test/unit/codec/support.ts"
 
 /** The relation of readings the normalization properties read: an id, a numeric(5,2) value and a raw double. */
 const reading: RelationSpec = {
 	relation: "Reading",
 	columns: positionalColumns([
-		{ name: "id", type: types.uuid },
-		{ name: "value", type: types.numeric52 },
-		{ name: "raw", type: types.float8 }
+		{ name: "id", type: codecTypes.uuid },
+		{ name: "value", type: codecTypes.numeric52 },
+		{ name: "raw", type: codecTypes.float8 }
 	]),
 	slot: { kind: "slot", name: "readings" },
 	codes: kindCodes
@@ -192,7 +192,7 @@ const refusedValues: Readonly<Record<ReadingField, unknown>> = { id: 42, value: 
 
 /** The fault a field's carrier refuses its refused value by, as the field's one admission gives it (admitValue). */
 const refusedFaults: Readonly<Record<ReadingField, CodecFault>> = Record.map(
-	{ id: types.uuid, value: types.numeric52, raw: types.float8 },
+	{ id: codecTypes.uuid, value: codecTypes.numeric52, raw: codecTypes.float8 },
 	(type, field) => {
 		const admitted = admitValue(carrierSpecOf(type, kindCodes), refusedValues[field])
 		return admitted.ok
@@ -466,14 +466,14 @@ export const readingHeading: RelationSpec = {
 export const statements = Arr.map(
 	[
 		[
-			{ name: "id", type: types.uuid },
-			{ name: "value", type: types.numeric52 },
-			{ name: "raw", type: types.float8 }
+			{ name: "id", type: codecTypes.uuid },
+			{ name: "value", type: codecTypes.numeric52 },
+			{ name: "raw", type: codecTypes.float8 }
 		],
 		[
-			{ name: "raw", type: types.float8 },
-			{ name: "id", type: types.uuid },
-			{ name: "value", type: types.numeric52 }
+			{ name: "raw", type: codecTypes.float8 },
+			{ name: "id", type: codecTypes.uuid },
+			{ name: "value", type: codecTypes.numeric52 }
 		]
 	],
 	(columns) => {
@@ -504,8 +504,8 @@ export const spelledReadings = array(spelledReading, { min: 0, max: 12 })
 export const scaledSpec: RelationSpec = {
 	relation: "Scaled",
 	columns: positionalColumns([
-		{ name: "k", type: types.int4 },
-		{ name: "n", type: types.numeric }
+		{ name: "k", type: codecTypes.int4 },
+		{ name: "n", type: codecTypes.numeric }
 	]),
 	slot: { kind: "none" },
 	codes: kindCodes
@@ -586,7 +586,7 @@ export const everyType: ReadonlyArray<{
 }> = [
 	{
 		name: "text",
-		type: types.text,
+		type: codecTypes.text,
 		/** Text PostgreSQL stores, no NUL and no lone surrogate, with array_in's syntax characters among it. */
 		value: string(
 			weighted([
@@ -603,45 +603,49 @@ export const everyType: ReadonlyArray<{
 		type: scalarOf(f.regex("^[a-z ,]+$", "u"), {}),
 		value: string(element(["a", "b", " ", ","]), { min: 1, max: 4 })
 	},
-	{ name: "uuid", type: types.uuid, value: uuid(4) },
-	{ name: "kind", type: types.kind, value: element(["Manual", "Automatic", "Ünïcode"]) },
+	{ name: "uuid", type: codecTypes.uuid, value: uuid(4) },
+	{ name: "kind", type: codecTypes.kind, value: element(["Manual", "Automatic", "Ünïcode"]) },
 	{
 		name: "numeric",
-		type: types.numeric,
+		type: codecTypes.numeric,
 		value: map(int(-99999, 99999), (n) => Decimal.of(`${n}e-3`))
 	},
 	{
 		name: "scaled",
-		type: types.numeric52,
+		type: codecTypes.numeric52,
 		value: hundredths
 	},
 	{
 		name: "span4",
-		type: types.range4,
+		type: codecTypes.range4,
 		value: map(int(-1000, 1000), (start) => ({ start, end: start + 3 }))
 	},
 	{
 		name: "span8",
-		type: types.range8,
+		type: codecTypes.range8,
 		value: map(int(-1000, 1000), (start) => ({ start: BigInt(start), end: BigInt(start) + 5n }))
 	},
-	{ name: "cents", type: types.cents, value: map(int(-1000, 1000), (n) => BigInt(n) * 7n) },
-	{ name: "big", type: types.int8, value: map(int(-1000, 1000), (n) => BigInt(n) ** 3n) },
-	{ name: "small", type: types.int2, value: int(-32768, 32767) },
-	{ name: "whole", type: types.int4, value: int(-(2 ** 31), 2 ** 31 - 1) },
-	{ name: "flag", type: types.bool, value: element([true, false]) },
+	{ name: "cents", type: codecTypes.cents, value: map(int(-1000, 1000), (n) => BigInt(n) * 7n) },
+	{ name: "big", type: codecTypes.int8, value: map(int(-1000, 1000), (n) => BigInt(n) ** 3n) },
+	{ name: "small", type: codecTypes.int2, value: int(-32768, 32767) },
+	{ name: "whole", type: codecTypes.int4, value: int(-(2 ** 31), 2 ** 31 - 1) },
+	{ name: "flag", type: codecTypes.bool, value: element([true, false]) },
 	{
 		name: "embedding",
-		type: types.vector3,
+		type: codecTypes.vector3,
 		value: map(int(1, 1000), (n) => Vector.make(Float32Array.of(n / 8, -n, 0.5), 3))
 	},
-	{ name: "raw", type: types.float8, value: anyDouble },
+	{ name: "raw", type: codecTypes.float8, value: anyDouble },
 	{
 		name: "single",
-		type: types.float4,
+		type: codecTypes.float4,
 		value: element([0, -0, 1.5, -2.25, Number.NaN, Number.POSITIVE_INFINITY])
 	},
-	{ name: "price", type: types.money, value: map(int(-100000, 100000), (n) => Money.of(BigInt(n))) }
+	{
+		name: "price",
+		type: codecTypes.money,
+		value: map(int(-100000, 100000), (n) => Money.of(BigInt(n)))
+	}
 ]
 
 /** A relation of one column of every field type. */
@@ -685,8 +689,8 @@ export const encodeNeed = {
 export const notesHeading: RelationSpec = {
 	relation: "Note",
 	columns: positionalColumns([
-		{ name: "a", type: types.text },
-		{ name: "b", type: types.text }
+		{ name: "a", type: codecTypes.text },
+		{ name: "b", type: codecTypes.text }
 	]),
 	slot: { kind: "slot", name: "notes" },
 	codes: kindCodes

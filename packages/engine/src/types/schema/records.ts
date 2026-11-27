@@ -13,9 +13,10 @@
  *   attachment names from the root joined by `.`), or `${Stem}${Capitalize<name>}`, or its parent relation's name
  *   followed by `Capitalize<name>` where that capitalized name is another attachment's anywhere in the tree, or the
  *   root's `Row` (AttachedName), so a parent's stated name leads its children's (NameAt). The rule reads no order, so a
- *   record of reads, whose attachments no type orders, names them as a chain of attach calls does. How long a name is
- *   is the engine's to judge (program/records.ts RecordNameTooLong), never the type's, which would read each name a
- *   character at a time.
+ *   record of reads, whose attachments no type orders, names them as a chain of attach calls does. A name's length is
+ *   no rule of the type's, which would read each name a character at a time: a derived name is admitted at any length
+ *   and its installed objects hashed (program/records.ts), and a stated one is the engine's to judge as every declared
+ *   name is.
  * - Its fields: its parent's key, each field under its parent's name unless the child's own columns or attachments take
  *   it, then under the first of `<name>2`, `<name>3`, … none takes (Fresh); for an array, its place `at`, fresh the same
  *   way, its ordered family's drawn index; the child's stored columns (StoredFieldsOf); and a drawn count under the
@@ -24,8 +25,7 @@
  *   and what its own attachment states, never by reading the relations above it, and is one type for one child
  *   whichever copy of the attachment tree the checker read it from (ChildRelation).
  * - Its law over its parent: an array is the ordered family of its parent's count at the attachment's name; an option
- *   is contained in its parent; one mirrors its parent; an arm is the relation of its handle in the alternatives law
- *   over its parent's discriminator field, one law per field.
+ *   is contained in its parent; one mirrors its parent.
  */
 import type { AdditionIn } from "#compiler/types/changeset/changeset.ts"
 import type {
@@ -43,7 +43,6 @@ import type {
 import type { Evidence } from "#compiler/types/evidence/evidence.ts"
 import type { DrawnField, Field, FieldBase } from "#compiler/types/fields/field.ts"
 import type {
-	Arm,
 	ArmOf,
 	AttachedOf,
 	Decoders,
@@ -51,14 +50,14 @@ import type {
 	ImmediateHeadOf,
 	Query
 } from "#compiler/types/query/query.ts"
-import type { AnyRoster, Fact, Relation } from "#compiler/types/schema/relation.ts"
+import type { Fact, Relation } from "#compiler/types/schema/relation.ts"
 import type {
-	Alternatives,
 	Containment,
 	Fin,
 	Mirrors,
 	OrderedFamily,
-	Side
+	Side,
+	Statement
 } from "#compiler/types/schema/statements.ts"
 
 /**
@@ -255,6 +254,24 @@ export type AnyRecords = Records<
 	RecordsRelation
 >
 
+/**
+ * The records of a generated schema (public/dynamic.ts records), their stem and stated names known only at run time:
+ * what their types keep of them is what any records hold, every relation one of any name, fields and key
+ * (RecordsRelation) and every law a statement, so a level lists them as it lists the dynamic door's relations and no
+ * typed query reads their fields. Their rows are unknown, as a query known only at run time states none.
+ */
+export type GeneratedRecords = Records<
+	string,
+	unknown,
+	unknown,
+	RecordOwner,
+	RecordOwner,
+	ReadonlyArray<string>,
+	RecordsRelation,
+	Statement,
+	RecordsRelation
+>
+
 /** A parameter of an owner's key field: the field's domain, SQL type and host type, as r.param of it takes them. */
 type OwnerParam<F> =
 	F extends Field<infer H, infer S, infer D, infer _F, infer _L> ? ParamType<D, S, H> : never
@@ -382,14 +399,17 @@ type AttachmentPaths<At, Prefix extends string> = At extends unknown
 		}[keyof At & string]
 	: never
 
-/** The paths of a query Q's attachments (AttachmentPaths), read only once Q is a query (RecordsHeld). */
-type PathsOf<Q> = Q extends unknown ? AttachmentPaths<AttachedOf<Q>, ""> : never
+/**
+ * The paths of a query Q's attachments (AttachmentPaths), read only once Q is a query (RecordsHeld): what records'
+ * names are keyed by, and the members recordPaths(query) lists at run time (program/records.ts recordPathsOf).
+ */
+export type RecordPaths<Q> = Q extends unknown ? AttachmentPaths<AttachedOf<Q>, ""> : never
 
 /**
  * What records(...) takes as its options' names: a relation name its author states for some of a query Q's
- * attachments, each by its path (PathsOf); an attachment it leaves out keeps the name records derive.
+ * attachments, each by its path (RecordPaths); an attachment it leaves out keeps the name records derive.
  */
-export type RecordNames<Q> = { readonly [P in PathsOf<Q>]?: string }
+export type RecordNames<Q> = { readonly [P in RecordPaths<Q>]?: string }
 
 /** The names of records that state none, records(...) called without its options: their documented default. */
 export type NoRecordNames = { readonly [P in never]?: string }
@@ -399,7 +419,7 @@ export type NoRecordNames = { readonly [P in never]?: string }
  * a schema's types hold its relation under (RelationName).
  */
 type StatedNames<Q, Names> = {
-	readonly [P in keyof Names]: P extends PathsOf<Q>
+	readonly [P in keyof Names]: P extends RecordPaths<Q>
 		? IsOneLiteral<Names[P] & string> extends true
 			? Names[P]
 			: Refusal<"a relation's name is one string literal, the key its schema's types hold it under">
@@ -599,61 +619,17 @@ type DeliveryLaw<
 			? Mirrors<Side<C, C["primaryKey"]>, Side<P, P["primaryKey"]>>
 			: never
 
-/** The arm attachments of At over the parent's field F. */
-type ArmsOver<At, F extends string> = {
-	[N in keyof At & string]: DeliveryOf<At[N]> extends Arm<"arm", F, string> ? N : never
+/** The laws of the attachments At under P, of key PK, at any depth: each child's over its parent. */
+type AttachedLaws<Nm extends AnyNaming, Prefix extends string, P extends RecordsParent, PK, At> = {
+	[N in keyof At & string]:
+		| Boxed<
+				DeliveryLaw<DeliveryOf<At[N]>, P, N, ChildRelation<Nm, Prefix, P["name"], PK, N, At[N]>>
+		  >
+		| AttachedLaws<
+				Nm,
+				`${Prefix}${N}.`,
+				ChildRelation<Nm, Prefix, P["name"], PK, N, At[N]>,
+				ChildKey<PK, At[N]>,
+				ChildrenOf<At[N]>
+		  >
 }[keyof At & string]
-
-/** The parent's fields At's arm attachments discriminate by. */
-type ArmFields<At> = {
-	[N in keyof At & string]: DeliveryOf<At[N]> extends Arm<"arm", infer F extends string, string>
-		? F
-		: never
-}[keyof At & string]
-
-/** The handle an arm attachment's records are held at. */
-type HandleOfArm<A> = DeliveryOf<A> extends Arm<"arm", string, infer Hd extends string> ? Hd : never
-
-/**
- * The alternatives laws over P of its arm attachments At, one per discriminator field, each arm the child relation of
- * its handle.
- */
-type ArmLaws<Nm extends AnyNaming, Prefix extends string, P extends RecordsParent, PK, At> = {
-	[F in ArmFields<At>]: Boxed<
-		Alternatives<
-			P,
-			F,
-			AnyRoster,
-			{
-				readonly [N in ArmsOver<At, F> as HandleOfArm<At[N]>]: ChildRelation<
-					Nm,
-					Prefix,
-					P["name"],
-					PK,
-					N,
-					At[N]
-				>
-			}
-		>
-	>
-}[ArmFields<At>]
-
-/**
- * The laws of the attachments At under P, of key PK, at any depth: each child's over its parent, and the arms' by
- * field.
- */
-type AttachedLaws<Nm extends AnyNaming, Prefix extends string, P extends RecordsParent, PK, At> =
-	| ArmLaws<Nm, Prefix, P, PK, At>
-	| {
-			[N in keyof At & string]:
-				| Boxed<
-						DeliveryLaw<DeliveryOf<At[N]>, P, N, ChildRelation<Nm, Prefix, P["name"], PK, N, At[N]>>
-				  >
-				| AttachedLaws<
-						Nm,
-						`${Prefix}${N}.`,
-						ChildRelation<Nm, Prefix, P["name"], PK, N, At[N]>,
-						ChildKey<PK, At[N]>,
-						ChildrenOf<At[N]>
-				  >
-	  }[keyof At & string]

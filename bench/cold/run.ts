@@ -33,7 +33,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { pgPin } from "#test/support/env.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, workFacts } from "#test/support/fixtures/golden/work.ts"
-import { installMigrated as install, loadMigrated as load } from "#test/support/install-migrate.ts"
+import { installGenerated, loadMigrated as load } from "#test/support/install-migrate.ts"
 import { snapshotValue } from "#test/support/snapshot-json.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -212,7 +212,7 @@ const series = (conditions: ColdConditions, raw: ReadonlyArray<ColdSample>): Col
 }
 
 const workload =
-	"the Work fixture: 6 relations (one closed roster), the alternatives law; its login serving 4 reads to its reader"
+	"the Work fixture: 6 relations (one closed roster), each task kind's arm mirrored with its tasks; its login serving 4 reads to its reader"
 
 const loadConditions: ColdConditions = {
 	workload,
@@ -250,12 +250,13 @@ const coldScope =
 const benchRun = Effect.fn("benchRun")(function* (options: ColdOptions) {
 	const s = yield* Substrate
 	const server = yield* serverIdentity(s.admin)
-	const work = yield* install(W.Work, {
-		ambient: ordinarySession,
-		label: "cold",
-		logins: [coldLogin(W.Work)],
-		extensions: []
-	})
+	const { installed: work } = yield* installGenerated(
+		(name) => {
+			const named = schema(name, Rec.values(W.Work.relations), W.Work.statements)
+			return { schema: named, logins: [coldLogin(named)] }
+		},
+		{ ambient: ordinarySession, label: "cold" }
+	)
 	yield* load(work, workFacts)
 	const installed = coldLogin(schema(work.schema, Rec.values(W.Work.relations), W.Work.statements))
 	const compiled = yield* compileServed(

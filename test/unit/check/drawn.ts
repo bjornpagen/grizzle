@@ -285,6 +285,7 @@ export const kindOfType = (t: ScalarType): ColumnKind | "hull" | undefined => {
 		}
 		case "code":
 			return rosterOf(t)?.closed === rosterName ? "kind" : undefined
+		case "variant":
 		case "int2":
 		case "float4":
 		case "float8":

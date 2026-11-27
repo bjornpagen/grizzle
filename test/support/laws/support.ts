@@ -12,7 +12,6 @@ import type { ApplyOutcome } from "#adapter/types/db.ts"
 import type { CompileError, CompileReason } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import {
 	type AnyDerived,
 	type AnyRelation,
@@ -27,10 +26,11 @@ import { type ChangeSetValue, changeSetOver } from "#compiler/write/changeset/va
 import type { AmbientSession } from "#test/support/ambient.ts"
 import { type ClosedField, closedField, namedText } from "#test/support/closed/stored.ts"
 import {
+	type Generated,
+	generatedTemplate,
 	type Installed,
-	installMigrated as install,
-	migratedTemplate,
-	noPlaceholders
+	installGenerated,
+	type Version
 } from "#test/support/install-migrate.ts"
 import { reportedLawId } from "#test/support/kernel/naming.ts"
 import {
@@ -51,11 +51,9 @@ import {
 	transition,
 	type HostValue
 } from "#test/support/laws/model.ts"
-import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { pickFrom, pickGen, pickOf, pickSpan } from "#test/support/pick.ts"
 import { applicationOf, openServedDb, type ServedOn } from "#test/support/served-db.ts"
-import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate, type SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 
 /** The host laws a refusal's law states; a law the host does not know fails the case. */
@@ -92,31 +90,33 @@ export interface Opened<S extends AnySchema> {
 }
 
 /**
- * Installs the schema `build` makes with its laws and its writers' login under a fresh schema name. The
- * installation holds no connection: a suite installs each drawn schema once and opens its writers per case.
+ * The schema `build` makes under the allocated name `name`, with its writers' logins (familyWriters): a law-bearing
+ * schema's version, as `grizzle generate` drafts it.
+ */
+const lawsVersion = (build: (name: string) => AnySchema, name: string): Version => {
+	const value = build(name)
+	const writers = familyWriters(value)
+	return { schema: value, logins: [writers.server, writers.psql] }
+}
+
+/**
+ * Installs the schema `build` makes with its laws and its writers' logins under a fresh schema name, as `grizzle
+ * generate` drafts and serves it (install-migrate.ts installGenerated). The installation holds no connection: a suite
+ * installs each drawn schema once and opens its writers per case.
  */
 export const installLaws = (
 	build: (name: string) => AnySchema,
 	ambient: AmbientSession
-): Effect.Effect<
-	Installed,
-	CompileError | SqlError | TransactionRolledBack,
-	Substrate | Scope.Scope
-> => {
-	const value = build("Laws")
-	const writers = familyWriters(value)
-	return install(value, {
-		ambient,
-		extensions: [],
-		logins: [writers.server, writers.psql],
-		label: "real"
-	})
-}
+): Effect.Effect<Installed, CompileError | SqlError, Substrate | Scope.Scope> =>
+	Effect.map(
+		installGenerated((name) => lawsVersion(build, name), { label: "real", ambient }),
+		(generated) => generated.installed
+	)
 
 /**
  * A law-bearing schema's installation as a template (substrate.ts installTemplate): what installLaws makes per test made
- * once per member, `build`'s schema migrated with its writers' logins under the template's name, each case's Installed
- * the schema in its clone. `content` tells it from the other templates its declaring module states (a family's label
+ * once per member, `build`'s schema drafted and served with its writers' logins under the template's name as `grizzle
+ * generate` drafts it, each case's Generated the schema in its clone. `content` tells it from the other templates its declaring module states (a family's label
  * and the schema's description), and the declaring module's import closure covers the code that builds it.
  */
 export const lawsTemplate = (spec: {
@@ -125,25 +125,14 @@ export const lawsTemplate = (spec: {
 	readonly content: Content
 	readonly build: (name: string) => AnySchema
 	readonly ambient: AmbientSession
-}): SubstrateTemplate<Installed> => {
-	const value = spec.build("Laws")
-	const writers = familyWriters(value)
-	return migratedTemplate({
+}): SubstrateTemplate<Generated> =>
+	generatedTemplate({
 		declaredIn: spec.declaredIn,
 		name: spec.name,
 		content: spec.content,
-		versions: [
-			{ schema: value, logins: [writers.server, writers.psql], declarations: noDeclarations }
-		],
-		options: {
-			label: "real",
-			extensions: [],
-			ambient: spec.ambient,
-			compile: compileInstallation,
-			review: noPlaceholders
-		}
+		build: (name) => lawsVersion(spec.build, name),
+		ambient: spec.ambient
 	})
-}
 
 /**
  * Opens `app` on an installation of `opened.schema`, through a served layer of its own over the database it was

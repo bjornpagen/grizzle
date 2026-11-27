@@ -1,6 +1,6 @@
 import { Array as Arr, Option, Record as Rec, Result } from "effect"
 import type { ExecutedPlan, ExecutedStatement, Plan, PlanTarget } from "#adapter/types/db.ts"
-import { temporarySchema, trustedJson } from "#compiler/plan/runtime.ts"
+import { trustedJson } from "#compiler/plan/runtime.ts"
 import type { ServedTable, ServedTables } from "#compiler/plan/serve.ts"
 
 /**
@@ -17,11 +17,10 @@ import type { ServedTable, ServedTables } from "#compiler/plan/serve.ts"
  *
  * What a node reads is named by the login's served file (served/forms.ts ServedFile tables), never parsed from
  * PostgreSQL's names: its table by schema and name, an index by name among its table's index names, a Bitmap Index
- * Scan's, which names no relation, among the table of its nearest ancestor that names one, its Bitmap Heap Scan. A table in the
- * session's temporary schema, or a function there, the carrier's reader every statement reads it through (sql/print.ts
- * carrierReader), "Function Name" under VERBOSE with its "Schema", is the explained ChangeSet's own carrier, read whole: a carrier holds no index
- * (write/carriers/carriers.ts WriteCarrier), so an index under one is refused. A table or index the file does not name
- * is a plan the explain cannot read, refused like an answer that is no plan.
+ * Scan's, which names no relation, among the table of its nearest ancestor that names one, its Bitmap Heap Scan. A
+ * ChangeSet's carrier is no table: its rows are a function's of its settings' arrays (write/carriers/carriers.ts
+ * carrierRead), a node that reads no relation. A table or index the file does not name is a plan the explain cannot
+ * read, refused like an answer that is no plan.
  */
 
 /** A node as PostgreSQL prints it, read for the members a Plan keeps; a relation, a schema or an index it does not name
@@ -70,8 +69,8 @@ type ExecutedAnswer = readonly [
 const own = <V>(record: Readonly<Record<string, V>>, key: string): V | undefined =>
 	Option.getOrUndefined(Rec.get(record, key))
 
-/** A node's table, by the served file: the explained ChangeSet's own carrier, or a table the file names. */
-type Named = { readonly kind: "carrier" } | { readonly kind: "table"; readonly table: ServedTable }
+/** A node's table, by the served file: a table the file names. */
+type Named = { readonly kind: "table"; readonly table: ServedTable }
 
 /** The table a node's descendants' Bitmap Index Scans read from: its nearest ancestor's that names one, or none. */
 type Heap = { readonly kind: "none" } | Named
@@ -83,7 +82,6 @@ interface Reading {
 }
 
 const nothing: { readonly kind: "none" } = { kind: "none" }
-const carrier: { readonly kind: "carrier" } = { kind: "carrier" }
 
 /** The index `name` of `table`, as a target, or why none is. */
 const indexOn = (table: ServedTable, name: string): Result.Result<PlanTarget, string> =>
@@ -91,31 +89,25 @@ const indexOn = (table: ServedTable, name: string): Result.Result<PlanTarget, st
 		? Result.succeed({ kind: "index", relation: table.relation, index: { name } })
 		: Result.fail(`the index ${name}, which the served file names on no table of ${table.relation}`)
 
-/** What a node reads through the index `name` of `heap`'s table: a table's index; a carrier holds none. */
+/** What a node reads through the index `name` of `heap`'s table: a table's index. */
 const indexUnder = (heap: Heap, name: string): Result.Result<PlanTarget, string> => {
 	switch (heap.kind) {
 		case "none":
 			return Result.fail(`the index ${name}, under no table the served file names`)
-		case "carrier":
-			return Result.fail(`the index ${name}, of a carrier, which holds none`)
 		case "table":
 			return indexOn(heap.table, name)
 	}
 }
 
-/** What a node reads of `named`'s table whole: a carrier, or the relation the table stores. */
-const wholeOf = (named: Named): PlanTarget =>
-	named.kind === "carrier" ? carrier : { kind: "relation", relation: named.table.relation }
+/** What a node reads of `named`'s table whole: the relation the table stores. */
+const wholeOf = (named: Named): PlanTarget => ({ kind: "relation", relation: named.table.relation })
 
-/** The table `relation` of `schema` by `installed`: a carrier in the temporary schema, else the file's, or why none is. */
+/** The table `relation` of `schema` by `installed`: the file's, or why none is. */
 const namedOf = (
 	relation: string,
 	schema: string | undefined,
 	installed: ServedTables
 ): Result.Result<Named, string> => {
-	if (schema === temporarySchema) {
-		return Result.succeed(carrier)
-	}
 	const tables = schema === undefined ? undefined : own(installed, schema)
 	const table = tables === undefined ? undefined : own(tables, relation)
 	return table === undefined
@@ -131,13 +123,6 @@ const readingOf = (
 ): Result.Result<Reading, string> => {
 	const relation = node["Relation Name"]
 	const index = node["Index Name"]
-	if (
-		relation === undefined &&
-		node["Function Name"] !== undefined &&
-		node.Schema === temporarySchema
-	) {
-		return Result.succeed({ on: carrier, heap })
-	}
 	if (relation === undefined) {
 		return Result.map(
 			index === undefined ? Result.succeed(nothing) : indexUnder(heap, index),

@@ -4,7 +4,8 @@ import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { Logic } from "#compiler/public/compute.ts"
 import { closedId, contract, pg } from "#compiler/public/fields.ts"
 import { closed, contained, key, on, relation, schema, select } from "#compiler/public/schema.ts"
@@ -139,7 +140,8 @@ export const leveledGen: Gen<LeveledCase> = (source) => ({
 	key: source.draw(element(keyPlacements))
 })
 
-const Cents = contract("Cents", pg.bigint, (v) => Logic.ge(v, 0n))
+const centsKey = Symbol("Cents")
+const Cents = contract<typeof centsKey>()("Cents", pg.bigint, (v) => Logic.ge(v, 0n))
 
 /**
  * The case's two schemas, the root alone and the level over it: Z at the root, A at the level, A contained in Z by its

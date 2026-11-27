@@ -50,12 +50,24 @@ export type IdentityKind =
 	| "rosterLive"
 	| "bitsDomain"
 	| "digestDomain"
+	| "variantRow"
+	| "variantDomain"
+	| "variantAttribute"
 	| "closedConstant"
 	| "libraryFunction"
 	| "rowFunction"
 	| "head"
 	| "headKey"
 	| "stamp"
+	| "unitHead"
+	| "unitHeadKey"
+	| "unitStamp"
+	| "headInstant"
+	| "headStamper"
+	| "clockGuard"
+	| "clockMoveGuard"
+	| "clockTrigger"
+	| "clockMoveTrigger"
 	| "primaryKey"
 	| "key"
 	| "check"
@@ -74,6 +86,7 @@ export type IdentityKind =
 	| "derivedKey"
 	| "law"
 	| "patternLaw"
+	| "variantLaw"
 	| "generatedLaw"
 	| "login"
 	| "role"
@@ -94,6 +107,7 @@ export type IdentityKind =
 	| "isolationTrigger"
 	| "immutableGuard"
 	| "immutableTrigger"
+	| "immutableTruncateTrigger"
 	| "sealLaw"
 	| "sealGuard"
 	| "sealTrigger"
@@ -104,8 +118,11 @@ export type IdentityKind =
 	| "lawFunction"
 	| "ruleCapture"
 	| "ruleStandUp"
+	| "ruleClosure"
+	| "ruleShare"
 	| "captureTrigger"
 	| "ruleJudge"
+	| "dataStepRecheck"
 	| "ruleJudgePart"
 	| "ruleJudgeBlock"
 	| "storedUpkeep"
@@ -113,13 +130,13 @@ export type IdentityKind =
 	| "ruleDeltaReader"
 	| "ruleDeltaIndex"
 	| "ruleSentinel"
+	| "ruleStood"
 	| "refusal"
 	| "borrow"
 	| "snapshotGuard"
 	| "aside"
 	| "roleAside"
 	| "swap"
-	| "carrier"
 	| "liveSource"
 	| "liveSecret"
 	| "declaredFunction"
@@ -133,12 +150,13 @@ declare const identifierBrand: unique symbol
  */
 export type Identifier<K extends IdentityKind> = string & { readonly [identifierBrand]: K }
 
-/** The kinds of law identity: a theory law's, a text pattern's or a sealed unit's, each of which a law function, a refusal
- * or a seal guard raises. */
-type RaisedLawKind = "law" | "patternLaw" | "sealLaw"
+/** The kinds of law identity: a theory law's, a text pattern's, a variant's or a sealed unit's, each of which a law
+ * function, a refusal, a domain's CHECK or a seal guard raises. */
+type RaisedLawKind = "law" | "patternLaw" | "variantLaw" | "sealLaw"
 /**
- * A law's identifier, the snapshot's, its constraints' and its law function's: a theory law's, a text pattern's or a
- * sealed unit's, which a law function, a write statement's refusal or a seal guard raises. An outcome names the law by its description instead
+ * A law's identifier, the snapshot's, its constraints' and its law function's: a theory law's, a text pattern's, a
+ * variant's or a sealed unit's, which a law function, a write statement's refusal, a domain's CHECK or a seal guard
+ * raises. An outcome names the law by its description instead
  * (types/changeset Law).
  */
 export type LawId = Identifier<RaisedLawKind>
@@ -183,10 +201,16 @@ export type ConstraintName = Identifier<
 export type IndexName = Identifier<"accessIndex">
 /**
  * A contract's domain, a structural text domain, a parameter's pattern domain, a roster's domain, a set's domain over a
- * roster, or the installation's digest domain.
+ * roster, the installation's digest domain, or a variant's domain over its composite.
  */
 export type DomainName = Identifier<
-	"contractDomain" | "textDomain" | "paramDomain" | "rosterDomain" | "bitsDomain" | "digestDomain"
+	| "contractDomain"
+	| "textDomain"
+	| "paramDomain"
+	| "rosterDomain"
+	| "bitsDomain"
+	| "digestDomain"
+	| "variantDomain"
 >
 export type SchemaFingerprint = string & { readonly [schemaFingerprintBrand]: true }
 

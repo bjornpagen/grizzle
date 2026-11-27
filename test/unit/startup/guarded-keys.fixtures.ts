@@ -7,7 +7,8 @@ import { Array as Arr, Effect, FileSystem, Layer, Record as Rec } from "effect"
 import { served } from "#adapter/public/layer.ts"
 import { resolveConfig } from "#cli/config.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { installOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -17,13 +18,7 @@ import { relationBuilder } from "#compiler/schema/relation.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { servedPath } from "#compiler/served/forms.ts"
 import { defineConfig } from "#index.ts"
-import {
-	cliClock,
-	cliOver,
-	configName,
-	offlineConnection,
-	offlineOwner
-} from "#test/pg/cli/support.ts"
+import { cliOver, configName, offlineConnection, offlineOwner } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { callCounts, type CountedFunction } from "#test/support/kernel/calls.ts"
@@ -38,11 +33,14 @@ export const ordinary = 2
 /**
  * The functions whose calls the gate reads: the decision of a relation's objects beyond its primary key, the law
  * model's specialization and its one entry, and the canonical encoder, which every encoding of a predicate calls once.
+ * The entry is dischargedLaws, which every law model's compile calls (laws/model/model.ts compileLaws, levelLaws,
+ * conservativeLaws): generate compiles its law model through levelLaws, over the closed imports its programs serve,
+ * since the merge 1323e2141f passed those explicitly where LAWEXEC's d9407f90ca deleted the slice compileLaws took.
  */
 const sites = Object.freeze({
 	beyondPrimary: { file: "packages/engine/src/laws/model/uniques.ts", name: "beyondPrimary" },
 	specialize: { file: "packages/engine/src/laws/model/model.ts", name: "run" },
-	compileLaws: { file: "packages/engine/src/laws/model/model.ts", name: "compileLaws" },
+	compileLaws: { file: "packages/engine/src/laws/model/model.ts", name: "dischargedLaws" },
 	encode: { file: "packages/engine/src/core/canonical.ts", name: "encode" }
 } satisfies Readonly<Record<string, CountedFunction>>)
 
@@ -69,8 +67,6 @@ const loginOf = (k: number) => {
 	}
 }
 
-const nextNow = cliClock()
-
 /** What generate and the layer counted at k guarded keys. */
 export interface Steps {
 	readonly generate: Counts
@@ -84,6 +80,7 @@ export const stepsAt = (dir: ScratchDir) => (k: number) =>
 			const fs = yield* FileSystem.FileSystem
 			const { base, server } = loginOf(k)
 			const config = defineConfig({
+				contracts: [],
 				schemas: [base],
 				logins: [server],
 				migrations: "migrations",
@@ -92,7 +89,7 @@ export const stepsAt = (dir: ScratchDir) => (k: number) =>
 			})
 			const ws = yield* fs.makeTempDirectoryScoped({ directory: dir, prefix: "guarded-" })
 			const [generated, generate] = yield* callCounts(
-				cliOver(ws, config, ["generate", configName, "--name", "init"], nextNow()),
+				cliOver(ws, config, ["generate", configName, "--name", "init"]),
 				sites
 			)
 			assert.equal(generated.code, 0, generated.stderr)

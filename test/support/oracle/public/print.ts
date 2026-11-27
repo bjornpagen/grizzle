@@ -188,7 +188,10 @@ const rule = (r: Rule<ParentColumn>): string => {
 		),
 		...Arr.map(r.allens, (a) => `r.allen(${variable(a.left)}, ${a.mask}, ${variable(a.right)})`),
 		...Arr.map(r.pointIns, (p) => `r.pointIn(${variable(p.point)}, ${variable(p.span)})`),
-		...Arr.map(r.connectives, (j) => `r.${j.kind}(${Arr.join(Arr.map(j.args, comparison), ", ")})`),
+		...Arr.map(
+			r.connectives,
+			(j) => `r.${j.kind}([${Arr.join(Arr.map(j.args, comparison), ", ")}])`
+		),
 		...Arr.map(
 			r.negations,
 			(n) =>
@@ -201,10 +204,7 @@ const rule = (r: Rule<ParentColumn>): string => {
 	return `r${Arr.join(matches, "")}${where.length === 0 ? "" : `.where(${Arr.join(where, ", ")})`}.find({ ${Arr.join(Arr.map(r.head, head), ", ")} })`
 }
 
-const delivery = (d: StatedDelivery): string =>
-	d.kind === "arm"
-		? `arm(${Formatter.format(d.field.name)}, ${Formatter.format(d.handle)})`
-		: Formatter.format(d.kind)
+const delivery = (d: StatedDelivery): string => Formatter.format(d.kind)
 
 const order = (keys: ReadonlyArray<OrderKey>): string =>
 	Arr.join(

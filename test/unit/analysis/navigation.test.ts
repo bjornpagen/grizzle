@@ -12,6 +12,7 @@ import type { InferredRule } from "#compiler/ir/desc.ts"
 import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
 import {
 	type Feature,
+	floatImportJoinSketchGen,
 	gateCaseGen,
 	type GateFeature,
 	gateColumns,
@@ -47,6 +48,10 @@ export const navigationKeepsEveryGeneratedReadsAnswerByTheReferenceOverTheChecke
 		aimed(caseSketchGen, [
 			["a navigated read inlining an imported query", navigatedSketchGen(["import", "bind join"])],
 			["a navigated read with a negation", navigatedSketchGen(["negation", "bind join"])],
+			[
+				"a navigated read joining a float variable through an inlined import",
+				floatImportJoinSketchGen
+			],
 			[
 				"a navigated read keeping a row beside a one-column negation of a relation that holds a fact",
 				oneColumnNegationSketchGen
@@ -85,6 +90,30 @@ export const navigationKeepsEveryGeneratedReadsAnswerByTheReferenceOverTheChecke
 					reason:
 						"a read over Rel0x0 that matches q1 bound at its key column and negates q1 at the same binding, q1 one rule over Rel0x0 alone: no rule of it joins, so navigation builds no step and changes the read only by restricting the matched import inside to the parameter its column0 is bound at (navigate.ts navigatedRule, boundInside), where the property required a step of every read navigation changed (VALIDCOST2's rotating stream, seed 0x847460d3, case 200)",
 					since: "2026-11-21"
+				},
+				{
+					token: ReplayToken(
+						"test/unit/analysis/navigation.test.ts#navigationKeepsEveryGeneratedReadsAnswerByTheReferenceOverTheCheckedIR:-:0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.0.0.0.0.1.0.0.qhl.0.0.0.0.0.0.0.0.0.0.0.1.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.guu.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0"
+					),
+					reason:
+						"a read joining two Rel0x0 rows at their double precision field0, one fact holding -0, its head delivering field0: the written rule binds field0 at both matches, so its merge delivers the canonical +0 (check/merge.ts regionMatches), where the navigated rule bound it at the first step alone, the second reading it as its input, and delivered the stored -0 (COMPILEPERF's replay at 26760a21). A step now delivers again each float variable it reads as an input, bound to it (analysis/theory/navigate.ts #chain)",
+					since: "2026-11-25"
+				},
+				{
+					token: ReplayToken(
+						"test/unit/analysis/navigation.test.ts#navigationKeepsEveryGeneratedReadsAnswerByTheReferenceOverTheCheckedIR:30.4:3.0.0.1.0.0.1.0.1.0.0.1.0.1.0.1.2.1.0.1.0.1.0.1.0.1.0.1.0.1.2.1.0.1.0.1.0.1.0.1.0.1.0.1.0.0.1.2.1.0.1.0.1.0.1.2.0.1.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.pa8.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+					),
+					reason:
+						"a read matching Rel0x0, whose one fact holds -0 at its double precision field0, and an import of the case's first read, Rel0x0's every field, at the same variables, delivering them: the written rule binds field0's variable at Rel0x0's match and at the import's column0, so its merge delivers +0, where navigation inlined the import as an equality between the import's variable and the rule's, binding the rule's at one read, and the navigated rule delivered the stored -0 (floatImportJoinSketchGen's steered case under the rename's kill, 2026-11-26). Inlining now binds the rule's variable at the import's own read (analysis/theory/navigate.ts #inline, #renamedAt)",
+					since: "2026-11-26"
+				},
+				{
+					token: ReplayToken(
+						"test/unit/analysis/navigation.test.ts#navigationKeepsEveryGeneratedReadsAnswerByTheReferenceOverTheCheckedIR:7f.4:2.1.0.1.0.0.1.0.1.0.1.0.1.0.1.0.1.0.1.0.1.0.0.1.2.0.1.0.1.0.1.0.1.0.0.1.0.1.2.1.0.1.2.1.0.1.0.0.1.0.1.2.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.1.0.0.0.0.0.0.1.0.0.0.0.0.2.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.pa8.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.1.0.0.0.0.0"
+					),
+					reason:
+						"a read matching Rel0x0 three times, each binding field0, a double precision, to v1: navigated, each step after the first reads v1 as its input and delivers it again, bound to v1 (analysis/theory/navigate.ts #chain `rebound`, 4b24278ad9), and the checker made a bind map reading v1 wait on every other match binding it (31664c74c6), so the two later steps waited on each other and the navigated read was refused (the merged tree's floor stream, seed 0x3029bc12, case 11). A bind map now waits on the matches that bind a variable without reading it (check/checker.ts #matches)",
+					since: "2026-11-26"
 				}
 			],
 			kills: [
@@ -107,6 +136,24 @@ export const navigationKeepsEveryGeneratedReadsAnswerByTheReferenceOverTheChecke
 					replacement:
 						"\t\t\t\t\tObject.entries(a.bindings).slice(1).map(\n\t\t\t\t\t\t([column, e]) => [column, passing.expr(pinned(e))] as const\n\t\t\t\t\t)",
 					why: "A negated relation's step reads one column fewer than the negation binds; the search fails in its steered phase."
+				},
+				{
+					file: "packages/engine/src/analysis/theory/navigate.ts",
+					original: "\t\t\t\t\t\trebound.set(e.var, passed)",
+					replacement: "\t\t\t\t\t\trebound.delete(e.var)",
+					why: "A step reads a float variable an earlier step bound as its input alone: the navigated rule binds it once and delivers the -0 the first step read, where the written rule's merge delivers +0; the kept case fails."
+				},
+				{
+					file: "packages/engine/src/check/checker.ts",
+					original: '\t\t\t\tif (e.kind === "var" && !read.has(e.var)) {\n',
+					replacement: '\t\t\t\tif (e.kind === "var") {\n',
+					why: "A match whose bind map reads a variable it binds again counts among its binders: the navigated steps over a float variable, each reading it and delivering it again, wait on one another, and the checker refuses the kept case's navigated read."
+				},
+				{
+					file: "packages/engine/src/analysis/theory/navigate.ts",
+					original: "\t\t\t\trenamed.set(head.var, id)",
+					replacement: "\t\t\t\trenamed.delete(head.var)",
+					why: "An inlined import's head variable at a float field stays its own, equated with the rule's variable the match binds there: the navigated rule binds that variable once and delivers the -0 one read held, where the written rule's merge delivers +0."
 				}
 			]
 		}
@@ -267,15 +314,17 @@ export const aRuleOverStepsKeepsItsFiltersAsWrittenInAWriteMemberAndNavigatesThe
 			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: '\t\tsharing.kind === "perStatement" && interned.overSteps(read)\n',
-				replacement: "\t\tinterned.overSteps(read)\n",
+				original:
+					'\t\tsharing.kind === "perStatement" && (interned.overSteps(read) || read.where.some(testsGroups))\n',
+				replacement: "\t\tinterned.overSteps(read) || read.where.some(testsGroups)\n",
 				why: "A write member's rule over steps has its filters navigated too, as the navigation fix first had it: its filters are no longer as written, as edullm's ledger's recordEvaluations refused; the property fails."
 			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: '\t\tsharing.kind === "perStatement" && interned.overSteps(read)\n',
+				original:
+					'\t\tsharing.kind === "perStatement" && (interned.overSteps(read) || read.where.some(testsGroups))\n',
 				replacement:
-					'\t\tsharing.kind === "perStatement" && interned.overSteps(read) && read.where.length < 0\n',
+					'\t\tsharing.kind === "perStatement" && (interned.overSteps(read) || read.where.some(testsGroups)) && read.where.length < 0\n',
 				why: "A rule statement's rule over steps keeps its filters as written, as before the navigation fix: no wrapper navigates a correlated negation; the property fails."
 			}
 		]
@@ -288,16 +337,23 @@ export const aRuleOverStepsKeepsItsFiltersAsWrittenInAWriteMemberAndNavigatesThe
  * reads one flat join PostgreSQL ordered by its estimates: the ledger's key of a limited test attempt, which negates the
  * unlimited members, whose max-attempts in force negate a fold's nearest scope, joined every learner's attempts and
  * item sessions and the written test session's (child, stage) last, a filter of 1,401,075 rows at each start (metis,
- * 24 s), and every test session of a package for each of its attempts at each answer (edullm, 1.5 s of 1.7 s).
+ * 24 s), and every test session of a package for each of its attempts at each answer (edullm, 1.5 s of 1.7 s). A
+ * negation of N0's greatest key, a successor's fold navigation reads by one descent since 1beed3dbb3, stays as written
+ * too, since at its folded field no step equates (Navigator #readable); the folds navigation reads no part of are N0's
+ * greatest key for each list, whose head reads N0's list beside it, so no successor, and B's greatest value, a fold of a
+ * column no key ends with.
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
  */
 export const aRuleThatJoinsIsNavigatedPastAFilterNavigationReadsNoPartOfWhichStaysAsWritten =
 	property.exhaust(finite(unreadCaseGen), {
 		needs: {},
-		situations: ["an aggregate", "a union negating an aggregate"] satisfies ReadonlyArray<
-			Reached<UnreadCase>
-		>,
+		situations: [
+			"a value's fold",
+			"an aggregate",
+			"a successor's fold",
+			"a union negating an aggregate"
+		] satisfies ReadonlyArray<Reached<UnreadCase>>,
 		check: (_, k: Case<UnreadCase>) => (c) =>
 			Effect.sync(() => {
 				const navigated = navigateQuery(
@@ -322,32 +378,46 @@ export const aRuleThatJoinsIsNavigatedPastAFilterNavigationReadsNoPartOfWhichSta
 				)
 				assert.deepEqual(
 					Arr.flatMap(unwrapped(rule).where, (w) => (w.kind === "absent" ? [w.source.kind] : [])),
-					c === "an aggregate" ? ["query"] : [],
-					c === "an aggregate"
-						? `${c}: the negation of the fold, which navigation reads no part of, stays the chain's condition as written`
-						: `${c}: the negation of the union, whose rules navigation reads, is navigated after the chain`
+					c === "a union negating an aggregate" ? [] : ["query"],
+					c === "a union negating an aggregate"
+						? `${c}: the negation of the union, whose rules navigation reads, is navigated after the chain`
+						: `${c}: the negation of the fold, which no step of navigation equates, stays the chain's condition as written`
 				)
 				k.note(c)
 			}),
 		oracle: {
 			kind: "specification",
-			name: "navigation restated over the case: A and B each read by a step, the fold's negation the chain's own condition as written, the union's navigated after the chain"
+			name: "navigation restated over the case: A and B each read by a step, each fold's negation the chain's own condition as written, the union's navigated after the chain"
 		},
-		box: "A at p joined to B by k, beside a negation at k of N0's greatest key, a fold, or of a union of N1's keys and N2's not N0's greatest",
+		box: "A at p joined to B by k, beside a negation at k of B's greatest value or N0's greatest key for each list, each a fold, of N0's greatest key, a successor's fold, or of a union of N1's keys and N2's not N0's greatest",
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original:
+					'\tconst head = arm.head[field]\n\treturn head === undefined || head.kind === "aggregate" || head.kind === "producer"\n',
+				replacement: "\tconst head = arm.head[field]\n\treturn head === undefined\n",
+				why: "A negation of a fold at its folded field read as a filter navigation reads, since its fold reads a successor (1beed3dbb3): its step equates the fold's aggregate with the outer value, which no step reads, and the successor's fold case dies."
+			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
 				original: "\t\tif (arms.some((arm) => arm.every === undefined)) {\n\t\t\tcontinue\n\t\t}",
 				replacement:
 					"\t\tif (arms.some((arm) => arm.every === undefined)) {\n\t\t\treturn unread\n\t\t}",
-				why: "A filter navigation reads no part of leaves the whole rule as written: A and B one flat join, as the ledger's limited attempts were read at every start and answer."
+				why: "A filter navigation reads no part of, B's greatest value, leaves the whole rule as written: A and B one flat join, as the ledger's limited attempts were read at every start and answer."
 			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
 				original: "\t\t\t\t;(this.#readable(c) ? filters : asWritten).push(c)",
 				replacement: "\t\t\t\tfilters.push(c)",
 				why: "A filter navigation reads no part of is navigated after the chain as a readable one is: its rule, a fold, is read as a chain it is not."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original:
+					"\t\t\t\t\t\t\tObject.keys(a.bindings).every((field) => equatedAt(arm, field) !== undefined) &&\n",
+				replacement: "",
+				why: "A filter binding N0's greatest key, a fold its arm computes over N0 whole, is readable because the fold's one descent reads as a chain: navigated, it equates the fold with the chain's k, which no step reads, and the rule is refused."
 			}
 		]
 	})

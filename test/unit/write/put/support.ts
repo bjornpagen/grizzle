@@ -4,7 +4,8 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { installOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { drawn, natural, pg } from "#compiler/public/fields.ts"
 import {
 	check,
@@ -21,7 +22,6 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { type QueryValue, queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import { carrierScope } from "#compiler/sql/naming.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import { compileChangeSet } from "#compiler/write/frontend/compile.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
@@ -171,8 +171,7 @@ const shopWriter = (s: typeof Shop | typeof MutableCrewShop): ShopWriter => {
 							reads: installed,
 							level: options.level,
 							clock: noClock,
-							source: transactionClock,
-							carrierScope: carrierScope(undefined)
+							source: transactionClock
 						})
 					)
 			)

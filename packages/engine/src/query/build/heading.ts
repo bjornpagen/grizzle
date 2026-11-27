@@ -1,4 +1,4 @@
-import type { DeclaredName } from "#compiler/core/identity.ts"
+import type { HeldName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	declaredRoster,
@@ -113,7 +113,7 @@ export const schemaInfo = (over: Level): SchemaInfo => {
 		over,
 		env: Object.freeze({
 			kind: "builder",
-			roster: (name: DeclaredName) => {
+			roster: (name: HeldName) => {
 				const roster = rosters.get(name)
 				return roster === undefined ? undefined : Roster.of(name, roster.order, roster.handles)
 			}

@@ -12,7 +12,7 @@ import {
 	type RelNode,
 	type ValidDag
 } from "#compiler/ir/rel.ts"
-import { attributesOver, bitsOf } from "#compiler/logical/attributes.ts"
+import { attributesOver, type Bits, bitsAt, bitsOf } from "#compiler/logical/attributes.ts"
 import {
 	type NameSource,
 	type Naming,
@@ -342,10 +342,34 @@ export const keySearchSites = Object.freeze({
 
 export type CyclePoint = "from n = 4" | "from n = 6"
 
-/** The factor search's firing of a dependency (logical/closure.ts factorClosures). */
-export const factorSites = Object.freeze({
-	fire: { file: "packages/engine/src/logical/closure.ts", name: "fire" }
+/** Where adding a set to a BitsSet reads its words (logical/attributes.ts BitsSet add). */
+export const setSites = Object.freeze({
+	wordAt: { file: "packages/engine/src/logical/attributes.ts", name: "wordAt" }
 } satisfies Readonly<Record<string, CountedFunction>>)
+
+export type SetsPoint = "from n = 16" | "from n = 18"
+
+/** The attributes of sixty columns, two words of them. */
+const sixty = attributesOver(
+	Arr.map(indices(60), (i) => `c${i}`),
+	[]
+)
+
+/** n distinct sets of sixty attributes, two words: set i holds position i mod 30 and position 30 + ⌊i / 30⌋. */
+export const twoWordSets = (n: number): ReadonlyArray<Bits> =>
+	Arr.map(indices(n), (i) => bitsAt(sixty, [i % 30, 30 + Math.floor(i / 30)]))
+
+/** The factor search's firing of a dependency (logical/closure.ts FactorScratch fire). */
+export const factorSites = Object.freeze({
+	fire: { file: "packages/engine/src/logical/closure.ts", name: "#fire" }
+} satisfies Readonly<Record<string, CountedFunction>>)
+
+/** A factor search's scratch growing an array (logical/closure.ts FactorScratch, allocated). */
+export const scratchSites = Object.freeze({
+	allocated: { file: "packages/engine/src/logical/closure.ts", name: "allocated" }
+} satisfies Readonly<Record<string, CountedFunction>>)
+
+export type ScratchPoint = "from m = 8" | "from m = 12"
 
 /**
  * A factor search over m dependencies {a_i, b_i} → c_i, each made redundant by a_i → c_i, beside m dependencies of no
@@ -568,6 +592,8 @@ export const readingQuery = (reading: TaskReading): ValidDag => {
 		keys: task.keys,
 		relationKind: "relation",
 		generated: [],
+		unit: [],
+		determined: [],
 		heading: task.heading,
 		loc: undefined,
 		meta: conservativeMeta

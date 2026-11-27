@@ -2446,7 +2446,7 @@ export const writeOwned = (out: Utf8Writer, value: unknown, options: EncodeOptio
  */
 const owned = <A>(written: Result.Result<A, CompileError>): A => {
 	if (!written.ok) {
-		throw defect(`an owned value encodes: ${written.error.message}`)
+		defect(`an owned value encodes: ${written.error.message}`)
 	}
 	return written.value
 }

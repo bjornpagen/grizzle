@@ -105,16 +105,29 @@ const step = 10
  *   the names their author states: 12,255 and 36,212; since a workload's program states no isolation, deferrable(...)
  *   gone from its members' types (types/db/workload.ts ProgramAt, live/program.ts; lane ISOINFER, 2026-11-23, this
  *   test with each bound at 0 at TEST_SEED=2219874524, and the kill applied by hand): 10,483 and 33,438, and the
- *   evidence-key kill's flat unit 10,584
- * @decision the bound is the verdicts' own cost, exactly: a change that makes a login's check of a served read of
- *   records cost more is refused here, and a change that lowers it lowers the bound
+ *   evidence-key kill's flat unit 10,584;
+ *   at REPLAYFIX's exact-bound car (2026-11-26, over ousxtqsu on train C's 1170fa12 and its empty-level car), every type
+ *   budget run with each program's count logged, width 8, load in the hundreds: flat records 10,136 a unit, records of
+ *   an array of options 32,659, 3 each above the parent of train C's empty-level car (b6236fb3: 10,133 and 32,656): the
+ *   reader of queries admitting a query over the empty level beside its own level (types/query/query.ts QueryOver), and
+ *   a role's query entry testing the empty level where no level of its base is the entry's (types/schema/world.ts
+ *   EntryCheck); at the merged tree of every lane (52df3631e, 2026-11-26), measured as this test measures it with each
+ *   count logged, flat records 10,108 and records of an array of options 31,901, alternatives and arm attachments gone
+ *   (271ffecf2); at PIN 3's merge (2026-11-26), measured as this test measures it with each count logged at the old base
+ *   1323e214, at BRAND-P3 97c889164588 and at the merge: flat records 10,108, 10,188 and 10,179, records of an array of
+ *   options 31,901, 31,993 and 31,984, BRAND-P3's 80 and 92 more the cost of a consumer's mark (core/brand.ts Marked), a
+ *   type-level intersection on every contract-typed field of the units' rows, 9 of each fewer at the merge than at
+ *   BRAND-P3's own tree, so 71 and 83 more than the base.
+ * @decision the bound is the count at the tree it was last measured at, exactly, the counts being a function of the
+ *   tree: a change that makes a login's check of a served read of records cost more fails here and moves the bound in
+ *   its own commit, its cost stated, and a change that lowers it lowers the bound
  * @revalidate a TypeScript 7 or tsgo upgrade; another machine; any change to the login's checks
  *   (types/schema/world.ts), to records' types (types/schema/records.ts) or to the query facade's that moves a unit's
  *   cost, which states its cost here
  */
 const addedAtMost: { readonly [S in ServedShape]: number } = {
-	"flat records": 10483,
-	"records of an array of options": 33438
+	"flat records": 10179,
+	"records of an array of options": 31984
 }
 
 /** How a shape prints. */

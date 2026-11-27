@@ -98,7 +98,7 @@ export const aWritesReadBackOfItsOwnDeltaReadsItAsTheWholeWriteLeavesTheStateCar
 							k.note(c.read)
 							const fx = yield* installWrites(build("CarriedReads").schema, "carriedreads", {
 								programs: {},
-								logins: []
+								logins: () => []
 							})
 							const b = build(fx.installed.declared)
 							const names = namesOf(fx.installed)
@@ -169,9 +169,9 @@ export const aWritesReadBackOfItsOwnDeltaReadsItAsTheWholeWriteLeavesTheStateCar
 			{
 				file: "packages/engine/src/write/program/compile.ts",
 				original:
-					'\t\t\t\t\t? [carriedFill(defined(fillNames[i], "a carried side\'s fill name"), cte, c.carrier)]\n',
-				replacement: "\t\t\t\t\t? []\n",
-				why: "A carried side's carrier no statement fills: the read-back after the writes reads the delta empty."
+					"\t\t\t\tquery: carriedStash(returned.has(cte.cte) ? cte : undefined, c.carrier, stashed),\n",
+				replacement: "\t\t\t\tquery: carriedStash(undefined, c.carrier, stashed),\n",
+				why: "A carried side's carrier its statement fills with no row: the read-back after the writes reads the delta empty."
 			}
 		]
 	})

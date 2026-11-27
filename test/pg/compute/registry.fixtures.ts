@@ -38,6 +38,7 @@ const overloadNamespaces: ReadonlyArray<string> = [
 	"exact:",
 	"exactMoney:",
 	"code:",
+	"variant:",
 	"sha256:",
 	"cidr:",
 	"inet,cidr:",

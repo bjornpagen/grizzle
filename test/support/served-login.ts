@@ -15,7 +15,7 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import { contextFieldAdmits, type FieldDecl, type SchemaDesc } from "#compiler/ir/desc.ts"
 import { clockedMember, workload } from "#compiler/program/workload/value.ts"
 import { Logic, Type } from "#compiler/public/compute.ts"
-import { contract, pg } from "#compiler/public/fields.ts"
+import { contract, mintOf, pg } from "#compiler/public/fields.ts"
 import { context, login, role, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { paged } from "#compiler/public/workload.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -140,11 +140,13 @@ export interface RoleShape {
 	readonly clocked: boolean
 }
 
+const instantKey = Symbol("Instant")
 /**
  * The type of a clocked read's `now` (see the header): a checked contract over bigint, an instant in milliseconds, never
  * negative, whose domain's CHECK a reading cast to it meets.
  */
-const Instant = contract("Instant", pg.bigint, (m) => Logic.ge(m, 0n))
+const Instant = contract<typeof instantKey>()("Instant", pg.bigint, (m) => Logic.ge(m, 0n))
+const toInstant = mintOf(instantKey)
 
 /** The name of a role's clocked read, by the role's place. */
 export const clockedReadName = (place: number): string => `${roleName(place)}clock`
@@ -447,7 +449,7 @@ const clockedRead = (drawn: DrawnSchema): unknown => {
 			const fact = varsOver(target, "fact")
 			return r
 				.match(target, fact)
-				.where(r.ge(r.param("now", Instant), Type.literal(Instant, 0n)))
+				.where(r.ge(r.param("now", Instant), Type.literal(Instant, toInstant(0n))))
 				.find(fact)
 		}),
 		{ now: "millis" }

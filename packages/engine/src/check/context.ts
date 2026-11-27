@@ -7,6 +7,7 @@ import type { DagBuilder, ReservedNode } from "#compiler/ir/builder.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { NodeSpec, RelNode } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
+import type { PatternDfas } from "#compiler/scalar/regex/inclusion.ts"
 
 /**
  * Where a stage is checked: the parameters it reads, the attachment parent it is correlated to, and the feedback
@@ -39,6 +40,8 @@ export type ApproximateStage = Extract<ResolvedStage, { readonly kind: "approx" 
  */
 export interface CheckServices {
 	readonly schema: SchemaReading
+	/** The admitted patterns of the compile, each one's automaton read once: what a refinement's guarantee compares. */
+	readonly patterns: PatternDfas
 	readonly builder: DagBuilder
 	/** Records a node located at `loc`. */
 	readonly node: (spec: CheckedNodeSpec, loc: SourceLoc) => RelNode
@@ -105,6 +108,9 @@ export interface ApproximatePlugin {
 
 /** refinement/: the text refinement and contract guarantees a checked value carries. */
 export interface RefinementPlugin {
-	/** The type of a column that several arms of one union deliver: the guarantees common to every arm. */
-	readonly common: (types: NonEmptyReadonlyArray<ScalarType>) => ScalarType
+	/**
+	 * The type of a column that several arms of one union deliver: the guarantees common to every arm, each text's
+	 * language judged by its automata, read from `patterns`.
+	 */
+	readonly common: (types: NonEmptyReadonlyArray<ScalarType>, patterns: PatternDfas) => ScalarType
 }

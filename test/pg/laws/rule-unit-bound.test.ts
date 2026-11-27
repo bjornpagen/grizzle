@@ -20,7 +20,7 @@ import { Effect } from "effect"
 import {
 	runUnit,
 	type UnitFeature,
-	unitBoundTemplate,
+	unitBoundTemplates,
 	unitGen
 } from "#test/pg/laws/rule-unit-bound.fixtures.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -29,17 +29,15 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export const aWholeRulesStatementReadsAnImportItInlinesAtTheUnitWrittenAlone = property.exhaust(
 	finite(unitGen),
 	{
-		needs: { unit: Substrate.rolledBack(unitBoundTemplate) },
+		needs: Substrate.oneOf(unitBoundTemplates, Substrate.rolledBack),
 		situations: ["planned with no statistics", "planned analyzed"] satisfies ReadonlyArray<
 			Reached<UnitFeature>
 		>,
-		check:
-			({ unit }, c) =>
-			(drawn) =>
-				Effect.gen(function* () {
-					const { connection, value } = yield* unit
-					yield* runUnit(value, connection, drawn, c)
-				}),
+		check: (units, c) => (drawn) =>
+			Effect.gen(function* () {
+				const { connection, value } = yield* units[`${drawn.nodes}`]
+				yield* runUnit(value, connection, drawn, c)
+			}),
 		oracle: {
 			kind: "universal",
 			name: "bound: every statement the judge runs of the check touches at most its plan's nodes times the rows the transaction wrote, counted over all loops"

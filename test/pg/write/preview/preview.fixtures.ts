@@ -32,7 +32,6 @@ import type { WrittenOutcome } from "#adapter/db/handles.ts"
 import { rowEvaluator } from "#adapter/public/host.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import type { CallError, CallErrorOf } from "#compiler/live/index.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { type PreviewRowsByName, previewOver } from "#compiler/program/preview.ts"
 import { sameLaw } from "#compiler/public/changeset.ts"
 import { Text, Type } from "#compiler/public/compute.ts"
@@ -84,9 +83,8 @@ import {
 import { Id } from "#test/support/ids.ts"
 import {
 	type Installed,
-	installMigrated,
-	installMigratedThrough,
-	noPlaceholders
+	installGenerated,
+	installGeneratedThrough
 } from "#test/support/install-migrate.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -632,38 +630,29 @@ const storedBy = (
  */
 export const previewCase = (k: PreviewCase, c: Case<PreviewFeature>) =>
 	Effect.gen(function* () {
-		const second = schemaOf(k, secondHues, "Preview")
-		const first = schemaOf(k, firstHues, "Preview")
-		const fresh = yield* installMigrated(second.value, {
+		/** The case's schema under `name` with `hues`, and its full world's login over it. */
+		const versionOf = (hues: Parameters<typeof schemaOf>[1], name: string) => {
+			const { value } = schemaOf(k, hues, name)
+			return { schema: value, logins: [fullWorld(value, {}).server] }
+		}
+		const { installed: fresh } = yield* installGenerated((name) => versionOf(secondHues, name), {
 			ambient: ordinarySession,
-			label: "preview_fresh",
-			logins: [fullWorld(second.value, {}).server],
-			extensions: []
+			label: "preview_fresh"
 		})
-		const migrated = yield* installMigratedThrough(
+		const history = yield* installGeneratedThrough(
 			[
-				{
-					schema: first.value,
-					logins: [fullWorld(first.value, {}).server],
-					declarations: noDeclarations
-				},
-				{
-					schema: second.value,
-					logins: [fullWorld(second.value, {}).server],
+				(name) => ({ ...versionOf(firstHues, name), declarations: noDeclarations }),
+				(name) => ({
+					...versionOf(secondHues, name),
 					declarations: {
 						renames: [],
 						drops: [{ kind: "handle", roster: parsedName("Hue"), handle: "b" }]
 					}
-				}
+				})
 			],
-			{
-				label: "preview_migrated",
-				extensions: [],
-				ambient: ordinarySession,
-				compile: compileInstallation,
-				review: noPlaceholders
-			}
+			{ label: "preview_migrated", ambient: ordinarySession }
 		)
+		const { installed: migrated } = yield* history.migrate
 		const { facts } = previewInput(k)
 		c.noteAll(reached(k))
 		for (const installed of [fresh, migrated]) {

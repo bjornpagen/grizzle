@@ -5,11 +5,11 @@ import { int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import { noClock, transactionClock } from "#compiler/ir/clock.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { installOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { key, on, schema } from "#compiler/public/schema.ts"
 import { relationBuilder } from "#compiler/schema/relation.ts"
-import { carrierScope } from "#compiler/sql/naming.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf, projectWrite, servableWrite } from "#compiler/write/program/served.ts"
@@ -65,8 +65,7 @@ export const sentPairs = (n: number): ReadonlyArray<SentPair> => {
 			derived: artifacts.derived,
 			level: "serializable",
 			clock: noClock,
-			source: transactionClock,
-			carrierScope: carrierScope(undefined)
+			source: transactionClock
 		})
 	)
 	const servable = servableWrite(compiled)

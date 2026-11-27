@@ -38,7 +38,8 @@ import { draftCodebook, firstCodebook, noRenames, reorderRefusal } from "#compil
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import { theoryViolations } from "#compiler/laws/model/violations.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
@@ -338,9 +339,8 @@ const rosterObjects = (codes: ReadonlyArray<Coded>) => {
 
 const table = identifierOf(identity.table(parsedName("T")))
 const setColumn = identifierOf(identity.column(parsedName("s")))
-/** T's immutability guard (physical/ddl/immutable.ts) and its trigger, which a data step on T's rows runs without. */
+/** T's immutability guard (physical/ddl/immutable.ts), whose triggers a data step on T's rows lifts (its bracket). */
 const guard = identifierOf(identity.immutableGuard(parsedName("T")))
-const guardTrigger = identifierOf(identity.immutableTrigger())
 const generatedColumn = identifierOf(identity.column(parsedName("g")))
 
 /**
@@ -447,8 +447,16 @@ const statementWord = (s: SqlStatement): string => {
 	if (s.kind === "dropTrigger") {
 		return `drop trigger ${s.table.name}.${s.name}`
 	}
-	if (s.kind === "createUpdateGuardTrigger") {
+	if (s.kind === "createImmutableGuardTrigger") {
 		return `create trigger ${s.table.name}.${s.name}`
+	}
+	if (s.kind === "guardBracket") {
+		return s.scope.kind === "tables"
+			? `${s.side} ${Arr.join(
+					Arr.map(s.scope.tables, (t) => t.name),
+					","
+				)}`
+			: `other ${s.side}`
 	}
 	return `other ${s.kind}`
 }
@@ -581,9 +589,9 @@ const predicted = (
 			out.push(
 				["setup", `create domain ${now.bits}`],
 				["structure", `placeholder column ${table}.${setColumn}`],
-				["structure", `drop trigger ${table}.${guardTrigger}`],
+				["structure", `unguard ${table}`],
 				["structure.immediate", "other setConstraintsImmediate"],
-				["structure.constraints", `create trigger ${table}.${guardTrigger}`],
+				["structure.constraints", `reguard ${table}`],
 				["validate", `replace guard ${table}`]
 			)
 		} else if (liveChanged) {

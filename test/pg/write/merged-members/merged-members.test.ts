@@ -38,7 +38,8 @@ import {
 	installWrites,
 	observedChange,
 	openFull,
-	owner
+	owner,
+	ownerTransaction
 } from "#bench/write/support/writes.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import {
@@ -78,17 +79,19 @@ export const aStratumsSourcesOfOneOperationOnOneRelationAreOneActionSoAStratumTh
 							const s = yield* Substrate
 							const fx = yield* installWrites(build("MergedMembers"), "mergedmembers", {
 								programs: {},
-								logins: []
+								logins: () => []
 							})
 							const S = build(fx.installed.declared)
 							const names = namesOf(fx.installed)
 							const column = (r: typeof Moment | typeof Budget | typeof Old, field: string) =>
 								quoteIdent(names.columnIdent(r, field))
+							for (const [child, at] of storedMoments) {
+								yield* ownerTransaction(fx, [
+									`SELECT FROM ${names.stampCall(Moment, "at", [`${child}`], at)}`,
+									`INSERT INTO ${names.table(Moment)} (${column(Moment, "child")}, ${column(Moment, "at")}) VALUES (${child}, ${at})`
+								])
+							}
 							yield* owner(
-								`INSERT INTO ${names.table(Moment)} (${column(Moment, "child")}, ${column(Moment, "at")}) VALUES ${Arr.join(
-									Arr.map(storedMoments, ([child, at]) => `(${child}, ${at})`),
-									", "
-								)}`,
 								`INSERT INTO ${names.table(Old)} (${column(Old, "child")}, ${column(Old, "at")}, ${column(Old, "n")}) VALUES ${Arr.join(
 									Arr.map(storedOld, ([child, at, n]) => `(${child}, ${at}, ${n})`),
 									", "
@@ -230,8 +233,10 @@ export const aStratumsSourcesOfOneOperationOnOneRelationAreOneActionSoAStratumTh
 			},
 			{
 				file: "packages/engine/src/physical/ddl/stamps.ts",
-				original: "\t\t\t\tresult: col(held, at)\n",
-				replacement: "\t\t\t\tresult: stepped\n",
+				original:
+					'\t\twhens: [{ when: binary("=", col(held, headStamper), thisTransaction), result: col(held, at) }],\n',
+				replacement:
+					'\t\twhens: [{ when: binary("=", col(held, headStamper), thisTransaction), result: stepped }],\n',
 				why: "A head its own call already advanced is advanced again (physical/ddl/stamps.ts): the statement's two stamps of Moment's clock, Moment's own and Budget's reference to it, take two instants, so each budget names no moment of its child and Budget's containment in Moment refuses the call."
 			}
 		]

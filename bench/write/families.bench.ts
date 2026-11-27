@@ -175,7 +175,7 @@ export default defineGate({
 		Effect.gen(function* () {
 			const fx = yield* installWrites(build("Families"), "benchfamilies", {
 				programs: {},
-				logins: []
+				logins: () => []
 			})
 			const S = build(fx.installed.declared)
 			/** A table as a write's reading left it, from its counts after its statements and after its deferred checks. */

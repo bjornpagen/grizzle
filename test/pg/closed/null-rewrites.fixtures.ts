@@ -382,9 +382,9 @@ const predicateOf = (p: Pred, r: Reads): Predicate => {
 		case "negative":
 			return Logic.lt(Num.div(r.pickF, r.x), 0)
 		case "and":
-			return Logic.and(predicateOf(p.args[0], r), predicateOf(p.args[1], r))
+			return Logic.and([predicateOf(p.args[0], r), predicateOf(p.args[1], r)])
 		case "or":
-			return Logic.or(predicateOf(p.args[0], r), predicateOf(p.args[1], r))
+			return Logic.or([predicateOf(p.args[0], r), predicateOf(p.args[1], r)])
 		case "not":
 			return Logic.not(predicateOf(p.arg, r))
 	}
@@ -643,6 +643,7 @@ const namesLaw = (law: Law, relation: string): boolean => {
 		case "fold":
 		case "contract":
 		case "pattern":
+		case "variant":
 		case "sealed":
 			return false
 	}

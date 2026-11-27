@@ -92,6 +92,7 @@ const carrierHost = (descriptor: ScalarType): string => {
 			return `SearchDocument<${jsonText(type.configuration)}>`
 		case "date":
 			return "CalendarDate"
+		case "variant":
 		case "sha256":
 		case "bytes":
 		case "bits":
@@ -131,10 +132,22 @@ const textHost = (regex: RegexRef): string => {
 const memberWeight = 4096
 
 /**
- * A host type under its contract's brand, where the type is a contract's: natural's, a count's among them, is
- * unbranded, the bigint it is, and no other contract takes its name.
+ * A host type under its contract's key, where the type is a contract's, `Marked<host, <name>Key>`, each contract a
+ * program reads stating its key's type under its name (test/support/agreement/schema.ts CentsKey, test/support/ids.ts
+ * IdKey): natural's, a count's among them, is the bigint it is, and no other contract takes its name.
  */
 const branded = (type: ScalarType, host: string): string => {
+	const { contract } = type
+	return contract === undefined || contract.name === "natural"
+		? host
+		: `Marked<${host}, ${contract.name}Key>`
+}
+
+/**
+ * A host type under its contract's name, where the type is a contract's, the identity its domain carries
+ * (types/fields/field.ts Contract): natural's is the bigint it is.
+ */
+const named = (type: ScalarType, host: string): string => {
 	const { contract } = type
 	return contract === undefined || contract.name === "natural"
 		? host
@@ -148,6 +161,7 @@ const columnHost = (type: ScalarType, column: Column<unknown>): string => {
 			return handles(column.values)
 		case "code":
 			return branded(type, handles(column.handles))
+		case "variant":
 		case "convert":
 		case "text":
 		case "bits":
@@ -201,12 +215,12 @@ const declaredFacts = (type: ScalarType): ReadonlyArray<Fact> => {
 }
 
 /**
- * A type's identity as the types state it, a domain: its host under its contract's brand, with one Declares per fact its
+ * A type's identity as the types state it, a domain: its host under its contract's name, with one Declares per fact its
  * contracts declare (types/fields/field.ts Contract).
  */
 const domainOf = (type: ScalarType, host: string): string =>
 	Arr.join(
-		[branded(type, host), ...Arr.map(declaredFacts(type), (f) => `Declares<${jsonText(f)}>`)],
+		[named(type, host), ...Arr.map(declaredFacts(type), (f) => `Declares<${jsonText(f)}>`)],
 		" & "
 	)
 
@@ -236,7 +250,7 @@ const paramEntry = (p: ParamDecl): string => {
 	const host = branded(p.type, carrierHost(p.type))
 	const domain = paramDomain(p.type)
 	return p.type.carrier === "code"
-		? `ParamType<${host} & Rostered<${jsonText(defined(rosterOf(p.type), "a closed id's roster").closed)}>, ${sql}, ${host}>`
+		? `ParamType<${named(p.type, carrierHost(p.type))} & Rostered<${jsonText(defined(rosterOf(p.type), "a closed id's roster").closed)}>, ${sql}, ${host}>`
 		: domain === host
 			? `ParamType<${host}, ${sql}>`
 			: `ParamType<${domain}, ${sql}, ${host}>`
@@ -254,6 +268,7 @@ const paramDomain = (descriptor: ScalarType): string => {
 		case "range8":
 		case "rangeDate":
 			return `Span<${domainOf(type.span.endpoint, carrierHost(type.span.endpoint))}>`
+		case "variant":
 		case "int2":
 		case "int4":
 		case "int8":

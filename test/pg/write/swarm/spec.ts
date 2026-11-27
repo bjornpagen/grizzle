@@ -986,7 +986,7 @@ export const buildSwarm = (spec: SwarmSpec): BuiltSwarm => {
 				return family === undefined
 					? checkBuilder(`C${law.relation}`, target, (row: Row) => row.gt(field(row, "v"), -3n))
 					: checkBuilder(`C${law.relation}`, target, (row: Row) =>
-							row.or(row.lt(field(row, countName(family)), 3n), row.ge(field(row, "v"), 0n))
+							row.or([row.lt(field(row, countName(family)), 3n), row.ge(field(row, "v"), 0n)])
 						)
 			}
 			case "into member rows":

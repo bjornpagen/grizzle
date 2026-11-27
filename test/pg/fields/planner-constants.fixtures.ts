@@ -259,7 +259,7 @@ const predTerm = (f: Fields, x: Pred): unknown => {
 			)
 		case "and":
 		case "or":
-			return C[x.p](predTerm(f, x.a), predTerm(f, x.b))
+			return C[x.p]([predTerm(f, x.a), predTerm(f, x.b)])
 		case "not":
 			return C.not(predTerm(f, x.a))
 	}
@@ -396,7 +396,6 @@ export const runPlanner = (drawn: PlannerCase, c: Case<PlannerFeature>) =>
 		const installed = yield* installMigrated(S, {
 			ambient: ordinarySession,
 			label: "planner_constants",
-			logins: [],
 			extensions: []
 		})
 		const names = namesOf(installed)

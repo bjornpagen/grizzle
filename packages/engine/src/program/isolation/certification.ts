@@ -143,7 +143,7 @@ const zipped = <A, B>(
 	bs: ReadonlyArray<B>
 ): ReadonlyArray<readonly [A, B]> => {
 	if (as.length !== bs.length) {
-		throw defect("two lists of one entry per role differ in length")
+		defect("two lists of one entry per role differ in length")
 	}
 	return as.flatMap((a, i): ReadonlyArray<readonly [A, B]> => {
 		const b = bs[i]

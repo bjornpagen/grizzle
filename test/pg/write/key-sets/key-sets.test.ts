@@ -73,7 +73,10 @@ const runAt = (readers: Readers, scale: number) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const s = yield* Substrate
-			const fx = yield* installWrites(build("KeySets"), "keysets", { programs: {}, logins: [] })
+			const fx = yield* installWrites(build("KeySets"), "keysets", {
+				programs: {},
+				logins: () => []
+			})
 			const S = build(fx.installed.declared)
 			const names = namesOf(fx.installed)
 			/** The INSERT of `rows` into `r`, each row its `fields`' values in order; none for no row. */
@@ -95,6 +98,7 @@ const runAt = (readers: Readers, scale: number) =>
 						]
 			const { tag, tagB, link, pin } = contentAt(scale)
 			yield* ownerTransaction(
+				fx,
 				Arr.flatten([
 					insert(
 						Item,
@@ -244,15 +248,15 @@ export const contentEveryReadRestrictsIsComputedAtItsReadsKeysAtEveryDepthItsRow
 			{
 				file: "packages/engine/src/analysis/physical/rules.ts",
 				original:
-					"\t\t\t\t\t\trecordFact(s.fixed, to, { fixed: f.fixed, just: joinJustifications([f.just, eqJust]) })\n",
+					"\t\t\t\t\t\trecordFact(fixed, to, { fixed: f.fixed, just: joinJustifications([f.just, just]) })\n\t\t\t\t\t\tgrew = true\n",
 				replacement: "\t\t\t\t\t\tvoid to\n",
 				why: "A filter's column equated to an outer-fixed column is fixed to a computation, not to that outer column: the chain's LATERAL equates nothing, and its labels side is computed whole."
 			},
 			{
 				file: "packages/engine/src/lower/shapes/share/keys.ts",
 				original:
-					"\t\t\t\t\t\trestrictedByValues(q.source) || q.constants.some((c) => statementValue(c.expr))\n",
-				replacement: "\t\t\t\t\t\tq.constants.some((c) => statementValue(c.expr))\n",
+					"\t\t\t\t\tif (restrictedByValues(q.source) || (held && unitAtValues(region, q))) {\n",
+				replacement: "\t\t\t\t\tif (held && unitAtValues(region, q)) {\n",
 				why: "A read the statement's values restrict seeds no crossing: the open items no longer key the content, which is computed whole, and the content rows read grow with the content."
 			},
 			{

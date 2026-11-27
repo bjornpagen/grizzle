@@ -16,22 +16,21 @@ import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
+import { queryEvidence } from "#compiler/logical/annotate.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
-import { lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
+import { annotatedInput, lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
 import { conservativeStatement, type SentStatement } from "#compiler/lower/shapes/index.ts"
 import { executableQuery } from "#compiler/lower/template.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { check, relation, schema } from "#compiler/public/schema.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import type { Expr, Select, SqlStatement } from "#compiler/sql/ast.ts"
 import { and, eq, lit, types } from "#compiler/sql/build.ts"
-import { carrierEmptying } from "#compiler/sql/print.ts"
-import { carrierReader, carrierTable } from "#compiler/write/carriers/carriers.ts"
-import { ledger } from "#test/pg/laws/alternatives/schemas.ts"
 import {
 	batches,
 	reasons,
@@ -40,6 +39,7 @@ import {
 	staffing,
 	tree
 } from "#test/pg/laws/projections/schemas.ts"
+import { ledger } from "#test/pg/laws/tagged-arms/schemas.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
 	admitGenerated,
@@ -300,7 +300,7 @@ const lowered = (c: QueryCase, context: TemplateContext): Lowered => {
 	}
 	sent(conservativeStatement(conservative.value).statement)
 	const optimized = Result.flatMap(admitGenerated(query), (q) =>
-		lowerOptimized(q, {
+		lowerOptimized(succeeded(annotatedInput(q, queryEvidence)), {
 			names,
 			catalog: evidenceCatalog(artifacts.value),
 			subject: { kind: "query" },
@@ -372,11 +372,11 @@ const gauges = schema(
 	[Gauge],
 	[
 		check("RealReading", Gauge, (g) =>
-			g.and(
+			g.and([
 				g.ne(g.reading, Number.NaN),
 				g.lt(g.reading, Number.POSITIVE_INFINITY),
 				g.gt(g.reading, Number.NEGATIVE_INFINITY)
-			)
+			])
 		)
 	]
 )
@@ -686,27 +686,6 @@ const writtenArtifacts = (w: WriteSketch) => {
 const writtenStatements = (w: WriteSketch) =>
 	Arr.flatMap(writtenArtifacts(w), (artifact) => artifact.statements)
 
-/**
- * What a session stands up before its first call of the write a sketch states, each beside its twin built apart: each
- * carrier of its artifacts, its emptying and its reader (write/carriers/carriers.ts carrierStandUp).
- */
-export const writtenStandUps = (w: WriteSketch): ReadonlyArray<Twinned> => {
-	const stoodUp = (): ReadonlyArray<SqlStatement> =>
-		Arr.flatMap(writtenArtifacts(w), (artifact) =>
-			Arr.flatMap(artifact.carriers, (carrier): ReadonlyArray<SqlStatement> => {
-				const table = carrierTable(carrier)
-				return [table, carrierEmptying(table.name), carrierReader(table)]
-			})
-		)
-	const [statements, twins] = [stoodUp(), stoodUp()]
-	if (statements.length !== twins.length) {
-		throw new Error(
-			`a twin built apart stands up ${twins.length} statements, not ${statements.length}`
-		)
-	}
-	return Arr.zipWith(statements, twins, (statement, twin): Twinned => ({ statement, twin }))
-}
-
 const writtenLive = (w: WriteSketch): Live => {
 	const placed = writtenStatements(w)
 	return {
@@ -812,8 +791,27 @@ export const liveSketchGen: Gen<LiveSketch> = weighted([
 ])
 
 /** A written draw: a generated write program over the shop fixture. */
+/**
+ * A SERIALIZABLE write of the mutable Crew's shop that deletes the Hand, a member under a mutable owner, beside what
+ * every other target draws: the arm of the written space that reaches the situation, which a draw of the whole space
+ * meets about once in sixteen.
+ */
+const handDeleteGen: Gen<WriteSketch> = (source) => ({
+	crew: "mutable",
+	described: false,
+	level: "serializable",
+	ops: Arr.map(writeTargets, ([relation]): WriteOp =>
+		relation === Hand
+			? "delete"
+			: source.draw(element<WriteOp>(["none", ...writingOpsOf(relation, "mutable")]))
+	)
+})
+
 export const writtenSketchGen: Gen<Extract<LiveSketch, { readonly kind: "written" }>> = map(
-	writeSketchGen,
+	weighted<WriteSketch>([
+		[7, writeSketchGen],
+		[1, handDeleteGen]
+	]),
 	(sketch) => ({ kind: "written", sketch }) as const
 )
 

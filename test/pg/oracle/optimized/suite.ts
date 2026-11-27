@@ -555,7 +555,7 @@ export const generatedRules = [
 
 /**
  * The rewrite families the optimized population (generated.ts) is drawn to reach: elimination through a containment the
- * query reads, late fetch of wide payload under a take, every predicate and semi-join movement, every simplification a
+ * query reads, late fetch of wide payload under a take, every simplification a
  * checked query can meet, seed pushdown into a rooted closure, the take shapes, and the elisions that rest on one row
  * or on an exact deduplication. A filter directly over declared facts (simplify.finiteFold) is no checked query's
  * shape.
@@ -563,13 +563,6 @@ export const generatedRules = [
 export const rewriteFamilies = [
 	"R03.elimination",
 	"R06.lateFetch",
-	"pushdown.group",
-	"pushdown.left",
-	"pushdown.project",
-	"pushdown.source",
-	"pushdown.union",
-	"pushdown.semiSource",
-	"pushdown.semiGroup",
 	"simplify.empty",
 	"simplify.equality",
 	"simplify.fold",

@@ -33,7 +33,7 @@ import { bareRecord, succeeded } from "#test/support/assert.ts"
 import { rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
-import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
+import { claimsOfNoFact, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 /** A date column holds the days a CalendarDate spells, against PostgreSQL 19 a direct writer's date is stored exactly when a CalendarDate spells it, and refused by the column's range CHECK otherwise. */
@@ -61,7 +61,7 @@ export const aDateColumnHoldsTheDaysACalendarDateSpellsAgainstPostgreSQL19ADirec
 							return yield* Effect.gen(function* () {
 								const db = yield* Db.open(o.served.login.roles.app, {})
 								const writer = yield* s.session({
-									...worldSession(o.installed.world(o.app)),
+									...worldSession(o.installed.world(o.app), claimsOfNoFact),
 									label: "writer"
 								})
 

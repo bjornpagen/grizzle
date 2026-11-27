@@ -33,7 +33,7 @@ import { closed, fin, relation } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { describeFieldOrThrow, type SqlTag } from "#compiler/scalar/registry.ts"
 import { closedBuilder } from "#compiler/schema/relation.ts"
-import type { StoredOnlySql } from "#compiler/types/fields/field.ts"
+import type { AccumulatedField, StoredOnlySql } from "#compiler/types/fields/field.ts"
 import { kindHandles, setHandles, setWidths } from "#test/pg/codec/scalar.fixtures.ts"
 import { type SqlNames, textOut, wireSql } from "#test/pg/codec/support.ts"
 import {
@@ -44,7 +44,7 @@ import {
 	orderedBy
 } from "#test/pg/values/order.fixtures.ts"
 import { type AnyResult, succeeded } from "#test/support/assert.ts"
-import { Id } from "#test/support/ids.ts"
+import { Id, idKey } from "#test/support/ids.ts"
 import type { CaseSession } from "#test/support/substrate/session.ts"
 import { codecOf } from "#test/unit/codec/support.ts"
 
@@ -102,29 +102,46 @@ const carrierCases: ReadonlyArray<TextCase> = Arr.flatMap(
 /** A field type with a text, a descriptor a builder made, of any host type. */
 type Declared = Field<unknown, Exclude<SqlTag, StoredOnlySql>, unknown>
 
-/** A type a field is declared of: its label, its descriptor, and its values as a caller writes them. */
+/**
+ * A type a field is declared of: its label, its descriptor, its values as a caller writes them, and its accumulated
+ * field starting at a value, a consumer's contract's under its key (types/fields MintKey).
+ */
 interface DeclaredCarrier {
 	readonly label: string
 	readonly type: Declared
 	readonly values: Gen<unknown>
+	readonly accumulate: (first: unknown) => AccumulatedField<Declared>
 }
 
 /** A declared type over the values of order.fixtures.ts's case of `label`, whose type is the descriptor's. */
 const declaredOf = (label: string, type: Declared): DeclaredCarrier => ({
 	label,
 	type,
-	values: orderCaseOf(label).values
+	values: orderCaseOf(label).values,
+	accumulate: (first) => accumulated(type, first)
+})
+
+/** A consumer's contract over the values of order.fixtures.ts's case of `label`, accumulated under its key. */
+const contractOf = (label: string, type: Declared, key: symbol): DeclaredCarrier => ({
+	label,
+	type,
+	values: orderCaseOf(label).values,
+	accumulate: (first) => accumulated(type, first, key)
 })
 
 /** The rosters of order.fixtures.ts's closed ids and sets, as a schema declares them, each under its name and handles. */
 const Kind = closed.ordered("Kind", kindHandles)
 const Mark = closed.unordered("Mark", markHandles)
 
+/** natural, as a field of any declared type reads it. */
+const naturalType: Declared = natural
+
 /** natural, over naturals: bigints never below zero, their edges among them. */
 const naturalCarrier: DeclaredCarrier = {
 	label: "natural",
-	type: natural,
-	values: oneOf([bigint(0n, int8Max), element([0n, 1n, int8Max])])
+	type: naturalType,
+	values: oneOf([bigint(0n, int8Max), element([0n, 1n, int8Max])]),
+	accumulate: (first) => accumulated(naturalType, first)
 }
 
 /** boolean. */
@@ -133,6 +150,7 @@ const booleanCarrier = declaredOf("boolean", pg.boolean)
 /** A closed id of Kind, a slot's type. */
 const kindCarrier = declaredOf("closed id", closedId(Kind))
 
+const centsKey = Symbol("Cents")
 /**
  * Every type a field is declared of that has a text, by a builder, each over the values of its carrier's case: every
  * carrier of order.fixtures.ts that a field has (numeric and text at no typmod or pattern are no field's), a contract,
@@ -147,7 +165,7 @@ const declaredCarriers: Arr.NonEmptyReadonlyArray<DeclaredCarrier> = [
 	declaredOf("double precision", pg["double precision"]),
 	declaredOf("money", pg.money),
 	booleanCarrier,
-	declaredOf("uuid", Id),
+	contractOf("uuid", Id, idKey),
 	declaredOf("text", str.regex("^.*$", "su")),
 	kindCarrier,
 	declaredOf("set", bits(Kind)),
@@ -158,7 +176,11 @@ const declaredCarriers: Arr.NonEmptyReadonlyArray<DeclaredCarrier> = [
 	declaredOf("int8range", span(pg.bigint, undefined)),
 	declaredOf("vector(3)", pg.vector(3)),
 	declaredOf("vector(16)", pg.vector(16)),
-	declaredOf("contract Cents", contract("Cents", pg.bigint, undefined, undefined)),
+	contractOf(
+		"contract Cents",
+		contract<typeof centsKey>()("Cents", pg.bigint, undefined, undefined),
+		centsKey
+	),
 	declaredOf("date", date),
 	declaredOf("daterange", span(date, undefined)),
 	declaredOf("unordered closed id", closedId(Mark)),
@@ -218,7 +240,7 @@ const fieldCases: ReadonlyArray<TextCase> = [
 			fieldCase(
 				"accumulated",
 				c,
-				(first) => relation("Texted", { id: Id, x: accumulated(c.type, first) }, ["id"]).fields.x
+				(first) => relation("Texted", { id: Id, x: c.accumulate(first) }, ["id"]).fields.x
 			)
 	),
 	...Arr.map(declaredCarriers, (c) =>

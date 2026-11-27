@@ -20,7 +20,7 @@ const anEntry = "a catalog entry { name, source }, each a nonempty storable text
 
 /** What law(...) takes for the declaration it names. */
 const aDeclaration =
-	"a declaration a law comes from: a statement built by key, check, contained, mirrors, alternatives, series, ordered, counted, tree or fold, a relation, a field generated(type, term) made, a str.regex, str.and or str.bytes type, or a contract"
+	"a declaration a law comes from: a statement built by key, check, contained, mirrors, series, ordered, counted, tree or fold, a relation, a field generated(type, term) made, a str.regex, str.and or str.bytes type, or a contract"
 
 /** A catalog entry its author declares, read once, here: a plain record of a name and a source, nonempty texts. */
 const admitEntry = (entry: unknown): DeclaredEntry => {

@@ -113,7 +113,7 @@ export const r26TheLexicographicComparisonInAnySpellingRecognizesTheInclusiveOrd
 									order: { kind: "spelled", where: spelled(spelling, order, inclusive) }
 								}
 							),
-							labOptions
+							labOptions()
 						)
 						const recognized = inclusive && spelling !== "conjunctive"
 						c.note(`${spelling} ${recognized ? "recognized" : "kept"}`)
@@ -155,7 +155,7 @@ export const r26AndR41TheSelfMatchsOwnConditionsWindowsASelfMatchExactlyWhereThe
 		] satisfies ReadonlyArray<Reached<`${Head} ${"windowed" | "kept"}`>>,
 		check: (_, c: Case<`${Head} ${"windowed" | "kept"}`>) => (shape) =>
 			Effect.sync(() => {
-				const r = succeeded(rewriteCatalog(selfMatchDag(shape), labOptions))
+				const r = succeeded(rewriteCatalog(selfMatchDag(shape), labOptions()))
 				const windowed =
 					shape.extra !== "on the second occurrence" &&
 					shape.keys !== "student" &&
@@ -209,7 +209,7 @@ export const r29AndR30PercentilesSelectsPERCENTILEDISCExactlyForGatedFractionsOv
 						const joined = stage === "ordinals joined on the group"
 						c.note(!joined ? "a stage refused" : gated ? "rewritten" : "a fraction refused")
 						assert.deepEqual(
-							appliedTo(Q.discretePercentile(ps, stageOf[stage]), labOptions),
+							appliedTo(Q.discretePercentile(ps, stageOf[stage]), labOptions()),
 							gated && joined
 								? ["R29"]
 								: stage === "a running conditional count"
@@ -254,7 +254,7 @@ export const r29AndR30PercentilesInterpolatesByPERCENTILECONTExactlyForAFraction
 						const rewritten = p >= 0 && p <= 1 && over === "score"
 						c.note(rewritten ? "rewritten" : "kept")
 						assert.equal(
-							appliedTo(Q.continuousPercentile(p, over), labOptions).includes("R30"),
+							appliedTo(Q.continuousPercentile(p, over), labOptions()).includes("R30"),
 							rewritten
 						)
 					}),
@@ -296,7 +296,7 @@ export const r31TheModeTakesMODEExactlyForTake1OfAnUnconditionalCountTiedToTheVa
 						const rewritten = tiebreak === "asc" && k === 1 && count === "all"
 						c.note(rewritten ? "rewritten" : "kept")
 						assert.deepEqual(
-							appliedTo(Q.modeOfDays(tiebreak, { k, count }), labOptions),
+							appliedTo(Q.modeOfDays(tiebreak, { k, count }), labOptions()),
 							rewritten ? ["R31"] : []
 						)
 					}),
@@ -339,7 +339,7 @@ export const r27AndR42NeighborsUnderTheParentSetPolicyKeepsTheLATERALProbeForAnA
 					Effect.sync(() => {
 						const expected = neighborRules(n, parents)
 						c.note(`${n.kind} ${expected.length > 0 ? "rewritten" : "probed"}`)
-						assert.deepEqual(appliedTo(neighborQuery(n), { ...labOptions, parents }), expected)
+						assert.deepEqual(appliedTo(neighborQuery(n), { ...labOptions(), parents }), expected)
 					}),
 			oracle: {
 				kind: "specification",
@@ -421,7 +421,7 @@ export const r27AndR42NeighborsUnderTheParentSetPolicyKeepsAnAsOfComparingFields
 							() => new Error("the as-of's region")
 						)
 						const recognized = Result.try({
-							try: () => tryBoundNeighbor(new CatalogContext(ed, labOptions), region),
+							try: () => tryBoundNeighbor(new CatalogContext(ed, labOptions()), region),
 							catch: (thrown): unknown => thrown
 						})
 						assert.equal(
@@ -461,7 +461,7 @@ export const r28SharesKeepsAShareWhoseTotalRangesOverAnotherBindingSetOrWhoseJoi
 						share.kind === "grouped"
 							? Q.groupedShare(share.over, share.restricted)
 							: Q.keyedShare(share.restricted),
-						labOptions
+						labOptions()
 					),
 					rewritten ? ["R28"] : []
 				)
@@ -489,16 +489,16 @@ export const determinismAndTheCatalogPassProducesByteIdenticalDAGsAndSQLFromIden
 		situations: ["rewritten", "kept"] satisfies ReadonlyArray<Reached<"rewritten" | "kept">>,
 		check: (_, c: Case<"rewritten" | "kept">) => (desc) =>
 			Effect.sync(() => {
-				const a = rewrite(desc, labOptions)
-				const b = rewrite(desc, labOptions)
+				const a = rewrite(desc, labOptions())
+				const b = rewrite(desc, labOptions())
 				c.note(a.r.certificates.length > 0 ? "rewritten" : "kept")
 				assert.deepEqual(encode(a.r.dag, everyProperty), encode(b.r.dag, everyProperty))
 				assert.deepEqual(sql(a.q, a.r), sql(b.q, b.r))
 				const ctx = makePassContext({
 					evidenceContext: "snapshot",
-					catalog: labOptions.catalog
+					catalog: labOptions().catalog
 				})
-				const out = succeeded(catalogPass("auto").run(a.q, ctx))
+				const out = succeeded(catalogPass("auto", labOptions().analyses).run(a.q, ctx))
 				assert.equal(out.dag.roots[0].id, a.q.dag.roots[0].id)
 				assert.deepEqual(
 					Arr.map(ctx.certificates.all(), (x) => x.rule),

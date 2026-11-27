@@ -15,8 +15,9 @@
  *   keyed by it alone, standing on access, compared as a set. Oracle: that rule, restated over the drawn programs.
  *   Features: an index of a column, the key's own index, two columns indexed, the empty workload.
  * - Drafts: over two drafts, the second's workload indexes are exactly those its workload asks for that the first's
- *   did not, each built concurrently, or all of them, each after the table, where a changed definition drops and
- *   recreates the table, compared as a set of the columns each index keys. Oracle: that rule, restated over both
+ *   did not, each built concurrently, or all of them, each after the table, where a changed definition creates its
+ *   table anew, named by its new canonical form (analysis/derived/canonical.ts), and drops the earlier one, compared as
+ *   a set of the columns each index keys. Oracle: that rule, restated over both
  *   drafts' programs. Features: an index built concurrently, an index after its recreated view, a standing index the
  *   later draft keeps.
  */
@@ -28,7 +29,8 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { withWorkload } from "#compiler/physical/access/extension.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { installOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
@@ -194,15 +196,11 @@ export const workloadIndexesOnADerivedRelationBuildALaterProgramsViewIndexConcur
 						recreated,
 						"the view is created again exactly when redefined"
 					)
-					if (recreated) {
-						assert.ok(
-							Option.exists(
-								Arr.findFirstIndex(steps, (p) => p.statement.kind === "drop"),
-								(drop) => Option.exists(view, (created) => drop < created)
-							),
-							"the view is dropped before it is created again"
-						)
-					}
+					assert.equal(
+						Arr.some(steps, (p) => p.statement.kind === "drop"),
+						recreated,
+						"the earlier definition's table is dropped exactly when redefined, its successor named by its own form"
+					)
 					for (const index of indexes) {
 						const at = steps.indexOf(index)
 						if (recreated) {

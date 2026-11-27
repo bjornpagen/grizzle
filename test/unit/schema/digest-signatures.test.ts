@@ -94,8 +94,9 @@ export const aDeclaredFunctionTakesAndReturnsADigestAloneOrInRowsAndAReadCastsIt
 		kills: [
 			{
 				file: "packages/engine/src/schema/function-own.ts",
-				original: '\t\tcase "closedId":\n\t\tcase "sha256":\n\t\t\treturn true',
-				replacement: '\t\tcase "closedId":\n\t\t\treturn true',
+				original:
+					'\t\tcase "closedId":\n\t\tcase "sha256":\n\t\tcase "variant":\n\t\t\treturn true',
+				replacement: '\t\tcase "closedId":\n\t\tcase "variant":\n\t\t\treturn true',
 				why: "A digest is no signature's type again: every schema declaring a function over one is refused at the signature, the grading machine's sText among them."
 			},
 			{

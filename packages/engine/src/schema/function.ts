@@ -1,5 +1,8 @@
 import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
+import { admitHostKey } from "#compiler/core/brand.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
 import {
 	type DeclaredLanguage,
 	declaredLanguages,
@@ -8,19 +11,23 @@ import {
 	functionNullInputs,
 	functionVolatilities
 } from "#compiler/core/function.ts"
+import { hostRead } from "#compiler/core/host.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
 import { isList, isPlainRecord } from "#compiler/core/record.ts"
 import { isValidText } from "#compiler/core/text.ts"
 import {
+	type BodyPlaceholderDesc,
 	builtNode,
 	type FieldDesc,
 	type FunctionBodyDesc,
 	type FunctionDesc,
 	type FunctionTypeDesc,
 	type HeadingDesc,
-	type NamedDesc
+	type NamedDesc,
+	type VariantSpellingDesc
 } from "#compiler/ir/desc.ts"
+import { ownedContractNames } from "#compiler/scalar/contract.ts"
 import {
 	builderLoc,
 	frozenCopy,
@@ -31,6 +38,7 @@ import {
 	requireName
 } from "#compiler/schema/protocol.ts"
 import { valueTypeOf } from "#compiler/schema/relation.ts"
+import { type VariantArmParts, type VariantParts, variantDesc } from "#compiler/schema/variant.ts"
 import type {
 	AnyFunction,
 	AnyRows,
@@ -38,7 +46,8 @@ import type {
 	FunctionBody,
 	FunctionType,
 	Row,
-	Rows
+	Rows,
+	VariantSpelling
 } from "#compiler/types/schema/function.ts"
 
 /**
@@ -101,6 +110,58 @@ const functionTypeOf = (value: unknown, label: string): FunctionTypeDesc => {
 		return { kind: "row", heading: row.desc }
 	}
 	return { kind: "value", type: valueDesc(value, label) }
+}
+
+/**
+ * The names of the consumers' contracts a function type holds a value of at any depth (scalar/contract.ts
+ * ownedContractNames): its value's type's, or each field's of the heading of its rows or its row; each once, in code
+ * point order.
+ */
+const ownedNames = (t: FunctionTypeDesc): ReadonlyArray<string> => {
+	switch (t.kind) {
+		case "value":
+			return ownedContractNames(t.type).toSorted(compareCodePoints)
+		case "rows":
+		case "row":
+			return [...new Set(t.heading.flatMap((field) => ownedNames(field.type)))].toSorted(
+				compareCodePoints
+			)
+	}
+}
+
+/**
+ * What a declared function takes after its definition, `mints`, as a JavaScript caller passes it (types/schema MintsOf):
+ * where its result holds a value of a consumer's contract, a record of each such contract's key by the contract's name,
+ * each a value mintOf would take (core/brand.ts admitHostKey), since its body makes the contract's values; nothing
+ * otherwise. Whose each key is, the types judge.
+ */
+const admitMints = (
+	result: FunctionTypeDesc,
+	mints: ReadonlyArray<unknown>,
+	label: string
+): void => {
+	const names = ownedNames(result)
+	const [first] = names
+	if (first === undefined) {
+		if (mints.length > 0) {
+			throw malformed(label, "fn(name, definition): two arguments")
+		}
+		return
+	}
+	const [record, ...extra] = mints
+	if (
+		extra.length > 0 ||
+		!isPlainRecord(record) ||
+		Object.keys(record).toSorted(compareCodePoints).join("\n") !== names.join("\n")
+	) {
+		throw malformed(
+			label,
+			`fn(name, definition, mints): its result holds ${names.join(", ")}, a consumer's contract its body makes values of, so mints holds each one's key by its name, { ${first}: key }`
+		)
+	}
+	for (const name of names) {
+		admitHostKey(record[name], `${label} mint ${name}`)
+	}
 }
 
 /** A heading's fields by name (byName), at least one, each a value type, rows of a heading or one row of one. */
@@ -173,30 +234,35 @@ const bodyText = (text: unknown, label: string): string => {
 /**
  * fn.body`...`: a declared function's body, the application's PL/pgSQL or SQL text as a template literal reads it,
  * each placeholder a heading rows() built, which the installation names by its row type's name alone, the one the
- * function's pinned search_path resolves (physical/ddl/functions.ts). Its Description is the text and, between its
- * runs, the headings it names (ir/desc.ts FunctionBodyDesc); ownership holds each to a heading of the function's own
- * signature or a callee's (schema/function-own.ts).
+ * function's pinned search_path resolves (physical/ddl/functions.ts), or a variant's spelling, its code of an arm, an
+ * arm field's attribute or a value of an arm (schema/variant.ts variantSpellings). Its Description is the text and,
+ * between its runs, what it names (ir/desc.ts FunctionBodyDesc); ownership holds each heading to one of the function's
+ * own signature or a callee's (schema/function-own.ts).
  */
 export const bodyBuilder = (
 	strings: TemplateStringsArray,
-	rowTypes: ReadonlyArray<AnyRows>
+	placeholders: ReadonlyArray<AnyRows | VariantSpelling>
 ): FunctionBody => {
 	const label = "fn.body"
 	const [text, ...after] = strings.map((run, i) => bodyText(run, `${label} text ${i}`))
-	const headings = rowTypes.map((value, i) => {
+	const named = placeholders.map((value, i): BodyPlaceholderDesc => {
+		const runAfter = bodyText(after[i], `${label} text ${i + 1}`)
 		const heading = ownedEntry(value, "rows")
-		if (heading === undefined) {
-			throw malformed(`${label} placeholder ${i}`, "a heading built by rows(...)")
+		if (heading !== undefined) {
+			return Object.freeze({ rowType: heading.desc, text: runAfter })
 		}
-		return heading.desc
+		const spelling = ownedEntry(value, "spelling")
+		if (spelling !== undefined) {
+			return Object.freeze({ spelling: spelling.desc, text: runAfter })
+		}
+		throw malformed(
+			`${label} placeholder ${i}`,
+			"a heading built by rows(...), or a variant's code, attribute or value"
+		)
 	})
 	const desc: FunctionBodyDesc = Object.freeze({
 		text: bodyText(text, label),
-		named: Object.freeze(
-			headings.map((rowType, i) =>
-				Object.freeze({ rowType, text: bodyText(after[i], `${label} text ${i + 1}`) })
-			)
-		)
+		named: Object.freeze(named)
 	})
 	return ownValue({ kind: "body", value: { ...builtMark, kind: "body" }, desc, content: undefined })
 }
@@ -240,17 +306,17 @@ const isLanguage = (value: unknown): value is DeclaredLanguage =>
 const isNullInput = (value: unknown): value is FunctionNullInput =>
 	functionNullInputs.some((n) => n === value)
 
-/** The admission core of fn(name, definition): a JavaScript caller's arguments checked and described. */
+/**
+ * The admission core of fn(name, definition, mints): a JavaScript caller's arguments checked and described, `mints`
+ * what follows the definition (admitMints).
+ */
 const admitFunction = (
 	name: unknown,
 	definition: unknown,
-	extra: ReadonlyArray<unknown>
+	mints: ReadonlyArray<unknown>
 ): FunctionDesc => {
 	const label = `function ${typeof name === "string" ? name : "?"}`
 	const functionName = requireName(name, label, "a function name")
-	if (extra.length > 0) {
-		throw malformed(label, "fn(name, definition): two arguments")
-	}
 	if (
 		!isPlainRecord(definition) ||
 		Object.keys(definition).some((k) => !definitionKeys.some((d) => d === k))
@@ -274,6 +340,8 @@ const admitFunction = (
 	if (bodyDesc === undefined) {
 		throw malformed(label, "body: the function's text, fn.body`...`")
 	}
+	const result = functionTypeOf(returns, `${label} result`)
+	admitMints(result, mints, label)
 	const declared = {
 		name: functionName,
 		calls: callsOf(calls, label),
@@ -283,7 +351,7 @@ const admitFunction = (
 				type: functionTypeOf(type, `${label} argument ${arg}`)
 			}))
 		),
-		returns: functionTypeOf(returns, `${label} result`),
+		returns: result,
 		volatility,
 		language,
 		body: bodyDesc,
@@ -293,10 +361,11 @@ const admitFunction = (
 }
 
 /**
- * fn(name, definition): a declared function, which a level lists among its relations, `schema("App", [...relations,
- * f], statements)`. Its value holds its name, its argument types by name, its result type, its volatility and its null
- * input; its Description holds its arguments in code point order of their names (byName), its parameters' order, the
- * functions its body calls and its body too.
+ * fn(name, definition, mints): a declared function, which a level lists among its relations, `schema("App",
+ * [...relations, f], statements)`, and the keys of the consumers' contracts its result holds (admitMints). Its value
+ * holds its name, its argument types by name, its result type, its volatility and its null input; its Description holds
+ * its arguments in code point order of their names (byName), its parameters' order, the functions its body calls and
+ * its body too.
  */
 export const fnBuilder = <
 	const Name extends string,
@@ -315,9 +384,9 @@ export const fnBuilder = <
 		readonly language: DeclaredLanguage
 		readonly body: FunctionBody
 	},
-	extra: ReadonlyArray<unknown>
+	mints: ReadonlyArray<unknown>
 ): DeclaredFunction<Name, Args, Returns, V, N> => {
-	const desc = admitFunction(name, definition, extra)
+	const desc = admitFunction(name, definition, mints)
 	return ownValue({
 		kind: "function",
 		value: {
@@ -332,5 +401,84 @@ export const fnBuilder = <
 		},
 		desc,
 		content: undefined
+	})
+}
+
+/**
+ * A variant's spellings in a declared function's body (ir/desc.ts VariantSpellingDesc), each a value fn.body takes as
+ * a placeholder: `code(handle)`, the code of an arm; `attribute(handle, field)`, the attribute an arm's field's value is;
+ * `of(handle, fields)`, a value of an arm, `fields` exactly the arm's, each the SQL text of its value. A handle no arm
+ * holds, a field the arm lacks, or a record of fields not exactly the arm's is refused, so no spelling names an attribute
+ * or a code the variant does not hold. Its reading of `fields` runs the caller's code at most once (core/host.ts
+ * hostRead).
+ */
+export const variantSpellings = (
+	parts: VariantParts
+): {
+	readonly code: (handle: unknown) => VariantSpelling
+	readonly attribute: (handle: unknown, field: unknown) => VariantSpelling
+	readonly of: (handle: unknown, fields: unknown) => VariantSpelling
+} => {
+	const variant = variantDesc(parts)
+	const label = `variant ${parts.name}`
+	const armOf = (handle: unknown, what: string): VariantArmParts => {
+		const arm = parts.arms.find((a) => a.handle === handle)
+		if (typeof handle !== "string" || arm === undefined) {
+			throw malformed(
+				`${label} ${what}`,
+				`an arm of the variant: ${parts.arms.map((a) => a.handle).join(", ")}`
+			)
+		}
+		return arm
+	}
+	const fieldNames = (arm: VariantArmParts): string => arm.fields.map(([name]) => name).join(", ")
+	const spelling = (desc: VariantSpellingDesc): VariantSpelling =>
+		ownValue({
+			kind: "spelling",
+			value: { ...builtMark, kind: "spelling" },
+			desc: Object.freeze(desc),
+			content: undefined
+		})
+	return Object.freeze({
+		code: (handle: unknown) =>
+			spelling({ kind: "code", variant, handle: armOf(handle, "code").handle }),
+		attribute: (handle: unknown, field: unknown) => {
+			const arm = armOf(handle, "attribute")
+			if (typeof field !== "string" || !arm.fields.some(([name]) => name === field)) {
+				throw malformed(
+					`${label} attribute`,
+					`a field of the arm ${arm.handle}: ${fieldNames(arm)}`
+				)
+			}
+			return spelling({ kind: "attribute", variant, handle: arm.handle, field })
+		},
+		of: (handle: unknown, fields: unknown) => {
+			const arm = armOf(handle, "of")
+			const refused = (): CompileError =>
+				malformed(
+					`${label} of`,
+					`the SQL text of each field of the arm ${arm.handle}, exactly: ${fieldNames(arm)}`
+				)
+			const read = hostRead(
+				refused,
+				(): Result.Result<
+					ReadonlyArray<{ readonly name: string; readonly sql: string }>,
+					CompileError
+				> => {
+					if (
+						!isPlainRecord(fields) ||
+						Object.keys(fields).length !== arm.fields.length ||
+						arm.fields.some(([name]) => typeof fields[name] !== "string")
+					) {
+						return Result.err(refused())
+					}
+					return Result.ok(arm.fields.map(([name]) => ({ name, sql: String(fields[name]) })))
+				}
+			)
+			if (!read.ok) {
+				throw read.error
+			}
+			return spelling({ kind: "of", variant, handle: arm.handle, fields: read.value })
+		}
 	})
 }

@@ -40,7 +40,6 @@ import {
 	type ColumnDefinition,
 	type CommentTarget,
 	type ContextSource,
-	type CreateCarrier,
 	type CreateConstant,
 	type CreateDeclaredFunction,
 	type CreateFunction,
@@ -97,7 +96,6 @@ import {
 	type StubConstant,
 	type TableConstraint,
 	tableConstraints,
-	type TableName,
 	type Target,
 	type TransitionEvent,
 	transitionTables,
@@ -106,7 +104,8 @@ import {
 	type Update,
 	type Using,
 	type WindowSpec,
-	type With
+	type With,
+	liveSecretColumn
 } from "#compiler/sql/ast.ts"
 import {
 	and,
@@ -141,12 +140,13 @@ import {
 	type CatalogStatement,
 	type DoBlock,
 	type DoStatement,
-	databaseResetBlock,
-	databaseLock
+	databaseLock,
+	guardBracketBlock,
+	guardTriggerClauses
 } from "#compiler/sql/catalog.ts"
 import { lineFeedsEscaped } from "#compiler/sql/escape.ts"
-import type { CarrierName } from "#compiler/sql/naming.ts"
-import { printedFunction, printedOnce } from "#compiler/sql/print-once.ts"
+import { printedBlock, printedFunction, printedOnce } from "#compiler/sql/print-once.ts"
+import { assertBlockScoped } from "#compiler/sql/scope.ts"
 import { identityHooks, statementParams, Transform } from "#compiler/sql/transform.ts"
 
 /**
@@ -407,10 +407,6 @@ const clockReading = (instant: ClockInstant, unit: ClockUnit): string => {
 	}
 }
 
-/** A table by its schema: a carrier's is pg_temp, the session's own temporary schema. */
-export const printTableName = (table: TableName): string =>
-	printObjectName(typeof table === "string" ? { schema: temporarySchema, name: table } : table)
-
 /** closedSearchPath as a SET clause spells it. */
 const printedSearchPath = closedSearchPath.map(quoteIdent).join(", ")
 
@@ -467,16 +463,33 @@ const castTo = (name: CatalogTypeName): string => `::${printCatalogType(name)}`
 const castToArray = (name: CatalogTypeName): string => `::${printCatalogType(name)}[]`
 
 /**
- * The refusal of an unreadable claims setting, through the installation's refusal function (write/refusal.ts): SQLSTATE
- * 22P02, the setting's name as the constraint name, and the DETAIL `c[]` for a setting that is no claims document or
- * `c["<Context>"]` for a context's member that holds other keys than its fields. It carries no claim value, and never
- * returns.
+ * Why a claims setting cannot be read: it holds no claims document at all, unset or empty (`absent`); its text is no
+ * claims document (`malformed`); or a context's member holds other keys than its fields (`member`).
  */
-const refuseClaims = (
-	refusal: QualifiedFunctionRef,
-	context: readonly [] | readonly [string]
-): string =>
-	`${printFunctionName(refusal)}('22P02'${castTo("text")}, ${quoteString(claimsSettingName)}${castTo("text")}, ${quoteString(`c${JSON.stringify(context)}`)}${castTo("text")})`
+type ClaimsFault =
+	| { readonly kind: "absent" }
+	| { readonly kind: "malformed" }
+	| { readonly kind: "member"; readonly context: string }
+
+/** A claims fault's DETAIL (write/refusal.ts): `c-`, `c[]` or `c["<Context>"]`, none carrying a claim value. */
+const claimsDetail = (fault: ClaimsFault): string => {
+	switch (fault.kind) {
+		case "absent":
+			return "c-"
+		case "malformed":
+			return "c[]"
+		case "member":
+			return `c${JSON.stringify([fault.context])}`
+	}
+}
+
+/**
+ * The refusal of an unreadable claims setting (`ClaimsFault`), through the installation's refusal function
+ * (write/refusal.ts): SQLSTATE 22P02, the setting's name as the constraint name, and the fault's DETAIL (claimsDetail).
+ * It never returns.
+ */
+const refuseClaims = (refusal: QualifiedFunctionRef, fault: ClaimsFault): string =>
+	`${printFunctionName(refusal)}('22P02'${castTo("text")}, ${quoteString(claimsSettingName)}${castTo("text")}, ${quoteString(claimsDetail(fault))}${castTo("text")})`
 
 /**
  * The jsonpath of a claims document's members that break the shape the Db path writes (adapter/db/claims.ts): a member
@@ -485,15 +498,17 @@ const refuseClaims = (
 const claimsMisshapen = `'strict $.* ? (@.type() != "object" || exists (@.* ? (@.type() != "string")))'${castTo("jsonpath")}`
 
 /**
- * The session's claims document as a one-row query of one column, "j": the empty object where the setting holds no
- * claims, which is NULL before a transaction set it in the session and `''` once that transaction ended (`NULL <> ''`
- * is no match, so both take the outer ELSE); the setting as jsonb where it is a JSON object without a repeated key at
- * any depth that jsonb reads; and refused through `refusal` otherwise, invalid JSON included. Its members' shape is
+ * The session's claims document as a one-row query of one column, "j": the setting as jsonb where it is a JSON object
+ * without a repeated key at any depth that jsonb reads; refused through `refusal` as no claims document where it is any
+ * other text, invalid JSON included; and refused as absent where it holds no text, NULL before a transaction set it in
+ * the session and `''` once that transaction ended (`NULL <> ''` is no match, so both take the outer ELSE). An absent
+ * setting is no empty document: a caller that set no claims, by hand or through raw SQL, reads no world of no facts, so
+ * every Db's transaction sets its claims, `{}` where it has no fact (adapter/db/claims.ts). Its members' shape is
  * judged where it is read (contextClaims), over the jsonb it parsed once. pg_input_is_valid reads its type's name as
  * text, so the name is pg_catalog's, qualified.
  */
 const claimsDocument = (refusal: QualifiedFunctionRef): string =>
-	`SELECT CASE WHEN "k"."s" <> ''${castTo("text")} THEN CASE WHEN "k"."s" IS JSON OBJECT WITH UNIQUE KEYS AND ${inCatalog("pg_input_is_valid")}("k"."s", ${quoteString(inCatalog("jsonb"))}${castTo("text")}) THEN "k"."s"${castTo("jsonb")} ELSE ${inCatalog("to_jsonb")}(${refuseClaims(refusal, [])}) END ELSE '{}'${castTo("jsonb")} END AS "j" FROM (SELECT ${inCatalog("current_setting")}(${quoteString(claimsSettingName)}${castTo("text")}, true) AS "s") AS "k"`
+	`SELECT CASE WHEN "k"."s" <> ''${castTo("text")} THEN CASE WHEN "k"."s" IS JSON OBJECT WITH UNIQUE KEYS AND ${inCatalog("pg_input_is_valid")}("k"."s", ${quoteString(inCatalog("jsonb"))}${castTo("text")}) THEN "k"."s"${castTo("jsonb")} ELSE ${inCatalog("to_jsonb")}(${refuseClaims(refusal, { kind: "malformed" })}) END ELSE ${inCatalog("to_jsonb")}(${refuseClaims(refusal, { kind: "absent" })}) END AS "j" FROM (SELECT ${inCatalog("current_setting")}(${quoteString(claimsSettingName)}${castTo("text")}, true) AS "s") AS "k"`
 
 /** A claim of a context source in the claims document `document`: its JSON string at `field`, cast to `type`. */
 const claimRead = (document: string, source: ContextSource, field: string, type: TypeRef): string =>
@@ -518,7 +533,7 @@ const contextClaims = (source: ContextSource): string => {
 		.map((c) => claimRead(`"d"."j"`, source, c.field, c.judged))
 		.join(", ")
 	const readable = `${member} ?& ${keys} AND (${member} - ${keys}) = '{}'${castTo("jsonb")} AND ${inCatalog("num_nonnulls")}(${reads}) = ${source.columns.length}`
-	return `(SELECT CASE WHEN ${inCatalog("jsonb_path_exists")}("d"."j", ${claimsMisshapen}) THEN ${inCatalog("to_jsonb")}(${refuseClaims(source.refusal, [])}) WHEN NOT ("d"."j" ? ${context}) OR (${readable}) THEN "d"."j" ELSE ${inCatalog("to_jsonb")}(${refuseClaims(source.refusal, [source.context])}) END FROM (${claimsDocument(source.refusal)}) AS "d")`
+	return `(SELECT CASE WHEN ${inCatalog("jsonb_path_exists")}("d"."j", ${claimsMisshapen}) THEN ${inCatalog("to_jsonb")}(${refuseClaims(source.refusal, { kind: "malformed" })}) WHEN NOT ("d"."j" ? ${context}) OR (${readable}) THEN "d"."j" ELSE ${inCatalog("to_jsonb")}(${refuseClaims(source.refusal, { kind: "member", context: source.context })}) END FROM (${claimsDocument(source.refusal)}) AS "d")`
 }
 
 /**
@@ -610,7 +625,7 @@ export interface Printed {
 	readonly level: Level
 }
 
-const printed = (text: string, level: Level): Printed => ({ text, level })
+const printedOf = (text: string, level: Level): Printed => ({ text, level })
 
 /**
  * How the printer spells a literal before its cast: a string, quoted, that the type's input function reads, or bare, a
@@ -649,6 +664,8 @@ export const spellingOf = (value: LiteralValue): LiteralSpelling => {
 			return { kind: "quoted", text: value.value }
 		case "bits":
 			return { kind: "bare", text: hexConstant(value.hex) }
+		case "null":
+			return { kind: "bare", text: "NULL" }
 	}
 }
 
@@ -665,10 +682,10 @@ const hexConstant = (hex: string): string => `X'${hex}'`
  */
 const printLiteral = (value: LiteralValue, type: TypeRef): Printed => {
 	if (value.kind === "bool" && type.kind === "builtin" && type.name === "boolean" && !type.array) {
-		return printed(literalText(value), "atom")
+		return printedOf(literalText(value), "atom")
 	}
 	if (value.kind === "int" && isInt4(type) && value.value >= 0n) {
-		return printed(literalText(value), "atom")
+		return printedOf(literalText(value), "atom")
 	}
 	return typedLiteral(value, type)
 }
@@ -680,7 +697,7 @@ const literalText = (value: LiteralValue): string => {
 
 /** A literal cast to its type, a constant of that type wherever it stands, whatever its value. */
 const typedLiteral = (value: LiteralValue, type: TypeRef): Printed =>
-	printed(`${literalText(value)}::${printType(type)}`, "cast")
+	printedOf(`${literalText(value)}::${printType(type)}`, "cast")
 
 /** Whether `e` is a constant as a query's clauses read one: a literal, or the unary minus of one. */
 const isConstant = (e: Expr): boolean =>
@@ -702,7 +719,7 @@ const clauseItem = (e: Expr): Printed =>
 /** The unary minus of an operand: "--" would open a comment. */
 const negated = (operand: Printed): Printed => {
 	const text = wrap(operand, "negate")
-	return printed(text.startsWith("-") ? `-(${text})` : `-${text}`, "negate")
+	return printedOf(text.startsWith("-") ? `-(${text})` : `-${text}`, "negate")
 }
 
 const comparisonOperators: ReadonlySet<string> = new Set(["=", "<>", "<", "<=", ">", ">="])
@@ -781,8 +798,8 @@ const callHead = (call: FunctionCall): string => {
 /** A windowed call is parenthesized when cast, as in `(SUM(count) OVER ())::bigint`. */
 const printCall = (call: FunctionCall): Printed =>
 	call.over === undefined
-		? printed(callHead(call), "atom")
-		: printed(`${callHead(call)} OVER ${printWindow(call.over)}`, "cast")
+		? printedOf(callHead(call), "atom")
+		: printedOf(`${callHead(call)} OVER ${printWindow(call.over)}`, "cast")
 
 const binaryLevels = (
 	op: string,
@@ -807,26 +824,26 @@ const binaryLevels = (
 const expr = (e: Expr): Printed => {
 	switch (e.kind) {
 		case "column":
-			return printed(
+			return printedOf(
 				e.table === undefined
 					? quoteIdent(e.column)
 					: `${quoteIdent(e.table)}.${quoteIdent(e.column)}`,
 				"atom"
 			)
 		case "excluded":
-			return printed(`EXCLUDED.${quoteIdent(e.column)}`, "atom")
+			return printedOf(`EXCLUDED.${quoteIdent(e.column)}`, "atom")
 		case "returning":
-			return printed(`${e.side}.${quoteIdent(e.column)}`, "atom")
+			return printedOf(`${e.side}.${quoteIdent(e.column)}`, "atom")
 		case "param":
-			return printed(`$${e.slot.number}::${printType(e.type)}`, "cast")
+			return printedOf(`$${e.slot.number}::${printType(e.type)}`, "cast")
 		case "clock":
-			return printed(`(${clockReading(e.instant, e.unit)})::${printType(e.type)}`, "cast")
+			return printedOf(`(${clockReading(e.instant, e.unit)})::${printType(e.type)}`, "cast")
 		case "literal":
 			return printLiteral(e.value, e.type)
 		case "cast":
-			return printed(`${wrap(expr(e.expr), "atom")}::${printType(e.type)}`, "cast")
+			return printedOf(`${wrap(expr(e.expr), "atom")}::${printType(e.type)}`, "cast")
 		case "collate":
-			return printed(
+			return printedOf(
 				`${wrap(expr(e.expr), "collate")} COLLATE ${printObjectName(e.collation)}`,
 				"collate"
 			)
@@ -836,23 +853,23 @@ const expr = (e: Expr): Printed => {
 			const op = e.schema !== undefined ? `OPERATOR(${quoteIdent(e.schema)}.${e.op})` : e.op
 			const left = assoc === "left" ? wrap(expr(e.left), self) : wrapTighter(expr(e.left), self)
 			const right = wrapTighter(expr(e.right), self)
-			return printed(`${left} ${op} ${right}`, self)
+			return printedOf(`${left} ${op} ${right}`, self)
 		}
 		case "equalsAny": {
 			const { self } = binaryLevels("=", e.schema !== undefined)
 			const op = e.schema !== undefined ? `OPERATOR(${quoteIdent(e.schema)}.=)` : "="
-			return printed(`${wrapTighter(expr(e.expr), self)} ${op} ANY (${printExpr(e.array)})`, self)
+			return printedOf(`${wrapTighter(expr(e.expr), self)} ${op} ANY (${printExpr(e.array)})`, self)
 		}
 		case "negate":
 			return negated(expr(e.expr))
 		case "and":
-			return printed(e.args.map((arg) => wrapTighter(expr(arg), "and")).join(" AND "), "and")
+			return printedOf(e.args.map((arg) => wrapTighter(expr(arg), "and")).join(" AND "), "and")
 		case "or":
-			return printed(e.args.map((arg) => wrapTighter(expr(arg), "or")).join(" OR "), "or")
+			return printedOf(e.args.map((arg) => wrapTighter(expr(arg), "or")).join(" OR "), "or")
 		case "not":
-			return printed(`NOT ${wrap(expr(e.expr), "not")}`, "not")
+			return printedOf(`NOT ${wrap(expr(e.expr), "not")}`, "not")
 		case "isTrue":
-			return printed(`${wrap(expr(e.expr), "atom")} IS TRUE`, "is")
+			return printedOf(`${wrap(expr(e.expr), "atom")} IS TRUE`, "is")
 		case "between": {
 			const keyword = e.not ? "NOT BETWEEN" : "BETWEEN"
 			const operand = (x: Expr): string => wrap(expr(x), "other")
@@ -862,31 +879,31 @@ const expr = (e: Expr): Printed => {
 			 * parentheses).
 			 */
 			const low = wrap(expr(e.low), "negate")
-			return printed(`${operand(e.expr)} ${keyword} ${low} AND ${operand(e.high)}`, "between")
+			return printedOf(`${operand(e.expr)} ${keyword} ${low} AND ${operand(e.high)}`, "between")
 		}
 		case "inList": {
 			const keyword = e.not ? "NOT IN" : "IN"
 			const list = e.list.map((item) => printExpr(item)).join(", ")
-			return printed(`${wrap(expr(e.expr), "other")} ${keyword} (${list})`, "between")
+			return printedOf(`${wrap(expr(e.expr), "other")} ${keyword} (${list})`, "between")
 		}
 		case "inQuery": {
 			const keyword = e.not ? "NOT IN" : "IN"
-			return printed(
+			return printedOf(
 				`${wrap(expr(e.expr), "other")} ${keyword} (${printSelectInline(e.query, "placed")})`,
 				"between"
 			)
 		}
 		case "exists":
 			return e.not
-				? printed(`NOT EXISTS (${printSelectInline(e.query, "placed")})`, "not")
-				: printed(`EXISTS (${printSelectInline(e.query, "placed")})`, "atom")
+				? printedOf(`NOT EXISTS (${printSelectInline(e.query, "placed")})`, "not")
+				: printedOf(`EXISTS (${printSelectInline(e.query, "placed")})`, "atom")
 		case "subquery":
-			return printed(`(${printSelectInline(e.query, "placed")})`, "atom")
+			return printedOf(`(${printSelectInline(e.query, "placed")})`, "atom")
 		case "array":
-			return printed(`ARRAY(${printSelectInline(e.query, "placed")})`, "atom")
+			return printedOf(`ARRAY(${printSelectInline(e.query, "placed")})`, "atom")
 		case "row": {
 			const items = e.items.map((item) => printExpr(item)).join(", ")
-			return printed(e.items.length === 1 ? `ROW(${items})` : `(${items})`, "atom")
+			return printedOf(e.items.length === 1 ? `ROW(${items})` : `(${items})`, "atom")
 		}
 		case "case": {
 			const parts = ["CASE"]
@@ -897,43 +914,45 @@ const expr = (e: Expr): Printed => {
 				parts.push(`WHEN ${printExpr(branch.when)} THEN ${printExpr(branch.result)}`)
 			}
 			parts.push(`ELSE ${printExpr(e.else)}`, "END")
-			return printed(parts.join(" "), "atom")
+			return printedOf(parts.join(" "), "atom")
 		}
 		case "call":
 			return printCall(e)
 		case "greatest":
 		case "least":
-			return printed(
+			return printedOf(
 				`${e.kind === "greatest" ? "GREATEST" : "LEAST"}(${e.args.map((arg) => printExpr(arg)).join(", ")})`,
 				"atom"
 			)
 		case "coalesce":
-			return printed(`COALESCE(${e.args.map((arg) => printExpr(arg)).join(", ")})`, "atom")
+			return printedOf(`COALESCE(${e.args.map((arg) => printExpr(arg)).join(", ")})`, "atom")
 		case "mergeAction":
-			return printed("merge_action()", "atom")
+			return printedOf("merge_action()", "atom")
 		case "domainValue":
-			return printed("VALUE", "atom")
+			return printedOf("VALUE", "atom")
 		case "user":
-			return printed(e.name, "atom")
+			return printedOf(e.name, "atom")
 		case "plVar":
-			return printed(quoteIdent(e.name), "atom")
+			return printedOf(quoteIdent(e.name), "atom")
 		case "plSpecial":
-			return printed(e.name, "atom")
+			return printedOf(e.name, "atom")
 		case "field":
-			return printed(`${expr(e.record).text}.${quoteIdent(e.field)}`, "atom")
+			return printedOf(`${expr(e.record).text}.${quoteIdent(e.field)}`, "atom")
 		case "regclass":
-			return printed(regclassText(e.relation), "cast")
+			return printedOf(regclassText(e.relation), "cast")
 		case "complement":
-			return printed(`~ ${wrap(expr(e.expr), "cast")}`, "other")
+			return printedOf(`~ ${wrap(expr(e.expr), "cast")}`, "other")
 		case "lowerAscii":
-			return printed(
+			return printedOf(
 				`${inCatalog("lower")}(${wrap(expr(e.expr), "collate")} COLLATE ${inCatalog("C")}) COLLATE ${printObjectName(cUtf8Collation)}`,
 				"collate"
 			)
 		case "nullif":
-			return printed(`NULLIF(${printExpr(e.expr)}, ${printExpr(e.absent)})`, "atom")
+			return printedOf(`NULLIF(${printExpr(e.expr)}, ${printExpr(e.absent)})`, "atom")
 		case "subscript":
-			return printed(`(${printExpr(e.array)})[${printExpr(e.index)}]`, "atom")
+			return printedOf(`(${printExpr(e.array)})[${printExpr(e.index)}]`, "atom")
+		case "attribute":
+			return printedOf(`(${printExpr(e.record)}).${quoteIdent(e.attribute)}`, "atom")
 	}
 }
 
@@ -1060,13 +1079,53 @@ const printArrays = (source: ArraysSource, alias: string): string => {
 		}
 		case "carried":
 			return `(SELECT ${source.columns.map(printCarriedColumn).join(", ")}) AS ${quoteIdent(alias)}`
+		case "setting":
+			return printSettingRows(source.columns, alias)
 	}
+}
+
+/**
+ * A write carrier's rows (sql/ast.ts ArraysSource `setting`), every array unnested in lockstep in one function scan,
+ * each column typed as its definition states:
+ *
+ *   (SELECT "u"."c1"::uuid AS "c1", "u"."c2"::numeric(10, 2) AS "c2"
+ *     FROM ROWS FROM (pg_catalog.unnest(pg_catalog.current_setting('grizzle.__carrier_1_c1')::text[]),
+ *       pg_catalog.unnest(pg_catalog.current_setting('grizzle.__carrier_1_c2')::text[])) AS "u"("c1", "c2"))
+ *     AS "r9"
+ *
+ * A function scan reads its calls' rows into a tuplestore once and reads a rescan from it while no parameter of its
+ * calls changes (nodeFunctionscan.c), and a carrier's calls read no row's value, so no plan shape, a nested loop's
+ * inner side or a SubPlan per row of another, parses a carrier's text more than once a statement, where a select
+ * list's unnest under a ProjectSet is evaluated again at every rescan. Every array is read as text[] (sql/carriers.ts
+ * carrierReading), whose unnest returns no composite a function scan would expand, and the outer select, a simple one
+ * PostgreSQL pulls up, casts each element's text into its column's type, its typmod and a set's bit(n) included, a
+ * text column's collation stated inside its call.
+ */
+const printSettingRows = (columns: NonEmptyReadonlyArray<CarriedColumn>, alias: string): string => {
+	const scan = quoteIdent("u")
+	const calls = columns.map(({ definition, array }) => {
+		const elements =
+			definition.collation === undefined
+				? printExpr(array)
+				: `${printExpr(array)} COLLATE ${printObjectName(definition.collation)}`
+		return `${inCatalog("unnest")}(${elements})`
+	})
+	const targets = columns.map(({ definition }) => {
+		const column = `${scan}.${quoteIdent(definition.name)}`
+		const typed =
+			definition.type.kind === "builtin" && definition.type.name === "text"
+				? column
+				: `${column}::${printType(definition.type)}`
+		return `${typed} AS ${quoteIdent(definition.name)}`
+	})
+	const names = columns.map(({ definition }) => quoteIdent(definition.name))
+	return `(SELECT ${targets.join(", ")} FROM ROWS FROM (${calls.join(", ")}) AS ${scan}(${names.join(", ")})) AS ${quoteIdent(alias)}`
 }
 
 const printFromItem = (item: FromItem): string => {
 	switch (item.kind) {
 		case "table":
-			return `${printTableName(item.table)} AS ${quoteIdent(item.alias)}`
+			return `${printObjectName(item.table)} AS ${quoteIdent(item.alias)}`
 		case "probe":
 			return printDriven(
 				item.table,
@@ -1608,7 +1667,7 @@ const conflictLines = (out: Lines, conflict: OnConflict): void => {
 const insertBlock = (out: Lines, insert: Insert): void => {
 	const alias = insert.alias === undefined ? "" : ` AS ${quoteIdent(insert.alias)}`
 	const columns = isNonEmpty(insert.columns) ? ` (${printIdentList(insert.columns)})` : ""
-	out.line(`INSERT INTO ${printTableName(insert.table)}${alias}${columns}`)
+	out.line(`INSERT INTO ${printObjectName(insert.table)}${alias}${columns}`)
 	out.line(
 		insert.source.kind === "query"
 			? printSelectInline(insert.source.query, "placed")
@@ -1633,7 +1692,7 @@ const updateBlock = (out: Lines, update: Update): void => {
 }
 
 const deleteBlock = (out: Lines, del: Delete): void => {
-	out.line(`DELETE FROM ${printTableName(del.table)} AS ${quoteIdent(del.alias)}`)
+	out.line(`DELETE FROM ${printObjectName(del.table)} AS ${quoteIdent(del.alias)}`)
 	if (del.using.length > 0) {
 		out.line(`USING ${printFrom(del.using)}`)
 	}
@@ -1750,22 +1809,12 @@ const sessionColumnText = (column: ColumnDefinition, storage: SessionTableStorag
 }
 
 /** A session table's CREATE (PlStatement createSessionTable): the statement that stands up a judge's delta or sentinel,
- * as a test that stands one up before the judge runs spells it too, or a write program's carrier. */
+ * as a test that stands one up before the judge runs spells it too. */
 const sessionTableCreate = (
 	table: Extract<PlStatement, { readonly kind: "createSessionTable" }>
 ): string => {
-	const columns = table.columns.map((c) =>
-		table.notNull
-			? `${sessionColumnText(c, table.storage)} NOT NULL`
-			: sessionColumnText(c, table.storage)
-	)
-	const key =
-		table.primaryKey === undefined
-			? []
-			: [
-					`PRIMARY KEY (${table.primaryKey.map((c) => quoteIdent(c)).join(", ")}) DEFERRABLE INITIALLY IMMEDIATE`
-				]
-	return `CREATE TEMPORARY TABLE ${sessionTableName(table.name)} (${[...columns, ...key].join(", ")}) ON COMMIT PRESERVE ROWS`
+	const columns = table.columns.map((c) => sessionColumnText(c, table.storage))
+	return `CREATE TEMPORARY TABLE ${sessionTableName(table.name)} (${columns.join(", ")}) ON COMMIT PRESERVE ROWS`
 }
 
 /** The session's own table `name`, qualified by its temporary schema. */
@@ -1844,7 +1893,7 @@ export const stoodApart = "!"
  * 769-771), and nothing writes a session table's free space map (autovacuum never processes another backend's temporary
  * table, src/backend/postmaster/autovacuum.c 2078, 2175), so an insert past the target page extends the table (hio.c
  * 577, 585, 769): a table its uses fill with n rows each grows a page in each 291 / n uses, without bound. Every read of
- * it walks those pages, a carrier's reader's (write/carriers/carriers.ts carrierReader) and a delta's reader's alike; a TRUNCATE gives them back
+ * it walks those pages, a delta's reader's among them; a TRUNCATE gives them back
  * but costs the session its own TRUNCATE and the replan of each reader's one SELECT, and costs every other backend of the
  * database a walk of each plan it holds, at each of the three relcache invalidations (the table, its TOAST table and that
  * table's index, plancache.c PlanCacheRelCallback). Waiting until the dead pages' cost since the last TRUNCATE equals one
@@ -1854,7 +1903,7 @@ export const stoodApart = "!"
  * @limitKind measured
  * @owner grizzle's session tables (sql/print.ts sessionTableEmptied), under PostgreSQL 19's heap and plan cache
  * @unit pages of a session table's heap, and of its TOAST table's heap
- * @scope each session table, a write's carrier or a rule judge's delta, in one session, as a use's emptying finds it
+ * @scope each session table, a rule judge's delta, in one session, as a use's emptying finds it
  * @evidence ~/.cache/grizzle/PROLOGUE-tools/trunc (scan.sql with run-scan.sh, own.sql, and the two-backend run that
  *   times a 5,000-plan backend's next statement beside a truncating one), run by hand against postgres-ram@seriesplan
  * @observed 2026-11-23, 18:40 to 19:10 America/Chicago
@@ -1908,7 +1957,7 @@ const sessionTableOvergrown = (name: string): Expr => {
 
 /**
  * The session's table `name` emptied of its rows, a rule judge's delta once its part has read them (physical/ddl/rules.ts
- * emptied) or a write's carrier before its use fills it (`carrierEmptying`): by DELETE while its heap and its TOAST
+ * emptied): by DELETE while its heap and its TOAST
  * table's each hold the pages it keeps at most (sessionTableKeptPages), and by TRUNCATE once either holds more.
  *
  *   IF <it holds more than it keeps (sessionTableOvergrown)> THEN TRUNCATE pg_temp.<name>;
@@ -1924,7 +1973,7 @@ const sessionTableOvergrown = (name: string): Expr => {
  * page's space until a read prunes it, and their line pointers stay, so a table refilled use after use outgrows the
  * pages it keeps, and the use that finds it so truncates it: the TRUNCATE is paid once in each sessionTableKeptPages
  * pages' worth of rows, never at each use, and the statements that read the table through its reader keep their plans
- * across it (write/carriers/carriers.ts carrierReader; physical/ddl/deltas.ts addReaders). Every row is gone either way: a later transaction sees none, and one that rolls back takes its rows and
+ * across it (physical/ddl/deltas.ts addReaders). Every row is gone either way: a later transaction sees none, and one that rolls back takes its rows and
  * their emptying with it, so each use starts on an empty table.
  */
 export const sessionTableEmptied = (name: string): PlStatement => ({
@@ -2247,85 +2296,6 @@ const dependencySteps = (
 	]
 }
 
-/**
- * A write program's carrier as the session's stand-up makes it (sql/ast.ts CreateCarrier): a session table, ON COMMIT
- * PRESERVE ROWS, every column NOT NULL and its key its own, owned by the role whose stand-up made it, which alone may
- * empty it. Toasted, as a carrier's value may be one of no bound.
- */
-const carrierTable = (carrier: CreateCarrier): string =>
-	sessionTableCreate({
-		kind: "createSessionTable",
-		name: carrier.name,
-		columns: carrier.columns.map((c) => ({ name: c.name, type: c.type, collation: c.collation })),
-		notNull: true,
-		primaryKey: carrier.primaryKey,
-		storage: "toasted"
-	})
-
-/**
- * The rows a session table's reader declares it returns (ROWS on its CREATE FUNCTION), a rule judge's delta's
- * (physical/ddl/deltas.ts addReaders) and a write's carrier's (write/carriers/carriers.ts carrierReader): the planner's estimate of the rows a
- * statement reads first and probes each table's key from, one side of a transaction's delta or a call's carried rows,
- * one source for both, as both are read row by row into the tables a statement probes.
- *
- * @limitKind measured
- * @owner grizzle's judge emission (physical/ddl/deltas.ts addReaders), under PostgreSQL 19's planner
- * @unit rows of one side's delta
- * @scope each delta reader's estimate, in every generic plan of a judge statement that reads it
- * @evidence ~/.cache/grizzle/DECLSTATS-work/unitscale/run3.sh over setup.sql, its output unitscale3.log beside it (and
- *   run2.sh, unitscale2.log, for the per-unit form): two tables of one unit, keys holding the unit, statistics declared
- *   as grizzle declares them (the unit's anchor relative, its tail single-valued, targets 0), generic plans
- * @observed 2026-11-23, between 15:00 and 15:30 UTC
- * @environment cassowary (AWS arm64, 64 CPUs, 247 GiB), shared and loaded; PostgreSQL 19.0 in memory
- *   (postgres-ram@declstats) under default cost settings; grizzle at d76a6106
- * @workload EXPLAIN of a PREPAREd key-per-row judge (the delta's rows, NOT EXISTS the other table's row by its whole
- *   key) under force_generic_plan; the table filled with 0, 2^10, 2^14 and 2^20 rows and VACUUMed; the unit's anchor
- *   declared at 2^2 and 2^8 rows; the reader declaring ROWS 1, 10, 100 and 1000
- * @result 32 plans. ROWS 1 and ROWS 10: a Nested Loop Anti Join probing the key, an Index Cond on every key column, at
- *   every fill from 2^10 to 2^20. ROWS 100: a Hash Anti Join over a Seq Scan of the table at 2^10, probes from 2^14 on.
- *   ROWS 1000, PostgreSQL's default for a set-returning function: a Hash Anti Join over a Seq Scan at 2^10 and 2^14,
- *   probes only at 2^20. The unit's declared size changed no plan. A VACUUMed empty table is read by a Seq Scan at every
- *   ROWS. Not measured: run times, and estimates between 10 and 100. And a carrier read through its reader (lane
- *   PROLOGUE, 2026-11-23, the same cluster, grizzle at 8ab32a3bb with readers): at ROWS 1, test/pg/write/replace-cost's
- *   unit delete of a complete tree, which pairs the stored family's rows with the carrier's, planned the carrier as a
- *   nested loop's inner side, rescanned for every stored row, and read 13,500, 33,800 and 104,400 rows at 100, 200
- *   and 400 rows a family, more than doubling at each doubling; at ROWS 10 it hashed the carrier and read in proportion,
- *   and test/pg/write/carrier-keys still read every stored relation by its key's index at 1 and 4,096 keys.
- * @decision 1. A probe per delta row costs O(delta · log N) at any delta size, never worse than a hash of the table by
- *   more than a log factor, while a hash over a scan costs O(N) whatever the delta. Any larger declared delta only moves
- *   the crossover between the two to a table size the schema does not state (2^14 at 100, near 2^20 at 1000). 2. ROWS 1
- *   and ROWS 10 chose the probe alike at every size measured, and only ROWS 10 hashes a session table where it is the
- *   inner side of a join over many rows, rather than rescanning it for each, so 10 is the one estimate both take.
- * @revalidate a PostgreSQL upgrade or changed cost settings (random_page_cost, cpu_operator_cost,
- *   effective_cache_size); a judge statement that reads the delta other than key by key; a probe whose key the
- *   declared statistics estimate above one row; a statement that joins a session table as an inner side otherwise
- */
-export const sessionReaderRows = 10
-
-/**
- * A carrier's emptying (sql/ast.ts EmptyCarrier), the session function of the carrier's own name the session's stand-up
- * makes beside it, in pg_temp: the carrier emptied as every session table is (`sessionTableEmptied`), so a use's fills
- * meet no row of an earlier one. Its owner is the role that made the carrier, so as its definer it empties the
- * carrier only that role may truncate. PostgreSQL plans each statement of a PL/pgSQL function once in a session and keeps
- * the plan, where a DO block, compiled anew at every run, planned them at every call; a TRUNCATE of the carrier makes
- * its own DELETE's plan and every plan over the carrier again, once.
- *
- *   CREATE OR REPLACE FUNCTION "pg_temp"."<carrier>"() RETURNS void LANGUAGE plpgsql ... AS $$BEGIN
- *     IF <it holds more than its page> THEN TRUNCATE pg_temp.<carrier>; ELSE DELETE FROM pg_temp.<carrier> AS r1; END IF;
- *   END$$
- */
-export const carrierEmptying = (name: CarrierName): PlFunction => ({
-	kind: "createFunction",
-	language: "plpgsql",
-	name: objectName(temporarySchema, name),
-	params: [],
-	returns: "void",
-	volatility: "VOLATILE",
-	parallel: "UNSAFE",
-	security: "DEFINER",
-	body: { declare: [], body: [sessionTableEmptied(name)] }
-})
-
 const columnHead = (column: ColumnDef): string => {
 	const parts = [quoteIdent(column.name), printType(column.type)]
 	if (column.collation !== undefined) {
@@ -2601,7 +2571,7 @@ const plStatement = (out: Lines, statement: PlStatement): void => {
 			return out.line(`TRUNCATE ${sessionTableName(statement.name)};`)
 		case "createSessionTrigger":
 			return out.line(
-				`CREATE CONSTRAINT TRIGGER ${quoteIdent(statement.name)} AFTER INSERT ON ${printTableName({ schema: temporarySchema, name: statement.table })} DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION ${printObjectName(statement.function)}();`
+				`CREATE CONSTRAINT TRIGGER ${quoteIdent(statement.name)} AFTER INSERT ON ${printObjectName({ schema: temporarySchema, name: statement.table })} DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION ${printObjectName(statement.function)}();`
 			)
 		case "whenFound":
 			out.line(
@@ -2610,6 +2580,8 @@ const plStatement = (out: Lines, statement: PlStatement): void => {
 			out.line("IF FOUND THEN")
 			plStatements(out.nested(), statement.body)
 			return out.line("END IF;")
+		case "wholeReads":
+			return plStatements(out, statement.body)
 		case "case": {
 			out.line(`CASE ${printExpr(statement.operand)}`)
 			const arms = out.nested()
@@ -2838,9 +2810,22 @@ const declaredBodyTag = (body: string): string => {
 	}
 }
 
-/** A declared function's search_path, as its SET clause spells it: pg_catalog, its own schema, then pg_temp. */
-const declaredSearchPath = (schema: string): string =>
-	[closedSearchPath[0], schema, closedSearchPath[1]].map(quoteIdent).join(", ")
+/**
+ * A declared function's search_path, as its SET clause spells it: pg_catalog, its own schema, then the schema of each
+ * type its body names alone that its own is not (sql/ast.ts CreateDeclaredFunction `namedAlone`), each once, in the
+ * order the body first names it, then pg_temp.
+ */
+export const declaredSearchPath = (
+	fn: Pick<CreateDeclaredFunction, "name" | "namedAlone">
+): ReadonlyArray<string> => {
+	const path = [fn.name.schema]
+	for (const t of fn.namedAlone) {
+		if (t.kind === "named" && !path.includes(t.schema)) {
+			path.push(t.schema)
+		}
+	}
+	return [closedSearchPath[0], ...path, closedSearchPath[1]]
+}
 
 /**
  * A declared function's CREATE OR REPLACE FUNCTION (sql/ast.ts CreateDeclaredFunction): its head and clauses on two lines,
@@ -2852,7 +2837,7 @@ const createDeclaredFunction = (out: Lines, fn: CreateDeclaredFunction): void =>
 		`CREATE OR REPLACE FUNCTION ${printObjectName(fn.name)}(${fn.params.map((p) => `${quoteIdent(p.name)} ${printType(p.type)}`).join(", ")}) RETURNS ${"setOf" in fn.returns ? `SETOF ${printType(fn.returns.setOf)}` : printType(fn.returns)}`
 	)
 	out.line(
-		`LANGUAGE ${fn.language} ${fn.volatility}${fn.nullInput === undefined ? "" : ` ${fn.nullInput}`}${rowsClause(fn.returns)} SECURITY DEFINER SET search_path = ${declaredSearchPath(fn.name.schema)}`
+		`LANGUAGE ${fn.language} ${fn.volatility}${fn.nullInput === undefined ? "" : ` ${fn.nullInput}`}${rowsClause(fn.returns)} SECURITY DEFINER SET search_path = ${declaredSearchPath(fn).map(quoteIdent).join(", ")}`
 	)
 	const tag = declaredBodyTag(fn.body)
 	out.line(`AS ${tag}${fn.body}${tag}`)
@@ -3049,18 +3034,12 @@ export const printCommentTarget = (on: CommentTarget): string => {
  *
  * An installed table lists one element per line.
  *
- * A carrier is a one-line runtime statement.
- *
  * One clause per line, each after the first indented once.
  *
- * The database default's reset's DO block reads the database's name (sql/ast.ts ResetDatabaseDefault, sql/catalog.ts
- * databaseResetBlock); `%I` quotes it as an identifier. A GRANT or REVOKE on the current database names it by its
- * variable (printDatabase).
+ * A GRANT or REVOKE on the current database names it by its variable (printDatabase).
  *
  * Every role of the installation prints as its variable (printRole); the owner a FOR ROLE names is no role of it and
  * prints as its name.
- *
- * A carrier is printed under pg_temp, the session's own temporary schema: never a stored relation of the same name.
  */
 const writeCommand = (out: Lines, statement: SqlStatement): void => {
 	switch (statement.kind) {
@@ -3080,10 +3059,6 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 				...tableConstraints(statement).map(printConstraint)
 			])
 			return out.line(")")
-		case "createCarrier":
-			return out.line(carrierTable(statement))
-		case "emptyCarrier":
-			return out.line(`SELECT ${printObjectName(objectName(temporarySchema, statement.name))}()`)
 		case "alterTable": {
 			const head = `ALTER TABLE ${printObjectName(statement.table)}`
 			if (statement.actions.length === 1) {
@@ -3198,6 +3173,10 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 			return out.line(
 				`CREATE TYPE ${printObjectName(statement.name)} AS (${statement.attributes.map(definitionText).join(", ")})`
 			)
+		case "alterRowType":
+			return out.line(
+				`ALTER TYPE ${printObjectName(statement.name)} ADD ATTRIBUTE ${definitionText(statement.add)}`
+			)
 		case "adoptRole":
 			return out.line(
 				`GRANT ${printRole(statement.role)} TO CURRENT_USER WITH INHERIT TRUE, SET TRUE`
@@ -3220,11 +3199,17 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 				`FOR EACH STATEMENT EXECUTE FUNCTION ${printObjectName(statement.function)}()`
 			)
 		}
-		case "createUpdateGuardTrigger": {
-			out.line(`CREATE TRIGGER ${quoteIdent(statement.name)}`)
+		case "createImmutableGuardTrigger": {
+			const [head, firing, execute] = guardTriggerClauses(
+				statement.on,
+				quoteIdent(statement.name),
+				printObjectName(statement.table),
+				printObjectName(statement.function)
+			)
+			out.line(head)
 			const clauses = out.nested()
-			clauses.line(`BEFORE UPDATE ON ${printObjectName(statement.table)}`)
-			return clauses.line(`FOR EACH ROW EXECUTE FUNCTION ${printObjectName(statement.function)}()`)
+			clauses.line(firing)
+			return clauses.line(execute)
 		}
 		case "createConstraintTrigger": {
 			out.line(`CREATE CONSTRAINT TRIGGER ${quoteIdent(statement.name)}`)
@@ -3260,11 +3245,11 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 		case "createLiveSecret": {
 			const draw = `${inCatalog("uuid_send")}(${inCatalog("gen_random_uuid")}())`
 			return out.line(
-				`CREATE TABLE ${printObjectName(statement.table)} (${quoteIdent("secret")}) AS SELECT ${inCatalog("sha256")}(${draw} || ${draw})`
+				`CREATE TABLE ${printObjectName(statement.table)} (${quoteIdent(liveSecretColumn)}) AS SELECT ${inCatalog("sha256")}(${draw} || ${draw})`
 			)
 		}
-		case "resetDatabaseDefault":
-			return writeDo(out, databaseResetBlock(statement))
+		case "guardBracket":
+			return writeDo(out, guardBracketBlock(statement))
 		case "createRole":
 			return out.line(
 				`CREATE ROLE ${printRole(statement.name)} ${statement.login ? "LOGIN NOINHERIT" : "NOLOGIN"}`
@@ -3329,8 +3314,8 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 
 /**
  * The commands `statement` is (Emitter): a statement that writes a catalog row another installation in the same
- * database writes too is the database lock's command and its own (databaseWide): the database default's block, every
- * ALTER DEFAULT PRIVILEGES, every CREATE EXTENSION, and a GRANT or REVOKE on the database or a schema (grantEmitter).
+ * database writes too is the database lock's command and its own (databaseWide): every ALTER DEFAULT PRIVILEGES, every
+ * CREATE EXTENSION, and a GRANT or REVOKE on the database or a schema (grantEmitter).
  * Every other statement is its own command alone. A statement is printed as print once prints it (sql/print-once.ts
  * printedOnce): each CTE PostgreSQL would inline printed in place. The one source of a statement's commands: a drafted file writes
  * them (writeStatement, deploy/render/sql.ts), meta.json records them (deploy/render/sql.ts recordFile), and a driver
@@ -3340,7 +3325,6 @@ export const commandsOf = (given: SqlStatement): NonEmptyReadonlyArray<Command> 
 	const statement = printedOnce(given)
 	const command: Command = (out) => writeCommand(out, statement)
 	switch (statement.kind) {
-		case "resetDatabaseDefault":
 		case "alterDefaultPrivileges":
 		case "createExtension":
 			return databaseWide(command)
@@ -3374,8 +3358,6 @@ export const commandsOf = (given: SqlStatement): NonEmptyReadonlyArray<Command> 
 		case "merge":
 		case "createSchema":
 		case "createTable":
-		case "createCarrier":
-		case "emptyCarrier":
 		case "alterTable":
 		case "rename":
 		case "replaceConstant":
@@ -3395,13 +3377,15 @@ export const commandsOf = (given: SqlStatement): NonEmptyReadonlyArray<Command> 
 		case "createFunction":
 		case "createDeclaredFunction":
 		case "createRowType":
+		case "alterRowType":
 		case "adoptRole":
 		case "endHolders":
 		case "packConstant":
 		case "createConstant":
 		case "stubConstant":
 		case "createGuardTrigger":
-		case "createUpdateGuardTrigger":
+		case "guardBracket":
+		case "createImmutableGuardTrigger":
 		case "createConstraintTrigger":
 		case "createTransitionTrigger":
 		case "createPublication":
@@ -3451,17 +3435,17 @@ const catalogLiteral = (value: string | bigint | boolean, type: CatalogCast): Pr
 	if (typeof value === "boolean") {
 		const spelled = value ? "true" : "false"
 		return !type.array && type.name === "boolean"
-			? printed(spelled, "atom")
-			: printed(`${spelled}::${printCatalogCast(type)}`, "cast")
+			? printedOf(spelled, "atom")
+			: printedOf(`${spelled}::${printCatalogCast(type)}`, "cast")
 	}
 	if (typeof value === "bigint") {
 		if (!type.array && type.name === "integer" && value >= 0n) {
-			return printed(value.toString(), "atom")
+			return printedOf(value.toString(), "atom")
 		}
 		const spelled = value < 0n ? `(${value.toString()})` : value.toString()
-		return printed(`${spelled}::${printCatalogCast(type)}`, "cast")
+		return printedOf(`${spelled}::${printCatalogCast(type)}`, "cast")
 	}
-	return printed(`${quoteString(value)}::${printCatalogCast(type)}`, "cast")
+	return printedOf(`${quoteString(value)}::${printCatalogCast(type)}`, "cast")
 }
 
 const catalogCall = (call: CatalogCall): string =>
@@ -3474,63 +3458,66 @@ const catalogExprs = (list: ReadonlyArray<CatalogExpr>): string =>
 export const catalogExpr = (e: CatalogExpr): Printed => {
 	switch (e.kind) {
 		case "column":
-			return printed(`${quoteIdent(e.from)}.${quoteIdent(e.column)}`, "atom")
+			return printedOf(`${quoteIdent(e.from)}.${quoteIdent(e.column)}`, "atom")
 		case "param":
-			return printed(`$${e.number}::${printCatalogCast(e.type)}`, "cast")
+			return printedOf(`$${e.number}::${printCatalogCast(e.type)}`, "cast")
 		case "literal":
 			return catalogLiteral(e.value, e.type)
 		case "cast":
-			return printed(`${wrap(catalogExpr(e.expr), "atom")}::${printCatalogCast(e.type)}`, "cast")
+			return printedOf(`${wrap(catalogExpr(e.expr), "atom")}::${printCatalogCast(e.type)}`, "cast")
 		case "call":
-			return printed(catalogCall(e), "atom")
+			return printedOf(catalogCall(e), "atom")
 		case "countStar":
-			return printed(`${inCatalog("count")}(*)`, "atom")
+			return printedOf(`${inCatalog("count")}(*)`, "atom")
 		case "null":
-			return printed(`NULL::${printCatalogCast(e.type)}`, "cast")
+			return printedOf(`NULL::${printCatalogCast(e.type)}`, "cast")
 		case "joinedSet": {
 			const value = catalogExpr(e.value).text
-			return printed(
+			return printedOf(
 				`${inCatalog("string_agg")}(DISTINCT ${value}, ${catalogExpr(e.separator).text} ORDER BY ${value})`,
 				"atom"
 			)
 		}
 		case "compare":
-			return printed(
+			return printedOf(
 				`${wrapTighter(catalogExpr(e.left), "compare")} ${e.op} ${wrapTighter(catalogExpr(e.right), "compare")}`,
 				"compare"
 			)
 		case "distinctFrom":
-			return printed(
+			return printedOf(
 				`${wrap(catalogExpr(e.left), "other")} IS DISTINCT FROM ${wrap(catalogExpr(e.right), "other")}`,
 				"is"
 			)
 		case "concat":
-			return printed(
+			return printedOf(
 				e.parts.map((part) => wrapTighter(catalogExpr(part), "other")).join(" || "),
 				"other"
 			)
 		case "and":
-			return printed(e.args.map((arg) => wrapTighter(catalogExpr(arg), "and")).join(" AND "), "and")
+			return printedOf(
+				e.args.map((arg) => wrapTighter(catalogExpr(arg), "and")).join(" AND "),
+				"and"
+			)
 		case "or":
-			return printed(e.args.map((arg) => wrapTighter(catalogExpr(arg), "or")).join(" OR "), "or")
+			return printedOf(e.args.map((arg) => wrapTighter(catalogExpr(arg), "or")).join(" OR "), "or")
 		case "not":
-			return printed(`NOT ${wrap(catalogExpr(e.expr), "not")}`, "not")
+			return printedOf(`NOT ${wrap(catalogExpr(e.expr), "not")}`, "not")
 		case "in":
-			return printed(
+			return printedOf(
 				`${wrap(catalogExpr(e.expr), "other")} ${e.not ? "NOT IN" : "IN"} (${catalogExprs(e.list)})`,
 				"between"
 			)
 		case "any":
-			return printed(
+			return printedOf(
 				`${wrap(catalogExpr(e.expr), "other")} = ANY (${catalogExpr(e.array).text})`,
 				"compare"
 			)
 		case "exists":
 			return e.not
-				? printed(`NOT EXISTS (${catalogSelectText(e.query)})`, "not")
-				: printed(`EXISTS (${catalogSelectText(e.query)})`, "atom")
+				? printedOf(`NOT EXISTS (${catalogSelectText(e.query)})`, "not")
+				: printedOf(`EXISTS (${catalogSelectText(e.query)})`, "atom")
 		case "scalar":
-			return printed(`(${catalogSelectText(e.query)})`, "atom")
+			return printedOf(`(${catalogSelectText(e.query)})`, "atom")
 		case "case": {
 			const parts = ["CASE"]
 			if (e.operand !== undefined) {
@@ -3543,23 +3530,26 @@ export const catalogExpr = (e: CatalogExpr): Printed => {
 				parts.push(`ELSE ${catalogExpr(e.else).text}`)
 			}
 			parts.push("END")
-			return printed(parts.join(" "), "atom")
+			return printedOf(parts.join(" "), "atom")
 		}
 		case "coalesce":
-			return printed(`COALESCE(${catalogExprs(e.args)})`, "atom")
+			return printedOf(`COALESCE(${catalogExprs(e.args)})`, "atom")
 		case "array":
-			return printed(
+			return printedOf(
 				`ARRAY[${catalogExprs(e.items)}]::${printCatalogCast({ ...e.type, array: true })}`,
 				"cast"
 			)
 		case "collateC":
-			return printed(`${wrap(catalogExpr(e.expr), "collate")} COLLATE ${inCatalog("C")}`, "collate")
+			return printedOf(
+				`${wrap(catalogExpr(e.expr), "collate")} COLLATE ${inCatalog("C")}`,
+				"collate"
+			)
 		case "currentUser":
-			return printed("CURRENT_USER", "atom")
+			return printedOf("CURRENT_USER", "atom")
 		case "regclass":
-			return printed(regclassText(e.relation), "cast")
+			return printedOf(regclassText(e.relation), "cast")
 		case "arithmetic":
-			return printed(`(${catalogExpr(e.left).text} ${e.op} ${catalogExpr(e.right).text})`, "atom")
+			return printedOf(`(${catalogExpr(e.left).text} ${e.op} ${catalogExpr(e.right).text})`, "atom")
 	}
 }
 
@@ -3577,8 +3567,6 @@ const catalogFrom = (item: CatalogFrom): string => {
 			return `ROWS FROM (${item.calls.map(catalogCall).join(", ")}) AS ${quoteIdent(item.alias)}(${printIdentList(item.columns)})`
 		case "values":
 			return `(VALUES ${item.rows.map((row) => `(${catalogExprs(row)})`).join(", ")}) AS ${quoteIdent(item.alias)}(${printIdentList(item.columns)})`
-		case "constantElements":
-			return `${inCatalog("unnest")}(${printObjectName(item.constant)}()) WITH ORDINALITY AS ${quoteIdent(item.alias)}(${printIdentList(["element", "position"])})`
 		case "join": {
 			const right =
 				item.right.kind === "join" || item.right.kind === "crossJoin"
@@ -3726,8 +3714,17 @@ const catalogTextLoc = SourceLoc("catalog statement text", [])
 export const printCatalogStatement = (statement: CatalogStatement): string =>
 	statementText(catalogTextLoc, (out) => writeCatalogStatement(out, statement))
 
-/** A PL/pgSQL block as a DO statement, dollar-quoted as a function body is. */
-export const writeDoBlock = (out: Lines, block: PlBlock): void => dollarQuoted(out, "DO", block)
+/**
+ * A PL/pgSQL block as a DO statement, dollar-quoted as a function body is, printed as every block is (sql/print-once.ts
+ * printedBlock): a migration's violation and zone checks and a table's declared statistics are held, as the lowering
+ * built them, to the scope every name they read is bound in (sql/scope.ts assertBlockScoped), of no argument, and,
+ * printed, to print once and print pulled up as a function's body is: a migration writes its law's violation check and
+ * its zone check as DO blocks past commandsOf (deploy/render/sql.ts spellAction).
+ */
+export const writeDoBlock = (out: Lines, block: PlBlock): void => {
+	assertBlockScoped([], block)
+	dollarQuoted(out, "DO", printedBlock(block))
+}
 
 /** Lines commented out at the printer's indentation unit, written into `out`. */
 export const commented = (out: Lines): Lines => new CommentedLines(out, sqlUnit, "")

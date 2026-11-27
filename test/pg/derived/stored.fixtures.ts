@@ -6,7 +6,16 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Order, Result, type Scope, String as Str } from "effect"
+import {
+	Array as Arr,
+	Effect,
+	Formatter,
+	Option,
+	Order,
+	Result,
+	type Scope,
+	String as Str
+} from "effect"
 import { transactionReader } from "#adapter/live/changes.ts"
 import { decodeMessage } from "#adapter/live/pgoutput.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -19,7 +28,7 @@ import { admittedIdentifier, notificationText } from "#compiler/plan/runtime.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Fn, Logic } from "#compiler/public/compute.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
-import { query, type SelfSource, v } from "#compiler/public/query.ts"
+import { query, v } from "#compiler/public/query.ts"
 import {
 	check,
 	closed,
@@ -41,8 +50,9 @@ import { bytesOfHex } from "#test/pg/live/source.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
-import { installGenerated, installMigrated } from "#test/support/install-migrate.ts"
-import { standUpRelations } from "#test/support/judge.ts"
+import { installGenerated } from "#test/support/install-migrate.ts"
+import { installFullWorld } from "#test/support/installed.ts"
+import { standUpRelations, upkeepBodyOf } from "#test/support/judge.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
@@ -56,8 +66,8 @@ import { fullWorld } from "#test/support/worlds.ts"
  * A document's places, keyed by its shelf, the document, then the place, and a link out of a place, keyed alike: both
  * sit in the unit of the shelf, every write of them borrowing its shelf, and every stored relation over them stands at
  * a document or narrower, a region narrower than the shelf, so its upkeep re-derives the documents and places a write
- * touched alone, never the rest of the shelf (analysis/derived/storage.ts deltaBounded). Doc is closed, never updated,
- * or open, written in place inside its unit.
+ * touched alone, never the rest of the shelf (analysis/derived/storage.ts deltaBounded). Doc and Link are closed, their
+ * facts inserted and never changed or removed, or open, written in place and deleted inside their unit.
  */
 const Doc = relation("Doc", { shelf: pg.integer, doc: pg.integer, at: pg.integer, v: pg.integer }, [
 	"shelf",
@@ -127,7 +137,10 @@ const baseOf = (openness: Openness, name: string) =>
 	schema(
 		name,
 		[Doc, Link, codes, compile, Shade, Weight],
-		openness === "open" ? [mutable(Doc), Shelf] : [Shelf]
+		[
+			...(openness === "open" ? [mutable(Doc), mutable(Link), Shelf] : [Shelf]),
+			key(on(Link, "doc", "at"))
+		]
 	)
 
 /**
@@ -137,14 +150,18 @@ const baseOf = (openness: Openness, name: string) =>
  * negation within it, the rows of a function each place's document and place are passed to, which a restriction to the
  * written units reads at the unit's channels (analysis/theory/unit.ts channelled), and Programmed, each linked place's
  * value's program, a function called once per distinct value of a document (ir/expr.ts evaluatesCall); and, a level
- * above them, Hops, the places a document reaches from its place 0 back along links from placed places, a recursion
- * whose base and step read the stored Placed's table and whose step reads the links through the stored Linked's: its
+ * above them, Hops, the placed places linked back to a document's placed place 0, which reads the stored Placed's table
+ * and the links through the stored Linked's: its
  * upkeep runs a stratum after Placed's and Linked's (physical/ddl/rules.ts), though Hops sorts before Placed by name,
  * and reads Placed's table as Placed's upkeep left it in the same COMMIT, at the units whose places or links the
- * transaction changed and those whose Placed rows that upkeep changed.
+ * transaction changed and those whose Placed rows that upkeep changed. Unshelved, each link by its document and place
+ * alone, its head hiding the shelf, which Link's key on (doc, at) determines, is kept with the shelf beside its head
+ * (analysis/theory/unit.ts HiddenUnit), metis's DashboardEntry's shape, each read of it reading its head's columns of
+ * its table.
  */
 const storedNames = [
 	"Placed",
+	"Unshelved",
 	"Counted",
 	"Unlinked",
 	"Coded",
@@ -157,11 +174,23 @@ const storedNames = [
 
 const topOf = (openness: Openness, name: string) => {
 	const base = baseOf(openness, name)
+	/** The places of a value at least 0, a selection of Doc's rows, so no copy of them (analysis/derived/storage.ts
+	 * copiedRelation), stored: the box writes values from -1, so a place of value -1 is a row of Doc it never holds. */
 	const Placed = derived(
 		"Placed",
 		query(base).rule((r) => {
 			const { shelf, doc, at, v: x } = v(Doc, "d")
-			return r.match(Doc, { shelf, doc, at, v: x }).find({ shelf, doc, at, v: x })
+			return r.match(Doc, { shelf, doc, at, v: x }).where(r.ge(x, 0)).find({ shelf, doc, at, v: x })
+		})
+	)
+	/** Each link of a target at least 0, by its document and place: a selection of Link's rows, so no copy of them
+	 * (copiedRelation), stored with the shelf beside its head; the box writes targets from -1, so a link of target -1 is
+	 * a row of Link it never holds. */
+	const Unshelved = derived(
+		"Unshelved",
+		query(base).rule((r) => {
+			const { shelf, doc, at, to } = v(Link, "l")
+			return r.match(Link, { shelf, doc, at, to }).where(r.ge(to, 0)).find({ doc, at, to })
 		})
 	)
 	const Counted = derived(
@@ -190,77 +219,63 @@ const topOf = (openness: Openness, name: string) => {
 			return r.match(Doc, { shelf, doc, at }).match(run, { code }).find({ shelf, doc, at, code })
 		})
 	)
-	/** The places a link stands at, each with its value: edullm's written pattern matches, an element and its attribute. */
-	const linked = query(base).rule((r) => {
-		const { shelf, doc, at, v: value } = v(Doc, "d")
-		return r
-			.match(Doc, { shelf, doc, at, v: value })
-			.match(Link, { shelf, doc, at })
-			.find({ shelf, doc, at, value })
-	})
-	/** Each document's distinct values: edullm's pattern texts, one row a text, however many elements write it. */
-	const values = query(base).rule((r) => {
-		const { shelf, doc, v: value } = v(Doc, "d")
-		return r.match(Doc, { shelf, doc, v: value }).find({ shelf, doc, value })
-	})
-	/** Each of a document's distinct values compiled (`compile`): edullm's compiled patterns, one compile a text. */
-	const compiled = query(base).rule((r) => {
-		const { shelf, doc, value } = v(values, "t")
-		return r
-			.match(values, { shelf, doc, value })
-			.find({ shelf, doc, value, program: Fn.call(compile, { x: value }) })
-	})
 	/**
-	 * Each linked place's program, its value's compile: edullm's WalkPattern, its pattern matches joined back to their
-	 * texts' compiles, whose upkeep calls `compile` once for each distinct value of a document it keeps.
+	 * Each linked place's program, its value's compile: edullm's WalkPattern, its pattern matches, an element and its
+	 * attribute, joined back to their texts' compiles, whose upkeep calls `compile` once for each distinct value of a
+	 * document it keeps. The compiles are an interior stage of its rule, each of a document's distinct values compiled,
+	 * one compile a text: a stage of the rule alone, no relation of the schema, so no table holds the compiles and the
+	 * upkeep's statement computes them beside the join, where an imported query of them would be stored and read by its
+	 * table (analysis/theory/query.ts LiveReading `stored`).
 	 */
 	const Programmed = derived(
 		"Programmed",
 		query(base).rule((r) => {
-			const { shelf, doc, at, value } = v(linked, "p")
+			const compiled = r.interior((c) => {
+				const { shelf, doc, v: value } = v(Doc, "t")
+				return c
+					.match(Doc, { shelf, doc, v: value })
+					.find({ shelf, doc, value, program: Fn.call(compile, { x: value }) })
+			})
+			const { shelf, doc, at, v: value } = v(Doc, "d")
 			const { program } = v(compiled, "c")
 			return r
-				.match(linked, { shelf, doc, at, value })
+				.match(Doc, { shelf, doc, at, v: value })
+				.match(Link, { shelf, doc, at })
 				.match(compiled, { shelf, doc, value, program })
 				.find({ shelf, doc, at, program })
 		})
 	)
-	/** Each link, a stored relation a recursion's step reads by its table. */
+	/** Each link of a target at least 0, a stored relation Hops reads by its table: a selection of Link's rows, so no copy
+	 * of them (copiedRelation); the box writes targets from -1. */
 	const Linked = derived(
 		"Linked",
 		query(base).rule((r) => {
 			const { shelf, doc, at, to } = v(Link, "l")
-			return r.match(Link, { shelf, doc, at, to }).find({ shelf, doc, at, to })
+			return r.match(Link, { shelf, doc, at, to }).where(r.ge(to, 0)).find({ shelf, doc, at, to })
 		})
 	)
 	const lower = schema.extend(
 		[base],
 		`${name}_top`,
-		[Placed, Counted, Unlinked, Coded, Programmed, Linked],
+		[Placed, Unshelved, Counted, Unlinked, Coded, Programmed, Linked],
 		[]
 	)
-	const hop = { shelf: pg.integer, doc: pg.integer, at: pg.integer }
+	/**
+	 * The places linked back to a document's place 0, both placed: a level above Placed and Linked, reading both stored
+	 * tables, kept a stratum after them. A recursion along the links, as it was, is live: its unit, the shelf, is no
+	 * founded unit, so no write's delta keeps a recursion's rows (analysis/derived/storage.ts `recursive`).
+	 */
 	const Hops = derived(
 		"Hops",
-		query(lower).recursive("Hop", {
-			row: hop,
-			base: [
-				(r) => {
-					const { shelf, doc, at } = v(Placed, "p")
-					return r.match(Placed, { shelf, doc, at }).where(r.eq(at, 0)).find({ shelf, doc, at })
-				}
-			],
-			rec: [
-				(r, self: SelfSource<typeof hop>) => {
-					const s = v(self, "s")
-					const l = v(Linked, "l")
-					return r
-						.match(self, { shelf: s.shelf, doc: s.doc, at: s.at })
-						.match(Linked, { shelf: s.shelf, doc: s.doc, at: l.at, to: s.at })
-						.match(Placed, { shelf: s.shelf, doc: s.doc, at: l.at })
-						.find({ shelf: s.shelf, doc: s.doc, at: l.at })
-				}
-			]
+		query(lower).rule((r) => {
+			const { shelf, doc, at: origin } = v(Placed, "origin")
+			const l = v(Linked, "l")
+			return r
+				.match(Placed, { shelf, doc, at: origin })
+				.match(Linked, { shelf, doc, at: l.at, to: origin })
+				.match(Placed, { shelf, doc, at: l.at })
+				.where(r.eq(origin, 0))
+				.find({ shelf, doc, at: l.at })
 		})
 	)
 	/** The documents of two places or more, a stored relation over the stored Counted's table, kept a stratum after it. */
@@ -317,6 +332,10 @@ const topOf = (openness: Openness, name: string) => {
 			const s = v(Placed, "s")
 			return r.match(Placed, s).find(s)
 		}),
+		Unshelved: query(crowd).rule((r) => {
+			const s = v(Unshelved, "s")
+			return r.match(Unshelved, s).find(s)
+		}),
 		Counted: query(crowd).rule((r) => {
 			const s = v(Counted, "s")
 			return r.match(Counted, s).find(s)
@@ -356,7 +375,7 @@ const topOf = (openness: Openness, name: string) => {
 export type Write =
 	| { readonly kind: "place"; readonly doc: number; readonly at: number; readonly value: number }
 	| { readonly kind: "unplace"; readonly doc: number; readonly at: number }
-	| { readonly kind: "link"; readonly doc: number; readonly at: number }
+	| { readonly kind: "link"; readonly doc: number; readonly at: number; readonly to: number }
 	| { readonly kind: "unlink"; readonly doc: number; readonly at: number }
 	| { readonly kind: "revalue"; readonly doc: number; readonly at: number; readonly value: number }
 
@@ -372,16 +391,17 @@ const writeGen =
 		const kinds =
 			openness === "open"
 				? (["place", "unplace", "link", "unlink", "revalue"] as const)
-				: (["place", "unplace", "link", "unlink"] as const)
+				: (["place", "link"] as const)
 		const kind = s.draw(element(kinds))
 		const doc = s.draw(int(1, 2))
 		const at = s.draw(int(0, 2))
 		switch (kind) {
 			case "place":
 			case "revalue":
-				return { kind, doc, at, value: s.draw(int(0, 3)) }
-			case "unplace":
+				return { kind, doc, at, value: s.draw(int(-1, 3)) }
 			case "link":
+				return { kind, doc, at, to: s.draw(int(-1, 1)) }
+			case "unplace":
 			case "unlink":
 				return { kind, doc, at }
 		}
@@ -395,9 +415,12 @@ export const upkeepCase: Gen<UpkeepCase> = (s) => {
 	}
 }
 
-/** What a case reached: each kind of write, a transaction that wrote two documents, and an open Doc. */
+/** What a case reached: each kind of write, a place and a link a selection rejects, a transaction that wrote two
+ * documents, and an open Doc. */
 export type UpkeepFeature =
 	| `wrote ${Write["kind"]}`
+	| "wrote a place of a value Placed rejects"
+	| "wrote a link of a target Linked rejects"
 	| "two documents in one transaction"
 	| "Doc open"
 
@@ -419,7 +442,7 @@ const sqlOf = (names: PhysicalNames, w: Write): string => {
 		case "unplace":
 			return `DELETE FROM ${doc} WHERE ${at("Doc")}`
 		case "link":
-			return `INSERT INTO ${link} (${column("Link", "shelf")}, ${column("Link", "doc")}, ${column("Link", "at")}, ${column("Link", "to")}) VALUES (${shelf}, ${w.doc}, ${w.at}, 0) ON CONFLICT DO NOTHING`
+			return `INSERT INTO ${link} (${column("Link", "shelf")}, ${column("Link", "doc")}, ${column("Link", "at")}, ${column("Link", "to")}) VALUES (${shelf}, ${w.doc}, ${w.at}, ${w.to}) ON CONFLICT DO NOTHING`
 		case "unlink":
 			return `DELETE FROM ${link} WHERE ${at("Link")}`
 		case "revalue":
@@ -443,12 +466,21 @@ export const upkeepRun = (
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const built = topOf(c.openness, "stored_upkeep")
-		const opened = yield* installDerived(built.top, {}, "upkeep", [])
+		const opened = yield* installDerived(built.top, {}, "upkeep")
 		yield* standUpRelations(s.admin, opened.installed.installation, written)
+		/** Each stored relation's heading as a reader reads it, its definition's: its table's columns but those it holds
+		 * beside them, Unshelved's shelf, which its head hides (analysis/derived/storage.ts). */
+		const headingOf = (name: string) => {
+			const relation = opened.analysis.schema.canonicalNamed(name)
+			if (relation === undefined) {
+				throw new Error(`no derived relation ${name}`)
+			}
+			return relation.definition.read.heading
+		}
 		/** Each stored relation's read, compiled once for the installation as a query of its rows is (oracle/union-take
 		 * compiled), its one statement's text, which reads the relation's table, never its definition, each row it
-		 * delivers read as record text by the relation's heading, its columns by name in the heading's order, as the
-		 * table's rows are (oracle/harness.ts): a query delivers its columns by name, in an order of its own. */
+		 * delivers read as record text by the relation's heading, its columns by name in the heading's order, as its
+		 * table's rows at those columns are (`heldSql`): a query delivers its columns by name, in an order of its own. */
 		const readSql = new Map(
 			Arr.map(storedNames, (name) => {
 				const compiled = compileTemplate(built.reads[name], undefined, {
@@ -464,12 +496,21 @@ export const upkeepRun = (
 						`a query of ${name} reads its definition, not its table ${opened.view(name)}: ${sql}`
 					)
 				}
-				const relation = opened.analysis.relations[name]
-				if (relation === undefined) {
-					throw new Error(`no derived relation ${name}`)
-				}
-				const fields = Arr.map(relation.heading, (f) => `"q".${quoteIdent(f.name)}`)
+				const fields = Arr.map(headingOf(name), (f) => `"q".${quoteIdent(f.name)}`)
 				return [name, `SELECT ROW(${Arr.join(fields, ", ")})::text FROM (${sql}) AS "q"`] as const
+			})
+		)
+		/** Each stored relation's table's rows at the columns of its heading as a reader reads it (`headingOf`). */
+		const heldSql = new Map(
+			Arr.map(storedNames, (name) => {
+				const columns = Arr.map(
+					headingOf(name),
+					(f) => `"r1".${quoteIdent(opened.installed.names.column(name, f.name))}`
+				)
+				return [
+					name,
+					`SELECT ROW(${Arr.join(columns, ", ")})::text FROM ${opened.view(name)} AS "r1"`
+				] as const
 			})
 		)
 		if (c.openness === "open") {
@@ -478,6 +519,12 @@ export const upkeepRun = (
 		for (const [step, writes] of c.transactions.entries()) {
 			for (const w of writes) {
 				reached.note(`wrote ${w.kind}`)
+				if ((w.kind === "place" || w.kind === "revalue") && w.value < 0) {
+					reached.note("wrote a place of a value Placed rejects")
+				}
+				if (w.kind === "link" && w.to < 0) {
+					reached.note("wrote a link of a target Linked rejects")
+				}
 			}
 			if (new Set(Arr.map(writes, (w) => w.doc)).size > 1) {
 				reached.note("two documents in one transaction")
@@ -500,8 +547,9 @@ export const upkeepRun = (
 					Arr.map(read, (row) => String(row[0])),
 					Order.String
 				)
+				const table = yield* s.admin.queryValues(heldSql.get(name) ?? "", [])
 				const held = Arr.sort(
-					Arr.map(snapshot.stored.get(name) ?? [], (r) => r.text),
+					Arr.map(table, (row) => String(row[0])),
 					Order.String
 				)
 				if (Arr.join(queried, "\n") !== Arr.join(held, "\n")) {
@@ -747,11 +795,13 @@ export const watchRun = (
  */
 const lawfulOf = (openness: Openness, name: string) => {
 	const base = baseOf(openness, name)
+	/** The places of a value at least 0, a selection of Doc's rows, so no copy of them (analysis/derived/storage.ts
+	 * copiedRelation), stored: the box writes values from -1, so a place of value -1 is a row of Doc it never holds. */
 	const Placed = derived(
 		"Placed",
 		query(base).rule((r) => {
 			const { shelf, doc, at, v: x } = v(Doc, "d")
-			return r.match(Doc, { shelf, doc, at, v: x }).find({ shelf, doc, at, v: x })
+			return r.match(Doc, { shelf, doc, at, v: x }).where(r.ge(x, 0)).find({ shelf, doc, at, v: x })
 		})
 	)
 	const Counted = derived(
@@ -810,23 +860,33 @@ const applied = (m: Model, w: Write): Model => {
 	return { places, links }
 }
 
-/** The law of the lawful schema `m` breaks, if any: a link at no place, two places of a document of one value, or more
- * than two places a document. */
+/** Placed's rows of `m`: its places of a value at least 0, as Placed's condition selects them. */
+const placedOf = (m: Model): ReadonlyMap<string, number> =>
+	new Map(Arr.filter([...m.places], ([, value]) => value >= 0))
+
+/** The law of the lawful schema `m` breaks, if any: a link at no place Placed holds, two of Placed's places of a document
+ * of one value, or more than two of Doc's places a document. */
 const broken = (
 	m: Model
 ): "a link at no place" | "a value twice in a document" | "three places" | undefined => {
-	if (Arr.some([...m.links], (k) => !m.places.has(k))) {
+	const placed = placedOf(m)
+	if (Arr.some([...m.links], (k) => !placed.has(k))) {
 		return "a link at no place"
 	}
 	const values = new Map<string, Array<number>>()
-	for (const [k, value] of m.places) {
+	for (const [k, value] of placed) {
 		const [doc] = Str.split(":")(k)
 		values.set(doc, [...(values.get(doc) ?? []), value])
 	}
 	if (Arr.some([...values.values()], (vs) => new Set(vs).size < vs.length)) {
 		return "a value twice in a document"
 	}
-	return Arr.some([...values.values()], (vs) => vs.length > 2) ? "three places" : undefined
+	const counts = new Map<string, number>()
+	for (const k of m.places.keys()) {
+		const [doc] = Str.split(":")(k)
+		counts.set(doc, (counts.get(doc) ?? 0) + 1)
+	}
+	return Arr.some([...counts.values()], (n) => n > 2) ? "three places" : undefined
 }
 
 /** What a case of the lawful property reached: a commit, each law's refusal, and an open Doc. */
@@ -851,7 +911,7 @@ export const lawfulRun = (
 > =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
-		const opened = yield* installDerived(lawfulOf(c.openness, "stored_lawful"), {}, "lawful", [])
+		const opened = yield* installDerived(lawfulOf(c.openness, "stored_lawful"), {}, "lawful")
 		yield* standUpRelations(s.admin, opened.installed.installation, written)
 		if (c.openness === "open") {
 			reached.note("Doc open")
@@ -910,7 +970,7 @@ export const lawfulRun = (
 				}
 			}
 			const places = Arr.sort(
-				Arr.map([...model.places], ([k, value]) => `${k}:${value}`),
+				Arr.map([...placedOf(model)], ([k, value]) => `${k}:${value}`),
 				Order.String
 			)
 			const column = (field: string) => quoteIdent(opened.installed.names.column("Placed", field))
@@ -938,31 +998,24 @@ export type CallsFeature =
 	| "Doc open"
 
 /**
- * The two queries of stored relation `relation`'s upkeep (physical/ddl/rules.ts upkeepBlock): the units the transaction
- * wrote, its delete's region, each a row of the unit's key, under the delete's WITH, whose CTEs hold the calls of the
- * readers its region shares with the definition the delete reads (physical/ddl/deltas.ts headedDelete); and its
- * insert's rows, its definition at those units that its table does not hold yet.
+ * The queries of stored relation `relation`'s upkeep (physical/ddl/rules.ts upkeepBlock): the units it re-derives,
+ * where it deletes at any, its removal's region, each a row of the unit's key, the first item its loop's query reads,
+ * under the query's WITH, whose CTEs hold the calls of the readers its region shares with the definition the query reads
+ * (physical/ddl/deltas.ts headed), none where its holders are closed, whose rows no served write removes, so it deletes
+ * nothing and inserts the facts the rows a write adds gain (analysis/theory/upkeep.ts ClosedLoss); and its first
+ * insert's rows: its definition at those units that its table does not hold yet, or the facts gained.
  */
 const upkeepOf = (
 	installation: Installation,
 	relation: string
-): { readonly units: OperandSelect; readonly inserted: OperandSelect } => {
-	const name = identifierOf(identity.storedUpkeep(relation))
-	const body = Arr.flatMap(installation.statements, (statement) =>
-		statement.kind === "createFunction" &&
-		statement.language === "plpgsql" &&
-		statement.name.name === name
-			? statement.body.body
-			: []
-	)
+): { readonly units: Option.Option<OperandSelect>; readonly inserted: OperandSelect } => {
+	const body = upkeepBodyOf(installation, relation)
 	const [region] = Arr.flatMap(body, (step) => {
-		if (step.kind !== "modify" || step.statement.kind !== "delete") {
+		if (step.kind !== "forQuery" || step.query.body.kind !== "core") {
 			return []
 		}
-		const ctes = step.statement.with?.ctes ?? []
-		return Arr.flatMap(step.statement.using, (u) =>
-			u.kind === "derived" ? [withLeading(u.query, ctes)] : []
-		)
+		const [first] = step.query.body.from
+		return first?.kind === "derived" ? [withLeading(first.query, step.query.with?.ctes ?? [])] : []
 	})
 	const [inserted] = Arr.flatMap(body, (step) =>
 		step.kind === "modify" &&
@@ -971,10 +1024,10 @@ const upkeepOf = (
 			? [step.statement.source.query]
 			: []
 	)
-	if (region === undefined || inserted === undefined) {
-		throw new Error(`the upkeep of ${relation}: a delete at its region and an insert of its rows`)
+	if (inserted === undefined) {
+		throw new Error(`the upkeep of ${relation}: an insert of its rows`)
 	}
-	return { units: region, inserted }
+	return { units: Option.fromUndefinedOr(region), inserted }
 }
 
 /**
@@ -983,7 +1036,9 @@ const upkeepOf = (
  * whole, `compile` counting its calls (`callsSetting`), the transaction then rolled back and run again to COMMIT: the
  * insert calls `compile` exactly once for each distinct value each of its units, a document, holds as the transaction
  * leaves it, counted on the host's model of the places (`applied`), however many of its places hold the value and
- * links stand at them.
+ * links stand at them. Where Doc and Link are closed the upkeep deletes nothing and has no region (`upkeepOf`): its
+ * units are the documents the transaction's writes add rows at, and its insert derives the facts the added rows gain
+ * alone, so it calls `compile` at most once for each distinct value they hold.
  */
 export const callsRun = (
 	c: UpkeepCase,
@@ -995,14 +1050,18 @@ export const callsRun = (
 > =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
-		const opened = yield* installDerived(topOf(c.openness, "stored_calls").top, {}, "calls", [])
+		const opened = yield* installDerived(topOf(c.openness, "stored_calls").top, {}, "calls")
 		const installation = opened.installed.installation
 		yield* standUpRelations(s.admin, installation, written)
 		if (c.openness === "open") {
 			reached.note("Doc open")
 		}
 		const upkeep = upkeepOf(installation, "Programmed")
-		const units = `SELECT "u".c2::text FROM ${printExpr({ kind: "subquery", query: upkeep.units })} AS "u"(c1, c2)`
+		const units = Option.map(
+			upkeep.units,
+			(region) =>
+				`SELECT "u".c2::text FROM ${printExpr({ kind: "subquery", query: region })} AS "u"(c1, c2)`
+		)
 		const inserted = `SELECT ROW("q".*)::text FROM ${printExpr({ kind: "subquery", query: upkeep.inserted })} AS "q"`
 		const calls = `SELECT COALESCE(NULLIF(pg_catalog.current_setting('${callsSetting}', true), ''), '0')`
 		let model: Model = { places: new Map(), links: new Set() }
@@ -1017,12 +1076,16 @@ export const callsRun = (
 							for (const w of writes) {
 								yield* pinned.query(sqlOf(opened.installed.names, w), [])
 							}
-							const docs = yield* pinned.queryValues(units, [])
+							const docs = Option.isSome(units)
+								? yield* Effect.map(pinned.queryValues(units.value, []), (rows) =>
+										Arr.map(rows, (row) => Number(String(row[0])))
+									)
+								: Arr.dedupe(Arr.map(writes, (w) => w.doc))
 							const before = yield* pinned.queryValues(calls, [])
 							yield* pinned.queryValues(inserted, [])
 							const after = yield* pinned.queryValues(calls, [])
 							return {
-								docs: Arr.map(docs, (row) => Number(String(row[0]))),
+								docs,
 								calls: Number(String(after[0]?.[0])) - Number(String(before[0]?.[0]))
 							}
 						}),
@@ -1045,12 +1108,15 @@ export const callsRun = (
 					reached.note("a value at no linked place of a written document")
 				}
 			}
-			if (seen.calls !== expected) {
+			/** A unit form re-derives its units whole, so it calls compile once for each distinct value they hold; a closed
+			 * form's gain derives the facts the added rows open alone, so it calls it at most that often. */
+			const rederived = Option.isSome(units)
+			if (rederived ? seen.calls !== expected : seen.calls > expected) {
 				return yield* new OracleFixtureFailed({
 					message: `in transaction ${step}, the upkeep of Programmed called compile ${seen.calls} times where its units, the documents ${Arr.join(
 						Arr.map(seen.docs, String),
 						", "
-					)}, hold ${expected} distinct values`
+					)}, hold ${expected} distinct values, which its ${rederived ? "re-derivation calls it for exactly" : "gain calls it for at most"}`
 				})
 			}
 			yield* transaction(
@@ -1097,12 +1163,11 @@ export const servedPlacesGen: Gen<ServedPlaces> = element([
 export const servedLawRun = (places: ServedPlaces, reached: Case<ServedLawFeature>) =>
 	Effect.gen(function* () {
 		const label = "stored_served_law"
-		const done = yield* installMigrated(lawfulOf("closed", label), {
-			ambient: ordinarySession,
-			extensions: [],
-			label,
-			logins: [fullWorld(lawfulOf("closed", label), {}).server]
-		})
+		const done = yield* installFullWorld(
+			lawfulOf("closed", label),
+			{},
+			{ ambient: ordinarySession, label }
+		)
 		const top = lawfulOf("closed", done.schema)
 		const values = servedPlaces[places]
 		const facts = Arr.map(values, (value, at) => ({ shelf, doc: 1, at, v: value }))

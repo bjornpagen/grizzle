@@ -25,6 +25,7 @@ import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { LogicalQuery, ParamDecl, StatementSpec } from "#compiler/ir/products.ts"
 import type { NodeOf, RelKind, RelNode } from "#compiler/ir/rel.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
+import { queryEvidence } from "#compiler/logical/annotate.ts"
 import type { Env, LowerContext, NodeLowerer } from "#compiler/lower/conservative/context.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import {
@@ -32,16 +33,16 @@ import {
 	conservativeInput
 } from "#compiler/lower/conservative/types.ts"
 import {
-	type LowerOptimizedOptions,
+	annotatedInput,
 	lowerOptimized,
+	type LowerOptimizedOptions,
 	type OptimizedProgram
 } from "#compiler/lower/optimize/pipeline.ts"
 import { catalogLowerers } from "#compiler/lower/shapes/catalog/native.ts"
 import type { SentStatement, StatementParts } from "#compiler/lower/shapes/index.ts"
-import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { type ServedTypes, servedTypesOf } from "#compiler/physical/ddl/domains.ts"
 import { namedRole } from "#compiler/physical/ddl/names.ts"
-import type { Installation, InstallOptions } from "#compiler/physical/install/compile.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
 import {
 	type InstallExtension,
 	noCarriers,
@@ -51,8 +52,6 @@ import {
 	noFences
 } from "#compiler/physical/install/extension.ts"
 import { installBasis, type ParamSource, unserved } from "#compiler/physical/install/plan.ts"
-import { everySlice } from "#compiler/schema/reach.ts"
-import { carrierScope } from "#compiler/sql/naming.ts"
 import { textOfParam } from "#test/support/wire.ts"
 
 import { compileQuery, type QueryTemplate, querySchema } from "#compiler/program/compile.ts"
@@ -69,23 +68,15 @@ import {
 import { defined } from "@bjornpagen/testing/assert"
 import { publishingLedger } from "#compiler/deploy/ledger/ledger.ts"
 import { resolveVariables } from "#compiler/deploy/render/variables.ts"
-import { type LivePlan, noLive } from "#compiler/live/notify.ts"
+import { noLive } from "#compiler/live/notify.ts"
 import {
 	compileWorkload,
 	type LoginWorkloads,
 	type WorkloadPlan
 } from "#compiler/program/workload/compile.ts"
-import { workload } from "#compiler/program/workload/value.ts"
 import type { Chunks } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
-import {
-	type Owned,
-	type OwnedLogin,
-	type OwnedRole,
-	own,
-	ownRole,
-	rostersOf
-} from "#compiler/schema/own.ts"
+import { type Owned, own, ownRole, rostersOf } from "#compiler/schema/own.ts"
 import {
 	type Cte,
 	cteColumns,
@@ -245,9 +236,7 @@ const allocatedArtifacts = <S extends ParamSource>(
 	params: S
 ): Result.Result<SchemaArtifacts<S>, CompileError> => {
 	const over = (owned: Owned) =>
-		Result.flatMap(installBasis(owned, codes, everySlice(owned)), (basis) =>
-			baseArtifacts(basis, params)
-		)
+		Result.flatMap(installBasis(owned, codes, new Set()), (basis) => baseArtifacts(basis, params))
 	return input.kind === "role"
 		? Result.flatMap(
 				ownRole({ ...input.desc, base: allocatedDesc(input.desc.base, allocated) }),
@@ -414,8 +403,7 @@ export const realityWrite = (artifacts: SchemaArtifacts): CompileWriteOptions =>
 	derived: artifacts.derived,
 	level: "serializable",
 	clock: noClock,
-	source: transactionClock,
-	carrierScope: carrierScope(undefined)
+	source: transactionClock
 })
 
 /**
@@ -443,89 +431,25 @@ export const compileInputWorkload = (
 	)
 
 /**
- * The workload of `logins`, planned beside the write filters of the roles `rolesOf` picks among the installation's
- * logins, as an installer extension compiled when the installation runs it: against the schema installed
- * (InstallBuilder.owned), as `grizzle generate` compiles a workload against the schema it installs, so a harness that
- * installs a subject under its allocated level names installs the workload of that schema (workloadExtension holds a
- * workload to the fingerprint it was compiled against). `live` is the live plan whose footprint tables the
- * installation's live source publishes (physical/install/extension.ts InstallExtension.live).
- */
-const workloadExtensionOver = (
-	logins: ReadonlyArray<LoginWorkloads>,
-	rolesOf: (installing: ReadonlyArray<OwnedLogin>) => ReadonlyArray<OwnedRole>,
-	live: LivePlan
-): InstallExtension => {
-	/** The workload's plan against the installed schema `owned`, beside the write filters of `roles`. */
-	const planOver = (owned: Owned, roles: ReadonlyArray<OwnedRole>) =>
-		Result.flatMap(parseSchemaInput(owned.desc), (input) =>
-			Result.flatMap(inputArtifacts(input, testCompile), (artifacts) =>
-				Result.mapError(compileWorkload(logins, input, { artifacts, roles }), (r) => r.error)
-			)
-		)
-	return {
-		contribute: (b) =>
-			Result.flatMap(planOver(b.owned, rolesOf(b.settings.logins)), (plan) =>
-				workloadExtension(plan).contribute(b)
-			),
-		params: (checked) => Result.map(planOver(checked.owned, []), (plan) => plan.params),
-		certifies: noCertificates,
-		carriers: noCarriers,
-		calls: noCalls,
-		live,
-		fences: noFences
-	}
-}
-
-/**
- * The workload of `logins` alone (compileTestWorkload), compiled against the schema the installation installs. It
- * states no live plan, so an installation of it alone holds no live source and serves no watch.
- */
-export const workloadOver = (logins: ReadonlyArray<LoginWorkloads>): InstallExtension =>
-	workloadExtensionOver(logins, () => [], noLive)
-
-/**
- * The types the programs of `logins`' workloads cast their parameters to, and nothing else of their workload: an
- * installer extension whose plan states them (InstallExtension.params), compiled against the schema the installation
- * installs, so a harness that serves those programs through a served compile under the installation's snapshot
- * (test/support/served-db.ts) installs every type they cast a parameter to, and no index or statistics object of their
- * workload's.
- */
-export const paramsOver = (logins: ReadonlyArray<LoginWorkloads>): InstallExtension => ({
-	...workloadExtensionOver(logins, () => [], noLive),
-	contribute: () => Result.ok(noContribution)
-})
-
-/**
- * `options` with the types the programs `programs` over `over` (a schema or a role) cast their parameters to installed
- * beside its extensions (paramsOver), each pattern domain and outside contract, and nothing else of their workload: the
- * options of an installation a test compiles those programs over, so they name only the parameter types it installs
- * (physical/install/plan.ts ParamSource `planned`) and the catalog is the bare migration's otherwise.
- */
-export const servingParams = (
-	options: InstallOptions,
-	over: unknown,
-	programs: Readonly<Record<string, unknown>>
-): InstallOptions => ({
-	...options,
-	extensions: [
-		...options.extensions,
-		paramsOver([{ login: "server", workloads: [workload(over, programs)] }])
-	]
-})
-
-/**
  * The types the declared parameters `params` of the one program `program` cast them to (physical/ddl/domains.ts
- * servedTypesOf, over the parameters alone), and nothing else: an installer extension whose plan states them
- * (InstallExtension.params), so a
- * harness that lowers a program over the installation's names and executes it installs every pattern domain and
- * outside contract it casts a parameter to, as paramsOver does for a workload's programs, and the catalog stays the
- * bare migration's otherwise.
+ * servedTypesOf, over the parameters alone): each pattern parameter's own pattern domain and each contract outside the
+ * base, what an oracle case's login states beside its workload (oracle/install/drafted.ts oraclePlanUnder).
+ */
+export const declaredTypes = (program: string, params: ReadonlyArray<ParamDecl>): ServedTypes =>
+	servedTypesOf(program, params, [])
+
+/**
+ * The types the declared parameters `params` of the one program `program` cast them to (declaredTypes), and nothing
+ * else: an installer extension whose plan states them (InstallExtension.params), so a harness that lowers a program
+ * over the installation's names and executes it, with no login, installs every pattern domain and outside contract it
+ * casts a parameter to, and the catalog stays the bare migration's otherwise. An installation with a login serves its
+ * programs as its workload, drafted as `grizzle generate` drafts it (install-migrate.ts generatedDraft).
  */
 export const declaredParams = (
 	program: string,
 	params: ReadonlyArray<ParamDecl>
 ): InstallExtension => {
-	const types: ServedTypes = servedTypesOf(program, params, [])
+	const types = declaredTypes(program, params)
 	return {
 		contribute: () => Result.ok(noContribution),
 		params: () => Result.ok(types),
@@ -536,19 +460,6 @@ export const declaredParams = (
 		fences: noFences
 	}
 }
-
-/**
- * The workload of `logins` beside every installed login's write filters, as `grizzle generate` plans a deployment's,
- * compiled against the schema the installation installs, with its plan's live plan `live` (program/workload/compile.ts
- * WorkloadPlan `live`), so the installation publishes every table its logins' reads route by and the snapshot's live
- * source serves the watched file of each login, as generate's served workload extension states it
- * (physical/access/extension.ts servedWorkloadExtension).
- */
-export const deployedWorkloadOver = (
-	logins: ReadonlyArray<LoginWorkloads>,
-	live: LivePlan
-): InstallExtension =>
-	workloadExtensionOver(logins, (installing) => Arr.flatMap(installing, (l) => l.roles), live)
 
 /**
  * A generated query, which no checker handed over, admitted as the optimized lowering takes it (check/index.ts
@@ -576,7 +487,9 @@ export const lowerAligned = (
 		(conservative) =>
 			Result.map(
 				Result.flatMap(admitGenerated(query), (q) =>
-					lowerOptimized(q, { ...options, subject: { kind } })
+					Result.flatMap(annotatedInput(q, queryEvidence), (input) =>
+						lowerOptimized(input, { ...options, subject: { kind } })
+					)
 				),
 				(optimized) => {
 					checkedLowering({
@@ -691,6 +604,7 @@ export const paramValues = (
 			}
 			case "member":
 			case "nestedRows":
+			case "admission":
 			case "page":
 				throw new Error(
 					`a query statement's placeholder is a declared parameter, not a ${slot.kind} placeholder`

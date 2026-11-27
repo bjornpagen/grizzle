@@ -5,8 +5,9 @@
  * decoder form exactly, through the file's text and back; recordedOf's text of a found row is the compile's rowText of
  * the query, byte for byte, and its facts of found rows the compile's recordsFacts, the same insert; and a records the
  * login's programs read nothing of is carried by no file, recordedOf of it RecordsUnserved. Drawn over every shape of
- * a records' query over Shelves (test/support/agreement/records.ts): each delivery, an option, one child, an arm and an
- * array, at depths one to three, attachment names that repeat, and an owner of one field or two.
+ * a records' query over Shelves (test/support/agreement/records.ts): each delivery, an option, one child and an array,
+ * at depths one to three, attachment names that repeat, and an owner of one field or two. The arm delivery is gone
+ * with records' arm attachments (271ffecf22, VALUECELL: an arm relation attaches at its header's key as an option).
  *
  * Oracle: the compile's own readings of the records' value (rowText, recordsFacts), which share the one text and the
  * one insert (runtime/read/text.ts rowTextOf, runtime/records.ts recordsFacts) over its form and its layout.
@@ -24,7 +25,6 @@ import { recordsCase, recordsShapeGen } from "#test/unit/served/records.fixtures
 type ServedRecordsFeature =
 	| "an option"
 	| "one child"
-	| "an arm"
 	| "a nested array"
 	| "a third level"
 	| "an owner of two fields"
@@ -49,7 +49,6 @@ const reached = (shape: RecordsShape): ReadonlyArray<ServedRecordsFeature> => {
 			"an option"
 		),
 		...holds(delivered(b.spine, "one"), "one child"),
-		...holds(delivered(b.paper, "arm") || delivered(b.digital, "arm"), "an arm"),
 		...holds(Option.isSome(b.chapters), "a nested array"),
 		...holds(Option.isSome(remark) || Option.isSome(ink), "a third level"),
 		...holds(shape.owner === "runStep", "an owner of two fields")
@@ -67,7 +66,6 @@ export const aServedLoginsRecordsReadEveryRowAsTheirQueryAndValueDo = property.e
 		situations: [
 			"an option",
 			"one child",
-			"an arm",
 			"a nested array",
 			"a third level",
 			"an owner of two fields"

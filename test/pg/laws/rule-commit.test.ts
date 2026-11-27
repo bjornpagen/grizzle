@@ -14,7 +14,9 @@
  * (edullm GRADING-SQL D: COMMIT 79.6% of active session time, heap_truncate 54.6% of backend CPU).
  *
  * Over each unit shape's whole judge and its probed twin of rule-whole.fixtures.ts, a session writes two documents
- * whole and drops one, one transaction each, then writes one again and rolls it back: before each COMMIT the
+ * whole and drops one, one transaction each, then writes one again and rolls it back. The whole judge's drop is a data
+ * step, its relations closed: no capture writes its removed rows, so after its statements no session table holds a
+ * row, and its bracket's re-check judges it (rule-whole.fixtures.ts bracketOf). Before each COMMIT the
  * transaction holds no predicate lock on the session's tables; after each COMMIT every table of the session holds no
  * row, each delta the transaction wrote keeps its file where it held its one page at most before and holds that page at
  * most, and the sentinel, whose one row the judge deletes as it starts, keeps its page; after the rollback every table
@@ -36,7 +38,11 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 export const aJudgedCommitLeavesEverySessionTableItWroteEmptyEachDeltaOfThemWithinItsPageAndItsFileAndItsSentinelsPage =
 	property.explore(commitsGen, {
 		needs: Substrate.oneOf(judgeTemplates, Substrate.fresh),
-		situations: ["a whole judge's deltas", "a probed judge's deltas"],
+		situations: [
+			"a whole judge's deltas",
+			"a probed judge's deltas",
+			"a whole judge's data step, its removals captured by none"
+		],
 		check: (judges, c) => (k) =>
 			Effect.gen(function* () {
 				const judge = yield* judges[`${k.judge} ${k.shape}`]
@@ -71,8 +77,8 @@ export const aJudgedCommitLeavesEverySessionTableItWroteEmptyEachDeltaOfThemWith
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
 				original:
-					'\t\t\t})),\n\t\t\t...(part.pass === "rules" ? part.deltas.map(emptiedWhereWritten) : [])\n',
-				replacement: "\t\t\t}))\n",
+					'\t\t\t),\n\t\t\t...(part.pass.kind === "rules" ? part.deltas.map(emptiedWhereWritten) : [])\n',
+				replacement: "\t\t\t)\n",
 				why: "No part deletes the rows it read, so a delta keeps one transaction's rows past its COMMIT, and the next transaction's judge reads them again as its own."
 			}
 		]

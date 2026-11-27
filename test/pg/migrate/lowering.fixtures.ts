@@ -8,7 +8,7 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
@@ -18,8 +18,7 @@ import {
 	type DraftedVersion,
 	draftVersion,
 	expectFreshCatalog,
-	noPlaceholders,
-	noVersionWorkload
+	noPlaceholders
 } from "#test/support/install-migrate.ts"
 import { standUpJudge } from "#test/support/judge.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -326,12 +325,8 @@ export const walk = (c: WalkCase, note: (feature: Feature) => void) =>
 		for (const [step, version] of c.versions.entries()) {
 			const draft = yield* draftVersion(
 				{
-					version: {
-						schema: schemaOf(name, useName(c, step), version),
-						logins: [],
-						declarations: declaredAt(c, step)
-					},
-					workload: noVersionWorkload
+					schema: schemaOf(name, useName(c, step), version),
+					declarations: declaredAt(c, step)
 				},
 				{ installation, previous, step },
 				{ extensions: [], compile: compileInstallation, review: noPlaceholders }

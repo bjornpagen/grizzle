@@ -63,7 +63,13 @@ git hook: a lane lands on the repository's hub behind the thin gate (the jj-lane
 `pnpm types` and the test files it changes), and the release check (`pnpm release`, `scripts/release.sh`) searches
 both test tiers at once under the seed the release gates on before grizzle main pushes upstream. The kill census
 (`pnpm kills`, `scripts/kills.sh`), every declared kill judged, runs on each pin candidate beside or after it: the
-release check proves the product right, the census that each test still catches the bug it declares.
+release check proves the product right, the census that each test still catches the bug it declares. A car joins a
+train only once `pnpm check` passes at its own commit: the train's intake (`pnpm intake <commit>...`,
+`scripts/intake.sh`) runs it at every car's commit before the train is assembled, and sends a failing car back to its
+owner with its errors, so the train's gate never meets a lint, format or type error. A train's gate holds its tip to
+its consumers' generates as to its tests (`scripts/consumer-leg.sh <tip> qti-pie@trunk metis=<car checkout>`), and
+proves each red it judges by its replay at the tree it names (`scripts/replay-set.sh <tokens file>`, every token its
+own process, each verdict with the HEAD and clean status it ran at).
 
 - **Toolchain:** `apt install build-essential meson ninja-build pkg-config bison flex libssl-dev liblz4-dev libzstd-dev
   libreadline-dev zlib1g-dev python3 git`. You need Node 26 or later, and pnpm at the version `packageManager`
@@ -180,6 +186,9 @@ Everyone commits and pushes straight to `main`. There are no branches and no int
 | `pnpm test:network`              | The tests that talk to the local cluster, the `pg` and `schedules` tiers: `toolchain-test run test/pg test/schedules`. |
 | `pnpm release`                   | The release check (`scripts/release.sh`, on `scripts/tiers.sh`): every property of both tiers searched, `toolchain-test run`, the unit and types tier (`test/unit test/types`) and, once `toolchain-pg settle` has settled the checkout's cluster family, the database tier (`test/pg test/schedules`), started together under `TEST_SEED=2219874524`, each a systemd unit of its own in `priority.slice`; each tier's lines print as they land, after its name, then its verdict and wall time; exit 1 when either tier fails. It proves the product right at its commit, and judges no kill. ||
 | `pnpm kills`                     | The kill census (`scripts/kills.sh`, on `scripts/tiers.sh`): every kill each property of both tiers declares judged, `toolchain-test kills`, the two tiers at once as the release check runs them (logs under `~/.local/state/grizzle-kills/`); a kill whose red the verdict cache holds at its property's closure is answered from it. It proves each test still catches the bug it declares: a survivor, a stale kill or an unjudged one is printed under its property's line and fails it. grizzle main runs it on each pin candidate, beside or after the release check; a survivor says a test got weak, never that the product is wrong. |
+| `pnpm intake <commit>...`        | The train's intake (`scripts/intake.sh`): `pnpm check` at each commit named, every commit at once, each in a detached git worktree of its own under `~/.cache/grizzle-intake/` with its submodule and dependencies installed offline, each check a systemd unit of its own in `grizzle.slice` (`grizzle-intake-<the commit's first 12 hex digits>`), every tree sharing one turbo cache, so a package no car changes is checked once (logs under `~/.local/state/grizzle-intake/`). Each verdict prints as it lands: pass, or FAIL followed by every line each failed task wrote; exit 1 when any commit fails. A car joins a train only once it passes. |
+| `scripts/consumer-leg.sh <commit> <consumer>@<rev>\|<consumer>=<checkout>...` | The train's consumer leg: each consumer copied fresh (from its local hub at the commit named, or a car's checkout), the commit's grizzle laid over its vendored grizzle, the copy checked current (consumer-check.sh), and `grizzle generate` run for each of its configs as a fresh draft, each consumer a Type=exec unit of 24G in `grizzle.slice`; a verdict a config, exit 1 when any fails. |
+| `scripts/replay-set.sh <tokens file> [<tsv>]` | A set of replays: each token `toolchain-test replay`ed as its own process, one after another, its row in a TSV the HEAD and dirty count it ran at, its exit and its log; a token whose tree moved or was dirty is refused, never judged; exit 1 when any failed. |
 | `pnpm test:cli-generator`        | The CLI generator's property modules (`packages/cli-generator/test/support/roster.ts`), `toolchain-test run packages/cli-generator/test` on the same runner: its grizzle tier (`packages/cli-generator/test/grizzle`) alone reaches the local cluster. Its suites not yet converted to properties run on Vitest, `pnpm --filter @bjornpagen/grizzle-cli-generator test` (its `vitest.config.ts`, which leaves the roster's modules out), until the last is converted and Vitest goes. |
 | `pnpm test:properties`           | `toolchain-test run [paths | property ids]`: every test module, or the paths and properties named, each property's searches; `toolchain-test kills` over the same paths judges their kills. ||
 | `pnpm fuzz <fuzztime> [paths | ids]` | `toolchain-test fuzz`: fresh seeds round after round for the fuzz time (`30s`, `5m`, `1000x`) or until a case fails, as `go test -fuzz` does. |
@@ -318,7 +327,9 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
 - **SQL is printed, never written.** Every SQL text grizzle sends is the engine printer's print of an AST
   (`EmittedText`, minted by `sql/emit.ts` alone) or a reviewed migration file's statement (`MigrationText`, minted by
   `adapter/migrate/input.ts`), and the printer names every type, function and relation by its schema, so no
-  search_path changes what a statement means. The shell's catalog reads are catalog-read ASTs (`sql/catalog.ts`). A
+  search_path changes what a statement means. The printer prints no statement that reads a name where nothing binds it
+  (`sql/scope.ts`, an internal compiler error), and no statement another statement composes is printed apart: its text
+  is its name map alone (`UnprintedSql`), by its type. The shell's catalog reads are catalog-read ASTs (`sql/catalog.ts`). A
   test's SQL that neither AST expresses is minted in `test/support/sql.ts`.
 - **Tests go through the doors.** Assertions come from the testing library's door, `@bjornpagen/testing/assert`
   (`assert`, the matchers, the collection checks, the narrowers, failureOf), whose equalities type the expected value by
@@ -441,19 +452,21 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
   - **Big keys are a modelling bug.** An identity is a short name, a path or a digest, never a document. A schema that
     needs a long text's identity declares its digest as a field and keys by it, in plain sight.
 
-- **A format change reaches a live installation by rebasing, and leaves stored representations alone (2026-11-21).**
-  grizzle converts no committed record of another format. `grizzle upgrade` rebases a live installation onto this
-  grizzle's compile of the source it was deployed from: it reads the live database's history (each roster's codes off
-  its names constant, each table's attribute numbers, each pattern language's spelling, every fact proven by the drift
-  check) and writes either the snapshot's files again, or a folder `grizzle migrate` applies, drafted by the normal diff
-  from the target's objects the database holds (README "Upgrading across a format"). It writes nothing to the database.
-  So, after edullm's production cutover, a format change must leave grizzle's bookkeeping tables (`__ledger`,
-  `__drift_proofs`) and every stored column's type unchanged, unless it ships an explicit carried conversion: their rows
-  are no rebase's to rewrite, and migrate reads the ledger before it applies anything. `grizzle upgrade` refuses such a
-  change by name (UpgradeRefused, an object that holds stored rows held otherwise). Main's ruling on lane UPGRADE's
-  rehearsal of format 5 to 6, which retyped the ledger's digests and could not be rebased. Why:
-  - **The database is the authority** on what its stored codes and rows mean; a converted record could disagree with it.
-  - **No migrate reads another format's ledger**, so a ledger change has no folder that could carry it.
+- **Migration bankruptcy: no installation crosses a format; purge and regenerate (2026-11-26).** grizzle reads exactly
+  its own format (core/format.ts) and carries nothing of another forward: no command reads, converts or rebases another
+  format's snapshot, manifest, meta.json or ledger, and no code cleans up what an older format left in a database.
+  An artifact or installation of another format is refused, with one remedy: drop the installation (`grizzle
+  uninstall`), empty its migrations directory, and regenerate, `grizzle generate` drafting the schema afresh as one
+  init migration that `grizzle migrate` installs. A format change ships no converter, no rebase and no tolerance of the
+  format before it. `grizzle generate` and `grizzle migrate` between versions of a consumer's own schema (the diff, data
+  steps, renames, drift, the ledger of applied folders) are the product and stay. This replaces the 2026-11-21 ruling
+  that a format change reaches a live installation by rebasing (`grizzle upgrade`, deleted with its readers). Bjorn,
+  verbatim, 2026-11-26: "no need to keep migration backwards compat btw. there is too much defensive migration logic,
+  let's just declare migration bankruptcy, sweep all the code to remove and purge all branches that are now moot, and
+  for all of our apps like qti-pie, qti app in edullm, metis, just fully purge and regen all the schemas." Why:
+  - **No app has a student**, so no installation holds rows a purge would lose.
+  - **Every compatibility path is code that never runs again**: a rebase, a converter or a leftover's cleanup serves
+    one crossing and then stands, tested and maintained, against states no installation of this format reaches.
 
 ### Rejected rules
 

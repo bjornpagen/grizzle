@@ -353,7 +353,7 @@ export const buildPred = (c: Closed, row: Row, pred: Pred): unknown => {
 			return buildPresence(c, row, pred.key)
 		case "and":
 		case "or":
-			return C[pred.p](buildPred(c, row, pred.args[0]), buildPred(c, row, pred.args[1]))
+			return C[pred.p]([buildPred(c, row, pred.args[0]), buildPred(c, row, pred.args[1])])
 		case "not":
 			return C.not(buildPred(c, row, pred.arg))
 	}

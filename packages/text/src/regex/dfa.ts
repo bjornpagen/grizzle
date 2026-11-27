@@ -14,7 +14,7 @@ import {
 } from "#text/regex/charset.ts"
 import type { Nfa } from "#text/regex/nfa.ts"
 import { type CharPartition, partitionOf } from "#text/regex/partition.ts"
-import { SearchSubsets, type Subset, subsetKey } from "#text/regex/subset.ts"
+import { SearchSubsets, type Subset, SubsetNumbers } from "#text/regex/subset.ts"
 import { cell, entry } from "#text/regex/table.ts"
 
 /**
@@ -92,7 +92,7 @@ type Construction =
  *
  * Each state's row is read whole (SearchSubsets targets): its set edges walked once, and one closure and one interning
  * for each distinct step, which the atoms holding it share, where each atom walked every edge of the state, closed over
- * its targets and interned the subset it reached, a sort and a join of its configurations (subsetKey): O(Σ atoms of the
+ * its targets and interned the subset it reached by its configurations' numbers (subset.ts SubsetNumbers): O(Σ atoms of the
  * set edges' sets + d·c) a state for d distinct steps of closures of c configurations, where it was O(k·(e + c)) for k
  * atoms and e set edges, most of a pattern's atoms leading most of its states to its restart closure. The charge and
  * the numbering stay the atom-by-atom construction's: each atom is charged its step's work and checked against the
@@ -107,21 +107,20 @@ const determinize = (nfa: Nfa, limits: DfaLimits): Construction => {
 	const { atomCount } = alphabet
 	let work = subsets.initial.work
 
-	const keys = new Map<string, number>()
+	const numbers = new SubsetNumbers()
 	const members: Array<Subset> = []
 	const next: Array<Int32Array> = []
 
 	const intern = (subset: Subset): number | undefined => {
-		const key = subsetKey(subset)
-		const known = keys.get(key)
-		if (known !== undefined) {
-			return known
+		const slot = numbers.slot(subset)
+		if (slot.number >= 0) {
+			return slot.number
 		}
 		if (members.length >= limits.maxStates) {
 			return undefined
 		}
 		const id = members.length
-		keys.set(key, id)
+		slot.number = id
 		members.push(subset)
 		next.push(new Int32Array(atomCount))
 		return id

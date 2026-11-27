@@ -18,14 +18,22 @@
  * Property, per case: the call of its depth's member over one to three owners, each nesting none, one or two items,
  * each of a Deep's items none, one or two parts, is accepted; its read-back holds one reading R; and the tables hold
  * exactly the call's rows, every owner's `until` R + budget and `due` R + delay, and every member's `due` its owner's,
- * R + delay, at every depth, a Flat's `held` and each of its items' `cu` its `until`. Oracle: the rule, every row of a call holds the call's one value of each computed field,
- * stated over the call's rows and its read-back reading.
+ * R + delay, at every depth, a Flat's `held` and each of its items' `cu` its `until`; or, where a Flat's or a Deep's
+ * queues start at 0, Listed or Queued refuses the call, witnessed by that owner's queue and its `due` named as the
+ * database's clock's (Witness `drawn`), since the host holds no reading of the clock, which the statement reads as
+ * transaction_timestamp, one value a call: never `unreported` and never a value guessed, a Flat's too, whose `held` is
+ * generated over its clocked `until`, which the host cannot evaluate, and whose NOT NULL the CHECK's refusal proves
+ * held. Oracle: the rule, every row of a call holds the call's one value
+ * of each computed field, stated over the call's rows and its read-back reading, and a key the database supplies a field
+ * of is named by its source.
  *
  * Kills: the database's clock read as clock_timestamp(), the instant a statement evaluates it, so the computed values
- * are no reading of the call's transaction and differ from the read-back's; and the computed fields left to the host,
- * whose rows state none, so each call is refused as its rows' encoding.
+ * are no reading of the call's transaction and differ from the read-back's; the computed fields left to the host,
+ * whose rows state none, so each call is refused as its rows' encoding; a computed field the host does not evaluate
+ * left unnamed, so the clocked key's refusal is `unreported`; and the clock's term named the call's.
  *
- * Features: each depth, several owners in one call, an owner nesting no member, a member nesting parts.
+ * Features: each depth, several owners in one call, an owner nesting no member, a member nesting parts, a Flat at queue
+ * 0, a Deep at queue 0.
  *
  * A key over a computed field: Slot(env, at, v) keyed (env, at), its insert computing `at` as the call's parameter `t`
  * cast into Span, den's served rows' (environment, at). Every row of one call holds the call's one `at`, which the host
@@ -43,28 +51,29 @@
  */
 
 import { assert } from "@bjornpagen/testing/assert"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
 import {
+	Computed,
 	type ComputedFeature,
 	computedFeatures,
 	computedInstall,
 	computedTemplate,
-	Computed,
 	type Computing,
 	computingGen,
 	situations,
-	type SlotFeature,
 	slotAnswer,
+	type SlotFeature,
 	slotFeatures,
 	type SlotRow,
 	slotSituations,
 	slottingGen,
-	Span
+	toSpan,
+	unqueuedOf
 } from "#test/pg/write/computed/computed.fixtures.ts"
 import { writeAnswerOf } from "#test/support/calls.ts"
 import { refusedLaws } from "#test/support/refused.ts"
@@ -136,8 +145,8 @@ export const everyRowOfACallHoldsItsOneValueOfEachComputedFieldTheOwnerAndEveryM
 							const names = o.installed.installation.names
 							return yield* Effect.gen(function* () {
 								const db = yield* Db.open(o.served.login.roles.app, {})
-								const budget = Span(c.budget)
-								const delay = Span(c.delay)
+								const budget = toSpan(c.budget)
+								const delay = toSpan(c.delay)
 								const answer = yield* writeAnswerOf(
 									c.depth === 0
 										? db.workload.lease.once({
@@ -171,6 +180,20 @@ export const everyRowOfACallHoldsItsOneValueOfEachComputedFieldTheOwnerAndEveryM
 													}
 												})
 								)
+								const unqueued = unqueuedOf(c)
+								if (unqueued !== undefined) {
+									assert.deepEqual(
+										"witness" in answer ? answer.witness : undefined,
+										{
+											kind: "drawn",
+											relation: unqueued.relation,
+											values: { q: unqueued.q },
+											drawn: { due: "clock" }
+										},
+										`${unqueued.relation === "Flat" ? "Listed" : "Queued"} refuses the ${unqueued.relation} at queue 0, its witness that owner's queue and its due, the call's reading of the database's clock plus its delay, named as the clock's, never a value guessed, whatever its generated fields over the clock: ${Formatter.format(answer)}`
+									)
+									return
+								}
 								if (answer.kind !== "accepted") {
 									return assert.fail(`the call is accepted, not ${answer.kind}`)
 								}
@@ -216,7 +239,24 @@ export const everyRowOfACallHoldsItsOneValueOfEachComputedFieldTheOwnerAndEveryM
 			kind: "specification",
 			name: "README's Writes: every row of a call holds the call's one value of each field its insert computes"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/write/computed/computed.test.ts#everyRowOfACallHoldsItsOneValueOfEachComputedFieldTheOwnerAndEveryMemberAlikeAtEveryDepth:7f.1:2.0.0.0.0.0"
+				),
+				reason:
+					"A clocked computed key refused: one Deep at queue 0, its key's due the call's reading of the database's clock plus a delay of 0. Queued refused it and the host found the row, `every`, but named no witness, `unreported`, since no host value holds the clock's reading, where main's ruling names the field as the clock's (after 2dfb79c4)",
+				since: "2026-11-27"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/write/computed/computed.test.ts#everyRowOfACallHoldsItsOneValueOfEachComputedFieldTheOwnerAndEveryMemberAlikeAtEveryDepth:ff.0:1.0.0.0.0.0"
+				),
+				reason:
+					"A Flat at queue 0 refused by Listed, its held generated over its until, the call's reading of the database's clock plus a budget of 0, which the host cannot evaluate: the host left Listed's verdict unjudged for its generated NOT NULL and named no witness, `unreported`, where the CHECK's refusal proves the NOT NULL held and the witness is its queue and its due drawn by the clock (after 6d3eee35)",
+				since: "2026-11-27"
+			}
+		],
 		kills: [
 			{
 				file: "packages/engine/src/sql/print.ts",
@@ -229,6 +269,26 @@ export const everyRowOfACallHoldsItsOneValueOfEachComputedFieldTheOwnerAndEveryM
 				original: "\t\tconst computed = strataComputed[s]?.get(relation)\n",
 				replacement: "\t\tconst computed = strataComputed[s + 1]?.get(relation)\n",
 				why: "No insert computes a field, so its host rows must state every one: the call's rows, which leave the computed fields out, are refused as their encoding, and no call is accepted."
+			},
+			{
+				file: "packages/engine/src/runtime/write/bind.ts",
+				original: "\t\t\t\tdrawn.set(field.name, field.source)",
+				replacement: "\t\t\t\tvoid field.source",
+				why: "A computed field the host does not evaluate is left unnamed, as before main's ruling on the clocked key: Queued's refusal of the Deep at queue 0, whose key's due the database's clock supplies, is witnessed `unreported`."
+			},
+			{
+				file: "packages/engine/src/write/program/decide.ts",
+				original: '\t\t\t\t\t\t? ("clock" as const)\n\t\t\t\t\t\t: ("call" as const)',
+				replacement: '\t\t\t\t\t\t? ("call" as const)\n\t\t\t\t\t\t: ("call" as const)',
+				why: "A computed field that reads the call's clock is named as the statement's term, not the clock's: the Deep's due, the database's clock reading plus its delay, is witnessed drawn by the call."
+			},
+			{
+				file: "packages/engine/src/runtime/write/witness.ts",
+				original:
+					'\t\t\tjudgedGeneration(field) !== undefined && reading.generated(field.name).kind === "null"',
+				replacement:
+					'\t\t\tjudgedGeneration(field) !== undefined && reading.generated(field.name).kind !== "value"',
+				why: "A generated field the host cannot evaluate is read as its NOT NULL refusing its row, as before main's ruling on the generated field over a drawn value: Listed's refusal of the Flat at queue 0, whose held is generated over its until, the database's clock reading plus its budget, finds no row and is witnessed `unreported`."
 			}
 		]
 	})
@@ -280,7 +340,7 @@ export const anInsertComputingAKeyFieldIsJudgedAtTheKeyAsTheTableHoldsTheRowsItW
 									const expected = slotAnswer(stored, call)
 									const answer = yield* writeAnswerOf(
 										db.workload.slot.once({
-											params: { t: Span(call.t) },
+											params: { t: toSpan(call.t) },
 											facts: { insert: { Slot: call.rows } }
 										})
 									)

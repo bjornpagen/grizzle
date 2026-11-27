@@ -10,7 +10,7 @@ import type { Result as Public } from "effect"
 import { hostText } from "#compiler/codec/scalar.ts"
 import { formFields, type OptionVocabulary } from "#compiler/core/decoder.ts"
 import { type CodecFault, type CompileError, malformedDescription } from "#compiler/core/errors.ts"
-import { parseDeclaredName } from "#compiler/core/identity.ts"
+import { parseDerivedName } from "#compiler/core/identity.ts"
 import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
 import type { PublicResult } from "#compiler/core/public-result.ts"
 import type { Roster } from "#compiler/ir/scalar.ts"
@@ -87,10 +87,10 @@ export const rowTextOver = <Q extends Decoders<unknown, unknown>>(
 		if (known !== undefined) {
 			return known
 		}
-		const declared = parseDeclaredName(name)
-		const roster = declared.ok ? state.schema.env.roster(declared.value) : undefined
+		const parsed = parseDerivedName(name)
+		const roster = parsed.ok ? state.schema.env.roster(parsed.value) : undefined
 		if (roster === undefined) {
-			throw defect(`a column's roster ${name} is one its query's schema declares`)
+			defect(`a column's roster ${name} is one its query's schema declares`)
 		}
 		rosters.set(name, roster)
 		return roster

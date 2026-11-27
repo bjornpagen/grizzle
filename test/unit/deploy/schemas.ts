@@ -4,19 +4,21 @@ import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { Bits, closedId, generated, pg } from "#compiler/public/fields.ts"
 import * as api from "#compiler/public/schema.ts"
 import {
-	alternatives,
 	type AuthoredStatementDesc,
 	check,
 	closed,
 	closedRelation,
 	contained,
+	eq,
 	f,
 	field,
 	ge,
 	key,
 	literal,
+	mirrors,
 	mutable,
 	on,
+	onWhere,
 	relation,
 	type SchemaDesc,
 	unit,
@@ -43,7 +45,17 @@ const automatic = (budget: FieldDesc) =>
 	relation("AutomaticTask", { task: f.uuid, budget }, ["task"])
 const ManualTask = relation("ManualTask", { task: f.uuid, operator: f.wildcard }, ["task"])
 
-/** Version 1: tables and a containment; no alternatives yet. */
+/** A kind's arm mirrored with the tasks of that kind: each such task has exactly its arm's row. */
+const kindArm = (arm: string, kind: string): ReadonlyArray<AuthoredStatementDesc> =>
+	mirrors(on(arm, ["task"]), onWhere("Task", ["id"], eq(field("kind"), literal(kind))))
+
+/** The two kinds' arms. */
+export const taskKinds: ReadonlyArray<AuthoredStatementDesc> = [
+	...kindArm("AutomaticTask", "Automatic"),
+	...kindArm("ManualTask", "Manual")
+]
+
+/** Version 1: tables and a containment; no kind's arm yet. */
 export const shopV1: SchemaDesc = {
 	name: "Shop",
 	relations: [Kind, Account, Task, automatic(Cents), ManualTask],
@@ -58,8 +70,8 @@ export const openTask: ReadonlyArray<AuthoredStatementDesc> = [
 	mutable("Task")
 ]
 
-/** Version 2: the alternatives over existing tables (each arm's containment into its parent and each handle's reverse
- * containment), a field added, a candidate key, a row check, the contract tightened, a roster added, and Task open. */
+/** Version 2: each kind's arm over existing tables (the arm's containment in its kind's tasks and theirs in the arm),
+ * a field added, a candidate key, a row check, the contract tightened, a roster added, and Task open. */
 export const shopV2: SchemaDesc = {
 	name: "Shop",
 	relations: [
@@ -74,7 +86,7 @@ export const shopV2: SchemaDesc = {
 	],
 	statements: [
 		contained(on("Task", ["account"]), on("Account", ["id"])),
-		alternatives(Task, "kind", Kind, { Automatic: automatic(Cents), Manual: ManualTask }),
+		...taskKinds,
 		key(on("Account", ["name"])),
 		check("WeightNonNegative", "Task", ge(field("weight"), literal(0))),
 		...openTask
@@ -88,7 +100,7 @@ export const shopV3: SchemaDesc = {
 	relations: [Kind, PriorityV2, Account, Task, automatic(CentsV2), ManualTask],
 	statements: [
 		contained(on("Task", ["account"]), on("Account", ["id"])),
-		alternatives(Task, "kind", Kind, { Automatic: automatic(Cents), Manual: ManualTask }),
+		...taskKinds,
 		key(on("Account", ["name"]))
 	],
 	bases: []
@@ -161,8 +173,8 @@ export const books2Declared: Declarations = {
 	drops: []
 }
 
-/** Version 4 of the shop: a third Kind handle, appended, and its arm, which adds that arm's containment and its
- * handle's reverse containment. */
+/** Version 4 of the shop: a third Kind handle, appended, and its arm, which adds that arm's containment in its kind's
+ * tasks and theirs in the arm. */
 const Kind3 = closed.ordered("Kind", ["Automatic", "Manual", "Scheduled"])
 const ScheduledTask = relation("ScheduledTask", { task: f.uuid, at: f.bigint }, ["task"])
 export const shopV4: SchemaDesc = {
@@ -170,11 +182,8 @@ export const shopV4: SchemaDesc = {
 	relations: [Kind3, PriorityV2, Account, Task, automatic(CentsV2), ManualTask, ScheduledTask],
 	statements: [
 		contained(on("Task", ["account"]), on("Account", ["id"])),
-		alternatives(Task, "kind", Kind3, {
-			Automatic: automatic(Cents),
-			Manual: ManualTask,
-			Scheduled: ScheduledTask
-		}),
+		...taskKinds,
+		...kindArm("ScheduledTask", "Scheduled"),
 		key(on("Account", ["name"]))
 	]
 }

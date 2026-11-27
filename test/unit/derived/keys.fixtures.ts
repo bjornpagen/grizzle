@@ -17,9 +17,11 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, Record as Rec, String as Str } from "effect"
 import { derivedKeyLayout } from "#compiler/analysis/derived/keys.ts"
+import { keyCarried } from "#compiler/analysis/logical/derived.ts"
 import type { DerivedRefusal, KeyFault } from "#compiler/core/causes.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
+import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { Fn, Type } from "#compiler/public/compute.ts"
 import { natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -51,13 +53,39 @@ export type KeyFeature =
 	| "a level over a derived relation"
 	| "a negation over a level whose conditional count is numeric"
 
-/** The rules every derived relation's keys keep (see the header). */
+/**
+ * A derived relation's heading in key order, its columns' names: those its definition carries from a declared key first
+ * (analysis/logical/derived.ts keyCarried), every other after, each part in heading order.
+ */
+export const keyOrder = (r: {
+	readonly name: string
+	readonly heading: ReadonlyArray<{ readonly name: string }>
+	readonly query: LogicalQuery
+}): ReadonlyArray<string> => {
+	const [root] = r.query.dag.roots
+	const carried = keyCarried(defined(root, `${r.name}: a definition's root`))
+	return [
+		...Arr.flatMap(r.heading, (c) => (carried.has(c.name) ? [c.name] : [])),
+		...Arr.flatMap(r.heading, (c) => (carried.has(c.name) ? [] : [c.name]))
+	]
+}
+
+/** Whether two keys hold the same columns, whatever their order. */
+export const sameColumns = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =>
+	deepEquals<ReadonlyArray<string>>(Arr.sort(a, Order.String), Arr.sort(b, Order.String))
+
+/**
+ * The rules every derived relation's keys keep (see the header). Key order is the heading's with the columns the
+ * definition carries from a declared key first (analysis/logical/derived.ts keyCarried), every other after, each part
+ * in heading order; one fact's one key is a single column, which no order moves.
+ */
 export const keyRules = (r: {
 	readonly name: string
 	readonly heading: ReadonlyArray<{ readonly name: string }>
 	readonly keys: ReadonlyArray<{ readonly fields: ReadonlyArray<string> }>
+	readonly query: LogicalQuery
 }): void => {
-	const position = new Map(Arr.map(r.heading, (col, i) => [col.name, i]))
+	const position = new Map(Arr.map(keyOrder(r), (name, i) => [name, i]))
 	const at = (field: string) => defined(position.get(field), `${r.name}.${field} in the heading`)
 	const keys = Arr.map(r.keys, (k) => k.fields)
 	assert.ok(keys.length > 0, `${r.name} has a key`)
@@ -65,7 +93,7 @@ export const keyRules = (r: {
 		assert.deepEqual(
 			Arr.sort(k, Order.mapInput(Order.Number, at)),
 			[...k],
-			`${r.name}: a key in heading order`
+			`${r.name}: a key in key order`
 		)
 	}
 	for (const [i, k] of keys.entries()) {
@@ -93,7 +121,7 @@ export const keyRules = (r: {
 					}
 					return false
 				})())
-		assert.ok(before, `${r.name}: narrowest first, then by heading position`)
+		assert.ok(before, `${r.name}: narrowest first, then by key-order position`)
 	}
 }
 
@@ -790,9 +818,7 @@ export const productLaws = (
 ): void => {
 	keyRules(r)
 	assert.ok(
-		Arr.every(r.keys, (k) =>
-			Arr.some(minimal, (m) => deepEquals<ReadonlyArray<string>>(m, k.fields))
-		),
+		Arr.every(r.keys, (k) => Arr.some(minimal, (m) => sameColumns(m, k.fields))),
 		`every key ${r.name} indexes is a minimal key`
 	)
 	unorderedEqual(

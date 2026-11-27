@@ -10,7 +10,7 @@ import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { predicateTable } from "#compiler/ir/expr.ts"
 import { textBoundsOf } from "#compiler/ir/scalar.ts"
 import { libraryCreate } from "#compiler/physical/ddl/library.ts"
-import { compiledExpr } from "#compiler/scalar/compute/evaluate.ts"
+import { compiledExpr, noParamLeaf } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -105,7 +105,12 @@ export const hostCut = (term: ReturnType<typeof cutLowered>, pair: CutPair): str
 	const table = predicateTable(term)
 	const value = succeeded(
 		compiledExpr(table)(
-			{ value: undefined, column: (ref) => columnOf(pair, ref.name), closed: () => undefined },
+			{
+				value: undefined,
+				column: (ref) => columnOf(pair, ref.name),
+				closed: () => undefined,
+				param: noParamLeaf
+			},
 			ProgramPatterns.of(tablePatterns(table))
 		),
 		"the host evaluates a cut"

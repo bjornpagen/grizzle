@@ -95,17 +95,27 @@ import {
 } from "#compiler/sql/naming.ts"
 
 /**
+ * A statement's query, its outermost output renamed to `names`, the public heading's, under `supply`'s names: the AST
+ * the statement keeps (printedStatement), and a composed statement's, which nothing prints (shapes/index.ts
+ * OptimizedDelivery, its text sql/emit.ts unprintedText).
+ */
+export const deliveredStatement = (
+	query: Select,
+	names: ReadonlyArray<string>,
+	supply: NameSupply
+): Select => unwrap(renameToPublicHeading(bindLaterally(query, supply), names))
+
+/**
  * A statement's query, its outermost output renamed to `names`, the public heading's, and printed under `supply`'s
  * names: the AST the statement keeps and the SQL it runs.
  */
-export const printedStatement = (
+const printedStatement = (
 	query: Select,
 	names: ReadonlyArray<string>,
 	supply: NameSupply
 ): { readonly ast: Select; readonly sql: EmittedSql } => {
-	const renamed = unwrap(renameToPublicHeading(bindLaterally(query, supply), names))
-	const printed = unwrap(emit(renamed, supply.map()))
-	return { ast: renamed, sql: printed }
+	const ast = deliveredStatement(query, names, supply)
+	return { ast, sql: unwrap(emit(ast, supply.map())) }
 }
 
 const sameOrder = (a: CompletedOrder, b: CompletedOrder): boolean =>

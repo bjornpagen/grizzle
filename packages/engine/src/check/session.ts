@@ -211,4 +211,14 @@ export class CheckSession {
 	closedKey(node: RelNode): string | undefined {
 		return this.#closed.get(node)
 	}
+
+	/**
+	 * Whether a node is a closed import the checks built (`closed`): a predicate that holds the session's table of them
+	 * alone and never the session, so analyses a compile keeps past its checks share the imports' annotations
+	 * (logical/annotate.ts SharedAnalyses) and keep none of the records and analyses the session holds.
+	 */
+	closedRoots(): (node: RelNode) => boolean {
+		const closed = this.#closed
+		return (node) => closed.has(node)
+	}
 }

@@ -23,7 +23,7 @@ export {
 	Xml
 } from "#compiler/public/compute.ts"
 export { date, Decimal, Money, pg, Vector } from "#compiler/public/fields.ts"
-export type { CalendarDate, Span, Uuid } from "#compiler/public/fields.ts"
+export type { CalendarDate, Marked, Span, Uuid } from "#compiler/public/fields.ts"
 export { param, query, v } from "#compiler/public/query.ts"
 export { paged, workload } from "#compiler/public/workload.ts"
 export type {
@@ -62,8 +62,11 @@ export {
 	Slot,
 	Stray,
 	Tag,
+	toCents,
 	Tone,
 	Tones,
 	ToneWeight
 } from "#test/support/agreement/schema.ts"
-export { Id } from "#test/support/ids.ts"
+export { Id, toId } from "#test/support/ids.ts"
+export type { IdKey } from "#test/support/ids.ts"
+export type { CentsKey } from "#test/support/agreement/schema.ts"

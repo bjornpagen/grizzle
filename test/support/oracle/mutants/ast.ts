@@ -243,6 +243,7 @@ class Rewriter {
 				const index = this.expr(e.index, ctx)
 				return array === e.array && index === e.index ? e : { ...e, array, index }
 			}
+			case "attribute":
 			case "between":
 			case "call":
 			case "case":
@@ -371,6 +372,8 @@ export const readsAlias = (e: Expr, alias: string): boolean => {
 		case "user":
 		case "regclass":
 			return false
+		case "attribute":
+			return readsAlias(e.record, alias)
 	}
 }
 

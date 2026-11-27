@@ -57,11 +57,22 @@ export const declaredGen: Gen<DeclaredCase> = (source) => {
  */
 export type DeclaredFeature = `kind ${Exclude<SketchedField["kind"], "pg">}` | `pg ${PgMember}`
 
-/** Contracts over bigint, each checked or not, the ones a relation declares, and the one a derived field is cast to. */
+/**
+ * Where a derived definition's cast stands: in its head; in an aggregate of its head, the ledger's LastPresence,
+ * `r.max(Type.cast(…, LastBeacon))`; or in the head of a query its definition imports, a canonical relation of its own,
+ * PresentTime's import, its pieces cast to PieceStart.
+ */
+export type CastSite = "head" | "max" | "import"
+
+/**
+ * Contracts over bigint, each checked or not, the ones a relation declares, the one a derived field is cast to, and
+ * where the cast stands.
+ */
 interface ContractCase {
 	readonly contracts: ReadonlyArray<boolean>
 	readonly declared: ReadonlyArray<number>
 	readonly target: number
+	readonly site: CastSite
 }
 
 /** A contract predicate VALUE >= 0, as Logic.ge records it. */
@@ -77,7 +88,8 @@ export const contractCaseGen: Gen<ContractCase> = (source) => {
 	return {
 		contracts,
 		declared: source.draw(subarray(upTo(contracts.length, (i) => i))),
-		target: source.draw(int(0, contracts.length - 1))
+		target: source.draw(int(0, contracts.length - 1)),
+		site: source.draw(element(["head", "max", "import"] as const))
 	}
 }
 

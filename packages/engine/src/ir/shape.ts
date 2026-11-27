@@ -950,7 +950,7 @@ const checkStructKeys = (
 const filled = <T>(keys: ReadonlyArray<keyof T & string>, out: Partial<T>): T => {
 	const complete = (o: Partial<T>): o is T => keys.every((key) => Object.hasOwn(o, key))
 	if (!complete(out)) {
-		throw defect("struct: every key of its key list was set")
+		defect("struct: every key of its key list was set")
 	}
 	return out
 }
@@ -1113,38 +1113,50 @@ type TaggedOf<T extends string, M> = { [K in keyof M & string]: TaggedCase<T, M,
 const singleton = <const T extends string, V>(key: T, value: V): Readonly<Record<T, V>> =>
 	nominal<Readonly<Record<string, V>>, Readonly<Record<T, V>>>()({ [key]: value })
 
-/** A union discriminated by the string property `key`; each case decodes the object without that property. */
-export const tagged = <const T extends string, M extends Readonly<Record<string, object>>>(
-	key: T,
-	cases: ShapesOf<M>
-): Shape<TaggedOf<T, M>> => {
-	const tags = Object.keys(cases)
-	const isTag = (tag: string): tag is keyof M & string => Object.hasOwn(cases, tag)
-	/** The case `tag` names, decoded from `copy`, what was read of the caller's object: the discriminator, then its fields. */
-	const caseOf = function* <K extends keyof M & string>(
-		tag: K,
-		copy: Readonly<Record<string, unknown>>,
-		path: DecodePath
-	): Decoding<{ [P in K]: TaggedCase<T, M, P> }[K]> {
-		const discriminator = singleton(key, tag)
-		return Object.freeze({ ...discriminator, ...(yield* cases[tag].fields(copy, path, key)) })
-	}
-	return plain({
-		expected: `an object with ${key} one of ${tags.join(", ")}`,
-		/** The caller's object stands on the path; the case decodes what was read of it. */
-		parse: function* (value, path) {
-			const object = readObject(value, path)
-			if (object.kind === "other") {
-				return refuse(path, `a plain object, not ${describe(value, path)}`)
-			}
-			const tag = object.copy[key]
-			if (typeof tag !== "string" || !isTag(tag)) {
-				return refuseAt(path, key, `one of ${tags.map((t) => JSON.stringify(t)).join(" | ")}`)
-			}
-			return yield* within(object.container, path, caseOf(tag, object.copy, path))
+/** The tags of the union U at its discriminator T: the cases a decoder of U holds (tagged). */
+type TagsOf<U, T extends keyof U> = U[T] & string
+
+/**
+ * A decoder of the union U discriminated by the string property `key`, one case for each tag of U and none other, each
+ * decoding the object without that property. The caller names U, the union it decodes into
+ * (`S.tagged<SourceDesc>()("kind", { ... })`), and the cases are held to its tags: a tag of U no case decodes is a
+ * compile error at the call, never a value of U refused as malformed where it is decoded, and so is a case of a tag U
+ * does not hold.
+ */
+export const tagged =
+	<U>() =>
+	<const T extends keyof U & string, M extends { readonly [K in TagsOf<U, T>]: object }>(
+		key: T,
+		stated: ShapesOf<M> & NoInfer<{ readonly [K in Exclude<keyof M, TagsOf<U, T>>]: never }>
+	): Shape<TaggedOf<T, M>> => {
+		const cases: ShapesOf<M> = stated
+		const tags = Object.keys(cases)
+		const isTag = (tag: string): tag is keyof M & string => Object.hasOwn(cases, tag)
+		/** The case `tag` names, decoded from `copy`, what was read of the caller's object: the discriminator, then its fields. */
+		const caseOf = function* <K extends keyof M & string>(
+			tag: K,
+			copy: Readonly<Record<string, unknown>>,
+			path: DecodePath
+		): Decoding<{ [P in K]: TaggedCase<T, M, P> }[K]> {
+			const discriminator = singleton(key, tag)
+			return Object.freeze({ ...discriminator, ...(yield* cases[tag].fields(copy, path, key)) })
 		}
-	})
-}
+		return plain({
+			expected: `an object with ${key} one of ${tags.join(", ")}`,
+			/** The caller's object stands on the path; the case decodes what was read of it. */
+			parse: function* (value, path) {
+				const object = readObject(value, path)
+				if (object.kind === "other") {
+					return refuse(path, `a plain object, not ${describe(value, path)}`)
+				}
+				const tag = object.copy[key]
+				if (typeof tag !== "string" || !isTag(tag)) {
+					return refuseAt(path, key, `one of ${tags.map((t) => JSON.stringify(t)).join(" | ")}`)
+				}
+				return yield* within(object.container, path, caseOf(tag, object.copy, path))
+			}
+		})
+	}
 
 /**
  * `step`'s answer, or the mismatch it refuses, taken off `path`, so a union can try its next alternative; an abort and

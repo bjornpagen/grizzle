@@ -62,10 +62,15 @@ interface FormParts {
 
 /**
  * Appends a number's word and spelling: its text, so 0 and -0 are one, as are any two NaNs, as a Map compares them
- * (SameValueZero), and every other two numbers two.
+ * (SameValueZero), and every other two numbers two; but -0 apart from 0 where `zeros` holds them apart, a variant's
+ * field's, whose variant's one equality, its identity, does (ir/codes.ts FieldLayout `zero`), as its key does.
  */
-const pushNumber = (value: number, into: FormParts): void => {
-	into.shape.push(formWords.number, String(value), formEnd)
+const pushNumber = (value: number, into: FormParts, zeros: "one" | "apart"): void => {
+	into.shape.push(
+		formWords.number,
+		zeros === "apart" && Object.is(value, -0) ? "-0" : String(value),
+		formEnd
+	)
 }
 
 /**
@@ -82,7 +87,7 @@ const pushForm = (value: unknown, into: FormParts): void => {
 			into.texts.push(value)
 			return
 		case "number":
-			pushNumber(value, into)
+			pushNumber(value, into, "one")
 			return
 		case "bigint":
 			into.shape.push(formWords.bigint, value.toString(), formEnd)
@@ -95,7 +100,7 @@ const pushForm = (value: unknown, into: FormParts): void => {
 			return
 		case "symbol":
 		case "function":
-			throw defect("a decoded value is a primitive, a list, a typed array, a set or a record")
+			defect("a decoded value is a primitive, a list, a typed array, a set or a record")
 		case "object":
 			break
 	}
@@ -105,7 +110,7 @@ const pushForm = (value: unknown, into: FormParts): void => {
 	}
 	if (Array.isArray(value)) {
 		into.shape.push(formWords.list)
-		pushNumber(value.length, into)
+		pushNumber(value.length, into, "one")
 		for (const element of value) {
 			pushForm(element, into)
 		}
@@ -113,15 +118,15 @@ const pushForm = (value: unknown, into: FormParts): void => {
 	}
 	if (value instanceof Uint8Array || value instanceof Float32Array) {
 		into.shape.push(value instanceof Uint8Array ? formWords.bytes : formWords.floats)
-		pushNumber(value.length, into)
+		pushNumber(value.length, into, "one")
 		for (const element of value) {
-			pushNumber(element, into)
+			pushNumber(element, into, "one")
 		}
 		return
 	}
 	if (value instanceof Set) {
 		into.shape.push(formWords.set)
-		pushNumber(value.size, into)
+		pushNumber(value.size, into, "one")
 		for (const member of value) {
 			pushForm(member, into)
 		}
@@ -129,11 +134,16 @@ const pushForm = (value: unknown, into: FormParts): void => {
 	}
 	const fields = Object.keys(value)
 	into.shape.push(formWords.record)
-	pushNumber(fields.length, into)
+	pushNumber(fields.length, into, "one")
 	for (const field of fields) {
 		into.shape.push(formWords.text)
 		into.texts.push(field)
-		pushForm(fieldOf(value, field), into)
+		const member = fieldOf(value, field)
+		if (typeof member === "number") {
+			pushNumber(member, into, "apart")
+		} else {
+			pushForm(member, into)
+		}
 	}
 }
 

@@ -69,16 +69,15 @@ export const aFloatsZeroCostsAStatementWorkExactlyWhereItsValueIsAFloatTheWorkIt
 			},
 			{
 				file: "packages/engine/src/ir/compare.ts",
-				original: "\t\tconst carrier = floatCarrierOf(sides.typeOf(field))",
-				replacement: '\t\tconst carrier = floatCarrierOf(sides.typeOf(field)) ?? "float8"',
+				original: "\t\tconst carrier = nonIdentityCarrierOf(sides.typeOf(field))",
+				replacement: '\t\tconst carrier = nonIdentityCarrierOf(sides.typeOf(field)) ?? "float8"',
 				why: "Every field of a written fact compares its zero's sign byte, as a float's does; a write of any other type does the work, and the property fails."
 			},
 			{
 				file: "packages/engine/src/ir/scalar.ts",
-				original:
-					"export const isFloat = (t: ScalarType): boolean => floatCarrierOf(t) !== undefined",
-				replacement: "export const isFloat = (_t: ScalarType): boolean => true",
-				why: "Every merged value takes the canonical zero, as a float's does; a merge of any other type asks a canonical zero no type but a float's has, and the property fails."
+				original: "\t!equalityIsIdentityOf[carrier]",
+				replacement: "\ttrue",
+				why: "Every carrier's equality reads as no identity, as a float's does: every merged value takes the canonical form, and a merge of any other type asks a canonical form no type but a float's has, and the property fails."
 			}
 		]
 	})

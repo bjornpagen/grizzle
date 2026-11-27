@@ -10,7 +10,6 @@ import type { Refused } from "#compiler/core/refusals.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { NodeOf, RelNode } from "#compiler/ir/rel.ts"
-import { arm } from "#compiler/query/build/attach.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { AccountTally, Tallies } from "#test/support/agreement/deliver-tally.ts"
@@ -32,23 +31,19 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
  * maybe is ordered or ordered and taken once, and is one rule, a union of two of one heading, or of two headings. A
  * child of one rule heading its own fields may hold a nested attachment of its own, drawn as a child of that child
  * (nestedOf), each attachment delivered by its own evidence and stated under its own directive. The stated delivery is
- * drawn: an array, an Option, the one child, or arm(field, handle) of a parent's head field and a
- * handle of Kind, written as a literal or through a `string`. The engine compiles the attached query in the snapshot
- * context and proves each attachment's delivery (core/decoder.ts licenses): an array always; an Option where it proves
- * at most one child; the one child where it proves exactly one. An arm needs the child the engine proves at most one
- * per parent to be the arm of its handle, which the alternatives law over Task makes it (armClaim): the child's only
- * clause a match of an arm relation keyed by the parent's Task.id of one scope, every other binding its own variable,
- * its field the parent's head field of that scope's Task.kind, and its handle that arm's, one literal. A child of two
+ * drawn: an array, an Option or the one child. The engine compiles the attached query in the snapshot context and
+ * proves each attachment's delivery (core/decoder.ts licenses): an array always; an Option where it proves at most one
+ * child; the one child where it proves exactly one. A child of two
  * headings, which one attachment statement cannot deliver, and an attachment named as a field of its parent are the
  * engine's own refusals, and so is a child written over DeliverApart, a schema of Deliver's relations that is no level
  * of the parent's (ForeignLevel), which the types refuse as no child of the parent's schema. The program states each
  * refusal under its directive at the child's line or the name's, and
  * each admitted one's records, of a snapshot read and of a read inside a write transaction, as the engine decodes them:
- * the parent's and the child's records, and the child under the delivery stated, its arm narrowed to Some where the
- * parent's field holds the handle and None elsewhere, and a read-back's one child or arm an Option (readBack), which the
+ * the parent's and the child's records, and the child under the delivery stated, and a read-back's one child an Option
+ * (readBack), which the
  * engine must prove in the transaction context (transactionFaults), and which a ChangeSet's read-back of it delivers.
  *
- * The floor's witnesses, the same in every run, reach every delivery admitted and refused, every arm refusal, both of
+ * The floor's witnesses, the same in every run, reach every delivery admitted and refused, both of
  * the engine's own refusals, every proof of the one child (a containment into an ordinary relation, into a closed one,
  * a composite one, a reflexive aggregate), a self-join parent, a derived parent, every shape of child, and a nested
  * attachment admitted and refused.
@@ -147,12 +142,6 @@ const children: Arr.NonEmptyReadonlyArray<Rel> = [
 	"PlanBudget"
 ]
 
-/** The arm relations of the alternatives law over Task, by the handle of Kind each is the arm of. */
-const armOf: { readonly [R in Rel]?: "Automatic" | "Manual" } = {
-	AutomaticTask: "Automatic",
-	ManualTask: "Manual"
-}
-
 /** A parent's head field: its name, and the field of the scope (0 or 1) its variable is minted at. */
 interface HeadField {
 	readonly name: string
@@ -199,16 +188,7 @@ interface Child {
 }
 
 /** The delivery an attachment states. */
-type Stated =
-	| { readonly kind: "array" }
-	| { readonly kind: "option" }
-	| { readonly kind: "one" }
-	| {
-			readonly kind: "arm"
-			readonly field: string
-			readonly handle: "Automatic" | "Manual"
-			readonly spelling: "literal" | "widened"
-	  }
+type Stated = { readonly kind: Delivery }
 
 /** An attachment: its parent, its child, and its stated delivery. */
 interface Attachment {
@@ -240,7 +220,7 @@ const headName = (scope: 0 | 1, field: Field): string =>
  * key, into an ordinary relation, a closed one or a composite key; a closed child bound by a field its facts tell apart
  * and its declaration does not key (PlanBudget by its budget), at most one per parent by the facts alone; a reflexive
  * count over the parent's own relation;
- * a child keyed by the parent, which is at most one per parent; an arm of the alternatives law over Task; a child of
+ * a child keyed by the parent, which is at most one per parent, an arm of Task's kind among them; a child of
  * Account keyed by a derived parent's account (./deliver-tally.ts), which no containment reaches, so its key proves at
  * most one owner per tally and never exactly one; or a free child. Each draws the parent's head the proof reads and the child the proof makes, then perturbs it: a filter, an
  * order, a take, a second rule, a binding of its own, each of which the engine decides.
@@ -252,15 +232,14 @@ const intents = [
 	"composite",
 	"reflexive",
 	"keyed",
-	"arm",
 	"derived",
 	"free"
 ] as const
 type Intent = (typeof intents)[number]
 
 /**
- * The intents a case draws, an arm's, the containments' and a reflexive count's more often, whose refusals and proofs
- * need the most draws.
+ * The intents a case draws, the containments' and a reflexive count's more often, whose refusals and proofs need the
+ * most draws.
  */
 const intentGen: Gen<Intent> = weighted<Intent>([
 	[2, constant("containment")],
@@ -268,8 +247,7 @@ const intentGen: Gen<Intent> = weighted<Intent>([
 	[2, constant("facts")],
 	[3, constant("composite")],
 	[2, constant("reflexive")],
-	[1, constant("keyed")],
-	[5, constant("arm")],
+	[2, constant("keyed")],
 	[1, constant("derived")],
 	[1, constant("free")]
 ])
@@ -283,15 +261,7 @@ interface Plan {
 }
 
 /** The intents whose plans are fixed: each one's plans, drawn among. */
-const fixedIntents = [
-	"containment",
-	"closed",
-	"facts",
-	"derived",
-	"composite",
-	"keyed",
-	"arm"
-] as const
+const fixedIntents = ["containment", "closed", "facts", "derived", "composite", "keyed"] as const
 type FixedIntent = (typeof fixedIntents)[number]
 
 const fixedPlans: { readonly [I in FixedIntent]: Arr.NonEmptyReadonlyArray<Plan> } = {
@@ -326,9 +296,7 @@ const fixedPlans: { readonly [I in FixedIntent]: Arr.NonEmptyReadonlyArray<Plan>
 	keyed: [
 		{ parent: "Task", heads: ["id"], child: "TaskNote", bound: [["task", "id"]] },
 		{ parent: "Account", heads: ["id"], child: "Label", bound: [["account", "id"]] },
-		{ parent: "TaskLabel", heads: ["task"], child: "Task", bound: [["id", "task"]] }
-	],
-	arm: [
+		{ parent: "TaskLabel", heads: ["task"], child: "Task", bound: [["id", "task"]] },
 		{ parent: "Task", heads: ["id", "kind"], child: "AutomaticTask", bound: [["task", "id"]] },
 		{ parent: "Task", heads: ["id", "kind"], child: "ManualTask", bound: [["task", "id"]] }
 	]
@@ -360,7 +328,6 @@ const planOf = (source: Source, intent: Intent): Plan => {
 		case "derived":
 		case "composite":
 		case "keyed":
-		case "arm":
 			return source.draw(element(fixedPlans[intent]))
 		case "reflexive": {
 			const parent = source.draw(element(parents))
@@ -553,31 +520,13 @@ const correlated = (
 }
 
 /**
- * A delivery stated over `parent` and `child`: an array, an Option, the one child or an arm of a parent's field, an
- * arm's field and handle mostly the ones the plan's arm would state, and the one child more often where the intent is
- * a proof of it. A child of two headings states an array, so the engine's one refusal of it is the case's one.
+ * A delivery stated over `parent` and `child`: an array, an Option or the one child, the one child more often where the
+ * intent is a proof of it. A child of two headings states an array, so the engine's one refusal of it is the case's
+ * one.
  */
-const statedOf = (source: Source, parent: Parent, child: Child, intent: Intent): Stated => {
+const statedOf = (source: Source, child: Child, intent: Intent): Stated => {
 	if (child.arms === "apart") {
 		return { kind: "array" }
-	}
-	const armed = intent === "arm" ? !coin(source, 3) : coin(source, 8)
-	if (armed) {
-		const kinds = Arr.filter(parent.head, (h) => h.scope === 0 && h.field.name === "kind")
-		const field =
-			Arr.isReadonlyArrayNonEmpty(kinds) && !coin(source, 3)
-				? kinds[0].name
-				: source.draw(element(parent.head)).name
-		const handle = handleOfArm(child.rel)
-		return {
-			kind: "arm",
-			field,
-			handle:
-				handle !== undefined && !coin(source, 4)
-					? handle
-					: source.draw(element(["Automatic", "Manual"] as const)),
-			spelling: coin(source, 4) ? "widened" : "literal"
-		}
 	}
 	const proving =
 		intent === "containment" ||
@@ -625,7 +574,7 @@ const nestedOf = (source: Source, parent: Parent): Attachment => {
 	const [intent, plan] = nestedPlanOf(source, parent)
 	const drawn = childOf(source, plan, parent, intent)
 	const child: Child = { ...drawn, arms: drawn.arms === "apart" ? "one" : drawn.arms }
-	return { parent, child, stated: statedOf(source, parent, child, intent) }
+	return { parent, child, stated: statedOf(source, child, intent) }
 }
 
 /**
@@ -663,7 +612,7 @@ const specOf = (source: Source, intent: Intent): AttachSpec => {
 		parent,
 		name: "child",
 		child,
-		stated: statedOf(source, parent, child, intent),
+		stated: statedOf(source, child, intent),
 		nested: asParent !== undefined && coin(source, 3) ? nestedOf(source, asParent) : undefined
 	}
 }
@@ -753,16 +702,7 @@ const childSource = (child: Child): string => {
 }
 
 /** The stated delivery, in the program. */
-const statedSource = (stated: Stated): string => {
-	switch (stated.kind) {
-		case "array":
-		case "option":
-		case "one":
-			return jsonText(stated.kind)
-		case "arm":
-			return `arm(${jsonText(stated.field)}, ${stated.spelling === "literal" ? jsonText(stated.handle) : "anyHandle"})`
-	}
-}
+const statedSource = (stated: Stated): string => jsonText(stated.kind)
 
 /** The relations of Deliver and its derived parent, by name, as the JavaScript view reads them. */
 const relations: Readonly<Record<Rel, unknown>> = { ...Deliver.relations, AccountTally }
@@ -854,24 +794,16 @@ const builtChild = (child: Child, p: Readonly<Record<string, unknown>>): unknown
 	}
 }
 
-/** The delivery a stated one is read under by the analysis: an arm is at most one child, as an Option is. */
-const deliveryOf = (stated: Stated): Delivery => (stated.kind === "arm" ? "option" : stated.kind)
-
-/** How a read inside a write transaction reads each stated delivery: the one child and an arm as an Option. */
+/** How a read inside a write transaction reads each stated delivery: the one child as an Option. */
 const readBack = (stated: Stated): Delivery => {
 	switch (stated.kind) {
 		case "array":
 			return "array"
 		case "option":
 		case "one":
-		case "arm":
 			return "option"
 	}
 }
-
-/** The stated delivery, through the JavaScript view. */
-const statedValue = (stated: Stated): unknown =>
-	stated.kind === "arm" ? arm(stated.field, stated.handle) : stated.kind
 
 /**
  * The parent with its attachment, built through the JavaScript view: its child, or, where it holds a nested attachment,
@@ -889,55 +821,11 @@ const builtAttached = (spec: AttachSpec): QueryValue =>
 						.attach(
 							nestedName,
 							(q: Readonly<Record<string, unknown>>) => builtChild(nested.child, q),
-							statedValue(nested.stated)
+							nested.stated.kind
 						)
 		},
-		statedValue(spec.stated)
+		spec.stated.kind
 	)
-
-/** The arm relations' handles: the handle of Kind whose arm a child's relation is, where it is one. */
-const handleOfArm = (rel: Rel): "Automatic" | "Manual" | undefined => armOf[rel]
-
-/**
- * The arm claim the alternatives law over Task makes of a stated arm (see the header): the refusal the types name
- * where the claim fails, in the order the types read it, and none where it holds.
- */
-const armClaim = (
-	spec: Attachment,
-	stated: Extract<Stated, { readonly kind: "arm" }>
-): Refused | undefined => {
-	const handle = handleOfArm(spec.child.rel)
-	const keyedBy = Arr.flatMap(spec.child.bindings, ([f, t]) =>
-		f === "task" && t.kind === "parent" ? [t.name] : []
-	)
-	const others = Arr.every(spec.child.bindings, ([f, t]) => f === "task" || t.kind === "own")
-	const keyField = Arr.findFirst(
-		spec.parent.head,
-		(h) => Arr.contains(keyedBy, h.name) && h.field.name === "id"
-	)
-	const armShaped =
-		spec.parent.rel === "Task" &&
-		others &&
-		spec.child.filter === undefined &&
-		spec.child.head.kind === "own" &&
-		spec.child.shape !== "first" &&
-		spec.child.arms === "one"
-	if (handle === undefined || Option.isNone(keyField) || !armShaped) {
-		return "an arm needs a child that is the arm of one handle of an alternatives law, keyed by the parent's key"
-	}
-	const scope = keyField.value.scope
-	const kinds = Arr.filter(spec.parent.head, (h) => h.scope === scope && h.field.name === "kind")
-	const [discriminator] = kinds
-	if (kinds.length !== 1 || discriminator === undefined || discriminator.name !== stated.field) {
-		return "the arm's field is the parent's head field that holds its discriminator"
-	}
-	if (stated.spelling === "widened") {
-		return "the arm's handle is one literal"
-	}
-	return stated.handle === handle
-		? undefined
-		: "the arm's handle is the handle the child is the arm of"
-}
 
 /** Where a refusal's directive stands: above the attachment's name, its child, or its nested attachment's child. */
 type AttachAt = "name" | "child" | "nested"
@@ -1012,10 +900,7 @@ const capturedFields = (
 /** How a read delivers an attachment: a snapshot read as stated, a read-back as readBack reads it. */
 type Read = "snapshot" | "readBack"
 
-/**
- * A record of `fields` with the attachment `name` of the child records `child` delivered as `stated` under `read`: a
- * snapshot read's arm narrows the field it names, Some where it holds the handle and None elsewhere.
- */
+/** A record of `fields` with the attachment `name` of the child records `child` delivered as `stated` under `read`. */
 const attachedRecord = (
 	fields: ReadonlyArray<readonly [string, string]>,
 	name: string,
@@ -1033,34 +918,10 @@ const attachedRecord = (
 				return child
 		}
 	}
-	if (read === "readBack") {
-		return recordType([...fields, [name, delivered(readBack(stated))]])
-	}
-	if (stated.kind !== "arm") {
-		return recordType([...fields, [name, delivered(stated.kind)]])
-	}
-	const others = Arr.filter(["Automatic", "Manual"] as const, (h) => h !== stated.handle)
-	const narrowed = (handle: string, d: string): string =>
-		recordType([
-			...Arr.map(
-				fields,
-				([field, type]) => [field, field === stated.field ? handle : type] as const
-			),
-			[name, d]
-		])
-	return Arr.join(
-		[
-			narrowed(jsonText(stated.handle), `Option.Some<${child}>`),
-			narrowed(
-				Arr.join(
-					Arr.map(others, (h) => jsonText(h)),
-					" | "
-				),
-				`Option.None<${child}>`
-			)
-		],
-		" | "
-	)
+	return recordType([
+		...fields,
+		[name, delivered(read === "readBack" ? readBack(stated) : stated.kind)]
+	])
 }
 
 /** An attachment with the node of the analyzed DAG that delivers it. */
@@ -1146,7 +1007,7 @@ const engineRefusal = (spec: AttachSpec, reason: CompileReason): AttachRefused |
 /** Why the types refuse a child over no level of its parent's schema: no child of that schema (types/query Child). */
 const foreignChild = "an attachment child is a query over a level of the parent's schema"
 
-/** The refusal the types name for a stated delivery the engine does not license, or an arm the law does not make. */
+/** The refusal the types name for a stated delivery the evidence they read does not license. */
 const claimRefusal = (spec: Attachment, proved: Delivery): Refused | undefined => {
 	const stated = spec.stated
 	switch (stated.kind) {
@@ -1160,8 +1021,6 @@ const claimRefusal = (spec: Attachment, proved: Delivery): Refused | undefined =
 			return licenses(proved, "one")
 				? undefined
 				: "the one child needs a child the evidence proves exactly one per parent"
-		case "arm":
-			return armClaim(spec, stated)
 	}
 }
 
@@ -1254,8 +1113,10 @@ const attachVerdict = (spec: AttachSpec): AttachVerdict => {
 		return { kind: "refused", refused, factsDecide }
 	}
 	for (const [a] of analyzed) {
-		if (!licenses(a.node.delivered, deliveryOf(a.attachment.stated))) {
-			return failed(`the law makes the child an arm the engine proves only as ${a.node.delivered}`)
+		if (!licenses(a.node.delivered, a.attachment.stated.kind)) {
+			return failed(
+				`the types admit the child as ${a.attachment.stated.kind}, which the engine proves only as ${a.node.delivered}`
+			)
 		}
 	}
 	return {
@@ -1315,7 +1176,7 @@ const sourceOf = (spec: AttachSpec): string =>
 
 /** What an attachment case reached: its intent's proof, its shapes, its stated delivery and the verdict. */
 export type AttachNote =
-	| `${Delivery | "arm"} admitted`
+	| `${Delivery} admitted`
 	| `refused: ${Refused}`
 	| "one into an ordinary relation"
 	| "one into a closed relation"
@@ -1401,75 +1262,17 @@ const caseOf = (spec: AttachSpec): AttachCase => {
 export const attachCases: Gen<AttachCase> = (source) => caseOf(specGen(source))
 
 /**
- * How an arm is misstated: under a field other than the parent's discriminator, with its handle widened to a string,
- * or with a literal handle other than the one the child is the arm of; each the one fault of an arm stated otherwise as
- * the alternatives law makes it.
- */
-type Misstated = "field" | "widened" | "handle"
-
-/**
- * An attachment drawn as an arm of its plan's child, misstated as `misstated` says and otherwise stated as the law
- * makes it: under the parent's discriminator, where it has one, with the literal handle the child is the arm of. Where
- * the plan draws the arm's shape, an arm the alternatives law refuses for that misstatement alone.
- */
-const misstatedArm =
-	(misstated: Misstated): Gen<AttachCase> =>
-	(source) => {
-		const plan = planOf(source, "arm")
-		const parent = parentOf(source, plan)
-		const child = childOf(source, plan, parent, "arm")
-		const discriminator = Arr.findFirst(
-			parent.head,
-			(h) => h.scope === 0 && h.field.name === "kind"
-		)
-		const others = Arr.filter(parent.head, (h) =>
-			Option.match(discriminator, { onNone: () => true, onSome: (d) => h.name !== d.name })
-		)
-		const field =
-			misstated === "field" && Arr.isReadonlyArrayNonEmpty(others)
-				? source.draw(element(others)).name
-				: Option.getOrElse(
-						Option.map(discriminator, (h) => h.name),
-						() => source.draw(element(parent.head)).name
-					)
-		const handle = handleOfArm(child.rel) ?? "Automatic"
-		return caseOf({
-			parent,
-			name: "child",
-			child,
-			stated: {
-				kind: "arm",
-				field,
-				handle: misstated === "handle" ? (handle === "Automatic" ? "Manual" : "Automatic") : handle,
-				spelling: misstated === "widened" ? "widened" : "literal"
-			},
-			nested: undefined
-		})
-	}
-
-/**
  * The drawn attachments, aimed where it is pending at a closed relation whose facts decide the delivery, drawn toward
- * that intent, and at each misstated arm: a refusal whose arm the plan's shape and the parent's discriminator must both
- * meet, which a drawn case rarely does.
+ * that intent.
  */
 export const attachAimed = aimed(attachCases, [
-	["a closed relation's facts decide the delivery", (source) => caseOf(specOf(source, "facts"))],
-	[
-		"refused: the arm's field is the parent's head field that holds its discriminator",
-		misstatedArm("field")
-	],
-	["refused: the arm's handle is one literal", misstatedArm("widened")],
-	["refused: the arm's handle is the handle the child is the arm of", misstatedArm("handle")]
+	["a closed relation's facts decide the delivery", (source) => caseOf(specOf(source, "facts"))]
 ])
 
 /** The refusals the attachment population names, every one of which its witnesses reach. */
 const attachRefusals: Arr.NonEmptyReadonlyArray<Refused> = [
 	"an Option needs a child the evidence proves at most one per parent",
 	"the one child needs a child the evidence proves exactly one per parent",
-	"an arm needs a child that is the arm of one handle of an alternatives law, keyed by the parent's key",
-	"the arm's field is the parent's head field that holds its discriminator",
-	"the arm's handle is one literal",
-	"the arm's handle is the handle the child is the arm of",
 	"a new field name for the attachment",
 	"an attached heterogeneous union; one attachment statement delivers one heading"
 ]
@@ -1483,7 +1286,6 @@ export const attachRequired: Arr.NonEmptyReadonlyArray<AttachNote> = [
 	"array admitted",
 	"option admitted",
 	"one admitted",
-	"arm admitted",
 	"one into an ordinary relation",
 	"one into a closed relation",
 	"one through a composite containment",
@@ -1502,7 +1304,7 @@ export const attachRequired: Arr.NonEmptyReadonlyArray<AttachNote> = [
 
 /**
  * Where a case's read-back delivery is one the engine does not prove in the transaction context: nowhere, since a read
- * inside a write transaction reads the one child and an arm as an Option, which the immediate evidence proves. Each
+ * inside a write transaction reads the one child as an Option, which the immediate evidence proves. Each
  * fault is the attachment's source and why; a refused case has none.
  */
 export const transactionFaults = (c: AttachCase): ReadonlyArray<string> => {
@@ -1599,12 +1401,6 @@ export const attachProgram = (
 							? [
 									"/** The relations of Deliver the cases match. */",
 									`const { ${Arr.join(relationsRead, ", ")} } = Deliver.relations`
-								]
-							: []),
-						...(read.has("anyHandle")
-							? [
-									"/** An arm's handle spelled through a string, which the types refuse. */",
-									"declare const anyHandle: string"
 								]
 							: []),
 						...(read.has("Expect")

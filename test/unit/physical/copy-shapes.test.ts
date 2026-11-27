@@ -5,7 +5,9 @@
  * installation's compile makes in the copy plan's module and in the forms' module (ir/dag-digest.ts) increment no more
  * from 4h to 6h deep than from 2h to 4h (test/support/growth.ts incrementsDoNotGrow, exact). A plan that wrote the
  * positional form of every candidate wrote each nested sub-query's whole reach again for each one enclosing it, the sum
- * of their reaches, which grows with the square of the depth.
+ * of their reaches, which grows with the square of the depth; and a form that wrote the relations each node and its
+ * inputs read (ir/dag-digest.ts ownMeta) named every relation below it at each node, the square again, once a
+ * definition's every closed sub-expression is formed (analysis/derived/canonical.ts, 8a2fe37d5a).
  *
  * The count is work, never time: V8's precise coverage counts every function's calls in the two modules (kernel/calls.ts
  * everyCallCount). The box is exhausted: h at 1 and 2.
@@ -59,6 +61,12 @@ export const theCopyPlansWorkIsLinearInItsStatementWritingNoFormOfACandidateWhos
 				original: "\t\tif (!shared.has(node) || heldOutside(node)) {\n",
 				replacement: "\t\tif (heldOutside(node)) {\n",
 				why: "Every candidate's positional form is written, each its whole reach: a nested sub-query's reach is written again for each one enclosing it, the digests' calls grow with the square of the depth, and the property fails."
+			},
+			{
+				file: "packages/engine/src/ir/dag-digest.ts",
+				original: "\tconst { paramDeps: _paramDeps, reads: _reads, ...own } = meta\n\treturn own\n",
+				replacement: "\treturn meta\n",
+				why: "Each node's form writes the stored relations it and its inputs read: a nested union's node names every relation below it, so the forms of a nest grow with the square of its depth, and the property fails."
 			}
 		]
 	})

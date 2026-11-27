@@ -23,7 +23,7 @@ import {
 	testCompile
 } from "#test/support/compile.ts"
 import { AutomaticTask, ManualTask, Task, Work } from "#test/support/fixtures/api/work.ts"
-import { Id, type IdValue } from "#test/support/ids.ts"
+import { Id, type IdValue, toId } from "#test/support/ids.ts"
 import { checking } from "#test/support/policy.ts"
 
 /** Schemas and ChangeSets for the write front end tests, over the real builders: the worked
@@ -56,7 +56,7 @@ export const compiled = (schemaValue: FixtureSchema, value: unknown): WriteFront
 	succeeded(compileChangeSet(checking(schemaValue), descOf(value), frontendOptions(schemaValue)))
 
 export const uuidOf = (n: number): IdValue =>
-	Id(`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`)
+	toId(`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`)
 
 /** The worked example's arm switch, described. */
 export const switchToManual = (): ChangeSetValue =>

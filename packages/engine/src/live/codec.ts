@@ -61,12 +61,12 @@ import {
 	type WireJson,
 	type WireScalar
 } from "#compiler/live/wire.ts"
-import type { BrokenLaws, Witness } from "#compiler/types/changeset/changeset.ts"
+import type { BrokenLaws, DrawnBy, Witness } from "#compiler/types/changeset/changeset.ts"
 
 /** An own member of a value the server holds, which its shape says it has: a defect where it has none. */
 const ownMember = (value: unknown, name: string): unknown => {
 	if (typeof value !== "object" || value === null || !Object.hasOwn(value, name)) {
-		throw defect(`a wire value holding its member ${name}`)
+		defect(`a wire value holding its member ${name}`)
 	}
 	return Reflect.getOwnPropertyDescriptor(value, name)?.value
 }
@@ -105,7 +105,7 @@ const encodeField = (
 			switch (field.delivery) {
 				case "array":
 					if (!isList(value)) {
-						throw defect("an array attachment's children")
+						defect("an array attachment's children")
 					}
 					return value.map((child) => encodeRecord(field.child, child, options))
 				case "option":
@@ -113,10 +113,6 @@ const encodeField = (
 				case "one":
 					return encodeRecord(field.child, value, options)
 			}
-		case "arm":
-		case "some":
-		case "none":
-			return encodeOption(field.child, value, options)
 	}
 }
 
@@ -127,7 +123,7 @@ const encodeOption = (
 	options: WireOptions
 ): WireJson => {
 	if (!options.is(value)) {
-		throw defect("an Option of a child record")
+		defect("an Option of a child record")
 	}
 	return options.fold(value, {
 		onNone: (): WireJson => null,
@@ -142,11 +138,11 @@ export const encodeRecord = (
 	options: WireOptions
 ): WireJson => {
 	if (typeof row !== "object" || row === null) {
-		throw defect("a delivered record")
+		defect("a delivered record")
 	}
 	const heading = headingOf(record, row)
 	if (heading === undefined) {
-		throw defect("a delivered record of one of its record's headings")
+		defect("a delivered record of one of its record's headings")
 	}
 	const out: Record<string, WireJson> = {}
 	for (const named of heading) {
@@ -176,12 +172,6 @@ const decodeField = (
 				case "one":
 					return decodeRecord(field.child, json, options)
 			}
-		case "arm":
-			return decodeOption(field.child, json, options)
-		case "some":
-			return options.some(decodeRecord(field.child, json, options))
-		case "none":
-			return options.none
 	}
 }
 
@@ -201,7 +191,7 @@ export const decodeRecord = (
 	const object = trustedRecord(json)
 	const heading = headingOf(record, object)
 	if (heading === undefined) {
-		throw defect("a wire record of one of its record's headings")
+		defect("a wire record of one of its record's headings")
 	}
 	return frozenRecordOf(
 		heading.map((named) => [
@@ -228,7 +218,7 @@ export const encodeKey = (
 	value: RowKey
 ): WireJson => {
 	if (value.length !== key.length) {
-		throw defect("a key of its stream's key columns")
+		defect("a key of its stream's key columns")
 	}
 	return key.map((column, at) => encodeKeyColumn(column, value[at]))
 }
@@ -247,7 +237,7 @@ export const decodeKey = (key: ReadonlyArray<WireKeyColumn<WireScalar>>, json: W
 		trustedArray(json).map((item, at) => {
 			const column = key[at]
 			if (column === undefined) {
-				throw defect("a key of its stream's key columns")
+				defect("a key of its stream's key columns")
 			}
 			return decodeKeyColumn(column, item)
 		})
@@ -346,7 +336,7 @@ const walkInput = <V, P, F, K, N>(
 ): Read<WalkedInput<P, F, K, N>> => {
 	const column = (field: WireField<WireScalar>, given: unknown, at: Path): Read<V> => {
 		if (field.kind !== "scalar" && field.kind !== "constant") {
-			throw defect("an input field of a scalar")
+			defect("an input field of a scalar")
 		}
 		return door.column(field, given, at)
 	}
@@ -367,7 +357,7 @@ const walkInput = <V, P, F, K, N>(
 	): Read<V> => {
 		const level = levels[index]
 		if (level === undefined) {
-			throw defect("a fact's level among its levels")
+			defect("a fact's level among its levels")
 		}
 		return Result.flatMap(door.fact(given, level, at), ({ heading, members }) =>
 			Result.flatMap(
@@ -730,7 +720,7 @@ const plainJson = (value: unknown): WireJson => {
 		}
 		return out
 	}
-	throw defect("plain data of a refusal")
+	defect("plain data of a refusal")
 }
 
 /** The witness relation a key witness names, among the role's. */
@@ -740,7 +730,7 @@ const witnessOf = (
 ): WireWitness<WireScalar> => {
 	const found = witness.find((w) => w.relation === relation)
 	if (found === undefined) {
-		throw defect("a witness of one of its role's relations")
+		defect("a witness of one of its role's relations")
 	}
 	return found
 }
@@ -749,7 +739,7 @@ const witnessOf = (
 const witnessField = (w: WireWitness<WireScalar>, name: string): WireField<WireScalar> => {
 	const named = w.fields.find((field) => field.name === name)
 	if (named === undefined) {
-		throw defect("a witness value of one of its relation's fields")
+		defect("a witness value of one of its relation's fields")
 	}
 	return named.field
 }
@@ -768,13 +758,29 @@ const encodeWitness = (
 	const w = witnessOf(witness, relation)
 	const values = ownMember(value, "values")
 	if (typeof values !== "object" || values === null || typeof relation !== "string") {
-		throw defect("a key witness")
+		defect("a key witness")
 	}
 	const out: Record<string, WireJson> = {}
 	for (const name of Object.keys(values)) {
 		out[name] = encodeField(witnessField(w, name), ownMember(values, name), options)
 	}
-	return { kind: "key", relation, values: out }
+	if (kind === "key") {
+		return { kind: "key", relation, values: out }
+	}
+	const drawn = ownMember(value, "drawn")
+	if (kind !== "drawn" || typeof drawn !== "object" || drawn === null) {
+		defect("a drawn key witness")
+	}
+	const by: Record<string, WireJson> = {}
+	for (const name of Object.keys(drawn)) {
+		witnessField(w, name)
+		const source = ownMember(drawn, name)
+		if (source !== "clock" && source !== "place" && source !== "call") {
+			defect("a drawn key field's source, the clock, a place or the call")
+		}
+		by[name] = source
+	}
+	return { kind: "drawn", relation, values: out, drawn: by }
 }
 
 /** A refusal's witness from the server's own JSON. */
@@ -790,27 +796,42 @@ const decodeWitness = (
 	}
 	const relation = trustedString(trustedMember(record, "relation"))
 	const w = witnessOf(witness, relation)
-	const values = trustedRecord(trustedMember(record, "values"))
-	return {
-		kind: "key",
-		relation,
-		values: Object.freeze(
-			Object.fromEntries(
-				Object.entries(values).map(([name, item]) => [
-					name,
-					trusted<
-						Witness extends { readonly values: Readonly<Record<string, infer V>> } ? V : never
-					>(decodeField(witnessField(w, name), item, options))
-				])
-			)
+	const values = Object.freeze(
+		Object.fromEntries(
+			Object.entries(trustedRecord(trustedMember(record, "values"))).map(([name, item]) => [
+				name,
+				trusted<Witness extends { readonly values: Readonly<Record<string, infer V>> } ? V : never>(
+					decodeField(witnessField(w, name), item, options)
+				)
+			])
 		)
+	)
+	if (kind !== "drawn") {
+		return { kind: "key", relation, values }
 	}
+	const drawn = Object.freeze(
+		Object.fromEntries(
+			Object.entries(trustedRecord(trustedMember(record, "drawn"))).map(([name, item]) => {
+				witnessField(w, name)
+				return [name, drawnSource(trustedString(item))] as const
+			})
+		)
+	)
+	return { kind: "drawn", relation, values, drawn }
+}
+
+/** What draws a drawn key field, as the server's own JSON names it (types/changeset DrawnBy). */
+const drawnSource = (source: string): DrawnBy => {
+	if (source === "clock" || source === "place" || source === "call") {
+		return source
+	}
+	defect(`a drawn key field's source, the clock, a place or the call, not ${source}`)
 }
 
 /** The JSON of a write's outcome the server holds. */
 const encodeOutcome = (wire: MemberWire, value: unknown, options: WireOptions): WireJson => {
 	if (wire.shape !== "write") {
-		throw defect("a read's answer holds no outcome")
+		defect("a read's answer holds no outcome")
 	}
 	const kind = ownMember(value, "kind")
 	const reads = encodeRecord(wire.outcome.reads, ownMember(value, "reads"), options)
@@ -818,11 +839,11 @@ const encodeOutcome = (wire: MemberWire, value: unknown, options: WireOptions): 
 		return { kind, reads }
 	}
 	if (kind !== "accepted") {
-		throw defect("a ChangeSet's outcome")
+		defect("a ChangeSet's outcome")
 	}
 	const counts = ownMember(value, "counts")
 	if (!isList(counts)) {
-		throw defect("a ChangeSet's counts")
+		defect("a ChangeSet's counts")
 	}
 	return {
 		kind,
@@ -839,7 +860,7 @@ const encodeOutcome = (wire: MemberWire, value: unknown, options: WireOptions): 
 /** A count's spelling: its bigint's decimal digits. */
 const countText = (count: unknown): WireJson => {
 	if (typeof count !== "bigint") {
-		throw defect("a count of a ChangeSet's relation")
+		defect("a count of a ChangeSet's relation")
 	}
 	return count.toString()
 }
@@ -847,7 +868,7 @@ const countText = (count: unknown): WireJson => {
 /** A write's outcome from the server's own JSON. */
 const decodeOutcome = (wire: MemberWire, json: WireJson, options: WireOptions): unknown => {
 	if (wire.shape !== "write") {
-		throw defect("a read's answer holds no outcome")
+		defect("a read's answer holds no outcome")
 	}
 	const record = trustedRecord(json)
 	const reads = decodeRecord(wire.outcome.reads, trustedMember(record, "reads"), options)
@@ -874,7 +895,7 @@ const decodeOutcome = (wire: MemberWire, json: WireJson, options: WireOptions): 
 /** A read's key columns and fields, which a write's answer never carries: a defect asked of one. */
 const readOf = (wire: MemberWire): Exclude<MemberWire, { readonly shape: "write" }> => {
 	if (wire.shape === "write") {
-		throw defect("a write's answer holds no row, key or key fields")
+		defect("a write's answer holds no row, key or key fields")
 	}
 	return wire
 }
@@ -895,7 +916,7 @@ const encodeErrorMember = (
 	switch (slot) {
 		case "text":
 			if (typeof value !== "string") {
-				throw defect("a CallError's text")
+				defect("a CallError's text")
 			}
 			return value
 		case "refused":
@@ -904,12 +925,12 @@ const encodeErrorMember = (
 			return encodeWitness(witness, value, options)
 		case "transientReason":
 			if (!isTransientTag(value)) {
-				throw defect("a transient CallError's reason, one of transientTags")
+				defect("a transient CallError's reason, one of transientTags")
 			}
 			return value
 		case "credentialReason":
 			if (!isCredentialReason(value)) {
-				throw defect("a credentialRefused CallError's reason, one of credentialReasons")
+				defect("a credentialRefused CallError's reason, one of credentialReasons")
 			}
 			return value
 		case "unavailableReason":
@@ -922,7 +943,7 @@ const encodeErrorMember = (
 		case "after":
 		case "outcome":
 		case "error":
-			throw defect("a CallError's payload holds texts, laws, a witness, a reason and a place alone")
+			defect("a CallError's payload holds texts, laws, a witness, a reason and a place alone")
 	}
 }
 
@@ -961,9 +982,7 @@ const encodeUnavailableReason = (value: unknown): WireJson => {
 			return { kind, code }
 		}
 	}
-	throw defect(
-		"an unavailable CallError's reason, a named cause or another SQLSTATE or socket code"
-	)
+	defect("an unavailable CallError's reason, a named cause or another SQLSTATE or socket code")
 }
 
 /**
@@ -982,9 +1001,7 @@ const encodeParamPlace = (value: unknown): WireJson => {
 			return { kind, name, field }
 		}
 	}
-	throw defect(
-		"a paramRejected CallError's place, a scalar parameter or a relation parameter's field"
-	)
+	defect("a paramRejected CallError's place, a scalar parameter or a relation parameter's field")
 }
 
 /** A paramRejected CallError's place from the server's own JSON. */
@@ -1111,7 +1128,7 @@ const decodeError = (
 	const record = trustedRecord(json)
 	const kind = trustedString(trustedMember(record, "kind"))
 	if (!isCallErrorKind(kind)) {
-		throw defect("a CallError's kind")
+		defect("a CallError's kind")
 	}
 	return errorDecoders(witness, options)[kind](record)
 }

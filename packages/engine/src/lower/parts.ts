@@ -177,6 +177,7 @@ const movedArrays = (source: ArraysSource, offset: number): ArraysSource => {
 				ordinal: source.ordinal
 			}
 		case "carried":
+		case "setting":
 			return source
 	}
 }

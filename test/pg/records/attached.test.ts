@@ -1,7 +1,7 @@
 /**
  * A query's records on PostgreSQL 19: over drawn queries of Shelves (test/support/agreement/records.ts), each reading
  * one shelf and its books as an array, each book with a drawn subset of its blurb, spine, paper, digital and chapters,
- * each chapter with its remark, at depths one to three and every delivery (an array, an option, one, an arm), and over
+ * each chapter with its remark, at depths one to three and every delivery (an array, an option, one), and over
  * drawn facts of Shelves, the records of the query (records(...)) installed beside Shelves as a level over it, the rows
  * the query delivers inserted into them by their insert (recordsFacts) and read back by their read (recordsQuery) are
  * exactly the rows the query delivered: each attachment's records, at every depth, stored in its relation under its
@@ -24,7 +24,6 @@ import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 type RecordsFeature =
 	| "an option stored"
 	| "one child stored"
-	| "an arm stored"
 	| "a nested array stored"
 	| "a third level stored"
 	| "books in their pages' order"
@@ -58,11 +57,6 @@ const reached = (c: AttachedCase): ReadonlyArray<RecordsFeature> => {
 			"an option stored"
 		),
 		...feature(delivered(b.spine, "one") && some, "one child stored"),
-		...feature(
-			(delivered(b.paper, "arm") && ofKind("Paper")) ||
-				(delivered(b.digital, "arm") && ofKind("Digital")),
-			"an arm stored"
-		),
 		...feature(Option.isSome(b.chapters) && chapters, "a nested array stored"),
 		...feature(
 			(Option.isSome(remark) && remarks) || (Option.isSome(ink) && some),
@@ -84,7 +78,6 @@ export const aQuerysRecordsReadBackExactlyTheRowsTheQueryDelivered = property.ex
 		situations: [
 			"an option stored",
 			"one child stored",
-			"an arm stored",
 			"a nested array stored",
 			"a third level stored",
 			"books in their pages' order",
@@ -119,15 +112,9 @@ export const aQuerysRecordsReadBackExactlyTheRowsTheQueryDelivered = property.ex
 			},
 			{
 				file: "packages/engine/src/runtime/records.ts",
-				original: '\t\t\tcase "option":\n\t\t\tcase "arm": {',
-				replacement: '\t\t\tcase "option":\n\t\t\t\tbreak\n\t\t\tcase "arm": {',
+				original: "\t\t\t\tif (option.some) {\n\t\t\t\t\tstateApart(a, option.value)\n",
+				replacement: "\t\t\t\tif (option.some) {\n",
 				why: "An option's child is never inserted (runtime/records.ts attachmentFacts), so a blurb reads back None where the query delivered Some."
-			},
-			{
-				file: "packages/engine/src/runtime/records.ts",
-				original: '\t\t\tcase "option":\n\t\t\tcase "arm": {',
-				replacement: '\t\t\tcase "arm":\n\t\t\t\tbreak\n\t\t\tcase "option": {',
-				why: "An arm's child is never inserted (runtime/records.ts attachmentFacts), so the alternatives law refuses the insert of a book of the arm's kind."
 			},
 			{
 				file: "packages/engine/src/runtime/records.ts",

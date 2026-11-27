@@ -9,14 +9,12 @@ import { param, query, v } from "#compiler/public/query.ts"
 import { role } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import { carrierScope } from "#compiler/sql/naming.ts"
 import { changeSetOver as ChangeSet, changeSetDesc } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import {
 	Book,
 	Budget,
 	Cart,
-	Cents,
 	Item,
 	Kind,
 	Ledger,
@@ -25,6 +23,7 @@ import {
 	Tag,
 	Task,
 	Ticket,
+	toCents,
 	Work
 } from "#test/support/agreement/changeset-schema.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -144,7 +143,7 @@ const rowFields = (s: Subject): ReadonlyArray<Selectable> => {
 				{
 					field: "cents",
 					param: paramOf("Budget", "cents", (n) => param(n, Budget.fields.cents)),
-					literal: literalOf("Cents(5n)", Cents(5n))
+					literal: literalOf("toCents(5n)", toCents(5n))
 				}
 			]
 		case "Ticket":
@@ -162,7 +161,7 @@ const rowFields = (s: Subject): ReadonlyArray<Selectable> => {
 				{
 					field: "amount",
 					param: paramOf("Ticket", "amount", (n) => param(n, Ticket.fields.amount)),
-					literal: literalOf("Cents(7n)", Cents(7n))
+					literal: literalOf("toCents(7n)", toCents(7n))
 				}
 			]
 		case "Ledger":
@@ -443,8 +442,7 @@ const worlds = (() => {
 				derived: wherer.derived,
 				level: "serializable" as const,
 				clock: noClock,
-				source: transactionClock,
-				carrierScope: carrierScope(world.role.name)
+				source: transactionClock
 			}
 		}
 	}

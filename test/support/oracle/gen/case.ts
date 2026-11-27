@@ -97,8 +97,8 @@ export const soundnessGenConfig: GenConfig = {
 /**
  * The optimizer's population: what each rewrite family needs, containments to read through, wide payload under takes
  * with stated orders, total computed terms, equations, filters read through regions and rooted closures, and now and
- * then a filter directly over a group or a union (filterOver), the stage pushdown.group and pushdown.union move a filter
- * below, so every generated part reaches them.
+ * then a filter directly over a group or a union (filterOver), which PostgreSQL pushes below them, so every generated
+ * part reaches them.
  */
 export const optimizerGenConfig: GenConfig = {
 	...defaultGenConfig,
@@ -127,9 +127,8 @@ export const optimizerGenConfig: GenConfig = {
 
 /**
  * The optimizer's population for the rewrite passes: wide payload of unbounded text alone, every carrier still in its
- * palette, and filters drawn directly over groups, unions and set comparisons besides, the stages the
- * pushdown rules move a filter below or into (pushdown.group, pushdown.union, pushdown.left, pushdown.source), and
- * semi-joins over a keyed group, which pushdown.semiSource and pushdown.semiGroup rewrite.
+ * palette, and filters drawn directly over groups, unions and set comparisons besides, and semi-joins over a keyed
+ * group.
  */
 export const rewriteGenConfig: GenConfig = {
 	...optimizerGenConfig,

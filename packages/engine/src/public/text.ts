@@ -3,11 +3,16 @@ import { unrepresentableKeys, unsupported } from "#compiler/core/errors.ts"
 import { captureLoc, childLoc } from "#compiler/core/loc.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
 import type { CastTargetsBySql } from "#compiler/scalar/compute/registry.ts"
-import { formSource, type LexicalTarget, lexicalTargetOf } from "#compiler/scalar/lexical.ts"
+import {
+	formOctets,
+	formSource,
+	type LexicalTarget,
+	lexicalTargetOf
+} from "#compiler/scalar/lexical.ts"
 import { Pattern } from "#compiler/scalar/regex/pattern.ts"
 import { describeDeclared } from "#compiler/schema/relation.ts"
 import { keyLayout, textBytesBeside } from "#compiler/schema/representability.ts"
-import { type RegexText, regexField } from "#compiler/text/field.ts"
+import { type RegexText, regexField, str } from "#compiler/text/field.ts"
 import type { Field, FieldBase, GeneratedField } from "#compiler/types/fields/field.ts"
 
 /**
@@ -23,7 +28,7 @@ const lexicalTargetOfField = (type: unknown): LexicalTarget => {
 	if (target === undefined) {
 		throw unsupported(
 			loc,
-			"lexicalForm of a type with a lexical form: an integer type, numeric(p, s) with 0 <= s <= p, double precision, boolean or date"
+			"lexicalForm of a type with a lexical form: an integer type, an exact integer, numeric(p, s) with 0 <= s <= p, double precision, boolean or date"
 		)
 	}
 	return target
@@ -70,11 +75,16 @@ export const doubleText: Pattern = Pattern.ofForm({ kind: "doubleText" })
 export const decimalText: Pattern = Pattern.ofForm({ kind: "decimalText" })
 
 /**
- * lexical(T): the text field of T's lexical form, str.regex over lexicalForm(T): a field of it casts into T total, so
- * `generated(T, Type.cast(row.lexical, T))` is a NOT NULL generated column of the value the text names.
+ * lexical(T): the text field of T's lexical form, str.regex over lexicalForm(T), within the form's byte bound where it
+ * has one (an exact integer's digits, scalar/lexical.ts formOctets) as str.bytes bounds it: a field of it casts into T
+ * total, so `generated(T, Type.cast(row.lexical, T))` is a NOT NULL generated column of the value the text names.
  */
-export const lexical = (type: Field<unknown, ParseSql, unknown>): RegexText<string> =>
-	regexField<string>(formSource(lexicalTargetOfField(type)), [])
+export const lexical = (type: Field<unknown, ParseSql, unknown>): RegexText<string> => {
+	const target = lexicalTargetOfField(type)
+	const text = regexField<string>(formSource(target), [])
+	const octets = formOctets(target)
+	return octets === undefined ? text : str.bytes(octets, text)
+}
 
 /**
  * keyTextBytes(fields): the most UTF-8 bytes a text can hold as itself beside `fields` in every index grizzle plans over

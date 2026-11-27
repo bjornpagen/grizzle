@@ -54,6 +54,7 @@ import { instantInputText, isInstantType } from "#compiler/ir/instant.ts"
 import { matchFlags, type PatternValue } from "#compiler/ir/pattern.ts"
 import type { Exact, Fact, NativeProof, OperationProof, Precondition } from "#compiler/ir/proof.ts"
 import {
+	armAt,
 	baseOf,
 	capsOf,
 	type Carrier,
@@ -62,27 +63,30 @@ import {
 	exactDigitsOf,
 	integerTypmodOf,
 	isExactValue,
+	isFloat,
 	isRefined,
 	languageOctets,
 	languageWithin,
 	numericBoundOf,
 	numericTypmodOf,
-	type PlainType,
-	isFloat,
 	type PatternLanguage,
+	type PlainType,
 	type RegexCheck,
 	type RegexRef,
 	regexRefOf,
 	rosterOf,
 	type ScalarType,
 	spanOf,
+	subsetWithin,
+	subsumes,
 	textBoundsOf,
 	type TextInfo,
 	textInfoBounds,
 	textOf,
 	textPatterns,
 	typeLabel,
-	wildcardPattern
+	wildcardPattern,
+	type VariantInfo
 } from "#compiler/ir/scalar.ts"
 import {
 	isTextSearchConfiguration,
@@ -168,6 +172,7 @@ import {
 	wildcardText,
 	withoutSpanWidth
 } from "#compiler/scalar/compute/types.ts"
+import { castSpelling } from "#compiler/scalar/contract.ts"
 import { binary64Digits, decimalTextMaxBytes } from "#compiler/scalar/lexical.ts"
 import { lexicalTargetOf } from "#compiler/scalar/lexical.ts"
 import { binary64Precision } from "#compiler/scalar/lexical.ts"
@@ -184,6 +189,7 @@ import {
 import { collapseSources } from "#compiler/scalar/regex/whitespace.ts"
 import {
 	capabilitiesOf,
+	variantTagType,
 	numericValue,
 	searchType,
 	storedOnly,
@@ -199,6 +205,7 @@ import {
 import { binary32Digits } from "#compiler/scalar/values/float.ts"
 import { binary32LeastExponent } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
+import { digestible } from "#compiler/scalar/variant-digest.ts"
 
 /**
  * The site-free typing of a scalar description (typeOf): one pass over a description that emits nothing, which a
@@ -315,6 +322,31 @@ export const noParams: { readonly kind: "none" } = Object.freeze({ kind: "none" 
 const isBareLiteral = <R extends Refs>(d: ExprDesc<Located, R>): boolean =>
 	d.kind === "literal" && d.type === undefined
 
+/**
+ * A bare literal branch beside a closed id of a subset, `t`, where it is a handle of t's roster: its value and the
+ * closed id of that handle alone, the subset its value is of, so the conditional's type is the union of its branches'
+ * subsets (types.ts commonType) and holds no handle a branch cannot be; none for any other branch, which adopts t.
+ */
+const subsetBranchHandle = <R extends Refs>(
+	d: ExprDesc<Located, R>,
+	t: ScalarType
+): { readonly value: string; readonly type: ScalarType } | undefined => {
+	if (
+		d.kind !== "literal" ||
+		d.type !== undefined ||
+		typeof d.value !== "string" ||
+		t.contract !== undefined ||
+		t.carrier !== "code" ||
+		t.only === undefined
+	) {
+		return undefined
+	}
+	const value = d.value
+	return t.roster.handles.includes(value)
+		? { value, type: Object.freeze({ ...t, only: [value] as const }) }
+		: undefined
+}
+
 /** A closed relation's field, as an application of it reads the field: its name and its type. */
 export interface ClosedField {
 	readonly name: string
@@ -421,6 +453,7 @@ const partsUnder = <R extends Refs>(
 		case "absent":
 		case "exists":
 		case "call":
+		case "variant":
 			return [{ kind: "other", desc, branches }]
 	}
 }
@@ -433,8 +466,7 @@ const partsUnder = <R extends Refs>(
  * operand's, so it lies in both operands' contracts: within its scope either side may stand for the other at the
  * other's type, retyped (ExprDesc `retype`), proved by the equality and never checked.
  */
-const refinedPair = (a: Typed, b: Typed): boolean =>
-	!meets(a.nominal, b.nominal) && sameCarrier(a.nominal, b.nominal)
+const refinedPair = (a: ScalarType, b: ScalarType): boolean => !meets(a, b) && sameCarrier(a, b)
 
 /** No closed relation, for the reason `why`: "a contract predicate reads no closed relation of the schema". */
 export const noClosedRelations = (why: string): ClosedRelations =>
@@ -522,13 +554,23 @@ const derivedLanguage = (
  * What a site proves of every value of one of its leaves beyond the leaf's type, which every term typed there holds of
  * each occurrence of it (an `occurrences` WhenScope): a rule's series element lies between its endpoints, at least the
  * least value its low endpoint takes and at most the greatest its high endpoint takes (check/checker.ts), a fact of
- * every row its source delivers. Never what a filter tests, which may be evaluated anywhere
- * (lower/optimize/pushdown), so a leaf's values are those its source delivers wherever a term reads it.
+ * every row its source delivers. Never what a filter tests, which PostgreSQL may evaluate anywhere it pushes the
+ * filter, so a leaf's values are those its source delivers wherever a term reads it.
  */
 export interface HeldLeaf {
 	readonly leaf: ExprSpec
 	readonly bounds: Bounds
 }
+
+/**
+ * What a leaf reference reads: its expression, typed as the expression is, or its expression read at a type that
+ * subsumes the expression's (ir/scalar.ts subsumes), with no node of its own: a contract predicate's VALUE over a
+ * stored value of the contract, read at the contract's base, which the predicate is stated over, the stored column
+ * bare (analysis/theory/laws.ts contractViolation).
+ */
+export type LeafRead =
+	| ExprSpec
+	| { readonly kind: "subsumed"; readonly spec: ExprSpec; readonly type: ScalarType }
 
 /** The scope a site's held leaves give every term typed there: each leaf's every occurrence cut to its bounds. */
 const heldScope = (held: ReadonlyArray<HeldLeaf>): ReadonlyArray<WhenScope> =>
@@ -551,8 +593,8 @@ const heldScope = (held: ReadonlyArray<HeldLeaf>): ReadonlyArray<WhenScope> =>
 export interface TypingEnv<R extends Refs> {
 	/** The source location of the expression, the prefix of every diagnostic. */
 	readonly loc: SourceLoc
-	/** The node a leaf reference records at each use. */
-	readonly leaf: (desc: LeafDesc<R>, loc: SourceLoc) => Result.Result<ExprSpec, CompileError>
+	/** The node a leaf reference records at each use (LeafRead). */
+	readonly leaf: (desc: LeafDesc<R>, loc: SourceLoc) => Result.Result<LeafRead, CompileError>
 	readonly params: LowerParams<R>
 	/** The ScalarType of a descriptor's Description, for Type.literal and Type.cast (the descriptor registry). */
 	readonly fieldType: (desc: FieldDesc, loc: SourceLoc) => Result.Result<ScalarType, CompileError>
@@ -852,15 +894,21 @@ export type Role = "compare" | "arithmetic" | "operand"
 
 /**
  * The type a bare literal adopts opposite a term of type `t` (see the header): compared with a contract, the contract;
- * otherwise the term's value type, a numeric's any numeric, an exact value's plain family, an operand text's any text
- * and a span's its endpoint's, so a literal is typed by the term it meets and never on its own. An arithmetic operand
- * is typed at the base and judged a value of the term's contract beside it (Typing.operand).
+ * otherwise the term's value type, a numeric's any numeric, an exact value's plain family, an operand text's any text,
+ * a closed id's of every handle of its roster, so a literal compared with a closed id of a subset is any handle of the
+ * roster and its type one its value is of (ir/expr.ts literalProblem), and a span's its endpoint's, so a literal is
+ * typed by the term it meets and never on its own. An arithmetic operand is typed at the base and judged a value of the
+ * term's contract beside it (Typing.operand). A conditional's literal branch beside a closed id of a subset is of its
+ * own handle's subset instead (Typing.branchOperand).
  */
 export const adoptedType = (t: ScalarType, role: Role): ScalarType => {
 	if (role === "compare" && t.contract !== undefined) {
 		return t
 	}
 	const v = valueType(t)
+	if (v.carrier === "code" && v.only !== undefined) {
+		return Object.freeze({ ...v, only: undefined })
+	}
 	if (v.carrier === "numeric") {
 		return anyNumeric
 	}
@@ -934,6 +982,7 @@ const carrierBounds = (t: PlainType): Bounds | undefined => {
 		case "rangeDate":
 		case "vector":
 		case "tsvector":
+		case "variant":
 			return undefined
 	}
 }
@@ -1389,6 +1438,16 @@ export const textBytes = (x: Typed): number | undefined => {
 }
 
 /**
+ * The most UTF-8 bytes a concatenation of `parts` takes: the sum of theirs (textBytes), a text literal's its own and a
+ * term's its type's byte bound, since p1 || … || pn takes each part's bytes; undefined where any part is unbounded.
+ */
+const concatBytes = (parts: NonEmptyReadonlyArray<Typed>): number | undefined =>
+	parts.reduce<number | undefined>((sum, part) => {
+		const bytes = textBytes(part)
+		return sum === undefined || bytes === undefined ? undefined : sum + bytes
+	}, 0)
+
+/**
  * The text of a translate map's `from` or `to`: a text literal, which the schema holds, so the map is seen when it
  * compiles; any other operand can be any text, so no map is known.
  */
@@ -1433,6 +1492,7 @@ export const withinGuards = (carrier: Carrier): boolean => {
 		case "rangeDate":
 		case "vector":
 		case "tsvector":
+		case "variant":
 			return false
 	}
 }
@@ -1612,6 +1672,8 @@ const specText = (spec: TypedSpec): string => {
 			return `${spec.relation}.has(…)`
 		case "call":
 			return `${spec.function.name}(…)`
+		case "variant":
+			return spec.op.kind === "field" ? `x.${spec.op.field}` : `${spec.op.kind}(…)`
 	}
 }
 
@@ -1707,6 +1769,8 @@ export const sameNode = (a: TypedNode, b: TypedNode): boolean => {
 			return y.kind === "closedHas" && x.relation === y.relation
 		case "call":
 			return y.kind === "call" && x.function.definition === y.function.definition
+		case "variant":
+			return y.kind === "variant" && canonicalTextOf(x.op) === canonicalTextOf(y.op)
 	}
 }
 
@@ -1808,10 +1872,15 @@ class Typing<R extends Refs> {
 	 * A conditional's branch opposite the term `t`: a term that meets it, or a bare literal of t's own type. Opposite an
 	 * exact value the literal is its family's plain carrier's (adoptedType), converted into t's exact type where its
 	 * value lies within t's digits and refused where it does not, so the conditional is of t's type as its builder typed
-	 * it, never wider.
+	 * it, never wider. Opposite a closed id of a subset a handle is of its own handle's subset (subsetBranchHandle), so
+	 * the conditional's subset is the branches' union, never a subset a branch's value lies outside.
 	 */
 	branchOperand(desc: ExprDesc<Located, R>, t: Typed, at: SourceLoc): Typed {
-		const x = this.operand(desc, t, "compare", at)
+		const handle = subsetBranchHandle(desc, t.nominal)
+		if (handle !== undefined) {
+			return this.literal(handle.value, handle.type, at)
+		}
+		const x = this.operand(desc, t.nominal, "compare", at)
 		const digits = exactDigitsOf(t.nominal)
 		if (!isBareLiteral(desc) || digits === undefined) {
 			return x
@@ -2030,6 +2099,9 @@ class Typing<R extends Refs> {
 		const facts = keptFacts(arg, conversion, to)
 		if (how.kind === "coercion") {
 			const entered = enteredType(to)
+			if (subsumes(entered, arg.actual)) {
+				return this.settle(arg.node, to, entered, { bounds, facts }, [])
+			}
 			const node = this.record({
 				kind: "stated",
 				spec: {
@@ -2089,7 +2161,7 @@ class Typing<R extends Refs> {
 							operands: [arg],
 							target: to,
 							at,
-							operation: `Type.cast(${nodeText(arg.node)}, ${typeLabel(to)})`
+							operation: castSpelling(nodeText(arg.node), to)
 						}
 		}
 		return this.emitAt(node, type, bounds, facts)
@@ -2202,9 +2274,7 @@ class Typing<R extends Refs> {
 	 * or any other term (term), whose operands an operation reads.
 	 */
 	whole(desc: ExprDesc<Located, R>, at: SourceLoc): Typed {
-		return isReference(desc)
-			? this.emit(leafSpec(unwrap(this.env.leaf(desc, at))))
-			: this.term(desc, at)
+		return isReference(desc) ? this.leafRead(desc, at) : this.term(desc, at)
 	}
 
 	/**
@@ -2213,7 +2283,7 @@ class Typing<R extends Refs> {
 	 * (sha256).
 	 */
 	reference(desc: LeafDesc<R>, at: SourceLoc): Typed {
-		const leaf = this.emit(leafSpec(unwrap(this.env.leaf(desc, at))))
+		const leaf = this.leafRead(desc, at)
 		return storedOnly(leaf.nominal)
 			? stop(
 					"UnsupportedOperation",
@@ -2221,6 +2291,19 @@ class Typing<R extends Refs> {
 					`storage: ${typeLabel(leaf.nominal)} is stored only, read whole as a head or a written value, so no scalar operation, rule, selection or filter reads it`
 				)
 			: leaf
+	}
+
+	/**
+	 * A leaf reference's value (LeafRead): its expression, typed as it is, or its expression read at the type the leaf
+	 * states, which subsumes the expression's, as a parameter's reading is (param).
+	 */
+	leafRead(desc: LeafDesc<R>, at: SourceLoc): Typed {
+		const read = unwrap(this.env.leaf(desc, at))
+		if (read.kind !== "subsumed") {
+			return this.emit(leafSpec(read))
+		}
+		const node = this.record({ kind: "stated", spec: leafSpec(read.spec) })
+		return this.settle(node, read.type, read.spec.type, undefined, [])
 	}
 
 	/** A term: anything but an untyped literal, which takes the type of the term it meets. */
@@ -2236,32 +2319,32 @@ class Typing<R extends Refs> {
 	}
 
 	/**
-	 * An operand opposite `against`: a bare literal adopts its type, anything else, a parameter among them, is a term that
-	 * meets it (types.ts meets). Opposite an exact value a bare literal adopts its family's plain carrier (bigint, money),
-	 * which the operation widens exactly (exactPair). A bare literal compared with a term is a value of the term's type as
-	 * written, refused where it has more digits than a numeric(p, s) term holds (literal.ts oppositeLiteralProblem), as a
-	 * match's binding and a side's selector are: the comparison reads it exactly, never rounded. A bare literal beside a
-	 * contract's term in arithmetic is a value opposite that term, so it is a value of its type, as README reads a value
-	 * opposite a term: the contract judges it where the term is compiled (ContractLiteral, the tape's admission), and the
-	 * operation reads it at the base it computes over.
+	 * An operand opposite a term of the type `against`: a bare literal adopts that type, anything else, a parameter among
+	 * them, is a term that meets it (types.ts meets). Opposite an exact value a bare literal adopts its family's plain
+	 * carrier (bigint, money), which the operation widens exactly (exactPair). A bare literal compared with a term is a
+	 * value of the term's type as written, refused where it has more digits than a numeric(p, s) term holds (literal.ts
+	 * oppositeLiteralProblem), as a match's binding and a side's selector are: the comparison reads it exactly, never
+	 * rounded. A bare literal beside a contract's term in arithmetic is a value opposite that term, so it is a value of
+	 * its type, as README reads a value opposite a term: the contract judges it where the term is compiled
+	 * (ContractLiteral, the tape's admission), and the operation reads it at the base it computes over.
 	 */
-	operand(desc: ExprDesc<Located, R>, against: Typed, role: Role, at: SourceLoc): Typed {
+	operand(desc: ExprDesc<Located, R>, against: ScalarType, role: Role, at: SourceLoc): Typed {
 		if (desc.kind === "literal" && desc.type === undefined) {
 			if (role === "compare") {
-				this.asWritten(desc.value, against.nominal, at)
+				this.asWritten(desc.value, against, at)
 			}
-			const literal = this.literal(desc.value, this.adopt(against.nominal, role), at)
-			if (role === "arithmetic" && against.nominal.contract !== undefined) {
-				this.#tape.push({ kind: "admits", value: desc.value, type: against.nominal, at })
+			const literal = this.literal(desc.value, this.adopt(against, role), at)
+			if (role === "arithmetic" && against.contract !== undefined) {
+				this.#tape.push({ kind: "admits", value: desc.value, type: against, at })
 			}
 			return literal
 		}
 		const term = this.lower(desc, at)
-		if (!meets(against.nominal, term.nominal)) {
+		if (!meets(against, term.nominal)) {
 			return stop(
 				"MalformedDescription",
 				at,
-				`operands of one type: ${typeLabel(against.nominal)} never meets ${typeLabel(term.nominal)} without Type.base`
+				`operands of one type: ${typeLabel(against)} never meets ${typeLabel(term.nominal)} without Type.base`
 			)
 		}
 		return term
@@ -2287,22 +2370,34 @@ class Typing<R extends Refs> {
 	}
 
 	/**
-	 * An equality's operand opposite `against`: what any comparison's operand is (`operand`), or a term of its base
-	 * carrier of another type (`refinedPair`), which the equality types at the carrier.
+	 * An equality's operand opposite a term of the type `against`: what any comparison's operand is (`operand`), or a
+	 * term of its base carrier of another type (`refinedPair`), which the equality types at the carrier.
 	 */
-	equated(desc: ExprDesc<Located, R>, against: Typed, at: SourceLoc): Typed {
+	equated(desc: ExprDesc<Located, R>, against: ScalarType, at: SourceLoc): Typed {
 		if (desc.kind === "literal" && desc.type === undefined) {
 			return this.operand(desc, against, "compare", at)
 		}
 		const term = this.lower(desc, at)
-		if (!meets(against.nominal, term.nominal) && !refinedPair(against, term)) {
+		if (!meets(against, term.nominal) && !refinedPair(against, term.nominal)) {
 			return stop(
 				"MalformedDescription",
 				at,
-				`operands of one type: ${typeLabel(against.nominal)} never meets ${typeLabel(term.nominal)} without Type.base`
+				`operands of one type: ${typeLabel(against)} never meets ${typeLabel(term.nominal)} without Type.base`
 			)
 		}
 		return term
+	}
+
+	/**
+	 * A comparison's operand by `op` opposite a term of the type `against`: an equality's (`equated`), any other
+	 * comparison's (`operand`). A comparison's second side and an equation's whole opposite its concatenation
+	 * (concatEquation) are each typed by it, so a bare literal there adopts the type of the term it meets and is judged
+	 * by it where the term is compiled (ContractLiteral), whatever lowering the comparison takes.
+	 */
+	opposite(op: CompareOp, desc: ExprDesc<Located, R>, against: ScalarType, at: SourceLoc): Typed {
+		return op === "eq"
+			? this.equated(desc, against, at)
+			: this.operand(desc, against, "compare", at)
 	}
 
 	/** A term at its base carrier, as Type.base restates it: its node and its bounds its own. */
@@ -2435,6 +2530,8 @@ class Typing<R extends Refs> {
 				return this.guarded(desc, at)
 			case "cond":
 				return this.cond(desc, at)
+			case "variant":
+				return this.variant(desc, at)
 			case "when":
 				return this.when(desc, at)
 			case "compare": {
@@ -2443,20 +2540,29 @@ class Typing<R extends Refs> {
 					return equation
 				}
 				const left = this.term(desc.left, childLoc(at, desc.op, "left"))
-				const right =
-					desc.op === "eq"
-						? this.equated(desc.right, left, childLoc(at, desc.op, "right"))
-						: this.operand(desc.right, left, "compare", childLoc(at, desc.op, "right"))
+				const right = this.opposite(
+					desc.op,
+					desc.right,
+					left.nominal,
+					childLoc(at, desc.op, "right")
+				)
 				return this.comparison(
 					desc.op,
-					refinedPair(left, right) ? [this.atCarrier(left), this.atCarrier(right)] : [left, right],
+					refinedPair(left.nominal, right.nominal)
+						? [this.atCarrier(left), this.atCarrier(right)]
+						: [left, right],
 					at
 				)
 			}
 			case "between": {
 				const arg = this.term(desc.arg, childLoc(at, "between"))
-				const low = this.operand(desc.low, arg, "compare", childLoc(at, "between", "low"))
-				const high = this.operand(desc.high, arg, "compare", childLoc(at, "between", "high"))
+				const low = this.operand(desc.low, arg.nominal, "compare", childLoc(at, "between", "low"))
+				const high = this.operand(
+					desc.high,
+					arg.nominal,
+					"compare",
+					childLoc(at, "between", "high")
+				)
 				return this.comparison("between", [arg, low, high], at)
 			}
 			case "in": {
@@ -2543,7 +2649,7 @@ class Typing<R extends Refs> {
 	/** The second operand of a text operation over the text term `a`: a text term, or a bare literal of text. */
 	textOperand(fn: string, a: Typed, second: ExprDesc<Located, R>, at: SourceLoc): Typed {
 		this.textSubject(fn, a, at)
-		return this.textValue(fn, this.operand(second, a, "operand", childLoc(at, 1)), at)
+		return this.textValue(fn, this.operand(second, a.nominal, "operand", childLoc(at, 1)), at)
 	}
 
 	/**
@@ -2560,9 +2666,7 @@ class Typing<R extends Refs> {
 		const [a, b] = this.texts("concat", first, second, at)
 		const op = this.overload("concat", [a.actual, b.actual], at)
 		const node = this.native(op, [a, b], wildcardText, undefined, at, spelling.concat)
-		const aBytes = textBytes(a)
-		const bBytes = textBytes(b)
-		const bytes = aBytes === undefined || bBytes === undefined ? undefined : aBytes + bBytes
+		const bytes = concatBytes([a, b])
 		if (bytes === undefined || bytes > bytesMaxLength) {
 			this.refusedAt(
 				"query",
@@ -2570,15 +2674,7 @@ class Typing<R extends Refs> {
 				`concat in a query over texts whose patterns bound the concatenation within ${bytesMaxLength} bytes: it allocates its result, which PostgreSQL refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "an operand's pattern bounds no length" : `the operands' patterns bound it at ${bytes} bytes`}, so bound them, compare a text with the concatenation, which a query decides over texts of any length, or concatenate in a contract predicate, row check, generated field or fold`
 			)
 		}
-		const analysis = this.env.analysis
-		return analysis.kind === "unanalyzed" || bytes === undefined
-			? node
-			: this.restate(
-					node,
-					this.textWithin([wildcardPattern], bytes, analysis.patterns.language, at),
-					node.actual,
-					node.facts
-				)
+		return this.restate(node, this.textWithinBytes(bytes, at), node.actual, node.facts)
 	}
 
 	/**
@@ -2620,15 +2716,7 @@ class Typing<R extends Refs> {
 				`resolveReference in a query over texts whose patterns bound the target within ${bytesMaxLength} bytes: its target is built by concatenation, which PostgreSQL refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "an operand's pattern bounds no length" : `the operands' patterns bound it at ${bytes} bytes`}, so bound them, or resolve in a contract predicate, row check or generated field`
 			)
 		}
-		const analysis = this.env.analysis
-		return analysis.kind === "unanalyzed" || bytes === undefined
-			? node
-			: this.restate(
-					node,
-					this.textWithin([wildcardPattern], bytes, analysis.patterns.language, at),
-					node.actual,
-					node.facts
-				)
+		return this.restate(node, this.textWithinBytes(bytes, at), node.actual, node.facts)
 	}
 
 	/**
@@ -2647,15 +2735,7 @@ class Typing<R extends Refs> {
 		const op = this.overload(fn, [x.actual, chars.actual], at)
 		const node = this.native(op, [x, chars], wildcardText, undefined, at, spelling[fn])
 		const bytes = textBytes(x)
-		const analysis = this.env.analysis
-		return analysis.kind === "unanalyzed" || bytes === undefined
-			? node
-			: this.restate(
-					node,
-					this.textWithin([wildcardPattern], bytes, analysis.patterns.language, at),
-					node.actual,
-					node.facts
-				)
+		return this.restate(node, this.textWithinBytes(bytes, at), node.actual, node.facts)
 	}
 
 	/**
@@ -2673,7 +2753,11 @@ class Typing<R extends Refs> {
 		at: SourceLoc
 	): Typed {
 		const [x, from] = this.texts("replace", subjectDesc, fromDesc, at)
-		const to = this.textValue("replace", this.operand(toDesc, x, "operand", childLoc(at, 2)), at)
+		const to = this.textValue(
+			"replace",
+			this.operand(toDesc, x.nominal, "operand", childLoc(at, 2)),
+			at
+		)
 		const op = this.overload("replace", [x.actual, from.actual, to.actual], at)
 		const node = this.native(op, [x, from, to], wildcardText, undefined, at, spelling.replace)
 		const xBytes = textBytes(x)
@@ -2693,15 +2777,21 @@ class Typing<R extends Refs> {
 				`replace in a query over texts whose patterns bound its result within ${bytesMaxLength} bytes: it allocates its result, which PostgreSQL refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "the subject's or the replacement's pattern bounds no length" : `the operands' patterns bound it at ${bytes} bytes`}, so bound them, or replace in a contract predicate, row check or generated field`
 			)
 		}
+		return this.restate(node, this.textWithinBytes(bytes, at), node.actual, node.facts)
+	}
+
+	/**
+	 * Text of no pattern within `bytes` UTF-8 bytes where they are bounded, any text where they are not or the text goes
+	 * unanalyzed: the type of a text operation's term whose operands bound its bytes (concat, resolveReference, cut,
+	 * replace), and of an equation's concatenation (concatEquation), so a literal opposite a concatenation adopts it
+	 * however the comparison is lowered and is judged by it: one of more bytes than the parts take together is no value
+	 * of the concatenation (ContractLiteral).
+	 */
+	textWithinBytes(bytes: number | undefined, at: SourceLoc): ScalarType {
 		const analysis = this.env.analysis
 		return analysis.kind === "unanalyzed" || bytes === undefined
-			? node
-			: this.restate(
-					node,
-					this.textWithin([wildcardPattern], bytes, analysis.patterns.language, at),
-					node.actual,
-					node.facts
-				)
+			? wildcardText
+			: this.textWithin([wildcardPattern], bytes, analysis.patterns.language, at)
 	}
 
 	/**
@@ -2721,8 +2811,12 @@ class Typing<R extends Refs> {
 	 * NULL where any part is, the CASE takes its ELSE there, the concatenation, NULL as textcat is at a NULL operand, and
 	 * both conjuncts are NULL; where every operand is a text, the conjuncts are false together past the bound, and within
 	 * it the second is the equation itself, which the first, the lengths' agreement, only restates. Lengths are bytes, as
-	 * texteq and textcat read them, so a part of multibyte characters, or an empty one, lies where it does. Undefined for
-	 * any other comparison.
+	 * texteq and textcat read them, so a part of multibyte characters, or an empty one, lies where it does.
+	 *
+	 * t is the comparison's operand opposite the concatenation (opposite), a term of its type, text within the bytes its
+	 * parts take together (textWithinBytes, concatBytes), as Text.concat's term is: a bare literal t adopts that type and
+	 * is judged by it where the equation is compiled, so one of more bytes than the parts take is ContractLiteral, as it
+	 * is opposite a concatenation in an IN list of two values or more. Undefined for any other comparison.
 	 */
 	concatEquation(
 		desc: Extract<ExprDesc<Located, R>, { readonly kind: "compare" }>,
@@ -2746,10 +2840,11 @@ class Typing<R extends Refs> {
 		const after = concatParts(argOf(cat, 1, here), childLoc(here, 1), here, "second")
 		const p = this.firstPart(first)
 		const rest = mapNonEmpty(concatNonEmpty(before, after), (part) => this.concatPart(part, p))
-		const t =
-			whole.kind === "literal" && whole.type === undefined
-				? this.literal(whole.value, wildcardText, here)
-				: this.textOperand("an equation with a concatenation", p, whole, here)
+		const t = this.textValue(
+			"an equation with a concatenation",
+			this.opposite(desc.op, whole, this.textWithinBytes(concatBytes([p, ...rest]), here), here),
+			here
+		)
 		const bytesOf = (x: Typed): Typed =>
 			this.native(
 				this.overload("octetLength", [x.actual], here),
@@ -2819,7 +2914,7 @@ class Typing<R extends Refs> {
 		if (part.stands === "first") {
 			return this.firstPart(part)
 		}
-		const b = this.operand(part.desc, first, "operand", part.at)
+		const b = this.operand(part.desc, first.nominal, "operand", part.at)
 		return baseOf(b.actual).carrier === "text"
 			? b
 			: stop(
@@ -2862,7 +2957,7 @@ class Typing<R extends Refs> {
 			return this.literalNode({ kind: "pattern", value }, wildcardText, undefined)
 		}
 		if (desc.kind !== "cond") {
-			return this.textValue("matches", this.operand(desc, subject, "operand", here), at)
+			return this.textValue("matches", this.operand(desc, subject.nominal, "operand", here), at)
 		}
 		const p = this.predicate(desc.pred, childLoc(here, "cond"))
 		const onTrue = this.patternOperand(subject, desc.onTrue, childLoc(here, "cond", "then"), at)
@@ -2876,7 +2971,7 @@ class Typing<R extends Refs> {
 		const pattern = this.patternOperand(subject, patternDesc, childLoc(at, 1), at)
 		const op = this.overload("matches", [subject.actual, pattern.actual], at)
 		if (op.partial) {
-			throw defect("textregexeq, which the registry defines on every text and pattern")
+			defect("textregexeq, which the registry defines on every text and pattern")
 		}
 		const bool = plainType("bool")
 		const patternAt = childLoc(at, "pattern")
@@ -3862,6 +3957,150 @@ class Typing<R extends Refs> {
 	}
 
 	/** Logic.cond: a conditional over any predicate, guarding nothing (Logic.when is the one guard). */
+	/**
+	 * A variant's operation (ir/desc.ts VariantOpDesc): its tag, a closed id of the variant's roster; one field of an arm,
+	 * of the field's own type, which only a cases branch of that arm reads (Variant.cases builds the one conditional on
+	 * the tag that guards it); or a value of an arm of the variant its op names, each argument one field of the arm in
+	 * declared order, converted into the field's type as a value written into a field of it is, a bare literal adopting
+	 * it. Its facts are none of its type's: a tag's and a made value's type state none, and a field's are its column's
+	 * type's, which its attribute's own type holds.
+	 */
+	variant(desc: Extract<ExprDesc<Located, R>, { readonly kind: "variant" }>, at: SourceLoc): Typed {
+		const { op } = desc
+		const subjectOf = (): { readonly typed: Typed; readonly variant: VariantInfo } => {
+			const [arg, ...extra] = desc.args
+			if (arg === undefined || extra.length > 0) {
+				return stop("MalformedDescription", at, `a variant's ${op.kind} of one subject`)
+			}
+			const typed = this.term(arg, childLoc(at, op.kind))
+			const base = baseOf(typed.nominal)
+			return base.carrier === "variant"
+				? { typed, variant: base.variant }
+				: stop(
+						"MalformedDescription",
+						at,
+						`a variant's ${op.kind} of a variant's value, not ${typeLabel(typed.nominal)}`
+					)
+		}
+		switch (op.kind) {
+			case "tag": {
+				const { typed, variant } = subjectOf()
+				const type = variantTagType(variant)
+				return this.emitAt(
+					{
+						kind: "stated",
+						spec: {
+							kind: "variant",
+							op: { kind: "tag" },
+							args: [typed.node],
+							type,
+							nonNull: "strict"
+						}
+					},
+					type,
+					undefined,
+					noFacts
+				)
+			}
+			case "digest": {
+				const { typed, variant } = subjectOf()
+				if (!digestible(variant)) {
+					throw new Refusal(
+						ruleRefused(
+							at,
+							"a variant's digest images booleans, integers, floats, texts, digests and closed ids: an arm whose field is of another type has none"
+						)
+					)
+				}
+				const type = plainType("sha256")
+				return this.emitAt(
+					{
+						kind: "stated",
+						spec: {
+							kind: "variant",
+							op: { kind: "digest" },
+							args: [typed.node],
+							type,
+							nonNull: "strict"
+						}
+					},
+					type,
+					undefined,
+					noFacts
+				)
+			}
+			case "field": {
+				const { typed, variant } = subjectOf()
+				const field = armAt(variant, op.handle)?.fields.find((f) => f.name === op.field)
+				if (field === undefined) {
+					return stop(
+						"MalformedDescription",
+						at,
+						`the field ${op.field} of an arm ${op.handle} of variant ${variant.name}`
+					)
+				}
+				return this.emitAt(
+					{
+						kind: "stated",
+						spec: {
+							kind: "variant",
+							op: { kind: "field", handle: op.handle, field: op.field },
+							args: [typed.node],
+							type: field.type,
+							nonNull: "arm"
+						}
+					},
+					field.type,
+					undefined,
+					noFacts
+				)
+			}
+			case "make": {
+				const type = unwrap(this.env.fieldType(op.variant, at))
+				const base = baseOf(type)
+				const arm = base.carrier === "variant" ? armAt(base.variant, op.handle) : undefined
+				if (arm === undefined || arm.fields.length !== desc.args.length) {
+					return stop(
+						"MalformedDescription",
+						at,
+						`a value of an arm ${op.handle} of a variant, one term for each of its fields`
+					)
+				}
+				const args = arm.fields.map((f, i) => {
+					const arg = defined(desc.args[i], `the field ${f.name} of a made value`)
+					const fieldAt = childLoc(at, "make", f.name)
+					if (isBareLiteral(arg) && arg.kind === "literal") {
+						return this.literal(arg.value, f.type, fieldAt).node
+					}
+					const term = this.term(arg, fieldAt)
+					if (!subsetWithin(f.type, term.nominal)) {
+						return stop(
+							"MalformedDescription",
+							fieldAt,
+							`a made value's field ${f.name} of ${typeLabel(f.type)}, a value within its subset: ${typeLabel(term.nominal)} is not, and a value of the subset comes from a value of that subset`
+						)
+					}
+					return this.convert(term, f.type, fieldAt).node
+				})
+				return this.emitAt(
+					{
+						kind: "stated",
+						spec: {
+							kind: "variant",
+							op: { kind: "make", handle: op.handle },
+							args,
+							type,
+							nonNull: "strict"
+						}
+					},
+					type,
+					undefined,
+					noFacts
+				)
+			}
+		}
+	}
+
 	cond(desc: Extract<ExprDesc<Located, R>, { readonly kind: "cond" }>, at: SourceLoc): Typed {
 		const p = this.predicate(desc.pred, childLoc(at, "cond"))
 		const [onTrue, onFalse] = this.branches(
@@ -3895,7 +4134,7 @@ class Typing<R extends Refs> {
 			return [this.branchOperand(then, e, thenAt), e]
 		}
 		const t = this.lower(then, thenAt)
-		return [t, this.operand(otherwise, t, "compare", elseAt)]
+		return [t, this.operand(otherwise, t.nominal, "compare", elseAt)]
 	}
 
 	/**
@@ -4212,6 +4451,13 @@ class Typing<R extends Refs> {
 				`cast: ${typeLabel(from)} and ${typeLabel(target)} are different types with no cast between them`
 			)
 		}
+		if (!subsetWithin(to, arg.nominal)) {
+			return stop(
+				"UnsupportedOperation",
+				at,
+				`cast: into ${typeLabel(to)}, a closed id of a subset ${typeLabel(arg.nominal)} is not within: no cast narrows a subset, and a value of the subset comes from a value of that subset`
+			)
+		}
 		if (numericTypmodOf(target) !== undefined && !sameShape(valueType(value.actual), target)) {
 			value = this.typmodCoercion(value, target, at)
 		}
@@ -4255,11 +4501,11 @@ class Typing<R extends Refs> {
 			return stop(
 				"UnsupportedOperation",
 				at,
-				`cast: ${typeLabel(target)} has no lexical form a text parses into; the forms are an integer type's, numeric(p, s) with 0 <= s <= p and at most ${regexMaxRepeat} digits on either side of its point, double precision's, boolean's and date's; Text.parseDecimal(x) reads any decimal text into numeric exactly`
+				`cast: ${typeLabel(target)} has no lexical form a text parses into; the forms are an integer type's, an exact integer's, numeric(p, s) with 0 <= s <= p and at most ${regexMaxRepeat} digits on either side of its point, double precision's, boolean's and date's; Text.parseDecimal(x) reads any decimal text into numeric exactly`
 			)
 		}
 		if (!op.partial) {
-			throw defect(
+			defect(
 				`a parse, defined where its text is a member of its lexical form: ${typeLabel(target)}`
 			)
 		}
@@ -4282,7 +4528,7 @@ class Typing<R extends Refs> {
 					operands: [arg],
 					target,
 					at,
-					operation: `Type.cast(${nodeText(arg.node)}, ${typeLabel(target)})`
+					operation: castSpelling(nodeText(arg.node), target)
 				}
 			},
 			type,
@@ -4358,7 +4604,7 @@ class Typing<R extends Refs> {
 			case "quot":
 			case "rem": {
 				const a = this.term(arg(0), here)
-				const b = this.operand(arg(1), a, "arithmetic", here)
+				const b = this.operand(arg(1), a.nominal, "arithmetic", here)
 				this.requireNumeric(valueType(a.nominal), desc.fn, here)
 				const op = this.overload(desc.fn, [valueType(a.nominal), valueType(b.nominal)], here)
 				const bounds =
@@ -4388,7 +4634,7 @@ class Typing<R extends Refs> {
 			}
 			case "power": {
 				const a = this.term(arg(0), here)
-				const b = this.operand(arg(1), a, "arithmetic", here)
+				const b = this.operand(arg(1), a.nominal, "arithmetic", here)
 				const v = valueType(a.nominal)
 				const op = this.overload("power", [v, v], here)
 				const bounds = powerBounds(a, b, v)
@@ -4482,7 +4728,7 @@ class Typing<R extends Refs> {
 							`${desc.fn} takes terms or parameters, never a bare literal`
 						)
 					}
-					const x = this.operand(d, a, "compare", childLoc(here, i + 1))
+					const x = this.operand(d, a.nominal, "compare", childLoc(here, i + 1))
 					this.exactBeside(a, x, childLoc(here, i + 1))
 					return x
 				})
@@ -4632,7 +4878,7 @@ class Typing<R extends Refs> {
 				return this.dateOfEpochDay(arg(0), here)
 			case "cosineDistance": {
 				const a = this.term(arg(0), here)
-				const b = this.operand(arg(1), a, "compare", here)
+				const b = this.operand(arg(1), a.nominal, "compare", here)
 				const v = baseOf(a.nominal)
 				if (v.carrier !== "vector") {
 					return stop(
@@ -4699,7 +4945,7 @@ class Typing<R extends Refs> {
 		at: SourceLoc
 	): Typed {
 		const a0 = this.term(left, at)
-		const b0 = this.operand(right, a0, "arithmetic", at)
+		const b0 = this.operand(right, a0.nominal, "arithmetic", at)
 		const va = valueType(a0.nominal)
 		if (isFloat(va) || va.carrier === "money" || va.carrier === "exactMoney") {
 			this.refusedAt("check", at, floatArithmeticText(fn, va))
@@ -4818,6 +5064,7 @@ class Typing<R extends Refs> {
 			case "rangeDate":
 			case "vector":
 			case "tsvector":
+			case "variant":
 				return stop("UnsupportedOperation", at, `sign: PostgreSQL has no sign over ${typeLabel(v)}`)
 		}
 	}
@@ -4869,7 +5116,7 @@ class Typing<R extends Refs> {
 			return stop("MalformedDescription", at, `${fn} takes a term or a parameter, never a literal`)
 		}
 		const a0 = this.term(left, at)
-		const b0 = this.operand(right, a0, "arithmetic", at)
+		const b0 = this.operand(right, a0.nominal, "arithmetic", at)
 		const widen =
 			valueType(a0.nominal).carrier === "int2" ||
 			valueType(a0.nominal).carrier === "exactInteger" ||
@@ -5060,6 +5307,7 @@ const roundingScale = (target: ScalarType): number => {
 		case "rangeDate":
 		case "vector":
 		case "tsvector":
+		case "variant":
 			return 0
 	}
 }
@@ -5104,6 +5352,7 @@ const conversionOf = (from: ScalarType, to: ScalarType, how: CastHow): Conversio
 		case "rangeDate":
 		case "vector":
 		case "tsvector":
+		case "variant":
 			return { kind: "exact" }
 	}
 }
@@ -5270,6 +5519,7 @@ const zeroOf = (carrier: Carrier): LiteralDesc | undefined => {
 		case "rangeDate":
 		case "vector":
 		case "tsvector":
+		case "variant":
 			return undefined
 	}
 }

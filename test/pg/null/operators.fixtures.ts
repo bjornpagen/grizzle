@@ -27,10 +27,9 @@ import {
 } from "#compiler/public/schema.ts"
 import { closedIndexOf, closedLeaf } from "#compiler/runtime/write/fill.ts"
 import { computeCore as C } from "#compiler/scalar/compute/builders.ts"
-import { compiledExpr, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
+import { compiledExpr, sqlNull, noParamLeaf } from "#compiler/scalar/compute/evaluate.ts"
 import { type NativeOp, nativeOps } from "#compiler/scalar/compute/registry.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
-import { everySlice } from "#compiler/schema/reach.ts"
 import { generatedField, generatedRelation } from "#compiler/schema/relation.ts"
 import { checkBuilder, selectBuilder } from "#compiler/schema/statements.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -479,10 +478,7 @@ const modelOf = (pred: Pred) => {
 			)
 		] as const)
 	)
-	return succeeded(
-		compileLaws(owned, everySlice(owned), { kind: "planned" }),
-		"a case's check compiles"
-	)
+	return succeeded(compileLaws(owned, { kind: "planned" }), "a case's check compiles")
 }
 
 /** The field types of Probe's row, as the checked schema resolves them: the numeric a rounding reads, its scale's. */
@@ -687,7 +683,8 @@ const roundingCase = (
 				value: undefined,
 				column: (ref) =>
 					ref.name !== "d" ? undefined : payload === undefined ? sqlNull : decimalOf(payload.d),
-				closed: () => undefined
+				closed: () => undefined,
+				param: noParamLeaf
 			},
 			ProgramPatterns.of(tablePatterns(table))
 		)
@@ -733,7 +730,7 @@ export const operatorCase = (owner: CaseSession, oc: OperatorCase, c: Case<Featu
 			return assert.fail("the check compares the case's term")
 		}
 		const host = compiledExpr({ exprs: table.exprs, root: evaluated })(
-			{ value: undefined, column: () => undefined, closed: closedRows(model) },
+			{ value: undefined, column: () => undefined, closed: closedRows(model), param: noParamLeaf },
 			ProgramPatterns.of(tablePatterns(table))
 		)
 		const sort: Sort = e.kind === "pred" ? "bool" : sortOf(e.term)

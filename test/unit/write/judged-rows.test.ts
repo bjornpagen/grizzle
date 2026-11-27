@@ -72,8 +72,8 @@ const Judged = schema(
 	[
 		tree(on(T, "parent", "at"), fin(T, "children"), { root: ["root"] }),
 		counted(on(M, "root", "start"), fin(T, "members")),
-		check("Member", T, (t) => t.or(t.eq(t.kind, 0n), t.ge(t.members, 1n))),
-		check("Child", T, (t) => t.or(t.ne(t.kind, 2n), t.ge(t.children, 1n)))
+		check("Member", T, (t) => t.or([t.eq(t.kind, 0n), t.ge(t.members, 1n)])),
+		check("Child", T, (t) => t.or([t.ne(t.kind, 2n), t.ge(t.children, 1n)]))
 	]
 )
 const reality = realityWrite(succeeded(testArtifacts(Judged, testCompile)))

@@ -175,7 +175,7 @@ export const theHostEvaluatorAdmitsDigestsAndHoldsTwoEqualExactlyWhereTheirBytes
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/program/evaluate.ts",
+				file: "packages/engine/src/runtime/write/witness.ts",
 				original:
 					'carrier === "bytes" && value instanceof Uint8Array ? new AdmittedBytes(value) : value',
 				replacement: "value instanceof Uint8Array ? new AdmittedBytes(value) : value",

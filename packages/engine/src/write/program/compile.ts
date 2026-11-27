@@ -48,6 +48,7 @@ import type {
 	BoundCarrier,
 	BoundCarrierOf,
 	DeclaredParamSlot,
+	ReadBackAdmission,
 	WriteParamSlot
 } from "#compiler/lower/conservative/types.ts"
 import { isPlainQuery } from "#compiler/lower/delivery.ts"
@@ -79,9 +80,15 @@ import { sentHeading, sentSpec, specifiedProgram } from "#compiler/lower/templat
 import { oneForm } from "#compiler/runtime/lower/forms.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
-import type { EmittedText, Select, SqlStatement } from "#compiler/sql/ast.ts"
+import type {
+	EmittedSql,
+	EmittedText,
+	Select,
+	SqlStatement,
+	StatementText,
+	UnprintedSql
+} from "#compiler/sql/ast.ts"
 import {
-	type CarrierScope,
 	freshNames as startNames,
 	type NameMap,
 	NameSupply,
@@ -89,9 +96,7 @@ import {
 	namesPast
 } from "#compiler/sql/naming.ts"
 import {
-	buildEmptyCarrier,
 	buildFillCarrier,
-	type CarrierDeclaring,
 	type CarrierTyping,
 	type WriteCarrier,
 	carrierColumns,
@@ -119,7 +124,7 @@ import { sentLayout } from "#compiler/runtime/write/nesting.ts"
 import type { FamilyWriteStep } from "#compiler/runtime/write/steps.ts"
 import type { UniqueAbort, WriteStep } from "#compiler/runtime/write/steps.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
-import { buildAdmission } from "#compiler/write/admission/statement.ts"
+import { unprintedText } from "#compiler/sql/emit.ts"
 import { type AddedRows, unitSql } from "#compiler/write/delete/unit.ts"
 import {
 	type AppendedMember,
@@ -153,17 +158,18 @@ import { type FamilyNode, sameNode } from "#compiler/write/frontend/schedule.ts"
 import { distinctByEvidence, type WriteInput } from "#compiler/write/insert/input.ts"
 import { buildInsert } from "#compiler/write/insert/protocol.ts"
 import {
-	type AdmissionResult,
 	type DeleteResult,
 	type InsertResult,
 	type ModifyingStatement,
 	ownStatement,
 	StatementShare,
 	type WriteContext,
+	writeContext,
 	type WriteNames,
 	type WriteStatement,
-	writeContext
+	type StatementWriting
 } from "#compiler/write/insert/statement.ts"
+import { admittedFlight } from "#compiler/write/program/admission.ts"
 import { castsNothing, settledArtifact } from "#compiler/write/program/artifact.ts"
 import {
 	type ArtifactForms,
@@ -205,7 +211,8 @@ import {
 	type PutStatement
 } from "#compiler/write/put/statement.ts"
 import {
-	carriedFill,
+	carriedNames,
+	carriedStash,
 	type DeltaCteName,
 	type DeltaHeld,
 	deltaAfter,
@@ -216,7 +223,13 @@ import {
 	emptyDelta,
 	familyAddedCte
 } from "#compiler/write/readback/deltas.ts"
-import { type DeltasOf, deltaSourceIn, lowerReadBack } from "#compiler/write/readback/lower.ts"
+import {
+	type DeltasOf,
+	deltaSourceIn,
+	lowerReadBack,
+	lowerRidingReadBack,
+	type ReadBackProgram
+} from "#compiler/write/readback/lower.ts"
 import {
 	type CarriedSide,
 	type FormLack,
@@ -250,8 +263,6 @@ export interface PrepareWriteOptions {
 	readonly clock: ClockBinding
 	/** Where its readings of the clock count from (write/frontend/compile.ts FrontendOptions `source`). */
 	readonly source: ClockSource
-	/** Whose session tables its carriers are: the role it runs as, or reality (sql/naming.ts CarrierScope). */
-	readonly carrierScope: CarrierScope
 }
 
 export interface CompileWriteOptions extends PrepareWriteOptions {
@@ -274,15 +285,10 @@ export interface CompiledWrite extends ProgramArtifacts<WriteParamSlot> {
 	/** The optimized artifact, the one an application runs. */
 	readonly artifact: WriteArtifact
 	/** The session objects its artifact's flight reads and writes, which its session stands up before its first call
-	 * (write/program/stand-up.ts writeStandUps). */
-	readonly standUps: ReadonlyArray<StandUp<EmittedText>>
+	 * (write/program/stand-up.ts writeStandUps), each the statement that calls it. */
+	readonly standUps: ReadonlyArray<StandUp<Select>>
 	/** Where each family statement is placed in its stratum's schedule, which every realization places it by. */
 	readonly placements: ReadonlyArray<FamilyPlacement>
-	/**
-	 * The admission of its caller parameters (write/admission/statement.ts), which every realization places first, before
-	 * every stratum; none where no caller parameter has a check.
-	 */
-	readonly admission: WriteStatement<AdmissionResult> | undefined
 	/**
 	 * The parameters the members and read-backs declare that a call supplies, every one but those its member binds to the
 	 * database's clock, and the enumerated member slots binding fills.
@@ -506,11 +512,13 @@ const placementRelations = (placement: FamilyPlacement): ReadonlyArray<string> =
 /**
  * A program's family statements (write/family/additions.ts, removals.ts, write/delete/unit.ts), built once over the
  * installed names: each family statement the schedule placed among a stratum's writes (frontend/schedule.ts
- * FamilyNode).
+ * FamilyNode), each unit delete's described source a precheck reads read from the carrier its plan fills
+ * (WritePlan `sources`).
  */
 const familyProgram = (
 	frontend: WriteFrontend,
-	w: WriteContext
+	w: WriteContext,
+	sources: WritePlan["sources"]
 ): ReadonlyArray<FamilyPlacement> => {
 	const all = frontend.laws.families
 	/** Every stored relation of the schema, beyond the role's world: a family's statement names its owner, which a
@@ -523,7 +531,18 @@ const familyProgram = (
 	/** A family relation's row layout, read off the schema's own relation, which a role writes whole or scoped. */
 	const layoutOf = (name: string): RowLayout => rowLayout(info(name), all)
 	return strataAt(frontend.ir.strata).flatMap(([s, stratum]) =>
-		stratum.family.map(({ node }): FamilyPlacement => {
+		stratum.family.map(({ node: scheduled }): FamilyPlacement => {
+			const node: FamilyNode =
+				scheduled.kind === "unit"
+					? Object.freeze({
+							...scheduled,
+							units: mapNonEmpty(scheduled.units, (u) => {
+								const carried =
+									u.source.kind === "described" ? sources.get(u.source.node) : undefined
+								return carried === undefined ? u : Object.freeze({ ...u, source: carried })
+							})
+						})
+					: scheduled
 			if (node.kind === "unit") {
 				/** The rows the stratum adds of a unit's relation, which a doomed row is kept as: the rows its nested writes
 				 * fill, where its one nesting lays it out (frontend/compile.ts stratumLayouts), else the facts of each slot that
@@ -578,9 +597,7 @@ const familyProgram = (
 					)
 				}))
 				if (!isNonEmpty(own)) {
-					throw defect(
-						`the families of ${relation.name}, which a family removals statement redraws`
-					)
+					defect(`the families of ${relation.name}, which a family removals statement redraws`)
 				}
 				return own
 			}
@@ -707,43 +724,46 @@ const familyProgram = (
 						known.push(source)
 					}
 				}
-				const appended = [...sourced].flatMap(([name, sources]): ReadonlyArray<AppendedMember> => {
-					if (!members.includes(name)) {
-						return []
-					}
-					const relation = info(name)
-					return [
-						{
-							relation,
-							uniques: relationUniques(
-								defined(frontend.laws.relations.get(name), `the laws of ${name}`)
-							),
-							layout: layoutOf(name),
-							sources,
-							families: familiesOf(relation).map((f) => ({
-								family: f.family,
-								drawn: f.drawn,
-								start: appendStartOf(frontend.laws.theory.fill, relation.name, f.family),
-								fresh: isSequence(f.family)
-									? ({ kind: "none" } as const)
-									: ({
-											kind: "drawn",
-											stratum: s,
-											layout: freshLayoutOf(frontend, f.family, s),
-											stamps:
-												defined(frontend.fresh.get(s), `the fresh fill of stratum ${s}`).stamps.get(
-													relation.name
-												) ?? []
-										} as const)
-							})),
-							owns: all.filter((f) => f.owner.name === name && !isSequence(f)),
-							riders: appendRidersOf(
-								relation,
-								node.appends === "rows" ? node.riders.map((r) => r.relation) : []
-							)
+				const appended = [...sourced].flatMap(
+					([name, rowSources]): ReadonlyArray<AppendedMember> => {
+						if (!members.includes(name)) {
+							return []
 						}
-					]
-				})
+						const relation = info(name)
+						return [
+							{
+								relation,
+								uniques: relationUniques(
+									defined(frontend.laws.relations.get(name), `the laws of ${name}`)
+								),
+								layout: layoutOf(name),
+								sources: rowSources,
+								families: familiesOf(relation).map((f) => ({
+									family: f.family,
+									drawn: f.drawn,
+									start: appendStartOf(frontend.laws.theory.fill, relation.name, f.family),
+									fresh: isSequence(f.family)
+										? ({ kind: "none" } as const)
+										: ({
+												kind: "drawn",
+												stratum: s,
+												layout: freshLayoutOf(frontend, f.family, s),
+												stamps:
+													defined(
+														frontend.fresh.get(s),
+														`the fresh fill of stratum ${s}`
+													).stamps.get(relation.name) ?? []
+											} as const)
+								})),
+								owns: all.filter((f) => f.owner.name === name && !isSequence(f)),
+								riders: appendRidersOf(
+									relation,
+									node.appends === "rows" ? node.riders.map((r) => r.relation) : []
+								)
+							}
+						]
+					}
+				)
 				const putOwners = ownerSlots("put").flatMap(
 					({ relation, slot }): ReadonlyArray<PutOwner> => {
 						const recounted = all.filter(
@@ -884,8 +904,8 @@ export const placeFamily = (
  * relation's added side the statement inserts is one CTE over the rows its insert's RETURNING returns, every field in
  * heading order (write/readback/deltas.ts deltaCteName), and every other side of a relation it writes is the empty
  * relation: an additions statement removes nothing, and the root it inserts for a read-back is a stamped nesting's,
- * whose stamped rows meet no stored one. Each carried side is filled into its carrier from its CTE by a data-modifying
- * CTE after them (write/readback/deltas.ts carriedFill), a carried side of no CTE left empty. Each read-back is lowered
+ * whose stamped rows meet no stored one. Each carried side's carrier is filled from its CTE by a part of no row after
+ * the read-backs' (write/readback/deltas.ts carriedStash), a carried side of no CTE filled with no row. Each read-back is lowered
  * over those deltas, named past them and past every earlier read-back's, and is one part of the statement after the
  * family's parts, its rows behind its tag, every arm padded to the widest, as a single statement's riders are
  * (write/program/single.ts singleStatement). A read-back's statement rides in its first form.
@@ -921,10 +941,6 @@ const ridingFamily = (
 		added.set(r.relation, cte)
 		return [familyAddedCte(r, cte)]
 	})
-	const fills = carries.flatMap((c) => {
-		const cte = c.side === "added" ? added.get(c.relation) : undefined
-		return cte === undefined ? [] : [carriedFill(supply.relation(carriedOrigin(c)), cte, c.carrier)]
-	})
 	const deltaNames: NameMap = supply.map()
 	const held = (target: string, side: DeltaSide): DeltaHeld | undefined => {
 		const cte = side === "added" ? added.get(target) : undefined
@@ -957,18 +973,29 @@ const ridingFamily = (
 		})
 		return { rider, part: own.part, tag }
 	})
+	/** Each carried side's fill, a part of no row after the read-backs', over its CTE, or of no row where none is. */
+	const stashes = carries.map((c, at) => {
+		const stashSupply = new NameSupply(cursor)
+		const query = carriedStash(
+			c.side === "added" ? added.get(c.relation) : undefined,
+			c.carrier,
+			carriedNames(c.carrier, stashSupply)
+		)
+		const nameMap = stashSupply.map()
+		cursor = namesPast(nameMap, cursor)
+		return {
+			part: { query, params: [], nameMap, width: 0 },
+			tag: sql.parts.length + readBacks.length + at
+		}
+	})
 	return {
-		...ridingFamilyStatement(sql, [...deltaCtes, ...fills], deltaNames, placed, cursor),
+		...ridingFamilyStatement(sql, deltaCtes, deltaNames, [...placed, ...stashes], cursor),
 		riders: placed.map((p) => p.rider)
 	}
 }
 
 /** What the statement filling a carried side's carrier writes, for the dependency tracker. */
 const carriedAccess = (carried: CarriedSide): string => `carrier:${carried.carrier.name}`
-
-/** What a carried side's fill CTE is named for (write/readback/deltas.ts carriedFill). */
-const carriedOrigin = (carried: CarriedSide) =>
-	({ kind: "internal", purpose: `carried ${carried.side} of ${carried.relation}` }) as const
 
 /** A statement placed at the next position: its step, its spec, its audited AST, its forms and the read-backs riding
  * it. */
@@ -977,7 +1004,7 @@ const placeSpec = (
 	step: Extract<
 		WriteStep,
 		{
-			readonly kind: "write" | "carrier" | "single" | "check" | "familyWrite" | "admission"
+			readonly kind: "write" | "carrier" | "single" | "check" | "familyWrite"
 		}
 	>,
 	spec: StatementSpec<WriteParamSlot>,
@@ -1046,14 +1073,23 @@ const partedText = (single: SingleStatement): FormText =>
 	Object.freeze({ kind: "parted", units: single.units })
 
 /**
- * The statement of the read-back `read`, lowered as `program`, placed after the artifact's statements so far, naming
- * its read-back and holding the statement it was lowered as, in its forms: its whole-relation variant its large form
- * when the read-back's optimized lowering made a per-execution choice in it.
+ * Which statement admits the caller parameters of a read-back's write, lowered after the statements `b` places so far
+ * (lower/conservative/types.ts ReadBackAdmission): the read-back itself where it is the first statement of the flight,
+ * a ChangeSet of reads alone, and else one before it.
+ */
+export const readBackAdmission = (b: ArtifactBuilder): ReadBackAdmission =>
+	b.statements.length === 0 ? "own" : "write"
+
+/**
+ * The statement of the read-back `read`, lowered as `program` with `admission`, placed after the artifact's statements
+ * so far, naming its read-back and holding the statement it was lowered as, in its forms: its whole-relation variant
+ * its large form when the read-back's optimized lowering made a per-execution choice in it.
  */
 export const placeReadBack = (
 	b: ArtifactBuilder,
 	read: ReadBack,
 	program: OptimizedDeliveryProgram<RelationChoice>,
+	admission: ReadBackAdmission,
 	dependsOn: ReadonlyArray<number>
 ): void => {
 	const run = specifiedProgram(program, b.codes)
@@ -1073,27 +1109,9 @@ export const placeReadBack = (
 			dependsOn: Object.freeze([...new Set(dependsOn)].toSorted((x, y) => x - y))
 		}),
 		ast: program.statement.ast,
-		names: program.statement.sql.nameMap
+		names: program.statement.sql.nameMap,
+		admission
 	})
-}
-
-/** The admission `admission` placed first in `b`, before every stratum, after no statement: none where there is none. */
-export const placeAdmission = (
-	b: ArtifactBuilder,
-	admission: WriteStatement<AdmissionResult> | undefined
-): void => {
-	if (admission !== undefined) {
-		placeSpec(
-			b,
-			{ kind: "admission" },
-			writeStatementSpec(admission, []),
-			admission.ast,
-			admission.sql.nameMap,
-			wholeText,
-			oneForm,
-			[]
-		)
-	}
 }
 
 /**
@@ -1106,12 +1124,15 @@ const sessionTyping =
 	(t) =>
 		sessionTypeRef(names, t)
 
-/** The artifact of the statements built and their carriers. */
+/** The artifact of the statements built and their carriers, its caller parameters `params` admitted as `cx` checks
+ * them (admission.ts admittedFlight). */
 export const finish = (
 	b: ArtifactBuilder,
 	carriers: ReadonlyArray<WriteCarrier>,
-	declaring: CarrierDeclaring
-): WriteArtifact => settledArtifact(b.statements, Object.freeze([...carriers]), declaring)
+	cx: LowerContext,
+	params: ReadonlyArray<CallerParamDecl>
+): WriteArtifact =>
+	settledArtifact(admittedFlight(b.statements, cx, params), Object.freeze([...carriers]))
 
 /** How the optimized artifact's described members lower: its shape state, whose log holds the choices the statement
  * being lowered made in the per-execution mode it is lowered in, the sharing of sub-queries across its statements, and
@@ -1119,7 +1140,14 @@ export const finish = (
 interface Lowering {
 	readonly state: ShapeState<RelationInput>
 	readonly sharing: StatementSharing
-	readonly w: WriteContext
+	/** The context of the statements the program sends alone, each printed. */
+	readonly w: StatementWriting<EmittedSql>
+	/**
+	 * The statements of a stratum's single statement's parts the compilation built, which an equal request shares: none
+	 * printed, since the single statement composes them, the one print, and a part reads its shared CTEs, which the single
+	 * statement alone binds (StatementWriting).
+	 */
+	readonly parts: StatementShare<UnprintedSql>
 	/** The carrier each carried bound input's InputSets read, the read-backs' as the members' (WriteLowering `bound`). */
 	readonly bound: BoundCarrierOf
 }
@@ -1128,20 +1156,24 @@ interface Lowering {
  * lowering made a per-execution choice, lowered again in the large mode, its whole-relation form beside its LATERAL form
  * (`StatementForms`), as a query's statements carry their forms: both forms are one placement's, with its step and
  * result. Each member slot two or more statements read is staged once into a carrier (slot-carriers.ts), which those
- * statements read; the conservative realization, the write oracle's baseline, reads every slot's arrays itself. */
+ * statements read; the conservative realization, the write oracle's baseline, reads every slot's arrays itself. Its
+ * caller parameters are admitted in the statements a call may send first (admission.ts admittedFlight), as the
+ * conservative realization's are. */
 const optimizedArtifact = (
 	frontend: WriteFrontend,
 	plan: WritePlan,
 	lowering: Lowering,
-	admission: WriteStatement<AdmissionResult> | undefined,
 	options: CompileWriteOptions
 ): WriteArtifact => {
 	const staged = withStagedSlots(
-		optimizedPlacement(frontend, plan, lowering, admission, options).statements,
+		optimizedPlacement(frontend, plan, lowering, options).statements,
 		plan.carriers,
 		plan.declaring
 	)
-	return settledArtifact(staged.statements, staged.carriers, plan.declaring)
+	return settledArtifact(
+		admittedFlight(staged.statements, lowering.w.cx, callerParams(frontend.params)),
+		staged.carriers
+	)
 }
 
 /** The optimized artifact's statements, each with its forms.
@@ -1155,12 +1187,10 @@ const optimizedPlacement = (
 	frontend: WriteFrontend,
 	plan: WritePlan,
 	lowering: Lowering,
-	admission: WriteStatement<AdmissionResult> | undefined,
 	options: CompileWriteOptions
 ): ArtifactBuilder => {
 	const { w, sharing, state } = lowering
 	const b = newBuilder(w.cx.names.codes)
-	placeAdmission(b, admission)
 	/**
 	 * A statement in its forms: built by `build` in the small per-execution mode, and, when that build made choices,
 	 * built again in the large mode, whose sent form (`sent`) is its large form. Each build begins its statement
@@ -1254,7 +1284,10 @@ const optimizedPlacement = (
 	/** A planned write's step, of its statement `filled`. */
 	const writeStep = (
 		step: PlannedWrite,
-		filled: ModifyingStatement<InsertResult> | ModifyingStatement<DeleteResult> | PutStatement
+		filled:
+			| ModifyingStatement<InsertResult, StatementText>
+			| ModifyingStatement<DeleteResult, StatementText>
+			| PutStatement<StatementText>
 	): Extract<WriteStep, { readonly kind: "write" }> => ({
 		kind: "write",
 		stratum: step.action.stratum,
@@ -1276,36 +1309,36 @@ const optimizedPlacement = (
 		]
 	}
 	/** The family statements, each placed where its stratum's schedule runs it (plan step `family`). */
-	const families = familyProgram(frontend, w)
-	/** What a family statement reads and writes, what its riding read-backs read and the carriers it fills, for the
-	 * dependency tracker. */
+	const families = familyProgram(frontend, w, plan.sources)
+	/** What a family statement reads and writes, the carriers its unit deletes read their sources from
+	 * (write/delete/unit.ts FamilySource), what its riding read-backs read and the carriers it fills, for the dependency
+	 * tracker. */
 	const familyDeps = (
 		placement: FamilyPlacement,
 		readBacks: ReadonlyArray<ReadBack>,
 		carries: ReadonlyArray<CarriedSide>
 	): ReadonlyArray<number> => {
 		const relations = placementRelations(placement).map((r) => `relation:${r}`)
+		const { node } = placement
+		const sources =
+			node.kind === "unit"
+				? inputReads(
+						node.units.flatMap((u) => (u.source.kind === "carrier" ? [u.source.input] : []))
+					)
+				: []
 		const read = readBacks.flatMap(readBackReads)
-		return tracker.add([...relations, ...read], [...relations, ...carries.map(carriedAccess)])
+		return tracker.add(
+			[...relations, ...sources, ...read],
+			[...relations, ...carries.map(carriedAccess)]
+		)
 	}
 	for (const step of plan.steps) {
 		switch (step.kind) {
 			case "bound": {
-				/** A carried bound input's one evaluation, first among its stratum's statements: its carrier, which the
-				 * session's stand-up of the write made, emptied, then filled from its query in the state the strata before
-				 * it left, which every statement after it reads (ir/write.ts BoundInput). */
+				/** A carried bound input's one evaluation, first among its stratum's statements: its carrier, filled from its
+				 * query in the state the strata before it left, which every statement after it reads (ir/write.ts
+				 * BoundInput). */
 				const { input, carrier } = step
-				placed(
-					() => buildEmptyCarrier(w, carrier),
-					tracker.add([], [`carrier:${carrier.name}`]),
-					() => ({
-						kind: "carrier",
-						carrier: carrier.name,
-						step: "empty",
-						stratum: input.stratum,
-						casts: castsNothing
-					})
-				)
 				placed(
 					() => buildFillCarrier(w, carrier, { kind: "member", node: input.node }),
 					tracker.add(
@@ -1318,7 +1351,6 @@ const optimizedPlacement = (
 					() => ({
 						kind: "carrier",
 						carrier: carrier.name,
-						step: "fill",
 						stratum: input.stratum,
 						casts: castsNothing
 					})
@@ -1341,27 +1373,12 @@ const optimizedPlacement = (
 									frontend,
 									made: plan.made,
 									lower: (read, deltas, start) =>
-										lowerReadBack(read, deltas, start, readBackOptions)
+										lowerRidingReadBack(read, deltas, start, readBackOptions)
 								}
 							}
 						: { kind: "none" }
 				)
 				break
-			case "emptyCarrier": {
-				const deps = tracker.add([], [`carrier:${step.carrier.name}`])
-				placed(
-					() => buildEmptyCarrier(w, step.carrier),
-					deps,
-					() => ({
-						kind: "carrier",
-						carrier: step.carrier.name,
-						step: "empty",
-						stratum: step.stratum,
-						casts: castsNothing
-					})
-				)
-				break
-			}
 			case "fillMember": {
 				const reads = [
 					...step.node.meta.reads.map((r) => `relation:${r}`),
@@ -1374,7 +1391,6 @@ const optimizedPlacement = (
 					() => ({
 						kind: "carrier",
 						carrier: step.carrier.name,
-						step: "fill",
 						stratum: step.stratum,
 						casts: { kind: "member", relation: step.relation, stratum: step.stratum }
 					})
@@ -1396,7 +1412,6 @@ const optimizedPlacement = (
 					() => ({
 						kind: "carrier",
 						carrier: step.carrier.name,
-						step: "fill",
 						stratum: step.stratum,
 						casts: castsNothing
 					})
@@ -1404,6 +1419,7 @@ const optimizedPlacement = (
 				sharing.carry(share, {
 					kind: "carrier",
 					carrier: step.carrier.name,
+					table: step.carrier.declaration.columns,
 					columns: carrierColumns(step.carrier)
 				})
 				break
@@ -1467,7 +1483,10 @@ const optimizedPlacement = (
 						}
 					}
 					const writes = mapNonEmpty(step.writes, (planned) => {
-						const statement = buildWriteOp({ ...w, start }, planned)
+						const statement = buildWriteOp(
+							{ ...w, start, text: unprintedText, share: lowering.parts },
+							planned
+						)
 						start = namesPast(statement.sql.nameMap, ownStatement)
 						return { step: writeStep(planned, statement), statement }
 					})
@@ -1480,7 +1499,8 @@ const optimizedPlacement = (
 						? ridingSingle(step.readBacks, step.carries, formedParts(buildParts), {
 								frontend,
 								made: plan.made,
-								lower: (read, deltas, start) => lowerReadBack(read, deltas, start, readBackOptions)
+								lower: (read, deltas, start) =>
+									lowerRidingReadBack(read, deltas, start, readBackOptions)
 							})
 						: (() => {
 								const plain = formed(
@@ -1528,7 +1548,7 @@ const optimizedPlacement = (
 				const deps = tracker.addAfter(
 					[...inputReads([step.input]), ...describedReads([step.input]), ...checkReads(step)],
 					[],
-					step.check.kind === "membership" && step.check.addition.kind === "action"
+					step.check.kind !== "outside" && step.check.addition.kind === "action"
 						? actionDeps(step.check.addition.action)
 						: []
 				)
@@ -1542,7 +1562,7 @@ const optimizedPlacement = (
 						needs: statement.needs
 					})
 				)
-				if (step.check.kind === "membership" && step.check.addition.kind === "action") {
+				if (step.check.kind !== "outside" && step.check.addition.kind === "action") {
 					record(step.check.addition.action, position)
 				}
 				break
@@ -1552,8 +1572,9 @@ const optimizedPlacement = (
 					deltaSourceIn(relation, frontend.deltaEntries, (target) =>
 						deltaAfter(plan.made, plan.carried, target, side)
 					)
-				const program = lowerReadBack(step.read, deltas, startNames, readBackOptions)
-				placeReadBack(b, step.read, program, tracker.add(readBackReads(step.read), []))
+				const admission = readBackAdmission(b)
+				const program = lowerReadBack(step.read, deltas, startNames, admission, readBackOptions)
+				placeReadBack(b, step.read, program, admission, tracker.add(readBackReads(step.read), []))
 				break
 			}
 		}
@@ -1568,9 +1589,9 @@ interface BuiltParts {
 	readonly writes: NonEmptyReadonlyArray<{
 		readonly step: Extract<WriteStep, { readonly kind: "write" }>
 		readonly statement:
-			| ModifyingStatement<InsertResult>
-			| ModifyingStatement<DeleteResult>
-			| PutStatement
+			| ModifyingStatement<InsertResult, UnprintedSql>
+			| ModifyingStatement<DeleteResult, UnprintedSql>
+			| PutStatement<UnprintedSql>
 	}>
 	readonly start: NameSupplyStart
 }
@@ -1617,7 +1638,7 @@ const laterStart = (a: NameSupplyStart, b: NameSupplyStart): NameSupplyStart => 
  * again (shapes/index.ts StatementParts).
  */
 const ridingPartOf = (
-	statement: SentStatement,
+	statement: SentStatement<DeclaredParamSlot, UnprintedSql>,
 	width: number,
 	supply: NameSupply
 ): { readonly part: ReadBackPart; readonly shape: TaggedPart } => {
@@ -1636,7 +1657,8 @@ const ridingPartOf = (
 }
 
 /** What riding a single statement reads beside its parts: the write's front end, the sides of the deltas some statement
- * makes, and how a read-back lowers over the deltas and naming start it is given. */
+ * makes, and how a read-back lowers over the deltas and naming start it is given, composed into the statement it rides,
+ * never printed apart (write/readback/lower.ts lowerRidingReadBack). */
 interface RidingContext {
 	readonly frontend: WriteFrontend
 	readonly made: WritePlan["made"]
@@ -1644,7 +1666,7 @@ interface RidingContext {
 		read: ReadBack,
 		deltas: DeltasOf,
 		start: NameSupplyStart
-	) => OptimizedDeliveryProgram<RelationChoice>
+	) => ReadBackProgram<UnprintedSql>
 }
 
 /**
@@ -1655,8 +1677,9 @@ interface RidingContext {
  * Every delta a riding read-back names of a relation the statement writes, and every side it carries, is one CTE of the
  * statement over that write's RETURNING (write/readback/deltas.ts deltaCte), named once past every name either form's
  * parts define, so it has one name in both forms; a delta of a relation no statement writes is the empty relation.
- * Each carried side's carrier is filled from its CTE by a data-modifying CTE after them (write/readback/deltas.ts
- * carriedFill), named past them too; a side the write returns no rows of leaves its carrier empty. Each read-back is
+ * Each carried side's carrier is filled from its CTE by a part of no row after the read-backs' (write/readback/deltas.ts
+ * carriedStash), named past them too, one name in both forms; a side the write returns no rows of fills it with no row.
+ * Each read-back is
  * lowered over those deltas, its statement named past them and past every earlier read-back's
  * (lower/conservative/types.ts ReadBackLowering start), and its statement is one part of the statement after the writes'
  * parts, in order, the names its part adds past all of those (`ridingPartOf`). The statement's
@@ -1704,8 +1727,6 @@ const ridingSingle = (
 		}
 		names.set(relation, own)
 	}
-	/** Each carried side's fill CTE's name, in the order of `carries`. */
-	const fillNames = carries.map((c) => supply.relation(carriedOrigin(c)))
 	const deltaNames: NameMap = supply.map()
 	const statementOf = (built: BuiltParts, relation: string) =>
 		defined(
@@ -1757,6 +1778,14 @@ const ridingSingle = (
 		}
 	})
 	const parts = placed
+	/** Each carried side's fill's names, past every read-back's, one in both forms. */
+	const stashNames = carries.map((c) => {
+		const stashSupply = new NameSupply(cursor)
+		const stashed = carriedNames(c.carrier, stashSupply)
+		const nameMap = stashSupply.map()
+		cursor = namesPast(nameMap, cursor)
+		return { names: stashed, nameMap }
+	})
 	const ridingIn = (built: BuiltParts, form: "small" | "large"): Riding => {
 		const read = [...names].flatMap(([relation, sides]) => {
 			const at = built.writes.findIndex((x) => x.step.relation === relation)
@@ -1767,20 +1796,25 @@ const ridingSingle = (
 			})
 		})
 		const returned = new Set(read.map((d) => d.cte.name))
+		/** Each carried side's fill, a part of no row after the read-backs'. */
+		const stashes = carries.map((c, i): ReadBackPart => {
+			const cte = defined(
+				names.get(c.relation)?.get(c.side),
+				`the delta CTE of a side carried out of the statement`
+			)
+			const { names: stashed, nameMap } = defined(stashNames[i], "a carried side's fill names")
+			return {
+				query: carriedStash(returned.has(cte.cte) ? cte : undefined, c.carrier, stashed),
+				params: [],
+				nameMap,
+				width: 0
+			}
+		})
 		return {
 			deltas: read.map((d) => d.cte),
-			fills: carries.flatMap((c, i) => {
-				const cte = defined(
-					names.get(c.relation)?.get(c.side),
-					`the delta CTE of a side carried out of the statement`
-				)
-				return returned.has(cte.cte)
-					? [carriedFill(defined(fillNames[i], "a carried side's fill name"), cte, c.carrier)]
-					: []
-			}),
 			read: [...new Set(read.map((d) => d.at))],
 			nameMap: deltaNames,
-			parts: parts.map((p) => p[form])
+			parts: [...parts.map((p) => p[form]), ...stashes]
 		}
 	}
 	const single = singleOf(small, ridingIn(small, "small"))
@@ -1802,11 +1836,11 @@ const ridingSingle = (
 /** Every side of a delta, in the order a statement names their CTEs. */
 const deltaSides: ReadonlyArray<DeltaSide> = ["added", "removed", "met"]
 
-/** The statement of one planned write op. */
-const buildWriteOp = (
-	w: WriteContext,
+/** The statement of one planned write op, its text the context's (StatementWriting). */
+const buildWriteOp = <T extends StatementText>(
+	w: StatementWriting<T>,
 	step: PlannedWrite
-): ModifyingStatement<InsertResult> | ModifyingStatement<DeleteResult> | PutStatement => {
+): ModifyingStatement<InsertResult, T> | ModifyingStatement<DeleteResult, T> | PutStatement<T> => {
 	const { relation, input } = step
 	switch (step.op) {
 		case "insert":
@@ -1905,8 +1939,18 @@ const entryCheckOf = (
 	if (check.kind === "outside") {
 		return check
 	}
+	if (check.kind === "claimed") {
+		return {
+			kind: "claimed",
+			membership: check.membership,
+			entry: check.entry,
+			relation: check.relation,
+			base: frontend.schema.definitions(),
+			catalog: evidenceCatalog(frontend)
+		}
+	}
 	if (world.kind !== "role") {
-		throw defect(
+		defect(
 			`the check of the query entry ${check.entry.entry} in a write compiled as reality's, not its role's`
 		)
 	}
@@ -1926,12 +1970,19 @@ const entryCheckOf = (
  * reads. */
 const checkReads = (step: Extract<PlanStep, { readonly kind: "check" }>): ReadonlyArray<string> => {
 	const check = step.check
-	if (check.kind === "outside") {
-		return []
+	switch (check.kind) {
+		case "outside":
+			return []
+		case "claimed":
+			return [check.membership.target.name, ...queryUses(check.membership.filter).relations].map(
+				(r) => `relation:${r}`
+			)
+		case "membership": {
+			const filter = check.entry.filter
+			const read = filter.kind === "none" ? [] : [...queryUses(filter.query).relations]
+			return [check.entry.target.name, ...read].map((r) => `relation:${r}`)
+		}
 	}
-	const filter = check.entry.filter
-	const read = filter.kind === "none" ? [] : [...queryUses(filter.query).relations]
-	return [check.entry.target.name, ...read].map((r) => `relation:${r}`)
 }
 
 /**
@@ -2058,7 +2109,7 @@ const compileAt = (
 	const options: CompileWriteOptions = { ...prepared.options, level }
 	const placed = writeFacts(placement)
 	/** The statements every lowering below builds, shared where their requests are equal. */
-	const share = new StatementShare()
+	const share = new StatementShare<EmittedSql>()
 	/** A write's described members lower statement by statement in each per-execution mode, and no CTE policy shares
 	 * their stages. */
 	const state = new ShapeState<RelationInput>("small", emptyCtePlan, noKeys)
@@ -2067,7 +2118,7 @@ const compileAt = (
 	 * lowering's evaluation keys and attachment share keys and its read-backs' digests and lowerings all read, each
 	 * node's written once for the compile.
 	 */
-	const templates = new DagTemplates()
+	const templates = new DagTemplates("derivation")
 	/**
 	 * The carrier of each carried bound input, by its parameter, which every lowering below reads its InputSets through
 	 * (BoundCarrierOf): the plan's, which the plan's carriers' typing reads this lowering to make, so it is held here once
@@ -2075,7 +2126,7 @@ const compileAt = (
 	 */
 	const bound = new Map<ParamId, BoundCarrier>()
 	const sharing = new StatementSharing(
-		new ShareIndex(restated.ir.dag, templates),
+		new ShareIndex(restated.ir.dag, templates, placed.facts.realization),
 		optimizedDispatch(placed.facts, state).dispatch,
 		(node, cx, env, restriction) =>
 			node.kind === "Union"
@@ -2087,6 +2138,7 @@ const compileAt = (
 		state,
 		sharing,
 		bound: (param) => bound.get(param),
+		parts: new StatementShare<UnprintedSql>(),
 		w: writeContext(restated.ir.dag, {
 			names: options.names,
 			reads: options.reads,
@@ -2115,16 +2167,12 @@ const compileAt = (
 			}
 			return shares
 		},
-		carriers: {
-			scope: options.carrierScope,
-			typing: sessionTyping(options.names)
-		}
+		carriers: { typing: sessionTyping(options.names) }
 	})
 	for (const [param, carrier] of plan.bound) {
 		bound.set(param, carrierRows(carrier))
 	}
-	const admission = buildAdmission(lowering.w, callerParams(frontend.params))
-	const optimized = optimizedArtifact(restated, plan, lowering, admission, options)
+	const optimized = optimizedArtifact(restated, plan, lowering, options)
 	unwrap(insertOnly(schema, options.world, optimized.statements, options.names, options.laws))
 	const program: CompiledWrite = {
 		level: options.level,
@@ -2138,8 +2186,7 @@ const compileAt = (
 		plan,
 		artifact: optimized,
 		standUps: writeStandUps(optimized, options.laws, options.names.schema),
-		placements: familyProgram(restated, lowering.w),
-		admission,
+		placements: familyProgram(restated, lowering.w, plan.sources),
 		params: callerParams(frontend.params),
 		clocked: clockedParams(frontend.params),
 		slots: frontend.slots,

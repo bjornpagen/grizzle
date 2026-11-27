@@ -43,6 +43,30 @@
  * holds by its unique index, Declared delivering its document's unit at each place, over two layouts of the elements at
  * six sizes from 500 to 16,000, each twice the one before, the tables analyzed, as a migration's are by the runbook and
  * autovacuum.
+ *
+ * A fill derives its relation whole, every row of every table it reads, so its bound is the rows of those tables, each
+ * read a bounded number of times by a lookup of what the steps before it bound: O(n log n). pantry's namingRecords
+ * (qti/queries.ts), each record under a resource's metadata with the document the resource's `href` lists, filled on
+ * edullm's QTI copy in 452.2 s over 0 rows, 656,026,169 buffers: R02 had made existence tests of the metadata element
+ * and the `href`, the only occurrences relating the record to its resource and the resource to its document, so the
+ * fill joined each record to every typed resource of its manifest and each to every listed document of its package by
+ * the package alone. R02 keeps both in the region (existence/index.ts keepsRestriction, demand/restriction.ts
+ * linkedColumns): each relates a record to the rest of it at a column no other occurrence does. Held in a flat join,
+ * PostgreSQL's estimates still joined each record to every typed resource of its manifest by the manifest alone, a
+ * prefix of each key that every row of the manifest shares, and probed each metadata element by the manifest alone
+ * after: 672,128 rows touched at 64 resources. The region nothing binds is read from its root (cte-policy rootChain,
+ * share/sites.ts regionChain): every record read where it stands, its metadata element, the `href` and the type of its
+ * resource each a seek of its key at the values of the rows before it, the records' n rows each with one row of every
+ * other, O(n log n).
+ *
+ * Property: for each case of the second box, Named's fill, explained with ANALYZE, reads each table by at most one plan
+ * node per occurrence its definition reads it at, and touches at most its plan's nodes times the rows of the tables,
+ * and holds each record whose resource is of an object's type and whose `href` names a listed document. The box,
+ * exhausted: namingRecords' rule over a package sealed at its founding, its manifest's elements, records, attributes,
+ * `href`s and listed documents keyed as pantry's are, every resource typed, resolved and listed or every third
+ * unresolved, every fifth of no object's type and every seventh naming no listed document, in one package and in four,
+ * of 16, 64 and 256 resources each, the tables analyzed. The resource types, a closed sub-query over the sealed
+ * package's content, are a canonical relation the installation stores, filled before Named and held to the same bound.
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
@@ -52,7 +76,11 @@ import {
 	type CheckFeature,
 	checkCaseGen,
 	checkCostTemplate,
-	runCheck
+	type NamingFeature,
+	namingCaseGen,
+	namingFillTemplate,
+	runCheck,
+	runNamingFill
 } from "#test/pg/laws/check-cost.fixtures.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -99,6 +127,44 @@ export const aLawsFullCheckReadsEachTableOncePerOccurrenceAndEachRowABoundedNumb
 				replacement:
 					'\tquery: { ...create.query, body: { kind: "setOp", op: "UNION", arms: [create.query, create.query] } }\n})',
 				why: "A stored relation's fill derives its definition twice, the definition's union with itself: each table it reads by a scan of each derivation, and every row it derives hashed or sorted against the other's, where the fill reads each table once per occurrence its definition reads it at."
+			}
+		]
+	})
+
+/**
+ * The fill of a stored relation of pantry's namingRecords' shape, each record under a resource's metadata with the
+ * document the resource's `href` lists, reads each table once per occurrence and touches each row a bounded number of
+ * times, O(n log n) in its records, elements, attributes and documents, and fills each record that names a document.
+ */
+export const aFillOfNamingRecordsShapeReadsEachRecordElementAttributeAndDocumentABoundedNumberOfTimes =
+	property.exhaust(finite(namingCaseGen), {
+		needs: { manifest: Substrate.rolledBack(namingFillTemplate) },
+		situations: [
+			"a record that names its document",
+			"a record that names none"
+		] satisfies ReadonlyArray<Reached<NamingFeature>>,
+		check:
+			({ manifest }, k) =>
+			(c) =>
+				Effect.flatMap(manifest, ({ connection, value }) => runNamingFill(value, connection, c, k)),
+		oracle: {
+			kind: "specification",
+			name: "the bound: the fill's plan reads each table by one node per occurrence its definition reads it at, and touches at most its nodes times the rows of the tables, counted over all loops; and it holds each record whose resource's type is an object's and whose href names a listed document"
+		},
+		box: "Named, namingRecords' rule over a sealed package's manifest elements, records, attributes, hrefs and listed documents, stored and filled: every resource typed, resolved and listed, or every third unresolved, every fifth of no object's type and every seventh naming no listed document, in one package and in four, of 16, 64 and 256 resources each, analyzed",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/optimize/existence/index.ts",
+				original: "\t\tconst keeping = connected.filter((o) => keepsRestriction(node, o))\n",
+				replacement: "\t\tconst keeping = connected\n",
+				why: "R02 makes existence tests of the metadata element and the href, as before: the fill joins each record to every typed resource of its document and each to every listed document of its package by the package alone, the two tests applied to the product, as edullm's QTI copy's namingRecords fill read 656,026,169 buffers for its 0 rows."
+			},
+			{
+				file: "packages/engine/src/lower/shapes/share/sites.ts",
+				original: "\t\t: rootChain(region, region.occurrences)\n",
+				replacement: "\t\t: undefined\n",
+				why: "A region nothing binds is joined by PostgreSQL's estimates: it joins each record to every typed resource of its manifest by the manifest alone and probes each metadata element by the manifest alone after, 672,128 rows touched at 64 resources."
 			}
 		]
 	})

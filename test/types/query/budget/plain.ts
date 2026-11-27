@@ -100,17 +100,36 @@ const step = 20
  *   with each arm before it met apart, Mismatched pairwise) and a union of two rules 4,043, 21 more than the third left
  *   it, the price of reading a field's carriers once, and 4,059 with `At | At2`; after its fifth, a rule's keys read each key's needs and the head's terms once, one rule 1,452,
  *   a union of two rules 3,879, a union of sixteen rules 53,464; every program clean; types are not read
- *   (the checker interns them)
- * @decision the bound is the cut's own cost, exactly: a change that makes a query that attaches nothing pay more for
- *   its type's attachments, or any other cost per plain query, is refused here, and a change that lowers it lowers the
+ *   (the checker interns them);
+ *   at REPLAYFIX's exact-bound car (2026-11-26, over ousxtqsu on train C's 1170fa12 and its empty-level car), every type
+ *   budget run with each program's count logged, width 8, load in the hundreds: one rule 1,409 a query, a union of two
+ *   rules 3,793, a union of sixteen rules 52,744; at BRAND-P3 (2026-11-26, over the merged tree 1323e2141f08), where
+ *   P's id is the tests' Id, a contract whose host type is its base's under its consumer's key (core/brand.ts Marked),
+ *   a union of two rules 3,832, 39 more, and a union of sixteen rules 53,609, 865 more, the price of reading the arms'
+ *   id under its key's mark where the union meets their carriers (types/core BaseOf, Unmarked); one rule within 1,409;
+ *   at the merged tree of every lane (52df3631e, 2026-11-26), one rule
+ *   1,389, the arm proof every rule's evidence read gone with alternatives (271ffecf2, ArmProofOf), a union of two rules
+ *   3,832 and a union of sixteen 53,609, each further arm 59 more than before: attach mints an arm's parent variables
+ *   over the interface's carriers, a mapped type of Hc (ParentVars), which left Hc's measured variance unreliable (tsgo
+ *   --generateTrace, getVariancesWorker: in out, unreliable), so where two arms' Finished types met whose carriers it
+ *   did not relate, the checker compared them member by member, attach's signature instantiated at each: 189 an arm
+ *   with slice B's attach, 110 with the arm delivery's attach before it, none with attach's parameter minted over
+ *   unknown (Hc then out) or attach declared once at the top level over the arm it is called on. Hc declared in out,
+ *   the variance the checker measures, reliable (types/query/query.ts Finished): one rule 1,389, a union of two rules
+ *   3,643, a union of sixteen rules 50,774, each measured again by this test, every program clean; at PIN 3's merge of
+ *   both with every other line of work (2026-11-26), each measured again by this test, one rule 1,389, a union of two
+ *   rules 3,643 and a union of sixteen rules 50,774: BRAND-P3's mark adds nothing to any of them once Hc is in out.
+ * @decision the bound is the count at the tree it was last measured at, exactly, the counts being a function of the
+ *   tree: a change that makes a plain query, one that attaches nothing paying for its type's attachments among them,
+ *   cost more fails here and moves the bound in its own commit, its cost stated, and a change that lowers it lowers the
  *   bound
  * @revalidate a TypeScript 7 or tsgo upgrade; another machine; any change to the query facade's types
  *   (types/query/query.ts, types/query/rule.ts, the evidence) that moves a plain query's cost, which states its cost here
  */
 const addedAtMost: { readonly [S in PlainShape]: number } = {
-	"one rule": 1452,
-	"union of two rules": 3879,
-	"union of sixteen rules": 53464
+	"one rule": 1389,
+	"union of two rules": 3643,
+	"union of sixteen rules": 50774
 }
 
 /** How a shape prints. */

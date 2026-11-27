@@ -10,7 +10,8 @@
  * are a reference cutter's, which cuts the whole string greedily, each part the longest start within the bound that ends
  * after its last blank line, else after its last line feed, else after its last whole code point; each part is within
  * the bound; the parts joined are the text; and the part entries of its file name lay out that one file. Files: a drafted
- * folder's meta.json and SQL files and two snapshots' files in turn, written by generate's writers under a drawn bound:
+ * folder's meta.json and SQL files and two snapshots' files in turn, staged and put in place by generate's writers
+ * (cli/files.ts stageFolder, stageSnapshotFiles, commitFolder, commitSnapshotFiles) under a drawn bound:
  * every entry but snapshot.json is within the bound, each entry is the one laidOut names, and the schema's directory
  * reads back every text as written, the second manifest whole, none of the first left; and the imported files are
  * refused, by the first past the bound, exactly where one is. Oracles: a second implementation of the cutter over the
@@ -36,7 +37,15 @@ import {
 	Result,
 	String as Str
 } from "effect"
-import { readSchemaTree, unsplitWithin, writeFolder, writeSnapshotFiles } from "#cli/files.ts"
+import {
+	commitFolder,
+	commitSnapshotFiles,
+	readSchemaTree,
+	stageFolder,
+	stageSnapshotFiles,
+	stagingArea,
+	unsplitWithin
+} from "#cli/files.ts"
 import { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { wellFormed } from "#compiler/core/text.ts"
 import { metaFileName, type MigrationFolder } from "#compiler/deploy/render/folder.ts"
@@ -246,20 +255,29 @@ export const generatesWritersLayEveryFileOutWithinTheBoundAndTheDirectoryReadsBa
 						metaText: text(x.meta),
 						files
 					}
-					yield* writeFolder("s", directory, folder, x.bound)
 					const [first, second] = x.manifests
-					yield* writeSnapshotFiles(
-						"s",
-						directory,
-						{ snapshot: text(x.snapshot), manifest: text(first) },
-						x.bound
+					const putSnapshotFiles = (manifest: string) =>
+						Effect.scoped(
+							Effect.gen(function* () {
+								const staging = yield* stagingArea("s", directory, directory)
+								const parts = yield* stageSnapshotFiles(
+									"s",
+									staging,
+									{ snapshot: text(x.snapshot), manifest: text(manifest) },
+									x.bound
+								)
+								yield* commitSnapshotFiles("s", staging, parts)
+							})
+						)
+					yield* Effect.scoped(
+						Effect.gen(function* () {
+							const staging = yield* stagingArea("s", directory, directory)
+							yield* stageFolder("s", staging, folder, x.bound)
+							yield* commitFolder("s", staging, folder.name)
+						})
 					)
-					yield* writeSnapshotFiles(
-						"s",
-						directory,
-						{ snapshot: text(x.snapshot), manifest: text(second) },
-						x.bound
-					)
+					yield* putSnapshotFiles(first)
+					yield* putSnapshotFiles(second)
 					const counts = Arr.map(
 						x.manifests,
 						(m) => laidOut(manifestFileName, text(m), x.bound).length

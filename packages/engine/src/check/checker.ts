@@ -9,7 +9,7 @@ import { only } from "#compiler/check/defined.ts"
 import { fail, failWith } from "#compiler/check/fail.ts"
 import {
 	declaredKeys,
-	deliversFloat,
+	deliversNonIdentity,
 	groupedZeroed,
 	type MergeRule,
 	type RegionMatches,
@@ -17,25 +17,25 @@ import {
 	type StatedMerge
 } from "#compiler/check/merge.ts"
 import type { StatedOrder } from "#compiler/check/order.ts"
-import type {
-	ParamCell,
+import {
+	type ParamCell,
 	ParamTable,
-	Resolved,
-	ResolvedAttach,
-	ResolvedBound,
-	ResolvedExpr,
-	ResolvedHead,
-	ResolvedImport,
-	ResolvedInterior,
-	ResolvedMatch,
-	ResolvedQuery,
-	ResolvedRule,
-	ResolvedSource,
-	ResolvedStage,
-	ResolvedTake
+	type Resolved,
+	type ResolvedAttach,
+	type ResolvedBound,
+	type ResolvedExpr,
+	type ResolvedHead,
+	type ResolvedImport,
+	type ResolvedInterior,
+	type ResolvedMatch,
+	type ResolvedQuery,
+	type ResolvedRule,
+	type ResolvedSource,
+	type ResolvedStage,
+	type ResolvedTake
 } from "#compiler/check/params.ts"
 import { recursion } from "#compiler/check/recursion/index.ts"
-import { refinement } from "#compiler/check/refinement/index.ts"
+import { guarantees, refinement } from "#compiler/check/refinement/index.ts"
 import {
 	entries,
 	freshColumnName,
@@ -121,6 +121,7 @@ import {
 	type ProducerKind,
 	type RelNode,
 	semiJoinRight,
+	armArgument,
 	seriesArguments,
 	seriesHeading,
 	decodedPathHeading,
@@ -137,15 +138,17 @@ import {
 	type VarDecl
 } from "#compiler/ir/rel.ts"
 import {
+	armAt,
 	baseOf,
 	type Carrier,
-	isFloat,
+	equalityIsIdentity,
 	languageOctets,
 	languageWithin,
 	type PlainType,
 	sameScalarType,
 	type ScalarType,
 	type SpanCarrier,
+	subsumes,
 	type TextInfo,
 	textInfoBounds,
 	textOf,
@@ -171,9 +174,10 @@ import {
 } from "#compiler/scalar/compute/lower.ts"
 import {
 	binaryCoercion,
-	canonicalZeroSpec,
+	canonicalSpec,
 	definedIdOf,
 	definedRangeOp,
+	firstOperand,
 	nativeOp,
 	overloadOf
 } from "#compiler/scalar/compute/registry.ts"
@@ -202,6 +206,7 @@ import {
 	type ParamRef
 } from "#compiler/scalar/compute/typing.ts"
 import { type PlainCarrier, plainType } from "#compiler/scalar/native.ts"
+import type { PatternDfas } from "#compiler/scalar/regex/inclusion.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { stretchSource } from "#compiler/scalar/regex/stretch.ts"
 import { tokenSource } from "#compiler/scalar/regex/whitespace.ts"
@@ -293,6 +298,10 @@ const importedKey = (
 	}
 	return { text: parts.join(" "), closed }
 }
+
+/** The key of a check's closed imports among the compile's (Checker `#closedImport`): its reading and its clock. */
+const closedReading = (options: CheckOptions): string =>
+	`${options.read} ${canonicalTextOf(options.clock)}`
 
 /**
  * An import's key (`importedKey`): its text, and whether the import is closed, every value it is bound to a parameter,
@@ -557,7 +566,8 @@ interface SlotOf<Kind extends string> {
  * name) and becomes a slot at the first match binding it, which gives it its type. A parent variable is correlated to
  * its parent column until a match binds it. An imported parameter bound to an outer value is correlated to it, and the
  * region carries it only when a filter, the head or a fallback equality reads it (needed). A hidden variable is bound
- * to a second column of another type and equated with its variable by the filter.
+ * to a second column of another type, equated with its variable by the region (RuleCheck `#equated`), or with the value
+ * a binding fixes its column to by the filter.
  */
 type ReservedUser = SlotOf<"user">
 type UserSlot = ReservedUser & { readonly binding: Binding }
@@ -570,13 +580,21 @@ type Slot = UserSlot | ParentSlot | ParamSlot | HiddenSlot
 type AggregateHead = Extract<ResolvedHead, { readonly kind: "aggregate" }>
 type ProducerHead = Extract<ResolvedHead, { readonly kind: "producer" }>
 
+/** An equality the rule's filter owes: a hidden variable and the value a binding fixes its column to. */
+interface PendingFixing {
+	readonly hidden: HiddenSlot
+	readonly value: ScalarExpr
+}
+
 /**
- * An equality the rule's filter owes: a variable and the hidden variable bound to a second column of another
- * refinement or typmod, or a hidden variable and the value a binding fixes its column to.
+ * Two variables of the rule's region one class holds (RuleCheck `#equated`): a variable, and the hidden variable bound to
+ * a column it meets at another refinement or typmod, or to a digested text a join splits off; or two variables its
+ * where states equal.
  */
-type PendingEquality =
-	| { readonly kind: "slots"; readonly left: UserSlot | ParentSlot; readonly right: HiddenSlot }
-	| { readonly kind: "value"; readonly hidden: HiddenSlot; readonly value: ScalarExpr }
+interface EquatedSlots {
+	readonly left: Slot
+	readonly right: Slot
+}
 
 /** A slot a match binds a source column to: a rule or parent variable, or a hidden one. */
 type BoundSlot = UserSlot | ParentSlot | HiddenSlot
@@ -662,8 +680,14 @@ type NegatedBinding =
 	  }
 	| { readonly kind: "none" }
 
-/** How a constant binding lands: a constant of the region that fixes the column, or a value the filter equates with it. */
-type ConstantPlacement = { readonly kind: "fix" | "filter"; readonly expr: ScalarExpr }
+/**
+ * How a constant binding lands: a constant of the region that fixes the column, a value the filter equates with it, or
+ * a variable of the region its column's hidden variable is one class with (an imported parameter bound to an outer value
+ * of another refinement or typmod).
+ */
+type ConstantPlacement =
+	| { readonly kind: "fix" | "filter"; readonly expr: ScalarExpr }
+	| { readonly kind: "equated"; readonly slot: ParamSlot }
 
 /** One output column of a projection: its name, its expression and the heading column it makes. */
 interface OutColumn {
@@ -895,13 +919,14 @@ const compatibleTypes = (types: NonEmptyReadonlyArray<ScalarType>): boolean =>
 const groupColumnType = (
 	types: NonEmptyReadonlyArray<ScalarType>,
 	column: HeadingColumn,
-	loc: SourceLoc
+	loc: SourceLoc,
+	patterns: PatternDfas
 ): ScalarType => {
 	if (sameTypes(types)) {
 		return types[0]
 	}
 	if (compatibleTypes(types)) {
-		return refinement.common(types)
+		return refinement.common(types, patterns)
 	}
 	return fail(
 		"MalformedDescription",
@@ -911,14 +936,17 @@ const groupColumnType = (
 }
 
 /** The type arms agree on: the one they share, or the guarantees common to them; none when they are incompatible. */
-const agreedType = (types: ReadonlyArray<ScalarType>): ScalarType | undefined => {
+const agreedType = (
+	types: ReadonlyArray<ScalarType>,
+	patterns: PatternDfas
+): ScalarType | undefined => {
 	if (!isNonEmpty(types)) {
 		return undefined
 	}
 	if (sameTypes(types)) {
 		return types[0]
 	}
-	return compatibleTypes(types) ? refinement.common(types) : undefined
+	return compatibleTypes(types) ? refinement.common(types, patterns) : undefined
 }
 
 type BareLiteral = Extract<HeadLiteral, { readonly kind: "bare" }>
@@ -934,7 +962,8 @@ const bareOf = (head: HeadLiteral | undefined): BareLiteral | undefined =>
  */
 const commonColumnsOf = (
 	firstHeading: Heading,
-	groups: NonEmptyReadonlyArray<{ readonly target: ReadonlyMap<string, ScalarType> }>
+	groups: NonEmptyReadonlyArray<{ readonly target: ReadonlyMap<string, ScalarType> }>,
+	patterns: PatternDfas
 ): ReadonlyArray<{ readonly name: string; readonly widen: ScalarType | undefined }> =>
 	firstHeading.flatMap(
 		(c): ReadonlyArray<{ readonly name: string; readonly widen: ScalarType | undefined }> => {
@@ -942,7 +971,9 @@ const commonColumnsOf = (
 			if (known === undefined) {
 				return []
 			}
-			return [{ name: c.name, widen: sameTypes(known) ? undefined : refinement.common(known) }]
+			return [
+				{ name: c.name, widen: sameTypes(known) ? undefined : refinement.common(known, patterns) }
+			]
 		}
 	)
 
@@ -1236,7 +1267,7 @@ export class Checker {
 		this.patterns = options.session.patterns
 		this.b = new DagBuilder(options.session.ids)
 		this.#params = params
-		this.#reading = `${options.read} ${canonicalTextOf(options.clock)}`
+		this.#reading = closedReading(options)
 	}
 
 	/**
@@ -1298,11 +1329,11 @@ export class Checker {
 		return relNode(node.id, { ...spec, loc, meta: conservativeMeta })
 	}
 
-	/** The canonical zero of a float term (scalar/compute/registry.ts canonicalZeroSpec), of its type. */
-	canonicalZero(expr: ScalarExpr): ScalarExpr {
-		const spec = canonicalZeroSpec(expr)
+	/** The canonical form of a term of a non-identity equality type (scalar/compute/registry.ts canonicalSpec), of its type. */
+	canonical(expr: ScalarExpr): ScalarExpr {
+		const spec = canonicalSpec(expr)
 		if (spec === undefined) {
-			throw defect(`a canonical zero of ${typeLabel(expr.type)}`)
+			defect(`a canonical form of ${typeLabel(expr.type)}`)
 		}
 		return this.emit(spec)
 	}
@@ -1312,7 +1343,7 @@ export class Checker {
 	 * (check/merge.ts): a projection that delivers no float merges none, and is not recorded.
 	 */
 	stateMerge(projection: RelNode, rule: MergeRule, at: SourceLoc): void {
-		if (projection.kind === "ProjectSet" && deliversFloat(projection)) {
+		if (projection.kind === "ProjectSet" && deliversNonIdentity(projection)) {
 			this.#merges.set(projection, { projection, rule, at })
 		}
 	}
@@ -1328,7 +1359,7 @@ export class Checker {
 		}
 		const out = node.heading.map((c) => {
 			const column = this.emit(storedColumn(node.id, c.name, c.type))
-			return { name: c.name, expr: isFloat(c.type) ? this.canonicalZero(column) : column }
+			return { name: c.name, expr: equalityIsIdentity(c.type) ? column : this.canonical(column) }
 		})
 		const arm = this.node({ kind: "ProjectSet", input: node, out, heading: node.heading }, loc)
 		this.#delivered.set(arm, this.deliveredOf(node))
@@ -1351,7 +1382,7 @@ export class Checker {
 			this.#merges.set(node, { ...merge, rule: { kind: "always" } })
 			return true
 		}
-		if (!node.heading.some((c) => isFloat(c.type))) {
+		if (node.heading.every((c) => equalityIsIdentity(c.type))) {
 			return true
 		}
 		switch (node.kind) {
@@ -1413,6 +1444,7 @@ export class Checker {
 	services(): ScopedServices<Scope> {
 		return {
 			schema: this.schema,
+			patterns: this.patterns,
 			builder: this.b,
 			node: (spec, loc) => this.node(spec, loc),
 			reserve: () => this.reserve(),
@@ -1783,7 +1815,8 @@ export class Checker {
 			}
 		}
 		const firstHeading = first.heading
-		const commonColumns = groups.length > 1 ? commonColumnsOf(firstHeading, targets) : []
+		const commonColumns =
+			groups.length > 1 ? commonColumnsOf(firstHeading, targets, this.patterns) : []
 		const widenings = commonColumns.flatMap(({ name, widen }) =>
 			widen === undefined ? [] : [{ name, widen }]
 		)
@@ -1901,7 +1934,7 @@ export class Checker {
 		}
 		const positions = new Map<string, ScalarType>()
 		for (const [name, types] of termTypes) {
-			const agreed = agreedType(types)
+			const agreed = agreedType(types, this.patterns)
 			if (agreed !== undefined) {
 				positions.set(name, agreed)
 			}
@@ -1937,7 +1970,12 @@ export class Checker {
 		for (const [name, columns] of delivered) {
 			target.set(
 				name,
-				groupColumnType(this.#positionedTypes(columns, positions.get(name)), columns[0].column, loc)
+				groupColumnType(
+					this.#positionedTypes(columns, positions.get(name)),
+					columns[0].column,
+					loc,
+					this.patterns
+				)
 			)
 		}
 		return target
@@ -1955,8 +1993,10 @@ export class Checker {
 		position: ScalarType | undefined
 	): NonEmptyReadonlyArray<ScalarType> {
 		const agreed =
-			agreedType(delivered.flatMap((d) => (d.bare === undefined ? [d.column.type] : []))) ??
-			position
+			agreedType(
+				delivered.flatMap((d) => (d.bare === undefined ? [d.column.type] : [])),
+				this.patterns
+			) ?? position
 		return mapNonEmpty(delivered, (d) =>
 			d.bare !== undefined &&
 			agreed !== undefined &&
@@ -2011,7 +2051,7 @@ export class Checker {
 				return { name: c.name, expr: this.emit(literalSpec(retyped.literal, t)), type: t }
 			}
 			const col = this.emit(storedColumn(arm.id, c.name, c.type))
-			if (sameScalarType(t, c.type)) {
+			if (subsumes(t, c.type)) {
 				return { name: c.name, expr: col, type: t }
 			}
 			return {
@@ -2257,7 +2297,7 @@ export class Checker {
 				}
 				if (info.kind === "derived" || info.kind === "world") {
 					/** A view is read by its whole heading under the checker's evidence, and carries its own keys for evidence that
-					 * admits them. */
+					 * admits them, and the dependencies its definition proves. */
 					const { heading, keys } = info.analysis.read
 					return this.node(
 						{
@@ -2268,6 +2308,7 @@ export class Checker {
 							keys: [],
 							relationKind: info.kind,
 							view: keys,
+							determined: info.analysis.read.determined,
 							heading
 						},
 						loc
@@ -2282,6 +2323,8 @@ export class Checker {
 						keys: info.keys,
 						relationKind: "relation",
 						generated: info.generated,
+						unit: info.unit,
+						determined: info.determined,
 						heading: headingColumns(info.heading)
 					},
 					loc
@@ -2292,7 +2335,7 @@ export class Checker {
 			case "step": {
 				const bare = bareHeadField(src.query)
 				if (bare !== undefined) {
-					throw defect(
+					defect(
 						`a step grizzle wrote delivers ${bare} by a bare literal at ${loc.label}: a rule read apart from the union it was written in holds each head literal typed at the column it stands for (analysis/theory/leaves.ts typedHeads), the type its position there proved`
 					)
 				}
@@ -2399,7 +2442,54 @@ export class Checker {
 					loc,
 					"r.series as a relational filter's source: a series is a match of its rule, its element between its ends; compare a value with the ends instead"
 				)
+			case "arm":
+				return this.#armSource(src, loc, bind)
 		}
+	}
+
+	/**
+	 * An arm of a variant's value (V.arm), a call of grizzle's arm (CallFunction `arm`): its one argument, the value, a
+	 * term of the scope the match stands in of the variant's type, and one row of the arm's fields, each at its own type,
+	 * where the value's tag is that arm, none where it is another. An arm of no field delivers no column: its tag is
+	 * compared instead (V.tag).
+	 */
+	#armSource(
+		src: Extract<ResolvedSource, { readonly kind: "arm" }>,
+		loc: SourceLoc,
+		bind: Binder
+	): RelNode {
+		const type = this.fieldType(src.variant, loc)
+		const base = baseOf(type)
+		const arm = base.carrier === "variant" ? armAt(base.variant, src.handle) : undefined
+		if (arm === undefined) {
+			return fail("MalformedDescription", loc, `an arm ${src.handle} of a variant for V.arm`)
+		}
+		const [first, ...rest] = arm.fields
+		if (first === undefined) {
+			return fail(
+				"MalformedDescription",
+				loc,
+				`an arm with a field for V.arm; arm ${src.handle} holds none: compare its tag instead, V.tag`
+			)
+		}
+		const at = childLoc(loc, armArgument)
+		const value = bind(src.value, armArgument, at)
+		return this.node(
+			{
+				kind: "Call",
+				function: { kind: "arm", handle: src.handle },
+				args: [
+					{
+						kind: "value",
+						name: armArgument,
+						expr: this.#boundArgument(value, type, armArgument, at),
+						type
+					}
+				],
+				heading: [first, ...rest].map((f) => ({ name: f.name, type: f.type }))
+			},
+			loc
+		)
 	}
 
 	/**
@@ -2779,7 +2869,8 @@ export class Checker {
 			case "pointIn":
 			case "call":
 			case "absent":
-			case "exists": {
+			case "exists":
+			case "variant": {
 				const computed = lower(term, at)
 				return { expr: computed.expr, type: computed.nominal }
 			}
@@ -3048,6 +3139,32 @@ export class Checker {
 		return key.closed
 			? this.#closedImport(key.text, () => this.#importAt(src, values, loc))
 			: this.#correlatedImport(key, () => this.#importAt(src, values, loc))
+	}
+
+	/**
+	 * The closed import of `desc` under an empty bind map over `schema` under `options`, the one node every query of the
+	 * compile that imports it so reads (`#closedImport`), its DAG completed alone: the one a check of the compile built at
+	 * its key, read as it stands, else one checked here, which every later check reads. A canonical relation's definition
+	 * and its form are this node (analysis/derived/canonical.ts), the very node each reader's import of it stands as.
+	 */
+	static closedImport(
+		schema: SchemaReading,
+		options: CheckOptions,
+		desc: ResolvedQuery,
+		loc: SourceLoc
+	): RelNode {
+		const values = new Map<string, BindValue>()
+		const key = importedKey(options.session, desc, values)
+		const known = options.session.closedImports(schema).get(`${closedReading(options)} ${key.text}`)
+		return (
+			known?.node ??
+			new Checker(schema, options, new ParamTable([])).#keyedImport(
+				{ query: desc },
+				values,
+				loc,
+				key
+			)
+		)
 	}
 
 	/**
@@ -3378,7 +3495,14 @@ export class Checker {
 					this.#deliversHeading(src.cell.name, heading, evaluation, loc)
 					const param = this.useBoundParam(resolved.cell, loc)
 					return this.node(
-						{ kind: "InputSet", input: { kind: "bound", param }, heading: evaluation },
+						{
+							kind: "InputSet",
+							input: { kind: "bound", param },
+							heading: evaluation.map((c) => ({
+								name: c.name,
+								type: columnOf(heading, c.name)?.type ?? c.type
+							}))
+						},
 						loc
 					)
 				}
@@ -3397,7 +3521,10 @@ export class Checker {
 		}
 	}
 
-	/** The rows a relation parameter is bound to (#paramSource), of exactly its declared heading. */
+	/**
+	 * The rows a relation parameter is bound to (#paramSource), of exactly its declared heading: the query's rows, each
+	 * column it delivers at a type that guarantees the field's widened to the field's (#widenArm).
+	 */
 	#boundRows(
 		name: string,
 		heading: Heading,
@@ -3411,13 +3538,21 @@ export class Checker {
 			importedKey(this.options.session, bound.query, bound.values)
 		)
 		this.#deliversHeading(name, heading, rows.heading, loc)
-		return rows
+		return this.#widenArm(
+			rows,
+			this.carried(rows),
+			new Map(heading.map((c) => [c.name, c.type] as const)),
+			loc
+		)
 	}
 
 	/**
 	 * Refuses rows of the heading `delivered` for relation parameter `name` of the declared `heading` unless they deliver
-	 * exactly its fields, each at a type that meets the field's (compatible): a query it is bound to, at a use
-	 * (#boundRows), or the one evaluation its ChangeSet carries (#paramSource).
+	 * exactly its fields, each at a type that guarantees the field's (check/refinement guarantees): a query it is bound
+	 * to, at a use (#boundRows), or the one evaluation its ChangeSet carries (#paramSource). The parameter's rows are of
+	 * its declared heading wherever it is bound, so a binding never delivers a value the field's type does not hold:
+	 * metis's `sittings`, of LearnerId's child, bound to a sitting query that delivered its child at a Timeback user's 255
+	 * characters, read that wider text for LearnerId, its declared refinement lost.
 	 */
 	#deliversHeading(
 		name: string,
@@ -3435,11 +3570,11 @@ export class Checker {
 					refusal: "a relation parameter binds a query that delivers exactly its heading's fields"
 				})
 			}
-			if (!compatible(delivered.type, f.type)) {
+			if (!guarantees(delivered.type, f.type, this.patterns)) {
 				fail(
 					"MalformedDescription",
 					childLoc(loc, f.name),
-					`a query delivering ${f.name} of ${typeLabel(f.type)} for relation parameter ${name}; it delivers ${typeLabel(delivered.type)}`
+					`a query delivering ${f.name} of ${typeLabel(f.type)} for relation parameter ${name}; it delivers ${typeLabel(delivered.type)}, which ${typeLabel(f.type)} does not hold every value of: deliver ${f.name} at ${typeLabel(f.type)}, or declare the field at the type the query delivers`
 				)
 			}
 		}
@@ -3728,7 +3863,7 @@ export class Checker {
 						] as const
 					).map(([a, partner]) => {
 						const at = meetingType(a.type, partner.type)
-						return at === a.type
+						return subsumes(at, a.type)
 							? a
 							: this.emit({
 									kind: "cast",
@@ -3984,6 +4119,8 @@ const sourceLabel = (src: ResolvedSource): string => {
 			return splitSources[src.split.kind]
 		case "series":
 			return "a series"
+		case "arm":
+			return `arm ${src.handle} of a variant's value`
 	}
 }
 
@@ -4025,8 +4162,20 @@ class RuleCheck {
 	readonly correlation: Array<{ readonly column: ParentColumn; readonly slot: ParentSlot }> = []
 	readonly paramSlots = new Map<string, ParamSlot>()
 	readonly hidden: Array<HiddenSlot> = []
-	/** The first match column each parent variable a match binds is bound to, which gives it its type. */
+	/**
+	 * The type of each parent variable a match binds: its first column's, provisionally, until it is settled (#settle),
+	 * then the one its every column's guarantees.
+	 */
 	readonly #parentBindings = new Map<VarId, Binding>()
+	/**
+	 * The matches that bind each rule variable without their bind maps reading it, by the description's variable id
+	 * (#matches): the bindings its type settles on.
+	 */
+	readonly #binders = new Map<string, Array<number>>()
+	/** The matches resolved so far, by index (#matches). */
+	readonly #resolved = new Set<number>()
+	/** The variables whose type is settled (#settle): read by a term, or every match resolved. */
+	readonly #settled = new Set<VarId>()
 	/** The imported parameters bound to an outer value that a filter, the head or a fallback equality reads. */
 	readonly #needed = new Set<VarId>()
 	readonly names = new Set<string>()
@@ -4041,10 +4190,23 @@ class RuleCheck {
 		readonly pending: PendingOccurrence
 		readonly occurrence: Occurrence
 	}> = []
-	readonly eqs: Array<PendingEquality> = []
+	/** The values the rule's hidden variables are fixed to (`#withConstants`), each an equality its filter owes. */
+	readonly #fixings: Array<PendingFixing> = []
+	/**
+	 * Each variable and the hidden variable it equals: bound to a column it meets at another refinement or typmod
+	 * (`#rebind`), or to a digested text a join splits off (`#splitDigestedJoins`), or the hidden variable of a constant
+	 * binding's column and the imported parameter it is bound to (`#withConstants`); and each two variables of the region
+	 * an equality of the where states equal (`#variablePair`), a parent's column an attachment's child reads among them.
+	 * Each pair is one class of the region, its equality (`#defineRegion`), never a filter: every analysis of the region's
+	 * variables reads its classes alone (ir/rel.ts regionVarClasses), the key analysis's crossing
+	 * (lower/shapes/share/keys.ts) among them, and an equality the filter held joined no class. metis's submit bound the call's `sittings` child, of the text its query delivered,
+	 * to the ledger's child of LearnerId by a filter, so its reads of each item's presentations and moments were keyed at
+	 * the item and the stage alone, every learner's moments of the stage scanned once per item (403k pages a call).
+	 */
+	readonly #equated: Array<EquatedSlots> = []
 	/**
 	 * The region's scalar filters, lowered once its matches are resolved (`#stateDigests`): its where's scalar conditions,
-	 * the equalities its hidden variables owe, and the digest equalities those owe.
+	 * the values its hidden variables are fixed to, and the digest equalities those and its equated variables owe.
 	 */
 	#filters: ReadonlyArray<ScalarExpr> = []
 
@@ -4222,8 +4384,11 @@ class RuleCheck {
 
 	/** The slot of a rule variable a match has bound, refused for a variable the rule does not declare or binds by no
 	 * match. */
+	/** The slot of a rule variable a term reads, its type settled first (#settle): no term reads a type it then changes. */
 	#userSlot(id: string, loc: SourceLoc): UserSlot {
-		return this.user.get(id) ?? this.#unboundVariable(id, loc)
+		const slot = this.user.get(id) ?? this.#unboundVariable(id, loc)
+		this.#settle(slot, slot.binding.type, loc)
+		return this.user.get(id) ?? slot
 	}
 
 	/** The reservation of a rule variable a match binds, refused as #userSlot refuses. */
@@ -4248,7 +4413,7 @@ class RuleCheck {
 
 	/**
 	 * Binds the rule variable `id`, reserved as `reserved`, to a source column: its first binding makes its slot, of the
-	 * column's type, and a later one is a rebinding (#rebind).
+	 * column's type until the variable is settled (#settle), and a later one is a rebinding (#rebind).
 	 */
 	#bindUser(
 		id: string,
@@ -4267,7 +4432,8 @@ class RuleCheck {
 
 	/**
 	 * Binds a parent variable to a source column: its first binding, compatible with its parent column, which the
-	 * attachment's correlation equates it with, gives it the column's type, and a later one is a rebinding (#rebind).
+	 * attachment's correlation equates it with, gives it the column's type until the variable is settled (#settle), and a
+	 * later one is a rebinding (#rebind).
 	 */
 	#bindParent(slot: ParentSlot, column: HeadingColumn, loc: SourceLoc): SlotBinding {
 		comparable(column, "no parent's column correlates with it", loc)
@@ -4282,7 +4448,7 @@ class RuleCheck {
 
 	/**
 	 * A further column bound to a variable of type `type`: the variable itself for a column of its type, else a hidden
-	 * variable equated with it by the rule's filter, since one variable has one type.
+	 * variable one class of the region holds with it (`#equated`), since one variable has one type.
 	 */
 	#rebind(
 		slot: UserSlot | ParentSlot,
@@ -4295,8 +4461,15 @@ class RuleCheck {
 		if (sameScalarType(type, column.type)) {
 			return { column: column.name, var: slot }
 		}
+		if (this.#settled.has(slot.id) && !guarantees(type, column.type, this.cx.patterns)) {
+			fail(
+				"MalformedDescription",
+				loc,
+				`variable ${slot.name} of ${typeLabel(type)}, read by a bind map before this match binds it to ${column.name} of ${typeLabel(column.type)}, which ${typeLabel(type)} does not guarantee: bind it at ${typeLabel(column.type)} in a match the bind map does not read`
+			)
+		}
 		const hidden = this.#hidden(column)
-		this.eqs.push({ kind: "slots", left: slot, right: hidden })
+		this.#equated.push({ left: slot, right: hidden })
 		return { column: column.name, var: hidden }
 	}
 
@@ -4322,21 +4495,127 @@ class RuleCheck {
 	}
 
 	/**
-	 * Matches: sources are resolved in order, a source whose bind map reads a variable an unresolved match binds
-	 * waiting for it; variable and parent bindings first, then the constants, which may read any variable.
+	 * Settles the type of variable `slot`, of type `provisional` so far, once: a variable bound to several columns holds
+	 * values that lie in every one of their types, so its type is the first of them, in match order, that guarantees all
+	 * the others (check/refinement guarantees), whatever order the matches bind it in, and each column of another type is
+	 * bound to a hidden variable of that type, one class with it (#equated); a variable no one of whose columns' types
+	 * guarantees the others is refused, naming each. metis's guards bound a sitting's child first to the signed-in
+	 * person's column, a Timeback user of 255 characters, then to its assignment's, a LearnerId of 69 bytes, so the
+	 * sitting delivered a child of the wider type, which a relation parameter of LearnerId took for its own.
+	 */
+	#settle(slot: UserSlot | ParentSlot, provisional: ScalarType, loc: SourceLoc): void {
+		if (this.#settled.has(slot.id)) {
+			return
+		}
+		this.#settled.add(slot.id)
+		const twinned = (v: BoundSlot): v is HiddenSlot =>
+			v.kind === "hidden" && this.#equated.some((e) => e.left === slot && e.right === v)
+		const columns = this.#occurrences
+			.toSorted((a, b) => a.index - b.index)
+			.flatMap((o) =>
+				o.bindings.flatMap((b) =>
+					b.var === slot
+						? [{ at: o.loc.label, column: b.column, type: provisional }]
+						: twinned(b.var)
+							? [{ at: o.loc.label, column: b.column, type: b.var.binding.type }]
+							: []
+				)
+			)
+		const settled = columns.find((c) =>
+			columns.every((d) => guarantees(c.type, d.type, this.cx.patterns))
+		)?.type
+		if (settled === undefined) {
+			return fail(
+				"MalformedDescription",
+				loc,
+				`variable ${slot.name} bound to columns no one of whose types guarantees the others' (${columns.map((c) => `${c.at}'s ${c.column} of ${typeLabel(c.type)}`).join(", ")}): bind it at one type, or Type.cast a column to another's`
+			)
+		}
+		if (sameScalarType(settled, provisional)) {
+			return
+		}
+		const retyped: UserSlot | ParentSlot =
+			slot.kind === "user" ? { ...slot, binding: { type: settled } } : slot
+		if (retyped.kind === "user") {
+			for (const [id, bound] of this.user) {
+				if (bound === slot) {
+					this.user.set(id, retyped)
+				}
+			}
+		} else {
+			this.#parentBindings.set(slot.id, { type: settled })
+		}
+		/** The hidden variables of the settled type, whose columns the variable binds itself from now on. */
+		const absorbed = new Set<HiddenSlot>()
+		const added: Array<EquatedSlots> = []
+		this.#occurrences = this.#occurrences.map((o) => ({
+			...o,
+			bindings: o.bindings.map((b): SlotBinding => {
+				if (b.var === slot) {
+					const twin = this.#hidden({ name: b.column, type: provisional })
+					added.push({ left: retyped, right: twin })
+					return { column: b.column, var: twin }
+				}
+				if (twinned(b.var) && sameScalarType(b.var.binding.type, settled)) {
+					absorbed.add(b.var)
+					return { column: b.column, var: retyped }
+				}
+				return b
+			})
+		}))
+		const kept = this.#equated.flatMap((e): ReadonlyArray<EquatedSlots> =>
+			e.left !== slot
+				? [e]
+				: e.right.kind === "hidden" && absorbed.has(e.right)
+					? []
+					: [{ left: retyped, right: e.right }]
+		)
+		this.#equated.length = 0
+		appendAll(this.#equated, kept)
+		appendAll(this.#equated, added)
+		const hidden = this.hidden.filter((h) => !absorbed.has(h))
+		this.hidden.length = 0
+		appendAll(this.hidden, hidden)
+	}
+
+	/**
+	 * Matches: sources are resolved in order, a source whose bind map reads a variable waiting until every other match
+	 * that binds it without reading it is resolved, so the variable's type is settled when a term first reads it
+	 * (#settle); variable and parent bindings first, then every variable settled, then the constants, which may read any
+	 * variable. A match whose bind map reads a variable it binds as well reads it before it binds it, so its binding
+	 * settles nothing and is held to the type the read settled (#rebind), and no reader waits on it: navigation's
+	 * steps over a float's variable each read it and deliver it again (analysis/theory/navigate.ts #chain `rebound`,
+	 * 4b24278ad9), and waiting on one another none could be resolved.
 	 */
 	#matches(): void {
 		const pending = this.rule.matches.map((match, index) => ({ match, index }))
-		const waiting = (m: ResolvedMatch): ReadonlyArray<string> =>
-			bindTerms(m.source).flatMap(([, e]) => readVars(e).filter((x) => this.#unbound(x)))
+		for (const { match, index } of pending) {
+			const read = new Set(bindTerms(match.source).flatMap(([, e]) => readVars(e)))
+			for (const [, e] of entries(match.bindings)) {
+				if (e.kind === "var" && !read.has(e.var)) {
+					this.#binders.getOrInsertComputed(e.var, () => []).push(index)
+				}
+			}
+		}
+		/** Whether every match but `index` that binds `x` is resolved, and one is. */
+		const complete = (x: string, index: number): boolean =>
+			!this.#unbound(x) &&
+			(this.#binders.get(x) ?? []).every((j) => j === index || this.#resolved.has(j))
+		const waiting = (q: { readonly match: ResolvedMatch; readonly index: number }) =>
+			bindTerms(q.match.source).flatMap(([, e]) => readVars(e).filter((x) => !complete(x, q.index)))
 		while (isNonEmpty(pending)) {
 			const [p] = pending
-			const found = pending.find((q) => waiting(q.match).length === 0)
+			const found = pending.find((q) => waiting(q).length === 0)
 			if (found === undefined) {
-				fail(
+				const unbound = waiting(p).filter((x) =>
+					(this.#binders.get(x) ?? []).every((j) => j === p.index)
+				)
+				return fail(
 					"MalformedDescription",
 					p.match.loc,
-					`a bind map reading variables some match binds; ${waiting(p.match).join(", ")} ${waiting(p.match).length === 1 ? "is" : "are"} bound by no match`
+					isNonEmpty(unbound)
+						? `a bind map reading variables some match binds; ${unbound.join(", ")} ${unbound.length === 1 ? "is" : "are"} bound by no match before a bind map reads ${unbound.length === 1 ? "it" : "them"}`
+						: `an order of the rule's matches in which a bind map reads each variable once every other match binding it is resolved; ${waiting(p).join(", ")} ${waiting(p).length === 1 ? "waits" : "wait"} on matches that wait on it in turn`
 				)
 			}
 			const ready = found
@@ -4388,10 +4667,19 @@ class RuleCheck {
 				...this.#occurrences,
 				{ match, index, loc, source: narrowed, heading, bindings, constants: [] }
 			]
+			this.#resolved.add(index)
 		}
-		this.#occurrences = this.#occurrences
-			.toSorted((a, b) => a.index - b.index)
-			.map((occ) => this.#withConstants(occ))
+		this.#occurrences = this.#occurrences.toSorted((a, b) => a.index - b.index)
+		for (const slot of this.user.values()) {
+			this.#settle(slot, slot.binding.type, this.loc)
+		}
+		for (const slot of this.parents.values()) {
+			const binding = this.#parentBindings.get(slot.id)
+			if (binding !== undefined) {
+				this.#settle(slot, binding.type, this.loc)
+			}
+		}
+		this.#occurrences = this.#occurrences.map((occ) => this.#withConstants(occ))
 	}
 
 	/**
@@ -4687,6 +4975,10 @@ class RuleCheck {
 			}
 			case "parent": {
 				const slot = this.#parentSlot(desc.column, loc)
+				const binding = this.#parentBindings.get(slot.id)
+				if (binding !== undefined) {
+					this.#settle(slot, binding.type, loc)
+				}
 				return { name: slot.name, type: this.slotType(slot) }
 			}
 			case "field":
@@ -4720,7 +5012,8 @@ class RuleCheck {
 	 * digits than the type holds (scalar/compute/literal.ts LiteralMeeting `compared`), since the binding compares the
 	 * column with it exactly; a parameter bound as the column's base; or a computed term that meets it (types.ts meets). The region holds a constant of the column's base type, or of the
 	 * exact family it widens into (meetingType), whose equality with the column is the value equality the region writes;
-	 * any other value is a hidden variable equated with it by the filter.
+	 * any other value is a hidden variable equated with it by the filter, or by the region where it is one of its
+	 * variables (#paramConstant).
 	 */
 	#constant(column: HeadingColumn, e: ResolvedExpr, loc: SourceLoc): ConstantPlacement {
 		comparable(column, "no constant, parameter or term fixes it", loc)
@@ -4760,7 +5053,8 @@ class RuleCheck {
 	 * A parameter binding that fixes its column. The parameter, of its declared type, meets the column (types.ts meets)
 	 * and is bound as its type's base, as the same equality written with r.eq binds it. A column whose base is another, a
 	 * regex refinement, a numeric typmod or a span's fixed width, would cast the parameter to it, and a typmod cast
-	 * rounds: the column is a hidden variable equated with the parameter.
+	 * rounds: the column is a hidden variable equated with the parameter, by the filter, or, for an imported parameter
+	 * bound to an outer value, by the region, whose variable the parameter is.
 	 */
 	#paramConstant(param: ParamExpr, column: HeadingColumn, loc: SourceLoc): ConstantPlacement {
 		const baseMatches = (t: ScalarType) => sameScalarType(baseOf(column.type), baseOf(t))
@@ -4804,17 +5098,14 @@ class RuleCheck {
 				}
 				const slot = this.#paramSlot(cell, loc)
 				this.#needed.add(slot.id)
-				return {
-					kind: "filter",
-					expr: this.cx.emit(storedColumn(this.region, slot.name, this.slotType(slot)))
-				}
+				return { kind: "equated", slot }
 			}
 		}
 	}
 
 	/**
 	 * An occurrence with the constants its match binds, in binding order: each fixes its column, or binds a hidden
-	 * variable the filter equates with the value.
+	 * variable the filter equates with the value, or one class of the region holds with the variable it reads.
 	 */
 	#withConstants(occ: PendingOccurrence): PendingOccurrence {
 		const constants: Array<{ readonly column: string; readonly expr: ScalarExpr }> = []
@@ -4832,7 +5123,11 @@ class RuleCheck {
 			}
 			const hidden = this.#hidden(col)
 			hiddenBindings.push({ column: col.name, var: hidden })
-			this.eqs.push({ kind: "value", hidden, value: placed.expr })
+			if (placed.kind === "equated") {
+				this.#equated.push({ left: placed.slot, right: hidden })
+			} else {
+				this.#fixings.push({ hidden, value: placed.expr })
+			}
 		}
 		return { ...occ, bindings: [...occ.bindings, ...hiddenBindings], constants }
 	}
@@ -4849,28 +5144,28 @@ class RuleCheck {
 	 * to a value, `T = X`, and T's relation declares a digest D of it, the rule states `D = sha256(X)` too, which the
 	 * generation of D makes true of every row that holds `T = X`, so a lookup that binds T by equality binds its digest,
 	 * which its index holds, and rechecks T on the rows of that digest. A constant that fixes T fixes D at its digest; a
-	 * filter of the rule, a scalar condition of its where or an equality its hidden variables owe, that equates a variable
-	 * bound to T with a term that does not read it (`#digestOf`) is joined by the digest's equality, D bound to its own
-	 * variable where the match leaves it unbound. Each filter is lowered here, once, and the region's Filter reads it
-	 * (`#filter`).
+	 * filter of the rule, a scalar condition of its where or a value its hidden variables are fixed to, or a pair of
+	 * equated variables (`#equated`), that equates a variable bound to T with a term that does not read it (`#digestOf`)
+	 * is joined by the digest's equality, D bound to its own variable where the match leaves it unbound. Each filter is
+	 * lowered here, once, and the region's Filter reads it (`#filter`); the equated pairs are the region's equalities.
 	 */
 	#stateDigests(): void {
 		const loc = this.at("where")
 		const { scalar } = splitWhere(this.rule.where)
+		const conditions = scalar.flatMap(([i, e]) => {
+			const condition = unwrap(
+				lowerPredicate(e, this.env(this.region, this.at("where", i), "filter"))
+			).expr
+			const pair = this.#variablePair(condition)
+			if (pair === undefined) {
+				return [condition]
+			}
+			this.#equated.push(pair)
+			return []
+		})
 		this.#filters = [
-			...scalar.map(
-				([i, e]) =>
-					unwrap(lowerPredicate(e, this.env(this.region, this.at("where", i), "filter"))).expr
-			),
-			...this.eqs.map((pending) =>
-				pending.kind === "slots"
-					? this.cx.opNamed(
-							"eq",
-							[this.#slotExpr(pending.left), this.#slotExpr(pending.right)],
-							loc
-						)
-					: this.cx.opNamed("eq", [this.#slotExpr(pending.hidden), pending.value], loc)
-			)
+			...conditions,
+			...this.#fixings.map((f) => this.cx.opNamed("eq", [this.#slotExpr(f.hidden), f.value], loc))
 		]
 		const owed: Array<ScalarExpr> = []
 		this.#occurrences = this.#occurrences.map((occ) => {
@@ -4894,8 +5189,12 @@ class RuleCheck {
 			}
 			return { ...occ, constants }
 		})
-		this.#filters = [...this.#filters, ...this.#splitDigestedJoins(loc)]
-		for (const p of this.#filters) {
+		this.#splitDigestedJoins()
+		/** Each equated pair's equality, which owes its digests as a filter's would, and stands in the region. */
+		const joined = this.#equated.map((e) =>
+			this.cx.opNamed("eq", [this.#slotExpr(e.left), this.#slotExpr(e.right)], loc)
+		)
+		for (const p of [...this.#filters, ...joined]) {
 			const digest = this.#digestOf(p, loc)
 			if (digest !== undefined) {
 				owed.push(digest)
@@ -4905,22 +5204,56 @@ class RuleCheck {
 	}
 
 	/**
+	 * The two variables of the region a condition of the where states equal, `x = y` at the carrier's own equality, of
+	 * compatible types (types.ts compatible, as one variable binds columns), whose refinements and typmods may differ;
+	 * none for any other condition. metis's review of a question read each attempt's latest attempt by its member's key
+	 * and the parent's child, `r.eq(child, member.child)`, the learner's id at the sitting's person's refinement: a filter's
+	 * equality, which joined no class, so the attempt was read for every learner who attempted the item.
+	 */
+	#variablePair(condition: ScalarExpr): EquatedSlots | undefined {
+		if (condition.kind !== "op" || nativeOp(condition.op)?.fn !== "eq") {
+			return undefined
+		}
+		const [l, r, ...more] = condition.args
+		const slotOf = (e: ScalarExpr | undefined): Slot | undefined =>
+			e?.kind === "column" && e.column.node === this.region
+				? [
+						...this.user.values(),
+						...this.parents.values(),
+						...this.paramSlots.values(),
+						...this.hidden
+					].find((s) => s.name === e.column.name)
+				: undefined
+		const left = slotOf(l)
+		const right = slotOf(r)
+		const native = nativeOp(condition.op)
+		return more.length === 0 &&
+			left !== undefined &&
+			right !== undefined &&
+			left !== right &&
+			native !== undefined &&
+			compatible(this.slotType(left), this.slotType(right)) &&
+			firstOperand(native.operands) === baseOf(this.slotType(left)).carrier
+			? { left, right }
+			: undefined
+	}
+
+	/**
 	 * The equalities a join on a digested text becomes, so the digest's equality can be stated beside it
 	 * (`#stateDigests`): where one variable is bound to a text whose relation declares a digest of it, at one occurrence,
-	 * and to a column of another, that occurrence's text is bound to a hidden variable of its own instead, equated with the
-	 * variable by the rule's filter, as a rebinding of another type is (`#rebind`); a variable bound to digested texts
-	 * alone keeps its first binding. The filter's equality then owes `D = sha256(x)`, x read from the other occurrence,
-	 * which a variable both bind could not state: its column at either occurrence is the one value. Its occurrences bind
-	 * the same rows as before.
+	 * and to a column of another, that occurrence's text is bound to a hidden variable of its own instead, one class with
+	 * the variable (`#equated`), as a rebinding of another type is (`#rebind`); a variable bound to digested texts alone
+	 * keeps its first binding. The pair's equality then owes `D = sha256(x)`, x read from the other occurrence, which a
+	 * variable both bind could not state: its column at either occurrence is the one value. Its occurrences bind the same
+	 * rows as before.
 	 */
-	#splitDigestedJoins(loc: SourceLoc): ReadonlyArray<ScalarExpr> {
-		const sites = new Map<Slot, Array<{ readonly at: number; readonly column: string }>>()
+	#splitDigestedJoins(): void {
+		const sites = new Map<BoundSlot, Array<{ readonly at: number; readonly column: string }>>()
 		for (const [at, occ] of this.#occurrences.entries()) {
 			for (const b of occ.bindings) {
 				sites.getOrInsertComputed(b.var, () => []).push({ at, column: b.column })
 			}
 		}
-		const equalities: Array<ScalarExpr> = []
 		for (const [slot, bound] of sites) {
 			if (bound.length < 2) {
 				continue
@@ -4941,10 +5274,9 @@ class RuleCheck {
 						b.column === column && b.var === slot ? { column, var: hidden } : b
 					)
 				})
-				equalities.push(this.cx.opNamed("eq", [this.#slotExpr(slot), this.#slotExpr(hidden)], loc))
+				this.#equated.push({ left: slot, right: hidden })
 			}
 		}
-		return equalities
 	}
 
 	/** A slot's column of the region, at its type. */
@@ -5124,7 +5456,7 @@ class RuleCheck {
 				scope: this.cx.b.ids.scope(),
 				vars,
 				occurrences,
-				equalities: [],
+				equalities: this.#equated.map((e) => ({ a: declOf(e.left), b: declOf(e.right) })),
 				correlated,
 				heading: vars.map((v) => ({ name: v.name, type: v.type }))
 			},
@@ -5134,8 +5466,8 @@ class RuleCheck {
 	}
 
 	/**
-	 * The rule's scalar filters, the equalities its hidden variables owe and the digest equalities those owe
-	 * (`#stateDigests`), as one Filter over the region.
+	 * The rule's scalar filters, the values its hidden variables are fixed to and the digest equalities those and its
+	 * equated variables owe (`#stateDigests`), as one Filter over the region.
 	 */
 	#filter(region: RelNode): RelNode {
 		const preds = this.#filters
@@ -5652,13 +5984,19 @@ class RuleCheck {
 				"an existence as a head term: a relational existence is a rule-level filter"
 			)
 		}
-		/**
-		 * The column has the type the builder gives the term (its nominal type): a Type.base or a widening cast emits
-		 * no node of its own, so where the node it reads still carries the contract or typmod the term drops, the column
-		 * casts it, and a child binds it as the parent's heading states it.
-		 */
 		const term = unwrap(lowerTerm(h, this.env(input.id, loc, "value")))
-		const expr = sameScalarType(term.expr.type, term.nominal)
+		return { expr: this.#nominal(term), type: term.nominal, literal: undefined }
+	}
+
+	/**
+	 * A lowered term at the type the builder gives it (its nominal type), a head column's and an aggregate argument's: a
+	 * Type.base or a widening cast emits no node of its own, so where the node it reads still carries the contract or
+	 * typmod the term drops, the term is cast, and a child binds it as the parent's heading states it; where the nominal
+	 * type subsumes the term's (ir/scalar.ts subsumes: a domain's base, a refined text's text), it is the term as it
+	 * stands, a stored column read bare, which every walk of the reader's comparisons sees.
+	 */
+	#nominal(term: Lowered): ScalarExpr {
+		return subsumes(term.nominal, term.expr.type)
 			? term.expr
 			: this.cx.emit({
 					kind: "cast",
@@ -5668,7 +6006,6 @@ class RuleCheck {
 					nonNull: "strict",
 					volatility: "immutable"
 				})
-		return { expr, type: term.nominal, literal: undefined }
 	}
 
 	/**
@@ -5874,8 +6211,8 @@ class RuleCheck {
 		const arg = unwrap(
 			returnsInput[head.fn] ? lowerReturned(head.arg, env) : lowerTerm(head.arg, env)
 		)
-		const overload = unwrap(unaryOverload(head.fn, arg.expr.type, at))
-		return { overload, call: { fn: overload.fn, args: [arg.expr] } }
+		const overload = unwrap(unaryOverload(head.fn, arg.nominal, at))
+		return { overload, call: { fn: overload.fn, args: [this.#nominal(arg)] } }
 	}
 
 	/** The Produce over `groupInput` of a head's one span producer, under its result column. */
@@ -6052,7 +6389,7 @@ class RuleCheck {
 			correlations.has(name) ? "correlation" : "key"
 		const read = (c: HeadingColumn, delivered: "correlation" | "key" | "result"): ScalarExpr => {
 			const column = this.cx.emit(storedColumn(node.id, c.name, c.type))
-			return zeroed(c, delivered) ? this.cx.canonicalZero(column) : column
+			return zeroed(c, delivered) ? this.cx.canonical(column) : column
 		}
 		const projected =
 			constants.length > 0 ||

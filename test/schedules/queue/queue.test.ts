@@ -5,9 +5,9 @@
  * The queue is relations and laws only. A claim is one ChangeSet whose members read the claimable work and the free
  * seats and write the item's Work, Wanted and Leased facts; a settlement is one whose members are all described from
  * the lease (key, epoch) it settles. Each lease occupies one Seat fact, under a candidate key on (resource, seat), and
- * the alternatives law gives each item one standing. Under contention the laws, not locks the language exposes, keep
- * the queue sound: two claimers of one item or of one seat cannot both take it, and a late settlement of an expired
- * lease and a reclaim of its item cannot both land.
+ * each standing's arm, mirrored with the work of that standing, gives each item one standing. Under contention the
+ * laws, not locks the language exposes, keep the queue sound: two claimers of one item or of one seat cannot both take
+ * it, and a late settlement of an expired lease and a reclaim of its item cannot both land.
  *
  * Property: every run of a race, in every order of its moves, is explained by its serial reference
  * (test/support/schedules/serial.ts): the two workers' writes (each retried after each TransientFailure until it

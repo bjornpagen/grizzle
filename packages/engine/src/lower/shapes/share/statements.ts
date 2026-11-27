@@ -2,6 +2,7 @@ import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { analyzeDemand, type DemandAnalysis, noPins } from "#compiler/analysis/demand/demand.ts"
+import type { Realization } from "#compiler/analysis/physical/props.ts"
 import { outerOf } from "#compiler/analysis/physical/rules.ts"
 import { catchRefusal, maxStringLength, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -12,6 +13,7 @@ import { Fold } from "#compiler/ir/fold.ts"
 import { edgesOf, inputsOf, type NodeOf, type RelNode, type ValidDag } from "#compiler/ir/rel.ts"
 import { evaluationQuery, statementEvaluations } from "#compiler/lower/conservative/call/index.ts"
 import {
+	type ComputedAt,
 	type CteTable,
 	cteAtFirstUse,
 	type Env,
@@ -19,11 +21,14 @@ import {
 	emptyEnv,
 	type LowerContext,
 	type NodeDispatch,
+	restrictedRead,
 	withLeading
 } from "#compiler/lower/conservative/context.ts"
 import {
+	closedDerivation,
 	costClass,
 	ownCost,
+	readWhole,
 	restrictedByValues
 } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { feedbackReadsOf, nodeGraph } from "#compiler/lower/optimize/demand/editor.ts"
@@ -37,11 +42,13 @@ import {
 	type Keys,
 	type KeyRestriction,
 	Lookups,
+	noPagedReads,
 	readAtKeys,
 	whole as wholeKeys
 } from "#compiler/lower/shapes/share/keys.ts"
-import type { Cte, FromSource, OperandSelect, Select } from "#compiler/sql/ast.ts"
+import type { ColumnDef, Cte, FromSource, OperandSelect, Select } from "#compiler/sql/ast.ts"
 import { col, type DefinedCte, keyedSet, select, target } from "#compiler/sql/build.ts"
+import { carrierReading } from "#compiler/sql/carriers.ts"
 import type { CarrierName } from "#compiler/sql/naming.ts"
 
 /**
@@ -108,9 +115,15 @@ export class ShareIndex {
 		return h
 	})
 
-	/** The index of `dag`, its share keys' templates read from `templates`. */
-	constructor(dag: ValidDag, templates: DagTemplates) {
+	/** Each node's realization, the placement's (lower/optimize/dedup), which tells a node read whole at each read. */
+	readonly #realization: (node: RelNode) => Realization
+
+	/**
+	 * The index of `dag`, its share keys' templates read from `templates`, each node realized as `realization` places it.
+	 */
+	constructor(dag: ValidDag, templates: DagTemplates, realization: (node: RelNode) => Realization) {
 		this.dag = dag
+		this.#realization = realization
 		this.#demand = analyzeDemand(dag, noPins)
 		this.#feedback = feedbackReadsOf(nodeGraph, topoOrder(dag))
 		this.#scopes = nodeScopes()
@@ -175,6 +188,25 @@ export class ShareIndex {
 	/** The share key of a restrictable node: equal for two copies that compute the same set. */
 	restrictedKey(node: RelNode): string {
 		return this.#shareKey(node)
+	}
+
+	/** Whether every read of the node computes it whole (cte-policy readWhole), under this index's realization. */
+	readWhole(node: RelNode): boolean {
+		return readWhole(node, this.#realization)
+	}
+
+	/**
+	 * The key a statement computes a node once by, a MATERIALIZED CTE of its own (statementCtes): an eligible node's share
+	 * key (`key`), and that of a node every read computes whole (cte-policy readWhole), a closed derivation or a step,
+	 * which no carrier holds: each statement computes it once, where a carrier would cost a statement of its own to fill.
+	 */
+	cteKey(node: RelNode): string | undefined {
+		return (
+			this.key(node) ??
+			(readWhole(node, this.#realization) && this.#isShareable(node)
+				? this.#shareKey(node)
+				: undefined)
+		)
 	}
 
 	/**
@@ -306,6 +338,13 @@ export const planStatementShares = (
 	restricting: Restricting
 ): Result.Result<ReadonlyArray<CarriedShare>, CompileError> =>
 	catchRefusal(() => {
+		/**
+		 * The key a share of the planning is chosen by: a single statement's parts are CTEs of the one statement, so a closed
+		 * derivation two of them read is one part too (ShareIndex cteKey); statements realized one after another carry what
+		 * a carrier holds alone, each printing the closed derivations it reads itself (statementCtes).
+		 */
+		const keyOf = (node: RelNode): string | undefined =>
+			restricting.kind === "byKeys" ? index.cteKey(node) : index.key(node)
 		const chosen: Array<{ readonly key: string; readonly node: RelNode }> = []
 		const carriedKeys = new Set<string>()
 		/** Each node the statements have read that may be shared, carried by no key then, in the order they first read it,
@@ -314,7 +353,7 @@ export const planStatementShares = (
 		/** Whether a node is a copy of a carried sub-query, which its carrier's reader reads instead: one whose key is
 		 * carried. */
 		const carried = (node: RelNode): boolean => {
-			const key = index.key(node)
+			const key = keyOf(node)
 			return key !== undefined && carriedKeys.has(key)
 		}
 		/**
@@ -346,7 +385,7 @@ export const planStatementShares = (
 			const nodes = read()
 			units.push({ root, own, read, nodes })
 			for (const node of nodes) {
-				if (!index.eligible(node) || node.heading.length === 0 || carried(node)) {
+				if (keyOf(node) === undefined || node.heading.length === 0 || carried(node)) {
 					continue
 				}
 				readers.getOrInsertComputed(node, () => new Set<number>()).add(u)
@@ -401,13 +440,13 @@ export const planStatementShares = (
 		}
 		for (let round = 0; ; round++) {
 			/** The highest classes enough statements read this round (decidingClasses), the least key among them chosen. */
-			const tied = decidingClasses(index, [...seen.keys()], readers)
+			const tied = decidingClasses(index, keyOf, [...seen.keys()], readers)
 			if (!isNonEmpty(tied)) {
 				break
 			}
 			const keyed = tied.map((nodes) => ({
 				nodes,
-				key: defined(index.key(defined(nodes[0], "a class's first node")), "an eligible key")
+				key: defined(keyOf(defined(nodes[0], "a class's first node")), "an eligible key")
 			}))
 			const winner = keyed.reduce((a, b) => (b.key < a.key ? b : a))
 			const node = defined(winner.nodes[0], "a class's first node")
@@ -424,7 +463,7 @@ export const planStatementShares = (
 			.map((c): CarriedShare => {
 				const round = defined(roundOf.get(c.key), "a carried key's round")
 				const copies = [...seen].flatMap(([node, at]) =>
-					at <= round && index.key(node) === c.key ? [node] : []
+					at <= round && keyOf(node) === c.key ? [node] : []
 				)
 				return { ...c, copies, restriction: { kind: "whole" }, height: index.height(c.node) }
 			})
@@ -466,7 +505,8 @@ const keyedShares = (
 		topoOrder(index.dag),
 		new Map(index.dag.roots.map((r) => [r, wholeKeys] as const)),
 		fixed,
-		new Lookups((node) => carried.has(node))
+		new Lookups((node) => carried.has(node)),
+		noPagedReads
 	)
 	const roots = new Set(read.flatMap((statement) => statement.slice(0, 1)))
 	/** The joins the statements read, by share key: their copies and how many reads read one. */
@@ -523,6 +563,7 @@ const keyedShares = (
  */
 export const decidingClasses = (
 	index: ShareIndex,
+	keyOf: (node: RelNode) => string | undefined,
 	nodes: ReadonlyArray<RelNode>,
 	readers: ReadonlyMap<RelNode, ReadonlySet<number>>
 ): ReadonlyArray<ReadonlyArray<RelNode>> => {
@@ -531,7 +572,7 @@ export const decidingClasses = (
 		new Set(group.flatMap((n) => [...(readers.get(n) ?? [])])).size
 	const byKey = new Map<string, Array<RelNode>>()
 	for (const node of nodes) {
-		byKey.getOrInsertComputed(defined(index.key(node), "an eligible key"), () => []).push(node)
+		byKey.getOrInsertComputed(defined(keyOf(node), "an eligible key"), () => []).push(node)
 	}
 	let highest: { readonly height: number; readonly classes: Array<ReadonlyArray<RelNode>> } = {
 		height: -1,
@@ -611,19 +652,32 @@ export const statementCtes = (
 	const nodes = reach(index, root, carried, noneOpaque)
 	/** Parents before children: by decreasing height, a node's inputs being strictly lower. */
 	const order = [...nodes].toSorted((a, b) => index.height(b) - index.height(a))
-	/** Whether a stage of the node, short of a carried node, which the statement reads as a carrier's scan, is no scan. */
+	/**
+	 * Whether a stage of the node, short of a carried node, which the statement reads as a carrier's scan, is no scan, or
+	 * is a closed relation's rows, a VALUES list each read prints and plans again: a closed derivation whose every closed
+	 * relation the statement reads in a carried part is a scan of that part, which no CTE of its own spares.
+	 */
 	const costly = new Map<RelNode, boolean>()
 	for (const node of order.toReversed()) {
 		costly.set(
 			node,
 			ownCost(node) !== "scan" ||
+				(node.kind === "Closed" && node.rows.length > 0) ||
 				index.inputs(node).some((input) => !carried(input) && costly.get(input) === true)
 		)
 	}
+	/**
+	 * The share key of each node the statement may compute once: a costly one (`costly`), and one every read of which
+	 * computes it whole by a stage of its own (cte-policy readWhole), a step, a node behind a DISTINCT or one the
+	 * statement's values fix, whatever it reads; a closed derivation is costly or a scan of carried parts.
+	 */
 	const keyed = new Map(
 		order.flatMap((node) => {
-			const key = index.key(node)
-			return key !== undefined && costly.get(node) === true ? [[node.id, key] as const] : []
+			const key = index.cteKey(node)
+			return key !== undefined &&
+				(costly.get(node) === true || (index.readWhole(node) && !closedDerivation(node)))
+				? [[node.id, key] as const]
+				: []
 		})
 	)
 	const chosen = new Set<string>()
@@ -663,6 +717,8 @@ type SharedSource =
 	| {
 			readonly kind: "carrier"
 			readonly carrier: CarrierName
+			/** Its columns, each typed as it travels (sql/carriers.ts carrierReading). */
+			readonly table: ReadonlyArray<ColumnDef>
 			readonly columns: ReadonlyArray<string>
 	  }
 	| { readonly kind: "enclosing"; readonly name: string; readonly columns: ReadonlyArray<string> }
@@ -670,7 +726,7 @@ type SharedSource =
 /** The FROM item that reads a shared source under `alias`. */
 const sourceItem = (source: SharedSource, alias: string): FromSource =>
 	source.kind === "carrier"
-		? { kind: "table", table: source.carrier, alias }
+		? carrierReading(source.carrier, source.table, alias)
 		: { kind: "enclosing", name: source.name, alias }
 
 interface StatementScope extends CteTable<string>, KeyScope {
@@ -714,6 +770,7 @@ const statementKeys = (
 		roots: new Map([[root, rootKeys]]),
 		once: keys.map(([, copies]) => copies),
 		fixed,
+		paged: noPagedReads,
 		inputs: (node) => index.inputs(node),
 		height: (node) => index.height(node)
 	})
@@ -740,7 +797,10 @@ export class StatementSharing {
 	readonly index: ShareIndex
 	readonly #inner: NodeDispatch
 	/** What each carried copy reads, by the copy's label. */
-	readonly #carried = new Map<NodeId, { readonly key: string; readonly source: SharedSource }>()
+	readonly #carried = new Map<
+		NodeId,
+		{ readonly key: string; readonly source: SharedSource; readonly at: ReadonlyArray<string> }
+	>()
 	/**
 	 * The CTE of the single statement that holds a call's evaluation as a part (carryEvaluation), by the call's
 	 * evaluation key (lower/conservative/call evaluationKey), which every read of it in the statement's parts reads.
@@ -762,7 +822,11 @@ export class StatementSharing {
 	/** Every copy of `share` reads `source` from now on. */
 	carry(share: CarriedShare, source: SharedSource): void {
 		for (const copy of share.copies) {
-			this.#carried.set(copy.id, { key: share.key, source })
+			this.#carried.set(copy.id, {
+				key: share.key,
+				source,
+				at: share.restriction.kind === "keys" ? share.restriction.keys.columns : []
+			})
 		}
 	}
 
@@ -811,7 +875,7 @@ export class StatementSharing {
 		const alias = cx.relationAlias({ kind: "node", node: read.id })
 		const [first, ...rest] = source.columns
 		if (first === undefined) {
-			throw defect("a carried evaluation's columns, one per field of its call's row")
+			defect("a carried evaluation's columns, one per field of its call's row")
 		}
 		return {
 			from: [{ kind: "enclosing", name: source.name, alias }],
@@ -939,9 +1003,25 @@ export class StatementSharing {
 		 */
 		const inScope: NodeDispatch = (n, ncx, nenv) =>
 			nenv.restricted.has(n)
-				? this.#inner(n, ncx, nenv)
+				? restrictedRead(ncx, n, nenv, (at, within) => this.#inner(n, at, within))
 				: (this.#readCarrier(n, ncx, filling) ?? this.#inPlace(n, ncx, nenv, scope))
-		const root = cx.withDispatch(inScope)
+		/**
+		 * Where the statement computes a node once (LowerContext computedAt): a copy a carrier holds, at its share's keys or
+		 * whole; a share key the statement's CTE computes, at its key set (statementKeys) or whole; and a union or a fold it
+		 * lowers in place at its key set.
+		 */
+		const computedOnce = (n: RelNode): ComputedAt => {
+			const entry = this.#carried.get(n.id)
+			if (entry !== undefined && entry.key !== filling) {
+				return entry.at
+			}
+			const key = materialize.get(n.id)
+			if (key !== undefined) {
+				return scope.keyed.get(key)?.columns ?? []
+			}
+			return scope.inline.get(n)?.columns
+		}
+		const root = cx.withDispatch(inScope).withComputedAt(computedOnce)
 		const ctes = new Set<Cte>()
 		const statement = root
 			.withEvaluations(statementEvaluations(ctes, root))

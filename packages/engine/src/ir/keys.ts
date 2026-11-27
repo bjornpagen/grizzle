@@ -45,7 +45,7 @@ import type { DeclaredKey, HeadingColumn, KeySet } from "#compiler/ir/rel.ts"
  *   and a view's alternative columns and the key fields they stand for determine each other, beside the fields of
  *   the factors before theirs they need;
  * - a fixed column is determined by nothing (a filter's equality with a value fixed per evaluation, a closed column of
- *   one value, a take's correlation, a semi-join's pair whose right column is fixed, an attachment's correlation);
+ *   one value, a take's correlation, an attachment's correlation);
  * - equal columns determine each other (a filter's equality, a region's equality or shared column, a correlated copy,
  *   a view's key column and a column its definition makes equal to it, two union columns every arm makes equal, two
  *   closed columns holding one value in every fact, a region's variable bound to a column its lateral source fixes to
@@ -57,6 +57,8 @@ import type { DeclaredKey, HeadingColumn, KeySet } from "#compiler/ir/rel.ts"
  * - a projection closes over its input, its computed and constant outputs included;
  * - a group key determines the group, and a group keeps its input's dependencies among its key;
  * - a node keeping its input's rows keeps its input's dependencies;
+ * - a semi-join keeps its right side's dependencies among its paired columns, each at the left columns paired with it
+ *   (a left column paired with one its right side fixes is fixed);
  * - at most one row: nothing determines the row (a context, a closed relation of at most one fact, a take(1), a nearest
  *   one, a false conjunct);
  * - a closed column distinct across its facts determines the fact;
@@ -92,7 +94,6 @@ export type FixedWitness =
 	| { readonly kind: "conjunct"; readonly expr: ExprId }
 	| { readonly kind: "closedValue" }
 	| { readonly kind: "takeCorrelation"; readonly index: number }
-	| { readonly kind: "semiJoinPair"; readonly index: number; readonly right: Implication }
 	| { readonly kind: "attachCorrelation"; readonly attach: NodeId; readonly index: number }
 
 /**
@@ -148,6 +149,7 @@ export type Rule =
 	| { readonly rule: "grouped"; readonly input: Implication }
 	| { readonly rule: "kept"; readonly input: Implication }
 	| { readonly rule: "intersected"; readonly input: Implication }
+	| { readonly rule: "paired"; readonly input: Implication }
 	| { readonly rule: "atMostOne"; readonly witness: AtMostOneWitness }
 	| { readonly rule: "distinct" }
 	| { readonly rule: "produced"; readonly input: KeyProof }
@@ -182,6 +184,17 @@ export type Rule =
 export interface GeneratedRead {
 	readonly field: string
 	readonly reads: KeySet
+}
+
+/**
+ * A dependency a declared containment gives the relation it reads (ir/law.ts RelationInfo `determined`): `by`, its
+ * fields the containment maps onto a declared key of its target, determine `fields`, every field it maps. Each row's
+ * mapped fields are a row of the target, which its key's value names alone, so two rows that agree on `by` agree on
+ * `fields`. A side that selects reads some facts alone, and gives none.
+ */
+export interface ContainedDependency {
+	readonly by: KeySet
+	readonly fields: KeySet
 }
 
 /** A dependency a node states over its heading: `from` determines `to`, by `rule`. */
@@ -334,6 +347,11 @@ export interface ViewAlternative extends Grounds {
 export interface ViewRead {
 	readonly heading: NonEmptyReadonlyArray<HeadingColumn>
 	readonly keys: ReadonlyArray<ViewKey>
+	/**
+	 * The dependencies its columns hold where its definition draws them, in every arm, from one row of a relation whose
+	 * key determines them (analysis/derived/drawn.ts viewDependencies).
+	 */
+	readonly determined: ReadonlyArray<ContainedDependency>
 }
 
 /** Each column a member stands for, with the members standing for it, in their order. */
@@ -538,6 +556,15 @@ export const rowsKeep = (from: KeySet, to: KeySet, input: Implication): Dependen
 export const rightKeeps = (from: KeySet, to: KeySet, input: Implication): Dependency =>
 	dependency(from, to, { rule: "intersected", input })
 
+/**
+ * A semi-join keeps its right side's dependencies among its paired columns, `input` the right side's derivation over its
+ * own columns, `from` and `to` the left columns paired with them: a row the semi-join keeps holds at its paired columns
+ * the paired columns of a right row, and the right side reads nothing of its left (ir/rel.ts SemiJoinRight), one
+ * relation per evaluation, so two kept rows that agree at `from` pair with right rows that agree there, and so at `to`.
+ */
+export const pairedKeeps = (from: KeySet, to: KeySet, input: Implication): Dependency =>
+	dependency(from, to, { rule: "paired", input })
+
 /** At most one row: nothing determines the row. */
 export const atMostOneRow = (heading: KeySet, witness: AtMostOneWitness): Dependency =>
 	dependency([], heading, { rule: "atMostOne", witness })
@@ -625,6 +652,7 @@ const ruleContext = (rule: Rule): EvidenceContext | undefined => {
 		case "grouped":
 		case "kept":
 		case "intersected":
+		case "paired":
 		case "produced":
 		case "ranked":
 		case "numbered":
@@ -664,10 +692,6 @@ const carriesNothing: Carried = { implications: [], proofs: [] }
 /** The derivations and proofs `rule` carries (Carried). */
 const carriedBy = (rule: Rule): Carried => {
 	switch (rule.rule) {
-		case "fixed":
-			return rule.witness.kind === "semiJoinPair"
-				? { implications: [rule.witness.right], proofs: [] }
-				: carriesNothing
 		case "equal":
 			return rule.witness.kind === "arms"
 				? { implications: rule.witness.arms, proofs: [] }
@@ -680,6 +704,7 @@ const carriedBy = (rule: Rule): Carried => {
 		case "grouped":
 		case "kept":
 		case "intersected":
+		case "paired":
 			return { implications: [rule.input], proofs: [] }
 		case "produced":
 			return { implications: [], proofs: [rule.input] }
@@ -694,6 +719,7 @@ const carriedBy = (rule: Rule): Carried => {
 			}
 		case "declared":
 		case "viewAlternative":
+		case "fixed":
 		case "correlated":
 		case "generated":
 		case "group":

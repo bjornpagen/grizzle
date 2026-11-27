@@ -13,7 +13,10 @@
  *
  * - rows meet at their relation's primary key, a row's uuid `id`, or a tree node's root and start (fill.ts
  *   keyOfRelation), where `id` is one more field it states;
- * - a stated row at a key no stored row holds is added, a counted member under a stored owner joining its family;
+ * - a stated row at a key no stored row holds is added, a counted member under a stored mutable owner joining its
+ *   family; a counted member there under a stored closed owner is refused `every` on its family's rule alone, witnessed
+ *   by its key (`joined`), since a closed owner's family is fixed when the owner is inserted (README "A closed owner's
+ *   family is fixed when the owner is inserted", the owner restated as the insert again states every relation);
  * - a stated row equal to the stored row at its key, at every field it states, is no change;
  * - a stated row that differs there, in its `v`, its id, or its place in a family as written (its group, a counted
  *   owner's or a sequence owner's key, a tree owner's start among them, and a sequence's index), or as a sequence's owner
@@ -24,8 +27,8 @@
  * The differences are drawn from the stored instance by construction, each leaving a valid instance: a row's payload
  * changed, a member added to a family under one of its owners, a row and everything nested under it or naming it as a
  * counted owner removed, a member moved to another place, a row renamed, and another instance beside it under fresh keys. A counted
- * member is added only under mutable owners: the README fixes an immutable owner's family when the owner is inserted
- * and states no outcome for an insert joining a stored one.
+ * member is added only under mutable owners; a counted member of a closed owner renamed is a new one joining its stored
+ * owner's family, which the README refuses (`joined`).
  */
 import { deepEquals, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
@@ -300,8 +303,15 @@ export type AgainVerdict =
 	  }
 	| {
 			readonly kind: "refused"
-			readonly keyed: Arr.NonEmptyReadonlyArray<InstanceRow>
+			/** The stated rows that differ from the stored row at their key, each refused on its primary key. */
+			readonly keyed: ReadonlyArray<InstanceRow>
+			/** The stated rows at a sequence's place a stored row at another key holds, each refused on that family's key. */
 			readonly placed: ReadonlyArray<{ readonly row: InstanceRow; readonly family: number }>
+			/**
+			 * The stated counted members at a key no stored row holds under a stored closed owner, each refused on its
+			 * family's rule alone. A refusal holds `keyed` or `joined` rows, or both.
+			 */
+			readonly joined: ReadonlyArray<{ readonly row: InstanceRow; readonly family: number }>
 	  }
 
 /**
@@ -372,7 +382,19 @@ export const againVerdict = (
 				})
 		})
 	const keyed = Arr.filter(again, collides)
-	if (!Arr.isReadonlyArrayNonEmpty(keyed)) {
+	const joined = Arr.flatMap(again, (x) =>
+		Option.isSome(storedAt(x))
+			? []
+			: Arr.flatMap(x.memberOf, (m) => {
+					const f = familyAt(spec, m.family)
+					return f.kind === "counted" &&
+						!relationAt(spec, f.owner).mutable &&
+						Arr.some(stored, (z) => z.relation === f.owner && z.id === m.owner)
+						? [{ row: x, family: m.family }]
+						: []
+				})
+	)
+	if (!Arr.isReadonlyArrayNonEmpty(keyed) && !Arr.isReadonlyArrayNonEmpty(joined)) {
 		const added = Arr.filter(again, (x) => Option.isNone(storedAt(x)))
 		return { kind: "written", rows: [...stored, ...added], added }
 	}
@@ -394,7 +416,7 @@ export const againVerdict = (
 				: []
 		})
 	)
-	return { kind: "refused", keyed, placed }
+	return { kind: "refused", keyed, placed, joined }
 }
 
 /**

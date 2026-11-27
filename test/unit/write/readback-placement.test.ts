@@ -2,7 +2,7 @@
  * Where a ChangeSet's read-back runs (write/schedule/plan.ts placeReadBacks): a read-back over a delta a statement makes
  * rides the one statement that makes every side it reads whole, after every write of the state it reads; any other runs
  * after the writes, each side it names that a statement makes carried there out of the one statement making it whole:
- * a carrier emptied right before that statement and filled inside it from its RETURNING, which the read-back reads;
+ * a carrier filled inside that statement from its RETURNING, which the read-back reads;
  * only a side no one statement makes whole is refused, as ReadBackCrossesStatements naming it. No artifact holds a
  * carrier but those and a member slot's two statements read (write/program/slot-carriers.ts).
  *
@@ -24,9 +24,8 @@
  * is refused, naming one such side. One whose sides one statement makes whole rides it where W, which it reads as
  * state, is written before it: W written at that statement (one statement of both writes) or in a later stratum is
  * state after it, and W written beside M in a stratum of several statements is ordered first. Any other runs after the
- * writes, and each side it names that a statement makes is carried out of the statement making it whole: the artifact
- * empties one carrier per side, every statement between the emptying and the statement making the side another
- * emptying, that statement fills it, and the read-back reads exactly those carriers.
+ * writes, and each side it names that a statement makes is carried out of the statement making it whole: one carrier per
+ * side, which that statement alone fills, and the read-back reads exactly those carriers.
  *
  * Features: riding an insert, a delete, a put's insert half, a put's displacing deletion and one statement of two
  * writes; riding beside the opposite action of M in its stratum; riding after W's state written beside M, by name
@@ -57,34 +56,15 @@ import {
 	verdictOf
 } from "#test/unit/write/readback-placement.fixtures.ts"
 
-/** The position of the statement filling `carrier`, and whether every statement between its emptying and it is another
- * carrier's emptying. */
-const filledRightAfterEmptying = (
-	artifact: WriteArtifact,
-	carrier: CarrierName
-): { readonly position: number; readonly emptiedRightBefore: boolean } => {
-	const position = defined(
-		Option.getOrUndefined(
-			Arr.findFirstIndex(artifact.statements, (st) => carrierFills(st.ast).has(carrier))
-		),
-		"the statement filling the carrier"
+/** The position of the one statement filling `carrier`. */
+const filledAt = (artifact: WriteArtifact, carrier: CarrierName): number => {
+	const fillers = Arr.filter(
+		Array.from({ length: artifact.statements.length }, (_, at) => at),
+		(at) =>
+			carrierFills(defined(artifact.statements[at], "a statement of the artifact").ast).has(carrier)
 	)
-	const emptied = Option.getOrUndefined(
-		Arr.findFirstIndex(
-			artifact.statements,
-			(st) => st.step.kind === "carrier" && st.step.carrier === carrier && st.step.step === "empty"
-		)
-	)
-	return {
-		position,
-		emptiedRightBefore:
-			emptied !== undefined &&
-			emptied < position &&
-			Arr.every(
-				artifact.statements.slice(emptied + 1, position),
-				(st) => st.step.kind === "carrier" && st.step.step === "empty"
-			)
-	}
+	assert.equal(fillers.length, 1, "one statement fills the carrier")
+	return defined(fillers[0], "the statement filling the carrier")
 }
 
 /** A ChangeSet's read-back rides the one statement that makes its delta after the state it reads, runs after the writes over its delta carried out of the statements making it whole otherwise, and is refused only over a side no one statement makes whole. */
@@ -131,7 +111,7 @@ export const aChangeSetsReadBackRidesTheStatementMakingItsDeltaOrRunsAfterTheWri
 				const staged = slotCarriers(artifact)
 				const carriers = Arr.dedupe(
 					Arr.flatMap(artifact.statements, (st) =>
-						st.step.kind === "carrier" && !staged.has(st.step.carrier) ? [st.step.carrier] : []
+						Arr.filter([...carrierFills(st.ast)], (carrier) => !staged.has(carrier))
 					)
 				)
 				const carried = defined(
@@ -156,10 +136,9 @@ export const aChangeSetsReadBackRidesTheStatementMakingItsDeltaOrRunsAfterTheWri
 					)
 					assert.equal(read.size, verdict.carried.length, "one carrier for each side it names")
 					for (const carrier of read) {
-						const filled = filledRightAfterEmptying(artifact, carrier)
-						assert.ok(filled.emptiedRightBefore, "the carrier is emptied right before its filler")
+						const filled = filledAt(artifact, carrier)
 						assert.ok(
-							Arr.some(verdict.carried, ({ making: m }) => isMaking(artifact, filled.position, m)),
+							Arr.some(verdict.carried, ({ making: m }) => isMaking(artifact, filled, m)),
 							"the carrier is filled by the statement making a side the read-back names"
 						)
 					}
@@ -254,17 +233,9 @@ export const aChangeSetsReadBackRidesTheStatementMakingItsDeltaOrRunsAfterTheWri
 				why: "An addition and a removal of one stratum taken to cancel, so a read-back beside the opposite action of its relation is refused."
 			},
 			{
-				file: "packages/engine/src/write/schedule/plan.ts",
-				original:
-					'\t\t\t\t...carrying.map((c): PlanStep => ({ kind: "emptyCarrier", carrier: c.carrier, stratum })),\n',
-				replacement: "",
-				why: "A carried side's carrier never emptied: it would hold every earlier call's rows of the session."
-			},
-			{
 				file: "packages/engine/src/write/program/compile.ts",
-				original:
-					'\t\t\t\t\t? [carriedFill(defined(fillNames[i], "a carried side\'s fill name"), cte, c.carrier)]\n',
-				replacement: "\t\t\t\t\t? []\n",
+				original: "\t\t\tparts: [...parts.map((p) => p[form]), ...stashes]\n",
+				replacement: "\t\t\tparts: parts.map((p) => p[form])\n",
 				why: "A carried side's carrier never filled by the statement making it: the read-back after the writes would read it empty."
 			}
 		]

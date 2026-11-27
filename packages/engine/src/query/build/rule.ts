@@ -388,7 +388,7 @@ const finishedValue = <Head, Ev extends Evidence, P, S, IHead, Hc extends Carrie
 					"an attachment child, (parent) => query(S).rule(...), a query over the parent's variables"
 				)
 			}
-			const stated = statedDelivery(delivery, state.heading, label)
+			const stated = statedDelivery(delivery, label)
 			const run = runAttach(
 				n,
 				(scope) => child(parentVars(scope, state.heading, carriers)),
@@ -450,8 +450,8 @@ export interface RuleValue {
 	readonly ge: (a: unknown, b: unknown) => PredicateValue
 	readonly between: (a: unknown, low: unknown, high: unknown) => PredicateValue
 	readonly in: (a: unknown, values: unknown) => PredicateValue
-	readonly and: (...predicates: ReadonlyArray<unknown>) => PredicateValue
-	readonly or: (...predicates: ReadonlyArray<unknown>) => PredicateValue
+	readonly and: (predicates: unknown) => PredicateValue
+	readonly or: (predicates: unknown) => PredicateValue
 	readonly not: (source: unknown, bindings: unknown) => PredicateValue
 	readonly allen: (left: unknown, mask: unknown, right: unknown) => PredicateValue
 	readonly pointIn: (point: unknown, span: unknown) => PredicateValue
@@ -606,8 +606,8 @@ const ruleValue = <S, Params, Sole, Facts, Cx>(
 		ge: (a, b) => guarded("r.ge", [a, b], () => T.compare("ge")(a, b)),
 		between: (a, low, high) => guarded("r.between", [a, low, high], () => T.between(a, low, high)),
 		in: (a, values) => guarded("r.in", [a, values], () => T.membership(a, values)),
-		and: (...predicates) => guarded("r.and", predicates, () => T.and(predicates)),
-		or: (...predicates) => guarded("r.or", predicates, () => T.or(predicates)),
+		and: (predicates) => guarded("r.and", [predicates], () => T.and(predicates)),
+		or: (predicates) => guarded("r.or", [predicates], () => T.or(predicates)),
 		/** Relational negation only: no fact of the source matches the bindings. */
 		not: (source, bindings) => {
 			hostArguments("r.not", [source, bindings])

@@ -1,5 +1,4 @@
 import { inspect } from "node:util"
-import * as Engine from "@bjornpagen/grizzle-text/base/result"
 import { ChunkView, type TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Content } from "@bjornpagen/testing/resources"
@@ -21,23 +20,25 @@ import { type FolderTexts, folderSource } from "#adapter/migrate/input.ts"
 import { migrationSession } from "#adapter/migrate/session.ts"
 import { served as servedLogin } from "#adapter/public/layer.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
-import { compileSchema, resolveConfig } from "#cli/config.ts"
-import type { CliError } from "#cli/errors.ts"
-import { draftSchema, servedFiles } from "#cli/generate.ts"
+import { type CompiledSchema, compileSchema, resolveConfig } from "#cli/config.ts"
+import { draftSchemaUnder, eachServedFile } from "#cli/generate.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { type Identity, identity } from "#compiler/core/identity.ts"
+import { type Identity, identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { bookkeepingTables } from "#compiler/deploy/ledger/ledger.ts"
 import { filed } from "#compiler/deploy/render/filed.ts"
 import { folderName } from "#compiler/deploy/render/folder.ts"
+import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { splitStatements } from "#compiler/deploy/render/markers.ts"
-import { type DraftWorkload, emptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
+import { emptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
+import type { Codebook } from "#compiler/ir/codes.ts"
 import type { LoginDesc, RoleDesc } from "#compiler/ir/desc.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import type { AnySchema } from "#compiler/public/schema.ts"
 import { lex, type Token } from "#compiler/sql/lexer.ts"
 import type { AnyLogin, AnyRole } from "#compiler/types/schema/world.ts"
@@ -54,6 +55,7 @@ import { checkInstallation } from "#test/support/catalog/installed.ts"
 import { chunked, joined, jsonOf } from "#test/support/chunked.ts"
 import { draftedSql, type FixtureSchema, filledSql, migratedSql } from "#test/support/compile.ts"
 import { paths, repoRoot } from "#test/support/files.ts"
+import { asCompiler, installedPlan, keptHistory } from "#test/support/generate-draft.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
 	draftCodes,
@@ -69,9 +71,7 @@ import { type Decisions, type Placeholder, review } from "#test/support/migrate/
 import { type FactSet, factStatements, loadFacts } from "#test/support/oracle/install/load.ts"
 import {
 	type InstallCompile,
-	type LoginSource,
 	planRealInstall,
-	type RealInstallOptions,
 	type RealInstallPlan
 } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
@@ -102,8 +102,9 @@ import { templateNeedBudget } from "#test/support/budgets.ts"
  * 1. The name. The substrate allocates a unique schema name, because login and world roles are cluster-wide and every
  *    pg and schedules file instantiates its fixtures afresh, and the schema is installed under the identity the naming
  *    door mints from it (Installed.schema is that identity's identifier). A test opens the installation through the
- *    schema rebuilt under the allocated name itself (Installed.declared) from the same relations and statements: the
- *    installed schema but for its declared name, whose only physical consequence is the PostgreSQL schema.
+ *    schema rebuilt under the allocated name itself (Installed.declared) from the same relations, functions and
+ *    statements (installed.ts rebuild): the installed schema but for its declared name, whose only physical consequence
+ *    is the PostgreSQL schema.
  * 2. The installation. The schema compiles complete, as `grizzle generate` composes it (physical/complete.ts): the
  *    residual laws, the caller's extensions, the derived relations, and the refined constants' validation every
  *    installation carries. The oracle's view of the installation (oracle/install/real.ts) is what loads facts and names
@@ -127,8 +128,10 @@ import { templateNeedBudget } from "#test/support/budgets.ts"
  *    `migrations/<schema>/snapshot.json` the application knows: a layer is given its JSON value (snapshot-json.ts
  *    snapshotValue), as an application's import of the file, and a Db opened on it, of a schema value of that name or
  *    of a level below it, admits the database against it.
- * 6. Logins. The installation carries the logins the caller gives, over the schema as declared (a login value or a
- *    LoginDesc), and every login role gets a password through the substrate, so a test logs in as it over verify-full
+ * 6. Logins. An installation with logins is drafted as `grizzle generate` drafts it (generatedDraft), with the logins
+ *    the caller gives over the schema built under the allocated name, its served workload's grants, certificates,
+ *    carriers, calls and fences among it, and each login's served file: no other draft carries a login (draftVersion
+ *    drafts none). Every login role gets a password through the substrate, so a test logs in as it over verify-full
  *    TLS exactly as a grizzle connection or a psql writer would, and takes on a role of it per transaction or session;
  *    the substrate's schema finalizer drops the schema and its roles.
  * 7. The posture. The installed-catalog checker (test/support/catalog checkInstallation) judges the catalog the
@@ -635,11 +638,15 @@ export const installedOf = (input: InstalledParts): Effect.Effect<Installed, nev
 	})
 
 /**
- * What a migrated installation takes: the installation's own options, and the ambient session (test/support/ambient.ts)
- * its owner sessions start under, the migration's and the drift check's, its owner login's alone: a suite that draws
- * none states the cluster's own, ordinarySession.
+ * What a migrated installation takes: the label of its allocated schema name, the installer extensions besides the
+ * residual laws' and the derived relations' (oracle/install/real.ts RealPlanOptions), and the ambient session
+ * (test/support/ambient.ts) its owner sessions start under, the migration's and the drift check's, its owner login's
+ * alone: a suite that draws none states the cluster's own, ordinarySession. It carries no login: an installation with
+ * logins is drafted as `grizzle generate` drafts it (installGenerated).
  */
-export interface MigratedOptions extends RealInstallOptions {
+interface MigratedOptions {
+	readonly label: string
+	readonly extensions: ReadonlyArray<InstallExtension>
 	readonly ambient: AmbientSession
 }
 
@@ -652,13 +659,12 @@ export const installedSchemas = (installation: Installation): Arr.NonEmptyReadon
 ]
 
 /**
- * One version of a history: its schema (a schema value, a SchemaDesc or an owned schema), the logins its installation
- * carries, over that schema as declared, and the renames and drops its migration declares (`--rename`, `--drop`;
- * noDeclarations for none), which its codes are drafted under too.
+ * One version of a history without logins: its schema (a schema value, a SchemaDesc or an owned schema), and the
+ * renames and drops its migration declares (`--rename`, `--drop`; noDeclarations for none), which its codes are drafted
+ * under too. A version with logins is a GeneratedVersion, drafted as `grizzle generate` drafts it (generatedDraft).
  */
-export interface InstallVersion {
+interface InstallVersion {
 	readonly schema: FixtureSchema
-	readonly logins: ReadonlyArray<LoginSource>
 	readonly declarations: Declarations
 }
 
@@ -683,24 +689,6 @@ export const noPlaceholders: Review = { kind: "noPlaceholders" }
 export interface ReviewedText {
 	readonly name: string
 	readonly text: string
-}
-
-/**
- * What a version's logins' workloads add to its draft, as `grizzle generate` plans them (installed.ts workloadOf): the
- * installer extensions of their plan and the draft's workload; none for a history that plans no workload.
- */
-export interface VersionWorkload {
-	readonly extensions: ReadonlyArray<InstallExtension>
-	readonly draft: DraftWorkload
-}
-
-/** No workload planned (VersionWorkload). */
-export const noVersionWorkload: VersionWorkload = { extensions: [], draft: noWorkload }
-
-/** A version of a history with what its logins' workloads add to its draft. */
-export interface WorkloadVersion {
-	readonly version: InstallVersion
-	readonly workload: VersionWorkload
 }
 
 /**
@@ -763,14 +751,15 @@ const reviewedText = (
 		: file.text
 
 /**
- * `version` as `grizzle generate` drafts it `at` its step, from 0, of a history: planned under the identity by
- * `options.compile` with its logins, the caller's extensions and its workload's, and the codes its declarations draft
- * from the snapshot before it (migrate/kit.ts draftCodes), its folder, drafted under the same declarations and its
- * workload at its step's instant, reviewed as a person reviews it with every loss written in (migrate/review.ts) as
- * `options.review` says, and the snapshot it reaches: the one drafting of a version, which every history reads.
+ * `version` drafted `at` its step, from 0, of a history whose installation carries no login and serves no workload:
+ * planned under the identity by `options.compile` with the caller's extensions, and the codes its declarations draft
+ * from the snapshot before it (migrate/kit.ts draftCodes), its folder, drafted under the same declarations at its step's
+ * instant, reviewed as a person reviews it with every loss written in (migrate/review.ts) as `options.review` says, and
+ * the snapshot it reaches. A version with logins is drafted as `grizzle generate` drafts it (generatedDraft), its
+ * served workload's grants and certificates among it.
  */
 export const draftVersion = (
-	{ version, workload }: WorkloadVersion,
+	version: InstallVersion,
 	at: DraftAt,
 	options: DraftOptions
 ): Effect.Effect<DraftedVersion, CompileError> =>
@@ -780,8 +769,7 @@ export const draftVersion = (
 		const plannedUnder = (installation: Identity<"schema">) =>
 			planRealInstall(desc, {
 				installation,
-				logins: version.logins,
-				extensions: [...options.extensions, ...workload.extensions],
+				extensions: options.extensions,
 				codes,
 				compile: options.compile
 			})
@@ -792,7 +780,7 @@ export const draftVersion = (
 				name: installName,
 				timestamp: draftedAt(at.step),
 				previous: at.previous,
-				workload: workload.draft,
+				workload: noWorkload,
 				declared: version.declarations
 			})
 		)
@@ -823,7 +811,7 @@ export const draftVersion = (
  *
  * Every installation holds the installed-catalog posture, whatever the suite tests.
  */
-export const installMigratedThrough = (
+const installMigratedThrough = (
 	versions: Arr.NonEmptyReadonlyArray<InstallVersion>,
 	options: HistoryOptions
 ): Effect.Effect<
@@ -834,11 +822,7 @@ export const installMigratedThrough = (
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const name = yield* substrate.schema({ create: false, label: options.label })
-		const history = yield* draftedHistory(
-			Arr.map(versions, (version) => ({ version, workload: noVersionWorkload })),
-			options,
-			name
-		)
+		const history = yield* draftedHistory(versions, options, name)
 		return yield* appliedHistory(history, name, options, new Map())
 	})
 
@@ -847,7 +831,7 @@ export const installMigratedThrough = (
  * later one from the snapshot the one before it reached. Pure: what installMigratedThrough and migrated apply.
  */
 export const draftedHistory = (
-	versions: Arr.NonEmptyReadonlyArray<WorkloadVersion>,
+	versions: Arr.NonEmptyReadonlyArray<InstallVersion>,
 	options: DraftOptions,
 	name: string
 ): Effect.Effect<Arr.NonEmptyReadonlyArray<DraftedVersion>, CompileError> =>
@@ -929,17 +913,10 @@ const historyTemplate = <E>(spec: HistorySpec, seed: Seed<E>): SubstrateTemplate
 		name: spec.name,
 		content: spec.content,
 		plan: (names) =>
-			Effect.map(
-				draftedHistory(
-					Arr.map(spec.versions, (version) => ({ version, workload: noVersionWorkload })),
-					spec.options,
-					names.schema
-				),
-				(history) => ({
-					names,
-					history
-				})
-			),
+			Effect.map(draftedHistory(spec.versions, spec.options, names.schema), (history) => ({
+				names,
+				history
+			})),
 		install: ({ names, history }) =>
 			Effect.flatMap(appliedHistory(history, names.schema, spec.options, new Map()), seed),
 		bind: ({ names, history }, binding) =>
@@ -1006,7 +983,7 @@ export const templateInstalledOf = (
 
 /**
  * Installs `schema` through its first migration (installMigratedThrough), planned as `grizzle generate` composes it
- * (compileInstallation), with the logins and extensions of `options`.
+ * (compileInstallation), with the extensions of `options` and no login.
  */
 export const installMigrated = (
 	schema: FixtureSchema,
@@ -1016,7 +993,7 @@ export const installMigrated = (
 	CompileError | SqlError | TransactionRolledBack,
 	Substrate | Scope.Scope
 > =>
-	installMigratedThrough([{ schema, logins: options.logins, declarations: noDeclarations }], {
+	installMigratedThrough([{ schema, declarations: noDeclarations }], {
 		label: options.label,
 		extensions: options.extensions,
 		ambient: options.ambient,
@@ -1026,10 +1003,10 @@ export const installMigrated = (
 
 /**
  * installMigrated's installation as a template (migratedTemplate): `schema` migrated through its first migration with
- * `options`' logins and extensions, planned as `grizzle generate` composes it (compileInstallation), once per member,
- * and each case's Installed the schema in its clone. A case over it does none of the install installMigrated does per
- * call. `name` tells it from the other templates its declaring module states; that module's import closure covers the
- * schema, the logins, the extensions and the ambient session.
+ * `options`' extensions, planned as `grizzle generate` composes it (compileInstallation), once per member, and each
+ * case's Installed the schema in its clone. A case over it does none of the install installMigrated does per call.
+ * `name` tells it from the other templates its declaring module states; that module's import closure covers the
+ * schema, the extensions and the ambient session.
  */
 export const installedTemplate = (spec: {
 	readonly declaredIn: ImportMeta
@@ -1048,7 +1025,7 @@ const installedSpec = (spec: {
 	declaredIn: spec.declaredIn,
 	name: spec.name,
 	content: { label: spec.options.label },
-	versions: [{ schema: spec.schema, logins: spec.options.logins, declarations: noDeclarations }],
+	versions: [{ schema: spec.schema, declarations: noDeclarations }],
 	options: {
 		label: spec.options.label,
 		extensions: spec.options.extensions,
@@ -1075,7 +1052,7 @@ export const seededTemplate = <E>(spec: {
  * A schema installed as `grizzle generate` drafts it with its logins (installGenerated), at one version of its history:
  * the installation, which holds each role at the level its served workload certifies (program/isolation/certification.ts)
  * and keeps each table's guard by those levels, and each login's served file of that version, projected from the same
- * plan at the same levels (servedFiles), by the login's declared name.
+ * plan at the same levels (eachServedFile), by the login's declared name.
  */
 export interface Generated {
 	readonly installed: Installed
@@ -1083,13 +1060,19 @@ export interface Generated {
 }
 
 /**
- * One version of a generated history, built under the installation's allocated name: its schema, the logins `grizzle
- * generate` serves over it, and the renames and drops its migration declares (`--rename`, `--drop`; noDeclarations for
- * none).
+ * A schema value built under the installation's allocated name and the logins `grizzle generate` serves over it: what
+ * an installation with logins is drafted from (generatedDraft), the one draft that carries a login.
  */
-interface GeneratedVersion {
+export interface Version {
 	readonly schema: AnySchema
 	readonly logins: ReadonlyArray<AnyLogin>
+}
+
+/**
+ * One version of a generated history: its schema and logins (Version), and the renames and drops its migration
+ * declares (`--rename`, `--drop`; noDeclarations for none).
+ */
+export interface GeneratedVersion extends Version {
 	readonly declarations: Declarations
 }
 
@@ -1109,8 +1092,10 @@ interface GeneratedHistory {
 
 /** One version of a generated history as its migration drafts it: its plan and reviewed folder, the snapshot it
  * reaches, and each login's served file of it, by declared name. */
-interface GeneratedDraft {
+export interface GeneratedDraft {
 	readonly plan: RealInstallPlan
+	/** The draft as generate wrote it, its folder named at its step, before any review: its change among it. */
+	readonly generated: GenerateResult
 	readonly folder: FolderTexts
 	readonly snapshot: DeploySnapshot
 	readonly served: ReadonlyMap<string, unknown>
@@ -1119,72 +1104,82 @@ interface GeneratedDraft {
 /** Where a generated installation's configuration stands, for its directories alone: nothing is read from it. */
 const generatedConfig = `${repoRoot}app/grizzle.config.ts`
 
-/**
- * The compiler's refusal a `grizzle generate` refusal carries, where the compiler refused the version's schema, a
- * login, a step of its draft or a login's workload; none for a refusal of the setup's own configuration, files or
- * snapshot, or of a workload no served file can hold.
- */
-const compilerRefusal = (refusal: CliError): Option.Option<CompileError> => {
-	const reason = refusal.reason
-	switch (reason._tag) {
-		case "SchemaEntryRefused":
-		case "LoginEntryRefused":
-			return reason.fault.kind === "uncompiled" ? Option.some(reason.fault.error) : Option.none()
-		case "DraftRefused":
-			return Option.some(reason.error)
-		case "ServedRefused":
-			return reason.error._tag === "CompileError" ? Option.some(reason.error) : Option.none()
-		case "ArgumentsRefused":
-		case "MigrationNameRefused":
-		case "DeclarationRefused":
-		case "SchemaChoiceRefused":
-		case "ConfigMissing":
-		case "ConfigUnloaded":
-		case "ExportRefused":
-		case "SettingRefused":
-		case "ConnectionRefused":
-		case "ConnectionThrew":
-		case "ConnectionEnvironmentRefused":
-		case "TreeRefused":
-		case "TreeUnread":
-		case "FolderExists":
-		case "FolderUnwritten":
-		case "SnapshotUnwritten":
-		case "ServedUnwritten":
-		case "FileTooLarge":
-		case "MigrationsUnread":
-		case "SnapshotUnreadable":
-		case "SnapshotFormat":
-		case "SnapshotForeign":
-		case "ChainRefused":
-		case "RosterReordered":
-		case "UpgradeRefused":
-			return Option.none()
-	}
-}
+/** The snapshot a draft `at` its step continues: the one before it, or the empty snapshot of `compiled`'s schema. */
+const previousSnapshot = (compiled: CompiledSchema, at: DraftAt): DeploySnapshot =>
+	at.previous.kind === "snapshot"
+		? at.previous.snapshot
+		: emptySnapshot({ schemaName: compiled.declared, schema: identifierOf(at.installation) })
 
 /**
- * `version` as `grizzle generate` drafts and serves it `at` its step of a history: its configuration resolved and
- * compiled as the command line compiles it (cli/config.ts), drafted from the snapshot before it with its logins' served
- * workload certified once (cli/generate.ts draftSchema), its folder named at its step's instant and reviewed as
- * installMigrated's is, its plan (oracle/install/real.ts) the drafted installation under the identity and owner `at`
- * gives, with the codes its draft continues, the snapshot it reaches, and each login's served file projected from the
- * same plan (servedFiles). A version the compiler refuses fails with the compiler's refusal (compilerRefusal), as a
- * schema installMigrated compiles does, so a test can expect it; a version that drafts no migration, or one the
- * command line refuses for anything else, is a defect of the setup.
+ * A schema compiled as `grizzle generate` compiles its configuration (cli/config.ts CompiledSchema), drafted `at` its
+ * step of a history and served, before any review, as generate drafts and serves it once its configuration is compiled:
+ * drafted from the snapshot before it with its logins' served workload certified once (cli/generate.ts
+ * draftSchemaUnder), its codes `codes`, holes included, continued as a history that holds them (generate-draft.ts
+ * keptHistory), its folder named at its step's instant, its plan of `schema` the drafted installation, its logins'
+ * worlds its own, under the identity `at` gives and those codes (generate-draft.ts installedPlan), and each login's
+ * served file projected from the same plan (eachServedFile). Its command-line refusals are the compiler's (generate-draft.ts
+ * asCompiler). A draft that drafts no change is the caller's to judge (its `generated.change`).
  */
-const generatedDraft = (
+const draftedCompiled = (
+	compiled: CompiledSchema,
+	schema: FixtureSchema,
+	codes: Codebook,
+	at: DraftAt,
+	declarations: Declarations
+): Effect.Effect<Omit<GeneratedDraft, "folder" | "snapshot">, CompileError> =>
+	Effect.gen(function* () {
+		const { draft, entries } = yield* asCompiler(
+			Effect.gen(function* () {
+				const drafted = yield* draftSchemaUnder(
+					compiled,
+					previousSnapshot(compiled, at),
+					keptHistory(codes),
+					at.previous.kind === "empty" ? at.previous.abandoned : [],
+					declarations,
+					silentPhases
+				)
+				const served = yield* eachServedFile(
+					compiled,
+					drafted,
+					drafted.served,
+					silentPhases,
+					Effect.succeed
+				)
+				return { draft: drafted, entries: served }
+			})
+		)
+		const folderAt = yield* fromEngine(
+			folderName(draftedAt(at.step), parsedMigrationName(installName))
+		)
+		const generated: GenerateResult = { ...draft, folder: { name: folderAt, ...draft.folder } }
+		const plan = yield* installedPlan(schema, draft.installation, at.installation, codes)
+		return {
+			plan,
+			generated,
+			served: new Map(Arr.map(entries, (e) => [e.login, jsonOf(e.text)] as const))
+		}
+	})
+
+/**
+ * `version` as `grizzle generate` drafts and serves it `at` its step of a history, before any review: its configuration
+ * resolved and compiled as the command line compiles it (cli/config.ts), then drafted and served as generate drafts and
+ * serves a compiled schema (draftedCompiled), under the codes generate drafts from the snapshot before it
+ * (migrate/kit.ts draftCodes). A version the compiler refuses fails with the compiler's refusal (generate-draft.ts
+ * asCompiler); a history that reviews its folders itself reads this draft.
+ */
+export const generatedDrafting = (
 	version: GeneratedVersion,
 	at: DraftAt
-): Effect.Effect<GeneratedDraft, CompileError> =>
+): Effect.Effect<Omit<GeneratedDraft, "folder" | "snapshot">, CompileError> =>
 	Effect.gen(function* () {
 		const desc = yield* fromEngine(schemaDescIn(version.schema))
 		const codes = yield* fromEngine(draftCodes(desc, at.previous, version.declarations))
-		const { draft, entries } = yield* pipe(
+		const compiled = yield* asCompiler(
 			Effect.provideService(
 				Effect.gen(function* () {
 					const config = yield* resolveConfig(
 						defineConfig({
+							contracts: [],
 							schemas: [version.schema],
 							logins: version.logins,
 							migrations: "migrations",
@@ -1194,68 +1189,65 @@ const generatedDraft = (
 						generatedConfig
 					)
 					const configured = defined(config.schemas[0], "the generated schema's configuration")
-					const compiled = yield* Effect.fromResult(compileSchema(configured))
-					const drafted = yield* draftSchema(
-						compiled,
-						at.previous.kind === "snapshot"
-							? at.previous.snapshot
-							: emptySnapshot({ schemaName: configured.declared, schema: configured.ident }),
-						at.previous.kind === "empty" ? at.previous.abandoned : [],
-						version.declarations,
-						silentPhases
-					)
-					const served = yield* servedFiles(compiled, drafted, drafted.served, silentPhases)
-					return { draft: drafted, entries: served }
+					return yield* Effect.fromResult(compileSchema(configured))
 				}),
 				Path.Path,
 				paths
-			),
-			Effect.catchTag("CliError", (refusal) =>
-				Option.match(compilerRefusal(refusal), {
-					onNone: () => Effect.die(refusal),
-					onSome: Effect.fail
-				})
 			)
 		)
-		assert.equal(draft.change, "schema", "each version of a generated history drafts a migration")
-		const folderAt = yield* fromEngine(
-			folderName(draftedAt(at.step), parsedMigrationName(installName))
-		)
-		const reviewed = review(
-			{ ...draft, folder: { name: folderAt, ...draft.folder } },
-			{ losses: "written", value: noPlaceholder }
-		)
-		const plan = yield* fromEngine(
-			planRealInstall(version.schema, {
-				installation: at.installation,
-				logins: version.logins,
-				extensions: [],
-				codes,
-				compile: () => Engine.ok(draft.installation)
-			})
-		)
+		return yield* draftedCompiled(compiled, version.schema, codes, at, version.declarations)
+	})
+
+/**
+ * `version` drafted `at` its step as `grizzle generate` drafts and serves it (generatedDrafting), its folder reviewed as
+ * `reviewing` says with every loss written in, as installMigrated's is, and the snapshot it reaches.
+ */
+export const generatedDraft = (
+	version: GeneratedVersion,
+	at: DraftAt,
+	reviewing: Review
+): Effect.Effect<GeneratedDraft, CompileError> =>
+	Effect.map(generatedDrafting(version, at), (drafted) => {
+		const reviewed = review(drafted.generated, { losses: "written", value: reviewValue(reviewing) })
 		return {
-			plan,
-			folder: { name: folderAt, metaText: draft.folder.metaText, files: reviewed.files },
-			snapshot: draft.snapshot,
-			served: new Map(Arr.map(entries, (e) => [e.login, jsonOf(e.text)] as const))
+			...drafted,
+			folder: {
+				name: drafted.generated.folder.name,
+				metaText: drafted.generated.folder.metaText,
+				files: Arr.map(reviewed.files, (f) => ({
+					name: f.name,
+					text: reviewedText(reviewing, at.step, f)
+				}))
+			},
+			snapshot: drafted.generated.snapshot
 		}
 	})
 
 /**
- * Every version of `versions` as `grizzle generate` drafts and serves it under the name `name`, owned by `owner`
- * (generatedDraft): the first from the empty snapshot, each later one from the snapshot the one before it reached.
+ * Every version of `versions` as `grizzle generate` drafts and serves it under the name `name` (generatedDraft), each
+ * folder reviewed as `reviewing` says: the first from the empty snapshot, each later one from the snapshot the one
+ * before it reached.
  */
-const generatedHistory = (
+export const generatedHistory = (
 	versions: Arr.NonEmptyReadonlyArray<(name: string) => GeneratedVersion>,
-	name: string
+	name: string,
+	reviewing: Review
 ): Effect.Effect<Arr.NonEmptyReadonlyArray<GeneratedDraft>, CompileError> =>
 	Effect.gen(function* () {
 		const installation = identity.schema(parsedSchemaName(name))
 		const drafts: Array<GeneratedDraft> = []
 		let previous: Previous = fromEmpty
 		for (const [step, build] of versions.entries()) {
-			const drafted = yield* generatedDraft(build(name), { installation, previous, step })
+			const drafted = yield* generatedDraft(
+				build(name),
+				{ installation, previous, step },
+				reviewing
+			)
+			assert.equal(
+				drafted.generated.change,
+				"schema",
+				"each version of a generated history drafts a migration"
+			)
 			drafts.push(drafted)
 			previous = fromSnapshot(drafted.snapshot)
 		}
@@ -1295,14 +1287,14 @@ const generatedAt = (
  * keeps its password, so a layer served at an earlier version still logs in, and only a login it adds gets one. Every
  * version a test is given holds the installed-catalog posture.
  */
-const installGeneratedThrough = (
+export const installGeneratedThrough = (
 	versions: Arr.NonEmptyReadonlyArray<(name: string) => GeneratedVersion>,
 	options: { readonly label: string; readonly ambient: AmbientSession }
 ): Effect.Effect<GeneratedHistory, CompileError | SqlError, Substrate | Scope.Scope> =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const name = yield* substrate.schema({ create: false, label: options.label })
-		const history = yield* generatedHistory(versions, name)
+		const history = yield* generatedHistory(versions, name, noPlaceholders)
 		const first = Arr.headNonEmpty(history)
 		const last = Arr.lastNonEmpty(history)
 		const folders = Arr.map(history, (d) => d.folder)
@@ -1330,7 +1322,10 @@ const installGeneratedThrough = (
 					yield* applyFolders(owner, substrate.database, later.snapshot, later.folders)
 				}
 				yield* expectFreshCatalog(last.plan.installation, folders, (fresh) =>
-					Effect.map(generatedHistory(versions, fresh), (h) => Arr.lastNonEmpty(h).plan)
+					Effect.map(
+						generatedHistory(versions, fresh, noPlaceholders),
+						(h) => Arr.lastNonEmpty(h).plan
+					)
 				)
 				return yield* generatedAt(last, {
 					declared: name,
@@ -1347,10 +1342,7 @@ const installGeneratedThrough = (
  * generated history of one version (installGeneratedThrough), at that version.
  */
 export const installGenerated = (
-	build: (name: string) => {
-		readonly schema: AnySchema
-		readonly logins: ReadonlyArray<AnyLogin>
-	},
+	build: (name: string) => Version,
 	options: { readonly label: string; readonly ambient: AmbientSession }
 ): Effect.Effect<Generated, CompileError | SqlError, Substrate | Scope.Scope> =>
 	Effect.map(
@@ -1366,70 +1358,136 @@ export interface GeneratedSpec {
 	readonly declaredIn: ImportMeta
 	readonly name: string
 	readonly content: Content
-	readonly build: (name: string) => {
-		readonly schema: AnySchema
-		readonly logins: ReadonlyArray<AnyLogin>
-	}
+	readonly build: (name: string) => Version
 	readonly ambient: AmbientSession
 }
 
 /**
  * A generated installation's template (substrate.ts installTemplate): `build`'s schema and logins drafted and served
  * under the template's names as `grizzle generate` drafts them (generatedHistory) by every worker, applied once per
- * member by the build as installGenerated applies its first version, and each case's Generated the installation in the
- * case's clone, every login logging in with the password its template derived, with each login's served file.
- * `content` is what tells this template from another its module declares: its module's import closure covers the code.
+ * member by the build (appliedGenerated), and each case's Generated the installation in the case's clone, every login
+ * logging in with the password its template derived, with each login's served file. `content` is what tells this
+ * template from another its module declares: its module's import closure covers the code.
  */
 export const generatedTemplate = (spec: GeneratedSpec): SubstrateTemplate<Generated> =>
-	installTemplate({
-		budget: templateNeedBudget,
+	generatedTemplateOf(spec, templateNeedBudget, () => Effect.void)
+
+/**
+ * A generated installation's template (generatedTemplate) whose build writes `seed` on the installation it made, as the
+ * build's owner, right after its migration, as seededTemplate seeds a history's: a population too costly to load in
+ * every case that reads it, loaded once per member, each case's clone holding it. `budget` is the CPU its open may
+ * spend with the seed written (Template budget), the template's own, since a population worth seeding costs more than
+ * any template's install alone (templateNeedBudget).
+ */
+export const seededGeneratedTemplate = <E>(
+	spec: GeneratedSpec,
+	seed: Seed<E>,
+	budget: number
+): SubstrateTemplate<Generated> => generatedTemplateOf(spec, budget, seed)
+
+/**
+ * A generated template (generatedTemplate), its open's budget `budget`, its build ending in `seed` over the installation
+ * it made.
+ */
+const generatedTemplateOf = <E>(
+	spec: GeneratedSpec,
+	budget: number,
+	seed: Seed<E>
+): SubstrateTemplate<Generated> => {
+	const versions: Arr.NonEmptyReadonlyArray<(name: string) => GeneratedVersion> = [
+		(name) => ({ ...spec.build(name), declarations: noDeclarations })
+	]
+	return installTemplate({
+		budget,
 		declaredIn: spec.declaredIn,
 		name: spec.name,
 		content: spec.content,
 		plan: (names) =>
-			Effect.map(
-				generatedHistory(
-					[(name) => ({ ...spec.build(name), declarations: noDeclarations })],
-					names.schema
+			Effect.map(generatedHistory(versions, names.schema, noPlaceholders), (history) => ({
+				names,
+				history
+			})),
+		install: ({ names, history }) =>
+			Effect.flatMap(
+				appliedGenerated(history, names.schema, spec.ambient, (fresh) =>
+					Effect.map(
+						generatedHistory(versions, fresh, noPlaceholders),
+						(again) => Arr.lastNonEmpty(again).plan
+					)
 				),
-				(history) => ({ names, drafted: Arr.headNonEmpty(history) })
+				(generated) => seed(generated.installed)
 			),
-		install: ({ names, drafted }) =>
-			Effect.gen(function* () {
-				const substrate = yield* Substrate
-				assert.ok(
-					runsInstallScript([drafted.folder], drafted.plan.installation, substrate.database),
-					"generate's first migration runs the installation's script alone"
-				)
-				const owner = yield* ambientOwner(spec.ambient, installedSchemas(drafted.plan.installation))
-				yield* applyFolders(owner, substrate.database, drafted.snapshot, [drafted.folder])
-				const credentials = yield* loginCredentials(drafted.plan, drafted.served, new Map())
-				yield* generatedAt(drafted, {
-					declared: names.schema,
-					folders: [drafted.folder],
-					ambientOwner: owner,
-					credentials
-				})
-			}),
-		bind: ({ names, drafted }, binding) => ({
-			installed: installedAt(
-				{
-					plan: drafted.plan,
-					declared: names.schema,
-					folders: [drafted.folder],
-					snapshot: drafted.snapshot,
-					ambientOwner: templateAmbientOwner(
-						spec.ambient,
-						templateLogin(binding, names.ownerLogin)
-					),
-					files: drafted.served,
-					credentials: templateCredentials(binding, loginRoles(drafted.plan, drafted.served))
-				},
-				binding
-			),
-			served: drafted.served
-		})
+		bind: ({ names, history }, binding) => templateGenerated(names, history, spec.ambient, binding)
 	})
+}
+
+/**
+ * A generated history (generatedHistory), drafted under the declared name `declared`, applied in the substrate's
+ * database as installGenerated applies it and migrates it on: its first version's migration, which runs the
+ * installation's script alone (runsInstallScript), then each later version's in turn, by the real runner as an owner
+ * login of its own whose sessions start under `ambient`; the catalog the last reached held to the fresh install of it
+ * `planned` plans under another allocated name (expectFreshCatalog); every login and the decoder login the last
+ * version's served files name given a password in the scope (loginCredentials); and the installed-catalog posture
+ * checked, at the last version. A template's build installs its draft so (generatedTemplate).
+ */
+export const appliedGenerated = (
+	history: Arr.NonEmptyReadonlyArray<GeneratedDraft>,
+	declared: string,
+	ambient: AmbientSession,
+	planned: VersionPlanner
+): Effect.Effect<
+	Generated,
+	CompileError | SqlError | TransactionRolledBack,
+	Substrate | Scope.Scope
+> =>
+	Effect.gen(function* () {
+		const substrate = yield* Substrate
+		const first = Arr.headNonEmpty(history)
+		const last = Arr.lastNonEmpty(history)
+		const folders = Arr.map(history, (d) => d.folder)
+		assert.ok(
+			runsInstallScript([first.folder], first.plan.installation, substrate.database),
+			"generate's first migration runs the installation's script alone"
+		)
+		const owner = yield* ambientOwner(ambient, installedSchemas(last.plan.installation))
+		for (const [step, draft] of history.entries()) {
+			yield* applyFolders(owner, substrate.database, draft.snapshot, Arr.take(folders, step + 1))
+		}
+		yield* expectFreshCatalog(last.plan.installation, folders, planned)
+		const credentials = yield* loginCredentials(last.plan, last.served, new Map())
+		return yield* generatedAt(last, { declared, folders, ambientOwner: owner, credentials })
+	})
+
+/**
+ * A template's generated installation of `history`, drafted under the template's names, as a case over a clone of it
+ * sees it in `binding`'s database: its last version's, migrated by every version's folder as the template's owner
+ * login, whose sessions start under `ambient`, every login and the decoder login the last version's served files name
+ * logging in with the password the template derived for it (templateCredentials), as appliedGenerated gave it in the
+ * build, with each login's served file of that version.
+ */
+export const templateGenerated = (
+	names: TemplateNames,
+	history: Arr.NonEmptyReadonlyArray<GeneratedDraft>,
+	ambient: AmbientSession,
+	binding: TemplateBinding
+): Generated => {
+	const last = Arr.lastNonEmpty(history)
+	return {
+		installed: installedAt(
+			{
+				plan: last.plan,
+				declared: names.schema,
+				folders: Arr.map(history, (d) => d.folder),
+				snapshot: last.snapshot,
+				ambientOwner: templateAmbientOwner(ambient, templateLogin(binding, names.ownerLogin)),
+				files: last.served,
+				credentials: templateCredentials(binding, loginRoles(last.plan, last.served))
+			},
+			binding
+		),
+		served: last.served
+	}
+}
 
 /**
  * Stores `facts` (each relation's facts as field-to-host-value records) as typed literal INSERTs in one transaction, as

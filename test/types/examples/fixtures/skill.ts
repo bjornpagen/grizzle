@@ -17,6 +17,8 @@ export default defineConfig({
 	schemas: [Blog],
 	/** Required: every login, and through them every role a Db opens and every workload whose access paths earn indexes. */
 	logins: [Web, EtlJob],
+	/** Required: each contract a running application parses values of, compiled into migrations/contract-checks/<name>.json. */
+	contracts: [],
 	/** Required: the migrations directory, relative to this file. */
 	migrations: "migrations",
 	/** Required: the bytes of the longest role prefix an installation is under, 0 where none is (a test harness states its own). */

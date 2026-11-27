@@ -108,7 +108,7 @@ export const withGenerationInputs = (
 			}
 			const input = relation.fields.find((f) => f.name === name)
 			if (input === undefined) {
-				throw defect(`the field ${name} of ${relation.name} a generated field reads`)
+				defect(`the field ${name} of ${relation.name} a generated field reads`)
 			}
 			held.add(name)
 			out.push(input)
@@ -192,7 +192,7 @@ const pairLaw = (family: Family, axis: AxisKind, from: NativeColumn, to: NativeC
 		(p) => columnKey(p.from) === columnKey(from) && columnKey(p.to) === columnKey(to)
 	)
 	if (pair === undefined) {
-		throw defect(`the ${axis} axis of ${familyKey(family.id)} carries the pair it is read from`)
+		defect(`the ${axis} axis of ${familyKey(family.id)} carries the pair it is read from`)
 	}
 	return pair.laws[0]
 }
@@ -201,7 +201,7 @@ const pairLaw = (family: Family, axis: AxisKind, from: NativeColumn, to: NativeC
 const readColumn = (relation: LawRelation, name: string): NativeColumn => {
 	const field = relation.fields.find((f) => f.name === name)
 	if (field === undefined) {
-		throw defect(`a field ${relation.name}.${name} an expression over its row reads`)
+		defect(`a field ${relation.name}.${name} an expression over its row reads`)
 	}
 	return fieldColumn(field)
 }
@@ -279,7 +279,7 @@ const entriesAt = (
 			}
 			const base = baseLiteral(f, pair.from)
 			if (base === undefined) {
-				throw defect(`the start of ${pair.from.field.name}, a copy along a last axis`)
+				defect(`the start of ${pair.from.field.name}, a copy along a last axis`)
 			}
 			set(
 				pair.from,
@@ -316,7 +316,7 @@ const entriesAt = (
 	const typeOf = (column: NativeColumn): ScalarType => {
 		const type = familyColumnType(f, column)
 		if (type === undefined) {
-			throw defect(`the type of ${columnKey(column)}, a column ${familyKey(f.id)} fills`)
+			defect(`the type of ${columnKey(column)}, a column ${familyKey(f.id)} fills`)
 		}
 		return type
 	}
@@ -327,7 +327,7 @@ const entriesAt = (
 		const law = pair.laws[0]
 		const base = baseLiteral(f, pair.from)
 		if (root && base === undefined) {
-			throw defect(`the start of ${columnKey(pair.from)}, a copy along a tree's owner axis`)
+			defect(`the start of ${columnKey(pair.from)}, a copy along a tree's owner axis`)
 		}
 		set(
 			pair.from,
@@ -344,7 +344,7 @@ const entriesAt = (
 		}
 		const base = baseLiteral(f, pair.from)
 		if (base === undefined) {
-			throw defect(`the start of ${columnKey(pair.from)}, a copy along a predecessor axis`)
+			defect(`the start of ${columnKey(pair.from)}, a copy along a predecessor axis`)
 		}
 		set(
 			pair.from,
@@ -383,7 +383,7 @@ const entriesAt = (
 				}
 				const type = familyColumnType(g, pair.from)
 				if (type === undefined) {
-					throw defect(`the type of ${columnKey(pair.from)}, a column ${familyKey(g.id)} fills`)
+					defect(`the type of ${columnKey(pair.from)}, a column ${familyKey(g.id)} fills`)
 				}
 				set(pair.from, type, { kind: "ownerCopy", family: g, to: pair.to, law: pair.laws[0] }, walk)
 			}
@@ -429,7 +429,7 @@ const generatedAt = (
 		)
 		const laidOut = !read.includes(undefined) && counted.size <= 1
 		if (field.writing.kind === "keyGenerated" && !laidOut) {
-			throw defect(
+			defect(
 				`the key generation ${relation.name}.${field.name}, whose reads are caller fields every position lays out`
 			)
 		}
@@ -478,9 +478,9 @@ const lawAndFamily = (rule: FillRule): { readonly law: LawId; readonly family: F
 		case "count":
 		case "start":
 		case "end":
-			throw defect(`a column filled ${rule.kind}, which reads nothing a write fills after it`)
+			defect(`a column filled ${rule.kind}, which reads nothing a write fills after it`)
 		case "generated":
-			throw defect(
+			defect(
 				"a generated column, laid out only where its own fill writes every column it reads, and refused at its reader"
 			)
 	}
@@ -538,7 +538,7 @@ const draftAt = (
 		}
 		const entry = entries.get(key)
 		if (entry === undefined) {
-			throw defect(`a column ${key} of ${relation.name} its layout holds`)
+			defect(`a column ${key} of ${relation.name} its layout holds`)
 		}
 		visiting.add(key)
 		let waits = entry.own
@@ -602,7 +602,7 @@ const walkOrder = (
 				[...(before.get(familyKey(f.id)) ?? [])].every((g) => placed.has(g))
 		)
 		if (next === undefined) {
-			throw defect("the walk's order of a row's sequences holds no cycle")
+			defect("the walk's order of a row's sequences holds no cycle")
 		}
 		placed.add(familyKey(next.id))
 		order.push(next)
@@ -786,7 +786,7 @@ export const fillOrder = (
 	const locOf = (law: LawId): SourceLoc => {
 		const found = laws.find((l) => l.id === law)
 		if (found === undefined) {
-			throw defect(`the law ${law} a family's fill names`)
+			defect(`the law ${law} a family's fill names`)
 		}
 		return found.loc
 	}
@@ -797,7 +797,7 @@ export const fillOrder = (
 				familyKey(l.detail.family.id) === familyKey(f.id)
 		)
 		if (found === undefined) {
-			throw defect(`the law of the family ${familyKey(f.id)}`)
+			defect(`the law of the family ${familyKey(f.id)}`)
 		}
 		return found.loc
 	}
@@ -844,7 +844,7 @@ export const fillOrder = (
 	const draftOf = (relation: string, position: FillPosition): Draft => {
 		const draft = drafts.get(layoutKey(relation, position))
 		if (draft === undefined) {
-			throw defect(`the layout of ${relation} at a position it stands at`)
+			defect(`the layout of ${relation} at a position it stands at`)
 		}
 		return draft
 	}

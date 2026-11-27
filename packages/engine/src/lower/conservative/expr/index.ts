@@ -30,6 +30,7 @@ import {
 import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
 import { equalityChain, sharedExpr } from "#compiler/lower/conservative/expr/share.ts"
 import { ieeeForm } from "#compiler/lower/conservative/expr/total.ts"
+import { lowerVariant } from "#compiler/lower/conservative/expr/variant.ts"
 import { lowerSearchOp } from "#compiler/lower/conservative/search/index.ts"
 import { lowerSpanOp } from "#compiler/lower/conservative/span/index.ts"
 import { lowerVectorOp } from "#compiler/lower/conservative/vector/index.ts"
@@ -73,7 +74,7 @@ const moneyText = (minor: bigint): string => {
 const literalCodec = (names: PhysicalNames, type: ScalarType): RosterCodec => {
 	const roster = rosterOf(type)
 	if (roster === undefined) {
-		throw defect(`a closed literal is typed by a roster's type, not ${baseOf(type).carrier}`)
+		defect(`a closed literal is typed by a roster's type, not ${baseOf(type).carrier}`)
 	}
 	return codecOf(names.codes, roster)
 }
@@ -136,7 +137,7 @@ export const lowerLiteral = (
 		case "vector":
 			return lit.text(vectorPayload(literal.value), sqlType)
 		case "pattern":
-			throw defect("a pattern literal is lowered where its match reads it, as its ARE (patternAre)")
+			defect("a pattern literal is lowered where its match reads it, as its ARE (patternAre)")
 	}
 }
 
@@ -172,8 +173,8 @@ const refuseIn = (site: ScalarSite, expr: ScalarExpr, tag: ProseTag, capability:
  * the site reads them, a literal typed by its base, an operator its catalog form (an exact one in its exact space and
  * an IEEE 754 one natively where proved and by its guarded form otherwise, ops.ts totalForm), a cast `x::type` (a
  * rounding into a float as total.ts ieeeForm chooses, which only a query holds: a check refuses it, compute/lower.ts),
- * a domain cast `x::domain`, a conditional CASE with its ELSE, and a closed read or membership test a read of its
- * relation's installed constants (`closedRead`). No NULL and no COALESCE is produced, and NULLIF only by C.at, whose
+ * a domain cast `x::domain`, a conditional CASE with its ELSE, a closed read or membership test a read of its
+ * relation's installed constants (`closedRead`), and a variant's operation its attribute or its ROW (variant.ts). No NULL and no COALESCE is produced, and NULLIF only by C.at, whose
  * absent key reads NULL, and by a persistent site's boolean NULL.
  */
 export const lowerScalar = (expr: ScalarExpr, site: ScalarSite): Expr => {
@@ -284,6 +285,8 @@ export const lowerScalar = (expr: ScalarExpr, site: ScalarSite): Expr => {
 			)
 		case "call":
 			return declaredCall(site, expr, expr.args.map(lower))
+		case "variant":
+			return lowerVariant(expr, expr.args.map(lower), site.names)
 	}
 }
 
@@ -424,7 +427,7 @@ export interface PatternLowering {
 export const matchOperands = (expr: ScalarExpr, lowering: PatternLowering): ReadonlyArray<Expr> => {
 	const [subject, pattern] = expr.args
 	if (subject === undefined || pattern === undefined || expr.args.length !== 2) {
-		throw defect("a Text.matches node reads its subject and its pattern")
+		defect("a Text.matches node reads its subject and its pattern")
 	}
 	return [lowering.lower(subject), patternAre(pattern, lowering)]
 }
@@ -443,14 +446,14 @@ const patternAre = (pattern: ScalarExpr, lowering: PatternLowering): Expr => {
 	const whole = lowering.whole(pattern)
 	if (whole !== undefined) {
 		if (whole.kind !== "literal" || whole.value.kind !== "text") {
-			throw defect("a folded Text.matches pattern is a text literal")
+			defect("a folded Text.matches pattern is a text literal")
 		}
 		return lit.text(matchAre(lowering.spelling(whole.value.value)), types.text)
 	}
 	switch (pattern.kind) {
 		case "literal":
 			if (pattern.value.kind !== "pattern") {
-				throw defect("a Text.matches pattern literal is a pattern value")
+				defect("a Text.matches pattern literal is a pattern value")
 			}
 			return lit.text(matchAre(lowering.spelling(pattern.value.value.spelling)), types.text)
 		case "closedAt":
@@ -473,9 +476,8 @@ const patternAre = (pattern: ScalarExpr, lowering: PatternLowering): Expr => {
 		case "closedRow":
 		case "closedHas":
 		case "call":
-			throw defect(
-				"a Text.matches pattern is a literal, a str.pattern payload or a Logic.cond of them"
-			)
+		case "variant":
+			defect("a Text.matches pattern is a literal, a str.pattern payload or a Logic.cond of them")
 	}
 }
 
@@ -508,7 +510,7 @@ const declaredCall = (
 		args.map((a, i) => {
 			const param = expr.params[i]
 			if (param === undefined) {
-				throw defect("a call's argument at each of its declared parameters")
+				defect("a call's argument at each of its declared parameters")
 			}
 			return cast(a, physicalBaseType(site.names, param))
 		})
@@ -590,7 +592,8 @@ export const lowerExpr = (cx: LowerContext, expr: ScalarExpr, env: Env): Expr =>
 		sharedExpr(expr, {
 			closed: cx.names.closedRelations,
 			host: closedLeaf(cx.names.closedIndex),
-			size: (e) => printedSize(() => lowerScalar(e, measured))
+			size: (e) => printedSize(() => lowerScalar(e, measured)),
+			texts: cx.fieldTexts
 		}),
 		site
 	)

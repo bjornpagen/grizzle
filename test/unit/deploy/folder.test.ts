@@ -12,9 +12,9 @@
  *   folder also holds the renames and drops it was drafted under, and its decisions, empty when it has none:
  *   each drafted statement in its place, each group of statements it confirms, one at least, and each loss of stored
  *   data, what it loses and its statement, each by its text, and every other statement by its tokens' digest, but one
- *   holding a placeholder, by its text; a meta.json of format 7, every statement by its text, reads as well. A value
- *   short of any of it is refused as malformed, and a valid one reads back as written, byte for byte when written
- *   again, its record as recorded, with no proof of it run again: generate proved it.
+ *   holding a placeholder, by its text. A value short of any of it is refused as malformed, and a valid one reads back
+ *   as written, byte for byte when written again, its record as recorded, with no proof of it run again: generate
+ *   proved it.
  * - generate proves a draft's record before it records it (provedRecord): a decision written as another drafted
  *   statement is refused; every other record is recorded with each statement that holds no placeholder by its tokens'
  *   digest, and reads back holding each of its files as written, a placeholder filled.
@@ -335,8 +335,7 @@ export const metaJsonGeneratedReadsBackExactlyWhatItWritesByteForByteItsDeclarat
 			budget: { runs: 400, steered: 400 },
 			situations: [
 				"a drafted meta with a loss, read",
-				"declarations, read",
-				"a meta of format 7, every statement by its text, read"
+				"declarations, read"
 			] satisfies ReadonlyArray<Reached<MetaFeature>>,
 			check:
 				(_, c: Case<MetaFeature>) =>
@@ -372,11 +371,6 @@ export const metaJsonGeneratedReadsBackExactlyWhatItWritesByteForByteItsDeclarat
 							)
 							if (Arr.some(meta.files, (f) => Arr.some(f.steps, (step) => step.kind === "loss"))) {
 								c.note("a drafted meta with a loss, read")
-							}
-							if (
-								Arr.every(meta.files, (f) => Arr.every(f.steps, (step) => step.kind !== "digest"))
-							) {
-								c.note("a meta of format 7, every statement by its text, read")
 							}
 							return
 						}

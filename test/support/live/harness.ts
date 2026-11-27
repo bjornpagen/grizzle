@@ -19,7 +19,7 @@ import {
 import { clusterConnection, type SqlError } from "#test/support/pg.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
-import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
+import { claimsOfNoFact, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { makeTap, type Tap } from "#test/support/wire-tap.ts"
 import { testVerify } from "#test/support/worlds.ts"
 
@@ -82,7 +82,9 @@ export const installLive = (
 		const installed = generated.installed
 		const world = liveWorld(c, installed.declared).world
 		const json = defined(generated.served.get(liveLogin), `the served file of ${liveLogin}`)
-		const writer = yield* substrate.session(worldSession(installed.world(world.app)))
+		const writer = yield* substrate.session(
+			worldSession(installed.world(world.app), claimsOfNoFact)
+		)
 		for (const commit of factsCommit(c)) {
 			yield* commitDirectly(writer, commitStatements(installed.plan, commit))
 		}

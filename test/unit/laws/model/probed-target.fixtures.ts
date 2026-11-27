@@ -15,14 +15,10 @@ import { compileLaws } from "#compiler/laws/model/model.ts"
 import type { PartRef } from "#compiler/laws/model/plan.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { keyTermText, type IndexKey, type PlannedIndex } from "#compiler/physical/indexes/engine.ts"
-import {
-	compileInstallation,
-	type Installation,
-	installationOver
-} from "#compiler/physical/install/compile.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
 import { type InstallBasis, installBasis } from "#compiler/physical/install/plan.ts"
+import { compileInstallation, installationOver } from "#compiler/program/install.ts"
 import { installationsOf, rostersOf } from "#compiler/schema/own.ts"
-import { everySlice } from "#compiler/schema/reach.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
 	contained,
@@ -83,10 +79,10 @@ import { generatedOn, lawColumnsOf } from "#test/unit/laws/model/natives.ts"
  *   order PostgreSQL checks them in is no input: a duplicate that breaks K is named a key whichever index refuses it
  *   first, as after a migration that creates K's index after a UNIQUE K implies.
  *
- * Enforcement is the law suites': test/pg/laws/alternatives.test.ts and the families in test/pg/laws/families draw every
- * arm of one handle, a target its parent's discriminator fixes whose own columns the reverse containment out of the
- * same selection probes, and test/pg/laws/target-keys.test.ts draws such a probe beside every key a target may be held
- * by, over a selection or not, its terms holding a fixed field or not.
+ * Enforcement is the law suites': the tagged arms families (test/support/laws/boxes.ts) and the families in
+ * test/pg/laws/families draw every arm of one handle, a target its parent's tag fixes whose own columns the reverse
+ * containment out of the same selection probes, and test/pg/laws/target-keys.test.ts draws such a probe beside every
+ * key a target may be held by, over a selection or not, its terms holding a fixed field or not.
  *
  * Features: a target a probe out of its selection reads at its own columns, leading the probe or within it; a target no
  * containment out of its selection probes, and one a probe out of its selection misses a term of; a lone target fixing
@@ -391,9 +387,8 @@ export const placementsOf = (desc: SchemaDesc): Placements => {
 		[],
 		firstCodebook(rostersOf(owned))
 	)
-	const slice = everySlice(owned)
 	const basis = succeeded(
-		installBasis(owned, options.codes, slice),
+		installBasis(owned, options.codes, new Set()),
 		"every target a key holds compiles"
 	)
 	const installed = (b: InstallBasis): Installation =>
@@ -421,7 +416,7 @@ export const placementsOf = (desc: SchemaDesc): Placements => {
 			installed({
 				...basis,
 				model: succeeded(
-					compileLaws(owned, slice, {
+					compileLaws(owned, {
 						kind: "recorded",
 						cycles: basis.model.fkCycles,
 						references: choice,

@@ -45,9 +45,7 @@ import type { MigrationFolder } from "#compiler/deploy/render/folder.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
-import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
-import { ownLogin } from "#compiler/schema/own.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
 import {
 	aliasRenames,
 	bothRenames,
@@ -67,6 +65,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { checkInstalled, installedScope } from "#test/support/catalog/installed.ts"
 import { type Catalog, readCatalog, readCatalogWith } from "#test/support/catalog/read.ts"
 import { chunked, joined } from "#test/support/chunked.ts"
+import { describedLogin, describedPlan } from "#test/support/generate-draft.ts"
 import { isBookkeepingObject, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
 	draftCodes,
@@ -88,7 +87,6 @@ import {
 	type PgConnection,
 	type SqlError
 } from "#test/support/pg.ts"
-import { owning } from "#test/support/policy.ts"
 import { testSql } from "#test/support/sql.ts"
 import type { Credentials, RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate, type SubstrateShape } from "#test/support/substrate/substrate.ts"
@@ -421,6 +419,7 @@ type ComparableCatalog = WithRest<{
 	readonly foreignGrants: ReadonlyArray<
 		WithRest<{ readonly schema: string; readonly grantee: string; readonly privilege: string }>
 	>
+	readonly publishedTables: ReadonlyArray<WithRest<{ readonly table: string }>>
 }>
 
 /**
@@ -569,6 +568,9 @@ const comparable = (
 			[(t) => t.table, (t) => t.name, (t) => t.definition]
 		),
 		statistics: ordered(c.statistics, [(x) => x.name]),
+		/** The live source's publication publishes the ledger a migration creates beside the relations (compile.ts
+		 * migratedSql), which a fresh install leaves aside like the ledger itself. */
+		publishedTables: Arr.filter(c.publishedTables, (p) => !isBookkeepingObject(schema, p.table)),
 		policies: ordered(c.policies, [(p) => p.table, (p) => p.name]),
 		roles: ordered(c.roles, [(r) => r.name]),
 		worlds: ordered(c.worlds, [(w) => w.name]),
@@ -635,29 +637,25 @@ interface Step {
 	readonly installation: Installation
 }
 
-/** The complete installation of a version under `schema`, owned by `owner`, with its worlds: as `grizzle generate`
- * compiles it (`completeInstallOptions`). */
+/**
+ * The complete installation of a version under `schema`, drafted from `previous` under `declared`, with its worlds, its
+ * logins' served workload certified: as `grizzle generate` installs it from the version's descriptions
+ * (generate-draft.ts describedPlan), under the codes generate drafts from `previous` (draftCodes).
+ */
 const installationOf = (
 	version: Version,
 	schema: string,
 	previous: Previous,
 	declared: Declarations
-): Installation => {
-	const owned = owning(version.desc)
-	const logins = Arr.map(versionLogins(version), (l) => succeeded(ownLogin(l)))
-	return succeeded(
-		compileInstallation(
-			owned,
-			completeInstallOptions(
-				owned,
-				[identity.schema(parsedSchemaName(schema))],
-				logins,
-				[],
-				succeeded(draftCodes(version.desc, previous, declared))
-			)
+): Installation =>
+	Effect.runSync(
+		describedPlan(
+			version.desc,
+			Arr.map(versionLogins(version), describedLogin),
+			identity.schema(parsedSchemaName(schema)),
+			succeeded(draftCodes(version.desc, previous, declared))
 		)
-	)
-}
+	).installation
 
 /**
  * The steps of `versions` into `schema`, each drafted from the snapshot before under the renames and drops it declares

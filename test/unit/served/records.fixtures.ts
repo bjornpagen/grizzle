@@ -38,7 +38,7 @@ import {
 import { succeeded } from "#test/support/assert.ts"
 import { compiledServedFile } from "#test/support/compiled-served.ts"
 import { shelvesNamed } from "#test/support/fixtures/records/shelves.ts"
-import { Id } from "#test/support/ids.ts"
+import { Id, toId } from "#test/support/ids.ts"
 
 export const recordsShapeGen: Gen<RecordsShape> = shapeGen
 
@@ -92,7 +92,7 @@ const leastOf: ReadonlyMap<string, unknown> = new Map<string, unknown>([
 	["int2", 1],
 	["int4", 1],
 	["int8", 1n],
-	["uuid", Id("00000000-0000-4000-8000-000000000001")]
+	["uuid", toId("00000000-0000-4000-8000-000000000001")]
 ])
 
 /** A value of a column of `form`'s first heading: the least of its carrier, the first handle of its roster. */
@@ -110,6 +110,8 @@ const columnValue = (
 			return "a"
 		case "bytes":
 			throw new Error("a records' query over Shelves stores no bytes")
+		case "variant":
+			throw new Error("a records' query over Shelves stores no variant")
 		case "constant":
 			return column.values[0]
 		case "convert": {
@@ -139,11 +141,6 @@ const rowOf = (form: DecoderForm, handles: (roster: string) => ReadonlyArray<str
 						case "one":
 							return [key, rowOf(field.child, handles)] as const
 					}
-				case "some":
-				case "arm":
-					return [key, Option.some(rowOf(field.child, handles))] as const
-				case "none":
-					return [key, Option.none()] as const
 			}
 		})
 	)
@@ -160,7 +157,7 @@ export const recordsCase = (shape: RecordsShape) => {
 	const handles = (roster: string): ReadonlyArray<string> =>
 		defined(kept?.rosters.get(roster), `the served roster ${roster}`).handles
 	const row = rowOf(built.kept.rows.form, handles)
-	const run = Id("00000000-0000-4000-8000-0000000000aa")
+	const run = toId("00000000-0000-4000-8000-0000000000aa")
 	const owner = shape.owner === "run" ? { run } : { run, step: 1 }
 	const queryText = succeeded(rowTextOver(built.query, toResult, rowOptions))
 	return {

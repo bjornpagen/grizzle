@@ -71,7 +71,7 @@ export const servedRead = (
 export const templateKey = (template: QueryTemplate): ServedKey => {
 	const root = template.programs.optimized.query.dag.roots[0]
 	if (root.kind !== "OrderedResult") {
-		throw defect("a served read's root is its ordered result (check/checker.ts rootOrder)")
+		defect("a served read's root is its ordered result (check/checker.ts rootOrder)")
 	}
 	return { fields: [...new Set(root.orders.flatMap((o) => o.keys.map((k) => k.column)))] }
 }
@@ -243,10 +243,6 @@ const decoderRosters = (form: DecoderForm, out: Set<string>): void => {
 		case "oneOf":
 			decoderRosters(form.first, out)
 			decoderRosters(form.second, out)
-			return
-		case "arm":
-			decoderRosters(form.parent, out)
-			decoderRosters(form.child, out)
 			return
 		case "refused":
 			return

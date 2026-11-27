@@ -9,15 +9,30 @@ import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import type { LivePlan } from "#compiler/live/notify.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { noServedTypes, type ServedTypes } from "#compiler/physical/ddl/domains.ts"
+import type { SeekProgram } from "#compiler/sql/seeks.ts"
+
+/**
+ * A served program whose statements the installation indexes by what they seek: a login's ChangeSet, by the login's name
+ * and the program's, with the seek program of every statement each compile of it sends (write/program/served.ts
+ * ServableWrite `seeks`), every role's and every variant's.
+ */
+export interface ServedProgram {
+	readonly login: string
+	readonly program: string
+	readonly seeks: ReadonlyArray<SeekProgram>
+}
 
 /** What an extension contributes to the installation it runs in beyond the objects it adds to the builder: an
- * extension spreads `noContribution` and states what it contributes. */
+ * extension spreads `noContribution` and states what it contributes. Its index requests, and its served programs, each
+ * of whose seeks the installation asks an index for (physical/access/seeks.ts seekPaths). */
 export interface InstallContribution {
 	readonly indexRequests: ReadonlyArray<IndexRequest>
+	readonly programs: ReadonlyArray<ServedProgram>
 }
 
 export const noContribution: InstallContribution = {
-	indexRequests: []
+	indexRequests: [],
+	programs: []
 }
 
 /** What another package installs, plugged into an installation: the tables of stored derived relations and the
@@ -33,7 +48,7 @@ export interface InstallExtension {
 	 * The types the programs it serves name (physical/ddl/domains.ts ServedTypes), over the installation's checked
 	 * schema: each pattern parameter's own pattern domain, each contract a parameter is typed by and each text refinement
 	 * the programs type a value by, which the installation reads before any name is chosen, and installs
-	 * (physical/install/compile.ts installationOver), so it serves no statement that names a type it lacks: the
+	 * (program/install.ts installationOver), so it serves no statement that names a type it lacks: the
 	 * workload's (physical/access/extension.ts workloadExtension), from its programs' checked IR
 	 * (program/workload/compile.ts compileWorkload); every other extension's, none (`servesNoParams`).
 	 */
@@ -46,11 +61,9 @@ export interface InstallExtension {
 	 */
 	readonly certifies: ReadonlyArray<RoleIsolation>
 	/**
-	 * The roles whose served ChangeSets create a carrier, a temporary table (write/carriers/carriers.ts,
-	 * write/program/staged.ts), with the types of its program carriers' columns (RoleCarriers), which the installation
-	 * grants TEMPORARY on the database and EXECUTE on what the CHECKs of those types' domains call (physical/ddl/roles.ts
-	 * addWorlds): the
-	 * served workload's, derived from the ChangeSets it serves (program/workload/compile.ts servedWorkload); every other
+	 * The roles whose served ChangeSets fill a carrier (write/carriers/carriers.ts), with the fields of its program
+	 * carriers' columns (RoleCarriers), which the installation grants EXECUTE on what the CHECKs of those fields' domains
+	 * call (physical/ddl/roles.ts addWorlds): the served workload's, derived from the ChangeSets it serves (program/workload/compile.ts servedWorkload); every other
 	 * extension's, none (`noCarriers`).
 	 */
 	readonly carriers: ReadonlyArray<RoleCarriers>
@@ -99,8 +112,8 @@ export const noCertificates: ReadonlyArray<RoleIsolation> = []
 export const noCarriers: ReadonlyArray<RoleCarriers> = []
 
 /**
- * A role of a login whose served ChangeSets create a carrier, with the field of each column of every program carrier
- * they create (write/carriers/carriers.ts WriteCarrier): a carrier holds each by its session type, no domain, and the
+ * A role of a login whose served ChangeSets fill a carrier, with the field of each column of every program carrier
+ * they fill (write/carriers/carriers.ts WriteCarrier): a carrier holds each by its session type, no domain, and the
  * statements that fill it cast into the field's domains, a function result's or a token's refinement among them,
  * whatever the role reads or writes.
  */

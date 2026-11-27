@@ -42,6 +42,7 @@ import {
 	orphanedCases,
 	provingCases,
 	sharedOn,
+	versionsOn,
 	sketchedCases
 } from "#test/unit/analysis/logical/evidence.fixtures.ts"
 
@@ -395,6 +396,57 @@ export const aCompilesSharedAnalysesAnnotateEveryNodeAsAnAnalysisOfItsDagAloneDo
 					original: "\t\t\t\trecord.shared.every((child) => count(child) !== 1) &&",
 					replacement: "\t\t\t\trecord.shared.length >= 0 &&",
 					why: "A record is read wherever the DAG leaves a child its recording held read elsewhere one reader (logical/annotate.ts agrees), so the attachment keeps the child unrevised there; the property fails."
+				}
+			]
+		}
+	)
+
+/**
+ * A compile's versions of a DAG analyzed through one store sharing every node annotate as analyses of each version
+ * alone do: the case's own nodes rooted again, and versions built from the first analysis's annotated nodes, as a
+ * write's restatement and its rewrites build theirs (write/frontend/compile.ts, the store every analysis of a write
+ * reads).
+ */
+export const aCompilesVersionsOfADagAnalyzedThroughOneStoreSharingEveryNodeAnnotateAsAnalysesOfEachVersionAloneDo =
+	versionsOn(
+		sketchedCases({
+			...defaultGenConfig,
+			query: {
+				...defaultGenConfig.query,
+				roots: {
+					...defaultGenConfig.query.roots,
+					plain: 1,
+					attach: 2,
+					hetero: 1
+				}
+			}
+		}),
+		{
+			situations: [
+				"a version of the case's own nodes",
+				"a version built from annotated nodes",
+				"a version rooted at an annotated attachment's child",
+				"an annotated node read as its own annotation"
+			],
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/logical/annotate.ts",
+					original: "\t\t\t\t[...record.exclusive.keys()].every((child) => count(child) === 1) &&",
+					replacement: "\t\t\t\t[...record.exclusive.keys()].length >= 0 &&",
+					why: "A record is read wherever a version gives a child its recording held exclusive another reader, so the attachment reads the child's revision there; the property fails."
+				},
+				{
+					file: "packages/engine/src/logical/annotate.ts",
+					original: '\t\t\t\t\t\tnode.kind !== "Attach" &&\n',
+					replacement: "",
+					why: "An annotated attachment is read as its own annotation in a later version, whose readers of its child may give it another delivered type or revision than the version that made it; the property fails."
+				},
+				{
+					file: "packages/engine/src/logical/annotate.ts",
+					original: "\t\t\t\t\t\tinputsOf(node).every((input) => plain.has(input))\n",
+					replacement: "\t\t\t\t\t\ttrue\n",
+					why: "A node over an attachment is read as its own annotation in a later version, though the attachment below it may be judged otherwise there; the property fails."
 				}
 			]
 		}

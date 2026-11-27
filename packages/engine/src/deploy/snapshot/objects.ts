@@ -18,7 +18,7 @@ import {
 	type CreateDomain,
 	type CreateConstraintTrigger,
 	type CreateTransitionTrigger,
-	type CreateUpdateGuardTrigger,
+	type CreateImmutableGuardTrigger,
 	type CreateGuardTrigger,
 	type CreateLiveSecret,
 	type CreateIndex,
@@ -89,8 +89,8 @@ export function refuseLaw(law: string, what: string): never {
  * or a theory role's CREATE ROLE, and a `membership` a theory role's membership in its login. A `viewSchema` is a
  * schema of views, a level's of its relations' whole views or a role's of its query entries' views, a `view` a
  * relation's whole view or a query entry's view in it, a `policy` a role's policy on a table it writes, and a
- * `rowSecurity` a table's row security. A `lawColumn` is a column a law adds beside the declared fields (a constant, a
- * partial term, an arm tag): the table, the column's name, and the column as the object's one ALTER TABLE ... ADD
+ * `rowSecurity` a table's row security. A `lawColumn` is a column a law adds beside the declared fields (a constant or
+ * a partial term): the table, the column's name, and the column as the object's one ALTER TABLE ... ADD
  * COLUMN declares it. A key, check or foreign key is a constraint of a table, by its name: a key or check the table
  * owns, where its definition stands, or a reference out of it with the definition its one ALTER TABLE ... ADD
  * CONSTRAINT adds (a foreign key is never inline). The `ledger` is the migrations ledger, by the CREATE TABLE of its
@@ -139,7 +139,7 @@ export type Installed<O extends AnyObject = ManifestObject> =
 	| {
 			readonly kind: "immutableTrigger"
 			readonly object: O
-			readonly create: CreateUpdateGuardTrigger
+			readonly create: CreateImmutableGuardTrigger
 	  }
 	| {
 			readonly kind:
@@ -379,7 +379,7 @@ export const installed = <O extends AnyObject>(o: O): Installed<O> => {
 						"a rule's trigger installed by its CREATE CONSTRAINT TRIGGER, or a rule capture by its CREATE TRIGGER"
 					)
 		case "immutableTrigger":
-			return o.ddl.length === 1 && s?.kind === "createUpdateGuardTrigger"
+			return o.ddl.length === 1 && s?.kind === "createImmutableGuardTrigger"
 				? { kind: o.kind, object: o, create: s }
 				: malformed("a table's immutability guard trigger installed by its CREATE TRIGGER")
 		case "refusalFunction":
@@ -683,7 +683,7 @@ export interface BuiltOver<O extends AnyObject = ManifestObject> {
  * rename) asks it here: an index reads its keys, INCLUDE columns and predicate; a table's declared statistics every column they declare; a
  * constraint its own, `constraint` giving the definition of one declared inside its table's CREATE TABLE; a law column
  * the columns its generation reads, a partial term
- * those of its selection and its term, an alternatives parent's arm tag its discriminator and a constant none. Nothing
+ * those of its selection and its term, and a constant none. Nothing
  * else is built over a table's columns: a table holds them, a table's isolation trigger reads none, and every other kind
  * stands outside any table. */
 export const builtOver = <O extends AnyObject>(

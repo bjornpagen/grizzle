@@ -17,7 +17,7 @@ const someOf = <A>(value: A): Option.Some<A> => {
 	if (Option.isSome(option)) {
 		return option
 	}
-	throw defect("Option.some answered a None")
+	defect("Option.some answered a None")
 }
 
 /** The None, as Effect's own constructor builds it. */
@@ -26,7 +26,7 @@ const noneOf = (): Option.None<never> => {
 	if (Option.isNone(option)) {
 		return option
 	}
-	throw defect("Option.none answered a Some")
+	defect("Option.none answered a Some")
 }
 
 /** A delivered row's Option as the values it holds: a Some's one, none of a None; any other value is a defect. */
@@ -34,7 +34,7 @@ const heldOf = (option: unknown): ReadonlyArray<unknown> => {
 	if (Option.isOption(option)) {
 		return Option.toArray(option)
 	}
-	throw defect("a delivered row's Option")
+	defect("a delivered row's Option")
 }
 
 /**

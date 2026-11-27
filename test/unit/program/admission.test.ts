@@ -5,7 +5,11 @@
  * admission's typed refusal, ValueRefused at its field by the codec's fault, never a throw, and the row every field of
  * which its type admits is admitted, a bytes field among them. Each bad input is drawn at each site a value sits: each
  * integer type, a text, a date, a numeric and a bytes value, plainly and under a contract whose predicate the host
- * judges, a refined field the domain loop reads.
+ * judges, a refined field the domain loop reads; and at every site a NULL, an undefined and a row that lacks the field,
+ * which a write's fact refuses as factShape at it: qti-pie's PUBFACTS lane admitted pantry's import rows of Node, a
+ * tree's nested rows as an insert states them, without the `start`, `at` and `attrs` grizzle draws and accumulates or
+ * the `package` the call computes, and admit died on "grizzle internal invariant: the type of a field at the row
+ * states", having named the refused field by the row's own keys, where R's reading names it.
  *
  * The oracle is the column's own admission elsewhere, a write's: its member's fact of the field alone, read by the
  * normalizer every ChangeSet member's facts are read by (codec/recordset.ts relationNormalizer, its heading the field's
@@ -29,7 +33,9 @@ import {
 	admittedRow,
 	badInputGen,
 	Cells,
-	cellFields
+	cellFields,
+	factWith,
+	rowWith
 } from "#test/unit/program/admission.fixtures.ts"
 
 /** The evaluator every case admits through, the schema compiled once. */
@@ -60,12 +66,12 @@ export const admissionRefusesEveryValueItsColumnsTypeRefusesAtItsFieldByTheCodec
 					]),
 					slot: { kind: "none" },
 					codes: emptyCodebook
-				}).readRow({ [input.site]: input.value })
+				}).readRow(factWith(input.site, input.input))
 				if (read.ok) {
 					return assert.fail(`a write's fact refuses ${input.label} at ${input.site}`)
 				}
 				const expected = { error: read.error.fault }
-				const verdict = evaluator.admit(Cells, { ...admittedRow, [input.site]: input.value })
+				const verdict = evaluator.admit(Cells, rowWith(input.site, input.input))
 				if (!Result.isFailure(verdict)) {
 					return assert.fail(`${input.label} at ${input.site} admitted`)
 				}
@@ -95,10 +101,17 @@ export const admissionRefusesEveryValueItsColumnsTypeRefusesAtItsFieldByTheCodec
 			},
 			{
 				file: "packages/engine/src/program/evaluate.ts",
-				original: "\t\tconst read = admitValue(field.spec, value)",
+				original: "\t\tconst read = readField(field.spec, row, field.name)",
 				replacement:
-					'\t\tconst read = field.spec.carrier === "bytes" ? (() => { throw defect("a bytes value travels in binary, never as a parameter text") })() : admitValue(field.spec, value)',
-				why: "Admission reads a stated field as the codec writes its parameter text (codec/scalar.ts hostText), not as the write reads a fact's field (scalar/values/identity.ts admitValue): a bytes value has no parameter text, so admitting a row of a relation with a bytes field throws a defect, and the admitted row fails."
+					'\t\tconst read = field.spec.carrier === "bytes" ? (() => { throw defect("a bytes value travels in binary, never as a parameter text") })() : readField(field.spec, row, field.name)',
+				why: "Admission reads a stated field as the codec writes its parameter text (codec/scalar.ts hostText), not as the write reads a fact's field (scalar/values/identity.ts readField): a bytes value has no parameter text, so admitting a row of a relation with a bytes field throws a defect, and the admitted row fails."
+			},
+			{
+				file: "packages/engine/src/program/evaluate.ts",
+				original: "\t\tconst read = readField(field.spec, row, field.name)",
+				replacement:
+					'\t\tif (!Object.hasOwn(row, field.name)) {\n\t\t\tthrow defect("the type of a field the row states")\n\t\t}\n\t\tconst read = readField(field.spec, row, field.name)',
+				why: "Admission names a refused field by the row's own keys, as before PUBFACTS' report: a row that lacks a field of R, as a write's fact of a tree's node lacks its drawn start, dies on the internal invariant where a write's fact is refused as factShape at the field."
 			}
 		]
 	})

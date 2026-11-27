@@ -60,7 +60,12 @@ import { sourcedDbLayer } from "#test/support/live-layer.ts"
 import { liveSurfaces, wireOf } from "#test/support/live/calls.ts"
 import { commitDirectly, insertRow, updateRow } from "#test/support/live/direct.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
-import { Substrate, worldSession, baseSubstrate } from "#test/support/substrate/substrate.ts"
+import {
+	baseSubstrate,
+	claimsOfNoFact,
+	Substrate,
+	worldSession
+} from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify, tokenOf } from "#test/support/worlds.ts"
 
@@ -109,7 +114,7 @@ export const aFailingLiveCallEndsWithItsClasssCallErrorWhoseRetryHoldsWhenTheCal
 							verify: testVerify
 						})
 						const directWriter = yield* substrate.session(
-							worldSession(installed.world(built.direct))
+							worldSession(installed.world(built.direct), claimsOfNoFact)
 						)
 						yield* commitDirectly(directWriter, [
 							insertRow(installed.plan, "Note", { id: p.id, author: p.sub, body: p.body })

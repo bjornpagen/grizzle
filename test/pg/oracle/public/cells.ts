@@ -51,7 +51,7 @@ import { outputText } from "#test/support/wire.ts"
 
 /**
  * The codes a column of `type` is read under in a public-oracle case: every case installs its schema fresh, from no
- * codes (oracle/install/real.ts oraclePlan), so a roster's handles hold the codes of their declared positions, and a
+ * codes (oracle/install/drafted.ts oraclePlan), so a roster's handles hold the codes of their declared positions, and a
  * type over no roster reads none.
  */
 export const freshCodesOf = (type: ScalarType): Codebook => {

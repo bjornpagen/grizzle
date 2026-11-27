@@ -36,7 +36,7 @@ import { uuidGroups } from "#compiler/ir/carriers.ts"
 import { type CalendarDate, convertDate, dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
 import {
-	admittedText,
+	admittedTexts,
 	amounts,
 	base64Texts,
 	calendarDates,
@@ -50,6 +50,7 @@ import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { bytesMaxLength } from "#compiler/scalar/values/fault.ts"
 import { binary32Max } from "#compiler/scalar/values/float.ts"
+import type { VariantValue } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import {
 	admitCidr,
@@ -180,6 +181,13 @@ interface WireExtras {
 	readonly tsvector: unknown
 	readonly exactInteger: { readonly digits: number }
 	readonly exactMoney: { readonly digits: number }
+	readonly variant: { readonly arms: ReadonlyArray<WireArm> }
+}
+
+/** One arm of a variant as the wire spells it: its handle and its fields, each by name with its own spelling. */
+type WireArm = {
+	readonly handle: string
+	readonly fields: ReadonlyArray<{ readonly name: string; readonly spec: WireScalar }>
 }
 
 /**
@@ -220,6 +228,7 @@ interface WireHost {
 	readonly tsvector: string
 	readonly exactInteger: bigint
 	readonly exactMoney: Money
+	readonly variant: VariantValue
 }
 
 /** One carrier's row of the table: its schema, its encode, its exact parse, its trusting decode and its host check. */
@@ -310,7 +319,7 @@ const realOf = (json: unknown): Result.Result<number, WireFaultKind> =>
 /** The trusted JSON of the server's own frames: a string where its spelling is one, a defect elsewhere. */
 export const trustedString = (json: WireJson): string => {
 	if (typeof json !== "string") {
-		throw defect("a wire value spelled as a JSON string")
+		defect("a wire value spelled as a JSON string")
 	}
 	return json
 }
@@ -318,7 +327,7 @@ export const trustedString = (json: WireJson): string => {
 /** The trusted JSON of the server's own frames: a number where its spelling is one, a defect elsewhere. */
 const trustedNumber = (json: WireJson): number => {
 	if (typeof json !== "number") {
-		throw defect("a wire value spelled as a JSON number")
+		defect("a wire value spelled as a JSON number")
 	}
 	return json
 }
@@ -326,7 +335,7 @@ const trustedNumber = (json: WireJson): number => {
 /** The trusted JSON of the server's own frames: an array where its spelling is one, a defect elsewhere. */
 export const trustedArray = (json: WireJson): ReadonlyArray<WireJson> => {
 	if (!isList(json)) {
-		throw defect("a wire value spelled as a JSON array")
+		defect("a wire value spelled as a JSON array")
 	}
 	return json
 }
@@ -487,7 +496,7 @@ const moneyOf = (
 const minorUnitsOf = (value: Decimal): bigint => {
 	const parts = value.parts
 	if (parts.kind !== "finite") {
-		throw defect("a finite amount of money")
+		defect("a finite amount of money")
 	}
 	const units = parts.coefficient * 10n ** BigInt(moneyFractionDigits - parts.minScale)
 	return parts.negative ? -units : units
@@ -578,7 +587,7 @@ const spanJson = <E>(span: Span<E>, endpoint: (value: E) => WireJson): WireJson 
 /** The trusted JSON of the server's own frames: a record where its spelling is one, a defect elsewhere. */
 export const trustedRecord = (json: WireJson): { readonly [member: string]: WireJson } => {
 	if (typeof json !== "object" || json === null || isList(json)) {
-		throw defect("a wire value spelled as a JSON record")
+		defect("a wire value spelled as a JSON record")
 	}
 	return json
 }
@@ -590,7 +599,7 @@ export const trustedMember = (
 ): WireJson => {
 	const value = record[member]
 	if (value === undefined) {
-		throw defect(`a wire record holding its member ${member}`)
+		defect(`a wire record holding its member ${member}`)
 	}
 	return value
 }
@@ -636,6 +645,81 @@ const dateWire: CarrierWire<"date"> = {
 	parse: dateOf,
 	decode: (json) => convertDate(trustedString(json)),
 	is: isCalendarDate
+}
+
+/** The arm of a variant's wire spec its handle tags, none for a handle no arm holds. */
+const wireArm = (arms: ReadonlyArray<WireArm>, tag: unknown): WireArm | undefined =>
+	typeof tag === "string" ? arms.find((arm) => arm.handle === tag) : undefined
+
+/** The arm a variant value's own tag names: a value the server holds or decodes names an arm of its spec. */
+const heldArm = (arms: ReadonlyArray<WireArm>, tag: string): WireArm => {
+	const arm = wireArm(arms, tag)
+	if (arm === undefined) {
+		defect(`a variant value of an arm its spec holds, not ${tag}`)
+	}
+	return arm
+}
+
+/**
+ * A variant as the wire spells it: a JSON object of its arm's handle under `tag` and each of that arm's fields under
+ * its name, in its own spelling; its schema one object schema per arm, its tag a constant. Its parse refuses JSON of no
+ * object (`json`), a tag no arm holds (`handle`) and members other than the arm's own (`members`), and each field as
+ * its own spelling refuses it.
+ */
+const variantWire: CarrierWire<"variant"> = {
+	schema: (spec) => ({
+		oneOf: spec.arms.map((arm) => ({
+			type: "object",
+			properties: {
+				tag: { const: arm.handle },
+				...Object.fromEntries(arm.fields.map((f) => [f.name, scalarSchema(f.spec)]))
+			},
+			required: ["tag", ...arm.fields.map((f) => f.name)],
+			additionalProperties: false
+		}))
+	}),
+	encode: (value, spec) => {
+		const arm = heldArm(spec.arms, value.tag)
+		return {
+			tag: value.tag,
+			...Object.fromEntries(arm.fields.map((f) => [f.name, encodeScalar(f.spec, value[f.name])]))
+		}
+	},
+	parse: (json, spec) => {
+		if (!isPlainRecord(json)) {
+			return Result.err("json")
+		}
+		const arm = wireArm(spec.arms, json["tag"])
+		if (arm === undefined) {
+			return Result.err("handle")
+		}
+		if (Object.keys(json).length !== arm.fields.length + 1) {
+			return Result.err("members")
+		}
+		const value: Record<string, unknown> = { tag: arm.handle }
+		for (const f of arm.fields) {
+			if (!Object.hasOwn(json, f.name)) {
+				return Result.err("members")
+			}
+			const field = parseScalar(f.spec, json[f.name])
+			if (!field.ok) {
+				return field
+			}
+			value[f.name] = field.value
+		}
+		return Result.ok(Object.freeze({ ...value, tag: arm.handle }))
+	},
+	decode: (json, spec) => {
+		const record = trustedRecord(json)
+		const tag = trustedString(record["tag"] ?? null)
+		const arm = heldArm(spec.arms, tag)
+		const value: Record<string, unknown> = { tag }
+		for (const f of arm.fields) {
+			value[f.name] = decodeScalar(f.spec, record[f.name] ?? null)
+		}
+		return Object.freeze({ ...value, tag })
+	},
+	is: (value): value is VariantValue => isPlainRecord(value) && typeof value["tag"] === "string"
 }
 
 /**
@@ -698,7 +782,7 @@ const carrierWire: CarrierWires = {
 		parse: (json) => (typeof json === "boolean" ? Result.ok(json) : Result.err("json")),
 		decode: (json) => {
 			if (typeof json !== "boolean") {
-				throw defect("a boolean spelled as a JSON boolean")
+				defect("a boolean spelled as a JSON boolean")
 			}
 			return json
 		},
@@ -745,7 +829,7 @@ const carrierWire: CarrierWires = {
 		is: (value): value is Cidr => typeof value === "string" && isCidrText(value)
 	},
 	text: {
-		schema: () => spelled(admittedText),
+		schema: () => spelled(admittedTexts),
 		encode: (value) => value,
 		parse: (json) => {
 			if (typeof json !== "string") {
@@ -870,7 +954,7 @@ const carrierWire: CarrierWires = {
 	 * (scalar/values/tsvector.ts parseSearchDocument), the form and the limits its schema's gap.
 	 */
 	tsvector: {
-		schema: () => withGaps(spelled(admittedText), ["searchDocument"]),
+		schema: () => withGaps(spelled(admittedTexts), ["searchDocument"]),
 		encode: (value) => value,
 		parse: (json) => {
 			if (typeof json !== "string") {
@@ -898,7 +982,8 @@ const carrierWire: CarrierWires = {
 		parse: (json, spec) => moneyOf(json, spec.digits),
 		decode: (json) => Money.fromOutput(trustedString(json)),
 		is: isMoney
-	}
+	},
+	variant: variantWire
 }
 
 /** The row of `spec`'s carrier, typed by it. */
@@ -915,7 +1000,7 @@ const schemaAt = <C extends Carrier>(spec: WireSpec<C>): WireSchema => rowOf(spe
 const encodeAt = <C extends Carrier>(spec: WireSpec<C>, value: unknown): WireJson => {
 	const row = rowOf(spec)
 	if (!row.is(value)) {
-		throw defect(`a ${spec.carrier} host value to encode`)
+		defect(`a ${spec.carrier} host value to encode`)
 	}
 	return row.encode(value, spec)
 }

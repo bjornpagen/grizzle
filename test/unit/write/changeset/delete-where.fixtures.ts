@@ -10,7 +10,6 @@ import { Money, pg } from "#compiler/public/fields.ts"
 import { param } from "#compiler/public/query.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import { carrierScope } from "#compiler/sql/naming.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import {
@@ -434,8 +433,7 @@ const roleWorld = Object.freeze(
 				derived: artifacts.derived,
 				level: "serializable" as const,
 				clock: noClock,
-				source: transactionClock,
-				carrierScope: carrierScope(world.role.name)
+				source: transactionClock
 			}
 		}
 	})()

@@ -4,25 +4,18 @@ import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
-import { type PlanNode, parsePlan, planNodes, scannedRows } from "#bench/harness/explain.ts"
+import { type PlanNode, planNodes, scannedRows } from "#bench/harness/explain.ts"
 import { identity } from "#compiler/core/identity.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
-import { workload } from "#compiler/program/workload/value.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
-import {
-	compileTemplate,
-	declaredOf,
-	paramTexts,
-	testCompile,
-	workloadOver
-} from "#test/support/compile.ts"
-import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
+import { compileTemplate, declaredOf, paramTexts, testCompile } from "#test/support/compile.ts"
+import { type Installed } from "#test/support/install-migrate.ts"
+import { fullWorldTemplate } from "#test/support/installed.ts"
+import { planAsRun } from "#test/support/judge.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 
 /**
@@ -76,7 +69,7 @@ const crosswalkOf = (order: MatchOrder) =>
 						.match(SupportCount, { standard: state, supports: stateCount.supports })
 						.match(SupportCount, { standard: hub, supports: hubCount.supports })
 						.match(Pair, { state, hub, shared })
-		return matched.where(r.or(r.eq(state, standard), r.eq(hub, standard))).find({
+		return matched.where(r.or([r.eq(state, standard), r.eq(hub, standard)])).find({
 			state,
 			hub,
 			shared,
@@ -89,20 +82,13 @@ const crosswalk = crosswalkOf("pair first")
 const countsFirst = crosswalkOf("counts first")
 
 /** The schema installed through its first migration, with a reader login whose workload's indexes the read earns. */
-export const foldProbeTemplate = migratedTemplate({
+export const foldProbeTemplate = fullWorldTemplate({
 	declaredIn: import.meta,
 	name: "fold probe",
-	content: { schema: Views.name, logins: [] },
-	versions: [{ schema: Views, logins: [], declarations: noDeclarations }],
-	options: {
-		label: "fold_probe",
-		extensions: [
-			workloadOver([{ login: "reader", workloads: [workload(Views, { crosswalk, countsFirst })] }])
-		],
-		compile: compileInstallation,
-		ambient: ordinarySession,
-		review: noPlaceholders
-	}
+	fixture: Views,
+	programs: { crosswalk, countsFirst },
+	label: "fold_probe",
+	ambient: ordinarySession
 })
 
 /**
@@ -184,16 +170,14 @@ const expected = (c: FoldProbe): ReadonlyArray<Delivered> => {
 const textOf = (d: Delivered): string =>
 	`${d.state} ${d.hub} ${d.shared} ${d.stateSupports} ${d.hubSupports}`
 
-/** The statements storing the case's rows, the tables' triggers off, then ANALYZE where the case draws it. */
+/** The statements storing the case's rows by ordinary writes, then ANALYZE where the case draws it. */
 const loaded = (installed: Installed, c: FoldProbe): ReadonlyArray<string> => {
 	const names = namesOf(installed)
 	const supports = names.table(Supports)
 	const pair = names.table(Pair)
 	return [
-		...Arr.map([supports, pair], (t) => `ALTER TABLE ${t} DISABLE TRIGGER USER`),
 		`INSERT INTO ${supports} SELECT k, i FROM generate_series(1, ${c.standards}) AS g(i), generate_series(1, 1 + i % ${c.most}) AS h(k)`,
 		`INSERT INTO ${pair} SELECT s, ${c.states} + 1 + (7 * s + k) % 100, k FROM generate_series(1, ${c.states}) AS g(s), generate_series(1, ${c.hubs}) AS h(k)`,
-		...Arr.map([supports, pair], (t) => `ALTER TABLE ${t} ENABLE TRIGGER USER`),
 		...(c.statistics === "analyzed" ? Arr.map([supports, pair], (t) => `ANALYZE ${t}`) : [])
 	]
 }
@@ -250,11 +234,7 @@ export const runFoldProbe = (
 			{ standard: askedOf(c) },
 			declaredOf(template, read, undefined, options)
 		)
-		const explained = yield* connection.queryValues(
-			`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${statement.sql}`,
-			params
-		)
-		const plan = succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan
+		const plan = yield* planAsRun(connection.queryValues, statement.sql, params)
 		const rows = yield* connection.queryValues(statement.sql, params)
 		const want = expected(c)
 		assert.deepEqual(

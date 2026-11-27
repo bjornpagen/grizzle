@@ -534,8 +534,8 @@ const countProblems = (
 }
 
 /**
- * The problems of an outcome against a parameter PostgreSQL refuses as the flight's admission binds it, before any
- * statement that reaches state: ExecutionFailure with reason ParamRejected at one of `params`, a scalar parameter or a
+ * The problems of an outcome against a parameter PostgreSQL refuses as the admission the first statement a call sends
+ * carries binds it, before any statement runs: ExecutionFailure with reason ParamRejected at one of `params`, a scalar parameter or a
  * field of a relation parameter's, by the parameter's name its place holds, never a law's refusal.
  */
 const unboundProblems = (

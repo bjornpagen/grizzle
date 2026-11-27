@@ -98,11 +98,14 @@ const cellLines = (c: RefiningCell, at: number): ReadonlyArray<string> => [
 
 /** The types and relations every cell reads: each kind's relation, keyed by `o` and its field `v`. */
 const header = (): ReadonlyArray<string> => [
-	'export const Moment = contract("Moment", pg.bigint, (t) => Logic.ge(t, 0n))',
-	'export const Ones = contract("Ones", natural, (n) => Logic.le(n, 1n))',
+	'export const momentKey = Symbol("Moment")',
+	'export const Moment = contract<typeof momentKey>()("Moment", pg.bigint, (t) => Logic.ge(t, 0n))',
+	'export const onesKey = Symbol("Ones")',
+	'export const Ones = contract<typeof onesKey>()("Ones", natural, (n) => Logic.le(n, 1n))',
 	'export const Hue = closed.ordered("Hue", ["red", "blue"])',
 	'export const Tint = closed.ordered("Tint", ["red", "blue"])',
-	'export const Lit = contract("Lit", closedId(Hue), (h) => Logic.ne(h, Hue.handle("blue")))',
+	'export const litKey = Symbol("Lit")',
+	'export const Lit = contract<typeof litKey>()("Lit", closedId(Hue), (h) => Logic.ne(h, Hue.handle("blue")))',
 	'export const Big = relation("Big", { o: pg.integer, v: pg.bigint }, ["o", "v"])',
 	'export const Count = relation("Count", { o: pg.integer, v: natural }, ["o", "v"])',
 	'export const Moments = relation("Moments", { o: pg.integer, v: Moment }, ["o", "v"])',

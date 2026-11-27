@@ -9,7 +9,6 @@ import type { OpenExpr } from "#compiler/ir/open.ts"
 import { type Fact, factNames } from "#compiler/ir/proof.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
-import { argumentsOf } from "#test/support/list.ts"
 import { type TestField, testPg } from "#test/unit/compute/support.ts"
 
 /** The small literals a comparison draws: zero, the units and a value past them on either side. */
@@ -108,7 +107,7 @@ export const predicateOf =
 	(x: ScalarTerm): { readonly expr: OpenExpr } => {
 		const [first, ...rest] = atoms
 		return Arr.isReadonlyArrayNonEmpty(rest)
-			? computeCore.and(...argumentsOf(Arr.map(atoms, (a) => comparison(x, a, base))))
+			? computeCore.and(Arr.map(atoms, (a) => comparison(x, a, base)))
 			: comparison(x, first, base)
 	}
 

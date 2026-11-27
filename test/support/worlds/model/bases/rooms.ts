@@ -34,16 +34,19 @@ const side = (relation: string, fields: Arr.NonEmptyReadonlyArray<string>): Side
 	where: {}
 })
 
+/** The events of kind Talk: a talk row's event is one, and each has its talk row. */
+const talks: SideSpec = { relation: "Event", fields: ["id"], where: { kind: "Talk" } }
+
 /**
  * The rooms base, one relation per shape a write through a world meets and a law of every family README "Rules" lists:
  * rooms, whose seats are a contract (a domain CHECK) and at least one (a row check); each room's opening hours, a
  * mutable pure set keyed WITHOUT OVERLAPS, so a room's openings never share an hour, and each in a room (a containment,
  * deferred, since a room has a field outside its id); bookings, a mutable relation keyed WITHOUT OVERLAPS by room and
  * stay, each covered by its room's openings (a coverage, a PERIOD foreign key) and at most one per user and room (a
- * candidate key); events, each a talk or a meeting, a talk with exactly one talk row (alternatives: two containments,
- * each way, on a cycle and so deferred); the kinds of event a room suits, an immutable pure set, each of a room; and
- * which room adjoins which, an immutable pure set of two rooms, whose chains a recursive read walks.
- * A session's user is the token's `sub`.
+ * candidate key); events, each a talk or a meeting, a talk with exactly one talk row (two containments, each way
+ * between the talk rows and the events of kind Talk, on a cycle and so deferred); the kinds of event a room suits, an
+ * immutable pure set, each of a room; and which room adjoins which, an immutable pure set of two rooms, whose chains a
+ * recursive read walks. A session's user is the token's `sub`.
  */
 export const roomsBase: BaseSpec = {
 	name: "Rooms",
@@ -130,13 +133,8 @@ export const roomsBase: BaseSpec = {
 			span: { source: "during", target: "hours" }
 		},
 		{ kind: "key", relation: "Booking", fields: ["by", "room"] },
-		{
-			kind: "alternatives",
-			relation: "Event",
-			tag: "kind",
-			closed: eventKind.name,
-			arms: { Talk: "Talk" }
-		},
+		{ kind: "contained", source: side("Talk", ["event"]), target: talks },
+		{ kind: "contained", source: talks, target: side("Talk", ["event"]) },
 		{ kind: "contained", source: side("Label", ["room"]), target: side("Room", ["id"]) },
 		{ kind: "contained", source: side("Adjoins", ["room"]), target: side("Room", ["id"]) },
 		{ kind: "contained", source: side("Adjoins", ["next"]), target: side("Room", ["id"]) }
@@ -173,10 +171,10 @@ const what = variable("kind")
  * The rooms base's worlds, two of them partial. The signed-in `booker`, in the login `web`, writes its own bookings,
  * events and talks, each `by` filled from the token's subject, and reads every opening whole: a booking meets another
  * user's booking it cannot see at the span key, its room's openings at the coverage and its own other booking of the
- * room at the candidate key; an event of kind Talk meets its talk at the alternatives; it reads which room adjoins
- * which whole. The `keeper`, in the login `ops`, writes rooms through a query entry of every room, the openings of
- * rooms of at least two seats and the rooms that suit talks (a pure set's entry whose kind its fill fixes), and reads
- * every booking whole without writing one. The `admin`, in `ops` too, holds every relation whole and writes each.
+ * room at the candidate key; an event of kind Talk meets its talk at the containments between them; it reads which room
+ * adjoins which whole. The `keeper`, in the login `ops`, writes rooms through a query entry of every room, the openings
+ * of rooms of at least two seats and the rooms that suit talks (a pure set's entry whose kind its fill fixes), and
+ * reads every booking whole without writing one. The `admin`, in `ops` too, holds every relation whole and writes each.
  */
 export const roomsInstall: InstallSpec = {
 	base: roomsBase,

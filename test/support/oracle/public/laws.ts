@@ -138,6 +138,8 @@ const extendedOf = (
 	statements: ReadonlyArray<Statement>
 ) => schema.extend([built.schema], name, Rec.values(relations), statements, [])
 
+const countKey = Symbol("LawCount")
+const tallyKey = Symbol("LawTally")
 /** The level `level` over the case's schema `s`, built over its values `built` (see the header). */
 export const lawsOf = (s: ProgramSchema, built: BuiltSchema, level: LawLevel): Laws => {
 	const taken = new Set([s.roster.name, ...Arr.map(s.relations, (r) => r.name)])
@@ -153,8 +155,12 @@ export const lawsOf = (s: ProgramSchema, built: BuiltSchema, level: LawLevel): L
 	)
 	const kindName = fresh("LawKind", taken)
 	const Kind = closedBuilder(kindName, live, level.order, [])
-	const Count = contract("LawCount", pg.integer, (x) => Logic.ge(x, level.least[0]))
-	const Tally = contract("LawTally", pg.integer, (x) => Logic.ge(x, level.least[1]))
+	const Count = contract<typeof countKey>()("LawCount", pg.integer, (x) =>
+		Logic.ge(x, level.least[0])
+	)
+	const Tally = contract<typeof tallyKey>()("LawTally", pg.integer, (x) =>
+		Logic.ge(x, level.least[1])
+	)
 	const holderName = fresh("LawHolder", taken)
 	const holderFields = { id: Id, code: closedId(Kind), marks: bits(Kind), count: Count }
 	const Holder =

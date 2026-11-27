@@ -2,7 +2,7 @@ import type { LoginRule } from "#compiler/core/causes.ts"
 import { CompileError } from "#compiler/core/errors.ts"
 import { isList, isPlainRecord } from "#compiler/core/record.ts"
 import { workloadState } from "#compiler/program/workload/value.ts"
-import { isLevelOf } from "#compiler/schema/levels.ts"
+import { isLevelOf, sameRoleLevel } from "#compiler/schema/levels.ts"
 import { builderLoc, malformed, ownedEntry } from "#compiler/schema/protocol.ts"
 import { loginBuilder } from "#compiler/schema/world.ts"
 import type { MembersTyped, Refusal } from "#compiler/types/core/phantom.ts"
@@ -18,7 +18,8 @@ import type {
 
 /**
  * The workloads a login owns, admitted: none without options, else `options.workload`, a list of workload values, each
- * over the login's base, a level of it, or one of its roles, and no two of their programs of one name, since a Db of
+ * over the login's base, a level of it, or one of its roles, one level with it (levels.ts sameRoleLevel, as a login's
+ * compile runs it, program/workload/roles.ts programsOn), and no two of their programs of one name, since a Db of
  * the login reaches each program by its name (`db.workload.<name>`). A JavaScript caller's options are read here once:
  * a value that is no options record, or a workload no workload(...) built, is MalformedDescription; a workload over
  * another schema, or a program name two workloads share, is LoginRefused.
@@ -52,6 +53,11 @@ const admitWorkloads = (
 			login: typeof name === "string" ? name : "?",
 			rule
 		})
+	/** The level of each of the login's roles, which a workload over a role is over one of (levels.ts sameRoleLevel). */
+	const levels = roles.flatMap((r) => {
+		const role = ownedEntry(r, "role")
+		return role === undefined ? [] : [role.content]
+	})
 	const seen = new Set<string>()
 	for (const [i, w] of given.entries()) {
 		const state = workloadState(w)
@@ -61,7 +67,7 @@ const admitWorkloads = (
 		const over = state.schema
 		const admitted =
 			over.kind === "role"
-				? roles.includes(over.value)
+				? levels.some((level) => sameRoleLevel(level, over.level))
 				: baseEntry !== undefined && isLevelOf(over.content, baseEntry.content)
 		if (!admitted) {
 			throw refused({

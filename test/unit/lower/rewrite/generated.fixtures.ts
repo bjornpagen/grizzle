@@ -29,7 +29,6 @@ import { existencePass } from "#compiler/lower/optimize/existence/index.ts"
 import { fusePass } from "#compiler/lower/optimize/fuse/index.ts"
 import { lateFetchPass } from "#compiler/lower/optimize/late-fetch/index.ts"
 import { prunePass } from "#compiler/lower/optimize/prune/index.ts"
-import { pushdownPass } from "#compiler/lower/optimize/pushdown/index.ts"
 import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { genCatalog } from "#test/support/evidence.ts"
@@ -55,7 +54,7 @@ import {
 
 /**
  * The optimizer's population for the rewrite passes: wide payload of unbounded text alone (the reference evaluator
- * computes no vector), and filters drawn directly over the stages the pushdown rules move a filter into.
+ * computes no vector), and filters drawn directly over groups, unions and set comparisons.
  */
 export const population: GenConfig = rewriteGenConfig
 
@@ -76,12 +75,6 @@ export const pipelineRules = [
 	"R02.semiJoin",
 	"R02.antiJoin",
 	"prune.heading",
-	"pushdown.left",
-	"pushdown.project",
-	"pushdown.semiGroup",
-	"pushdown.semiSource",
-	"pushdown.source",
-	"pushdown.union",
 	"simplify.fold",
 	"simplify.empty",
 	"simplify.identityProjection",
@@ -217,7 +210,6 @@ export const singlePasses = {
 	prune: [prunePass],
 	eliminate: [prunePass, eliminatePass],
 	existence: [prunePass, existencePass],
-	pushdown: [pushdownPass],
 	closed: [closedPass],
 	lateFetch: [lateFetchPass]
 } as const satisfies Readonly<Record<string, Passes>>
@@ -232,7 +224,6 @@ export const passNames: Arr.NonEmptyReadonlyArray<PassName> = [
 	"prune",
 	"eliminate",
 	"existence",
-	"pushdown",
 	"closed",
 	"lateFetch"
 ]

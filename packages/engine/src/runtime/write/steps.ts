@@ -9,7 +9,7 @@ import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonemp
 import type { TransientReason } from "#compiler/core/errors.ts"
 import type { ConstraintName, EntryName, StoredRelationName } from "#compiler/core/ids.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
-import type { Needs } from "#compiler/ir/needs.ts"
+import { always, type Needs } from "#compiler/ir/needs.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import type { RemovedTag } from "#compiler/runtime/write/net.ts"
 import type { FamilyPart } from "#compiler/write/family/written.ts"
@@ -35,7 +35,7 @@ export const removedTag = (result: DeleteResult): RemovedTag =>
 /**
  * What a carrier's statement casts into a stored relation's types: an action's member, which its fill writes into a
  * carrier typed by the action's relation's columns, so the fill casts the facts the action writes, a domain's CHECK
- * among the casts; nothing for a carrier's creation, a shared sub-query's fill, a snapshot or a delta.
+ * among the casts; nothing for a shared sub-query's fill, a bound input's, a snapshot or a delta.
  */
 export type CarrierCasts =
 	| { readonly kind: "member"; readonly relation: StoredRelationName; readonly stratum: StratumAt }
@@ -50,30 +50,31 @@ export type WriteStep =
 			readonly relation: StoredRelationName
 			readonly result: WriteStepResult
 			/** What its rows need of the call's inputs (ir/needs.ts): where they hold no such fact, the runtime sends
-			 * neither the statement nor, in a single statement, its part. */
+			 * neither the statement nor, in a single statement, its part. The flight's first statement also needs where a
+			 * parameter it admits may hold a refused value, where no statement is sent there else
+			 * (write/program/admission.ts): its rows are none there. */
 			readonly needs: Needs
 			readonly uniqueAborts: ReadonlyArray<UniqueAbort>
 	  }
 	| {
 			/**
-			 * A carrier's statement: its emptying before a use fills it (`empty`, sql/ast.ts EmptyCarrier), or a fill.
-			 * The carrier itself is made once in the session, by its stand-up (flight.ts StandUp), never by a step.
+			 * A carrier's fill (write/carriers/carriers.ts carrierStash): the transaction-local settings its columns
+			 * travel in, written to its rows. No step makes or empties a carrier: a setting is the transaction's own.
 			 */
 			readonly kind: "carrier"
 			readonly carrier: string
-			readonly step: "empty" | "fill"
 			/** Its stratum, none for a carrier around the strata. */
 			readonly stratum: StratumAt | undefined
 			/** What its statement casts into a stored relation's types (CarrierCasts). */
 			readonly casts: CarrierCasts
 	  }
 	| { readonly kind: "readBack"; readonly name: string }
-	| AdmissionStep
 	| {
 			readonly kind: "check"
 			readonly stratum: StratumAt
 			readonly entry: EntryName
-			/** What the facts it checks need of the call's inputs: where they hold none, it is not sent. */
+			/** What the facts it checks need of the call's inputs: where they hold none, it is not sent. The flight's
+			 * first statement's also needs its admission's, as a write's does. */
 			readonly needs: Needs
 	  }
 	| {
@@ -84,16 +85,6 @@ export type WriteStep =
 			readonly uniqueAborts: ReadonlyArray<UniqueAbort>
 	  }
 	| FamilyWriteStep
-
-/**
-/**
- * The admission of a write's caller parameters (write/admission/statement.ts): the first statement of its flight, before
- * every stratum, so PostgreSQL refuses a parameter outside its type as it binds it, before any statement of the write
- * runs. It belongs to no stratum, and its one row carries nothing to decode.
- */
-export interface AdmissionStep {
-	readonly kind: "admission"
-}
 
 /**
  * A stratum's family additions or removals as one statement (write/family/additions.ts, removals.ts), or its deletes of
@@ -156,7 +147,6 @@ export const writeRows = (
 		case "carrier":
 		case "readBack":
 		case "check":
-		case "admission":
 			return []
 	}
 }
@@ -164,11 +154,10 @@ export const writeRows = (
 /** The step of a statement of the write program's own: every step but a read-back's. */
 export type OwnStep = Exclude<WriteStep, { readonly kind: "readBack" }>
 
-/** The stratum a step belongs to, none for a carrier around the strata, a read-back's statement and the admission. */
+/** The stratum a step belongs to, none for a carrier around the strata and a read-back's statement. */
 const stratumOf = (step: WriteStep): StratumAt | undefined => {
 	switch (step.kind) {
 		case "readBack":
-		case "admission":
 			return undefined
 		case "carrier":
 		case "write":
@@ -180,26 +169,18 @@ const stratumOf = (step: WriteStep): StratumAt | undefined => {
 }
 
 /**
- * What a step's statement reaches when it runs: stored state, a relation or carrier it reads or writes, a lock it
- * takes; or the call's parameters alone, the admission (write/admission/statement.ts), which
- * binds and checks them, reads no relation and writes nothing. A statement that reaches only parameters commutes with
- * every other transaction: the certifier reads no fact of it (program/isolation/certification.ts flightStatements), and
- * a race takes it as no step of its own (test/pg/isolation/support/race.ts callStatements).
+ * Where a call sends a statement of `step` sent whole: a write's or a check's where its needs hold over the call's
+ * inputs (ir/needs.ts holds), any other's in every call. A single statement's is its units' (parted.ts sentUnits).
  */
-export type StepReach = "state" | "parameters"
-
-/** What a step's statement reaches (StepReach), by its kind, so a new kind of step is classified where it is added. */
-export const reachOf = (step: WriteStep): StepReach => {
+export const sentWhere = (step: OwnStep): Needs => {
 	switch (step.kind) {
-		case "admission":
-			return "parameters"
-		case "readBack":
-		case "carrier":
 		case "write":
 		case "check":
+			return step.needs
+		case "carrier":
 		case "single":
 		case "familyWrite":
-			return "state"
+			return always
 	}
 }
 

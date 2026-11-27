@@ -25,6 +25,12 @@ export const closedSubset = boxAgreement(finite(word(closedSubsetBox)), {
 	kept: [],
 	kills: [
 		{
+			file: "packages/engine/src/types/schema/function.ts",
+			original: "\t\t? false\n\t\t: true\n\t: false\n",
+			replacement: "\t\t? false\n\t\t: false\n\t: false\n",
+			why: "A declared function's result of a closed id of a subset is a type: its directive's refusal is never raised, and a query's term of the function's value would be typed by a subset no body is held to; the program fails."
+		},
+		{
 			file: "packages/engine/src/types/fields/field.ts",
 			original: "\t? H\n\t: Subset extends { readonly except: ReadonlyArray<infer H> }",
 			replacement:

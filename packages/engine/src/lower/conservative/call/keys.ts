@@ -16,7 +16,7 @@ import { conservativeMeta, type NodeOf, type RelDag, type RelNode } from "#compi
 const evaluationDigest = (digests: DagDigests, node: NodeOf<"Call">): string => {
 	const called = node.function
 	if (called.kind !== "field") {
-		throw defect("the evaluation key of a read of a field of a call")
+		defect("the evaluation key of a read of a field of a call")
 	}
 	const evaluation = relNode(node.id, {
 		...node,
@@ -105,7 +105,7 @@ export class EvaluationKeys {
 	#identityOf(read: NodeOf<"Call">): string {
 		const called = read.function
 		if (called.kind !== "field") {
-			throw defect("the evaluation identity of a read of a field of a call")
+			defect("the evaluation identity of a read of a field of a call")
 		}
 		const args = read.args.map((a) =>
 			a.kind === "rows"
@@ -129,7 +129,7 @@ export class EvaluationKeys {
 	#shapeOf(read: NodeOf<"Call">): string {
 		const called = read.function
 		if (called.kind !== "field") {
-			throw defect("the evaluation shape of a read of a field of a call")
+			defect("the evaluation shape of a read of a field of a call")
 		}
 		const args = read.args.map((a) =>
 			a.kind === "rows" ? `rows ${a.name} ${this.#shapes.of(a.rows)}` : `value ${a.name}`

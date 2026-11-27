@@ -296,7 +296,7 @@ export const folded = <N extends RegexNode, A>(
 	const of = (node: RegexNode): A => {
 		const value = table.get(node)
 		if (value === undefined) {
-			throw defect("a regex node's analysis, which postorder tables before its parent's")
+			defect("a regex node's analysis, which postorder tables before its parent's")
 		}
 		return value
 	}

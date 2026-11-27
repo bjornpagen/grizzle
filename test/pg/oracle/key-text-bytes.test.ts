@@ -30,7 +30,7 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Record as Rec, String as Str } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { Logic, Text } from "#compiler/public/compute.ts"
@@ -58,6 +58,7 @@ import { namesOf } from "#test/support/kernel/naming.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { ownerSession, Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
+const keyTextKey = Symbol("KeyText")
 /**
  * A key's text bounded by keyTextBytes against PostgreSQL's B-tree item limit: a text of exactly keyTextBytes bytes in a
  * key beside its companions is inserted, and one byte more is refused by its domain.
@@ -117,7 +118,7 @@ export const exactlyKeyTextBytes = property.explore(caseSpace, {
 			Effect.provideServiceEffect(
 				Effect.gen(function* () {
 					const budget = keyTextBytes(Arr.map(c.companions, fieldOf))
-					const KeyText = contract("KeyText", str.regex("^.*$", "su"), (v) =>
+					const KeyText = contract<typeof keyTextKey>()("KeyText", str.regex("^.*$", "su"), (v) =>
 						Logic.le(Text.octetLength(v), budget)
 					)
 					const names = [...Arr.map(indices(c.companions.length), (i) => `c${i}`), "t"]
@@ -133,7 +134,6 @@ export const exactlyKeyTextBytes = property.explore(caseSpace, {
 					const installed = yield* install(schema("TextBytes", [Kind, Keyed], [], []), {
 						ambient: ordinarySession,
 						label: "textbytes",
-						logins: [],
 						extensions: []
 					})
 					const textAt = textPosition(c)
@@ -232,7 +232,16 @@ export const exactlyKeyTextBytes = property.explore(caseSpace, {
 		kind: "postgresql",
 		name: "the B-tree item limit, 54000, and the contract domain's CHECK, 23514"
 	},
-	kept: [],
+	kept: [
+		{
+			token: ReplayToken(
+				"test/pg/oracle/key-text-bytes.test.ts#exactlyKeyTextBytes:1b7d.8:0.1.0.0.1.1.0.0.0.0.0"
+			),
+			reason:
+				"an accumulated Id companion, minted under the tests' id key (97c8891645), red on the merged tree while the fixture minted under none",
+			since: "2026-11-27"
+		}
+	],
 	kills: [
 		{
 			file: "packages/engine/src/public/text.ts",

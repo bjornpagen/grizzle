@@ -6,10 +6,15 @@
  * its rows into Hour, and holds SELECT on no relation of the base's level; and a workload over it of a read of Want over
  * that level is refused, as a level that declares nothing over the base is no empty level.
  *
+ * Den's census of a root derived from its key, a rule over its role matching the read over the empty level bound by
+ * the request's own parameters, is a source over a level of the role's, the empty level, which the rule's match admits
+ * as schema/levels.ts isLevelOf does: it commits the key's row into Hour.
+ *
  * Oracle: PostgreSQL itself, its privileges (has_table_privilege over the base's level) and its acceptance of every
  * served statement, each answering the key's row; and the level rule's refusal of the workload.
  *
- * The box, exhausted: the read, the commit and its read back, and the refused read over the level of no relation.
+ * The box, exhausted: the read, the commit and the census, each with its read back, and the refused read over the level
+ * of no relation.
  */
 
 import type { Reached } from "@bjornpagen/testing/features"
@@ -30,6 +35,7 @@ export const aReadOfNoRelationRunsOnARoleHoldingNothingOfTheBaseWhichHoldsNoLeve
 		situations: [
 			"the read of no relation by a role holding nothing of the base",
 			"the commit of its rows by a role holding nothing of the base",
+			"the census of its rows by a role holding nothing of the base",
 			"a read over a level declaring nothing of its own, refused by a role holding nothing of the base"
 		] satisfies ReadonlyArray<Reached<EmptyLevelFeature>>,
 		check:
@@ -44,7 +50,7 @@ export const aReadOfNoRelationRunsOnARoleHoldingNothingOfTheBaseWhichHoldsNoLeve
 			kind: "postgresql",
 			name: "PostgreSQL's privileges over the base's level and its acceptance of every served statement, and the level rule's refusal"
 		},
-		box: "the read of no relation, the commit of its rows and their read back, and a read of the base's relation over a level of it declaring nothing of its own",
+		box: "the read of no relation, the commit of its rows and den's census of them, each with their read back, and a read of the base's relation over a level of it declaring nothing of its own",
 		kept: [],
 		kills: [
 			{

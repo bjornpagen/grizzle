@@ -22,17 +22,10 @@ import type {
 	NaturalDomain,
 	FieldBase,
 	GeneratedField,
-	HandleOf,
 	StoredOnlySql,
 	WritingTag
 } from "#compiler/types/fields/field.ts"
-import type {
-	AnyRelation,
-	AnyRoster,
-	Fact,
-	FactOfFields,
-	NameOf
-} from "#compiler/types/schema/relation.ts"
+import type { AnyRelation, AnyRoster, Fact } from "#compiler/types/schema/relation.ts"
 
 /**
  * pred(field), a law side's term over a natural field: the field's value less one, defined only where the value is
@@ -62,9 +55,6 @@ export type DistinctTerms<T> =
  * closed relation is keyed by its handle alone.
  */
 export type CandidateKey<R extends AnyRelation> = Key<Side<R, ReadonlyArray<string>>>
-
-/** In key position a relation stands for its primary key, and a candidate key for itself. */
-export type KeyRef<R extends AnyRelation> = R | CandidateKey<R>
 
 /**
  * key(side): no two of the side's facts share its tuple of terms, UNIQUE NULLS DISTINCT over them. Over a whole
@@ -136,8 +126,7 @@ export type AnySide = Side<unknown>
 
 /**
  * select(R, predicate): the facts of R a row predicate over their own fields holds of. The predicate is the
- * selection's Description's, which no type reads: an alternatives arm's handle is read from the alternatives law
- * (types/evidence ArmProofOf).
+ * selection's Description's, which no type reads.
  */
 export interface Selection<R> {
 	readonly relation: R
@@ -202,14 +191,14 @@ export interface FinShows<out N, out C, out K, out Kind> {
 }
 
 /**
- * Statements: keys, mutability, checks, law sides, containment, mirrors, alternatives, families, trees and folds. The
- * constructors are the typed schema facade's (schema/api.ts), written under these types over the admission cores of
+ * Statements: keys, mutability, checks, law sides, containment, mirrors, families, trees and folds. The constructors
+ * are the typed schema facade's (schema/api.ts), written under these types over the admission cores of
  * packages/engine/src/schema.
  *
  * Every statement type carries the types of what it names, so the schema's captured statement tuple can be read back.
  * A key's, a check's and a containment's side may read an ordinary, a closed or a derived relation, a derived one's
- * terms typed by its definition's heading; a family, a tree, a fold, alternatives and mutable name ordinary relations
- * alone, whose rows grizzle writes.
+ * terms typed by its definition's heading; a family, a tree, a fold and mutable name ordinary relations alone, whose
+ * rows grizzle writes.
  */
 export interface Containment<L = Side<unknown>, R = Side<unknown>> {
 	readonly kind: "contained"
@@ -673,7 +662,6 @@ export type Statement =
 	| Check<string, unknown>
 	| Containment<unknown, unknown>
 	| MirrorsBase
-	| AlternativesBase
 	| UnitBase
 	| Series<unknown>
 	| AnyFamily
@@ -761,7 +749,10 @@ export type SidesCompatible<L, R> = [L] extends [R]
 		: Refusal<"the sides' field types differ">
 	: Refusal<"the sides' field types differ">
 
-/** The relation and key fields a KeyRef names: a Key's side's relation and field terms, a relation's primary key. */
+/**
+ * The relation and key fields a key in key position names: a Key's side's relation and field terms, a relation's
+ * primary key, a closed relation's key.
+ */
 export type RelationOfKey<K> = K extends Key<Side<infer R, ReadonlyArray<string>>> ? R : K
 export type KeyFieldsOf<K> =
 	K extends Key<Side<unknown, infer F extends ReadonlyArray<string>>>
@@ -803,125 +794,7 @@ type KeyHeadFields<H, F> = F extends string
 			: F
 	: never
 
-/** The paired types of a KeyRef's key fields, in order. */
-type KeyHosts<K> = SideHosts<HeadingOf<RelationOfKey<K>>, KeyFieldsOf<K>>
-
-/** A Key over a side of a relation that shows N and C, whose terms are F: a parent in key position. */
-export interface KeyShows<out N, out C, out F> {
-	readonly side: KeySideShowing<N, C, F>
-}
-interface KeySideShowing<out N, out C, out F> {
-	readonly source: Showing<N, C>
-	readonly terms: F
-}
-
 /** A source of kind K a builder takes as one that shows N and C (fin's owner). */
 export interface ShowingKind<out N, out C, out K> extends Showing<N, C> {
 	readonly kind: K
 }
-
-/** The fields of the heading C that are closedId(R) references: the discriminator alternatives accepts. */
-export type DiscriminatorsOf<C, R> = {
-	[K in keyof FactOfFields<C>]-?: [FactOfFields<C>[K]] extends [HandleOf<R>]
-		? [HandleOf<R>] extends [FactOfFields<C>[K]]
-			? K
-			: never
-		: never
-}[keyof FactOfFields<C>] &
-	string
-
-/**
- * The alternatives reader: every arm is a stored relation, whose rows a write draws, and its key pairs with the parent
- * key's fields, P, in order, as a containment's sides do (SideHosts).
- */
-export type ArmsCompatible<P, Arms> = {
-	readonly [H in keyof Arms]: RelationOfKey<Arms[H]> extends { readonly kind: "derived" }
-		? Refusal<"alternatives relate stored relations: a derived relation's rows are its definition's, which no write draws">
-		: [KeyHosts<Arms[H]>] extends [P]
-			? [P] extends [KeyHosts<Arms[H]>]
-				? unknown
-				: Refusal<"the arm's key does not match the parent key">
-			: Refusal<"the arm's key does not match the parent key">
-}
-
-/**
- * The alternatives reader: the arm map is keyed by handles of the roster C alone, each key by its spelling, a numeric
- * one's included. A roster whose handles are no literals cannot tell a stray key by its type, and the runtime refuses
- * it.
- */
-export type ArmsOfRoster<C, Arms> = {
-	readonly [
-		K in Exclude<(keyof Arms & string) | `${keyof Arms & number}`, HandleOf<C>>
-	]: Refusal<"an arm is keyed by a handle of its roster">
-}
-
-/**
- * Whether two relations' names, A and B, may name one relation: each a literal or a union of them, the names meet. A
- * name that is no literal tells no relation apart, and the runtime tells them.
- */
-type NamesMeet<A, B> = [A] extends [never]
-	? false
-	: string extends A
-		? false
-		: string extends B
-			? false
-			: [A & B] extends [never]
-				? false
-				: true
-
-/**
- * The alternatives reader: no arm is the parent itself, the parent's name P. A parent that is its own arm at a handle
- * must hold that handle in every fact, since the arm key is a key of the parent, so every other handle of its roster
- * would be dead; a generic parent is any of the relations its name may be, and a relation whose name is no literal
- * cannot be told from the parent by its type, and the runtime refuses it.
- */
-export type ArmsApartFromParent<P, Arms> = {
-	readonly [H in keyof Arms]: NamesMeet<NameOf<RelationOfKey<Arms[H]>>, P> extends true
-		? Refusal<"an arm is a relation other than its parent">
-		: unknown
-}
-
-/**
- * One arm's containments: the arm's key among the parent's facts its handles select, and the parent's facts its
- * handle selects, projected onto the parent key, among the arm's keys. The selection's handles are its Description's;
- * ArmProofOf reads them from the alternatives law.
- */
-type ArmContainments<P, PK, A> =
-	| Containment<Side<RelationOfKey<A>, KeyFieldsOf<A>>, Side<Selection<P>, KeyFieldsOf<PK>>>
-	| Containment<Side<Selection<P>, KeyFieldsOf<PK>>, Side<RelationOfKey<A>, KeyFieldsOf<A>>>
-
-/**
- * An alternatives law: one statement of a schema, which states one containment per arm relation into the parent and
- * one per armed handle from the parent, with no head: the discriminator's roster domain types it. P is the parent in key position (a relation, standing for its
- * primary key, or a Key), D the discriminator, C the closed roster, and Arms the arm map from handles to arms in key
- * position. The value keeps its four inputs, so a reader of the schema (ContainmentsOf, the alternatives row of
- * types/evidence) reads the expansion from its type (ExpansionOf).
- */
-export interface Alternatives<P, D extends string, C, Arms> {
-	readonly kind: "alternatives"
-	readonly parent: P
-	readonly discriminator: D
-	readonly roster: C
-	readonly arms: Arms
-}
-
-/** Any alternatives law: Alternatives is covariant in what it names. */
-export type AlternativesBase = Alternatives<unknown, string, unknown, unknown>
-
-/**
- * The containments an alternatives law states, as a union: each arm's key among the parent's facts its handles select,
- * and the parent's facts each armed handle selects among its arm's keys (ir/desc.ts expandAlternatives).
- */
-export type ExpansionOf<A> =
-	A extends Alternatives<infer P, string, unknown, infer Arms>
-		? {
-				[H in keyof Arms]-?: [Exclude<Arms[H], undefined>] extends [never]
-					? never
-					: ArmContainments<RelationOfKey<P>, P, Exclude<Arms[H], undefined>>
-			}[keyof Arms]
-		: never
-
-/** The arm map names at least one handle. */
-export type AtLeastOneArm<Arms> = [keyof Arms] extends [never]
-	? Refusal<"alternatives takes at least one arm">
-	: unknown

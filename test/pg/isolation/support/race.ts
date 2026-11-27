@@ -1,6 +1,6 @@
 import { utf8Text } from "@bjornpagen/grizzle-text/utf8"
 import { defined } from "@bjornpagen/testing/assert"
-import { Array as Arr, Effect, Option, Path, String as Str } from "effect"
+import { Array as Arr, Effect, Option, String as Str } from "effect"
 import { hostInputs, type InputFailure, valuesFailure } from "#adapter/apply/run.ts"
 import { fromEngine } from "#adapter/engine.ts"
 import type { CallInputRefused } from "#adapter/errors/failures.ts"
@@ -10,45 +10,26 @@ import {
 	type LoadedRead,
 	loadServed
 } from "#adapter/served/load.ts"
-import { builtLogin, loginChangesOver } from "#adapter/served/login.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
-import { compileSchema, resolveConfig } from "#cli/config.ts"
-import { draftSchema, servedFiles } from "#cli/generate.ts"
-import type { RoleIsolation } from "#compiler/core/certificate.ts"
+import { identity } from "#compiler/core/identity.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
-import { silentPhases } from "#compiler/core/phase.ts"
 import type { Param } from "#compiler/core/wire.ts"
-import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
-import { transactionClock } from "#compiler/ir/clock.ts"
-import { firstCodebook } from "#compiler/ir/codes.ts"
-import { servedWorkloadExtension } from "#compiler/physical/access/extension.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
-import type { InstallExtension } from "#compiler/physical/install/extension.ts"
-import { servableRole } from "#compiler/program/workload/change.ts"
 import type { AnyLogin, AnyRole, AnySchema } from "#compiler/public/schema.ts"
-import { standUpTexts } from "#compiler/runtime/write/flight.ts"
-import { reachOf } from "#compiler/runtime/write/steps.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
-import { rostersOf } from "#compiler/schema/own.ts"
 import { servedFile } from "#compiler/served/json.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
-import { defineConfig } from "#index.ts"
-import { offlineOwner } from "#test/pg/cli/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { templateNeedBudget } from "#test/support/budgets.ts"
-import { jsonOf } from "#test/support/chunked.ts"
-import { compiledInstallation } from "#test/support/compiled-served.ts"
-import { paths, repoRoot } from "#test/support/files.ts"
 import {
-	appliedHistory,
-	draftedHistory,
+	appliedGenerated,
+	generatedDraft,
 	type Installed,
 	noPlaceholders,
-	noVersionWorkload,
-	templateInstalled
+	templateGenerated
 } from "#test/support/install-migrate.ts"
-import { type Names, namesOf } from "#test/support/kernel/naming.ts"
-import { noDeclarations } from "#test/support/migrate/kit.ts"
+import { type Names, namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
+import type { DirectBegin } from "#test/support/schedules/types.ts"
 import { installTemplate, type SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -62,28 +43,14 @@ export interface Shape {
 }
 
 /**
- * Whose certificates an installation holds: generate's, the ones its draft's workload plan certifies; a flawed
- * certifier's, stated by hand with the flaw it stands for; generate's with some roles forced READ COMMITTED; or every
- * role at a level a race states, to run one shape's calls at each level (`stated`). The
- * installation holds any of them as it holds generate's, so every table its READ COMMITTED roles alone write keeps no
- * guard and their served writes begin at READ COMMITTED.
- */
-export type Certifier =
-	| { readonly kind: "generate" }
-	| { readonly kind: "flawed"; readonly flaw: string; readonly roles: ReadonlyArray<RoleIsolation> }
-	| { readonly kind: "forced"; readonly flaw: string; readonly roles: ReadonlyArray<string> }
-	| { readonly kind: "stated"; readonly roles: ReadonlyArray<RoleIsolation> }
-
-/**
- * A shape installed: the installation, its names, the level generate certifies each role at, each role's ChangeSets and
- * reads as its served file loads them, the level each role's served writes begin at, the installation's, and the BEGIN
- * of a write at each level, as the served file states them.
+ * A shape installed as `grizzle generate` drafts and serves it: the installation, its names, each role's ChangeSets and
+ * reads as its served file loads them, the level each role's served writes begin at, the one generate certifies it at,
+ * and the BEGIN of a write at each level, as the served file states them.
  */
 export interface InstalledShape {
 	readonly installed: Installed
 	readonly names: Names
 	readonly shape: Shape
-	readonly generated: ReadonlyMap<string, Isolation>
 	readonly changes: ReadonlyMap<string, ReadonlyMap<string, LoadedChange>>
 	readonly reads: ReadonlyMap<string, ReadonlyMap<string, LoadedRead>>
 	readonly levels: ReadonlyMap<string, Isolation>
@@ -129,58 +96,6 @@ type RaceCall =
 /** A race's ChangeSet call (RaceCall). */
 type ChangeCall = Extract<RaceCall, { readonly kind: "change" }>
 
-/** The draft `grizzle generate` makes of `shape` from the empty snapshot, and its schema as the CLI compiles it. */
-const draftOf = (shape: Shape) =>
-	Effect.provideService(
-		Effect.gen(function* () {
-			const config = yield* resolveConfig(
-				defineConfig({
-					schemas: [shape.schema],
-					logins: [shape.login],
-					migrations: "migrations",
-					rolePrefixBytes: 0,
-					connection: () => offlineOwner
-				}),
-				`${repoRoot}app/grizzle.config.ts`
-			)
-			const configured = defined(config.schemas[0], "the configured schema")
-			const compiled = yield* Effect.fromResult(compileSchema(configured))
-			const draft = yield* draftSchema(
-				compiled,
-				emptySnapshot({ schemaName: configured.declared, schema: configured.ident }),
-				[],
-				noDeclarations,
-				silentPhases
-			)
-			if (draft.served.kind === "noLogin") {
-				return yield* Effect.die(new Error("a shape's login is its draft's"))
-			}
-			return { compiled, draft, served: draft.served }
-		}),
-		Path.Path,
-		paths
-	)
-
-/**
- * The installer extension `grizzle generate` installs a shape with, the served workload's (physical/access/extension.ts
- * servedWorkloadExtension), its certificates `roles`: the one installation path, so a race's installation holds what
- * generate's does, the contracts a served program's parameters alone name and its carriers' grants among them, and only
- * each table's guard follows the stated certificates. The plan is the shape's under its installed name, compiled as
- * generate drafts it (test/support/compiled-served.ts compiledInstallation), since a workload is compiled against its
- * installed schema.
- */
-const certifying = (shape: Shape, roles: ReadonlyArray<RoleIsolation>) =>
-	Effect.gen(function* () {
-		const built = defined(builtLogin(shape.login), "a shape's login, built by login(...)")
-		const base = yield* fromEngine(built.base.content.owned())
-		const { plan } = yield* compiledInstallation(built, base, firstCodebook(rostersOf(base)))
-		return { ...servedWorkloadExtension(plan), certifies: roles } satisfies InstallExtension
-	})
-
-/** Each role's level among `roles`, by its name. */
-const levelsOf = (roles: ReadonlyArray<RoleIsolation>): ReadonlyMap<string, Isolation> =>
-	new Map(Arr.map(roles, (r) => [r.role, r.certificate.level] as const))
-
 /**
  * Each role's ChangeSets and reads in `loaded`, by role and member, each role's served level, and a read's BEGIN texts.
  */
@@ -214,144 +129,75 @@ const servedOf = (loaded: LoadedLogin) => ({
 })
 
 /**
- * A certified installation of `build(name)` planned under `name`, all but its install: the history
- * that installs the shape's schema with its login, holding the certificates `certifier` states (certifying), its
- * options, the shape rebuilt under `name`, the levels generate certifies, and the login's served file of the installed
- * name, each role at its stated level, loaded.
+ * The installation of `build(name)` as `grizzle generate` drafts and serves it, all but its install: its draft under
+ * `name` (install-migrate.ts generatedDraft), each role at the level generate certifies it at, the shape built under
+ * `name`, and its login's served file of the draft, loaded.
  */
-const certifiedPlan = (
-	build: (name: string) => Shape,
-	certifier: Exclude<Certifier, { readonly kind: "generate" }>,
-	name: string
-) =>
+const shapePlan = (build: (name: string) => Shape, name: string) =>
 	Effect.gen(function* () {
-		const declared = build("Iso")
-		const first = yield* draftOf(declared)
-		const generated = first.served.certification
-		const certified =
-			certifier.kind === "flawed" || certifier.kind === "stated"
-				? certifier.roles
-				: Arr.map(generated, (r): RoleIsolation =>
-						certifier.roles.includes(r.role) ? { ...r, certificate: { level: "readCommitted" } } : r
-					)
-		const options = {
-			label: "iso",
-			extensions: [yield* certifying(build(name), certified)],
-			ambient: ordinarySession,
-			compile: compileInstallation,
-			review: noPlaceholders
-		}
-		const history = yield* draftedHistory(
-			[
-				{
-					version: {
-						schema: declared.schema,
-						logins: [declared.login],
-						declarations: noDeclarations
-					},
-					workload: noVersionWorkload
-				}
-			],
-			options,
-			name
-		)
 		const shape = build(name)
-		const { compiled, draft, served } = yield* draftOf(shape)
-		const named = levelsOf(served.certification)
-		for (const [role, level] of levelsOf(generated)) {
-			if (named.get(role) !== level) {
-				return yield* Effect.die(
-					new Error(
-						`role ${role}: certified ${level} under one name and ${String(named.get(role))} under another`
-					)
+		const drafted = yield* shapeDraft(shape, name)
+		const file = yield* fromEngine(
+			servedFile(
+				defined(
+					drafted.served.get(shape.login.name),
+					`the served file of login ${shape.login.name}`
 				)
-			}
-		}
-		const levels = levelsOf(certified)
-		const stated = yield* Effect.forEach([...served.logins], ([login, planned]) => {
-			const at = defined(
-				Option.getOrUndefined(Arr.findFirst(compiled.logins, (l) => l.owned.name === login)),
-				`the configured login ${login}`
 			)
-			return Effect.map(
-				Effect.forEach([...planned.roles], ([role, held]) => {
-					const level = defined(levels.get(role), `the stated level of role ${role}`)
-					return level === held.level
-						? Effect.succeed([role, held] as const)
-						: Effect.mapBoth(
-								loginChangesOver(at.login, at.owned, planned.artifacts, level, transactionClock),
-								{
-									onFailure: (refused) => refused.error,
-									onSuccess: (changes) =>
-										[
-											role,
-											servableRole(defined(changes.get(role), `the change compile of role ${role}`))
-										] as const
-								}
-							)
-				}),
-				(roles) => [login, { ...planned, roles: new Map(roles) }] as const
-			)
-		})
-		const entries = yield* servedFiles(
-			compiled,
-			draft,
-			{
-				kind: "logins",
-				certification: certified,
-				fences: [],
-				logins: new Map(stated)
-			},
-			silentPhases
 		)
-		const entry = defined(
-			Option.getOrUndefined(Arr.findFirst(entries, (e) => e.login === shape.login.name)),
-			`the served file of login ${shape.login.name}`
-		)
-		const file = yield* fromEngine(servedFile(jsonOf(entry.text)))
 		const login = yield* Effect.fromResult(loadServed(file, shape.login.name))
-		return { history, options, shape, generated: levelsOf(generated), served: servedOf(login) }
+		return { drafted, shape, served: servedOf(login) }
 	})
 
-/** What a certified plan (certifiedPlan) reads once its history is installed as `installed`. */
+/** `shape`, built under `name`, drafted as `grizzle generate` drafts its first migration (generatedDraft). */
+const shapeDraft = (shape: Shape, name: string) =>
+	generatedDraft(
+		{ schema: shape.schema, logins: [shape.login], declarations: noDeclarations },
+		{ installation: identity.schema(parsedSchemaName(name)), previous: fromEmpty, step: 0 },
+		noPlaceholders
+	)
+
+/** What a shape's plan (shapePlan) reads once its draft is installed as `installed`. */
 const shapeOf = (
-	plan: Effect.Success<ReturnType<typeof certifiedPlan>>,
+	plan: Effect.Success<ReturnType<typeof shapePlan>>,
 	installed: Installed
 ): InstalledShape => ({
 	installed,
 	names: namesOf(installed),
 	shape: plan.shape,
-	generated: plan.generated,
 	...plan.served
 })
 
 /**
- * installShape's certified installation as a template (substrate.ts installTemplate): `build(name)` holding
- * `certifier`'s certificates, every draft, certificate and served file of it planned once per worker under the
- * template's name (certifiedPlan), and installed once per member; each case's InstalledShape the installation in its
- * clone, every login logging in with the password its template derived. `name` tells it from the other templates its
- * declaring module states.
+ * A shape's installation as `grizzle generate` drafts and serves it, as a template (substrate.ts installTemplate):
+ * `build(name)`'s draft, its certificates and its login's served file planned once per worker under the template's
+ * name (shapePlan), and installed once per member (install-migrate.ts appliedGenerated); each case's InstalledShape the
+ * installation in its clone, every login logging in with the password its template derived. `name` tells it from the
+ * other templates its declaring module states.
  */
-export const certifiedShapeTemplate = (
+export const shapeTemplate = (
 	declaredIn: ImportMeta,
 	name: string,
-	build: (name: string) => Shape,
-	certifier: Exclude<Certifier, { readonly kind: "generate" }>
+	build: (name: string) => Shape
 ): SubstrateTemplate<InstalledShape> =>
 	installTemplate({
 		budget: templateNeedBudget,
 		declaredIn,
 		name,
-		content: { shape: name, certifier: certifier.kind },
+		content: { shape: name },
 		plan: (names) =>
-			Effect.map(certifiedPlan(build, certifier, names.schema), (plan) => ({
+			Effect.map(shapePlan(build, names.schema), (plan) => ({
 				names,
 				plan
 			})),
 		install: ({ names, plan }) =>
-			Effect.asVoid(appliedHistory(plan.history, names.schema, plan.options, new Map())),
+			Effect.asVoid(
+				appliedGenerated([plan.drafted], names.schema, ordinarySession, (fresh) =>
+					Effect.map(shapeDraft(build(fresh), fresh), (again) => again.plan)
+				)
+			),
 		bind: ({ names, plan }, binding) =>
-			shapeOf(plan, templateInstalled(names, plan.history, ordinarySession, new Map(), binding))
+			shapeOf(plan, templateGenerated(names, [plan.drafted], ordinarySession, binding).installed)
 	})
 
 /** A SQL text literal of `text`: in quotes, its quotes doubled. */
@@ -436,7 +282,7 @@ export const callStandUps = (
 			s.changes.get(call.role)?.get(call.member),
 			`member ${call.member} of role ${call.role}`
 		).entry.program.standUps,
-		(standUp) => Arr.map(standUpTexts(standUp), (text) => text.sql)
+		(standUp) => [standUp.call.sql]
 	)
 
 /** The one statement a call the host refuses before any SQL sends: a constant SELECT naming the refusal. */
@@ -444,11 +290,9 @@ const hostRefused = `SELECT 'host refused'::text AS refused`
 
 /**
  * The statements of `call` a race interleaves, in the order its served write's one flight sends them: each statement
- * that reaches stored state (runtime/write/steps.ts reachOf, the fact the certifier reads too) and its binding does
- * not skip, each execution its own, every placeholder inlined. The admission reaches only the call's parameters, so it
- * commutes with every other call's statements and is no step of a race; the call's parameters are the race's own, so
- * it admits them. A write the host refuses before any SQL sends one constant SELECT naming the refusal, which a serial
- * run of it shows alike.
+ * its binding does not skip, each execution its own, every placeholder inlined, the admission's among them
+ * (write/program/admission.ts), an entry no query reads, whose parameters are the race's own. A write the host refuses
+ * before any SQL sends one constant SELECT naming the refusal, which a serial run of it shows alike.
  */
 export const callStatements = (
 	s: InstalledShape,
@@ -475,7 +319,7 @@ export const callStatements = (
 		}
 		const statements: Array<string> = []
 		for (const statement of change.entry.program.statements) {
-			if (inputs.bound.skip.has(statement.index) || reachOf(statement.step) === "parameters") {
+			if (inputs.bound.skip.has(statement.index)) {
 				continue
 			}
 			const executions = inputs.bound.chunks(statement, inForce(bindFrame))
@@ -492,3 +336,16 @@ export const callStatements = (
 			? ([`SELECT 'no statement'::text AS sent`] as const)
 			: [first, ...rest]
 	})
+
+/** The level `role`'s served writes begin at in `s`, the one generate certifies it at (InstalledShape levels). */
+export const servedLevel = (s: InstalledShape, role: string): Isolation =>
+	defined(s.levels.get(role), `the served level of role ${role}`)
+
+/**
+ * The BEGIN of a call of `role` in `s`: the one its served writes send, at the level generate certifies it at
+ * (servedLevel), as the served file states it (schedules/types.ts DirectAction `BeginAs`).
+ */
+export const writeBegin = (s: InstalledShape, role: string): DirectBegin => ({
+	_tag: "BeginAs",
+	sql: s.writeBegins[servedLevel(s, role)]
+})

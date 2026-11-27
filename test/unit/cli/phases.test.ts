@@ -3,7 +3,8 @@
  * so a run that dies names the phase it died in, and nothing else the command prints or writes changed by the flag.
  *
  * Oracle: the pipeline's own nesting (phases.fixtures.ts parentOf) and the roster's order (core/phase.ts phaseNames):
- * every roster phase is reported by generate, and by check but `write`, which check never does, each start inside its
+ * every roster phase is reported by generate, and by check but `render` and `write`, which check never does (it renders
+ * the folder inside its draft and writes nothing), each start inside its
  * parent and each end closing its own start, first started in the roster's order, every line in the stated format
  * with a done line whose peak is at least every heap reading; and the same command line without the flag prints the
  * same report and, for generate, writes byte-identical files.
@@ -106,7 +107,7 @@ export const everyPhaseIsReportedAtItsStartAndEndInOrderAndTheFlagChangesNothing
 						"check",
 						check.lines,
 						phase,
-						Arr.filter(phaseNames, (p) => p !== "write")
+						Arr.filter(phaseNames, (p) => p !== "render" && p !== "write")
 					)
 				}),
 		oracle: {
@@ -118,9 +119,16 @@ export const everyPhaseIsReportedAtItsStartAndEndInOrderAndTheFlagChangesNothing
 			{
 				file: "packages/grizzle/src/cli/generate.ts",
 				original:
-					'\t\t\tphased(phases, { name: "draft", of: [] }, () =>\n\t\t\t\tgenerateMigration({ ...input, naming, timestamp })\n\t\t\t)',
-				replacement: "\t\t\tgenerateMigration({ ...input, naming, timestamp })",
+					'\t\tfromEngine(phased(phases, { name: "draft", of: [] }, () => planMigration(input))),',
+				replacement: "\t\tfromEngine(planMigration(input)),",
 				why: "generate drops the draft phase's report, so a run that dies drafting names the installation instead; the draft case fails."
+			},
+			{
+				file: "packages/grizzle/src/cli/generate.ts",
+				original:
+					'\t\t\t\tphased(phases, { name: "render", of: [] }, () =>\n\t\t\t\t\trenderMigration(planned, naming, timestamp)\n\t\t\t\t)',
+				replacement: "\t\t\t\trenderMigration(planned, naming, timestamp)",
+				why: "generate drops the render phase's report, so a run that dies rendering its folder names the served files instead; the render case fails."
 			},
 			{
 				file: "packages/engine/src/core/phase.ts",

@@ -114,6 +114,13 @@ export const aClosedIdsSubsetIsTheOneItsStatementStatesAndItsColumnsCheckHoldsIt
 		kept: [],
 		kills: [
 			{
+				file: "packages/engine/src/scalar/compute/typing.ts",
+				original:
+					'\tif (v.carrier === "code" && v.only !== undefined) {\n\t\treturn Object.freeze({ ...v, only: undefined })\n\t}\n',
+				replacement: "",
+				why: "A literal compared with a closed id of a subset adopts the subset, which a handle outside it is no value of: a query equating the field to such a handle is refused, where a literal compared with a closed id is any handle of its roster."
+			},
+			{
 				file: "packages/engine/src/scalar/closed-id.ts",
 				original:
 					"held.length === roster.handles.length ? undefined : Object.freeze([first, ...rest])",

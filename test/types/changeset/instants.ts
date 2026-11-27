@@ -121,15 +121,15 @@ const boxCases: ReadonlyArray<InstantsCase> = [
 	},
 	{
 		what: "a contract named instant",
-		statement: 'contract("instant", pg.bigint)',
+		statement: 'contract<typeof probeKey>()("instant", pg.bigint)',
 		verdict: {
 			kind: "refusal",
-			refusal: "a contract's name is apart from instant, the database's clock's own type"
+			refusal: "a contract's name is apart from natural and instant, grizzle's own types"
 		}
 	},
 	{
 		what: "a contract over an instant",
-		statement: 'contract("Stamp", instant)',
+		statement: 'contract<typeof probeKey>()("Stamp", instant)',
 		verdict: { kind: "refusal", refusal: inputRefusal }
 	},
 	{
@@ -260,7 +260,8 @@ const prelude = await Effect.runPromise(preludeAt("test/support/programs/instant
 
 /** Decision, its at a clock of child `child`, Session, its stage a reference to it, and Seen, its at a stored instant;
  * Decision and Seen open, mutable inside the unit of their child, so their puts and deletes meet the instants' rules. */
-const instantsHeader = `export const Decision = relation("Decision", { child: pg.integer, at: instant, seed: pg.integer }, ["child", "at"])
+const instantsHeader = `export const probeKey = Symbol("Probe")
+export const Decision = relation("Decision", { child: pg.integer, at: instant, seed: pg.integer }, ["child", "at"])
 export const Session = relation("Session", { child: pg.integer, item: pg.integer, stage: instant }, ["child", "item"])
 export const Seen = relation("Seen", { child: pg.integer, at: instant.stored }, ["child", "at"])
 export const S = schema("S", [Decision, Session, Seen], [contained(on(Session, "child", "stage"), on(Decision, "child", "at")), unit("Child", { child: pg.integer }), mutable(Decision), mutable(Seen)])

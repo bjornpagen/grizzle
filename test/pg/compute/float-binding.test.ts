@@ -25,7 +25,7 @@
  */
 import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import {
 	aimedCaseGen,
@@ -128,8 +128,23 @@ export const guardedFloatFormsBindTheirOperandsOncePerRowAndComputeTheReferences
 			name: "the reference evaluator, the conservative lowering, and EXPLAIN ANALYZE"
 		},
 		budget: { runs: 13, steered: 60 },
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/compute/float-binding.test.ts#guardedFloatFormsBindTheirOperandsOncePerRowAndComputeTheReferencesValues:fff.1:0.0.0.0.0.1.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.1.1"
+				),
+				reason:
+					"a float8 summed over moderate values (all 0), grouped and delivered in its group's order: the optimized lowering holds the grouped rows in a MATERIALIZED CTE it then sorts (lower/shapes/index.ts #formed), whose plan EXPLAIN reports as an InitPlan named for its CTE, which the plan-shape half read as a subquery expression's that ran (floor seed 0xd3c59360, case 1, at grizzle 26760a21)",
+				since: "2026-11-25"
+			}
+		],
 		kills: [
+			{
+				file: "test/pg/compute/float-binding.fixtures.ts",
+				original: "\t\t\t!Option.exists(n.subplanName, (name) => ctes.has(name)) &&\n",
+				replacement: "",
+				why: "A WITH query's plan counts as a subquery expression's, as before: the summed position's held grouped rows, an InitPlan of the statement named for its CTE, read as a guarded form's exact path run over moderate values; the kept case fails."
+			},
 			{
 				file: "packages/engine/src/lower/conservative/expr/lateral.ts",
 				original: "\t\tcore: (c) => bindCore(c, supply, originals),",

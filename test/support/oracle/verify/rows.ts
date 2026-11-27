@@ -122,6 +122,8 @@ const anyCall = (e: Expr, test: (call: CallExpr) => boolean): boolean => {
 					: ordered(e.orderBy) || ordered(e.withinGroup)) ||
 				(e.over !== undefined && (any(e.over.partitionBy) || ordered(e.over.orderBy)))
 			)
+		case "attribute":
+			return anyCall(e.record, test)
 	}
 }
 

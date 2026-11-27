@@ -148,22 +148,27 @@ const conditionsIn = (c: CoreShape): number =>
 				)
 	)
 
-/** Condition `n`: the equality of a column to `n`, one text per number. */
-export const condition = (n: number): Expr => eq(col("t", "c"), lit.int(n, types.integer))
+/**
+ * Condition `n`: the equality of column c1 of `reach`, a relation in reach of the condition's place, to `n`, one text per
+ * number.
+ */
+const condition = (n: number, reach: string): Expr =>
+	eq(col(reach, "c1"), lit.int(n, types.integer))
 
 /** A condition marked as read beside a FROM of `items` items: its equality to that count, one text per pair. */
 export const marked = (e: Expr, items: number): Expr => eq(e, lit.int(items, types.integer))
 
 /**
  * The query of shape `c`, its conditions numbered in one walk (item by item and step by step, a source's derived table
- * before its step's ON, then the core's WHERE) and condition `n` spelled by `spell(n, items)`, where `items` counts its
- * core's FROM items. The query's own core is DISTINCT, a set as a Select's body is, and a derived table's an operand
- * core.
+ * before its step's ON, then the core's WHERE), each reading a relation in reach of its place (an ON its chain's first
+ * source, a WHERE its core's first item) and spelled `mark(condition, items)`, where `items` counts its core's FROM
+ * items. The query's own core is DISTINCT, a set as a Select's body is, and a derived table's an operand core, its one
+ * output named c1.
  */
-export const queryOf = (c: CoreShape, spell: (n: number, items: number) => Expr): Select => {
+export const queryOf = (c: CoreShape, mark: (e: Expr, items: number) => Expr): Select => {
 	let next = 0
 	const one = target(lit.int(1, types.integer))
-	const numbered = (items: number): Expr => spell(next++, items)
+	const numbered = (items: number, reach: string): Expr => mark(condition(next++, reach), items)
 	const sourceOf = (s: SourceShape, alias: string): FromSource =>
 		s.kind === "table"
 			? table("s", "t", alias)
@@ -179,11 +184,11 @@ export const queryOf = (c: CoreShape, spell: (n: number, items: number) => Expr)
 				const source = sourceOf(s.source, `a${i}_${j}`)
 				return s.kind === "cross"
 					? { kind: "cross", source }
-					: { kind: s.kind, source, on: numbered(items) }
+					: { kind: s.kind, source, on: numbered(items, `a${i}`) }
 			})
 			return { kind: "joins", first, steps }
 		})
-		const where = shape.where ? numbered(items) : undefined
+		const where = shape.where ? numbered(items, "a0") : undefined
 		return [from, where]
 	}
 	const [from, where] = partsOf(c)

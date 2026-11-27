@@ -15,8 +15,8 @@ import type { Owned } from "#compiler/schema/own.ts"
 /** The installation, the key a migration founds (ir/unit.ts FrozenUnit). */
 const installation: FrozenUnit = Object.freeze({ kind: "installation" })
 
-/** The key `relation` of `owned` is frozen at, if any (see the header). */
-export const frozenAt = (owned: Owned, relation: string): FrozenUnit | undefined => {
+/** The key a derived definition reading the relations `reads` of `owned` is frozen at, if any (see the header). */
+export const frozenAt = (owned: Owned, reads: ReadonlyArray<string>): FrozenUnit | undefined => {
 	const seen = new Set<string>()
 	const frozen = (name: string): boolean => {
 		const r = owned.relations[name]
@@ -37,7 +37,7 @@ export const frozenAt = (owned: Owned, relation: string): FrozenUnit | undefined
 				return r.reads.every(frozen)
 		}
 	}
-	return frozen(relation) ? installation : undefined
+	return reads.every(frozen) ? installation : undefined
 }
 
 /**

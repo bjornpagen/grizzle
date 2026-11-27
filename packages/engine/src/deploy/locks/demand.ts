@@ -1,5 +1,6 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { isNonEmpty, mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { nominal } from "#compiler/core/brand.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { alterationStatement, type Draft } from "#compiler/deploy/diff/plan.ts"
@@ -7,11 +8,16 @@ import { runnerStatements } from "#compiler/deploy/ledger/ledger.ts"
 import type { DraftFile } from "#compiler/deploy/phases/files.ts"
 import type { RecordedStatement } from "#compiler/deploy/snapshot/recorded.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
+import { rowBytes, toastTupleThresholdBytes } from "#compiler/laws/model/rows.ts"
+import { varlenaHeaderBytes } from "#compiler/scalar/values/fault.ts"
+import { typlens } from "#compiler/schema/representability.ts"
 import {
 	type AlterTableAction,
 	type ColumnDef,
 	type CteBody,
 	type Expr,
+	type GuardBracket,
+	type GuardScope,
 	nameKey,
 	type ObjectName,
 	type OperandSelect,
@@ -58,7 +64,8 @@ import { identityHooks, Transform } from "#compiler/sql/transform.ts"
  *   drop as locks (cluster.c make_new_heap, finish_heap_swap's performDeletion of the transient table).
  * - An object it drops, ACCESS EXCLUSIVE, with every object its drop takes with it (dependency.c AcquireDeletionLock
  *   over findDependentObjects' targets): a table's indexes, TOAST relations, row types, constraints, triggers, policies,
- *   column defaults and statistics.
+ *   column defaults and statistics, and a foreign key's four triggers, two on the table it references, which is opened
+ *   to delete them (trigger.c RemoveTriggerById).
  * - A function it replaces (pg_proc.c ProcedureCreate locks the old one ACCESS EXCLUSIVE), and an object a COMMENT
  *   names (objectaddress.c get_object_address).
  * - A system catalog's TOAST relation where it stores a datum long enough to move out of line, a function's body, a
@@ -148,10 +155,63 @@ const owner = target("role", "")
 const catalog = (name: string): LockTarget => target("catalog", name)
 
 /**
+ * The triggers PostgreSQL makes for foreign key `constraint` of `table`, which grizzle declares enforced (tablecmds.c
+ * addFkConstraint, createForeignKeyCheckTriggers and createForeignKeyActionTriggers): its insert and update checks on
+ * the table, and its delete and update actions on the table it references. Each depends on the constraint, so its drop
+ * locks and deletes the four with it (dependency.c findDependentObjects, AcquireDeletionLock). PostgreSQL names them by
+ * their OIDs (RI_ConstraintTrigger_c_<oid>, _a_<oid>), which nothing of grizzle reads, so each is named by its
+ * constraint and its event.
+ */
+const foreignKeyTriggers = (table: ObjectName, constraint: string): ReadonlyArray<LockTarget> =>
+	["check insert", "check update", "action delete", "action update"].map((event) =>
+		target("trigger", named(table), constraint, event)
+	)
+
+/**
+ * Column `column` of `table`'s NOT NULL constraint (LockCatalog notNull), which PostgreSQL names `<table>_<column>_not_null`
+ * and grizzle never reads, so named by its column.
+ */
+const notNullOf = (table: ObjectName, column: string): LockTarget =>
+	target("constraint", named(table), column, "not null")
+
+/**
  * pg_class's index on (reltablespace, relfilenode), which a new relation's storage number is checked unique against
  * (catalog.c GetNewRelFileNumber, through GetNewOidWithIndex), kept locked to the end.
  */
 const relfilenodeIndex = catalog("pg_class_tblspc_relfilenode_index")
+
+/**
+ * The indexes of each system catalog a statement's query reads, every one PostgreSQL 19 has: the planner opens each
+ * index of each relation a query reads (plancat.c get_relation_info), and the statement's transaction keeps each locked,
+ * the catalog too, to its end, so a query over a catalog locks it and all of these (`catalogRead`). pg_roles is a view
+ * over pg_authid, whose reads its own are.
+ */
+const catalogIndexes = {
+	pg_attribute: ["pg_attribute_relid_attnam_index", "pg_attribute_relid_attnum_index"],
+	pg_authid: ["pg_authid_oid_index", "pg_authid_rolname_index"],
+	pg_class: [
+		"pg_class_oid_index",
+		"pg_class_relname_nsp_index",
+		"pg_class_tblspc_relfilenode_index"
+	],
+	pg_database: ["pg_database_oid_index", "pg_database_datname_index"],
+	pg_db_role_setting: ["pg_db_role_setting_databaseid_rol_index"],
+	pg_namespace: ["pg_namespace_nspname_index", "pg_namespace_oid_index"],
+	pg_proc: ["pg_proc_oid_index", "pg_proc_proname_args_nsp_index"],
+	pg_roles: [],
+	pg_shdepend: ["pg_shdepend_depender_index", "pg_shdepend_reference_index"],
+	pg_trigger: [
+		"pg_trigger_oid_index",
+		"pg_trigger_tgconstraint_index",
+		"pg_trigger_tgrelid_tgname_index"
+	]
+} as const satisfies Readonly<Record<string, ReadonlyArray<string>>>
+
+/** What a query that reads system catalog `name` keeps locked: it and every index of it (catalogIndexes). */
+const catalogRead = (name: keyof typeof catalogIndexes): ReadonlyArray<LockTarget> => [
+	catalog(name),
+	...catalogIndexes[name].map(catalog)
+]
 
 /**
  * What the end of a dropped role's sessions keeps locked (sql/ast.ts EndHolders): the catalogs its query reads, with
@@ -160,19 +220,43 @@ const relfilenodeIndex = catalog("pg_class_tblspc_relfilenode_index")
  * places release their locks at once.
  */
 const endHoldersLocks: ReadonlyArray<LockTarget> = [
-	"pg_database",
-	"pg_database_oid_index",
-	"pg_database_datname_index",
-	"pg_shdepend",
-	"pg_shdepend_depender_index",
-	"pg_shdepend_reference_index",
-	"pg_roles",
-	"pg_authid",
-	"pg_authid_oid_index",
-	"pg_authid_rolname_index",
-	"pg_db_role_setting",
-	"pg_db_role_setting_databaseid_rol_index"
-].map(catalog)
+	...catalogRead("pg_database"),
+	...catalogRead("pg_shdepend"),
+	...catalogRead("pg_roles"),
+	...catalogRead("pg_authid"),
+	...catalogRead("pg_db_role_setting")
+]
+
+/** The schemas of a guard bracket's scope of schemas; none of one of tables. */
+const guardedSchemas = (scope: GuardScope): ReadonlySet<string> =>
+	new Set(scope.kind === "schemas" ? scope.schemas : [])
+
+/**
+ * What each side of a guard bracket keeps locked of the catalog it reads (sql/catalog.ts guardBracketBlock): each catalog
+ * its query reads, with every index of it the planner opens. `unguard` reads pg_trigger, pg_class and pg_namespace;
+ * `reguard` reads pg_class, pg_namespace and pg_proc. DROP TRIGGER and CREATE TRIGGER, which each EXECUTEs, release
+ * their catalogs' locks as they close them.
+ */
+const bracketReads: { readonly [S in GuardBracket["side"]]: ReadonlyArray<LockTarget> } = {
+	unguard: [
+		...catalogRead("pg_trigger"),
+		...catalogRead("pg_class"),
+		...catalogRead("pg_namespace")
+	],
+	reguard: [...catalogRead("pg_class"), ...catalogRead("pg_namespace"), ...catalogRead("pg_proc")]
+}
+
+/**
+ * What a table's declared statistics keep locked of the catalog where it declares a dependency (sql/print.ts
+ * dependencySteps): each restore reads the number of each column of the dependency by a query over pg_attribute,
+ * pg_class and pg_namespace, each kept locked with its indexes; the stats functions themselves close what they open
+ * with the mode they opened it in, which releases it (attribute_stats.c, extended_stats_funcs.c).
+ */
+const dependencyReads: ReadonlyArray<LockTarget> = [
+	...catalogRead("pg_attribute"),
+	...catalogRead("pg_class"),
+	...catalogRead("pg_namespace")
+]
 
 /**
  * A system catalog whose datum a statement may store out of line: the catalog's TOAST table and its index, which the
@@ -318,6 +402,7 @@ const plWrites = (statements: ReadonlyArray<PlStatement>, into: Names): void => 
 				plWrites(s.body, into)
 				break
 			case "whenFound":
+			case "wholeReads":
 				plWrites(s.body, into)
 				break
 			case "case":
@@ -380,11 +465,19 @@ export interface LockCatalog {
 	readonly bodies: Map<string, Names>
 	readonly triggers: Map<string, Set<string>>
 	readonly triggerNames: Map<string, Set<string>>
+	/** Each table's immutability guards, each trigger's name and its function's. */
+	readonly guards: Map<string, Map<string, string>>
 	readonly references: Map<string, Set<string>>
 	readonly domains: Map<string, TypeRef>
 	readonly domainColumns: Map<string, Set<string>>
 	readonly columnTypes: Map<string, Map<string, TypeRef>>
 	readonly constraints: Map<string, Map<string, TableConstraint["kind"]>>
+	/**
+	 * Each table's NOT NULL columns, every column but a partial projection's (sql/print.ts printColumnDef) and each
+	 * a SET NOT NULL makes so: PostgreSQL 18 on keeps each column's NOT NULL a constraint of its own in pg_constraint
+	 * (pg_constraint.c AddRelationNotNullConstraints), which a drop of its column or its table deletes and locks.
+	 */
+	readonly notNull: Map<string, Set<string>>
 	readonly domainConstraints: Map<string, Set<string>>
 	readonly policies: Map<string, Set<string>>
 	readonly defaults: Map<string, Set<string>>
@@ -400,11 +493,13 @@ const emptyCatalog = (): LockCatalog => ({
 	bodies: new Map(),
 	triggers: new Map(),
 	triggerNames: new Map(),
+	guards: new Map(),
 	references: new Map(),
 	domains: new Map(),
 	domainColumns: new Map(),
 	columnTypes: new Map(),
 	constraints: new Map(),
+	notNull: new Map(),
 	domainConstraints: new Map(),
 	policies: new Map(),
 	defaults: new Map(),
@@ -467,6 +562,19 @@ const addColumns = (
 	}
 }
 
+/** The NOT NULL columns among `columns` of `table` (LockCatalog notNull): each but a partial projection's. */
+const addNotNull = (
+	catalogOf: LockCatalog,
+	table: ObjectName,
+	columns: ReadonlyArray<ColumnDef>
+): void => {
+	for (const c of columns) {
+		if (c.generated?.kind !== "partial") {
+			member(catalogOf.notNull, relationKey(catalogOf, table)).add(c.name)
+		}
+	}
+}
+
 /** The index a key constraint is built under: the constraint's own name (index.c index_create via ATExecAddIndex). */
 const addConstraint = (catalogOf: LockCatalog, table: ObjectName, c: TableConstraint): void => {
 	const key = relationKey(catalogOf, table)
@@ -501,13 +609,20 @@ const addAlteration = (
 	for (const a of actions) {
 		switch (a.kind) {
 			case "addColumn":
+				addColumns(catalogOf, table, [a.column])
+				addNotNull(catalogOf, table, [a.column])
+				break
 			case "addColumnPlaceholder":
 			case "addColumnDefault":
+				addColumns(catalogOf, table, [a.column])
+				member(catalogOf.defaults, relationKey(catalogOf, table)).add(a.column.name)
+				member(catalogOf.notNull, relationKey(catalogOf, table)).add(a.column.name)
+				break
 			case "addColumnUnchecked":
 				addColumns(catalogOf, table, [a.column])
-				if (a.kind === "addColumnPlaceholder" || a.kind === "addColumnDefault") {
-					member(catalogOf.defaults, relationKey(catalogOf, table)).add(a.column.name)
-				}
+				break
+			case "setNotNull":
+				member(catalogOf.notNull, relationKey(catalogOf, table)).add(a.column)
 				break
 			case "alterColumnType":
 				addColumns(catalogOf, table, [
@@ -520,7 +635,6 @@ const addAlteration = (
 			case "addConstraintUsingIndex":
 				member(catalogOf.indexes, relationKey(catalogOf, table)).add(a.name)
 				break
-			case "setNotNull":
 			case "dropColumn":
 			case "dropDefault":
 			case "validateConstraint":
@@ -535,11 +649,22 @@ const addAlteration = (
 	}
 }
 
+/** A trigger's facts, added to `catalogOf`: its function and its name, each its table's. */
+const learnTrigger = (
+	catalogOf: LockCatalog,
+	s: { readonly table: ObjectName; readonly name: string; readonly function: ObjectName }
+): void => {
+	const key = relationKey(catalogOf, s.table)
+	member(catalogOf.triggers, key).add(named(s.function))
+	member(catalogOf.triggerNames, key).add(s.name)
+}
+
 /** One statement's facts, added to `catalogOf`: what a later statement's locks read of the installation. */
 const learn = (catalogOf: LockCatalog, s: SqlStatement | RecordedStatement): void => {
 	switch (s.kind) {
 		case "createTable":
 			addColumns(catalogOf, s.table, s.columns)
+			addNotNull(catalogOf, s.table, s.columns)
 			for (const c of tableConstraints(s)) {
 				addConstraint(catalogOf, s.table, c)
 			}
@@ -590,15 +715,18 @@ const learn = (catalogOf: LockCatalog, s: SqlStatement | RecordedStatement): voi
 		case "replaceConstant":
 			catalogOf.bodies.set(named(s.constant.name), exprNames([s.constant.body]))
 			return
-		case "createGuardTrigger":
-		case "createUpdateGuardTrigger":
-		case "createConstraintTrigger":
-		case "createTransitionTrigger": {
+		case "createImmutableGuardTrigger": {
+			learnTrigger(catalogOf, s)
 			const key = relationKey(catalogOf, s.table)
-			member(catalogOf.triggers, key).add(named(s.function))
-			member(catalogOf.triggerNames, key).add(s.name)
+			const guards = catalogOf.guards.get(key) ?? new Map<string, string>()
+			catalogOf.guards.set(key, guards.set(s.name, named(s.function)))
 			return
 		}
+		case "createGuardTrigger":
+		case "createConstraintTrigger":
+		case "createTransitionTrigger":
+			learnTrigger(catalogOf, s)
+			return
 		case "createPolicy":
 			member(catalogOf.policies, relationKey(catalogOf, s.table)).add(s.name)
 			return
@@ -628,6 +756,8 @@ const learn = (catalogOf: LockCatalog, s: SqlStatement | RecordedStatement): voi
 						held.add(s.to)
 					}
 				}
+			} else if (s.object === "DOMAIN") {
+				renamedDomain(catalogOf, s.name, { schema: s.name.schema, name: s.to })
 			}
 			return
 		case "renameConstraint": {
@@ -647,20 +777,23 @@ const learn = (catalogOf: LockCatalog, s: SqlStatement | RecordedStatement): voi
 			if (types !== undefined && type !== undefined) {
 				types.set(s.to, type)
 			}
+			const notNull = catalogOf.notNull.get(named(s.table))
+			if (notNull?.has(s.from) === true) {
+				notNull.add(s.to)
+			}
 			return
 		}
 		case "adoptRole":
 		case "endHolders":
-		case "resetDatabaseDefault":
+		case "guardBracket":
 		case "alterDefaultPrivileges":
 		case "alterRole":
 		case "comment":
-		case "createCarrier":
-		case "emptyCarrier":
 		case "createDeclaredFunction":
 		case "createExtension":
 		case "createRole":
 		case "createRowType":
+		case "alterRowType":
 		case "createSchema":
 		case "drop":
 		case "dropFunction":
@@ -713,9 +846,11 @@ const renamedRelation = (catalogOf: LockCatalog, from: ObjectName, to: ObjectNam
 	copy(catalogOf.views, (v) => v)
 	copy(catalogOf.triggers, (v) => new Set(v))
 	copy(catalogOf.triggerNames, (v) => new Set(v))
+	copy(catalogOf.guards, (v) => new Map(v))
 	copy(catalogOf.references, (v) => new Set(v))
 	copy(catalogOf.columnTypes, (v) => new Map(v))
 	copy(catalogOf.constraints, (v) => new Map(v))
+	copy(catalogOf.notNull, (v) => new Set(v))
 	copy(catalogOf.policies, (v) => new Set(v))
 	copy(catalogOf.defaults, (v) => new Set(v))
 	copy(catalogOf.statistics, (v) => new Set(v))
@@ -725,6 +860,26 @@ const renamedRelation = (catalogOf: LockCatalog, from: ObjectName, to: ObjectNam
 	for (const tables of [...catalogOf.domainColumns.values(), ...catalogOf.references.values()]) {
 		if (tables.has(was)) {
 			tables.add(now)
+		}
+	}
+}
+
+/**
+ * A domain renamed: what the catalog holds of it under its new name too, its base, its CHECKs and the tables a column of
+ * it types, so a later drop of the domain under its new name counts its CHECKs (a migration renames a domain aside, then
+ * drops it), its old name's kept for the rename's own count, which reads them after this.
+ */
+const renamedDomain = (catalogOf: LockCatalog, from: ObjectName, to: ObjectName): void => {
+	const was = named(from)
+	const now = named(to)
+	const base = catalogOf.domains.get(was)
+	if (base !== undefined) {
+		catalogOf.domains.set(now, base)
+	}
+	for (const map of [catalogOf.domainConstraints, catalogOf.domainColumns]) {
+		const known = map.get(was)
+		if (known !== undefined) {
+			map.set(now, new Set(known))
 		}
 	}
 }
@@ -774,6 +929,12 @@ class Locks {
 	/** The object each name a rename gave stands for: the one its old name stood for, of the same OID. */
 	readonly #renamed = new Map<LockTarget, LockTarget>()
 
+	/**
+	 * The names whose object this transaction dropped and has made none of since: what the catalog still knows of a
+	 * table, it learning no drop, is gone, so a later drop of the table drops none of it again.
+	 */
+	readonly #gone = new Set<LockTarget>()
+
 	/** The target a name locks now: a name dropped and made again is another object, of another OID; a name a rename
 	 * gave, the object renamed. */
 	#live(t: LockTarget): LockTarget {
@@ -792,6 +953,7 @@ class Locks {
 		this.#renamed.delete(from)
 		this.#ended.set(from, (this.#ended.get(from) ?? 0) + 1)
 		this.#renamed.set(to, object)
+		this.#gone.delete(to)
 	}
 
 	/** A relation renamed, with what is named after it: its row type, array type, TOAST relations and rule, and each
@@ -817,21 +979,29 @@ class Locks {
 		}
 	}
 
+	/** Objects locked: each of its name now, one a statement makes, or one the transaction made after it dropped one. */
 	add(targets: ReadonlyArray<LockTarget>): void {
 		for (const t of targets) {
+			this.#gone.delete(t)
 			this.held.add(this.#live(t))
 		}
 	}
 
 	/**
 	 * Objects a statement drops: each locked, ACCESS EXCLUSIVE, and its lock kept to the end, the object gone, so a later
-	 * statement that makes one of its name makes another (dependency.c AcquireDeletionLock).
+	 * statement that makes one of its name makes another (dependency.c AcquireDeletionLock); one this transaction dropped
+	 * already, of no object since, is none to drop: a constraint, an index or a trigger dropped by its own statement and
+	 * then with its table.
 	 */
 	dropped(targets: ReadonlyArray<LockTarget>): void {
 		for (const t of targets) {
+			if (this.#gone.has(t)) {
+				continue
+			}
 			this.add([t])
 			this.#renamed.delete(t)
 			this.#ended.set(t, (this.#ended.get(t) ?? 0) + 1)
+			this.#gone.add(t)
 		}
 	}
 
@@ -1018,22 +1188,28 @@ class Locks {
 		}
 	}
 
-	/** Every object a table's drop takes with it (dependency.c findDependentObjects). */
+	/**
+	 * Every object a relation's drop takes with it (dependency.c findDependentObjects): its row type and array type, its
+	 * TOAST relations where it has them (LockCatalog toasted), a view's rule, its indexes, constraints, its columns' NOT
+	 * NULL constraints among them, triggers, policies, column defaults and statistics.
+	 */
 	dropTable(table: ObjectName): void {
 		const key = named(table)
 		this.dropped([
 			relation(table),
 			typeOf(table),
 			target("arrayType", key),
-			target("toast", key),
-			target("toastIndex", key),
-			target("rule", key)
+			...(this.#catalog.toasted.has(key) ? [target("toast", key), target("toastIndex", key)] : []),
+			...(this.#catalog.views.has(key) ? [target("rule", key)] : [])
 		])
 		for (const index of this.#catalog.indexes.get(key) ?? []) {
 			this.dropped([indexOf(table, index)])
 		}
-		for (const c of this.#catalog.constraints.get(key)?.keys() ?? []) {
-			this.dropped([target("constraint", key, c)])
+		for (const [c, kind] of this.#catalog.constraints.get(key) ?? []) {
+			this.droppedConstraint(table, c, kind)
+		}
+		for (const column of this.#catalog.notNull.get(key) ?? []) {
+			this.dropped([notNullOf(table, column)])
 		}
 		for (const t of this.#catalog.triggerNames.get(key) ?? []) {
 			this.dropped([target("trigger", key, t)])
@@ -1110,25 +1286,62 @@ class Locks {
 
 	/** A constraint dropped, or kept and redefined in place, with what it holds: its index, or a foreign key's target. */
 	ownedBy(table: ObjectName, name: string, fate: "drops" | "keeps"): void {
-		const key = named(table)
 		const kind = this.constraintKind(table, name)
-		const owned = [
-			target("constraint", key, name),
-			...(kind === "primaryKey" || kind === "unique" || kind === "exclude"
-				? [indexOf(table, name)]
-				: [])
-		]
+		const index =
+			kind === "primaryKey" || kind === "unique" || kind === "exclude" ? [indexOf(table, name)] : []
 		if (fate === "drops") {
-			this.dropped([...owned])
-		} else {
-			this.add([...owned])
+			this.droppedConstraint(table, name, kind)
+			this.dropped(index)
+			return
 		}
+		this.add([target("constraint", named(table), name), ...index])
 		if (kind === "foreignKey") {
-			for (const other of this.#catalog.references.get(key) ?? []) {
-				const otherName = this.#catalog.names.get(other)
-				if (otherName !== undefined) {
-					this.add([relation(otherName)])
-				}
+			this.joined(table)
+		}
+	}
+
+	/**
+	 * Constraint `name` of `table`, of `kind`, dropped, by its own statement or its table's drop, with what its drop takes
+	 * that is no relation of the table: a foreign key's four triggers (foreignKeyTriggers), and the tables a foreign key
+	 * joins the table to, two of whose triggers stand on the table it references, each trigger's table opened ACCESS
+	 * EXCLUSIVE to delete it (trigger.c RemoveTriggerById). A key's index its caller drops with the table's indexes. An
+	 * ALTER TABLE ... DROP CONSTRAINT of a foreign key held its four triggers past the count before (test/pg/migrate
+	 * lock-demand: a publish that drops R1's foreign key to R0's key to swap R0's key held 17 locks against 16).
+	 */
+	droppedConstraint(
+		table: ObjectName,
+		name: string,
+		kind: TableConstraint["kind"] | undefined
+	): void {
+		this.dropped([
+			target("constraint", named(table), name),
+			...(kind === "foreignKey" ? foreignKeyTriggers(table, name) : [])
+		])
+		if (kind === "foreignKey") {
+			this.joined(table)
+		}
+	}
+
+	/**
+	 * The tables a foreign key joins `table` to, either way, each read with its indexes: a foreign key's validation
+	 * queries the table it references beside its own, each with every index the planner opens (ri_triggers.c
+	 * RI_Initial_Check, then plancat.c get_relation_info), which its transaction keeps.
+	 */
+	joinedRead(table: ObjectName): void {
+		for (const other of this.#catalog.references.get(named(table)) ?? []) {
+			const otherName = this.#catalog.names.get(other)
+			if (otherName !== undefined) {
+				this.read(otherName)
+			}
+		}
+	}
+
+	/** The tables a foreign key joins `table` to, either way, each locked. */
+	joined(table: ObjectName): void {
+		for (const other of this.#catalog.references.get(named(table)) ?? []) {
+			const otherName = this.#catalog.names.get(other)
+			if (otherName !== undefined) {
+				this.add([relation(otherName)])
 			}
 		}
 	}
@@ -1165,6 +1378,38 @@ class Locks {
 		return this.#catalog.toasted.has(named(name))
 	}
 
+	/** Column `column` of `table`'s NOT NULL constraint, where it holds one (LockCatalog notNull). */
+	notNullOf(table: ObjectName, column: string): ReadonlyArray<LockTarget> {
+		return this.#catalog.notNull.get(named(table))?.has(column) === true
+			? [notNullOf(table, column)]
+			: []
+	}
+
+	/**
+	 * The guards of `bracket`'s scope the installation holds (LockCatalog guards), each its table, its trigger's name,
+	 * one of the bracket's guards', and its function.
+	 */
+	guarded(bracket: GuardBracket): ReadonlyArray<{
+		readonly table: ObjectName
+		readonly name: string
+		readonly function: string
+	}> {
+		const names = new Set(bracket.guards.map((g) => g.name))
+		const schemas = guardedSchemas(bracket.scope)
+		const tables =
+			bracket.scope.kind === "tables"
+				? bracket.scope.tables
+				: [...this.#catalog.guards.keys()].flatMap((key) => {
+						const table = this.#catalog.names.get(key)
+						return table !== undefined && schemas.has(table.schema) ? [table] : []
+					})
+		return tables.flatMap((table) =>
+			[...(this.#catalog.guards.get(named(table)) ?? [])].flatMap(([name, fn]) =>
+				names.has(name) ? [{ table, name, function: fn }] : []
+			)
+		)
+	}
+
 	publication(name: string): ReadonlyArray<ObjectName> {
 		return [...(this.#catalog.publications.get(name) ?? [])].flatMap((t) => {
 			const n = this.#catalog.names.get(t)
@@ -1174,6 +1419,24 @@ class Locks {
 
 	domainConstraints(domain: ObjectName): ReadonlyArray<string> {
 		return [...(this.#catalog.domainConstraints.get(named(domain)) ?? [])]
+	}
+
+	/**
+	 * Whether `type` is a domain a CHECK holds, its own or a domain's it is over (typcache.c DomainHasConstraints, which
+	 * reads the domain's every constraint and its base domains'): a column added of it is checked against every stored
+	 * row, so ALTER TABLE rewrites the table, its value, a default's or NULL, coerced to the domain at each (tablecmds.c
+	 * ATExecAddColumn sets AT_REWRITE_DEFAULT_VAL for "coercion to a domain with constraints").
+	 */
+	domainChecked(type: TypeRef): boolean {
+		if (type.kind !== "named" || type.array) {
+			return false
+		}
+		const name = named({ schema: type.schema, name: type.name })
+		const base = this.#catalog.domains.get(name)
+		return (
+			base !== undefined &&
+			((this.#catalog.domainConstraints.get(name)?.size ?? 0) > 0 || this.domainChecked(base))
+		)
 	}
 
 	learn(s: SqlStatement | RecordedStatement): void {
@@ -1194,7 +1457,7 @@ const alterationLocks = (
 			locks.type(a.column.type)
 			locks.addedColumn(table)
 			if (a.column.generated === undefined) {
-				return "keeps"
+				return locks.domainChecked(a.column.type) ? "rewrites" : "keeps"
 			}
 			locks.typmodCast(a.column.type)
 			locks.names(
@@ -1212,14 +1475,14 @@ const alterationLocks = (
 			locks.typmodCast(a.column.type)
 			locks.addedColumn(table)
 			locks.add(toastedCatalog("pg_attrdef"))
-			return "keeps"
+			return locks.domainChecked(a.column.type) ? "rewrites" : "keeps"
 		case "addColumnDefault":
 			locks.type(a.column.type)
 			locks.typmodCast(a.column.type)
 			locks.addedColumn(table)
 			locks.names(exprNames([a.default]), "stored")
 			locks.add(toastedCatalog("pg_attrdef"))
-			return "keeps"
+			return locks.domainChecked(a.column.type) ? "rewrites" : "keeps"
 		case "setNotNull":
 		case "enableRowSecurity":
 		case "disableRowSecurity":
@@ -1227,7 +1490,7 @@ const alterationLocks = (
 			return "keeps"
 		case "dropColumn":
 			locks.rebuilt(table)
-			locks.dropped([target("columnDefault", key, a.column)])
+			locks.dropped([target("columnDefault", key, a.column), ...locks.notNullOf(table, a.column)])
 			return "keeps"
 		case "dropDefault":
 			locks.dropped([target("columnDefault", key, a.column)])
@@ -1261,7 +1524,7 @@ const alterationLocks = (
 			if (locks.constraintKind(table, a.name) === "foreignKey") {
 				locks.read(table)
 				locks.ownedBy(table, a.name, "keeps")
-				locks.indexes(table)
+				locks.joinedRead(table)
 			}
 			return "keeps"
 		case "alterConstraintDeferral":
@@ -1350,10 +1613,6 @@ const lockStatement = (locks: Locks, s: SqlStatement | RecordedStatement): void 
 			}
 			return
 		}
-		case "createCarrier":
-		case "emptyCarrier":
-			locks.transient(`carrier ${s.name}`, true)
-			return
 		case "alterTable": {
 			locks.add([relation(s.table)])
 			let rewrites = false
@@ -1412,6 +1671,7 @@ const lockStatement = (locks: Locks, s: SqlStatement | RecordedStatement): void 
 				target("columnDefault", named(s.table), s.from),
 				target("columnDefault", named(s.table), s.to)
 			)
+			locks.rename(notNullOf(s.table, s.from), notNullOf(s.table, s.to))
 			return
 		case "renameConstraint": {
 			locks.add([relation(s.table)])
@@ -1509,9 +1769,6 @@ const lockStatement = (locks: Locks, s: SqlStatement | RecordedStatement): void 
 				case "STATISTICS":
 					locks.dropped([target("statistics", named(s.name))])
 					return
-				case "FUNCTION":
-					locks.dropped([functionOf(s.name)])
-					return
 				case "ROLE":
 					locks.dropped([target("role", s.name)])
 					return
@@ -1568,6 +1825,10 @@ const lockStatement = (locks: Locks, s: SqlStatement | RecordedStatement): void 
 				locks.type(a.type)
 			}
 			return
+		case "alterRowType":
+			locks.add([relation(s.name), typeOf(s.name)])
+			locks.type(s.add.type)
+			return
 		case "adoptRole":
 			locks.add([target("role", s.role), owner, catalog("pg_auth_members")])
 			return
@@ -1603,7 +1864,7 @@ const lockStatement = (locks: Locks, s: SqlStatement | RecordedStatement): void 
 			locks.names(exprNames([s.constant.body]), "stored")
 			return
 		case "createGuardTrigger":
-		case "createUpdateGuardTrigger":
+		case "createImmutableGuardTrigger":
 		case "createTransitionTrigger":
 			locks.add([relation(s.table), functionOf(s.function)])
 			return
@@ -1629,8 +1890,19 @@ const lockStatement = (locks: Locks, s: SqlStatement | RecordedStatement): void 
 		case "createLiveSecret":
 			locks.created(s.table, true)
 			return
-		case "resetDatabaseDefault":
-			locks.add([target("advisory", "database"), target("database"), catalog("pg_db_role_setting")])
+		case "guardBracket":
+			for (const g of locks.guarded(s)) {
+				locks.add([relation(g.table)])
+				switch (s.side) {
+					case "unguard":
+						locks.dropped([target("trigger", named(g.table), g.name)])
+						break
+					case "reguard":
+						locks.add([target("function", g.function)])
+						break
+				}
+			}
+			locks.add(bracketReads[s.side])
 			return
 		case "createRole":
 			locks.add([target("role", s.name), owner, catalog("pg_authid"), catalog("pg_auth_members")])
@@ -1679,7 +1951,8 @@ const lockStatement = (locks: Locks, s: SqlStatement | RecordedStatement): void 
 					owner,
 					relfilenodeIndex,
 					target("statistics", named(d.name))
-				])
+				]),
+				...(isNonEmpty(s.dependencies) ? dependencyReads : [])
 			])
 			return
 		case "lockTable":
@@ -1689,7 +1962,7 @@ const lockStatement = (locks: Locks, s: SqlStatement | RecordedStatement): void 
 			return
 		case "comment":
 			commentLocks(locks, s.on)
-			locks.add(commentCatalog(s.on))
+			locks.add(commentCatalog(s))
 			return
 		case "select":
 			locks.names(queryNames(s), "run")
@@ -1761,7 +2034,10 @@ const grantedLocks = (
 /**
  * The catalog a COMMENT writes its text into, which it keeps locked RowExclusive to the transaction's end (PostgreSQL
  * 19 comment.c CreateComments and CreateSharedComments open it RowExclusiveLock and close it NoLock), with its TOAST
- * table and index, where a text is stored out of line (toastedCatalog): pg_description for an object of the database,
+ * table and index where its row can pass TOAST_TUPLE_THRESHOLD (laws/model/rows.ts toastTupleThresholdBytes), the
+ * only rows whose text PostgreSQL stores out of line (toastedCatalog): the text is the statement's own, so its row's
+ * bytes are known, and a comment of a few words, every one grizzle writes, never touches the TOAST table, where
+ * counting it at every comment stated two locks no comment takes. pg_description for an object of the database,
  * pg_shdescription for a role, a shared object. The one reading of where a comment's text lies.
  *
  * A drop's deletion of its object's comment holds nothing past its statement: dependency.c deleteOneObject's
@@ -1771,11 +2047,19 @@ const grantedLocks = (
  * statements, and none is counted for a drop.
  */
 const commentCatalog = (
-	on: Extract<SqlStatement, { readonly kind: "comment" }>["on"]
-): ReadonlyArray<LockTarget> =>
-	on.kind === "ROLE"
-		? [catalog("pg_shdescription"), ...toastedCatalog("pg_shdescription")]
-		: [catalog("pg_description"), ...toastedCatalog("pg_description")]
+	comment: Extract<SqlStatement, { readonly kind: "comment" }>
+): ReadonlyArray<LockTarget> => {
+	const shared = comment.on.kind === "ROLE"
+	const name = shared ? "pg_shdescription" : "pg_description"
+	/** The comment's row: its object's OID, its catalog's OID, a column's number but a role's, and the text whole. */
+	const row = rowBytes([
+		{ bytes: typlens.oid, align: typlens.oid, nullable: false },
+		{ bytes: typlens.oid, align: typlens.oid, nullable: false },
+		...(shared ? [] : [{ bytes: typlens.int4, align: typlens.int4, nullable: false }]),
+		{ bytes: varlenaHeaderBytes + utf8Length(comment.text), align: typlens.int4, nullable: false }
+	])
+	return [catalog(name), ...(row > toastTupleThresholdBytes ? toastedCatalog(name) : [])]
+}
 
 const commentLocks = (
 	locks: Locks,
@@ -1862,7 +2146,7 @@ const transactionLocks = (
 export const lockTargetText = (t: LockTarget): string => {
 	const [kind, ...names] = t.split("\u0000")
 	if (kind === undefined) {
-		throw defect("a lock target of no kind")
+		defect("a lock target of no kind")
 	}
 	return `${kind} ${names.map((n) => quoteIdent(n)).join(".")}`
 }

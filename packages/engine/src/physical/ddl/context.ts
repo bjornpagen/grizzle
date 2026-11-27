@@ -19,6 +19,7 @@ import type { ColumnIdent, ConstraintName, Identifier, IdentityKind } from "#com
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
+import { textDigestsOf } from "#compiler/ir/law.ts"
 import { type LibraryFn, missing } from "#compiler/ir/physical.ts"
 import type { DeployPhase, PhysicalReason } from "#compiler/ir/products.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
@@ -136,6 +137,13 @@ export interface BuiltTarget {
 	 * after every field, by its identifier.
 	 */
 	readonly place: (column: IndexColumn) => number
+	/**
+	 * Its declared text digests, each text field by its name with the field that is its SHA-256 (ir/law.ts
+	 * textDigestsOf): a stored relation's, read off its fields; none for a derived relation's stored table, whose fields
+	 * no writing generates. What the index engine admits a text of no byte bound into a lookup beside
+	 * (physical/indexes/engine.ts refusedUndigested).
+	 */
+	readonly digests: ReadonlyMap<string, string>
 	readonly object: Node<"structure">
 }
 
@@ -194,7 +202,7 @@ const constantArgs = (ddl: ReadonlyArray<SqlStatement>): ReadonlyArray<TypeRef> 
 			return []
 		}
 	}
-	throw defect("a constant's statements create it")
+	defect("a constant's statements create it")
 }
 
 /**
@@ -215,8 +223,7 @@ export type Capability = "btree_gist" | "vector"
 
 /**
  * The relation a statement of the installation creates or adds columns to, and the columns it gives it: a CREATE TABLE's,
- * a view's own, an ALTER TABLE's ADD COLUMNs. Every other statement gives no relation a column
- * (a carrier, which does, is a write program's, write/carriers/carriers.ts).
+ * a view's own, an ALTER TABLE's ADD COLUMNs. Every other statement gives no relation a column.
  */
 const widenedRelation = (
 	statement: SqlStatement
@@ -767,9 +774,10 @@ export class InstallBuilder {
 		return table
 	}
 
-	/** The object a read of `relation` waits for: its table, its roster's domain, or its derived relation's
-	 * stored table; none for a relation the installation holds no object of (a derived relation no extension
-	 * installs, a closed relation, which a read reads through the constants its statements call). */
+	/** The object a read of `relation` waits for: its table, its roster's domain, or the stored table of the canonical
+	 * relation it names, a derived relation's or an anonymous one's (analysis/derived/canonical.ts); none for a relation
+	 * the installation holds no object of (a canonical relation no extension installs, a closed relation, which a read
+	 * reads through the constants its statements call). */
 	readObject(relation: string): Node<"setup" | "structure"> | undefined {
 		const r = this.owned.relations[relation]
 		switch (r?.kind) {
@@ -781,9 +789,9 @@ export class InstallBuilder {
 					missing(`physical: no domain of roster ${r.name}`)
 				)
 			case "derived":
+			case undefined:
 				return this.storedTable(relation)
 			case "closedRelation":
-			case undefined:
 				return undefined
 		}
 	}
@@ -820,15 +828,26 @@ export class InstallBuilder {
 		}
 	}
 
-	/** The stored table of the derived relation `relation`; none when no extension installs it. */
-	storedTable(relation: string): Node<"structure"> | undefined {
-		return this.#views.get(relation)?.object
+	/**
+	 * The registered stored table `relation` reads: its canonical relation's (analysis/schema.ts CheckedSchema
+	 * installedAs), which every alias of one definition reads, registered once by it (addIndexedView); none when no
+	 * extension installs it. Index requests and footprints reach it as installed relations already, so its alias
+	 * resolution is reached only by a role's whole view of an alias, where it carries the view's dependency edge on the
+	 * table: no property's kill can see it undone, which is why none declares one.
+	 */
+	#viewOf(relation: string): IndexedView | undefined {
+		return this.#views.get(this.checked.installedAs(relation))
 	}
 
-	/** The fields of the primary key of the stored derived relation `relation`'s table, in key order, as its extension
-	 * registered it (addIndexedView). A relation of no registered stored table is refused as MalformedDescription. */
+	/** The stored table of the derived relation `relation` (`#viewOf`); none when no extension installs it. */
+	storedTable(relation: string): Node<"structure"> | undefined {
+		return this.#viewOf(relation)?.object
+	}
+
+	/** The fields of the primary key of the stored derived relation `relation`'s table (`#viewOf`), in key order, as its
+	 * extension registered it. A relation of no registered stored table is refused as MalformedDescription. */
 	storedPrimaryKey(relation: string): NonEmptyReadonlyArray<string> {
-		const view = this.#views.get(relation)
+		const view = this.#viewOf(relation)
 		if (view === undefined) {
 			missing(`physical: no stored table of derived relation ${relation}`)
 		}
@@ -845,7 +864,7 @@ export class InstallBuilder {
 	 * absent one undefined to the request's own refusal: a stored relation's by its theory relation's field handles, or
 	 * a law column of it by its identifier, which is its installed column. */
 	target(relation: string): RelationTarget {
-		const view = this.#views.get(relation)
+		const view = this.#viewOf(relation)
 		if (view !== undefined) {
 			const heading = [...view.fields.keys()]
 			return {
@@ -853,6 +872,7 @@ export class InstallBuilder {
 				field: (c) => (c.kind === "field" ? view.fields.get(c.field) : undefined),
 				column: (c) => (c.kind === "field" ? this.names.column(relation, c.field) : c.column),
 				place: (c) => (c.kind === "field" ? heading.indexOf(c.field) : heading.length),
+				digests: new Map(),
 				object: view.object
 			}
 		}
@@ -872,13 +892,16 @@ export class InstallBuilder {
 					c.kind === "field"
 						? stored.fields.findIndex((field) => field.name === c.field)
 						: stored.fields.length + lawOrder.indexOf(c.column),
+				digests: textDigestsOf(stored.fields),
 				object: this.table(relation)
 			}
 		}
 		const owned = Object.hasOwn(this.owned.relations, relation)
 			? this.owned.relations[relation]
 			: undefined
-		return owned?.kind === "derived" ? { kind: "deferred" } : { kind: "none" }
+		return owned?.kind === "derived" || this.checked.canonicalNamed(relation) !== undefined
+			? { kind: "deferred" }
+			: { kind: "none" }
 	}
 
 	/** Every registered view, by relation name. */

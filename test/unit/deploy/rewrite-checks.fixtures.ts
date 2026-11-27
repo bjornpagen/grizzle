@@ -4,6 +4,7 @@ import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
 import { planFiles } from "#compiler/deploy/phases/files.ts"
+import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { Text } from "#compiler/public/compute.ts"
 import { accumulated, closedId, drawn, generated, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -152,9 +153,11 @@ const schemaOf = (change: Change, version: "first" | "second") => {
 			return r.match(T2, { doc, h }).find({ h })
 		})
 	)
+	/** Each document's amount of at least 0, a selection of T1's rows, so XsView is no copy of them
+	 * (analysis/derived/storage.ts copiedRelation) and is stored. */
 	const xs = query(Base).rule((r) => {
 		const { doc, x } = v(T1, "t")
-		return r.match(T1, { doc, x }).find({ doc, x })
+		return r.match(T1, { doc, x }).where(r.ge(x, 0)).find({ doc, x })
 	})
 	const Totals = derived(
 		"Totals",
@@ -183,12 +186,15 @@ const lawOf = (id: string): Law =>
 		() => new Error(`a law of the schema, not ${id}`)
 	)
 
-/** The stored relation a created stored table is, by its identifier: its own name's. */
-const viewOf = (name: string): View =>
-	Option.getOrThrowWith(
-		Arr.findFirst(views, (view) => Str.includes(Str.snakeCase(view))(name)),
-		() => new Error(`a view of the schema, not ${name}`)
-	)
+/** The stored relation a created stored table is, by its identifier, its canonical form's (core/identity.ts view), as
+ * the draft's snapshot records it. */
+const viewOf =
+	(snapshot: DeploySnapshot) =>
+	(name: string): View =>
+		Option.getOrThrowWith(
+			Arr.findFirst(views, (view) => snapshot.theory.relations[view]?.ident === name),
+			() => new Error(`a view of the schema, not ${name}`)
+		)
 
 /** What one draft checks and creates: each rule it checks over the stored rows, and each stored table it creates. */
 export interface Drafted {
@@ -196,13 +202,13 @@ export interface Drafted {
 	readonly created: ReadonlyArray<View>
 }
 
-const draftedOf = (plan: Parameters<typeof planFiles>[0]): Drafted => {
+const draftedOf = (plan: Parameters<typeof planFiles>[0], snapshot: DeploySnapshot): Drafted => {
 	const drafts = Arr.flatMap(planFiles(plan), (file) => file.drafts)
 	return {
 		checked: Arr.flatMap(drafts, (d) => (d.kind === "violation" ? [lawOf(d.law)] : [])),
 		created: Arr.flatMap(drafts, (d) =>
 			d.kind === "statement" && d.statement.kind === "createStoredTable"
-				? [viewOf(d.statement.name.name)]
+				? [viewOf(snapshot)(d.statement.name.name)]
 				: []
 		)
 	}
@@ -217,8 +223,10 @@ export const drafted = (change: Change): { readonly first: Drafted; readonly sec
 		],
 		fromEmpty
 	)
+	const firstDraft = defined(first, "the first migration")
+	const secondDraft = defined(second, "the second migration")
 	return {
-		first: draftedOf(defined(first, "the first migration").plan),
-		second: draftedOf(defined(second, "the second migration").plan)
+		first: draftedOf(firstDraft.plan, firstDraft.snapshot),
+		second: draftedOf(secondDraft.plan, secondDraft.snapshot)
 	}
 }

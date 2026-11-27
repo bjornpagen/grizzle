@@ -10,7 +10,9 @@ import {
 	decodedSchema,
 	f,
 	field,
+	ge,
 	key,
+	literal,
 	on,
 	type QueryDesc,
 	relation,
@@ -292,10 +294,27 @@ export const scanOf = (c: GeneratedCase, source: string): QueryDesc => {
 	)
 }
 
+/** D's definition: every column of R, each bound by its one match, at every id at least 0, a selection of R's rows, so D
+ * is no copy of them (analysis/derived/storage.ts copiedRelation). */
+const viewOf = (c: GeneratedCase): QueryDesc => {
+	const columns = columnsOf(c)
+	const each = Rec.fromEntries(Arr.map(columns, (col) => [col, ref(relationName, col)]))
+	return queryDesc(
+		rule({
+			vars: varsAt(relationName, columns),
+			matches: [match(relationSource(relationName), each)],
+			where: [ge(ref(relationName, "id"), literal(0))],
+			head: each,
+			interiors: [],
+			attach: []
+		})
+	)
+}
+
 /**
  * The schema of a case with its view: the case's schema, R in a unit of its id, and on the level above it D, stored,
- * reading R whole, so D inherits every key R's rows have: each indexed, but one over the unbounded texts, which another
- * key's index holds as its alternative (analysis/derived/analyze.ts).
+ * reading R's rows at every id at least 0 (`viewOf`), so D inherits every key R's rows have: each indexed, but one over
+ * the unbounded texts, which another key's index holds as its alternative (analysis/derived/analyze.ts).
  */
 export const viewSchemaOf = (c: GeneratedCase): SchemaDesc => ({
 	name: "generated_keys_view",
@@ -310,7 +329,7 @@ export const viewSchemaOf = (c: GeneratedCase): SchemaDesc => ({
 			kind: "derived",
 			name: viewName,
 			level: 1,
-			query: scanOf(c, relationName)
+			query: viewOf(c)
 		}
 	],
 	statements: []

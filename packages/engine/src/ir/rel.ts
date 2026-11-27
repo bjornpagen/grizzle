@@ -23,7 +23,7 @@ import type {
 	TableExpr,
 	TypedLiteral
 } from "#compiler/ir/expr.ts"
-import type { GeneratedRead, KeyProof, ViewKey } from "#compiler/ir/keys.ts"
+import type { ContainedDependency, GeneratedRead, KeyProof, ViewKey } from "#compiler/ir/keys.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 
 export const relKinds = [
@@ -163,7 +163,7 @@ export const mergeOrder = (orders: GroupOrders, heading: Heading): CompletedOrde
 export const soleOrder = (orders: GroupOrders): CompletedOrder => {
 	const [only, ...more] = orders
 	if (more.length > 0) {
-		throw defect("the order of rows of one heading group, read over a heterogeneous union")
+		defect("the order of rows of one heading group, read over a heterogeneous union")
 	}
 	return only
 }
@@ -310,10 +310,7 @@ export type AggregateSpecOver<E> = {
 export type AggregateSpec = AggregateSpecOver<ScalarExpr>
 
 /** `a` with each of its expressions mapped by `f`, its arguments in order and then its filter, keeping its arity. */
-export const mapAggregate = <E, F>(
-	a: AggregateSpecOver<E>,
-	f: (e: E) => F
-): AggregateSpecOver<F> => {
+const mapAggregate = <E, F>(a: AggregateSpecOver<E>, f: (e: E) => F): AggregateSpecOver<F> => {
 	const filter = (): F | undefined => (a.filter === undefined ? undefined : f(a.filter))
 	switch (a.fn) {
 		case "count":
@@ -469,15 +466,24 @@ interface BaseOf<R extends RefKinds, Kind extends BaseRelationKind> extends Node
 	readonly keys: ReadonlyArray<DeclaredKey>
 	/** In a role's program every Base reads the role's view of that name. */
 	readonly relationKind: Kind
+	/**
+	 * The dependencies its fields hold (ir/keys.ts ContainedDependency), which the checker stamps from the checked
+	 * schema's reading of the relation: an ordinary relation's, its declared containments give it (ir/law.ts RelationInfo
+	 * determined); a view's, its definition draws its columns from a relation whose key determines them (ir/keys.ts
+	 * ViewRead determined).
+	 */
+	readonly determined: ReadonlyArray<ContainedDependency>
 }
 
 /**
  * A Base over an ordinary relation's table, keyed by its declared keys. `generated` holds its relation's generated
- * fields each with the fields its generation reads, those that determine it (ir/keys.ts GeneratedRead), which the
- * checker stamps from the checked schema's reading of the relation (ir/law.ts RelationInfo generated).
+ * fields each with the fields its generation reads, those that determine it (ir/keys.ts GeneratedRead), and `unit` the
+ * fields of its primary key that hold its unit's key, which the checker stamps from the checked schema's reading of the
+ * relation (ir/law.ts RelationInfo generated, unit).
  */
 export interface StoredBase<R extends RefKinds> extends BaseOf<R, "relation"> {
 	readonly generated: ReadonlyArray<GeneratedRead>
+	readonly unit: ReadonlyArray<string>
 }
 
 /**
@@ -507,7 +513,7 @@ export interface Closed<R extends RefKinds> extends NodeCommon<R> {
 export const closedCell = (row: ReadonlyArray<TypedLiteral>, position: number): TypedLiteral => {
 	const literal = row[position]
 	if (literal === undefined) {
-		throw defect(`a Closed row holds a literal at heading position ${position}`)
+		defect(`a Closed row holds a literal at heading position ${position}`)
 	}
 	return literal
 }
@@ -686,8 +692,8 @@ export interface SemiJoin<R extends RefKinds> extends NodeCommon<R> {
 
 /**
  * A semi-join's right side: a node no expression of whose subtree reads a column of the semi-join's left, so the right
- * side is one relation per evaluation of the semi-join and a column it fixes is fixed there (logical/props.ts and the key
- * kernel's semiJoinPair). semiJoinRight mints it, reading the subtree, and a structural map keeps it (mapNode): its image
+ * side is one relation per evaluation of the semi-join and its dependencies hold there, at the left columns paired with
+ * theirs too (ir/keys.ts pairedKeeps, logical/props.ts and the key kernel's paired rule). semiJoinRight mints it, reading the subtree, and a structural map keeps it (mapNode): its image
  * of a node is a form of the same node, which reads what the node reads. An anti-join's right side is a plain node,
  * which may read its left: a negation reads the rule's variables (check/checker.ts #negation). In the outside form a
  * node is its label (TableRefs), which holds no brand: a table is read back whole, and the tests' validator checks the
@@ -1011,6 +1017,15 @@ export type CallFunction =
 	  } & CalledFunction)
 	| { readonly kind: "split"; readonly split: TextSplit }
 	| { readonly kind: "series" }
+	| {
+			/**
+			 * The fields of the arm `handle` of its one argument, a variant's value (armArgument): one row, of the arm's
+			 * fields in declared order, where the value's tag is that arm, none where it is another (V.arm, ir/desc.ts
+			 * SourceDesc `arm`).
+			 */
+			readonly kind: "arm"
+			readonly handle: string
+	  }
 
 /**
  * Each split's value arguments (CallFunction `split`), by name, in the order a call passes them, each a text of the
@@ -1031,6 +1046,9 @@ export const splitArguments = {
  * term of an integer type of the scope the match stands in.
  */
 export const seriesArguments = { low: "low", high: "high" } as const
+
+/** An arm source's one value argument (CallFunction `arm`): the variant's value whose arm's fields it reads. */
+export const armArgument = "value"
 
 /**
  * A series' heading (CallFunction `series`): `at`, each integer from its low end to its high end, none where the low end
@@ -1066,8 +1084,9 @@ export const splitLastHeading = { before: "before", after: "after" } as const
  * - `numbered`: a column numbers them, no two alike: a token or separator split's place, the count of the pieces before
  *   it, and a series' element, each integer from its low end to its high end once; a split's rows are keyed by what
  *   keys its text and its ordinal.
- * - `one`: there is one row or none, a rest's, a decoded path's, a target within a base's and a split at the last
- *   separator's, so what keys its arguments keys its row (ir/keys.ts atMostOneRow).
+ * - `one`: there is one row or none, a rest's, a decoded path's, a target within a base's, a split at the last
+ *   separator's and a variant's arm's, so what keys its arguments keys its row (ir/keys.ts atMostOneRow): an arm's
+ *   source of a cell a key fixes is at most one row.
  * - `set`: nothing numbers them, a declared function's rows or a field's of its row, which PostgreSQL alone evaluates.
  */
 export type CallNumbering =
@@ -1075,28 +1094,31 @@ export type CallNumbering =
 	| { readonly kind: "one" }
 	| { readonly kind: "set" }
 
-/** Each split's rows within one evaluation (CallNumbering). */
-const splitRows: { readonly [K in TextSplit["kind"]]: CallNumbering } = {
-	tokens: { kind: "numbered", ordinal: tokensHeading.at },
-	pieces: { kind: "numbered", ordinal: piecesHeading.at },
-	rest: { kind: "one" },
-	decodedPath: { kind: "one" },
-	resolvedWithin: { kind: "one" },
-	splitLast: { kind: "one" }
+/**
+ * How the rows of one evaluation of each call stand among themselves (CallNumbering), by the call's kind, a split's by
+ * its own: the one table the engine keys a call's rows by (callNumbering, logical/props.ts) and the types key a call
+ * source by (types/compute/call.ts CallSource), so a match of a call is keyed alike by both.
+ */
+export const callNumberings = {
+	declared: { kind: "set" },
+	field: { kind: "set" },
+	split: {
+		tokens: { kind: "numbered", ordinal: tokensHeading.at },
+		pieces: { kind: "numbered", ordinal: piecesHeading.at },
+		rest: { kind: "one" },
+		decodedPath: { kind: "one" },
+		resolvedWithin: { kind: "one" },
+		splitLast: { kind: "one" }
+	},
+	series: { kind: "numbered", ordinal: seriesHeading.at },
+	arm: { kind: "one" }
+} as const satisfies { readonly [K in Exclude<CallFunction["kind"], "split">]: CallNumbering } & {
+	readonly split: { readonly [K in TextSplit["kind"]]: CallNumbering }
 }
 
-/** How the rows of one evaluation of `called` stand among themselves (CallNumbering). */
-export const callNumbering = (called: CallFunction): CallNumbering => {
-	switch (called.kind) {
-		case "declared":
-		case "field":
-			return { kind: "set" }
-		case "split":
-			return splitRows[called.split.kind]
-		case "series":
-			return { kind: "numbered", ordinal: seriesHeading.at }
-	}
-}
+/** How the rows of one evaluation of `called` stand among themselves (CallNumbering, callNumberings). */
+export const callNumbering = (called: CallFunction): CallNumbering =>
+	called.kind === "split" ? callNumberings.split[called.split.kind] : callNumberings[called.kind]
 
 /**
  * A call of a function that returns rows (CallFunction): the rows it returns for its arguments, under its result's

@@ -14,14 +14,14 @@ import {
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { jsonOf } from "#test/support/chunked.ts"
 import {
-	alternatives,
 	and,
 	type AuthoredRelationDesc,
 	type AuthoredStatementDesc,
@@ -36,6 +36,7 @@ import {
 	ge,
 	le,
 	literal,
+	mirrors,
 	on,
 	onWhere,
 	relation,
@@ -107,8 +108,11 @@ const schemaOf = (
 	statements: ReadonlyArray<AuthoredStatementDesc>
 ): SchemaDesc => ({ name, relations, statements, bases: [] })
 
-/** An alternatives law over a roster of `size` handles, keyed by `keyWidth` fields: handle i armed by arm relation
- * `armOf(i)`, or unarmed where it gives none; every relation open when `mutableAll`. */
+/**
+ * A tagged header over a roster of `size` handles, keyed by `keyWidth` fields: handle i armed by arm relation
+ * `armOf(i)`, or unarmed where it gives none: each arm relation mirrored with the nodes of its handle or handles;
+ * every relation open when `mutableAll`.
+ */
 const roster = (
 	size: number,
 	keyWidth: number,
@@ -129,17 +133,24 @@ const roster = (
 			(j) => [j, relation(`Arm${j}`, { ...keyFields, amount: f.integer }, key)] as const
 		)
 	)
-	const byHandle: Record<string, AuthoredRelationDesc & { readonly kind: "relation" }> = {}
-	for (const [i, h] of handles.entries()) {
-		const j = armOf(i)
-		const arm = j === undefined ? undefined : arms.get(j)
-		if (arm !== undefined) {
-			byHandle[h] = arm
-		}
-	}
+	const kindIs = (h: string) => eq(field("kind"), literal(h))
+	const armLaws = Arr.flatMap([...arms.entries()], ([j, arm]) => {
+		const armed = Arr.filter(handles, (_, i) => armOf(i) === j)
+		const [only, ...rest] = armed
+		return mirrors(
+			on(arm.name, key),
+			onWhere(
+				"Node",
+				key,
+				only !== undefined && rest.length === 0
+					? kindIs(only)
+					: { kind: "in", arg: field("kind"), values: armed }
+			)
+		)
+	})
 	const relations = [Roster, Node, ...arms.values()]
 	return schemaOf("Scaled", relations, [
-		alternatives(Node, "kind", Roster, byHandle),
+		...armLaws,
 		...(mutableAll ? openedDescs([Node, ...arms.values()]) : [])
 	])
 }

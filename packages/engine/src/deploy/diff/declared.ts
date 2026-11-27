@@ -4,6 +4,7 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
+import { isCanonicalName } from "#compiler/analysis/derived/canonical.ts"
 import { carriedOn, spelledAxis } from "#compiler/analysis/theory/families.ts"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import { canonicalEquals, Refusal } from "#compiler/core/canonical.ts"
@@ -125,10 +126,18 @@ const sameNamed = (a: Named, b: Named): boolean => keyOf(a) === keyOf(b)
 const declared = (name: string): DeclaredName => {
 	const parsed = parseDeclaredName(name)
 	if (!parsed.ok) {
-		throw defect(`the snapshot records ${JSON.stringify(name)} under a declared name`)
+		defect(`the snapshot records ${JSON.stringify(name)} under a declared name`)
 	}
 	return parsed.value
 }
+
+/**
+ * A snapshot's relation record name: a declared name, or none for an anonymous canonical relation's
+ * (analysis/derived/canonical.ts canonicalName), which names its relation by its form alone, so no declaration renames
+ * or drops it and no other name is alike it. grizzle wrote it, so one that is neither is a defect.
+ */
+const relationName = (name: string): DeclaredName | undefined =>
+	isCanonicalName(name) ? undefined : declared(name)
 
 /** A stored relation's record or a roster's, never a derived relation's, which holds no data to rename. */
 type Held = Exclude<SnapshotRelation, { readonly kind: "derived" }>
@@ -147,8 +156,8 @@ const heldIn = (
 const alike = (a: string, b: string): boolean => declaredAlike(declared(a), declared(b))
 
 /** Names a snapshot records, grouped by their conversion (core/identity.ts declaredAlike), each group in the order the
- * names were given: every name is parsed and converted once, as the groups are built, so the names alike a name are
- * one lookup by its conversion. */
+ * names were given, an anonymous canonical relation's in none (`relationName`): every name is parsed and converted
+ * once, as the groups are built, so the names alike a name are one lookup by its conversion. */
 class AlikeNames {
 	readonly #names: ReadonlySet<string>
 	readonly #groups = new Map<string, Array<string>>()
@@ -156,8 +165,10 @@ class AlikeNames {
 	constructor(names: ReadonlyArray<string>) {
 		this.#names = new Set(names)
 		for (const name of names) {
-			const conversion = conversionOf(declared(name))
-			this.#groups.getOrInsertComputed(conversion, () => []).push(name)
+			const spelled = relationName(name)
+			if (spelled !== undefined) {
+				this.#groups.getOrInsertComputed(conversionOf(spelled), () => []).push(name)
+			}
 		}
 	}
 
@@ -183,7 +194,10 @@ const heldAlike = (
 	if (own !== undefined) {
 		return own
 	}
-	const respelled = Object.keys(relations).find((n) => alike(n, name))
+	const respelled = Object.keys(relations).find((n) => {
+		const spelled = relationName(n)
+		return spelled !== undefined && declaredAlike(spelled, declared(name))
+	})
 	return respelled === undefined ? undefined : heldIn(relations, respelled)
 }
 
@@ -543,9 +557,12 @@ export const applyDeclarations = (
 	const constants = pairedConstants(
 		law.previous,
 		installation,
-		[...renamed].flatMap(([from, to]) =>
-			before[from]?.kind === "closed" ? [{ from: declared(from), to: declared(to) }] : []
-		)
+		[...renamed].flatMap(([from, to]) => {
+			const was = before[from]
+			return was?.kind === "closed"
+				? [{ from: declared(from), to: declared(to), domain: was.ident }]
+				: []
+		})
 	)
 	const columns = { ...law, previous: constants.previous }
 	/** The tables a declaration touched: each renamed relation's, each one whose fields are renamed, and each whose law
@@ -919,7 +936,9 @@ const lawColumnDefinitions = (
  * renamed roster's names and live-codes constants restated under the roster's previous name (physical/ddl/constants.ts
  * rosterConstants), and a row function restated under the previous snapshot's names, each type of a renamed roster
  * named as before and each constant it calls by the name it was found as (physical/ddl/row-functions.ts
- * rowFunctionIdentity). A constant is named by its content, so a restated name the previous snapshot holds is the same
+ * rowFunctionIdentity). A renamed roster's domain is named as the target installation names it and was named as the
+ * previous snapshot records it (`domain`), by its naming, readable or hashed, which no rename changes the reading of.
+ * A constant is named by its content, so a restated name the previous snapshot holds is the same
  * content, which the declarations only renamed; any other is another function, which the diff creates beside the
  * previous one and re-points what calls it at, as before.
  *
@@ -933,7 +952,11 @@ const lawColumnDefinitions = (
 const pairedConstants = (
 	previous: DeploySnapshot,
 	installation: Installation,
-	rosters: ReadonlyArray<{ readonly from: DeclaredName; readonly to: DeclaredName }>
+	rosters: ReadonlyArray<{
+		readonly from: DeclaredName
+		readonly to: DeclaredName
+		readonly domain: string
+	}>
 ): { readonly statements: ReadonlyArray<SqlStatement>; readonly previous: DeploySnapshot } => {
 	if (!isNonEmpty(rosters)) {
 		return { statements: [], previous }
@@ -951,7 +974,7 @@ const pairedConstants = (
 	)
 	/** Each renamed roster's types, its domain's and its sets', by the target's name key, under their previous names. */
 	const types = new Map<NameKey, string>(
-		rosters.flatMap(({ from, to }): ReadonlyArray<readonly [NameKey, string]> => {
+		rosters.flatMap(({ from, to, domain: was }): ReadonlyArray<readonly [NameKey, string]> => {
 			const codec = installation.names.codes.rosters.get(to)
 			if (codec === undefined) {
 				return []
@@ -959,10 +982,7 @@ const pairedConstants = (
 			const domain = installation.names.rosterDomain(to)
 			const bits = installation.names.bitsDomain(to)
 			return [
-				[
-					nameKey({ schema: domain.schema, name: identifierOf(identity.rosterDomain(to)) }),
-					identifierOf(identity.rosterDomain(from))
-				] as const,
+				[nameKey({ schema: domain.schema, name: domain.name }), was] as const,
 				[
 					nameKey({
 						schema: bits.schema,
@@ -1214,7 +1234,7 @@ const lawColumnRenames = (
 				}
 				const definition = definitions.get(column)
 				if (definition === undefined) {
-					throw defect(`the installation adds the law column ${column} it plans`)
+					defect(`the installation adds the law column ${column} it plans`)
 				}
 				if (definition.generated === undefined) {
 					return restatedLawColumn(plan, laws, names, installation.laws.theory.relations)
@@ -1341,7 +1361,7 @@ const holderOf = (
 		)
 	})
 	if (!found) {
-		throw defect(`the manifest installs ${r.ident}, a relation its theory records`)
+		defect(`the manifest installs ${r.ident}, a relation its theory records`)
 	}
 	return name
 }
@@ -1429,7 +1449,7 @@ const renamedSnapshot = (
 		}
 		const now = heldIn(after, to)
 		if (now === undefined) {
-			throw defect(`the target holds ${to}, which applyDeclarations checked each rename to name`)
+			defect(`the target holds ${to}, which applyDeclarations checked each rename to name`)
 		}
 		const from: ObjectName = { schema, name: first.to }
 		if (r.kind === "closed" || first.kind === "domain") {
@@ -1671,7 +1691,7 @@ const columnRenames = (
 		const columnOf = (r: Held & { readonly kind: "relation" }, field: string): ColumnIdent => {
 			const f = r.fields.find((x) => x.name === field)
 			if (f === undefined) {
-				throw defect(`the relation's record holds the field ${field} a rename names`)
+				defect(`the relation's record holds the field ${field} a rename names`)
 			}
 			return f.column
 		}
@@ -1942,16 +1962,15 @@ const withColumns = (
 		case "recordedConstant":
 		case "handOverFunction":
 		case "createRowType":
+		case "alterRowType":
 		case "adoptRole":
 		case "endHolders":
 		case "createGuardTrigger":
-		case "createUpdateGuardTrigger":
+		case "createImmutableGuardTrigger":
 		case "createTransitionTrigger":
-		case "resetDatabaseDefault":
+		case "guardBracket":
 		case "createExtension":
 		case "lockTable":
-		case "createCarrier":
-		case "emptyCarrier":
 		case "beginRead":
 		case "beginWrite":
 		case "commit":
@@ -2029,19 +2048,18 @@ const withRoles = (s: WholeStatement, roles: ReadonlyMap<string, string>): Whole
 		case "dropTrigger":
 		case "createFunction":
 		case "createRowType":
+		case "alterRowType":
 		case "createPublication":
 		case "dropPublication":
 		case "createLiveSecret":
 		case "createGuardTrigger":
-		case "createUpdateGuardTrigger":
+		case "createImmutableGuardTrigger":
 		case "createConstraintTrigger":
 		case "createTransitionTrigger":
-		case "resetDatabaseDefault":
+		case "guardBracket":
 		case "createExtension":
 		case "declareStatistics":
 		case "lockTable":
-		case "createCarrier":
-		case "emptyCarrier":
 		case "beginRead":
 		case "beginWrite":
 		case "commit":
@@ -2080,7 +2098,7 @@ const loginRenamed = (
 	const moves = [...logins].map(([name, to]) => {
 		const was = previous.logins[name]
 		if (was === undefined || target.logins[to.name] === undefined) {
-			throw defect(`the renamed login ${name} is recorded by both snapshots`)
+			defect(`the renamed login ${name} is recorded by both snapshots`)
 		}
 		return { from: name, to: to.name, role: was.role, into: to.login.role }
 	})
@@ -2103,7 +2121,7 @@ const loginRenamed = (
 	const asideOf = (role: string): string => {
 		const to = asides.get(role)
 		if (to === undefined) {
-			throw defect(`the role ${role} is set aside`)
+			defect(`the role ${role} is set aside`)
 		}
 		return to
 	}

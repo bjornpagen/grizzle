@@ -35,6 +35,15 @@ export interface StoredUnit {
 	 * borrow, and a write that reads them borrows it shared, as it does to read its holders.
 	 */
 	readonly declared: { readonly unit: string; readonly fields: NonEmptyReadonlyArray<string> }
+	/**
+	 * The relations of sealed units its definition reads by reference, in name order, none where it reads none
+	 * (analysis/theory/unit.ts storedUnit): each sits under a sealed unit other than `declared`, whose rows at a key never
+	 * change once founded (analysis/theory/frozen.ts foundedAt), and each read of one stands at a key a row of `unit`'s
+	 * holders reaches by a containment the schema states, so every such key was founded, and every row there written,
+	 * before any row of the unit read it. So no holder of `unit` is among them, no write of theirs but a data step's
+	 * removal changes its rows, and its upkeep at a unit reads their rows by the keys that unit's rows name.
+	 */
+	readonly references: ReadonlyArray<string>
 }
 
 /**

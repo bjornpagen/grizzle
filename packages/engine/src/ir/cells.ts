@@ -265,7 +265,7 @@ export const dependentSpace = (
 	counts: ReadonlyMap<bigint, NonEmptyReadonlyArray<number>>
 ): DependentSpace => {
 	if (!block.some((c) => c.kind === "slots")) {
-		throw defect("a dependent space's block holds a slot")
+		defect("a dependent space's block holds a slot")
 	}
 	return {
 		kind: "dependent",

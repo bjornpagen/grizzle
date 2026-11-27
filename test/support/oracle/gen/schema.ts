@@ -15,7 +15,7 @@ import { Array as Arr, Option, Record as Rec } from "effect"
 import { type DeclaredName, nameFaultText, parseDeclaredName } from "#compiler/core/identity.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
 import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
-import type { FieldDesc } from "#compiler/ir/desc.ts"
+import { declaredNaming, type FieldDesc } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { noSpellings } from "#compiler/ir/pattern.ts"
 import type { Heading, KeySet } from "#compiler/ir/rel.ts"
@@ -251,7 +251,7 @@ const payloadPatterns = (c: GenClosed): ReadonlyArray<RelationDesc> => {
  */
 export const schemaDesc = (schema: GenSchema): SchemaDesc => {
 	const closed: Array<RelationDesc> = Arr.flatMap(schema.closed, (c) => [
-		{ kind: "closed", name: c.name, handles: c.handles },
+		{ kind: "closed", name: c.name, naming: declaredNaming, handles: c.handles },
 		...payloadPatterns(c)
 	])
 	const relations: Array<RelationDesc> = Arr.map(schema.relations, (r) => {

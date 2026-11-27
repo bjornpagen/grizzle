@@ -130,8 +130,8 @@ export const completingAnOrderIsThePolicysCompletionTheUsersFieldsTheLeastNarrow
 			},
 			{
 				file: "packages/engine/src/scalar/registry.ts",
-				original: '\t"bits",\n\t"bytes",\n\t"tsvector"\n])',
-				replacement: '\t"bits"\n])',
+				original: '\t"bits",\n\t"bytes",\n\t"tsvector",\n\t"variant"\n])',
+				replacement: '\t"bits",\n\t"variant"\n])',
 				why: "A completion breaks no tie by bytes or a search document (scalar/registry.ts breaksTies), so a keyless heading holding one is refused where format 8 delivered it; the completion property fails."
 			},
 			{

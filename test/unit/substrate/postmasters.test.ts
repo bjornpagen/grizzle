@@ -4,8 +4,10 @@
  * processes themselves wherever their data directories lie.
  *
  * Each case makes a process of its own and asks for the postmasters of its own tree, so no case meets another's: the
- * tree's bin/postgres and another tree's are hard links of one copy of this Node binary, a program that runs until it
- * is killed, and the process runs one of them in a data directory of its own, outside every cluster's state directory.
+ * tree's bin/postgres and another tree's are hard links of one copy of this Node binary, a program that names its pid
+ * and runs until it is killed, and the process runs one of them in a data directory of its own, outside every
+ * cluster's state directory. Its pid is the one it names, never the child's the case started, which the testing
+ * library runs under strace(1) where it cannot record it (postmasters.fixtures.ts caseOf).
  * The box is each binary it runs (the tree's; the tree's, replaced after it started, as a build replaces it; another
  * tree's), each lock file its data directory holds (postmaster.pid naming the process, naming another process as a
  * backend's directory does, absent, or no lock file at all), and what else its scan meets: nothing, or a process /proc
@@ -23,7 +25,7 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Scratch } from "@bjornpagen/testing/resources"
 import { Effect, Formatter, Result } from "effect"
 import {
@@ -77,7 +79,16 @@ export const thePostmastersRunningATreesBuildAreEveryProcessRunningTheTreesBinPo
 			name: "a process of the tree's binary whose lock file names it is a postmaster"
 		},
 		box: "one process a case, each binary it runs (the tree's, the tree's replaced since it started, another tree's), each lock file its data directory holds (naming it, naming another process, absent, malformed), and what else its scan meets (nothing, a process reaped as it is read)",
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/substrate/postmasters.test.ts#thePostmastersRunningATreesBuildAreEveryProcessRunningTheTreesBinPostgresWhoseLockFileNamesItWhereverItsDataDirectoryLies:-:0.0.0"
+				),
+				reason:
+					"a postmaster of the tree, its lock file naming it, scanned alone (the merged tree's unit tier from INTEG on, toolchain 54e53afb): the testing library ran the case's child under strace(1), so the pid the case started was strace's, and its lock file named a process of no tree, which the scan rightly listed as none; the case's process names its own pid (postmasters.fixtures.ts caseOf)",
+				since: "2026-11-27"
+			}
+		],
 		kills: [
 			{
 				file: "packages/pg/src/postmasters.ts",

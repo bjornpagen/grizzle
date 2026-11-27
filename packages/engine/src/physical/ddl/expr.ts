@@ -24,12 +24,13 @@ import {
 	printedSize,
 	type ScalarSite
 } from "#compiler/lower/conservative/expr/index.ts"
-import { sharedExpr } from "#compiler/lower/conservative/expr/share.ts"
+import { FieldTexts, sharedExpr } from "#compiler/lower/conservative/expr/share.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { closedLeaf } from "#compiler/runtime/write/fill.ts"
 import {
 	type EvalLeaves,
 	compiledExpr,
+	noParamLeaf,
 	type SqlValue,
 	sqlNull
 } from "#compiler/scalar/compute/evaluate.ts"
@@ -75,6 +76,12 @@ export const persistentText = (
 			return v.value
 		case "bits":
 			return bitInputText(v.hex)
+		case "null":
+			return refusePersistent(
+				"MalformedDescription",
+				SourceLoc("persistent literal", []),
+				"a literal of a value: an array literal's element is never NULL"
+			)
 	}
 }
 
@@ -200,6 +207,7 @@ const plannedConstants = (
 			case "closedHas":
 				return every ? over(e, forms) : undefined
 			case "call":
+			case "variant":
 				return undefined
 		}
 	}
@@ -214,7 +222,7 @@ const plannedConstants = (
 const evaluated = (form: ScalarExpr, closed: EvalLeaves["closed"]): SqlValue | undefined => {
 	const table = predicateTable(form)
 	const value = compiledExpr(table)(
-		{ value: undefined, column: () => undefined, closed },
+		{ value: undefined, column: () => undefined, closed, param: noParamLeaf },
 		ProgramPatterns.of(tablePatterns(table))
 	)
 	return value.ok ? value.value : undefined
@@ -276,7 +284,8 @@ export const lowerPersistent = (
 		sharedExpr(expr, {
 			closed: names.closedRelations,
 			host,
-			size: (e) => printedSize(() => lowered(e))
+			size: (e) => printedSize(() => lowered(e)),
+			texts: new FieldTexts()
 		})
 	)
 }
@@ -397,13 +406,13 @@ const composedBetween = (
 ): Expr => {
 	const [x, low, high] = expr.args
 	if (x === undefined || low === undefined || high === undefined) {
-		throw defect("a BETWEEN of an operand and two bounds")
+		defect("a BETWEEN of an operand and two bounds")
 	}
 	const carrier = baseOf(x.type).carrier
 	const side = (fn: "ge" | "le", bound: ScalarExpr): Expr => {
 		const op = overloadOf(fn, [carrier, carrier])
 		if (op === undefined || op.partial) {
-			throw defect(`a total ${fn} over ${carrier}, of which every BETWEEN over it is composed`)
+			defect(`a total ${fn} over ${carrier}, of which every BETWEEN over it is composed`)
 		}
 		const comparison = (subject: ScalarExpr, limit: ScalarExpr): ScalarExpr =>
 			builtExpr(

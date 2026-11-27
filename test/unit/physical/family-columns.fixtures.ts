@@ -1,14 +1,16 @@
 /** What the properties of family-columns.test.ts read: its spaces, models and helpers. */
 
+import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { array, boolean, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
+import { Array as Arr, Effect, Option, Order, Record as Rec, String as Str } from "effect"
 import { identifierOf } from "#compiler/core/identity.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { NativeOf } from "#compiler/ir/law.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { closedId } from "#compiler/public/fields.ts"
 import { closed, login, relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -246,11 +248,12 @@ export type FamilyFeature =
 
 /**
  * A clerk declared with a query entry of every relation the case draws written so, in relation order, is refused
- * exactly where one writes a tree's relation: at the first such entry, whose relation's key holds its drawn start.
- * Where none does, the installation's clerk is that clerk.
+ * exactly where one writes a tree's relation: at the first such entry by name, in code point order, whichever of the
+ * clerk's lists names it, whose relation's key holds its drawn start. Where none does, the installation's clerk is that
+ * clerk.
  */
 const treeEntryRefused = (r: Resolved, k: Case<FamilyFeature>): void => {
-	const [first] = r.treeEntries
+	const [first] = Arr.sort(Arr.map(r.treeEntries, entryName), Order.make(compareCodePoints))
 	if (first === undefined) {
 		return
 	}
@@ -272,7 +275,7 @@ const treeEntryRefused = (r: Resolved, k: Case<FamilyFeature>): void => {
 			role: "clerk",
 			rule: {
 				kind: "writeUnwritable",
-				entry: entryName(first),
+				entry: first,
 				why: { kind: "keyHoldsFamily", field: "start" }
 			}
 		},

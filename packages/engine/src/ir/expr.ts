@@ -42,11 +42,13 @@ import type { NativeProof, OperationProof } from "#compiler/ir/proof.ts"
 import {
 	baseOf,
 	enteredType,
+	type NonIdentityCarrier,
 	type NumericTypmod,
 	type ScalarType,
 	type SpanCarrier,
 	sameScalarType,
 	spanCarriers,
+	subsumes,
 	typeLabel
 } from "#compiler/ir/scalar.ts"
 import * as S from "#compiler/ir/shape.ts"
@@ -153,30 +155,31 @@ export const internedRangeOp = (
 export type OpId = CatalogOpId | RangeOpId
 
 /**
- * The identity of each float type's canonical zero, an operation no scalar function names (scalar/compute/registry.ts
- * canonicalZero): the value itself, its -0 written +0, the one zero a set delivers wherever it may merge -0 and +0
- * (check/merge.ts).
+ * The identity of each canonical form, of a carrier whose equality is no identity (ir/scalar.ts NonIdentityCarrier), an
+ * operation no scalar function names (scalar/compute/registry.ts canonical): the value a read delivers of a term several
+ * equal values may stand for (check/merge.ts), one value of each class PostgreSQL's `=` holds equal, a float's -0
+ * written +0.
  */
-export const canonicalZeroIds = {
-	float4: "zero:real",
-	float8: "zero:double precision"
-} as const
+export const canonicalIds = {
+	float4: "canonical:real",
+	float8: "canonical:double precision"
+} as const satisfies { readonly [C in NonIdentityCarrier]: string }
 
-/** Whether an operation is a float's canonical zero. */
-const isCanonicalZero = (op: OpId): boolean =>
-	op === canonicalZeroIds.float4 || op === canonicalZeroIds.float8
+/** Whether an operation is a canonical form (canonicalIds). */
+const isCanonical = (op: OpId): boolean => op === canonicalIds.float4 || op === canonicalIds.float8
 
 /**
  * A head output as a reading of its term takes it: the term it delivers and whether it delivers the term's canonical
- * zero (check/merge.ts), which a merge that may take one float of several equal ones puts on each float it delivers. The
- * canonical zero keeps every value's order and maps distinct values to distinct ones, so what reads the term (an
- * equality's compared value, a composition's selected column, an approximate search's score) reads it through.
+ * form (check/merge.ts), which a merge that may take one value of several equal ones puts on each value of a
+ * non-identity equality type it delivers. The canonical form keeps every value's order and maps distinct values to
+ * distinct ones, so what reads the term (an equality's compared value, a composition's selected column, an approximate
+ * search's score) reads it through.
  */
-export const zeroPeeled = (
+export const canonicalPeeled = (
 	e: ScalarExpr
 ): { readonly term: ScalarExpr; readonly canonical: boolean } => {
 	const [arg] = e.args
-	return e.kind === "op" && isCanonicalZero(e.op) && arg !== undefined
+	return e.kind === "op" && isCanonical(e.op) && arg !== undefined
 		? { term: arg, canonical: true }
 		: { term: e, canonical: false }
 }
@@ -243,7 +246,8 @@ const exprKinds = [
 	"closedAt",
 	"closedRow",
 	"closedHas",
-	"call"
+	"call",
+	"variant"
 ] as const
 type ExprKind = (typeof exprKinds)[number]
 
@@ -365,9 +369,7 @@ export const identityValueOf = (value: TypedLiteral): IdentityValue => {
 		case "vector":
 			return { part, stem: value.kind, display: part }
 		case "pattern":
-			throw defect(
-				"a pattern literal names nothing: it stands only where a match reads its pattern"
-			)
+			defect("a pattern literal names nothing: it stands only where a match reads its pattern")
 	}
 }
 
@@ -528,6 +530,18 @@ export type ExprSpecOver<R extends ArgKinds> = { readonly type: ScalarType } & (
 	  }
 	| {
 			/**
+			 * A variant's operation (VariantOp) over its arguments: its tag, of its one argument; one field of an arm of
+			 * its one argument, NULL where the argument's tag is another arm, which only a cond of the tag's equality
+			 * guards, so no reader meets it there ("arm"); or a value of an arm, its fields its arguments in declared
+			 * order, a value of `type`, the variant.
+			 */
+			readonly kind: "variant"
+			readonly op: VariantOp
+			readonly args: ReadonlyArray<R["expr"]>
+			readonly nonNull: "strict" | "arm"
+	  }
+	| {
+			/**
 			 * C.at(field, t…): the payload field `field` of the closed relation `relation` at the key its arguments are, one
 			 * per key field in key order. A key the relation holds no tuple at reads NULL, never a value of the type: the
 			 * reader refuses it, IS TRUE in a predicate and NOT NULL in a generated column, so absence is no value.
@@ -581,6 +595,16 @@ export type ExprSpecOver<R extends ArgKinds> = { readonly type: ScalarType } & (
 			readonly volatility: Volatility
 	  }
 )
+
+/**
+ * A variant's operation (ir/scalar.ts VariantType): its tag; one field of the arm `handle`; a value of the arm `handle`
+ * made of its fields; or its identity image (scalar/variant-digest.ts), a SHA-256 digest.
+ */
+export type VariantOp =
+	| { readonly kind: "tag" }
+	| { readonly kind: "digest" }
+	| { readonly kind: "field"; readonly handle: string; readonly field: string }
+	| { readonly kind: "make"; readonly handle: string }
 
 /** An expression as a builder states it: its kind, its type, and its argument expressions themselves. */
 export type ExprSpec = ExprSpecOver<LiveArgs>
@@ -645,6 +669,7 @@ const ownEffects = <R extends ArgKinds>(spec: ExprSpecOver<R>): Effects => {
 		case "param":
 		case "literal":
 		case "cond":
+		case "variant":
 		case "closedAt":
 		case "closedRow":
 		case "closedHas":
@@ -722,6 +747,11 @@ export const sortedUnion = <A extends string>(
  * arguments are expressions built before it, so what they derive is final.
  */
 export const builtExpr = (spec: ExprSpec, id: ExprId): ScalarExpr => {
+	if (spec.kind === "cast" && subsumes(spec.type, spec.args[0].type)) {
+		defect(
+			`a cast of ${typeLabel(spec.args[0].type)} up to ${typeLabel(spec.type)}, which subsumes it: an expression of a type stands where a type that subsumes it is asked for, with no node of its own (ir/scalar.ts subsumes), so its builder typed its operand by equality where subsumption decides`
+		)
+	}
 	let params: ReadonlyArray<ParamId> = spec.kind === "param" ? sortedUnique([spec.param]) : noIds
 	let nodes: ReadonlyArray<NodeId> =
 		spec.kind === "column" ? sortedUnique([spec.column.node]) : noIds
@@ -759,6 +789,7 @@ const pgTypeOf = (spec: ExprSpec): ScalarType => {
 		case "closedRow":
 		case "closedHas":
 		case "call":
+		case "variant":
 			return spec.type
 		case "cond":
 			return commonPgType([spec.args[1], spec.args[2]], spec.type)
@@ -817,7 +848,8 @@ export function* mapArgs<R extends ArgKinds, S extends ArgKinds>(
 			return { ...spec, args: [head, ...tail] }
 		}
 		case "closedRow":
-		case "call": {
+		case "call":
+		case "variant": {
 			const args: Array<S["expr"]> = []
 			for (const a of spec.args) {
 				const value: S["expr"] = yield a
@@ -1015,8 +1047,9 @@ export const integerLiteral = (literal: TypedLiteral): bigint | undefined => {
 }
 
 /**
- * Why `literal` cannot be a value of `type`, or undefined when it can. The type's refinements (a contract predicate,
- * a regex) are not evaluated here: checking a literal against them is the ContractLiteral check. A computed numeric,
+ * Why `literal` cannot be a value of `type`, or undefined when it can: a handle is one of its roster's, and one of the
+ * subset a closed id of a subset holds, so a typed literal's type is a type its value is of. The type's refinements (a
+ * contract predicate, a regex) are not evaluated here: checking a literal against them is the ContractLiteral check. A computed numeric,
  * numeric of no typmod, holds every numeric value: its bound is what the node's making proves (scalar/compute/lower.ts
  * literalNode types a literal by its own value), never a domain a literal adopting it is checked against.
  */
@@ -1102,9 +1135,11 @@ export const literalProblem = (literal: TypedLiteral, outer: ScalarType): string
 			if (carrier !== "code") {
 				return `a handle literal is not a ${carrier} value`
 			}
-			return type.roster.handles.includes(literal.handle)
-				? undefined
-				: `${JSON.stringify(literal.handle)} is not a handle of ${type.roster.closed}`
+			return !type.roster.handles.includes(literal.handle)
+				? `${JSON.stringify(literal.handle)} is not a handle of ${type.roster.closed}`
+				: type.only !== undefined && !type.only.includes(literal.handle)
+					? `${JSON.stringify(literal.handle)} is not a handle of the subset of ${type.roster.closed} its type holds (${type.only.join(", ")})`
+					: undefined
 		case "handles":
 			if (carrier !== "bits") {
 				return `a set literal is not a ${carrier} value`
@@ -1209,7 +1244,18 @@ export const closedRelationsRead = (roots: ReadonlyArray<ScalarExpr>): ReadonlyA
 	)
 ]
 
-const predicateKinds: ReadonlyArray<ExprKind> = ["value", "literal", "op", "cast", "cond"]
+/**
+ * The kinds a domain's predicate reads VALUE through: a literal, an operator, a cast, a conditional, and a variant's
+ * operation, an arm check's read of its arm's fields of a variant's VALUE (kindProblems `variant`).
+ */
+const predicateKinds: ReadonlyArray<ExprKind> = [
+	"value",
+	"literal",
+	"op",
+	"cast",
+	"cond",
+	"variant"
+]
 
 const tableAt = (exprs: Readonly<Record<ExprId, TableExpr>>, id: ExprId): TableExpr | undefined =>
 	Object.hasOwn(exprs, id) ? exprs[id] : undefined
@@ -1343,9 +1389,11 @@ const entryProblems = (
 }
 
 /**
- * The types a branch of a conditional of type `type` may have: its own, and its entered type (scalar.ts enteredType),
+ * The types a branch of a conditional of type `type` stands at: its own, and its entered type (scalar.ts enteredType),
  * what a binary coercion into it delivers (scalar/compute/typing.ts castNode), since a coercion drops what only a
- * domain enforces and never adds it. They are one type where `type` is no pattern's text.
+ * domain enforces and never adds it. They are one type where `type` is no pattern's text. A branch of a type either
+ * subsumes (scalar.ts subsumes) stands there with no node of its own: a coercion into it builds none (bbfa4eca06), so a
+ * refined text's branch of a conditional of another refinement is the branch as it stands.
  */
 const branchTypes = (type: ScalarType): readonly [ScalarType, ScalarType] => [
 	type,
@@ -1354,7 +1402,7 @@ const branchTypes = (type: ScalarType): readonly [ScalarType, ScalarType] => [
 
 /**
  * The problems of a conditional of type `type`, given its arguments, a dangling one left out: its condition is boolean
- * and each branch has one of its branch types (branchTypes).
+ * and each branch stands at one of its branch types (branchTypes).
  */
 export const condProblems = (
 	type: ScalarType,
@@ -1365,13 +1413,13 @@ export const condProblems = (
 	const branchesTyped =
 		t === undefined ||
 		e === undefined ||
-		[t, e].every((b) => typed.some((branch) => sameScalarType(b.type, branch)))
+		[t, e].every((b) => typed.some((branch) => subsumes(branch, b.type)))
 	return [
 		...(p !== undefined && baseOf(p.type).carrier !== "bool" ? ["a boolean condition"] : []),
 		...(branchesTyped
 			? []
 			: [
-					`both branches of the conditional's own type ${typeLabel(type)} or its entered type, not ${typeLabel(t.type)} and ${typeLabel(e.type)}`
+					`both branches of a type the conditional's own type ${typeLabel(type)} or its entered type subsumes, not ${typeLabel(t.type)} and ${typeLabel(e.type)}`
 				])
 	]
 }
@@ -1391,6 +1439,10 @@ const kindProblems = (
 		}
 		case "cond":
 			return condProblems(expr.type, args)
+		case "variant":
+			return baseOf(base).carrier === "variant" && expr.op.kind === "field"
+				? []
+				: ["a variant's operation only as an arm check's read of a field of its variant's VALUE"]
 		case "column":
 		case "param":
 		case "domainCast":

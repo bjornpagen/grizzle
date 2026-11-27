@@ -7,7 +7,6 @@ import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import { compileLaws } from "#compiler/laws/model/model.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { closed, key, on, relation, schema, select } from "#compiler/public/schema.ts"
-import { everySlice } from "#compiler/schema/reach.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
@@ -112,9 +111,9 @@ export const encodedAt = (guard: Guard, size: number): number => {
 							return p
 						}
 						if (r === undefined) {
-							return guard.join === "and" ? t.and(p, q) : t.or(p, q)
+							return guard.join === "and" ? t.and([p, q]) : t.or([p, q])
 						}
-						return guard.join === "and" ? t.and(p, q, r) : t.or(p, q, r)
+						return guard.join === "and" ? t.and([p, q, r]) : t.or([p, q, r])
 					}),
 					"a"
 				)
@@ -122,10 +121,7 @@ export const encodedAt = (guard: Guard, size: number): number => {
 		]
 	)
 	const owned = succeeded(ownedInput(S))
-	const model = succeeded(
-		compileLaws(owned, everySlice(owned), { kind: "planned" }),
-		"the schema compiles"
-	)
+	const model = succeeded(compileLaws(owned, { kind: "planned" }), "the schema compiles")
 	const laws = defined(model.relations.get("T"), "T's laws")
 	return Arr.reduce(laws.uniques.others, 0, (n, u) =>
 		u.kind === "guarded"

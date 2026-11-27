@@ -1,5 +1,9 @@
 import { type Lowerers, type NodeLowerer, nodeLabel } from "#compiler/lower/conservative/context.ts"
-import { existenceTest } from "#compiler/lower/conservative/semi-join/exists.ts"
+import {
+	type AtLeftRow,
+	asItStands,
+	existenceTest
+} from "#compiler/lower/conservative/semi-join/exists.ts"
 
 /**
  * AntiJoin: keep a left tuple when no right witness exists; `r.not`.
@@ -10,8 +14,13 @@ import { existenceTest } from "#compiler/lower/conservative/semi-join/exists.ts"
  * Relational negation is NOT EXISTS, never an outer join with an IS NULL test. Every compared column is
  * NOT NULL, so the correlation is two-valued and NOT EXISTS is exactly the anti-join.
  */
-const lowerAntiJoin: NodeLowerer<"AntiJoin"> = (node, cx, env) =>
-	existenceTest(cx, env, node, nodeLabel(node), true)
+export const lowerAntiJoinAt =
+	(atLeftRow: AtLeftRow): NodeLowerer<"AntiJoin"> =>
+	(node, cx, env) =>
+		existenceTest(cx, env, node, nodeLabel(node), true, atLeftRow)
 
-/** This kind's entry of the conservative kind table (dispatch.ts). */
-export const antiJoinLowering: Lowerers<"AntiJoin"> = { AntiJoin: lowerAntiJoin }
+/**
+ * This kind's entry of the conservative kind table (dispatch.ts): a right side read per left row lowered where it
+ * stands, the conservative lowering deriving no set once.
+ */
+export const antiJoinLowering: Lowerers<"AntiJoin"> = { AntiJoin: lowerAntiJoinAt(asItStands) }

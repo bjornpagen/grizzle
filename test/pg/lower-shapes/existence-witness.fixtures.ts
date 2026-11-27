@@ -6,7 +6,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { type PlanNode, parsePlan, planNodes, scannedRows } from "#bench/harness/explain.ts"
 import { identity } from "#compiler/core/identity.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
@@ -69,7 +69,7 @@ export const existenceWitnessTemplate = migratedTemplate({
 	declaredIn: import.meta,
 	name: "existence witness",
 	content: { schema: Stored.name, logins: [] },
-	versions: [{ schema: Stored, logins: [], declarations: noDeclarations }],
+	versions: [{ schema: Stored, declarations: noDeclarations }],
 	options: {
 		label: "existence_witness",
 		extensions: [],
@@ -126,7 +126,7 @@ const expected = (c: Witness): ReadonlyArray<string> =>
 		return kept ? [`${i} ${i % 7}`] : []
 	})
 
-/** The statements storing the case's rows, the tables' triggers off, then ANALYZE where the case draws it. */
+/** The statements storing the case's rows by ordinary writes, then ANALYZE where the case draws it. */
 const loaded = (installed: Installed, c: Witness): ReadonlyArray<string> => {
 	const names = namesOf(installed)
 	const asked = names.table(Asked)
@@ -134,14 +134,12 @@ const loaded = (installed: Installed, c: Witness): ReadonlyArray<string> => {
 	const markedTable = names.table(Marked)
 	const tables = [asked, held, markedTable]
 	return [
-		...Arr.map(tables, (t) => `ALTER TABLE ${t} DISABLE TRIGGER USER`),
 		`INSERT INTO ${held} SELECT i, i % 7, x FROM generate_series(1, ${c.keys}) AS g(i), generate_series(1, ${c.each}) AS h(x)`,
 		`INSERT INTO ${markedTable} SELECT i, i % 7, 1 FROM generate_series(3, ${c.keys}, 3) AS g(i)`,
 		...Arr.map(
 			askedKeys(c),
 			(i, at) => `INSERT INTO ${asked} VALUES (${i}, ${i % 7}, ${countOf(c, at)})`
 		),
-		...Arr.map(tables, (t) => `ALTER TABLE ${t} ENABLE TRIGGER USER`),
 		...(c.statistics === "analyzed" ? Arr.map(tables, (t) => `ANALYZE ${t}`) : [])
 	]
 }

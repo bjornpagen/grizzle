@@ -23,7 +23,6 @@ import {
 	ServerError,
 	SpanKeyChange,
 	type StaleReason,
-	type TemporaryRefused,
 	type TokenMalformed,
 	type TokenRefused,
 	type TransientReason,
@@ -155,7 +154,6 @@ export type ReadReason =
 	| EncodingFailure
 	| InputRejected
 	| InputTooLarge
-	| TemporaryRefused
 	| CallInputRefused
 
 /** Where a read failed. */
@@ -206,8 +204,6 @@ const readStage = (reason: ReadReason): ReadStage => {
 			return "encode"
 		case "InputTooLarge":
 			return "resource"
-		case "TemporaryRefused":
-			return "execute"
 		case "CallInputRefused":
 			return "input"
 	}
@@ -351,16 +347,14 @@ export class TransportFailure extends Data.TaggedError("TransportFailure")<{
 /**
  * Why a write failed at execution, or was refused before any SQL: the server refused a statement
  * (ServerError), or a parameter's value outside its declared pattern as it bound it (ParamRejected); the compiler
- * refused the program, which does not compile for this Db; a relation input is past the size limit; the server refused a temporary table the write creates to a role
- * without TEMPORARY on the database (TemporaryRefused); or a statement answered rows grizzle cannot read, with what
- * its transaction then did.
+ * refused the program, which does not compile for this Db; a relation input is past the size limit; or a statement
+ * answered rows grizzle cannot read, with what its transaction then did.
  */
 export type ExecutionReason =
 	| ServerError
 	| ParamRejected
 	| CompileError
 	| InputTooLarge
-	| TemporaryRefused
 	| UnreadableAnswer
 
 /** A write failed at execution, or the host refused it before any SQL was sent, for `reason`. */

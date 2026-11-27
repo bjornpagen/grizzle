@@ -54,11 +54,11 @@ const matching = query(Catalog).rule((r) => {
 	return r
 		.match(Lesson, { lesson, subject, grade, search })
 		.where(
-			r.and(
+			r.and([
 				Search.matches(search, q),
 				r.eq(subject, r.param("subject", Lesson.fields.subject)),
 				r.le(grade, r.param("grade", Lesson.fields.grade))
-			)
+			])
 		)
 		.find({ lesson, rank: Search.rank(search, q), cover: Search.rankCd(search, q) })
 })
@@ -71,11 +71,11 @@ const ranked = query(Catalog)
 		return r
 			.match(Lesson, { lesson, subject, grade, search })
 			.where(
-				r.and(
+				r.and([
 					Search.matches(search, q),
 					r.eq(subject, r.param("subject", Lesson.fields.subject)),
 					r.le(grade, r.param("grade", Lesson.fields.grade))
-				)
+				])
 			)
 			.find({ lesson, rank: Search.rank(search, q) })
 	})
@@ -109,10 +109,10 @@ const ofSubject = query(Catalog).rule((r) => {
 	return r
 		.match(Lesson, { lesson, subject, grade })
 		.where(
-			r.and(
+			r.and([
 				r.eq(subject, r.param("subject", Lesson.fields.subject)),
 				r.le(grade, r.param("grade", Lesson.fields.grade))
-			)
+			])
 		)
 		.find({ lesson })
 })

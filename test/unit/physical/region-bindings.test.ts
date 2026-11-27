@@ -17,7 +17,7 @@
 
 import { type Reached as ReachedOf } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import {
 	judgedRegion,
 	type Reached,
@@ -32,7 +32,7 @@ const situations = [
 ] as const satisfies ReadonlyArray<ReachedOf<Reached>>
 
 const box =
-	"every region of one to sixteen occurrences of Task, chained by their columns or sharing one variable"
+	"every region of one to sixteen occurrences of Task, chained by columns no key holds or sharing one variable"
 
 /** Extracting a region's access reads each binding's variable class a fixed number of times, however wide the region. */
 export const extractingARegionReadsEachBindingsClassAFixedNumberOfTimes = property.exhaust(
@@ -46,7 +46,16 @@ export const extractingARegionReadsEachBindingsClassAFixedNumberOfTimes = proper
 			name: "linearity: the calls of classOfVar extracting a region of w occurrences are its two occurrences' and w − 2 times what the third occurrence added"
 		},
 		box,
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/physical/region-bindings.test.ts#extractingARegionReadsEachBindingsClassAFixedNumberOfTimes:-:0.0"
+				),
+				reason:
+					"the chained region of Task, each next occurrence's id bound to the variable its predecessor's account binds, is read from its root since SIP-P3's chain decision (a4234a7176, cte-policy rootChain), so the extraction asks its chain's steps alone and reads no facts and no class: the region of two read none, and the law's measure was empty; the chained box joins its occurrences at columns no key holds, a region no chain reads",
+				since: "2026-11-27"
+			}
+		],
 		kills: [
 			{
 				file: "packages/engine/src/physical/access/extract.ts",

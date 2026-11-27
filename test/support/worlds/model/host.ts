@@ -1236,51 +1236,9 @@ const containedLaws = (base: BaseSpec, law: LawId, source: SideSpec, target: Sid
 		: rosterCheck(law, closed, source, target)
 }
 
-/**
- * An alternatives law over the parent relation: for each armed handle, the arm's foreign key from its primary key into
- * the parent's facts standing at the handle, under the handle's law, and the parent's facts standing at it in the arm,
- * under the handle's reverse law (fin.md §7). The tag's containment in the roster is its closedId field's type, no law.
- */
-const alternativesLaws = (
-	base: BaseSpec,
-	law: Extract<LawSpec, { readonly kind: "alternatives" }>,
-	ids: Extract<LawIds, { readonly kind: "alternatives" }>
-): ReadonlyArray<HostLaw> => {
-	const parent = relationNamed(base, law.relation)
-	return Arr.flatMap(Rec.toEntries(law.arms), ([handle, name]): ReadonlyArray<HostLaw> => {
-		const arm = relationNamed(base, name)
-		const standing: HostSide = {
-			relation: parent.name,
-			fields: parent.key,
-			selection: fieldsEqual({ [law.tag]: handle })
-		}
-		const armSide: HostSide = { relation: arm.name, fields: arm.key, selection: everyFact }
-		return [
-			{
-				kind: "contained",
-				law: required(
-					own(ids.arms, handle),
-					`the ${handle} arm's law of the alternatives over ${law.relation}`
-				),
-				source: armSide,
-				target: standing
-			},
-			{
-				kind: "contained",
-				law: required(
-					own(ids.reverse, handle),
-					`the ${handle} handle's reverse law of the alternatives over ${law.relation}`
-				),
-				source: standing,
-				target: armSide
-			}
-		]
-	})
-}
-
 /** A law of one identity: its identity, when the installation gave the law of `kind` one. */
 const singleLaw = (ids: LawIds, kind: LawSpec["kind"]): LawId => {
-	if (ids.kind === "alternatives" || ids.kind !== kind) {
+	if (ids.kind !== kind) {
 		throw new Error(
 			`the installation names a ${ids.kind} law where the base declares a ${kind} law`
 		)
@@ -1288,62 +1246,43 @@ const singleLaw = (ids: LawIds, kind: LawSpec["kind"]): LawId => {
 	return ids.law
 }
 
-const alternativesLawIdsOf = (ids: LawIds): Extract<LawIds, { readonly kind: "alternatives" }> => {
-	if (ids.kind !== "alternatives") {
-		throw new Error(
-			`the installation names a ${ids.kind} law where the base declares an alternatives law`
-		)
-	}
-	return ids
-}
-
-/** One declared law as the host law model's laws, under the law identities the installation gave it. */
-const hostLaws = (base: BaseSpec, law: LawSpec, ids: LawIds): ReadonlyArray<HostLaw> => {
+/** One declared law as the host law model's law, under the law identity the installation gave it. */
+const hostLaw = (base: BaseSpec, law: LawSpec, ids: LawIds): HostLaw => {
 	switch (law.kind) {
 		case "key":
-			return [
-				{
-					kind: "key",
-					law: singleLaw(ids, law.kind),
-					relation: law.relation,
-					fields: law.fields,
-					selection: everyFact
-				}
-			]
+			return {
+				kind: "key",
+				law: singleLaw(ids, law.kind),
+				relation: law.relation,
+				fields: law.fields,
+				selection: everyFact
+			}
 		case "spanKey":
-			return [
-				{
-					kind: "spanKey",
-					law: singleLaw(ids, law.kind),
-					relation: law.relation,
-					scalars: law.scalars,
-					span: law.span,
-					selection: everyFact
-				}
-			]
+			return {
+				kind: "spanKey",
+				law: singleLaw(ids, law.kind),
+				relation: law.relation,
+				scalars: law.scalars,
+				span: law.span,
+				selection: everyFact
+			}
 		case "check":
-			return [
-				{
-					kind: "check",
-					law: singleLaw(ids, law.kind),
-					relation: law.relation,
-					holds: (fact) => predicateHolds(law.predicate, fact)
-				}
-			]
+			return {
+				kind: "check",
+				law: singleLaw(ids, law.kind),
+				relation: law.relation,
+				holds: (fact) => predicateHolds(law.predicate, fact)
+			}
 		case "contained":
-			return [containedLaws(base, singleLaw(ids, law.kind), law.source, law.target)]
+			return containedLaws(base, singleLaw(ids, law.kind), law.source, law.target)
 		case "covered":
-			return [
-				{
-					kind: "covered",
-					law: singleLaw(ids, law.kind),
-					source: sideOf(law.source),
-					target: sideOf(law.target),
-					span: law.span
-				}
-			]
-		case "alternatives":
-			return alternativesLaws(base, law, alternativesLawIdsOf(ids))
+			return {
+				kind: "covered",
+				law: singleLaw(ids, law.kind),
+				source: sideOf(law.source),
+				target: sideOf(law.target),
+				span: law.span
+			}
 	}
 }
 
@@ -1352,15 +1291,14 @@ const hostLaws = (base: BaseSpec, law: LawSpec, ids: LawIds): ReadonlyArray<Host
  * columns and primary keys; each primary key's law; and each declared law as the law model lowers it, under the law
  * identities of InstalledNames.laws, each of its law's kind. A containment is a foreign key, a selected source's over
  * its law columns, and one into a closed roster a row check (containedLaws); a coverage is a PERIOD foreign key, a
- * selected source's over its range law column; and an alternatives law is two containments per armed handle, the arm in
- * its parent standing at the handle and the parent standing at it in its arm (alternativesLaws, fin.md §7).
+ * selected source's over its range law column.
  */
 export const hostSchemaOf = (base: BaseSpec, names: InstalledNames): HostSchema => ({
 	relations: Arr.map(base.relations, (r) => hostRelation(names, r)),
 	laws: [
 		...Arr.map(base.relations, (r) => primaryKeyLaw(names, r)),
-		...Arr.flatMap(base.laws, (law, i) =>
-			hostLaws(base, law, required(names.laws[i], `the law identities of law ${i}`))
+		...Arr.map(base.laws, (law, i) =>
+			hostLaw(base, law, required(names.laws[i], `the law identity of law ${i}`))
 		)
 	]
 })
@@ -1378,33 +1316,11 @@ const judgedLabel = (place: string): LawId =>
 		})
 	)
 
-/** A declared law's identities as judgedSchemaOf labels them: one, or an alternatives law's per arm. */
-const judgedIds = (law: LawSpec, i: number): LawIds => {
-	switch (law.kind) {
-		case "alternatives":
-			return {
-				kind: "alternatives",
-				arms: Rec.fromEntries(
-					Arr.map(
-						Rec.keys(law.arms),
-						(handle) => [handle, judgedLabel(`${i} arm ${handle}`)] as const
-					)
-				),
-				reverse: Rec.fromEntries(
-					Arr.map(
-						Rec.keys(law.arms),
-						(handle) => [handle, judgedLabel(`${i} reverse ${handle}`)] as const
-					)
-				)
-			}
-		case "key":
-		case "spanKey":
-		case "check":
-		case "contained":
-		case "covered":
-			return { kind: law.kind, law: judgedLabel(String(i)) }
-	}
-}
+/** A declared law's identity as judgedSchemaOf labels it, by its place among the base's laws. */
+const judgedIds = (law: LawSpec, i: number): LawIds => ({
+	kind: law.kind,
+	law: judgedLabel(String(i))
+})
 
 /**
  * A base as the host law model reads it before an installation names it: each table and column under its declared
@@ -1422,15 +1338,15 @@ export const judgedSchemaOf = (base: BaseSpec): HostSchema => ({
 	})),
 	laws: [
 		...Arr.map(base.relations, (r) => primaryKeyLawAs(judgedLabel(`primary ${r.name}`), r)),
-		...Arr.flatMap(base.laws, (law, i) => hostLaws(base, law, judgedIds(law, i)))
+		...Arr.map(base.laws, (law, i) => hostLaw(base, law, judgedIds(law, i)))
 	]
 })
 
 /**
- * The judged label (judgedSchemaOf) of the law an installation of `base` under `names` holds by the identity `identity`:
- * the two schemas hold the base's laws in one order, its primary keys and then each declared law's, an alternatives
- * law's per arm, so the law at a place in one is the law at that place in the other. None for an identity no law of the
- * base holds, such as a roster domain's CHECK.
+ * The judged label (judgedSchemaOf) of the law an installation of `base` under `names` holds by the identity
+ * `identity`: the two schemas hold the base's laws in one order, its primary keys and then each declared law's, so the
+ * law at a place in one is the law at that place in the other. None for an identity no law of the base holds, such as a
+ * roster domain's CHECK.
  */
 export const judgedLawOf = (
 	base: BaseSpec,

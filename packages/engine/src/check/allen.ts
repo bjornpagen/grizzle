@@ -39,6 +39,7 @@ const operandOf = (e: ScalarExpr): SpanOperand => {
 		case "cast":
 		case "domainCast":
 		case "cond":
+		case "variant":
 		case "closedAt":
 		case "closedRow":
 		case "closedHas":

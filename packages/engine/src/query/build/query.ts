@@ -388,7 +388,7 @@ export const queryOf = <
 					"an attachment child, (parent) => query(S).rule(...), a query over the parent's variables"
 				)
 			}
-			const stated = statedDelivery(delivery, heading, label)
+			const stated = statedDelivery(delivery, label)
 			const run = runAttach(
 				n,
 				(scope) => child(parentVars(scope, heading, carriers)),

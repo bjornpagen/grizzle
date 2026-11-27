@@ -36,8 +36,8 @@ export const theRewritePipelineOverASmallClosedUniverseEveryCoreQueryOfUpToTwoOp
 		kills: [
 			{
 				file: "packages/engine/src/lower/optimize/eliminate/index.ts",
-				original: "\tconst exists = containmentEvidence(way.containment, cx.ctx.evidenceContext)",
-				replacement: '\tconst exists = containmentEvidence(way.containment, "snapshot")',
+				original: "\t\tcx.ctx.evidenceContext\n\t)\n",
+				replacement: '\t\t"snapshot"\n\t)\n',
 				why: "R03 reads a containment's evidence as a snapshot read would, so a deferred containment proves existence inside a transaction; the core and extended two-operator exhaustions fail."
 			}
 		]
@@ -76,8 +76,8 @@ export const theRewritePipelineOverASmallClosedUniverseEveryExtendedQueryOfUpToT
 		kills: [
 			{
 				file: "packages/engine/src/lower/optimize/eliminate/index.ts",
-				original: "\tconst exists = containmentEvidence(way.containment, cx.ctx.evidenceContext)",
-				replacement: '\tconst exists = containmentEvidence(way.containment, "snapshot")',
+				original: "\t\tcx.ctx.evidenceContext\n\t)\n",
+				replacement: '\t\t"snapshot"\n\t)\n',
 				why: "R03 reads a containment's evidence as a snapshot read would, so a deferred containment proves existence inside a transaction; the core and extended two-operator exhaustions fail."
 			}
 		]

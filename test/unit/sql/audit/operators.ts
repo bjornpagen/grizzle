@@ -15,6 +15,7 @@ import {
 	type Delete,
 	type Expr,
 	type FromItem,
+	type FromSource,
 	type FunctionCall,
 	type Insert,
 	type Merge,
@@ -55,6 +56,7 @@ import {
 } from "#compiler/sql/build.ts"
 import { lex, type Token } from "#compiler/sql/lexer.ts"
 import { printType, spellingOf } from "#compiler/sql/print.ts"
+import type { ScopeEscape } from "#compiler/sql/scope.ts"
 import { identityHooks, transformExpr, transformStatement } from "#compiler/sql/transform.ts"
 import type { Holes, WildOperator } from "#test/support/kernel/sqlgen.ts"
 import { noHoles } from "#test/support/kernel/sqlgen.ts"
@@ -86,6 +88,15 @@ import { transformOperand } from "#test/support/sql.ts"
  */
 export type AuditRule = ReturnType<typeof auditStatementViolations>[number]["rule"]
 
+/** An escape the printer's scope check refuses (sql/scope.ts), by its kind, as a statement break names the one it plants. */
+export type ScopeRule = `scope ${ScopeEscape["kind"]}`
+
+/** What a statement break breaks: a rule of the kernel audit, or the printer's scope by the escape it plants. */
+export type BreakRule = AuditRule | ScopeRule
+
+/** Whether a break breaks the printer's scope, which the printer refuses, rather than a rule of the audit. */
+export const isScopeRule = (rule: BreakRule): rule is ScopeRule => Str.startsWith("scope ")(rule)
+
 /**
  * The reason the audit's refusal of each rule carries: UnsupportedOperation for SQL the emission discipline forbids,
  * MalformedDescription for a malformed statement. A rule added to the audit does not compile here until it is placed.
@@ -111,7 +122,6 @@ export const auditRuleReason: {
 	arity: "MalformedDescription",
 	naming: "MalformedDescription",
 	columnList: "MalformedDescription",
-	scope: "MalformedDescription",
 	context: "MalformedDescription",
 	positional: "MalformedDescription",
 	lex: "MalformedDescription",
@@ -120,7 +130,7 @@ export const auditRuleReason: {
 
 export interface StatementBreak extends WildOperator {
 	readonly name: StatementBreakName
-	readonly rule: AuditRule
+	readonly rule: BreakRule
 }
 
 export interface FaithfulRewrite {
@@ -148,7 +158,7 @@ const values = (
 	alias: string,
 	columns: NonEmptyReadonlyArray<string>,
 	row: ReadonlyArray<Expr>
-): FromItem => ({
+): FromSource => ({
 	kind: "values",
 	rows: [row],
 	alias,
@@ -476,6 +486,7 @@ const bodiesOf = (s: PlStatement): ReadonlyArray<PlBody> => {
 				{ body: s.body, rebuild: (at, statement) => ({ ...s, body: s.body.with(at, statement) }) }
 			]
 		case "whenFound":
+		case "wholeReads":
 			return [
 				{
 					body: s.body,
@@ -613,6 +624,8 @@ const holdsNullOnEmpty = (e: Expr): boolean => {
 		case "field":
 		case "regclass":
 			return false
+		case "attribute":
+			return holdsNullOnEmpty(e.record)
 	}
 }
 
@@ -626,7 +639,7 @@ const refusedIdentifiers = [Str.repeat(64)("t"), "", "a\u0000b", "\ud800"] as co
 
 /** A table of statement breaks as written, each name the literal its entry spells: what StatementBreakName unions. */
 const breakTable = <const N extends string>(
-	table: Arr.NonEmptyReadonlyArray<WildOperator & { readonly name: N; readonly rule: AuditRule }>
+	table: Arr.NonEmptyReadonlyArray<WildOperator & { readonly name: N; readonly rule: BreakRule }>
 ) => table
 
 /**
@@ -786,14 +799,14 @@ const requiredBreakTable = breakTable([
 		)
 	},
 	{
-		name: "a data-modifying CTE with an unnamed RETURNING column",
+		name: "a data-modifying CTE with an unnamed RETURNING expression, no column reference its column names",
 		rule: "columnList",
 		holes: {
 			...noHoles,
 			statement: dataModifying((cte, body) => {
 				const returning = body.returning
 				return Arr.flatMap(returning, (t, i) =>
-					t.alias === undefined
+					t.alias === undefined || t.expr.kind === "column"
 						? []
 						: [{ ...cte, query: withReturning(body, returning.with(i, target(t.expr))) }]
 				)
@@ -1192,7 +1205,7 @@ const requiredBreakTable = breakTable([
 	},
 	{
 		name: "a column qualified by a relation nothing defines",
-		rule: "scope",
+		rule: "scope relation",
 		holes: {
 			...noHoles,
 			expr: (e) => (e.kind === "column" && e.table !== undefined ? [{ ...e, table: "r9999" }] : [])
@@ -1200,7 +1213,7 @@ const requiredBreakTable = breakTable([
 	},
 	{
 		name: "an unqualified column in a query",
-		rule: "scope",
+		rule: "scope unqualified",
 		holes: {
 			...noHoles,
 			expr: (e) => (e.kind === "column" && e.table !== undefined ? [tableCol(e.column)] : [])
@@ -1208,12 +1221,12 @@ const requiredBreakTable = breakTable([
 	},
 	{
 		name: "a derived table that is not LATERAL naming an earlier FROM entry",
-		rule: "scope",
+		rule: "scope relation",
 		holes: { ...noHoles, core: (c) => siblingReferences(c, false) }
 	},
 	{
 		name: "a write's FROM or USING reading the write's target",
-		rule: "scope",
+		rule: "scope relation",
 		holes: {
 			...noHoles,
 			statement: writes((w) => {
@@ -1235,7 +1248,7 @@ const requiredBreakTable = breakTable([
 	},
 	{
 		name: "a MERGE WHEN naming the side its match lacks",
-		rule: "scope",
+		rule: "scope relation",
 		holes: {
 			...noHoles,
 			statement: writes((w) => {
@@ -1267,7 +1280,7 @@ const requiredBreakTable = breakTable([
 	},
 	{
 		name: "an ORDER BY over a set operation naming no output",
-		rule: "scope",
+		rule: "scope unlisted",
 		holes: {
 			...noHoles,
 			select: (q) => {
@@ -1287,7 +1300,7 @@ const requiredBreakTable = breakTable([
 	},
 	{
 		name: "a key column that is not a column of the table",
-		rule: "scope",
+		rule: "scope unlisted",
 		holes: {
 			...noHoles,
 			statement: createTables((t) => {
@@ -1302,6 +1315,34 @@ const requiredBreakTable = breakTable([
 					}
 				]
 			})
+		}
+	},
+	{
+		name: "a LATERAL derived table naming a later FROM entry",
+		rule: "scope relation",
+		holes: { ...noHoles, core: (c) => laterReferences(c) }
+	},
+	{
+		name: "a CTE of a query's own WITH naming that query's FROM entry",
+		rule: "scope relation",
+		holes: { ...noHoles, select: (q) => holderReferences(q) }
+	},
+	{
+		name: "a column its relation does not list",
+		rule: "scope column",
+		holes: { ...noHoles, core: (c) => unlistedReferences(c) }
+	},
+	{
+		name: "a join's ON naming a FROM entry before its chain",
+		rule: "scope relation",
+		holes: { ...noHoles, core: (c) => chainReferences(c) }
+	},
+	{
+		name: "a CTE no WITH in reach binds",
+		rule: "scope cte",
+		holes: {
+			...noHoles,
+			fromSource: (item) => (item.kind === "cte" ? [{ ...item, name: freshRelation2 }] : [])
 		}
 	},
 	{
@@ -1549,7 +1590,7 @@ const unrequiredBreakTable = breakTable([
 	},
 	{
 		name: "a MERGE's RETURNING naming the source past a NOT MATCHED BY SOURCE",
-		rule: "scope",
+		rule: "scope relation",
 		holes: {
 			...noHoles,
 			statement: writes((w) => {
@@ -1577,7 +1618,7 @@ const unrequiredBreakTable = breakTable([
 	},
 	{
 		name: "a PL/pgSQL variable that is not declared",
-		rule: "scope",
+		rule: "scope variable",
 		holes: { ...noHoles, expr: (e) => (e.kind === "plVar" ? [{ ...e, name: "undeclared" }] : []) }
 	},
 	{
@@ -1719,6 +1760,110 @@ const columnOfItem = (item: FromItem): Expr | undefined => {
 		case "joins":
 			return columnOfItem(item.first)
 	}
+}
+
+/** A condition `where` narrowed by `reference = reference`, which reads the reference and nothing else. */
+const reading = (where: Expr | undefined, reference: Expr): Expr =>
+	where === undefined ? eq(reference, reference) : and([where, eq(reference, reference)])
+
+/** The column references of FROM entries, each of an entry that has one (columnOfItem), in order. */
+const entryColumns = (items: ReadonlyArray<FromItem>): ReadonlyArray<Expr> =>
+	Arr.flatMap(items, (item) => {
+		const column = columnOfItem(item)
+		return column === undefined ? [] : [column]
+	})
+
+/**
+ * A core's derived FROM entry, made LATERAL, reading an entry after it, which no FROM item reaches: a fenced step placed
+ * before the step it reads.
+ */
+const laterReferences = (c: SelectCore): ReadonlyArray<SelectCore> => {
+	const from = c.from
+	return Arr.flatMap(from, (item, j) => {
+		if (item.kind !== "derived" || item.query.body.kind !== "core") {
+			return []
+		}
+		const reference = entryColumns(from.slice(j + 1))[0]
+		if (reference === undefined) {
+			return []
+		}
+		const body = item.query.body
+		const rewritten: FromItem = {
+			...item,
+			lateral: true,
+			query: { ...item.query, body: { ...body, where: reading(body.where, reference) } }
+		}
+		return [{ ...c, from: from.with(j, rewritten) }]
+	})
+}
+
+/**
+ * A query's own WITH holding a MATERIALIZED CTE that reads an entry of the query's FROM, which the WITH stands before:
+ * a CTE held at a row site whose restriction reads an occurrence of the site's own query. MATERIALIZED keeps it a CTE
+ * in the print (sql/print-once.ts), where printed in place its query would be correlated into the reference's.
+ */
+const holderReferences = (q: OperandSelect): ReadonlyArray<OperandSelect> => {
+	const w = q.with
+	if (w === undefined || q.body.kind !== "core") {
+		return []
+	}
+	const reference = entryColumns(q.body.from)[0]
+	if (reference === undefined) {
+		return []
+	}
+	return Arr.flatMap(w.ctes, (cte, i) => {
+		const query = cte.query
+		if (query.kind !== "select" || query.body.kind !== "core") {
+			return []
+		}
+		const body = query.body
+		const held: Cte = {
+			...cte,
+			materialized: "MATERIALIZED",
+			query: { ...query, body: { ...body, where: reading(body.where, reference) } }
+		}
+		return [{ ...q, with: { ...w, ctes: replaceNonEmpty(w.ctes, i, held) } }]
+	})
+}
+
+/** A core reading a column of one of its FROM entries that lists its columns, by a name the entry does not list. */
+const unlistedReferences = (c: SelectCore): ReadonlyArray<SelectCore> =>
+	Arr.flatMap(c.from, (item) =>
+		item.kind === "derived" || item.kind === "values"
+			? [
+					{
+						...c,
+						where: reading(c.where, { kind: "column", table: item.alias, column: freshColumn })
+					}
+				]
+			: []
+	)
+
+/**
+ * A core's FROM entry after another, made the first of a join chain whose ON joins one fresh VALUES row reading the
+ * entry before it, which only a LATERAL entry reaches: a join's ON reaches its own chain alone. The population joins its
+ * first entry only, so the break makes the chain it breaks.
+ */
+const chainReferences = (c: SelectCore): ReadonlyArray<SelectCore> => {
+	const from = c.from
+	return Arr.flatMap(from, (item, j) => {
+		const reference = entryColumns(from.slice(0, j))[0]
+		if (reference === undefined || item.kind === "joins") {
+			return []
+		}
+		const chain: FromItem = {
+			kind: "joins",
+			first: item,
+			steps: [
+				{
+					kind: "on",
+					source: values(freshRelation, [freshColumn], [lit.int(1, types.integer)]),
+					on: reading(undefined, reference)
+				}
+			]
+		}
+		return [{ ...c, from: from.with(j, chain) }]
+	})
 }
 
 /** A core's later derived FROM entry reading an earlier entry: as written, or made LATERAL, which may. */

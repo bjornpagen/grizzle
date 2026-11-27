@@ -17,7 +17,10 @@
  * kind every draw holds once is reached as often as one it holds sixty times, and, where a case's sketch aims at the
  * situations still pending when it was drawn, among the statements holding a site of one: the statement audit reports
  * that rule and no other, under the reason the rule maps to (MalformedDescription for structure, UnsupportedOperation
- * for the emission discipline).
+ * for the emission discipline); a scope break, a name read where nothing binds it, is the printer's to refuse
+ * (sql/scope.ts), so the audit reports nothing, the scope check exactly the escape the break plants, and the printer
+ * refuses to print it, holding the statement as the lowering built it, before print once flattens a sub-query that
+ * names an earlier FROM entry away.
  * Its faithful rewrites are admitted and print as declared.
  * Its print, broken at one token, is reported by the text audit as exactly the rule broken.
  *
@@ -32,18 +35,25 @@
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
-import { type Case, property } from "@bjornpagen/testing/property"
-import { Effect } from "effect"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect } from "effect"
 import { printStatement } from "#compiler/sql/print.ts"
-import { carrierTableReads } from "#test/support/carrier-reads.ts"
+import { scopeEscapes } from "#compiler/sql/scope.ts"
+import {
+	carrierFills,
+	carrierReads,
+	carrierReadsOutsideRowsFrom
+} from "#test/support/carrier-reads.ts"
 import { shapeFeatures, shapeOf } from "#test/support/kernel/shape.ts"
 import { breaks, oneHole } from "#test/support/kernel/sqlgen.ts"
 import {
 	auditStatementViolations,
 	auditTextViolations,
+	guardedTermsOf,
 	violationError
 } from "#test/support/oracle/verify/sql.ts"
 import { pickFrom } from "#test/support/pick.ts"
+import { servable, sessionObjectsNamed } from "#test/support/session-objects.ts"
 import {
 	type AuditLiveFeature,
 	auditLiveFeatures,
@@ -61,7 +71,9 @@ import {
 	marksMet,
 	noteReached,
 	pickedStatement,
+	printerRefuses,
 	ruleSet,
+	scopeRuleSet,
 	type TextBreakFeature,
 	textBreakSituations,
 	textReaching,
@@ -73,12 +85,12 @@ import {
 	breakSketchGen,
 	liveSketchGen,
 	resolveLive,
-	writtenSketchGen,
-	writtenStandUps
+	writtenSketchGen
 } from "#test/unit/sql/audit/live.ts"
 import {
 	auditRuleReason,
 	faithfulRewrites,
+	isScopeRule,
 	statementBreaks,
 	textBreaks
 } from "#test/unit/sql/audit/operators.ts"
@@ -129,10 +141,10 @@ export const everyLiveStatementPassesBothAuditsPrintsAsItsTwinDoesSurvivesTheSna
 
 /**
  * Every statement a generated write program places passes both audits, prints as its twin does, survives the
- * snapshot's codec and emit, and compiles deterministically; and so does every statement its session stands up before
- * its first call, each carrier, its emptying and its reader, whose kinds and shapes the case does not note, so they steer
- * nothing; and no statement reads a carrier's table, each reads it through its reader, so no plan of one depends on the
- * table's file, which the carrier's emptying gives anew past the pages it keeps (sql/print.ts sessionTableKeptPages).
+ * snapshot's codec and emit, and compiles deterministically; and no statement it places names an object of its
+ * session: a carrier travels in its transaction's settings (write/carriers/carriers.ts), filled by set_config and read
+ * by current_setting, so every statement's text is its program's alone and one statement, one queryid, in every
+ * session.
  *
  * Budget: 60 runs and 60 steered cases, what its suite stated before it became a property
  * (test/unit/sql/audit.test.ts:486 at 8cad5bce, its runs and its coverage's cases).
@@ -153,15 +165,23 @@ export const everyStatementAGeneratedWriteProgramPlacesPassesBothAuditsPrintsAsI
 					if (writesWhere(twinned.statement, marksMet)) {
 						c.note("old under IS TRUE in an INSERT's RETURNING")
 					}
+					if (carrierReads(twinned.statement).size > 0) {
+						c.note("a carrier read")
+					}
+					if (carrierFills(twinned.statement).size > 0) {
+						c.note("a carrier filled")
+					}
 				}
-				for (const stood of writtenStandUps(sketch.sketch)) {
-					universal(stood)
-				}
-				for (const twinned of live.statements) {
+				for (const twinned of Arr.filter(live.statements, (t) => servable(t.statement))) {
 					assert.deepEqual(
-						[...carrierTableReads(twinned.statement)],
+						sessionObjectsNamed(twinned.statement),
 						[],
-						"a statement reads a carrier only through its reader, its table only a fill's INSERT target"
+						"a served statement names no object of its session: its text is its program's alone, one statement in every session"
+					)
+					assert.deepEqual(
+						carrierReadsOutsideRowsFrom(printStatement(twinned.statement)),
+						[],
+						"a served statement reads every carrier through one ROWS FROM function scan, never a select list's unnest a rescan evaluates again"
 					)
 				}
 				for (const { ast, text } of live.emitted) {
@@ -199,18 +219,18 @@ export const everyStatementAGeneratedWriteProgramPlacesPassesBothAuditsPrintsAsI
 				why: "The same-key pair's arm of an insert's verdict UNION ALL leaves its fact columns unnamed (write/insert/protocol.ts paired); the written statements' search fails."
 			},
 			{
-				file: "packages/engine/src/write/carriers/carriers.ts",
-				original:
-					"export const carrierScan = (carrier: WriteCarrier, alias: string): FromSource =>\n\tcarrierRead(carrierTable(carrier), alias)\n",
+				file: "packages/engine/src/sql/carriers.ts",
+				original: "): FromSource => {\n\tif (!isNonEmpty(columns)) {\n",
 				replacement:
-					'export const carrierScan = (carrier: WriteCarrier, alias: string): FromSource => ({\n\tkind: "table",\n\ttable: carrier.name,\n\talias\n})\n',
-				why: "A statement reads its carrier's table, not its reader: its plan depends on the table's file, which the carrier's emptying gives anew past the pages it keeps, so the statement is planned again; the written statements' search fails."
+					'): FromSource => {\n\tif (columns.length >= 0) {\n\t\treturn { kind: "table", table: { schema: "pg_temp", name: carrier }, alias }\n\t}\n\tif (!isNonEmpty(columns)) {\n',
+				why: "A statement reads its carrier from a table of its session's own temporary schema, as format 8 did: its text names a session object, so its identity, its queryid, is its session's, a new statement in each session; the written statements' search fails."
 			}
 		]
 	})
 
 /**
- * A statement broken at one site is refused by the audit for exactly the rule it breaks, under that rule's reason.
+ * A statement broken at one site is refused by the audit for exactly the rule it breaks, under that rule's reason, or,
+ * broken in its scope, by the printer for exactly the escape it plants.
  *
  * Budget: 300 runs and 600 steered cases, what its suite stated before it became a property
  * (test/unit/sql/audit.test.ts:553 at 8cad5bce, its runs and its coverage's cases).
@@ -242,11 +262,24 @@ export const aStatementBrokenAtOneSiteIsRefusedByTheAuditForExactlyTheRuleItBrea
 								defined(sites[i], "a site drawn per break")
 							)
 							const found = auditStatementViolations(rewrite.statement)
-							const got = ruleSet(found)
+							const escapes = scopeEscapes(rewrite.statement)
+							const got = Arr.join(
+								Arr.filter([ruleSet(found), scopeRuleSet(escapes)], (r) => r !== ""),
+								", "
+							)
 							if (got !== operator.rule) {
 								problems.push(
-									`${operator.name} (${rewrite.kind} ${rewrite.site}): reported [${got}], not [${operator.rule}]\n${clip(printStatement(rewrite.statement))}`
+									`${operator.name} (${rewrite.kind} ${rewrite.site}): reported [${got}], not [${operator.rule}]\n${escapes.length > 0 ? `${escapes.length} escapes, the first at ${escapes[0]?.at}` : clip(printStatement(rewrite.statement))}`
 								)
+								continue
+							}
+							if (isScopeRule(operator.rule)) {
+								if (!printerRefuses(rewrite.statement)) {
+									problems.push(`${operator.name}: the printer printed it`)
+								}
+								for (const situation of breakReaching.reaches(s, operator)) {
+									noteReached(c, situation)
+								}
 								continue
 							}
 							const [violation] = found
@@ -271,6 +304,31 @@ export const aStatementBrokenAtOneSiteIsRefusedByTheAuditForExactlyTheRuleItBrea
 			},
 			kept: [],
 			kills: [
+				{
+					file: "packages/engine/src/sql/print-once.ts",
+					original: "\tassertScoped(statement)\n",
+					replacement: "",
+					why: "The printer prints a statement without its scope check: every scope break is printed, a text PostgreSQL refuses (42P01, 42703), and the property fails."
+				},
+				{
+					file: "packages/engine/src/sql/scope.ts",
+					original: '\twalked({ kind: "statement", statement }, new Set()).escapes\n',
+					replacement: "\t[]\n",
+					why: "The scope check finds no escape: no scope break is refused, at the printer or apart, and the property fails."
+				},
+				{
+					file: "packages/engine/src/sql/scope.ts",
+					original:
+						"\t\treturn binder.index >= binder.frame.lo && binder.index < binder.frame.hi\n",
+					replacement: "\t\treturn true\n",
+					why: "Every name a frame binds reaches every place under it: a FROM item that is not LATERAL reads its siblings, a write's FROM its target and a MERGE's WHEN the side its match lacks, and the property fails."
+				},
+				{
+					file: "packages/engine/src/sql/scope.ts",
+					original: "\t\t\t\t\t\tframe.reachFrom(start)\n",
+					replacement: "\t\t\t\t\t\tframe.reachFrom(lo)\n",
+					why: "A join's ON reaches the FROM items before its chain, which PostgreSQL refuses (42P01), and the property fails."
+				},
 				{
 					file: "packages/engine/src/sql/transform.ts",
 					original:
@@ -376,7 +434,7 @@ export const aPrintedStatementBrokenAtOneTokenIsRefusedByTheTextAuditForExactlyT
 								continue
 							}
 							const broken = pickFrom([v, ...vs], defined(sites[i], "a site drawn per text break"))
-							const got = ruleSet(auditTextViolations(broken))
+							const got = ruleSet(auditTextViolations(broken, guardedTermsOf(s)))
 							if (got !== b.rule) {
 								problems.push(`${b.name}: reported [${got}], not [${b.rule}]\n${clip(broken)}`)
 							}
@@ -390,8 +448,24 @@ export const aPrintedStatementBrokenAtOneTokenIsRefusedByTheTextAuditForExactlyT
 				kind: "specification",
 				name: "each text break refused by the text audit for exactly the rule it declares"
 			},
-			kept: [],
+			kept: [
+				{
+					token: ReplayToken(
+						"test/unit/sql/audit.test.ts#aPrintedStatementBrokenAtOneTokenIsRefusedByTheTextAuditForExactlyTheRuleItBreaks@small-stack:-:2.9.rkz.15dh.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+					),
+					reason:
+						"Payroll's shift, its stored hours a CASE whose ELSE the break drops, printing as a partial generation's guarded term does: the text audit admitted it by its shape alone, where the statement holds two partial generations and the text three guarded terms (rotating 0x9add1c84, case 312)",
+					since: "2026-11-26"
+				}
+			],
 			kills: [
+				{
+					file: "test/support/oracle/verify/sql.ts",
+					original:
+						"\t\t\t\t\t\tif (!top.elseSeen && !(guardedTerm && this.admitsGuardedTerm())) {\n",
+					replacement: "\t\t\t\t\t\tif (!top.elseSeen && !guardedTerm) {\n",
+					why: "A guarded term admitted by its shape alone: a stored generation's CASE whose ELSE went missing prints as a partial generation's does, the text audit admits it, and the property fails."
+				},
 				{
 					file: "packages/engine/src/sql/lexer.ts",
 					original: "\t\t\tout += text.slice(from, k) + String.fromCharCode(c - 32)",

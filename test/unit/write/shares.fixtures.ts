@@ -9,8 +9,18 @@ import type { HostCall } from "#adapter/apply/run.ts"
 import { type DrawnShares, drawShares, eachShare, sendsAlone } from "#adapter/apply/shares.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
-import { drawn, natural, pg } from "#compiler/public/fields.ts"
-import { counted, fin, on, ordered, relation, schema, tree } from "#compiler/public/schema.ts"
+import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
+import {
+	counted,
+	fin,
+	fold,
+	Monoid,
+	on,
+	ordered,
+	relation,
+	schema,
+	tree
+} from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { valueBytes } from "#compiler/runtime/write/read-call.ts"
@@ -142,7 +152,10 @@ export const runShares = (c: Drawn, k: Case<Feature>) =>
 /**
  * learning-commons' families in one schema: an owner and its ordered members, nested in its fact, as Standard and
  * StandardChild; a tree, every node nested in its root's fact, as Outline; and a counted family whose members are facts
- * of their own, as GuidanceArea and Guideline.
+ * of their own, as GuidanceArea and Guideline. And qti-pie's import, pantry's Node and Attribute: each tree's node owns
+ * a counted family of Marks, facts of their own naming their node by its root and its `start`, which the walk draws and
+ * no fact states, their values folded into the node's `weight`, as Attribute's slots into Node.attrs (AL2), which AL3
+ * holds to the slots its governor requires.
  */
 const Owner = relation("Owner", { id: pg.bigint, children: drawn(natural) }, ["id"])
 
@@ -160,10 +173,20 @@ const Node = relation(
 		parent: drawn(natural),
 		at: drawn(natural),
 		children: drawn(natural),
-		label: pg.bigint
+		label: pg.bigint,
+		marks: drawn(natural),
+		weight: accumulated(pg.bigint, 0n)
 	},
 	["root", "start"]
 )
+
+const Mark = relation("Mark", { root: pg.bigint, start: natural, name: pg.bigint, v: pg.bigint }, [
+	"root",
+	"start",
+	"name"
+])
+
+const nodeMarks = counted(on(Mark, "root", "start"), fin(Node, "marks"))
 
 const Area = relation("Area", { area: pg.bigint, members: drawn(natural) }, ["area"])
 
@@ -171,10 +194,17 @@ const Member = relation("Member", { member: pg.bigint, area: pg.bigint }, ["memb
 
 const Families = schema(
 	"ShareFamilies",
-	[Owner, Child, Node, Area, Member],
+	[Owner, Child, Node, Mark, Area, Member],
 	[
 		ordered(on(Child, "parent", "at"), fin(Owner, "children")),
 		tree(on(Node, "parent", "at"), fin(Node, "children"), { root: ["root"] }),
+		nodeMarks,
+		fold(
+			nodeMarks,
+			Monoid.sum,
+			on(Mark, "root", "start", "v"),
+			on(Node, "root", "start", "weight")
+		),
 		counted(on(Member, "area"), fin(Area, "members"))
 	]
 )
@@ -183,8 +213,8 @@ const familiesReality = realityWrite(succeeded(testArtifacts(Families, testCompi
 
 /**
  * A case of the families: how many owners, trees and areas, how many members each holds (an owner's ordered members,
- * a tree's nodes under its root, an area's counted members), and the bytes a share holds, small, so a call is many
- * shares.
+ * a tree's nodes under its root, an area's counted members, a node's marks), and the bytes a share holds, small, so a
+ * call is many shares.
  */
 export interface Grouped {
 	readonly owners: number
@@ -202,13 +232,19 @@ export const groupedGen: Gen<Grouped> = (s) => ({
 	bytes: s.draw(int(200, 1200))
 })
 
-export type GroupedFeature = "a call of several shares" | "a group past a share"
+export type GroupedFeature =
+	| "a call of several shares"
+	| "a group past a share"
+	| "a tree's nodes and their marks past a share"
 
 /** A tree's node below its root, `label` its own, with `width` children each until depth 2. */
 interface TreeNode {
 	readonly label: bigint
 	readonly children: ReadonlyArray<TreeNode>
 }
+
+/** How many nodes nodeOf's tree of `width` holds: its root, its children and theirs. */
+const treeSize = (width: number): number => 1 + width + width * width
 
 /** A tree's node at `depth` below its root, `label` its own, with `width` children each until depth 2. */
 const nodeOf = (label: number, depth: number, width: number): TreeNode => ({
@@ -288,9 +324,23 @@ export const runGrouped = (c: Grouped, k: Case<GroupedFeature>) =>
 					})
 				)
 		)
+		/** Each tree's every node, by its start in pre-order (a root's 0), marked `members` times, each mark's value its
+		 * name, as an import states each element's attributes beside its document's tree. */
+		const nodes = treeSize(Math.max(1, Math.min(3, c.members)))
+		const marks = Arr.flatMap(trees, (t) =>
+			Arr.flatMap(
+				Array.from({ length: nodes }, (_, start) => start),
+				(start) =>
+					Arr.map(
+						Array.from({ length: c.members }, (_, i) => i + 1),
+						(name) => ({ root: t.root, start: BigInt(start), name: BigInt(name), v: BigInt(name) })
+					)
+			)
+		)
 		const change = ChangeSet.empty(Families).insertAll({
 			Owner: owners,
 			Node: trees,
+			Mark: marks,
 			Area: areas,
 			Member: members
 		})
@@ -328,6 +378,9 @@ export const runGrouped = (c: Grouped, k: Case<GroupedFeature>) =>
 		}
 		if (shares > 1 && c.members * 60 > c.bytes) {
 			k.note("a group past a share")
+		}
+		if (shares > 1 && nodes * c.members * 40 > c.bytes) {
+			k.note("a tree's nodes and their marks past a share")
 		}
 		return {
 			whole,

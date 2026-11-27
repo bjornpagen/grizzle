@@ -35,11 +35,14 @@ const placeGen: Gen<ContractPlace> = element([
 
 export const places = finite(placeGen)
 
+const outerKey = Symbol("Outer")
+const scoreKey = Symbol("Score")
+const tickKey = Symbol("Tick")
 /** A program of the place, built fresh: its schema values, root first. */
 const programOf = (place: ContractPlace): Arr.NonEmptyReadonlyArray<AnySchema> => {
-	const Score = contract("Score", pg.integer, undefined, undefined)
-	const Tick = contract("Tick", pg.bigint, undefined, undefined)
-	const Outer = contract("Outer", Score, undefined, undefined)
+	const Score = contract<typeof scoreKey>()("Score", pg.integer, undefined, undefined)
+	const Tick = contract<typeof tickKey>()("Tick", pg.bigint, undefined, undefined)
+	const Outer = contract<typeof outerKey>()("Outer", Score, undefined, undefined)
 	switch (place) {
 		case "a root relation's field":
 			return [

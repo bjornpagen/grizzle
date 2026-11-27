@@ -287,10 +287,9 @@ export const aConcatenationTermStandsInAQueryExactlyWhereItsPartsBoundItsBytesWi
 			},
 			{
 				file: "packages/engine/src/scalar/compute/typing.ts",
-				original:
-					"\t\tconst bytes = aBytes === undefined || bBytes === undefined ? undefined : aBytes + bBytes\n",
+				original: "\t\treturn sum === undefined || bytes === undefined ? undefined : sum + bytes\n",
 				replacement:
-					"\t\tconst bytes = aBytes === undefined || bBytes === undefined ? undefined : Math.max(aBytes, bBytes)\n",
+					"\t\treturn sum === undefined || bytes === undefined ? undefined : Math.max(sum, bytes)\n",
 				why: "The term's bound is its widest part's, not their sum: a query holds a concatenation of two halves and more, and a derived relation's head is typed narrower than the texts it holds."
 			}
 		]

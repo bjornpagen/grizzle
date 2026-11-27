@@ -1,7 +1,7 @@
 import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { steered } from "@bjornpagen/testing/gen"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import {
@@ -33,7 +33,7 @@ import {
 	treeOn,
 	uuidOfRow
 } from "#test/support/families/fill.ts"
-import { installMigrated } from "#test/support/install-migrate.ts"
+import { installFullWorld } from "#test/support/installed.ts"
 import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"
 import { oneFlight } from "#test/support/one-flight.ts"
 import { applicationOf, member, openServedDb } from "#test/support/served-db.ts"
@@ -54,12 +54,11 @@ export const aStoredInstanceInsertedAgainAnswersNoChangeWhereEveryStatedRowIsSto
 					Effect.gen(function* () {
 						const built = buildFill(spec)
 						const declared = built.rename("Again")
-						const done = yield* installMigrated(declared, {
-							ambient: ordinarySession,
-							label: "again",
-							logins: [fullWorld(declared, {}).server],
-							extensions: []
-						})
+						const done = yield* installFullWorld(
+							declared,
+							{},
+							{ ambient: ordinarySession, label: "again" }
+						)
 						const value = built.rename(done.schema)
 						const world = fullWorld(value, {})
 						const names = namesOf(done)
@@ -244,8 +243,30 @@ export const aStoredInstanceInsertedAgainAnswersNoChangeWhereEveryStatedRowIsSto
 			kind: "specification",
 			name: "the README's set rule over relations as sets of facts (test/support/families/again.ts againVerdict), every drawn value the reference writer's (test/support/families/fill.ts writtenRows)"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/write/reinsert/reinsert.test.ts#aStoredInstanceInsertedAgainAnswersNoChangeWhereEveryStatedRowIsStoredAsStatedAcceptedWhereItAddsRowsAndInvariantRejectedOnTheKeyOfAStatedRowThatDiffersWitnessedByThatRowsKey:-:8.0.0.0.1.1.0.0.0.3.0.0.1.0.0.3.0.1.0.1.0.1.0.0.0.1.0.1.0.0.0.0.0.0.0.0.1.0.1.1.1.0"
+				),
+				reason:
+					"a counted member of a closed owner renamed: R1 a member of three counted families of the closed R0, member 2 stored at slot 0 of owner 1's groups, inserted again as member 3 beside owner 1 restated, which the host draws at slot 0 with the stored count. The oracle accepted it, adding member 3, where the README refuses a member joining a stored closed owner's family on the family's rule alone, witnessed by the member's key; the slot key refused it with no witness, the host's facts naming no drawn slot",
+				since: "2026-11-26"
+			}
+		],
 		kills: [
+			{
+				file: "test/support/families/again.ts",
+				original: "\t\t\t\t\t\t!relationAt(spec, f.owner).mutable &&\n",
+				replacement: "\t\t\t\t\t\tfalse &&\n",
+				why: "The oracle's old verdict: a new counted member under a stored closed owner is added, so the kept case expects accepted, adding member 3, where the insert is refused on the family's rule."
+			},
+			{
+				file: "packages/engine/src/write/family/additions.ts",
+				original: '\t\t\t\t\tonConflict: { kind: "every", action: { kind: "doNothing" } },',
+				replacement:
+					'\t\t\t\t\tonConflict: { kind: "columns", columns: mapNonEmpty(relation.primaryFields, (f) => w.names.column(name, f.name)), action: { kind: "doNothing" } },',
+				why: "The member insert arbitrates its primary key alone, as before main's ruling on reinsert's round trips: the kept case's new member meets the stored closed owner's member at the family's slot key, a 23505 the statement does not judge, refused with the host's witness, unreported, since no stated row names the hidden index, where the statement names the member's key."
+			},
 			{
 				file: "packages/engine/src/write/family/additions.ts",
 				original: "\t\t: source.walked.has(key) || computes(source.stamps, key)",

@@ -75,7 +75,7 @@ const stepSideOf = (selection: Selection) => {
 		case "weight":
 			return select(Member, (m) => m.ge(m.w, 1n))
 		case "quantity and weight":
-			return select(Member, (m) => m.and(m.ge(m.qty, 1n), m.ge(m.w, 1n)))
+			return select(Member, (m) => m.and([m.ge(m.qty, 1n), m.ge(m.w, 1n)]))
 	}
 }
 

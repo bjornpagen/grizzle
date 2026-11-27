@@ -149,7 +149,8 @@ const claimHost = (codec: ScalarCodec, value: unknown): Option.Option<unknown> =
 		case "bytes":
 		case "sha256":
 		case "tsvector":
-			throw defect(
+		case "variant":
+			defect(
 				`a context's field is no ${codec.spec.carrier} field: a context admits none (ir/desc.ts contextFieldAdmits)`
 			)
 	}

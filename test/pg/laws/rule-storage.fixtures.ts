@@ -4,7 +4,7 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, String as Str } from "effect"
 import { blockSize } from "#compiler/core/page.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, derived, relation, schema } from "#compiler/public/schema.ts"
@@ -67,7 +67,7 @@ export const storageTemplate = migratedTemplate({
 	declaredIn: import.meta,
 	name: "rule storage",
 	content: { schema: "RuleStorage", logins: [] },
-	versions: [{ schema: storageSchema("RuleStorage"), logins: [], declarations: noDeclarations }],
+	versions: [{ schema: storageSchema("RuleStorage"), declarations: noDeclarations }],
 	options: {
 		label: "rule_storage",
 		extensions: [],

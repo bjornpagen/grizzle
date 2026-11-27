@@ -12,7 +12,7 @@ import {
 import { resolveReference } from "@bjornpagen/grizzle-text/uri"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { regexTextMaxBytes } from "#compiler/core/errors.ts"
-import type { ExprId } from "#compiler/core/ids.ts"
+import type { ExprId, ParamId } from "#compiler/core/ids.ts"
 import { sha256Digest } from "#compiler/core/sha256.ts"
 import { wellFormed } from "#compiler/core/text.ts"
 import { declaredOrder } from "#compiler/ir/codes.ts"
@@ -34,7 +34,8 @@ import {
 	type RegexRef,
 	regexRefOf,
 	type ScalarType,
-	typeLabel
+	typeLabel,
+	type VariantInfo
 } from "#compiler/ir/scalar.ts"
 import type { CastValue, HostCast } from "#compiler/scalar/compute/cast.ts"
 import { floatBits, totalFloat } from "#compiler/scalar/compute/float.ts"
@@ -55,9 +56,12 @@ import { normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import {
 	compareValues,
 	equalByIdentity,
+	evaluatedValue,
 	type HostValue,
+	heldValue,
 	hostOf,
-	type OrderSpec
+	type OrderSpec,
+	type VariantValue
 } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import {
@@ -68,6 +72,7 @@ import {
 	netValueOf,
 	netWithin
 } from "#compiler/scalar/values/net.ts"
+import { hostVariantDigest } from "#compiler/scalar/variant-digest.ts"
 
 /**
  * Why an evaluation has no value: the precondition an operation's operands fail, which no admitted expression meets
@@ -111,13 +116,19 @@ export type ClosedReadNode =
  * `closed(read, args)` at its key values `args`, none of them NULL: C.at's cell, the value of its field at the key, NULL
  * where the relation holds no tuple there; C.row's set, the completions of the key prefix, empty where none completes
  * it; C.has's truth, whether a tuple holds the key, false where none does; and undefined where the reader holds no
- * closed relation, which the evaluation refuses as unsupported.
+ * closed relation, which the evaluation refuses as unsupported; and a declared parameter, by its id, its value as the
+ * call's admission holds it, or undefined where the evaluation reads no call's parameters, which it refuses as
+ * unsupported (a computed field's term over the call: runtime/write/binding.ts ComputedFields).
  */
 export interface EvalLeaves {
 	readonly value: HostValue | undefined
 	readonly column: (ref: ColumnRef) => SqlValue | undefined
 	readonly closed: (read: ClosedReadNode, args: ReadonlyArray<HostValue>) => SqlValue | undefined
+	readonly param: (param: ParamId) => SqlValue | undefined
 }
+
+/** The parameter leaf of an evaluation that reads no call's parameters (EvalLeaves `param`): none of them. */
+export const noParamLeaf: EvalLeaves["param"] = () => undefined
 
 /**
  * An expression compiled (compiledExpr): its value over one evaluation's leaves, regex membership read by `patterns`,
@@ -156,7 +167,8 @@ const lift = <A extends HostValue>(r: Result.Result<A, Undefined>): EvalResult =
  * id's and a set's ranked by their roster's declaration (ir/codes.ts declaredOrder). An ordered roster's is its codes'
  * order, the one a codec's spec ranks them by (HandleOrder), so the evaluator needs no installation's codes and agrees
  * with PostgreSQL's order of the stored ids; an unordered roster's closed ids admit no ordering comparison, so only
- * their equality reads it.
+ * their equality reads it. A variant's tag is ranked so too, and its arm's fields by their own types' orders: a
+ * variant has no stated order, so only its equality reads it.
  */
 export const evaluatorOrder = (type: ScalarType): OrderSpec => {
 	const base = baseOf(type)
@@ -164,6 +176,22 @@ export const evaluatorOrder = (type: ScalarType): OrderSpec => {
 		case "code":
 		case "bits":
 			return { carrier: base.carrier, roster: declaredOrder(base.roster) }
+		case "variant":
+			return {
+				carrier: "variant",
+				roster: declaredOrder(base.variant.roster),
+				arms: new Map(
+					base.variant.arms.map(
+						(arm) =>
+							[
+								arm.handle,
+								{
+									fields: arm.fields.map((f) => ({ name: f.name, spec: evaluatorOrder(f.type) }))
+								}
+							] as const
+					)
+				)
+			}
 		case "int2":
 		case "int4":
 		case "int8":
@@ -313,8 +341,9 @@ const integerOf = (c: Carrier): ((v: HostValue) => bigint) => {
 		case "rangeDate":
 		case "vector":
 		case "tsvector":
+		case "variant":
 			return () => {
-				throw defect(`an integer operand, not a ${c}`)
+				defect(`an integer operand, not a ${c}`)
 			}
 	}
 }
@@ -353,8 +382,9 @@ const integerHost = (type: ScalarType): ((x: bigint) => HostValue) => {
 		case "rangeDate":
 		case "vector":
 		case "tsvector":
+		case "variant":
 			return () => {
-				throw defect(`an integer result, not a ${c}`)
+				defect(`an integer result, not a ${c}`)
 			}
 	}
 }
@@ -509,6 +539,7 @@ const arithmetic = (
 		case "rangeDate":
 		case "vector":
 		case "tsvector":
+		case "variant":
 			return refused(`${fn} over ${c}`)
 	}
 }
@@ -566,6 +597,7 @@ const signed = (fn: "neg" | "abs" | "sign", c: Carrier, type: ScalarType): Unary
 		case "rangeDate":
 		case "vector":
 		case "tsvector":
+		case "variant":
 			return refused(`${fn} over ${c}`)
 	}
 }
@@ -640,7 +672,7 @@ const applied = (op: NativeOp, argTypes: ReadonlyArray<ScalarType>, type: Scalar
 		case "upper": {
 			if (c !== "range4" && c !== "range8" && c !== "rangeDate") {
 				return () => {
-					throw defect(`${fn} of a span, not of a ${c}`)
+					defect(`${fn} of a span, not of a ${c}`)
 				}
 			}
 			return fn === "lower"
@@ -813,7 +845,7 @@ const applied = (op: NativeOp, argTypes: ReadonlyArray<ScalarType>, type: Scalar
 			)
 		case "complement":
 			return refused("complement, which no scalar operation yields")
-		case "canonicalZero": {
+		case "canonical": {
 			const carrier = c === "float4" ? "float4" : "float8"
 			return (args) => Result.ok(hostOf(carrier, a(args)) + 0)
 		}
@@ -864,7 +896,7 @@ const netTests = {
 const netCarrierOf = (type: ScalarType): NetCarrier => {
 	const carrier = baseOf(type).carrier
 	if (carrier !== "inet" && carrier !== "cidr") {
-		throw defect(`a network containment operand of inet or cidr, not of ${carrier}`)
+		defect(`a network containment operand of inet or cidr, not of ${carrier}`)
 	}
 	return carrier
 }
@@ -1003,14 +1035,14 @@ const castOperand = (
 		case "float":
 			if (source !== "float4" && source !== "float8") {
 				return () => {
-					throw defect(`a cast from a float, not from a ${source}`)
+					defect(`a cast from a float, not from a ${source}`)
 				}
 			}
 			return (v) => host.convert(hostOf(source, v))
 		case "money":
 			if (source !== "money" && source !== "exactMoney") {
 				return () => {
-					throw defect(`a cast from money, not from a ${source}`)
+					defect(`a cast from money, not from a ${source}`)
 				}
 			}
 			return (v) => host.convert(hostOf(source, v))
@@ -1032,7 +1064,7 @@ const castHost = (to: ScalarType): ((value: CastValue) => HostValue) => {
 	const host = integerHost(to)
 	return (value) => {
 		if (typeof value !== "bigint") {
-			throw defect(`a cast into ${typeLabel(to)} yields an integer`)
+			defect(`a cast into ${typeLabel(to)} yields an integer`)
 		}
 		return host(value)
 	}
@@ -1211,6 +1243,73 @@ const danglingExpr =
 	}
 
 /**
+ * A variant's operation evaluated over its operands (ir/expr.ts ScalarExpr `variant`), NULL where an operand is: its
+ * tag, the handle its value holds; one field of an arm, the value its arm holds there, NULL where its value holds
+ * another arm, as its composite's absent attribute reads; a value of an arm, its handle and its fields, each operand one
+ * field of the arm in declared order; its identity image (scalar/variant-digest.ts hostVariantDigest).
+ */
+const variantExpr = (
+	expr: TableExprOf<"variant">,
+	args: ReadonlyArray<CompiledExpr>,
+	argTypes: ReadonlyArray<ScalarType | undefined>
+): CompiledExpr => {
+	const { op } = expr
+	switch (op.kind) {
+		case "digest": {
+			const subject = defined(args[0], "a variant digest's subject")
+			const type = argTypes[0]
+			const base = type === undefined ? undefined : baseOf(type)
+			if (base?.carrier !== "variant") {
+				return refusedExpr("a digest of a variant's value")
+			}
+			return (leaves, patterns) =>
+				Result.map(subject(leaves, patterns), (v): SqlValue =>
+					v === sqlNull ? sqlNull : hostVariantDigest(base.variant, hostOf("variant", v))
+				)
+		}
+		case "tag":
+		case "field": {
+			const subject = defined(args[0], "a variant operation's subject")
+			return (leaves, patterns) =>
+				Result.map(subject(leaves, patterns), (v): SqlValue => {
+					if (v === sqlNull) {
+						return sqlNull
+					}
+					const held = hostOf("variant", v)
+					if (op.kind === "tag") {
+						return held.tag
+					}
+					return held.tag === op.handle ? evaluatedValue(expr.type, held[op.field]) : sqlNull
+				})
+		}
+		case "make": {
+			const base = baseOf(expr.type)
+			if (base.carrier !== "variant") {
+				return refusedExpr("a made value of a variant")
+			}
+			const arm = base.variant.arms.find((a) => a.handle === op.handle)
+			if (arm === undefined) {
+				return refusedExpr(`the arm ${op.handle} of variant ${base.variant.name}`)
+			}
+			return (leaves, patterns) => {
+				const value: Record<string, unknown> = { tag: op.handle }
+				for (const [i, field] of arm.fields.entries()) {
+					const v = defined(args[i], `the field ${field.name} of a made value`)(leaves, patterns)
+					if (!v.ok) {
+						return v
+					}
+					if (v.value === sqlNull) {
+						return Result.ok(sqlNull)
+					}
+					value[field.name] = heldValue(field.type, v.value)
+				}
+				return Result.ok(Object.freeze({ ...value, tag: op.handle }))
+			}
+		}
+	}
+}
+
+/**
  * The expression `root` of its table `exprs` compiled (CompiledExpr), each expression of the table compiled once,
  * however many expressions read it (compiledNode): each literal converted to its host value, each operator resolved to
  * its native operation and staged over its operands' types (operation), each comparison's order read and each cast
@@ -1249,8 +1348,14 @@ const compiledTable = (exprs: Readonly<Record<ExprId, TableExpr>>, root: ExprId)
 					return read === undefined ? stop : Result.ok(read)
 				}
 			}
-			case "param":
-				return refusedExpr(`the parameter ${expr.param}`)
+			case "param": {
+				const param = expr.param
+				const stop = unsupported(`the parameter ${param}`)
+				return (leaves) => {
+					const read = leaves.param(param)
+					return read === undefined ? stop : Result.ok(read)
+				}
+			}
 			case "literal": {
 				const value: SqlResult = Result.ok(hostOfLiteral(baseOf(expr.type).carrier, expr.value))
 				return () => value
@@ -1304,6 +1409,12 @@ const compiledTable = (exprs: Readonly<Record<ExprId, TableExpr>>, root: ExprId)
 			case "closedRow":
 			case "closedHas":
 				return closedExpr(expr, expr.args.map(node))
+			case "variant":
+				return variantExpr(
+					expr,
+					expr.args.map(node),
+					expr.args.map((a) => entryOf(a)?.type)
+				)
 			case "call":
 				switch (expr.nonNull) {
 					case "returned":
@@ -1459,20 +1570,27 @@ const predicateHolds = (
 	if (predicate === undefined) {
 		return Result.ok(true)
 	}
-	const holds = compiledExpr(predicate)({ value: v, column: noRead, closed: noRead }, patterns)
+	const holds = compiledExpr(predicate)(
+		{ value: v, column: noRead, closed: noRead, param: noParamLeaf },
+		patterns
+	)
 	return !holds.ok ? Result.err(holds.error) : Result.ok(holds.value === true)
 }
 
 /**
  * Whether a value of a contract's base satisfies the contract at every level: each level's base refinement (a regex),
  * then its predicate, innermost first, as PostgreSQL checks a domain over a domain. Each predicate reads its VALUE and
- * regex membership by `patterns`.
+ * regex membership by `patterns`. A variant's value is judged as its domain's CHECK judges it (variantMembership).
  */
 const membership = (
 	v: HostValue,
 	t: ScalarType,
 	patterns: PatternReads
 ): Result.Result<boolean, EvalStop> => {
+	const base = baseOf(t)
+	if (base.carrier === "variant") {
+		return variantMembership(hostOf("variant", v), base.variant, patterns)
+	}
 	const levels: Array<ScalarType> = []
 	for (let at: ScalarType | undefined = t; at !== undefined; at = at.contract?.base) {
 		levels.push(at)
@@ -1489,6 +1607,31 @@ const membership = (
 		}
 	}
 	return Result.ok(true)
+}
+
+/**
+ * Whether a variant's value is a member of its domain, as the domain's CHECK holds it (physical/ddl/variants.ts
+ * armCheck), from the one VariantInfo the CHECK is printed from: each field of its tagged arm a member of that field's
+ * own type (a contract's, a pattern's), as the CHECK's cast of the field's attribute to its column's type judges it,
+ * then the arm's check, a predicate over the value. The value's codec admitted its shape, its tag a live handle of the
+ * roster and each of the arm's fields a value of its base, so the other arms' fields are absent.
+ */
+const variantMembership = (
+	value: VariantValue,
+	variant: VariantInfo,
+	patterns: PatternReads
+): Result.Result<boolean, EvalStop> => {
+	const arm = variant.arms.find((a) => a.handle === value.tag)
+	if (arm === undefined) {
+		defect(`an admitted value's arm ${value.tag} is an arm of variant ${variant.name}`)
+	}
+	for (const field of arm.fields) {
+		const member = membership(evaluatedValue(field.type, value[field.name]), field.type, patterns)
+		if (!member.ok || !member.value) {
+			return member
+		}
+	}
+	return predicateHolds(arm.check, value, patterns)
 }
 
 /**

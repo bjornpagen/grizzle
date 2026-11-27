@@ -10,6 +10,7 @@ import {
 	relationColumns,
 	withLeading
 } from "#compiler/lower/conservative/context.ts"
+import type { ConservativeOptions } from "#compiler/lower/conservative/types.ts"
 import type { Cte, Expr, Select, Target } from "#compiler/sql/ast.ts"
 import {
 	arrays,
@@ -25,21 +26,21 @@ import { namedQuery, type NameSupply } from "#compiler/sql/naming.ts"
 
 /**
  * A call's admission: every caller parameter whose type PostgreSQL checks beyond its base (a contract's domain, a
- * pattern's parameter domain), each read through the placeholder its statements read it through, so it is cast as they
- * cast it, and each relation parameter's refined columns, read through their arrays as a statement reads them and
- * counted:
+ * pattern's parameter domain), each read through a placeholder cast as its statements cast it, and each relation
+ * parameter's refined columns, read through their arrays as a statement reads them and counted, as an entry of the
+ * statement that carries it, which nothing reads:
  *
- *   SELECT $1::"<schema>"."__param_code_…"::text AS "c1",
+ *   WITH "r9"("c7", "c8") AS (SELECT $1::"<schema>"."__param_code_…"::text AS "c5",
  *          (SELECT count(*) FROM (SELECT pg_catalog.unnest($2::"<schema>"."__param_rows_slug_…"[]::text[]) AS "c3")
- *             AS "r0")::text AS "c2"
+ *             AS "r8")::text AS "c6"), ...
  *
  * A placeholder's first use, its cast to its domain, fixes the parameter's type to it as the statement is parsed
  * (PostgreSQL 19 parser/parse_param.c variable_coerce_param_hook), so the server converts each value through the
  * domain's input as it binds the statement (tcop/postgres.c exec_bind_message), whether or not anything evaluates the
- * cast, and a value outside its type is refused naming the parameter's own domain: ParamRejected at the parameter. So
- * the parameters a call is refused for are the ones it declares, never only those its statements' logic still reads.
- * A write's admission is the first statement of its flight (write/admission/statement.ts); a read's is an entry of its
- * one statement (withAdmission).
+ * cast, and a value outside its type is refused naming the parameter's own domain: ParamRejected at the parameter.
+ * PostgreSQL plans no CTE no query reads, yet parses it. So the parameters a call is refused for are the ones it
+ * declares, never only those its statements' logic still reads. A read's admission is an entry of its one statement
+ * (withAdmission); a write's rides the statements its flight may send first (write/program/admission.ts).
  */
 
 const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
@@ -65,7 +66,7 @@ export const checkedParams = (
  * Each of `params`, checked parameters (checkedParams), read once in the statement `cx` lowers, as text: a scalar
  * through its placeholder, a relation parameter's rows counted through its arrays, each cast to its column's check.
  */
-export const admittedTargets = (
+const admittedTargets = (
 	cx: LowerContext,
 	supply: NameSupply,
 	params: NonEmptyReadonlyArray<CallerParamDecl>,
@@ -94,16 +95,43 @@ export const admittedTargets = (
 }
 
 /**
- * The admission of the query `cx` lowers, as an entry of the statement being lowered: a CTE reading each checked
+ * The admission of `params`, checked parameters (checkedParams), as an entry of the statement `cx` lowers (see the
+ * header): a CTE under a name of the statement's supply, each of its columns one parameter's reading, which nothing
+ * reads.
+ */
+export const admissionCte = (
+	cx: LowerContext,
+	params: NonEmptyReadonlyArray<CallerParamDecl>,
+	at: string
+): Cte => {
+	const supply = cx.supply
+	const targets = admittedTargets(cx, supply, params, at)
+	return {
+		name: supply.relation(internal("admission")),
+		materialized: undefined,
+		query: namedQuery(
+			operandSelect(core(targets, [], undefined)),
+			targets.map(() => supply.column(internal("admitted parameter")))
+		)
+	}
+}
+
+/** Whether a lowering admits the caller parameters its statement holds no placeholder of (`admissionEntry`): a query's,
+ * and a read-back's that leads its write's flight (ReadBackAdmission `own`). */
+const admitsItsOwn = (subject: ConservativeOptions["subject"]): boolean =>
+	subject.kind === "query" || (subject.kind === "readBack" && subject.admission === "own")
+
+/**
+ * The admission of the query `cx` lowers, as an entry of the statement being lowered (admissionCte): of each checked
  * caller parameter (checkedParams) the statement holds no placeholder of, its logic having left it unread (a rule a
- * constant false filter empties, one whose arm the analysis proves empty), which nothing reads. PostgreSQL plans no
- * CTE no query reads, yet parses it, so the call is refused for such a parameter exactly as for one its logic reads
- * (see the header). A statement holding a placeholder of every checked parameter has none, so its text is the logic's
- * alone; so has a lowering that is no query's: a read-back's, whose write's admission binds every parameter first, a
- * rule's or a violation's probe, which reads no caller parameter.
+ * constant false filter empties, one whose arm the analysis proves empty). A statement holding a placeholder of every
+ * checked parameter has none, so its text is the logic's alone. A read-back that leads its write's flight, a ChangeSet
+ * of reads alone, admits as a query does (ReadBackAdmission `own`), its write's parameters its own; every other
+ * lowering that is no query's has none: a read-back after a statement of its write's own, whose admission binds every
+ * parameter in the statement its call sends first, a rule's or a violation's probe, which reads no caller parameter.
  */
 const admissionEntry = (cx: LowerContext): Cte | undefined => {
-	if (cx.options.subject.kind !== "query") {
+	if (!admitsItsOwn(cx.options.subject)) {
 		return undefined
 	}
 	const held = new Set(
@@ -115,19 +143,9 @@ const admissionEntry = (cx: LowerContext): Cte | undefined => {
 		cx,
 		callerParams(cx.options.params).filter((p) => !held.has(p.id))
 	)
-	if (!isNonEmpty(unread)) {
-		return undefined
-	}
-	const supply = cx.supply
-	const targets = admittedTargets(cx, supply, unread, "admission of the query's parameters")
-	return {
-		name: supply.relation(internal("admission")),
-		materialized: undefined,
-		query: namedQuery(
-			operandSelect(core(targets, [], undefined)),
-			targets.map(() => supply.column(internal("admitted parameter")))
-		)
-	}
+	return isNonEmpty(unread)
+		? admissionCte(cx, unread, "admission of the query's parameters")
+		: undefined
 }
 
 /**

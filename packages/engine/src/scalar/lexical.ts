@@ -121,6 +121,9 @@ const doubleExponentMax = binary64Digits - 1 - doubleMantissaDigits
  * without raising and to the value XML Schema's lexical mapping gives it:
  *
  * - an integer carrier: xs:integer's `[+-]?[0-9]+` within the carrier's range;
+ * - an exact integer of `digits` digits: xs:integer's `[+-]?[0-9]+` of at most `digits` UTF-8 bytes beside the
+ *   pattern (formOctets), so at most `digits` digits and every member below 10^digits in magnitude, which the type
+ *   holds; a regex counts no run past regexMaxRepeat, and a field's digits are numeric's own limit;
  * - numeric(p, s), 0 <= s <= p: xs:decimal's `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)` with at most p - s integer digits
  *   and s fraction digits besides leading and trailing zeros, so the typmod neither rounds nor overflows;
  * - double precision: xs:double's mantissa, exponent, `INF`, `-INF` and `NaN` (XML Schema 1.0, which has no `+INF`),
@@ -143,6 +146,7 @@ const doubleExponentMax = binary64Digits - 1 - doubleMantissaDigits
  */
 export type LexicalTarget =
 	| { readonly kind: "integer"; readonly carrier: "int2" | "int4" | "int8" }
+	| { readonly kind: "exactInteger"; readonly digits: number }
 	| { readonly kind: "decimal"; readonly typmod: NumericTypmod }
 	| { readonly kind: "double" }
 	| { readonly kind: "boolean" }
@@ -191,6 +195,8 @@ export const lexicalTargetOf = (type: ScalarType): LexicalTarget | undefined => 
 		case "int4":
 		case "int8":
 			return { kind: "integer", carrier: type.carrier }
+		case "exactInteger":
+			return { kind: "exactInteger", digits: type.digits }
 		case "numeric": {
 			const typmod = type.typmod
 			return typmod !== undefined && decimalWritable(typmod)
@@ -218,8 +224,8 @@ export const lexicalTargetOf = (type: ScalarType): LexicalTarget | undefined => 
 		case "rangeDate":
 		case "vector":
 		case "tsvector":
-		case "exactInteger":
 		case "exactMoney":
+		case "variant":
 			return undefined
 	}
 }
@@ -338,6 +344,8 @@ export const formSource = (target: LexicalTarget): string => {
 		switch (target.kind) {
 			case "integer":
 				return integerForm(target.carrier)
+			case "exactInteger":
+				return "[+-]?[0-9]+"
 			case "decimal":
 				return decimalForm(target.typmod)
 			case "double":
@@ -357,12 +365,14 @@ export const formSource = (target: LexicalTarget): string => {
 
 /**
  * The byte bound a form holds its members within beside its pattern, as str.bytes holds a pattern's: decimalText's,
- * decimalTextMaxBytes; none for every other form, whose pattern alone is the form.
+ * decimalTextMaxBytes; an exact integer's, its digits; none for every other form, whose pattern alone is the form.
  */
 export const formOctets = (target: LexicalTarget): number | undefined => {
 	switch (target.kind) {
 		case "decimalText":
 			return decimalTextMaxBytes
+		case "exactInteger":
+			return target.digits
 		case "integer":
 		case "decimal":
 		case "double":
@@ -438,6 +448,21 @@ const integerValue = (text: string, carrier: "int2" | "int4" | "int8"): bigint |
 	const value = BigInt(text)
 	const [lo, hi] = integerRanges[carrier]
 	return value < lo || value > hi ? undefined : value
+}
+
+/**
+ * An exact integer a member names: xs:integer's numeral of at most `digits` bytes, its value exactly. A member is ASCII,
+ * so its characters are its bytes.
+ */
+const exactIntegerValue = (text: string, digits: number): bigint | undefined => {
+	const n = numeralOf(text)
+	return n === undefined ||
+		n.fraction.length > 0 ||
+		n.integer.length === 0 ||
+		text.includes(".") ||
+		text.length > digits
+		? undefined
+		: BigInt(text)
 }
 
 /** A decimal a member names, with no more significant digits on either side of its point than the typmod holds. */
@@ -557,7 +582,7 @@ export const decimalOfText = (text: string): Decimal | undefined => {
  * The value a text names under a target's lexical form, or undefined when it is no member of the form: the form
  * decided again by a scan of the text, never by its pattern, so the two definitions of each form are held to agree
  * (test/unit/scalar/lexical.test.ts). The value is the one XML Schema's lexical mapping gives the member and
- * PostgreSQL's input function reads from it: an integer exactly; a decimal exactly, which the form leaves unrounded at
+ * PostgreSQL's input function reads from it: an integer exactly, an exact integer's among them; a decimal exactly, which the form leaves unrounded at
  * the typmod; a double rounded once, half to even, from its exact rational value by `round`; a boolean by its literal;
  * a date as its own text; a double's decimal text by doubleOfText; a decimal text by decimalOfText.
  */
@@ -569,6 +594,8 @@ export const lexicalValue = (
 	switch (target.kind) {
 		case "integer":
 			return integerValue(text, target.carrier)
+		case "exactInteger":
+			return exactIntegerValue(text, target.digits)
 		case "decimal":
 			return decimalValue(text, target.typmod)
 		case "double":

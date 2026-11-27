@@ -34,7 +34,6 @@ import {
 	sentUnits,
 	type WriteText
 } from "#compiler/runtime/write/parted.ts"
-import type { PreparedStaged } from "#compiler/runtime/write/staged.ts"
 import type { OwnStep } from "#compiler/runtime/write/steps.ts"
 import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
@@ -61,8 +60,7 @@ export type ServedPartedForm = Parted<ServedSlot<WriteParamSlot>>
 /**
  * One statement of a write's flight: its step, which says what its rows are and when an application skips it, its own
  * form, and its whole-relation form beside it when per-execution choices pick between the two; each form `whole`, one
- * text, with how its nested rows travel past one Bind message (staged.ts PreparedStaged), or `parted`, a single
- * statement's by its units, which reads no nested rows (parted.ts).
+ * text, or `parted`, a single statement's by its units, which reads no nested rows (parted.ts).
  */
 export type ServedStatement =
 	| {
@@ -70,7 +68,6 @@ export type ServedStatement =
 			readonly step: OwnStep
 			readonly form: ServedWriteForm
 			readonly forms: StatementForms<ServedWriteChoice, ServedWriteForm>
-			readonly staged: PreparedStaged
 	  }
 	| {
 			readonly kind: "parted"
@@ -101,40 +98,34 @@ export type WriteExclusion =
 export const noExclusion: WriteExclusion = Object.freeze({ kind: "none" })
 
 /**
- * A session object a write's flight reads or writes, which the session's stand-up of the write makes, `T` each of its
- * texts: `carrier`, a carrier's table, its emptying, a session function of the carrier's own name, and its reader, the
- * session function every statement reads it through (write/carriers/carriers.ts carrierStandUp), each made as the
- * write's role, which alone may empty it; or `judged`, the
- * call of the rule judge's stand-up of a table the write writes (physical/ddl/rules.ts addStandUps), which makes the
- * judge's session tables a write of the table needs, as the judge's definer.
+ * A session object a write's flight writes, which the session's stand-up of the write makes, `T` its text: the call of
+ * the rule judge's stand-up of a table the write writes (physical/ddl/rules.ts addStandUps), which makes the judge's
+ * session tables a write of the table needs, as the judge's definer. A write's carriers are no session object: they
+ * travel in its transaction's settings (write/carriers/carriers.ts).
  *
  * A session runs a write's stand-ups once, in one transaction of its own before its first call of the write, the ones it
  * has not run yet (adapter apply/stand-up.ts): no transaction of a call makes a relation, so the plans its statements
  * make outlive their call, where a relation made inside the call's transaction is a catalog change the session reads
  * at its next transaction, which made every plan over it again (metis's assign planned 98 statements again at its second
- * call). A session keeps the stand-ups it ran by their first text's name (`standUpName`), so one two writes share runs
- * once a session.
+ * call). A session keeps the stand-ups it ran by their text's name (`standUpName`), so one two writes share runs once a
+ * session.
  */
-export type StandUp<T> =
-	| { readonly kind: "carrier"; readonly table: T; readonly emptying: T; readonly reader: T }
-	| { readonly kind: "judged"; readonly call: T }
+export interface StandUp<T> {
+	readonly kind: "judged"
+	readonly call: T
+}
 
-/** A stand-up as a served write holds it (StandUp), every text named (core/prepared.ts). */
+/** A stand-up as a served write holds it (StandUp), its text named (core/prepared.ts). */
 export type ServedStandUp = StandUp<Prepared<EmittedText>>
 
-/** The texts a stand-up sends, in order: a carrier's table, then its emptying; a judged table's call. */
-export const standUpTexts = <T>(standUp: StandUp<T>): NonEmptyReadonlyArray<T> =>
-	standUp.kind === "carrier" ? [standUp.table, standUp.emptying, standUp.reader] : [standUp.call]
-
-/** The name a session keeps a stand-up it ran by: its first text's (`standUpTexts`). */
-export const standUpName = (standUp: ServedStandUp): StatementName => standUpTexts(standUp)[0].name
+/** The name a session keeps a stand-up it ran by: its text's. */
+export const standUpName = (standUp: ServedStandUp): StatementName => standUp.call.name
 
 /**
  * A write as its flight runs it, as data: its declared parameters, which an application admits and its read-backs
  * read; what binding an application reads besides its values (binding.ts Binding); what its transaction locks before
- * its snapshot; the session objects its flight reads and writes, which its session stands up once before its first call
- * (StandUp), carriers first, in the order its statements name them, then the judged tables it writes, in code point
- * order; its statements, in the order the flight sends them; and the relations it writes, in code point order, whose
+ * its snapshot; the session objects its flight writes, which its session stands up once before its first call
+ * (StandUp), the judged tables it writes, in code point order; its statements, in the order the flight sends them; and the relations it writes, in code point order, whose
  * facts its rows net by identity.
  */
 export interface ServedWrite {
@@ -143,6 +134,15 @@ export interface ServedWrite {
 	readonly exclusion: WriteExclusion
 	readonly standUps: ReadonlyArray<ServedStandUp>
 	readonly statements: ReadonlyArray<ServedStatement>
+	/**
+	 * The statements one call sends inside its transaction, its frame aside (BEGIN, the prologue, the exclusion's LOCK
+	 * and COMMIT), as the compiler states them (write/program/served.ts projectWrite): each of its statements once, its
+	 * carriers' fills among them, and the statement of each read-back that runs after the last stratum; a statement's
+	 * facts cut into batched executions (bind.ts batchedExecutions) send it once per execution, and a statement whose
+	 * facts are none is not sent. No call sends another: no stand-up, which its session's first call alone runs, no
+	 * emptying, no carrier's own statement, no bookkeeping of the rule judge's deltas (contract C6).
+	 */
+	readonly sends: number
 	readonly written: ReadonlyArray<WrittenHeading>
 }
 
@@ -160,10 +160,31 @@ export interface PartedFlight {
 	readonly sentFor: (holdsFact: (input: NeededInput) => boolean) => FlightForm | undefined
 	/**
 	 * Whether a call's facts may be cut into executions of a share each (bind.ts batchedExecutions): every unit sent
-	 * with every part, a shared sub-query or a riding read-back, reads no fact of the call and delivers no row, so each
-	 * execution's parts read what the whole statement's would of their own facts.
+	 * with every part, a shared sub-query, a riding read-back or the admission, reads no fact of the call and delivers no
+	 * row, each of its placeholders sent whole (`sharedWhole`), so each execution's parts read what the whole statement's
+	 * would of their own facts.
 	 */
 	readonly cuttable: boolean
+}
+
+/**
+ * Whether every execution of a statement whose facts are cut into shares (bind.ts batchedExecutions) sends `slot` whole,
+ * as one execution of every fact would: a scalar parameter's value, which every row the statement makes reads alike, and
+ * an admission's placeholder (lower/conservative/types.ts AdmissionParamSlot), which nothing reads, so each
+ * execution's Bind admits its parameter whole again. A member slot's facts are what an execution carries a share of;
+ * a relation parameter's arrays its logic reads and a stratum's nested rows may make rows of their own, which a
+ * statement sent once per share would make again in each.
+ */
+export const sharedWhole = (slot: WriteSlot): boolean => {
+	switch (slot.kind) {
+		case "scalar":
+		case "admission":
+			return true
+		case "relation":
+		case "member":
+		case "nestedRows":
+			return false
+	}
 }
 
 /**
@@ -175,9 +196,7 @@ const partedFlight = (parted: Parted<WriteSlot>): PartedFlight => {
 	const forms = new Map<string, FlightForm>()
 	return Object.freeze({
 		cuttable: parted.units.every(
-			(unit) =>
-				unit.kind === "part" ||
-				(unit.arms.length === 0 && unit.params.every((slot) => slot.kind === "scalar"))
+			(unit) => unit.kind === "part" || (unit.arms.length === 0 && unit.params.every(sharedWhole))
 		),
 		sentFor: (holdsFact: (input: NeededInput) => boolean): FlightForm | undefined => {
 			const sent = sentUnits(parted, holdsFact)
@@ -204,7 +223,6 @@ export type FlightStatement =
 			readonly step: OwnStep
 			readonly form: FlightForm
 			readonly forms: StatementForms<ServedWriteChoice, FlightForm>
-			readonly staged: PreparedStaged
 	  }
 	| {
 			readonly kind: "parted"
@@ -228,6 +246,8 @@ export interface FlightWrite {
 	readonly prepared: PreparedBinding
 	readonly codes: Codebook
 	readonly statements: ReadonlyArray<FlightStatement>
+	/** The statements one call sends inside its transaction, its frame aside (ServedWrite `sends`). */
+	readonly sends: number
 	readonly outcome: OutcomeContext
 }
 
@@ -260,8 +280,7 @@ export const loadWrite = (
 					index,
 					step: s.step,
 					form: loaded(s.form),
-					forms: formsOf(s.forms, loaded),
-					staged: s.staged
+					forms: formsOf(s.forms, loaded)
 				})
 			case "parted":
 				return Object.freeze({
@@ -288,6 +307,7 @@ export const loadWrite = (
 		prepared: prepareBinding(served.binding, codes, closed, patterns),
 		codes,
 		statements: Object.freeze(served.statements.map(loadedStatement)),
+		sends: served.sends,
 		outcome: Object.freeze({
 			written: Object.freeze(served.written.map(writtenOutcome(codes))),
 			codes

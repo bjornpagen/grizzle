@@ -107,7 +107,7 @@ export const served: ServedConstructor = <L extends AnyLogin>(
 	}
 	Object.freeze(roles)
 	if (!isServedRoles<L>(roles, names)) {
-		throw defect("served builds one token under each of its file's role names")
+		defect("served builds one token under each of its file's role names")
 	}
 	return Object.freeze({
 		...builtMark,

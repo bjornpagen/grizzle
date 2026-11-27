@@ -37,6 +37,7 @@ import {
 	netWriteTemplate,
 	runSchedule,
 	runTie,
+	tieTemplates,
 	tieGen
 } from "#test/pg/laws/rule-net-write.fixtures.ts"
 import { standUpJudge } from "#test/support/judge.ts"
@@ -119,15 +120,22 @@ export const aRuleOverAQueryJudgesTheTransactionsNetWriteAsTheRulesWholeCheckJud
  */
 export const aProbeOfTheFactsARowAddsReadsTheSameRowsBesideAnIndexOfPartOfItsKeyWithStatisticsOrNone =
 	property.explore(tieGen, {
-		needs: { tie: Substrate.rolledBack(netWriteTemplate) },
+		needs: {
+			few: Substrate.rolledBack(tieTemplates.few),
+			more: Substrate.rolledBack(tieTemplates.more)
+		},
 		situations: ["measured with no statistics", "measured analyzed"],
-		check:
-			({ tie }, c) =>
-			(drawn) =>
-				Effect.gen(function* () {
-					const { connection, value } = yield* tie
-					yield* runTie(value, connection, drawn, c)
-				}),
+		check: (needs, c) => (drawn) =>
+			Effect.gen(function* () {
+				const few = yield* needs.few
+				const more = yield* needs.more
+				yield* runTie(
+					{ installed: few.value, connection: few.connection },
+					{ installed: more.value, connection: more.connection },
+					drawn,
+					c
+				)
+			}),
 		oracle: {
 			kind: "universal",
 			name: "invariance: each statement the judge runs over the row a transaction put, a probe's or an upkeep's, reads the same rows whatever other rows share its index's prefix"

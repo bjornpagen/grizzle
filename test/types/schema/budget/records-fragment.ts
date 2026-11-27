@@ -153,17 +153,27 @@ const step = 10
  *   fragment before, after 1,319,369 instantiations for the whole mirror; 256,943 for it after); a chain of options one
  *   to eight deep adds 8,390 to 9,707 a level, a node's sibling 8,500 to 9,800; every program clean. Since records take
  *   the names their author states (RecordNames, the naming threaded through each level): flat records 5,544, records of
- *   an array of options 24,536, records of a document scan 103,734
- * @decision the bound is the unboxed records' own cost, exactly: a change that makes a fragment of records cost more
- *   is refused here, and a change that lowers it lowers the bound
+ *   an array of options 24,536, records of a document scan 103,734;
+ *   at REPLAYFIX's exact-bound car (2026-11-26, over ousxtqsu on train C's 1170fa12 and its empty-level car), every type
+ *   budget run with each program's count logged, width 8, load in the hundreds: flat records 4,771 a unit, records of an
+ *   array of options 23,751, records of a document scan 102,809; at the merged tree of every lane (52df3631e,
+ *   2026-11-26), measured as this test measures it with each count logged, 4,743, 22,894 and 99,949, alternatives and
+ *   arm attachments gone (271ffecf2); at PIN 3's merge (2026-11-26), measured as this test measures it with each count
+ *   logged at the old base 1323e214, at BRAND-P3 97c889164588 and at the merge: flat records 4,743, 4,823 and 4,823,
+ *   records of an array of options 22,894, 22,986 and 22,986, records of a document scan 99,949, 100,058 and 100,058,
+ *   BRAND-P3's 80, 92 and 109 more the cost of a consumer's mark (core/brand.ts Marked), a type-level intersection on
+ *   every contract-typed field of the units' rows.
+ * @decision the bound is the count at the tree it was last measured at, exactly, the counts being a function of the
+ *   tree: a change that makes a fragment of records cost more fails here and moves the bound in its own commit, its
+ *   cost stated, and a change that lowers it lowers the bound
  * @revalidate a TypeScript 7 or tsgo upgrade; another machine; any change to records' types (types/schema/records.ts),
  *   or to a fragment's or a schema's statements (types/schema/schema.ts) that moves a unit's cost, which states its
  *   cost here
  */
 const addedAtMost: { readonly [S in FragmentShape]: number } = {
-	"flat records": 5544,
-	"records of an array of options": 24536,
-	"records of a document scan": 103734
+	"flat records": 4823,
+	"records of an array of options": 22986,
+	"records of a document scan": 100058
 }
 
 /** How a shape prints. */

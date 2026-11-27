@@ -2,7 +2,6 @@ import {
 	Array as Arr,
 	Cause,
 	Data,
-	DateTime,
 	Effect,
 	Exit,
 	type FileSystem,
@@ -23,13 +22,19 @@ import { type CommandLine, parseArgs } from "#cli/args.ts"
 import { check, checkFiles, findingText, type SchemaCheck } from "#cli/check.ts"
 import { type ConfigFile, resolveConfig } from "#cli/config.ts"
 import { migrationConnection } from "#cli/connection.ts"
+import {
+	contractFindings,
+	contractFindingText,
+	contractTexts,
+	writeContracts
+} from "#cli/contracts.ts"
+import { draftKey, grizzleCheckout } from "#cli/draft-inputs.ts"
 import type { CliError } from "#cli/errors.ts"
 import { generateMigrations, type SchemaGenerateReport } from "#cli/generate.ts"
 import { drift, migrate, roles, uninstallAll } from "#cli/migrate.ts"
 import { names } from "#cli/names.ts"
 import { type PhaseMeter, phasedEffect, phaseRun } from "#cli/phases.ts"
 import { cliStageFix, isolationFix, migrateStageFix, refusalText } from "#cli/refusals.ts"
-import { upgradeAll } from "#cli/upgrade.ts"
 import { helpText } from "#cli/usage.ts"
 import type { Phases } from "#compiler/plan/common.ts"
 import {
@@ -304,7 +309,7 @@ const placeParts = (place: MigrationPlace): ReadonlyArray<string> => {
 }
 
 /** A command that connects, whose refusal by the database its report names. */
-type ConnectingCommand = "migrate" | "drift" | "upgrade" | "roles" | "uninstall"
+type ConnectingCommand = "migrate" | "drift" | "roles" | "uninstall"
 
 /** A connecting command the database refused, with the command that ran, which its report names. */
 class CommandRefused extends Data.TaggedError("CommandRefused")<{
@@ -445,6 +450,7 @@ export type ConfigLoader = (
 const program = Effect.fn("program")(function* (
 	argv: ReadonlyArray<string>,
 	cwd: string,
+	node: string,
 	load: ConfigLoader,
 	meter: PhaseMeter
 ): Effect.fn.Return<Ran, CliError | CommandRefused, FileSystem.FileSystem | Path.Path> {
@@ -457,37 +463,57 @@ const program = Effect.fn("program")(function* (
 		return ran(exitCodes.ok, [helpText], [])
 	}
 	const run = phaseRun(meter, line.phases)
-	return yield* Effect.ensuring(commandRan(line, cwd, load, run.phases), Effect.sync(run.done))
+	return yield* Effect.ensuring(
+		commandRan(line, cwd, node, load, run.phases),
+		Effect.sync(run.done)
+	)
 })
 
 /** The command a command line runs, over the configuration file it names, its phases reported to `phases`. */
 const commandRan = Effect.fn("commandRan")(function* (
 	line: Extract<CommandLine, { readonly kind: "run" }>,
 	cwd: string,
+	node: string,
 	load: ConfigLoader,
 	phases: Phases
 ): Effect.fn.Return<Ran, CliError | CommandRefused, FileSystem.FileSystem | Path.Path> {
 	const path = yield* Path.Path
-	const config = yield* phasedEffect(
+	const { loaded, config } = yield* phasedEffect(
 		phases,
 		{ name: "config", of: [] },
-		Effect.flatMap(load(path.resolve(cwd, line.config)), (loaded) =>
-			resolveConfig(loaded.value, loaded.file)
+		Effect.flatMap(load(path.resolve(cwd, line.config)), (file) =>
+			Effect.map(resolveConfig(file.value, file.file), (resolved) => ({
+				loaded: file,
+				config: resolved
+			}))
 		)
 	)
 	const command = line.command
+	if (command.kind === "draftKey") {
+		const key = yield* draftKey({
+			request: command,
+			config: loaded.file,
+			closure: loaded.closure,
+			migrations: config.migrations,
+			grizzle: grizzleCheckout,
+			node
+		})
+		return ran(exitCodes.ok, [key], [])
+	}
 	if (command.kind === "names") {
 		const listed = yield* names(config)
 		return ran(exitCodes.ok, listed, [])
 	}
 	if (command.kind === "check") {
+		const contracts = yield* Effect.fromResult(contractTexts(config))
 		const checks = yield* check(config, cwd, phases)
+		const contractFound = yield* contractFindings(config, contracts, cwd)
 		const clean = Arr.filter(checks, (c) => c.findings.length === 0)
 		const dirty = Arr.filter(checks, (c) => c.findings.length > 0)
 		return ran(
-			dirty.length === 0 ? exitCodes.ok : exitCodes.failed,
+			dirty.length === 0 && contractFound.length === 0 ? exitCodes.ok : exitCodes.failed,
 			renderCheck(clean),
-			renderCheck(dirty)
+			[...renderCheck(dirty), ...Arr.map(contractFound, contractFindingText)]
 		)
 	}
 	if (command.kind === "migrate") {
@@ -521,19 +547,6 @@ const commandRan = Effect.fn("commandRan")(function* (
 		const dropped = yield* Effect.mapError(uninstallAll(config, connection), refusedBy("uninstall"))
 		return ran(exitCodes.ok, renderUninstall(dropped), [])
 	}
-	if (command.kind === "upgrade") {
-		const connection = yield* migrationConnection(config)
-		const now = yield* DateTime.now
-		const reports = yield* Effect.mapError(
-			upgradeAll(config, connection, now, phases),
-			refusedBy("upgrade")
-		)
-		return ran(
-			exitCodes.ok,
-			renderGenerate(reports, (p) => path.relative(cwd, p)),
-			[]
-		)
-	}
 	if (command.kind === "drift") {
 		const connection = yield* migrationConnection(config)
 		const matched = yield* Effect.mapError(drift(config, connection), refusedBy("drift"))
@@ -543,17 +556,21 @@ const commandRan = Effect.fn("commandRan")(function* (
 			[]
 		)
 	}
-	const now = yield* DateTime.now
+	const contracts = yield* Effect.fromResult(contractTexts(config))
 	const reports = yield* generateMigrations(config, {
 		mode: command.mode,
 		schema: command.schema,
 		declared: command.declared,
-		now,
 		phases
 	})
+	const checkers = yield* writeContracts(config, contracts)
 	return ran(
 		exitCodes.ok,
-		renderGenerate(reports, (p) => path.relative(cwd, p)),
+		[
+			...Arr.map(checkers.written, (p) => path.relative(cwd, p)),
+			...Arr.map(checkers.removed, (p) => `removed ${path.relative(cwd, p)}`),
+			...renderGenerate(reports, (p) => path.relative(cwd, p))
+		],
 		[]
 	)
 })
@@ -580,7 +597,8 @@ const refusedReport = (e: CliError | CommandRefused): RefusedReport => {
 
 /**
  * The `grizzle` command line as an Effect: argv, the directory it runs in, against which the configuration file it
- * names resolves, and the import of that file, which only a command that reads the configuration runs, in; its report
+ * names resolves, the version of the Node that runs it, a draft's input (draft-inputs.ts), and the import of that file,
+ * which only a command that reads the configuration runs, in; its report
  * out, which main.ts writes for the bin and a test reads. The command ran, with its report; it was refused, with its
  * error and the stage that refused it, rendered; or it died, reported as an internal error. An interruption stays the
  * fiber's interruption, so an interrupted migrate closes its connection, which rolls an open file transaction back,
@@ -589,17 +607,31 @@ const refusedReport = (e: CliError | CommandRefused): RefusedReport => {
  * Its phases, where the command line asks (`--phases`), are written to `meter` as each starts and ends, apart from the
  * report (phases.ts), which they leave as it is.
  *
- * Output is stable plain text. The clock a new folder's timestamp reads is Effect's Clock. No command reads the
+ * Output is stable plain text. No command reads a clock for what it writes: a new folder's timestamp is its committed
+ * chain's next (timestamp.ts), so a draft is a function of its inputs (draft-inputs.ts). Its spans run untimed: it
+ * hands them to no tracer and reports its phases by its own meter, so the times Effect's tracer reads at each span's
+ * start and end would be read for nothing, and untimed a draft reads no clock at all. No command reads the
  * environment for where to connect: migrate, drift, roles and uninstall connect with the configuration's connection
  * (connection.ts).
  */
-export const runCli = Effect.fn("runCli")(function* (
+export const runCli = (
 	argv: ReadonlyArray<string>,
 	cwd: string,
+	node: string,
+	load: ConfigLoader,
+	meter: PhaseMeter
+): Effect.Effect<CliReport, never, FileSystem.FileSystem | Path.Path> =>
+	Effect.withTracerTiming(cliRun(argv, cwd, node, load, meter), false)
+
+/** The command line as runCli runs it, untimed. */
+const cliRun = Effect.fn("runCli")(function* (
+	argv: ReadonlyArray<string>,
+	cwd: string,
+	node: string,
 	load: ConfigLoader,
 	meter: PhaseMeter
 ): Effect.fn.Return<CliReport, never, FileSystem.FileSystem | Path.Path> {
-	const exit = yield* Effect.exit(program(argv, cwd, load, meter))
+	const exit = yield* Effect.exit(program(argv, cwd, node, load, meter))
 	if (Exit.isSuccess(exit)) {
 		const done: RanReport = {
 			outcome: "ran",

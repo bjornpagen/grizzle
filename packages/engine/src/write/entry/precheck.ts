@@ -1,5 +1,5 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-import type { CheckedEntry, CheckedSchema } from "#compiler/analysis/schema.ts"
+import type { CheckedEntry, CheckedSchema, ClaimsMembership } from "#compiler/analysis/schema.ts"
 import { unwrap } from "#compiler/core/canonical.ts"
 import type { EntryName, LawId } from "#compiler/core/ids.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
@@ -8,7 +8,7 @@ import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import { fieldReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { fieldNames, generationOf, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import { witnessFields } from "#compiler/laws/model/uniques.ts"
-import type { Cte, Expr, FunctionName, TypeRef } from "#compiler/sql/ast.ts"
+import type { Cte, EmittedSql, Expr, FunctionName, TypeRef } from "#compiler/sql/ast.ts"
 import {
 	cast,
 	col,
@@ -22,7 +22,12 @@ import {
 	types
 } from "#compiler/sql/build.ts"
 import { fieldColumns } from "#compiler/write/defined.ts"
-import { filterFields, filterReadsOther, renderMembership } from "#compiler/write/entry/render.ts"
+import {
+	filterFields,
+	filterReadsOther,
+	renderFilter,
+	renderMembership
+} from "#compiler/write/entry/render.ts"
 import type { WrittenRelation } from "#compiler/write/frontend/compile.ts"
 import { inputNeeds, readInputFields, type WriteInput } from "#compiler/write/insert/input.ts"
 import {
@@ -33,7 +38,8 @@ import {
 	rowType,
 	type WriteContext,
 	type WriteStatement,
-	writeValue
+	writeValue,
+	type StatementWriting
 } from "#compiler/write/insert/statement.ts"
 import { type OutsideProbe, probeParams } from "#compiler/write/insert/unique.ts"
 import {
@@ -92,7 +98,9 @@ const generatedFrom = (relation: RelationInfo, expr: ScalarExpr): ReadonlyArray<
 }
 
 /** What a check refuses: an addition's facts outside the entry's membership, or conflicting at a unique object with a
- * fact outside the entry; or any fact of an addition the Db's claims leave outside the world. */
+ * fact outside the entry; a write's facts outside the units the role's claims bind, whole or through a query entry, by
+ * the relation's claims membership (`claimed`, analysis/schema.ts CheckedSchema claimsMembership); or any fact of an
+ * addition the Db's claims leave outside the world. */
 export type EntryCheck =
 	| {
 			readonly kind: "membership"
@@ -108,18 +116,52 @@ export type EntryCheck =
 			readonly catalog: EvidenceCatalog
 			readonly world: CheckNames
 	  }
+	| {
+			readonly kind: "claimed"
+			readonly membership: ClaimsMembership
+			/** The name its outsideWorld refusal names: the query entry the role writes the relation through, or the
+			 * relation's own (write/frontend/compile.ts ClaimsCheck). */
+			readonly entry: EntryName
+			readonly relation: WrittenRelation
+			/** The base the membership's owner reads, checked, with the catalog it is lowered against. */
+			readonly base: CheckedSchema
+			readonly catalog: EvidenceCatalog
+	  }
 	| { readonly kind: "outside"; readonly entry: EntryName }
 
-const entryOf = (check: EntryCheck): EntryName =>
-	check.kind === "membership" ? check.entry.entry : check.entry
+const entryOf = (check: EntryCheck): EntryName => {
+	switch (check.kind) {
+		case "outside":
+		case "claimed":
+			return check.entry
+		case "membership":
+			return check.entry.entry
+	}
+}
 
 /** The membership of the row whose fields `value` gives, in the entry (see `buildEntryCheck`): the row policy's own
- * predicate, or the role's filter function where the filter reads another relation. */
+ * predicate, or the role's filter function where the filter reads another relation; a claims membership inline, over
+ * the relations the role reads (its lowering's names), the owner's among them, which the role holds whole (schema/own.ts ownRole). */
 const membershipOf = (
 	w: WriteContext,
-	check: Extract<EntryCheck, { readonly kind: "membership" }>,
+	check: Exclude<EntryCheck, { readonly kind: "outside" }>,
 	value: (field: LawField) => Expr
 ): Expr => {
+	if (check.kind === "claimed") {
+		return unwrap(
+			renderFilter(
+				check.membership.filter,
+				check.membership.fields,
+				`claims ${check.membership.target.name}`,
+				{
+					schema: check.base,
+					names: w.cx.options.names,
+					catalog: check.catalog,
+					row: value
+				}
+			)
+		)
+	}
 	const { entry } = check
 	if (!filterReadsOther(entry)) {
 		return unwrap(
@@ -189,7 +231,7 @@ const internal = (purpose: string) => ({ kind: "internal", purpose }) as const
  * (frontend OutsideWrite): its check refuses any row of its source, with no membership to evaluate, at the start of its
  * stratum. */
 export const buildEntryCheck = (
-	w: WriteContext,
+	w: StatementWriting<EmittedSql>,
 	input: WriteInput,
 	check: EntryCheck
 ): WriteStatement<EntryCheckResult> => {
@@ -222,8 +264,11 @@ export const buildEntryCheck = (
 			}
 		})
 	}
-	const { relation, probes } = check
-	const calls = probes.map((probe) => probeCall(check.world, check.entry.entry, probe))
+	const { relation } = check
+	const calls =
+		check.kind === "membership"
+			? check.probes.map((probe) => probeCall(check.world, check.entry.entry, probe))
+			: []
 	/** The fields a refusal's witness names, each a column of the verdicts. */
 	const keyFields = [...new Set(calls.flatMap((c) => c.witness))]
 	return buildStatement(w, ownBuild, (supply) => {

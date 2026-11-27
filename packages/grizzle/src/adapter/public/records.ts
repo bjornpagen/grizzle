@@ -59,7 +59,7 @@ export const recordedOf = <L, R extends AnyRecords>(
 		const handles = entry.rosters.get(name)
 		const declared = parseDeclaredName(name)
 		if (handles === undefined || !declared.ok) {
-			throw defect(`a column's roster ${name} is one its records' served form carries`)
+			defect(`a column's roster ${name} is one its records' served form carries`)
 		}
 		const roster = Roster.of(declared.value, handles.order, handles.handles)
 		rosters.set(name, roster)
@@ -69,7 +69,7 @@ export const recordedOf = <L, R extends AnyRecords>(
 	return {
 		text: (row) => toResult(text(row)),
 		facts: recordsFacts<RecordsInsert<L, R>>(entry.layout, (what) => {
-			throw defect(`a found row of records ${stem}: ${what}`)
+			defect(`a found row of records ${stem}: ${what}`)
 		})
 	}
 }

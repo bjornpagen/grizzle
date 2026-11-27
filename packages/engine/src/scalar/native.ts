@@ -147,7 +147,14 @@ export const nativeCapabilities = {
 	 * Numeric's over amounts at scale 2, an exact money field's among them, reached through money's STABLE cast: no
 	 * expression index, no avg.
 	 */
-	exactMoney: ["equality", "hashing", "minMax", "ordering", "sum"]
+	exactMoney: ["equality", "hashing", "minMax", "ordering", "sum"],
+	/**
+	 * A variant is a domain over a composite (ir/scalar.ts VariantType): record_eq, hash_record and record_cmp read two
+	 * absent attributes as equal, so it compares equal, hashes and indexes as the sum it is, tag then the arm's fields.
+	 * It has no stated order, no aggregate and no GiST class: its record order, the tag's code and then the arm's fields,
+	 * only breaks a completed order's ties (scalar/registry.ts breaksTies).
+	 */
+	variant: ["equality", "hashing", "storage"]
 } as const satisfies { readonly [C in Carrier]: ReadonlyArray<Capability> }
 
 /**

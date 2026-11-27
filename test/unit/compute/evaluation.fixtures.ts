@@ -9,7 +9,7 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { type CatalogResult, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
-import { types } from "#test/unit/codec/support.ts"
+import { codecTypes } from "#test/unit/codec/support.ts"
 import { sink } from "#test/unit/compute/support.ts"
 import { decimalGen } from "#test/unit/values/support.ts"
 
@@ -120,14 +120,14 @@ export const evaluated = (c: PowerCase): CatalogResult => {
 			param,
 			role: "compare",
 			args: [],
-			type: types.numeric,
+			type: codecTypes.numeric,
 			nonNull: "codec"
 		})
 	const root = s.emit({
 		kind: "op",
 		op: numericPowerId,
 		args: [operand(baseParam), operand(exponentParam)],
-		type: types.numeric,
+		type: codecTypes.numeric,
 		nonNull: "strict",
 		volatility: numericPower.volatility,
 		proof: [

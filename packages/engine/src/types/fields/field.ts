@@ -1,6 +1,7 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
 import type { Brand } from "effect"
+import type { HostKeysOf, Marked } from "#compiler/core/brand.ts"
 import type { Column, FieldHost } from "#compiler/core/decoder.ts"
 import type {
 	Built,
@@ -18,10 +19,20 @@ import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { NumericHostOf } from "#compiler/scalar/values/convert.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
+import type { Sha256 } from "#compiler/scalar/values/sha256.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 import type { Uuid } from "#compiler/scalar/values/uuid.ts"
 import type {
+	CallArgs,
+	CallNumberings,
+	CallReads,
+	CallSource
+} from "#compiler/types/compute/call.ts"
+import type { ValueOperand } from "#compiler/types/compute/scalar.ts"
+import type {
 	BaseOf,
+	BindMapParams,
+	Predicate,
 	DeclaresAll,
 	DomainOf,
 	Facts,
@@ -29,8 +40,18 @@ import type {
 	LanguageOf,
 	Refusal,
 	RosterBrands,
-	Rostered
+	Rostered,
+	Varianted,
+	ComputedOrigin,
+	InputTerm,
+	OperandOrigin,
+	ParamsOfTerm,
+	Term,
+	TermBase
 } from "#compiler/types/core/phantom.ts"
+import type { VariantSpelling } from "#compiler/types/schema/function.ts"
+import type { FactOfFields } from "#compiler/types/schema/relation.ts"
+import type { RowScalars, Shows } from "#compiler/types/schema/statements.ts"
 
 /**
  * Any descriptor: the members every runtime descriptor has, its PostgreSQL type name and its column, and the domain
@@ -132,14 +153,14 @@ type BareUuid<F> = [F] extends [{ readonly sql: "uuid" }]
  */
 export type NamedIds<Fields> = {
 	readonly [K in keyof Fields]: BareUuid<Fields[K]> extends true
-		? Refusal<'say whose id this is: contract("ClerkUserId", uuid)'>
+		? Refusal<'say whose id this is: contract<typeof key>()("ClerkUserId", uuid)'>
 		: unknown
 }
 
 /** The refusal of a column type that is a bare uuid (BareUuid), nothing for any other. */
 export type NamedId<F> =
 	BareUuid<F> extends true
-		? Refusal<'say whose id this is: contract("ClerkUserId", uuid)'>
+		? Refusal<'say whose id this is: contract<typeof key>()("ClerkUserId", uuid)'>
 		: unknown
 
 /**
@@ -314,10 +335,11 @@ export interface SpanField<Endpoint, EndpointDomain> extends Field<
 }
 
 /**
- * A literal operand. Over Decimal it is a Decimal, a bigint, or an exact decimal string checked at construction; a
- * JavaScript number is never a numeric literal; and nothing over an instant, which is the database's alone. A literal compared with or written into a contract
- * term adopts the contract, so the literal type is the unbranded base. Without
- * BaseOf, `T extends Decimal ? Decimal | bigint | string : T` would make `r.eq(cents, 5n)` fail to typecheck.
+ * A literal compared with a term of language T. Over Decimal it is a Decimal, a bigint, or an exact decimal string
+ * checked at construction; a JavaScript number is never a numeric literal; and nothing over an instant, which is the
+ * database's alone. A literal compared with a contract's term is a value of the contract's base, its host type
+ * unmarked (BaseOf): a comparison makes no value of the contract, so `r.eq(score, 0.5)` forges nothing. Without BaseOf,
+ * `T extends Decimal ? Decimal | bigint | string : T` would make `r.eq(cents, 5n)` fail to typecheck.
  */
 export type LiteralOf<T> = [T] extends [InstantDomain]
 	? never
@@ -327,8 +349,51 @@ export type LiteralOf<T> = [T] extends [InstantDomain]
 			: B
 		: never
 
+/**
+ * A literal that becomes a value of a type of language T: a typed constant's (Type.literal), a conditional's other arm
+ * and a variant arm's field. Over a host type a consumer marks (core/brand.ts Marked), a contract's, it is a literal of
+ * its base under the consumer's keys, which only the consumer's mint makes, `toCents(5n)`, so no program makes a value
+ * of the contract from a value of its base; over any other type it is the literal a comparison takes (LiteralOf).
+ */
+export type ValueLiteralOf<T> = [HostKeysOf<T>] extends [never]
+	? LiteralOf<T>
+	: Marked<LiteralOf<T>, Extract<HostKeysOf<T>, symbol>>
+
 export type Infer<F> = FieldHost<F>
 export type SqlOf<F> = F extends Field<unknown, infer Sql> ? Sql : never
+
+/**
+ * The key a consumer's contract F holds beyond its base's, its own (Contract K), which a contract over another holds
+ * apart from its base's (types/fields KeyApart); never for any other type, natural and instant among them, whose values
+ * no consumer owns.
+ */
+export type OwnKeyOf<F> = F extends { readonly base: infer B }
+	? Exclude<HostKeysOf<Infer<F>>, HostKeysOf<Infer<B>>>
+	: never
+
+/**
+ * The keys a database-side mint into F takes, every key F's host type is marked by: its own key, then its base's, down
+ * its chain, one for each consumer's contract of it, as the host makes a value of F only through each of their mints
+ * (`toOuter(toCents(0n))`); none for a type no consumer owns.
+ */
+export type MintKeys<F> = F extends { readonly base: infer B }
+	? [OwnKeyOf<F>] extends [never]
+		? MintKeys<B>
+		: readonly [key: OwnKeyOf<F>, ...MintKeys<B>]
+	: readonly []
+
+/**
+ * What a database-side mint into F takes after its own arguments, Type.cast's, drawn's and accumulated's: F's keys
+ * (MintKeys), as mintOf takes each on the host, so a module that does not hold them makes no value of the contract in a
+ * query, a cast or a field grizzle fills; nothing for any other type the types know; and any keys for a field of a host
+ * type they do not, a generic caller's, which the field's own descriptor judges (scalar/contract.ts admitMintKey).
+ */
+export type MintKey<F> =
+	MintKeys<F> extends readonly []
+		? unknown extends Infer<F>
+			? ReadonlyArray<symbol>
+			: readonly []
+		: MintKeys<F>
 
 /** The facts a contract declares: each named fact proved; none declared is the empty declaration. */
 export type DeclaredFacts<Proved extends ReadonlyArray<keyof Facts>> = {
@@ -341,27 +406,36 @@ type DeclaredDomain<Proved extends ReadonlyArray<keyof Facts>> = [Proved[number]
 	: DeclaresAll<Proved[number]>
 
 /**
- * A nominal contract: base descriptor, optional total predicate, PostgreSQL domain. Its host type is
- * the base host type branded with the contract's name, so two contracts over one base are distinct types.
- * The contract is its brand's minting function: `Cents(1500n)` brands without checking, and the database validates on
- * write. Its values have its base's facts and the facts it declares its predicate proves (Proved), which compilation
- * proves from the predicate; its domain, its identity, carries the declared ones (Declares), so every value of its type
- * has them, read from a query's heading too.
+ * A nominal contract: base descriptor, optional total predicate, PostgreSQL domain. Its host type is its base's under
+ * its consumer's key K (core/brand.ts Marked), so a write of it, a fact's field, a parameter's argument or a closed
+ * row's, takes only a value the key's mint made (mintOf), and a read delivers one through its column, the one
+ * conversion grizzle makes unchecked, since it trusts its own database (core/decoder.ts hostColumn). It is no function:
+ * no value of it is made but by its consumer. The database checks its base type and its predicate on every write. Its
+ * values have its base's facts and the facts it declares its predicate proves (Proved), which compilation proves from
+ * the predicate; its domain, its identity, is its base's under its name, with the declared facts (Declares), so two
+ * contracts over one base are distinct types and every value of its type has its facts, read from a query's heading
+ * too.
  */
 export interface Contract<
 	Name extends string,
 	B extends FieldBase,
+	K extends symbol,
 	Proved extends ReadonlyArray<keyof Facts> = readonly []
 > extends Field<
-	Infer<B> & Brand.Brand<Name>,
+	Marked<Infer<B>, K>,
 	B["sql"],
 	DomainOf<B> & Brand.Brand<Name> & DeclaredDomain<Proved>,
 	FactsOf<B> & DeclaredFacts<Proved>
 > {
-	(unbranded: Brand.Brand.Unbranded<Infer<B> & Brand.Brand<Name>>): Infer<B> & Brand.Brand<Name>
 	readonly name: Name
 	readonly base: B
 }
+
+/**
+ * Any consumer's contract, whatever its name, base, key and declared facts: what a configuration's `contracts` lists,
+ * each compiled into its checker file (served/forms.ts ContractFile).
+ */
+export type AnyContract = Contract<string, FieldBase, symbol>
 
 /**
  * Not a field of a writing of its own. A caller's descriptor carries no `writing` member, so an absent optional `never`
@@ -439,6 +513,188 @@ export type SubsetHandles<C, Subset> = Subset extends {
 	: Subset extends { readonly except: ReadonlyArray<infer H> }
 		? Exclude<HandleOf<C>, H>
 		: HandleOf<C>
+
+/**
+ * A variant's arms as its constructor takes them (types/fields/constructors.ts VariantConstructor): one per handle of
+ * the subset of its roster's handles the variant holds, every handle or some, each a record of its fields, each a
+ * caller's descriptor. A handle no arm names is no value of the variant (ArmHandles).
+ */
+export type VariantArms<C> = {
+	readonly [H in HandleOf<C> & string]?: Readonly<Record<string, FieldBase & NoWriting>>
+}
+
+/**
+ * The handles a variant of `Arms` over the roster C holds, its arms' (VariantArms): the subset of C's handles its tag
+ * takes, as a closed id of that subset holds them (ClosedIdField S).
+ */
+export type ArmHandles<C, Arms> = keyof Arms & HandleOf<C>
+
+/**
+ * One arm's value: its handle under `tag`, and each of its fields' host values under its name, one object type, as a
+ * reader's editor shows it.
+ */
+export type ArmValue<H extends string, Fields> = {
+	readonly [K in "tag" | keyof Fields]: K extends "tag"
+		? H
+		: K extends keyof Fields
+			? Infer<Fields[K]>
+			: never
+}
+
+/**
+ * A variant's host value, a TypeScript tagged union: one arm's handle under `tag`, and that arm's fields' host values,
+ * what its column delivers and a write takes (scalar/values/identity.ts VariantValue).
+ */
+export type VariantValueOf<Arms> = {
+	[H in keyof Arms & string]: ArmValue<H, Arms[H]>
+}[keyof Arms & string]
+
+/**
+ * A variant (ir/scalar.ts VariantType): a typed sum of `Arms`, one per handle of a subset of the roster C's handles,
+ * every handle or some (ArmHandles), named Name. Its host type and language are its tagged union over those arms alone
+ * (VariantValueOf); its domain is the union under its name's identity (Varianted), so a field of it meets only another
+ * of the same variant. `name`, `roster` and `arms` are the values its constructor was given.
+ */
+export interface VariantField<Name extends string, C, Arms> extends Field<
+	VariantValueOf<Arms>,
+	"variant",
+	VariantDomain<Name, Arms>
+> {
+	readonly name: Name
+	readonly roster: C
+	readonly arms: Arms
+	/**
+	 * The tag of a value of the variant: the handle of the arm the value holds, a closed id of the subset of its roster
+	 * its arms name (ArmHandles), its domain and language the roster's, as closedId(C, { only }) is.
+	 */
+	readonly tag: <PA, OA>(
+		value: InputTerm<VariantDomain<Name, Arms>, PA, OA, "variant">
+	) => Term<
+		HandleOf<C> & RosterBrands<RosterName<C>, OrderOf<C>>,
+		PA,
+		ComputedOrigin<OA>,
+		"code",
+		ArmHandles<C, Arms>,
+		Facts,
+		HandleOf<C>
+	>
+	/**
+	 * The identity image of a value of the variant (scalar/variant-digest.ts): the SHA-256 of its arm's handle's digest
+	 * and each of its fields' fixed-width images, so two values have one digest exactly where they are of one arm and
+	 * each field is one value by its bytes: texts by their UTF-8, floats by their bits, -0 apart from 0 and every NaN
+	 * one. `generated(sha256, V.digest(row.value))` is a field a key may be declared over, whatever text an arm holds.
+	 */
+	readonly digest: <PA, OA>(
+		value: InputTerm<VariantDomain<Name, Arms>, PA, OA, "variant">
+	) => Term<Sha256, PA, ComputedOrigin<OA>, "sha256">
+	/**
+	 * The fields of the arm `handle` of `value`, a source a rule matches as it matches a call's rows (r.rest's kind): one
+	 * fact of the arm's fields, each at its own type, where `value`'s tag is that arm, none where it is another, so
+	 * `r.match(V.arm(cell, h), { field })` keeps the bindings whose cell holds arm h, its fields bound. `value` is a term
+	 * of the variant, a parameter or a typed constant; an arm of no field has no source, its tag compared instead.
+	 */
+	readonly arm: <
+		const X extends CallArgs<{ readonly value: VariantField<Name, C, Arms> }>["value"],
+		const H extends ArmsWithFields<Arms>
+	>(
+		value: X,
+		handle: H
+	) => CallSource<
+		FactOfFields<Arms[H]>,
+		BindMapParams<{ readonly value: X }>,
+		Arms[H],
+		CallReads<{ readonly value: X }>,
+		CallNumberings["arm"]
+	>
+	/** In a declared function's body (fn.body): the code of the arm `handle`, which `(v).tag` holds for a value of it. */
+	readonly code: (handle: keyof Arms & string) => VariantSpelling
+	/** In a declared function's body (fn.body): the attribute of the composite the arm `handle`'s field `field` is. */
+	readonly attribute: <const H extends keyof Arms & string>(
+		handle: H,
+		field: keyof Arms[H] & string
+	) => VariantSpelling
+	/**
+	 * In a declared function's body (fn.body): a value of the arm `handle`, `fields` exactly its fields, each the SQL text
+	 * of its value; every other arm absent, cast to the variant's domain, which judges it.
+	 */
+	readonly of: <const H extends keyof Arms & string>(
+		handle: H,
+		fields: { readonly [F in keyof Arms[H]]: string }
+	) => VariantSpelling
+	/** A value of the arm `handle`, each of its fields a term of the field's type or a literal of it. */
+	readonly make: <const H extends keyof Arms & string, const Fs extends ArmOperands<Arms[H]>>(
+		handle: H,
+		fields: Fs
+	) => Term<
+		VariantDomain<Name, Arms>,
+		ParamsOfTerm<Fs[keyof Fs]>,
+		ComputedOrigin<OperandOrigin<Fs[keyof Fs]>>,
+		"variant",
+		VariantValueOf<Arms>,
+		Facts,
+		VariantValueOf<Arms>
+	>
+	/**
+	 * One term per arm, exhaustive: a handler for every arm, each given the arm's fields of `value` as terms, its value
+	 * where `value`'s tag is that arm.
+	 */
+	readonly cases: <
+		PA,
+		OA,
+		const R extends {
+			readonly [H in keyof Arms & string]: (arm: ArmTerms<Arms[H], PA, OA>) => unknown
+		}
+	>(
+		value: InputTerm<VariantDomain<Name, Arms>, PA, OA, "variant">,
+		handlers: R
+	) => Extract<ReturnType<R[keyof R]>, TermBase>
+}
+
+/**
+ * A variant's checks (variant's fourth argument): at most one predicate per arm with a field, each given that arm's
+ * fields as terms beside the row helpers a row check compares them with (RowScalars), reading nothing else.
+ */
+export type ArmChecks<Name extends string, Arms> = {
+	readonly [H in ArmsWithFields<Arms>]?: (
+		arm: RowScalars<Shows<`${Name}.${H}`, Arms[H]>>
+	) => Predicate<never>
+}
+
+/** The handles of the arms of `Arms` that hold a field: those V.arm reads a source of. */
+export type ArmsWithFields<Arms> = {
+	readonly [H in keyof Arms & string]: keyof Arms[H] extends never ? never : H
+}[keyof Arms & string]
+
+/** The identity a variant's terms meet at: its tagged union under its name's identity (Varianted). */
+export type VariantDomain<Name extends string, Arms> = VariantValueOf<Arms> & Varianted<Name>
+
+/** The SQL type of a descriptor. */
+type SqlOfField<F> = F extends { readonly sql: infer S extends SqlTag } ? S : never
+
+/**
+ * What make takes for each field of an arm: a term of the field's type, or a literal that becomes a value of it
+ * (ValueOperand), a contract's host value among them.
+ */
+export type ArmOperands<Fields> = {
+	readonly [F in keyof Fields]: ValueOperand<
+		DomainOf<Fields[F]>,
+		SqlOfField<Fields[F]>,
+		LanguageOf<Fields[F]>
+	>
+}
+
+/** What a cases handler is given of its arm: each field a term of its own type, read of the subject. */
+export type ArmTerms<Fields, P, O> = {
+	readonly [F in keyof Fields]: Term<
+		DomainOf<Fields[F]>,
+		P,
+		ComputedOrigin<O>,
+		SqlOfField<Fields[F]>,
+		Infer<Fields[F]>,
+		FactsOf<Fields[F]>,
+		LanguageOf<Fields[F]>
+	>
+}
 
 /**
  * A set over a roster: bit(n), one bit per code the roster has minted, holes included. Its host value is Bits<C>, and

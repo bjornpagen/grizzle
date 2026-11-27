@@ -1,7 +1,7 @@
 /** What navigation-rows.test.ts reads: its schema, its space, the member it navigates and the reference's answers. */
 
 import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
-import { Array as Arr, Order, Record as Rec } from "effect"
+import { Array as Arr, Effect, Order, Record as Rec, String as Str } from "effect"
 import { queryColumns } from "#compiler/analysis/theory/columns.ts"
 import { Navigation, navigateQuery } from "#compiler/analysis/theory/navigate.ts"
 import { buildTheory } from "#compiler/analysis/theory/theory.ts"
@@ -14,6 +14,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { everyCallCount } from "#test/support/kernel/calls.ts"
 import { int4 } from "#test/support/oracle/gen/domain.ts"
 import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
@@ -90,7 +91,16 @@ type Pending = "a join of two relations" | "one relation"
 /** Where the call's rows come from: the parameters alone, or the call's child's sittings, a stored relation's rows. */
 type Rows = "the call's parameters" | "the call's child's sittings"
 
+/**
+ * The definition the member reads beside the call's rows: the sittings settled (a relation beside a negated query), or
+ * the sittings attempted, a join of three relations (TestEnd, ItemSession, Attempt), which navigation reads apart as a
+ * chain of its own, navigated from the columns the call's rows bind it at (navigatedRule `inputs`): read apart from
+ * them, it led with every ended sitting.
+ */
+type Definition = "the sittings settled" | "the sittings attempted"
+
 interface Shape {
+	readonly definition: Definition
 	readonly pending: Pending
 	readonly rows: Rows
 	/** Whether the member negates Final beside the definition, as edullm's finalize does. */
@@ -106,6 +116,7 @@ interface RowsCase {
 }
 
 export type Feature =
+	| "a definition that joins"
 	| "a negated query that joins"
 	| "a negated query of one relation"
 	| "a member negation beside the definition"
@@ -114,6 +125,7 @@ export type Feature =
 	| "a sitting the definition drops"
 
 export const situations: Arr.NonEmptyReadonlyArray<Feature> = [
+	"a definition that joins",
 	"a negated query that joins",
 	"a negated query of one relation",
 	"a member negation beside the definition",
@@ -136,6 +148,7 @@ const factsOf =
 
 export const rowsCaseGen: Gen<RowsCase> = (s) => ({
 	shape: {
+		definition: s.draw(element<Definition>(["the sittings settled", "the sittings attempted"])),
 		pending: s.draw(element<Pending>(["a join of two relations", "one relation"])),
 		rows: s.draw(element<Rows>(["the call's parameters", "the call's child's sittings"])),
 		negated: s.draw(boolean)
@@ -184,6 +197,18 @@ const settledOf = (pending: Pending) => {
 	})
 }
 
+/** The sittings ended and attempted: each ended sitting beside an attempt of one of its item sessions. */
+const attempted = query(Settle).rule((r) => {
+	const { child, stage } = v(TestEnd, "end")
+	const { item } = v(ItemSession, "session")
+	const { n } = v(Attempt, "attempt")
+	return r
+		.match(TestEnd, { child, stage })
+		.match(ItemSession, { child, stage, item })
+		.match(Attempt, { child, item, n })
+		.find({ child, stage })
+})
+
 const sittingHeading = { child: pg.integer, stage: pg.integer } as const
 
 /** The rows the call binds `sittings` to. */
@@ -208,7 +233,8 @@ const loc = SourceLoc("navigation-rows property", [])
  * which the member reads by the parameter's name (ChangeSetDesc `boundRows`).
  */
 export const memberOf = (shape: Shape): InferredQuery => {
-	const settled = settledOf(shape.pending)
+	const settled =
+		shape.definition === "the sittings attempted" ? attempted : settledOf(shape.pending)
 	const member = query(Settle).rule((r) => {
 		const sittings = r.relation("sittings", sittingHeading)
 		const { child, stage } = v(sittings, "sitting")
@@ -368,4 +394,140 @@ export const answerOf = (c: RowsCase, member: InferredQuery): ReadonlyArray<stri
 		Arr.map(answer.rows, (row) => Arr.join(Arr.map(row, String), ",")),
 		Order.String
 	)
+}
+
+/**
+ * The columns the call's rows bind the sittings attempted at, a binding pattern: a sitting's child and stage, the
+ * call's sittings', or its child alone, the call's children's.
+ */
+export type Pattern = "child and stage" | "child"
+
+/** One to three members of one write, each reading the sittings attempted beside the call's rows at a pattern. */
+export const patternsGen: Gen<ReadonlyArray<Pattern>> = array(
+	element<Pattern>(["child and stage", "child"]),
+	{ min: 1, max: 3 }
+)
+
+/** The call's sittings beside the sittings attempted, at their child and stage. */
+const attemptedAtSittings = query(Settle).rule((r) => {
+	const sittings = r.relation("sittings", sittingHeading)
+	const { child, stage } = v(sittings, "sitting")
+	return r
+		.match(sittings, { child, stage })
+		.match(attempted, { child, stage })
+		.find({ child, stage })
+})
+
+/** The call's children beside the sittings attempted, at their child alone. */
+const attemptedAtChildren = query(Settle).rule((r) => {
+	const children = r.relation("children", { child: pg.integer })
+	const { child } = v(children, "child")
+	const { stage } = v(attempted, "attempted")
+	return r.match(children, { child }).match(attempted, { child, stage }).find({ child, stage })
+})
+
+/** A member reading the sittings attempted beside the call's rows at `pattern`, as the write's frontend reads it. */
+const attemptedAt = (pattern: Pattern): InferredQuery => {
+	const desc =
+		pattern === "child and stage"
+			? descOf(ChangeSet.empty(Settle).insert(Final, attemptedAtSittings))
+			: descOf(ChangeSet.empty(Settle).insert(Final, attemptedAtChildren))
+	const written = desc.strata[0]?.members[0]?.member
+	if (written?.kind !== "query") {
+		throw new Error("the member a pattern writes is one query member")
+	}
+	return written.query
+}
+
+/** Whether a function is navigation's `navigate`, which navigates one rule that joins as a chain of steps. */
+const isNavigate = (key: string): boolean => Str.endsWith(" navigate")(key)
+
+/**
+ * How many rules that join one write's navigation navigates (`navigate`'s calls) over members reading the sittings
+ * attempted at `patterns`, the members sharing the write's one navigation (write/frontend/compile.ts): each binding
+ * pattern's import of it one query, navigated once (Navigation `navigated`), however many members read it so.
+ */
+export const navigationsOf = (patterns: ReadonlyArray<Pattern>): Effect.Effect<number> =>
+	Effect.map(
+		everyCallCount(
+			Effect.sync(() => {
+				const navigation = new Navigation(succeeded(buildTheory(checked)).regionFacts)
+				for (const pattern of patterns) {
+					navigateQuery(
+						attemptedAt(pattern),
+						loc,
+						queryColumns(checked, loc),
+						{ kind: "perRead" },
+						navigation
+					)
+				}
+			}),
+			(file) => Str.endsWith("analysis/theory/navigate.ts")(file)
+		),
+		([, counts]) =>
+			Arr.reduce(
+				Arr.filter([...counts.entries()], ([key]) => isNavigate(key)),
+				0,
+				(sum, [, n]) => sum + n
+			)
+	)
+
+/**
+ * How a member reads the call's child's attempted items at stage 1 beside the call's sittings (a relation input, so
+ * navigation reads the member apart, navigatedRule): the child a parameter bound at the definition's child directly, or a
+ * variable the member's rule equates with the parameter.
+ */
+export type AtParameter = "bound to the parameter" | "equated with the parameter"
+
+export const atParameterGen: Gen<AtParameter> = element<AtParameter>([
+	"bound to the parameter",
+	"equated with the parameter"
+])
+
+/**
+ * The items a child attempted at stage 1: its item sessions at the literal stage beside their attempts, a join whose
+ * one literal binds ItemSession, so navigated from no value (navigatedRule boundInside, a rule's fixed terms) its chain
+ * starts at every item session of stage 1, every child's, a step keyed by nothing.
+ */
+const attemptedAtOne = query(Settle).rule((r) => {
+	const { child, item } = v(ItemSession, "session")
+	const { n } = v(Attempt, "attempt")
+	return r
+		.match(ItemSession, { child, stage: 1, item })
+		.match(Attempt, { child, item, n })
+		.find({ child, item })
+})
+
+const attemptedByParameter = query(Settle).rule((r) => {
+	const sittings = r.relation("sittings", sittingHeading)
+	const { stage } = v(sittings, "sitting")
+	const { item } = v(attemptedAtOne, "a")
+	return r
+		.match(sittings, { child: r.param("child", pg.integer), stage })
+		.match(attemptedAtOne, { child: r.param("child", pg.integer), item })
+		.find({ child: r.param("child", pg.integer), stage: item })
+})
+
+const attemptedByEquated = query(Settle).rule((r) => {
+	const sittings = r.relation("sittings", sittingHeading)
+	const { stage } = v(sittings, "sitting")
+	const { child, item } = v(attemptedAtOne, "a")
+	return r
+		.match(sittings, { child: r.param("child", pg.integer), stage })
+		.match(attemptedAtOne, { child, item })
+		.where(r.eq(child, r.param("child", pg.integer)))
+		.find({ child, stage: item })
+})
+
+/** A member reading the child's attempted items at stage 1 as `how` says, as the write's frontend reads it. */
+export const atParameterOf = (how: AtParameter): InferredQuery => {
+	const desc =
+		how === "bound to the parameter"
+			? descOf(ChangeSet.empty(Settle).insert(Final, attemptedByParameter))
+			: descOf(ChangeSet.empty(Settle).insert(Final, attemptedByEquated))
+	const written = desc.strata[0]?.members[0]?.member
+	if (written?.kind !== "query") {
+		throw new Error("the member a reading writes is one query member")
+	}
+	return written.query
 }

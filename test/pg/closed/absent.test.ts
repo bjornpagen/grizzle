@@ -26,7 +26,7 @@
  *   downstream `Bits.subset(FlagRel.row(…), flags)` equal to true and its converse, the flags within the read, a
  *   flag's membership in a set, `Bits.subset(Bits.singleton(flag), set)` of the own, picked or slotted flag in
  *   the row's flags or a FlagRel.row, a presence, the kind equal or unequal to a handle, and AND, OR and NOT of them,
- *   the guard `or(not(C.has(k…)), φ(C.at(…, k…)))` among them;
+ *   the guard `or([not(C.has(k…)), φ(C.at(…, k…))])` among them;
  * - a containment of a selection's (kind, flag) into Allowed, under a drawn predicate: a table CHECK whose guard is
  *   the selection;
  * - a key over a selection's integer, under a drawn predicate: a law column `CASE WHEN φ THEN n END`, which grizzle's

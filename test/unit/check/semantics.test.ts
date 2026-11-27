@@ -94,7 +94,7 @@ export const theCheckersParameterMemberAndBoundRulesGiveEveryGeneratedReadsCheck
 		]
 	})
 
-/** The checker's parameter, member and bound rules type each query's own parameters by the declarations their uses share, never an import's own, join a variable's fields within one family, and refuse what those rules refuse. Its budget is its suite's before it was a property (test/unit/check/semantics.test.ts at 4ca3036a): 300 runs and 600 steered cases. */
+/** The checker's parameter, member and bound rules type each query's own parameters by the declarations their uses share, never an import's own, join a variable's fields within one family where one's kind guarantees the other's (31664c74c6), and refuse what those rules refuse. Its budget is its suite's before it was a property (test/unit/check/semantics.test.ts at 4ca3036a): 300 runs and 600 steered cases. */
 export const theCheckersParameterMemberAndBoundRulesTypeEachQuerysOwnParametersByTheDeclarationsTheirUsesShareNeverAnImportsOwnJoinAVariablesFieldsWithinOneFamilyAndRefuseWhatThoseRulesRefuse =
 	property.explore(paramCaseGen, {
 		needs: {},
@@ -104,7 +104,8 @@ export const theCheckersParameterMemberAndBoundRulesTypeEachQuerysOwnParametersB
 			"a bound variable of another family",
 			"a computed negation over an outer variable",
 			"a variable bound to fields of two families",
-			"a variable joined across typmods or refinements",
+			"a variable bound to fields no one of whose kinds guarantees the other's",
+			"a variable joined across refinements",
 			"a parameter widened",
 			...Arr.map(
 				[

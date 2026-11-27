@@ -34,6 +34,7 @@ import {
 import { completeGroups } from "#compiler/logical/order.ts"
 import {
 	type ColumnMap,
+	columnIn,
 	distinctSelect,
 	emptyEnv,
 	type Env,
@@ -44,6 +45,7 @@ import {
 	LowerContext,
 	nodeLabel,
 	refuse,
+	restrictedEnv,
 	type StatementParams
 } from "#compiler/lower/conservative/context.ts"
 
@@ -81,6 +83,12 @@ import {
 	withBoundary
 } from "#compiler/lower/shapes/index.ts"
 import {
+	asItStands,
+	type PageWindow,
+	type WindowDriver
+} from "#compiler/lower/shapes/page/driver.ts"
+import {
+	drivenRows,
 	pagedRows,
 	positionedGroupRows,
 	retainedGroupRows
@@ -102,11 +110,14 @@ import {
 	positionedSlots,
 	type RequestSlots,
 	reversedCompletedOrder,
+	reversedOrder,
 	type VariantFill,
 	variantDirection,
 	type WindowStart
 } from "#compiler/lower/shapes/page/seek.ts"
 
+import { chainSelect } from "#compiler/lower/shapes/region/index.ts"
+import { readPerDrivingRow } from "#compiler/lower/shapes/semi-join/index.ts"
 import type { StatementKeys } from "#compiler/lower/shapes/share/keyed.ts"
 import {
 	discardCertificates,
@@ -118,8 +129,16 @@ import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
 import { groupRows } from "#compiler/lower/shapes/union/index.ts"
 import type { AttachedTree, RowsRole, StatementRoots } from "#compiler/runtime/lower/tree.ts"
 import { searchedOnly, storedOnly } from "#compiler/scalar/registry.ts"
-import type { Expr, OperandSelect, OrderItem, Select } from "#compiler/sql/ast.ts"
-import { and, binary, keyedSet, select } from "#compiler/sql/build.ts"
+import type {
+	EmittedSql,
+	Expr,
+	FromItem,
+	OperandSelect,
+	OrderItem,
+	Select
+} from "#compiler/sql/ast.ts"
+import { and, binary, conjunction, keyedSet, select, unitRow } from "#compiler/sql/build.ts"
+import { emitText } from "#compiler/sql/emit.ts"
 
 /**
  * A page's program in its optimized artifact: one statement of parts, whose attachments choose by a relation
@@ -199,6 +218,7 @@ export interface PageCompileInput {
 		readonly plan: DedupPlan
 		readonly cte: CtePlan
 		readonly keys: StatementKeys
+		readonly window: PageWindow
 	}
 	readonly names: PhysicalNames
 }
@@ -236,6 +256,11 @@ type PageShape =
 interface Kit<F extends PageFill, S, P> {
 	readonly cx: LowerContext
 	readonly delivery: Delivery<PageParamSlot<F>>
+	/**
+	 * How the artifact's windows read the page's rows (driver.ts): the conservative artifact's as they stand, the
+	 * optimized artifact's as its lowering decided, driven by the window's driver where one meets the rule.
+	 */
+	readonly window: PageWindow
 	/** The program of the parts `place` places: one statement of them all, or a statement each. */
 	readonly program: (place: () => StatementRoots<S>) => P
 	/**
@@ -261,17 +286,25 @@ interface Kit<F extends PageFill, S, P> {
 	 * The page's rows of `origin`, of heading `heading`, that its attachments read, which `retained` lowers: at most the
 	 * requested size of them, held once by the statement or computed again in each attachment's own.
 	 */
-	readonly retained: (
-		retained: () => Select,
-		heading: Heading,
-		origin: RelNode
-	) => DeliveredRows<PageInput>
+	readonly retained: (retained: () => Select, heading: Heading, origin: RelNode) => Retained
 	/** The parts of `attachments` over the page's rows `rows`. */
 	readonly attach: (
 		rows: DeliveredRows<PageInput>,
 		spine: ReadonlyArray<RelNode>,
 		attachments: ReadonlyArray<NodeOf<"Attach">>
 	) => ReadonlyArray<AttachedTree<S>>
+}
+
+/**
+ * A window's rows as its attachments read them (`rows`), and how its rows part reads them: the rows the statement holds
+ * once for its attachments (`held`, the optimized artifact's), so no part computes the window twice, or computed again
+ * in its own statement (`own`, the conservative artifact's, each part a statement of its own).
+ */
+interface Retained {
+	readonly rows: DeliveredRows<PageInput>
+	readonly part:
+		| { readonly kind: "held"; readonly read: () => OperandSelect }
+		| { readonly kind: "own" }
 }
 
 /**
@@ -307,7 +340,7 @@ const pageBound = { kind: "input", source: { kind: "pageSize" }, factor: 1n } as
  * (shapes/index.ts partedConservative).
  */
 const conservativeKit = <F extends PageFill>(
-	input: PageCompileInput
+	input: Pick<PageCompileInput, "checked" | "names">
 ): Kit<F, ConservativeStatement<PageStatementSlot<F>>, PageProgram<F>> => {
 	const options: ConservativeOptions = {
 		names: input.names,
@@ -325,6 +358,7 @@ const conservativeKit = <F extends PageFill>(
 	return {
 		cx,
 		delivery,
+		window: asItStands,
 		program: (place) => partedConservative(place()),
 		slots: (slotsOf) => slotsOf,
 		part: (lower, rows, role) => {
@@ -341,8 +375,8 @@ const conservativeKit = <F extends PageFill>(
 		},
 		order: (order, heading, map) => completedOrderItems(order, heading, map),
 		retained: (retained, heading, origin) => ({
-			...statementRows(cx, heading, origin, retained, noRowKeys),
-			bound: pageBound
+			rows: { ...statementRows(cx, heading, origin, retained, noRowKeys), bound: pageBound },
+			part: { kind: "own" }
 		}),
 		attach: (rows, spine, attachments) => delivery.attachments({ nodes: spine, attachments }, rows)
 	}
@@ -367,10 +401,16 @@ const optimizedKit = <F extends PageFill>(
 		state.evaluationHolding,
 		dispatching.carrying
 	)
-	const delivery = new OptimizedDelivery<PageInput, PageParamSlot<F>>(cx, facts, state)
+	const delivery = new OptimizedDelivery<PageInput, PageParamSlot<F>, EmittedSql>(
+		cx,
+		facts,
+		state,
+		emitText
+	)
 	return {
 		cx,
 		delivery,
+		window: input.optimized.window,
 		program: (place) => delivery.pageProgram(place),
 		slots: (slotsOf) => {
 			const slots = slotsOf()
@@ -393,8 +433,10 @@ const optimizedKit = <F extends PageFill>(
 				total: orderIsTotal(facts, origin, order, originHeading),
 				fixed: []
 			}),
-		retained: (retained, heading, origin) =>
-			delivery.heldRows(retained(), heading, origin, pageBound),
+		retained: (retained, heading, origin) => {
+			const held = delivery.heldRows(retained(), heading, origin, pageBound)
+			return { rows: held.rows, part: { kind: "held", read: held.read } }
+		},
 		attach: (rows, spine, attachments) =>
 			attachments.map((attach) => delivery.pipelinedPart(attach, spine, rows))
 	}
@@ -449,6 +491,8 @@ interface PageSource<S> {
 	readonly orderOrigin: RelNode
 	readonly orderHeading: Heading
 	readonly role: RowsRole
+	/** Whether attachments read its rows, which the statement then holds once (Retained). */
+	readonly attached: boolean
 	/** The parts of its attachments, over the page's rows they read. */
 	readonly attachments: (rows: DeliveredRows<PageInput>) => ReadonlyArray<AttachedTree<S>>
 }
@@ -466,6 +510,7 @@ const sourcesOf = <F extends PageFill, S, P>(
 				orderOrigin: shape.rows,
 				orderHeading: shape.heading,
 				role: { kind: "main" },
+				attached: shape.spine.attachments.length > 0,
 				attachments: (rows) => kit.attach(rows, shape.spine.nodes, shape.spine.attachments)
 			}
 		]
@@ -481,6 +526,7 @@ const sourcesOf = <F extends PageFill, S, P>(
 		orderOrigin: union,
 		orderHeading: union.heading,
 		role: { kind: "headingGroup", group: gi },
+		attached: true,
 		attachments: (rows: DeliveredRows<PageInput>) => {
 			const above = kit.attach(rows, scope, plan.attachments)
 			const [only, ...others] = g.arms
@@ -503,6 +549,143 @@ const sourcesOf = <F extends PageFill, S, P>(
 }
 
 /**
+ * A window's rows part over the rows its statement holds for its attachments (Retained `held`): those rows in the fetch
+ * order, which the runtime reverses for a backward window as it reverses any.
+ */
+const heldWindow = (
+	cx: LowerContext,
+	held: OperandSelect,
+	source: { readonly heading: Heading; readonly origin: RelNode },
+	order: (map: ColumnMap) => ReadonlyArray<OrderItem>,
+	direction: PageDirection
+): Select => {
+	const rows = cx.wrap(held, source.heading, { kind: "node", node: source.origin.id })
+	const declared = order(rows.map)
+	return {
+		...select(
+			keyedSet(
+				headingTargets(source.heading, rows.map),
+				[rows.item],
+				undefined,
+				"a window's held rows"
+			)
+		),
+		orderBy: direction === "backward" ? reversedOrder(declared) : declared
+	}
+}
+
+/** The type of a column of a window driver's relation. */
+const typeOfColumn = (driver: WindowDriver, column: string) =>
+	defined(
+		driver.base.heading.find((h) => h.name === column),
+		"a window driver's column, its relation's"
+	).type
+
+/** The heading of a window driver's rows: its columns the take reads, by D's names, each its driver column's type. */
+const driverHeading = (driver: WindowDriver): Heading =>
+	driver.columns.map((c) => ({ name: c.heading, type: typeOfColumn(driver, c.column) }))
+
+/**
+ * One part of a driven window (driver.ts): its driver's relation read at one row of S, `values`, by the driver's
+ * names: each point the call fixes, each column of c̄ at S's row, and each end of the interval, the filter's own
+ * comparison read at the driver's column, so the part's rows are the filter's; its key's and order's columns named as
+ * D's, which the part's take reads (rows.ts drivenRows).
+ */
+const driverRows = (cx: LowerContext, driver: WindowDriver, values: ColumnMap): Select => {
+	const base = cx.wrap(cx.lower(driver.base, emptyEnv), driver.base.heading, {
+		kind: "node",
+		node: driver.base.id
+	})
+	const ends = [driver.interval.lower, driver.interval.upper].flatMap((end) =>
+		end.kind === "open"
+			? []
+			: [
+					lowerExpr(cx, end.comparison.expr, {
+						...emptyEnv,
+						columns: new Map([
+							[
+								end.comparison.node,
+								new Map([[end.comparison.column, columnIn(base.map, end.column)]])
+							]
+						])
+					})
+				]
+	)
+	const where = conjunction([
+		...driver.values.points.map((f) =>
+			cx.equal(
+				typeOfColumn(driver, f.column),
+				columnIn(base.map, f.column),
+				lowerExpr(cx, f.value, emptyEnv)
+			)
+		),
+		...driver.values.read.map((r) =>
+			cx.equal(
+				typeOfColumn(driver, r.column),
+				columnIn(base.map, r.column),
+				columnIn(values, r.column)
+			)
+		),
+		...ends
+	])
+	const named: ColumnMap = new Map(
+		driver.columns.map((c) => [c.heading, columnIn(base.map, c.column)])
+	)
+	return select(
+		keyedSet(headingTargets(driverHeading(driver), named), [base.item], where, "a window's driver")
+	)
+}
+
+/**
+ * S, the rows of a window driver's prefix the call reads (driver.ts DriverValues), as each part of the window reads
+ * them (rows.ts drivenRows), its columns by the driver's names: the unit row where the call's points fix the whole
+ * prefix; else P's chain from the call's values, DISTINCT over c̄, printed as every chain is (lower/shapes/region
+ * chainSelect), the region held at the call's values of P's classes, its restriction (restrictedEnv), as a region read
+ * at a restriction it holds is.
+ */
+const driverValues = (
+	cx: LowerContext,
+	driver: WindowDriver
+): { readonly item: FromItem; readonly map: ColumnMap } => {
+	const { region, steps, read } = driver.values
+	const origin = { kind: "node", node: driver.base.id } as const
+	if (!isNonEmpty(steps)) {
+		return { item: unitRow(cx.relationAlias(origin)), map: new Map() }
+	}
+	const targets = defined(
+		isNonEmpty(read) ? read : undefined,
+		"a window's value set, a column of the driver its chain reads"
+	)
+	const env = restrictedEnv(
+		emptyEnv,
+		new Map([
+			[
+				region,
+				driver.values.restriction.map((r) => ({
+					column: r.column,
+					value: lowerExpr(cx, r.value, emptyEnv)
+				}))
+			]
+		])
+	)
+	const chain = defined(
+		chainSelect(
+			cx,
+			env,
+			region,
+			steps,
+			mapNonEmpty(targets, (r) => ({ name: r.column, var: r.var }))
+		),
+		"a window's value set, its chain's read"
+	)
+	return cx.wrap(
+		chain,
+		read.map((r) => ({ name: r.column, type: typeOfColumn(driver, r.column) })),
+		origin
+	)
+}
+
+/**
  * One window variant's program, its page placeholders those `slotsOf` allocates into its parameter list: a plain
  * window's size, an anchored one's size and boundaries, a positioned one's size and offset.
  */
@@ -520,17 +703,43 @@ const requestProgram = <F extends PageFill, S, P>(
 	 * One source's rows from `start` in the fetch order, bounded by `limit`, which is allocated after the rows' own
 	 * placeholders and before the seek's or the offset's.
 	 */
-	const paged = (source: PageSource<S>, start: WindowStart, limit: () => Expr): Select =>
-		pagedRows(cx, {
+	const paged = (source: PageSource<S>, start: WindowStart, limit: () => Expr): Select => {
+		const origin = { kind: "node", node: source.origin.id } as const
+		const order = (map: ColumnMap, heading: Heading) =>
+			kit.order(shape.order, heading, map, source.orderOrigin, source.orderHeading)
+		const window = kit.window
+		if (window.kind === "driven" && sources.length === 1) {
+			const driver = window.driver
+			return drivenRows(cx, {
+				values: driverValues(cx, driver),
+				driver: (values) => driverRows(cx, driver, values),
+				driverHeading: driverHeading(driver),
+				heading: source.heading,
+				origin,
+				start,
+				direction,
+				order,
+				limit,
+				rows: (keys) =>
+					readPerDrivingRow(
+						cx,
+						emptyEnv,
+						driver.rows,
+						driver.key.map((column) => ({ column, value: columnIn(keys, column) })),
+						{ kind: "node", node: driver.rows.id }
+					)
+			})
+		}
+		return pagedRows(cx, {
 			rel: source.rel(),
 			heading: source.heading,
-			origin: { kind: "node", node: source.origin.id },
+			origin,
 			start,
 			direction,
-			order: (map) =>
-				kit.order(shape.order, source.heading, map, source.orderOrigin, source.orderHeading),
+			order: (map) => order(map, source.heading),
 			limit: limit()
 		})
+	}
 	return kit.program(() => {
 		const slots = kit.slots(() => slotsOf(kit.delivery.params))
 		/**
@@ -583,11 +792,52 @@ const requestProgram = <F extends PageFill, S, P>(
 			}
 		}
 		return mapNonEmpty(sources, (source) => {
-			const statement = kit.part(() => windowRows(source, "delivered"), source.heading, source.role)
-			const attachments = source.attachments(
-				kit.retained(() => windowRows(source, "retained"), source.heading, source.origin)
+			if (sources.length > 1 || !source.attached) {
+				const statement = kit.part(
+					() => windowRows(source, "delivered"),
+					source.heading,
+					source.role
+				)
+				/** A source no attachment reads holds no rows for one: its window is its rows part alone. */
+				const attachments = source.attached
+					? source.attachments(
+							kit.retained(() => windowRows(source, "retained"), source.heading, source.origin).rows
+						)
+					: []
+				return { statement, attachments }
+			}
+			/**
+			 * One source's window, which its attachments read: held once by the statement, its rows part delivering the
+			 * held rows in the fetch order, so the window is computed once (Retained).
+			 */
+			const retained = kit.retained(
+				() => windowRows(source, "retained"),
+				source.heading,
+				source.origin
 			)
-			return { statement, attachments }
+			const part = retained.part
+			const statement = kit.part(
+				() =>
+					part.kind === "held"
+						? heldWindow(
+								cx,
+								part.read(),
+								source,
+								(map) =>
+									kit.order(
+										shape.order,
+										source.heading,
+										map,
+										source.orderOrigin,
+										source.orderHeading
+									),
+								direction
+							)
+						: windowRows(source, "delivered"),
+				source.heading,
+				source.role
+			)
+			return { statement, attachments: source.attachments(retained.rows) }
 		})
 	})
 }
@@ -762,6 +1012,41 @@ const pagedGroupsOrder = (union: NodeOf<"Union">, orders: GroupOrders): Complete
 	sharedOrder(orders, union.heading, nodeLabel(union), "a page over a heterogeneous union")
 
 /**
+ * The order a page over the checked query's ordered result `root` compares by (pageOrderOf, or pagedGroupsOrder for a
+ * heterogeneous union delivered per heading group), with the shape its conservative artifact delivers: what the page
+ * compiler pages by, and what the query's optimized lowering reads a window's driver in (program/compile.ts, read
+ * "page"; lower/shapes/page/driver.ts). Refused where the stated order does not begin the query's completed order.
+ */
+export const completedPageOrder = (
+	input: Pick<PageCompileInput, "checked" | "names" | "stated">,
+	root: NodeOf<"OrderedResult">
+): { readonly shape: PageShape; readonly order: CompletedOrder } => {
+	const shape = pageShapeOf(conservativeKit<PageFill>(input).delivery, root)
+	/** The checker's completion begins with the stated keys (check/checker.ts complete). */
+	const statedPrefix = shape.order.keys.slice(0, input.stated.keys.length)
+	if (
+		!canonicalEquals(
+			statedPrefix,
+			input.stated.keys.map((k) => ({ column: k.column, dir: k.dir }))
+		)
+	) {
+		return refuse(
+			"MalformedDescription",
+			"page compiler",
+			"a page template whose stated order begins its query's completed order"
+		)
+	}
+	const order =
+		shape.kind === "rows"
+			? soleOrder(unwrap(pageOrderOf(input.checked, shape.rows, input.stated, queryEvidence)))
+			: pagedGroupsOrder(
+					shape.plan.union,
+					unwrap(pageOrderOf(input.checked, shape.plan.union, input.stated, queryEvidence))
+				)
+	return { shape, order }
+}
+
+/**
  * The page template of a compiled ordered query: every window variant of its optimized artifact.
  *
  * The page compiler.
@@ -841,32 +1126,7 @@ export const compilePage = (input: PageCompileInput): Result.Result<PageTemplate
 			derivedDefinition: false,
 			certify: discardCertificates
 		})
-		const conservativeShape = pageShapeOf(conservativeKit<PageFill>(input).delivery, checkedRoot)
-		/** The checker's completion begins with the stated keys (check/checker.ts complete). */
-		const statedPrefix = conservativeShape.order.keys.slice(0, input.stated.keys.length)
-		if (
-			!canonicalEquals(
-				statedPrefix,
-				input.stated.keys.map((k) => ({ column: k.column, dir: k.dir }))
-			)
-		) {
-			return refuse(
-				"MalformedDescription",
-				at,
-				"a page template whose stated order begins its query's completed order"
-			)
-		}
-		const order =
-			conservativeShape.kind === "rows"
-				? soleOrder(
-						unwrap(pageOrderOf(input.checked, conservativeShape.rows, input.stated, queryEvidence))
-					)
-				: pagedGroupsOrder(
-						conservativeShape.plan.union,
-						unwrap(
-							pageOrderOf(input.checked, conservativeShape.plan.union, input.stated, queryEvidence)
-						)
-					)
+		const { shape: conservativeShape, order } = completedPageOrder(input, checkedRoot)
 		const comparators = pageComparators(order, conservativeShape.heading)
 		/**
 		 * A window's anchor binds each comparator's value as a parameter, and no parameter carries bytes or a search

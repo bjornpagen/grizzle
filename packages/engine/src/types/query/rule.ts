@@ -23,7 +23,12 @@ import type {
 	Requires
 } from "#compiler/types/compute/scalar.ts"
 
-import type { CallArgs, CallReads, CallSource } from "#compiler/types/compute/call.ts"
+import type {
+	CallArgs,
+	CallNumberings,
+	CallReads,
+	CallSource
+} from "#compiler/types/compute/call.ts"
 import type {
 	BindMapParams,
 	Carriers,
@@ -38,8 +43,8 @@ import type {
 	Negating,
 	OperandOrigin,
 	ParamOrigin,
-	ParamsContribution,
 	ParamType,
+	ParamsOfEach,
 	ParamsOfTerm,
 	ParamsOfValues,
 	Predicate,
@@ -55,7 +60,6 @@ import type {
 } from "#compiler/types/core/phantom.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type {
-	ArmProofOf,
 	Comparison,
 	ComparisonOp,
 	Conjunction,
@@ -128,6 +132,7 @@ import type {
 	Relation
 } from "#compiler/types/schema/relation.ts"
 import type {
+	EmptyLevel,
 	IsLevelOfInvariant,
 	IsRelationOf,
 	RelationOf,
@@ -160,7 +165,7 @@ type FinishedHead<
 		HeadKeys<S, O, H, St>,
 		HeadValues<H, St>,
 		HeadOrigins<H, O>,
-		ProofsOf<ContainmentProof<S, Sole, H>, ReflexiveProof<O, Fl, H>, ArmProofOf<S, Sole, H>>,
+		ProofsOf<ContainmentProof<S, Sole, H>, ReflexiveProof<O, Fl, H>>,
 		BindingsProved<PinnedOrSplit<S, HeadKeys<S, O, H, St>, H, O, St, Sp>, ProducedCard<S, H, O, St>>
 	>,
 	Simplify<Params & ParamsOfValues<H>>,
@@ -265,8 +270,12 @@ type MatchCheck<S, R> = R extends AnyContext
 			: Refusal<"the relation is not in this query's schema">
 
 /**
- * A source written over a schema, a query, a bound import or an interior stage, is over a level of S: its schema read
- * off its phantom by key, never bound by `infer`, whose branch would instantiate the schema whole at every match.
+ * A source written over a schema, a query, a bound import or an interior stage, is over a level of S or over the empty
+ * level, a level of every level (EmptyLevel), as schema/levels.ts isLevelOf holds it at run time: so a rule over a role
+ * matches a read over schema.empty bound by the rule's own parameters, as den's census of a root derived from its key
+ * does. Its schema is read off its phantom by key, never bound by `infer`, whose branch would instantiate the schema
+ * whole at every match; the empty level is tested only where no level of S is the source's, so a match of a source over
+ * a level of S pays nothing for it.
  */
 type RequireLevel<S, R> = typeof phantom extends keyof R
 	? LevelOfPhantom<S, NonNullable<R[typeof phantom & keyof R]>>
@@ -274,7 +283,9 @@ type RequireLevel<S, R> = typeof phantom extends keyof R
 type LevelOfPhantom<S, B> = "schema" extends keyof B
 	? IsLevelOfInvariant<S, B["schema" & keyof B]> extends true
 		? unknown
-		: Refusal<"the query is not over a level of this query's schema">
+		: [B["schema" & keyof B]] extends [Invariant<EmptyLevel>]
+			? unknown
+			: Refusal<"the query is not over a level of this query's schema">
 	: unknown
 
 /**
@@ -318,22 +329,6 @@ interface ReadsContexts<in Cx> extends Built {
 }
 
 type Compare<A, B> = Predicate<P<A> & P<B>, Reads<readonly [A, B]>>
-/**
- * The parameters a list of predicates needs: every one any of them may use. A spread array of unknown length, or a
- * conditional between two predicates, may run any of its members, so each member's parameters are required, as the
- * fixed positions of a tuple are.
- */
-type PredicateParams<Ps> = Ps extends readonly [infer H, ...infer Rest]
-	? AnyMemberParams<H> & PredicateParams<Rest>
-	: Ps extends readonly []
-		? unknown
-		: Ps extends ReadonlyArray<infer X>
-			? AnyMemberParams<X>
-			: unknown
-
-type AnyMemberParams<X> = UnionToIntersection<
-	X extends unknown ? ParamsContribution<ParamsOfTerm<X>> : never
->
 /** A comparison records its operator and operands for the reflexive proof (../evidence/evidence.ts ReflexiveProof). */
 type Compared<Op extends ComparisonOp, A, B> = Compare<A, B> & Shaped<Comparison<Op, A, B>>
 
@@ -565,7 +560,7 @@ type RuleWhere = <S, Params, Sole, Facts, Cx, const Ps extends ReadonlyArray<Pre
 	...predicates: Ps
 ) => Rule<
 	S,
-	Params & PredicateParams<Ps>,
+	Params & ParamsOfEach<Ps>,
 	Ps extends readonly [] ? Sole : "joined",
 	AfterWhere<Facts, Ps>,
 	Cx | PredicateContexts<Ps>
@@ -634,7 +629,8 @@ type RuleTokens = <const X extends CallArgs<TokensArgs>["text"]>(
 	FactOfFields<TokenFields>,
 	BindMapParams<{ readonly text: X }>,
 	TokenFields,
-	CallReads<{ readonly text: X }>
+	CallReads<{ readonly text: X }>,
+	CallNumberings["split"]["tokens"]
 >
 
 /** A token split's one argument (RuleTokens): its text, of any text. */
@@ -653,7 +649,8 @@ type RuleSplit = <const X extends CallArgs<TokensArgs>["text"]>(
 	FactOfFields<PieceFields>,
 	BindMapParams<{ readonly text: X }>,
 	PieceFields,
-	CallReads<{ readonly text: X }>
+	CallReads<{ readonly text: X }>,
+	CallNumberings["split"]["pieces"]
 >
 
 /**
@@ -671,7 +668,8 @@ type RuleRest = <
 	FactOfFields<RestFields>,
 	BindMapParams<{ readonly text: X; readonly prefix: P }>,
 	RestFields,
-	CallReads<{ readonly text: X; readonly prefix: P }>
+	CallReads<{ readonly text: X; readonly prefix: P }>,
+	CallNumberings["split"]["rest"]
 >
 
 /**
@@ -685,7 +683,8 @@ type RuleDecodedPath = <const X extends CallArgs<TokensArgs>["text"]>(
 	FactOfFields<DecodedPathFields>,
 	BindMapParams<{ readonly text: X }>,
 	DecodedPathFields,
-	CallReads<{ readonly text: X }>
+	CallReads<{ readonly text: X }>,
+	CallNumberings["split"]["decodedPath"]
 >
 
 /**
@@ -704,7 +703,8 @@ type RuleResolvedWithin = <
 	FactOfFields<WithinFields>,
 	BindMapParams<{ readonly base: B; readonly reference: X }>,
 	WithinFields,
-	CallReads<{ readonly base: B; readonly reference: X }>
+	CallReads<{ readonly base: B; readonly reference: X }>,
+	CallNumberings["split"]["resolvedWithin"]
 >
 
 /**
@@ -721,7 +721,8 @@ type RuleSplitLast = <const X extends CallArgs<TokensArgs>["text"]>(
 	FactOfFields<SplitLastFields>,
 	BindMapParams<{ readonly text: X }>,
 	SplitLastFields,
-	CallReads<{ readonly text: X }>
+	CallReads<{ readonly text: X }>,
+	CallNumberings["split"]["splitLast"]
 >
 
 /** A target within a base's two arguments (RuleResolvedWithin): its base and its reference, each of any text. */
@@ -743,7 +744,8 @@ type RuleSeries = <const L extends TermBase, const H extends TermBase>(
 	FactOfFields<SeriesFields>,
 	BindMapParams<{ readonly low: L; readonly high: H }>,
 	SeriesFields,
-	CallReads<{ readonly low: L; readonly high: H }>
+	CallReads<{ readonly low: L; readonly high: H }>,
+	CallNumberings["series"]
 >
 
 /** The SQL types a series' end is of (RuleSeries): an integer's, a bigint's and an exact integer's. */
@@ -956,16 +958,16 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 		Stating<MembershipStates<A, Vs[number]>>
 	/** A conjunction states what each conjunct states; a disjunction states nothing. */
 	and<const Ps extends ReadonlyArray<Predicate<never>>>(
-		...predicates: Ps
-	): Predicate<PredicateParams<Ps>, Reads<Ps>> &
+		predicates: Ps
+	): Predicate<ParamsOfEach<Ps>, Reads<Ps>> &
 		Stating<StatesOf<Ps>> &
 		Shaped<Conjunction<Ps>> &
 		ReadsContexts<PredicateContexts<Ps>> &
 		NegatesIn<Ps>
 	/** A disjunction holds no relational negation: r.not is a rule-level filter (Negating). */
 	or<const Ps extends ReadonlyArray<Predicate<never>>>(
-		...predicates: Ps & NegationFreeEach<Ps>
-	): Predicate<PredicateParams<Ps>, Reads<Ps>> &
+		predicates: NegationFreeEach<Ps>
+	): Predicate<ParamsOfEach<Ps>, Reads<Ps>> &
 		Shaped<Disjunction<Ps>> &
 		ReadsContexts<PredicateContexts<Ps>>
 	/**

@@ -27,9 +27,9 @@ import { constant as always, element, type Gen, int, weighted } from "@bjornpage
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
-import { sharedExpr } from "#compiler/lower/conservative/expr/share.ts"
+import { FieldTexts, sharedExpr } from "#compiler/lower/conservative/expr/share.ts"
 import { closedLeaf } from "#compiler/runtime/write/fill.ts"
-import { compiledExpr, type EvalLeaves } from "#compiler/scalar/compute/evaluate.ts"
+import { compiledExpr, type EvalLeaves, noParamLeaf } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { NullTerm } from "#test/support/null/language.ts"
 import {
@@ -108,7 +108,7 @@ const raisingConstants = (
 		}
 		const table = predicateTable(e)
 		const value = compiledExpr(table)(
-			{ value: undefined, column: () => undefined, closed },
+			{ value: undefined, column: () => undefined, closed, param: noParamLeaf },
 			ProgramPatterns.of(tablePatterns(table))
 		)
 		return !value.ok && value.error.kind === "undefined" ? [e] : []
@@ -139,7 +139,8 @@ export const theSharingRewriteMakesNoOperationOverConstantsThatRaisesAsPostgreSQ
 				const rewritten = sharedExpr(term, {
 					closed: installation.names.closedRelations,
 					host: closed,
-					size: () => 0
+					size: () => 0,
+					texts: new FieldTexts()
 				})
 				assert.deepEqual(
 					raisingConstants(rewritten, closed),

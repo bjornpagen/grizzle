@@ -118,7 +118,7 @@ export default defineGate({
 	run: ({ options }) =>
 		Effect.gen(function* () {
 			const s = yield* Substrate
-			const fx = yield* installFixture(Spans, programs, {}, "benchspans", [])
+			const fx = yield* installFixture(Spans, programs, {}, "benchspans", () => [])
 			yield* fill(fx, "Day", options.days, {
 				day: "g::int8",
 				/** g is int4 and a century of days in seconds is not: the bounds are computed in int8. */

@@ -1,5 +1,5 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import type { ContractFieldDesc, FieldDesc } from "#compiler/ir/desc.ts"
+import type { ContractFieldDesc, FieldDesc, VariantArmDesc } from "#compiler/ir/desc.ts"
 import {
 	isNumericValue,
 	languageOctets,
@@ -127,5 +127,25 @@ export const declaredDescOf = (
 		case "exactInteger":
 		case "exactMoney":
 			return Result.ok({ kind: "exact", carrier: type.carrier })
+		case "variant": {
+			const arms: Array<VariantArmDesc> = []
+			for (const arm of type.variant.arms) {
+				const fields: Array<{ readonly name: string; readonly desc: FieldDesc }> = []
+				for (const f of arm.fields) {
+					const desc = fieldDescOf(f.type, contracts)
+					if (!desc.ok) {
+						return desc
+					}
+					fields.push({ name: f.name, desc: desc.value })
+				}
+				arms.push({ handle: arm.handle, fields, check: undefined })
+			}
+			return Result.ok({
+				kind: "variant",
+				name: type.variant.name,
+				roster: type.variant.roster.closed,
+				arms
+			})
+		}
 	}
 }

@@ -2,7 +2,7 @@
 
 import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { array, constant, type Gen, weighted, type Steered } from "@bjornpagen/testing/gen"
-import { Array as Arr, DateTime, Effect, Option, Record as Rec, String as Str } from "effect"
+import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { pickFrom, pickGen, pickOf } from "#test/support/pick.ts"
@@ -18,7 +18,6 @@ type Planted =
 	| "a role's attribute"
 	| "a membership granted"
 	| "a table in a schema of views"
-	| "a TEMPORARY grant revoked"
 	| "a TEMPORARY grant beyond the snapshot"
 
 /** Where an operator plants its change: picks among the targets the catalog holds (test/support/pick.ts). */
@@ -39,7 +38,6 @@ const plantsOf = (each: () => Option.Option<Picks>): Plants => ({
 	"a role's attribute": each(),
 	"a membership granted": each(),
 	"a table in a schema of views": each(),
-	"a TEMPORARY grant revoked": each(),
 	"a TEMPORARY grant beyond the snapshot": each()
 })
 
@@ -127,7 +125,8 @@ const picked = (
 /** Column `i` of a row a catalog read answers. */
 const column = (row: ReadonlyArray<string>, i: number): string => defined(row[i], "a column read")
 
-/** TEMPORARY on the database, granted to or revoked from `role` (`verb`), under the database lock. */
+/** TEMPORARY on the database, granted to or revoked from `role` (`verb`), under the database lock: no installation grants
+ * it any role (deploy/admission/roles.ts privilegeFamilies), so a grant is drift and its revoke undoes it. */
 const temporary = (n: DriftNames, verb: "GRANT" | "REVOKE", role: string): string =>
 	underDatabaseLock(
 		`${verb} TEMPORARY ON DATABASE ${quoteIdent(n.database)} ${verb === "GRANT" ? "TO" : "FROM"} ${quoteIdent(role)}`
@@ -139,14 +138,6 @@ export const changeOf = (kind: Planted, [first, second, third]: Picks, n: DriftN
 		const admin = (yield* Substrate).admin
 		const table = (name: string) => `${quoteIdent(n.schema)}.${quoteIdent(name)}`
 		const roles = Arr.map(pickedRoles, (r) => n[r])
-		/** The installation's roles and its login that hold their own TEMPORARY on the database, as its ACL holds it. */
-		const temporaryHolders = Effect.map(
-			admin.queryValues(
-				"SELECT r.rolname::text FROM pg_catalog.pg_database AS d CROSS JOIN LATERAL pg_catalog.aclexplode(d.datacl) AS a JOIN pg_catalog.pg_roles AS r ON r.oid = a.grantee WHERE d.datname = pg_catalog.current_database() AND a.privilege_type = 'TEMPORARY' AND r.rolname = ANY ($1::text[]) ORDER BY 1",
-				[[n.editor, n.viewer, n.keeper, n.login]]
-			),
-			(rows) => Arr.map(textRows(rows), (row) => column(row, 0))
-		)
 		switch (kind) {
 			case "a view's security barrier": {
 				const rows = yield* admin.queryValues(
@@ -305,29 +296,8 @@ export const changeOf = (kind: Planted, [first, second, third]: Picks, n: DriftN
 				}
 				return change
 			}
-			case "a TEMPORARY grant revoked": {
-				const held = yield* temporaryHolders
-				const role = pickFrom(
-					nonEmpty(held, "a role holding its own TEMPORARY on the database"),
-					first
-				)
-				const change: Change = {
-					plant: [temporary(n, "REVOKE", role)],
-					undo: [temporary(n, "GRANT", role)],
-					named: `role ${role} privilege TEMPORARY on database`,
-					reaches: []
-				}
-				return change
-			}
 			case "a TEMPORARY grant beyond the snapshot": {
-				const held = yield* temporaryHolders
-				const role = pickFrom(
-					nonEmpty(
-						Arr.filter([n.editor, n.viewer, n.keeper, n.login], (r) => !Arr.contains(held, r)),
-						"a role or login holding no TEMPORARY of its own on the database"
-					),
-					first
-				)
+				const role = pickFrom([n.editor, n.viewer, n.keeper, n.login], first)
 				const change: Change = {
 					plant: [temporary(n, "GRANT", role)],
 					undo: [temporary(n, "REVOKE", role)],
@@ -409,13 +379,3 @@ export const aimedPlantsGen: Steered<Plants, DriftFeature>["under"] = (steering)
 		}
 	})
 }
-
-export const at = DateTime.makeUnsafe({
-	year: 2026,
-	month: 10,
-	day: 12,
-	hour: 12,
-	minute: 0,
-	second: 0,
-	millisecond: 0
-})

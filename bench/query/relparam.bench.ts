@@ -84,7 +84,7 @@ export default defineGate({
 	} satisfies { readonly full: Options; readonly quick: Options },
 	run: ({ options }) =>
 		Effect.gen(function* () {
-			const fx = yield* installFixture(Params, programs, {}, "benchrelparam", [])
+			const fx = yield* installFixture(Params, programs, {}, "benchrelparam", () => [])
 			yield* fill(fx, "Item", options.items, {
 				id: "g::int8",
 				account: "(g % 1000)::int8",

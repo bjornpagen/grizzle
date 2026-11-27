@@ -641,7 +641,7 @@ export const descriptionsDecodesAnEmptyAndOrOrToTheConstantItsBuilderBuildsOfNoP
 				c.note(s.kind === "and" ? "an empty conjunction" : "an empty disjunction")
 				c.note(s.place)
 				const unit = succeeded(
-					decodeDesc("expr", predicateExpr(s.kind === "and" ? Logic.and() : Logic.or()))
+					decodeDesc("expr", predicateExpr(s.kind === "and" ? Logic.and([]) : Logic.or([])))
 				)
 				assert.deepEqual<ExprDesc>(unit, {
 					kind: "literal",

@@ -7,9 +7,9 @@
  * - **Property:** a case draws the order Item's key declares a, b and c in after its shelf, the key's leading field
  *   and the unit Item is mutable in, and the shelf read at. It installs Item as `grizzle generate` drafts and serves it,
  *   fills it with 2^14 items over 64 shelves, 256 to a shelf, vacuumed and analyzed, and plans the read of one shelf's
- *   items (result-order.fixtures.ts, the shelf read), which states no order, as every login's role plans the
- *   statements it prepares: PREPARE, then EXPLAIN EXECUTE under plan_cache_mode force_generic_plan, the login's own
- *   setting (physical/ddl/roles.ts genericPlans), under the installation's declared statistics.
+ *   items (result-order.fixtures.ts, the shelf read), which states no order, as every login's session plans the
+ *   statements it prepares, generically (bench/harness/explain.ts genericPlanOf, under the generic plans every session
+ *   grizzle opens plans by, physical/ddl/roles.ts genericPlans), under the installation's declared statistics.
  * - **Oracle:** PostgreSQL's generic plan of the served statement: Item is read by an index whose condition binds the
  *   shelf, and every Sort or Incremental Sort node reads Item only so, never by a Seq Scan. Where the plan reads the
  *   shelf's rows in the index's order it holds no Sort at all; where a bitmap scan reads them, the Sort above it sorts
@@ -27,8 +27,8 @@
  *   Item with 2^14 items, two to each shelf, a and b, differing in c, so the join holds n = 2^15 rows, four to each
  *   shelf, a and b, and the read, dropping b, eight values a shelf and a, delivers r = 2^12. Item's size is counted as a
  *   VACUUM counts it (fill.ts countedAsVacuumed), its columns' statistics the installation's declared ones, under which
- *   the planner takes the distinct rows for as many as the join's. It runs the read's served statement under the
- *   login's generic plan, EXPLAIN ANALYZE.
+ *   the planner takes the distinct rows for as many as the join's. It runs the read's served statement, EXPLAIN
+ *   ANALYZE: a statement of no parameter, whose generic plan is its one plan.
  * - **Oracle:** PostgreSQL's executed plan: the statement delivers r rows, and every Sort or Incremental Sort of the
  *   statement's own query, outside the plans of its CTEs, which form the rows as the planner finds cheapest, reads at
  *   most r rows.
@@ -43,6 +43,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
 import {
 	type EstimatedNode,
+	genericPlanOf,
 	type PlanNode,
 	parsePlan,
 	parsePlanTree
@@ -146,17 +147,11 @@ export const aReadsCanonicalOrderSortsOnlyTheRowsItsKeyRestricts = property.expl
 							if (onShelf.kind !== "read") {
 								return assert.fail("the shelf's read is a read")
 							}
-							yield* admin.query(
-								`PREPARE order_shape AS ${onShelf.read.program.run.spec.text.sql}`,
-								[]
+							const explained = yield* genericPlanOf(
+								{ values: admin.queryValues },
+								onShelf.read.program.run.spec.text.sql,
+								1
 							)
-							yield* admin.query("SET plan_cache_mode = force_generic_plan", [])
-							const explained = yield* admin.queryValues(
-								`EXPLAIN (VERBOSE, FORMAT JSON) EXECUTE order_shape(${c.shelf})`,
-								[]
-							)
-							yield* admin.query("RESET plan_cache_mode", [])
-							yield* admin.query("DEALLOCATE order_shape", [])
 							const parsed = parsePlanTree(explained[0]?.[0])
 							if (Result.isFailure(parsed)) {
 								return assert.fail(`the read's plan: ${parsed.failure.message}`)
@@ -283,17 +278,10 @@ export const aDeduplicatedReadsOrderSortsOnlyTheRowsItDelivers = property.explor
 							if (twinsRead.kind !== "read") {
 								return assert.fail("the twins' read is a read")
 							}
-							yield* admin.query(
-								`PREPARE dedup_shape AS ${twinsRead.read.program.run.spec.text.sql}`,
-								[]
-							)
-							yield* admin.query("SET plan_cache_mode = force_generic_plan", [])
 							const explained = yield* admin.queryValues(
-								"EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) EXECUTE dedup_shape",
+								`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${twinsRead.read.program.run.spec.text.sql}`,
 								[]
 							)
-							yield* admin.query("RESET plan_cache_mode", [])
-							yield* admin.query("DEALLOCATE dedup_shape", [])
 							const plan = succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan
 							const shown = shownOf(plan)
 							assert.equal(

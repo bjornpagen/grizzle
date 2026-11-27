@@ -8,9 +8,12 @@ import { fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 
+const spanKey = Symbol("Span")
 /** A span a call adds to its clock's reading, bounded by its predicate, so a millis reading plus it fits a bigint with no
  * guard (core/clock.ts clockReadingRange). */
-const Span = contract("Span", pg.bigint, (d) => Logic.and(Logic.ge(d, 0n), Logic.le(d, 10n ** 12n)))
+const Span = contract<typeof spanKey>()("Span", pg.bigint, (d) =>
+	Logic.and([Logic.ge(d, 0n), Logic.le(d, 10n ** 12n)])
+)
 
 /** The call's reading of the database's clock plus the parameter `by`, cast into bigint with no guard, as den's lease. */
 const after = <const By extends string>(by: By) =>

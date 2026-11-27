@@ -219,6 +219,8 @@ const sameValue = (value: ModelValue, text: string, type: ScalarType): boolean =
 			const read = admitCidr(text)
 			return typeof value === "string" && read.ok && read.value === value
 		}
+		case "variant":
+			throw new Error("no compute case reads a variant")
 	}
 }
 

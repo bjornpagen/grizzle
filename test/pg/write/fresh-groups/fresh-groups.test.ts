@@ -56,7 +56,7 @@ import {
 	instanceFacts,
 	relationName
 } from "#test/support/families/fill.ts"
-import { installMigrated } from "#test/support/install-migrate.ts"
+import { installFullWorld } from "#test/support/installed.ts"
 import { oneFlight } from "#test/support/one-flight.ts"
 import { refusedEntries } from "#test/support/refused.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
@@ -109,12 +109,7 @@ const installed = (k: FreshCase, label: string, byDepth: boolean) =>
 	Effect.gen(function* () {
 		const built = buildFill(k.spec)
 		const declared = built.rename("Fresh")
-		const done = yield* installMigrated(declared, {
-			ambient: ordinarySession,
-			label,
-			logins: [fullWorld(declared, {}).server],
-			extensions: []
-		})
+		const done = yield* installFullWorld(declared, {}, { ambient: ordinarySession, label })
 		const value = built.rename(done.schema)
 		const world = fullWorld(value, {})
 		const relationAt = (r: number) => defined(built.relations[relationName(r)])

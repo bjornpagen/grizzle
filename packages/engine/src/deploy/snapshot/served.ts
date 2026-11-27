@@ -1,3 +1,4 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { fromJson, noRevivers, type Path } from "#compiler/core/canonical.ts"
 import {
@@ -7,12 +8,13 @@ import {
 	within
 } from "#compiler/core/errors.ts"
 import { formatKey, isFormatOf } from "#compiler/core/format.ts"
-import type { DeclaredName } from "#compiler/core/identity.ts"
+import type { HeldName } from "#compiler/core/identity.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type {
 	LiveDerived,
+	ProvedRelation,
 	ServedSnapshot,
 	SnapshotDerived,
 	SnapshotIndex,
@@ -28,6 +30,7 @@ import type { LiveSource } from "#compiler/live/notify.ts"
 import type { NamedClosed } from "#compiler/physical/ddl/constants.ts"
 import type { InstalledParams, TextDomainNames } from "#compiler/physical/ddl/domains.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
+import type { PlannedGraph } from "#compiler/physical/planned/graph.ts"
 
 /** A level of a snapshot in its JSON form, as the layer reads it: its name, schema and fingerprint, whose JSON form is
  * their value, and its laws. */
@@ -77,6 +80,8 @@ const servedDerived = (derived: unknown): Result.Result<SnapshotDerived, Compile
 	const live = derived["live"]
 	const params = derived["params"]
 	const liveDerived = derived["liveDerived"]
+	const proved = derived["proved"]
+	const planned = derived["planned"]
 	if (!isRecord(closed)) {
 		return Result.err(underived(["derived", "closed"]))
 	}
@@ -107,6 +112,12 @@ const servedDerived = (derived: unknown): Result.Result<SnapshotDerived, Compile
 	if (!isRecord(liveDerived)) {
 		return Result.err(underived(["derived", "liveDerived"]))
 	}
+	if (!isRecord(proved)) {
+		return Result.err(underived(["derived", "proved"]))
+	}
+	if (!isRecord(planned)) {
+		return Result.err(underived(["derived", "planned"]))
+	}
 	return Result.ok({
 		closed: new Map(Object.entries(trusted<Readonly<Record<string, NamedClosed>>>(closed))),
 		fkCycles: trusted<FkCycles>(fkCycles),
@@ -117,7 +128,9 @@ const servedDerived = (derived: unknown): Result.Result<SnapshotDerived, Compile
 		tables: trusted<SnapshotTables>(tables),
 		live: trusted<LiveSource>(live),
 		params: trusted<InstalledParams>(params),
-		liveDerived: trusted<Readonly<Record<string, LiveDerived>>>(liveDerived)
+		liveDerived: trusted<Readonly<Record<string, LiveDerived>>>(liveDerived),
+		proved: trusted<Readonly<Record<string, NonEmptyReadonlyArray<ProvedRelation>>>>(proved),
+		planned: trusted<PlannedGraph>(planned)
 	})
 }
 
@@ -165,13 +178,13 @@ export const servedSnapshot = (
 	if (!constraintToLaw.ok) {
 		return constraintToLaw
 	}
-	const rosters: Array<readonly [DeclaredName, RosterCodes]> = []
+	const rosters: Array<readonly [HeldName, RosterCodes]> = []
 	for (const [name, recorded] of Object.entries(served.rosters)) {
 		const codes = revived(recorded, ["rosters", name])
 		if (!codes.ok) {
 			return codes
 		}
-		rosters.push([trusted<DeclaredName>(name), trusted<RosterCodes>(codes.value)])
+		rosters.push([trusted<HeldName>(name), trusted<RosterCodes>(codes.value)])
 	}
 	return Result.ok({
 		fingerprint: served.fingerprint,

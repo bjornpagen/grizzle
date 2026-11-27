@@ -27,6 +27,7 @@ import {
 	type RuleLaw,
 	type RuleSide,
 	storedSideArm,
+	type StoredImports,
 	violationQuery
 } from "#compiler/analysis/theory/query.ts"
 import { type RefillDeferral, refillDeferral } from "#compiler/analysis/theory/refill.ts"
@@ -34,7 +35,7 @@ import { type RegionFacts, wholeRule } from "#compiler/analysis/theory/unit.ts"
 import { type KeyLedger, Refusal } from "#compiler/core/canonical.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"
 import { CompileError, type KeyRefusal, type ProseTag, prose } from "#compiler/core/errors.ts"
-import type { DeclaredName, Identity, LawColumnStatement } from "#compiler/core/identity.ts"
+import type { Identity, LawColumnStatement, HeldName } from "#compiler/core/identity.ts"
 import type { ColumnIdent, LawId } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { type CellSide, sideOf } from "#compiler/ir/cells.ts"
@@ -337,10 +338,17 @@ const btreeRun = <C extends PlannedColumn>(
 
 /**
  * Whether PostgreSQL has a hash operator class for a column's type, its domain's base: every scalar carrier but money,
- * a set's bit string and a vector.
+ * a set's bit string and a vector, and a variant whose every arm field's type has one, since hash_record hashes each
+ * attribute by its own class.
  */
-const hashable = (c: PlannedColumn): boolean => {
-	switch (baseOf(plannedField(c).type).carrier) {
+const hashable = (c: PlannedColumn): boolean => hashableType(plannedField(c).type)
+
+/** Whether PostgreSQL has a hash operator class for a type, its domain's base (hashable). */
+const hashableType = (t: ScalarType): boolean => {
+	const base = baseOf(t)
+	switch (base.carrier) {
+		case "variant":
+			return base.variant.arms.every((arm) => arm.fields.every((f) => hashableType(f.type)))
 		case "int2":
 		case "int4":
 		case "int8":
@@ -403,7 +411,7 @@ const plannedReverse = (
 	const fault =
 		widest === undefined ? undefined : btreeEntry([entryColumn(widest.column, widest.datum)])
 	if (fault === undefined || fault.ok) {
-		throw defect(`a referencing column of ${subject} a B-tree entry holds or a hash index hashes`)
+		defect(`a referencing column of ${subject} a B-tree entry holds or a hash index hashes`)
 	}
 	judge(keys, loc, subject, columns.map(plannedText), fault)
 	return { method: "hash", columns: [columns[0]] }
@@ -504,7 +512,7 @@ export type ForeignKeyDeferral = "rule" | "cycle" | "immediate" | "deferred"
 /**
  * How the law model discharges a rule over a query that lowers to foreign keys (analysis/theory/laws.ts RuleLowering):
  * by its foreign keys, as every installation and every login's runtime does, or by its deferred constraint triggers, as
- * the law oracle's conservative installation keeps it (physical/install/compile.ts conservativeInstallation).
+ * the law oracle's conservative installation keeps it (program/install.ts conservativeInstallation).
  */
 export type RuleDischarge = "native" | "triggers"
 
@@ -542,7 +550,7 @@ export type NativePlan =
 			readonly relation: RelationInfo
 			readonly check: CheckPredicate
 	  }
-	| { readonly kind: "RosterDomain"; readonly name: DeclaredName }
+	| { readonly kind: "RosterDomain"; readonly name: HeldName }
 	| {
 			/** A containment into a closed side (`#intoClosed`), its source's selection still to lower over its row. */
 			readonly kind: "ClosedCheck"
@@ -599,8 +607,8 @@ export type NativePlan =
  * (ri_triggers.c, RI_FKey_noaction_del) probes the referencing relation for a row that still references it, `SELECT 1
  * FROM ONLY <relation> x WHERE $1 = <column> AND ... FOR KEY SHARE OF x`, once per referenced row; with no index the
  * referencing columns lead, each probe reads every row a shorter prefix selects, the whole relation or a family's every
- * member, so a statement deleting n rows reads n times as many. The law model installs the index wherever its slice
- * writes the referencing relation (`reverseIndexOf`); the index engine serves the probe by it (physical/indexes/engine.ts
+ * member, so a statement deleting n rows reads n times as many. The law model installs the index wherever the
+ * referencing relation is an ordinary one (`reverseIndexOf`); the index engine serves the probe by it (physical/indexes/engine.ts
  * reverseRequests): by an index whose leading columns are the referencing ones, or by a unique one all of whose columns
  * are among them, such as the key a family states of each member's one successor, or else creates the index.
  */
@@ -710,11 +718,9 @@ const termColumn = (
 const tableOf = (r: TheoryRelation): RelationInfo => {
 	switch (r.kind) {
 		case "closed":
-			throw defect(
-				`an object of an ordinary relation; ${r.name} is closed, which plan routes elsewhere`
-			)
+			defect(`an object of an ordinary relation; ${r.name} is closed, which plan routes elsewhere`)
 		case "stored":
-			throw defect(
+			defect(
 				`an object of an ordinary relation; ${r.name} is a stored derived relation, whose key plan routes to storedKey and whose containments the theory judges as rules`
 			)
 		case "relation":
@@ -850,6 +856,9 @@ const mutableSide = (side: ResolvedSide): boolean =>
 /** A containment law's sides read no definition: each is a stored relation's. */
 const storedSides: LiveEnv["definition"] = () => undefined
 
+/** A containment law's sides import no query. */
+const importsNone: StoredImports = () => undefined
+
 /** A side of a containment law as the violation query of a rule over a query reads it (query.ts LawSide). */
 const lawSideOf = (side: ResolvedSide): LawSide => ({
 	relation: side.relation,
@@ -894,6 +903,7 @@ const readsAlike = (e: ExprDesc): boolean => {
 		case "retype":
 		case "guarded":
 		case "cond":
+		case "variant":
 		case "when":
 		case "allen":
 		case "pointIn":
@@ -973,7 +983,7 @@ const containmentDischarge = (
 	}
 	const whole = wholeRule(
 		stated,
-		violationQuery(stated, liveReading(storedSides), law.loc),
+		violationQuery(stated, liveReading(storedSides, importsNone), law.loc),
 		relations,
 		facts,
 		law.loc
@@ -1581,10 +1591,9 @@ export interface PartRef {
 
 /**
  * The parts whose fixed targets take the shared reference, each by its law and place (`PartRef`): the reference choice
- * over the whole schema (`referenceChoice`), which the installation's law model makes once and every law model of the
- * schema reads, a slice's among them, through the recognizer that takes it (`Recognizer`). A slice holds only the laws
- * its closure reads, whose uses of a target are not the schema's, so no slice chooses again: it reads the choice the
- * whole schema made, as generate records it beside the foreign key cycles.
+ * over the whole schema (`referenceChoice`), which the installation's law model makes once and every other law model of
+ * the schema reads, as generate records it beside the foreign key cycles, through the recognizer that takes it
+ * (`Recognizer`).
  */
 export type ReferenceChoice = ReadonlyArray<PartRef>
 
@@ -1911,7 +1920,7 @@ class RowConditions {
 	#leaf(leaf: CheckLeaf): ExprDesc {
 		const name = `‹${this.#leaves.size}›`
 		if (this.relation.fields.some((f) => f.name === name)) {
-			throw defect(`a leaf name no field of ${this.relation.name} has; ${name} is one`)
+			defect(`a leaf name no field of ${this.relation.name} has; ${name} is one`)
 		}
 		this.#leaves.set(name, leaf)
 		return { kind: "field", field: name }
@@ -2008,18 +2017,17 @@ interface FamilyPlan {
  *   must contain a key (`TargetKey`): a declared scalar key of its relation, or a projected key with no span term, whose
  *   conjuncts are among the target's and whose terms are among its terms. Its UNIQUE is that key's when the columns are
  *   exactly a declared key's, and otherwise a generated superkey, exact because a superkey of a key is unique.
- * - A fixed target (`fixedTargetOf`): a target of field terms whose selection fixes fields beyond them, each by one
+ * - - A fixed target (`fixedTargetOf`): a target of field terms whose selection fixes fields beyond them, each by one
  *   conjunct outside a key's selection (`Fixing`), `f = literal` or `f = t` with t one of its terms, where the key's
  *   conjuncts are among the target's and its terms among the target's terms and fixed fields. The target's columns are
  *   its terms under its other conjuncts, then its fixed fields in field order, each the key's own column where it is a
  *   term of the key; the source meets each fixed field by a constant law column holding the literal or by its own
  *   column paired with t, listed again. The key implies the UNIQUE, and every containment into the same fixed fields
- *   shares it. Tried before a target keyed by its terms alone. An alternatives arm of one handle is one: its parent
- *   selected by the handle. The key implies a UNIQUE over the target's own columns too, which its selection keeps the
- *   key's fields at, with no constant on the source; a containment references whichever adds fewer indexes and columns
- *   to the whole schema, the superkey where both cost the same (`referenceChoice`, `#reference`), so a target a reverse
- *   probe out of its selection reads at its own columns, whose UNIQUE serves that probe, and a target whose superkey
- *   costs a column or a constant more, take their own columns.
+ *   shares it. Tried before a target keyed by its terms alone. The key implies a UNIQUE over the target's own columns
+ *   too, which its selection keeps the key's fields at, with no constant on the source; a containment references
+ *   whichever adds fewer indexes and columns to the whole schema, the superkey where both cost the same
+ *   (`referenceChoice`, `#reference`), so a target a reverse probe out of its selection reads at its own columns, whose
+ *   UNIQUE serves that probe, and a target whose superkey costs a column or a constant more, take their own columns.
  * - A coverage, a containment pairing a span field of each side, is a PERIOD foreign key from the source's columns into
  *   the target's, which must be keyed WITHOUT OVERLAPS over exactly its terms: a declared span key, or a key over its
  *   projected side. A target whose spans may overlap within a key is refused.
@@ -2045,7 +2053,7 @@ const rosterDischarged = (
 	d: Extract<TheoryLaw["detail"], { readonly kind: "containment" }>,
 	toRel: ClosedTheoryRelation,
 	toSelection: ReadonlyArray<ResolvedSelector>
-): DeclaredName | undefined => {
+): HeldName | undefined => {
 	const [only, ...more] = d.pairs
 	const roster = rosterOf(baseOf(only.from.column.type))
 	return more.length === 0 &&
@@ -2177,7 +2185,7 @@ export class Recognizer {
 	/** How a rule over a query that lowers to foreign keys is discharged (model.ts RuleDischarge). */
 	readonly #discharge: RuleDischarge
 	/** The whole schema's reference choice (`referenceChoice`), which the recognizer reads and never makes: what a law
-	 * model records for every model of its schema, a slice's among them. */
+	 * model records for every model of its schema. */
 	readonly references: ReferenceChoice
 	/** The containments a whole containment's region reads (analysis/theory/unit.ts RegionFacts). */
 	readonly #facts: RegionFacts
@@ -2273,7 +2281,7 @@ export class Recognizer {
 					case "closed":
 						return migrationPlan(law)
 					case "stored":
-						throw defect(
+						defect(
 							`a candidate key over ${d.rel.name}: ownership owns a key over a derived relation projected`
 						)
 					case "relation":
@@ -2412,7 +2420,7 @@ export class Recognizer {
 		const fromRel = d.from.rel
 		const toRel = d.to.rel
 		if (fromRel.kind === "stored" || toRel.kind === "stored") {
-			throw defect(
+			defect(
 				`a containment between ${d.from.relation} and ${d.to.relation} planned natively: the theory judges one with a stored derived side as a rule over a query (analysis/theory/laws.ts readByRule)`
 			)
 		}
@@ -2721,7 +2729,7 @@ export class Recognizer {
 	relation(name: string): RelationInfo {
 		const r = this.#relations[name]
 		if (r === undefined) {
-			throw defect(`the relation ${name} a family names, which the theory typed`)
+			defect(`the relation ${name} a family names, which the theory typed`)
 		}
 		return tableOf(r)
 	}
@@ -3110,7 +3118,7 @@ class FamilyPlanner {
 			conjuncts: conjuncts.map((predicate): ResolvedConjunct => {
 				const text = descText(predicate)
 				if (!text.ok) {
-					throw defect("a tree's member selection has a canonical text")
+					defect("a tree's member selection has a canonical text")
 				}
 				return { kind: "general", predicate, text: text.value, reads: [start] }
 			})

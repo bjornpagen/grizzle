@@ -91,7 +91,10 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *   the stored instance and the added rows, a counted member under a stored owner recounting and refolding it;
  * - an insert stating a row that differs from the stored row at its key, a sequence's owner whose members differ
  *   among them, answers `invariant-rejected` naming only the primary keys of such rows and the keys of the families a
- *   stated row takes another stored row's place in, and stores what it stored before. Its witness is the key of a
+ *   stated row takes another stored row's place in, and stores what it stored before;
+ * - an insert stating a new counted member under a stored closed owner, which it restates, answers `invariant-rejected`
+ *   `every` on that family's rule alone, witnessed by the member's key (README "A closed owner's family is fixed when
+ *   the owner is inserted"), and stores what it stored before. Its witness is the key of a
  *   stated row breaking a law it names, in the fields that row was written in (README "Errors and outcomes",
  *   Witness: "A key … that grizzle's own write statement finds broken, by two rows you submitted or by a stored row
  *   …, is witnessed by the key you submitted"; it is `unreported` only "for a foreign key, and where no row you
@@ -100,7 +103,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * Features: each kind of difference, alone in its insert, at each family kind and place, with its verdict, a sequence's
  * member added, removed or moved under a mutable owner and under an immutable one (an owner stated again with fewer,
  * more or reordered members, README.md:2066); a counted family's member added under a tree node and under a top row,
- * the owner stated again as stored (a counted family is a set its inserts append to); the same instance again and
+ * the owner stated again as stored (a counted family is a set its inserts append to); a counted member renamed under a
+ * mutable owner, accepted, and under a closed one, refused on its family; the same instance again and
  * stated twice; two differences in one insert; a replace of the same units, with a difference, and dropping a unit. A
  * witness case aims at a pending one with a schema holding every family kind, a top row owning a counted and an ordered
  * family, every relation mutable or every one immutable, every count at its most, and one difference at it.
@@ -124,8 +128,13 @@ interface ReinsertCase {
 	readonly again: Arr.NonEmptyReadonlyArray<Again>
 }
 
-/** A verdict as a situation names it. */
-export type VerdictLabel = "no-change" | "accepted" | "refused on a key"
+/** A verdict as a situation names it: a refusal on a key where a stated row differs at its key, else on a closed owner's
+ * family a new counted member joins. */
+export type VerdictLabel =
+	| "no-change"
+	| "accepted"
+	| "refused on a key"
+	| "refused on a closed owner's family"
 
 /** A family kind as a situation names it. */
 type FamilyLabel = "a tree" | "an ordered family" | "a counted family"
@@ -172,7 +181,9 @@ const placeLabels: { readonly [P in Standing]: PlaceLabel } = {
 /** A verdict's label. */
 export const verdictLabel = (v: AgainVerdict): VerdictLabel =>
 	v.kind === "refused"
-		? "refused on a key"
+		? Arr.isReadonlyArrayNonEmpty(v.keyed)
+			? "refused on a key"
+			: "refused on a closed owner's family"
 		: Arr.isReadonlyArrayNonEmpty(v.added)
 			? "accepted"
 			: "no-change"
@@ -422,6 +433,10 @@ const aims: Arr.NonEmptyReadonlyArray<readonly [Situation, Aim]> = [
 		"a counted member renamed: accepted",
 		{ kind: "target", target: { kind: "renamed", place: "counted member" }, mutable: true }
 	],
+	[
+		"a counted member renamed: refused on a closed owner's family",
+		{ kind: "target", target: { kind: "renamed", place: "counted member" }, mutable: false }
+	],
 	["two differences in one insert", { kind: "drawn", differences: 2, twice: false }],
 	["a replace of the same units: no-change", { kind: "replace", change: "none" }],
 	["a replace with a difference: accepted", { kind: "replace", change: "a difference" }],
@@ -641,11 +656,11 @@ export const judgeRefused = (
 ): void => {
 	if (outcome.kind !== "invariant-rejected") {
 		return assert.fail(
-			`${label}: a stated row differs from the stored row at its key (${Formatter.format(Arr.map(v.keyed, (x) => x.id))}), so the insert is invariant-rejected, not ${outcome.kind}`
+			`${label}: a stated row differs from the stored row at its key (${Formatter.format(Arr.map(v.keyed, (x) => x.id))}), or a new counted member joins a stored closed owner's family (${Formatter.format(Arr.map(v.joined, (j) => j.row.id))}), so the insert is invariant-rejected, not ${outcome.kind}`
 		)
 	}
 	const keyLaws = new Set(Arr.map(v.keyed, (x) => laws.primaryKey(x.relation)))
-	const familyLaws = new Set(Arr.map(v.placed, (p) => laws.family(p.family)))
+	const familyLaws = new Set(Arr.map([...v.placed, ...v.joined], (p) => laws.family(p.family)))
 	const named = Arr.map(refusedEntries(outcome.refused), laws.reported)
 	assert.equal(outcome.refused.kind, "every", `${label}: a key's refusal decides its one law`)
 	for (const law of named) {
@@ -657,7 +672,7 @@ export const judgeRefused = (
 	const witness = outcome.witness
 	if (witness.kind !== "key") {
 		return assert.fail(
-			`${label}: the refusal of ${Formatter.format(named)} reports no witness, where stated rows break it: ${Formatter.format(Arr.map(v.keyed, (x) => ({ relation: relationName(x.relation), id: uuidOfRow(x.id) })))}`
+			`${label}: the refusal of ${Formatter.format(named)} reports no witness (${Formatter.format(witness)}), where stated rows break it: ${Formatter.format(Arr.map([...v.keyed, ...Arr.map(v.joined, (j) => j.row)], (x) => ({ relation: relationName(x.relation), id: uuidOfRow(x.id) })))}`
 		)
 	}
 	const written = writtenRows(spec, again)
@@ -681,6 +696,13 @@ export const judgeRefused = (
 					Arr.some([keyOfRelation(spec, x.relation), familyKey(spec, p.family)], (fields) =>
 						at(x, fields)
 					)
+			) ||
+			Arr.some(
+				v.joined,
+				(j) =>
+					j.row.id === x.id &&
+					named.includes(laws.family(j.family)) &&
+					at(x, keyOfRelation(spec, x.relation))
 			))
 	assert.ok(
 		Arr.some(again, breaks),

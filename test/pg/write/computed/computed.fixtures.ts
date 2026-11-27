@@ -5,16 +5,26 @@ import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Logic, Num, Type } from "#compiler/public/compute.ts"
-import { accumulated, contract, drawn, generated, natural, pg } from "#compiler/public/fields.ts"
+import {
+	accumulated,
+	contract,
+	drawn,
+	generated,
+	mintOf,
+	natural,
+	pg
+} from "#compiler/public/fields.ts"
 import { param, query } from "#compiler/public/query.ts"
-import { contained, fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
+import { check, contained, fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import { clocked } from "#compiler/public/workload.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
 
+const spanKey = Symbol("Span")
 /** A span of time a call adds to its clock's reading, bounded, so the sum fits a bigint under its guard. */
-export const Span = contract("Span", pg.bigint, (d) =>
-	Logic.and(Logic.ge(d, 0n), Logic.le(d, 10n ** 12n))
+const Span = contract<typeof spanKey>()("Span", pg.bigint, (d) =>
+	Logic.and([Logic.ge(d, 0n), Logic.le(d, 10n ** 12n)])
 )
+export const toSpan = mintOf(spanKey)
 
 /** A row of Span's, so the installation holds its domain, which the calls' parameters bind through. */
 const Spans = relation("Spans", { span: Span }, ["span"])
@@ -24,7 +34,8 @@ const Lease = relation("Lease", { id: pg.integer, until: pg.bigint }, ["id"])
 
 /**
  * Depth 1: an owner keyed by its queue and its computed `due`, its `until` computed, `held` generated over it, its items
- * carrying `due` and copying `until` along the owner axis at `cu`.
+ * carrying `due` and copying `until` along the owner axis at `cu`; Listed holds its queue to 1 and up, so an owner at
+ * queue 0 is refused, its `held` over a value the database's clock supplies, which no host value holds.
  */
 const Flat = relation.generated(
 	"Flat",
@@ -44,7 +55,11 @@ const FlatItem = relation(
 	["q", "due", "at"]
 )
 
-/** Depth 2: an owner as Flat, its items nesting parts, every member carrying `due`. */
+/**
+ * Depth 2: an owner as Flat, its items nesting parts, every member carrying `due`, and no generated field; Queued holds
+ * its queue to 1 and up, so an owner at queue 0 is refused, its key's `due` the call's reading of the database's clock
+ * plus its delay, which no host value holds.
+ */
 const Deep = relation(
 	"Deep",
 	{ q: pg.integer, due: pg.bigint, until: pg.bigint, items: drawn(natural) },
@@ -74,7 +89,9 @@ export const Computed = schema(
 		ordered(on(FlatItem, "q", "due", "at"), fin(Flat, "items")),
 		contained(on(FlatItem, "q", "due", "cu"), on(Flat, "q", "due", "until")),
 		ordered(on(DeepItem, "q", "due", "at"), fin(Deep, "items")),
-		ordered(on(DeepPart, "q", "due", "at", "bt"), fin(DeepItem, "parts"))
+		ordered(on(DeepPart, "q", "due", "at", "bt"), fin(DeepItem, "parts")),
+		check("Listed", Flat, (f) => f.ge(f.q, 1)),
+		check("Queued", Deep, (d) => d.ge(d.q, 1))
 	]
 )
 
@@ -117,7 +134,7 @@ const programs = Object.freeze({
 	slot: ChangeSet.empty(Computed).insertAllComputed(
 		{ Slot: [] },
 		{
-			at: Type.cast(Type.base(param("t", Span)), Span)
+			at: Type.cast(Type.base(param("t", Span)), Span, spanKey)
 		}
 	)
 })
@@ -143,6 +160,15 @@ export interface Computing {
 	readonly delay: bigint
 }
 
+/** The owner a call states at queue 0, which Listed refuses at depth 1 and Queued at depth 2: its relation and its
+ * queue; none where every queue is 1 or up. */
+export const unqueuedOf = (
+	c: Computing
+): { readonly relation: "Flat" | "Deep"; readonly q: 0 } | undefined =>
+	c.depth === 0 || !Arr.some(c.owners, (o) => o.q === 0)
+		? undefined
+		: { relation: c.depth === 1 ? "Flat" : "Deep", q: 0 }
+
 export type ComputedFeature =
 	| "depth 0"
 	| "depth 1"
@@ -150,13 +176,17 @@ export type ComputedFeature =
 	| "several owners in one call"
 	| "an owner nesting no member"
 	| "a member nesting parts"
+	| "a Flat at queue 0, its held generated over the database's clock reading"
+	| "a Deep at queue 0, its key's clock reading the database's"
 
 const ownersGen =
 	(depth: Depth): Gen<ReadonlyArray<Owner>> =>
 	(source) => {
 		const count = source.draw(int(1, 3))
+		/** The first queue: 1, or at depth 1 and 2, where Listed and Queued hold it, 0 or 1. */
+		const from = depth === 0 ? 1 : source.draw(element([0, 1] as const))
 		return Array.from({ length: count }, (_, i) => ({
-			q: i + 1,
+			q: i + from,
 			items:
 				depth === 0
 					? []
@@ -190,7 +220,17 @@ export const computedFeatures = (c: Computing): ReadonlyArray<ComputedFeature> =
 		: []),
 	...(Arr.some(c.owners, (o) => Arr.some(o.items, (i) => i.parts.length > 0))
 		? (["a member nesting parts"] as const)
-		: [])
+		: []),
+	...((): ReadonlyArray<ComputedFeature> => {
+		const unqueued = unqueuedOf(c)
+		return unqueued === undefined
+			? []
+			: [
+					unqueued.relation === "Flat"
+						? "a Flat at queue 0, its held generated over the database's clock reading"
+						: "a Deep at queue 0, its key's clock reading the database's"
+				]
+	})()
 ]
 
 export const situations = [
@@ -199,7 +239,9 @@ export const situations = [
 	"depth 2",
 	"several owners in one call",
 	"an owner nesting no member",
-	"a member nesting parts"
+	"a member nesting parts",
+	"a Flat at queue 0, its held generated over the database's clock reading",
+	"a Deep at queue 0, its key's clock reading the database's"
 ] as const satisfies ReadonlyArray<Reached<ComputedFeature>>
 
 /** One call of `slot`: its parameter `t`, every row's `at`, and its rows, each an environment and a value. */

@@ -1,5 +1,4 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
-import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
 	type CanonicalDfa,
@@ -211,27 +210,6 @@ const patternsIn = (value: unknown): ReadonlyArray<HeldPattern> => {
 export interface InstalledSpellings {
 	readonly table: Spellings
 	readonly of: (spelling: string) => string
-}
-
-/**
- * Each pattern language the schema `held` holds, by its key, with every spelling of it `held` writes, each once, least
- * by code unit first: the spellings an installation of `held` may hold of each language its history holds a spelling
- * of, which `grizzle upgrade` proves one of against the live catalog, the installation's history being no part of the
- * schema (the shell's cli/upgrade.ts).
- */
-export const spellingsHeld = (
-	held: unknown
-): ReadonlyMap<string, NonEmptyReadonlyArray<string>> => {
-	const spelled = new Map<string, Set<string>>()
-	for (const p of patternsIn(held)) {
-		spelled.set(p.pattern, (spelled.get(p.pattern) ?? new Set<string>()).add(p.spelling))
-	}
-	return new Map(
-		[...spelled].map(([pattern, spellings]): readonly [string, NonEmptyReadonlyArray<string>] => {
-			const [least, ...rest] = [...spellings].toSorted(compareStrings)
-			return [pattern, [defined(least, "a language held is held by a spelling"), ...rest]]
-		})
-	)
 }
 
 /**

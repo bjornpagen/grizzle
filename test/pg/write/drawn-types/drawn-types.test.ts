@@ -44,11 +44,11 @@ import {
 	moveGen,
 	moveSituations,
 	situations,
-	Big,
-	Small,
-	Tall,
-	Whole,
-	Wide
+	toBig,
+	toSmall,
+	toTall,
+	toWhole,
+	toWide
 } from "#test/pg/write/drawn-types/drawn-types.fixtures.ts"
 import { writeAnswerOf, type WriteAnswer } from "#test/support/calls.ts"
 import { refusedEntries } from "#test/support/refused.ts"
@@ -181,7 +181,7 @@ export const aFamilyDrawnOverAContractOverAnIntegerCountsAndIndexesByItsTypeAndI
 															SmallSeries: series,
 															SmallNumber: Arr.map(held, (n) => ({
 																test: n + 1,
-																number: Small(n)
+																number: toSmall(n)
 															}))
 														}
 													}
@@ -196,7 +196,7 @@ export const aFamilyDrawnOverAContractOverAnIntegerCountsAndIndexesByItsTypeAndI
 															WholeSeries: series,
 															WholeNumber: Arr.map(held, (n) => ({
 																test: n + 1,
-																number: Whole(n)
+																number: toWhole(n)
 															}))
 														}
 													}
@@ -211,7 +211,7 @@ export const aFamilyDrawnOverAContractOverAnIntegerCountsAndIndexesByItsTypeAndI
 															BigSeries: series,
 															BigNumber: Arr.map(held, (n) => ({
 																test: n + 1,
-																number: Big(BigInt(n))
+																number: toBig(BigInt(n))
 															}))
 														}
 													}
@@ -224,7 +224,7 @@ export const aFamilyDrawnOverAContractOverAnIntegerCountsAndIndexesByItsTypeAndI
 													facts: {
 														insert: {
 															WideSeries: series,
-															WideNumber: Arr.map(held, (n) => ({ test: n + 1, number: Wide(n) }))
+															WideNumber: Arr.map(held, (n) => ({ test: n + 1, number: toWide(n) }))
 														}
 													}
 												})
@@ -236,7 +236,7 @@ export const aFamilyDrawnOverAContractOverAnIntegerCountsAndIndexesByItsTypeAndI
 													facts: {
 														insert: {
 															TallSeries: series,
-															TallNumber: Arr.map(held, (n) => ({ test: n + 1, number: Tall(n) }))
+															TallNumber: Arr.map(held, (n) => ({ test: n + 1, number: toTall(n) }))
 														}
 													}
 												})

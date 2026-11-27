@@ -228,11 +228,11 @@ export const keyedGroup = (
 	const groupBy = present !== undefined ? [present] : node.keys.map((k) => columnIn(bound, k))
 	for (const e of restriction) {
 		if (!node.keys.includes(e.column)) {
-			throw defect(`a restriction of ${e.column}, a key of the fold ${at}`)
+			defect(`a restriction of ${e.column}, a key of the fold ${at}`)
 		}
 	}
 	/** An input that holds the restriction itself (context.ts heldIn) is read at the keys already. */
-	const restricted = heldIn(env, node.input)
+	const restricted = heldIn(env, node.input, restriction)
 		? []
 		: equalitiesOver(cx, node.heading, bound, restriction)
 	return select({

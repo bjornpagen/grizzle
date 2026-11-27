@@ -20,7 +20,7 @@ import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { snapshotServedEntry } from "#adapter/served/compile.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
-import { draftSchema, servedFiles } from "#cli/generate.ts"
+import { draftSchema, eachServedFile } from "#cli/generate.ts"
 import { silentPhases } from "#compiler/core/phase.ts"
 import { emptySnapshot, writeRuntimeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { workload } from "#compiler/program/workload/value.ts"
@@ -81,6 +81,7 @@ export const aLoginsServedFileIsTheSameTextFromTheDraftsWorkloadPlanAndFromTheCo
 				})
 				const config = yield* resolveConfig(
 					defineConfig({
+						contracts: [],
 						schemas: [Reports],
 						logins: [below, above],
 						migrations: "migrations",
@@ -98,7 +99,13 @@ export const aLoginsServedFileIsTheSameTextFromTheDraftsWorkloadPlanAndFromTheCo
 					noDeclarations,
 					silentPhases
 				)
-				const entries = yield* servedFiles(compiled, draft, draft.served, silentPhases)
+				const entries = yield* eachServedFile(
+					compiled,
+					draft,
+					draft.served,
+					silentPhases,
+					Effect.succeed
+				)
 				const snapshot = jsonOf(
 					succeeded(writeRuntimeSnapshot(draft.snapshot, draft.derived), "snapshot.json")
 				)

@@ -5,7 +5,7 @@ import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { baselineRuleChecks, lawChecks } from "#compiler/deploy/snapshot/violation.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -161,7 +161,7 @@ const templateOf = (shape: Shape) =>
 		declaredIn: import.meta,
 		name: `open unit, ${shape}`,
 		content: { schema: schemaOf(shape).name, logins: [] },
-		versions: [{ schema: schemaOf(shape), logins: [], declarations: noDeclarations }],
+		versions: [{ schema: schemaOf(shape), declarations: noDeclarations }],
 		options: {
 			label: shape === "one unit" ? "open_unit_one" : "open_unit_two",
 			extensions: [],
@@ -272,9 +272,11 @@ export const openCaseGen: Gen<OpenCase> = (s) => {
 }
 
 /**
- * The kept case, replayed by value (gen.ts recorded): a seat of cap 2 under a presence of score 2, its cap then lowered
+ * The kept cases, replayed by value (gen.ts recorded): a seat of cap 2 under a presence of score 2, its cap then lowered
  * to 1 in place, open as before, which breaks Capped through an update no side of olds captures, the side reading only
- * the key and openness the update leaves as they were.
+ * the key and openness the update leaves as they were; and an open seat of cap 2 under a presence of score 1, closed in
+ * place, which breaks Present, the containment judged whole in one unit, through the seat's old row alone, the one its
+ * target reads at a negative occurrence, on the side of what a write removes (analysis/theory/unit.ts sidesAt).
  */
 export const keptOpen: Arr.NonEmptyReadonlyArray<OpenCase> = [
 	{
@@ -282,6 +284,12 @@ export const keptOpen: Arr.NonEmptyReadonlyArray<OpenCase> = [
 		seats: [{ child: 1, slot: 1, cap: 2, open: 1 }],
 		presences: [{ child: 1, slot: 1, score: 2 }],
 		ops: [{ kind: "update seat", row: { child: 1, slot: 1, cap: 1, open: 1 } }]
+	},
+	{
+		shape: "one unit",
+		seats: [{ child: 1, slot: 1, cap: 2, open: 1 }],
+		presences: [{ child: 1, slot: 1, score: 1 }],
+		ops: [{ kind: "update seat", row: { child: 1, slot: 1, cap: 2, open: 0 } }]
 	}
 ]
 

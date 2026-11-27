@@ -1,3 +1,4 @@
+import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { type Case as PropertyCase } from "@bjornpagen/testing/property"
@@ -109,10 +110,10 @@ const cellsNamed = (label: string, naming: Naming) =>
 		[
 			check(namings[naming].a, Cell, (x) => x.ge(x.a, 0)),
 			check(namings[naming].arity, Cell, (x) =>
-				x.and(
+				x.and([
 					x.ge(Type.base(x.n), Shape.at("min", x.kind)),
 					x.le(Type.base(x.n), Shape.at("max", x.kind))
-				)
+				])
 			),
 			check(namings[naming].floor, Cell, (x) => x.ge(x.total, Shape.at("floor", x.kind))),
 			check(namings[naming].balance, Cell, (x) => x.gt(Type.base(x.n), x.total)),
@@ -223,17 +224,26 @@ const forwardInstall = { label: "forward", programs: programsOf(forwardCells) } 
 const backwardInstall = { label: "backward", programs: programsOf(backwardCells) } as const
 
 /**
- * Each naming's rules in its schema's canonical order of laws (lawsOf): the statements' laws in canonical statement
- * order, a check's canonical text holding its declared name, the law's identity, so the two namings order the rules
+ * Each naming's rules in the order every refusal names its laws (adapter/witness/classify.ts canonicalRefusal): by their
+ * identities in code point order, a check's identity holding its declared name, so the two namings order the rules
  * apart, and neither by its CHECKs' installed names.
  */
-const canonicalRules: Readonly<Record<Naming, ReadonlyArray<Rule>>> = {
-	forward: Arr.flatMap(lawsOf(forwardCells), ({ law }) =>
-		law.kind === "check" ? [ruleOf("forward", law)] : []
-	),
-	backward: Arr.flatMap(lawsOf(backwardCells), ({ law }) =>
-		law.kind === "check" ? [ruleOf("backward", law)] : []
+const canonicalRules = (naming: Naming, cells: typeof forwardCells): ReadonlyArray<Rule> => {
+	const ruled = Arr.flatMap(lawsOf(cells), ({ law, id }) =>
+		law.kind === "check" ? [{ rule: ruleOf(naming, law), id: String(id) }] : []
 	)
+	return Arr.map(
+		Arr.sort(
+			ruled,
+			Order.mapInput(Order.make(compareCodePoints), (r: { readonly id: string }) => r.id)
+		),
+		(r) => r.rule
+	)
+}
+
+const rulesInOrder: Readonly<Record<Naming, ReadonlyArray<Rule>>> = {
+	forward: canonicalRules("forward", forwardCells),
+	backward: canonicalRules("backward", backwardCells)
 }
 
 /** Each naming's cells installed once per member as a read fixture, where the suite installed both before its cases. */
@@ -259,10 +269,10 @@ export const backwardTemplate = fixtureTemplate(import.meta, backwardCells, back
  * cell breaks the reported rule at an empty family's count and end, either may be the refused row, and the refusal names
  * that rule alone, `first`, its witness `unreported`. Every other refusal names `every` law the new cell breaks, exactly those,
  * each once, its witness the new cell's key, never a stored cell's, whichever CHECK PostgreSQL tried first. Each naming
- * lists the laws it names in its schema's canonical order of laws (lawsOf), a check's by its declared name, the law's
- * identity, never by its CHECKs' installed names (4030e1cac), so the two namings list them apart: a case writes under
- * both, each over its clone of its naming's installation, where the suite held each naming's order alike across its
- * cases.
+ * lists the laws it names by their identities in code point order, the one order every refusal leaves the database in
+ * (adapter/witness/classify.ts canonicalRefusal), a check's identity holding its declared name, never by its CHECKs'
+ * installed names (4030e1cac), so the two namings list them apart: a case writes under both, each over its clone of its
+ * naming's installation, where the suite held each naming's order alike across its cases.
  *
  * Its kept cases are a downstream tier's shape, an operator of two operands whose count its arity holds beside a
  * broken rule (qti-pie's p21-sum-as-condition, refused naming the arity too when the count was judged at the empty
@@ -415,8 +425,8 @@ export const everyCase = (
 			)
 			assert.deepEqual(
 				named,
-				Arr.filter(canonicalRules[naming], (rule) => broken.includes(rule)),
-				`${naming}: every rule the cell breaks, each once, in its schema's canonical order of laws`
+				Arr.filter(rulesInOrder[naming], (rule) => broken.includes(rule)),
+				`${naming}: every rule the cell breaks, each once, by identity in code point order`
 			)
 			assert.deepEqual(outcome.witness, {
 				kind: "key",

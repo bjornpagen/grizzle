@@ -19,6 +19,7 @@ import {
 	outputNames
 } from "#compiler/lower/conservative/context.ts"
 import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
+import { variantRecord } from "#compiler/lower/conservative/expr/variant.ts"
 import type { Expr, FromItem, Select } from "#compiler/sql/ast.ts"
 import { lit } from "#compiler/sql/build.ts"
 
@@ -26,7 +27,11 @@ import { lit } from "#compiler/sql/build.ts"
  * A value of each column type's SQL type, for the rows an empty VALUES source stands on, which WHERE false discards
  * before any is read (see lowerClosed): its zero, which its type's facts need not admit. A closed id's is the code 0 of
  * its roster's domain, which the domain refuses where 0 is a hole and over the empty roster, whose domain admits no
- * value at all, so no handle's code need stand for it.
+ * value at all, so no handle's code need stand for it. A variant's is a record of its composite, its base type: its
+ * first arm, whose fields are their own placeholders (expr/variant.ts variantRecord), which its domain's CHECK need not
+ * admit either. A relation of a variant column stands on placeholders only empty, since no literal is a variant's
+ * (ir/expr.ts TypedLiteral): an empty literal relation of a made value (`r.where(r.or([])).find({ value: V.make(…) })`),
+ * and a side of a delta no statement makes, which lowers as one (lower/conservative/delta).
  */
 const placeholderValue = (cx: LowerContext, type: ScalarType): Expr => {
 	const base = baseOf(type)
@@ -74,6 +79,15 @@ const placeholderValue = (cx: LowerContext, type: ScalarType): Expr => {
 			)
 		case "tsvector":
 			return lit.text("", cx.baseTypeRef(base))
+		case "variant": {
+			const [first] = base.variant.arms
+			return variantRecord(
+				base.variant,
+				first.handle,
+				first.fields.map((f) => placeholderValue(cx, f.type)),
+				cx.names
+			)
+		}
 	}
 }
 

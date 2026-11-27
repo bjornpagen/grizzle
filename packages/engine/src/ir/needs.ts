@@ -82,3 +82,10 @@ export const both = (needs: ReadonlyArray<Needs>): Needs =>
 /** Whether rows that need `needs` may exist where `holdsFact` says which inputs hold a fact. */
 export const holds = (needs: Needs, holdsFact: (input: NeededInput) => boolean): boolean =>
 	needs.some((alternative) => alternative.every(holdsFact))
+
+/**
+ * Whether `needs` holds wherever `where` does: each alternative of `where` holds one of `needs`' whole, so wherever a
+ * call's inputs satisfy `where`, they satisfy `needs` (`holds`).
+ */
+export const covers = (needs: Needs, where: Needs): boolean =>
+	where.every((alternative) => needs.some((n) => within(n, alternative)))

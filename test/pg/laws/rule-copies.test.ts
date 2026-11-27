@@ -41,12 +41,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aSubQueryEveryRuleReadsAtItsRowIsComputedOnceForEachTouchedRowSoTheJudgeGrowsWithTheWriteNeverItsSquare =
 	property.explore(copiesGen, {
-		needs: {
-			"2 2": Substrate.rolledBack(copiesTemplates["2 2"]),
-			"2 3": Substrate.rolledBack(copiesTemplates["2 3"]),
-			"3 2": Substrate.rolledBack(copiesTemplates["3 2"]),
-			"3 3": Substrate.rolledBack(copiesTemplates["3 3"])
-		},
+		needs: Substrate.oneOf(copiesTemplates, Substrate.rolledBack),
 		situations: [
 			"two rules",
 			"three rules",
@@ -94,11 +89,11 @@ export const aCopyReadAtAStoredRowsValueStaysWhereItStandsSoAReadOfOneChildReads
 			(drawn) =>
 				Effect.gen(function* () {
 					const { connection, value } = yield* stored
-					yield* runRead(value, connection, drawn, c)
+					yield* runRead(value.installed, connection, drawn, c)
 				}),
 		oracle: {
 			kind: "universal",
-			name: "invariance: the read's scans read the same rows, stored relations' and CTE scans' with what their filters removed, beside a few dozen children and beside a few hundred"
+			name: "invariance: the read's scans read the same rows, stored relations' and CTE scans' with what their filters removed, beside thousands of children of one budget and a few dozen of the case's, then a few hundred more, under no planner setting"
 		},
 		kept: [],
 		kills: [
@@ -107,6 +102,12 @@ export const aCopyReadAtAStoredRowsValueStaysWhereItStandsSoAReadOfOneChildReads
 				original: "\t\t\t!heldWhole(first.node) ||\n",
 				replacement: "\t\t\tfalse ||\n",
 				why: "A driver the statement does not hold whole drives its copies' one evaluation: Budget's every stored row beside the limits at its stage, read whole however few budgets the child holds, so the read's work grows with every child stored beside it."
+			},
+			{
+				file: "test/pg/laws/rule-copies.fixtures.ts",
+				original: "\t\t\t...stored(readChildrenMost + 1, readChildrenMost + readBeside, 1),\n",
+				replacement: "",
+				why: "No children stored beside the case's, its tables a few pages: PostgreSQL prices a scan of a relation the read binds by key below its probes beside a few dozen children and the probes below the scan beside a few hundred, so the read's rows follow the store's size, where enable_seqscan and enable_bitmapscan switched off stood in for a store worth planning."
 			}
 		]
 	})

@@ -59,6 +59,12 @@ export const aFoldEveryReaderReadsAtAValueOfAGroupingColumnIsReadInlineAtEachNev
 					'\t\tif (!reads.every((read) => read.kind === "keys" && read.sources.every(atValues))) {\n',
 				replacement: "\t\tif (reads.length >= 0) {\n",
 				why: "A fold two rules read at their values is MATERIALIZED for the statement, as before (rule 5, sharedExpensive): one CTE of the whole fold, every pair of supports, each rule's value applied beside it."
+			},
+			{
+				file: "packages/engine/src/lower/shapes/share/keyed.ts",
+				original: "\t\t\tclasses.getOrInsertComputed(decision.copies, () => []).push(node)\n",
+				replacement: "\t\t\tclasses.getOrInsertComputed(node.id, () => []).push(node)\n",
+				why: "Each rule's copy of the fold is keyed apart, though the policy decided one CTE for the two (cte-policy copyClasses): no key set holds both rules' values, so the class's one CTE is the whole fold, every pair of supports."
 			}
 		]
 	})

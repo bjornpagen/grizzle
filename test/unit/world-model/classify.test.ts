@@ -59,14 +59,10 @@ export const theWritableEntryRuleClassifiesEveryEntryOfTheSmallSpaceAsGrizzlesWr
 				if (Result.isFailure(built)) {
 					return assert.fail(`the builder refuses the entry, ${built.failure.message}: ${what}`)
 				}
-				const analysed = writableEntry(
-					pairDesc,
-					{
-						name: "Entry",
-						query: defined(queryValueDesc(built.success), `the Description of ${what}`)
-					},
-					{ kind: "probed" }
-				)
+				const analysed = writableEntry(pairDesc, {
+					name: "Entry",
+					query: defined(queryValueDesc(built.success), `the Description of ${what}`)
+				})
 				const actual = classifyEntry(pairBase, entry)
 				if (!analysed.ok) {
 					assert.equal(

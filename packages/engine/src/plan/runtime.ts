@@ -108,7 +108,7 @@ export { Vector } from "#compiler/scalar/values/vector.ts"
 export { bindWrite } from "#compiler/runtime/write/bind.ts"
 export { drawableShape } from "#compiler/runtime/write/binding.ts"
 export { readCall, type SlotReads } from "#compiler/runtime/write/read-call.ts"
-export { loadWrite, standUpName, standUpTexts } from "#compiler/runtime/write/flight.ts"
+export { loadWrite, standUpName } from "#compiler/runtime/write/flight.ts"
 export { memberFactsOf } from "#compiler/runtime/write/members.ts"
 export { outcomeKind } from "#compiler/runtime/write/net.ts"
 export { interpretRows, keyWitness, witnessDecoder } from "#compiler/runtime/write/outcome.ts"
@@ -125,7 +125,8 @@ export {
 export { ServedPatterns } from "#compiler/scalar/regex/matcher.ts"
 export { sameBytes } from "#compiler/scalar/values/bytes.ts"
 export { compareValues } from "#compiler/scalar/values/identity.ts"
-export { servedFile } from "#compiler/served/json.ts"
+export { contractFile, servedFile } from "#compiler/served/json.ts"
+export { type ContractParser, contractParserOver } from "#compiler/runtime/contract.ts"
 export { carried, servedTree } from "#compiler/served/read.ts"
 export {
 	decodeKey,

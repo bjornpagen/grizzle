@@ -1,6 +1,6 @@
 import { Array as Arr, Effect, Result, type Scope } from "effect"
 import { type HostCall, hostInputs, sessionTransport, valuesFailure } from "#adapter/apply/run.ts"
-import { type StandUpFailure, standUp } from "#adapter/apply/stand-up.ts"
+import { standUp } from "#adapter/apply/stand-up.ts"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { InputRejected, UnreadableAnswer } from "#adapter/errors/failures.ts"
@@ -93,15 +93,6 @@ const decodedPlans = <P>(
 }
 
 /**
- * An explain's stand-up failure (apply/stand-up.ts) as its ReadError: a carrier's table the role may not create as
- * TemporaryRefused (errors/failures.ts temporaryRefusal); any other as a read's (wire/batch.ts asReadFailure).
- */
-const standUpReadError = (failure: StandUpFailure): ReadError =>
-	failure._tag === "TemporaryRefused"
-		? new ReadFailure({ reason: failure })
-		: asReadFailure(failure)
-
-/**
  * Sends the statements `made` makes for the session it leases from the context's pool, in one flight on that session
  * in `frame`, once the session has stood up `standUps` (apply/stand-up.ts), and decodes the plan of each planned one by
  * `decode`.
@@ -116,7 +107,7 @@ const plansOf = Effect.fn("plansOf")(function* <P>(
 	const session = yield* Effect.mapError(ctx.pool.lease, (reason) => new ReadFailure({ reason }))
 	yield* Effect.mapError(
 		standUp(session, writeFrame(ctx.prologue, ctx.isolation, excludesNothing), standUps),
-		standUpReadError
+		asReadFailure
 	)
 	const statements = yield* Effect.fromResult(made(session))
 	const outcomes = yield* Effect.mapError(
@@ -235,7 +226,7 @@ export const explainChange = (
 				}
 				for (const execution of executions.value) {
 					statements.push(
-						execution.part === "empty"
+						execution.part === "fill"
 							? {
 									kind: "run",
 									statement: preparedStatement(execution.text, execution.params),

@@ -197,6 +197,23 @@ interface Constant {
 	readonly column: Column
 }
 
+/** The mint of each of Cell's contract columns' values, as the program names it (test/support/ids.ts, ./schema.ts). */
+const columnMints: { readonly [C in Column]?: string } = { uuid: "toId", cents: "toCents" }
+
+/**
+ * A constant's source where it becomes a value of its column, a conditional's other arm beside the column's variable:
+ * a JavaScript value at a contract's column is its mint's (types/fields ValueLiteralOf), and anything else, a term or a
+ * typed constant, is as it is.
+ */
+const madeOf = (c: Constant): string => {
+	const mint = columnMints[c.column]
+	return mint === undefined ||
+		Str.startsWith("Type.literal(")(c.source) ||
+		Str.startsWith("r.param(")(c.source)
+		? c.source
+		: `${mint}(${c.source})`
+}
+
 /**
  * The builder's parameter as a JavaScript caller reaches it, with any descriptor: a drawn column's, whose type is the
  * union of every column's.
@@ -282,7 +299,7 @@ const constantOf = (kind: ConstantKind, pick: number): Constant => {
 		case "contract": {
 			const v = of([1n, 2n])
 			return {
-				source: `Type.literal(Cents, ${v}n)`,
+				source: `Type.literal(Cents, toCents(${v}n))`,
 				value: () => computeCore.literal(Cents, v),
 				column: "cents"
 			}
@@ -298,7 +315,7 @@ const constantOf = (kind: ConstantKind, pick: number): Constant => {
 		case "contractAtBase": {
 			const v = of([1n, 2n])
 			return {
-				source: `Type.literal(Cents, ${v}n)`,
+				source: `Type.literal(Cents, toCents(${v}n))`,
 				value: () => computeCore.literal(Cents, v),
 				column: "bigint"
 			}
@@ -769,7 +786,7 @@ const statementOf = (
 			}
 		case "condElse":
 			return {
-				lines: [plain(`Logic.cond(r.eq(x, x), x, ${c.source})`)],
+				lines: [plain(`Logic.cond(r.eq(x, x), x, ${madeOf(c)})`)],
 				verdict: rows((r, x) => computeCore.cond(r.eq(x, x), x, c.value()))
 			}
 		case "head":
@@ -1797,7 +1814,10 @@ type ScopeAxis = "level" | "binding" | "write" | "negation"
 /**
  * Where a relational negation stands in a rule's filters: alone, in a conjunction there, the rule's or Logic's, in a
  * conjunction of one, in a disjunction, the rule's or Logic's, in a conjunction inside a disjunction, under Logic.not,
- * or as a conditional's test.
+ * as a conditional's test, in the array a disjunction's list spreads, the rule's or Logic's, and in a conjunction beside
+ * a disjunction whose list a spread array leads, the rule's or Logic's, qti-pie's E1_derived check (its pantry's
+ * overlay-queries/expression.ts at 3ab19845, `p.or([...rootLanguages.map(…), p.and(…), p.and(…)])`), Logic's spread
+ * holding a parameter.
  */
 const negationPlaces = [
 	"filter",
@@ -1808,7 +1828,11 @@ const negationPlaces = [
 	"computeDisjunction",
 	"conjunctionInDisjunction",
 	"computeNegation",
-	"conditionalTest"
+	"conditionalTest",
+	"spreadInDisjunction",
+	"spreadInComputeDisjunction",
+	"besideSpreadLedDisjunction",
+	"besideSpreadLedComputeDisjunction"
 ] as const
 type NegationPlace = (typeof negationPlaces)[number]
 
@@ -1825,33 +1849,33 @@ const negationAt = (
 			return { source: "r.not(Note, { item: id })", value: (r, id) => negation(r, id) }
 		case "conjunction":
 			return {
-				source: "r.and(r.not(Note, { item: id }), r.eq(n, 1))",
-				value: (r, id, n) => r.and(negation(r, id), r.eq(n, 1))
+				source: "r.and([r.not(Note, { item: id }), r.eq(n, 1)])",
+				value: (r, id, n) => r.and([negation(r, id), r.eq(n, 1)])
 			}
 		case "nestedConjunction":
 			return {
-				source: "r.and(r.and(r.not(Note, { item: id })), r.eq(n, 1))",
-				value: (r, id, n) => r.and(r.and(negation(r, id)), r.eq(n, 1))
+				source: "r.and([r.and([r.not(Note, { item: id })]), r.eq(n, 1)])",
+				value: (r, id, n) => r.and([r.and([negation(r, id)]), r.eq(n, 1)])
 			}
 		case "disjunction":
 			return {
-				source: "r.or(r.not(Note, { item: id }), r.eq(n, 1))",
-				value: (r, id, n) => r.or(negation(r, id), r.eq(n, 1))
+				source: "r.or([r.not(Note, { item: id }), r.eq(n, 1)])",
+				value: (r, id, n) => r.or([negation(r, id), r.eq(n, 1)])
 			}
 		case "conjunctionInDisjunction":
 			return {
-				source: "r.or(r.and(r.not(Note, { item: id })), r.eq(n, 1))",
-				value: (r, id, n) => r.or(r.and(negation(r, id)), r.eq(n, 1))
+				source: "r.or([r.and([r.not(Note, { item: id })]), r.eq(n, 1)])",
+				value: (r, id, n) => r.or([r.and([negation(r, id)]), r.eq(n, 1)])
 			}
 		case "computeConjunction":
 			return {
-				source: "Logic.and(r.not(Note, { item: id }), r.eq(n, 1))",
-				value: (r, id, n) => computeCore.and(negation(r, id), r.eq(n, 1))
+				source: "Logic.and([r.not(Note, { item: id }), r.eq(n, 1)])",
+				value: (r, id, n) => computeCore.and([negation(r, id), r.eq(n, 1)])
 			}
 		case "computeDisjunction":
 			return {
-				source: "Logic.or(r.not(Note, { item: id }), r.eq(n, 1))",
-				value: (r, id, n) => computeCore.or(negation(r, id), r.eq(n, 1))
+				source: "Logic.or([r.not(Note, { item: id }), r.eq(n, 1)])",
+				value: (r, id, n) => computeCore.or([negation(r, id), r.eq(n, 1)])
 			}
 		case "computeNegation":
 			return {
@@ -1862,6 +1886,44 @@ const negationAt = (
 			return {
 				source: "r.eq(Logic.cond(r.not(Note, { item: id }), n, 0), 1)",
 				value: (r, id, n) => r.eq(computeCore.cond(negation(r, id), n, 0), 1)
+			}
+		case "spreadInDisjunction":
+			return {
+				source: "r.or([...[id].map((i) => r.not(Note, { item: i })), r.eq(n, 1)])",
+				value: (r, id, n) => r.or([...Arr.map([id], (i) => negation(r, i)), r.eq(n, 1)])
+			}
+		case "spreadInComputeDisjunction":
+			return {
+				source: "Logic.or([...[id].map((i) => r.not(Note, { item: i })), r.eq(n, 1)])",
+				value: (r, id, n) => computeCore.or([...Arr.map([id], (i) => negation(r, i)), r.eq(n, 1)])
+			}
+		case "besideSpreadLedDisjunction":
+			return {
+				source:
+					"r.and([r.not(Note, { item: id }), r.or([...[1, 2].map((k) => r.eq(n, k)), r.and([r.eq(n, 3), r.eq(n, 4)]), r.and([r.eq(n, 5), r.eq(n, 6)])])])",
+				value: (r, id, n) =>
+					r.and([
+						negation(r, id),
+						r.or([
+							...Arr.map([1, 2], (k) => r.eq(n, k)),
+							r.and([r.eq(n, 3), r.eq(n, 4)]),
+							r.and([r.eq(n, 5), r.eq(n, 6)])
+						])
+					])
+			}
+		case "besideSpreadLedComputeDisjunction":
+			return {
+				source:
+					'r.and([r.not(Note, { item: id }), Logic.or([...[r.param("p", Item.fields.n)].map((p) => r.eq(n, p)), Logic.and([r.eq(n, 3), r.eq(n, 4)]), Logic.and([r.eq(n, 5), r.eq(n, 6)])])])',
+				value: (r, id, n) =>
+					r.and([
+						negation(r, id),
+						computeCore.or([
+							...Arr.map([r.param("p", Item.fields.n)], (p) => r.eq(n, p)),
+							computeCore.and([r.eq(n, 3), r.eq(n, 4)]),
+							computeCore.and([r.eq(n, 5), r.eq(n, 6)])
+						])
+					])
 			}
 	}
 }

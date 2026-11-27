@@ -26,7 +26,6 @@ import {
 	wholeWritesOf
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { arm } from "#compiler/query/build/attach.ts"
 import {
 	type OrderedValue,
 	type QueryValue,
@@ -40,7 +39,12 @@ import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { type ChangeSetValue, changeSetOver } from "#compiler/write/changeset/value.ts"
 import { Id } from "#test/support/ids.ts"
 import { argumentsOf, nonEmptyArgumentsOf } from "#test/support/list.ts"
-import { numeric, vectorDimensions, wideNumericTypmod } from "#test/support/oracle/gen/domain.ts"
+import {
+	fixedTypmod,
+	numeric,
+	vectorDimensions,
+	wideNumericTypmod
+} from "#test/support/oracle/gen/domain.ts"
 import type { CompareOp } from "#test/support/oracle/gen/ops.ts"
 import {
 	type ArgTerm,
@@ -66,7 +70,6 @@ import {
 	type Root,
 	type Rule,
 	type ProgramSource,
-	type StatedDelivery,
 	type Stored,
 	unguarded,
 	type Var
@@ -92,8 +95,9 @@ type RelationValue = Relation<
 	readonly [string, ...Array<string>]
 >
 
+const tickKey = Symbol("Tick")
 /** The contract a tick field declares: one value, so every relation's tick field is one domain. */
-const tick = contract("Tick", pg.bigint)
+const tick = contract<typeof tickKey>()("Tick", pg.bigint)
 
 const descriptor = (kind: FieldKind, roster: RosterValue): FieldBase => {
 	switch (kind) {
@@ -106,7 +110,7 @@ const descriptor = (kind: FieldKind, roster: RosterValue): FieldBase => {
 		case "numeric":
 			return pg.numeric(wideNumericTypmod.precision, wideNumericTypmod.scale)
 		case "fixed":
-			return pg.numeric(5, 2)
+			return pg.numeric(fixedTypmod.precision, fixedTypmod.scale)
 		case "float4":
 			return pg.real
 		case "float8":
@@ -194,6 +198,8 @@ const paramDescriptor = (param: Param, roster: RosterValue): FieldBase => {
 			return exactInteger
 		case "exactMoney":
 			return exactMoney
+		case "variant":
+			throw new Error("a parameter of a variant, which no drawn field declares")
 	}
 }
 
@@ -633,8 +639,8 @@ const ruleCallback =
 			...Arr.map(rule.allens, (a) => r.allen(term(a.left), a.mask, term(a.right))),
 			...Arr.map(rule.pointIns, (p) => r.pointIn(term(p.point), term(p.span))),
 			...Arr.map(rule.connectives, (j) => {
-				const args = argumentsOf(Arr.map(j.args, comparison))
-				return j.kind === "and" ? r.and(...args) : r.or(...args)
+				const args = Arr.map(j.args, comparison)
+				return j.kind === "and" ? r.and(args) : r.or(args)
 			}),
 			...Arr.map(rule.negations, (n) => {
 				const bindings: Record<string, unknown> = {}
@@ -656,10 +662,6 @@ const ruleCallback =
 		}
 		return ruled.find(head)
 	}
-
-/** attach's delivery argument for a stated delivery: its name, or the arm arm(field, handle) builds. */
-const deliveryArg = (delivery: StatedDelivery): unknown =>
-	delivery.kind === "arm" ? arm(delivery.field.name, delivery.handle) : delivery.kind
 
 const orderArgs = (
 	order: Arr.NonEmptyReadonlyArray<OrderKey>
@@ -696,7 +698,7 @@ const buildQuery = (
 				}
 				return buildQuery(built, value, a.child, p)
 			},
-			deliveryArg(a.delivery)
+			a.delivery.kind
 		)
 	}
 	return query
@@ -720,7 +722,7 @@ export const buildMixed = (built: BuiltSchema, value: SchemaValue, root: MixedRo
  * The schema is built by relation, closed, key and schema, and its world by role and login, its facts by
  * ChangeSet.empty(S).insert(R, facts),
  * and each query by query(S).rule(...), v, match, where, not, find and the aggregates, then orderBy, take, named,
- * attach (in the delivery each attachment states, arm(field, handle) for an arm) and a final orderBy, exactly as an
+ * attach (in the delivery each attachment states) and a final orderBy, exactly as an
  * application chains them. A rule's derived sources are built where the match that reads them is: an earlier read's
  * query and its Query.bind, r.interior, r.relation and query(S).recursive; its filters are r.eq ... r.ge, r.between,
  * r.in, r.allen, r.pointIn and r.not in one where; its scalar terms Type.base, Type.cast, Logic.cond,

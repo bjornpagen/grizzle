@@ -1,6 +1,7 @@
 /** What the properties of insert-grants.test.ts read: its spaces, models and helpers. */
 
 import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import {
 	type Aimed,
@@ -12,14 +13,15 @@ import {
 	type Gen,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { Array as Arr, Option, Record as Rec, Result } from "effect"
+import { Array as Arr, Option, Order, Record as Rec, Result } from "effect"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { WriteMode } from "#compiler/ir/desc.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
 import { namedIdent } from "#compiler/physical/obligations/graph.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -39,7 +41,7 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { installationsOf, ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf, roleBuilder as role } from "#compiler/schema/world.ts"
-import type { CteBody, Insert, SqlStatement, TableName, Update } from "#compiler/sql/ast.ts"
+import type { CteBody, Insert, ObjectName, SqlStatement, Update } from "#compiler/sql/ast.ts"
 import { type Assignments, assignments, ungenerated } from "#compiler/sql/generation.ts"
 import { identityHooks, Transform } from "#compiler/sql/transform.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
@@ -95,8 +97,8 @@ export type Mutability = { readonly [D in Drawn]: boolean }
 /** The world's schema: Items counted under Stores, summed into their stock and copying their region, Slots ordered
  * under Shelves, each owner and Item mutable, inside the unit of its id, when `mutability` says so, and Ticket mutable
  * inside the unit of its number, the open relation outside every family a program puts and deletes; Slot is closed. */
-export const schemaOf = (mutability: Mutability) =>
-	schema("Shops", Rec.values(relations), [
+export const schemaOf = (mutability: Mutability, name: string) =>
+	schema(name, Rec.values(relations), [
 		items,
 		fold(items, Monoid.sum, on(Item, "store", "qty"), on(Store, "id", "stock")),
 		contained(on(Item, "store", "region"), on(Store, "id", "region")),
@@ -366,12 +368,31 @@ export const roleOf = (s: Shops, name: RoleName, rc: RoleCase): BuiltRole => {
 	return roleTaking.role(s, name, entries, { insert: under("insert"), write: under("write") })
 }
 
-/** The relation the declaration rule refuses a role for, if any: a closed relation it writes by its write list. */
-export const declarationRefusal = (rc: RoleCase, mutability: Mutability): Written | undefined =>
-	Arr.findFirst(
-		written,
-		(t) => rc.writes[t] !== "none" && rc.modes[t] === "write" && !mutableIn(mutability, t)
-	).pipe(Option.getOrUndefined)
+/**
+ * The relation the declaration rule refuses a role for, if any: a closed relation it writes by its write list, the one
+ * whose entry's name is least in code point order where several are, the order role(...) checks a role's writes in
+ * whichever list names each (ir/desc.ts writtenNames).
+ */
+export const declarationRefusal = (
+	s: Shops,
+	rc: RoleCase,
+	mutability: Mutability
+): Written | undefined =>
+	Arr.head(
+		Arr.sort(
+			Arr.filter(
+				entriesOf(s, rc.writes).names,
+				([t]) => rc.modes[t] === "write" && !mutableIn(mutability, t)
+			),
+			Order.mapInput(
+				Order.make(compareCodePoints),
+				([, entry]: readonly [Written, string]) => entry
+			)
+		)
+	).pipe(
+		Option.map(([t]) => t),
+		Option.getOrUndefined
+	)
 
 /**
  * The control of a role: the same entries, each open relation it writes by its write list and each closed one by its
@@ -544,7 +565,7 @@ export interface Modification {
 /** What one data-modifying statement updates or deletes of a stored table: an UPDATE's and a DELETE's target, an
  * INSERT's under ON CONFLICT DO UPDATE, and a MERGE's target by each WHEN that updates or deletes. */
 const modifiedBy = (body: CteBody): ReadonlyArray<Modification> => {
-	const stored = (table: TableName, operation: Modification["operation"]) =>
+	const stored = (table: ObjectName, operation: Modification["operation"]) =>
 		typeof table === "string" ? [] : [{ table: table.name, operation }]
 	switch (body.kind) {
 		case "select":

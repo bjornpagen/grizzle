@@ -288,6 +288,28 @@ const importedNamespace = (): ParamSpelling<Resolved["param"]> => {
 }
 
 /**
+ * `q` resolved as every import of it is (ir/desc.ts ParamWalk, an imported query's own namespace): once for its
+ * identity in `session` (CheckSession `resolved`), so a closed import of it built from this resolution stands at the key
+ * every importer of it reads (check/checker.ts importedKey).
+ */
+export const resolveImport = (
+	q: QueryDesc<Located, Inferred>,
+	session: CheckSession
+): ResolvedQuery => {
+	const known = session.resolved.get(q)
+	if (known !== undefined) {
+		return known
+	}
+	const walked = mapQueryParams<{ readonly cell: ParamCell }, ParamTyping>(
+		q,
+		importedNamespace(),
+		session.resolved
+	)
+	session.resolved.set(q, walked)
+	return walked
+}
+
+/**
  * A query description resolved for the checker, in the one walk over its parameters (ir/desc.ts mapQueryParams): each
  * parameter reference carries its cell, and the table holds the query's own.
  */

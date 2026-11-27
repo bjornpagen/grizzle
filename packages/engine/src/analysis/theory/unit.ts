@@ -52,14 +52,17 @@ import {
 	varRef
 } from "#compiler/analysis/theory/leaves.ts"
 import {
+	isClosedRelation,
 	type LawSide,
 	queryOf,
 	type RelationRead,
-	type ReplacedRead,
+	type RegionSide,
 	ruleDesc,
 	type RuleLaw,
 	type WholeRule
 } from "#compiler/analysis/theory/query.ts"
+import { successorOf } from "#compiler/analysis/theory/successor.ts"
+import type { DeltaForm } from "#compiler/analysis/theory/upkeep.ts"
 import { canonicalEquals, canonicalTextOf } from "#compiler/core/canonical.ts"
 import type { UnitLocality } from "#compiler/core/causes.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
@@ -71,10 +74,12 @@ import {
 	listOrder,
 	mapInput
 } from "#compiler/core/order.ts"
+import { integerRanges } from "#compiler/ir/carriers.ts"
 import {
 	callsOf,
 	type ExprDesc,
 	exprChildren,
+	guardedExpr,
 	type FieldDesc,
 	type InferredExpr,
 	type InferredHead,
@@ -90,6 +95,7 @@ import {
 	type MatchDesc,
 	type QueryDesc,
 	queryParamNames,
+	type QueryStageDesc,
 	type Refs,
 	type RuleDesc,
 	type TermDesc,
@@ -99,6 +105,7 @@ import type { RelationInfo, TheoryRelation } from "#compiler/ir/law.ts"
 import type { DeltaSide } from "#compiler/ir/rel.ts"
 import { rosterOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import type { FrozenUnit, StoredUnit, Unit } from "#compiler/ir/unit.ts"
+import { integerHostOf } from "#compiler/scalar/compute/literal.ts"
 import type { OwnedStatement } from "#compiler/schema/own.ts"
 
 /** The name the region delivers position `j` of the unit key under. */
@@ -141,6 +148,26 @@ interface Walk {
 	readonly definitions: WeakMap<InferredQuery, InferredQuery>
 	/** How it reads a declared function's call (`CallAdmission`). */
 	readonly calls: CallAdmission
+	/** Each rule the walk meets that binds a unit, with the variables it binds it at (`HiddenUnit`). */
+	readonly ruleUnits: Map<InferredRule, NonEmptyReadonlyArray<string>>
+	/** Each rule body the walk meets, with its own occurrences and the queries it imports (`RuleRegion`). */
+	readonly bodies: Array<RuleRegion>
+	/** How many rules of the walked query's top it has met (Rooted `root`), the place the next one takes. */
+	readonly roots: { next: number }
+}
+
+/**
+ * One rule's body as the walk met it: the places among the walk's occurrences (Walk `regions`) of the holders it
+ * matches itself, the rule, its conditions and head read by what binds a variable of it (unitRooted), and each query it
+ * imports with the variables the import binds its head's fields to.
+ */
+interface RuleRegion {
+	readonly members: ReadonlyArray<number>
+	readonly rule: InferredRule
+	readonly imports: ReadonlyArray<{
+		readonly query: InferredQuery
+		readonly bindings: Readonly<Record<string, InferredExpr>>
+	}>
 }
 
 /**
@@ -185,10 +212,67 @@ const callUnfit = (
 /** Where a walk stands in its query: the polarity of what it reads there. */
 interface At {
 	readonly polarity: RelationRead["polarity"]
+	/** What the walk here reads of a rule of the top (Rooted): `root` walking the top itself, none inside a recursion. */
+	readonly rooted: Rooted | "root" | undefined
 }
 
-/** The polarity a query's breaking facts are read at: positive, at its top. */
-const top: At = { polarity: "positive" }
+/**
+ * Where an occurrence stands against a rule of the walked query's top, its root, whose facts are the query's: the
+ * root's place among the top's rules (`root`); the variable of the root each name holds (`of`), a variable of the rule
+ * being walked, or, walking a query that rule reads, a head field of that query, so that in every derivation of a fact
+ * of the root the occurrence's field holds the root's value of that variable, the bindings and heads between them each
+ * a variable; and whether every step from the root to it is a match or an existence (`required`), no negation and no
+ * aggregate, so every derivation of a fact holds a row the occurrence matches.
+ */
+interface Rooted {
+	readonly root: number
+	readonly of: (name: string) => string | undefined
+	readonly required: boolean
+}
+
+/** The polarity a query's breaking facts are read at: positive, at its top, each rule there a root (Rooted). */
+const top: At = { polarity: "positive", rooted: "root" }
+
+/** What a rule's variables hold of its root (Rooted), the rule read at `outer` (`walkedRule`). */
+const ruleRooted = (
+	r: InferredRule,
+	outer: At,
+	aggregates: boolean,
+	w: Walk
+): Rooted | undefined => {
+	const rooted = outer.rooted
+	if (rooted === undefined) {
+		return undefined
+	}
+	if (rooted === "root") {
+		return { root: w.roots.next++, of: (v) => v, required: !aggregates }
+	}
+	return {
+		root: rooted.root,
+		required: rooted.required && !aggregates,
+		of: (v) => {
+			const field = Object.entries(r.head).find(([, h]) => h.kind === "var" && h.var === v)?.[0]
+			return field === undefined ? undefined : rooted.of(field)
+		}
+	}
+}
+
+/** What a query read at `bindings` holds of the reading rule's root (Rooted), by its head fields. */
+const queryRooted = (
+	rooted: At["rooted"],
+	bindings: Readonly<Record<string, InferredExpr>>,
+	required: boolean
+): Rooted | undefined =>
+	rooted === undefined || rooted === "root"
+		? undefined
+		: {
+				root: rooted.root,
+				required: rooted.required && required,
+				of: (field) => {
+					const e = bindings[field]
+					return e?.kind === "var" ? rooted.of(e.var) : undefined
+				}
+			}
 
 /** A polarity under a negation: positive and negative trade places, and both stays both. */
 const flipped = (p: RelationRead["polarity"]): RelationRead["polarity"] =>
@@ -275,18 +359,37 @@ type SourceUnit =
  * variables the match binds. A row of the relation that fails them gives the occurrence no fact, so writing it changes
  * nothing the occurrence reads, and its unit is no unit the occurrence needs judged.
  */
-interface RegionRead {
+export interface RegionRead {
 	readonly relation: string
 	readonly polarity: RelationRead["polarity"]
 	readonly where: ReadonlyArray<InferredExpr>
+	/** Its match's bindings, each field with the term it is bound to. */
+	readonly bindings: Readonly<Record<string, InferredExpr>>
 	/** Each field its match binds to a variable, with that variable. */
 	readonly bound: Readonly<Record<string, string>>
+	/**
+	 * Each field its match or its row's conditions hold at a constant, a value no row, variable or parameter gives
+	 * (`constantAt`): a literal, a closed relation's code, a function of them.
+	 */
+	readonly fixed: ReadonlyArray<string>
 	/**
 	 * The place among the walk's occurrences (Walk `regions`) of every other occurrence of a holder its rule matches
 	 * beside it, at its polarity: each fact the occurrence reads holds a row of each of them, at the variables they
 	 * share.
 	 */
 	readonly beside: ReadonlyArray<number>
+	/**
+	 * Where it stands against its root (Rooted), none inside a recursion: the root's place, whether every derivation of a
+	 * fact of the root holds a row it matches, and each field it binds that holds a variable of the root, with that
+	 * variable.
+	 */
+	readonly rooted:
+		| {
+				readonly root: number
+				readonly required: boolean
+				readonly fields: Readonly<Record<string, string>>
+		  }
+		| undefined
 }
 
 /** The fields `bindings` binds to a variable, with the variable. */
@@ -298,6 +401,44 @@ const boundVars = (
 			e.kind === "var" ? [[field, e.var] as const] : []
 		)
 	)
+
+/** Whether `e` is a constant: it reads no variable, field, parameter or source at any depth. */
+const constantExpr = (e: InferredExpr): boolean =>
+	e.kind !== "var" &&
+	e.kind !== "field" &&
+	e.kind !== "param" &&
+	e.kind !== "absent" &&
+	e.kind !== "exists" &&
+	exprChildren(e).every((c) => constantExpr(c.term))
+
+/** The conjuncts of a condition: each term of an `and`, at any depth, and any other condition itself. */
+const conjunctsOf = (c: InferredExpr): ReadonlyArray<InferredExpr> =>
+	c.kind === "and" ? c.args.flatMap(conjunctsOf) : [c]
+
+/**
+ * The fields of a row an occurrence's `bindings` and its row's `conditions` (rowConditions) hold at a constant
+ * (RegionRead `fixed`): each field bound to one, and each a conjunct of a condition equates to one, as pantry's
+ * attributeValues holds an attribute's name in `and(eq(name, …), or(eq(kind, …), …))`.
+ */
+const constantAt = (
+	bindings: Readonly<Record<string, InferredExpr>>,
+	conditions: ReadonlyArray<InferredExpr>
+): ReadonlyArray<string> => [
+	...new Set([
+		...Object.entries(bindings).flatMap(([field, e]) => (constantExpr(e) ? [field] : [])),
+		...conditions
+			.flatMap(conjunctsOf)
+			.flatMap((c) =>
+				c.kind !== "compare" || c.op !== "eq"
+					? []
+					: c.left.kind === "field" && constantExpr(c.right)
+						? [c.left.field]
+						: c.right.kind === "field" && constantExpr(c.left)
+							? [c.right.field]
+							: []
+			)
+	])
+]
 
 /** A field of the row a region reads, as a condition of it names it. */
 const rowField = (field: string): InferredExpr => ({ kind: "field", field })
@@ -321,6 +462,7 @@ const readsOnly = (e: InferredExpr, bound: ReadonlyMap<string, string>): boolean
 		case "retype":
 		case "guarded":
 		case "cond":
+		case "variant":
 		case "when":
 		case "compare":
 		case "between":
@@ -411,12 +553,29 @@ const sourceUnit = (
 			if (fields === undefined) {
 				return { unit: { kind: "none" }, source }
 			}
+			const conditions = rowConditions(bindings, where)
+			const rooted = at.rooted === "root" ? undefined : at.rooted
 			w.regions.push({
 				relation: source.name,
 				polarity: at.polarity,
-				where: rowConditions(bindings, where),
+				where: conditions,
+				bindings,
 				bound: boundVars(bindings),
-				beside: []
+				fixed: constantAt(bindings, conditions),
+				beside: [],
+				rooted:
+					rooted === undefined
+						? undefined
+						: {
+								root: rooted.root,
+								required: rooted.required,
+								fields: Object.fromEntries(
+									Object.entries(bindings).flatMap(([field, e]) => {
+										const v = e.kind === "var" ? rooted.of(e.var) : undefined
+										return v === undefined ? [] : [[field, v] as const]
+									})
+								)
+							}
 			})
 			const vars = varsAt(bindings, fields, `a match of ${source.name}`)
 			return vars instanceof NotLocal ? vars : { unit: { kind: "vars", vars }, source }
@@ -425,7 +584,11 @@ const sourceUnit = (
 			if (Object.keys(source.bind).length > 0) {
 				return lacking("shape", "it reads a query under a bind map")
 			}
-			const inner = walked(source.query, at, w)
+			const inner = walked(
+				source.query,
+				{ polarity: at.polarity, rooted: queryRooted(at.rooted, bindings, true) },
+				w
+			)
 			if (inner instanceof NotLocal) {
 				return inner
 			}
@@ -453,6 +616,7 @@ const sourceUnit = (
 			const vars = varsAt(bindings, w.self, "a step's read of self")
 			return vars instanceof NotLocal ? vars : { unit: { kind: "vars", vars }, source }
 		}
+		case "arm":
 		case "split":
 		case "series":
 			return { unit: { kind: "none" }, source }
@@ -505,7 +669,19 @@ const walkedExpr = (
 ): InferredExpr | NotLocal => {
 	if (e.kind === "absent" || e.kind === "exists") {
 		const polarity = e.kind === "absent" ? flipped(at.polarity) : at.polarity
-		const read = sourceUnit(e.source, e.bindings, [], { polarity }, w)
+		const read = sourceUnit(
+			e.source,
+			e.bindings,
+			[],
+			{
+				polarity,
+				rooted:
+					at.rooted === undefined || at.rooted === "root"
+						? undefined
+						: { ...at.rooted, required: at.rooted.required && e.kind === "exists" }
+			},
+			w
+		)
 		if (read instanceof NotLocal) {
 			return read
 		}
@@ -585,6 +761,13 @@ const ruleBody = (r: InferredRule, at: At, aggregates: boolean, w: Walk): RuleBo
 		const occurrence = defined(w.regions[i], "an occurrence this rule matches")
 		w.regions[i] = { ...occurrence, beside: own.filter((_, k) => k !== j) }
 	}
+	w.bodies.push({
+		members: own,
+		rule: r,
+		imports: r.matches.flatMap((m) =>
+			m.source.kind === "query" ? [{ query: m.source.query, bindings: m.bindings }] : []
+		)
+	})
 	const bearing = units.filter((u) => u.kind !== "none")
 	const hidden = bearing.some((u) => u.kind === "hidden")
 	if (hidden && (bearing.length > 1 || aggregates)) {
@@ -619,7 +802,8 @@ const walkedRule = (r: InferredRule, outer: At, w: Walk): WalkedRule | NotLocal 
 		return lacking("shape", "a rule nests or attaches a query")
 	}
 	const aggregates = Object.values(r.head).some((h) => h.kind === "aggregate")
-	const at: At = aggregates ? { polarity: "both" } : outer
+	const rooted = ruleRooted(r, outer, aggregates, w)
+	const at: At = aggregates ? { polarity: "both", rooted } : { ...outer, rooted }
 	const restriction = w.restrict
 	const bound =
 		restriction.kind === "region"
@@ -639,6 +823,9 @@ const walkedRule = (r: InferredRule, outer: At, w: Walk): WalkedRule | NotLocal 
 		return body
 	}
 	const { matches, where, unit } = body
+	if (unit !== undefined && isNonEmpty(unit)) {
+		w.ruleUnits.set(r, unit)
+	}
 	const walkedText: InferredRule =
 		sameOrder(matches, r.matches) && sameOrder(where, r.where) ? r : { ...r, matches, where }
 	if (unit === undefined) {
@@ -808,7 +995,7 @@ const walkedRules = (
 	}
 	const [first, ...rest] = out
 	if (first === undefined) {
-		throw defect("a stage of at least one rule")
+		defect("a stage of at least one rule")
 	}
 	let delivered: Delivered | NotLocal = first.delivered
 	for (const r of rest) {
@@ -852,7 +1039,7 @@ const unitLocalRecursion = (
 	const read = new Map<InferredRule, WalkedRule>()
 	let delivered: Delivered | NotLocal | undefined
 	for (const r of [...st.recursive.base, ...st.recursive.rec.filter((x) => !readsSelf(x))]) {
-		const seed = walkedRule(typedSeed(r, row), at, plain)
+		const seed = walkedRule(typedSeed(r, row), { ...at, rooted: undefined }, plain)
 		if (seed instanceof NotLocal) {
 			return seed
 		}
@@ -876,7 +1063,7 @@ const unitLocalRecursion = (
 		if (read.has(r)) {
 			continue
 		}
-		const step = walkedRule(r, at, stepWalk)
+		const step = walkedRule(r, { ...at, rooted: undefined }, stepWalk)
 		if (step instanceof NotLocal) {
 			return step
 		}
@@ -1089,11 +1276,6 @@ export interface RegionFacts {
 	 * unit a transaction writes are the transaction's own until it commits (`declaredOf`).
 	 */
 	readonly members: ReadonlyMap<string, DeclaredMember>
-	/**
-	 * Each stored derived relation whose rows are an open frontier (`frontierOf`), by name, with the relation whose facts
-	 * settle its rows: a read of it, whole or not, reads its open rows alone (sql/unit-bound.ts UnitReach `frontier`).
-	 */
-	readonly frontiers: ReadonlyMap<string, string>
 }
 
 /**
@@ -1151,56 +1333,6 @@ const definedOf = (
 	})
 }
 
-/**
- * The relation whose facts settle derived relation `query`'s rows, where its rows are an open frontier: its definition is
- * one rules stage of one rule, no interior, that matches one relation N and holds a row of N only while `absent` finds
- * no fact of a relation S at the values its match binds at every field of one of N's declared keys (`keysOf`). Each row
- * of N then leaves the relation when its own settlement arrives, as the upkeep of the COMMIT that writes the settling
- * fact deletes it, so the relation holds N's rows no fact of S settles yet, never one S has settled: a read of it costs
- * its open rows, whatever history S has settled. A negation that binds less than a key of N, a row of N superseded by
- * another (the latest of each key), keeps a row for every value of what it binds, its history's, and is none; so is a
- * definition of another stage, of two rules, or of a join, whose rows are no one relation's.
- */
-export const frontierOf = (
-	query: QueryDesc,
-	keysOf: (relation: string) => ReadonlyArray<NonEmptyReadonlyArray<string>>
-): string | undefined => {
-	const stage = query.stage
-	if (stage.kind !== "rules" || stage.arms.length !== 1) {
-		return undefined
-	}
-	const [rule] = stage.arms
-	const [match, ...others] = rule.matches
-	if (
-		match === undefined ||
-		others.length > 0 ||
-		rule.interiors.length > 0 ||
-		match.source.kind !== "relation"
-	) {
-		return undefined
-	}
-	const keys = keysOf(match.source.name)
-	const conjuncts = rule.where.flatMap((w) => (w.kind === "and" ? w.args : [w]))
-	for (const w of conjuncts) {
-		if (w.kind !== "absent" || w.source.kind !== "relation") {
-			continue
-		}
-		const settles = new Set(
-			Object.values(w.bindings).flatMap((b) => (b.kind === "var" ? [b.var] : []))
-		)
-		const settledAtKey = keys.some((k) =>
-			k.every((field) => {
-				const b = match.bindings[field]
-				return b?.kind === "var" && settles.has(b.var)
-			})
-		)
-		if (settledAtKey) {
-			return w.source.name
-		}
-	}
-	return undefined
-}
-
 /** The containments one statement states between stored relations (`regionFactsOf`), each a FieldContainment. */
 const statedOf = (
 	s: OwnedStatement,
@@ -1255,7 +1387,6 @@ const statedOf = (
 		case "race":
 		case "check":
 		case "fold":
-		case "alternatives":
 		case "unit":
 		case "series":
 			return []
@@ -1292,15 +1423,14 @@ const pairedKey = (c: FieldContainment): string =>
  * states nothing and is not held. In statement order, then each composition in the order the closure meets it, each
  * containment once. Beside them, each tree statement's stored relation with its root fields (RegionFacts `roots`),
  * and each stored relation's keys, its primary key and each candidate key a statement states of it (RegionFacts
- * `keys`). Which derived relations are frontiers the theory decides over these facts and the checked schema's holdings,
- * which say which are stored (theory.ts), before any upkeep reads them.
+ * `keys`).
  */
 export const regionFactsOf = (
 	statements: ReadonlyArray<OwnedStatement>,
 	relations: ReadonlyMap<string, TheoryRelation>,
 	definitions: ReadonlyMap<string, QueryDesc>,
 	members: ReadonlyMap<string, DeclaredMember>
-): Omit<RegionFacts, "frontiers"> => {
+): RegionFacts => {
 	const stored = (name: string): RelationInfo | undefined => {
 		const r = relations.get(name)
 		return r?.kind === "relation" ? r : undefined
@@ -1535,10 +1665,9 @@ interface Witness extends FixedAt {
 const fixedRank = { key: 0, roots: 1 } as const satisfies Record<FixedAt["by"], number>
 
 /**
- * The order of an occurrence's witnesses (`witnessesOf`), the one that reads least first, a total order over what each
- * witness is and none over where the schema states its containment: a key's before a root's, since at a key the region
- * reads a gained row only where the one row of N at the key's values was lost, and at a root wherever any row of its
- * tree was; then the fields by name, element by element, the longer first where one begins the other (core/order.ts
+ * The order of an occurrence's witnesses (`witnessesOf`), a total order over what each witness is and none over where the
+ * schema states its containment, so the order the schema states its containments in decides no proof: a key's before a
+ * root's; then the fields by name, element by element, the longer first where one begins the other (core/order.ts
  * listOrder); then the occurrence beside, in the walk's order.
  */
 const witnessOrder: Comparator<Witness> = combineAll([
@@ -1548,9 +1677,8 @@ const witnessOrder: Comparator<Witness> = combineAll([
 ])
 
 /**
- * The witnesses that may prove an occurrence `r` of a holder N needs no unit of a row N gained beyond those of the rows
- * it gained where it lost one at the fields the witness names (`proofsOf`), each the place of the occurrence beside it
- * the proof rests on and those fields of N: `r` positive, matched beside an occurrence of E at its polarity, a
+ * The witnesses that may prove an occurrence `r` of a holder N needs no unit of a row N gained (`proofsOf`), each the
+ * place of the occurrence beside it the proof rests on and the fields of N at which a row of N standing fixes N's rows: `r` positive, matched beside an occurrence of E at its polarity, a
  * containment of E into N over the rows of E its selection admits, read at its projection onto the pairs the two
  * occurrences bind alike, each pair's field of E and of N to one variable, F_E and F_N; the containment one the schema
  * states or composes (RegionFacts `containments`), or N's identity, N ⊆ N at each of its fields, which every row of N
@@ -1636,8 +1764,8 @@ const witnessesOf = (
 }
 
 /**
- * Each occurrence of the walk `regions` a witness proves needs the rows N gained only where they replace a row N lost
- * at the fields the witness names (`regionOf`), by its place, with those fields: the proofs made at generate time,
+ * Each occurrence of the walk `regions` a witness proves needs none of the rows N gained (`regionOf`), N closed, by its
+ * place, with the fields the witness names: the proofs made at generate time,
  * once, as one assignment. The assignment takes the occurrences fewer conditions restrict first, then in the walk's
  * order, each proved by its first witness in the order of what each reads (`witnessesOf`, `witnessOrder`) whose chain
  * does not reach back to it: following each proved occurrence to the occurrence its witness rests on, every chain ends
@@ -1676,7 +1804,8 @@ const witnessesOf = (
  *   transaction lost a row of N at n's values of r….
  *
  * So a row N gained opens a fact through `r` only where E gained its row or where N lost a row at the row's values of
- * G, and the region reads a row N gained only where the transaction lost a row of N at its values of G (`replacing`).
+ * G; and N being closed, a row of it is lost only to a migration's data step, whose bracket checks the rule whole
+ * (physical/ddl/recheck.ts), so the region reads no row N gained at `r` (`regionOf`).
  *
  * The proof reads `r`'s own polarity alone, positive, and changes no other occurrence's reads: an occurrence of N under
  * a negation, or one an aggregate reads, where a row N loses can open a violation, reads its own sides as before
@@ -1714,9 +1843,48 @@ const proofsOf = (
 }
 
 /**
+ * The places of the negative occurrences whose rows a transaction removes open no fact (`regionOf`): each occurrence o
+ * of a relation B under a negation whose bindings hold a key K of B at variables of its root (RegionRead `rooted`),
+ * where an occurrence p of B its root requires (every derivation of a fact holds a row p matches), positive, binds K at
+ * the same variables of the root. Such as a containment's target that reads its own source, AssignmentStatus's rule of
+ * the assignments no event is of reading Assignment at the containment's fields, Assignment ⊆ AssignmentStatus.
+ *
+ * The proof. Let a fact f of the root be one a transaction's removal of a row x of B opens through o: x matched o
+ * before, so x[K] holds f's values of the root's variables at K; and f holds after, so a row y of B matches p after,
+ * y[K] holding the same values. B holds one row at K at a time: if y stood before, it is x, which the transaction
+ * removed, so y does not stand after; so the transaction gave B the row y, at p's polarity, positive, where the region
+ * reads the rows B gains (`sidesAt`), a mutable B's row replaced at its key among them. So f's unit is read through p,
+ * and o's side of the rows B lost adds no unit. A closed B loses no row at all (`regionOf`).
+ */
+const withdrawnAlone = (
+	regions: ReadonlyArray<RegionRead>,
+	facts: RegionFacts
+): ReadonlySet<number> =>
+	new Set(
+		regions.flatMap((o, place) => {
+			const rooted = o.rooted
+			if (o.polarity !== "negative" || rooted === undefined) {
+				return []
+			}
+			const proved = (facts.keys.get(o.relation) ?? []).some(
+				(key) =>
+					key.every((k) => rooted.fields[k] !== undefined) &&
+					regions.some(
+						(p) =>
+							p.relation === o.relation &&
+							p.polarity === "positive" &&
+							p.rooted?.required === true &&
+							p.rooted.root === rooted.root &&
+							key.every((k) => p.rooted?.fields[k] === rooted.fields[k])
+					)
+			)
+			return proved ? [place] : []
+		})
+	)
+
+/**
  * What a region's rule of an occurrence is canonically (`regionOf`): its side, its relation, the fields it binds in
- * their order, those its rule of gained rows reads a lost row at (`replacing`), in code point order, as a record holds
- * its keys, and the canonical text of each of its occurrence's conditions in their order, each segment of fields
+ * their order, and the canonical text of each of its occurrence's conditions in their order, each segment of fields
  * led by its length. Its rule's every other part is a function of these: its variables and bindings of its fields,
  * named apart by `varOf`, its conditions those conditions with their fields renamed by it, its head its unit's key. Two
  * occurrences hold one identity exactly when their rules are canonically one rule.
@@ -1730,6 +1898,17 @@ type RuleIdentity = ReadonlyArray<string | number>
  * A written row that meets no occurrence's conditions changes no fact the query reads, so its unit is read only where
  * another row puts it there: a containment of the nodes of one kind reads the units of the nodes of that kind a
  * transaction wrote, and of the rows of its target it removed.
+ *
+ * Three sides are read of no occurrence: a closed holder's side of the rows a write removes, which no write its
+ * immutability guard stands before fills (physical/ddl/immutable.ts); the side of the rows a write removes of a negative
+ * occurrence whose root requires its row at a key (`withdrawnAlone`), whose removed row's fact the rows the holder
+ * gains already put in the region; and the side of the rows a write adds of an occurrence a witness proves
+ * (`proofsOf`), whose relation is closed, so a row it gains opens a fact only beside a row the witness's relation
+ * gained, whose own occurrence's rule reads the unit, the replacement of a row it lost being a data step's alone, which
+ * its bracket checks whole (physical/ddl/recheck.ts). So a closed
+ * parent's rows beside the children that pin them, a new sitting's at its start, put no unit in the region by
+ * themselves, and the region reads neither delta of them. Each side the region reads is recorded with the columns its
+ * occurrences bind (`sides`), what the rule's captures hold.
  *
  * The region is a step (ir/rel.ts Step), which no rewrite inlines into the rule that reads it, so its rows are the unit
  * keys alone, and as the occurrence before the rule's step it is made a set of them (analysis/physical/consumers.ts):
@@ -1746,10 +1925,9 @@ const regionOf = (
 ): Region => {
 	const holders = holdersOf(unit)
 	const rules: Array<InferredRule> = []
-	const replaced: Array<ReplacedRead> = []
-	/** Each relation and fields `replaced` holds, so each is held once, in the order the occurrences first prove it. */
-	const replacedAt = new TupleSet<ReadonlyArray<string>>()
+	const sides = new Map<string, { added: Set<string>; removed: Set<string> }>()
 	const proofs = proofsOf(regions, facts, relations)
+	const withdrawn = withdrawnAlone(regions, facts)
 	/**
 	 * The identity of each rule made (RuleIdentity), so a rule is made once, at the first occurrence that makes it. A walk
 	 * reads an import once at each place it is read, so one occurrence stands many times in a region, and a region of o
@@ -1781,25 +1959,22 @@ const regionOf = (
 			const j = key.indexOf(field)
 			return j >= 0 ? regionVar(j) : rowVar(field)
 		}
-		const at = proofs.get(place)
-		const fields = [...new Set([...key, ...[...read, ...(at ?? [])].toSorted(compareStrings)])]
+		const fields = [...new Set([...key, ...[...read].toSorted(compareStrings)])]
 		const leaves: LeafRewrite = { var: () => undefined, field: (f) => varRef(varOf(f)) }
-		if (at !== undefined && !replacedAt.has([r.relation, ...at])) {
-			replacedAt.add([r.relation, ...at])
-			replaced.push({ relation: r.relation, fields: at })
-		}
 		const conditions = r.where.map(textOf)
+		const closed = isClosedRelation(relations.get(r.relation))
 		for (const side of sidesAt(r.polarity)) {
-			const replaces = at !== undefined && side === "added" ? at.toSorted(compareStrings) : []
-			const identity: RuleIdentity = [
-				side,
-				r.relation,
-				fields.length,
-				...fields,
-				replaces.length,
-				...replaces,
-				...conditions
-			]
+			if (side === "removed" ? closed || withdrawn.has(place) : proofs.has(place)) {
+				continue
+			}
+			const touched = sides.getOrInsertComputed(r.relation, () => ({
+				added: new Set<string>(),
+				removed: new Set<string>()
+			}))
+			for (const column of Object.keys(r.bindings)) {
+				touched[side === "added" ? "added" : "removed"].add(column)
+			}
+			const identity: RuleIdentity = [side, r.relation, fields.length, ...fields, ...conditions]
 			if (made.has(identity)) {
 				continue
 			}
@@ -1813,48 +1988,32 @@ const regionOf = (
 						loc
 					}
 				],
-				[
-					...r.where.map((c) => mapLeaves(c, leaves)),
-					...(at !== undefined && side === "added" ? [replacing(r.relation, at, varOf)] : [])
-				],
+				r.where.map((c) => mapLeaves(c, leaves)),
 				Object.fromEntries(key.map((_, j) => [unitColumn(j), varRef(regionVar(j))] as const)),
 				loc
 			)
 			rules.push(rule)
 		}
 	}
-	if (!isNonEmpty(rules)) {
+	const [first, ...more] = rules
+	if (first === undefined) {
 		return refuse("MalformedDescription", loc, "a whole rule whose captures hold a side")
 	}
-	return { source: { kind: "step", query: queryOf(rules, loc), bind: {} }, replaced }
+	return {
+		source: { kind: "step", query: queryOf([first, ...more], loc), bind: {} },
+		sides: [...sides].flatMap(([relation, touched]) =>
+			(["added", "removed"] as const).flatMap((side): ReadonlyArray<RegionSide> => {
+				const columns = [...touched[side]].toSorted(compareStrings)
+				return isNonEmpty(columns) ? [{ relation, side, columns }] : []
+			})
+		)
+	}
 }
 
-/**
- * That the transaction lost a row of `relation` at the values a row it gained holds at `fields` (`regionOf`): an
- * existence of the relation's delta of lost rows, each of `fields` bound to the variable `varOf` names it by. A region's
- * rule of the rows a proved occurrence's relation N gained reads them under it (`proofsOf`): every row the proof needs
- * read is one N gained where it lost a row at its F_N values, so the rule reads exactly those, per key, in every
- * transaction: a publish, which loses no row of N, and a removal, which gains none, read none of them, and a ChangeSet
- * that removes rows of N and writes them again reads the ones it wrote again alone. The existence is correlated at F_N
- * alone, a key of N among them, and reads a delta, which navigation reads as written (analysis/theory/navigate.ts
- * readsOfRule), so PostgreSQL plans it as a semi-join of the gained rows against the lost ones, hashed once per
- * statement, never a lookup of the lost rows per row gained.
- */
-const replacing = (
-	relation: string,
-	fields: NonEmptyReadonlyArray<string>,
-	varOf: (field: string) => string
-): InferredExpr => ({
-	kind: "exists",
-	source: { kind: "delta", side: "removed", relation },
-	bindings: Object.fromEntries(fields.map((f) => [f, varRef(varOf(f))] as const))
-})
-
-/** A whole rule's region (`regionOf`): the step of its unit keys, and the lost rows it reads of each holder it proves
- * reads its gained rows only where they replace one (`proofsOf`). */
+/** A whole rule's region (`regionOf`): the step of its unit keys, and each side of a holder its rules read. */
 interface Region {
 	readonly source: InferredSource
-	readonly replaced: ReadonlyArray<ReplacedRead>
+	readonly sides: ReadonlyArray<RegionSide>
 }
 
 /**
@@ -1871,7 +2030,7 @@ const restrictToUnits = (
 	relations: ReadonlyMap<string, TheoryRelation>,
 	loc: SourceLoc,
 	calls: CallAdmission
-): Pick<WholeRule, "judged" | "replaced" | "definitionOf"> & { readonly region: InferredQuery } => {
+): Pick<WholeRule, "judged" | "sides" | "definitionOf"> & { readonly region: InferredQuery } => {
 	const region = regionOf(unit, regions, facts, relations, loc)
 	const definitions = new WeakMap<InferredQuery, InferredQuery>()
 	const read = walked(violation, top, {
@@ -1881,10 +2040,13 @@ const restrictToUnits = (
 		regions: [],
 		self: undefined,
 		definitions,
-		calls
+		calls,
+		ruleUnits: new Map(),
+		bodies: [],
+		roots: { next: 0 }
 	})
 	if (read instanceof NotLocal) {
-		throw defect("a whole rule's violation query is unit-local at its unit")
+		defect("a whole rule's violation query is unit-local at its unit")
 	}
 	const definitionOf = (query: InferredQuery): InferredQuery => {
 		const walkedFrom = definitions.get(query)
@@ -1892,9 +2054,9 @@ const restrictToUnits = (
 	}
 	const units = region.source
 	if (units.kind !== "step") {
-		throw defect("a region read as a step of its unit keys")
+		defect("a region read as a step of its unit keys")
 	}
-	return { judged: read.query, replaced: region.replaced, definitionOf, region: units.query }
+	return { judged: read.query, sides: region.sides, definitionOf, region: units.query }
 }
 
 /** What a query unit-local at a width reads (`unitAt`): its unit, every occurrence of a stored relation it reads, every
@@ -1904,6 +2066,10 @@ interface UnitFound {
 	readonly reads: NonEmptyReadonlyArray<RelationRead>
 	readonly regions: ReadonlyArray<RegionRead>
 	readonly delivered: Delivered
+	/** Each rule it walked that binds the unit, with the variables it binds it at (Walk `ruleUnits`). */
+	readonly ruleUnits: ReadonlyMap<InferredRule, NonEmptyReadonlyArray<string>>
+	/** Each rule body it walked (Walk `bodies`). */
+	readonly bodies: ReadonlyArray<RuleRegion>
 }
 
 /**
@@ -1943,12 +2109,14 @@ const unitAt = (
 	}
 	const [h0, ...hs] = holders
 	if (h0 === undefined) {
-		throw defect("a unit's holders, one per stored relation read")
+		defect("a unit's holders, one per stored relation read")
 	}
 	const held: Unit["holders"] = [h0, ...hs]
 	const unit: Unit = Object.freeze({ key, holders: held })
 	const reads: Array<RelationRead> = []
 	const regions: Array<RegionRead> = []
+	const ruleUnits = new Map<InferredRule, NonEmptyReadonlyArray<string>>()
+	const bodies: Array<RuleRegion> = []
 	const read = walked(query, top, {
 		holders: holdersOf(unit),
 		restrict: deciding,
@@ -1956,7 +2124,10 @@ const unitAt = (
 		regions,
 		self: undefined,
 		definitions: new WeakMap(),
-		calls
+		calls,
+		ruleUnits,
+		bodies,
+		roots: { next: 0 }
 	})
 	if (read instanceof NotLocal) {
 		return read
@@ -1964,7 +2135,7 @@ const unitAt = (
 	const [r0, ...rs] = reads
 	return r0 === undefined
 		? lacking("noUnit", "it reads no stored relation")
-		: { unit, reads: [r0, ...rs], regions, delivered: read.delivered }
+		: { unit, reads: [r0, ...rs], regions, delivered: read.delivered, ruleUnits, bodies }
 }
 
 /**
@@ -2006,7 +2177,7 @@ export const wholeRule = (
 	facts: RegionFacts,
 	loc: SourceLoc
 ): WholeRule | undefined => {
-	const stored = storedReads(violation, relations)
+	const stored = storedReads(violation, relations, new Set())
 	const [first, ...rest] = stored
 	if (first === undefined) {
 		return undefined
@@ -2027,7 +2198,7 @@ export const wholeRule = (
 		) {
 			return undefined
 		}
-		const { judged, replaced, definitionOf } = restrictToUnits(
+		const { judged, sides, definitionOf } = restrictToUnits(
 			violation,
 			found.unit,
 			found.regions,
@@ -2042,7 +2213,7 @@ export const wholeRule = (
 			reads: found.reads,
 			unit: found.unit,
 			judged,
-			replaced,
+			sides,
 			definitionOf,
 			everyRow: violation
 		})
@@ -2113,6 +2284,219 @@ const declaredOf = (
 }
 
 /**
+ * A definition unit-local at a unit its head hides and determines (`storedUnit`): every rule of its outermost stages
+ * (`ownRules`) binds the unit, its head delivering the unit's variables at the same places of the unit's key and hiding
+ * the others, each hidden one determined by the head through one key of one relation, the same in every rule
+ * (`determinations`), so no two facts at one head lie in two units; and no head names `fields`, the unit's first
+ * holder's fields at the places hidden. The definition with its head extended by them (`withUnitHeads`), each rule's
+ * bound to the variables of `vars` it binds there, in their order, delivers the whole unit, and its admission stores
+ * that extension, every reader reading the head's columns of it (analysis/derived/storage.ts derivedHolding); `lacks`
+ * is why it is live otherwise.
+ */
+export interface HiddenUnit {
+	readonly kind: "hidden"
+	readonly lacks: UnitLocality
+	readonly fields: NonEmptyReadonlyArray<string>
+	readonly vars: ReadonlyArray<NonEmptyReadonlyArray<string>>
+}
+
+/**
+ * The rules of a query's outermost stages, in order, those whose heads are its own: a rules stage's arms, a union's
+ * input's and then its arms, a name's input's; none where a stage of another kind stands there, whose rows no rule's
+ * head states.
+ */
+const ownRules = <L, R extends Refs>(
+	stage: QueryStageDesc<L, R>
+): ReadonlyArray<RuleDesc<L, R>> | undefined => {
+	switch (stage.kind) {
+		case "rules":
+			return stage.arms
+		case "union": {
+			const input = ownRules(stage.input)
+			return input === undefined ? undefined : [...input, ...stage.arms]
+		}
+		case "named":
+			return ownRules(stage.input)
+		case "recursive":
+		case "attach":
+		case "order":
+		case "take":
+		case "approx":
+			return undefined
+	}
+}
+
+/**
+ * `query` with the head of each rule of its outermost stages (`ownRules`), the i-th in their order, given `fields`,
+ * each bound to the variable of the i-th of `vars` at its place: the query a stored relation whose head hides its unit
+ * keeps in its table (`HiddenUnit`). A Description and its live reading (query.ts liveReading) have the same outermost
+ * rules in the same order, so `vars`, read of the one, extend the other.
+ */
+export const withUnitHeads = <L, R extends Refs>(
+	query: QueryDesc<L, R>,
+	fields: NonEmptyReadonlyArray<string>,
+	vars: ReadonlyArray<NonEmptyReadonlyArray<string>>
+): QueryDesc<L, R> => {
+	let next = 0
+	const extended = (rule: RuleDesc<L, R>): RuleDesc<L, R> => {
+		const bound = defined(vars[next], "the unit's variables of each outermost rule")
+		next += 1
+		return {
+			...rule,
+			head: {
+				...rule.head,
+				...Object.fromEntries(
+					fields.map((field, j) => [
+						field,
+						{ kind: "var", var: defined(bound[j], "a variable for each unit field") }
+					])
+				)
+			}
+		}
+	}
+	const stage = (st: QueryStageDesc<L, R>): QueryStageDesc<L, R> => {
+		switch (st.kind) {
+			case "rules":
+				return { ...st, arms: mapNonEmpty(st.arms, extended) }
+			case "union": {
+				const input = stage(st.input)
+				return { ...st, input, arms: mapNonEmpty(st.arms, extended) }
+			}
+			case "named":
+				return { ...st, input: stage(st.input) }
+			case "recursive":
+			case "attach":
+			case "order":
+			case "take":
+			case "approx":
+				defect("a query whose outermost rules state its heads")
+		}
+	}
+	const out = { ...query, stage: stage(query.stage) }
+	if (next !== vars.length) {
+		defect("one unit's variables for each outermost rule")
+	}
+	return out
+}
+
+/**
+ * The ways `rule`'s head determines the variable `v`, which it hides: each relation it matches that binds `v` at a field
+ * and every field of one of its keys, its primary key or another, to a variable its head delivers, so at one head the
+ * relation holds one row and `v` one value; each the relation, that field, the key and the head fields delivering its
+ * fields, as one text, so two rules that determine `v` alike determine it at one head to one value.
+ */
+const determinations = (
+	rule: InferredRule,
+	v: string,
+	relations: ReadonlyMap<string, TheoryRelation>
+): ReadonlySet<string> => {
+	const deliveredAt = (x: string): string | undefined =>
+		Object.entries(rule.head).find(([, h]) => h.kind === "var" && h.var === x)?.[0]
+	const out = new Set<string>()
+	for (const m of rule.matches) {
+		const r = m.source.kind === "relation" ? relations.get(m.source.name) : undefined
+		const at = Object.entries(m.bindings).find(([, e]) => e.kind === "var" && e.var === v)?.[0]
+		if (r === undefined || at === undefined) {
+			continue
+		}
+		for (const key of [r.primaryKey, ...r.keys]) {
+			const heads = key.map((f) => {
+				const e = m.bindings[f]
+				return e?.kind === "var" ? deliveredAt(e.var) : undefined
+			})
+			if (heads.every((h) => h !== undefined)) {
+				out.add(canonicalTextOf([r.name, at, key, heads]))
+			}
+		}
+	}
+	return out
+}
+
+/**
+ * The unit `found` hides from `definition`'s head, where every rule of its outermost stages binds it and no head names
+ * the fields that carry it (`HiddenUnit`); none otherwise.
+ */
+const hiddenAt = (
+	definition: InferredQuery,
+	found: UnitFound,
+	relations: ReadonlyMap<string, TheoryRelation>
+): HiddenUnit | undefined => {
+	const rules = ownRules(definition.stage)
+	const [first] = rules ?? []
+	if (rules === undefined || first === undefined) {
+		return undefined
+	}
+	const holder = headNonEmpty(found.unit.holders).fields
+	/** The places of the unit's key a rule's head hides, each a variable no head field holds. */
+	const hiddenOf = (
+		rule: InferredRule,
+		bound: NonEmptyReadonlyArray<string>
+	): ReadonlyArray<number> =>
+		bound.flatMap((v, j) =>
+			Object.values(rule.head).some((h) => h.kind === "var" && h.var === v) ? [] : [j]
+		)
+	const firstBound = found.ruleUnits.get(first)
+	if (firstBound === undefined) {
+		return undefined
+	}
+	const places = hiddenOf(first, firstBound)
+	const fields = places.map((j) =>
+		defined(holder[j], "a holder's field at each place of the unit's key")
+	)
+	if (!isNonEmpty(fields)) {
+		return undefined
+	}
+	const vars: Array<NonEmptyReadonlyArray<string>> = []
+	/** The ways every rule so far determines each hidden place's variable alike (`determinations`). */
+	const alike = places.map((): ReadonlySet<string> | undefined => undefined)
+	for (const rule of rules) {
+		const bound = found.ruleUnits.get(rule)
+		if (
+			bound === undefined ||
+			!sameOrder(hiddenOf(rule, bound), places) ||
+			fields.some((f) => Object.hasOwn(rule.head, f))
+		) {
+			return undefined
+		}
+		const hidden = mapNonEmpty(fields, (_, i) =>
+			defined(bound[defined(places[i], "a hidden place")], "its variable")
+		)
+		for (const [i, v] of hidden.entries()) {
+			const ways = determinations(rule, v, relations)
+			const before = alike[i]
+			const kept = new Set(before === undefined ? ways : [...before].filter((w) => ways.has(w)))
+			if (kept.size === 0) {
+				return undefined
+			}
+			alike[i] = kept
+		}
+		vars.push(hidden)
+	}
+	const hidden: HiddenUnit = {
+		kind: "hidden",
+		lacks: { condition: "hidden", detail: "its head delivers no field that holds its unit" },
+		fields,
+		vars
+	}
+	return Object.freeze(hidden)
+}
+
+/**
+ * What a stored relation's admission reads of the schema's units (`storedUnit`): the declared unit each relation's rows
+ * sit under, an ordinary relation's by the schema's unit statements and a stored derived relation's by its admission
+ * (ir/unit.ts StoredUnit `declared`); whether a declared unit is sealed (analysis/theory/frozen.ts foundedAt); the
+ * containments the schema states and composes (RegionFacts `containments`), which hold in every committed state; and
+ * the definition each stored derived relation was admitted over, read live, whose rows its table holds at every COMMIT,
+ * so a key its definition reaches at its head is reached at its reader's binding of its fields, as an import's is.
+ */
+export interface UnitFacts {
+	readonly memberOf: (relation: string) => DeclaredMember | undefined
+	readonly sealed: (unit: string) => boolean
+	readonly containments: ReadonlyArray<FieldContainment>
+	readonly storedDefinition: (relation: string) => InferredQuery | undefined
+}
+
+/**
  * The unit of a stored derived relation's definition, read live (ir/unit.ts StoredUnit), decided once when the schema
  * compiles, by the one walk a whole rule's discharge reads: unit-local, no field it reads one an immutable relation's
  * rows change in place, every relation it reads sitting in one declared unit whose key leads its own (`declaredOf`), so
@@ -2121,18 +2505,31 @@ const declaredOf = (
  * immutable throughout (`unfit` names why one is not, none where it is), at the widest unit whose key its head delivers,
  * so its rows at one unit are replaced by that unit's key; or the condition it lacks (core/causes.ts UnitLocality): its
  * unit and its calls first, then, of the narrowest unit, one field wide, the first the walk meets in the definition's
- * order, then its fields changed in place, its head, and its declared unit. An immutable function's value at one argument
- * tuple is the same at every state, and a call's Description carries the digest of the whole function, body included
- * (ir/expr.ts CalledFunction), so its rows change only with its unit's rows, and with a migration that changes the
- * function.
+ * order, then its fields changed in place, its head, its declared unit, and last the keys it reads its references at.
+ * A unit the head hides but determines, every outermost rule binding it, is the unit at its width as one it delivers
+ * is, hidden (`HiddenUnit`), which its admission stores with the unit's fields beside the head. An immutable function's
+ * value at one argument tuple is the same at every state, and a call's Description carries the digest of the whole
+ * function, body included (ir/expr.ts CalledFunction), so its rows change only with its unit's rows, and with a
+ * migration that changes the function.
+ *
+ * A definition that reads relations of a sealed unit beside relations of another unit reads the sealed ones by
+ * reference (`sealedReferences`, ir/unit.ts StoredUnit `references`): the walk reads each as it reads a closed
+ * relation, a source no unit holds, and its unit is its other relations' alone, so a learner's credit over a
+ * package's content stands in the learner's unit. That is exact where every read of a reference stands at a key some
+ * row of the unit it is read beside reaches by a stated containment into the sealed unit (`unreachedReference`): such a
+ * row stands only where the key was founded, and the one transaction that founds a key writes every row of the sealed
+ * unit there, which no later write changes, so the rows a reference holds at the keys a unit's rows name are the same
+ * at every state those rows stand in, and a write changes the stored rows only at the units it writes. A key no such row
+ * reaches, a package read beside no learner's row naming it, could gain rows at a later founding that no write of the
+ * unit sees, so a definition that reads one is live (`reference`).
  */
 export const storedUnit = (
 	definition: InferredQuery,
 	relations: ReadonlyMap<string, TheoryRelation>,
 	unfit: (fn: string) => string | undefined,
-	memberOf: (relation: string) => DeclaredMember | undefined,
+	units: UnitFacts,
 	frozen: FrozenUnit | undefined
-): StoredUnit | FrozenUnit | UnitLocality => {
+): StoredUnit | FrozenUnit | HiddenUnit | UnitLocality => {
 	for (const fn of [...callsOf(definition)].toSorted(compareStrings)) {
 		const why = unfit(fn)
 		if (why !== undefined) {
@@ -2142,8 +2539,9 @@ export const storedUnit = (
 	if (frozen !== undefined) {
 		return frozen
 	}
-	const stored = storedReads(definition, relations)
-	const [first, ...rest] = stored
+	const read = storedReads(definition, relations, new Set())
+	const references = sealedReferences(read, units)
+	const [first, ...rest] = read.filter((r) => !references.has(r.name))
 	if (first === undefined) {
 		return { condition: "noUnit", detail: "it reads no relation a write changes" }
 	}
@@ -2164,44 +2562,981 @@ export const storedUnit = (
 			}
 		}
 		const delivered = found.delivered
+		if (delivered.kind === "at" && new Set(delivered.fields).size < delivered.fields.length) {
+			continue
+		}
 		if (delivered.kind === "at" && isNonEmpty(delivered.fields)) {
-			const declared = declaredOf(found.unit, delivered.fields, memberOf)
-			return "condition" in declared
-				? declared
-				: Object.freeze({ kind: "unit", unit: found.unit, fields: delivered.fields, declared })
+			const declared = declaredOf(found.unit, delivered.fields, units.memberOf)
+			if ("condition" in declared) {
+				return declared
+			}
+			const unreached = unreachedReference(definition, references, units)
+			return unreached !== undefined
+				? { condition: "reference", detail: unreached }
+				: Object.freeze({
+						kind: "unit",
+						unit: found.unit,
+						fields: delivered.fields,
+						declared,
+						references: [...references].toSorted(compareStrings)
+					})
+		}
+		const hidden = delivered.kind === "hidden" ? hiddenAt(definition, found, relations) : undefined
+		if (hidden !== undefined) {
+			return hidden
 		}
 		if (k === 1) {
 			return { condition: "hidden", detail: "its head delivers no field that holds its unit" }
 		}
 	}
-	throw defect("a stored relation's definition decided at some width from its widest to one")
+	defect("a stored relation's definition decided at some width from its widest to one")
 }
 
 /**
+ * The relations among `read` a definition reads by reference (`storedUnit`): each that sits under a sealed unit, where
+ * some relation of `read` sits under no sealed one, whose unit is then the definition's own; none where every one sits
+ * under a sealed unit, a definition of the sealed unit itself, which its founding write keeps (analysis/theory/frozen.ts
+ * foundedAt).
+ */
+const sealedReferences = (
+	read: ReadonlyArray<HolderRelation>,
+	units: UnitFacts
+): ReadonlySet<string> => {
+	const sealed = read.filter((r) => {
+		const member = units.memberOf(r.name)
+		return member !== undefined && units.sealed(member.unit)
+	})
+	return sealed.length > 0 && sealed.length < read.length
+		? new Set(sealed.map((r) => r.name))
+		: new Set()
+}
+
+/** The variable `bindings` binds `field` to, where it binds it to one. */
+const varAt = (
+	bindings: Readonly<Record<string, InferredExpr>>,
+	field: string
+): string | undefined => {
+	const e = bindings[field]
+	return e?.kind === "var" ? e.var : undefined
+}
+
+/** The head field `rule` delivers the variable `v` at, the first in its head's order, where it delivers it. */
+const headFieldOf = (rule: InferredRule, v: string): string | undefined =>
+	Object.entries(rule.head).find(([, h]) => h.kind === "var" && h.var === v)?.[0]
+
+/** Each relational filter of `e`, a negation's or an existence's, at any depth, outermost first. */
+const filtersOf = (
+	e: InferredExpr
+): ReadonlyArray<Extract<InferredExpr, { readonly kind: "absent" | "exists" }>> =>
+	e.kind === "absent" || e.kind === "exists"
+		? [e]
+		: exprChildren(e).flatMap((c) => filtersOf(c.term))
+
+/** Whether every item of `xs` is defined, which narrows it. */
+const allDefined = <T>(xs: ReadonlyArray<T | undefined>): xs is ReadonlyArray<T> =>
+	xs.every((x) => x !== undefined)
+
+/**
+ * The first read of a relation of `references` in `definition` at a key no row of the definition's own unit reaches
+ * (`storedUnit`), named, none where every one stands at a reached key. A key of a sealed unit P is reached in a rule at
+ * the variables v… holding P's key fields in order where:
+ *
+ * - the rule matches a relation H under no sealed unit, binding fields f… of it to v…, and a containment the schema
+ *   states or composes (UnitFacts `containments`) holds H(f…) within a relation M under P at M's fields holding P's key,
+ *   over every row of H the match's conditions admit (`implies`): each row of H names a key some row of M stands at, so
+ *   one P's founding wrote;
+ * - or the rule matches an imported query, or a stored derived relation (UnitFacts `storedDefinition`), named or an
+ *   import read by its name, whose every outermost rule, of the query or of its definition, reaches the key at the head
+ *   fields the match binds to v… (`reachedHeads`): its rows are those rules' facts;
+ * - or the rule delivers v… at head fields its reader binds to a key reached in the reader's rule, the import's read of
+ *   them standing at the reader's binding of those fields, as a reference-only query of a package's content is read at
+ *   the package a learner's row names. A recursion's rules take no key from their reader, since a step derives facts at
+ *   one key from facts at another.
+ *
+ * A negation, an existence and an import are read at the binding their rule gives them, so each of their reads is
+ * reached in turn by what reaches its rule.
+ */
+const unreachedReference = (
+	definition: InferredQuery,
+	references: ReadonlySet<string>,
+	units: UnitFacts
+): string | undefined => {
+	if (references.size === 0) {
+		return undefined
+	}
+	const from = Map.groupBy(units.containments, (c) => c.from)
+	/** The sealed unit `relation` sits under, with the fields that hold its key, where it sits under a sealed one. */
+	const sealedMember = (relation: string): DeclaredMember | undefined => {
+		const member = units.memberOf(relation)
+		return member !== undefined && units.sealed(member.unit) ? member : undefined
+	}
+	/** The keys reached at each imported query's head (`reachedHeads`), each query's read once. */
+	const heads = new WeakMap<InferredQuery, TupleSet<ReadonlyArray<string>>>()
+	/** The keys `rule` reaches itself, each its unit's name and then the variables holding its key fields in order. */
+	const reachedIn = (rule: InferredRule): TupleSet<ReadonlyArray<string>> => {
+		const out = new TupleSet<ReadonlyArray<string>>()
+		/** The keys the rules of `query`, read at `m`, reach at the head fields `m` binds. */
+		const throughHeads = (query: InferredQuery, m: InferredMatch): void => {
+			for (const [unit, ...fields] of reachedHeads(query)) {
+				const vars = fields.map((f) => varAt(m.bindings, f))
+				if (unit !== undefined && allDefined(vars)) {
+					out.add([unit, ...vars])
+				}
+			}
+		}
+		for (const m of rule.matches) {
+			const s = m.source
+			if (s.kind === "relation" && sealedMember(s.name) === undefined) {
+				const stored = units.storedDefinition(s.name)
+				if (stored !== undefined) {
+					throughHeads(stored, m)
+				}
+				const conditions = rowConditions(m.bindings, rule.where)
+				for (const c of from.get(s.name) ?? []) {
+					const target = sealedMember(c.to)
+					const vars = target?.fields.map((k) => {
+						const pair = c.pairs.find((p) => p.to === k)
+						return pair === undefined ? undefined : varAt(m.bindings, pair.from)
+					})
+					if (
+						target !== undefined &&
+						vars !== undefined &&
+						allDefined(vars) &&
+						c.selection.every((conjunct) => implies(conditions, conjunct))
+					) {
+						out.add([target.unit, ...vars])
+					}
+				}
+			} else if (s.kind === "query") {
+				throughHeads(s.query, m)
+			}
+		}
+		return out
+	}
+	/** The keys every outermost rule of `query` reaches at its head, each its unit's name and then the head fields. */
+	const reachedHeads = (query: InferredQuery): TupleSet<ReadonlyArray<string>> => {
+		const known = heads.get(query)
+		if (known !== undefined) {
+			return known
+		}
+		const atHead = (ownRules(query.stage) ?? []).map((rule) => {
+			const out = new TupleSet<ReadonlyArray<string>>()
+			for (const [unit, ...vars] of reachedIn(rule)) {
+				const fields = vars.map((v) => headFieldOf(rule, v))
+				if (unit !== undefined && allDefined(fields)) {
+					out.add([unit, ...fields])
+				}
+			}
+			return out
+		})
+		const [first, ...rest] = atHead
+		const out = new TupleSet<ReadonlyArray<string>>()
+		for (const key of first ?? []) {
+			if (rest.every((r) => r.has(key))) {
+				out.add(key)
+			}
+		}
+		heads.set(query, out)
+		return out
+	}
+	/** The first read of a reference in `rules` at a key unreached, its reader giving the keys `given` names reached at
+	 * their head fields. */
+	const unreachedInRules = (
+		rules: ReadonlyArray<InferredRule>,
+		given: (unit: string, fields: ReadonlyArray<string>) => boolean
+	): string | undefined => {
+		for (const rule of rules) {
+			const own = reachedIn(rule)
+			const reached = (unit: string, vars: ReadonlyArray<string>): boolean => {
+				if (own.has([unit, ...vars])) {
+					return true
+				}
+				const fields = vars.map((v) => headFieldOf(rule, v))
+				return allDefined(fields) && given(unit, fields)
+			}
+			const readAt = (
+				source: InferredSource,
+				bindings: Readonly<Record<string, InferredExpr>>
+			): string | undefined => {
+				if (source.kind === "relation" && references.has(source.name)) {
+					const member = defined(sealedMember(source.name), "a reference's sealed unit")
+					const vars = member.fields.map((f) => varAt(bindings, f))
+					return allDefined(vars) && reached(member.unit, vars)
+						? undefined
+						: `it reads ${source.name} of sealed unit ${member.unit} at (${member.fields.join(", ")}) where no relation of its own unit it matches holds that key by a containment the schema states`
+				}
+				return source.kind === "query"
+					? unreachedIn(source.query, (unit, fields) => {
+							const vars = fields.map((f) => varAt(bindings, f))
+							return allDefined(vars) && reached(unit, vars)
+						})
+					: undefined
+			}
+			for (const m of rule.matches) {
+				const why = readAt(m.source, m.bindings)
+				if (why !== undefined) {
+					return why
+				}
+			}
+			for (const filter of rule.where.flatMap(filtersOf)) {
+				const why = readAt(filter.source, filter.bindings)
+				if (why !== undefined) {
+					return why
+				}
+			}
+		}
+		return undefined
+	}
+	/** The first read of a reference in `query` at a key unreached, its reader giving `given` (`unreachedInRules`). */
+	const unreachedIn = (
+		query: InferredQuery,
+		given: (unit: string, fields: ReadonlyArray<string>) => boolean
+	): string | undefined => {
+		const inStage = (stage: InferredStage): string | undefined => {
+			switch (stage.kind) {
+				case "rules":
+					return unreachedInRules(stage.arms, given)
+				case "union":
+					return inStage(stage.input) ?? unreachedInRules(stage.arms, given)
+				case "named":
+				case "attach":
+				case "order":
+				case "take":
+				case "approx":
+					return inStage(stage.input)
+				case "recursive":
+					return unreachedInRules([...stage.recursive.base, ...stage.recursive.rec], () => false)
+			}
+		}
+		return inStage(query.stage)
+	}
+	return unreachedIn(definition, () => false)
+}
+
+/**
+ * The occurrences of the holders `definition` reads at `unit`, at either polarity and in every query it imports, each
+ * with the variables its unit fields bind, and whether an occurrence's match binds one of its keys, its primary key or
+ * another, each field at a variable of a set or a constant (RegionRead `fixed`): what unitKeyed and unitRooted read.
+ */
+const unitOccurrences = (
+	definition: InferredQuery,
+	relations: ReadonlyMap<string, TheoryRelation>,
+	unit: StoredUnit
+): {
+	readonly occurrences: ReadonlyArray<{
+		readonly read: RegionRead
+		readonly unitVars: ReadonlySet<string>
+	}>
+	readonly keyedBy: (read: RegionRead, vars: ReadonlySet<string>) => boolean
+	readonly bodies: ReadonlyArray<RuleRegion>
+} => {
+	const [first, ...rest] = storedReads(definition, relations, new Set(unit.references))
+	if (first === undefined) {
+		defect("a stored relation's definition, which reads a stored relation")
+	}
+	const found = unitAt(definition, [first, ...rest], unit.unit.key.length, "stored")
+	if (found instanceof NotLocal) {
+		defect("a stored relation's definition unit-local at its admitted unit")
+	}
+	const holders = holdersOf(found.unit)
+	return {
+		bodies: found.bodies,
+		occurrences: found.regions.map((read) => ({
+			read,
+			unitVars: new Set(
+				(holders.get(read.relation) ?? []).flatMap((f) => {
+					const bound = read.bound[f]
+					return bound === undefined ? [] : [bound]
+				})
+			)
+		})),
+		/** A negated read is a probe of whether a row stands at the columns its rule binds, one row at most, keyed or not. */
+		keyedBy: (read, vars) => {
+			const r = relations.get(read.relation)
+			return (
+				read.polarity === "negative" ||
+				(r !== undefined &&
+					holders.has(read.relation) &&
+					[r.primaryKey, ...r.keys].some((key) =>
+						key.every((f) => {
+							const bound = read.bound[f]
+							return read.fixed.includes(f) || (bound !== undefined && vars.has(bound))
+						})
+					))
+			)
+		}
+	}
+}
+
+/**
+ * Whether every occurrence of a holder `definition` reads at `unit`, in every query it imports, reads it at one of its
+ * keys, its primary key or another, each field of which the occurrence binds to a variable of the unit or holds at a
+ * constant, or negates it, a probe of one row at most: at one key of the unit its upkeep reads at most one row of each
+ * (analysis/derived/storage.ts deltaBounded). A key field bound to the unit's variable through an equality, a root's own scope at Scope(root, root),
+ * is bound as a unit field is.
+ */
+export const unitKeyed = (
+	definition: InferredQuery,
+	relations: ReadonlyMap<string, TheoryRelation>,
+	unit: StoredUnit
+): boolean => {
+	const { occurrences, keyedBy } = unitOccurrences(definition, relations, unit)
+	return occurrences.every((o) => keyedBy(o.read, o.unitVars))
+}
+
+/**
+ * Whether `definition` at `unit` is rooted: in each rule (`ruleGroups`), some occurrence of a holder it reads, its root,
+ * read at the unit, binds with the unit's variables a key of every other occurrence of the rule, one after another, each occurrence a key binds adding the
+ * variables it binds, so its upkeep at a key a write touched reads the root's rows there and one row of every other
+ * occurrence for each (analysis/derived/storage.ts deltaBounded): linear in the root's rows at the key, each read a
+ * descent of a key's index. unitKeyed is the case where the unit's variables alone bind every key. A definition that
+ * reads a holder at a prefix of the unit beside another's rows, ledger's presentedSpans (the least moment of a sitting
+ * after each presentation, each presentation's moments read at the sitting and a range), reads one holder's rows for
+ * each row of the other at every write: no root, so a stored unit wider than the declared unit bounds nothing.
+ */
+export const unitRooted = (
+	definition: InferredQuery,
+	relations: ReadonlyMap<string, TheoryRelation>,
+	unit: StoredUnit
+): boolean => {
+	const { occurrences, keyedBy, bodies } = unitOccurrences(definition, relations, unit)
+	const unitVars = occurrences.flatMap((o) => [...o.unitVars])
+	return bodies.every((body) => {
+		const members = body.members.map((i) =>
+			defined(occurrences[i], "an occurrence of a rule's body")
+		)
+		return (
+			members.length === 0 ||
+			members.some(
+				(root) =>
+					ruleClosure(
+						body,
+						members,
+						new Set([...unitVars, ...Object.values(root.read.bound)]),
+						relations,
+						keyedBy
+					).unreached.length === 0
+			)
+		)
+	})
+}
+
+/**
+ * Each rule body of `definition` at `unit` with its occurrences, and its closure from a start of the caller's (lane
+ * DELTAUP's dispatch: an occurrence's bound variables with the unit's and the constants, or the head's): the one
+ * reading of a rule's determinations unitRooted reads too.
+ */
+export const ruleClosures = (
+	definition: InferredQuery,
+	relations: ReadonlyMap<string, TheoryRelation>,
+	unit: StoredUnit
+): ReadonlyArray<{
+	readonly rule: InferredRule
+	readonly occurrences: ReadonlyArray<{
+		readonly read: RegionRead
+		readonly unitVars: ReadonlySet<string>
+	}>
+	readonly close: (start: ReadonlySet<string>) => RuleClosure
+}> => {
+	const { occurrences, keyedBy, bodies } = unitOccurrences(definition, relations, unit)
+	return bodies.map((body) => {
+		const members = body.members.map((i) =>
+			defined(occurrences[i], "an occurrence of a rule's body")
+		)
+		return {
+			rule: body.rule,
+			occurrences: members,
+			close: (start) => ruleClosure(body, members, start, relations, keyedBy)
+		}
+	})
+}
+
+/**
+ * How a step of a rule's closure binds an occurrence (`ruleClosure`): by a key, one row; by a successor, one probe of a
+ * key's order; by a seek, an existence test of one occurrence at the fields the closure binds, one descent of an index
+ * of them, and at most one range of one more column; or by a probe, an existence test that reads rows: a join of
+ * several occurrences, or conditions over its unbound columns no index range serves.
+ */
+type StepBy = "key" | "successor" | "seek" | "probe"
+
+/**
+ * A rule's closure from `start`, the variables bound before it (ruleClosure): each occurrence it reaches, in order, with
+ * how, and those it leaves.
+ */
+export interface RuleClosure {
+	readonly steps: ReadonlyArray<{ readonly read: RegionRead; readonly by: StepBy }>
+	readonly unreached: ReadonlyArray<RegionRead>
+	/** The variables the start, its keys and its computed equalities bind, a key read each:
+	 * every variable it binds but those only a successor binds. */
+	readonly keyed: ReadonlySet<string>
+	/**
+	 * Each variable a computed equality bound, with the conjunct and, where it was solved backwards, the variable it was
+	 * solved from and the inverse (`solved`): what a delta rule states as the solved conjunct (lane DELTAUP).
+	 */
+	readonly equalities: ReadonlyArray<{
+		readonly bound: string
+		readonly conjunct: InferredExpr
+		readonly solved: Solved | undefined
+	}>
+}
+
+/**
+ * An injective form `e` of one variable `x` solved for it: `x = v - c` for `v = x + c` or `v = c + x`, `x = v + c` for
+ * `v = x - c`, `x = v` for a cast or a base of x. The inverse is exact wherever x's column holds the value: a probe of
+ * x's key at a value its domain does not hold (a natural at -1) finds no row, so no guard beyond the probe is needed.
+ */
+export interface Solved {
+	readonly x: string
+	readonly from: string
+	readonly inverse:
+		| { readonly fn: "add" | "sub"; readonly constant: InferredExpr }
+		| { readonly fn: "same" }
+}
+
+/**
+ * The conjuncts `rule`'s computed equalities state once `bound` is: for each `v = e` of its conditions, v bound and e
+ * injective in one variable x the binding does not hold (`solvedOf`), the equality solved for x at x's own integer type
+ * (`fieldOf`, from the variable's origin), each solved variable binding the next; nothing for a cast or a base of x,
+ * which the conjunct states already, nor for an x of no integer type or a constant no integer literal is. Lane DELTAUP
+ * adds them to a gained rule beside the conjunct they solve, so a delta row's navigation probes the key x completes
+ * (SittingOrder's suspension of session k from the visit of session k + 1): `base(x) = CASE WHEN v within [lo, hi]
+ * THEN (v - c)::carrier ELSE lo END`, its right side free of x's relation and in x's carrier, an index qual of the step's
+ * parameterized path. The guard holds the inverse inside x's domain (its carrier's range, a natural's 0 and up), so no
+ * cast raises; outside it the probe is at lo, which the conjunct the solution stands beside refuses, as it refuses every
+ * row there: no value of x solves an out-of-range v.
+ */
+export const solvedConjuncts = (
+	rule: InferredRule,
+	bound: ReadonlySet<string>,
+	fieldOf: (x: string) => FieldDesc | undefined
+): ReadonlyArray<InferredExpr> => {
+	const known = new Set(bound)
+	const out: Array<InferredExpr> = []
+	const conjuncts = rule.where.flatMap(conjunctsOf)
+	for (let grew = true; grew;) {
+		grew = false
+		for (const c of conjuncts) {
+			if (c.kind !== "compare" || c.op !== "eq") {
+				continue
+			}
+			for (const [side, other] of [
+				[c.left, c.right],
+				[c.right, c.left]
+			] as const) {
+				const v = varOf(side)
+				if (
+					v !== undefined &&
+					!known.has(v) &&
+					varOf(other) === undefined &&
+					varsIn(other).every((u) => known.has(u))
+				) {
+					known.add(v)
+					grew = true
+					const stated = statedValue(side, other, fieldOf)
+					if (stated !== undefined) {
+						out.push(stated)
+					}
+					continue
+				}
+				const solved = v !== undefined && known.has(v) ? solvedOf(other, v) : undefined
+				if (solved === undefined || known.has(solved.x)) {
+					continue
+				}
+				known.add(solved.x)
+				grew = true
+				const stated = statedSolution(side, other, solved, fieldOf)
+				if (stated !== undefined) {
+					out.push(stated)
+				}
+			}
+		}
+	}
+	return out
+}
+
+/** PostgreSQL's integer types by their SQL names, each its carrier, and each carrier's SQL name. */
+const integerCarriers: ReadonlyMap<string, "int2" | "int4" | "int8"> = new Map([
+	["smallint", "int2"],
+	["integer", "int4"],
+	["bigint", "int8"]
+] as const)
+const integerTypeNames = { int2: "smallint", int4: "integer", int8: "bigint" } as const
+
+/** The integer carrier a field holds and the least value its type admits: a nonnegative contract's 0, a nonzero one's 1. */
+const integerDomainOf = (desc: FieldDesc): IntegerDomain | undefined => {
+	if (desc.kind === "pg") {
+		const carrier = integerCarriers.get(desc.type)
+		return carrier === undefined ? undefined : { carrier, least: integerRanges[carrier][0] }
+	}
+	if (desc.kind !== "contract") {
+		return undefined
+	}
+	const base = integerDomainOf(desc.base)
+	if (base === undefined) {
+		return undefined
+	}
+	const floor = desc.facts.includes("nonnegative")
+		? desc.facts.includes("nonzero")
+			? 1n
+			: 0n
+		: base.least
+	return { carrier: base.carrier, least: floor > base.least ? floor : base.least }
+}
+
+/** The integer value of a literal constant, undefined for any other term. */
+const integerOf = (e: InferredExpr): bigint | undefined =>
+	e.kind !== "literal"
+		? undefined
+		: typeof e.value === "bigint"
+			? e.value
+			: typeof e.value === "number" && Number.isInteger(e.value)
+				? BigInt(e.value)
+				: undefined
+
+/** An integer carrier and the least value its field's type admits (`integerDomainOf`). */
+type IntegerDomain = { readonly carrier: "int2" | "int4" | "int8"; readonly least: bigint }
+
+/** The subject of a probe's guard (`probeAt`): the term the guard compares, and its integer domain. */
+interface GuardSubject {
+	readonly term: InferredExpr
+	readonly domain: IntegerDomain
+}
+
+/**
+ * `e` as a probe's guard subject, a variable or its base, its integer domain by the variable's origin (`fieldOf`): the
+ * domain a probe's guard over it compares at, its bounds values of it (`probeAt`). A cast's domain is its target's,
+ * never its variable's, so a cast states nothing.
+ */
+const guardSubjectOf = (
+	e: InferredExpr,
+	fieldOf: (x: string) => FieldDesc | undefined
+): GuardSubject | undefined => {
+	const x = e.kind === "var" || e.kind === "base" ? varOf(e) : undefined
+	const desc = x === undefined ? undefined : fieldOf(x)
+	const domain = desc === undefined ? undefined : integerDomainOf(desc)
+	return domain === undefined ? undefined : { term: e, domain }
+}
+
+/** The conjunct a solution states at x's integer type (`solvedConjuncts`), undefined where none is typed. */
+const statedSolution = (
+	side: InferredExpr,
+	other: InferredExpr,
+	solved: Solved,
+	fieldOf: (x: string) => FieldDesc | undefined
+): InferredExpr | undefined => {
+	const desc = fieldOf(solved.x)
+	if (solved.inverse.fn === "same" || other.kind !== "compute" || desc === undefined) {
+		return undefined
+	}
+	const domain = integerDomainOf(desc)
+	const c = integerOf(solved.inverse.constant)
+	const [a, b] = other.args
+	const term = a !== undefined && varOf(a) === solved.x ? a : b
+	const subject = guardSubjectOf(side, fieldOf)
+	if (domain === undefined || c === undefined || term === undefined || subject === undefined) {
+		return undefined
+	}
+	const greatest = integerRanges[domain.carrier][1]
+	/** v - c within [least, greatest] where the inverse subtracts c, v + c where it adds it. */
+	const [low, high] =
+		solved.inverse.fn === "sub"
+			? [domain.least + c, greatest + c]
+			: [domain.least - c, greatest - c]
+	const fn = solved.inverse.fn
+	const constant = solved.inverse.constant
+	return probeAt(term, subject, (p) => ({ kind: "compute", fn, args: [p, constant] }), domain, [
+		low,
+		high
+	])
+}
+
+/**
+ * A computed value of a variable stated as its probe (`solvedConjuncts`): `v = x + c`, `v = c + x` or `v = x - c`, v
+ * unbound and x bound, as `base(v) = CASE WHEN x within [least - c, greatest - c] THEN (x + c)::carrier ELSE least END`
+ * (`x + c` from `x - c`'s bounds alike), the guard on x itself, which proves the cast as the backward solution's guard on
+ * v does (SittingOrder's visit of session k + 1 from the suspension of session k). Any other value states nothing: the
+ * closure's forward binding stands without a probe.
+ */
+const statedValue = (
+	side: InferredExpr,
+	e: InferredExpr,
+	fieldOf: (x: string) => FieldDesc | undefined
+): InferredExpr | undefined => {
+	const v = varOf(side)
+	const desc = v === undefined ? undefined : fieldOf(v)
+	const domain = desc === undefined ? undefined : integerDomainOf(desc)
+	if (domain === undefined || e.kind !== "compute" || (e.fn !== "add" && e.fn !== "sub")) {
+		return undefined
+	}
+	const [a, b] = e.args
+	if (a === undefined || b === undefined) {
+		return undefined
+	}
+	const first = varOf(a) !== undefined
+	const [x, c] = first
+		? [a, integerOf(b)]
+		: e.fn === "add" && varOf(b) !== undefined
+			? [b, integerOf(a)]
+			: [undefined, undefined]
+	const subject = x === undefined ? undefined : guardSubjectOf(x, fieldOf)
+	if (x === undefined || c === undefined || subject === undefined) {
+		return undefined
+	}
+	const fn = e.fn
+	const greatest = integerRanges[domain.carrier][1]
+	const shift = fn === "add" ? c : -c
+	return probeAt(
+		side,
+		subject,
+		(p) => ({ kind: "compute", fn, args: first ? [p, b] : [a, p] }),
+		domain,
+		[domain.least - shift, greatest - shift]
+	)
+}
+
+/**
+ * `term = CASE WHEN subject within [low, high] THEN value::carrier ELSE least END`, the value computed from the when's
+ * parameter, the subject guarded (`value`), the one term the guard's range holds of: a conjunct in the term's own
+ * carrier, its right side free of the term's relation, so a probe of the term's key reads it as an index qual; the
+ * guard keeps the cast inside the domain, and out of it the probe at the domain's least value is refused by the
+ * conjunct it stands beside. The guard's bounds are values of the subject's own integer domain (`subject.domain`),
+ * clamped to it and held as its carrier holds them (scalar/compute/literal.ts integerHostOf), a JavaScript integer for
+ * smallint and integer, as the guard compares them with the subject at its type: no value outside it stands in the
+ * subject, so the clamp keeps every value the range held; a range the subject's domain holds no value of states
+ * nothing, the forward binding standing without a probe.
+ */
+const probeAt = (
+	term: InferredExpr,
+	subject: GuardSubject,
+	value: (guarded: InferredExpr) => InferredExpr,
+	domain: IntegerDomain,
+	[low, high]: readonly [bigint, bigint]
+): InferredExpr | undefined => {
+	const sLeast = subject.domain.least
+	const sGreatest = integerRanges[subject.domain.carrier][1]
+	if (low > sGreatest || high < sLeast || low > high) {
+		return undefined
+	}
+	const bound = (n: bigint): number | bigint =>
+		integerHostOf(subject.domain.carrier, n < sLeast ? sLeast : n > sGreatest ? sGreatest : n)
+	const carrier: FieldDesc = { kind: "pg", type: integerTypeNames[domain.carrier] }
+	const guard = { kind: "within", low: bound(low), high: bound(high) } as const
+	return {
+		kind: "compare",
+		op: "eq",
+		left: term.kind === "var" ? { kind: "base", arg: term } : term,
+		right: {
+			kind: "when",
+			guard,
+			subject: subject.term,
+			proved: { kind: "cast", to: carrier, arg: value(guardedExpr(guard, subject.term)) },
+			otherwise: {
+				kind: "literal",
+				value: integerHostOf(domain.carrier, domain.least),
+				type: carrier
+			}
+		}
+	}
+}
+
+/** `e` solved for its one variable where it is injective in it (`Solved`): undefined for any other expression. */
+const solvedOf = (e: InferredExpr, from: string): Solved | undefined => {
+	const x = varOf(e)
+	if (x !== undefined) {
+		return { x, from, inverse: { fn: "same" } }
+	}
+	if (e.kind !== "compute" || (e.fn !== "add" && e.fn !== "sub") || e.args.length !== 2) {
+		return undefined
+	}
+	const [a, b] = e.args
+	if (a === undefined || b === undefined) {
+		return undefined
+	}
+	const left = varOf(a)
+	const right = varOf(b)
+	if (left !== undefined && constantExpr(b)) {
+		return { x: left, from, inverse: { fn: e.fn === "add" ? "sub" : "add", constant: b } }
+	}
+	if (e.fn === "add" && right !== undefined && constantExpr(a)) {
+		return { x: right, from, inverse: { fn: "sub", constant: a } }
+	}
+	return undefined
+}
+
+/**
+ * The occurrences of one rule's body `members` that `start` binds, one after another, and the variables each adds: the
+ * determinations a rule's facts give, read off its matches, conditions and head:
+ * - a key: an occurrence each field of one of whose keys is bound or held at a constant (`keyedBy`), or negated, a probe
+ *   of one row;
+ * - a computed equality: a conjunct `v = e` of the rule's conditions, e's variables bound, binds v (SittingOrder's
+ *   suspension of a candidate session beside the next one's visit, `next.k = k + 1`);
+ * - an imported fold is read as a relation: grouped by the rule's unit, as unit-locality holds it, its canonical relation
+ *   is stored and read by its name (analysis/schema.ts storedImport), its groups its key, so a key step binds its head
+ *   (ledger's latestMoments, a sitting's latest moment, at the sitting); one read in place is live, so unrooted, its
+ *   own body among the reader's every body none roots, or no unit-local reading, and binds nothing here;
+ * - a successor: an occurrence each field of a key of which is bound but one, `x`, that the head folds to its least
+ *   (greatest) beside a conjunct holding `x` above (below) a bound value, nothing else of the rule reading x or another
+ *   variable of the occurrence's own (analysis/theory/successor.ts successorOf), is one probe of that key's order, the
+ *   next row after the value (ledger's presentedSpans, the least moment of a sitting after each presentation), the probe
+ *   navigation reads it by (analysis/theory/navigate.ts #chain);
+ * - a probe: occurrences whose variables the rule binds nowhere else and neither its head nor a negation or existence
+ *   test of its conditions reads, joined to one another, are an existence test of the bound ones, one witness (metis's
+ *   laterReports, a later report of a sitting; PausedOver, a pause after a part's opening); one such occurrence alone,
+ *   no other occurrence reading its unbound variables and no condition but comparisons of one of them, bare, with bound
+ *   terms, is a seek (`seekOf`): one descent of an index of its bound fields, then of that variable's range, whatever the
+ *   relation holds there (ledger's UnsettledSitting, a sitting one of whose attempts is unprocessed; ItemSessionOpen's
+ *   tried session, a control above its counted attempts).
+ */
+const ruleClosure = (
+	body: RuleRegion,
+	members: ReadonlyArray<{ readonly read: RegionRead }>,
+	start: ReadonlySet<string>,
+	relations: ReadonlyMap<string, TheoryRelation>,
+	keyedBy: (read: RegionRead, vars: ReadonlySet<string>) => boolean
+): RuleClosure => {
+	const vars = new Set(start)
+	const conjuncts = body.rule.where.flatMap(conjunctsOf)
+	const headTerms = Object.values(body.rule.head)
+	const headVars = new Set(
+		headTerms.flatMap((h) =>
+			h.kind === "aggregate"
+				? "arg" in h
+					? varsIn(h.arg)
+					: []
+				: h.kind === "producer"
+					? h.args.flatMap(varsIn)
+					: varsIn(h)
+		)
+	)
+	const successor = (read: RegionRead): boolean => {
+		const r = relations.get(read.relation)
+		return (
+			read.polarity !== "negative" &&
+			r !== undefined &&
+			successorOf(
+				read.bindings,
+				[r.primaryKey, ...r.keys],
+				{
+					head: body.rule.head,
+					conditions: conjuncts,
+					beside: [
+						...members.flatMap((o) => (o.read === read ? [] : Object.values(o.read.bindings))),
+						...body.imports.flatMap((i) => Object.values(i.bindings))
+					]
+				},
+				(v) => vars.has(v)
+			) !== undefined
+		)
+	}
+	/** The variables a successor binds first, no key read. */
+	const bySuccessor = new Set<string>()
+	const steps: Array<{ readonly read: RegionRead; readonly by: StepBy }> = []
+	const equalities: Array<RuleClosure["equalities"][number]> = []
+	let pending = [...members]
+	const bind = (names: Iterable<string>): void => {
+		for (const v of names) {
+			vars.add(v)
+		}
+	}
+	for (let grew = true; grew;) {
+		grew = false
+		for (const c of conjuncts) {
+			if (c.kind !== "compare" || c.op !== "eq") {
+				continue
+			}
+			for (const [v, e] of [
+				[varOf(c.left), c.right],
+				[varOf(c.right), c.left]
+			] as const) {
+				if (v === undefined) {
+					continue
+				}
+				if (!vars.has(v) && varsIn(e).every((u) => vars.has(u))) {
+					vars.add(v)
+					equalities.push({ bound: v, conjunct: c, solved: undefined })
+					grew = true
+					continue
+				}
+				const solved = vars.has(v) ? solvedOf(e, v) : undefined
+				if (solved !== undefined && !vars.has(solved.x)) {
+					vars.add(solved.x)
+					equalities.push({ bound: solved.x, conjunct: c, solved })
+					grew = true
+				}
+			}
+		}
+		const next = pending.find((o) => keyedBy(o.read, vars) || successor(o.read))
+		if (next !== undefined) {
+			const by = keyedBy(next.read, vars) ? "key" : "successor"
+			steps.push({ read: next.read, by })
+			pending = pending.filter((o) => o !== next)
+			if (by === "successor") {
+				for (const v of Object.values(next.read.bound)) {
+					if (!vars.has(v)) {
+						bySuccessor.add(v)
+					}
+				}
+			}
+			bind(Object.values(next.read.bound))
+			grew = true
+		}
+	}
+	const negated = new Set(conjuncts.flatMap(negatedVars))
+	const probing = pending.filter((o) =>
+		Object.values(o.read.bound).every(
+			(v) =>
+				vars.has(v) ||
+				(!headVars.has(v) &&
+					!negated.has(v) &&
+					body.imports.every(
+						(imported) => !Object.values(imported.bindings).flatMap(varsIn).includes(v)
+					))
+		)
+	)
+	for (const o of probing) {
+		steps.push({
+			read: o.read,
+			by: seekOf(
+				o.read,
+				pending.filter((x) => x !== o),
+				conjuncts,
+				vars
+			)
+				? "seek"
+				: "probe"
+		})
+	}
+	return {
+		steps,
+		unreached: pending.filter((o) => !probing.includes(o)).map((o) => o.read),
+		keyed: new Set([...vars].filter((v) => !bySuccessor.has(v))),
+		equalities
+	}
+}
+
+/**
+ * Whether the existence test of `read` at the variables `bound` binds is a seek (StepBy `seek`): no occurrence of
+ * `others`, the rule's other occurrences the closure left, reads a variable `read` leaves unbound, so no join reads its
+ * rows; and every conjunct of `conditions` that reads one is a comparison of that one variable, bare, with a term of
+ * bound variables alone, every such conjunct the same variable's: so the test reads one entry of an index of its bound
+ * fields, then of that variable's order, whatever rows stand at them, where a join or a condition over several of its
+ * columns reads every row there.
+ */
+const seekOf = (
+	read: RegionRead,
+	others: ReadonlyArray<{ readonly read: RegionRead }>,
+	conditions: ReadonlyArray<InferredExpr>,
+	bound: ReadonlySet<string>
+): boolean => {
+	const free = new Set(Object.values(read.bound).filter((v) => !bound.has(v)))
+	if (others.some((o) => Object.values(o.read.bound).some((v) => free.has(v)))) {
+		return false
+	}
+	const ranged = new Set<string>()
+	for (const c of conditions) {
+		const reads = varsIn(c).filter((v) => free.has(v))
+		if (reads.length === 0) {
+			continue
+		}
+		if (c.kind !== "compare" || c.op === "eq" || c.op === "ne") {
+			return false
+		}
+		const [left, right] = [c.left, c.right]
+		const ranges = [
+			[left, right],
+			[right, left]
+		].flatMap(([column, against]) => {
+			const v = column?.kind === "var" ? column.var : undefined
+			return v !== undefined &&
+				free.has(v) &&
+				against !== undefined &&
+				varsIn(against).every((u) => bound.has(u))
+				? [v]
+				: []
+		})
+		const [v] = ranges
+		if (v === undefined) {
+			return false
+		}
+		ranged.add(v)
+	}
+	return ranged.size <= 1
+}
+
+/**
+ * The variables a negation or an existence test in `e` reads, at any depth: an occurrence whose own variable one reads is
+ * no existence probe of one witness, the test running once for each of its rows. A root that is such an occurrence reads
+ * its rows itself; a closure from a start that binds no variable of it, the head's variables or another root's, leaves
+ * it (lane DELTAUP2's lost fact, metis's AssignmentStatus, a sitting's start event no later event follows), so a rule
+ * each of whose roots leaves another such occurrence is rooted at none (unitRooted).
+ */
+const negatedVars = (e: InferredExpr): ReadonlyArray<string> =>
+	e.kind === "absent" || e.kind === "exists"
+		? Object.values(e.bindings).flatMap(varsIn)
+		: exprChildren(e).flatMap((c) => negatedVars(c.term))
+
+/** The variables `e` reads at any depth. */
+const varsIn = (e: InferredExpr): ReadonlyArray<string> =>
+	e.kind === "var" ? [e.var] : exprChildren(e).flatMap((c) => varsIn(c.term))
+
+/** The variable `e` is, under any retyping of it (a cast, a base, a retype): undefined for any other expression. */
+const varOf = (e: InferredExpr): string | undefined =>
+	e.kind === "var"
+		? e.var
+		: e.kind === "cast" || e.kind === "base" || e.kind === "retype"
+			? (() => {
+					const [only] = exprChildren(e)
+					return only === undefined ? undefined : varOf(only.term)
+				})()
+			: undefined
+
+/**
+/**
  * How grizzle keeps a stored derived relation equal to its definition at COMMIT (physical/ddl/rules.ts, the judge's
- * phase A): the units a transaction wrote (`region`, a query of their keys under u0…u(k-1)), and its definition read at
- * those units alone (`judged`), whose rows replace the stored rows there; each occurrence of a holder its definition
- * reads, every one of them at both polarities, since a row a holder gains or loses at a unit changes the stored rows
- * there whatever negation or aggregate reads it; and the definition each query `judged` reads was walked from
- * (WholeRule `definitionOf`). Its region reads both sides of every occurrence and no witness narrows it (`witnessesOf`
- * proves only a positive occurrence), where a rule's reads only the sides that can break it: a removal, which no
- * positive occurrence of a rule reads, is a change of the stored rows.
+ * phase A): each occurrence of a holder its definition reads, at both polarities, since a row a holder gains or loses
+ * changes the stored rows whatever negation or aggregate reads it, a delta form's rules reading the rows a write adds
+ * and those it removes alike; and its form (analysis/theory/upkeep.ts). A relation it reads by reference (ir/unit.ts
+ * StoredUnit `references`) stands under a sealed unit, closed, so no served write removes a row of one: only a
+ * migration's data step does, whose bracket's re-check makes the stored relation its definition's rows again
+ * (physical/ddl/recheck.ts), and no capture writes a reference's removed rows. A founding write adds rows at a key no
+ * unit's row names before it commits, by the containment each read of a reference stands on, so the rows it adds change
+ * the stored rows only at the units its own transaction writes, which its upkeep's region holds; and no write but the
+ * founder's adds a row at a founded key (physical/ddl/seal.ts).
  */
 export interface StoredUpkeep {
 	readonly relation: string
 	readonly stored: StoredUnit
-	readonly region: InferredQuery
-	readonly judged: InferredQuery
 	/** Each read of a holder of its unit, a relation whose rows a write changes (`storedReads`), whose captures the
 	 * upkeep's block reads: never a closed relation's, whose rows no write changes, which its definition may match
 	 * itself or through a live derived relation it reads (a roster's constants, Declares-like facts). */
 	readonly reads: NonEmptyReadonlyArray<RelationRead>
-	readonly definitionOf: (query: InferredQuery) => InferredQuery
+	/** Each side of a holder its block's statements read (query.ts RegionSide), with the columns its reads of the holder
+	 * bind: what the judge captures for it, so a closed holder's rows removed, which no served write removes, and a
+	 * holder's rows no rule of its form reads are captured for no upkeep (analysis/theory/upkeep.ts). */
+	readonly sides: ReadonlyArray<RegionSide>
+	/** How its block keeps it (analysis/theory/upkeep.ts): its definition re-derived at the units a write touched, or its
+	 * delta program. */
+	readonly form: UnitForm | DeltaForm
 	/** The stored relation's declaration, which a refusal of its upkeep names. */
 	readonly loc: SourceLoc
 }
 
-/** The upkeep of stored relation `relation`, admitted at `stored` over `definition`, read live (`StoredUpkeep`). */
+/**
+ * The unit form of an upkeep (analysis/theory/upkeep.ts): the units a transaction wrote (`region`, a query of their keys
+ * under u0…u(k-1)), and its definition read at those units alone (`judged`), whose rows replace the stored rows there;
+ * and the definition each query `judged` reads was walked from (WholeRule `definitionOf`). Its region reads both sides of
+ * every occurrence and no witness narrows it (`witnessesOf` proves only a positive occurrence), where a rule's reads only
+ * the sides that can break it: a removal, which no positive occurrence of a rule reads, is a change of the stored rows.
+ */
+export interface UnitForm {
+	readonly kind: "unit"
+	readonly region: InferredQuery
+	readonly judged: InferredQuery
+	readonly definitionOf: (query: InferredQuery) => InferredQuery
+}
+
+/** The upkeep of stored relation `relation`, admitted at `stored` over `definition`, read live (`StoredUpkeep`), its
+ * unit form. */
 export const storedUpkeep = (
 	relation: string,
 	definition: InferredQuery,
@@ -2210,22 +3545,31 @@ export const storedUpkeep = (
 	facts: RegionFacts,
 	loc: SourceLoc
 ): StoredUpkeep => {
-	const [first, ...rest] = storedReads(definition, relations)
-	if (first === undefined) {
-		throw defect("a stored relation's definition, which reads a stored relation")
-	}
-	const found = unitAt(definition, [first, ...rest], stored.unit.key.length, "stored")
-	if (found instanceof NotLocal) {
-		throw defect("a stored relation's definition unit-local at its admitted unit")
-	}
-	const every = found.regions.map((r): RegionRead => ({ ...r, polarity: "both" }))
-	const holders = new Set<string>([first, ...rest].map((h) => h.name))
-	const [held, ...more] = found.reads.filter((r) => holders.has(r.relation))
-	if (held === undefined) {
-		throw defect("a stored relation's definition, which reads a holder of its unit")
-	}
-	const reads = mapNonEmpty([held, ...more], (r): RelationRead => ({ ...r, polarity: "both" }))
-	const { judged, definitionOf, region } = restrictToUnits(
+	const { reads, form, sides } = unitForm(definition, stored, relations, facts, loc, "both")
+	return Object.freeze({ relation, stored, reads, sides, form, loc })
+}
+
+/**
+ * The unit form of the upkeep of a stored relation admitted at `stored` over `definition`, read live (UnitForm): its
+ * region the units the rows its holders' occurrences read on the sides `polarity` names touched, both for a unit form's
+ * every write, the removed rows alone for a delta form's units to re-derive (analysis/theory/upkeep.ts); and each read of
+ * a holder, at both polarities.
+ */
+export const unitForm = (
+	definition: InferredQuery,
+	stored: StoredUnit,
+	relations: ReadonlyMap<string, TheoryRelation>,
+	facts: RegionFacts,
+	loc: SourceLoc,
+	polarity: "both" | "negative"
+): {
+	readonly reads: NonEmptyReadonlyArray<RelationRead>
+	readonly form: UnitForm
+	readonly sides: ReadonlyArray<RegionSide>
+} => {
+	const { found, reads } = upkeepFound(definition, stored, relations)
+	const every = found.regions.map((r): RegionRead => ({ ...r, polarity }))
+	const { judged, definitionOf, region, sides } = restrictToUnits(
 		definition,
 		found.unit,
 		every,
@@ -2234,14 +3578,51 @@ export const storedUpkeep = (
 		loc,
 		"stored"
 	)
-	return Object.freeze({ relation, stored, region, judged, reads, definitionOf, loc })
+	return { reads, sides, form: Object.freeze({ kind: "unit", region, judged, definitionOf }) }
+}
+
+/**
+ * Each read of a holder of a stored relation admitted at `stored` over `definition`, read live (StoredUpkeep `reads`), at
+ * both polarities: what a delta form's every statement reads of the deltas (analysis/theory/upkeep.ts).
+ */
+export const holderReads = (
+	definition: InferredQuery,
+	stored: StoredUnit,
+	relations: ReadonlyMap<string, TheoryRelation>
+): NonEmptyReadonlyArray<RelationRead> => upkeepFound(definition, stored, relations).reads
+
+/** The definition of a stored relation admitted at `stored` unit-local there, and each read of a holder of its unit at
+ * both polarities (`unitForm`, `holderReads`). */
+const upkeepFound = (
+	definition: InferredQuery,
+	stored: StoredUnit,
+	relations: ReadonlyMap<string, TheoryRelation>
+): { readonly found: UnitFound; readonly reads: NonEmptyReadonlyArray<RelationRead> } => {
+	const [first, ...rest] = storedReads(definition, relations, new Set(stored.references))
+	if (first === undefined) {
+		defect("a stored relation's definition, which reads a stored relation")
+	}
+	const found = unitAt(definition, [first, ...rest], stored.unit.key.length, "stored")
+	if (found instanceof NotLocal) {
+		defect("a stored relation's definition unit-local at its admitted unit")
+	}
+	const holders = new Set<string>([first, ...rest].map((h) => h.name))
+	const [held, ...more] = found.reads.filter((r) => holders.has(r.relation))
+	if (held === undefined) {
+		defect("a stored relation's definition, which reads a holder of its unit")
+	}
+	return {
+		found,
+		reads: mapNonEmpty([held, ...more], (r): RelationRead => ({ ...r, polarity: "both" }))
+	}
 }
 
 /** The ordinary and stored derived relations a query matches or filters by, at any depth, sorted by name, each once
- * (HolderRelation). */
+ * (HolderRelation), but those of `references`, which it reads by reference (ir/unit.ts StoredUnit `references`). */
 const storedReads = (
 	query: InferredQuery,
-	relations: ReadonlyMap<string, TheoryRelation>
+	relations: ReadonlyMap<string, TheoryRelation>,
+	references: ReadonlySet<string>
 ): ReadonlyArray<HolderRelation> => {
 	const names = new Set<string>()
 	const inSource = (s: InferredSource): void => {
@@ -2292,23 +3673,26 @@ const storedReads = (
 	}
 	const inQuery = (q: InferredQuery): void => inStage(q.stage)
 	inQuery(query)
-	return [...names].toSorted(compareStrings).flatMap((name): ReadonlyArray<HolderRelation> => {
-		const r = relations.get(name)
-		if (r?.kind === "relation") {
-			return [r]
-		}
-		return r?.kind === "stored" && r.unit.kind === "unit"
-			? [
-					{
-						kind: "relation",
-						name: r.name,
-						primaryFields: r.primaryFields,
-						mutable: false,
-						inPlace: []
-					}
-				]
-			: []
-	})
+	return [...names]
+		.filter((name) => !references.has(name))
+		.toSorted(compareStrings)
+		.flatMap((name): ReadonlyArray<HolderRelation> => {
+			const r = relations.get(name)
+			if (r?.kind === "relation") {
+				return [r]
+			}
+			return r?.kind === "stored" && r.unit.kind === "unit"
+				? [
+						{
+							kind: "relation",
+							name: r.name,
+							primaryFields: r.primaryFields,
+							mutable: false,
+							inPlace: []
+						}
+					]
+				: []
+		})
 }
 
 /**

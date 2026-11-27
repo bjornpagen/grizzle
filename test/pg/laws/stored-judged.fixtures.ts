@@ -5,7 +5,7 @@ import { element, type Gen, subset } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -55,6 +55,16 @@ const Allowed = relation("Allowed", { pkg: pg.integer, baseType: closedId(BaseTy
 	"pkg",
 	"baseType"
 ])
+/**
+ * A package's anchors, by the place each stands at and its number there, so no place is a key of it: what each
+ * declaration is held to stand at. Its name sorts before Decl, so it is the first holder of the unit of the law over
+ * them, as Allowed is of the unit of "Allowed" and pantry's DataSsmlProperty of the unit of its "Data SSML".
+ */
+const Anchor = relation(
+	"Anchor",
+	{ pkg: pg.integer, path: pg.integer, start: pg.integer, n: pg.integer },
+	["pkg", "path", "start", "n"]
+)
 
 /** The kind of a mapping's node: its declaration is its parent. */
 const mappingKind = 7
@@ -73,7 +83,15 @@ export type Seal = "sealed" | "unsealed"
  *   the package is unsealed, its upkeep re-deriving the package at every write, and stored where it is sealed, its
  *   rows founded with the package. "Typed mappable" contains its base type in Mappable, and "No point" checks it is no
  *   point, each a law over the derivation alone (pantry's identifier and title mismatches, its lookups);
- * - "Allowed" contains Mapped's base type in the package's Allowed, a law that also reads an ordinary relation.
+ * - "Allowed" contains Mapped's base type in the package's Allowed, a law that also reads an ordinary relation: a
+ *   whole rule over the stored Mapped and the closed Allowed, pantry's "Data SSML" (RequiredSsmlProperty in the closed
+ *   DataSsmlProperty) reduced. Allowed sorts first among its unit's holders, and the rule's region reads it only where
+ *   it loses rows, which only a data step does, whose bracket's re-check judges the rule whole, so the judge captures
+ *   no side of it: the rule's block raises at Mapped, the holder whose writes change it (physical/ddl/rules.ts
+ *   unitBlock), where it took the unit's first holder, for which no judged table stood, and pantry failed to generate;
+ * - "Anchored" contains each declaration's place, through Declared, Decl's places read as Decl's own rows, in Anchor's,
+ *   at no key of Anchor: a whole rule over closed relations alone, Anchor its unit's first holder again, read only where
+ *   it loses rows, its block raising at Decl, whose rows a served write adds and so can break it.
  *
  * A law is held exactly as its derivation reads, stored or live: a write of the derivation's holders changes it
  * (laws/model/model.ts changedBy), so the rule judge holds every law over it at that write's COMMIT, the founding one
@@ -83,7 +101,7 @@ const judgedSchema = (seal: Seal) => {
 	const Package = unit("Package", { pkg: pg.integer })
 	const Base = schema(
 		seal === "sealed" ? "SealedJudged" : "UnsealedJudged",
-		[BaseType, Mappable, Node, Decl, Allowed],
+		[BaseType, Mappable, Node, Decl, Allowed, Anchor],
 		[seal === "sealed" ? sealed(Package) : Package]
 	)
 	const Mapped = derived(
@@ -108,15 +126,23 @@ const judgedSchema = (seal: Seal) => {
 				.find({ pkg, baseType })
 		})
 	)
+	const Declared = derived(
+		"Declared",
+		query(Base).rule((r) => {
+			const { pkg, path, start } = v(Decl, "declaration")
+			return r.match(Decl, { pkg, path, start }).find({ pkg, path, start })
+		})
+	)
 	return schema.extend(
 		[Base],
 		`${Base.name}_1`,
-		[Mapped, Typed],
+		[Mapped, Typed, Declared],
 		[
 			contained(on(Mapped, "baseType"), on(Mappable, "baseType")),
 			contained(on(Typed, "baseType"), on(Mappable, "baseType")),
 			check("No_point", Typed, (t) => t.ne(t.baseType, "point")),
-			contained(on(Mapped, "pkg", "baseType"), on(Allowed, "pkg", "baseType"))
+			contained(on(Mapped, "pkg", "baseType"), on(Allowed, "pkg", "baseType")),
+			contained(on(Declared, "pkg", "path", "start"), on(Anchor, "pkg", "path", "start"))
 		]
 	)
 }
@@ -128,7 +154,7 @@ const judgedTemplate = (seal: Seal) => {
 		declaredIn: import.meta,
 		name: `stored judged ${seal}`,
 		content: { schema: value.name, logins: [] },
-		versions: [{ schema: value, logins: [], declarations: noDeclarations }],
+		versions: [{ schema: value, declarations: noDeclarations }],
 		options: {
 			label: `${seal}_judged`,
 			extensions: [],
@@ -149,19 +175,23 @@ type BaseTypeName = "integer" | "file" | "point"
 
 /**
  * A case: the package's seal, and the founding transaction of package 1: its declarations, each at a start of path 1
- * with a base type; its mappings, each a node at a start of path 1 under one of the declarations; and the base types it
- * allows.
+ * with a base type; its mappings, each a node at a start of path 1 under one of the declarations; the base types it
+ * allows; and the declaration it writes no anchor at, none where it anchors each.
  */
 export interface JudgedCase {
 	readonly seal: Seal
 	readonly declarations: ReadonlyArray<{ readonly start: number; readonly baseType: BaseTypeName }>
 	readonly mappings: ReadonlyArray<{ readonly start: number; readonly parent: number }>
 	readonly allowed: ReadonlyArray<BaseTypeName>
+	readonly unanchored: number | undefined
 }
 
 const baseTypes = ["integer", "file", "point"] as const satisfies ReadonlyArray<BaseTypeName>
 
-/** Declarations at starts 1 to 3, mappings at starts 11 to 13, each under any declaration's start. */
+/**
+ * Declarations at starts 1 to 3, mappings at starts 11 to 13, each under any declaration's start, and an anchor at each
+ * declaration's place, or at each but one.
+ */
 export const judgedCaseGen: Gen<JudgedCase> = (s) => {
 	const declarations = Arr.map(s.draw(subset([1, 2, 3] as const, { min: 1, max: 3 })), (start) => ({
 		start,
@@ -175,7 +205,8 @@ export const judgedCaseGen: Gen<JudgedCase> = (s) => {
 			start,
 			parent: s.draw(element(nonEmpty(parents, "the declarations a mapping is under")))
 		})),
-		allowed: s.draw(subset(baseTypes, { min: 0, max: 3 }))
+		allowed: s.draw(subset(baseTypes, { min: 0, max: 3 })),
+		unanchored: s.draw(element<number | undefined>([undefined, ...parents]))
 	}
 }
 
@@ -186,6 +217,8 @@ export type JudgedFeature =
 	| "accepted, unsealed"
 	| "a stored derivation's law over a closed relation alone broken"
 	| "a package derivation's law over itself alone broken"
+	| "a whole rule into its unit's first holder, closed, broken alone beside a stored derivation"
+	| "a whole rule into its unit's first holder, closed, broken alone over closed relations alone"
 
 /** The laws a case's state breaks, as the schema states them over the drawn rows (`judgedSchema`). */
 const brokenLaws = (c: JudgedCase): ReadonlyArray<string> => {
@@ -197,7 +230,8 @@ const brokenLaws = (c: JudgedCase): ReadonlyArray<string> => {
 	return [
 		...(Arr.some(mapped, (t) => t === "file") ? ["Mappable", "Typed mappable"] : []),
 		...(Arr.some(mapped, (t) => t === "point") ? ["No point"] : []),
-		...(Arr.some(mapped, (t) => !Arr.contains(c.allowed, t)) ? ["Allowed"] : [])
+		...(Arr.some(mapped, (t) => !Arr.contains(c.allowed, t)) ? ["Allowed"] : []),
+		...(c.unanchored === undefined ? [] : ["Anchored"])
 	]
 }
 
@@ -257,6 +291,14 @@ export const runJudged = (
 				Allowed,
 				["pkg", "baseType"],
 				Arr.map(drawn.allowed, (t) => [1, codeOf(t)])
+			),
+			...insertOf(
+				installed,
+				Anchor,
+				["pkg", "path", "start", "n"],
+				Arr.flatMap(drawn.declarations, (d) =>
+					d.start === drawn.unanchored ? [] : [[1, 1, d.start, 0]]
+				)
 			)
 		]
 		for (const sql of statements) {
@@ -281,5 +323,15 @@ export const runJudged = (
 		}
 		if (broken.includes("No point") && !broken.includes("Allowed")) {
 			c.note("a package derivation's law over itself alone broken")
+		}
+		if (broken.length === 1 && broken.includes("Allowed")) {
+			c.note(
+				"a whole rule into its unit's first holder, closed, broken alone beside a stored derivation"
+			)
+		}
+		if (broken.length === 1 && broken.includes("Anchored")) {
+			c.note(
+				"a whole rule into its unit's first holder, closed, broken alone over closed relations alone"
+			)
 		}
 	})

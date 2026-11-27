@@ -30,7 +30,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import type { StrictFault } from "#test/support/kernel/strict.ts"
-import { codecOf, kindCodes, types } from "#test/unit/codec/support.ts"
+import { codecOf, codecTypes, kindCodes } from "#test/unit/codec/support.ts"
 
 interface Written {
 	readonly value: CarrierHost[Carrier]
@@ -132,7 +132,7 @@ const integerSyntax = Object.freeze(["", "+1", "01", "-0", "1.0", " 1", "1e3", "
 
 export const carried = {
 	int2: {
-		type: types.int2,
+		type: codecTypes.int2,
 		live: intWritten(-32768, 32767),
 		refusedValues: [
 			[40000, "integerRange"],
@@ -145,7 +145,7 @@ export const carried = {
 		]
 	},
 	int4: {
-		type: types.int4,
+		type: codecTypes.int4,
 		live: intWritten(-(2 ** 31), 2 ** 31 - 1),
 		refusedValues: [
 			[1n, "integerType"],
@@ -157,7 +157,7 @@ export const carried = {
 		]
 	},
 	int8: {
-		type: types.int8,
+		type: codecTypes.int8,
 		live: map(bigint(int8Min, int8Max), (n) => ({ value: n, text: digitsOf(n) })),
 		refusedValues: [[1, "integerType"]],
 		refusedTexts: [
@@ -166,7 +166,7 @@ export const carried = {
 		]
 	},
 	numeric: {
-		type: types.numeric,
+		type: codecTypes.numeric,
 		live: weighted([
 			[9, writtenDecimal(30, 12)],
 			[
@@ -188,7 +188,7 @@ export const carried = {
 		)
 	},
 	"numeric(7,2)": {
-		type: types.numeric72,
+		type: codecTypes.numeric72,
 		live: map(writtenDecimal(5, 0), ({ text: digits }) => {
 			const text = `${digits}.00`
 			return { value: Decimal.of(text), text }
@@ -201,7 +201,7 @@ export const carried = {
 		]
 	},
 	"numeric(5,-2)": {
-		type: types.numericNeg,
+		type: codecTypes.numericNeg,
 		live: map(int(-99999, 99999), (n) => {
 			const text = digitsOf(BigInt(n) * 100n)
 			return { value: Decimal.of(text), text }
@@ -210,7 +210,7 @@ export const carried = {
 		refusedTexts: [["12345", "numericShape"]]
 	},
 	money: {
-		type: types.money,
+		type: codecTypes.money,
 		live: map(bigint(int8Min, int8Max), (minor) => ({
 			value: Money.of(minor),
 			text: decimalText(minor < 0n, minor < 0n ? -minor : minor, 2)
@@ -224,7 +224,7 @@ export const carried = {
 		]
 	},
 	bool: {
-		type: types.bool,
+		type: codecTypes.bool,
 		live: map(boolean, (b) => ({ value: b, text: b ? "true" : "false" })),
 		refusedValues: [
 			[1, "boolType"],
@@ -233,7 +233,7 @@ export const carried = {
 		refusedTexts: Arr.map(["T", "yes", "1", "on", ""], (t) => [t, "boolSyntax"] as const)
 	},
 	text: {
-		type: types.text,
+		type: codecTypes.text,
 		live: map(storableText, (t) => ({ value: t, text: t })),
 		refusedValues: [
 			["a\u0000b", "textNul"],
@@ -250,7 +250,7 @@ export const carried = {
 	},
 	/** A closed id's text is its code's digits under kindCodes: Manual 0, Automatic 1, Ünïcode 2. */
 	code: {
-		type: types.kind,
+		type: codecTypes.kind,
 		live: map(element(["Manual", "Automatic", "Ünïcode"] as const), (h) => ({
 			value: h,
 			text: String(["Manual", "Automatic", "Ünïcode"].indexOf(h))
@@ -268,7 +268,7 @@ export const carried = {
 	 * padding positions 3 to 7 always 0: a 1 there names no handle.
 	 */
 	bits: {
-		type: types.kinds,
+		type: codecTypes.kinds,
 		live: map(array(boolean, { min: 3, max: 3 }), (held) => ({
 			value: new Set(Arr.filter(["Manual", "Automatic", "Ünïcode"], (_, c) => held[c] === true)),
 			text: `${Arr.join(
@@ -289,7 +289,7 @@ export const carried = {
 		]
 	},
 	int4range: {
-		type: types.range4,
+		type: codecTypes.range4,
 		live: writtenSpan4(int4Min, int4Max),
 		refusedValues: [
 			[{ start: 2, end: 2 }, "spanOrder"],
@@ -301,13 +301,13 @@ export const carried = {
 		)
 	},
 	int8range: {
-		type: types.range8,
+		type: codecTypes.range8,
 		live: writtenSpan8(int8Min, int8Max),
 		refusedValues: [[{ start: 1, end: 2 }, "spanEndpoint"]],
 		refusedTexts: []
 	},
 	daterange: {
-		type: types.rangeDate,
+		type: codecTypes.rangeDate,
 		live: writtenDateSpan,
 		refusedValues: [
 			[{ start: "2024-03-01", end: "2024-02-29" }, "spanOrder"],
@@ -354,7 +354,7 @@ export const carried = {
 		refusedTexts: []
 	},
 	vector: {
-		type: types.embedding,
+		type: codecTypes.embedding,
 		live: constant<Written>({
 			value: Vector.make(Float32Array.of(1, 2, 3, 4), 4),
 			text: "[1,2,3,4]"
@@ -507,7 +507,7 @@ export const int8Text = (t: string): bigint | undefined => {
 }
 
 /** The int8range codec. */
-export const r8 = codecOf(types.range8, kindCodes)
+export const r8 = codecOf(codecTypes.range8, kindCodes)
 /** An int8range text: any text of its characters, or two int8s in either order. */
 export const spanTexts = weighted([
 	[1, string(element(Str.split("[](),-0123456789", "")), { min: 0, max: 16 })],
@@ -522,7 +522,7 @@ export const spanTexts = weighted([
 ])
 
 /** The codec of a vector of three dimensions. */
-export const vector3 = codecOf(types.vector3, kindCodes)
+export const vector3 = codecOf(codecTypes.vector3, kindCodes)
 /**
  * Components bounded by 2^16 / sqrt(3), subnormals included; a vector whose norm falls below the domain has its
  * first component set to 1.

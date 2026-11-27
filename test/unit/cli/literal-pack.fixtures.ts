@@ -2,7 +2,7 @@
 
 import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
-import { Array as Arr, DateTime } from "effect"
+import { Array as Arr } from "effect"
 import { type CheckFinding } from "#cli/check.ts"
 import type { PackFault } from "#compiler/physical/ddl/literal.ts"
 import { closedId } from "#compiler/public/fields.ts"
@@ -77,17 +77,6 @@ export const gridSchemaOf = (d: Drawn) =>
 		],
 		[]
 	)
-
-export const now = (s: number) =>
-	DateTime.makeUnsafe({
-		year: 2026,
-		month: 11,
-		day: 5,
-		hour: 12,
-		minute: 0,
-		second: s,
-		millisecond: 0
-	})
 
 /** A finding as this file reads it: where it lies and what it is, a literal pack's statement and fault included. */
 type Found =

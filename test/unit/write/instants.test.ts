@@ -88,6 +88,13 @@ export const aChangeSetWritesAnInstantAsTheSchemasLawsMakeItStampingWhatItLeaves
 		kept: [],
 		kills: [
 			{
+				file: "packages/engine/src/write/insert/stamp.ts",
+				original:
+					"\t\t\tquery: namedBody(read, namesOrUnit(carried.map((f) => out.columns.of(f))))\n",
+				replacement: "\t\t\tquery: namedBody(read, carried.map((f) => out.columns.of(f)))\n",
+				why: "A stamped input of no field, the unit relation, is named by no column where its read's one public column is the unit marker: an insert whose every caller field the call computes dies an internal invariant as it compiles (edullm's Q15, pantry's author_app and the ledger's result composition)."
+			},
+			{
 				file: "packages/engine/src/write/frontend/instants.ts",
 				original: '\t\tif (role.kind === "clock" && op !== "delete" && stated(field)) {\n',
 				replacement: "\t\tif (false) {\n",

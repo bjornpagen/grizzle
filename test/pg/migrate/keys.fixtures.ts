@@ -6,7 +6,7 @@ import { Array as Arr, Effect, Formatter, Option } from "effect"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { type Aim, apply, checkedAdmission, openMigrator } from "#test/pg/migrate/support.ts"
@@ -15,8 +15,7 @@ import {
 	type DraftedVersion,
 	draftVersion,
 	expectFreshCatalog,
-	noPlaceholders,
-	noVersionWorkload
+	noPlaceholders
 } from "#test/support/install-migrate.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
@@ -127,10 +126,7 @@ export const walk = (c: KeyCase, note: (feature: Feature) => void) =>
 		let previous: Previous = fromEmpty
 		for (const [step, key] of c.keys.entries()) {
 			const draft = yield* draftVersion(
-				{
-					version: { schema: schemaOf(name, key), logins: [], declarations: noDeclarations },
-					workload: noVersionWorkload
-				},
+				{ schema: schemaOf(name, key), declarations: noDeclarations },
 				{ installation, previous, step },
 				{ extensions: [], compile: compileInstallation, review: noPlaceholders }
 			)

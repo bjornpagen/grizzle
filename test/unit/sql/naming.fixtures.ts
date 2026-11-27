@@ -14,7 +14,11 @@ import {
 import { mapTargets, setBodyOf, target, withArms } from "#compiler/sql/build.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { columnSetOperationGen, statementGen } from "#test/support/kernel/sqlgen.ts"
-import { auditStatementViolations, auditTextViolations } from "#test/support/oracle/verify/sql.ts"
+import {
+	auditStatementViolations,
+	auditTextViolations,
+	guardedTermsOf
+} from "#test/support/oracle/verify/sql.ts"
 import { sqlCatalog } from "#test/unit/sql/audit/catalog.ts"
 
 /**
@@ -41,7 +45,7 @@ export const admitted = (s: SqlStatement): void => {
 		text
 	)
 	assert.deepEqual(
-		Arr.map(auditTextViolations(text), (v) => `${v.rule}: ${v.detail}`),
+		Arr.map(auditTextViolations(text, guardedTermsOf(s)), (v) => `${v.rule}: ${v.detail}`),
 		[],
 		text
 	)

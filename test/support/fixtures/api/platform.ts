@@ -7,14 +7,14 @@ import {
 	contract,
 	drawn,
 	type Infer,
+	mintOf,
 	natural,
 	pg,
 	type Span,
 	span as spanOf
 } from "#compiler/public/fields.ts"
-import { arm, query, v } from "#compiler/public/query.ts"
+import { query, v } from "#compiler/public/query.ts"
 import {
-	alternatives,
 	check,
 	closed,
 	contained,
@@ -25,6 +25,7 @@ import {
 	fold,
 	key as candidateKey,
 	login,
+	mirrors,
 	Monoid,
 	mutable,
 	on,
@@ -39,12 +40,23 @@ import {
 import { paged, workload } from "#compiler/public/workload.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
 
-export const Instant = contract("Instant", pg.bigint)
-export const Micros = contract("Micros", pg.bigint, (x) => Logic.ge(x, 0n))
-export const Tokens = contract("Tokens", pg.bigint, (x) => Logic.ge(x, 0n))
-export const Rate = contract("Rate", pg.bigint, (x) => Logic.ge(x, 0n))
-export const DayNo = contract("DayNo", pg.integer)
-export const MonthNo = contract("MonthNo", pg.integer)
+const instantKey = Symbol("Instant")
+export const Instant = contract<typeof instantKey>()("Instant", pg.bigint)
+export const toInstant = mintOf(instantKey)
+const microsKey = Symbol("Micros")
+export const Micros = contract<typeof microsKey>()("Micros", pg.bigint, (x) => Logic.ge(x, 0n))
+export const toMicros = mintOf(microsKey)
+const tokensKey = Symbol("Tokens")
+export const Tokens = contract<typeof tokensKey>()("Tokens", pg.bigint, (x) => Logic.ge(x, 0n))
+export const toTokens = mintOf(tokensKey)
+const rateKey = Symbol("Rate")
+export const Rate = contract<typeof rateKey>()("Rate", pg.bigint, (x) => Logic.ge(x, 0n))
+export const toRate = mintOf(rateKey)
+const dayNoKey = Symbol("DayNo")
+export const DayNo = contract<typeof dayNoKey>()("DayNo", pg.integer)
+const monthNoKey = Symbol("MonthNo")
+export const MonthNo = contract<typeof monthNoKey>()("MonthNo", pg.integer)
+export const toMonthNo = mintOf(monthNoKey)
 
 const TokenKind = closed.ordered("TokenKind", [
 	"input",
@@ -122,7 +134,7 @@ export const UsageCharge = relation(
 		amount: Micros,
 		credited: Micros,
 		debits: drawn(natural),
-		debited: accumulated(Micros, Micros(0n))
+		debited: accumulated(Micros, toMicros(0n), microsKey)
 	},
 	["event", "kind"]
 )
@@ -139,7 +151,7 @@ export const EventCharge = relation(
 		month: MonthNo,
 		amount: Micros,
 		charges: drawn(natural),
-		charged: accumulated(Micros, Micros(0n))
+		charged: accumulated(Micros, toMicros(0n), microsKey)
 	},
 	["event"]
 )
@@ -159,7 +171,7 @@ export const CreditGrant = relation(
 		amount: Micros,
 		valid: spanOf(Instant),
 		debits: drawn(natural),
-		debited: accumulated(Micros, Micros(0n))
+		debited: accumulated(Micros, toMicros(0n), microsKey)
 	},
 	["id"]
 )
@@ -186,7 +198,7 @@ export const WorkspaceLimit = relation(
 		month: MonthNo,
 		cap: Micros,
 		charges: drawn(natural),
-		spent: accumulated(Micros, Micros(0n))
+		spent: accumulated(Micros, toMicros(0n), microsKey)
 	},
 	["workspace", "month"]
 )
@@ -208,9 +220,9 @@ export const Invoice = relation(
 		amount: Micros,
 		state: closedId(InvoiceState),
 		lines: drawn(natural),
-		billed: accumulated(Micros, Micros(0n)),
+		billed: accumulated(Micros, toMicros(0n), microsKey),
 		refunds: drawn(natural),
-		refunded: accumulated(Micros, Micros(0n))
+		refunded: accumulated(Micros, toMicros(0n), microsKey)
 	},
 	["id"]
 )
@@ -228,7 +240,7 @@ export const InvoiceLine = relation(
 		source: closedId(LineSource),
 		amount: Micros,
 		allocations: drawn(natural),
-		allocated: accumulated(Micros, Micros(0n))
+		allocated: accumulated(Micros, toMicros(0n), microsKey)
 	},
 	["id"]
 )
@@ -389,7 +401,7 @@ export const lineAllocated = fold(
 )
 /** A plan line's allocations sum to its amount exactly. */
 export const allocationExact = check("AllocationExact", InvoiceLine, (l) =>
-	l.or(l.ne(l.source, "plan"), l.eq(l.allocated, l.amount))
+	l.or([l.ne(l.source, "plan"), l.eq(l.allocated, l.amount)])
 )
 
 /** An invoice's refunds. */
@@ -414,16 +426,38 @@ export const refundOnlyPaid = contained(
 		"id"
 	)
 )
-export const keyRevocation = alternatives(ApiKey, "state", KeyState, { revoked: Revocation })
-export const invoiceSettlement = alternatives(Invoice, "state", InvoiceState, {
-	paid: Payment,
-	void: Voiding,
-	disputed: Dispute
-})
+/** The keys revoked: a revocation's key, and a key whose revocation it is. */
+const revoked = on(
+	select(ApiKey, (k) => k.eq(k.state, "revoked")),
+	"id"
+)
+/** The invoices of a state: a state's detail row's invoice, and an invoice whose detail row it is. */
+const invoicesIn = (state: "paid" | "void" | "disputed") =>
+	on(
+		select(Invoice, (i) => i.eq(i.state, state)),
+		"id"
+	)
+/** The invoice lines of a source: a source's detail row's line, and a line whose detail row it is. */
+const linesOf = (source: "usage" | "plan") =>
+	on(
+		select(InvoiceLine, (l) => l.eq(l.source, source)),
+		"id"
+	)
 
-export const lineDetail = alternatives(InvoiceLine, "source", LineSource, {
-	usage: UsageLine,
-	plan: PlanLine
+/**
+ * Each state's detail row mirrored with its parents in that state: a detail row only of a parent in that state, and
+ * every parent in that state with its detail row. A revoked key has its revocation; a paid, void or disputed invoice
+ * its payment, voiding or dispute; a usage or plan line its detail.
+ */
+export const keyRevocation = Object.freeze({ revoked: mirrors(on(Revocation, "key"), revoked) })
+export const invoiceSettlement = Object.freeze({
+	paid: mirrors(on(Payment, "invoice"), invoicesIn("paid")),
+	void: mirrors(on(Voiding, "invoice"), invoicesIn("void")),
+	disputed: mirrors(on(Dispute, "invoice"), invoicesIn("disputed"))
+})
+export const lineDetail = Object.freeze({
+	usage: mirrors(on(UsageLine, "line"), linesOf("usage")),
+	plan: mirrors(on(PlanLine, "line"), linesOf("plan"))
 })
 
 /**
@@ -542,9 +576,12 @@ const platformOf = (name: string) =>
 			invoiceRefunded,
 			refundWithinInvoice,
 			refundOnlyPaid,
-			keyRevocation,
-			invoiceSettlement,
-			lineDetail,
+			keyRevocation.revoked,
+			invoiceSettlement.paid,
+			invoiceSettlement.void,
+			invoiceSettlement.disputed,
+			lineDetail.usage,
+			lineDetail.plan,
 			unit("Workspace", { workspace: Id }),
 			unit("Entity", { id: Id }),
 			unit("Invoice", { invoice: Id }),
@@ -587,9 +624,10 @@ const platformOf = (name: string) =>
  * segments); counted families with a sum fold and a row check on its end, for the exact sums (an event's kinds sum to
  * its charge, a kind's debits to its credited part, an invoice's lines to its amount, a plan line's allocations to its
  * amount) and the upper bounds (a grant's debits, a workspace's monthly spend, an invoice's refunds); a row check (a
- * kind's credited part within its charge); and alternatives (a revoked key has its revocation; a paid, void or disputed
- * invoice its payment, voiding or dispute; a usage or plan line its detail). A debit is a member of two families, its
- * charge's and its grant's, and an event's total of two, its month's as a member and its kinds' as their owner.
+ * kind's credited part within its charge); and each state's detail row mirrored with its parents in that state (a
+ * revoked key has its revocation; a paid, void or disputed invoice its payment, voiding or dispute; a usage or plan
+ * line its detail). A debit is a member of two families, its charge's and its grant's, and an event's total of two, its
+ * month's as a member and its kinds' as their owner.
  *
  * grizzle draws every count and accumulates every sum from the rows a write states, so a write states rows alone and
  * no sum: a refusal of a bound is PostgreSQL's, a 23514 on the owner's check naming its law, or a 23503 on a family's
@@ -993,7 +1031,7 @@ export const keyCard = query(Platform)
 				const { at } = v(Revocation, "revocation")
 				return r.match(Revocation, { key: k.id, at }).find({ at })
 			}),
-		arm("state", "revoked")
+		"option"
 	)
 
 /** A key's usage log, newest request first: what the console pages through. */
@@ -1112,7 +1150,7 @@ export const invoicePreview = query(Platform)
 								.match(UsageLine, { line: l.id, model, kind, tokens })
 								.find({ model, kind, tokens })
 						}),
-					arm("source", "usage")
+					"option"
 				)
 				.attach(
 					"plan",
@@ -1121,7 +1159,7 @@ export const invoicePreview = query(Platform)
 							const { subscription } = v(PlanLine, "planLine")
 							return r.match(PlanLine, { line: l.id, subscription }).find({ subscription })
 						}),
-					arm("source", "plan")
+					"option"
 				),
 		"array"
 	)
@@ -1143,7 +1181,7 @@ export const invoicePreview = query(Platform)
 				const { charge } = v(Payment, "payment")
 				return r.match(Payment, { invoice: i.id, charge }).find({ charge })
 			}),
-		arm("state", "paid")
+		"option"
 	)
 	.attach(
 		"dispute",
@@ -1152,7 +1190,7 @@ export const invoicePreview = query(Platform)
 				const { at } = v(Dispute, "dispute")
 				return r.match(Dispute, { invoice: i.id, at }).find({ at })
 			}),
-		arm("state", "disputed")
+		"option"
 	)
 
 /**
@@ -1302,8 +1340,8 @@ export const allocationBreakdown = query(Platform)
 	)
 
 /**
- * An open invoice paid by a charge: the state change and its payment in one ChangeSet, as the alternatives law holds at
- * commit.
+ * An open invoice paid by a charge: the state change and its payment in one ChangeSet, as the paid state's mirrors hold
+ * at commit.
  */
 export const payInvoice = ChangeSet.empty(Platform)
 	.put(

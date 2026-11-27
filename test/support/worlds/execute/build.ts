@@ -17,7 +17,6 @@ import {
 } from "#compiler/public/schema.ts"
 import { compute } from "#compiler/scalar/compute/builders.ts"
 import { closedBuilder, relationBuilder } from "#compiler/schema/relation.ts"
-import { alternativesBuilder } from "#compiler/schema/statements.ts"
 import { contextDescOf, roleBuilder as role } from "#compiler/schema/world.ts"
 import { regexField } from "#compiler/text/field.ts"
 import type { Predicate } from "#compiler/types/core/phantom.ts"
@@ -27,7 +26,7 @@ import type { AnyContext } from "#compiler/types/schema/world.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
 import { contractDescriptor as contractField } from "#test/support/fixtures/descriptors.ts"
 import { Id } from "#test/support/ids.ts"
-import { argumentsOf, nonEmptyArgumentsOf } from "#test/support/list.ts"
+import { nonEmptyArgumentsOf } from "#test/support/list.ts"
 import { opened } from "#test/support/open.ts"
 import { definitionOf, type RuleSources } from "#test/support/worlds/execute/describe.ts"
 import { carrierOf, isWide } from "#test/support/worlds/execute/host.ts"
@@ -337,22 +336,6 @@ const lawOf = (space: Space, law: LawSpec): Effect.Effect<Statement, RealizeRefu
 				})
 				return yield* attempt(`coverage of ${law.source.relation}`, () => contained(source, target))
 			}
-			case "alternatives": {
-				const parent = yield* found(space.relations, law.relation, "relation")
-				const roster = yield* found(space.closed, law.closed, "closed roster")
-				const arms = yield* Effect.map(
-					Effect.forEach(Rec.toEntries(law.arms), ([handle, armRelation]) =>
-						Effect.map(
-							found(space.relations, armRelation, "relation"),
-							(arm) => [handle, arm] as const
-						)
-					),
-					Rec.fromEntries
-				)
-				return yield* attempt(`alternatives of ${law.relation}`, () =>
-					alternativesBuilder(parent, law.tag, roster, arms)
-				)
-			}
 		}
 	})
 
@@ -416,15 +399,13 @@ export const selectorOf = (
 	where: Arr.NonEmptyReadonlyArray<readonly [string, unknown]>
 ): Predicate =>
 	row.and(
-		...argumentsOf(
-			Arr.map(where, ([field, value]) => {
-				const term = row[field]
-				if (term === undefined) {
-					throw new Error(`a selector reads ${field}, which its relation does not hold`)
-				}
-				return row.eq(term, value)
-			})
-		)
+		Arr.map(where, ([field, value]) => {
+			const term = row[field]
+			if (term === undefined) {
+				throw new Error(`a selector reads ${field}, which its relation does not hold`)
+			}
+			return row.eq(term, value)
+		})
 	)
 
 /** A row check's predicate over the row's scalars: each comparison's literal typed by its field. */
@@ -434,9 +415,7 @@ const predicateOf = (
 	domains: Readonly<Record<string, FieldDomain>>
 ): Predicate => {
 	if (predicate.kind === "and") {
-		return row.and(
-			...argumentsOf(Arr.map(predicate.parts, (part) => predicateOf(row, part, domains)))
-		)
+		return row.and(Arr.map(predicate.parts, (part) => predicateOf(row, part, domains)))
 	}
 	const term = row[predicate.field]
 	const domain = domains[predicate.field]

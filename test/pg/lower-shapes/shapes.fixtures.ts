@@ -57,6 +57,7 @@ const sqlType = (schema: string, c: HeadingColumn): string => {
 			return "text COLLATE pg_catalog.pg_c_utf8"
 		case "code":
 			return rosterDomainSql(schema, defined(rosterOf(c.type), "a closed id's roster").closed)
+		case "variant":
 		case "sha256":
 		case "bytes":
 		case "float4":
@@ -200,6 +201,7 @@ const slotValue = (params: Params, slot: ConservativeParamSlot): string => {
 		}
 		case "member":
 		case "nestedRows":
+		case "admission":
 		case "page":
 			throw new Error(
 				`a query statement's placeholder is a declared parameter, not a ${slot.kind} placeholder`

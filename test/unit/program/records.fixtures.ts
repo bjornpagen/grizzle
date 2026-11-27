@@ -1,10 +1,12 @@
 /**
  * What the properties of records.test.ts read: a schema of a relation holding a field of every type a column of a
- * query's heading may be stored as, the flat queries over it a property's box draws, and the program each binds.
+ * query's heading may be stored as, the flat queries over it a property's box draws, and the program each binds; and
+ * drawn trees of attachments, each a query over it.
  */
 import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
 import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
+import { constant, element, type Gen, map, recursive, uniqueArray } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rcd } from "effect"
 import { rowOptions } from "#adapter/engine.ts"
 import { readProgram } from "#adapter/reader/run.ts"
@@ -48,9 +50,11 @@ import {
 /** The roster a closed id, a closed id of a subset and a set over it are over. */
 export const Tier = closed.ordered("Tier", ["Low", "Mid", "High"])
 
+const accountKey = Symbol("Account")
 /** A contract over a uuid, and one over a bigint: a column's brand and check are its contract's. */
-const Account = contract("Account", uuid)
-const Cents = contract("Cents", pg.bigint)
+const Account = contract<typeof accountKey>()("Account", uuid)
+const centsKey = Symbol("Cents")
+const Cents = contract<typeof centsKey>()("Cents", pg.bigint)
 
 /**
  * A field of every type a stored column may be: each pg integer, a numeric of a scale, of scale 0 and of no typmod,
@@ -320,3 +324,59 @@ export const programOf = (query: unknown, level: AnySchema): BoundProgram => {
 		)
 	}
 }
+
+/** A drawn tree of attachments: each child under its parent, by its name, in the order attached, with the tree under it. */
+export interface Attachments {
+	readonly children: ReadonlyArray<{ readonly name: string; readonly under: Attachments }>
+}
+
+/**
+ * The names an attachment is drawn under: few, so a name repeats at another depth and under another parent, where
+ * records qualify a relation by its parent's name, `row` the root's own; none is `id`, the field every level heads.
+ */
+const attachmentNames = ["notes", "items", "row", "detail"] as const
+
+/**
+ * The most levels a drawn tree holds below its root: enough that a path passes through a level that is neither the
+ * root's nor a leaf's, twice over.
+ */
+const attachmentDepth = 4
+
+/** A tree of attachments, each level one to three children of distinct names, at most attachmentDepth levels deep. */
+export const attachmentsGen: Gen<Attachments> = recursive<Attachments>(
+	constant({ children: [] }),
+	(inner) =>
+		map(
+			uniqueArray(element(attachmentNames), (name) => map(inner, (under) => ({ name, under })), {
+				min: 1,
+				max: 3
+			}),
+			(children) => ({ children })
+		),
+	attachmentDepth
+)
+
+/** Every path of a tree's attachments, its names from the root joined by `.`, each before those under it. */
+export const pathsOfTree = (
+	tree: Attachments,
+	above: ReadonlyArray<string>
+): ReadonlyArray<string> =>
+	Arr.flatMap(tree.children, (child) => {
+		const at = [...above, child.name]
+		return [Arr.join(at, "."), ...pathsOfTree(child.under, at)]
+	})
+
+/** How many levels a tree holds below its root. */
+export const depthOf = (tree: Attachments): number =>
+	Arr.reduce(tree.children, 0, (deepest, child) => Math.max(deepest, 1 + depthOf(child.under)))
+
+/** A tree's query over Rec: each level Item's ids, each child attached to it under its name as an array. */
+export const treeQuery = (tree: Attachments): QueryValue =>
+	Arr.reduce(
+		tree.children,
+		queryOver(Rec).rule((r: RuleValue) => {
+			const { id } = v(Item, "item")
+			return r.match(Item, { id }).find({ id })
+		}),
+		(q, child) => q.attach(child.name, () => treeQuery(child.under), "array")
+	)

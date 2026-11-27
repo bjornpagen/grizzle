@@ -15,7 +15,7 @@ import {
 	riddenRows
 } from "#adapter/apply/readback.ts"
 import { drawShares, sendsAlone } from "#adapter/apply/shares.ts"
-import { type StandUpFailure, standUp } from "#adapter/apply/stand-up.ts"
+import { standUp } from "#adapter/apply/stand-up.ts"
 import {
 	type ApplyError,
 	CommitUnknown,
@@ -26,7 +26,6 @@ import {
 import {
 	type CommitRefused,
 	ConnectionLost,
-	familyRowBound,
 	type InputTooLarge,
 	type ServerError,
 	literalBound,
@@ -63,12 +62,12 @@ import type {
 	BoundWrite,
 	Chunks,
 	ExecutionPart,
-	FamilyRowBound,
 	FlightStatement,
 	FlightWrite,
 	MemberFacts,
 	RefusedLaw,
 	RelationCounts,
+	StatedRows,
 	StatementAt,
 	Transport,
 	Witness
@@ -131,12 +130,11 @@ type HostInputs =
 export type InputFailure = EncodingFailure | InputTooLarge
 
 /**
- * A statement's placeholder texts refused (runtime/write/bind.ts BoundWrite chunks): a codec's refusal as itself, a
- * column whose array no string can hold as the InputTooLarge of its bound, and a nested row no insert of its relation
- * can carry as the InputTooLarge naming its family (errors/failures.ts familyRowBound).
+ * A statement's placeholder texts refused (runtime/write/bind.ts BoundWrite chunks): a codec's refusal as itself, and a
+ * column whose array no string can hold as the InputTooLarge of its bound.
  */
 export const valuesFailure = (
-	failure: EncodingFailure | LiteralBound | MessageBound | FamilyRowBound
+	failure: EncodingFailure | LiteralBound | MessageBound
 ): InputFailure => {
 	switch (failure._tag) {
 		case "EncodingFailure":
@@ -145,8 +143,6 @@ export const valuesFailure = (
 			return literalBound(failure)
 		case "MessageBound":
 			return messageBound(failure)
-		case "FamilyRowBound":
-			return familyRowBound(failure)
 	}
 }
 
@@ -266,6 +262,7 @@ export const hostInputs = (
 		return { kind: "bound", bound: bound.value, ...ready.success } as const
 	})
 
+/** The outcome a classified failure means. */
 const outcomeOf = <R>(classified: Classified): Effect.Effect<ApplyOutcome<R>, ApplyError> => {
 	switch (classified.kind) {
 		case "rejected":
@@ -275,7 +272,7 @@ const outcomeOf = <R>(classified: Classified): Effect.Effect<ApplyOutcome<R>, Ap
 		case "failed":
 			return Effect.fail(classified.error)
 		case "defect":
-			return Effect.die(classified.defect)
+			return Effect.sync(() => defect(classified.what))
 	}
 }
 
@@ -301,15 +298,12 @@ const statementOrigin = (sent: ReadonlyArray<SentStatement>, index: number): Fai
 }
 
 /**
- * What a write's failed stand-up means (stand-up.ts): TemporaryRefused, the role's want of TEMPORARY, as the
- * ExecutionFailure whose reason it is; the fence's refusal as StaleSnapshot; SERIALIZABLE's refusal as the
+ * What a write's failed stand-up means (stand-up.ts): the fence's refusal as StaleSnapshot; SERIALIZABLE's refusal as the
  * TransientFailure a statement's is; a lost connection, at COMMIT too, as a TransportFailure, since the write's own
  * statements were never sent; any other refusal as the server's.
  */
-const standUpFailure = (failure: StandUpFailure): ApplyError => {
+const standUpFailure = (failure: FlightFailure): ApplyError => {
 	switch (failure._tag) {
-		case "TemporaryRefused":
-			return new ExecutionFailure({ reason: failure })
 		case "BatchRefused":
 		case "CommitRefused":
 			return (
@@ -398,7 +392,8 @@ const commitRefusal = <R>(
  * between, and the witness is `unreproduced`, never a key guessed. A flight that loses its connection or answers what
  * grizzle cannot read fails the call as the write's own flight would (`flightFailure`), the refusal unreported to no
  * one. The success path sends none of it: a write that commits pays nothing for its witness, and the foreign key stays
- * its law's one check.
+ * its law's one check. Only a COMMIT is diagnosed: a statement judges its own refusals, a member joining a stored
+ * closed owner's group among them (write/family/additions.ts metRefusal).
  */
 const unmatchedWitness = (
 	session: Session,
@@ -415,12 +410,12 @@ const unmatchedWitness = (
 		),
 		(ran): Effect.Effect<Witness, ApplyError> =>
 			Result.isSuccess(ran)
-				? Effect.succeed(diagnosedWitness(unmatched, ran.success))
+				? Effect.succeed(unmatchedKeyOf(unmatched, ran.success))
 				: diagnosisFailure(ran.failure)
 	)
 
 /** The witness a diagnosis's outcomes name: its last statement's, the witness query's, one row, or none. */
-const diagnosedWitness = (unmatched: Unmatched, outcomes: ReadonlyArray<BatchOutcome>): Witness => {
+const unmatchedKeyOf = (unmatched: Unmatched, outcomes: ReadonlyArray<BatchOutcome>): Witness => {
 	const detail = outcomes.at(-1)?.rows[0]?.[0]
 	return detail === undefined ? unreproduced : unmatchedKey(unmatched, detail)
 }
@@ -444,7 +439,7 @@ const diagnosisFailure = (failure: FlightFailure): Effect.Effect<Witness, ApplyE
 			return Effect.fail(new ExecutionFailure({ reason: failure }))
 		case "CommitRefused":
 		case "CommitLost":
-			return Effect.die(defect(`a COMMIT in the diagnosis flight, which ends ROLLBACK`))
+			return Effect.sync(() => defect(`a COMMIT in the diagnosis flight, which ends ROLLBACK`))
 	}
 }
 
@@ -452,7 +447,7 @@ const diagnosisFailure = (failure: FlightFailure): Effect.Effect<Witness, ApplyE
 const unmatchedKey = (unmatched: Unmatched, detail: OutputText): Witness => {
 	const key = unmatched.key(detail)
 	if (key === undefined) {
-		throw defect(`a witness query's DETAIL the installation's encoding reads: ${detail}`)
+		defect(`a witness query's DETAIL the installation's encoding reads: ${detail}`)
 	}
 	return key
 }
@@ -743,7 +738,8 @@ const addCounts = (
  *   (shares.ts); a key's duplicate across two shares, which no share's bind meets, the key's UNIQUE constraint refuses
  *   at the later share, the same law.
  * - A statement a share's flight refused: classified as a whole call's is (flightFailure), by the server's error, the
- *   statement's place in its share, and the host's judgement over the call's stated values, which reads no fact.
+ *   statement's place in its share, and the host's judgement over that share's stated rows, the facts its statements
+ *   write, so its witness names the share's row that breaks the law, as a whole call's names its own.
  * - COMMIT refused: classified at COMMIT (commitRefusal), the witness of a deferred foreign key's unmatched row read by
  *   one more draw of the shares in a transaction of `frame` that ends ROLLBACK, the key's witness query its closing
  *   flight (unmatchedShares): the row is one the state every share leaves holds, which exists only once the last share
@@ -761,14 +757,21 @@ export const runWriteShares = <R>(
 		const flight = entry.program
 		yield* Effect.mapError(standUp(session, frame, flight.standUps), standUpFailure)
 		const empty = drawn.empty
-		const context: WitnessContext = {
+		/**
+		 * How a refusal of a statement is judged on the host, over `stated`: a share's statement over that share's own
+		 * stated rows, the facts its statements write (shares.ts), so its witness is the share's row that breaks the law;
+		 * the opening's prologue and the closing flight's statements and COMMIT, which no share states, over the call's
+		 * empty facts.
+		 */
+		const contextOf = (stated: StatedRows): WitnessContext => ({
 			violation: entry.witness.classify,
 			statement: (at) => ({
 				relations: statementRelations(flight.prepared.witness, at),
-				judge: (refuser) => hostJudgement(flight.prepared.witness, empty.bound.stated, at, refuser),
-				above: (owner) => aboveJudgement(flight.prepared.witness, empty.bound.stated, at, owner)
+				judge: (refuser) => hostJudgement(flight.prepared.witness, stated, at, refuser),
+				above: (owner) => aboveJudgement(flight.prepared.witness, stated, at, owner)
 			})
-		}
+		})
+		const unshared = contextOf(empty.bound.stated)
 		const sentBacks = Arr.flatMap(reads.runs.runs, (run) => (run.kind === "sent" ? [run] : []))
 		const readBackFlights = yield* Effect.mapError(
 			Effect.forEach(sentBacks, (run) => readBackFlight(run, empty)),
@@ -776,12 +779,9 @@ export const runWriteShares = <R>(
 		)
 		const backs = joinFlights(readBackFlights)
 		const counts = new Map<string, RelationCounts>()
-		const read = (
-			sent: ReadonlyArray<SentStatement>,
-			outcomes: ReadonlyArray<BatchOutcome>
-		): void => {
+		const read = (share: SentShare, outcomes: ReadonlyArray<BatchOutcome>): void => {
 			const raws = new Map<number, OutputRows>()
-			for (const [one, outcome] of Arr.zip(sent, outcomes)) {
+			for (const [one, outcome] of Arr.zip(share.sent, outcomes)) {
 				const before = raws.get(one.statement.index)
 				raws.set(
 					one.statement.index,
@@ -812,12 +812,15 @@ export const runWriteShares = <R>(
 		if (answer.kind === "failed") {
 			const failure = answer.failure
 			if (failure._tag !== "CommitRefused") {
-				return yield* flightFailure<R>(failure, answer.at ?? [], context)
+				const share = answer.at
+				return yield* share === undefined
+					? flightFailure<R>(failure, [], unshared)
+					: flightFailure<R>(failure, share.sent, contextOf(share.stated))
 			}
 			const unmatched = entry.witness.unmatched(failure.failure)
 			return yield* commitRefusal<R>(
 				failure.failure,
-				context,
+				unshared,
 				unmatched === undefined
 					? undefined
 					: unmatchedShares(session, frame, entry, drawn, unmatched)
@@ -838,6 +841,15 @@ export const runWriteShares = <R>(
 	})
 
 /**
+ * A share's batch as its flight sends it: its statements' executions, in order, and the rows its facts state as those
+ * statements fill them (bind.ts BoundWrite `stated`), which a refusal of one of them is judged over (runWriteShares).
+ */
+interface SentShare {
+	readonly sent: ReadonlyArray<SentStatement>
+	readonly stated: StatedRows
+}
+
+/**
  * The batches of a call's shares as runFramedFlights draws them (`next`), one per share, from the first share each time
  * it is made: each share bound on the host (hostInputs) only as its batch is drawn, its statements cut into executions
  * within PostgreSQL's default work_mem (bind.ts batchedExecutions), and a share the host's laws refuse ShareRejected.
@@ -845,10 +857,7 @@ export const runWriteShares = <R>(
 const shareFlights = (session: Session, entry: WriteEntry, drawn: SharedCall) => {
 	const batched: Transport = { ...sessionTransport(session), batching: writeBatching }
 	const shares = drawn.shares[Symbol.iterator]()
-	return (): Effect.Effect<
-		FlightBatch<ReadonlyArray<SentStatement>> | undefined,
-		InputFailure | ShareRejected
-	> =>
+	return (): Effect.Effect<FlightBatch<SentShare> | undefined, InputFailure | ShareRejected> =>
 		Effect.gen(function* () {
 			const step = shares.next()
 			if (step.done === true) {
@@ -862,7 +871,10 @@ const shareFlights = (session: Session, entry: WriteEntry, drawn: SharedCall) =>
 			if (Result.isFailure(writes)) {
 				return yield* Effect.fail(writes.failure)
 			}
-			return { statements: writes.success.statements, batch: writes.success.sent }
+			return {
+				statements: writes.success.statements,
+				batch: { sent: writes.success.sent, stated: inputs.bound.stated }
+			}
 		})
 }
 
@@ -905,7 +917,7 @@ const unmatchedShares = (
 			}
 			const answer = ran.success
 			return answer.kind === "committed"
-				? Effect.succeed(diagnosedWitness(unmatched, answer.closing))
+				? Effect.succeed(unmatchedKeyOf(unmatched, answer.closing))
 				: diagnosisFailure(answer.failure)
 		}
 	)

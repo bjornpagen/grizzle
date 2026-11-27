@@ -10,12 +10,7 @@ import { maxStringLength, unwrap } from "#compiler/core/canonical.ts"
 import { everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription, resourceBound } from "#compiler/core/errors.ts"
 import { type ConstantDigest, constantDigest } from "#compiler/core/fingerprint.ts"
-import {
-	type DeclaredName,
-	identifierOf,
-	type Identity,
-	identity
-} from "#compiler/core/identity.ts"
+import { identifierOf, type Identity, identity, type HeldName } from "#compiler/core/identity.ts"
 import type { Identifier } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
@@ -181,7 +176,7 @@ const radixOf = (space: CodeSpace): number =>
 /** A closed id's code: its handle's in the roster's codes. */
 const handleCode = (codec: RosterCodec, literal: TypedLiteral): number => {
 	if (literal.kind !== "handle") {
-		throw defect("a closed id's value is a handle of its roster")
+		defect("a closed id's value is a handle of its roster")
 	}
 	return codeOf(codec, literal.handle)
 }
@@ -190,7 +185,7 @@ const handleCode = (codec: RosterCodec, literal: TypedLiteral): number => {
 const codecOfField = (codes: Codebook, field: LawField): RosterCodec => {
 	const roster = rosterOf(baseOf(field.type))
 	if (roster === undefined || baseOf(field.type).carrier !== "code") {
-		throw defect(`the closed id ${field.name} is typed by its roster`)
+		defect(`the closed id ${field.name} is typed by its roster`)
 	}
 	return defined(codes.rosters.get(roster.closed), "the codebook holds every roster")
 }
@@ -316,7 +311,7 @@ const plannedCells = (
 	}
 	const encoded = constantOf(layout, tuples)
 	if (!encoded.ok) {
-		throw defect(`the declared key of ${what} holds its rows apart`)
+		defect(`the declared key of ${what} holds its rows apart`)
 	}
 	return plannedOf(encoded.value)
 }
@@ -376,7 +371,7 @@ const plannedAre = (
 ): PlannedDictionary => {
 	const values = space.values.map((value): TypedLiteral => {
 		if (value.kind !== "text") {
-			throw defect("a str.pattern field's value is a text")
+			defect("a str.pattern field's value is a text")
 		}
 		return { kind: "text", value: matchAre(value.value) }
 	})
@@ -603,7 +598,7 @@ const finText = (fin: ClosedSlot["fin"]): string =>
 /** A dependent key's counts, which its slots make at least one of. */
 const nonEmptyFins = (fins: ReadonlyArray<PlannedCount>): NonEmptyReadonlyArray<PlannedCount> => {
 	if (!isNonEmpty(fins)) {
-		throw defect("a dependent key holds a slot")
+		defect("a dependent key holds a slot")
 	}
 	return fins
 }
@@ -633,7 +628,7 @@ const outsideFin = (
 	what: string
 ): never => {
 	if (key.kind === "product") {
-		throw defect("a closed id's code is a point of its roster's codes")
+		defect("a closed id's code is a point of its roster's codes")
 	}
 	const owner = codes.slice(0, key.owner.length)
 	const names = key.owner.map((f, i) => codeName(f.codec, defined(owner[i], "an owner code")))
@@ -649,7 +644,7 @@ const outsideFin = (
 	})
 	const [slot] = past
 	if (slot === undefined) {
-		throw defect("a row outside its key's space has a slot code past its owner's count")
+		defect("a row outside its key's space has a slot code past its owner's count")
 	}
 	throw new Refusal(
 		malformedDescription(
@@ -986,7 +981,7 @@ export const addClosedRelations = (b: InstallBuilder, plan: ClosedPlan): void =>
 /** What one roster installs: its names constant, its live-codes constant and its domain, and, when a set is typed over
  * it, its bits domain. */
 export interface RosterObjects {
-	readonly roster: DeclaredName
+	readonly roster: HeldName
 	readonly names: { readonly name: ObjectName; readonly node: Node<"setup"> }
 	readonly live: { readonly name: ObjectName; readonly node: Node<"setup"> }
 	readonly domain: { readonly name: ObjectName; readonly node: Node<"setup"> }
@@ -1015,7 +1010,7 @@ export const rosterConstants = (
 })
 
 /** A roster's names constant's function, the one its domain's CHECK and a role view's decoded column read. */
-export const namesConstant = (b: InstallBuilder, roster: DeclaredName): ObjectName => ({
+export const namesConstant = (b: InstallBuilder, roster: HeldName): ObjectName => ({
 	schema: b.schema,
 	name: identifierOf(
 		rosterConstants(defined(b.names.codes.rosters.get(roster), "the codebook holds every roster"))
@@ -1084,8 +1079,8 @@ export const persistentExprs = (model: LawModel): ReadonlyArray<ScalarExpr> => {
 /** The rosters some set is typed over: each a field of a stored relation holds a set of, or a persistent expression
  * the installation lowers holds a set of (persistentExprs), so every bits domain a column, a literal or a cast names
  * is installed. */
-const setRosters = (b: InstallBuilder): ReadonlySet<DeclaredName> => {
-	const out = new Set<DeclaredName>()
+const setRosters = (b: InstallBuilder): ReadonlySet<HeldName> => {
+	const out = new Set<HeldName>()
 	const note = (t: ScalarType): void => {
 		const base = baseOf(t)
 		if (base.carrier === "bits") {
@@ -1212,7 +1207,7 @@ export const addRosters = (b: InstallBuilder): ReadonlyArray<RosterObjects> => {
  */
 const addLive = (
 	b: InstallBuilder,
-	roster: DeclaredName,
+	roster: HeldName,
 	codec: RosterCodec,
 	liveNamed: Identity<"rosterLive">
 ): RosterObjects["live"] => {
@@ -1241,7 +1236,7 @@ const addLive = (
 /** A roster's bits domain over its live-codes constant `live` (`addRosters`), for a roster some set is typed over. */
 const addBits = (
 	b: InstallBuilder,
-	roster: DeclaredName,
+	roster: HeldName,
 	codec: RosterCodec,
 	live: RosterObjects["live"]
 ): RosterObjects["bits"] => {

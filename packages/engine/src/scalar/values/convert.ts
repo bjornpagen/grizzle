@@ -1,3 +1,4 @@
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { nominal } from "#compiler/core/brand.ts"
 import {
 	type CellConversion,
@@ -5,6 +6,7 @@ import {
 	convertColumn,
 	type ConvertedCarrier
 } from "#compiler/core/decoder.ts"
+import { sha256FromText } from "#compiler/core/digest.ts"
 import { ofWire, type OutputText } from "#compiler/core/wire.ts"
 import { isIntegerTypmod } from "#compiler/ir/carriers.ts"
 import { handleAt, type RosterCodec } from "#compiler/ir/codes.ts"
@@ -13,9 +15,15 @@ import type { Carrier } from "#compiler/ir/scalar.ts"
 import { Decimal, type NumericTypmod } from "#compiler/scalar/values/decimal.ts"
 import { numericOwnBound } from "#compiler/scalar/values/fault.ts"
 import { convertComponent, convertDouble, convertReal } from "#compiler/scalar/values/float.ts"
-import type { CarrierHost, CarrierSpec, SpecOf } from "#compiler/scalar/values/identity.ts"
+import type {
+	CarrierHost,
+	CarrierSpec,
+	SpecOf,
+	VariantValue
+} from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { convertCidr, convertInet } from "#compiler/scalar/values/net.ts"
+import { recordAttributes } from "#compiler/scalar/values/record.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 
@@ -88,6 +96,98 @@ const convertBits =
 		return handles
 	}
 
+/** An attribute's text inside a record's output text: PostgreSQL's output of the attribute, minted where it is cut out. */
+const attributeText = nominal<string, OutputText>()
+
+/**
+ * The attributes of a record's output text (scalar/values/record.ts recordAttributes), each PostgreSQL's output of the
+ * attribute, none where the attribute is NULL: what a variant's composite is read from, here and by a decoder
+ * (runtime/read/record.ts).
+ */
+export const recordAttributeTexts = (text: OutputText): ReadonlyArray<OutputText | undefined> =>
+	recordAttributes(text).map((a) => (a === undefined ? undefined : attributeText(a)))
+
+/**
+ * The conversion of one attribute of a variant's composite (ir/scalar.ts VariantType), as record_out writes it: its
+ * type's own output, which its carrier's conversion reads, but a digest's, which record_out writes as byteaout's hex
+ * under the bytea_output every role runs with (core/digest.ts sha256FromText), never as the wire text its own column's
+ * delivery sends. A bytes attribute is a defect: no arm holds one (scalar/registry.ts isArmFieldType).
+ */
+const attributeConversion = (spec: CarrierSpec): ((text: OutputText) => unknown) => {
+	switch (spec.carrier) {
+		case "sha256":
+			return (text) => sha256FromText(text)
+		case "bytes":
+			defect("no variant arm holds bytes")
+		case "bits":
+		case "bool":
+		case "cidr":
+		case "code":
+		case "date":
+		case "exactInteger":
+		case "exactMoney":
+		case "float4":
+		case "float8":
+		case "inet":
+		case "int2":
+		case "int4":
+		case "int8":
+		case "money":
+		case "numeric":
+		case "range4":
+		case "range8":
+		case "rangeDate":
+		case "text":
+		case "tsvector":
+		case "uuid":
+		case "variant":
+		case "vector":
+			return textConversion(spec)
+	}
+}
+
+/** The conversion of a text carrier's spec, read through the spec's own carrier. */
+const textConversion = <C extends TextCarrier>(
+	spec: SpecOf<C> & CarrierSpec
+): ((text: OutputText) => unknown) => {
+	const own: SpecOf<C> = spec
+	const convertOf: (spec: SpecOf<C>) => Converter<C> = convertByCarrier[own.carrier]
+	return convertOf(own)
+}
+
+/**
+ * record_out of a variant's composite: its tag's code as the live handle it names, and each field of that arm read from
+ * its attribute by its own conversion (attributeConversion), into a frozen record, the tag first and then the arm's
+ * fields in declared order (scalar/values/identity.ts VariantValue). The text is PostgreSQL's own, of a value its
+ * domain admitted, so the tagged arm's every attribute is present.
+ */
+const convertVariant = (spec: SpecOf<"variant">): Converter<"variant"> => {
+	const arms = new Map(
+		Array.from(
+			spec.arms,
+			([handle, arm]) =>
+				[
+					handle,
+					arm.fields.map((f) => ({
+						name: f.name,
+						at: f.at,
+						convert: attributeConversion(f.spec)
+					}))
+				] as const
+		)
+	)
+	return (text) => {
+		const attributes = recordAttributeTexts(text)
+		const tag = handleAt(spec.roster, Number(attributes[0]))
+		const value: Record<string, unknown> = { tag }
+		for (const field of defined(arms.get(tag), "a variant's arm")) {
+			value[field.name] = field.convert(defined(attributes[field.at], "a tagged arm's attribute"))
+		}
+		const held: VariantValue = Object.freeze({ ...value, tag })
+		return held
+	}
+}
+
 /**
  * The conversion of PostgreSQL's output text of a column into its host value, one per carrier.
  *
@@ -121,6 +221,7 @@ const convertBits =
  * | vector | vector_out, [c1,...,cn] | a Float32Array of the column's dimensions, components exactly binary32 |
  * | exactInteger, an integer numeric's spec | int8out or numeric_out of an integer | BigInt, the exact integer |
  * | exactMoney | numeric_out of an amount at scale 2 | Money.fromOutput, an exact count of any size |
+ * | variant | record_out of its composite | a frozen record of its tag's handle and its arm's fields (convertVariant) |
  *
  * Every converter is a per-row hot path, run on each value of each row a statement returns: native string methods and
  * index loops, no Option or closure per character, and one allocation for the value itself.
@@ -151,7 +252,8 @@ export const convertByCarrier: {
 	vector: (spec) => convertVector(spec.dimensions),
 	tsvector: () => identity,
 	exactInteger: () => BigInt,
-	exactMoney: () => (text) => Money.fromOutput(text)
+	exactMoney: () => (text) => Money.fromOutput(text),
+	variant: (spec) => convertVariant(spec)
 }
 
 /**

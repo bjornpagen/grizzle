@@ -111,7 +111,7 @@ const anchoredBinding =
 			case "boundary": {
 				const text = boundary[fill.position]
 				if (text === undefined) {
-					throw defect(`an anchored window binds its page boundary placeholder ${fill.position}`)
+					defect(`an anchored window binds its page boundary placeholder ${fill.position}`)
 				}
 				return text
 			}

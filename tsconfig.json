@@ -282,6 +282,18 @@
 						}
 					},
 					{
+						"include": [
+							"test/support/reference-props/attributes.ts",
+							"test/support/reference-props/closure.ts",
+							"test/support/reference-props/props.ts"
+						],
+						"options": {
+							"diagnosticSeverity": {
+								"preferEffectArray": "off"
+							}
+						}
+					},
+					{
 						"include": ["packages/grizzle/src/cli/main.ts"],
 						"options": {
 							"diagnosticSeverity": {

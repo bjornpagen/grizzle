@@ -44,7 +44,6 @@ import { placeholderToken } from "#compiler/sql/print.ts"
 import { shopV1, shopV2 } from "#test/pg/cli/fixture.ts"
 import {
 	cli,
-	cliClock,
 	type CliRun,
 	commandConnections,
 	configName,
@@ -59,7 +58,7 @@ import { openMigrator } from "#test/pg/migrate/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { oneOf } from "#test/support/calls.ts"
 import { chunked, joined } from "#test/support/chunked.ts"
-import { Id, type IdValue } from "#test/support/ids.ts"
+import { type IdValue, toId } from "#test/support/ids.ts"
 import { type DecoderCredential, decodersIn, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { migrationFolders } from "#test/support/migrate/kit.ts"
 import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
@@ -68,9 +67,6 @@ import type { Credentials } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify } from "#test/support/worlds.ts"
-
-/** The clock the in-process command lines of this file read. */
-const nextNow = cliClock()
 
 /** The workloads a workflow configures the shop with: both programs, or ordersOf alone. */
 type Workload = "full" | "withoutByName"
@@ -183,7 +179,7 @@ const checks = (model: Readonly<Model>): boolean =>
 	filesPass(model) && same(model.generated, model.config)
 
 const id = (n: number): IdValue =>
-	Id(`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`)
+	toId(`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`)
 
 const schemaDir = (r: Workspace) => `${r.dir}/migrations/${r.schema}`
 
@@ -222,7 +218,7 @@ const sqlFiles = (dir: string) =>
 
 /** Runs a command line in the workspace, and holds the universal property: no password in its output. */
 const command = (r: Workspace, argv: ReadonlyArray<string>) =>
-	Effect.map(cli(r.dir, argv, nextNow()), (ran: CliRun) => {
+	Effect.map(cli(r.dir, argv), (ran: CliRun) => {
 		for (const secret of [Redacted.value(r.cluster.password), wrongPassword]) {
 			lacksText(
 				`${ran.stdout}${ran.stderr}`,

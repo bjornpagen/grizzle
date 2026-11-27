@@ -36,8 +36,6 @@ import {
 	sumCountedOf
 } from "#test/pg/fin/folds.ts"
 import { type EndFeature, seatTemplate } from "#test/pg/fin/installed.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { type FoldStatement } from "#test/support/families/fold.ts"
 import { upTo } from "#test/support/up-to.ts"
 
@@ -114,16 +112,6 @@ export type CountedFeature =
 
 export const COUNTED = Object.freeze(Arr.filter(FOLD_SPECS, (s) => s.shape === "counted"))
 
-/** A relation's fields a write changes in place, as `schema` decides them (ir/law.ts RelationInfo `inPlace`). */
-const inPlaceOf = (schema: AnySchema, relation: string): ReadonlyArray<string> =>
-	defined(
-		succeeded(
-			testArtifacts(schema, testCompile),
-			"the seat's schema compiles"
-		).derived.schema.relations.get(relation),
-		relation
-	).inPlace
-
 /** Each counted fold spec's schema with its owner and member declared mutable, its own spec's being the immutable
  * default (folds.ts Standing). */
 const MUTABLE: Readonly<Record<string, AnySchema>> = {
@@ -140,10 +128,7 @@ export const countedSeats = Rec.fromEntries(
 			spec.label,
 			{
 				mutable: seatTemplate(import.meta, mutable, `swap ${spec.label}`),
-				immutable: seatTemplate(import.meta, spec.schema, `swap ${spec.label} immutable`),
-				/** Whether the owner's guard holds its count fixed, as the immutable default decides it (ir/law.ts
-				 * RelationInfo `inPlace`): the count update a swap sends is then refused. */
-				countGuarded: !Arr.contains(inPlaceOf(spec.schema, "Owner"), "n")
+				immutable: seatTemplate(import.meta, spec.schema, `swap ${spec.label} immutable`)
 			}
 		] as const
 	})

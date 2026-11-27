@@ -6,7 +6,7 @@ import { Array as Arr, Formatter } from "effect"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { predicateTable } from "#compiler/ir/expr.ts"
 import { libraryCreate } from "#compiler/physical/ddl/library.ts"
-import { compiledExpr } from "#compiler/scalar/compute/evaluate.ts"
+import { compiledExpr, noParamLeaf } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -61,7 +61,8 @@ export const hostTarget = ({ base, reference }: Pair): string => {
 			{
 				value: undefined,
 				column: (ref) => (ref.name === "b" ? base : reference),
-				closed: () => undefined
+				closed: () => undefined,
+				param: noParamLeaf
 			},
 			ProgramPatterns.of(tablePatterns(table))
 		),

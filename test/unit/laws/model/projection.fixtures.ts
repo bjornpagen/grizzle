@@ -15,11 +15,8 @@ import {
 } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr } from "effect"
-import {
-	compileInstallation,
-	type Installation,
-	installOptions
-} from "#compiler/physical/install/compile.ts"
+import { type Installation, installOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { natural, pg } from "#compiler/public/fields.ts"
 import {
 	contained,
@@ -318,7 +315,7 @@ const itemsWhere = (phi: ItemPhi): Selection<typeof Item> => {
 		}
 		case "a conjunction": {
 			const { live, code } = phi
-			return select(Item, (i) => i.and(i.eq(i.live, live), codeCompared(i, code)))
+			return select(Item, (i) => i.and([i.eq(i.live, live), codeCompared(i, code)]))
 		}
 	}
 }
@@ -331,7 +328,7 @@ const ownersWhere = (phi: OwnerPhi): Selection<typeof Owner> => {
 		}
 		case "a range": {
 			const { low, width } = phi
-			return select(Owner, (o) => o.and(o.gt(o.rank, low), o.lt(o.rank, low + width)))
+			return select(Owner, (o) => o.and([o.gt(o.rank, low), o.lt(o.rank, low + width)]))
 		}
 	}
 }

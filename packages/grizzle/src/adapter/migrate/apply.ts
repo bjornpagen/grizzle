@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Option, Result, type Scope } from "effect"
+import { Array as Arr, Effect, Option, Order, Result, type Scope } from "effect"
 import {
 	driftCheck,
 	type DriftFolder,
@@ -126,10 +126,11 @@ import {
 } from "#compiler/plan/common.ts"
 import {
 	dataStepBracket,
+	dataStepRecheckName,
 	type FolderLaws,
 	immutableTriggerName,
+	immutableTruncateTriggerName,
 	type InstallationNames,
-	type InstalledGuard,
 	type ProofStatements,
 	proofStatements,
 	proofsIdent,
@@ -352,48 +353,31 @@ const schemaOwner: CatalogQuery<string> = {
 }
 
 /**
- * The guards of the schemas $2, each a table that carries the immutability guard $1 (physical/ddl/immutable.ts
- * immutableTriggerName) by its schema and name, and the function its trigger calls: the guards a custom migration's
- * data step runs under, read where the step runs, under the apply lock, so a folder applied before it in the same
- * apply, which adds or drops a guard, is read as it left them, and each is created again over the function it called.
+ * The tables of the schemas $2 that carry an immutability guard of $1 (physical/ddl/immutable.ts
+ * immutableTriggerName, immutableTruncateTriggerName), each as `<schema>.<table>`: the tables a no-transaction custom
+ * file's statement may not write, read where the file runs, under the apply lock, so a folder applied before it in the
+ * same apply, which adds or drops a guard, is read as it left them.
  */
-const guardedTables: CatalogQuery<InstalledGuard> = (() => {
+const guardedTables: CatalogQuery<string> = (() => {
 	const g = C.from("pg_trigger", "g")
 	const c = C.from("pg_class", "c")
 	const n = C.from("pg_namespace", "n")
-	const f = C.from("pg_proc", "f")
-	const fn = C.from("pg_namespace", "fn")
 	return {
 		sql: emitCatalog(
 			C.query(
-				[
-					C.asText(n.col("nspname")),
-					C.asText(c.col("relname")),
-					C.asText(fn.col("nspname")),
-					C.asText(f.col("proname"))
-				],
-				[g.item, c.item, n.item, f.item, fn.item],
+				[C.asText(n.col("nspname")), C.asText(c.col("relname"))],
+				[g.item, c.item, n.item],
 				C.and([
 					C.eq(g.col("tgrelid"), c.col("oid")),
 					C.eq(c.col("relnamespace"), n.col("oid")),
-					C.eq(g.col("tgfoid"), f.col("oid")),
-					C.eq(f.col("pronamespace"), fn.col("oid")),
-					C.eq(g.col("tgname"), C.param(1, "text")),
+					C.any(g.col("tgname"), C.arrayParam(1, "text")),
 					C.any(n.col("nspname"), C.arrayParam(2, "text"))
 				])
 			)
 		),
 		what: "a guarded table",
-		row: ([schema, name, functionSchema, functionName]) =>
-			schema === undefined ||
-			name === undefined ||
-			functionSchema === undefined ||
-			functionName === undefined
-				? undefined
-				: {
-						table: { schema, name },
-						function: { schema: functionSchema, name: functionName }
-					}
+		row: ([schema, name]) =>
+			schema === undefined || name === undefined ? undefined : `${schema}.${name}`
 	}
 })()
 
@@ -428,6 +412,32 @@ const installedStandUps: CatalogQuery<ObjectName> = (() => {
 			)
 		),
 		what: "a stand-up",
+		row: ([schema, name]) =>
+			schema === undefined || name === undefined ? undefined : { schema, name }
+	}
+})()
+
+/**
+ * The re-checks of a data step in the schemas $1, by schema and name: each function named $2 (core/identity.ts
+ * dataStepRecheckName; physical/ddl/recheck.ts), one a level at most. What a custom migration's data step calls after
+ * its statements, read where the step runs, under the apply lock, as its stand-ups are.
+ */
+const installedRechecks: CatalogQuery<ObjectName> = (() => {
+	const f = C.from("pg_proc", "f")
+	const n = C.from("pg_namespace", "n")
+	return {
+		sql: emitCatalog(
+			C.query(
+				[C.asText(n.col("nspname")), C.asText(f.col("proname"))],
+				[f.item, n.item],
+				C.and([
+					C.eq(f.col("pronamespace"), n.col("oid")),
+					C.eq(C.asText(f.col("proname")), C.param(2, "text")),
+					C.any(n.col("nspname"), C.arrayParam(1, "text"))
+				])
+			)
+		),
+		what: "a data step's re-check",
 		row: ([schema, name]) =>
 			schema === undefined || name === undefined ? undefined : { schema, name }
 	}
@@ -961,7 +971,7 @@ const runFile = (
 
 /** A transaction no guard brackets: a drafted folder's, whose data steps the draft brackets itself (deploy/diff/diff.ts
  * unguard), and a no-transaction file's rows. */
-const unbracketed: ReturnType<typeof dataStepBracket> = dataStepBracket([], [])
+const unbracketed: ReturnType<typeof dataStepBracket> = dataStepBracket([], [], [])
 
 /** No guard: a drafted folder's no-transaction file, whose statements the draft wrote. */
 const noGuards: ReadonlySet<string> = new Set()
@@ -970,35 +980,30 @@ const noGuards: ReadonlySet<string> = new Set()
 const noStandUps: ReadonlyArray<ObjectName> = []
 
 /**
- * The tables of the installation's levels `levels` the catalog holds a guard on where a custom migration's file runs
- * (guardedTables), each as `<schema>.<table>`. A failed read stops the migration as the file's lock would.
+ * The tables of the installation's levels `levels` the catalog holds a guard on where a no-transaction custom file
+ * runs (guardedTables), each as `<schema>.<table>`. A failed read stops the migration as the file's lock would.
  */
-const guardedRead = (
-	session: MigrationSession,
-	levels: ReadonlyArray<string>,
-	at: RecordPlace,
-	schema: string
-): Effect.Effect<ReadonlyArray<InstalledGuard>, MigrateError> =>
-	Effect.mapError(
-		Effect.flatMap(
-			session.apart([
-				oneShotStatement(guardedTables.sql, [textParam(immutableTriggerName), textArray(levels)])
-			]),
-			(answers) => Effect.fromResult(apartRows(guardedTables, sentAnswer(answers, 0)))
-		),
-		(failure) => lockFailed(schema, at, failure)
-	)
-
-/** The guarded tables where a no-transaction custom file runs (guardedRead), by `<schema>.<table>`. */
 const guardedOf = (
 	session: MigrationSession,
 	levels: ReadonlyArray<string>,
 	at: RecordPlace,
 	schema: string
 ): Effect.Effect<ReadonlySet<string>, MigrateError> =>
-	Effect.map(
-		guardedRead(session, levels, at, schema),
-		(guards) => new Set(Arr.map(guards, (g) => `${g.table.schema}.${g.table.name}`))
+	Effect.mapError(
+		Effect.flatMap(
+			session.apart([
+				oneShotStatement(guardedTables.sql, [
+					textArray([immutableTriggerName, immutableTruncateTriggerName]),
+					textArray(levels)
+				])
+			]),
+			(answers) =>
+				Effect.map(
+					Effect.fromResult(apartRows(guardedTables, sentAnswer(answers, 0))),
+					(tables) => new Set(tables)
+				)
+		),
+		(failure) => lockFailed(schema, at, failure)
 	)
 
 /**
@@ -1022,12 +1027,42 @@ const standUpsRead = (
 	)
 
 /**
+ * The re-checks the catalog holds in the installation's levels `levels` where a custom migration's file runs
+ * (installedRechecks), in the levels' order, so a level's stored tables are made again before a level above reads them.
+ * A failed read stops the migration as the file's lock would.
+ */
+const rechecksRead = (
+	session: MigrationSession,
+	levels: ReadonlyArray<string>,
+	at: RecordPlace,
+	schema: string
+): Effect.Effect<ReadonlyArray<ObjectName>, MigrateError> =>
+	Effect.mapError(
+		Effect.flatMap(
+			session.apart([
+				oneShotStatement(installedRechecks.sql, [textArray(levels), textParam(dataStepRecheckName)])
+			]),
+			(answers) =>
+				Effect.map(
+					Effect.fromResult(apartRows(installedRechecks, sentAnswer(answers, 0))),
+					(rechecks) =>
+						Arr.sort(
+							rechecks,
+							Order.mapInput(Order.Number, (r: ObjectName) => levels.indexOf(r.schema))
+						)
+				)
+		),
+		(failure) => lockFailed(schema, at, failure)
+	)
+
+/**
  * The bracket of a custom migration's transactional file, a data step written by hand, in its one transaction
  * (physical/ddl/immutable.ts dataStepBracket): before its statements, the call of every stand-up the catalog holds in
  * the installation's levels (standUpsRead), so a statement that writes a table the rule judge holds is judged at the
- * COMMIT as a served write is, and every guard the catalog holds on a table of the levels (guardedRead) dropped; after
- * them, each guard created again over its function. Every stand-up and every guard, never those of the tables a file's
- * statements write, which no reading of hand-written SQL decides.
+ * COMMIT as a served write is, and every guard of a table of the levels lifted; after them, every re-check of a data
+ * step the levels hold (rechecksRead), which refuses the step where it breaks a rule over a closed relation the judge
+ * reads as no served write does, then each guard created again. Every stand-up, re-check and guard, never those of the
+ * tables a file's statements write, which no reading of hand-written SQL decides.
  */
 const guardBracket = (
 	session: MigrationSession,
@@ -1037,10 +1072,10 @@ const guardBracket = (
 ): Effect.Effect<ReturnType<typeof dataStepBracket>, MigrateError> =>
 	Effect.map(
 		Effect.all([
-			guardedRead(session, levels, at, schema),
-			standUpsRead(session, levels, at, schema)
+			standUpsRead(session, levels, at, schema),
+			rechecksRead(session, levels, at, schema)
 		]),
-		([guards, standUps]) => dataStepBracket(guards, standUps)
+		([standUps, rechecks]) => dataStepBracket(levels, standUps, rechecks)
 	)
 
 /** Whether the schema's ledger exists before a transaction of the apply: absent only before its first file committed. */
@@ -1320,20 +1355,6 @@ const driftAlongside = Effect.fn("driftAlongside")(function* (
 	const verdict = yield* Effect.mapError(Effect.fromResult(made.value.read(second)), unchecked)
 	return { verdict, alone: answered.alone }
 })
-
-/**
- * The drift check of `snapshot` against the catalog alone, reading none of grizzle's bookkeeping, every object of it
- * compared fact by fact: what `grizzle upgrade` judges a live installation by (cli/upgrade.ts), whose ledger and proofs
- * may be of another format's representation than this grizzle reads, which the verdict then shows as theirs.
- */
-export const readCatalogDrift = (
-	session: MigrationSession,
-	snapshot: DeploySnapshot
-): Effect.Effect<DriftVerdict, MigrateError> =>
-	Effect.map(
-		driftAlongside(session, snapshot, [], [], () => Result.succeed(new Map())),
-		({ verdict }) => verdict
-	)
 
 /**
  * `schema`'s ledger as an apply reads it (ledger.ts ledgerStateOf), in steps of statements apart: whether the ledger

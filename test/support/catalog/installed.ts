@@ -12,7 +12,9 @@ import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
 import { roleView } from "#compiler/physical/ddl/names.ts"
 import { searchPolicySettings } from "#compiler/physical/ddl/roles.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import type { CreateDomain, Expr, SqlStatement } from "#compiler/sql/ast.ts"
+import { roleSeesWhole } from "#compiler/schema/own.ts"
+import type { CreateDomain, Expr, GuardFiring, SqlStatement } from "#compiler/sql/ast.ts"
+import { declaredSearchPath } from "#compiler/sql/print.ts"
 import { identityHooks, transformExpr, transformStatement } from "#compiler/sql/transform.ts"
 import { type Catalog, type CatalogColumn, readCatalog } from "#test/support/catalog/read.ts"
 import {
@@ -89,8 +91,11 @@ const guardTriggerOf = (s: SqlStatement | RecordedStatement): Option.Option<stri
 const guardedTableOf = (s: SqlStatement | RecordedStatement): Option.Option<string> =>
 	s.kind === "createGuardTrigger" ? Option.some(s.table.name) : Option.none()
 
-const immutableTriggerOf = (s: SqlStatement | RecordedStatement): Option.Option<string> =>
-	s.kind === "createUpdateGuardTrigger" ? Option.some(s.name) : Option.none()
+/** The name of an immutability guard's trigger that fires on `on`. */
+const immutableTriggerOf =
+	(on: GuardFiring) =>
+	(s: SqlStatement | RecordedStatement): Option.Option<string> =>
+		s.kind === "createImmutableGuardTrigger" && s.on === on ? Option.some(s.name) : Option.none()
 
 const ruleTriggerOf = (s: SqlStatement | RecordedStatement): Option.Option<string> =>
 	s.kind === "createConstraintTrigger" ? Option.some(s.name) : Option.none()
@@ -376,8 +381,11 @@ export const installedScope = (
 			/** The whole view of `relation`, in its level's schema of whole views, by the naming door. */
 			const wholeView = (relation: string): string =>
 				`${identifierOf(identity.wholeSchema(identifierOf(installation.names.levelOf(relation))))}.${identifierOf(identity.wholeView(parsedName(relation)))}`
-			/** Each whole view it reads: a whole entry's over a stored relation, and each stored derived relation's it reads
-			 * in full (schema/own.ts OwnedRole `wholeDerived`). */
+			/** Each whole view it reads: a whole entry's over a stored relation, each stored derived relation's it reads
+			 * in full (schema/own.ts OwnedRole `wholeDerived`), and each stored canonical relation's its base names
+			 * nowhere, an anonymous one's or a level's above its base, whose definition reads only relations it sees whole
+			 * (schema/own.ts roleSeesWhole), named by its form (physical/ddl/roles.ts anonymousTables). */
+			const seesWhole = roleSeesWhole(r)
 			const wholeViews = [
 				...Arr.flatMap(Rec.values(r.relations), (e) =>
 					e.kind === "whole" && installation.owned.relations[e.name]?.kind === "relation"
@@ -388,7 +396,18 @@ export const installedScope = (
 					installation.checked.holdings.get(relation)?.kind === "stored"
 						? [wholeView(relation)]
 						: []
-				)
+				),
+				...Arr.flatMap([...installation.checked.canonical.values()], (c) => {
+					if (
+						c.holding.kind !== "stored" ||
+						Rec.has(r.base.relations, c.subject.name) ||
+						!Arr.every(c.subject.reads, seesWhole)
+					) {
+						return []
+					}
+					const view = installation.names.canonicalWholeView(c.subject.name)
+					return [`${identifierOf(view.schema)}.${identifierOf(view.name)}`]
+				})
 			]
 			return {
 				scope: { role: installedRole.role, closedTypes },
@@ -411,7 +430,9 @@ export const installedScope = (
 				Arr.flatMap(Rec.toEntries(snapshot.theory.relations), ([name, r]) =>
 					r.kind === "relation"
 						? Arr.flatMap(r.fields, (f) =>
-								f.writing === "place" ? [installation.names.head(name, f.name).name] : []
+								f.writing === "place"
+									? [installation.names.head({ kind: "field", relation: name, field: f.name }).name]
+									: []
 							)
 						: []
 				)
@@ -444,7 +465,8 @@ export const installedScope = (
 												{
 													kind: "declared",
 													volatility: provolatile[s.header.volatility],
-													strict: s.header.nullInput === "STRICT"
+													strict: s.header.nullInput === "STRICT",
+													path: declaredSearchPath(s.header)
 												}
 											]
 										]
@@ -455,7 +477,8 @@ export const installedScope = (
 			]),
 			triggers: new Map<string, InstalledTrigger>([
 				...triggersOf("isolationTrigger", guardTriggerOf, "isolation"),
-				...triggersOf("immutableTrigger", immutableTriggerOf, "immutable"),
+				...triggersOf("immutableTrigger", immutableTriggerOf("rows"), "immutable rows"),
+				...triggersOf("immutableTrigger", immutableTriggerOf("truncate"), "immutable truncate"),
 				...triggersOf("lawTrigger", ruleTriggerOf, "rule"),
 				...triggersOf("lawTrigger", captureTriggerOf, "capture")
 			]),

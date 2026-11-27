@@ -1,6 +1,6 @@
-/** What session-tables.test.ts reads: its space over a carrier's uses, and each case's run on one session. */
+/** What session-tables.test.ts reads: its space over a session table's uses, and each case's run on one session. */
 
-import { array, boolean, element, type Gen } from "@bjornpagen/testing/gen"
+import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import {
@@ -9,22 +9,21 @@ import {
 	itemIdBytes,
 	pageHeaderBytes
 } from "#compiler/core/page.ts"
+import { temporarySchema } from "#compiler/core/temporary.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
-import type { CreateCarrier } from "#compiler/sql/ast.ts"
-import { cUtf8Collation, types } from "#compiler/sql/build.ts"
-import { carrierName, carrierScope } from "#compiler/sql/naming.ts"
-import { carrierEmptying, printStatement, sessionTableKeptBytes } from "#compiler/sql/print.ts"
+import { objectName } from "#compiler/sql/build.ts"
+import { printStatement, sessionTableEmptied, sessionTableKeptBytes } from "#compiler/sql/print.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 
 /**
- * How wide a use's values are: narrow, a short text each, stored in the carrier's heap; or wide, an incompressible text
+ * How wide a use's values are: narrow, a short text each, stored in the table's heap; or wide, an incompressible text
  * past the size PostgreSQL moves a value out of a row at, stored in its TOAST table (each the hex digits of distinct
  * SHA-256 digests, which pglz finds no repeat in).
  */
 type Width = "narrow" | "wide"
 
 /**
- * How many rows a use writes: none, one, or more than the pages the carrier's emptying keeps hold (sql/print.ts
+ * How many rows a use writes: none, one, or more than the pages the table's emptying keeps hold (sql/print.ts
  * sessionTableKeptBytes), in its heap or its TOAST table.
  */
 type Fill = "none" | "one" | "past what it keeps"
@@ -38,14 +37,12 @@ interface Use {
 	readonly end: End
 }
 
-/** A case: the carrier keyed or not, and its uses in turn on one session, from its first, which makes it. */
+/** A case: the session table's uses in turn on one session. */
 export interface Uses {
-	readonly keyed: boolean
 	readonly uses: ReadonlyArray<Use>
 }
 
 export const usesGen: Gen<Uses> = (s) => ({
-	keyed: s.draw(boolean),
 	uses: s.draw(
 		array<Use>(
 			(u) => ({
@@ -92,20 +89,28 @@ const rowsOf = (width: Width, fill: Fill): number => {
 	}
 }
 
-/** The carrier every use empties: two columns, a key over the first where the case keys it. */
-const carrierOf = (keyed: boolean): CreateCarrier => {
-	const columns = [
-		{ name: "c1", type: types.bigint, collation: undefined, generated: undefined },
-		{ name: "c2", type: types.text, collation: cUtf8Collation, generated: undefined }
-	]
-	const primaryKey = keyed ? (["c1"] as const) : undefined
-	return {
-		kind: "createCarrier",
-		name: carrierName(carrierScope(undefined), 1, { columns, primaryKey }),
-		columns,
-		primaryKey
-	}
-}
+/**
+ * The session table every use empties, as a rule judge's delta is: a table of the session's own temporary schema, kept
+ * by every COMMIT, of two columns, emptied by a session function of its own name whose body is the delta's emptying
+ * (sql/print.ts sessionTableEmptied, physical/ddl/rules.ts emptied).
+ */
+const sessionTable = "__session_table"
+
+/** The session table's CREATE, as a delta's stand-up makes one (physical/ddl/deltas.ts deltaTable). */
+const createSql = `CREATE TEMPORARY TABLE pg_temp.${quoteIdent(sessionTable)} (c1 bigint, c2 text COLLATE pg_catalog.pg_c_utf8) ON COMMIT PRESERVE ROWS`
+
+/** The session function that empties the table by its emptying (sql/print.ts sessionTableEmptied). */
+const emptyingSql = printStatement({
+	kind: "createFunction",
+	language: "plpgsql",
+	name: objectName(temporarySchema, sessionTable),
+	params: [],
+	returns: "void",
+	volatility: "VOLATILE",
+	parallel: "UNSAFE",
+	security: "DEFINER",
+	body: { declare: [], body: [sessionTableEmptied(sessionTable)] }
+})
 
 /** A use's rows: c1 its row's number, c2 a short text, or a wide value of distinct SHA-256 digests' hex digits. */
 const fillSql = (table: string, width: Width, rows: number): string =>
@@ -113,14 +118,14 @@ const fillSql = (table: string, width: Width, rows: number): string =>
 		? `INSERT INTO pg_temp.${quoteIdent(table)} (c1, c2) SELECT i, 'r' || i FROM pg_catalog.generate_series(1, ${String(rows)}) AS i`
 		: `INSERT INTO pg_temp.${quoteIdent(table)} (c1, c2) SELECT i, (SELECT pg_catalog.string_agg(pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(i || ':' || j, 'UTF8')), 'hex'), '') FROM pg_catalog.generate_series(1, ${String(wideDigests)}) AS j) FROM pg_catalog.generate_series(1, ${String(rows)}) AS i`
 
-/** The carrier's file and the bytes its heap and its TOAST table's heap hold, as the session sees them now. */
+/** The table's file and the bytes its heap and its TOAST table's heap hold, as the session sees them now. */
 interface Stood {
 	readonly filenode: string
 	readonly heap: number
 	readonly toast: number
 }
 
-/** The carrier as the session sees it now, or none where no committed use made it. */
+/** The table as the session sees it now, or none where no committed use made it. */
 const stoodOf = (session: RawSession, table: string) =>
 	Effect.map(
 		session.values(
@@ -138,35 +143,33 @@ const stoodOf = (session: RawSession, table: string) =>
 class Emptied extends Data.TaggedError("Emptied")<{ readonly message: string }> {}
 
 /**
- * Runs the case's uses of one carrier on `session`, after its stand-up in a transaction of its own (the carrier's table
- * and its emptying, the session function of its name, sql/print.ts carrierEmptying), each use in a transaction of its
- * own: its emptying (sql/ast.ts EmptyCarrier), then its rows, then its COMMIT or ROLLBACK. At every emptying: the
- * carrier holds no row, whatever the use before it wrote and however that use ended; where the use before left its heap
+ * Runs the case's uses of one session table on `session`, after its stand-up in a transaction of its own (the table and
+ * its emptying, the session function of its name), each use in a transaction of its own: its emptying, then its rows,
+ * then its COMMIT or ROLLBACK. At every emptying: the table holds no row, whatever the use before it wrote and however that use ended; where the use before left its heap
  * and its TOAST table's heap each within the pages its emptying keeps (sql/print.ts sessionTableKeptBytes), it keeps its
  * file, so it sent no invalidation; where either held more, it has a new file, empty; and either way each holds what it
  * keeps at most.
  */
 export const runUses = (session: RawSession, k: Uses, c: Case<SessionTableFeature>) =>
 	Effect.gen(function* () {
-		const carrier = carrierOf(k.keyed)
 		yield* session.begin
-		yield* session.query(printStatement(carrier), [])
-		yield* session.query(printStatement(carrierEmptying(carrier.name)), [])
+		yield* session.query(createSql, [])
+		yield* session.query(emptyingSql, [])
 		yield* session.commit
-		const emptying = printStatement({ kind: "emptyCarrier", name: carrier.name })
+		const emptying = `SELECT pg_temp.${quoteIdent(sessionTable)}()`
 		for (const [at, use] of k.uses.entries()) {
 			const where = `use ${String(at)} of ${Formatter.format(k)}`
 			yield* session.begin
-			const before = yield* stoodOf(session, carrier.name)
+			const before = yield* stoodOf(session, sessionTable)
 			yield* session.query(emptying, [])
-			const stood = yield* stoodOf(session, carrier.name)
+			const stood = yield* stoodOf(session, sessionTable)
 			if (Option.isNone(stood)) {
-				return yield* new Emptied({ message: `the stand-up made no carrier, ${where}` })
+				return yield* new Emptied({ message: `the stand-up made no session table, ${where}` })
 			}
 			const after = stood.value
 			const held = Number(
 				(yield* session.values(
-					`SELECT count(*) FROM pg_temp.${quoteIdent(carrier.name)}`,
+					`SELECT count(*) FROM pg_temp.${quoteIdent(sessionTable)}`,
 					[]
 				))[0]?.[0]
 			)
@@ -180,14 +183,14 @@ export const runUses = (session: RawSession, k: Uses, c: Case<SessionTableFeatur
 					c.note(was.heap > sessionTableKeptBytes ? "outgrew its heap" : "outgrew its TOAST table")
 					if (after.filenode === was.filenode || after.heap !== 0 || after.toast !== 0) {
 						return yield* new Emptied({
-							message: `a carrier past what it keeps (${Formatter.format(was)}) kept its file or a page (${Formatter.format(after)}), ${where}`
+							message: `a session table past what it keeps (${Formatter.format(was)}) kept its file or a page (${Formatter.format(after)}), ${where}`
 						})
 					}
 				} else {
 					c.note("kept its file")
 					if (after.filenode !== was.filenode) {
 						return yield* new Emptied({
-							message: `a carrier within what it keeps (${Formatter.format(was)}) got a new file (${Formatter.format(after)}), ${where}`
+							message: `a session table within what it keeps (${Formatter.format(was)}) got a new file (${Formatter.format(after)}), ${where}`
 						})
 					}
 				}
@@ -197,12 +200,12 @@ export const runUses = (session: RawSession, k: Uses, c: Case<SessionTableFeatur
 			}
 			if (after.heap > sessionTableKeptBytes || after.toast > sessionTableKeptBytes) {
 				return yield* new Emptied({
-					message: `the emptying left the carrier past what it keeps (${Formatter.format(after)}), ${where}`
+					message: `the emptying left the session table past what it keeps (${Formatter.format(after)}), ${where}`
 				})
 			}
 			const rows = rowsOf(use.width, use.fill)
 			if (rows > 0) {
-				yield* session.query(fillSql(carrier.name, use.width, rows), [])
+				yield* session.query(fillSql(sessionTable, use.width, rows), [])
 			}
 			yield* use.end === "commit" ? session.commit : session.rollback
 		}

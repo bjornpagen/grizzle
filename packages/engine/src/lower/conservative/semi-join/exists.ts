@@ -1,19 +1,20 @@
-import { postorder } from "@bjornpagen/grizzle-text/base/graph"
-import { inputsOf, type NodeOf, type RelNode } from "#compiler/ir/rel.ts"
+import type { NodeOf, RelNode } from "#compiler/ir/rel.ts"
 import {
+	type ColumnEqualities,
+	type ColumnMap,
 	columnIn,
 	type Env,
 	extendEnv,
 	headingTargets,
-	type InputSource,
 	type LowerContext,
-	refuse
+	refuse,
+	withLeading
 } from "#compiler/lower/conservative/context.ts"
-import { fencedRead } from "#compiler/lower/conservative/step/index.ts"
+import { headingRead } from "#compiler/lower/conservative/step/index.ts"
 import type { ConservativeOptions } from "#compiler/lower/conservative/types.ts"
-import { restrictedByKeys, restrictedWithin } from "#compiler/lower/optimize/cte-policy/index.ts"
+import { rightPerLeftRow } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
-import type { Expr, FromSource, Select } from "#compiler/sql/ast.ts"
+import type { Cte, Expr, OperandSelect, Select } from "#compiler/sql/ast.ts"
 import {
 	conjunction,
 	exists,
@@ -24,7 +25,6 @@ import {
 	target,
 	types
 } from "#compiler/sql/build.ts"
-import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 
 /**
  * The existence test shared by SemiJoin and AntiJoin: the left input filtered by EXISTS or NOT EXISTS
@@ -37,10 +37,13 @@ import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
  * feedback is negation of the current fixed point, refused by recursive/ before the step is lowered and
  * here again for any path that reaches this point.
  *
- * A right side read per left row (`readPerLeftRow`) is a step correlated inside it: its rows at the left row, the
- * join's equalities inside the step as outer references and the test's own condition empty, read apart by the one
+ * A right side read per left row (cte-policy rightPerLeftRow) is a step correlated inside it: its rows at the left row,
+ * the join's equalities inside the step as outer references and the test's own condition empty, read apart by the one
  * printer of a step (lower/conservative/step fencedRead), `[NOT] EXISTS (SELECT 1 FROM (SELECT … FROM (<right>) AS r
- * WHERE r.k = l.k OFFSET 0) AS s)`. PostgreSQL never pulls a sublink whose FROM reads the outer query up into a join
+ * WHERE r.k = l.k OFFSET 0) AS s)`, the right side lowered where `atLeftRow` places it at the left row's values (the
+ * optimized lowering's restriction walk, lower/shapes/semi-join atRowWalk, each node it reaches lowered there at them,
+ * never read from a set the statement derives once; the conservative lowering's, where it stands, a lowering that
+ * derives nothing once). PostgreSQL never pulls a sublink whose FROM reads the outer query up into a join
  * (src/backend/optimizer/plan/subselect.c convert_EXISTS_sublink_to_join: past its WHERE, a sub-select that refers to a
  * Var of the parent query is refused, :1681 at REL_19_0), so the test is a subplan PostgreSQL plans once, its right
  * side planned apart with the join columns fixed as parameters, and runs per left row. In a bare EXISTS it pulls such a
@@ -48,17 +51,18 @@ import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
  * left side's: on edullm's ledger grade write (KDL-runtime, grizzle 3821324d3), an anti-join on six key columns over a
  * right side of 56 relations planned in 17 s, and the statement's 32 such reads past 8.5 minutes and 43.8 GB,
  * find_param_path_info its time. Navigation decides the same read of a rule statement's relational filters on the IR
- * (analysis/theory/navigate.ts `#filtered`, a Step node); this test decides it at lowering for every other existence,
- * because a semi-join's right side reads nothing of its left (ir/rel.ts SemiJoinRight, on which the key kernel's
- * semi-join facts rest), so no IR Step can carry the join's equalities into it, and because two of the facts it reads
- * are the lowering's: whether the statement derives the right side once, and what the statement is for.
+ * (analysis/theory/navigate.ts `#filtered`, a Step node); this test decides it on the IR too, at lowering for every
+ * other existence, because a semi-join's right side reads nothing of its left (ir/rel.ts SemiJoinRight, on which the
+ * key kernel's semi-join facts rest), so no IR Step can carry the join's equalities into it; what the statement is for
+ * (`readsWhole`) is the lowering's.
  */
 export const existenceTest = (
 	cx: LowerContext,
 	env: Env,
 	node: NodeOf<"SemiJoin"> | NodeOf<"AntiJoin">,
 	at: string,
-	negated: boolean
+	negated: boolean,
+	atLeftRow: AtLeftRow
 ): Select => {
 	const feedback = cx.readsFeedback(node.right)
 	if (feedback && negated) {
@@ -71,80 +75,67 @@ export const existenceTest = (
 	const left = cx.source(node.left, env)
 	/** The right side sees the left's columns too: it may be correlated with them through outer references. */
 	const rightEnv = extendEnv(env, [[node.left.id, left.map]])
-	const correlated = cx.freeRefs(node.right).has(node.left.id)
-	/** Over the feedback the right side is joined; otherwise it is lowered inside its EXISTS. */
-	const right = feedback
-		? cx.sourceAs(node.right, rightEnv, correlated)
-		: cx.inSublink().source(node.right, rightEnv)
-	const on: Array<Expr> = node.on.map((p) =>
-		cx.equal(
-			columnType(node.heading, p.left),
-			columnIn(right.map, p.right),
-			columnIn(left.map, p.left)
-		)
-	)
 	const targets = headingTargets(node.heading, left.map)
+	/** The test's equalities over the right side's columns read through `right`. */
+	const onOf = (right: ColumnMap): ReadonlyArray<Expr> =>
+		node.on.map((p) =>
+			cx.equal(
+				columnType(node.heading, p.left),
+				columnIn(right, p.right),
+				columnIn(left.map, p.left)
+			)
+		)
 	if (feedback) {
-		return select(cx.setOf(node, targets, [left.item, right.item], conjunction(on)))
+		/** Over the feedback the right side is joined. */
+		const right = cx.sourceAs(node.right, rightEnv, cx.freeRefs(node.right).has(node.left.id))
+		return select(cx.setOf(node, targets, [left.item, right.item], conjunction(onOf(right.map))))
 	}
 	const one = [target(lit.int(1, types.integer))]
-	const witness = readPerLeftRow(cx, node, right)
-		? simpleSelect(
+	const perRow = readsWhole(cx.options.subject) ? undefined : rightPerLeftRow(node)
+	const witness = ((): OperandSelect => {
+		if (perRow === undefined) {
+			const right = cx.inSublink().source(node.right, rightEnv)
+			return simpleSelect(one, [right.item], conjunction(onOf(right.map)))
+		}
+		const placed = atLeftRow(
+			node.right,
+			rightEnv,
+			perRow.map((p) => ({ column: p.right, value: columnIn(left.map, p.left) }))
+		)
+		const right = cx.inSublink().source(node.right, placed.env)
+		return withLeading(
+			simpleSelect(
 				one,
 				[
 					cx.wrap(
-						fencedRead(headingTargets(node.right.heading, right.map), right.item, conjunction(on)),
+						headingRead(node.right.heading, right.map, right.item, conjunction(onOf(right.map))),
 						node.right.heading,
 						{ kind: "node", node: node.id }
 					).item
 				],
 				undefined
-			)
-		: simpleSelect(one, [right.item], conjunction(on))
+			),
+			placed.ctes
+		)
+	})()
 	return select(
 		cx.setOf(node, targets, [left.item], negated ? notExists(witness) : exists(witness))
 	)
 }
 
 /**
- * Whether an existence test reads its right side per left row, a step correlated inside it (existenceTest): a right side
- * that reads a stored relation (`readsStored`), whose join columns each restrict every relation it reads (cte-policy
- * restrictedByKeys), that the statement does not derive once (`derivedOnce`), in a statement that does not meet every
- * row of its left side (`readsWhole`), the right side one no value fixed where the test is evaluated restricts
- * (cte-policy restrictedWithin), the statement's or an outer row's, its own left row's aside. Each witness then reads
- * the right side's relations at the left row's values alone, its stored relations through the index the test's join
- * columns request (physical/access extract.ts), never the whole of it, whatever PostgreSQL estimates of either side: a
- * right side the write's restriction reaches only through its left side, which deriving it once would read all of
- * (cte-policy rule 5b). A scan of one stored relation is read so too: in a bare test PostgreSQL pulls it up into the
- * semi- or anti-join, whose method an estimate picks, and a hash join reads the relation at whatever the left side
- * fixes of it, the unit alone where the test's keys are a unit's and a row: rule-whole's Fanout tested each childless
- * node of a written document by a Hash Right Anti Join over a sequential scan of Node at the document, every stored
- * node read for the three it holds, once Node's document was declared at 1,024 rows on a table of 6,003. A right side
- * that reads no stored relation, only the statement's own sets (a delta, the call's input or context, a closed
- * relation's rows), stays in EXISTS, no index reading it per left row; so does a CTE's read, whose rows the statement
- * derives once whatever reads them; so does every test of a law's full violation query, whose tests a hash join of both
- * sides reads once; and so does a right side restricted where the test is evaluated, small derived once there, which a
- * probe of each left row would derive again for each: edullm's PERF-COMMIT submit at 100x read every processed attempt
- * against the call's previous attempts, a fold of its own 20 rows folded again for each of 1,650,480 rows (11.3 s),
- * where the 20 rows each probe the processed attempts' key once.
+ * Where an existence test lowers its right side read per left row (cte-policy rightPerLeftRow): `env` with the right
+ * side `node` at `restriction`, the left row's values of its join columns, and the CTEs the witness's query holds for
+ * the nodes under it read twice at them, defined at their first read (context.ts restrictedRead).
  */
-const readPerLeftRow = (
-	cx: LowerContext,
-	node: NodeOf<"SemiJoin"> | NodeOf<"AntiJoin">,
-	right: InputSource
-): boolean =>
-	!readsWhole(cx.options.subject) &&
-	!restrictedWithin(node.right, node) &&
-	readsStored(node.right) &&
-	restrictedByKeys(
-		node.right,
-		node.on.map((p) => p.right)
-	) &&
-	!derivedOnce(right)
+export type AtLeftRow = (
+	node: RelNode,
+	env: Env,
+	restriction: ColumnEqualities
+) => { readonly env: Env; readonly ctes: Iterable<Cte> }
 
-/** Whether a right side reads a stored relation, a Base, which an index reads at the test's join columns. */
-const readsStored = (right: RelNode): boolean =>
-	postorder([right], (n) => inputsOf(n)).some((n) => n.kind === "Base")
+/** A right side lowered where it stands: a lowering that derives no set once reads each node where it is read. */
+export const asItStands: AtLeftRow = (_, env) => ({ env, ctes: [] })
 
 /**
  * Whether a lowering's existence tests meet every row of their left sides: a law's full violation query, the migration's
@@ -163,21 +154,4 @@ const readsWhole = (subject: ConservativeOptions["subject"]): boolean => {
 		case "membership":
 			return false
 	}
-}
-
-/** Whether a lowered right side reads one relation, a CTE of the statement: a relation the statement derives once. */
-const derivedOnce = (right: InputSource): boolean => {
-	const read: Array<FromSource["kind"]> = []
-	if (right.item.kind !== "derived") {
-		return false
-	}
-	visitSelect(right.item.query, {
-		...inertVisitor,
-		fromItem: (item) => {
-			if (item.kind !== "derived" && item.kind !== "joins") {
-				read.push(item.kind)
-			}
-		}
-	})
-	return read.length === 1 && (read[0] === "cte" || read[0] === "enclosing")
 }

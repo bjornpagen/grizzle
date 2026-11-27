@@ -1,14 +1,13 @@
 /**
  * The attachment agreement (test/support/agreement/attachments.ts): every drawn attachment's stated delivery admitted
- * exactly where the engine proves it from the keys the types read, a closed relation's declared keys and never its facts
- * (declaredDelivery), and an arm exactly where the alternatives law makes it, each refusal under its directive at its
- * argument; where a closed relation's facts make a key its declaration does not, and the engine's one child per parent
- * rests on it, the types state an array and the engine proves more, the types stricter and never looser; and each
- * admitted attachment's records, of a snapshot read and of a read-back, the engine's decoded heading under the delivery
- * stated, a nested attachment's within its child's records. Each attachment is a block of one program a batch checks
- * disarmed. A read-back's delivery is one the engine proves in the transaction context. The witnesses reach every
- * delivery, refusal, proof and shape, a derived parent's and a nested attachment's among them, and a child over no level
- * of its parent's schema, which both refuse.
+ * exactly where the engine proves it from the keys the types read, a closed relation's declared keys and never its
+ * facts (declaredDelivery), each refusal under its directive at its argument; where a closed relation's facts make a
+ * key its declaration does not, and the engine's one child per parent rests on it, the types state an array and the
+ * engine proves more, the types stricter and never looser; and each admitted attachment's records, of a snapshot read
+ * and of a read-back, the engine's decoded heading under the delivery stated, a nested attachment's within its child's
+ * records. Each attachment is a block of one program a batch checks disarmed. A read-back's delivery is one the engine
+ * proves in the transaction context. The witnesses reach every delivery, refusal, proof and shape, a derived parent's
+ * and a nested attachment's among them, and a child over no level of its parent's schema, which both refuse.
  */
 import { assert } from "@bjornpagen/testing/assert"
 import { property, ReplayToken } from "@bjornpagen/testing/property"
@@ -41,26 +40,18 @@ export const attachments = agreement(attachAimed, {
 	kept: [
 		{
 			token: ReplayToken(
-				"test/types/evidence/attachments.test.ts#attachments:-:4.1.0.0.0.0.1.0.0.1.0.1.0.0.0.0.0.0.0.2.0.1.0.1.1.1.1.1.2"
+				"test/types/evidence/attachments.test.ts#attachments:-:4.1.0.0.0.0.1.0.0.1.0.1.0.0.0.0.0.0.0.2.0.1.0.1.1.1.1.2"
 			),
 			reason:
-				"a self-join parent, peer's match binding `id: own.id`, and a child stated one that counts Task at `id: p.id` under `r.le(child.account, p.peerAccount)`: the engine proves it from peer's scan, whose fact holds both p.id and p.peerAccount, where the types gave p.id an origin in own's scope alone and found the child's parent variables of two scopes (a full test/types run at 463e57274)",
+				"a self-join parent, peer's match binding `id: own.id`, and a child stated one that counts Task at `id: p.id` under `r.le(child.account, p.peerAccount)`: the engine proves it from peer's scan, whose fact holds both p.id and p.peerAccount, where the types gave p.id an origin in own's scope alone and found the child's parent variables of two scopes (a full test/types run at 463e57274; its tape restated without the arm coin a stated delivery drew, which 271ffecf2's deletion of arm(field, handle) took out)",
 			since: "2026-11-19"
 		},
 		{
 			token: ReplayToken(
-				"test/types/evidence/attachments.test.ts#attachments:204b038.5:0.0.0.0.0.0.0.0.1.0.0.1.0.0.0.1"
+				"test/types/evidence/attachments.test.ts#attachments:100.8:6.1.0.1.0.1.0.0.1.0.1.1.1.1.2.1"
 			),
 			reason:
-				"a self-join parent sharing id, its head both scopes' kind, and an arm child keyed by `task: p.id` stated with the other handle: the arm claim reads the discriminator of the key field's own scope, where an origin of p.id in both scopes found two discriminators and refused the field instead of the handle (a draft of the self-join's held scopes)",
-			since: "2026-11-19"
-		},
-		{
-			token: ReplayToken(
-				"test/types/evidence/attachments.test.ts#attachments:2000.d:7.1.0.1.0.1.0.0.1.0.1.1.1.1.1.2.1"
-			),
-			reason:
-				"a parent over AccountTally, Tallies' live derived relation of each account's task count, its child the Account its account keys, stated one: no law touches a derived relation, so Account's key proves at most one child per tally and the stated one is refused by the engine as by the types, where the engine read a live derived relation as an import of its definition and proved the child one from Task.account's containment into Account through it, a proof a stored AccountTally never gave (TEST_SEED=2219874524, trunk red since e1b52df00 made AccountTally live)",
+				"a parent over AccountTally, Tallies' live derived relation of each account's task count, its child the Account its account keys, stated one: no law touches a derived relation, so Account's key proves at most one child per tally and the stated one is refused by the engine as by the types, where the engine read a live derived relation as an import of its definition and proved the child one from Task.account's containment into Account through it, a proof a stored AccountTally never gave (TEST_SEED=2219874524, trunk red since e1b52df00 made AccountTally live; its token restated at 271ffecf2, which deleted the arm intent, the arm coin a stated delivery drew and the arm requirements, so derived is intent 6 and one into a closed relation requirement 8)",
 			since: "2026-11-24"
 		}
 	],
@@ -113,8 +104,8 @@ export const readBackDelivery = property.explore(attachCases, {
 	kills: [
 		{
 			file: "packages/engine/src/scalar/compute/evaluate.ts",
-			original: "!member.value",
-			replacement: "member.value",
+			original: "\tif (!member.value) {",
+			replacement: "\tif (member.value) {",
 			why: "Operator mutant bc066f6b77 at packages/engine/src/scalar/compute/evaluate.ts:1357 in refined: `!member.value` becomes `member.value`; the property fails (the census, lane TESTPOLICY2)."
 		}
 	]

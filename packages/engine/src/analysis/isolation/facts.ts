@@ -15,7 +15,7 @@ import type { OnUpdate } from "#compiler/ir/law.ts"
  * triggers that read it (laws/model/model.ts triggerLawsOver), each with its witnesses (TriggerLaw), none where every
  * law over it is native (a key, a CHECK, a domain or a foreign key); its declared keys, its primary key and each UNIQUE
  * PostgreSQL enforces, by their columns' texts (ir/law.ts columnKey): a field by its name, and a column a law
- * adds (an alternatives arm's or a selected side's term, a family's drawn index) by its identifier, which starts with
+ * adds (a selected side's term, a family's drawn index) by its identifier, which starts with
  * `__` as no declared name does, so a key over law columns is a key like any other, which no read of fields alone
  * binds whole; its counted groups, each by its key's fields: the members, under one value of the key, of a family whose
  * immutable owner holds their count (a counted, ordered or fin family), a set the count law fixes once the owner is

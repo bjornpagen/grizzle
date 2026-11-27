@@ -54,9 +54,9 @@ const armBody = (
 	restriction: ColumnEqualities
 ): SelectCore => {
 	const source = cx.source(arm, env)
-	const targets = armTargets(cx, heading, source.map)
+	const targets = armTargets(cx, heading, arm, source.map)
 	/** An arm that holds the restriction itself (context.ts heldIn) is read at the values already. */
-	const where = heldIn(env, arm)
+	const where = heldIn(env, arm, restriction)
 		? undefined
 		: conjunction(equalitiesOver(cx, heading, source.map, restriction))
 	return form === "certified"
@@ -164,9 +164,9 @@ export const keyedUnion = (
 		const source = cx.source(only, env)
 		const targets =
 			node.groups.length > 1
-				? armTargets(cx, node.heading, source.map)
+				? armTargets(cx, node.heading, only, source.map)
 				: headingTargets(node.heading, source.map)
-		const where = heldIn(env, only)
+		const where = heldIn(env, only, restriction)
 			? undefined
 			: conjunction(equalitiesOver(cx, node.heading, source.map, restriction))
 		switch (form) {
@@ -210,7 +210,7 @@ export const armBoundedUnion = (
 	const arms = mapNonEmpty(union.groups, (g) =>
 		mapNonEmpty(g.arms, (node) => {
 			const source = cx.source(node, env)
-			return { node, source, ...armColumns(cx, union.heading, source.map) }
+			return { node, source, ...armColumns(cx, union.heading, node, source.map) }
 		})
 	)
 	const k = limit()

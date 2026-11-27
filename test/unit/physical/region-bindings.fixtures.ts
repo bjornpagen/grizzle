@@ -13,10 +13,14 @@ import { callCounts } from "#test/support/kernel/calls.ts"
 const widths = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16] as const
 
 /**
- * One case: a region of `width` occurrences of Task chained by their columns, the i-th binding its `id` to the variable
- * x‹i› and its `account` to x‹i+1›, so each variable but the ends is a class of two bindings at two occurrences, a join
- * (physical/access/extract.ts regionFacts `relate`); or of Task alone each binding `account` to one shared variable,
- * one class of every binding.
+ * One case: a region of `width` occurrences of Task chained by the columns no key of it holds, each next one joined to
+ * the one before it at `account` and at `kind` in turn, the i-th binding its `account` to a‹⌊i/2⌋› and its `kind` to
+ * k‹⌊(i+1)/2⌋›, its `id` to a variable of its own, so each variable but the ends is a class of two bindings at two
+ * occurrences, a join (physical/access/extract.ts regionFacts `relate`), and no occurrence reaches another by its key:
+ * a region no chain reads, which PostgreSQL joins, and whose facts the extraction reads. A chain by the key, the i-th
+ * binding its `id` to the variable its predecessor's `account` binds, is read from its root (cte-policy rootChain), its
+ * steps' paths asked of the chain alone and no facts read. Or of Task alone each binding `account` to one shared
+ * variable, one class of every binding.
  */
 export interface Region {
 	readonly shape: "chained" | "shared"
@@ -41,7 +45,7 @@ const regionAt = (r: Region, width: number) => {
 		source: q.base("Task"),
 		bind:
 			r.shape === "chained"
-				? { id: `x${at}`, account: `x${at + 1}` }
+				? { id: `t${at}`, account: `a${Math.floor(at / 2)}`, kind: `k${Math.floor((at + 1) / 2)}` }
 				: { id: `t${at}`, account: "account" },
 		constants: {}
 	}))
@@ -60,7 +64,13 @@ export type Work = "classes" | "carriers"
 const extractionWork = (r: Region, width: number, work: Work): Effect.Effect<number> =>
 	Effect.map(
 		callCounts(
-			Effect.sync(() => extractAccess(regionAt(r, width).dag.roots, { pageable: [] })),
+			Effect.sync(() =>
+				extractAccess(regionAt(r, width).dag.roots, {
+					pageable: [],
+					keyOrders: () => [],
+					worlds: () => undefined
+				})
+			),
 			{
 				classes: { file: "packages/engine/src/physical/access/extract.ts", name: "classOfVar" },
 				carriers: { file: "packages/engine/src/ir/scalar.ts", name: "baseOf" }

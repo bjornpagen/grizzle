@@ -189,7 +189,7 @@ const keyedOf = (
 		(f) => !stamped.some((s) => s.field.name === f.name)
 	)
 	if (first === undefined) {
-		throw defect(`the key of ${relation.name} beyond its stamped fields, its stamps' child`)
+		defect(`the key of ${relation.name} beyond its stamped fields, its stamps' child`)
 	}
 	return [first, ...rest]
 }
@@ -224,16 +224,13 @@ const carriedStamps = (family: Family, owned: ReadonlyArray<Stamped>): ReadonlyA
 		const child = mapNonEmpty(stamp.child, (c) => {
 			const paired = family.group.find((g) => g.owner.name === c.name)
 			if (paired === undefined) {
-				throw defect(
+				defect(
 					`the member field of ${family.member.name} its group pairs with ${family.owner.name}.${c.name}, a stamp's child`
 				)
 			}
 			return paired.member
 		})
-		return carriers.map((field) => ({
-			field,
-			stamp: { kind: "head" as const, head: stamp.head, child }
-		}))
+		return carriers.map((field) => ({ field, stamp: { ...stamp, child } }))
 	})
 
 /** The fields of a level a fact supplies: its caller's, but those its nesting supplies: a member's
@@ -258,7 +255,7 @@ const pendingOf = (fill: FillOrder, relation: string): ReadonlySet<ColumnKey> =>
 			.flatMap((family) => {
 				const layout = fill.layouts.get(layoutKey(relation, { kind: "member", family }))
 				if (layout === undefined) {
-					throw defect(`the layout of ${relation} as a member of ${familyKey(family.id)}`)
+					defect(`the layout of ${relation} as a member of ${familyKey(family.id)}`)
 				}
 				return layout.columns.flatMap((c) =>
 					c.writer.kind === "counted" && familyKey(c.writer.family.id) === familyKey(family.id)
@@ -280,7 +277,7 @@ const walkedAt = (
 ): ReadonlySet<ColumnKey> => {
 	const layout = fill.layouts.get(layoutKey(relation.name, position))
 	if (layout === undefined) {
-		throw defect(`the layout of ${relation.name} where a nesting writes its rows`)
+		defect(`the layout of ${relation.name} where a nesting writes its rows`)
 	}
 	return new Set([
 		...relation.primaryFields.map((f) => columnKeyOf(f.name)),
@@ -358,7 +355,7 @@ const fillingLaw = (
 		case "start":
 		case "end":
 		case "generated":
-			throw defect(
+			defect(
 				`a ${rule.kind} column ${column.name} reading a stamped one, which its stamps carry or no rule of its reads`
 			)
 	}

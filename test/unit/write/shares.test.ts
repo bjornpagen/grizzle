@@ -8,7 +8,7 @@
  * and each one's facts and bytes, never a collected heap's reading, whose timing the machine's load moves.
  */
 import { assert } from "@bjornpagen/testing/assert"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
 import { writeBatching } from "#compiler/runtime/write/transport.ts"
 import {
@@ -80,8 +80,12 @@ export const aCallOfManySharesOfFactsHoldsOnTheHostWhatACallOfOneShareHolds = pr
 
 /**
  * A call of learning-commons' families drawn in shares of whole groups fills every row as the whole call does: an
- * owner's ordered members, a tree's nodes and an area's counted members each in their owner's share, so every count,
- * end, slot and tree position the host draws is the whole call's.
+ * owner's ordered members, a tree's nodes and an area's counted members each in their owner's share, and a tree node's
+ * counted marks in the share of its tree, so every count, end, slot and tree position the host draws is the whole
+ * call's. qti-pie's import, pantry's Node trees and their Attributes, drawn in shares since PIN 3's admission rides the
+ * flight (write/program/admission.ts), had each Attribute keyed by its node's `start`, which no tree root's fact
+ * states, so a document's attributes went to shares apart from its tree, every node was inserted with an empty
+ * `attrs`, and AL3 refused a package that holds every required attribute (QP-PUBFACTS, the drill's choice package).
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
  */
@@ -90,7 +94,8 @@ export const aCallOfFamiliesDrawnInSharesOfWholeGroupsFillsEveryRowAsTheWholeCal
 		needs: {},
 		situations: [
 			"a call of several shares",
-			"a group past a share"
+			"a group past a share",
+			"a tree's nodes and their marks past a share"
 		] satisfies ReadonlyArray<GroupedFeature>,
 		check: (_, c: Case<GroupedFeature>) => (d: Grouped) =>
 			Effect.map(runGrouped(d, c), ({ whole, shared }) => {
@@ -104,13 +109,29 @@ export const aCallOfFamiliesDrawnInSharesOfWholeGroupsFillsEveryRowAsTheWholeCal
 			kind: "universal",
 			name: "every relation's rows the shares insert, as the host fills them, are the whole call's"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/write/shares.test.ts#aCallOfFamiliesDrawnInSharesOfWholeGroupsFillsEveryRowAsTheWholeCallDoes@small-stack:7.0:0.0.0.0.0"
+				),
+				reason:
+					"QP-PUBFACTS' refused import in miniature: two trees of three nodes, each node marked once, drawn in shares of 200 bytes. Keyed by the marks' (root, start), which no root's fact states, every mark went to a share apart from its tree, and each node was inserted with no marks and a weight of 0, as pantry's drill package's every Node was with an empty attrs, which AL3 refused (lvc-pin3-draft at grizzle 8aea9fea)",
+				since: "2026-11-26"
+			}
+		],
 		kills: [
 			{
 				file: "packages/grizzle/src/adapter/apply/shares.ts",
-				original: "\tconst families = familySlots(program)",
-				replacement: "\tconst families: ReadonlyArray<FamilySlots> = []",
+				original: "\tconst holders = holdersBySlot(program)",
+				replacement: "\tconst holders = new Map<string, ReadonlyArray<FamilyHolder>>()",
 				why: "An area and its counted members are drawn as facts of their own, so a share holds an area with some of its members, and the host counts it at those alone."
+			},
+			{
+				file: "packages/engine/src/write/program/decide.ts",
+				original:
+					'\t\tpairs.map((g) => defined(held.get(g[side].name), "a pair every holder holds"))',
+				replacement: "\t\tfamily.group.map((g) => g[side].name)",
+				why: "A family's facts are keyed by every field of its group, each by its own name, whether the fact holds it or not, as before QP-PUBFACTS: a tree root's fact holds no node's start, so a node's marks go to shares apart from its tree, and the node is inserted with no marks and a weight of 0."
 			}
 		]
 	})

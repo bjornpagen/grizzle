@@ -11,6 +11,7 @@ import type { MonoidName, SideDesc, SlotsDesc } from "#compiler/ir/desc.ts"
 /** One side of a law as an outcome names it: its statement's side, as its Description states it (ir/desc.ts). */
 export type { SideDesc as LawSide } from "#compiler/ir/desc.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
+import type { VariantValue } from "#compiler/scalar/values/identity.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 import type { Vector } from "#compiler/scalar/values/vector.ts"
@@ -71,7 +72,6 @@ import type {
 	HigherLevel,
 	IsLevelOf,
 	IsRelationOf,
-	LevelPhantom,
 	LevelsOf,
 	MutableNameOf,
 	NameIn,
@@ -828,7 +828,7 @@ export interface ChangeSetOf<
 			readonly paramsInvariant: Invariant<Params>
 			readonly writes: Writes
 			readonly contexts: Cx
-			readonly schema: LevelPhantom<S>
+			readonly schema: Invariant<S>
 			readonly strata: readonly [...Done, Last]
 			readonly arrays: (members: Arrays) => void
 		}> {
@@ -2001,8 +2001,9 @@ export interface ChangeSetConstructor {
 }
 
 /**
- * A key value a witness may carry: a vector field may be a key field, and a digest's 32 bytes (public/fields.ts Sha256),
- * which a key holds by content, its key text its one text (core/digest.ts sha256Text).
+ * A key value a witness may carry: a vector field may be a key field, a digest's 32 bytes (public/fields.ts Sha256),
+ * which a key holds by content, its key text its one text (core/digest.ts sha256Text), and a variant's value, its arm's
+ * handle and that arm's fields (scalar/values/identity.ts VariantValue).
  */
 export type KeyHost =
 	| string
@@ -2016,6 +2017,7 @@ export type KeyHost =
 	| Span<CalendarDate>
 	| Vector
 	| Uint8Array
+	| VariantValue
 
 /**
  * What a law's refusal names: the violating fact's key, or why it names none.
@@ -2024,11 +2026,16 @@ export type KeyHost =
  *   the key you submitted, in the fields you wrote it in, a collision with a fact outside the written entry included. A
  *   deferred foreign key's refusal at COMMIT names the primary key of the least row it leaves unmatched, which the
  *   write's statements sent again in a transaction that rolls back leave (README "Errors and outcomes", Witness).
+ * - `drawn`: one violating fact's relation and its key, where the database draws a field of that key as its statement
+ *   writes the row, which no host value holds: `values` the key's other fields, as `key` names them, and `drawn` each
+ *   drawn field by what draws it (DrawnBy), never a value guessed for it. A field the call computes is in `values`
+ *   wherever the host evaluates its term over the call, and a field grizzle draws, a tree's `start` or a member's
+ *   index, at the value the write draws.
  * - `unreported`: every law is a native constraint, and a violation PostgreSQL raised itself states its key only in
  *   its message, which the runtime neither forwards nor parses: where the host finds no row the ChangeSet states that
  *   breaks it, or cannot tell which of several did, as two family owners the write inserts without reading them, either
  *   of which may be a stored one inserted again; and a deferred foreign key's refusal at COMMIT on a table the write
- *   does not change, or one the role reads, or whose target it reads, through a query or scoped entry alone.
+ *   does not change, or one the role reads, or whose target it reads, through a query entry alone.
  * - `unreproduced`: a deferred foreign key refused the write at COMMIT, and the write's statements sent again in a
  *   transaction that rolls back left no row that key leaves unmatched: another transaction's commit changed the state
  *   between the two, so the key the refusal met is gone, and none is guessed.
@@ -2039,19 +2046,36 @@ export type Witness =
 			readonly relation: string
 			readonly values: Readonly<Record<string, KeyHost>>
 	  }
+	| {
+			readonly kind: "drawn"
+			readonly relation: string
+			readonly values: Readonly<Record<string, KeyHost>>
+			readonly drawn: Readonly<Record<string, DrawnBy>>
+	  }
 	| { readonly kind: "unreported" }
 	| { readonly kind: "unreproduced" }
 
 /**
+ * What supplies a key field the database writes and no host value holds (Witness `drawn`): `clock`, the database's
+ * clock, an instant it stamps as the insert adds its row (README "Instants") or a field the call computes from its
+ * reading of the clock, transaction_timestamp, one value a call; `place`, a place its insert stamps, one past its
+ * group's greatest (README "Places"); `call`, a field the call computes by a term over its parameters the host does not
+ * evaluate, which the statement evaluates.
+ */
+export type DrawnBy = "clock" | "place" | "call"
+
+/**
  * Which laws an `invariant-rejected` outcome names, each with its identity and the object that refused it (RefusedLaw),
- * and how grizzle decided them. `every`, `first` and `some` name only laws of the Db's own levels, PostgreSQL having
- * named one of them, and a table's CHECKs are its own levels' CHECKs, whatever a level above installs on it:
+ * and how grizzle decided them. Every list of them leaves the database in one order, its laws' identities in code point
+ * order, pg_c_utf8's (Bjorn's canonical-order ruling; adapter/witness/classify.ts canonicalRefusal), whatever order
+ * PostgreSQL reported or the host judged them in. `every`, `first` and `some` name only laws of the Db's own levels,
+ * PostgreSQL having named one of them, and a table's CHECKs are its own levels' CHECKs, whatever a level above installs
+ * on it:
  *
  * - `every`: what grizzle decides refused the write, each rule judged broken. For a CHECK that refused a row the
- *   ChangeSet states, every rule of that row's table's CHECKs the row breaks as the write fills it, each once, in the
- *   schema's canonical order of its rules (its primary keys', then its statements' in canonical order), whichever CHECK
- *   PostgreSQL tried first; for a domain that refused a value of a row the ChangeSet states, the rule of each column of
- *   that row it types whose value it refuses, in its columns' canonical order, where the host judges every such column;
+ *   ChangeSet states, every rule of that row's table's CHECKs the row breaks as the write fills it, each once, whichever
+ *   CHECK PostgreSQL tried first; for a domain that refused a value of a row the ChangeSet states, the rule of each
+ *   column of that row it types whose value it refuses, where the host judges every such column;
  *   for any other refusal, the one rule its PostgreSQL object discharges among those the statement can break (a
  *   domain's, of the columns it types in the tables the statement writes).
  * - `first`: a CHECK that refused a row the ChangeSet does not state, a row only PostgreSQL computes, as a query's, a
@@ -2063,7 +2087,7 @@ export type Witness =
  *   it, and a domain every rule of the columns it types in the tables the statement writes, where the host judges no
  *   stated row whole. Two rules at least: an object of one rule is `every`, so `some` never names a decided rule.
  * - `above`: PostgreSQL named an object of a level above the Db's own, which the Db's host holds no predicate of, and
- *   `above` is every law of those levels it serves, each once, in code point order of their identities: one where it
+ *   `above` is every law of those levels it serves, each once: one where it
  *   serves one, and where it serves several (a key's index under a count's fold and its family's counted law), at least
  *   one of them the row broke, as `some` says of the Db's own, and nothing is said of any other law above. `own` is what
  *   the host finds of its own levels' CHECKs on the rows the refused statement states of that table: `every`, `laws`,
@@ -2142,7 +2166,7 @@ export type RefusingObject =
  * - `contained`: a containment, a foreign key included, from its source side into its target side (a mirrors is two);
  * - `coverage`: a containment whose sides pair a span field, the source's span covered by the target's;
  * - `family`: an ordered or counted family, by its member side and its owner's slots: each owner's members indexed by
- *   exactly 0 … n − 1 (an alternatives law states plain containments, each a `contained` law);
+ *   exactly 0 … n − 1;
  * - `tree`: a tree, by its member side, its slots and its root fields: the rows of each value of its root fields one
  *   tree in pre-order;
  * - `fold`: a fold, by its family's slots, its monoid and its step and end sides: each owner's ends its members'
@@ -2153,6 +2177,10 @@ export type RefusingObject =
  *   field, so two fields of one language, which share one domain, are two laws, and a refusal names the field whose
  *   value broke it. A conjunction is one law, as its domain is one CHECK testing every pattern, which PostgreSQL
  *   refuses as a whole: no refusal tells which pattern a value missed;
+ * - `variant`: a stored field's variant (variant(...)), by its relation and field, with the variant's name: its value is a value of one of the
+ *   variant's arms, each field of that arm a value of its type, a contract's and a pattern's among them, and the arm's
+ *   check holding of it: one law per field, as a pattern's is, so a refusal names the field whose value broke it,
+ *   whichever domain PostgreSQL reports, the variant's own or the contract's or pattern's domain of an arm's field;
  * - `generated`: a generated field, by its relation and field: its term has a value at every row, which a closed read
  *   `C.at` at a key its closed relation holds no row at does not, so PostgreSQL refuses the row by the column's NOT NULL;
  * - `sealed`: a sealed unit's seal, sealed(unit(name, heading)), by the unit's name: every row of every relation under
@@ -2196,6 +2224,12 @@ export type StatedLaw =
 			readonly relation: string
 			readonly field: string
 			readonly patterns: Patterns
+	  }
+	| {
+			readonly kind: "variant"
+			readonly relation: string
+			readonly field: string
+			readonly variant: string
 	  }
 	| { readonly kind: "generated"; readonly relation: string; readonly field: string }
 	| { readonly kind: "sealed"; readonly unit: string }

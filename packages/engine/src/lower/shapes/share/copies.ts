@@ -8,7 +8,7 @@ import { maxStringLength, unwrap } from "#compiler/core/canonical.ts"
 import { DagDigests, DagTemplates, type OuterRead } from "#compiler/ir/dag-digest.ts"
 import { nodesByLabel } from "#compiler/ir/dag.ts"
 import { edgesOf, inputsOf, type RelNode, type ValidDag } from "#compiler/ir/rel.ts"
-import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { equalityIsIdentity } from "#compiler/ir/scalar.ts"
 import {
 	costClass,
 	type CtePlan,
@@ -80,15 +80,12 @@ export interface CopyPlan {
 export const noCopies: CopyPlan = { sites: new Map(), drivers: new Map() }
 
 /**
- * Whether a key is compared by equality as itself: no float, whose -0 and +0 equality makes one value, and no vector,
- * whose equality is the extension's. A site's region may bind its outer column from another source than its driver,
- * equal to the driver's by the region's equality, so the copy at the driver's value is the copy at the site's alone
- * where equal values are one.
+ * Whether a key is compared by equality as itself: its type's equality is identity (ir/scalar.ts equalityIsIdentity),
+ * no float, whose -0 and +0 equality makes one value. A site's region may bind its outer column from another source
+ * than its driver, equal to the driver's by the region's equality, so the copy at the driver's value is the copy at the
+ * site's alone where equal values are one.
  */
-const exactKey = (t: ScalarType): boolean => {
-	const carrier = baseOf(t).carrier
-	return carrier !== "float4" && carrier !== "float8" && carrier !== "vector"
-}
+const exactKey = equalityIsIdentity
 
 /** A site of a candidate class of copies: the copy, its driver, and each place's outer column and driver column. */
 interface CopyCandidate {
@@ -193,8 +190,8 @@ const drivenBy = (
  * (`realization`), their drivers' forms and realizations and the driver's column each place reads, each class of two
  * sites at least; classes highest first, none with a site under a site of a class taken before it, which that class's
  * one evaluation reads once. A node of no column is an existence test's right side, which its test reads where it
- * stands, per left row through the index its join columns request (lower/conservative/semi-join/exists.ts
- * readPerLeftRow), and carries nothing.
+ * stands, per left row through the index its join columns request (lower/optimize/cte-policy rightPerLeftRow), and
+ * carries nothing.
  */
 export const copyPlan = (
 	dag: ValidDag,
@@ -206,7 +203,7 @@ export const copyPlan = (
 	const demand = analyzeDemand(dag, noPins)
 	const feedback = feedbackReadsOf(nodeGraph, demand.order)
 	const labels = nodesByLabel(dag)
-	const digests = new DagDigests(() => labels, maxStringLength, new DagTemplates())
+	const digests = new DagDigests(() => labels, maxStringLength, new DagTemplates("derivation"))
 	/**
 	 * Whether a node under `node` is held in the query of a holder outside it (cte-policy `sharedCorrelated`): its CTE is
 	 * entered in that holder's WITH, which a statement's CTE of the copy's evaluation cannot read.

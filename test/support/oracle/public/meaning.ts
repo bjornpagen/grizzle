@@ -12,7 +12,7 @@ import { fullAllenMask } from "#compiler/allen/mask.ts"
 import { completeStated } from "#compiler/check/complete.ts"
 import {
 	declaredKeys,
-	deliversFloat,
+	deliversNonIdentity,
 	groupedZeroed,
 	type MergeRule,
 	regionMatches,
@@ -47,14 +47,14 @@ import {
 } from "#compiler/ir/rel.ts"
 import {
 	baseOf,
-	isFloat,
+	equalityIsIdentity,
 	rosterOf,
 	type ScalarType,
-	sameScalarType,
-	spanCarrierOf
+	spanCarrierOf,
+	subsumes
 } from "#compiler/ir/scalar.ts"
 import { type LowerEnv, lowerTerm } from "#compiler/scalar/compute/lower.ts"
-import { canonicalZeroSpec, definedRangeOp } from "#compiler/scalar/compute/registry.ts"
+import { canonicalSpec, definedRangeOp } from "#compiler/scalar/compute/registry.ts"
 import { widening } from "#compiler/scalar/compute/types.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { AnalyzedPatterns } from "#compiler/text/refinement.ts"
@@ -233,18 +233,18 @@ class Translation {
 		this.#schema = schema
 	}
 
-	/** A float term's canonical zero, of its type (scalar/compute/registry.ts canonicalZeroSpec). */
-	canonicalZero(expr: ScalarExpr): ScalarExpr {
-		const spec = canonicalZeroSpec(expr)
+	/** A term's canonical form, of a type whose equality is no identity (scalar/compute/registry.ts canonicalSpec). */
+	canonical(expr: ScalarExpr): ScalarExpr {
+		const spec = canonicalSpec(expr)
 		if (spec === undefined) {
-			throw new Error("a canonical zero of a float")
+			throw new Error("a canonical form of a type whose equality is no identity")
 		}
 		return this.b.expr(spec)
 	}
 
 	/** Records a projection whose floats a merge may take, under `rule`: one of no float merges none. */
 	stateMerge(node: RelNode, rule: MergeRule): void {
-		if (node.kind === "ProjectSet" && deliversFloat(node)) {
+		if (node.kind === "ProjectSet" && deliversNonIdentity(node)) {
 			this.merges.set(node, { projection: node, rule, at: SourceLoc("a program's head", []) })
 		}
 	}
@@ -259,7 +259,7 @@ class Translation {
 			this.merges.set(arm.node, { ...merge, rule: { kind: "always" } })
 			return arm
 		}
-		if (!Arr.some(arm.heading, (c) => isFloat(c.type))) {
+		if (Arr.every(arm.heading, (c) => equalityIsIdentity(c.type))) {
 			return arm
 		}
 		return {
@@ -270,7 +270,10 @@ class Translation {
 				input: arm.node,
 				out: Arr.map(arm.heading, (c) => {
 					const column = this.col(arm.node, c)
-					return { name: c.name, expr: isFloat(c.type) ? this.canonicalZero(column) : column }
+					return {
+						name: c.name,
+						expr: equalityIsIdentity(c.type) ? column : this.canonical(column)
+					}
 				}),
 				heading: arm.heading
 			}),
@@ -361,7 +364,9 @@ class Translation {
 	/**
 	 * A scalar term lowered by src's scalar typing over `input`'s heading, whose columns are the term's variables, typed
 	 * as the builder types it (its nominal type): a Type.base or a widening cast emits no node of its own, so where the
-	 * node it reads still carries the contract or typmod the term drops, the column casts it.
+	 * node it reads still carries the typmod the term drops, the column casts it, and where the nominal type subsumes the
+	 * node's (ir/scalar.ts subsumes: a domain's base, a refined text's text) the column is the node as it stands, as the
+	 * checker's head column is (check/checker.ts #nominal): the IR builds no cast up to a type that subsumes its operand's.
 	 */
 	computed(
 		input: Built,
@@ -395,7 +400,7 @@ class Translation {
 			throw new Error(`a computed head key grizzle refuses: ${lowered.error.message}`)
 		}
 		const term = lowered.value
-		if (sameScalarType(term.expr.type, term.nominal)) {
+		if (subsumes(term.nominal, term.expr.type)) {
 			return { expr: term.expr, type: term.nominal }
 		}
 		const expr = this.b.expr({
@@ -431,6 +436,8 @@ class Translation {
 			keys: Arr.map(relation.keys, (k) => nonEmptyList(k, "a candidate key")),
 			relationKind: "relation",
 			generated: [],
+			unit: [],
+			determined: [],
 			heading
 		})
 		return { node: id, heading }
@@ -488,8 +495,9 @@ class Translation {
 			heading: edge.heading
 		})
 		const state: Heading = [columnOf("src", type), columnOf("dst", type)]
-		/** A recursion's state is what its recursive UNION merges across its iterations: a float its canonical zero. */
-		const merged = (e: ScalarExpr): ScalarExpr => (isFloat(type) ? this.canonicalZero(e) : e)
+		/** A recursion's state is what its recursive UNION merges across its iterations: a value of a non-identity type its
+		 * canonical form. */
+		const merged = (e: ScalarExpr): ScalarExpr => (equalityIsIdentity(type) ? e : this.canonical(e))
 		const edges = this.b.node({
 			loc: undefined,
 			meta: conservativeMeta,
@@ -1058,7 +1066,7 @@ class Translation {
 			return {
 				name,
 				type: c.type,
-				expr: zeroed(c, delivered) ? this.canonicalZero(column) : column
+				expr: zeroed(c, delivered) ? this.canonical(column) : column
 			}
 		}
 		const groupItem = (
@@ -1494,6 +1502,7 @@ const cellText = (v: Value, type: ScalarType): string => {
 			}
 			return String(code)
 		}
+		case "variant":
 		case "bool":
 		case "sha256":
 		case "bytes":

@@ -9,8 +9,13 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect } from "effect"
+import { Array as Arr, Effect, Order } from "effect"
 import { Db } from "#adapter/public/db.ts"
+import { quoteString } from "#compiler/core/text.ts"
+import {
+	immutableTriggerName,
+	immutableTruncateTriggerName
+} from "#compiler/physical/ddl/immutable.ts"
 import {
 	loggedIn,
 	secondWorkTemplate,
@@ -21,7 +26,8 @@ import {
 	workTemplate,
 	writtenAccounts
 } from "#test/pg/substrate/forms.fixtures.ts"
-import { Work } from "#test/support/fixtures/api/work.ts"
+import { Account, Work } from "#test/support/fixtures/api/work.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
 import { Served } from "#test/support/served-db.ts"
 import { testPoolMax } from "#test/support/substrate/connections.ts"
 import { connect } from "#test/support/substrate/session.ts"
@@ -37,8 +43,8 @@ export const freshInstalled = property.exhaust(finite(int(1, 4)), {
 		(rows) =>
 			Effect.gen(function* () {
 				const { substrate, value } = yield* work
-				yield* writtenAccounts(substrate.admin, value, rows)
-				yield* loggedIn(substrate, value)
+				yield* writtenAccounts(substrate.admin, value.installed, rows)
+				yield* loggedIn(substrate, value.installed)
 			}),
 	oracle: { kind: "specification", name: "a case's clone holds its template's installation alone" },
 	box: "every count of rows a case writes, one to four",
@@ -138,15 +144,54 @@ export const rolledBack = property.exhaust(finite(int(1, 4)), {
 					[[null]],
 					"a case's transaction holds no transaction id before the case writes"
 				)
-				yield* writtenAccounts(connection, value, rows)
+				const visited = yield* connection.queryValues(
+					"SELECT c.relname::text FROM pg_catalog.pg_class AS c WHERE c.relkind = 'r' AND c.relnamespace IN (SELECT oid FROM pg_catalog.pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema') AND NOT coalesce('autovacuum_enabled=false' = ANY (c.reloptions), false) ORDER BY 1",
+					[]
+				)
+				assert.deepEqual(
+					visited,
+					[],
+					"every table of a case's clone keeps autovacuum out (substrate.ts autovacuumOff), its sizes the case's alone"
+				)
+				const guards = yield* connection.queryValues(
+					`SELECT g.tgname::text FROM pg_catalog.pg_trigger AS g WHERE g.tgrelid = ${quoteString(namesOf(value.installed).table(Account))}::pg_catalog.regclass AND g.tgname IN (${quoteString(immutableTriggerName)}, ${quoteString(immutableTruncateTriggerName)}) ORDER BY 1`,
+					[]
+				)
+				assert.deepEqual(
+					guards,
+					Arr.map(
+						Arr.sort([immutableTriggerName, immutableTruncateTriggerName], Order.String),
+						(name) => [name]
+					),
+					"the closed table every case writes and the seat empties carries both its guards, the bracket around the seat's TRUNCATE (substrate.ts madeFresh) creating each again"
+				)
+				yield* writtenAccounts(connection, value.installed, rows)
 			}),
 	oracle: {
 		kind: "specification",
-		name: "a rolled-back case leaves its clone as its template, and holds no transaction id it did not write for"
+		name: "a rolled-back case leaves its clone as its template, holds no transaction id it did not write for, finds every table of its clone kept from autovacuum, and finds the closed table it writes, which the seat empties after each case, guarded"
 	},
 	box: "every count of rows a case writes, one to four",
 	kept: [],
 	kills: [
+		{
+			file: "test/support/substrate/substrate.ts",
+			original: "\t\t\t\t\t\t\t{ sql: autovacuumOff(cloneTables), params: [] },\n",
+			replacement: "",
+			why: "A clone's tables are left to autovacuum, as before: a VACUUM it starts on a table past its thresholds, every earlier case's rows dead and counted, writes the table's sizes into pg_class in place mid-case, and probe-share's judge read 384 rows at two shares against 192 at one under a 16-worker gate; the property fails, the clone's tables visited."
+		},
+		{
+			file: "test/support/substrate/replace.ts",
+			original: "\t\tbracket.before,\n",
+			replacement: "",
+			why: "The seat's reset TRUNCATEs outside the guard bracket: a closed relation's TRUNCATE guard refuses it (Account, which every case writes), so the clone cannot be reset and the property fails."
+		},
+		{
+			file: "test/support/substrate/replace.ts",
+			original: "\t\tbracket.after,\n",
+			replacement: "",
+			why: "The seat's reset lifts the guards of the closed tables it empties and never creates them again: the next case finds Account unguarded, its rows open to UPDATE, DELETE and TRUNCATE; the property fails."
+		},
 		{
 			file: "test/support/substrate/substrate.ts",
 			original:
@@ -191,9 +236,9 @@ export const served = property.exhaust(finite(int(1, 4)), {
 		{
 			file: "packages/engine/src/physical/install/compile.ts",
 			original:
-				"\t\t\t\tconst domains = [\n\t\t\t\t\tb.names.digestDomain,\n\t\t\t\t\t...rosters.flatMap((r) =>\n\t\t\t\t\t\tr.bits === undefined ? [r.domain.name] : [r.domain.name, r.bits.domain.name]\n\t\t\t\t\t),\n\t\t\t\t\t...addTextDomains(b, plan.textPlans),\n\t\t\t\t\t...addContractDomains(b),\n\t\t\t\t\t...addOutsideContractDomains(b, plan.outsideContracts)\n\t\t\t\t]",
+				"\t\tconst domains = [\n\t\t\tb.names.digestDomain,\n\t\t\t...rosters.flatMap((r) =>\n\t\t\t\tr.bits === undefined ? [r.domain.name] : [r.domain.name, r.bits.domain.name]\n\t\t\t),\n\t\t\t...addTextDomains(b, plan.textPlans),\n\t\t\t...addContractDomains(b),\n\t\t\t...addOutsideContractDomains(b, plan.outsideContracts),\n\t\t\t...variants.map((v) => v.domain)\n\t\t]",
 			replacement:
-				"\t\t\t\tconst domains = [b.names.digestDomain, ...addTextDomains(b, plan.textPlans), ...addContractDomains(b), ...addOutsideContractDomains(b, plan.outsideContracts)]",
+				"\t\tconst domains = [b.names.digestDomain, ...addTextDomains(b, plan.textPlans), ...addContractDomains(b), ...addOutsideContractDomains(b, plan.outsideContracts), ...variants.map((v) => v.domain)]",
 			why: "Operator mutant (element) at packages/engine/src/physical/install/compile.ts:440 in installationOver: `[\n\t\t\t\t\t...rosters.flatMap((r) =>\n\t\t\t\t\t\tr.bits === undefined ? [r.domain.name] : ` becomes `[...addTextDomains(b, plan.textPlans), ...addContractDomains(b), ...addOutsideCo`; the property fails (lane CATCH, grizzle 0baff5d6)."
 		}
 	]
@@ -211,7 +256,7 @@ export const oneOfTemplates = property.exhaust(finite(oneOfCase), {
 		([key, rows]) =>
 			Effect.gen(function* () {
 				const { substrate, value } = yield* work[key]
-				yield* writtenAccounts(substrate.admin, value, rows)
+				yield* writtenAccounts(substrate.admin, value.installed, rows)
 			}),
 	oracle: {
 		kind: "specification",

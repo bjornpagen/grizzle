@@ -173,8 +173,8 @@ const entryGen: Gen<Entry> = weighted<Entry>([
 const f8 = (value: number) => D.typedLit(value, Q.double)
 
 /** The lab's options with every attachment's parents whole, and with them a bound set. */
-const whole: CatalogOptions = { ...labOptions, parents: "whole" }
-const bound: CatalogOptions = { ...labOptions, parents: "bound" }
+const whole: CatalogOptions = { ...labOptions(), parents: "whole" }
+const bound: CatalogOptions = { ...labOptions(), parents: "bound" }
 
 /** The composition an entry is, as queries.ts writes it. */
 export const descOf = (entry: Entry): QueryDesc => {
@@ -235,14 +235,14 @@ export const descOf = (entry: Entry): QueryDesc => {
 export const optionsOf = (entry: Entry): CatalogOptions => {
 	switch (entry.kind) {
 		case "attached neighbor":
-			return entry.path === "ordered" ? whole : labOptions
+			return entry.path === "ordered" ? whole : labOptions()
 		case "as-of":
 			return entry.attached
 				? entry.path === "ordered"
 					? whole
-					: labOptions
+					: labOptions()
 				: entry.path === "ordered"
-					? labOptions
+					? labOptions()
 					: bound
 		case "ordinal":
 		case "running":
@@ -252,7 +252,7 @@ export const optionsOf = (entry: Entry): CatalogOptions => {
 		case "discrete percentile":
 		case "continuous percentile":
 		case "mode":
-			return labOptions
+			return labOptions()
 	}
 }
 

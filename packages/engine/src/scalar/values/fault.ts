@@ -341,6 +341,9 @@ const valueFaults: { readonly [F in ValueFault]: string } = {
 	vectorNorm: `a vector whose native norm lies in the cosine domain [${cosineNormMin}, ${cosineNormMax}]`,
 	searchDocumentForm: `a search document as PostgreSQL prints it (tsvectorout): its lexemes quoted, each once in ascending byte order, its positions ascending within a lexeme, each at most ${searchPositionMax} and at most ${searchPositionsMax} of them; a text tsvectorin would store as another document is refused`,
 	searchDocumentSize: `a search document tsvectorin holds: each lexeme at most ${searchLexemeMaxBytes} UTF-8 bytes, its lexemes and positions at most ${textSearchStringMaxBytes} bytes`,
+	variantType:
+		"a variant value: a plain object of its arm's handle as `tag` and exactly that arm's fields, none NULL",
+	variantTag: "a variant value whose `tag` is the handle of one of its arms, the arm it holds",
 	factShape: "a fact: a plain object with exactly the heading's fields"
 }
 

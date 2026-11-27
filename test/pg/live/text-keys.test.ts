@@ -49,7 +49,12 @@ import { standingOn } from "#test/support/live/standing.ts"
 import { printKeyed, sameKeyed } from "#test/support/live/values.ts"
 import { probeAtMember } from "#test/support/live/world.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
-import { Substrate, worldSession, baseSubstrate } from "#test/support/substrate/substrate.ts"
+import {
+	baseSubstrate,
+	claimsOfNoFact,
+	Substrate,
+	worldSession
+} from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify, tokenOf } from "#test/support/worlds.ts"
 
@@ -103,7 +108,9 @@ export const aStoredTextsLiveReadersHearTheCommitThatWritesItByteForByteALeading
 							defined(generated.served.get(login), `the served file of ${login}`),
 							login
 						)
-						const writer = yield* substrate.session(worldSession(installed.world(book.world.app)))
+						const writer = yield* substrate.session(
+							worldSession(installed.world(book.world.app), claimsOfNoFact)
+						)
 						const layerOf = sourcedDbLayer(installed, {
 							...clusterConnection(
 								installed.cluster,

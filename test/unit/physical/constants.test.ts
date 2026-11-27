@@ -214,9 +214,9 @@ export const rosterAndClosedConstantsDomainsThatAdmitExactlyTheLiveCodesNamesTha
 			},
 			{
 				file: "packages/engine/src/ir/codes.ts",
-				original: "\t\t}\n\t}",
+				original: "\t\t\tsetBit(digits, code)\n\t\t}\n\t}",
 				replacement:
-					"\t\t}\n\t}\n\tfor (let code = codec.names.length; code < codec.width; code++) {\n\t\tsetBit(digits, code)\n\t}",
+					"\t\t\tsetBit(digits, code)\n\t\t}\n\t}\n\tfor (let code = codec.names.length; code < codec.width; code++) {\n\t\tsetBit(digits, code)\n\t}",
 				why: "A roster's live constant sets its padding bits."
 			}
 		]

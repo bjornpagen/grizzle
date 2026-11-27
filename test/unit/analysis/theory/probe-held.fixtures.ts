@@ -4,7 +4,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { exact } from "@bjornpagen/testing/oracle"
 import { Array as Arr, Option, Record as Rec } from "effect"
-import { probeRows } from "#compiler/analysis/theory/query.ts"
+import { clockOrders, probeRows, proofsOf } from "#compiler/analysis/theory/query.ts"
 import type { InferredExpr, InferredQuery, InferredRule } from "#compiler/ir/desc.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -193,7 +193,11 @@ export const judged = (shape: Shape, note: (f: Feature) => void): void => {
 						probedRule(rule.rule),
 						rel.name,
 						"added",
-						artifacts.laws.theory.regionFacts.containments,
+						proofsOf(
+							artifacts.laws.theory.regionFacts,
+							(relation) => artifacts.laws.theory.relations[relation],
+							clockOrders(artifacts.laws.theory.instants)
+						),
 						rule.law.loc
 					)
 		for (const within of read) {

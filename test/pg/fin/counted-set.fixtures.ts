@@ -28,8 +28,7 @@ import { str } from "#compiler/public/text.ts"
 import { int4, setOf, Tag } from "#test/pg/fin/folds.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type FoldMonoid, foldStoredOf } from "#test/support/families/fold.ts"
-import { installedTemplate } from "#test/support/install-migrate.ts"
-import { fullWorld } from "#test/support/worlds.ts"
+import { fullWorldTemplate } from "#test/support/installed.ts"
 
 /**
  * A counted SET keyed by three fields and a name, its owner keyed by (text, text, int), with folds over it, under
@@ -625,14 +624,11 @@ export const aims: ReadonlyArray<readonly [Situation, Gen<ReadonlyArray<Write>>]
 const declared = declaredSchema("CountedSet")
 
 /** The counted set installed once per member with its full world's login (install-migrate.ts installedTemplate). */
-export const countedSetTemplate = installedTemplate({
+export const countedSetTemplate = fullWorldTemplate({
 	declaredIn: import.meta,
 	name: "countedset",
-	schema: declared,
-	options: {
-		ambient: ordinarySession,
-		label: "countedset",
-		logins: [fullWorld(declared, {}).server],
-		extensions: []
-	}
+	fixture: declared,
+	programs: {},
+	label: "countedset",
+	ambient: ordinarySession
 })

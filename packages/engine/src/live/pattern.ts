@@ -24,7 +24,7 @@ import { digitRange, literal, naturals, runsOf } from "@bjornpagen/grizzle-text/
 export const patternOf = (language: RegexNode): string => {
 	const whole = seq([start, language, end])
 	if (whole.kind === "never") {
-		throw defect("a wire spelling's language, which holds a spelling")
+		defect("a wire spelling's language, which holds a spelling")
 	}
 	return toEcma(whole)
 }
@@ -192,7 +192,7 @@ export const uuidSpelling = (groups: ReadonlyArray<number>): RegexNode => {
  * Every text PostgreSQL's text holds, as code points: no NUL, and no lone surrogate, which has no UTF-8 encoding
  * (core/text.ts validateText), the admitted domain (regex/charset.ts domain).
  */
-export const admittedText = anyText()
+export const admittedTexts = anyText()
 
 /**
  * The canonical base64 texts of the byte strings of at most `most` bytes, RFC 4648 §4 padded: whole groups of three

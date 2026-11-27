@@ -11,7 +11,7 @@
  * read-back of a ChangeSet that writes nothing, delivering each R's tag as an option; a query over R at one of Kind's
  * handles; and for a writer, an insert of R and a put of R from a query over a relation parameter.
  *
- * Oracle: the printed SQL of each role's served file, as `grizzle generate` writes it (draftSchema, then servedFiles):
+ * Oracle: the printed SQL of each role's served file, as `grizzle generate` writes it (draftSchema, then eachServedFile):
  * every schema-qualified call in its texts, whatever member, step, form or variant holds it, of a function or constant
  * the installation's manifest creates must be one the manifest grants that role EXECUTE on.
  *

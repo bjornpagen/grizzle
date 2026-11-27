@@ -25,9 +25,10 @@ import { Array as Arr, Effect } from "effect"
 import { compiledPageRuntime } from "#adapter/served/forms.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { callerParams } from "#compiler/ir/products.ts"
+import { queryEvidence } from "#compiler/logical/annotate.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
-import { lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
+import { annotatedInput, lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
 import { compilePage } from "#compiler/lower/shapes/page/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { admitGenerated } from "#test/support/compile.ts"
@@ -83,7 +84,7 @@ export const thePageCompilerAndThePageRuntimeTemplateCompileEveryGeneratedOrdere
 				const catalog = genCatalog(o.c.schema)
 				const admission = admitGenerated(query)
 				const optimized = admission.ok
-					? lowerOptimized(admission.value, {
+					? lowerOptimized(succeeded(annotatedInput(admission.value, queryEvidence)), {
 							names,
 							context: "snapshot",
 							catalog,

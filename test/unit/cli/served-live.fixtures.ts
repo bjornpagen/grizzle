@@ -3,7 +3,7 @@
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { Result as Answered, Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
-import { draftSchema, servedFiles } from "#cli/generate.ts"
+import { draftSchema, eachServedFile } from "#cli/generate.ts"
 import { silentPhases } from "#compiler/core/phase.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { emptySnapshot, writeRuntimeSnapshot } from "#compiler/deploy/snapshot/build.ts"
@@ -116,6 +116,7 @@ export const liveIsTheUnion = (
 		const config = yield* Effect.result(
 			resolveConfig(
 				defineConfig({
+					contracts: [],
 					schemas: [drawnSchemaCase.laws.schema],
 					logins: [drawnLogin(drawnSchemaCase, shapes)],
 					migrations: "migrations",
@@ -146,7 +147,9 @@ export const liveIsTheUnion = (
 			return
 		}
 		const { snapshot, served } = draft.success
-		const entries = yield* Effect.result(servedFiles(compiled, draft.success, served, silentPhases))
+		const entries = yield* Effect.result(
+			eachServedFile(compiled, draft.success, served, silentPhases, Effect.succeed)
+		)
 		if (Answered.isFailure(entries)) {
 			return
 		}

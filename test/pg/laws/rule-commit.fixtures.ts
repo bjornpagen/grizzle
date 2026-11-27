@@ -7,6 +7,8 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { blockSize } from "#compiler/core/page.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import {
+	bracketOf,
+	type Judge,
 	type ShapeKey,
 	shapeKeys,
 	statementsOf,
@@ -16,15 +18,16 @@ import type { Installed } from "#test/support/install-migrate.ts"
 import { readersOf } from "#test/support/judge.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 
-const judges = ["whole", "probed"] as const
-type Judge = (typeof judges)[number]
+const judges = ["whole", "probed"] as const satisfies ReadonlyArray<Judge>
 const docs = [1, 2] as const
 
 /**
  * A case: the judge and the unit shape it runs on, and its session's transactions, each a write of one document: both
  * documents written whole and lawful (rule-whole.fixtures.ts statementsOf `unit` at type 1, which keeps every rule; at
  * type 0 One type refuses it), the first standing up the session's deltas and the second writing into deltas that
- * stand, then one of them dropped, which writes the sides of the rows it removes.
+ * stand, then one of them dropped: on the probed judge a served write, which writes the sides of the rows it removes;
+ * on the whole judge a data step, its relations closed, whose removals no capture writes (rule-whole.fixtures.ts
+ * bracketOf).
  */
 export interface Commits {
 	readonly judge: Judge
@@ -38,7 +41,10 @@ export const commitsGen: Gen<Commits> = (s) => ({
 	dropped: s.draw(element(docs))
 })
 
-export type CommitFeature = "a whole judge's deltas" | "a probed judge's deltas"
+export type CommitFeature =
+	| "a whole judge's deltas"
+	| "a probed judge's deltas"
+	| "a whole judge's data step, its removals captured by none"
 
 class Truncated extends Data.TaggedError("Truncated")<{ readonly message: string }> {}
 
@@ -130,9 +136,23 @@ const rowsIn = (session: RawSession, name: string) =>
 		Number(rows[0]?.[0])
 	)
 
+/** The session's temporary tables that hold a row, each by its name. */
+const holdingRows = (session: RawSession) =>
+	Effect.gen(function* () {
+		const holding: Array<string> = []
+		for (const t of yield* sessionTables(session)) {
+			if ((yield* rowsIn(session, t.name)) > 0) {
+				holding.push(t.name)
+			}
+		}
+		return holding
+	})
+
 /**
  * Writes the case's documents whole, one transaction each, in one session, then one of them again in a transaction it
- * rolls back, and reads what each transaction leaves of the session's temporary tables. Before each COMMIT the
+ * rolls back, and reads what each transaction leaves of the session's temporary tables. The whole judge's drop is a
+ * data step, inside its bracket: after its statements and before the bracket's checks, no session table holds a row,
+ * since no capture writes a closed relation's removed rows, the bracket's re-check judging the step whole. Before each COMMIT the
  * transaction holds no predicate lock on any of them. After each COMMIT the tables the transaction wrote a row into,
  * read before it, each hold no row; each delta among them that held its one page at most before the COMMIT, its heap
  * and its TOAST table's, keeps its file, the judge having read it and deleted its rows, and one that held more has a
@@ -157,17 +177,28 @@ export const runCommits = (
 		]
 		for (const op of ops) {
 			const where = `${op.kind} of document ${op.doc} in ${Formatter.format(k)}`
+			const bracket = bracketOf(k.judge, installed, [op])
 			yield* session.begin
-			for (const sql of statementsOf(tables, op)) {
+			for (const sql of [
+				...Option.match(bracket, { onNone: () => [], onSome: (b) => b.before }),
+				...statementsOf(tables, op)
+			]) {
 				yield* session.query(sql, [])
 			}
-			const before = yield* sessionTables(session)
-			const written: Array<string> = []
-			for (const t of before) {
-				if ((yield* rowsIn(session, t.name)) > 0) {
-					written.push(t.name)
+			if (Option.isSome(bracket)) {
+				const captured = yield* holdingRows(session)
+				if (captured.length > 0) {
+					return yield* new Truncated({
+						message: `a data step's removals of closed rows stand captured in ${Formatter.format(captured)}, ${where}`
+					})
 				}
+				for (const sql of bracket.value.after) {
+					yield* session.query(sql, [])
+				}
+				c.note("a whole judge's data step, its removals captured by none")
 			}
+			const before = yield* sessionTables(session)
+			const written = yield* holdingRows(session)
 			yield* closed(session, installed, written, where)
 			const locks = yield* predicateLocks(session)
 			if (locks > 0) {
@@ -176,8 +207,8 @@ export const runCommits = (
 				})
 			}
 			yield* session.commit
-			if (written.length === 0) {
-				return yield* new Truncated({ message: `the write captured no row, ${where}` })
+			if (written.length === 0 && Option.isNone(bracket)) {
+				return yield* new Truncated({ message: `the served write captured no row, ${where}` })
 			}
 			const after = yield* sessionTables(session)
 			for (const t of after) {

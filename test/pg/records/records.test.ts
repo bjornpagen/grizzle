@@ -28,7 +28,7 @@ import {
 } from "#test/pg/records/records.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { readOnce, writeOnce } from "#test/support/calls.ts"
-import { installMigrated } from "#test/support/install-migrate.ts"
+import { installGenerated } from "#test/support/install-migrate.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 import { Item } from "#test/unit/program/records.fixtures.ts"
@@ -45,13 +45,13 @@ export const aRowAQueryFoundReadsBackFromItsRecordsExactlyAsTheQueryFoundIt = pr
 				Effect.provideServiceEffect(
 					Effect.scoped(
 						Effect.gen(function* () {
-							const declared = levelsOf("Rec", cells)
-							const done = yield* installMigrated(declared.Den, {
-								ambient: ordinarySession,
-								label: "records",
-								logins: [declared.server],
-								extensions: []
-							})
+							const { installed: done } = yield* installGenerated(
+								(name) => {
+									const levels = levelsOf(name, cells)
+									return { schema: levels.Den, logins: [levels.server] }
+								},
+								{ ambient: ordinarySession, label: "records" }
+							)
 							const rebuilt = levelsOf(done.schema, cells)
 							const db = yield* openServedDb(done, rebuilt.server.roles.app, {})
 							const programs = Rcd.fromEntries([

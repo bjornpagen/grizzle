@@ -26,9 +26,10 @@ export const privilegeFamilyNames = [
 export type PrivilegeFamily = (typeof privilegeFamilyNames)[number]
 
 /**
- * Each family's privilege types, as PostgreSQL defines them on it, but a database's: TEMPORARY alone, the one privilege
- * on the database an installation grants (physical/ddl/roles.ts addWorlds), to each role whose served workload creates a
- * carrier. CONNECT and CREATE, and PUBLIC's TEMPORARY, are the database owner's, which no check judges.
+ * Each family's privilege types, as PostgreSQL defines them on it, but a database's: TEMPORARY alone, a privilege on the
+ * database no installation grants any role (physical/ddl/roles.ts addWorlds: a write's carriers travel in its
+ * transaction's settings), so the check holds each role to none. CONNECT and CREATE, and PUBLIC's TEMPORARY, are the
+ * database owner's, which no check judges.
  */
 export const privilegeFamilies: Readonly<Record<PrivilegeFamily, ReadonlyArray<string>>> = {
 	schema: ["USAGE", "CREATE"],
@@ -83,9 +84,8 @@ export interface ExpectedPolicy {
  *   (GRANT ... (<columns>)) judged on each column beyond what the role holds on the whole table. An expected privilege
  *   names its object in the SQL the GRANT names it with, which PostgreSQL resolves to the object's OID (to_regclass and
  *   its kin), so the comparison is by catalog identity, never by a spelling of a name. On the current database, the
- *   role's own TEMPORARY grant exactly: the manifest grants it to each role whose served workload creates a carrier
- *   and to no other login or role, and PUBLIC's, which PostgreSQL gives every database, is the database owner's, so a
- *   role holding it through PUBLIC alone lacks it.
+ *   role's own TEMPORARY grant exactly: the manifest grants it to no login or role, and PUBLIC's, which PostgreSQL gives
+ *   every database, is the database owner's, which no check judges.
  * - Attributes: a login logs in and inherits nothing; a theory role does not log in; neither is a superuser, creates
  *   databases or roles, replicates or bypasses row security.
  * - Memberships, judged over every grant of a pair (one per grantor): the roles a login is granted, each WITH INHERIT

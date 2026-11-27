@@ -20,7 +20,6 @@ import { programSchema, roleArtifacts, type SchemaArtifacts } from "#compiler/pr
 import type { PlannedFrontends } from "#compiler/program/workload/planned.ts"
 import { loginRole, programsOn } from "#compiler/program/workload/roles.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
-import { carrierScope } from "#compiler/sql/naming.ts"
 import {
 	type ChangeSetValue,
 	parseChangeSet,
@@ -167,6 +166,7 @@ export interface CertifiableEntry<S extends ParamSource = ParamSource> extends S
 interface RoleMembers<L extends Isolation, S extends ParamSource, E> {
 	readonly input: ParsedRole
 	readonly named: NamedRole
+	/** Its base's artifacts over every relation, read through its views, as its login's (ChangeLogin `artifacts`). */
 	readonly artifacts: SchemaArtifacts<S>
 	/** The level every member was compiled for (write/program/compile.ts CompiledWrite `level`), the one the role's
 	 * writes run at once served: one per role. */
@@ -175,7 +175,7 @@ interface RoleMembers<L extends Isolation, S extends ParamSource, E> {
 }
 
 /**
- * One role of a login with its change members compiled: its value parsed, its owned role as the installation named it,
+ * One role of a login with its change members compiled: the role parsed, its owned role as the installation named it,
  * its artifacts over its login's, and each ChangeSet of the login's workloads that runs on it, by the program's name,
  * its variants compiled once.
  */
@@ -295,10 +295,7 @@ export const parsedChange = (
 		)
 	}
 	return Result.flatMap(parseOver(change.over.value), (carried) =>
-		Result.map(
-			programSchema(carried, role, { kind: "changeSet", changeSet: change.desc }, applyLoc),
-			() => change
-		)
+		Result.map(programSchema(carried, role, applyLoc), () => change)
 	)
 }
 
@@ -358,8 +355,7 @@ const preparedFrom = <S extends ParamSource>(
 			laws: artifacts.laws,
 			derived: artifacts.derived,
 			clock,
-			source,
-			carrierScope: carrierScope(world.kind === "role" ? world.role.name : undefined)
+			source
 		}),
 		(prepared): PreparedEntry<S> => ({
 			params: artifacts.params,
@@ -422,7 +418,7 @@ type FrontendSource =
 const compiledFrontend: FrontendSource = Object.freeze({ kind: "compiled" })
 
 /**
- * The variants of `changes` for a role, its value parsed `role` over its artifacts `artifacts`, over the fill contexts
+ * The variants of `changes` for a role, parsed `role`, over its artifacts `artifacts`, over the fill contexts
  * `undecided`, the contexts after them already decided to hold or lack a fact, `holding` those that hold one, in the
  * fill contexts' order, each form's entry prepared where it is first read (PreparedVariants), the form in which every
  * context holds one over `frontend`, each other form's front end compiled.
@@ -531,14 +527,15 @@ const variantsLack = <S extends ParamSource>(
 }
 
 /**
- * A login as its change members compile: its roles' values by their names in the login, in its order, its workloads,
- * the login owned over its base's Owned with every role named under the installation (physical/ddl/names.ts
- * namedLogin), and the artifacts its served file compiles over, its base's over every relation, which cast its
- * programs' parameters to the types its installation installs (program/schema.ts baseArtifacts). Every role was named
- * before the login compiles, so no change compile meets a role name the installation cannot create.
+ * A login as its change members compile: its roles, parsed where the login was read (program/input.ts ParsedRole), in
+ * its order, each by its Description's name, which is its name in the login; its workloads; the login owned over its
+ * base's Owned with every role named under the installation (physical/ddl/names.ts namedLogin); and the artifacts its
+ * served file compiles over, its base's over every relation, which cast its programs' parameters to the types its
+ * installation installs (program/schema.ts baseArtifacts). Every role was named before the login compiles, so no change
+ * compile meets a role name the installation cannot create.
  */
 export interface ChangeLogin<S extends ParamSource = ParamSource> {
-	readonly roles: ReadonlyArray<{ readonly name: string; readonly value: unknown }>
+	readonly roles: ReadonlyArray<ParsedRole>
 	readonly workload: ReadonlyArray<unknown>
 	readonly named: NamedLogin
 	readonly artifacts: SchemaArtifacts<S>
@@ -552,7 +549,7 @@ export interface ChangeLogin<S extends ParamSource = ParamSource> {
 
 /**
  * A login's change compile refused: the role it was compiling, by its name in the login, the program of the login's
- * workloads that refused, none where the role's own value, artifacts or workloads did, and the compiler's refusal.
+ * workloads that refused, none where the role's own artifacts or workloads did, and the compiler's refusal.
  */
 export interface ChangeRefused {
 	readonly role: string
@@ -561,7 +558,7 @@ export interface ChangeRefused {
 }
 
 /**
- * One role of `login` before its change members compile: its value parsed, its owned role as the installation named it,
+ * One role of `login` before its change members compile: the role parsed, its owned role as the installation named it,
  * its artifacts over its login's, and each ChangeSet of the login's workloads that runs on it, compiled at a level by
  * `compile`, its variants over its fill contexts, each prepared once for every level its role compiles it at and for
  * the read of why it has no READ COMMITTED form (`lack`, variantsLack) before them (PreparedVariants).
@@ -579,20 +576,15 @@ interface RoleBase<S extends ParamSource> {
 
 /** One role of `login` before its change members compile (RoleBase). */
 const roleBase = <S extends ParamSource>(
-	name: string,
-	value: unknown,
+	role: ParsedRole,
 	login: ChangeLogin<S>
 ): Result.Result<RoleBase<S>, ChangeRefused> => {
 	const refused = (error: CompileError): ChangeRefused => ({
-		role: name,
+		role: role.desc.name,
 		program: undefined,
 		error
 	})
-	const parsed = loginRole(value, login.named.owned)
-	if (!parsed.ok) {
-		return Result.err(refused(parsed.error))
-	}
-	const { input, owned } = parsed.value
+	const owned = loginRole(role, login.named.owned)
 	const named = defined(
 		login.named.roles.find((r) => r.owned === owned),
 		`role ${owned.name} of login ${login.named.owned.name}, which namedLogin named`
@@ -601,12 +593,12 @@ const roleBase = <S extends ParamSource>(
 	if (!artifacts.ok) {
 		return Result.err(refused(artifacts.error))
 	}
-	const running = programsOn(input, login.workload)
+	const running = programsOn(role, login.workload)
 	if (!running.ok) {
 		return Result.err(refused(running.error))
 	}
 	return Result.ok({
-		input,
+		input: role,
 		named,
 		artifacts: artifacts.value,
 		programs: running.value.flatMap((program) => {
@@ -623,7 +615,7 @@ const roleBase = <S extends ParamSource>(
 			})
 			const variants = once(() =>
 				preparedVariants(
-					input,
+					role,
 					artifacts.value,
 					program.value,
 					program.clock,
@@ -680,13 +672,12 @@ const membersAt = <L extends Isolation, S extends ParamSource, E>(
 
 /** One role of `login`, its change members compiled at `level` (RoleChanges). */
 const roleChanges = <L extends Isolation, S extends ParamSource>(
-	name: string,
-	value: unknown,
+	role: ParsedRole,
 	login: ChangeLogin<S>,
 	level: L
 ): Result.Result<RoleChanges<L, S>, ChangeRefused> =>
-	Result.flatMap(roleBase(name, value, login), (base) =>
-		membersAt(name, base, level, silentPhases, (_, entry) => entry)
+	Result.flatMap(roleBase(role, login), (base) =>
+		membersAt(role.desc.name, base, level, silentPhases, (_, entry) => entry)
 	)
 
 /**
@@ -716,12 +707,12 @@ export type ReadCommittedRole<S extends ParamSource = ParamSource> =
  * admission, through certification (edullm's qti: 32 compiled writes, 931 MB at certification's start).
  */
 const readCommittedRole = <S extends ParamSource>(
-	name: string,
-	value: unknown,
+	role: ParsedRole,
 	login: ChangeLogin<S>,
 	phases: Phases
 ): Result.Result<ReadCommittedRole<S>, ChangeRefused> =>
-	Result.flatMap(roleBase(name, value, login), (base) => {
+	Result.flatMap(roleBase(role, login), (base) => {
+		const name = role.desc.name
 		const unformed: Array<Unformed> = []
 		for (const program of base.programs) {
 			const lack = phased(phases, { name: "frontEnd", of: [name, program.name] }, () =>
@@ -762,12 +753,12 @@ export const loginChanges = <L extends Isolation, S extends ParamSource>(
 	level: L
 ): Result.Result<ReadonlyMap<string, RoleChanges<L, S>>, ChangeRefused> => {
 	const roles = new Map<string, RoleChanges<L, S>>()
-	for (const { name, value } of login.roles) {
-		const role = roleChanges(name, value, login, level)
+	for (const parsed of login.roles) {
+		const role = roleChanges(parsed, login, level)
 		if (!role.ok) {
 			return role
 		}
-		roles.set(name, role.value)
+		roles.set(parsed.desc.name, role.value)
 	}
 	return Result.ok(roles)
 }
@@ -783,12 +774,12 @@ export const readCommittedChanges = <S extends ParamSource>(
 	phases: Phases
 ): Result.Result<ReadonlyMap<string, ReadCommittedRole<S>>, ChangeRefused> => {
 	const roles = new Map<string, ReadCommittedRole<S>>()
-	for (const { name, value } of login.roles) {
-		const role = readCommittedRole(name, value, login, phases)
+	for (const parsed of login.roles) {
+		const role = readCommittedRole(parsed, login, phases)
 		if (!role.ok) {
 			return role
 		}
-		roles.set(name, role.value)
+		roles.set(parsed.desc.name, role.value)
 	}
 	return Result.ok(roles)
 }

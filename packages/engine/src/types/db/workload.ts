@@ -1,3 +1,4 @@
+import type { HostKeysOf } from "#compiler/core/brand.ts"
 import type { ClockUnit } from "#compiler/core/clock.ts"
 import type { Phantom } from "#compiler/core/phantom.ts"
 import type {
@@ -92,15 +93,50 @@ export interface Clocked<X, B> {
 	readonly clock: B
 }
 
+/** Whether a union of keys is of two members or more, a contract over another's host keys: none or one is not. */
+type ManyKeys<K, All = K> = [K] extends [never]
+	? false
+	: K extends unknown
+		? [All] extends [K]
+			? false
+			: true
+		: never
+
+/** The language a parameter N of X delivers, its scalar entry's (types/core ParamType). */
+type LanguageOf<X, N> = N extends keyof ParamsOf<X>
+	? ParamsOf<X>[N] extends { readonly language: infer L }
+		? L
+		: never
+	: never
+
 /**
- * The parameters of X a clock reading may bind: each scalar parameter whose values are bigints, bigint or a contract
- * over it, by the language its entry states (types/core ParamType).
+ * The parameters of X a clock reading may bind: each scalar parameter whose values are bigints, by the language its
+ * entry states (types/core ParamType): bigint, natural, or one consumer's contract over either, whose language holds
+ * its one key (core/brand.ts HostKeysOf), never a contract over another's, whose two a binding's one key would not make.
  */
 type ClockableOf<X> = {
-	readonly [N in keyof ParamsOf<X>]: ParamsOf<X>[N] extends { readonly language: bigint }
-		? N
+	readonly [N in keyof ParamsOf<X>]: ParamsOf<X>[N] extends {
+		readonly language: infer L extends bigint
+	}
+		? [ManyKeys<HostKeysOf<L>>] extends [true]
+			? never
+			: N
 		: never
 }[keyof ParamsOf<X>]
+
+/** The parameters B binds whose type is a consumer's contract: each holds its key in the language its entry states. */
+type KeyedOf<X, B> = {
+	readonly [N in keyof B]: [HostKeysOf<LanguageOf<X, N>>] extends [never] ? never : N
+}[keyof B]
+
+/**
+ * What clocked(X, B) takes after its binding: where B binds a parameter of a consumer's contract, the reading is cast to
+ * the contract's domain at bind, a value of it the clock makes, so it takes the contract's key by the parameter's name,
+ * `{ now: millisKey }`, as mintOf takes it on the host; nothing otherwise.
+ */
+type ClockKeysOf<X, B> = [KeyedOf<X, B>] extends [never]
+	? readonly []
+	: readonly [keys: { readonly [N in KeyedOf<X, B>]: HostKeysOf<LanguageOf<X, N>> }]
 
 /**
  * What clocked(X, B) binds: at least one parameter, each a bigint parameter of X (ClockableOf), each to a unit; any other
@@ -110,15 +146,19 @@ type ClockBindingOf<X, B> = [keyof B] extends [never]
 	? Refusal<"clocked binds at least one parameter of the program to the database's clock">
 	: [Exclude<keyof B, ClockableOf<X>>] extends [never]
 		? unknown
-		: Refusal<"clocked binds only parameters of the program whose values are bigints: bigint or a contract over it">
+		: Refusal<"clocked binds only parameters of the program whose values are bigints: bigint, natural, or one consumer's contract over either, under its key">
 
-/** clocked(program, binding): the workload member that binds `program`'s parameters to the database's clock (Clocked). */
+/**
+ * clocked(program, binding, keys): the workload member that binds `program`'s parameters to the database's clock
+ * (Clocked), under the keys of the consumers' contracts it binds (ClockKeysOf).
+ */
 export type ClockedConstructor = <
 	const X extends QueryBase | OrderedBase | AnyChangeSet,
 	const B extends { readonly [N in string]: ClockUnit }
 >(
 	program: X,
-	binding: B & ClockBindingOf<X, B>
+	binding: B & ClockBindingOf<X, B>,
+	...keys: ClockKeysOf<X, B>
 ) => Clocked<X, B>
 
 /** A read of a workload over L: a query, an ordered query, an ordered query that pages, or a relation's key. */

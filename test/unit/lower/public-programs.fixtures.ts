@@ -75,9 +75,10 @@ export const lowered = (schemaValue: FixtureSchema, read: unknown): Lowered => {
 	if (!conservative.ok) {
 		return { kind: "refused before" }
 	}
-	const rewritten = succeeded(optimizedInput(checked.value, queryEvidence))
+	const optimizing = succeeded(optimizedInput(checked.value, queryEvidence))
+	const rewritten = optimizing.query
 	const catalog = evidenceCatalog(artifacts)
-	const optimized = lowerOptimized(rewritten, {
+	const optimized = lowerOptimized(optimizing, {
 		names: artifacts.names,
 		subject: { kind: "query" },
 		catalog,

@@ -224,14 +224,14 @@ export const declaredFunctions = property.explore(functionCaseSpace, {
 		},
 		{
 			file: "packages/engine/src/physical/ddl/functions.ts",
-			original: `\t\t\t(text, next) => \`\${text}\${typeOnSearchPath(rowType(next.rowType))}\${next.text}\`,\n`,
-			replacement: `\t\t\t(text, next) => \`\${text}\${next.text}\`,\n`,
+			original: `\t\t\t\t\`\${text}\${"spelling" in next ? spellingText(next.spelling) : alone(rowType(next.rowType))}\${next.text}\`,\n`,
+			replacement: `\t\t\t\t\`\${text}\${"spelling" in next ? spellingText(next.spelling) : ""}\${next.text}\`,\n`,
 			why: "A body's named row type withheld: its placeholder installs as nothing, so a variable it declares, a cast and the source PostgreSQL stores are not the body's."
 		},
 		{
 			file: "packages/engine/src/physical/ddl/functions.ts",
-			original: `\t\t\t(text, next) => \`\${text}\${typeOnSearchPath(rowType(next.rowType))}\${next.text}\`,\n`,
-			replacement: `\t\t\t(text, next) => \`\${text}\${identifierOf(b.settings.levels[0])}.\${typeOnSearchPath(rowType(next.rowType))}\${next.text}\`,\n`,
+			original: `\t\t\t\t\`\${text}\${"spelling" in next ? spellingText(next.spelling) : alone(rowType(next.rowType))}\${next.text}\`,\n`,
+			replacement: `\t\t\t\t\`\${text}\${"spelling" in next ? spellingText(next.spelling) : \`\${identifierOf(b.settings.levels[0])}.\${alone(rowType(next.rowType))}\`}\${next.text}\`,\n`,
 			why: "A body's named row type wrong: qualified by the root level's schema, where an extension's function's row type does not stand, and the source PostgreSQL stores is not the body's."
 		},
 		{

@@ -49,7 +49,7 @@ export const aForeignKeyWhoseDeferralAloneChangesIsAlteredInPlaceInPublish = pro
 		kills: [
 			{
 				file: "packages/engine/src/deploy/diff/diff.ts",
-				original: "\t\t\tif (!this.input.stale.has(before.ident) && this.deferralAlone(old, c)) {",
+				original: "\t\t\tif (this.deferralAlone(old, c)) {",
 				replacement: "\t\t\tif (false) {",
 				why: "A foreign key whose deferral alone changes is dropped, added again NOT VALID and validated, reading every row again; the one statement naming it is no ALTER CONSTRAINT."
 			}

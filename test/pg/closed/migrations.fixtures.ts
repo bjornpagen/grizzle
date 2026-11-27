@@ -1,7 +1,7 @@
 /** What the properties of migrations.test.ts read: its spaces, models and helpers. */
 
-import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-import type * as EngineResult from "@bjornpagen/grizzle-text/base/result"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import * as EngineResult from "@bjornpagen/grizzle-text/base/result"
 import { assert, defined, nonEmpty, unorderedEqual } from "@bjornpagen/testing/assert"
 import {
 	accepted,
@@ -14,7 +14,16 @@ import {
 } from "@bjornpagen/testing/commands"
 import { constant, element, type Gen, map, subset, type Steered } from "@bjornpagen/testing/gen"
 import { type Swarm, swarm } from "@bjornpagen/testing/swarm"
-import { Array as Arr, Effect, Option, Order, Record as Rec, type Scope, Struct } from "effect"
+import {
+	Array as Arr,
+	Effect,
+	Option,
+	Order,
+	Record as Rec,
+	Result,
+	type Scope,
+	Struct
+} from "effect"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
 import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { scalarReader } from "#compiler/codec/read.ts"
@@ -24,15 +33,13 @@ import { identity } from "#compiler/core/identity.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import type { Declarations, Draft } from "#compiler/deploy/diff/plan.ts"
-import { planFiles } from "#compiler/deploy/phases/files.ts"
+import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { codebookOf, rosterFates, spellingsOf } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { draftCodebook, noRenames } from "#compiler/ir/codes.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { bits, closedId, pg } from "#compiler/public/fields.ts"
 import {
@@ -76,11 +83,12 @@ import {
 	type RosterState,
 	sizeOf
 } from "#test/support/closed/generate.ts"
+import { asDataStep } from "#test/support/data-step.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
-import { migrated, type Version, workloadOf } from "#test/support/installed.ts"
+import { generatedDraft, noPlaceholders, type Version } from "#test/support/install-migrate.ts"
+import { migrated } from "#test/support/installed.ts"
 import { lawIdOf, parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { draftedAt, fromSnapshot, generate, noDeclarations } from "#test/support/migrate/kit.ts"
-import { planRealInstall } from "#test/support/oracle/install/real.ts"
+import { customDataStep, fromSnapshot, noDeclarations } from "#test/support/migrate/kit.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -114,7 +122,10 @@ interface Model {
 	readonly closedRows: ClosedRows
 }
 
-/** When a removal's data step runs: drafted into the folder before VALIDATE, or after VALIDATE refused it. */
+/**
+ * When a removal's data step runs: drafted as a custom migration applied with the removal, before it, or after VALIDATE
+ * refused it.
+ */
 const dataSteps = ["drafted", "after a refusal"] as const
 
 type DataStep = (typeof dataSteps)[number]
@@ -535,49 +546,31 @@ const draftNext = (sys: System, built: Built, reviewer: Reviewer, declared: Decl
 	})
 
 /**
- * The next draft from the system's snapshot to `built`, declaring `declared`: generate's answer, a refusal included,
- * and the physical names of the installation it drafts.
+ * The next draft from the system's snapshot to `built`, declaring `declared`, as `grizzle generate` drafts it
+ * (install-migrate.ts generatedDraft), its desk's served workload certified and planned: generate's answer, unreviewed,
+ * a refusal included, and the physical names of the installation it drafts.
  */
 const drafting = (sys: System, built: Built, declared: Declarations) =>
-	Effect.sync(() => {
-		const owned = succeeded(
-			own(defined(schemaDescOf(built.version.schema), "a version's schema value"))
-		)
-		const rosters = rostersOf(owned)
-		const codes = succeeded(
-			draftCodebook(
-				rosterFates(
-					sys.snapshot,
-					declared,
-					Arr.map(rosters, (r) => r.closed)
-				),
-				noRenames,
-				rosters,
-				spellingsOf(sys.snapshot)
-			),
-			"a drafted version keeps every roster's codes in order"
-		)
-		const workload = workloadOf(built.version)
-		const plan = succeeded(
-			planRealInstall(built.version.schema, {
-				installation: identity.schema(parsedSchemaName(sys.m.declared)),
-				logins: built.version.logins,
-				extensions: workload.extensions,
-				codes,
-				compile: compileInstallation
-			}),
-			"the installation of the next version"
-		)
+	Effect.gen(function* () {
 		sys.drafts += 1
-		const drafted: EngineResult.Result<GenerateResult, CompileError> = generate({
-			previous: fromSnapshot(sys.snapshot),
-			installation: plan.installation,
-			name: `step_${sys.drafts}`,
-			timestamp: draftedAt(sys.drafts),
-			workload: workload.draft,
-			declared
-		})
-		return { drafted, names: plan.installation.names }
+		const answered = yield* Effect.result(
+			generatedDraft(
+				{ schema: built.version.schema, logins: built.version.logins, declarations: declared },
+				{
+					installation: identity.schema(parsedSchemaName(sys.m.declared)),
+					previous: fromSnapshot(sys.snapshot),
+					step: sys.drafts
+				},
+				noPlaceholders
+			)
+		)
+		const drafted: EngineResult.Result<GenerateResult, CompileError> = Result.isSuccess(answered)
+			? EngineResult.ok(answered.success.generated)
+			: EngineResult.err(answered.failure)
+		return {
+			drafted,
+			names: Result.isSuccess(answered) ? answered.success.plan.installation.names : sys.names
+		}
 	})
 
 /** Applies the system's folders and then `next`, as the installation's owner login. */
@@ -652,9 +645,8 @@ const holdersOf = (sys: System, before: Model, code: number) => [
 /**
  * The data step of a removal, each statement on its own: Held's rows holding the code deleted, and the code's bit
  * cleared from every set by the mask of the roster's live codes after it, each row deleted and inserted again, as an
- * immutable relation's rows change: its guard refuses an UPDATE outside a migration's bracketed data steps
- * (physical/ddl/immutable.ts guardBracket), and a step a person runs between a refused migration's attempts is outside
- * them.
+ * immutable relation's rows change outside a migration's data steps: its guard refuses an UPDATE, and outside the one
+ * bracket of a closed relation's removals (physical/ddl/immutable.ts guardBracket) a DELETE too.
  */
 const dataStepOf = (sys: System, after: Model, code: number, column: string): string => {
 	const n = storedNames(sys)
@@ -662,6 +654,20 @@ const dataStepOf = (sys: System, after: Model, code: number, column: string): st
 		? `DELETE FROM ${n.held} WHERE ${n.tier} = ${code}::smallint;`
 		: `WITH gone AS (DELETE FROM ${n.sets} RETURNING ${n.setsId}, ${n.members}) INSERT INTO ${n.sets} (${n.setsId}, ${n.members}) SELECT ${n.setsId}, ${n.members} & X'${hexOfText(setText(sizeOf(after.tier), liveCodes(after.tier)))}'::bit(${setWidth(sizeOf(after.tier))}) FROM gone;`
 }
+
+/**
+ * The data step of a removal (dataStepOf) a person runs between a refused migration's attempts, at the column
+ * `column` VALIDATE named, in a transaction of its own as a data step over the table it writes (data-step.ts
+ * asDataStep): outside a migration the guards stand, and refuse its DELETE but there.
+ */
+const personStep = (sys: System, after: Model, code: number, column: string) =>
+	Effect.gen(function* () {
+		yield* sys.m.owner.begin
+		for (const sql of asDataStep(sys.m.installation, [dataStepOf(sys, after, code, column)])) {
+			yield* sys.m.owner.query(sql, [])
+		}
+		yield* sys.m.owner.commit
+	})
 
 /** A closed id's and a set's type over the roster's live handles: the columns' codecs' types. */
 const codeType = (state: RosterState): ScalarType =>
@@ -786,27 +792,15 @@ const migrateTo = (sys: System, after: Model, reviewer: Reviewer) =>
 		return took
 	})
 
-/** Whether a drafted step VALIDATEs a constraint: ALTER DOMAIN's VALIDATE CONSTRAINT, or an ALTER TABLE action of it. */
-const validates = (d: Draft): boolean =>
-	d.kind === "statement" &&
-	((d.statement.kind === "alterDomain" && d.statement.action.kind === "validateConstraint") ||
-		(d.statement.kind === "alterTable" &&
-			Arr.some(d.statement.actions, (a) => a.kind === "validateConstraint")))
-
 /**
- * A reviewer of `g` that drafts `statements` at the top of the file the plan puts its VALIDATE in, as a reviewer reads
- * the folder's phases, every candidate kept.
+ * The custom migration (`grizzle generate --custom`) of a removal's data step `statements`, from the system's snapshot
+ * to itself, drafted at the next ordinal, so the removal drafted after it sorts after it: README's "Data steps go in a
+ * custom migration", whose file runs with every guard of the installation lifted in its one transaction
+ * (physical/ddl/immutable.ts dataStepBracket), the one removal path of a closed relation's rows.
  */
-const withDataStep = (g: GenerateResult, statements: ReadonlyArray<string>): Reviewer => {
-	const validating = Arr.findFirst(planFiles(g.plan), (f) => Arr.some(f.drafts, validates))
-	return {
-		decisions: kept.decisions,
-		edit: (file) =>
-			Arr.isReadonlyArrayNonEmpty(statements) &&
-			Option.exists(validating, (f) => f.name === file.name)
-				? `${Arr.join(statements, "\n\n")}\n\n${file.text}`
-				: kept.edit(file)
-	}
+const dataStepFolder = (sys: System, statements: NonEmptyReadonlyArray<string>): FolderTexts => {
+	sys.drafts += 1
+	return customDataStep(sys.snapshot, sys.drafts, statements)
 }
 
 /**
@@ -848,20 +842,25 @@ const removal = (
 		const holders = holdersOf(sys, before, code)
 		const built = builtOf(sys.m.declared, after, liveOf(after.tier))
 		if (p.data === "drafted") {
-			if (holders.length > 0) {
+			const steps = Arr.isReadonlyArrayNonEmpty(holders)
+				? [
+						dataStepFolder(
+							sys,
+							mapNonEmpty(holders, (h) => dataStepOf(sys, after, code, h.column))
+						)
+					]
+				: []
+			if (steps.length > 0) {
 				note("a data step drafted")
 			}
 			const { drafted, names } = yield* drafting(sys, built, dropOf(before, p.handle))
 			const g = succeeded(drafted, "the next migration")
-			const folder = reviewedSource(
-				g,
-				withDataStep(
-					g,
-					Arr.map(holders, (h) => dataStepOf(sys, after, code, h.column))
-				)
-			)
-			yield* applyWith(sys, [folder], g.snapshot)
-			sys.folders.push(folder)
+			const folder = reviewedSource(g, kept)
+			const applied = [...steps, folder]
+			yield* applyWith(sys, applied, g.snapshot)
+			for (const f of applied) {
+				sys.folders.push(f)
+			}
 			sys.snapshot = g.snapshot
 			sys.names = names
 		} else {
@@ -886,7 +885,7 @@ const removal = (
 						: "VALIDATE refused a removed bit a set holds"
 				)
 				named.push(at)
-				yield* sys.m.owner.query(dataStepOf(sys, after, code, at.column), [])
+				yield* personStep(sys, after, code, at.column)
 			}
 			assert.ok(applied, "the removal applies once its data step ran")
 			unorderedEqual(

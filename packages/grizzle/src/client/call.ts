@@ -104,7 +104,7 @@ const readReading: Reading<ReadState<object>, KeyedList<object>, ListEvent<objec
 	fold,
 	valueOf: (state) => {
 		if (state.kind !== "ready") {
-			throw defect("a read's batch ended at ready with no ready value")
+			defect("a read's batch ended at ready with no ready value")
 		}
 		return state.value
 	},
@@ -121,7 +121,7 @@ const writeReading: Reading<WriteState<unknown>, unknown, WriteEvent<unknown>> =
 	fold: foldWrite,
 	valueOf: (state) => {
 		if (state.kind !== "ready") {
-			throw defect("a write's batch ended at its outcome with no outcome")
+			defect("a write's batch ended at its outcome with no outcome")
 		}
 		return state.value
 	},
@@ -334,7 +334,7 @@ const callsOf = <St, V, Ev extends { readonly kind: string }, E>(
 		once: (input) =>
 			Effect.flatMap(Stream.runHead(watch(input)), (first) =>
 				Option.match(first, {
-					onNone: () => Effect.die(defect("an answer ended before its first value")),
+					onNone: () => Effect.sync(() => defect("an answer ended before its first value")),
 					onSome: (answered) => Effect.succeed(answered.value)
 				})
 			)

@@ -1,15 +1,13 @@
 /**
- * Public barrel: query, v, param, arm, and the typed query facade. packages/grizzle/src/index.ts re-exports it.
+ * Public barrel: query, v, param, and the typed query facade. packages/grizzle/src/index.ts re-exports it.
  *
- * query, v, param and arm are the query builder runtime (query/build), typed by their public signatures (types/query). The
+ * query, v and param are the query builder runtime (query/build), typed by their public signatures (types/query). The
  * query building blocks (Source, SelfSource, BoundSource, Carriers, Bindings, CarriersOf, ParamOrigin,
  * ConstantOrigin, LiteralOrigin, ComputedOrigin, Literal, Aggregate, Producer, ResultOf, ParamsOf, ParamType,
- * ParamArg, DeliveredKeys, DeliveredHeading), an
- * attachment's delivery (Arm, DeliveryKind), a union's arms (UnionArm, ArmStage), a record of reads as one query
+ * ParamArg, DeliveredKeys, DeliveredHeading), a union's arms (UnionArm, ArmStage), a record of reads as one query
  * (ReadsQuery over ReadsChildren, query(S).reads(R)'s type) and the evidence vocabulary (Evidence, EvidenceOf) are the
  * public supporting types. Term and Predicate are the compute barrel's, ALLEN the allen barrel's.
  */
-export { arm } from "#compiler/query/build/attach.ts"
 export { query, v } from "#compiler/query/build/query.ts"
 export { param } from "#compiler/query/build/rule.ts"
 export type {
@@ -30,12 +28,10 @@ export type {
 export type { Evidence, EvidenceOf } from "#compiler/types/evidence/evidence.ts"
 
 export type {
-	Arm,
 	ArmStage,
 	BoundSource,
 	DeliveredHeading,
 	DeliveredKeys,
-	DeliveryKind,
 	EvidenceOfQuery,
 	Finished,
 	HeadOf,

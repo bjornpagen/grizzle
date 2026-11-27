@@ -174,17 +174,18 @@ export const twoWritersStampingOneClockStampEachChildsInstantsInTheOrderItsCalls
 										.once({ params: {}, facts: { insert: { Log: callRows(rows) } } })
 										.pipe(writeAnswerOf, untilAnswered)
 
+								/** Each seeded child's stored sign-in, stamped at its head's instant first, as every writer of Log
+								 * stamps its clock (physical/ddl/clocked.ts). */
 								const seeded = Arr.flatMap([1, 2] as const, (child) => {
 									const head = c.heads[child]
-									return head === "none" ? [] : [`(${child}, ${headAt(head)}, 9)`]
-								})
-								yield* rig.replace(
-									seeded.length === 0
+									return head === "none"
 										? []
 										: [
-												`INSERT INTO ${log} (${column("child")}, ${column("at")}, ${column("note")}) VALUES ${Arr.join(seeded, ", ")}`
+												`SELECT FROM ${names.stampCall(Log, "at", [`${child}`], `${headAt(head)}`)}`,
+												`INSERT INTO ${log} (${column("child")}, ${column("at")}, ${column("note")}) VALUES (${child}, ${headAt(head)}, 9)`
 											]
-								)
+								})
+								yield* rig.replace(seeded)
 								const before = yield* clockReading
 								const together = c.mode === "concurrent"
 								if (together) {

@@ -102,8 +102,7 @@ const workerBudgets = (): Context.Service.Shape<typeof WorkerBudgets> => {
  * A session as the owner, grizzle_dev, in `database` on `member`, drawing one of the worker's budget's permits (from
  * `budgets`) for its life: what the toolchain creates, clones, drops and builds templates with. It reads every value as
  * the server's text (pg.ts textSession), as the toolchain's sessions answer, whatever a statement's column types; each
- * statement is a declared wait checked on its backend (pg.ts connectOnce, awaitingBackend), the library's run declaring
- * none of its own.
+ * statement's backend is the case's own work, as every session's is.
  */
 const ownerSession =
 	(budgets: Context.Service.Shape<typeof WorkerBudgets>) =>

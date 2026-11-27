@@ -25,7 +25,7 @@ import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { int2Max, int2Min, int4Min, int8Max, int8Min } from "#compiler/ir/carriers.ts"
-import { codecOf, firstCodebook } from "#compiler/ir/codes.ts"
+import { codecOf, firstCodebook, variantLayout } from "#compiler/ir/codes.ts"
 import { type CalendarDate, dateOfDayNumber, dayNumber } from "#compiler/ir/date.ts"
 import { type Carrier, carriers, Roster } from "#compiler/ir/scalar.ts"
 import {
@@ -128,8 +128,22 @@ const specOf =
 				return { carrier, width: source.draw(widthGen) }
 			case "vector":
 				return { carrier, dimensions: source.draw(int(1, 6)) }
+			case "variant":
+				return {
+					carrier,
+					arms: upTo(source.draw(int(1, 3)), (i) => ({
+						handle: `a${i}`,
+						fields: upTo(source.draw(int(0, 2)), (j) => ({
+							name: `f${j}`,
+							spec: source.draw(specOf(source.draw(element(armCarriers))))
+						}))
+					}))
+				}
 		}
 	}
+
+/** The carriers a drawn variant's arms hold fields of: an integer, a double, a text, a boolean and a closed id. */
+const armCarriers = ["int4", "float8", "text", "bool", "code"] as const
 
 /** A decimal of `units` units of 10^-scale, as numeric_in reads its exponent spelling. */
 const decimalOf = (units: bigint, scale: number): Decimal =>
@@ -277,6 +291,14 @@ const valueOf =
 					buffer[0] = 1
 				}
 				return Vector.branded(buffer)
+			}
+			case "variant": {
+				const arm = source.draw(element(nonEmpty(spec.arms, "a drawn variant's arms")))
+				const value: Record<string, unknown> = { tag: arm.handle }
+				for (const field of arm.fields) {
+					value[field.name] = source.draw(valueOf(field.spec))
+				}
+				return Object.freeze({ ...value, tag: arm.handle })
 			}
 		}
 	}
@@ -502,6 +524,41 @@ export const carrierSpecOf = (spec: WireScalar): CarrierSpec => {
 			}
 		case "vector":
 			return { carrier: "vector", dimensions: spec.dimensions }
+		case "variant": {
+			const roster = Roster.of(
+				succeeded(parseDeclaredName("Roster")),
+				"ordered",
+				Arr.map(spec.arms, (arm) => arm.handle)
+			)
+			const codec = codecOf(firstCodebook([roster]), roster)
+			const layout = variantLayout(
+				spec.arms,
+				codec.names,
+				(f) => f.spec.carrier === "float4" || f.spec.carrier === "float8"
+			)
+			return {
+				carrier: "variant",
+				roster: codec,
+				arms: new Map(
+					Arr.map(layout, (arm) => [
+						arm.handle,
+						{
+							fields: Arr.map(arm.fields, ({ field, at, zero }) => ({
+								name: field.name,
+								spec: carrierSpecOf(field.spec),
+								at,
+								zero
+							}))
+						}
+					])
+				),
+				attributes:
+					1 +
+					Arr.reduce(layout, 0, (n, arm) =>
+						Arr.reduce(arm.fields, n, (k, f) => k + (f.zero === undefined ? 1 : 2))
+					)
+			}
+		}
 	}
 }
 

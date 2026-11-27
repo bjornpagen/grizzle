@@ -1,8 +1,8 @@
 /**
- * A rule over a query asks the index of each read it makes (physical/ddl/rules.ts requestsOf): a probe's index requests
- * are the access paths of the chain that runs, each step a lookup of one relation by the columns the steps before it
- * bound (analysis/theory/navigate.ts), which a step binds as `column = channel`, the channel correlated with the row
- * before it, and the access-path extraction reads as a fixed equality (physical/access/extract.ts regionFacts); and a
+ * A rule over a query asks the index of each read it makes (physical/ddl/rules.ts programRequests, each seek its judge's
+ * statements print): a probe's index requests are the seeks of the chain that runs, each step a lookup of one relation
+ * by the columns the steps before it bound (analysis/theory/navigate.ts), which a step binds as `column = channel`, the
+ * channel correlated with the row before it; and a
  * whole rule's requests lead with its unit's key (ir/law.ts LawIndexRequest), so no index another column leads serves
  * a read that never leaves the unit, but a read whose path binds no field of its unit, a lookup by a declared key the
  * unit does not lead, which asks for no index: the key's own serves it, as the scan a whole rule's check over every row
@@ -52,25 +52,15 @@ export const aRuleOverAQueryAsksAnIndexOfEachReadItsJudgeMakesAWholeRulesLedByIt
 		kills: [
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original:
-					"\t\t? { blocks: isNonEmpty(rest) ? [bound, rest] : [bound], reads }\n\t\t: undefined",
-				replacement:
-					'\t\t? { blocks: isNonEmpty(rest) ? [bound, rest] : [bound], reads }\n\t\t: (() => { throw new Error("a read binds no field of its unit") })()',
-				why: "A whole rule's read whose path binds no field of its unit, U's lookup by its key over g, is refused as a defect rather than left to the key's own index: the installation of a whole rule beside U's key over g dies."
+				original: '\t\t\tpath.use === "equality lookup" ||\n',
+				replacement: "",
+				why: "A judged read's equality lookups are asked from its IR again beside its statements' seeks: a whole rule's check over every row asks an index of the scan it starts from, led by the literal it reads U at, w, not by the unit, an index every write of U pays for a read one migration makes."
 			},
 			{
-				file: "packages/engine/src/physical/ddl/rules.ts",
-				original:
-					"\t\t? { blocks: isNonEmpty(rest) ? [bound, rest] : [bound], reads }\n\t\t: undefined",
-				replacement:
-					"\t\t? { blocks: isNonEmpty(rest) ? [bound, rest] : [bound], reads }\n\t\t: { blocks: [keys], reads }",
-				why: "A whole rule's check over every row asks an index of the scan it starts from, led by the literal it reads U at, w, not by the unit: an index every write of U pays for a read one migration makes."
-			},
-			{
-				file: "packages/engine/src/physical/access/extract.ts",
-				original: "\t\treturn k1 === undefined || k2 === undefined ? [] : [[k1, k2]]",
-				replacement: "\t\treturn []",
-				why: "A navigation step's `column = channel` is no fixed equality to the extraction, so a probe's lookup of U by the join asks no index, and PostgreSQL reads every row of U's package at each row of T's delta; the property fails."
+				file: "packages/engine/src/sql/seeks.ts",
+				original: "\t\t\tif (x.table !== undefined && aliases.has(x.table)) {\n",
+				replacement: "\t\t\tif (x.table !== undefined) {\n",
+				why: "A navigation step's `column = channel` reads as a column of its own level, the row before it read as a join, so a probe's lookup of U by the join is no seek its judge's program asks an index for, and PostgreSQL reads every row of U's package at each row of T's delta; the property fails."
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",

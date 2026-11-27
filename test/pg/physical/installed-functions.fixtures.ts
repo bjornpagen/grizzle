@@ -10,6 +10,8 @@ import { str } from "#compiler/public/text.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { Id } from "#test/support/ids.ts"
+import { type Version } from "#test/support/install-migrate.ts"
+import { renamed } from "#test/support/installed.ts"
 import {
 	type RowCase,
 	rowCaseGen,
@@ -65,7 +67,7 @@ export const functionCaseGen: Gen<FunctionCase> = (s) => {
 const text = str.regex("^.*$", "su")
 
 /** A library case's schema, its relation R calling the library at `use`, with the login of R's writer and reader. */
-const librarySchemaOf = (use: LibraryUse) => {
+const librarySchemaOf = (use: LibraryUse, name: string) => {
 	const fields = { id: Id, base: text, href: text, body: text, p: text }
 	const digested = relation.generated("R", fields, ["id"], (r) => ({
 		digest: generatedField(sha256, Crypto.sha256(r.body), [])
@@ -85,7 +87,7 @@ const librarySchemaOf = (use: LibraryUse) => {
 			: use === "a key over a generated Crypto.sha256 of a text of no byte bound"
 				? [key(on(digested, "digest"))]
 				: []
-	const s = schema("Library", [R], statements)
+	const s = schema(name, [R], statements)
 	return {
 		schema: s,
 		login: login(s, "desk", [
@@ -114,15 +116,15 @@ const unreadSchemaOf = (held: ReadonlyArray<Handle>, at: Handle) => {
 
 /** A case's schema and the logins it installs with: a row box's none, a library case's its desk, an unread case's
  * none. */
-export const functionSchemaOf = (c: FunctionCase) => {
+export const functionSchemaOf = (c: FunctionCase, name: string): Version => {
 	switch (c.kind) {
 		case "rows":
-			return { schema: rowSchemaOf(c.row), logins: [] }
+			return { schema: renamed(rowSchemaOf(c.row), name), logins: [] }
 		case "library": {
-			const built = librarySchemaOf(c.use)
+			const built = librarySchemaOf(c.use, name)
 			return { schema: built.schema, logins: [built.login] }
 		}
 		case "unread":
-			return { schema: unreadSchemaOf(c.held, c.at), logins: [] }
+			return { schema: renamed(unreadSchemaOf(c.held, c.at), name), logins: [] }
 	}
 }

@@ -107,7 +107,9 @@ export const referenceShares = (
 	readonly copies: ReadonlyArray<RelNode>
 }> => {
 	const keyOf = (node: RelNode): string | undefined =>
-		index.eligible(node) ? succeeded(shareKey(dag, node, new DagTemplates())) : undefined
+		index.eligible(node)
+			? succeeded(shareKey(dag, node, new DagTemplates("derivation")))
+			: undefined
 	const chosen: Array<{ readonly key: string; readonly node: RelNode }> = []
 	const carriedKeys = new Set<string>()
 	const copiesOf = new Map<string, Array<RelNode>>()

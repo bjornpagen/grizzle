@@ -305,13 +305,28 @@ export const neitherAnalysisReadsTheOrderOfAFiltersConjunctsGeneratedCasesEveryF
 			kind: "universal",
 			name: "metamorphic: both analyses claim the same of a DAG and of it with every filter's conjuncts reversed"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/analysis/physical/soundness.test.ts#neitherAnalysisReadsTheOrderOfAFiltersConjunctsGeneratedCasesEveryFiltersConjunctsReversed:-:1.0.0.1.1.0.0.0.0.0.0.0.0.0.0.0.0.1.3.9.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.1.0.2.0.0.0.0.0.0.0.0.1.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1"
+				),
+				reason:
+					"train C's gate C5 at 1170fa12, rotating seed 0xbe8b74d0, case 213, shrunk: a = 0 and a_2 = a, a twinned to a parameter, fixed a_2 to the literal alone and, its conjuncts reversed, to the parameter alone",
+				since: "2026-11-26"
+			}
+		],
 		kills: [
 			{
 				file: "packages/engine/src/analysis/physical/rules.ts",
 				original: "\tconst held = heldPoints(conjuncts(node.pred))",
 				replacement: "\tconst held = heldPoints(conjuncts(node.pred).slice(0, 1))",
 				why: "A filter's first conjunct alone fixes a column (analysis/physical/rules.ts filterProps); the conjunct order fails."
+			},
+			{
+				file: "packages/engine/src/analysis/physical/rules.ts",
+				original: "\t\tequate(c)\n\t}\n\tcloseFixed(s.fixed, equalities)\n",
+				replacement: "\t\tequate(c)\n\t\tcloseFixed(s.fixed, equalities.splice(0))\n\t}\n",
+				why: "A filter's values are carried across each equality of columns as its conjunct is read, over the values the conjuncts before it fixed, so a value a later conjunct fixes never crosses it: a_2 = a fixes a_2 to what a = 0 fixed a to, never to the parameter its twin after it does, and the conjuncts reversed fix a_2 to the parameter alone (the kept case)."
 			}
 		]
 	})

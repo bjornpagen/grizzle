@@ -1900,16 +1900,11 @@ const familyOfSpec = (law: LawSpec): LawFamily => {
 			return "contained"
 		case "covered":
 			return "covered"
-		case "alternatives":
-			return "alternatives"
 	}
 }
 
-/** Whether a declared law's identities hold `law`: its one, or one of an alternatives law's arms and reverses. */
-const holdsLaw = (ids: LawIds, law: string): boolean =>
-	ids.kind === "alternatives"
-		? Arr.some([...Record.values(ids.arms), ...Record.values(ids.reverse)], (id) => id === law)
-		: ids.law === law
+/** Whether a declared law's identity is `law`. */
+const holdsLaw = (ids: LawIds, law: string): boolean => ids.law === law
 
 /** Whether a relation's primary key holds a span: a key WITHOUT OVERLAPS. */
 const spanKeyed = (relation: RelationSpec): boolean =>
@@ -2243,7 +2238,10 @@ const staleHandle = (kind: ActionKind, writers: Arr.NonEmptyReadonlyArray<Writer
  *   the race suites' (test/schedules/worlds/pooled-roles.test.ts requires `ended: interruption` and the probe after
  *   it);
  * - `grizzle drift` answers `drift` whether or not the catalog departs from the contract (a clean catalog is a drift
- *   naming no object), so `ok` is no outcome of a drift.
+ *   naming no object), so `ok` is no outcome of a drift;
+ * - a direct writer's statement over a fact it sees beside its world reads the row policy of the entry it writes,
+ *   which reads its claims, and a session that set none holds no claims document, which every read of a claim refuses
+ *   (sql/print.ts claimsDocument), so under no claims it is required only as rows, through a whole entry, or refused.
  */
 const requiredOps: ReadonlyArray<OpBlock> = [
 	block("open-db", ["db"], ["inside"], ["absent", "matching", "not-matching"], ["opened"]),
@@ -2264,7 +2262,8 @@ const requiredOps: ReadonlyArray<OpBlock> = [
 		["absent", "matching", "malformed"],
 		["ok", "rows", "refused"]
 	),
-	block("direct", ["direct-role"], seen, ["absent", "matching"], ["ok", "rows", "refused"]),
+	block("direct", ["direct-role"], seen, ["absent"], ["rows", "refused"]),
+	block("direct", ["direct-role"], seen, ["matching"], ["ok", "rows", "refused"]),
 	block("direct", ["direct-role"], ["inside"], ["not-matching"], ["refused"]),
 	block("direct", ["direct-role"], allMemberships, ["absent", "matching"], ["law-refused"]),
 	block(

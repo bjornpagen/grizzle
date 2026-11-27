@@ -15,6 +15,7 @@ import {
 } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import type { Built } from "#compiler/core/phantom.ts"
 import { frozenRecordOf } from "#compiler/core/record.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -38,7 +39,6 @@ import type {
 	AnyWorld,
 	EntryValue,
 	RoleRelations,
-	ScopedEntries,
 	WholeEntries
 } from "#compiler/types/schema/world.ts"
 
@@ -51,11 +51,12 @@ export const named = <const N extends string, X extends RecordFieldOf<unknown>>(
 	field: X
 ): Named<N, X> => new Named(name, field)
 
-const duplicate = (key: string): CompileError =>
-	malformedDescription(
+const duplicate: (key: string) => never = (key) => {
+	throw malformedDescription(
 		SourceLoc(`delivered field ${key}`, []),
 		"distinct field names across a record's parts"
 	)
+}
 
 /** The parts' fields in key order, refused when two parts name one key. */
 const fieldsOf = (
@@ -68,7 +69,7 @@ const fieldsOf = (
 			part instanceof Named ? [[part.name, part.field]] : Object.entries(part)
 		for (const [key, field] of entries) {
 			if (seen.has(key)) {
-				throw duplicate(key)
+				duplicate(key)
 			}
 			seen.add(key)
 			out.push([key, field])
@@ -87,7 +88,7 @@ const fieldForm = (field: RecordFieldOf<unknown>): FieldForm =>
  * The module's one assertion: a record given the type R its caller's construction states (see the header): an
  * assembled record's, or a decoder's records', whose type its builder's phantom states.
  */
-const claimed = <R>(record: Readonly<Record<string, unknown>>): R => record as R
+const claimed = <R>(record: object): R => record as R
 
 /**
  * A frozen null-prototype record holding each of `entries`' values under its key, at the type its caller's construction
@@ -95,6 +96,12 @@ const claimed = <R>(record: Readonly<Record<string, unknown>>): R => record as R
  */
 const assembled = <R>(entries: ReadonlyArray<readonly [string, unknown]>): R =>
 	claimed<R>(frozenRecordOf(entries))
+
+/** A variant's case analysis at the type its handlers' terms state (see the header). */
+export const casesTerm = <R>(term: Readonly<Record<string, unknown>>): R => claimed<R>(term)
+
+/** A variant's arm source at the type its handle and value state (see the header). */
+export const armSource = <R>(source: Built): R => claimed<R>(source)
 
 /**
  * A decoder bound by `reader`, the runtime's reader of its form bound to every heading group's layout, once per compiled
@@ -157,6 +164,13 @@ export const bindGroups = <A>(
  *   the list under its own name, the one declaration of each name the level's build admitted (`names`, in list order),
  *   after the base's relations for an extension, which holds a name the base declares as the base's:
  *   Declared<Rs> and DeclaredOver<B, Rs> (types/schema/schema.ts).
+ * - casesTerm(term): a variant's case analysis (schema/variant.ts variantTerms cases), the conditional over its tag
+ *   whose every branch is the term its handler returned for that arm, so its values are the branches': each branch's
+ *   own term type, Extract<ReturnType<R[keyof R]>, TermBase> (types/fields/field.ts VariantField cases), whose
+ *   parameters and origins the branches' phantoms state.
+ * - armSource(source): a variant's arm source (query/build/call.ts armRows), the call source whose heading is the arm
+ *   `handle`'s fields, its own descriptors as its carriers, so its facts are those fields' and its parameters its value's:
+ *   CallSource<FactOfFields<Arms[H]>, …> (types/fields/field.ts VariantField arm), which the handle and value state.
  *
  * Nothing else asserts a type in the repository; this file's override in oxlint.config.ts allows this one, `claimed`.
  *
@@ -229,6 +243,8 @@ const columnText = (carrier: Carrier): string => {
 			return `closedId(${carrier.column.roster})`
 		case "bits":
 			return `bits(${carrier.column.roster})`
+		case "variant":
+			return `variant over ${carrier.column.roster}`
 		case "convert":
 		case "text":
 		case "constant":
@@ -254,6 +270,9 @@ const columnsMeet = (x: Column<unknown>, y: Column<unknown>): boolean => {
 	}
 	if (x.kind === "code" || y.kind === "code") {
 		return x.kind === "code" && y.kind === "code" && x.roster === y.roster
+	}
+	if (x.kind === "variant" || y.kind === "variant") {
+		return x.kind === "variant" && y.kind === "variant" && x.roster === y.roster
 	}
 	return true
 }
@@ -329,22 +348,6 @@ export const wholeEntries = <const Rs extends AnySchema["relations"]>(
 			relation.kind === "closedRelation" || relation.kind === "derived"
 				? []
 				: [[key, relation] as const]
-		)
-	)
-
-/**
- * scopedEntriesOf's entries over a schema's record of relations (see the header): each relation a role may hold under
- * its own key, as wholeEntries keeps it, held as `make` holds it, whole or scoped.
- */
-export const scopedEntries = <const Rs extends AnySchema["relations"]>(
-	relations: Rs,
-	make: (key: string, relation: AnySchema["relations"][string]) => unknown
-): ScopedEntries<Rs> =>
-	assembled<ScopedEntries<Rs>>(
-		Object.entries(relations).flatMap(([key, relation]) =>
-			relation.kind === "closedRelation" || relation.kind === "derived"
-				? []
-				: [[key, make(key, relation)] as const]
 		)
 	)
 

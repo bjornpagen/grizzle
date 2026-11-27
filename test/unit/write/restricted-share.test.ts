@@ -25,6 +25,7 @@ import {
 	boxGen,
 	type Content,
 	labelParts,
+	printsOf,
 	scans,
 	statementsOf
 } from "#test/unit/write/restricted-share.fixtures.ts"
@@ -80,3 +81,51 @@ export const aJoinTheStatementsPartsReadJoinedToACarriedPartIsComputedOnceAtTheK
 			}
 		]
 	})
+
+/**
+ * A write's single statement is the one print of its parts: each write it composes is built and never printed apart
+ * (write/insert/statement.ts StatementWriting), since a part reads the CTEs the single statement holds, its shared sub-queries'
+ * among them, which the single statement alone binds (sql/scope.ts), and its text would be thrown away. So the
+ * write's compile prints each statement it sends once and nothing else, where each part printed its own text beside
+ * the single statement's.
+ *
+ * The count is work, never time: V8's precise coverage counts each call of sql/emit.ts emitText, the printer's one
+ * door, and of the composed statements' text maker, unprintedText (kernel/calls.ts everyCallCount). The box is the
+ * property above's, exhausted.
+ *
+ * Oracle: specification, one print a statement the artifact sends, and one composition a part (the two inserts).
+ *
+ * Features: by the open items; alone.
+ */
+export const aWritesSingleStatementIsTheOnePrintOfThePartsItComposes = property.exhaust(
+	finite(boxGen),
+	{
+		needs: {},
+		situations: ["by the open items", "alone"],
+		check: (_, k: Case<Content>) => (box) =>
+			Effect.gen(function* () {
+				k.note(box.content)
+				const counted = yield* printsOf(box)
+				assert.equal(
+					counted.prints,
+					counted.sent,
+					`${box.reading} arguments reading the labels ${box.content}: the statements printed, ${counted.sent} sent`
+				)
+				assert.equal(counted.composed, 2, "the two inserts, the single statement's parts")
+			}),
+		oracle: {
+			kind: "specification",
+			name: "one print a statement the artifact sends, one composition a part"
+		},
+		box: "one, two or four of a call's four arguments reading every item's labels joined to the open items by the item, or alone, a second member carrying the open items",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/write/program/compile.ts",
+				original: "\t\t\t\t\t\t\t{ ...w, start, text: unprintedText, share: lowering.parts },\n",
+				replacement: "\t\t\t\t\t\t\t{ ...w, start, share: lowering.parts },\n",
+				why: "A single statement's parts printed as its writes are built, texts nothing sends, which read the CTEs only the single statement binds: the scope check refuses one that reads a shared sub-query, and the prints outnumber the statements sent."
+			}
+		]
+	}
+)

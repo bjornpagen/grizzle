@@ -185,9 +185,9 @@ export const aTextSplitAtItsLastSeparatorIsTheTextAroundJavaScriptsLastIndexOfAn
 			{
 				file: "packages/engine/src/check/checker.ts",
 				original:
-					'\t\t\tcase "exists": {\n\t\t\t\tconst computed = lower(term, at)\n\t\t\t\treturn { expr: computed.expr, type: computed.nominal }\n\t\t\t}',
+					'\t\t\tcase "variant": {\n\t\t\t\tconst computed = lower(term, at)\n\t\t\t\treturn { expr: computed.expr, type: computed.nominal }\n\t\t\t}',
 				replacement:
-					'\t\t\tcase "exists": {\n\t\t\t\tconst value = bind(term, name, at)\n\t\t\t\treturn { expr: this.#boundArgument(value, wildcardText, name, at), type: wildcardText }\n\t\t\t}',
+					'\t\t\tcase "variant": {\n\t\t\t\tconst value = bind(term, name, at)\n\t\t\t\treturn { expr: this.#boundArgument(value, wildcardText, name, at), type: wildcardText }\n\t\t\t}',
 				why: "A computed text is bound as a bind map's term is, which refuses it, so a split of the path with a slash written ahead of it does not compile."
 			},
 			{

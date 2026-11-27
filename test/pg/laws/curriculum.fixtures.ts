@@ -484,6 +484,7 @@ const lawOf = (refused: Law): CurriculumLaw | undefined => {
 		case "fold":
 		case "generated":
 		case "pattern":
+		case "variant":
 		case "sealed":
 		case "tree":
 			return undefined

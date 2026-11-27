@@ -1,4 +1,3 @@
-import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Record as Rec, type Scope } from "effect"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -7,10 +6,10 @@ import { closedId, pg, span } from "#compiler/public/fields.ts"
 import {
 	type AnyRelation,
 	type AnySchema,
-	alternatives,
 	closed,
 	contained,
 	key,
+	mirrors,
 	type Mutable,
 	on,
 	relation,
@@ -34,12 +33,7 @@ import { relationBuilder } from "#compiler/schema/relation.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { UnitBase } from "#compiler/types/schema/statements.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
-import {
-	type AlternativesLaws,
-	type LawNames,
-	lawNamesOf,
-	parsedName
-} from "#test/support/kernel/naming.ts"
+import { type LawNames, lawNamesOf, parsedName } from "#test/support/kernel/naming.ts"
 import {
 	type Domains,
 	installLaws,
@@ -64,11 +58,12 @@ import { upTo } from "#test/support/up-to.ts"
  * exactly these. A step's ChangeSet is built at run time over the relation values by name, as a
  * JavaScript caller passes members (support.ts changeSetOf).
  *
- * - alternatives: `alternatives(Run, "stage", Stage, { s0: key(on(Pay0, "run")), ... })` over the boundary rosters of
- *   two to five handles: every handle armed, one unarmed, a payload relation two handles share, one armed of five. It
- *   states two containments per arm (fin.md §7): the arm relation's key in the runs its handles select, a foreign key
- *   into the parent's law column, and the runs each armed handle selects in its arm, a foreign key from the parent's
- *   law column, deferred on the cycle; each roster with every relation immutable and with every one mutable, and two
+ * - tagged arms: Run, its stage a tagged header over the boundary rosters of two to five handles, each handle's payload
+ *   relation keyed by `key(on(Pay0, "run"))`: every handle armed, one unarmed, a payload relation two handles share,
+ *   one armed of five. Each arm relation is one mirrors with the runs of its handle or handles,
+ *   `mirrors(on(Pay0, "run"), on(select(Run, (r) => r.eq(r.stage, "s0")), "id"))`, `r.in` for a shared payload: its
+ *   two containments (fin.md §7), the arm relation's key in those runs, a foreign key into the parent's law column, and
+ *   those runs in the arm, a foreign key from the parent's law column, deferred on the cycle; each roster with every relation immutable and with every one mutable, and two
  *   with a mutable arm beside an immutable parent and an immutable arm beside a mutable one;
  * - span coverage: Rota(site, during) keyed by a span key, and `contained(on([select(]Visit[, (v) => v.eq(v.billable,
  *   b))], "site", "during"), on([select(]Rota[, (r) => r.eq(r.open, o))], "site", "during"))`, at most one side
@@ -79,12 +74,12 @@ import { upTo } from "#test/support/up-to.ts"
  *   Roster(shift, crew, place) keyed by (place, shift), `on(Roster, "place", "shift")`, whose fields are named apart
  *   from the source's and declared in another heading order, so the law pairs the sides' fields by their positions in
  *   the two lists alone;
- * - a work queue: `alternatives(Work, "standing", Standing, { wanted: Wanted, leased: Leased, done: Done })`, every
- *   handle armed, a candidate key on a lease's (resource, seat), and the lease's foreign key into Seat;
+ * - a work queue: Work, its standing a tagged header whose wanted, leased and done arms each state their two
+ *   containments, a candidate key on a lease's (resource, seat), and the lease's foreign key into Seat;
  * - timekeeping, the payroll example's time side: Employment and Shift keyed by span keys, and over the shifts a
  *   selector picks, a containment into Timesheet(employee, week), a native foreign key from the selected side's law
  *   columns, and a coverage by Employment, a PERIOD foreign key from them;
- * - composite alternatives: the alternatives family's two containments per arm over a (tenant, id) key.
+ * - composite tagged arms: the tagged arms family's two containments per arm over a (tenant, id) key.
  *
  * Every law is native (fin.md §7, "The residual families after Fin"). The capacity families (scalar-group capacity,
  * the shared tables' capacity, the deposits and the badges) went with `capacity`: their counts and sums are counted
@@ -93,7 +88,7 @@ import { upTo } from "#test/support/up-to.ts"
  * Mutability is a coordinate of each relation, which the host states per relation (model.ts HostRelation `mutable`):
  * a put on a mutable relation is an UPDATE in place, on an immutable one the DELETE-then-insert pair, and a direct
  * writer's UPDATE of an immutable relation is refused by privilege. Most families draw it for all of their relations
- * or for none; the alternatives family draws it per relation too, an arm's apart from its parent's. A family's box
+ * or for none; the tagged arms family draws it per relation too, an arm's apart from its parent's. A family's box
  * splits into its populations by mode (populationsOf), each a test of its own. Every schema installs with the same
  * writers (support.ts familyWriters): `app`, the grizzle writer of the family suites and, opened twice, the histories'
  * two grizzle writers, in the login `server`, and `direct`, the role their psql writers take on, in the login `psql`,
@@ -234,14 +229,14 @@ export const describeMutability = (m: Readonly<Record<string, boolean>>): string
 
 const stages = ["draft", "approved", "paid", "voided"] as const
 const Stage = closed.ordered("Stage", stages)
-/** A payload relation of a drawn alternatives schema: the roster positions it is the payload of, its mutability. */
+/** A payload relation of a drawn tagged arms schema: the roster positions it is the payload of, its mutability. */
 export interface PayArm {
 	readonly handles: Arr.NonEmptyReadonlyArray<number>
 	readonly mutable: boolean
 }
 
 /**
- * A drawn alternatives schema: a roster of `roster` handles `s0`.., the mutability of its parent Run, and its payload
+ * A drawn tagged arms schema: a roster of `roster` handles `s0`.., the mutability of its parent Run, and its payload
  * relations `Pay0`.., each the payload of its own roster positions, no position of two, each with its own mutability.
  * A payload is keyed by its own `id`, with its parent's `run` a candidate key, so a `mutable` payload's move to another
  * parent is an UPDATE of `run`, and a `mutable` run's kind switch an UPDATE of `stage`.
@@ -255,7 +250,7 @@ export interface RunsParams {
 /** The handle of a drawn roster at a position. */
 const stageName = (i: number): string => `s${i}`
 
-/** The values of a drawn alternatives schema: its roster, parent and payload relations, and its statements. */
+/** The values of a drawn tagged arms schema: its roster, parent and payload relations, and its statements. */
 const drawnRuns = (p: RunsParams) => {
 	const names: readonly [string, ...Array<string>] = [
 		stageName(0),
@@ -270,27 +265,35 @@ const drawnRuns = (p: RunsParams) => {
 			["id"],
 			[]
 		)
-		return { handles: arm.handles, mutable: arm.mutable, value, runKey: key(on(value, "run")) }
-	})
-	const byHandle: Record<string, (typeof pays)[number]["runKey"]> = {}
-	for (const pay of pays) {
-		for (const h of pay.handles) {
-			byHandle[stageName(h)] = pay.runKey
+		const named = Arr.map(arm.handles, stageName)
+		const [only, ...more] = named
+		return {
+			handles: arm.handles,
+			mutable: arm.mutable,
+			value,
+			runKey: key(on(value, "run")),
+			/** The arm mirrored with the runs of its handle or handles, a sum of relations' one spelling. */
+			arm: mirrors(
+				on(value, "run"),
+				on(
+					select(Run, (r) => (more.length === 0 ? r.eq(r.stage, only) : r.in(r.stage, named))),
+					"id"
+				)
+			)
 		}
-	}
-	const stage = alternatives(Run, "stage", DrawnStage, byHandle)
+	})
 	const relations: Record<string, AnyRelation | typeof DrawnStage> = { Stage: DrawnStage, Run }
 	for (const pay of pays) {
 		relations[pay.value.name] = pay.value
 	}
-	return { DrawnStage, Run, pays, stage, relations }
+	return { DrawnStage, Run, pays, relations }
 }
 
-/** A drawn alternatives schema under a name. */
+/** A drawn tagged arms schema under a name. */
 export const runs = (p: RunsParams) => (name: string) => {
 	const d = drawnRuns(p)
 	return schema(name, Rec.values(d.relations), [
-		d.stage,
+		...Arr.map(d.pays, (pay) => pay.arm),
 		...Arr.map(d.pays, (pay) => pay.runKey),
 		...opened([
 			...(p.runMutable ? [d.Run] : []),
@@ -299,7 +302,7 @@ export const runs = (p: RunsParams) => (name: string) => {
 	])
 }
 
-/** The relation values of a drawn alternatives schema, by name, as a ChangeSet names them. */
+/** The relation values of a drawn tagged arms schema, by name, as a ChangeSet names them. */
 export const runsRelations = (p: RunsParams): Readonly<Record<string, unknown>> =>
 	drawnRuns(p).relations
 
@@ -369,7 +372,7 @@ const describeRuns = (p: RunsParams): string => {
 }
 
 /**
- * The traits of an alternatives schema whose arms' mutability is not its parent's: a mutable arm beside an immutable
+ * The traits of a tagged arms schema whose arms' mutability is not its parent's: a mutable arm beside an immutable
  * parent, an immutable arm beside a mutable one.
  */
 const armMutabilityTraits = (
@@ -393,8 +396,8 @@ const runsTraits = (p: RunsParams): ReadonlyArray<string> => [
 	)
 ]
 
-export const alternativesBox: Family<RunsParams> = {
-	label: "alternatives",
+export const taggedArmsBox: Family<RunsParams> = {
+	label: "tagged arms",
 	variants: runsBox,
 	describe: describeRuns,
 	traits: runsTraits,
@@ -407,7 +410,6 @@ export const alternativesBox: Family<RunsParams> = {
 	host: (p) => {
 		const d = drawnRuns(p)
 		const laws = lawNamesOf(runs(p)("families"))
-		const stage = laws.alternativesOf(d.stage)
 		return {
 			relations: [
 				hostRelation("Run", ["id", "stage", "note"], ["id"], p.runMutable),
@@ -423,49 +425,40 @@ export const alternativesBox: Family<RunsParams> = {
 					fields: ["id"],
 					selection: everyFact
 				},
-				...Arr.flatMap(d.pays, (pay): HostSchema["laws"] => [
-					{
-						kind: "key",
-						law: laws.primaryKeyLaw(pay.value),
-						relation: pay.value.name,
+				...Arr.flatMap(d.pays, (pay): HostSchema["laws"] => {
+					const armLaws = laws.mirrorsOf(pay.arm)
+					const runs = {
+						relation: "Run",
 						fields: ["id"],
-						selection: everyFact
-					},
-					{
-						kind: "key",
-						law: laws.lawOf(pay.runKey),
-						relation: pay.value.name,
-						fields: ["run"],
-						selection: everyFact
-					},
-					{
-						kind: "contained",
-						law: defined(stage.arms[stageName(pay.handles[0])], `${pay.value.name}'s arm law`),
-						source: { relation: pay.value.name, fields: ["run"], selection: everyFact },
-						target: {
-							relation: "Run",
+						selection: fieldsIn({ stage: Arr.map(pay.handles, stageName) })
+					}
+					const payKey = { relation: pay.value.name, fields: ["run"], selection: everyFact }
+					return [
+						{
+							kind: "key",
+							law: laws.primaryKeyLaw(pay.value),
+							relation: pay.value.name,
 							fields: ["id"],
-							selection: fieldsIn({ stage: Arr.map(pay.handles, stageName) })
-						}
-					},
-					...Arr.map(pay.handles, (h): HostLaw => ({
-						kind: "contained",
-						law: defined(stage.reverse[stageName(h)], `the ${stageName(h)} handle's reverse law`),
-						source: {
-							relation: "Run",
-							fields: ["id"],
-							selection: fieldsEqual({ stage: stageName(h) })
+							selection: everyFact
 						},
-						target: { relation: pay.value.name, fields: ["run"], selection: everyFact }
-					}))
-				])
+						{
+							kind: "key",
+							law: laws.lawOf(pay.runKey),
+							relation: pay.value.name,
+							fields: ["run"],
+							selection: everyFact
+						},
+						{ kind: "contained", law: armLaws.forward, source: payKey, target: runs },
+						{ kind: "contained", law: armLaws.reverse, source: runs, target: payKey }
+					]
+				})
 			]
 		}
 	},
 	schema: runs,
 	connect: (p, installed) =>
 		Effect.flatMap(openWriter({ installed, schema: runs(p)(installed.declared) }), (o) =>
-			runtimeSession(alternativesBox.host(p), o, runsRelations(p))
+			runtimeSession(taggedArmsBox.host(p), o, runsRelations(p))
 		)
 }
 
@@ -818,10 +811,18 @@ export interface QueueParams {
 	readonly mutable: Mutability<keyof typeof queueRelations>
 }
 
-const workStanding = alternatives(Work, "standing", Standing, {
-	wanted: Wanted,
-	leased: Leased,
-	done: Done
+/** The work items standing at `h`, whose arm rows' items are exactly theirs. */
+const standingAt = (h: (typeof standings)[number]) =>
+	on(
+		select(Work, (w) => w.eq(w.standing, h)),
+		"item"
+	)
+
+/** Each standing's arm mirrored with the work standing at it: its rows only of that work, and that work each with one. */
+const workStanding = Object.freeze({
+	wanted: mirrors(on(Wanted, "item"), standingAt("wanted")),
+	leased: mirrors(on(Leased, "item"), standingAt("leased")),
+	done: mirrors(on(Done, "item"), standingAt("done"))
 })
 const leaseSeatKey = key(on(Leased, "resource", "seat"))
 const leaseSeat = contained(on(Leased, "resource", "seat"), on(Seat, "resource", "seat"))
@@ -830,27 +831,34 @@ export const queue = (p: QueueParams) => (name: string) =>
 	schema(
 		name,
 		[Standing, Work, Wanted, Leased, Done, Seat],
-		[workStanding, leaseSeatKey, leaseSeat, ...mutables(p.mutable, queueRelations)]
+		[
+			workStanding.wanted,
+			workStanding.leased,
+			workStanding.done,
+			leaseSeatKey,
+			leaseSeat,
+			...mutables(p.mutable, queueRelations)
+		]
 	)
 
 /**
- * Each armed handle's arm in the work item standing at it, and the work items standing at it in their arm: both
- * containments alternatives states (fin.md §7).
+ * Each armed handle's arm in the work item standing at it, and the work items standing at it in their arm: the two
+ * containments of its mirrors (fin.md §7).
  */
 const armLaws = (
-	standing: AlternativesLaws,
+	laws: LawNames,
 	arm: string,
 	h: (typeof standings)[number]
 ): HostSchema["laws"] => [
 	{
 		kind: "contained",
-		law: defined(standing.arms[h], `the ${h} arm's law`),
+		law: laws.mirrorsOf(workStanding[h]).forward,
 		source: { relation: arm, fields: ["item"], selection: everyFact },
 		target: { relation: "Work", fields: ["item"], selection: fieldsEqual({ standing: h }) }
 	},
 	{
 		kind: "contained",
-		law: defined(standing.reverse[h], `the ${h} handle's reverse law`),
+		law: laws.mirrorsOf(workStanding[h]).reverse,
 		source: { relation: "Work", fields: ["item"], selection: fieldsEqual({ standing: h }) },
 		target: { relation: arm, fields: ["item"], selection: everyFact }
 	}
@@ -872,7 +880,6 @@ export const queueFamily: Family<QueueParams> = {
 	},
 	host: (p) => {
 		const laws = lawNamesOf(queue(p)("families"))
-		const standing = laws.alternativesOf(workStanding)
 		return {
 			relations: [
 				hostRelation("Work", ["item", "standing", "epoch"], ["item"], p.mutable.Work),
@@ -902,9 +909,9 @@ export const queueFamily: Family<QueueParams> = {
 					source: { relation: "Leased", fields: ["resource", "seat"], selection: everyFact },
 					target: { relation: "Seat", fields: ["resource", "seat"], selection: everyFact }
 				},
-				...armLaws(standing, "Wanted", "wanted"),
-				...armLaws(standing, "Leased", "leased"),
-				...armLaws(standing, "Done", "done")
+				...armLaws(laws, "Wanted", "wanted"),
+				...armLaws(laws, "Leased", "leased"),
+				...armLaws(laws, "Done", "done")
 			]
 		}
 	},
@@ -1069,14 +1076,23 @@ const TenantVoiding = relation(
 	["tenant", "run"]
 )
 
-const tenantRunStages = alternatives(TenantRun, "stage", Stage, {
-	paid: TenantPayment,
-	voided: TenantVoiding
+/** The runs at (tenant, id) standing at `h`, whose arm rows' (tenant, run) are exactly theirs. */
+const tenantRunsAt = (h: "paid" | "voided") =>
+	on(
+		select(TenantRun, (r) => r.eq(r.stage, h)),
+		"tenant",
+		"id"
+	)
+
+/** Each stage's arm mirrored with the runs at that stage: its rows only of those runs, and those runs each with one. */
+const tenantRunStages = Object.freeze({
+	paid: mirrors(on(TenantPayment, "tenant", "run"), tenantRunsAt("paid")),
+	voided: mirrors(on(TenantVoiding, "tenant", "run"), tenantRunsAt("voided"))
 })
 
 const tenantRunsRelations = Object.freeze({ TenantRun, TenantPayment, TenantVoiding })
 
-/** The composite-key alternatives schema's parameters: each of its relations' mutability. */
+/** The composite-key tagged arms schema's parameters: each of its relations' mutability. */
 export interface TenantRunsParams {
 	readonly mutable: Mutability<keyof typeof tenantRunsRelations>
 }
@@ -1085,21 +1101,17 @@ const tenantRuns = (p: TenantRunsParams) => (name: string) =>
 	schema(
 		name,
 		[Stage, ...Rec.values(tenantRunsRelations)],
-		[tenantRunStages, ...mutables(p.mutable, tenantRunsRelations)]
+		[tenantRunStages.paid, tenantRunStages.voided, ...mutables(p.mutable, tenantRunsRelations)]
 	)
 
 /**
  * Each armed handle's foreign key from its arm's (tenant, run) into the run at (tenant, id) standing at it, and the
- * runs standing at it in their arm: both containments alternatives states (fin.md §7).
+ * runs standing at it in their arm: the two containments of its mirrors (fin.md §7).
  */
-const tenantArmLaws = (
-	stage: AlternativesLaws,
-	arm: string,
-	h: "paid" | "voided"
-): HostSchema["laws"] => [
+const tenantArmLaws = (laws: LawNames, arm: string, h: "paid" | "voided"): HostSchema["laws"] => [
 	{
 		kind: "contained",
-		law: defined(stage.arms[h], `the ${h} arm's law`),
+		law: laws.mirrorsOf(tenantRunStages[h]).forward,
 		source: { relation: arm, fields: ["tenant", "run"], selection: everyFact },
 		target: {
 			relation: "TenantRun",
@@ -1109,7 +1121,7 @@ const tenantArmLaws = (
 	},
 	{
 		kind: "contained",
-		law: defined(stage.reverse[h], `the ${h} handle's reverse law`),
+		law: laws.mirrorsOf(tenantRunStages[h]).reverse,
 		source: {
 			relation: "TenantRun",
 			fields: ["tenant", "id"],
@@ -1119,8 +1131,8 @@ const tenantArmLaws = (
 	}
 ]
 
-export const compositeAlternatives: Family<TenantRunsParams> = {
-	label: "alternatives over a composite key",
+export const compositeTaggedArms: Family<TenantRunsParams> = {
+	label: "tagged arms over a composite key",
 	/** Every relation immutable, every one mutable, and each arm's mutability apart from the run's. */
 	variants: Arr.appendAll(
 		Arr.map(uniformly(tenantRunsRelations), (mutable): TenantRunsParams => ({ mutable })),
@@ -1141,7 +1153,6 @@ export const compositeAlternatives: Family<TenantRunsParams> = {
 	},
 	host: (p) => {
 		const laws = lawNamesOf(tenantRuns(p)("families"))
-		const stage = laws.alternativesOf(tenantRunStages)
 		return {
 			relations: [
 				hostRelation(
@@ -1185,14 +1196,14 @@ export const compositeAlternatives: Family<TenantRunsParams> = {
 					fields: ["tenant", "run"],
 					selection: everyFact
 				},
-				...tenantArmLaws(stage, "TenantPayment", "paid"),
-				...tenantArmLaws(stage, "TenantVoiding", "voided")
+				...tenantArmLaws(laws, "TenantPayment", "paid"),
+				...tenantArmLaws(laws, "TenantVoiding", "voided")
 			]
 		}
 	},
 	schema: tenantRuns,
 	connect: (p, installed) =>
 		Effect.flatMap(openWriter({ installed, schema: tenantRuns(p)(installed.declared) }), (o) =>
-			runtimeSession(compositeAlternatives.host(p), o, tenantRunsRelations)
+			runtimeSession(compositeTaggedArms.host(p), o, tenantRunsRelations)
 		)
 }

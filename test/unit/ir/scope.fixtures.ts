@@ -25,7 +25,6 @@ import {
 	type TableNode,
 	type ValidDag
 } from "#compiler/ir/rel.ts"
-import { binaryCoercion } from "#compiler/scalar/compute/registry.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { toTable } from "#test/support/dag.ts"
 import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"
@@ -137,9 +136,10 @@ const targets = [
 type Target = (typeof targets)[number]
 
 /**
- * A fresh reference to the target's column, bare or under a cast, or an existing expression tree, whatever it reads.
+ * A fresh reference to the target's column, bare or nested in an expression of its type, or an existing expression
+ * tree, whatever it reads.
  */
-const readings = ["bare", "cast", "existing"] as const
+const readings = ["bare", "nested", "existing"] as const
 
 /** How a planted reference reads its target. */
 type Reading = (typeof readings)[number]
@@ -264,7 +264,11 @@ const candidates = (d: DagTable, holder: TableNode, target: Target): ReadonlyArr
 	}
 }
 
-/** A fresh reference to a column of `target`, bare or under a cast, its expressions with the root last. */
+/**
+ * A fresh reference to a column of `target`, bare or nested in an expression of its type, `CASE WHEN true THEN c ELSE c
+ * END`, its expressions with the root last: a cast of a column to its own type is no expression the IR holds, a value
+ * standing where a type that subsumes it is asked for with no node of its own (ir/expr.ts builtExpr).
+ */
 const freshReference = (
 	target: TableNode,
 	columnPick: number,
@@ -291,15 +295,24 @@ const freshReference = (
 	if (reading === "bare") {
 		return { root: column.id, added: [column] }
 	}
-	const cast: TableExpr = {
-		...common,
+	const truth: TableExpr = {
+		kind: "literal",
+		value: { kind: "bool", value: true },
+		args: [],
+		nonNull: "literal",
+		type: scalarTypes.bool,
+		volatility: "immutable",
 		id: fresh(1),
-		kind: "cast",
-		cast: binaryCoercion,
-		args: [column.id],
-		nonNull: "strict"
+		deps: { params: [], nodes: [] }
 	}
-	return { root: cast.id, added: [column, cast] }
+	const nested: TableExpr = {
+		...common,
+		id: fresh(2),
+		kind: "cond",
+		args: [truth.id, column.id, column.id],
+		nonNull: "cond"
+	}
+	return { root: nested.id, added: [column, truth, nested] }
 }
 
 /**
@@ -576,7 +589,9 @@ const sketchedNode = (
 			primaryKey: ["a"],
 			keys: [],
 			relationKind: "relation",
-			generated: []
+			generated: [],
+			unit: [],
+			determined: []
 		}
 	}
 	switch (s.kind) {

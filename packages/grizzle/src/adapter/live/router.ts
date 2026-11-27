@@ -184,7 +184,7 @@ export const routeKeys = (
 					? inputs.scalars.get(codec.value.decl.id)
 					: undefined
 			if (typeof text !== "string") {
-				throw defect(
+				defect(
 					`the route of ${table}.${column} names ${param}, a scalar parameter of its read encoded as text`
 				)
 			}

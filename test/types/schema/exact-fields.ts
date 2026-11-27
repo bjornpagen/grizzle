@@ -104,12 +104,12 @@ const boxCases: ReadonlyArray<ExactCase> = [
 	},
 	{
 		what: "a contract over the exact integer",
-		statement: 'contract("Huge", exactInteger)',
+		statement: 'contract<typeof probeKey>()("Huge", exactInteger)',
 		verdict: { kind: "refusal", refusal: contractRefusal }
 	},
 	{
 		what: "a contract over the exact money",
-		statement: 'contract("Total", exactMoney)',
+		statement: 'contract<typeof probeKey>()("Total", exactMoney)',
 		verdict: { kind: "refusal", refusal: contractRefusal }
 	}
 ]
@@ -143,7 +143,8 @@ const caseBlock = (c: ExactCase, index: number): ReadonlyArray<string> => [
 const prelude = await Effect.runPromise(preludeAt("test/support/programs/exact-fields.ts"))
 
 /** Ledger, its count an exactInteger and its total an exactMoney beside a plain bigint and amount. */
-const exactHeader = `export const Ledger = relation("Ledger", { id: pg.integer, count: exactInteger, total: exactMoney, n: pg.bigint, m: pg.money }, ["id"])
+const exactHeader = `export const probeKey = Symbol("Probe")
+export const Ledger = relation("Ledger", { id: pg.integer, count: exactInteger, total: exactMoney, n: pg.bigint, m: pg.money }, ["id"])
 export const S = schema("S", [Ledger], [])
 `
 

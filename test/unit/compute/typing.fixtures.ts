@@ -131,6 +131,7 @@ const familyOf = (name: string): Family => {
 		case "inet":
 		case "cidr":
 			return "net"
+		case "variant":
 		case "uuid":
 		case "date":
 		case "vector":
@@ -681,6 +682,7 @@ const nameOf = (e: ScalarExpr): string => {
 			return e.relation
 		case "call":
 			return e.function.name
+		case "variant":
 		case "value":
 		case "domainCast":
 		case "cond":

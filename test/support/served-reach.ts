@@ -3,7 +3,7 @@ import { Array as Arr, Order, Record as Rec, String as Str } from "effect"
 import type { ChangeVariants, WorkloadForm } from "#adapter/db/workload.ts"
 import type { LayerRole } from "#adapter/served/login.ts"
 import type { DecoderForm } from "#compiler/core/decoder.ts"
-import { type DeclaredName, identifierOf } from "#compiler/core/identity.ts"
+import { type DeclaredName, identifierOf, type HeldName } from "#compiler/core/identity.ts"
 import type {
 	ColumnIdent,
 	EntryName,
@@ -51,7 +51,7 @@ import type {
  */
 
 /** The roster a type's values are codes of: a closed id's or a set's, none for any other carrier. */
-export const typeRosters = (descriptor: ScalarType): ReadonlyArray<DeclaredName> => {
+export const typeRosters = (descriptor: ScalarType): ReadonlyArray<HeldName> => {
 	const type = baseOf(descriptor)
 	switch (type.carrier) {
 		case "code":
@@ -80,6 +80,13 @@ export const typeRosters = (descriptor: ScalarType): ReadonlyArray<DeclaredName>
 		case "exactInteger":
 		case "exactMoney":
 			return []
+		case "variant":
+			return [
+				type.variant.roster.closed,
+				...Arr.flatMap(type.variant.arms, (arm) =>
+					Arr.flatMap(arm.fields, (f) => typeRosters(f.type))
+				)
+			]
 	}
 }
 
@@ -91,7 +98,7 @@ const headingRosters = (heading: Heading): ReadonlyArray<string> =>
 const paramRosters = (param: ParamDecl): ReadonlyArray<string> =>
 	param.kind === "relation" ? headingRosters(param.heading) : typeRosters(param.type)
 
-/** The rosters a decoder's columns read, a closed id's and a set's, through its attachments, arms and unions. */
+/** The rosters a decoder's columns read, a closed id's and a set's, through its attachments and unions. */
 const decoderRosters = (form: DecoderForm): ReadonlyArray<string> => {
 	switch (form.kind) {
 		case "record":
@@ -102,16 +109,12 @@ const decoderRosters = (form: DecoderForm): ReadonlyArray<string> => {
 							? [field.column.roster]
 							: []
 					case "attachment":
-					case "some":
-					case "none":
 						return decoderRosters(field.child)
 				}
 			})
 		case "merge":
 		case "oneOf":
 			return [...decoderRosters(form.first), ...decoderRosters(form.second)]
-		case "arm":
-			return [...decoderRosters(form.parent), ...decoderRosters(form.child)]
 		case "refused":
 			return []
 	}
@@ -205,7 +208,7 @@ export interface Raised {
 	readonly relations: ReadonlySet<StoredRelationName>
 	readonly constraints: ReadonlyArray<ConstraintLaw>
 	readonly theoryLaws: ReadonlyArray<DescribedLaw>
-	readonly rosters: ReadonlySet<DeclaredName>
+	readonly rosters: ReadonlySet<HeldName>
 	readonly generated: ReadonlyArray<{ readonly table: RelationIdent; readonly column: ColumnIdent }>
 	/** Each query entry the role writes through into a written relation, by its target. */
 	readonly entries: ReadonlyMap<StoredRelationName, EntryName>

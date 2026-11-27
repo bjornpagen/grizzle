@@ -240,7 +240,8 @@ export const aWritesCompileWritesEachNodesAndExpressionsTemplateOnceWhicheverOfI
 				{
 					file: "packages/engine/src/lower/conservative/context.ts",
 					original: '\t\tcase "write":\n\t\tcase "readBack":\n\t\t\treturn subject.templates\n',
-					replacement: '\t\tcase "write":\n\t\tcase "readBack":\n\t\t\treturn new DagTemplates()\n',
+					replacement:
+						'\t\tcase "write":\n\t\tcase "readBack":\n\t\t\treturn new DagTemplates("derivation")\n',
 					why: "The write's lowering and each read-back's read stores of their own, as each consumer held one: a node the share planning's keys or a read-back's digest read is written again by the lowering's evaluation keys, and the templates written pass the nodes read."
 				},
 				{

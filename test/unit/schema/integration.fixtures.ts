@@ -7,7 +7,8 @@ import { str } from "#compiler/public/text.ts"
 
 const Slug = str.regex("^[a-z]{1,20}$")
 
-export const Cents = contract("Cents", pg.bigint, (v) => Logic.ge(v, 0n))
+const centsKey = Symbol("Cents")
+export const Cents = contract<typeof centsKey>()("Cents", pg.bigint, (v) => Logic.ge(v, 0n))
 
 export const Kind = closed.ordered("Kind", ["a", "b"])
 

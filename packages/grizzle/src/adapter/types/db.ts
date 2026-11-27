@@ -270,15 +270,13 @@ export interface PlanIndex {
  * - `relation`: a relation's table, an authored or a stored derived relation's, by the relation's declared name, read
  *   whole or by a bitmap (Seq Scan, Bitmap Heap Scan), or written (Insert, Update, Delete, Merge);
  * - `index`: a relation read through one of its indexes (Index Scan, Index Only Scan, Bitmap Index Scan);
- * - `carrier`: a temporary table the explained ChangeSet itself created and filled for its statements, read whole, since
- *   a carrier holds no index;
- * - `none`: no relation, as a join, a sort, an aggregate or a scan of a CTE, a function or VALUES reads none.
+ * - `none`: no relation, as a join, a sort, an aggregate or a scan of a CTE, a function or VALUES reads none, a
+ *   ChangeSet's carrier among them, whose rows are its settings' arrays (write/carriers/carriers.ts carrierRead).
  */
 export type PlanTarget =
 	| { readonly kind: "none" }
 	| { readonly kind: "relation"; readonly relation: string }
 	| { readonly kind: "index"; readonly relation: string; readonly index: PlanIndex }
-	| { readonly kind: "carrier" }
 
 /**
  * One node of PostgreSQL's plan of a statement: its node type as PostgreSQL names it ("Index Scan", "Hash Join", ...),

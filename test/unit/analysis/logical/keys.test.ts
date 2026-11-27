@@ -49,6 +49,10 @@ import { KeyKernel } from "#test/support/keys/kernel.ts"
 import {
 	classedGen,
 	type ClassFeature,
+	type DoublyKey,
+	type DoublyReader,
+	doublyCaseGen,
+	doublyDag,
 	factCaseGen,
 	type ForgeFeature,
 	ghost,
@@ -767,3 +771,60 @@ export const aFloatARegionReadsOfOneFactIsKeyedByThatFactsKeyAndHoldsItsZerosSig
 			}
 		]
 	})
+
+type DoublyFeature = `${DoublyReader} reads ${DoublyKey}`
+
+/**
+ * A relation keyed twice is keyed by either key wherever a node reads it by that key: the one key proof of a node over
+ * Doubly, keyed by its id and by its n, holds one of the two as its own key and the other as its alternative (ir/keys.ts
+ * KeyProof), and a reader asking whether a key lies among some columns asks of every key the proof holds (logical/props.ts
+ * keyAmong). A region binding one key and the float x, the other left unbound, reads one fact for each binding of it
+ * (readsOneFact), so it is natively distinct and keyed by that key; a projection of a group by both keys to one of them
+ * and the sum of x, a float no fact holds, delivers one row for each of the group's (projectsOneRow), so it is natively
+ * distinct and keyed by that key. Read by the proof's own key alone, the reader of the alternative is told apart as
+ * members, a float's zeros apart, and claims no key. The box, exhausted: each key, under each reader.
+ */
+export const aRelationKeyedTwiceIsKeyedByEitherKeyWhereverANodeReadsItByThatKey = property.exhaust(
+	finite(doublyCaseGen),
+	{
+		box: "a region over Doubly(id, x double precision, n) key [id] key(n) binding one key and x, and a projection to one key and the sum of x of its group by both",
+		needs: {},
+		situations: [
+			"region reads id",
+			"region reads n",
+			"projection reads id",
+			"projection reads n"
+		] satisfies ReadonlyArray<Reached<DoublyFeature>>,
+		check: (_, c: Case<DoublyFeature>) => (doubly) =>
+			Effect.sync(() => {
+				c.note(`${doubly.reader} reads ${doubly.key}`)
+				const dag = doublyDag(doubly)
+				const root = defined(dag.roots[0], "the case's node")
+				const analysis = succeeded(analyzeLogical(dag, checkerEvidence, keptNodes([root])))
+				const props = defined(analysis.props.get(root), "the node's properties, kept")
+				assert.equal(
+					props.distinct,
+					"native",
+					`the ${doubly.reader} reads one fact for each ${doubly.key}`
+				)
+				assert.deepEqual(
+					Arr.map(props.keys, (k) => keyIn(k, (column) => column === doubly.key)),
+					[[doubly.key]],
+					`the ${doubly.reader} is keyed by ${doubly.key}`
+				)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "Doubly's two declared keys, either of which keys a node that reads Doubly by it"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/logical/props.ts",
+				original: "\t\tconst key = keyIn(k, holds)\n",
+				replacement: "\t\tconst key = k.key.every(holds) ? k.key : undefined\n",
+				why: "A key proof is read by its own key alone, never by its alternatives (logical/props.ts keyAmong): the region binding Doubly's other key reads, for all its reader knows, two facts a binding of it, the projection of the group to it delivers, for all its reader knows, two rows a row of the group, and either, its float's zeros apart, is told apart as members and claims no key."
+			}
+		]
+	}
+)

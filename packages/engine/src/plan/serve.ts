@@ -1,7 +1,7 @@
 /**
  * The serving plan: what a login's runtime serves its programs by, every module of it one DbLayer.make loads — the
- * snapshot it is given and the fingerprint it records, the ledger and its statements, the slice a law model is compiled
- * for, and the basis it is compiled over. What only generate, check and migrate read is plan/migration.ts's, whose
+ * snapshot it is given and the fingerprint it records, the ledger and its statements, the footprint of its programs,
+ * and the basis its law model is compiled over. What only generate, check and migrate read is plan/migration.ts's, whose
  * modules a runtime never loads.
  */
 export {
@@ -20,10 +20,8 @@ export {
 	isEmptySnapshot,
 	joinedSnapshot,
 	noWorkload,
-	recordedSnapshot,
 	recordHolds,
 	rosterFates,
-	type SealedRecord,
 	snapshotSeal,
 	spellingsOf
 } from "#compiler/deploy/snapshot/build.ts"
@@ -32,6 +30,7 @@ export {
 	servedSnapshot,
 	snapshotIndexes
 } from "#compiler/deploy/snapshot/served.ts"
+export type { RealityReading } from "#compiler/analysis/schema.ts"
 export { rosterCodebook } from "#compiler/ir/codes.ts"
 export {
 	type CompileFacts,
@@ -58,13 +57,7 @@ export {
 	planBasis
 } from "#compiler/physical/install/plan.ts"
 export { installationsOf } from "#compiler/schema/own.ts"
-export {
-	everySlice,
-	type RoleProgram,
-	type Slice,
-	sliceOf,
-	within
-} from "#compiler/schema/reach.ts"
+export { footprintOf, type RoleProgram, servedImportsOf } from "#compiler/schema/reach.ts"
 export {
 	type ServedAbove,
 	type ServedChange,
@@ -85,6 +78,8 @@ export {
 	type ServedPageRequest,
 	type ServedPageProgram,
 	type ServedParamDomain,
+	contractPath,
+	contractsDirectory,
 	servedPath,
 	type ServedPrologue,
 	type ServedRead,

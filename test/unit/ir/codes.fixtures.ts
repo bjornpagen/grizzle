@@ -49,7 +49,7 @@ const pool = ["a", "b", "c", "d"] as const
  * The two rosters of the box, which share the names of the pool, so a rename reaching the wrong one is seen: Kind,
  * ordered, and Mark, unordered, whose declaration lists its handles in an order no code follows.
  */
-export const rosterNames: readonly [DeclaredName, DeclaredName] = [
+const rosterNames: readonly [DeclaredName, DeclaredName] = [
 	succeeded(parseDeclaredName("Kind")),
 	succeeded(parseDeclaredName("Mark"))
 ]
@@ -58,7 +58,7 @@ export const rosterNames: readonly [DeclaredName, DeclaredName] = [
 const rosterOrdersOf: readonly [RosterOrder, RosterOrder] = ["ordered", "unordered"]
 
 /** One roster in the model: each code's holder in code order, a hole undefined, and every name it ever held. */
-export interface Model {
+interface Model {
 	readonly slots: ReadonlyArray<string | undefined>
 	readonly used: ReadonlySet<string>
 }
@@ -87,7 +87,7 @@ export type Situation =
 	| "both rosters changed"
 
 /** The roster's live handles, in code order. */
-export const live = (model: Model): ReadonlyArray<string> =>
+const live = (model: Model): ReadonlyArray<string> =>
 	Arr.filter(model.slots, (slot): slot is string => slot !== undefined)
 
 /** The name the pool has not yet given the roster, if any: a growth's and a rename's new handle. */
@@ -147,24 +147,6 @@ export const histories: Gen<ReadonlyArray<Command>> = (s) => {
 	return history
 }
 
-/**
- * The two rosters' models a history reaches: each command applied to its roster, up to an ordered roster's reorder,
- * which a draft refuses, and past an unordered roster's, which holds its codes.
- */
-export const modelsAfter = (history: ReadonlyArray<Command>): readonly [Model, Model] => {
-	const models: [Model, Model] = [start, start]
-	for (const command of history) {
-		if (command.kind === "reorder") {
-			if (rosterOrdersOf[command.roster] === "ordered") {
-				break
-			}
-			continue
-		}
-		models[command.roster] = applied(models[command.roster], command)
-	}
-	return models
-}
-
 /** The model after `command`, which is no reorder. */
 const applied = (model: Model, command: Exclude<Command, { readonly kind: "reorder" }>): Model => {
 	switch (command.kind) {
@@ -193,11 +175,11 @@ const applied = (model: Model, command: Exclude<Command, { readonly kind: "reord
  * The roster at `index` of the box declaring `handles`: an ordered one's in code order, which is declared order, and
  * an unordered one's in any.
  */
-export const rosterOf = (index: 0 | 1, handles: ReadonlyArray<string>): Roster =>
+const rosterOf = (index: 0 | 1, handles: ReadonlyArray<string>): Roster =>
 	Roster.of(rosterNames[index], rosterOrdersOf[index], nonEmpty(handles))
 
 /** The code slots a model's roster holds: each live handle, and a hole where a handle was removed. */
-export const slotsOf = (model: Model): ReadonlyArray<CodeSlot> =>
+const slotsOf = (model: Model): ReadonlyArray<CodeSlot> =>
 	Arr.map(model.slots, (slot): CodeSlot =>
 		slot === undefined ? { kind: "hole" } : { kind: "live", handle: slot }
 	)

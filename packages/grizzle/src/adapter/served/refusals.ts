@@ -2,15 +2,17 @@ import { Array as Arr } from "effect"
 import { type InstallationWitness, servedWitness } from "#adapter/witness/index.ts"
 import type { LawsAbove } from "#adapter/witness/keylaw.ts"
 import { type InstallNames, paramDomainsOf } from "#compiler/plan/catalog.ts"
-import { entryKeyOf, generatedFieldLaws, type TableRelation } from "#compiler/plan/change.ts"
 import {
-	type CheckedEntry,
-	type DeclaredName,
+	claimsKeyOf,
+	entryKeyOf,
+	generatedFieldLaws,
+	type TableRelation
+} from "#compiler/plan/change.ts"
+import {
 	identifierOf,
 	type ParamDecl,
 	type Raisable,
 	type SchemaArtifacts,
-	type StoredRelationName,
 	unmatchedOf
 } from "#compiler/plan/common.ts"
 import type { ServedKeyLaws, ServedRefusals } from "#compiler/plan/serve.ts"
@@ -33,7 +35,7 @@ interface KeyLawInput {
 	readonly constraintLaws: SchemaArtifacts["constraintLaws"]
 	readonly theoryLaws: SchemaArtifacts["theoryLaws"]
 	readonly relations: ReadonlyArray<TableRelation>
-	readonly rosters: ReadonlySet<DeclaredName>
+	readonly rosters: Raisable["rosters"]
 	readonly generatedEntries: Raisable["generatedEntries"]
 }
 
@@ -69,30 +71,38 @@ export const keyLawsData = (input: KeyLawInput): ServedKeyLaws => ({
 	)
 })
 
-/** The query and scoped entries a role's artifacts write through whose targets are among `written`, by their targets:
- * none for reality. */
+/** The query entries a role's artifacts write through whose targets are among `written`, and the relations among them
+ * it writes whole held to its claims, by their targets, each under the name its refusals name: none for reality. */
 const writtenEntries = (
 	artifacts: Pick<SchemaArtifacts, "world">,
 	written: ReadonlySet<string>
-): ReadonlyMap<StoredRelationName, CheckedEntry> => {
+): ServedRefusals["entries"] => {
 	const world = artifacts.world
 	if (world.kind !== "role") {
 		return new Map()
 	}
+	const checked = world.checked
 	return new Map(
-		Arr.flatMap([...world.checked.world.writes.values()], (e) =>
-			e.kind !== "whole" && written.has(e.writable.target.name)
-				? [[e.writable.target.name, e.writable] as const]
+		Arr.flatMap([...checked.world.writes.values()], (e) => {
+			if (e.kind === "rows") {
+				return written.has(e.writable.target.name)
+					? [[e.writable.target.name, entryKeyOf(e.writable)] as const]
+					: []
+			}
+			const membership = checked.claimsMembership(e.relation.name)
+			return membership !== undefined && written.has(e.relation.name)
+				? [[e.relation.name, claimsKeyOf(membership)] as const]
 				: []
-		)
+		})
 	)
 }
 
 /**
  * The refusals of a role's artifacts as data (served ServedRefusals), cut to `raisable`, what its writes can raise
  * (program/schema.ts raisableOf): the key-law tables of those constraints, laws and rosters, each of those stored
- * relations' heading, which a refusal's key text decodes through, the query and scoped entries the role writes through
- * into them, each precheck's refusal naming its entry, and the pattern domains its members' parameters `params` are cast to (physical/ddl/domains.ts paramDomainsOf).
+ * relations' heading, which a refusal's key text decodes through, the query entries the role writes through into them
+ * and the relations it writes held to its claims (CheckedSchema claimsMembership), each precheck's refusal naming its
+ * entry or relation, and the pattern domains its members' parameters `params` are cast to (physical/ddl/domains.ts paramDomainsOf).
  */
 export const refusalsOf = (
 	artifacts: Pick<SchemaArtifacts, "names" | "world">,
@@ -110,12 +120,7 @@ export const refusalsOf = (
 			generatedEntries: raisable.generatedEntries
 		}),
 		relations: new Map(Arr.map(relations, (r) => [r.name, r.heading] as const)),
-		entries: new Map(
-			Arr.map(
-				[...writtenEntries(artifacts, new Set(Arr.map(relations, (r) => r.name)))],
-				([target, entry]) => [target, entryKeyOf(entry)] as const
-			)
-		),
+		entries: writtenEntries(artifacts, new Set(Arr.map(relations, (r) => r.name))),
 		params: paramDomainsOf(params),
 		unmatched: raisable.unmatched
 	}

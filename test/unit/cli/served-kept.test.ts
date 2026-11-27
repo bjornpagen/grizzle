@@ -7,7 +7,7 @@
  *
  * Property, per case: the served-levels box (test/unit/cli/served-levels.fixtures.ts: Reports over Work, a login over
  * each level running a drawn set of ChangeSets) drafted from the empty snapshot as generate drafts it (cli/generate.ts
- * draftSchema, servedFiles): every object reachable from each login's entry (each object's own properties, a list's
+ * draftSchema, eachServedFile): every object reachable from each login's entry (each object's own properties, a list's
  * elements) is the entry or one of its two texts, each a list of strings. Oracle: specification, what the write reads of
  * a served compile. Kill: the entry keeps the served file's value beside its texts, as it did.
  *
@@ -18,7 +18,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
-import { draftSchema, servedFiles } from "#cli/generate.ts"
+import { draftSchema, eachServedFile } from "#cli/generate.ts"
 import { silentPhases } from "#compiler/core/phase.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { workload } from "#compiler/program/workload/value.ts"
@@ -77,6 +77,7 @@ export const whatGenerateKeepsOfALoginsServedCompileHoldsItsTextsAloneNoPartOfIt
 				})
 				const config = yield* resolveConfig(
 					defineConfig({
+						contracts: [],
 						schemas: [Reports],
 						logins: [below, above],
 						migrations: "migrations",
@@ -94,7 +95,13 @@ export const whatGenerateKeepsOfALoginsServedCompileHoldsItsTextsAloneNoPartOfIt
 					noDeclarations,
 					silentPhases
 				)
-				const entries = yield* servedFiles(compiled, draft, draft.served, silentPhases)
+				const entries = yield* eachServedFile(
+					compiled,
+					draft,
+					draft.served,
+					silentPhases,
+					Effect.succeed
+				)
 				if (entries.length === 2) {
 					notes.note("a login over each level")
 				}

@@ -54,9 +54,7 @@ const builtRelation = (value: unknown): BuiltRelation | undefined => {
 	}
 	const named = namedRelation(built.value, "get")
 	if (named.kind === "derived") {
-		throw defect(
-			`an owned relation, roster or closed relation ${named.name}, never a derived relation`
-		)
+		defect(`an owned relation, roster or closed relation ${named.name}, never a derived relation`)
 	}
 	return {
 		value: built.value,
@@ -108,11 +106,12 @@ const keyTarget = (value: unknown): KeyPosition | undefined => {
 export const isKeyPosition = (value: unknown): boolean => keyTarget(value) !== undefined
 
 /**
- * The query of a keyed lookup over `schema`: every field of the relation, the key's heads equal to their parameters and
- * each key generation equal to its generation over them (generationMet). A workload's key program, whose key position
- * the workload admitted, reads through it over each role it runs on.
+ * The query of a keyed lookup over `schema`, a schema or role value its builder parses (query.ts queryOver): every field
+ * of the relation, the key's heads equal to their parameters and each key generation equal to its generation over them
+ * (generationMet). A workload's key program, whose key position the workload admitted, reads through the one built
+ * over its workload's schema (keyLookup) on each role it runs on.
  */
-export const keyQuery = (schema: object, target: KeyPosition): unknown => {
+const keyQuery = (schema: unknown, target: KeyPosition): unknown => {
 	const { value, named } = target.relation
 	const descriptor = (field: string): unknown =>
 		named.kind === "closed" && field === "id" ? admittedClosedId(value) : named.descriptors[field]
@@ -173,12 +172,12 @@ const overParams = (e: ExprDesc, read: (field: string) => OpenExpr): OpenExpr =>
 				case "value":
 				case "parent":
 				case "param":
-					throw defect(`a generation reads its row's fields alone, never a ${x.kind}`)
+					defect(`a generation reads its row's fields alone, never a ${x.kind}`)
 			}
 		},
 		term: (x) => overParams(x, read),
 		source: () => {
-			throw defect("a generation reads no query")
+			defect("a generation reads no query")
 		}
 	})
 
@@ -199,7 +198,7 @@ const overParams = (e: ExprDesc, read: (field: string) => OpenExpr): OpenExpr =>
  * The lookup over `schema`, a schema or role value, of the key position `value`; undefined for a value that names no
  * key.
  */
-export const keyLookup = (schema: object, value: unknown): KeyLookup | undefined => {
+export const keyLookup = (schema: unknown, value: unknown): KeyLookup | undefined => {
 	const target = keyTarget(value)
 	return target === undefined ? undefined : { query: keyQuery(schema, target), target }
 }

@@ -24,6 +24,7 @@ import {
 	type TemporaryCensus,
 	type TemporaryKind
 } from "#compiler/core/identity.ts"
+import type { LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	type Comparator,
@@ -46,7 +47,6 @@ import {
 	fillReadsOf,
 	replacedClosed
 } from "#compiler/deploy/diff/backfill.ts"
-import { type Departure, departureDrop } from "#compiler/deploy/diff/departed.ts"
 import {
 	type AbandonedSchema,
 	type Action,
@@ -112,13 +112,20 @@ import {
 	type RosterCodec,
 	type RosterFate
 } from "#compiler/ir/codes.ts"
-import { type Head, headsOf } from "#compiler/ir/instant.ts"
+import {
+	type Clock,
+	clocksOf,
+	type Head,
+	headNameOf,
+	headsOf,
+	type PlaceHead
+} from "#compiler/ir/instant.ts"
 import type { InstallationManifest, PhysicalKind } from "#compiler/ir/products.ts"
 import { migrationGenerations } from "#compiler/laws/model/generation.ts"
 import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
 import { guardBracket } from "#compiler/physical/ddl/immutable.ts"
 import { foundingFill, foundingTableOf, sealLaws } from "#compiler/physical/ddl/seal.ts"
-import { headFill } from "#compiler/physical/ddl/stamps.ts"
+import { headFill, headSources } from "#compiler/physical/ddl/stamps.ts"
 import { type InlineSubcommand, notInline, wholeTable } from "#compiler/physical/ddl/whole.ts"
 import { fillStatement } from "#compiler/physical/derived/objects.ts"
 import { targetKey, touchedTargets } from "#compiler/physical/install/comments.ts"
@@ -200,77 +207,6 @@ interface DiffInput {
 	/** Each roster the previous snapshot records, with what the draft makes of it (snapshot/build.ts rosterFates): which
 	 * of the previous installation's domains are a roster's, and which roster of the target each continues as. */
 	readonly rosters: ReadonlyArray<PreviousRoster>
-	/**
-	 * The objects of `previous` the database holds otherwise, by identity: a committed snapshot's draft has none; an
-	 * upgrade's previous installation, read off the live catalog (render/generate.ts draftUpgrade), records each object
-	 * the database holds under the target's identity and names but defines otherwise as the target's, so its drop names
-	 * what the database holds, and each is changed as one whose record changed is: replaced, re-expressed, swapped or
-	 * created again, by its kind's own rule.
-	 */
-	readonly stale: ReadonlySet<string>
-	/**
-	 * The objects the database holds that no object of the target is (departed.ts): none for a committed snapshot's
-	 * draft; an upgrade's, in their drop order, each dropped in publish.removed after every removal of the diff's own,
-	 * once everything the target creates in their place stands, as a removed object is.
-	 */
-	readonly departures: ReadonlyArray<Departure>
-}
-
-/**
- * Whether the diff changes an object of each kind that the database holds under the target's names but defines
- * otherwise (DiffInput stale), every kind decided here, so a new kind is a type error until it is: one of a kind whose
- * change the diff drafts by its kind's rule, from the target's record alone, which names what the database holds
- * (functions replaced in place, keys swapped, CHECKs and foreign keys redefined NOT VALID and validated, indexes built
- * and swapped in, triggers replaced under their table's lock, generated columns dropped and added again, the roles'
- * objects and stored tables created again, domain constraints replaced, memberships and publications replaced);
- * and none of a kind a draft never changes, or whose change the database holds in its rows (a table, the ledger), which
- * `grizzle upgrade` refuses before anything is drafted (the shell's adapter/admission/upgrade.ts).
- */
-export const staleReplaced: { readonly [K in PhysicalKind]: boolean } = {
-	schema: false,
-	extension: false,
-	constant: false,
-	domain: true,
-	functionOwner: false,
-	rowType: false,
-	declaredFunction: true,
-	table: false,
-	liveSecret: false,
-	replicaIdentity: false,
-	lawColumn: true,
-	primaryKey: true,
-	unique: true,
-	check: true,
-	foreignKey: true,
-	refusalFunction: true,
-	borrowFunction: true,
-	head: true,
-	headStamp: true,
-	isolationFunction: true,
-	snapshotGuard: true,
-	isolationTrigger: false,
-	storedTable: true,
-	uniqueIndex: true,
-	index: true,
-	statistics: true,
-	validation: false,
-	ruleJudge: true,
-	lawFunction: true,
-	lawTrigger: true,
-	immutableGuard: true,
-	immutableTrigger: true,
-	founding: true,
-	role: false,
-	decoder: false,
-	membership: true,
-	viewSchema: false,
-	view: true,
-	worldFunction: true,
-	policy: true,
-	rowSecurity: false,
-	publication: true,
-	privileges: false,
-	ledger: false
 }
 
 /** How a marker names a holder's kind. */
@@ -343,6 +279,11 @@ type ColumnFates = ReadonlyMap<string, ColumnFate>
  * draft is refused at that role, never drafted. */
 export const loginRoleExchange =
 	"a login and a role exchanging one name, which no statement turns into each other: rename one of them"
+
+/** The capability a draft refuses when a variant's composite changes otherwise than by attributes appended after every
+ * one it holds (Differ rowTypeGrown): PostgreSQL would rewrite every stored value of it, which a draft never does. */
+export const variantRearranged =
+	"a variant's arms changed otherwise than in place: an arm of a code past every arm's (appended to its roster or taken into its subset), an arm of no field taken in or left out, or a field appended to the arm of its greatest code migrate in place; an arm with fields left out of the subset or taken in below an arm's code, and a field removed, retyped or added to another arm, rewrite every stored value: a custom migration"
 
 /** What a migration drops: an object of every kind but those no step drops (the schema, its ledger, its rule judge,
  * extensions and the database's defaults outlive it, the judge since every session's sentinel's trigger names it and
@@ -420,6 +361,14 @@ const dropOrder: { readonly [K in Dropped]: number } = {
 const checkedAtOnce: SqlStatement = { kind: "setConstraintsImmediate" }
 
 /**
+ * What Structure's data steps write (Differ.stepWrites): the stored columns of the steps grizzle drafts, each of
+ * which it knows, or `unknown`, a step a reviewer writes among them.
+ */
+type StepWrites =
+	| { readonly kind: "columns"; readonly columns: ReadonlySet<StoredColumnKey> }
+	| { readonly kind: "unknown" }
+
+/**
  * Whether the previous installation held the law of `check` on every row this migration leaves it, as the previous
  * snapshot records it (`was`): by the rule judge under the same check identity, the law's own (violation.ts
  * MigrationCheck), or by its native objects at every write where the law's statement is its meaning (RuleCheck
@@ -473,25 +422,32 @@ const byDropOrder = mapInput(compareNumbers, (d: { readonly rank: number }) => d
 
 const tableIdent = (name: ObjectName): string => qualifiedIdent("table", name.schema, name.name)
 
+/** A stamped field a migration may add to stored rows: a clock, or a place (ir/instant.ts). */
+type StampedField = Clock | PlaceHead
+
 /**
- * The target's stamped heads a migration gives one value on every stored row of a table it adds them to, by their
- * table's key and their column, as the classifier read them (ir/instant.ts Head): each clock, which every stored row
- * takes the migration's instant of, and each unordered place (PlaceOrder `unordered`), which every stored row takes 0
- * of; a place ordered by a field is its backfill's (backfill.ts placeDerivation).
+ * The target's stamped fields a migration gives one value on every stored row of a table it adds them to, by their
+ * table's key and their column, as the classifier read them (ir/instant.ts): each clock, which every stored row takes
+ * the migration's instant of, and each unordered place (PlaceOrder `unordered`), which every stored row takes 0 of; a
+ * place ordered by a field is its backfill's (backfill.ts placeDerivation).
  */
-const stampedHeadsOf = (
+const stampedFieldsOf = (
 	installation: Installation
-): ReadonlyMap<NameKey, ReadonlyMap<string, Head>> => {
-	const out = new Map<NameKey, Map<string, Head>>()
-	const put = (head: Head): void => {
-		const table = installation.names.relation(head.relation)
+): ReadonlyMap<NameKey, ReadonlyMap<string, StampedField>> => {
+	const out = new Map<NameKey, Map<string, StampedField>>()
+	const put = (stamped: StampedField): void => {
+		const table = installation.names.relation(stamped.relation)
 		const key = nameKey(objectName(table.schema, table.name))
-		const of = out.getOrInsertComputed(key, () => new Map<string, Head>())
-		of.set(head.field.column, head)
+		const of = out.getOrInsertComputed(key, () => new Map<string, StampedField>())
+		of.set(stamped.field.column, stamped)
 	}
-	for (const head of headsOf(installation.laws.theory.instants)) {
-		if (head.kind === "clock" || head.order.kind === "unordered") {
-			put(head)
+	const instants = installation.laws.theory.instants
+	for (const clock of clocksOf(instants)) {
+		put(clock)
+	}
+	for (const place of instants.places.values()) {
+		if (place.order.kind === "unordered") {
+			put(place)
 		}
 	}
 	return out
@@ -943,9 +899,11 @@ class Differ {
 	/** The names of the roles' views and world functions this migration drops at the start of Structure, by name key,
 	 * whose privileges went with them. */
 	readonly worldGone: ReadonlySet<NameKey>
-	/** Domains whose constraint this migration replaces, by name key: the validation statements that cast to one run
-	 * again in Publish. */
-	readonly reconstrained = new Set<NameKey>()
+	/** Domains whose values this migration judges again, by name key: one whose constraint it replaces, one over such a
+	 * domain, whose values PostgreSQL judges by the base's constraint as it validates it, and one whose CHECK casts to
+	 * such a domain, whose constraint it replaces so its values are judged again (domainObject). A validation statement
+	 * that casts to one runs again in Publish (validations). */
+	readonly rejudged = new Set<NameKey>()
 	/** The declared functions this migration drops and creates again under another signature, by name key: their
 	 * privileges went with their drop. */
 	readonly recreatedFunctions = new Set<NameKey>()
@@ -960,10 +918,11 @@ class Differ {
 	/** The columns the target's families draw, each with the placeholder default it is added under to a table that may
 	 * hold rows (backfill.ts drawnColumns). */
 	readonly drawn: DrawnColumns
-	/** The target's stamped heads a migration gives one value on every stored row, by their table's key and their column
-	 * (stampedHeadsOf): a clock or an unordered place this migration adds to a table that may hold rows (stampedColumn). */
-	readonly stamped: ReadonlyMap<NameKey, ReadonlyMap<string, Head>>
-	/** The target's heads by their tables' keys (physical/ddl/stamps.ts), which a head's fill reads its relation by. */
+	/** The target's stamped fields a migration gives one value on every stored row, by their table's key and their
+	 * column (stampedFieldsOf): a clock or an unordered place this migration adds to a table that may hold rows
+	 * (stampedColumn). */
+	readonly stamped: ReadonlyMap<NameKey, ReadonlyMap<string, StampedField>>
+	/** The target's heads by their tables' keys (physical/ddl/stamps.ts), which a head's fill reads its relations by. */
 	readonly heads: ReadonlyMap<NameKey, Head>
 	/** The target's sealed units by their founding tables' keys (physical/ddl/seal.ts), which a founding table's fill
 	 * reads its members by. */
@@ -985,10 +944,10 @@ class Differ {
 		this.input = input
 		this.schema = input.target.schema
 		this.drawn = drawnColumns(input.installation)
-		this.stamped = stampedHeadsOf(input.installation)
+		this.stamped = stampedFieldsOf(input.installation)
 		this.heads = new Map(
 			headsOf(input.installation.laws.theory.instants).map(
-				(h) => [nameKey(input.installation.names.head(h.relation, h.field.name)), h] as const
+				(h) => [nameKey(input.installation.names.head(headNameOf(h))), h] as const
 			)
 		)
 		this.foundings = new Map(
@@ -1037,7 +996,6 @@ class Differ {
 		)
 		const convertedTables = this.convertedTables()
 		const beneath = new Set([
-			...input.stale,
 			...this.viewDrops.map((d) => d.view.object.ident),
 			...replacedBy.keys(),
 			...convertedTables.flatMap((key) => {
@@ -1215,10 +1173,10 @@ class Differ {
 				const change =
 					now === undefined
 						? "dropped"
-						: this.unchanged(p, now)
+						: sameRecord(p, now)
 							? "kept"
 							: target?.kind === "lawColumn" &&
-								  this.reexpressedAs(p, target.definition) !== undefined
+								  reexpressedLawColumn(p, target.definition) !== undefined
 								? "reexpressed"
 								: "redefined"
 				const fate = {
@@ -1547,21 +1505,7 @@ class Differ {
 	 * target's admits (S7's n_1_sentinel, 23514). */
 	redefinedConstraint(before: RecordedObject, now: TableConstraint): TableConstraint | undefined {
 		const old = this.constraintOf(before, this.prev)
-		return !this.input.stale.has(before.ident) && canonicalEquals(old, now) ? undefined : old
-	}
-
-	/** Whether the previous object `before` is the target's `now` as the database holds it: the same record (recorded.ts
-	 * sameRecord), and no object the database holds otherwise (DiffInput stale). The one reading of an object kept by its
-	 * record. */
-	unchanged(before: RecordedObject, now: ManifestObject): boolean {
-		return !this.input.stale.has(before.ident) && sameRecord(before, now)
-	}
-
-	/** The STORED generation a law column `before` is re-expressed by where only its generation changes
-	 * (reexpressedLawColumn); none for one the database holds otherwise (DiffInput stale), which is dropped and added
-	 * again, its definition there being none the record states. */
-	reexpressedAs(before: RecordedObject, definition: ColumnDef): StoredGeneration | undefined {
-		return this.input.stale.has(before.ident) ? undefined : reexpressedLawColumn(before, definition)
+		return canonicalEquals(old, now) ? undefined : old
 	}
 
 	run(): MigrationPlan {
@@ -1584,13 +1528,18 @@ class Differ {
 		for (const t of this.targets) {
 			this.visit(t)
 		}
-		const written = this.dataSteps(this.backfill())
+		const backfilled = this.backfill()
+		const written = this.dataSteps(backfilled.tables)
+		const rechecked = new Set<LawId>()
 		if (isNonEmpty(written)) {
 			this.standUps()
 			this.push("structure.immediate", statement(checkedAtOnce))
 			this.unguard()
+			for (const law of this.recheck(checks.rules, this.stepWrites(backfilled.columns))) {
+				rechecked.add(law)
+			}
 		}
-		this.ruleChecks(checks.rules)
+		this.ruleChecks(checks.rules, rechecked)
 		this.validations()
 		for (const p of this.previous.toReversed()) {
 			if (p.fate.kind === "removed") {
@@ -1651,11 +1600,15 @@ class Differ {
 	/** The checks of the laws the rule judge holds (violation.ts lawChecks), in Validate, once every row the migration
 	 * writes is written and before the rules' triggers are created: each law's violation query over every row, raising
 	 * with the law's identity when it returns a row. A law is checked exactly when the previous installation did not hold
-	 * it on every row (`heldBefore`), so a rule that is new, or whose definition changed, is checked once, a regenerate
-	 * checks nothing, and neither does a containment its natives held, now the rule judge's. */
-	ruleChecks(checks: ReadonlyArray<RuleCheck>): void {
+	 * it on every row (`heldBefore`) and Structure's re-check did not check it after the last row it writes (`rechecked`,
+	 * structure.recheck), so a rule that is new, or whose definition changed, is checked once, a regenerate checks
+	 * nothing, and neither does a containment its natives held, now the rule judge's. */
+	ruleChecks(checks: ReadonlyArray<RuleCheck>, rechecked: ReadonlySet<LawId>): void {
 		for (const c of checks) {
-			if (!heldBefore(this.input.previous.theory.laws[c.law], c, this.rewritten)) {
+			if (
+				!rechecked.has(c.law) &&
+				!heldBefore(this.input.previous.theory.laws[c.law], c, this.rewritten)
+			) {
 				this.push("validate", { kind: "violation", law: c.law, query: c.query })
 			}
 		}
@@ -1692,7 +1645,6 @@ class Differ {
 			const ran = installed(before)
 			if (
 				ran.kind !== "storedTable" ||
-				this.input.stale.has(o.ident) ||
 				was.get(ran.create.name.name) !== now.get(v.create.name.name) ||
 				!canonicalEquals(ran.primaryKey, v.primaryKey) ||
 				this.readsGone(ran.create, held)
@@ -1946,7 +1898,7 @@ class Differ {
 					return true
 				case "uniqueIndex": {
 					const now = this.next.get(o.ident)
-					return now === undefined || !this.unchanged(o, now) || revalued
+					return now === undefined || !sameRecord(o, now) || revalued
 				}
 				case "check":
 				case "primaryKey":
@@ -2083,7 +2035,7 @@ class Differ {
 			case "borrowFunction":
 			case "isolationFunction":
 			case "snapshotGuard":
-				if (before === undefined || !this.unchanged(before, o)) {
+				if (before === undefined || !sameRecord(before, o)) {
 					this.sql("setup", o.ddl)
 				}
 				return
@@ -2091,7 +2043,7 @@ class Differ {
 			case "extension":
 				if (before === undefined) {
 					this.sql("setup", o.ddl)
-				} else if (!this.unchanged(before, o)) {
+				} else if (!sameRecord(before, o)) {
 					refuseUnsupported({
 						loc: SourceLoc(`object ${o.ident}`, []),
 						capability:
@@ -2132,7 +2084,7 @@ class Differ {
 			case "head":
 				if (before === undefined) {
 					this.sql("structure.heads", [...o.ddl, ...this.headFillOf(v.create.table)])
-				} else if (!this.unchanged(before, o)) {
+				} else if (!sameRecord(before, o) || this.headJoined(before, o, v.create.table)) {
 					this.head(before, v.create.table, o.ddl)
 				}
 				return
@@ -2142,7 +2094,7 @@ class Differ {
 			case "founding":
 				if (before === undefined) {
 					this.sql("structure.foundings", [...o.ddl, ...this.foundingFillOf(v.create.table)])
-				} else if (!this.unchanged(before, o)) {
+				} else if (!sameRecord(before, o)) {
 					this.sql("structure.foundings", [
 						{ kind: "drop", object: "TABLE", name: v.create.table, ifExists: false },
 						...o.ddl,
@@ -2153,7 +2105,7 @@ class Differ {
 			case "functionOwner":
 				if (before === undefined) {
 					this.sql("setup", o.ddl)
-				} else if (!this.unchanged(before, o)) {
+				} else if (!sameRecord(before, o)) {
 					this.sql(
 						"setup",
 						o.ddl.filter((s) => s.kind === "grant")
@@ -2163,19 +2115,21 @@ class Differ {
 			case "rowType":
 				if (before === undefined) {
 					this.sql("setup", o.ddl)
+				} else if (!sameRecord(before, o)) {
+					this.rowTypeGrown(v, before)
 				}
 				return
 			case "declaredFunction":
 				if (before === undefined) {
 					this.sql("setup", o.ddl)
-				} else if (!this.unchanged(before, o)) {
+				} else if (!sameRecord(before, o)) {
 					this.declaredFunction(before, v.create, o.ddl)
 				}
 				return
 			case "role":
 				if (before === undefined) {
 					this.roleObject(v)
-				} else if (!this.unchanged(before, o)) {
+				} else if (!sameRecord(before, o)) {
 					refuseUnsupported({
 						loc: SourceLoc(`object ${o.ident}`, []),
 						capability: loginRoleExchange
@@ -2204,7 +2158,7 @@ class Differ {
 			case "membership":
 				if (before === undefined) {
 					this.sql("publish.grants", o.ddl)
-				} else if (!this.unchanged(before, o)) {
+				} else if (!sameRecord(before, o)) {
 					const was = installed(before)
 					this.sql("publish.grants", [
 						...(was.kind === "membership" ? [revokeRoleOf(was.grant)] : []),
@@ -2219,14 +2173,14 @@ class Differ {
 				return
 			case "ruleJudge":
 			case "lawFunction":
-				if (before === undefined || !this.unchanged(before, o)) {
+				if (before === undefined || !sameRecord(before, o)) {
 					this.sql("validate", o.ddl)
 				}
 				return
 			case "immutableGuard":
 				if (before === undefined) {
 					this.sql("validate", o.ddl)
-				} else if (!this.unchanged(before, o)) {
+				} else if (!sameRecord(before, o)) {
 					this.sql(
 						"validate",
 						o.ddl.filter((s) => s.kind !== "revoke")
@@ -2237,7 +2191,7 @@ class Differ {
 			case "lawTrigger":
 				if (before === undefined) {
 					this.sql("validate", o.ddl)
-				} else if (!this.unchanged(before, o)) {
+				} else if (!sameRecord(before, o)) {
 					this.sql("validate", [
 						{
 							kind: "lockTable",
@@ -2263,10 +2217,10 @@ class Differ {
 				}
 				return
 			case "publication":
-				if (before !== undefined && !this.unchanged(before, o)) {
+				if (before !== undefined && !sameRecord(before, o)) {
 					this.sql("structure.drop", [{ kind: "dropPublication", name: v.create.name }])
 				}
-				if (before === undefined || !this.unchanged(before, o)) {
+				if (before === undefined || !sameRecord(before, o)) {
 					this.sql("publish", o.ddl)
 				}
 				return
@@ -2330,15 +2284,16 @@ class Differ {
 	/** A login's or a theory role's CREATE ROLE, in Publish. grizzle never sets a password, so a login dropped and created
 	 * again under another name has none until its operator sets one. */
 	/**
-	 * A head whose table changes (physical/ddl/stamps.ts): dropped, the stamp functions created after it first, which
-	 * return its table's rows, then its table, and created again and filled from its relation in structure.heads, after
-	 * every data step, so its children's heads start above every row the migration leaves stored, as a new head's do;
-	 * each stamp function it dropped is created again by its own object's visit after it (headStamp), its grants with it.
+	 * A head whose table changes, or whose scope a clock joins over stored rows (physical/ddl/stamps.ts, headJoined):
+	 * dropped, the stamp functions created after it first, which return its table's rows, then its table, and created
+	 * again and filled from its relations in structure.heads, after every data step, so its keys' heads start above every
+	 * row the migration leaves stored, as a new head's do; each stamp function it dropped is created again by its own
+	 * object's visit after it (headStamp), its grants with it.
 	 */
 	head(before: RecordedObject, table: ObjectName, ddl: ManifestObject["ddl"]): void {
 		const previous = installed(before)
 		if (previous.kind !== "head") {
-			throw defect(`the head ${before.ident} was recorded as a head`)
+			defect(`the head ${before.ident} was recorded as a head`)
 		}
 		const stamps = this.input.previous.manifest.edges.flatMap((e) => {
 			const stamp = e.from === before.ident ? this.prev.get(e.to) : undefined
@@ -2371,10 +2326,10 @@ class Differ {
 			return
 		}
 		const dropped = this.headsDropped.has(before.ident)
-		if (dropped || !this.unchanged(before, o)) {
+		if (dropped || !sameRecord(before, o)) {
 			const previous = installed(before)
 			if (previous.kind !== "headStamp") {
-				throw defect(`the stamp ${before.ident} was recorded as a head's stamp`)
+				defect(`the stamp ${before.ident} was recorded as a head's stamp`)
 			}
 			this.recreatedFunctions.add(nameKey(stamp.name))
 			this.sql("structure.heads", [
@@ -2408,15 +2363,48 @@ class Differ {
 		)
 	}
 
+	/** The head whose table the target names `table`. */
+	headOf(table: ObjectName): Head {
+		return defined(this.heads.get(nameKey(table)), `the head of the table ${table.name}`)
+	}
+
 	/**
-	 * The fill of the head whose table the target names `table` (physical/ddl/stamps.ts headFill), where its relation's
-	 * table may hold rows: a new relation's holds none, so its head starts empty, as a fresh installation's.
+	 * The fill of the head whose table the target names `table`, created by this migration, from every relation it counts
+	 * on whose table may hold rows (physical/ddl/stamps.ts headSources, headFill): a new relation's holds none, so its
+	 * head starts empty, as a fresh installation's; none where none may.
 	 */
 	headFillOf(table: ObjectName): ReadonlyArray<SqlStatement> {
-		const head = defined(this.heads.get(nameKey(table)), `the head of the table ${table.name}`)
-		return this.mayHoldRows(this.input.installation.names.relation(head.relation))
-			? [headFill(this.input.installation.names, head)]
-			: []
+		const head = this.headOf(table)
+		const { names } = this.input.installation
+		const [first, ...rest] = headSources(this.input.installation.laws.theory.instants, head).filter(
+			(s) => this.mayHoldRows(names.relation(s.relation))
+		)
+		return first === undefined ? [] : [headFill(names, head, [first, ...rest])]
+	}
+
+	/**
+	 * Whether a clock joins the scope of the head the target names `table` over stored rows, so this migration makes the
+	 * head again and fills it from every relation it counts on (`head`, headFillOf), its table and stamp function
+	 * unchanged but for the rows it must stand above: a clock whose table may hold rows and which the head counts on now
+	 * and did not before, by the manifests' edges into the head, `before` the previous installation's record of it and
+	 * `now` the target's: a relation re-keyed into the scope's unit, a clock added to a relation of it, a reference made a
+	 * clock. A place's head meets no other relation's rows.
+	 */
+	headJoined(before: RecordedObject, now: ManifestObject, table: ObjectName): boolean {
+		const head = this.headOf(table)
+		if (head.kind === "place") {
+			return false
+		}
+		const into = (edges: RecordedManifest["edges"], ident: string): ReadonlySet<string> =>
+			new Set(edges.flatMap((e) => (e.to === ident ? [e.from] : [])))
+		const was = into(this.input.previous.manifest.edges, before.ident)
+		const is = into(this.input.target.manifest.edges, now.ident)
+		const { names } = this.input.installation
+		return headSources(this.input.installation.laws.theory.instants, head).some((s) => {
+			const relation = names.relation(s.relation)
+			const ident = tableIdent(relation)
+			return this.mayHoldRows(relation) && is.has(ident) && !was.has(ident)
+		})
 	}
 
 	/**
@@ -2460,7 +2448,7 @@ class Differ {
 	 * migrations directory holds any, and never changed. */
 	schemaObject(o: ManifestObject, before: RecordedObject | undefined): void {
 		if (before !== undefined) {
-			if (!this.unchanged(before, o)) {
+			if (!sameRecord(before, o)) {
 				refuseUnsupported({
 					loc: SourceLoc(`object ${o.ident}`, []),
 					capability:
@@ -2502,9 +2490,43 @@ class Differ {
 			return
 		}
 		const was = installed(before)
-		if (was.kind !== "constant" || !this.unchanged(before, v.object)) {
+		if (was.kind !== "constant" || !sameRecord(before, v.object)) {
 			refuse(before.ident, "a constant whose name digests what it installs")
 		}
+	}
+
+	/** A row type both installations hold under one name, defined otherwise: a variant's composite (physical/ddl/variants.ts),
+	 * since a declared function's heading's is named by its definition. It grows in place by the attributes the target
+	 * appends after every one it held, `ALTER TYPE … ADD ATTRIBUTE`, which rewrites no stored value, each reading the new
+	 * attribute NULL: an arm appended to the variant's roster takes the next code, and an arm the variant's subset of its
+	 * roster takes in of a handle past every arm's code comes after them, so its fields come last (ir/codes.ts
+	 * variantLayout), as does a field appended to the arm of the greatest code, which the variant's domain's CHECK,
+	 * replaced and validated, then refuses wherever a stored value of that arm lacks it. An arm of no field taken in or
+	 * left out holds no attribute, so the composite stands and the CHECK alone changes. Any other change, an attribute
+	 * removed, retyped or put before one the composite holds (an arm with fields left out of the subset, or taken in below
+	 * an arm's code), rewrites every stored value: a custom migration (variantRearranged). */
+	rowTypeGrown(v: Installed & { readonly kind: "rowType" }, before: RecordedObject): void {
+		const was = installed(before)
+		if (was.kind !== "rowType") {
+			refuse(before.ident, "a CREATE TYPE ... AS")
+		}
+		const held = was.create.attributes
+		const target = v.create.attributes
+		if (
+			target.length < held.length ||
+			held.some((attribute, i) => !canonicalEquals(attribute, target[i]))
+		) {
+			refuseUnsupported({
+				loc: SourceLoc(`type ${printObjectName(v.create.name)}`, []),
+				capability: variantRearranged
+			})
+		}
+		this.sql(
+			"setup",
+			target
+				.slice(held.length)
+				.map((add): SqlStatement => ({ kind: "alterRowType", name: v.create.name, add }))
+		)
 	}
 
 	domainObject(
@@ -2536,21 +2558,29 @@ class Differ {
 		/** The domain's one constraint replaced in place under its name: dropped, then added NOT VALID, so a domain never
 		 * holds two constraints, and validated against the stored values once Structure has converted what it must and
 		 * every column the target no longer has is dropped (publish.validate), since PostgreSQL validates a domain over
-		 * every column it types. */
+		 * every column it types. A constraint that casts to a domain this migration judges again is replaced as it
+		 * stands, so its stored values are judged again by that domain's constraint (a variant's, physical/ddl/variants.ts);
+		 * a domain over one is judged again with it, by PostgreSQL's validation of its base. Each domain is visited after
+		 * every domain it names (physical/obligations/graph.ts namedEdges), so `rejudged` holds each it reads. */
 		const a = was.constraint
 		const b = v.constraint
 		if (
 			a !== undefined &&
 			b !== undefined &&
 			canonicalEquals(a, b) &&
-			!this.input.stale.has(before.ident)
+			![...qualifiedNames((hooks) => transformExpr(b.predicate, hooks), this.levelSchemas)].some(
+				(k) => this.rejudged.has(k)
+			)
 		) {
+			if (create.base.kind === "named" && this.rejudged.has(nameKey(create.base))) {
+				this.rejudged.add(nameKey(create.name))
+			}
 			return
 		}
 		if (a === undefined && b === undefined) {
 			return
 		}
-		this.reconstrained.add(nameKey(create.name))
+		this.rejudged.add(nameKey(create.name))
 		if (a !== undefined) {
 			this.sql("structure", [
 				{
@@ -2617,14 +2647,14 @@ class Differ {
 				continue
 			}
 			const before = this.prev.get(o.ident)
-			const changed = before === undefined || !this.unchanged(before, o)
+			const changed = before === undefined || !sameRecord(before, o)
 			const recast = [
 				...qualifiedNames((hooks) => {
 					for (const ddl of o.ddl) {
 						transformStatement(ddl, hooks)
 					}
 				}, this.levelSchemas)
-			].some((k) => this.reconstrained.has(k))
+			].some((k) => this.rejudged.has(k))
 			if (changed || recast) {
 				this.sql("publish", o.ddl)
 			}
@@ -2715,13 +2745,15 @@ class Differ {
 	}
 
 	/**
-	 * The ADD COLUMN of a stamped head this migration adds to `t`, a table that may hold rows (stampedHeadsOf), under the
+	 * The ADD COLUMN of a stamped field this migration adds to `t`, a table that may hold rows (stampedFieldsOf), under the
 	 * DEFAULT of the one value every stored row takes at once, which the backfill's DROP DEFAULT then gives up
 	 * (backfill.ts dropDefaults), so the column is the database's alone from its first row: a clock's, the migration's
 	 * instant, the transaction's reading of the database's clock in its unit; an unordered place's, 0, the place of a
 	 * group's first row. One value on every stored row keeps them apart at the new primary key exactly when that key holds
 	 * the old one beside the column: else the column is refused, a clock's InstantRefused and a place's PlaceRefused
-	 * `addedOverRows`, naming both keys. None for any other column, or one of a table that holds no row.
+	 * `addedOverRows`, naming both keys. A clock's scope's head is made again and filled from its rows where the migration
+	 * would keep it (headJoined), so every later stamp is above them. None for any other column, or one of a table that
+	 * holds no row.
 	 */
 	stampedColumn(t: ObjectName, c: ColumnDef): AlterTableAction | undefined {
 		const head = this.stamped.get(nameKey(t))?.get(c.name)
@@ -2875,7 +2907,10 @@ class Differ {
 	 * draws is added: its UPDATEs, then each added column's DROP DEFAULT, before any constraint that reads them
 	 * (structure.constraints). It draws, on each table both install, every column of it a family draws that this
 	 * migration revalues in place (ColumnFate revalued) beside those it adds. The tables its UPDATEs write. */
-	backfill(): ReadonlyArray<ObjectName> {
+	backfill(): {
+		readonly tables: ReadonlyArray<ObjectName>
+		readonly columns: ReadonlyArray<StoredColumnKey>
+	} {
 		const drawn = new Map<NameKey, BackfilledTable>(
 			[...this.backfilled].map(
 				([key, { table, added }]) => [key, { table, added, redrawn: [] }] as const
@@ -2903,7 +2938,44 @@ class Differ {
 			this.push("structure.backfill", { kind: "violation", law: c.law, query: c.query })
 		}
 		this.sql("structure.backfill", [...updates, ...dropDefaults, ...notNulls])
-		return updates.flatMap((u) => (u.kind === "update" ? [u.table] : []))
+		const tables = updates.flatMap((u) => (u.kind === "update" ? [u.table] : []))
+		const updated = new Set(tables.map(nameKey))
+		return {
+			tables,
+			columns: [
+				...[...drawn].flatMap(([key, d]) =>
+					updated.has(key) ? [...d.added, ...d.redrawn].map((c) => storedColumnKey(key, c)) : []
+				),
+				...this.carried.flatMap((c) =>
+					updated.has(nameKey(c.table)) ? [storedColumnKey(nameKey(c.table), c.column)] : []
+				)
+			]
+		}
+	}
+
+	/**
+	 * What Structure's data steps write (`recheck`): the columns each step grizzle drafts writes, each table's fill its
+	 * set-aside fields' (Action fill) and the backfill's the columns it draws and carries (`backfilled`); or `unknown`
+	 * where Structure holds a step a reviewer writes, a placeholder column's UPDATE, whose writes no reading of the
+	 * draft decides.
+	 */
+	stepWrites(backfilled: ReadonlyArray<StoredColumnKey>): StepWrites {
+		if (
+			[...this.alterations.structure.values()].some((a) =>
+				[a.first, ...a.rest].some((x) => x.kind === "addColumnPlaceholder")
+			)
+		) {
+			return { kind: "unknown" }
+		}
+		return {
+			kind: "columns",
+			columns: new Set([
+				...backfilled,
+				...[...this.fills.values()].flatMap((f) =>
+					[f.first, ...f.rest].map((x) => storedColumnKey(nameKey(f.table), x.column.name))
+				)
+			])
+		}
 	}
 
 	/** The tables Structure's data steps write rows of: each a reviewer's UPDATE a placeholder column invites, a fill or
@@ -2925,17 +2997,6 @@ class Differ {
 	}
 
 	/**
-	 * The bracket of Structure's data steps (physical/ddl/immutable.ts guardBracket), where it holds one: every guard the
-	 * previous installation holds on a table the target keeps, its trigger dropped at the end of Structure, before SET
-	 * CONSTRAINTS ALL IMMEDIATE and the first data step, and created again as the previous installation created it in
-	 * structure.constraints, after the last, in Structure's one transaction, so what Validate drafts of the guard reads
-	 * the previous installation's trigger standing, as it would with no bracket. Every such table, never only those the
-	 * draft's own steps write: a reviewer's data step written at that place (README, Migrations) writes what it writes, a
-	 * guarded table's rows a removed code holds among them, which the guard would refuse as a change of a fixed field; no
-	 * other transaction sees a table without its guard, nor any committed state holds one so. A table the previous
-	 * installation does not guard takes its guard in Validate, after every data step.
-	 */
-	/**
 	 * The previous installation's stand-up of each table its rule judge holds (`standUpsOf`), each called once just
 	 * before SET CONSTRAINTS ALL IMMEDIATE (checkedAtOnce) where Structure holds a data step: a data step's write of
 	 * such a table runs the table's capture, which requires the judge's session tables and never makes one, so the
@@ -2949,6 +3010,61 @@ class Differ {
 		)
 	}
 
+	/**
+	 * The re-check Structure's data steps owe the judge (physical/ddl/recheck.ts), where it holds one, in
+	 * structure.recheck: after every data step, every stored table filled and every head and founding table made, and
+	 * before the guards stand again (`unguard`), its laws by their identities (`ruleChecks` checks none of them again).
+	 * The bracket lets a data step delete or rewrite a closed relation's rows, which the judge compiles as no served
+	 * write does; the re-check runs exactly where a step can break a law the judge so reads (`writes`, `stepWrites`):
+	 *
+	 * - a step a reviewer writes, whose writes no reading of the draft decides: each stored table over a closed relation
+	 *   made its definition's rows by one MERGE, each rule over a closed relation checked over every row;
+	 * - the steps grizzle drafts alone, whose writes are columns it knows: each rule whose check reads one of them
+	 *   (RuleCheck `reads`), and each stored table whose definition reads one (Refill `reads`) that this migration does
+	 *   not create or create again, whose fill reads the rows the steps leave; none where they meet no law's reads.
+	 *
+	 * Each check raises under its law, so a step that breaks one is refused in Structure's own transaction, before it
+	 * commits. SET CONSTRAINTS ALL IMMEDIATE (checkedAtOnce) holds since before the first data step, so the judge has
+	 * kept every other stored table at the end of each statement, and keeps each refilled one's readers at the end of
+	 * its MERGE. Nothing where the target holds no rule and no stored relation over a closed relation.
+	 */
+	recheck(checks: ReadonlyArray<RuleCheck>, writes: StepWrites): ReadonlyArray<LawId> {
+		const r = this.input.installation.recheck
+		if (r === undefined) {
+			return []
+		}
+		const meets = (reads: Iterable<StoredColumnKey>): boolean =>
+			writes.kind === "unknown" || [...reads].some((c) => writes.columns.has(c))
+		const reads = new Map(checks.map((c) => [c.law, c.reads] as const))
+		const refills = r.refills.filter(
+			(f) =>
+				writes.kind === "unknown" ||
+				(meets(f.reads) &&
+					this.prev.has(f.object) &&
+					!this.recreatedViews.has(nameKey(f.statement.table)))
+		)
+		const laws = r.checks.filter((c) => meets(reads.get(c.law) ?? []))
+		this.sql(
+			"structure.recheck",
+			refills.map((f) => f.statement)
+		)
+		for (const c of laws) {
+			this.push("structure.recheck", { kind: "violation", law: c.law, query: c.query })
+		}
+		return laws.map((c) => c.law)
+	}
+
+	/**
+	 * The bracket of Structure's data steps (physical/ddl/immutable.ts guardBracket), where it holds one: its scope every
+	 * table the previous installation guards that the target keeps, its guards lifted at the end of Structure, before SET
+	 * CONSTRAINTS ALL IMMEDIATE and the first data step, and created again in structure.constraints, after the last, in
+	 * Structure's one transaction, so what Validate drafts of the guard reads the trigger standing, as it would with no
+	 * bracket. Every such table, never only those the draft's own steps write: a reviewer's data step written at that
+	 * place (README, Migrations) writes what it writes, a guarded table's rows a removed code holds among them, which the
+	 * guard would refuse as a change of a fixed field; no other transaction sees a table without its guard, nor any
+	 * committed state holds one so. A table the previous installation does not guard takes its guard in Validate, after
+	 * every data step.
+	 */
 	unguard(): void {
 		const kept = new Set(
 			[...this.next.values()].flatMap((o) => {
@@ -2956,13 +3072,21 @@ class Differ {
 				return v.kind === "table" ? [nameKey(v.create.table)] : []
 			})
 		)
-		const guards = [...this.prev.values()].flatMap((o) => {
-			const v = installed(o)
-			return v.kind === "immutableTrigger" && kept.has(nameKey(v.create.table)) ? [v.create] : []
-		})
-		const bracket = guardBracket(guards)
-		this.sql("structure", bracket.drop)
-		this.sql("structure.constraints", bracket.create)
+		const guarded = new Map(
+			[...this.prev.values()].flatMap((o) => {
+				const v = installed(o)
+				return v.kind === "immutableTrigger" && kept.has(nameKey(v.create.table))
+					? [[nameKey(v.create.table), v.create.table] as const]
+					: []
+			})
+		)
+		const tables = [...guarded.values()]
+		if (!isNonEmpty(tables)) {
+			return
+		}
+		const bracket = guardBracket({ kind: "tables", tables })
+		this.sql("structure", [bracket.unguard])
+		this.sql("structure.constraints", [bracket.reguard])
 	}
 
 	/** The steps of a field's change in place from `b` to `c` (inPlace), its conversion by its cast or its placeholder
@@ -3068,10 +3192,10 @@ class Differ {
 	): void {
 		const { object: o, table: t, column } = v
 		if (before !== undefined) {
-			if (this.unchanged(before, o)) {
+			if (sameRecord(before, o)) {
 				return
 			}
-			const generation = this.reexpressedAs(before, v.definition)
+			const generation = reexpressedLawColumn(before, v.definition)
 			if (generation !== undefined) {
 				this.alter("structure", t, [{ kind: "setExpression", column, generation }])
 				return
@@ -3331,7 +3455,7 @@ class Differ {
 			if (old === undefined) {
 				return
 			}
-			if (!this.input.stale.has(before.ident) && this.deferralAlone(old, c)) {
+			if (this.deferralAlone(old, c)) {
 				this.sql("publish.attach", [
 					alter(t, [{ kind: "alterConstraintDeferral", name: c.name, deferrable: c.deferrable }])
 				])
@@ -3398,7 +3522,7 @@ class Differ {
 	): void {
 		const { object: o, create } = v
 		const t = create.table
-		if (before !== undefined && this.unchanged(before, o)) {
+		if (before !== undefined && sameRecord(before, o)) {
 			return
 		}
 		if (!this.mayHoldRows(t)) {
@@ -3440,7 +3564,7 @@ class Differ {
 		before: RecordedObject | undefined
 	): void {
 		const { object: o, create } = v
-		if (before !== undefined && this.unchanged(before, o)) {
+		if (before !== undefined && sameRecord(before, o)) {
 			return
 		}
 		const kept = new Set(create.dependencies.map((d) => nameKey(d.name)))
@@ -3463,7 +3587,7 @@ class Differ {
 	 * of the target reads it, so it goes before what it depends on (dropOrder), a rule trigger before its function and
 	 * its table; a constraint in publish.drop, before.
 	 *
-	 * Extensions and the database's defaults outlive the schema, which another schema may share them with;
+	 * Extensions outlive the schema, which another schema may share them with;
 	 * grants are replaced per role in grants().
 	 *
 	 * Dropped at the start of Structure (dropWorlds).
@@ -3471,8 +3595,8 @@ class Differ {
 	 * Both roles still stand when grants are replaced; a role dropped at the end takes it along anyway.
 	 *
 	 * A role, a decoder login or the function owner goes after the end of every session that holds a temporary object of
-	 * it (sql/ast.ts EndHolders): a write's carrier a transaction under it made, which stands until its session ends, and
-	 * which PostgreSQL's DROP ROLE refuses (2BP01).
+	 * it (sql/ast.ts EndHolders): a rule judge's delta a transaction under it stood up (physical/ddl/deltas.ts), which
+	 * stands until its session ends, and which PostgreSQL's DROP ROLE refuses (2BP01).
 	 *
 	 * A validation installs nothing, so nothing is dropped.
 	 *
@@ -3698,9 +3822,6 @@ class Differ {
 		)
 		for (const r of ordered) {
 			this.push("publish.removed", r.draft)
-		}
-		for (const d of this.input.departures) {
-			this.sql("publish.removed", [departureDrop(d)])
 		}
 	}
 
@@ -4514,7 +4635,7 @@ const rewrittenColumns = (kept: ReadonlyMap<string, KeptTable>): ReadonlySet<Sto
 const changeOf = (changes: ReadonlyMap<string, FieldChange>, column: string): FieldChange => {
 	const change = changes.get(column)
 	if (change === undefined) {
-		throw defect(`the field ${column} both declarations hold has a change`)
+		defect(`the field ${column} both declarations hold has a change`)
 	}
 	return change
 }
@@ -4579,7 +4700,7 @@ const dropObject = (
 const schemaOf = (o: AnyObject): string => {
 	const ident = parseIdent(o.ident)
 	if (ident.kind !== "schema") {
-		throw defect(`the schema object ${o.ident} is named as a schema`)
+		defect(`the schema object ${o.ident} is named as a schema`)
 	}
 	return ident.name
 }

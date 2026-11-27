@@ -12,10 +12,11 @@ import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import type { WriteOutcome } from "#compiler/live/index.ts"
 import { writeAnswerOf, type WriteAnswer } from "#test/support/calls.ts"
 import { closedField } from "#test/support/closed/stored.ts"
-import { Instant } from "#test/support/fixtures/api/contracts.ts"
+import { toInstant } from "#test/support/fixtures/api/contracts.ts"
 import * as P from "#test/support/fixtures/api/payroll.ts"
 import { ada, stateA, t0 } from "#test/support/fixtures/golden/payroll.ts"
 import { replaceMigrated } from "#test/support/install-migrate.ts"
+import { rebuild, renamed } from "#test/support/installed.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { openFixture } from "#test/support/open-fixture.ts"
 import type { SqlError } from "#test/support/pg.ts"
@@ -122,7 +123,7 @@ export const raceGen: Gen<LeaveRace> = (source) => {
 	}
 }
 
-const instantOf = (days: number) => Instant(t0 + BigInt(days) * day)
+const instantOf = (days: number) => toInstant(t0 + BigInt(days) * day)
 
 /** The features one explained run reached (see LeaveFeature). */
 const featuresOf = (
@@ -166,10 +167,13 @@ export const runRace = (
 > =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
-		const f = yield* openFixture(P.Reporting, [P.reportingWorlds(P.Payroll).server], {
-			facts: stateA,
-			after: []
-		})
+		const f = yield* openFixture(
+			(name) => ({
+				schema: renamed(P.Reporting, name),
+				logins: [P.reportingWorlds(rebuild(P.Payroll, name)).server]
+			}),
+			{ facts: stateA, after: [] }
+		)
 		const s = f.rebuilt(P.Payroll)
 		const worlds = P.reportingWorlds(s)
 		const served = yield* f.served(worlds.server)

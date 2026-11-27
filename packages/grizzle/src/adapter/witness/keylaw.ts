@@ -280,7 +280,7 @@ export const keyLawsOf = (data: ServedKeyLaws, above: LawsAbove, codes: Codebook
 	const tableOf = (relation: StoredRelationName): RelationIdent => {
 		const table = data.tables.get(relation)
 		if (table === undefined) {
-			throw defect(`the installation stores relation ${relation}, which a write statement wrote`)
+			defect(`the installation stores relation ${relation}, which a write statement wrote`)
 		}
 		return table
 	}
@@ -290,7 +290,7 @@ export const keyLawsOf = (data: ServedKeyLaws, above: LawsAbove, codes: Codebook
 				const table = tableOf(refusal.relation)
 				const name = discharging.get(table)?.get(refusal.law)
 				if (name === undefined) {
-					throw defect(
+					defect(
 						`the installation installs a constraint of ${table} for its key law ${refusal.law}`
 					)
 				}
@@ -303,7 +303,7 @@ export const keyLawsOf = (data: ServedKeyLaws, above: LawsAbove, codes: Codebook
 			case "generated": {
 				const refused = generatedFields.get(refusal.relation)?.get(refusal.field)
 				if (refused === undefined) {
-					throw defect(
+					defect(
 						`the installation holds the generated field ${refusal.relation}.${refusal.field}, whose row the host filled`
 					)
 				}

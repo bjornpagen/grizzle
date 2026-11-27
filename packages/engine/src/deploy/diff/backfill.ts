@@ -254,7 +254,7 @@ function refuseBackfill(family: Family, what: string): never {
 const relationOf = (installation: Installation, name: string): RelationInfo => {
 	const r = installation.laws.theory.relations[name]
 	if (r?.kind !== "relation") {
-		throw defect(`a family's relation ${name} is a stored relation of the theory`)
+		defect(`a family's relation ${name} is a stored relation of the theory`)
 	}
 	return r
 }
@@ -526,7 +526,7 @@ const memberKey = (
 	const columns = was.primaryKey.map((name): string => {
 		const field = was.fields.find((f) => f.name === name)
 		if (field === undefined) {
-			throw defect(`the snapshot's relation ${member.name} records its key field ${name}`)
+			defect(`the snapshot's relation ${member.name} records its key field ${name}`)
 		}
 		return field.column
 	})
@@ -1237,7 +1237,7 @@ const treeDerivation = (
 		...drawnSet.map(({ c, value }) => ({ column: columnOf(c.column), value }))
 	]
 	if (!isNonEmpty(set)) {
-		throw defect("a tree's derivation sets its count or a drawn column")
+		defect("a tree's derivation sets its count or a drawn column")
 	}
 	return {
 		table,
@@ -1826,7 +1826,7 @@ const treeChainDerivation = (
 	const typed = (c: Copy, expr: Expr): Expr => {
 		const type = c.from.kind === "field" ? c.from.field.type : undefined
 		if (type === undefined) {
-			throw defect(`a tree's chained copy ${columnOf(c.from)}, an accumulated field`)
+			defect(`a tree's chained copy ${columnOf(c.from)}, an accumulated field`)
 		}
 		const base = baseTypeRef(names, type)
 		const cast_ = cast(expr, base)
@@ -1849,7 +1849,7 @@ const treeChainDerivation = (
 			...chain.map((c, n) => {
 				const base = baseOf(installation, c.from)
 				if (base === undefined) {
-					throw defect(`the start of ${columnOf(c.from)}, a copy along a tree's owner axis`)
+					defect(`the start of ${columnOf(c.from)}, a copy along a tree's owner axis`)
 				}
 				return targetAs(typed(c, base.placeholder), chainName(n))
 			})
@@ -2055,7 +2055,7 @@ const ordered = (planned: ReadonlyArray<Planned>): ReadonlyArray<Derivation> => 
 	for (const p of planned) {
 		for (const c of drawsOf(p.derivation)) {
 			if (drawer.has(cellKey(c))) {
-				throw defect(`one backfill derivation draws ${cellName(c)}`)
+				defect(`one backfill derivation draws ${cellName(c)}`)
 			}
 			drawer.set(cellKey(c), p)
 		}
@@ -2385,7 +2385,7 @@ const passes = (
 		const written = flatMapNonEmpty(own, (n) => mapNonEmpty(n.derivation.set, (d) => d.column))
 		const ctes = named.filter((n) => needed.has(n)).map((n) => builtOf(n).cte)
 		if (!isNonEmpty(ctes)) {
-			throw defect("a table's UPDATE reads its own derivations")
+			defect("a table's UPDATE reads its own derivations")
 		}
 		const presented = presentedTo(ran, undefined)
 		return {
@@ -2430,7 +2430,7 @@ const primaryKeyOf = (installation: Installation, name: string): Key => {
 	const relation = relationOf(installation, name)
 	const pk = installation.laws.theory.primaryKeys.find((k) => k.relation.name === name)
 	if (pk === undefined) {
-		throw defect(`the theory states the primary key of ${name}`)
+		defect(`the theory states the primary key of ${name}`)
 	}
 	return {
 		law: pk.law.id,

@@ -33,7 +33,11 @@
  * member, its kept count 0, is the call's whole, which the host drew, its owner's counts and ends and every member's
  * columns (runtime/write/bind.ts freshOwners), and the statement takes the host's members of it in the scan's place
  * (`HostDrawn`), so each group is drawn by one engine. Whether the host drew a group is read beside its kept count with no
- * join, and an exact repeat of a stored owner whose group holds stored members is the scan's, past them.
+ * join, and an exact repeat of a stored owner whose group holds stored members is the scan's, past them. A closed
+ * owner's family takes no member once inserted, and its groups' kept counts are never read: a closed owner the stratum
+ * restates, met stored, holds a member at each slot the host drew, and the member's insert, arbitrating every object,
+ * meets its new member there, a met row no stored row holds the key of, which the statement refuses on the family's
+ * rule alone, witnessed by the member's key (`metRefusal`), in the call's one flight.
  *
  * The appended rows are inserted whole, each with every family's columns. Each mutable owner they join, and each the
  * stratum puts whose groups its edits touch, whose recount the removals leave to this statement after the put, is
@@ -71,7 +75,8 @@ import {
 	type Head,
 	headStamped,
 	headText,
-	type Stamped
+	type Stamped,
+	stampAt
 } from "#compiler/ir/instant.ts"
 import {
 	familyKey,
@@ -192,7 +197,6 @@ import {
 } from "#compiler/write/family/written.ts"
 import type { MemberSlot } from "#compiler/write/frontend/compile.ts"
 import type { CopySource, OwnerCopy } from "#compiler/write/frontend/schedule.ts"
-import { primaryKeyShape } from "#compiler/write/frontend/targets.ts"
 import {
 	type CallValues,
 	callColumn,
@@ -579,14 +583,14 @@ export const additionsSql = (
 	})
 	const [firstReturning, ...restReturnings] = [...recounts, ...inserts, ...redrawn, ...riding]
 	if (firstReturning === undefined) {
-		throw defect("a family additions statement appends or recounts a put owner")
+		defect("a family additions statement appends or recounts a put owner")
 	}
 	return taggedRows(supply, ctes, [firstReturning, ...restReturnings], params, refusals)
 }
 
 /**
- * The key a member relation's appends arbitrate (statements.ts Arbiter): its primary key, each family's group drawn from
- * its base (scan.ts GroupState) and each stored repeat met at its key by the insert (`insertOf`), at SERIALIZABLE, where
+ * What a member relation's appends arbitrate (statements.ts Arbiter): every object, each family's group drawn from
+ * its base (scan.ts GroupState) and each row the insert meets classified in its statement (`insertOf`), at SERIALIZABLE, where
  * every family of it is immutable, written whole with its owner, and it is appended from no put slot, so the statement
  * reads no stored row of a group for the members it inserts; else none, a mutable family's group and a put's member read
  * where a probe reaches them.
@@ -597,7 +601,7 @@ const memberArbiter = (w: WriteContext, member: AppendedMember): Arbiter =>
 	member.sources.every(
 		(source) => source.kind === "nestedRows" || source.slots.every(({ as }) => as === "inserts")
 	)
-		? "primaryKey"
+		? "every"
 		: "none"
 
 /** `rows` with every column `scan` drew beside its own, by the member's key: what the next family's scan reads. */
@@ -710,7 +714,7 @@ const appendedOf = (
 			[cteRefAs(facts.name, a)],
 			((): Expr | undefined => {
 				switch (arbiter) {
-					case "primaryKey":
+					case "every":
 						return undefined
 					case "none":
 						return not(repeated())
@@ -750,7 +754,7 @@ const appendedOf = (
 						: member.relation.primaryFields.map(fieldOf)
 				const [first, ...rest] = compared
 				if (first === undefined) {
-					throw defect(`the fields of ${name}'s slot, which holds its key`)
+					defect(`the fields of ${name}'s slot, which holds its key`)
 				}
 				const facts = slots(name, slot)
 				/** A count or end of the row's own counted family as an insert's row holds it: its slot's, or its start. */
@@ -807,7 +811,7 @@ const appendedOf = (
 			)
 			const [first, ...rest] = compared
 			if (first === undefined) {
-				throw defect(`the fields of ${name}'s nested rows`)
+				defect(`the fields of ${name}'s nested rows`)
 			}
 			ctes.push(
 				cte(
@@ -838,9 +842,7 @@ const sentOf = (source: NestedRows): NestedSent => {
 	const unstamped = (c: RowColumn): boolean => !stampedKeys.has(c.key)
 	const [key, ...keys] = source.layout.key.filter(unstamped)
 	if (key === undefined) {
-		throw defect(
-			`the key of ${source.layout.relation}'s nested rows beyond its stamps, their child`
-		)
+		defect(`the key of ${source.layout.relation}'s nested rows beyond its stamps, their child`)
 	}
 	return {
 		stratum: source.stratum,
@@ -968,29 +970,31 @@ const stampedSources = (
 					}))
 				}
 	}
-	/** Each head the sources stamp, once, its stamps' CTE named, by its relation and field (ir/instant.ts headText). */
+	/** Each head the sources stamp, once, its stamps' CTE named, by its spelling (ir/instant.ts headText): a scope's,
+	 * every clock of it alike, or a place's. */
 	const heads = new Map<string, { readonly head: Head; readonly names: HeadStamps }>()
 	for (const x of stamping) {
 		for (const st of headStamped(x.stamps)) {
-			const at = headText(st.stamp.head)
-			heads.getOrInsertComputed(at, () => ({
-				head: st.stamp.head,
-				names: headStampsNames(supply, st.stamp.head)
+			const { head } = stampAt(st.stamp)
+			heads.getOrInsertComputed(headText(head), () => ({
+				head,
+				names: headStampsNames(supply, head)
 			}))
 		}
 	}
 	for (const [at, { head, names }] of heads) {
 		const arms = stamping.flatMap((x) =>
 			headStamped(x.stamps).flatMap((st) => {
-				if (headText(st.stamp.head) !== at) {
+				const { head: stamped, key } = stampAt(st.stamp)
+				if (headText(stamped) !== at) {
 					return []
 				}
 				const r = supply.relation(internal("stamped source"))
 				return [
 					core(
-						mapNonEmpty(st.stamp.child, (f) => target(valueIn(x, r, f.name))),
+						mapNonEmpty(key, (f) => target(valueIn(x, r, f.name))),
 						[
-							st.stamp.child.some((f) => calledIn(x, f.name) !== undefined)
+							key.some((f) => calledIn(x, f.name) !== undefined)
 								? withCalls(x, r)
 								: cteRefAs(x.rows.name, r)
 						],
@@ -1001,7 +1005,7 @@ const stampedSources = (
 		)
 		const [first, ...rest] = arms
 		if (first === undefined) {
-			throw defect(`a source that stamps ${at}`)
+			defect(`a source that stamps ${at}`)
 		}
 		const u = supply.relation(internal("stamped children"))
 		const children = select(
@@ -1028,7 +1032,10 @@ const stampedSources = (
 		])
 		const r = supply.relation(internal("stamped row"))
 		const joined = headStamped(x.stamps).map((st) => {
-			const names = defined(heads.get(headText(st.stamp.head)), "a stamped head's stamps").names
+			const names = defined(
+				heads.get(headText(stampAt(st.stamp).head)),
+				"a stamped head's stamps"
+			).names
 			return { st, alias: supply.relation(internal("stamp")), names }
 		})
 		const rowsWithCalls = withCalls(x, r)
@@ -1043,7 +1050,7 @@ const stampedSources = (
 					kind: "on",
 					source: cteRefAs(names.name, alias),
 					on: and(
-						mapNonEmpty(st.stamp.child, (f, i) =>
+						mapNonEmpty(stampAt(st.stamp).key, (f, i) =>
 							eq(
 								valueIn(x, r, f.name),
 								col(alias, defined(names.child[i], "a stamped child column"))
@@ -1282,7 +1289,7 @@ const appendScan = (
 	 * members where a probe reads them (`memberArbiter`). */
 	const state = ((): GroupState["kind"] => {
 		switch (arbiter) {
-			case "primaryKey":
+			case "every":
 				return "base"
 			case "none":
 				return "stored"
@@ -2048,7 +2055,7 @@ const redrawnUpdate = (
 	const drawn = new Set(drawnColumns.map((c) => columnKey(c.column)))
 	const [first, ...rest] = member.layout.columns.filter((c) => c.settable && drawn.has(c.key))
 	if (first === undefined) {
-		throw defect(`the columns of ${name} a family it is drawn whole by draws`)
+		defect(`the columns of ${name} a family it is drawn whole by draws`)
 	}
 	const t = supply.relation(internal("redrawn table"))
 	const s = supply.relation(internal("redrawn member"))
@@ -2062,7 +2069,7 @@ const redrawnUpdate = (
 	)
 	const [firstField, ...restFields] = keyFirstFields(relation)
 	if (firstField === undefined) {
-		throw defect(`the fields of ${name}`)
+		defect(`the fields of ${name}`)
 	}
 	const fields: NonEmptyReadonlyArray<LawField> = [firstField, ...restFields]
 	const update = supply.relation(internal("family redraw"))
@@ -2421,7 +2428,7 @@ const candidatesOf = (
 		}
 		const start = field === undefined ? undefined : startOf(w.names, field)
 		if (start === undefined) {
-			throw defect(`the column ${key} of ${name}, which an appended row is inserted with`)
+			defect(`the column ${key} of ${name}, which an appended row is inserted with`)
 		}
 		return start
 	}
@@ -2520,11 +2527,11 @@ const candidatesUnion = (
 
 /**
  * The insert of one source's candidate rows of a member relation (`candidatesOf`), gated by the member's probe
- * (`probeGates`). Where it arbitrates its primary key (`memberArbiter`), ON CONFLICT at its primary key DO NOTHING, by the key's
- * constraint where it holds a span, which no column list infers, over the candidates the gates pass, and each
- * appended row it did not insert, a met row, is an exact repeat where the stored row the arbitration met at its key
- * (probe.ts metFound) equals it at every field it states, and else its key's law, which the statement raises
- * (`refusals`).
+ * (`probeGates`). Where it arbitrates (`memberArbiter`), at SERIALIZABLE, ON CONFLICT DO NOTHING with no target, every
+ * unique and exclusion object arbitrating, its primary key and its counted families' slot keys among them, over the
+ * candidates the gates pass, so a conflict is a met row, never a 23505 or 23P01, and each appended row it did not
+ * insert is classified in the statement (`metRefusal`): an exact repeat, its key's law, or a member joining a stored
+ * closed owner's group, that family's law, which the statement raises (`refusals`).
  */
 const insertOf = (
 	w: WriteContext,
@@ -2574,7 +2581,7 @@ const insertOf = (
 				})
 			)
 			break
-		case "primaryKey": {
+		case "every": {
 			/** The rows the arbitrated INSERT proposes, alone (sql/ast.ts FromSource `metRows`), by layout column: the
 			 * candidates the gates pass. */
 			const proposed: LaidRows = {
@@ -2588,18 +2595,7 @@ const insertOf = (
 					with: undefined,
 					table: w.names.relation(name),
 					alias: into,
-					onConflict:
-						primaryKeyShape(relation).kind === "span"
-							? {
-									kind: "constraint",
-									constraint: w.names.primaryKey(name),
-									action: { kind: "doNothing" }
-								}
-							: {
-									kind: "columns",
-									columns: mapNonEmpty(relation.primaryFields, (f) => w.names.column(name, f.name)),
-									action: { kind: "doNothing" }
-								},
+					onConflict: { kind: "every", action: { kind: "doNothing" } },
 					columns: inserted,
 					source: {
 						kind: "query",
@@ -2636,9 +2632,21 @@ const insertOf = (
 
 /**
  * The refusal of an arbitrated member insert's met rows (`insertOf`): the rows its INSERT `made.insert` proposed from
- * `made.proposed` and did not return (sql/ast.ts FromSource `metRows`), each the stored row its arbitration met at its
- * key unequal to it at some field `d`'s appended rows state, which raises its key's law; its guard, which the
- * statement's rows read. Every stored row it met is visible (sql/ast.ts FromSource `met`).
+ * `made.proposed` and did not return (sql/ast.ts FromSource `metRows`), its guard, which the statement's rows read. The
+ * INSERT arbitrates every object (ON CONFLICT DO NOTHING with no target) at SERIALIZABLE, where a conflicting row its
+ * snapshot cannot see raises 40001, so every stored row it met is visible (sql/ast.ts FromSource `met`), and a met row is
+ * exactly one of:
+ * - a stored row at its primary key equal to it at every field `d`'s appended rows state: an exact repeat, no change;
+ * - a stored row at its primary key unequal to it: its key's law, witnessed by its key;
+ * - no stored row at its primary key, so it met a counted family's slot key, its group and hidden index, over a column
+ *   the host drew from 0 for a group whose owner the stratum restates (FreshGroups `drawn`, scan.ts GroupState `base`):
+ *   the group holds a stored member, a member joining a stored closed owner's family, which is refused on that family's
+ *   own law, witnessed by the member's key (README "A closed owner's family is fixed when the owner is inserted"), the
+ *   first such family in the member's order of its families (statements.ts memberFamilies), each read by one probe of
+ *   the group for that row; or
+ * - none of these: the statement's defect, as an insert's arbitration of every object raises it (write/refusal.ts
+ *   ArmRefusal `defect`), since the gates probe every other object (`probeGates`) and the slot keys are the families'.
+ * So the refusal is judged in the statement that meets it, and its witness is its key, with no second flight.
  */
 const metRefusal = (
 	w: WriteContext,
@@ -2667,34 +2675,39 @@ const metRefusal = (
 		(f) =>
 			d.appended.columns.has(columnKeyOf(f.name)) && statesColumn(d.source, columnKeyOf(f.name))
 	)
+	/** The member's counted families, each its group's fields on the member, which a met row is probed at. */
+	const counted = d.member.families.flatMap(({ family }) =>
+		family.shape.kind === "counted" ? [family] : []
+	)
+	const grouped = counted.flatMap((f) => f.group.map((g) => g.member))
+	const read = [...pk, ...stated, ...grouped].filter((f, i, all) => all.indexOf(f) === i)
 	const met = metRowsOf(w, supply, {
 		insert: made.insert,
 		proposed: made.proposed,
-		columns: mapNonEmpty(
-			extendNonEmpty(
-				pk,
-				stated.filter((f) => !pk.includes(f))
-			),
-			(f) => ({ column: proposedColumn(f), returned: returnedOf(f) })
-		),
+		columns: mapNonEmpty(extendNonEmpty(pk, read.slice(pk.length)), (f) => ({
+			column: proposedColumn(f),
+			returned: returnedOf(f)
+		})),
 		key: mapNonEmpty(pk, (f) => ({
 			field: f,
 			column: proposedColumn(f),
 			returned: returnedOf(f)
 		}))
 	})
-	/** The stored row met at the met row's primary key, which reaches one row, and its equality to the met row at every
-	 * other field the appended rows state, checked over that row (probe.ts Equal). */
-	const repeat: MetAccess = {
+	/** The stored row of the member at `fields`, bound to the met row's values of them. */
+	const metAt = (fields: NonEmptyReadonlyArray<LawField>): MetAccess => ({
 		rows: met.alias,
-		key: mapNonEmpty(pk, (f) => ({
+		key: mapNonEmpty(fields, (f) => ({
 			column: w.names.column(name, f.name),
 			from: proposedColumn(f),
 			schema: operatorSchemaOf(w.names, rowType(f))
 		})),
 		filter: () => [],
-		placed: mapNonEmpty(pk, (f) => w.names.column(name, f.name))
-	}
+		placed: mapNonEmpty(fields, (f) => w.names.column(name, f.name))
+	})
+	/** The stored row met at the met row's primary key, which reaches one row, and its equality to the met row at every
+	 * other field the appended rows state, checked over that row (probe.ts Equal). */
+	const atKey = metAt(pk)
 	const repeatEqual = stated
 		.filter((f) => !pk.includes(f))
 		.map((f): Equal => ({
@@ -2702,12 +2715,20 @@ const metRefusal = (
 			value: col(met.alias, proposedColumn(f)),
 			type: rowType(f)
 		}))
-	/** Each met row with whether the stored row met at its key repeats it, MATERIALIZED, so the repeat is read for the
-	 * met rows alone: a filter on it pushed below the met rows' anti-join would read the stored rows for every member the
-	 * INSERT inserted. */
+	/**
+	 * Each met row with its class's facts, MATERIALIZED, so they are read for the met rows alone: a filter on them pushed
+	 * below the met rows' anti-join would read the stored rows for every member the INSERT inserted. Whether the stored
+	 * row at its key repeats it, whether one is there at all, and, for each counted family, whether its group holds a
+	 * stored member.
+	 */
 	const classed = supply.relation(internal("met member class"))
 	const classedKeys = mapNonEmpty(pk, () => supply.column(internal("met member key")))
 	const repeated = supply.column(internal("met member repeat"))
+	const keyed = supply.column(internal("met member at its key"))
+	const joined = counted.map((family) => ({
+		family,
+		column: supply.column(internal("met member joins a stored group"))
+	}))
 	ctes.push({
 		...cte(
 			classed,
@@ -2721,7 +2742,14 @@ const metRefusal = (
 								defined(classedKeys[i], "a met key column")
 							)
 						),
-						targetAs(metFound(w, supply, name, repeat, repeatEqual), repeated)
+						targetAs(metFound(w, supply, name, atKey, repeatEqual), repeated),
+						targetAs(metFound(w, supply, name, atKey, []), keyed),
+						...joined.map((j) =>
+							targetAs(
+								metFound(w, supply, name, metAt(mapNonEmpty(j.family.group, (g) => g.member)), []),
+								j.column
+							)
+						)
 					],
 					[met.source],
 					undefined
@@ -2732,21 +2760,36 @@ const metRefusal = (
 	})
 	const refused = supply.relation(internal("met member"))
 	const refusedKeys = mapNonEmpty(pk, () => supply.column(internal("met member key")))
+	const refusedKeyed = supply.column(internal("met member at its key"))
+	const refusedJoined = joined.map(() => supply.column(internal("met member joins a stored group")))
 	ctes.push(
 		cte(
 			refused,
 			select(
 				provedCore(
 					"keyed",
-					mapNonEmpty(classedKeys, (key, i) =>
-						targetAs(col(classed, key), defined(refusedKeys[i], "a met key column"))
-					),
+					[
+						...mapNonEmpty(classedKeys, (key, i) =>
+							targetAs(col(classed, key), defined(refusedKeys[i], "a met key column"))
+						),
+						targetAs(col(classed, keyed), refusedKeyed),
+						...joined.map((j, i) =>
+							targetAs(col(classed, j.column), defined(refusedJoined[i], "a joined column"))
+						)
+					],
 					[cteRef(classed)],
 					not(col(classed, repeated))
 				)
 			)
 		)
 	)
+	/** The met member's key, which every arm witnesses it by. */
+	const key = pk.map((f, i) => ({
+		field: f.name,
+		expr: col(refused, defined(refusedKeys[i], "a met key column")),
+		type: rowType(f)
+	}))
+	const atNoKey = not(col(refused, refusedKeyed))
 	const guarded = refusalGuard({
 		supply,
 		schema: w.names.schema,
@@ -2754,16 +2797,26 @@ const metRefusal = (
 		arms: [
 			{
 				rank: refusalRank.conflict,
-				when: lit.bool(true),
+				when: col(refused, refusedKeyed),
+				refusal: { kind: "law", law: d.member.uniques.arbiter.law, relation: name, key }
+			},
+			...joined.map((j, i) => ({
+				rank: refusalRank.conflict,
+				when: and([
+					atNoKey,
+					col(refused, defined(refusedJoined[i], "a joined column")),
+					...refusedJoined.slice(0, i).map((earlier) => not(col(refused, earlier)))
+				]),
+				refusal: { kind: "law" as const, law: j.family.law, relation: name, key }
+			})),
+			{
+				rank: refusalRank.defect,
+				when: and([atNoKey, ...refusedJoined.map((c) => not(col(refused, c)))]),
 				refusal: {
-					kind: "law",
-					law: d.member.uniques.arbiter.law,
+					kind: "defect",
 					relation: name,
-					key: pk.map((f, i) => ({
-						field: f.name,
-						expr: col(refused, defined(refusedKeys[i], "a met key column")),
-						type: rowType(f)
-					}))
+					constraint: w.names.primaryKey(name),
+					key
 				}
 			}
 		]
@@ -2903,7 +2956,7 @@ const recountOf = (
 		}
 		const [firstArm, ...restArms] = arms
 		if (firstArm === undefined) {
-			throw defect(`a recount of ${name}'s family ${family.id.count} with nothing to recount`)
+			defect(`a recount of ${name}'s family ${family.id.count} with nothing to recount`)
 		}
 		ctes.push(cte(last.name, select(unionAll("disjoint", [firstArm, ...restArms]))))
 		return { family, last }

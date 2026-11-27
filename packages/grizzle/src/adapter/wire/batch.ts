@@ -1521,7 +1521,7 @@ const parsedText = (statement: BatchStatement): string =>
  * The length the Parse of `statement`, with no parameter types, declares: its length word, the name it runs under
  * (nameBytes) and its text each ended by a NUL, and its count of parameter types, its type byte not.
  */
-export const parseLength = (statement: BatchStatement): number =>
+const parseLength = (statement: BatchStatement): number =>
 	messageFields.length +
 	nameBytes(statement) +
 	messageFields.end +
@@ -1767,7 +1767,7 @@ export const runFramedFlights = <A, E>(
 export const sentAnswer = <A>(answers: ReadonlyArray<A>, index: number): A => {
 	const answer = answers[index]
 	if (answer === undefined) {
-		throw defect(`the answer of sent statement ${index} of ${answers.length}`)
+		defect(`the answer of sent statement ${index} of ${answers.length}`)
 	}
 	return answer
 }

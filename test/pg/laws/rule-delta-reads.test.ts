@@ -80,8 +80,8 @@ export const eachReadOfADeltaReturnsTheRowsItsSelectionAdmitsThroughTheDeltasInd
 			},
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
-				original: "\t\t\t\t\t...r.where.map((c) => mapLeaves(c, leaves)),\n",
-				replacement: "",
+				original: "\t\t\t\tr.where.map((c) => mapLeaves(c, leaves)),\n",
+				replacement: "\t\t\t\t[],\n",
 				why: "A region's rules keep none of their occurrences' conditions: Kept's upkeep reads every row of U's news at each call, the kinds it keeps none of among them, and puts each one's unit in its region, as edullm's upkeeps read Node's news whole; the property fails."
 			},
 			{

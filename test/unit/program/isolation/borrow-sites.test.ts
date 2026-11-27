@@ -9,7 +9,9 @@
  * Oracle: each variant of the member proves exactly the borrows the rules restate over its case (borrow-sites.fixtures.ts
  * expectedOf), with no fault: the learner borrows Learner exclusively at its child and Package shared at its session's
  * package, held under Learner where the session sits in it and learned where it is a fact, so its call takes Learner
- * before Package; the operator's permission is an immutable fact at a learned key and borrows nothing.
+ * before Package; the operator's permission is an immutable fact at a learned key and borrows nothing, its query read
+ * as a chain of LATERAL steps (b4412653db, SITKEY), each row of its core one of theirs (program/isolation/extract.ts
+ * #source), so its read beneath the refusal's NOT EXISTS is the positive read's again.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -46,10 +48,9 @@ export const aMemberWhoseKeyARowAnotherReadFindsHoldsBorrowsAtThatRowsFieldLearn
 		kills: [
 			{
 				file: "packages/engine/src/program/isolation/extract.ts",
-				original:
-					'\t\t\treturn field === undefined ? undefined : { kind: "column", of: named, field }\n',
-				replacement: "\t\t\treturn undefined\n",
-				why: "A column of another stored table's source binds nothing, as before the stored provenance: the package's documents are read at no key the learner holds, rows of no one group."
+				original: '\t\t\t\treturn rows\n\t\t\t}\n\t\t\tcase "function":',
+				replacement: '\t\t\t\treturn source.lateral ? [] : rows\n\t\t\t}\n\t\t\tcase "function":',
+				why: "A LATERAL derived table's rows are no source of its core's rows: the grant's query, read as a chain of LATERAL steps (Account at the clerk, Grant at its person), grounds no positive read beneath the refusal's NOT EXISTS, so its reads there are absences outside every unit (MR-OPS-GAPS G5)."
 			},
 			{
 				file: "packages/engine/src/program/isolation/extract.ts",

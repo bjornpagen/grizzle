@@ -13,10 +13,12 @@ import { admittedIdentifier } from "#compiler/plan/common.ts"
 import {
 	adapterBound,
 	allFeatures,
+	canonicalOf,
 	constructorCases,
 	type DrawnReason,
 	engineReason,
 	type Feature,
+	outOfOrderOfThree,
 	publicBound,
 	publiclyBuilt,
 	publicReason,
@@ -167,9 +169,12 @@ export const thePublicFailureAndOutcomeConstructorsBuildEveryFailureAndOutcomeEx
 							drawnCase.witness
 						)
 						assert.ok(Object.isFrozen(outcome))
+						if (outOfOrderOfThree(drawnCase.refused)) {
+							c.note("outcome invariant-rejected of three laws or more out of canonical order")
+						}
 						assert.deepEqual(outcome, {
 							kind: "invariant-rejected",
-							refused: drawnCase.refused,
+							refused: canonicalOf(drawnCase.refused),
 							witness: drawnCase.witness
 						})
 						return
@@ -196,6 +201,14 @@ export const thePublicFailureAndOutcomeConstructorsBuildEveryFailureAndOutcomeEx
 				reason:
 					"a deadlock (40P01) a report must read as Deadlock, never as a serialization failure, which its suite's old 1,000 cases reached and its fixed witnesses do not",
 				since: "2026-11-16"
+			},
+			{
+				token: ReplayToken(
+					"test/unit/adapter/constructors.test.ts#thePublicFailureAndOutcomeConstructorsBuildEveryFailureAndOutcomeExactlyAsTheAdapterDoesCarryingEachDrawnFactAndTheAdaptersClassificationsBuildTheSameValues:1fffff.3:5.0.1.0.1.0.1.0.0.1.0.1.0.0.1.0.1.0.1.0.2.2.0.1.0.1.0.1.1.0.1.0.1.0.0.1.0.1.0.1.0.0.1.0.1.0.1.0.0.1.0.1.0.1.0.2.0.0.0"
+				),
+				reason:
+					"a refusal of three laws assembled out of canonical order, every [~a, ~b, ~a]: the outcome names them [~a, ~a, ~b], by identity in code point order (Bjorn's canonical-order ruling), which qti-pie's pantry and ledger tests sorted by hand",
+				since: "2026-11-25"
 			}
 		],
 		kills: [
@@ -211,6 +224,13 @@ export const thePublicFailureAndOutcomeConstructorsBuildEveryFailureAndOutcomeEx
 				original: "\t\t\t? new Deadlock()",
 				replacement: "\t\t\t? new SerializationFailure()",
 				why: "40P01 is read as 40001, a deadlock as a serialization failure."
+			},
+			{
+				file: "packages/grizzle/src/adapter/witness/classify.ts",
+				original:
+					"): Arr.NonEmptyReadonlyArray<L> => Arr.sort(laws, (a: L, b: L) => compareCodePoints(a.id, b.id))\n",
+				replacement: "): Arr.NonEmptyReadonlyArray<L> => laws\n",
+				why: "A refusal's laws leave in the order they were assembled in, PostgreSQL's or the host's, not by their identities: a refusal of laws drawn out of order names them out of order."
 			}
 		]
 	})

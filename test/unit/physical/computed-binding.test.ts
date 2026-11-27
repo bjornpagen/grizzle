@@ -1,7 +1,8 @@
 /**
  * A step that binds a column to a term computed from the channels it passes in asks an index of that column beside
- * the others it binds (physical/access/extract.ts regionFacts `fixing`): a term of a region's correlated variables,
- * each fixed per evaluation, fixes the column it binds as a channel does. PUBLISH2 found qti's placed variable
+ * the others it binds (sql/seeks.ts, the judge's program of its statements as printed, the one source of its
+ * equality requests): a term of a region's correlated variables, each fixed per evaluation, fixes the column it binds
+ * as a channel does. PUBLISH2 found qti's placed variable
  * reference read beside its declaration by (package, resolution, assembly) alone, its identifier bound to the bounded
  * text of the declaration's attribute value, every unresolved reference of the assembly filtered per declaration.
  *
@@ -42,11 +43,10 @@ export const aColumnAStepBindsToATermOfItsChannelsIsAKeyOfTheIndexTheStepAsks = 
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/physical/access/extract.ts",
-				original:
-					"\t\tconst operand = fixedAt(operandOf(n.id, expr), (column) => correlatedFixed(n, column))\n",
-				replacement: "\t\tconst operand = operandOf(n.id, expr)\n",
-				why: "A term of the step's channels is computed from the region's own columns, no fixed value, so the step asks an index of package alone and PostgreSQL reads every U row of the package at each T row; the property fails."
+				file: "packages/engine/src/sql/seeks.ts",
+				original: "\t\t\tif (x.table !== undefined && aliases.has(x.table)) {\n",
+				replacement: "\t\t\tif (x.table !== undefined) {\n",
+				why: "A term of the step's channels reads as columns of its own level, no fixed value, so the judge's program asks an index of package alone and PostgreSQL reads every U row of the package at each T row; the property fails."
 			}
 		]
 	}

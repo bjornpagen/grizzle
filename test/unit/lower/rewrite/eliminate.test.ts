@@ -103,7 +103,7 @@ export const theCompleteProofAnAccountMatchGoesExactlyWhenAnAdmittedContainmentA
 										? [String(p.law)]
 										: []
 							),
-							[String(accountKey), String(fk.law)]
+							[String(accountKey), ...Arr.map(fk.laws, String)]
 						)
 						assert.deepEqual(
 							Arr.map(nodesOf(ran.query.dag, "MatchRegion"), (r) => r.occurrences.length),
@@ -119,8 +119,8 @@ export const theCompleteProofAnAccountMatchGoesExactlyWhenAnAdmittedContainmentA
 			kills: [
 				{
 					file: "packages/engine/src/lower/optimize/eliminate/index.ts",
-					original: "\tconst exists = containmentEvidence(way.containment, cx.ctx.evidenceContext)",
-					replacement: '\tconst exists = containmentEvidence(way.containment, "snapshot")',
+					original: "\t\tcx.ctx.evidenceContext\n\t)\n",
+					replacement: '\t\t"snapshot"\n\t)\n',
 					why: "R03 reads a containment's evidence as a snapshot read would, so a deferred foreign key proves existence inside a transaction; the eliminate-proof search fails."
 				}
 			]

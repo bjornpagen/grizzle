@@ -4,7 +4,7 @@ import { deepFreeze } from "#compiler/core/record.ts"
 import type { ComputeFn } from "#compiler/ir/desc.ts"
 import {
 	type DefinedOp,
-	canonicalZeroIds,
+	canonicalIds,
 	definedOp,
 	type ExprSpec,
 	type OpId,
@@ -21,8 +21,9 @@ import type { OperandIndex, ParseForm, Precondition } from "#compiler/ir/proof.t
 import {
 	type Carrier,
 	carriers,
-	floatCarrierOf,
+	type NonIdentityCarrier,
 	nativeNames,
+	nonIdentityCarrierOf,
 	type SpanCarrier
 } from "#compiler/ir/scalar.ts"
 import type { TextQueryParser } from "#compiler/ir/search.ts"
@@ -88,6 +89,8 @@ const requires = (preconditions: NonEmptyReadonlyArray<Precondition>): Totality 
 	Object.freeze({ kind: "requires", preconditions: Object.freeze(preconditions) })
 const nonzero = (operand: OperandIndex): Precondition => Object.freeze({ kind: "nonzero", operand })
 const finite = (operand: OperandIndex): Precondition => Object.freeze({ kind: "finite", operand })
+const integral = (operand: OperandIndex): Precondition =>
+	Object.freeze({ kind: "integral", operand })
 const fits: Precondition = Object.freeze({ kind: "fits" })
 const lexical = (form: ParseForm): Precondition => Object.freeze({ kind: "lexical", form })
 const bounded: Precondition = Object.freeze({ kind: "bounded" })
@@ -95,6 +98,8 @@ const clock: Precondition = Object.freeze({ kind: "clock" })
 const divisor: Totality = requires([nonzero(1)])
 const narrowing: Totality = requires([fits])
 const finiteNarrowing: Totality = requires([finite(0), fits])
+/** A numeric into an exact integer, which nothing rounds into: finite, of no fraction digits, within its digits. */
+const integralNarrowing: Totality = requires([finite(0), integral(0), fits])
 
 /**
  * The infix operators an overload is spelled with: arithmetic, comparisons, bit's set algebra, text's || and ~, and the
@@ -188,7 +193,7 @@ type SqlForm =
 	| { readonly kind: "zoneLibrary"; readonly fn: LibraryFn }
 	| { readonly kind: "searchPart" }
 	| { readonly kind: "textSearch"; readonly read: TextSearchRead; readonly parser: TextQueryParser }
-	| { readonly kind: "canonicalZero"; readonly carrier: "float4" | "float8" }
+	| { readonly kind: "canonical"; readonly carrier: NonIdentityCarrier }
 
 /**
  * The library function a node's SQL calls (ir/physical.ts LibraryFn), which its installation installs: a library
@@ -236,8 +241,9 @@ type CatalogRef =
  * only the difference and the subset test: it sets a set's hole and padding bits, so no scalar operation yields it;
  * right serves only the suffix test, endsWith; strpos only the containment test, contains; replace and btrim serve only the whiteSpace collapse, and regexp_count
  * only a text's UTF-16 code units, utf16Length; datePlus, date + integer, only the date of an epoch day,
- * dateOfEpochDay. canonicalZero serves no scalar operation
- * either: it is the canonical zero a set delivers wherever it may merge -0 and +0 (check/merge.ts).
+ * dateOfEpochDay. canonical serves no scalar operation
+ * either: it is the canonical form a set delivers of a non-identity equality type wherever it may take one value of
+ * several equal ones (check/merge.ts).
  */
 export type NativeFn =
 	| "add"
@@ -324,7 +330,7 @@ export type NativeFn =
 	| "dateOfEpochDay"
 	| "datePlus"
 	| "cast"
-	| "canonicalZero"
+	| "canonical"
 
 /**
  * How a native node meets a NULL operand, as PostgreSQL applies it: the one statement of it, which the host evaluator
@@ -422,7 +428,7 @@ export const nullRules: { readonly [F in NativeFn]: NullRule } = Object.freeze({
 	dateOfEpochDay: "strict",
 	datePlus: "strict",
 	cast: "node",
-	canonicalZero: "strict"
+	canonical: "strict"
 })
 
 /**
@@ -850,17 +856,18 @@ const extreme = (fn: "least" | "greatest", carrier: Carrier, order: OpId): Commo
 	})
 
 /**
- * A float's canonical zero: the value itself, its -0 written +0, `x + 0::type`, IEEE 754's sum, exact for every value
- * (NaN and the infinities their own) and never past the type's range; what a set delivers of a float wherever it may
- * take one of the two zeros for the other (check/merge.ts). Equal values give one result, so it maps distinct values
- * to distinct values under PostgreSQL's equality (ir/injective.ts comparedValue).
+ * A value's canonical form, of a carrier whose equality is no identity (ir/scalar.ts NonIdentityCarrier): the one value
+ * a read delivers of a term several equal values may stand for, a set's member, a group's key, a merged join variable
+ * (check/merge.ts) and a navigated one (analysis/theory/navigate.ts). A float's is `x + 0::type`, IEEE 754's sum, its
+ * -0 written +0, exact for every value (NaN and the infinities their own) and never past the type's range. Equal values
+ * give one result and distinct values distinct ones under PostgreSQL's equality (ir/injective.ts comparedValue).
  */
-const canonicalZero = (carrier: "float4" | "float8"): FixedOverload =>
+const canonical = (carrier: NonIdentityCarrier): FixedOverload =>
 	frozen({
-		fn: "canonicalZero",
+		fn: "canonical",
 		operands: positional([carrier]),
 		result: carrier,
-		sql: { kind: "canonicalZero", carrier },
+		sql: { kind: "canonical", carrier },
 		catalog: {
 			kind: "construct",
 			uses: Object.freeze([opId(carrier === "float4" ? "float4pl" : "float8pl")])
@@ -1781,7 +1788,7 @@ const catalogOverloads = {
 	"between:real": between("float4", opId("float4ge"), opId("float4le")),
 	"in:real": membership("float4", opId("float4eq")),
 	"least:real": extreme("least", "float4", opId("float4lt")),
-	[canonicalZeroIds.float4]: canonicalZero("float4"),
+	[canonicalIds.float4]: canonical("float4"),
 	"greatest:real": extreme("greatest", "float4", opId("float4gt")),
 	float8eq: comparison("eq", "float8"),
 	float8ne: comparison("ne", "float8"),
@@ -1792,7 +1799,7 @@ const catalogOverloads = {
 	"between:double precision": between("float8", opId("float8ge"), opId("float8le")),
 	"in:double precision": membership("float8", opId("float8eq")),
 	"least:double precision": extreme("least", "float8", opId("float8lt")),
-	[canonicalZeroIds.float8]: canonicalZero("float8"),
+	[canonicalIds.float8]: canonical("float8"),
 	"greatest:double precision": extreme("greatest", "float8", opId("float8gt")),
 	cash_eq: comparison("eq", "money"),
 	cash_ne: comparison("ne", "money"),
@@ -1909,6 +1916,13 @@ const catalogOverloads = {
 	 */
 	tsvector_eq: comparison("eq", "tsvector"),
 	tsvector_ne: comparison("ne", "tsvector"),
+	/**
+	 * A variant's equality and inequality, record_eq and record_ne over its composite (ir/scalar.ts VariantType), which
+	 * hold two absent attributes equal: its tag's, then its arm's fields' equality. A variant has no stated order.
+	 */
+	"variant:record_eq": comparison("eq", "variant"),
+	"variant:record_ne": comparison("ne", "variant"),
+	"in:variant": membership("variant", opId("variant:record_eq")),
 	"code:int2eq": comparison("eq", "code"),
 	"code:int2ne": comparison("ne", "code"),
 	"code:int2lt": comparison("lt", "code"),
@@ -2141,7 +2155,9 @@ const fromInteger = <
 	volatility: Volatility
 ): CastOpOf<S, T> => castOp(source, target, totality, volatility, integerCast(target))
 
-const fromNumeric = <T extends IntCarrier | "numeric" | "float4" | "float8" | "money">(
+const fromNumeric = <
+	T extends IntCarrier | "numeric" | "float4" | "float8" | "money" | "exactInteger"
+>(
 	target: T,
 	totality: Totality,
 	volatility: Volatility
@@ -2172,7 +2188,9 @@ const fromMoney = <S extends "money" | "exactMoney", T extends "numeric" | "mone
  * where the text is a member of the target's lexical form ("lexical"), which the lowering proves by language
  * inclusion.
  */
-const fromText = <T extends "int2" | "int4" | "int8" | "numeric" | "float8" | "bool" | "date">(
+const fromText = <
+	T extends "int2" | "int4" | "int8" | "numeric" | "float8" | "bool" | "date" | "exactInteger"
+>(
 	target: T
 ): CastOpOf<"text", T> =>
 	Object.freeze({
@@ -2202,8 +2220,10 @@ const dateOfTextCatalog: CatalogRef = {
  * into a storage carrier, numeric and float to an integer or money, and a numeric typmod coercion are defined where
  * the value fits (numeric and floats also finite); a conversion into a float rounds once as IEEE 754 does (`ieee`
  * round). Numeric to an integer rounds half away from zero and float to an integer rounds half to even, as
- * PostgreSQL's numeric_int and dtoi casts do. The money casts run in the fixed monetary context and are STABLE in the
- * catalog.
+ * PostgreSQL's numeric_int and dtoi casts do; numeric to an exact integer rounds nothing, so it is defined where the
+ * value is finite, has no fraction digits and fits the exact integer's digits, the value itself. The money casts run
+ * in the fixed monetary context and are STABLE in the catalog. A text parses into each type with a lexical form, the
+ * exact integer's xs:integer of any digits within its digits among them (scalar/lexical.ts).
  */
 const castOverloads = {
 	int2: {
@@ -2239,7 +2259,8 @@ const castOverloads = {
 		float4: fromNumeric("float4", ieee("round"), "immutable"),
 		float8: fromNumeric("float8", ieee("round"), "immutable"),
 		numeric: fromNumeric("numeric", narrowing, "immutable"),
-		money: fromNumeric("money", finiteNarrowing, "stable")
+		money: fromNumeric("money", finiteNarrowing, "stable"),
+		exactInteger: fromNumeric("exactInteger", integralNarrowing, "immutable")
 	},
 	float4: {
 		int2: fromFloat("float4", "int2", finiteNarrowing, "immutable"),
@@ -2279,7 +2300,8 @@ const castOverloads = {
 		numeric: fromText("numeric"),
 		float8: fromText("float8"),
 		bool: fromText("bool"),
-		date: fromText("date")
+		date: fromText("date"),
+		exactInteger: fromText("exactInteger")
 	}
 } as const satisfies {
 	readonly [S in ResultCarrier | "text"]?: { readonly [T in ResultCarrier]?: CastOpOf<S, T> }
@@ -2367,20 +2389,22 @@ const equalities: { readonly [C in Carrier]: DefinedOp } = Object.freeze({
 	rangeDate: definedRangeOp("range_eq", "rangeDate"),
 	vector: comparisonId("vector_eq"),
 	exactInteger: comparisonId("exact:numeric_eq"),
-	exactMoney: comparisonId("exactMoney:numeric_eq")
+	exactMoney: comparisonId("exactMoney:numeric_eq"),
+	variant: comparisonId("variant:record_eq")
 })
 
 /** The native equality of `carrier` (equalities). */
 export const carrierEquality = (carrier: Carrier): DefinedOp => equalities[carrier]
 
 /**
- * The spec of a float term's canonical zero (canonicalZero), of the term's type: what a merge delivers of a float it may
- * take one of two zeros of (check/merge.ts), and what a catalog rewrite delivers of one in the composition's place
- * (lower/shapes/catalog); a term of any other type has none.
+ * The spec of a term's canonical form (canonical), of the term's type: what a read delivers of a term several equal
+ * values may stand for wherever its type's equality is no identity, a merge's (check/merge.ts) and a navigation's
+ * (analysis/theory/navigate.ts), and what a catalog rewrite delivers of a float in the composition's place
+ * (lower/shapes/catalog); a term of an identity type has none, its value delivered as it is.
  */
-export const canonicalZeroSpec = (expr: ScalarExpr): ExprSpec | undefined => {
-	const carrier = floatCarrierOf(expr.type)
-	const overload = carrier === undefined ? undefined : overloadOf("canonicalZero", [carrier])
+export const canonicalSpec = (expr: ScalarExpr): ExprSpec | undefined => {
+	const carrier = nonIdentityCarrierOf(expr.type)
+	const overload = carrier === undefined ? undefined : overloadOf("canonical", [carrier])
 	const op = overload === undefined ? undefined : definedIdOf(overload)
 	return op === undefined
 		? undefined

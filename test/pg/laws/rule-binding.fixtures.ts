@@ -6,7 +6,6 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { planNodes, rowsTouched } from "#bench/harness/explain.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -20,11 +19,12 @@ import {
 	unit
 } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
+import { type Installed, seededTemplate } from "#test/support/install-migrate.ts"
 import { judgedPlans, judgedStatementsOf, raisedRule, standUpJudge } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
-import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
+import { storedSeed } from "#test/support/stored.ts"
+import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 
 /**
  * A package's documents as edullm's qti stores them: each node of a document keyed by its package, its path and its
@@ -126,35 +126,52 @@ const bindingSchema = (judged: Judged) => {
 	)
 }
 
-const templateOf = (judged: Judged) => {
-	const value = bindingSchema(judged)
-	return migratedTemplate({
-		declaredIn: import.meta,
-		name: `${judged} binding`,
-		content: { schema: value.name, logins: [] },
-		versions: [{ schema: value, logins: [], declarations: noDeclarations }],
-		options: {
-			label: `${judged}_binding`,
-			extensions: [],
-			compile: compileInstallation,
-			ambient: ordinarySession,
-			review: noPlaceholders
-		}
-	})
-}
-
-export const wholeBindingTemplate = templateOf("whole")
-export const probedBindingTemplate = templateOf("probed")
-
 /** The nodes a document holds, each size twice the one before. */
 const sizes = [64, 128, 256] as const
+type Size = (typeof sizes)[number]
 
 /**
- * The documents stored beside the written ones, in a package of their own, each as large as a written one, loaded with
- * the captures off: tables of thousands of rows, which PostgreSQL reads at a key by an index, where it scans a table of
- * a page or two at every lookup, its scan priced below the index's.
+ * The documents stored beside the written ones, in a package of their own, each as large as a written one: tables of
+ * thousands of rows, which PostgreSQL reads at a key by an index, where it scans a table of a page or two at every
+ * lookup, its scan priced below the index's.
  */
 const stored = 40
+
+/**
+ * The nodes of a document a reference stands at, every `referenceEvery`th: so Ref holds 1,240 stored rows at 64 nodes
+ * a document, past a page or two, as Node and Named do. At each eighth node it held 280 on two pages, which, analyzed,
+ * PostgreSQL read whole for each of a document's 7 references, 2,325 rows past the bound's 1,876, the population the
+ * bound excludes, on a clone of its own as on any (INDEX-P4, 2026-11-27): the runs before had passed it only on clones
+ * whose earlier cases' dead rows had grown Ref past the index's price.
+ *
+ * @formatConstant every second node
+ */
+const referenceEvery = 2
+
+/**
+ * The schema judged as `judged`, installed, and `stored` documents of `nodes` nodes of package 2 committed through the
+ * captures once per member, judged at their COMMIT (stored.ts storedSeed): the template a case of that judgment and
+ * size writes beside.
+ */
+const templateOf = (judged: Judged, nodes: Size): SubstrateTemplate<Installed> =>
+	seededTemplate({
+		declaredIn: import.meta,
+		name: `${judged} binding ${nodes}`,
+		schema: bindingSchema(judged),
+		options: { ambient: ordinarySession, extensions: [], label: `${judged}_binding` },
+		seed: storedSeed((installed) => documentRows(installed, 2, stored, nodes))
+	})
+
+export const bindingTemplates: {
+	readonly [J in Judged as `${J} ${Size}`]: SubstrateTemplate<Installed>
+} = {
+	"whole 64": templateOf("whole", 64),
+	"whole 128": templateOf("whole", 128),
+	"whole 256": templateOf("whole", 256),
+	"probed 64": templateOf("probed", 64),
+	"probed 128": templateOf("probed", 128),
+	"probed 256": templateOf("probed", 256)
+}
 
 /**
  * A case: how its rules are judged, its documents and each one's nodes, and the statistics PostgreSQL holds when the
@@ -185,7 +202,8 @@ export type BindingFeature =
 /**
  * The rows of documents 1 to `documents` of package `pkg`, each of `nodes` nodes: its root at 0 and every other node its
  * child; a resource named at every node but the root, its name its path's and its start's, so distinct in the package;
- * and a reference at each eighth node, naming the resource of the next node in its document. Every rule holds of them.
+ * and a reference at each `referenceEvery`th node, naming the resource of the next node in its document. Every rule
+ * holds of them.
  */
 const documentRows = (
 	installed: Installed,
@@ -200,18 +218,18 @@ const documentRows = (
 		`INSERT INTO ${names.table(NodeTable)} (pkg, path, start, parent) SELECT ${pkg}, path, 0, 0 FROM ${docs}`,
 		`INSERT INTO ${names.table(NodeTable)} (pkg, path, start, parent) SELECT ${pkg}, path, start, 0 FROM ${docs}, ${starts}`,
 		`INSERT INTO ${names.table(Named)} (pkg, path, start, name) SELECT ${pkg}, path, start, path * 1000000 + start FROM ${docs}, ${starts}`,
-		`INSERT INTO ${names.table(Ref)} (pkg, path, start, ref) SELECT ${pkg}, path, start, path * 1000000 + start % ${nodes - 1} + 1 FROM ${docs}, ${starts} WHERE start % 8 = 0`
+		`INSERT INTO ${names.table(Ref)} (pkg, path, start, ref) SELECT ${pkg}, path, start, path * 1000000 + start % ${nodes - 1} + 1 FROM ${docs}, ${starts} WHERE start % ${referenceEvery} = 0`
 	]
 }
 
 /** The rows a case writes through the captures: its documents' nodes, resources and references. */
 const writtenRows = (b: Binding): number =>
-	b.documents * (2 * b.nodes - 1 + Math.floor((b.nodes - 1) / 8))
+	b.documents * (2 * b.nodes - 1 + Math.floor((b.nodes - 1) / referenceEvery))
 
 /**
- * One case in its one transaction, which the case's end rolls back: `stored` documents of package 2 loaded with the
- * captures off, then the case's documents of package 1 written through the captures, all into tables the transaction
- * filled, and ANALYZE where the case draws it; then every statement the judge runs of either rule, explained with
+ * One case in its one transaction over a clone of its judgment's and size's template (bindingTemplates), which the
+ * case's end rolls back: the case's documents of package 1 written through the captures beside the template's `stored`
+ * committed ones of package 2, and ANALYZE where the case draws it; then every statement the judge runs of either rule, explained with
  * ANALYZE as PL/pgSQL plans it over the deltas that hold the rows (test/support/judge.ts judgedPlans), and the judge
  * run, which accepts them. Each
  * reads every relation a join of it reads by the columns the rows before it bound, a lookup a row of what the
@@ -232,13 +250,7 @@ export const runBinding = (
 		const names = namesOf(installed)
 		const tables = Arr.map([NodeTable, Ref, Named], (t) => names.table(t))
 		const statistics = b.statistics === "analyzed" ? Arr.map(tables, (t) => `ANALYZE ${t}`) : []
-		for (const sql of [
-			...Arr.map(tables, (t) => `ALTER TABLE ${t} DISABLE TRIGGER USER`),
-			...documentRows(installed, 2, stored, b.nodes),
-			...Arr.map(tables, (t) => `ALTER TABLE ${t} ENABLE TRIGGER USER`),
-			...documentRows(installed, 1, b.documents, b.nodes),
-			...statistics
-		]) {
+		for (const sql of [...documentRows(installed, 1, b.documents, b.nodes), ...statistics]) {
 			yield* connection.query(sql, [])
 		}
 		assert.ok(

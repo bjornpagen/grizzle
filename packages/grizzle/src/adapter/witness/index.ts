@@ -1,5 +1,6 @@
 import type { ServerError } from "#adapter/errors/failures.ts"
 import {
+	detailKey,
 	type DomainRefusal,
 	domainRefusal,
 	type ViolationClassifier,
@@ -18,7 +19,6 @@ import {
 	type EntryKey,
 	entryKey,
 	keyWitness,
-	readLawDetail,
 	sqlstates,
 	witnessDecoder
 } from "#compiler/plan/runtime.ts"
@@ -127,13 +127,7 @@ export const servedWitness = (
 		if (query === undefined) {
 			return undefined
 		}
-		return {
-			sql: query.sql,
-			key: (detail) => {
-				const read = readLawDetail(detail)
-				return read.kind === "law" ? decoder.fromRefusal(read.relation, read.key) : undefined
-			}
-		}
+		return { sql: query.sql, key: detailKey(decoder) }
 	}
 	const entries = new Map(
 		Array.from(refusals.entries.values(), (e): readonly [string, EntryName] => [e.entry, e.entry])

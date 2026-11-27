@@ -16,7 +16,7 @@ import { partRuns } from "#adapter/reader/execution.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import type { SpecifiedArtifact } from "#compiler/lower/template.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { closedId } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, key, on, relation, schema } from "#compiler/public/schema.ts"
@@ -24,7 +24,7 @@ import { str } from "#compiler/public/text.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
-import { Id, type IdValue } from "#test/support/ids.ts"
+import { Id, type IdValue, toId } from "#test/support/ids.ts"
 import { migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -76,7 +76,7 @@ export const memosOf = (k: number) =>
 	})
 
 const id = (n: number): IdValue =>
-	Id(`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`)
+	toId(`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`)
 
 export type KindHandle = "Open" | "Done" | "Held"
 
@@ -273,7 +273,7 @@ export const unionsTemplate = migratedTemplate({
 	declaredIn: import.meta,
 	name: "unions",
 	content: { schema: "Unions", logins: [], ambient: "ordinary", label: "real" },
-	versions: [{ schema: Unions, logins: [], declarations: noDeclarations }],
+	versions: [{ schema: Unions, declarations: noDeclarations }],
 	options: {
 		label: "real",
 		extensions: [],

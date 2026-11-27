@@ -117,7 +117,7 @@ export const closedAtKey = (
 
 /**
  * C.has(k…): the predicate that `closed` holds a row at the key k…, its full key (fullKey). A key no row holds is
- * false, never NULL, so a law states what holds where the key is absent: `or(not(C.has(k…)), φ(C.at(f, k…)))`, or a
+ * false, never NULL, so a law states what holds where the key is absent: `or([not(C.has(k…)), φ(C.at(f, k…))])`, or a
  * value there, `Logic.cond(C.has(k…), C.at(f, k…), d)`. A NULL key value is NULL, as at C.at and C.row.
  */
 export const closedHasPredicate = (

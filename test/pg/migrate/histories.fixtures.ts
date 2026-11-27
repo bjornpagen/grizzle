@@ -21,13 +21,9 @@ import type { Named } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { loginRoleExchange } from "#compiler/deploy/diff/diff.ts"
 import type { Declarations, Rename } from "#compiler/deploy/diff/plan.ts"
-import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
-import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
-import { rostersOf } from "#compiler/schema/own.ts"
 import {
 	carry,
 	noExtras,
@@ -44,14 +40,13 @@ import {
 	sameCatalog,
 	storedRowsOf
 } from "#test/pg/migrate/support.ts"
-import { refusalLoc, refused, succeeded } from "#test/support/assert.ts"
+import { refusalLoc } from "#test/support/assert.ts"
 import { filledSql } from "#test/support/compile.ts"
+import { generatedDrafting } from "#test/support/install-migrate.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
-	draftedAt,
 	fromEmpty,
 	fromSnapshot,
-	generate,
 	noDeclarations,
 	type Previous
 } from "#test/support/migrate/kit.ts"
@@ -60,10 +55,9 @@ import { int4, int8, scalarOfSpec } from "#test/support/oracle/gen/domain.ts"
 import type { LiteralRow, ValueFacts } from "#test/support/oracle/gen/facts.ts"
 import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
-import { planRealInstall, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
+import { type RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
-import { owning } from "#test/support/policy.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { buildInstall, type Built } from "#test/support/worlds/execute/build.ts"
 import type {
@@ -75,9 +69,6 @@ import type {
 	RoleSpec,
 	Rule
 } from "#test/support/worlds/model/types.ts"
-
-/** The declared schema every history's versions are drafted under. */
-const declared = "History"
 
 const relationPool = ["Alpha", "Beta", "Gamma", "Delta"] as const
 
@@ -100,6 +91,9 @@ const worldPool = [
 ] as const
 
 const entryPool = ["Seen", "Mine", "Ours", "Held"] as const
+
+/** The declared name a history's model describes its schema under; each version is built under its allocation. */
+const declared = "History"
 
 /** A declared field's type: integer (narrow), bigint (wide), or a handle of the closed relation Tier. */
 type FieldType = "narrow" | "wide" | "tier"
@@ -751,23 +745,24 @@ const installOf = (m: Model): InstallSpec => ({
 	logins: Arr.map(m.logins, (l): LoginSpec => ({ name: loginName(l), roles: l.roles }))
 })
 
-/** A model's grizzle values, built through the public builders. */
-const builtOf = (m: Model) => Effect.orDie(buildInstall(installOf(m), declared))
+/** A model's grizzle values under the allocated name `name`, built through the public builders. */
+const builtOf = (m: Model, name: string) => Effect.orDie(buildInstall(installOf(m), name))
 
 /**
- * The installation plan of a version's built values under `schema`, owned by `owner`, with its logins' worlds, under
- * the codes a fresh installation gives Tier, which no command changes.
+ * A version's built values under `name` drafted from `previous` at `step` as `grizzle generate` drafts them with their
+ * logins, under `declarations` (install-migrate.ts generatedDrafting), before any review: its plan, with its logins'
+ * worlds, and the draft as generate wrote it. Tier's codes are a fresh installation's, which no command changes.
  */
-const planned = (built: Built, schema: string): RealInstallPlan =>
-	succeeded(
-		planRealInstall(built.base, {
-			installation: identity.schema(parsedSchemaName(schema)),
-			logins: Rec.values(built.logins),
-			extensions: [],
-			codes: firstCodebook(rostersOf(owning(built.base))),
-			compile: compileInstallation
-		}),
-		"the installation of a version"
+const draftOf = (
+	built: Built,
+	name: string,
+	declarations: Declarations,
+	previous: Previous,
+	step: number
+) =>
+	generatedDrafting(
+		{ schema: built.base, logins: Rec.values(built.logins), declarations },
+		{ installation: identity.schema(parsedSchemaName(name)), previous, step }
 	)
 
 /**
@@ -1095,21 +1090,12 @@ const step = (h: History, before: Model, after: Model, note: (f: Feature) => voi
 		Effect.gen(function* () {
 			const substrate = yield* Substrate
 			const m = yield* openMigrator(substrate, substrate.owner)
-			const built = yield* builtOf(after)
+			const built = yield* builtOf(after, h.schema)
 			const v = versionOfModel(after)
-			const plan = planned(built, h.schema)
 			h.steps++
 			const declarations = identityDeclarations(before, after)
-			const g = succeeded(
-				generate({
-					previous: h.previous,
-					installation: plan.installation,
-					name: `step_${h.steps}`,
-					timestamp: draftedAt(h.steps),
-					workload: noWorkload,
-					declared: declarations
-				}),
-				`step ${h.steps}`
+			const { plan, generated: g } = yield* Effect.orDie(
+				draftOf(built, h.schema, declarations, h.previous, h.steps)
 			)
 			const reviewed = review(g, {
 				losses: "written",
@@ -1139,7 +1125,10 @@ const step = (h: History, before: Model, after: Model, note: (f: Feature) => voi
 			const model = carry(versionOfModel(before), v, h.rows, identityRenames(before, after))
 			h.rows = model.expected
 			const fresh = yield* substrate.schema({ create: false, label: "histories_fresh" })
-			const freshPlan = planned(built, fresh)
+			const freshBuilt = yield* builtOf(after, fresh)
+			const { plan: freshPlan } = yield* Effect.orDie(
+				draftOf(freshBuilt, fresh, noDeclarations, fromEmpty, 0)
+			)
 			yield* transaction(substrate.admin, filledSql(freshPlan.drafted, substrate.database))
 			yield* sameCatalog(plan.installation, freshPlan.installation, `step ${h.steps}`)
 			const loaded = factStatements(freshPlan, factSetOf(v, model.expected))
@@ -1162,22 +1151,22 @@ const step = (h: History, before: Model, after: Model, note: (f: Feature) => voi
  * applied, so the model and the system stay where they were. */
 const exchange = (h: History, before: Model, p: Params["exchange a login's and a role's names"]) =>
 	Effect.gen(function* () {
-		const built = yield* builtOf(exchanged(before, p))
-		const plan = planned(built, h.schema)
+		const built = yield* builtOf(exchanged(before, p), h.schema)
 		h.steps++
 		const login = nth(before.logins, p.login, "login")
-		const error = refused(
-			generate({
-				previous: h.previous,
-				installation: plan.installation,
-				name: `step_${h.steps}`,
-				timestamp: draftedAt(h.steps),
-				workload: noWorkload,
-				declared: { renames: [], drops: [{ kind: "login", login: parsedName(loginName(login)) }] }
-			}),
-			"UnsupportedOperation",
-			`step ${h.steps}: a login's and a role's names exchanged are drafted`
+		const drafted = yield* Effect.result(
+			draftOf(
+				built,
+				h.schema,
+				{ renames: [], drops: [{ kind: "login", login: parsedName(loginName(login)) }] },
+				h.previous,
+				h.steps
+			)
 		)
+		if (drafted._tag === "Success") {
+			return assert.fail(`step ${h.steps}: a login's and a role's names exchanged are drafted`)
+		}
+		const error = drafted.failure
 		const reason = error.reason
 		assert.ok(
 			reason._tag === "UnsupportedOperation" && reason.capability === loginRoleExchange,
@@ -1258,19 +1247,10 @@ export const history = (steps: Program<Params>, note: (f: Feature) => void) =>
 			const owner = substrate.owner.role
 			const schema = yield* substrate.schema({ create: false, label: "histories" })
 			const m = yield* openMigrator(substrate, substrate.owner)
-			const built = yield* builtOf(initial)
+			const built = yield* builtOf(initial, schema)
 			const v = versionOfModel(initial)
-			const plan = planned(built, schema)
-			const first = succeeded(
-				generate({
-					previous: fromEmpty,
-					installation: plan.installation,
-					name: "step_0",
-					timestamp: draftedAt(0),
-					workload: noWorkload,
-					declared: noDeclarations
-				}),
-				"the first version"
+			const { plan, generated: first } = yield* Effect.orDie(
+				draftOf(built, schema, noDeclarations, fromEmpty, 0)
 			)
 			const folders = [
 				{ name: first.folder.name, metaText: first.folder.metaText, files: first.folder.files }

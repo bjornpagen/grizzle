@@ -79,7 +79,7 @@ class PatternEntry {
 	#ir(): RegexNode {
 		if (!this.#parse.ok) {
 			const { source, flags } = this.#pattern
-			throw defect(`a pattern its admission parsed: /${source}/${flags}`)
+			defect(`a pattern its admission parsed: /${source}/${flags}`)
 		}
 		return this.#parse.value
 	}
@@ -116,7 +116,7 @@ class PatternEntry {
 export const memberNode = (pattern: PatternSource, patterns: PatternAutomata): LiveNode => {
 	const { node } = patterns.parse(pattern)
 	if (node.kind === "never") {
-		throw defect(`a refinement's member with a member: /${pattern.source}/${pattern.flags}`)
+		defect(`a refinement's member with a member: /${pattern.source}/${pattern.flags}`)
 	}
 	return node
 }
@@ -228,7 +228,7 @@ export class ProgramPatterns implements PatternReads {
 	readonly #parse = (pattern: PatternSource): ParsedPattern => {
 		const known = tabled(this.#table, pattern)
 		if (known === undefined) {
-			throw defect(`a pattern its program's types hold: /${pattern.source}/${pattern.flags}`)
+			defect(`a pattern its program's types hold: /${pattern.source}/${pattern.flags}`)
 		}
 		return known
 	}
@@ -322,9 +322,17 @@ class SetTable {
 
 /**
  * Every admitted pattern a value of `t` is checked against: each contract level's base refinement's members and the
- * patterns its predicate reads, every level down to the base.
+ * patterns its predicate reads, every level down to the base; and a variant's, every pattern each of its arms' fields is
+ * checked against and each arm's check reads, as its domain's CHECK judges a value (scalar/compute/evaluate.ts
+ * variantMembership).
  */
 export const typePatterns = (t: ScalarType): ReadonlyArray<PatternSource> => {
+	if (t.carrier === "variant") {
+		return t.variant.arms.flatMap((arm) => [
+			...arm.fields.flatMap((f) => typePatterns(f.type)),
+			...(arm.check === undefined ? [] : tablePatterns(arm.check))
+		])
+	}
 	const own = regexRefOf(t)?.patterns ?? []
 	const { contract } = t
 	return contract === undefined

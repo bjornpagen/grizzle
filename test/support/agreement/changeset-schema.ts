@@ -6,6 +6,7 @@ import {
 	contract,
 	drawn,
 	generated,
+	mintOf,
 	natural,
 	pg
 } from "#compiler/public/fields.ts"
@@ -31,6 +32,7 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { Id } from "#test/support/ids.ts"
 
+const centsKey = Symbol("Cents")
 /**
  * The schemas the ChangeSet type/engine agreement draws its cases over (test/support/agreement/changesets.ts): Work,
  * whose relations a ChangeSet writes (a closed roster's id, a set, texts of two patterns, a contract, plain bigint and money
@@ -42,7 +44,8 @@ import { Id } from "#test/support/ids.ts"
  * an extension of it, a level above it, and two schemas of which neither is a level of Work, one of its name; and
  * Work's worlds.
  */
-export const Cents = contract("Cents", pg.bigint, (x) => Logic.ge(x, 0n))
+export const Cents = contract<typeof centsKey>()("Cents", pg.bigint, (x) => Logic.ge(x, 0n))
+export const toCents = mintOf(centsKey)
 export const Kind = closed.ordered("Kind", ["Automatic", "Manual"])
 export const Task = relation("Task", { id: Id, account: Id, kind: closedId(Kind) }, ["id"])
 export const Budget = relation("Budget", { task: Id, cents: Cents }, ["task"])

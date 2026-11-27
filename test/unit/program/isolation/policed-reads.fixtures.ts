@@ -26,7 +26,6 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
-import { everySlice } from "#compiler/schema/reach.ts"
 import { succeeded } from "#test/support/assert.ts"
 
 /**
@@ -137,7 +136,7 @@ export const policedLoginOf = ({ filter, write }: Drawn) => {
 	const built = defined(builtLogin(value), "a login built by login(...)")
 	const owned = succeeded(built.base.content.owned(), "the login's base")
 	const basis = succeeded(
-		installBasis(owned, firstCodebook(rostersOf(owned)), everySlice(owned)),
+		installBasis(owned, firstCodebook(rostersOf(owned)), new Set()),
 		"the base's basis"
 	)
 	const checking = succeeded(artifactsOver(basis, unserved), "the base's artifacts")

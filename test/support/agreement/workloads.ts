@@ -6,7 +6,6 @@ import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { workload, workloadState } from "#compiler/program/workload/value.ts"
-import { keyQuery } from "#compiler/query/build/key.ts"
 import {
 	Account,
 	addTask,
@@ -221,8 +220,8 @@ const namedPrograms = (spec: WorkloadSpec): ReadonlyArray<readonly [string, Prog
 
 /**
  * Each read of a workload over a role, compiled for the role as a login's compile does: a query or ordered query over
- * the role, a key through its lookup query over the role. A ChangeSet's writes the workload compiler already holds to
- * the role's write list.
+ * the role, a key through the lookup query the workload built over its schema, the role. A ChangeSet's writes the
+ * workload compiler already holds to the role's write list.
  */
 const roleReads = (
 	built: unknown,
@@ -237,10 +236,7 @@ const roleReads = (
 			program.kind === "query" || program.kind === "ordered"
 				? compileTemplate(program.value, roleValue, testCompile)
 				: program.kind === "key"
-					? Result.flatMap(
-							catchCompileError(() => keyQuery(roleValue, program.target)),
-							(q) => compileTemplate(q, undefined, testCompile)
-						)
+					? compileTemplate(program.query, undefined, testCompile)
 					: Result.ok(undefined)
 		if (!compiled.ok) {
 			return compiled

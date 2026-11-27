@@ -64,7 +64,8 @@ import {
 	shopV2,
 	shopV3,
 	shopV3Declared,
-	shopV4
+	shopV4,
+	taskKinds
 } from "#test/unit/deploy/schemas.ts"
 
 /**
@@ -93,20 +94,22 @@ const v1Mutable: SchemaDesc = { ...shopV1, statements: [...shopV1.statements, ..
 
 /**
  * Shop v2 with the statements of one of its parts left out, named by what it states, never by where it stands: its
- * candidate key, its row check, its alternatives, or Task open (openTask, the unit its key leads beside the mutable
- * declaration that needs it, so Task is left closed and no mutable stands over a relation of no unit).
+ * candidate key, its row check, its kinds' arms (taskKinds), or Task open (openTask, the unit its key leads beside the
+ * mutable declaration that needs it, so Task is left closed and no mutable stands over a relation of no unit).
  */
-const v2Without = (part: "key" | "check" | "alternatives" | "open"): SchemaDesc => {
-	const removed = (s: AuthoredStatementDesc): boolean =>
+const v2Without = (part: "key" | "check" | "kinds" | "open"): SchemaDesc => {
+	const stated = (s: AuthoredStatementDesc): boolean =>
 		part === "open" ? openTask.includes(s) : s.kind === part
+	const removed = (s: AuthoredStatementDesc): boolean =>
+		part === "kinds" ? taskKinds.includes(s) : stated(s)
 	return { ...shopV2, statements: Arr.filter(shopV2.statements, (s) => !removed(s)) }
 }
 
 /** Shop v2 with its weight check tightened. */
 const v2Tightened: SchemaDesc = {
 	...shopV2,
-	statements: Arr.map(shopV2.statements, (s, i) =>
-		i === 3 ? check("WeightNonNegative", "Task", ge(field("weight"), literal(1))) : s
+	statements: Arr.map(shopV2.statements, (s) =>
+		s.kind === "check" ? check("WeightNonNegative", "Task", ge(field("weight"), literal(1))) : s
 	)
 }
 
@@ -175,7 +178,7 @@ const folders: ReadonlyArray<{
 			toward("v2 unkeyed", v2Without("key"), noDeclarations, "its source"),
 			toward("v2 unchecked", v2Without("check"), noDeclarations, "its source"),
 			toward("v2 immutable", v2Without("open"), noDeclarations, "its source"),
-			toward("v2 without alternatives", v2Without("alternatives"), noDeclarations, "its source"),
+			toward("v2 without its kinds' arms", v2Without("kinds"), noDeclarations, "its source"),
 			toward("v3", shopV3, noDeclarations, "its source"),
 			toward("v2 from v1 mutable", shopV2, noDeclarations, "v1 declared mutable"),
 			toward("v2 budget renamed", v2BudgetRenamed, noDeclarations, "its source")
@@ -233,7 +236,7 @@ export type Feature =
  * The case the generator draws for a turn aiming at a feature (aimed): a folder, a regeneration and a point the drafts
  * reach it at, as the drafts stand (Shop v1's and v2's first files are drafted alike under a key, a check or a mutable
  * declaration more or less, and every file of v2 alike with AutomaticTask's budget a contract of another name, where
- * without Task's mutable declaration the alternatives' containments are the rule judge's and its files differ, and with
+ * without Task's mutable declaration the kinds' arms' containments are the rule judge's and its files differ, and with
  * Account declared mutable too its immutability guard is dropped; v2 drafted toward from v1 declared mutable holds v2's
  * files; v2's seven files are Setup, Structure, Indexes in a transaction, the tables' declared statistics, Indexes
  * outside one, Validate, Publish and Validate again, so its fourth runs outside a transaction). The features noted are still the outcome's, so a note never claims what the case

@@ -13,7 +13,7 @@ import { builtExpr, OpId, predicateTable, type ScalarExpr } from "#compiler/ir/e
 import { noSpellings } from "#compiler/ir/pattern.ts"
 import { Roster, type ScalarType } from "#compiler/ir/scalar.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
-import { compiledExpr, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
+import { compiledExpr, sqlNull, noParamLeaf } from "#compiler/scalar/compute/evaluate.ts"
 import { type NativeFn, nativeOp } from "#compiler/scalar/compute/registry.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { capabilitiesOf } from "#compiler/scalar/registry.ts"
@@ -109,7 +109,7 @@ const hostValue = (root: ScalarExpr) => {
 	const table = predicateTable(root)
 	return succeeded(
 		compiledExpr(table)(
-			{ value: undefined, column: () => undefined, closed: () => sqlNull },
+			{ value: undefined, column: () => undefined, closed: () => sqlNull, param: noParamLeaf },
 			ProgramPatterns.of(tablePatterns(table))
 		),
 		"the host evaluates the set algebra"

@@ -4,7 +4,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Formatter } from "effect"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
-import { compiledExpr } from "#compiler/scalar/compute/evaluate.ts"
+import { compiledExpr, noParamLeaf } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
@@ -194,7 +194,8 @@ export const hostHolds = (term: ScalarExpr, a: string, b: string): boolean => {
 			{
 				value: undefined,
 				column: (ref) => (ref.name === "a" ? a : b),
-				closed: () => undefined
+				closed: () => undefined,
+				param: noParamLeaf
 			},
 			ProgramPatterns.of(tablePatterns(table))
 		),

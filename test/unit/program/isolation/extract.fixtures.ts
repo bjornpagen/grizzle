@@ -33,7 +33,6 @@ import type {
 	Select,
 	SelectBody,
 	SqlStatement,
-	TableName,
 	Target,
 	Update,
 	With
@@ -72,7 +71,6 @@ import {
 import { assignments, ungenerated } from "#compiler/sql/generation.ts"
 import { printExpr } from "#compiler/sql/print.ts"
 import { type FlatRowSource } from "#test/support/expanded.ts"
-import { unitCarrierName } from "#test/support/sql.ts"
 
 /** The relations the drawn statements name: three stored ones, and X, whose table no relation names. */
 type Rel = "W" | "R" | "S" | "X"
@@ -140,16 +138,15 @@ export const NAMES: ExtractNames = {
 }
 
 /**
- * A source of a core that is the call's own: a relation input's arrays, VALUES, a CTE, a carrier, a function, or the
+ * A source of a core that is the call's own: a relation input's arrays, VALUES, a CTE, a function, or the
  * session's context, whose one fact is one row of values the call holds once.
  */
-type OwnKind = "arrays" | "values" | "cte" | "carrier" | "function" | "context"
+type OwnKind = "arrays" | "values" | "cte" | "function" | "context"
 
 const OWN_KINDS: Arr.NonEmptyReadonlyArray<OwnKind> = [
 	"arrays",
 	"values",
 	"cte",
-	"carrier",
 	"function",
 	"context"
 ]
@@ -293,7 +290,7 @@ interface QuerySpec {
 	readonly op: "UNION" | "EXCEPT" | "INTERSECT"
 }
 
-type TargetSpec = { readonly kind: "table"; readonly rel: Rel } | { readonly kind: "carrier" }
+type TargetSpec = { readonly kind: "table"; readonly rel: Rel }
 
 /** An INSERT's ON CONFLICT: none, an action over conflict columns, DO NOTHING ON CONSTRAINT, or DO NOTHING with no
  * target, which every key and UNIQUE of the table arbitrates. */
@@ -595,11 +592,8 @@ const queryGen =
 		op: s.draw(element(["UNION", "EXCEPT", "INTERSECT"] as const))
 	})
 
-/** A DML's target: a stored relation, or, for an INSERT and a DELETE, a carrier, which is no relation's write. */
-const targetGen: Gen<TargetSpec> = weighted<TargetSpec>([
-	[4, (s) => ({ kind: "table", rel: s.draw(element(RELS)) })],
-	[1, () => ({ kind: "carrier" })]
-])
+/** A DML's target: a stored relation. */
+const targetGen: Gen<TargetSpec> = (s) => ({ kind: "table", rel: s.draw(element(RELS)) })
 
 const conflictGen: Gen<Conflict> = weighted<Conflict>([
 	[2, () => ({ kind: "none" })],
@@ -869,7 +863,6 @@ type PlacedSource =
 			readonly equalities: ReadonlyArray<Equality>
 			readonly inner: ReadonlyArray<{ readonly column: Column; readonly slot: number }>
 	  }
-	| { readonly kind: "carrier"; readonly alias: string; readonly carrier: number }
 	| {
 			readonly kind: "cte"
 			readonly alias: string
@@ -986,8 +979,6 @@ const placed = (c: CoreSpec, path: string, env: Env): Arr.NonEmptyReadonlyArray<
 			}
 			case "own":
 				switch (s.own) {
-					case "carrier":
-						return { kind: "carrier", alias, carrier: s.at + 1 }
 					case "cte": {
 						const named = env[s.at % Math.max(env.length, 1)]
 						if (named === undefined) {
@@ -1243,7 +1234,6 @@ const fixedOfCore = (
 			}
 			case "plain":
 				return source.own === "context" && column === OWN_COLUMN ? held(CONTEXT_TEXT) : undefined
-			case "carrier":
 			case "held":
 			case "met":
 			case "metRows":
@@ -1409,8 +1399,6 @@ const fromSource = (
 				case "stacked":
 					return derived(stackedOf(p.rel, p.alias, p.inner), p.alias, false)
 			}
-		case "carrier":
-			return { kind: "table", table: unitCarrierName(p.carrier), alias: p.alias }
 		case "cte":
 		case "returning":
 		case "held":
@@ -1696,8 +1684,7 @@ const buildSelect = (
 	return select(body)
 }
 
-const tableOf = (t: TargetSpec): TableName =>
-	t.kind === "table" ? TABLES[t.rel] : unitCarrierName(9)
+const tableOf = (t: TargetSpec): ObjectName => TABLES[t.rel]
 
 /** A MERGE's WHEN clause, its condition `t.c_a = $7`. */
 const mergeWhen = (w: WhenSpec): MergeWhen => {
@@ -2054,7 +2041,6 @@ export type Shape =
 	| "a counted read"
 	| "an arbiter read"
 	| "a read either way"
-	| "a carrier read"
 	| "a read no relation names"
 	| "a group bound by a placeholder"
 	| "a group bound by an own column"
@@ -2608,25 +2594,6 @@ class Expect {
 						}
 					}
 					break
-				case "carrier": {
-					this.shapes.add("a carrier read")
-					const relation = `carrier:${unitCarrierName(s.carrier)}`
-					rows.push(
-						this.read(
-							{
-								relation,
-								mode: this.mode(here, relation, false),
-								own: true,
-								group: undefined,
-								binding: undefined,
-								rows: undefined
-							},
-							here.feeds,
-							here
-						)
-					)
-					break
-				}
 				case "cte":
 					this.shapes.add("a CTE read where it is named")
 					this.ctes.add(s.path)
@@ -2860,7 +2827,7 @@ class Expect {
 	dml(d: Dml, path: string, env: Env, statement: Env): void {
 		switch (d.kind) {
 			case "insert": {
-				const target = d.target.kind === "table" ? relationOf(d.target.rel) : undefined
+				const target = relationOf(d.target.rel)
 				const conflict = d.conflict
 				const at = [
 					...this.write(target, "insert"),
@@ -2868,7 +2835,7 @@ class Expect {
 						? this.write(target, "update")
 						: [])
 				]
-				if (conflict.kind === "columns" && conflict.action === "doUpdate" && target !== undefined) {
+				if (conflict.kind === "columns" && conflict.action === "doUpdate") {
 					this.shapes.add("a DO UPDATE")
 				}
 				const proposal = proposalOf(d, statement)
@@ -2878,14 +2845,10 @@ class Expect {
 				} else if (d.source !== undefined) {
 					this.query(d.source, `${path}i`, { ...topPlace, feeds: at }, env)
 				}
-				if (
-					conflict.kind === "every" &&
-					this.level === "readCommitted" &&
-					d.target.kind === "table"
-				) {
+				if (conflict.kind === "every" && this.level === "readCommitted") {
 					this.shapes.add("an ON CONFLICT with no target, refused at READ COMMITTED")
 					this.opaque(`?every:"app"."${TABLES[d.target.rel].name}"`, topPlace)
-				} else if (conflict.kind !== "none" && target !== undefined && d.target.kind === "table") {
+				} else if (conflict.kind !== "none") {
 					const rel = d.target.rel
 					const stated = proposal === undefined && d.source === undefined && d.params
 					/** The value the source query fixes its one column, c_id, to, where it fixes one (fixedOfQuery), or the
@@ -2966,7 +2929,7 @@ class Expect {
 			case "update":
 			case "delete": {
 				const target: TargetSpec = d.kind === "update" ? { kind: "table", rel: d.rel } : d.target
-				const at = this.write(target.kind === "table" ? relationOf(target.rel) : undefined, d.kind)
+				const at = this.write(relationOf(target.rel), d.kind)
 				const place: Place = { ...topPlace, feeds: at }
 				this.core(
 					d.kind === "update" ? d.from : d.using,
@@ -2974,35 +2937,17 @@ class Expect {
 					place,
 					env,
 					(here) => {
-						if (target.kind === "table") {
-							if (d.keyed !== undefined && FIELDS.has(d.keyed) && target.rel !== "X") {
-								this.shapes.add("a target bound by its WHERE")
-							}
-							return [
-								this.table(
-									target.rel,
-									here,
-									d.keyed === undefined
-										? []
-										: [{ column: d.keyed, other: { kind: "param", slot: 8 } }],
-									false
-								)
-							]
+						if (d.keyed !== undefined && FIELDS.has(d.keyed) && target.rel !== "X") {
+							this.shapes.add("a target bound by its WHERE")
 						}
-						this.shapes.add("a carrier read")
-						const relation = `carrier:${unitCarrierName(9)}`
 						return [
-							this.read(
-								{
-									relation,
-									mode: "positive",
-									own: true,
-									group: undefined,
-									binding: undefined,
-									rows: undefined
-								},
-								at,
-								here
+							this.table(
+								target.rel,
+								here,
+								d.keyed === undefined
+									? []
+									: [{ column: d.keyed, other: { kind: "param", slot: 8 } }],
+								false
 							)
 						]
 					}
@@ -3063,7 +3008,7 @@ const writtenBy = (d: Dml): string | undefined => {
 	switch (d.kind) {
 		case "insert":
 		case "delete":
-			return d.target.kind === "table" ? relationOf(d.target.rel) : undefined
+			return relationOf(d.target.rel)
 		case "update":
 			return relationOf(d.rel)
 		case "merge":
@@ -3108,7 +3053,7 @@ const insertsIn = (s: StatementSpec): ReadonlyMap<string, WritingInsert> => {
 						[
 							`c${i}`,
 							{
-								rel: c.dml.target.kind === "table" ? c.dml.target.rel : undefined,
+								rel: c.dml.target.rel,
 								proposes: proposalOf(c.dml, env)?.cte.name,
 								conflict: c.dml.conflict
 							}

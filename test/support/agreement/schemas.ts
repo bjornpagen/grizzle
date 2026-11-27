@@ -1,6 +1,6 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
-import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import { aimed, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { floorSeed } from "@bjornpagen/testing/random"
 import { sample, type Source } from "@bjornpagen/testing/source"
 import { keep, type Swarm, swarm } from "@bjornpagen/testing/swarm"
@@ -21,14 +21,15 @@ import type { Refused } from "#compiler/core/refusals.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import {
 	descText,
-	expandAlternatives,
 	expandSeries,
+	type MonoidName,
 	type RoleDesc,
 	type FieldDecl,
 	type FieldDesc,
 	type SideDesc,
 	type StatementDesc,
 	type TermDesc,
+	declaredNaming,
 	writtenNames
 } from "#compiler/ir/desc.ts"
 import type { Heading as Columns } from "#compiler/ir/rel.ts"
@@ -77,7 +78,6 @@ import {
 } from "#compiler/schema/relation.ts"
 import { admitSchema, schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import {
-	alternativesBuilder,
 	checkBuilder,
 	containedBuilder,
 	countedBuilder,
@@ -115,7 +115,7 @@ import {
 	testCompile
 } from "#test/support/compile.ts"
 import { admitContract, spanDescriptor } from "#test/support/fixtures/descriptors.ts"
-import { Id } from "#test/support/ids.ts"
+import { Id, idKey, idName } from "#test/support/ids.ts"
 import { messageOf } from "#test/support/message.ts"
 import { type Leading, leadingHeadings } from "#test/support/open.ts"
 import { checking } from "#test/support/policy.ts"
@@ -146,7 +146,7 @@ import {
  * JavaScript cores (schema/relation.ts, schema/statements.ts, schema/world.ts, the descriptor cores of
  * test/support/fixtures/descriptors.ts) and compiled as the runtime compiles it (testArtifacts). Its base is valid by
  * construction: rosters, contracts, relations of drawn fields and keys, key, containment and mutable statements, a
- * family with its folds, an alternatives law, a closed relation with a relation whose fields PostgreSQL generates from
+ * family with its folds, a closed relation with a relation whose fields PostgreSQL generates from
  * it, a derived extension and roles; the engine refusing it is a defect of the generator, which fails the run. Its
  * probes each state one declaration or host value over the base, valid or with one planted fault (SchemaFault): the
  * oracle's refusal of a probe (Verdict), the engine's CompileError, its admission of a host value or the identities it
@@ -177,7 +177,6 @@ const schemaConstructs = [
 	"keyStatement",
 	"containment",
 	"mutableStatement",
-	"alternatives",
 	"ordered",
 	"counted",
 	"tree",
@@ -192,7 +191,6 @@ const schemaConstructs = [
 	"handleProbe",
 	"containmentProbe",
 	"mutableProbe",
-	"alternativesProbe",
 	"schemaProbe",
 	"roleProbe",
 	"derivedProbe",
@@ -291,11 +289,6 @@ const schemaFaults = [
 	"foreignHandle",
 	"sidesDiffer",
 	"mutableClosed",
-	"noArms",
-	"strayArm",
-	"selfArm",
-	"armKeyMismatch",
-	"foreignDiscriminator",
 	"clashingRelation",
 	"clashingLevel",
 	"reboundStatement",
@@ -308,8 +301,6 @@ const schemaFaults = [
 	"derivedAtOwnLevel",
 	"derivedInRoot",
 	"mutableDerived",
-	"derivedParent",
-	"derivedArm",
 	"parameterizedCheck",
 	"parameterizedSelect",
 	"parameterizedContract",
@@ -395,12 +386,16 @@ type SchemaFault = (typeof schemaFaults)[number]
  * decided at compilation from what the types do not track. A containment, or a mirror, into a side that holds no key of
  * its relation (unkeyedTarget): the law family needs a key over the side's projection. A cast its operand's bounds do
  * not prove fits its target (castFits): the engine proves the value fits from the bounds its making gives it, which
- * no type carries. A key, a side, a check or a selection over the base's aggregate both admit: a rule reads an
- * aggregate's groups whether it is unit-local or not, judged whole where it is (analysis/theory/unit.ts) and probed at
- * the groups a write touches where it is not (analysis/theory/query.ts GroupedMatch), so the derived probes state them
- * as forms (derivedKeyed, derivedChecked, derivedSelectedKey, derivedLeft, derivedRight, derivedMirrors).
+ * no type carries. A key, a side, a check or a selection over the base's aggregate both admit where its groups lie
+ * within its relation's units: a rule reads an aggregate's groups whether it is unit-local or not, judged whole where
+ * it is (analysis/theory/unit.ts) and probed at the groups a write touches where it is not (analysis/theory/query.ts
+ * GroupedMatch), so the derived probes state them as forms (derivedKeyed, derivedChecked, derivedSelectedKey,
+ * derivedLeft, derivedRight, derivedMirrors). Where its groups span its relation's units (`aggregatesAcrossUnits`), each
+ * is refused when the schema compiles (aggregateAcrossUnits): a probe at a touched group would fold again every row of
+ * a group spanning the units (analysis/theory/query.ts refuseAggregatesAcrossUnits, lane NOSETTINGS's 37b7e030f2 and
+ * 51aa55e1f8), a unit no type tracks.
  */
-const declaredClasses = ["unkeyedTarget", "castFits"] as const
+const declaredClasses = ["unkeyedTarget", "castFits", "aggregateAcrossUnits"] as const
 type DeclaredClass = (typeof declaredClasses)[number]
 
 /**
@@ -419,7 +414,8 @@ const isDeclared = (planted: Planted): planted is DeclaredClass =>
 /** Each declared class's refusal by the engine. */
 const declared: { readonly [C in DeclaredClass]: Expected } = {
 	unkeyedTarget: { tag: "UnsupportedLawFamily" },
-	castFits: { tag: "PartialOperation", precondition: "fits" }
+	castFits: { tag: "PartialOperation", precondition: "fits" },
+	aggregateAcrossUnits: { tag: "UnsupportedLawFamily" }
 }
 
 /**
@@ -455,10 +451,6 @@ const structural = (engine: Expected, why: string): Refusing => ({
 	why
 })
 
-/** Alternatives over a derived relation, as both sides refuse it. */
-const storedAlternatives: Refused =
-	"alternatives relate stored relations: a derived relation's rows are its definition's, which no write draws"
-
 /** A family's member side over a selection, as both sides refuse it. */
 const wholeMember: Refused =
 	"a family's member side is a relation, never a selection: its members are every fact of the relation"
@@ -483,14 +475,6 @@ const refusals: { readonly [F in SchemaFault | KeptFault]: Refusing } = {
 	mutableClosed: structural(
 		{ tag: "MalformedDescription" },
 		"mutable takes ordinary relations; a closed relation is immutable by nature"
-	),
-	noArms: named("alternatives takes at least one arm"),
-	strayArm: named("an arm is keyed by a handle of its roster"),
-	selfArm: named("an arm is a relation other than its parent"),
-	armKeyMismatch: named("the arm's key does not match the parent key"),
-	foreignDiscriminator: structural(
-		{ tag: "MalformedDescription" },
-		"the discriminator is a closed id of the roster"
 	),
 	clashingRelation: typed("two relations of one name across a schema's levels", {
 		tag: "DuplicateIdentity",
@@ -539,11 +523,6 @@ const refusals: { readonly [F in SchemaFault | KeptFault]: Refusing } = {
 	mutableOutsideUnit: named(
 		"mutable over a relation under a unit, whose every change is a write its unit's borrow holds alone: declare the unit its primary key leads with, unit(name, { …its leading key fields }), or keep it closed and record each change as an inserted fact"
 	),
-	derivedParent: structural(
-		{ refused: storedAlternatives },
-		"alternatives takes no derived parent"
-	),
-	derivedArm: named(storedAlternatives),
 	parameterizedCheck: named("a schema predicate reads no parameter"),
 	parameterizedSelect: named("a schema predicate reads no parameter"),
 	parameterizedContract: named("a schema predicate reads no parameter"),
@@ -875,7 +854,7 @@ const reasonKey = (reason: CompileReason): string => {
 		case "ContractLiteral":
 		case "IdentifierCollision":
 		case "IdentifierTooLong":
-		case "RecordNameTooLong":
+		case "DecodedColumnTooLong":
 		case "DigestCollision":
 		case "ResourceBound":
 		case "GeneratedRefused":
@@ -1052,14 +1031,6 @@ type FamilySpec =
 			readonly root: Arr.NonEmptyReadonlyArray<string>
 	  }
 
-/** An alternatives law: its parent, its discriminator over a roster, and its arms by handle. */
-interface AlternativesSpec {
-	readonly parent: string
-	readonly discriminator: string
-	readonly roster: string
-	readonly arms: Arr.NonEmptyReadonlyArray<readonly [string, string]>
-}
-
 /** A law side's term: a field, or pred of a natural field. */
 type TermSpec =
 	| { readonly kind: "field"; readonly field: string }
@@ -1167,7 +1138,6 @@ interface Base {
 	readonly relations: Arr.NonEmptyReadonlyArray<RelationSpec>
 	readonly statements: ReadonlyArray<StatementSpec>
 	readonly family: FamilySpec | undefined
-	readonly alternatives: AlternativesSpec | undefined
 	readonly derived: DerivedSpec | undefined
 	readonly roles: Arr.NonEmptyReadonlyArray<RoleSpec>
 	readonly closedRelation: ClosedSpec | undefined
@@ -1944,49 +1914,6 @@ const treePack = (): {
 	}
 }
 
-/**
- * An alternatives pack: a parent keyed by a uuid with a closed id of the roster, and an arm relation for one or more
- * of its handles, two handles sharing one arm when drawn, each arm keyed by a uuid named after the parent.
- */
-const alternativesPack = (
-	d: Drawing,
-	roster: RosterSpec
-): {
-	readonly relations: Arr.NonEmptyReadonlyArray<RelationSpec>
-	readonly alternatives: AlternativesSpec
-} => {
-	const handles = d.some(roster.handles)
-	const shared = d.upTo(2) === 0
-	const armName = (i: number): string => (shared ? "JobArm" : `JobArm${i}`)
-	const arms = Arr.map(handles, (h, i) => [h, armName(i)] as const)
-	const armRelations = Arr.dedupeWith(
-		Arr.map(arms, ([, name]): RelationSpec => ({
-			name,
-			fields: [
-				{ name: "job", type: { kind: "uuid" }, writing: callerWriting },
-				{ name: "cost", type: { kind: "pg", spelling: "bigint" }, writing: callerWriting }
-			],
-			key: ["job"]
-		})),
-		(a, b) => a.name === b.name
-	)
-	return {
-		relations: [
-			{
-				name: "Job",
-				fields: [
-					{ name: "id", type: { kind: "uuid" }, writing: callerWriting },
-					{ name: "kind", type: { kind: "closedId", roster: roster.name }, writing: callerWriting },
-					{ name: "owner", type: { kind: "uuid" }, writing: callerWriting }
-				],
-				key: ["id"]
-			},
-			...armRelations
-		],
-		alternatives: { parent: "Job", discriminator: "kind", roster: roster.name, arms }
-	}
-}
-
 /** The roles of a case: a reader of every relation, and a writer of drawn ordinary relations, each closed one by its
  * insert list and each open one by its write list (`statements`' mutable ones). */
 const rolesOf = (
@@ -1998,7 +1925,7 @@ const rolesOf = (
 	...(d.keep("writer") ? [{ name: "writer", ...listsOf(d.some(relations), statements) }] : [])
 ]
 
-/** A case's base: its rosters, contracts, relations, statements, family, alternatives, derived relation and roles. */
+/** A case's base: its rosters, contracts, relations, statements, family, derived relation and roles. */
 const baseOf = (d: Drawing): Base => {
 	const closedArity = d.upTo(2) === 0 ? undefined : d.from([1, 2, 3] as const)
 	const closedApart = closedArity !== undefined && closedArity > 1 && d.upTo(1) === 1
@@ -2019,10 +1946,6 @@ const baseOf = (d: Drawing): Base => {
 			: d.keep("tree")
 				? treePack()
 				: undefined
-	const alternation = d.upTo(3) === 0 ? undefined : alternativesPack(d, d.from(rosters))
-	if (alternation !== undefined) {
-		d.note("alternatives")
-	}
 	const slots: SlotsSpec | undefined =
 		d.upTo(2) === 0
 			? undefined
@@ -2043,7 +1966,6 @@ const baseOf = (d: Drawing): Base => {
 	const relations: Arr.NonEmptyReadonlyArray<RelationSpec> = [
 		...ordinary,
 		...(pack === undefined ? [] : pack.relations),
-		...(alternation === undefined ? [] : alternation.relations),
 		...(slots === undefined ? [] : slotRelations(slots))
 	]
 	const open = Arr.filter(ordinary, () => d.keep("mutableStatement"))
@@ -2108,7 +2030,6 @@ const baseOf = (d: Drawing): Base => {
 			...(slots === undefined ? [] : slotStatements(slots))
 		],
 		family: pack === undefined ? undefined : pack.family,
-		alternatives: alternation === undefined ? undefined : alternation.alternatives,
 		derived: derivedSpec,
 		roles,
 		closedRelation: closedSpec,
@@ -2244,8 +2165,6 @@ interface Env {
 	readonly members: Readonly<Record<string, AnyRelation | AnyClosed>>
 	readonly closedRelation: ClosedValue | undefined
 	readonly statements: ReadonlyArray<Statement>
-	/** The statements but the alternatives law: what a probe's schema states beside its own statement. */
-	readonly core: ReadonlyArray<Statement>
 	readonly schema: AnySchema
 	/** The extension that declares the derived relation, or the schema. */
 	readonly level: AnySchema
@@ -2328,7 +2247,7 @@ const fieldDescriptor = (
 		case "drawn":
 			return drawnField(naturalDescriptor, [])
 		case "accumulated":
-			return accumulatedField(type, startValue(f.writing.start, rosters), [])
+			return accumulatedField(type, startValue(f.writing.start, rosters), mintKeyValue(f.type))
 	}
 }
 
@@ -2421,18 +2340,6 @@ const familyValues = (
 	}
 }
 
-const alternativesValue = (
-	a: AlternativesSpec,
-	rosters: ReadonlyMap<string, RosterValue>,
-	relations: ReadonlyMap<string, AnyRelation>
-): Statement =>
-	alternativesBuilder(
-		got(relations, a.parent),
-		a.discriminator,
-		got(rosters, a.roster),
-		Rec.fromEntries(Arr.map(a.arms, ([h, arm]) => [h, got(relations, arm)] as const))
-	)
-
 /** A derived relation's definition: its relation's facts grouped by `by`, counted, every key field bound. */
 const definitionOf = (
 	spec: DerivedSpec,
@@ -2488,15 +2395,9 @@ const envOf = (base: Base): Env => {
 			? []
 			: [["Gen", generatedValue(base.closedRelation, rule, rosters)] as const])
 	])
-	const core: ReadonlyArray<Statement> = [
+	const statements: ReadonlyArray<Statement> = [
 		...Arr.map(base.statements, (s) => statementValue(s, { relations, rosters, contracts })),
 		...(base.family === undefined ? [] : familyValues(base.family, relations))
-	]
-	const statements: ReadonlyArray<Statement> = [
-		...core,
-		...(base.alternatives === undefined
-			? []
-			: [alternativesValue(base.alternatives, rosters, relations)])
 	]
 	const members: Readonly<Record<string, AnyRelation | AnyClosed>> = {
 		...Rec.fromEntries([...rosters]),
@@ -2535,7 +2436,6 @@ const envOf = (base: Base): Env => {
 		members,
 		closedRelation: rule,
 		statements,
-		core,
 		schema: schemaValue,
 		level,
 		entries,
@@ -2584,7 +2484,7 @@ const hostOfDesc = (desc: FieldDesc, base: Base, ids: Ids): string => {
 		case "contract":
 			return builtinDesc(desc)
 				? hostOfDesc(desc.base, base, ids)
-				: `(${hostOfDesc(desc.base, base, ids)}) & Brand.Brand<${jsonText(desc.name)}>`
+				: `Fi.Marked<${hostOfDesc(desc.base, base, ids)}, ${keyText(desc.name)}>`
 		case "span":
 			return `Fi.Span<${hostOfDesc(desc.endpoint, base, ids)}>`
 		case "closedId":
@@ -2595,6 +2495,8 @@ const hostOfDesc = (desc: FieldDesc, base: Base, ids: Ids): string => {
 			return `Fi.Vector<${desc.dimensions}>`
 		case "search":
 			return `Fi.SearchDocument<${jsonText(desc.configuration)}>`
+		case "variant":
+			throw new Error("no agreement schema declares a variant field")
 	}
 }
 
@@ -2699,13 +2601,27 @@ const keysOf = (artifacts: SchemaArtifacts, name: string): ReadonlyArray<Readonl
 		})
 	]
 }
+/** The pool's contract names (`contractNames`), each declared under a key of its own (`keyName`). */
+const poolNames: ReadonlySet<string> = new Set(contractNames)
+
+/**
+ * The key a contract the program declares is under, as the program names it (schemaProgram's header): each of the
+ * pool's under one of its own, `<name>Key`, so a contract over another, Code over Cents, is under a key apart from its
+ * base's, as BRAND's KeyApart requires of it (types/fields/constructors.ts), where every contract was under the one
+ * `Key` and each nested one was refused by the types the engine admits it by; and a probe's under the program's `Key`.
+ */
+const keyName = (name: string): string => (poolNames.has(name) ? `${name}Key` : "Key")
+
+/** The type of a contract's key, as the program states it: the tests' Id's (test/support/ids.ts IdKey), else `keyName`'s. */
+const keyText = (name: string): string => (name === idName ? "Fi.IdKey" : `typeof ${keyName(name)}`)
+
 /** The host type of a scalar type as the engine compiles it (ir/scalar.ts ScalarType), as TypeScript. */
 const hostOfScalar = (t: ScalarType, ids: Ids): string => {
 	const { contract } = t
 	if (contract !== undefined) {
 		return builtinScalar(t)
 			? hostOfScalar(contract.base, ids)
-			: `(${hostOfScalar(contract.base, ids)}) & Brand.Brand<${jsonText(contract.name)}>`
+			: `Fi.Marked<${hostOfScalar(contract.base, ids)}, ${keyText(contract.name)}>`
 	}
 	switch (t.carrier) {
 		case "int2":
@@ -2758,6 +2674,8 @@ const hostOfScalar = (t: ScalarType, ids: Ids): string => {
 			return `Fi.Vector<${t.typmod.dims}>`
 		case "tsvector":
 			return `Fi.SearchDocument<${jsonText(t.configuration)}>`
+		case "variant":
+			throw new Error("no agreement schema declares a variant field")
 	}
 }
 
@@ -2779,12 +2697,12 @@ const literalTypeOf = (value: unknown): string => {
 	}
 }
 
-/** A closed id's handles under the brand of each contract its type is, innermost first, as hostOfScalar brands. */
+/** A closed id's handles under the key of each contract its type is, innermost first, as hostOfScalar marks them. */
 const brandedHandles = (type: ScalarType, handles: string): string => {
 	const { contract } = type
 	return contract === undefined
 		? handles
-		: `(${brandedHandles(contract.base, handles)}) & Brand.Brand<${jsonText(contract.name)}>`
+		: `Fi.Marked<${brandedHandles(contract.base, handles)}, ${keyText(contract.name)}>`
 }
 
 /**
@@ -2801,6 +2719,7 @@ const columnHost = (type: ScalarType, column: Column<unknown>, ids: Ids): string
 				type,
 				Arr.join(Arr.dedupe(Arr.map(column.handles, literalTypeOf)), " | ")
 			)
+		case "variant":
 		case "convert":
 		case "text":
 		case "bits":
@@ -2892,11 +2811,11 @@ const compiling = (build: () => unknown): Verdict =>
 	)
 
 /**
- * A schema of every relation of the base, under its own name, with the base's statements but its alternatives law, and
- * `statements`: a probe's statement in context.
+ * A schema of every relation of the base, under its own name, with the base's statements and `statements`: a probe's
+ * statement in context.
  */
 const probeSchema = (env: Env, statements: ReadonlyArray<Statement>): AnySchema =>
-	schema("P", Rec.values(env.members), [...env.core, ...statements], [])
+	schema("P", Rec.values(env.members), [...env.statements, ...statements], [])
 
 const quoted = (names: ReadonlyArray<string>): string => Arr.join(Arr.map(names, jsonText), ", ")
 
@@ -2931,6 +2850,25 @@ const fieldSource = (t: FieldType, ids: Ids): string => {
 	}
 }
 
+/**
+ * The key the engine's reading passes for the program's own contracts, which its admission builds keyless as a
+ * JavaScript caller does (scalar/contract.ts admitMintKey reads a key's kind, never whose it is).
+ */
+const programKey = Symbol("Contract")
+
+/**
+ * What a field grizzle fills of type `t` takes after its own arguments, as the program spells it (types/fields
+ * MintKey): a contract's key (`keyName`), the tests' `idKey` for Id, and nothing for any other type. A field grizzle
+ * fills is of a probe's contract over a base type alone (the fold's Tally), never of a pool's contract over another,
+ * which would take its chain's keys.
+ */
+const mintKeySource = (t: FieldType): string =>
+	t.kind === "contract" ? `, ${keyName(t.name)}` : t.kind === "uuid" ? ", Fi.idKey" : ""
+
+/** What a field grizzle fills of type `t` takes after its own arguments, as the engine's reading passes it (mintKeySource). */
+const mintKeyValue = (t: FieldType): ReadonlyArray<symbol> =>
+	t.kind === "contract" ? [programKey] : t.kind === "uuid" ? [idKey] : []
+
 const startSource = (s: Start, ids: Ids): string => {
 	switch (s.kind) {
 		case "integer":
@@ -2938,7 +2876,7 @@ const startSource = (s: Start, ids: Ids): string => {
 		case "bigint":
 			return `${s.value}n`
 		case "branded":
-			return `${ids(s.contract)}(${s.value}n)`
+			return `toKey(${s.value}n)`
 		case "handle":
 			return jsonText(s.handle)
 		case "noHandles":
@@ -2955,7 +2893,7 @@ const fieldDeclSource = (f: FieldSpec, ids: Ids): string => {
 		case "drawn":
 			return "Fi.drawn(Fi.natural)"
 		case "accumulated":
-			return `Fi.accumulated(${fieldSource(f.type, ids)}, ${startSource(f.writing.start, ids)})`
+			return `Fi.accumulated(${fieldSource(f.type, ids)}, ${startSource(f.writing.start, ids)}${mintKeySource(f.type)})`
 	}
 }
 
@@ -3146,7 +3084,7 @@ const rosterProbe = (d: Drawing): Probe => {
 		construct: "rosterProbe",
 		refused: fault,
 		text: () => oneLine(`Sc.closed.ordered("Probe", [${quoted(written)}])`),
-		judge: () => building(() => admitRoster("Probe", written, "ordered", []))
+		judge: () => building(() => admitRoster("Probe", written, "ordered", declaredNaming, []))
 	}
 }
 
@@ -3317,96 +3255,6 @@ const derivedRecord = (env: Env): Readonly<Record<string, AnyDerived>> => {
 	const counts = derivedOf(env)
 	return { [counts.name]: counts }
 }
-/**
- * An alternatives law over the base's pack: drawn arms, or one planted fault: no arm, an arm under a stranger, the
- * parent as its own arm, an arm keyed apart from the parent, a discriminator that is no closed id of the roster, the
- * derived relation as parent or arm. The law is stated at the root, or at the level declaring the derived relation when
- * it names it: a level states no alternatives over the relations below it (schema/own.ts LevelRefused).
- */
-const alternativesProbe = (d: Drawing, base: Base): Probe | undefined => {
-	const alt = base.alternatives
-	if (alt === undefined) {
-		return undefined
-	}
-	const roster = rosterNamed(base, alt.roster)
-	const apart = Arr.filter(
-		ordinaryOf(base),
-		(r) => r.key.length === 1 && !sameType(fieldOf(r, r.key[0]).type, { kind: "uuid" })
-	)
-	type Planted = {
-		readonly fault: SchemaFault | undefined
-		readonly parent: string
-		readonly discriminator: string
-		readonly arms: ReadonlyArray<readonly [string, string]>
-	}
-	const valid: Planted = { fault: undefined, ...alt }
-	const forms: Arr.NonEmptyReadonlyArray<Planted> = [
-		valid,
-		{ ...valid, fault: "noArms", arms: [] },
-		{ ...valid, fault: "strayArm", arms: [...alt.arms, ["Z", alt.arms[0][1]]] },
-		{ ...valid, fault: "selfArm", arms: [[alt.arms[0][0], alt.parent]] },
-		{ ...valid, fault: "foreignDiscriminator", discriminator: "owner" },
-		...(Arr.isReadonlyArrayNonEmpty(apart)
-			? [
-					{
-						...valid,
-						fault: "armKeyMismatch",
-						arms: [[roster.handles[0], d.from(apart).name]]
-					} as const
-				]
-			: []),
-		...(base.derived === undefined
-			? []
-			: [
-					{
-						...valid,
-						fault: "derivedArm",
-						arms: [[roster.handles[0], base.derived.name]]
-					} as const,
-					{
-						...valid,
-						fault: "derivedParent",
-						parent: base.derived.name,
-						discriminator: base.derived.by,
-						arms: []
-					} as const
-				])
-	]
-	const planted = d.from(forms)
-	return {
-		construct: "alternativesProbe",
-		refused: planted.fault,
-		text: (ids) =>
-			oneLine(
-				`Sc.alternatives(${ids(planted.parent)}, ${jsonText(planted.discriminator)}, ${ids(alt.roster)}, { ${Arr.join(
-					Arr.map(planted.arms, ([h, arm]) => `${jsonText(h)}: ${ids(arm)}`),
-					", "
-				)} })`
-			),
-		judge: (env) =>
-			compiling(() => {
-				const p = probeSchema(env, [])
-				const spec = base.derived
-				const counts =
-					spec === undefined
-						? undefined
-						: derivedBuilder(spec.name, definitionOf(spec, base, p, env.relations), [])
-				const valueOf = (name: string): AnyRelation | AnyDerived =>
-					counts?.name === name ? counts : got(env.relations, name)
-				const statement = alternativesBuilder(
-					valueOf(planted.parent),
-					planted.discriminator,
-					got(env.rosters, alt.roster),
-					Rec.fromEntries(Arr.map(planted.arms, ([h, arm]) => [h, valueOf(arm)] as const))
-				)
-				return counts === undefined ||
-					!Arr.contains([planted.parent, ...Arr.map(planted.arms, ([, arm]) => arm)], counts.name)
-					? probeSchema(env, [statement])
-					: schema.extend([p], "Level", [counts], [statement], [])
-			})
-	}
-}
-
 /**
  * A schema over relations of the base, a list with a mutable statement over one of them, a copy of one of them listed
  * beside it, or one planted fault: a relation of a declared name that differs from it, in the list or at a level above
@@ -3676,6 +3524,24 @@ const definitionSource = (
 }
 
 /**
+ * Whether the base's derived relation, `spec`, aggregates across its relation's units: its relation in a declared unit,
+ * the one over its key's first field that an open relation of that leading field and type declares (unitsOver, which
+ * holds a closed relation leading alike too), and its groups by another field, so they do not hold the unit's. A probed
+ * law over it is refused when its schema compiles, UnsupportedLawFamily, its remedy to group within a unit
+ * (analysis/theory/query.ts refuseAggregatesAcrossUnits, lane NOSETTINGS's 37b7e030f2 and 51aa55e1f8), a rule no type
+ * states.
+ */
+const aggregatesAcrossUnits = (base: Base, spec: DerivedSpec): boolean => {
+	const r = relationNamed(base.relations, spec.over)
+	const [unit] = headingsOver([r])
+	return (
+		unit !== undefined &&
+		Arr.headNonEmpty(r.key) !== spec.by &&
+		Arr.some(base.statements, (s) => s.kind === "unit" && s.heading.name === unit.name)
+	)
+}
+
+/**
  * The derived relation's laws and levels: a definition reading a parameter, of no field, or of several heading groups;
  * a derived relation declared at the level its definition reads, or in a root schema; a key, check or selection over
  * the base's aggregate, which no rule reads; fin over it; each a planted fault. The admitted forms: a further derived
@@ -3789,7 +3655,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 					head: [
 						`export const ${rel} = Sc.derived("Probe", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.find({ ${Arr.join(bound, ", ")} }) }))`
 					],
-					line: `export const ${own} = Sc.schema.extend([${ids("S")}], "Ruled", [${rel}], [Sc.key(Sc.on(${rel}, ${by})), Sc.check("Probe", ${rel}, (w) => w.and()), Sc.contained(Sc.on(Sc.select(${rel}, (w) => w.and()), ${by}), Sc.on(${ids(r.name)}, ${by})), Sc.mirrors(Sc.on(${ids(r.name)}, ${by}), Sc.on(${rel}, ${by}))])`,
+					line: `export const ${own} = Sc.schema.extend([${ids("S")}], "Ruled", [${rel}], [Sc.key(Sc.on(${rel}, ${by})), Sc.check("Probe", ${rel}, (w) => w.and([])), Sc.contained(Sc.on(Sc.select(${rel}, (w) => w.and([])), ${by}), Sc.on(${ids(r.name)}, ${by})), Sc.mirrors(Sc.on(${ids(r.name)}, ${by}), Sc.on(${rel}, ${by}))])`,
 					tail: []
 				}
 			}
@@ -3801,9 +3667,9 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 				return {
 					head: [
 						`export const ${negated} = Q.query(${ids("S")}).rule((r) => { ${grouped}; return r.match(${ids(r.name)}, { ${spec.by} }).match(${ids(r.name)}, { ${spec.by} }).find({ ${spec.by} }) }).rule((r) => { ${grouped}; return r.match(${ids(r.name)}, { ${spec.by} }).find({ ${spec.by} }) })`,
-						`export const ${rel} = Sc.derived("Probe", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.where(r.and(r.not(${negated}, { ${spec.by} }))).find({ ${Arr.join(bound, ", ")} }) }))`
+						`export const ${rel} = Sc.derived("Probe", Q.query(${ids("S")}).rule((r) => { ${matched(ids)}.where(r.and([r.not(${negated}, { ${spec.by} })])).find({ ${Arr.join(bound, ", ")} }) }))`
 					],
-					line: `export const ${own} = Sc.schema.extend([${ids("S")}], "Ruled", [${rel}], [Sc.key(Sc.on(${rel}, ${by})), Sc.check("Probe", ${rel}, (w) => w.and()), Sc.contained(Sc.on(Sc.select(${rel}, (w) => w.and()), ${by}), Sc.on(${ids(r.name)}, ${by})), Sc.mirrors(Sc.on(${ids(r.name)}, ${by}), Sc.on(${rel}, ${by}))])`,
+					line: `export const ${own} = Sc.schema.extend([${ids("S")}], "Ruled", [${rel}], [Sc.key(Sc.on(${rel}, ${by})), Sc.check("Probe", ${rel}, (w) => w.and([])), Sc.contained(Sc.on(Sc.select(${rel}, (w) => w.and([])), ${by}), Sc.on(${ids(r.name)}, ${by})), Sc.mirrors(Sc.on(${ids(r.name)}, ${by}), Sc.on(${rel}, ${by}))])`,
 					tail: []
 				}
 			}
@@ -3831,10 +3697,10 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 			case "keyOverDerived":
 				return oneLine(`Sc.key(Sc.on(${ids(spec.name)}, ${jsonText(spec.by)}))`)
 			case "checkOverDerived":
-				return oneLine(`Sc.check("Probe", ${ids(spec.name)}, (w) => w.and())`)
+				return oneLine(`Sc.check("Probe", ${ids(spec.name)}, (w) => w.and([]))`)
 			case "selectOverDerived":
 				return oneLine(
-					`Sc.key(Sc.on(Sc.select(${ids(spec.name)}, (w) => w.and()), ${jsonText(spec.by)}))`
+					`Sc.key(Sc.on(Sc.select(${ids(spec.name)}, (w) => w.and([])), ${jsonText(spec.by)}))`
 				)
 			case "finOverDerived":
 				return oneLine(`Sc.fin(${ids(spec.name)}, "total")`)
@@ -3980,7 +3846,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 			const vars = varsOver(own, "fact")
 			return rule
 				.match(own, Rec.fromEntries(Arr.map(bound, (f) => [f, vars[f]] as const)))
-				.where(rule.and(rule.not(negated, { [spec.by]: vars[spec.by] })))
+				.where(rule.and([rule.not(negated, { [spec.by]: vars[spec.by] })]))
 				.find(Rec.fromEntries(Arr.map(bound, (f) => [f, vars[f]] as const)))
 		})
 	}
@@ -4042,7 +3908,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 							[]
 						)
 						const own = got(env.relations, r.name)
-						const row = (w: typeof rowHelpers) => w.and()
+						const row = (w: typeof rowHelpers) => w.and([])
 						return compiling(() =>
 							schema.extend(
 								[env.schema],
@@ -4073,12 +3939,12 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 			case "keyOverDerived":
 				return extended(keyBuilder(onBuilder(counts, [spec.by])))
 			case "checkOverDerived":
-				return extended(checkBuilder("Probe", counts, (w: typeof rowHelpers) => w.and()))
+				return extended(checkBuilder("Probe", counts, (w: typeof rowHelpers) => w.and([])))
 			case "selectOverDerived":
 				return extended(
 					keyBuilder(
 						onBuilder(
-							selectBuilder(counts, (w: typeof rowHelpers) => w.and()),
+							selectBuilder(counts, (w: typeof rowHelpers) => w.and([])),
 							[spec.by]
 						)
 					)
@@ -4106,7 +3972,14 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 	}
 	return {
 		construct: "derivedProbe",
-		refused: fault === undefined || isDerivedLaw(fault) ? undefined : fault,
+		refused:
+			fault === undefined
+				? undefined
+				: isDerivedLaw(fault)
+					? aggregatesAcrossUnits(base, spec)
+						? "aggregateAcrossUnits"
+						: undefined
+					: fault,
 		text,
 		judge
 	}
@@ -4115,8 +3988,10 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 /**
  * A law naming the derived relation on a drawn side, a containment's left side, its right side or a mirror, over its
  * group field and its relation's, which both admit: the base's derived relation aggregates, whose groups a rule reads
- * whether it is unit-local or not (analysis/theory/query.ts GroupedMatch). A rule over a derived relation that joins,
- * selects and projects is the derived probe's admitted `ruled` form.
+ * whether it is unit-local or not (analysis/theory/query.ts GroupedMatch), where they lie within its relation's units;
+ * where they span them (`aggregatesAcrossUnits`) the declared class aggregateAcrossUnits, which the types accept and
+ * the engine refuses. A rule over a derived relation that joins, selects and projects is the derived probe's admitted
+ * `ruled` form.
  */
 const derivedSideProbe = (d: Drawing, base: Base): Probe | undefined => {
 	const spec = base.derived
@@ -4152,7 +4027,7 @@ const derivedSideProbe = (d: Drawing, base: Base): Probe | undefined => {
 	}
 	return {
 		construct: "derivedProbe",
-		refused: undefined,
+		refused: aggregatesAcrossUnits(base, spec) ? "aggregateAcrossUnits" : undefined,
 		text,
 		judge: (env) =>
 			compiling(() =>
@@ -4205,7 +4080,7 @@ const predicateProbe = (d: Drawing, base: Base): Probe => {
 			case "select":
 				return `Sc.select(${ids(r.name)}, (row) => row.eq(row.${field.name}, ${operand(ids, `row.${field.name}`)}))`
 			case "contract":
-				return `Fi.contract("Probe", ${ids(r.name)}.fields.${field.name}, (x) => Cp.Logic.eq(x, ${operand(ids, "x")}))`
+				return `Fi.contract<typeof Key>()("Probe", ${ids(r.name)}.fields.${field.name}, (x) => Cp.Logic.eq(x, ${operand(ids, "x")}))`
 		}
 	}
 	return {
@@ -4372,7 +4247,7 @@ const literalProbe = (d: Drawing, base: Base): Probe => {
 					}
 				case "contract":
 					return oneLine(
-						`export const ${own} = Fi.contract("Probe", ${field}, (x) => Cp.Logic.eq(x, ${literal.source}))`
+						`export const ${own} = Fi.contract<typeof Key>()("Probe", ${field}, (x) => Cp.Logic.eq(x, ${literal.source}))`
 					)
 			}
 		},
@@ -4481,6 +4356,23 @@ const familyProbe = (d: Drawing, base: Base): Probe => {
 						: order === "counted"
 							? d.from(["count", "sum"] as const)
 							: d.from(orderedMonoids)
+	return foldProbe(d, base, { fault, refined, order, monoid })
+}
+
+/**
+ * A family probe's fold: the fault it plants, none for a valid fold, whether its accumulators are of another pattern
+ * than its step's, its family's order and its monoid.
+ */
+interface FoldPlan {
+	readonly fault: FoldFault | undefined
+	readonly refined: boolean
+	readonly order: "ordered" | "counted"
+	readonly monoid: MonoidName
+}
+
+/** The family probe of a fold as `plan` states it, over `base`'s rosters (familyProbe). */
+const foldProbe = (d: Drawing, base: Base, { fault, refined, order, monoid }: FoldPlan): Probe => {
+	const unordered = Arr.filter(base.rosters, (r) => r.order === "unordered")
 	if (monoid === "concat" && fault === undefined && !refined) {
 		d.note("concatFold")
 	}
@@ -4668,7 +4560,9 @@ const familyProbe = (d: Drawing, base: Base): Probe => {
 				name === "O" || name === "M" || name === tallyName ? `${own}_${name}` : ids(name)
 			const declarations = [
 				...(fault === "contractEnd"
-					? [`export const ${own}_${tallyName} = Fi.contract(${jsonText(tallyName)}, Fi.pg.bigint)`]
+					? [
+							`export const ${own}_${tallyName} = Fi.contract<typeof Key>()(${jsonText(tallyName)}, Fi.pg.bigint)`
+						]
 					: []),
 				`export const ${own}_O = ${relationSource(owner, mine, quoted(owner.key))}`,
 				`export const ${own}_M = ${relationSource(member, mine, quoted(member.key))}`
@@ -4936,11 +4830,13 @@ const lookAlikeSource = "{ sql: Fi.uuid.sql, column: Fi.uuid.column }"
 const fieldCallSource = (call: FieldCall, ids: Ids): string => {
 	switch (call.kind) {
 		case "drawn":
-			return `Fi.drawn(${fieldSource(call.type, ids)})`
+			return `Fi.drawn(${fieldSource(call.type, ids)}${mintKeySource(call.type)})`
 		case "accumulated":
-			return `Fi.accumulated(${call.type === "drawn" ? "Fi.drawn(Fi.natural)" : fieldSource(call.type, ids)}, ${startSource(call.start, ids)})`
+			return call.type === "drawn"
+				? `Fi.accumulated(Fi.drawn(Fi.natural), ${startSource(call.start, ids)})`
+				: `Fi.accumulated(${fieldSource(call.type, ids)}, ${startSource(call.start, ids)}${mintKeySource(call.type)})`
 		case "contract":
-			return `Fi.contract("Probe", ${fieldSource(call.base, ids)})`
+			return `Fi.contract<typeof Key>()("Probe", ${fieldSource(call.base, ids)})`
 		case "span":
 			return `Fi.span(${fieldSource(call.endpoint, ids)}${call.width === "none" ? "" : call.width === "number" ? ", 7" : ", 7n"})`
 		case "numeric":
@@ -4966,18 +4862,22 @@ const fieldCallValue = (call: FieldCall, env: Env): unknown => {
 		case "drawn": {
 			const drawnOf: unknown = Reflect.apply(drawnField, undefined, [
 				fieldValue(call.type, env.rosters, env.contracts),
-				[]
+				mintKeyValue(call.type)
 			])
 			return drawnOf
 		}
 		case "accumulated":
-			return accumulatedField(
-				call.type === "drawn"
-					? drawnField(naturalDescriptor, [])
-					: fieldValue(call.type, env.rosters, env.contracts),
-				startValue(call.start, env.rosters),
-				[]
-			)
+			return call.type === "drawn"
+				? accumulatedField(
+						drawnField(naturalDescriptor, []),
+						startValue(call.start, env.rosters),
+						[]
+					)
+				: accumulatedField(
+						fieldValue(call.type, env.rosters, env.contracts),
+						startValue(call.start, env.rosters),
+						mintKeyValue(call.type)
+					)
 		case "contract":
 			return admitContract("Probe", fieldValue(call.base, env.rosters, env.contracts), [])
 		case "span":
@@ -5341,18 +5241,7 @@ const slotsSource = (f: FamilySpec, ids: Ids): string =>
 /** A base's statements, each under its name, in the order its schema states them. */
 const baseStatements = (base: Base, ids: Ids): ReadonlyArray<readonly [string, string]> => [
 	...Arr.map(base.statements, (s, i) => [statementId(i), statementSource(s, ids)] as const),
-	...(base.family === undefined ? [] : familySources(base.family, ids)),
-	...(base.alternatives === undefined
-		? []
-		: [
-				[
-					"alt",
-					`Sc.alternatives(${ids(base.alternatives.parent)}, ${jsonText(base.alternatives.discriminator)}, ${ids(base.alternatives.roster)}, { ${Arr.join(
-						Arr.map(base.alternatives.arms, ([h, arm]) => `${jsonText(h)}: ${ids(arm)}`),
-						", "
-					)} })`
-				] as const
-			])
+	...(base.family === undefined ? [] : familySources(base.family, ids))
 ]
 
 /** Every declaration of a base, in order: rosters, contracts, relations, statements, the schema, its extension and roles. */
@@ -5373,7 +5262,11 @@ const baseDeclarations = (base: Base, ids: Ids): ReadonlyArray<readonly [string,
 		),
 		...Arr.map(
 			base.contracts,
-			(c) => [c.name, `Fi.contract(${jsonText(c.name)}, ${fieldSource(c.base, ids)})`] as const
+			(c) =>
+				[
+					c.name,
+					`Fi.contract<${keyText(c.name)}>()(${jsonText(c.name)}, ${fieldSource(c.base, ids)})`
+				] as const
 		),
 		...Arr.map(base.relations, (r) => [r.name, relationSource(r, ids, quoted(r.key))] as const),
 		...(base.closedRelation === undefined ? [] : closedDeclarations(base.closedRelation, ids)),
@@ -5455,8 +5348,6 @@ const statementType = (desc: StatementDesc, base: Base, ids: Ids): string => {
 			return `St.Tree<${sideType(desc.member, ids)}, St.Fin<typeof ${ids(desc.slots.owner)}, ${jsonText(desc.slots.count)}>, readonly [${Arr.join(Arr.map(desc.root, jsonText), ", ")}]>`
 		case "fold":
 			return `St.Fold<typeof ${ids("family")}, typeof Sc.Monoid.${desc.monoid}, ${sideType(desc.step, ids)}, ${sideType(desc.end, ids)}>`
-		case "alternatives":
-			return `St.Alternatives<typeof ${ids(desc.parent.relation)}, ${jsonText(desc.discriminator)}, typeof ${ids(desc.roster)}, ${objectType(Arr.map(desc.arms, (a) => [a.handle, `typeof ${ids(a.arm.relation)}`] as const))}>`
 		case "unit":
 			return `St.Unit<${jsonText(desc.name)}, ${objectType(
 				Arr.map(desc.heading, (f) => [f.field, valueDescriptorType(f.type, base, ids)] as const)
@@ -5501,8 +5392,7 @@ const viewType = (view: StatementView, base: Base, ids: Ids): string => {
 }
 
 /**
- * The containments a schema states, as the engine reads them: each containment, each mirrors' two, each alternatives
- * law's expansion.
+ * The containments a schema states, as the engine reads them: each containment, each mirrors' two, and each series'.
  */
 const containmentTypes = (
 	views: ReadonlyArray<StatementView>,
@@ -5518,8 +5408,6 @@ const containmentTypes = (
 			switch (s.kind) {
 				case "contained":
 					return [statementType(s, base, ids)]
-				case "alternatives":
-					return Arr.map(expandAlternatives(s), (c) => statementType(c, base, ids))
 				case "series":
 					return [statementType(expandSeries(s), base, ids)]
 				case "key":
@@ -5580,7 +5468,7 @@ const valueDescriptorType = (desc: FieldDesc, base: Base, ids: Ids): string => {
 					? "Fi.DateField"
 					: "Fi.NaturalField"
 			}
-			return `Fi.Contract<${jsonText(desc.name)}, ${valueDescriptorType(desc.base, base, ids)}>`
+			return `Fi.Contract<${jsonText(desc.name)}, ${valueDescriptorType(desc.base, base, ids)}, ${keyText(desc.name)}>`
 		}
 		case "span":
 			return `Fi.SpanField<${hostOfDesc(desc.endpoint, base, ids)}, Ph.DomainOf<${valueDescriptorType(desc.endpoint, base, ids)}>>`
@@ -5592,6 +5480,8 @@ const valueDescriptorType = (desc: FieldDesc, base: Base, ids: Ids): string => {
 			return `Fi.VectorField<${desc.dimensions}>`
 		case "search":
 			return `Fi.SearchDocumentField<${jsonText(desc.configuration)}>`
+		case "variant":
+			throw new Error("no agreement schema declares a variant field")
 	}
 }
 
@@ -5619,6 +5509,7 @@ const literalType = (
 			return `ReadonlySet<${literalUnion(rosterNamed(base, desc.roster).handles)}>`
 		case "pg":
 			return pgLiteral[desc.type]
+		case "variant":
 		case "exact":
 		case "bytes":
 		case "sha256":
@@ -5864,7 +5755,7 @@ const derivedAssertions = (
 
 /**
  * The statements' types, each the engine's Description of it as a type; the schema's captured tuple, its statements in
- * order; its containments, each containment and each alternatives law's expansion; and a family's fin.
+ * order; its containments, each containment and each mirrors' two; and a family's fin.
  */
 const statementAssertions = (base: Base, env: Env, ids: Ids): ReadonlyArray<string> => {
 	const expect = (name: string, actual: string, expected: string): string =>
@@ -6356,7 +6247,7 @@ const contractNameProbe = (d: Drawing): Probe => {
 		refused: several ? "contractName" : undefined,
 		text: (_ids, own) => ({
 			head: [`export declare const ${own}_name: ${type}`],
-			line: `export const ${own} = Fi.contract(${own}_name, Fi.pg.bigint)`,
+			line: `export const ${own} = Fi.contract<typeof Key>()(${own}_name, Fi.pg.bigint)`,
 			tail: []
 		}),
 		judge: () => {
@@ -6534,7 +6425,7 @@ const closedReadProbe = (d: Drawing, base: Base): Probe | undefined => {
 							}),
 							[]
 						)
-						return schema("P", [...Rec.values(env.members), echo, echoed], [...env.core], [])
+						return schema("P", [...Rec.values(env.members), echo, echoed], [...env.statements], [])
 					})
 			}
 		}
@@ -6602,7 +6493,9 @@ const generatedProbe = (d: Drawing, base: Base): Probe => {
 			return {
 				head:
 					form === "generatedContract"
-						? [`export const ${tally} = Fi.contract(${jsonText(tallyName)}, Fi.pg.bigint)`]
+						? [
+								`export const ${tally} = Fi.contract<typeof Key>()(${jsonText(tallyName)}, Fi.pg.bigint)`
+							]
 						: [],
 				line: `export const ${own} = Sc.relation.generated("Generated", { id: Fi.Id, depth: Fi.pg.integer, w: ${set}${form === "refinedGenerated" ? `, word: Tx.str.regex(${jsonText(wordPattern)})` : ""} }, ["id"], (r) => (${callbackSource(set, tally)}))`,
 				tail: []
@@ -6867,7 +6760,7 @@ const mintedProbe = (d: Drawing): Probe => {
 				site === "field"
 					? `export const ${own} = Sc.relation("Minted", { id: Fi.pg.${spelling} }, ["id"])`
 					: site === "contract"
-						? `export const ${own} = Fi.contract("Minted", Fi.pg.${spelling})`
+						? `export const ${own} = Fi.contract<typeof Key>()("Minted", Fi.pg.${spelling})`
 						: `export const ${own} = Fi.span(Fi.pg.${spelling})`
 			),
 		judge: () =>
@@ -6990,7 +6883,7 @@ const ruleProbe = (d: Drawing, base: Base): Probe => {
 		text: (ids, own) => {
 			const lit = `${own}_Lit`
 			const head = [
-				`export const ${own}_Cents = Fi.contract("Cents", Fi.pg.bigint)`,
+				`export const ${own}_Cents = Fi.contract<${keyText("Cents")}>()("Cents", Fi.pg.bigint)`,
 				`export const ${lit} = Sc.relation("Lit", { id: Fi.Id, f: ${fieldSource(type, ids)}, n: Fi.pg.bigint, c: ${own}_Cents, i: Fi.pg.integer }, ["id"])`,
 				`export const ${own}_P = Sc.schema("P", [${Arr.join(
 					[...Arr.map(base.rosters, (r) => ids(r.name)), lit],
@@ -7618,7 +7511,6 @@ const probeMakers: ReadonlyArray<
 	["handleProbe", handleProbe],
 	["containmentProbe", containmentProbe],
 	["mutableProbe", mutableProbe],
-	["alternativesProbe", alternativesProbe],
 	["schemaProbe", schemaProbe],
 	["roleProbe", roleProbe],
 	["derivedProbe", derivedProbe],
@@ -7844,7 +7736,29 @@ const caseOf = ({ base, probes, reached }: Drawn): SchemaCase => {
 const schemaLabel = "types/schema agreement"
 
 /** A drawn schema with its probes, the engine's description of it, and what it reached. */
-export const schemaCases: Gen<SchemaCase> = (source) => caseOf(drawnGen(source))
+const schemaCases: Gen<SchemaCase> = (source) => caseOf(drawnGen(source))
+
+/**
+ * A case reaching unorderedMax, a fold's max over a closed id of an unordered roster, which the engine and the types
+ * refuse: a drawn case reaches it only where a family probe plants a monoid's mismatch over a base declaring Tier and
+ * draws max among its four monoids, which no witness of the merged tree did (the agreement's floor and steered cases
+ * are fixed by its identity). A drawn base declaring both rosters of the pool, and one fold over it planting max's
+ * mismatch, its family of either order.
+ */
+const unorderedMaxCases: Gen<SchemaCase> = (source) => {
+	const d = new Drawing(source, source.draw(swarm(schemaConstructs)))
+	const base: Base = { ...baseOf(d), rosters: rosterPool }
+	const fold = foldProbe(d, base, {
+		fault: "monoidMismatch",
+		refined: false,
+		order: d.from(["ordered", "counted"] as const),
+		monoid: "max"
+	})
+	return caseOf({ base, probes: [fold], reached: d.reached })
+}
+
+/** The drawn schemas and probes, aimed at the situation no witness of theirs reaches (unorderedMaxCases). */
+export const schemaAimed = aimed(schemaCases, [["unorderedMax", unorderedMaxCases]])
 
 /** The cells of schemaKeptBox, minted as a dictionary in its door (test/types/schema/agreement.dictionary.ts). */
 export const schemaKeptBoxItems = keptFaults
@@ -7953,6 +7867,11 @@ export const schemaProgram = (
 		"/** The names of the relations a ChangeSet over S may write: ordinary, never closed or derived. */",
 		"export type WritableNames<S> = Cs.WritableOf<S> extends infer R ? (R extends { readonly name: infer N } ? N : never) : never",
 		"export type { Brand, Cd, Cp, Ph, Rf, Er, Rs, Cs, Ff, Fi, Q, Sc, St, Tx }",
+		"/** The key every probe's contract is under, and its mint, which makes their values. */",
+		'export const Key = Symbol("Contract")',
+		"export const toKey = Fi.mintOf(Key)",
+		"/** The key each contract of the pool is under, its own (types/fields KeyApart). */",
+		...Arr.map(contractNames, (n) => `export const ${keyName(n)} = Symbol(${jsonText(n)})`),
 		""
 	]
 	return Arr.map(cases, (c, i) => ({

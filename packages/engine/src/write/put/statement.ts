@@ -9,7 +9,7 @@ import {
 import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { factNe, typedEq } from "#compiler/ir/compare.ts"
 import { fieldNames, type LawField } from "#compiler/ir/law.ts"
-import type { Needs } from "#compiler/ir/needs.ts"
+import { either, type Needs } from "#compiler/ir/needs.ts"
 import type { StatementRole } from "#compiler/ir/products.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
 import {
@@ -21,6 +21,7 @@ import {
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import { textItself } from "#compiler/lower/delivery.ts"
+import { namesOrUnit } from "#compiler/runtime/lower/tree.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import type {
 	Assignment,
@@ -31,6 +32,7 @@ import type {
 	Merge,
 	Select,
 	SetCore,
+	StatementText,
 	Target,
 	Update
 } from "#compiler/sql/ast.ts"
@@ -53,7 +55,6 @@ import {
 	types,
 	unionAll
 } from "#compiler/sql/build.ts"
-import { emitText } from "#compiler/sql/emit.ts"
 import { assignments } from "#compiler/sql/generation.ts"
 import { namedBody, NameSupply } from "#compiler/sql/naming.ts"
 import { type FieldColumns, fieldColumns } from "#compiler/write/defined.ts"
@@ -75,16 +76,18 @@ import {
 
 import {
 	keyFirst,
+	keyOrderedSource,
 	requestedValue,
-	writtenFields,
 	type ResultColumn,
-	type Returning,
-	type ReturnedColumn,
 	returnedColumn,
+	type ReturnedColumn,
 	returnedRows,
+	type Returning,
 	rowType,
 	type WithSelect,
-	type WriteContext
+	type WriteContext,
+	type StatementWriting,
+	writtenFields
 } from "#compiler/write/insert/statement.ts"
 import { buildProbe, probeArms } from "#compiler/write/insert/unique.ts"
 import { joinedAtKey } from "#compiler/write/probe.ts"
@@ -165,17 +168,19 @@ export type PutResult =
  *
  *   A MERGE's RETURNING names the target's columns, which are the new row for an INSERT or UPDATE and the old row for a
  *   DELETE, never a source column, which a NOT MATCHED BY SOURCE row lacks. An INSERT or UPDATE row is a
- *   fact the put made present; a DELETE row is a fact the deletion member requested, counted as deleted.
+ *   fact the put made present; a DELETE row is a fact the deletion member requested, counted as deleted. It is sent
+ *   wherever either action's rows may exist, its put input's facts or the deletion's (MergeScope `deleted`): a put of
+ *   no fact still deletes its scope's every row, as the pair it stands for does.
  *
  * No UPDATE assigns a key: the key is the arbiter and the match.
  *
  * The UPDATE and the MERGE report a same-key pair within their input as the insert protocol does: the statement changes
  * nothing, and the outer SELECT's second arm returns the input's facts at that key with the marker c9 true, the key
  * law, never an abort. */
-export interface PutStatement {
+export interface PutStatement<T extends StatementText = EmittedSql> {
 	readonly role: StatementRole
 	readonly ast: WithSelect
-	readonly sql: EmittedSql
+	readonly sql: T
 	readonly params: ReadonlyArray<WriteParamSlot>
 	readonly result: PutResult
 	/** What its rows need of the call's inputs (`WriteStatement`). */
@@ -183,23 +188,23 @@ export interface PutStatement {
 	readonly returning: Returning
 }
 
-/** Builds and emits one statement with fresh names numbered from the context's start and fresh placeholders (the
- * counterpart of `buildStatement` for the put results). */
-const buildPut = (
-	w: WriteContext,
+/** Builds one statement with fresh names numbered from the context's start and fresh placeholders, its text the
+ * context's (the counterpart of `buildStatement` for the put results). */
+const buildPut = <T extends StatementText>(
+	w: StatementWriting<T>,
 	build: (supply: NameSupply) => {
 		readonly ast: WithSelect
 		readonly result: PutResult
 		readonly needs: Needs
 		readonly returning: Returning
 	}
-): PutStatement => {
+): PutStatement<T> => {
 	const supply = new NameSupply(w.start)
 	const placeholders = new WriteParams()
 	w.cx.beginWriteStatement(supply, placeholders)
 	const built = build(supply)
 	const params = [...placeholders.slots]
-	const sql = emitText(built.ast, supply.map())
+	const sql = w.text(built.ast, supply.map())
 	return Object.freeze({
 		role: "member" as const,
 		ast: built.ast,
@@ -250,7 +255,7 @@ const putHead = (w: WriteContext, spec: PutSpec, supply: NameSupply, at: string)
 		(f) => carried.includes(f) || generations.includes(f)
 	)
 	if (!isNonEmpty(carried) || !isNonEmpty(written)) {
-		throw defect(`a put of ${relation.name} whose input carries none of its key`)
+		defect(`a put of ${relation.name} whose input carries none of its key`)
 	}
 	const pk = relation.primaryFields
 	const scan = supply.relation(internal("input scan"))
@@ -285,7 +290,7 @@ const putHead = (w: WriteContext, spec: PutSpec, supply: NameSupply, at: string)
 					columns: inputs
 				})
 			]
-		: [cte(r1, namedBody(read.select, inputs.columns))]
+		: [cte(r1, namedBody(read.select, namesOrUnit(inputs.columns)))]
 	if (r4 !== undefined) {
 		ctes.push(sameKeyCte(r4, r1, pk, keys, inCol))
 	}
@@ -387,7 +392,10 @@ const sameKeyRefusal = (
 })
 
 /** INSERT ... ON CONFLICT (pk) DO UPDATE SET payload = EXCLUDED.payload WHERE (t.payload) <> (EXCLUDED.payload). */
-export const buildUpsert = (w: WriteContext, spec: UpsertSpec): PutStatement => {
+export const buildUpsert = <T extends StatementText>(
+	w: StatementWriting<T>,
+	spec: UpsertSpec
+): PutStatement<T> => {
 	const { relation, input } = spec
 	const at = `put upsert ${relation.name}`
 	return buildPut(w, (supply) => {
@@ -416,18 +424,16 @@ export const buildUpsert = (w: WriteContext, spec: UpsertSpec): PutStatement => 
 			table: w.names.relation(relation.name),
 			alias: r3,
 			columns: written.map(column),
-			source: {
-				kind: "query",
-				query: {
-					...provedSelect(
-						"keyed",
-						written.map((f) => target(inCol(f))),
-						[cteRef(r1)],
-						probe?.gate
-					),
-					orderBy: pk.map((f) => asc(inCol(f)))
-				}
-			},
+			source: keyOrderedSource(
+				supply,
+				provedSelect(
+					"keyed",
+					written.map((f) => target(inCol(f))),
+					[cteRef(r1)],
+					probe?.gate
+				),
+				mapNonEmpty(pk, (f) => asc(inCol(f)))
+			),
 			onConflict: {
 				kind: "columns",
 				columns: mapNonEmpty(pk, column),
@@ -513,7 +519,10 @@ export const buildUpsert = (w: WriteContext, spec: UpsertSpec): PutStatement => 
 }
 
 /** UPDATE ... FROM the member, with the differs condition, RETURNING the new and the old fact. */
-export const buildUpdateFrom = (w: WriteContext, spec: PutSpec): PutStatement => {
+export const buildUpdateFrom = <T extends StatementText>(
+	w: StatementWriting<T>,
+	spec: PutSpec
+): PutStatement<T> => {
 	const { relation, input } = spec
 	const at = `put update ${relation.name}`
 	return buildPut(w, (supply) => {
@@ -659,7 +668,10 @@ const scopePredicate = (w: WriteContext, spec: MergeSpec, r3: string): Expr | un
 
 /** MERGE INTO r USING (input) ON key WHEN MATCHED AND differs THEN UPDATE WHEN NOT MATCHED THEN INSERT WHEN NOT
  * MATCHED BY SOURCE AND <scope> THEN DELETE RETURNING merge_action(), <fact>. */
-export const buildMerge = (w: WriteContext, spec: MergeSpec): PutStatement => {
+export const buildMerge = <T extends StatementText>(
+	w: StatementWriting<T>,
+	spec: MergeSpec
+): PutStatement<T> => {
 	const { relation, input } = spec
 	const at = `put merge ${relation.name}`
 	return buildPut(w, (supply) => {
@@ -740,7 +752,9 @@ export const buildMerge = (w: WriteContext, spec: MergeSpec): PutStatement => {
 		}
 		const deleted = lit.text("DELETE", types.text)
 		const shared = {
-			needs: inputNeeds(input),
+			/** Its rows: its put input's facts, inserted or updated, and the scope's rows its NOT MATCHED BY SOURCE
+			 * action deletes, which need no fact of the put input (MergeScope `deleted`). */
+			needs: either([inputNeeds(input), spec.scope.deleted]),
 			returning: {
 				cte: r2,
 				kind: "both",

@@ -804,7 +804,7 @@ export class FamilyEntry implements RiddenFamily {
 				[...this.#axes[axis].values()].toSorted(byRank).map((p): AxisPair => {
 					const [first, ...rest] = p.laws
 					if (first === undefined) {
-						throw defect("an axis pair states at least one law")
+						defect("an axis pair states at least one law")
 					}
 					const laws: NonEmptyReadonlyArray<LawId> = Object.freeze([first, ...rest])
 					return Object.freeze({ from: p.from, to: p.to, laws })
@@ -990,7 +990,7 @@ export const foldEntry = (s: FoldStatement, f: FamilyShape, law: Identifier<"law
 	}
 	const [firstEnd] = ends
 	if (firstEnd === undefined) {
-		throw defect("foldRule admits a fold of one end per plane")
+		defect("foldRule admits a fold of one end per plane")
 	}
 	const identities = monoid.identity(x?.type ?? firstEnd.type)
 	const endAt = (p: number): LawField =>
@@ -998,7 +998,7 @@ export const foldEntry = (s: FoldStatement, f: FamilyShape, law: Identifier<"law
 	const accumulators = ((): FoldAccumulators => {
 		if (!isNonEmpty(pairs)) {
 			if (runningEnds.some((e) => e.kind === "digest")) {
-				throw defect(
+				defect(
 					"foldRule admits a plane of a digest's value, a text or bytes, only with its (before, after) pair named"
 				)
 			}
@@ -1016,7 +1016,7 @@ export const foldEntry = (s: FoldStatement, f: FamilyShape, law: Identifier<"law
 			}
 		}
 		if (f.shape.kind === "counted") {
-			throw defect("foldRule admits no accumulator pair over a counted family")
+			defect("foldRule admits no accumulator pair over a counted family")
 		}
 		return {
 			kind: "named",

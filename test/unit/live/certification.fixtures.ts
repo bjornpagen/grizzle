@@ -199,6 +199,7 @@ export const draftOf = (c: Case, platformReads: ReadonlyArray<string>, withReads
 		const built = logins(c, platformReads, withReads)
 		const config = yield* resolveConfig(
 			defineConfig({
+				contracts: [],
 				schemas: [built.schema],
 				logins: built.logins,
 				migrations: "migrations",

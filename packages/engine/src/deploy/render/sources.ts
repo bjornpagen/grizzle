@@ -50,7 +50,7 @@ const createdSource = (
 		dot.text !== "." ||
 		name?.kind !== "quotedIdent"
 	) {
-		throw defect("a CREATE FUNCTION grizzle wrote names its function by its schema and its name")
+		defect("a CREATE FUNCTION grizzle wrote names its function by its schema and its name")
 	}
 	const printed = `${quoteIdent(schema.text)}.${quoteIdent(name.text)}`
 	let depth = 0
@@ -73,7 +73,7 @@ const createdSource = (
 			break
 		}
 	}
-	throw defect(
+	defect(
 		`the CREATE FUNCTION of ${printed} grizzle wrote holds its body as one constant after AS, or an SQL-standard RETURN`
 	)
 }
@@ -124,7 +124,7 @@ export const assertSourcesAsRecorded = (
 		}
 		const digest = sha256Hex(wellFormed(source))
 		if (digest !== r.source) {
-			throw defect(
+			defect(
 				`the snapshot records the source of function ${name} by the digest ${r.source}, where the folder's CREATE FUNCTION installs a source of the digest ${digest}: a record digests the text its file writes`
 			)
 		}

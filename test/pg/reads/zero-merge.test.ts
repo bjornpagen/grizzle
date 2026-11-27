@@ -120,8 +120,9 @@ export const aFloatsTwoZerosAreOneValueToEveryMergeWhichDeliversPlus0ForEitherAn
 			},
 			{
 				file: "packages/engine/src/check/merge.ts",
-				original: "\t\t\t.filter((v) => isFloat(v.type) && (binders.get(v) ?? 0) >= 2)",
-				replacement: "\t\t\t.filter((v) => isFloat(v.type) && (binders.get(v) ?? 0) >= 2 && false)",
+				original: "\t\t\t.filter((v) => !equalityIsIdentity(v.type) && (binders.get(v) ?? 0) >= 2)",
+				replacement:
+					"\t\t\t.filter((v) => !equalityIsIdentity(v.type) && (binders.get(v) ?? 0) >= 2 && false)",
 				why: "A join variable bound by F's and G's fields reads one of them, so the join delivers -0 where either side holds it."
 			},
 			{

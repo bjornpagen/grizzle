@@ -25,16 +25,19 @@
 import type { SchemaDesc } from "#compiler/ir/desc.ts"
 
 import {
-	alternatives,
 	closed,
 	contained,
 	decodedSchema,
+	eq,
 	f,
+	field,
 	ge,
 	key,
 	literal,
+	mirrors,
 	mutable,
 	on,
+	onWhere,
 	relation,
 	unit,
 	value
@@ -82,6 +85,10 @@ const Seat = relation("Seat", { resource: f.closedId("Resource"), seat: SeatNo }
 	"seat"
 ])
 
+/** A standing's arm mirrored with the work its standing selects: the work of that standing has exactly its row. */
+const standingArm = (arm: string, standing: string) =>
+	mirrors(on(arm, ["key"]), onWhere("Work", ["key"], eq(field("standing"), literal(standing))))
+
 export const Queue: SchemaDesc = decodedSchema({
 	name: "Queue",
 	relations: [Standing, Kind, Resource, Outcome, Reason, Work, Wanted, Leased, Done, Denied, Seat],
@@ -90,12 +97,10 @@ export const Queue: SchemaDesc = decodedSchema({
 		mutable("Work"),
 		mutable("Wanted"),
 		mutable("Leased"),
-		alternatives(Work, "standing", Standing, {
-			wanted: Wanted,
-			leased: Leased,
-			done: Done,
-			denied: Denied
-		}),
+		...standingArm("Wanted", "wanted"),
+		...standingArm("Leased", "leased"),
+		...standingArm("Done", "done"),
+		...standingArm("Denied", "denied"),
 		key(on("Leased", ["resource", "seat"])),
 		contained(on("Leased", ["resource", "seat"]), on("Seat", ["resource", "seat"]))
 	],

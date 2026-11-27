@@ -6,17 +6,10 @@ import { Array as Arr, String as Str } from "effect"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import type { AnyObject } from "#compiler/deploy/snapshot/objects.ts"
 import type { RecordedStatement } from "#compiler/deploy/snapshot/recorded.ts"
-import { workload } from "#compiler/program/workload/value.ts"
 import type { CreateDomain, SqlStatement } from "#compiler/sql/ast.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
-import { paramsOver } from "#test/support/compile.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
-import {
-	firstStored,
-	passedOver,
-	type Stored,
-	versionOf
-} from "#test/support/migrate/param-domains.ts"
+import { firstStored, type Stored } from "#test/support/migrate/param-domains.ts"
 
 export type Feature =
 	| "a text domain staying for a parameter once its stored field is dropped"
@@ -36,10 +29,6 @@ export const declaredFor = (stored: Stored): Declarations => ({
 	drops:
 		firstStored.code && !stored.code ? [{ kind: "relation", relation: parsedName("Coded") }] : []
 })
-
-/** The installer extension of a version's one program: its parameters' types, nothing else of its workload. */
-export const servedParams = (value: ReturnType<typeof versionOf>) =>
-	paramsOver([{ login: "server", workloads: [workload(value, { passed: passedOver(value) })] }])
 
 /** The domains `objects` create, by name. */
 export const domainsOf = (objects: ReadonlyArray<AnyObject>): ReadonlyMap<string, CreateDomain> =>

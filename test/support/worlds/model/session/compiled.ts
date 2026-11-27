@@ -17,7 +17,8 @@ import { roleDescOf } from "#compiler/schema/world.ts"
 import type { ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { baseBuild, type Built } from "#test/support/worlds/execute/build.ts"
+import { noDeclarations } from "#test/support/migrate/kit.ts"
+import { buildInstall, type Built } from "#test/support/worlds/execute/build.ts"
 import { plannedVersion } from "#test/support/worlds/execute/catalog.ts"
 import type { InstallSpec } from "#test/support/worlds/model/types.ts"
 
@@ -52,12 +53,13 @@ const compiledOf = (install: InstallSpec): Compiled => {
 	const compiled = Effect.runSync(
 		Effect.orDie(
 			Effect.gen(function* () {
-				const built = yield* baseBuild(install)
+				const built = yield* buildInstall(install, compiledSchema)
 				const { plan } = yield* plannedVersion(
 					built.base,
 					Rec.values(built.logins),
 					compiledSchema,
-					emptySnapshot({ schemaName: install.base.name, schema: compiledSchema })
+					emptySnapshot({ schemaName: compiledSchema, schema: compiledSchema }),
+					{ step: 0, declarations: noDeclarations }
 				)
 				return { built, installation: plan.installation }
 			})

@@ -188,7 +188,7 @@ const statementOf = (c: HostedCase, index: number): string => {
 		case "check":
 			return `check("C${index}", Cell, (r) => ${compared(`r.${field}`)})`
 		case "contract":
-			return `contract("K${index}", ${familyBase[family]}, (c) => ${compared("c")}, undefined)`
+			return `contract<typeof probeKey>()("K${index}", ${familyBase[family]}, (c) => ${compared("c")}, undefined)`
 		case "generated":
 			return `relation.generated("G${index}", { id: Id, ${field}: ${familyBase[family]} }, ["id"], (r) => ({ g: generated(${stored}, ${term(`r.${field}`)}) }))`
 		case "derivedCheck":
@@ -209,7 +209,8 @@ const caseBlock = (c: HostedCase, index: number): ReadonlyArray<string> => [
 const prelude = await Effect.runPromise(preludeAt("test/support/programs/hosted.ts"))
 
 /** Cell, a field of each family, its schema, and Cells, a derived relation of its rows. */
-const hostedHeader = `export const Cell = relation("Cell", { id: Id, n: pg.bigint, d: pg.numeric(10, 2), x: pg["double precision"], w: pg.vector(2) }, ["id"])
+const hostedHeader = `export const probeKey = Symbol("Probe")
+export const Cell = relation("Cell", { id: Id, n: pg.bigint, d: pg.numeric(10, 2), x: pg["double precision"], w: pg.vector(2) }, ["id"])
 export const scale = fn("scale", { calls: [], args: { x: pg.bigint, k: pg.bigint }, returns: pg.bigint, volatility: "immutable", nullInput: "called", language: "sql", body: fn.body\`SELECT x * k\` })
 export const Root = schema("Root", [Cell, scale], [])
 export const Cells = derived("Cells", query(Root).rule((r) => {

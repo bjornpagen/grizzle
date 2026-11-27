@@ -13,12 +13,25 @@
  * query's decoder's.
  *
  * Features: none; the box is exhausted.
+ *
+ * recordPaths over drawn trees of attachments, each level one to three children at most four levels deep, their names
+ * repeating across levels and parents: the path of every attachment at any depth, each before those under it, and
+ * records(...) given a name for each of them names every relation beside the root as stated, deriving none.
+ *
+ * Oracle: the drawn tree's own paths, read off it in the order attached.
+ *
+ * The dynamic door's records (public/dynamic.ts records) over the same drawn trees, their stem typed `string` and a
+ * run-time record naming every path: every relation named as stated, a level listing them compiles (lawsOf), and every
+ * relation and law is what records' builder declares of the same arguments, one Description by semantic identity.
+ *
+ * Oracle: a second implementation, records' builder of the same arguments, and the names stated.
  */
 import { assert, defined } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
-import { property } from "@bjornpagen/testing/property"
+import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Record as Rcd, String as Str } from "effect"
-import { catchCompileError } from "#compiler/core/canonical.ts"
+import { catchCompileError, sameContent } from "#compiler/core/canonical.ts"
 import {
 	type Columned,
 	columnForm,
@@ -26,23 +39,33 @@ import {
 	type DecoderForm
 } from "#compiler/core/decoder.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { lawsOf } from "#compiler/program/laws.ts"
+import { recordsBuilder } from "#compiler/program/records.ts"
+import { records as dynamicRecords } from "#compiler/public/dynamic.ts"
 import { natural } from "#compiler/public/fields.ts"
-import { records, recordsQuery, schema } from "#compiler/public/schema.ts"
+import { recordPaths, records, recordsQuery, schema } from "#compiler/public/schema.ts"
 import { recordsReader } from "#compiler/runtime/read/record.ts"
 import { bindGroups } from "#compiler/schema/record.ts"
-import { describeDeclared } from "#compiler/schema/relation.ts"
+import { describeDeclared, relationDescOf } from "#compiler/schema/relation.ts"
+import { statementTextsOf } from "#compiler/schema/statements.ts"
+import type { GeneratedRecords } from "#compiler/types/schema/records.ts"
 import {
+	attachmentsGen,
+	type Attachments,
 	cellQuery,
+	depthOf,
 	heldExactly,
 	holdsExactly,
 	Item,
 	literalKey,
+	pathsOfTree,
 	programOf,
 	Rec,
 	type RecordsCell,
 	recordsBox,
 	sumBound,
-	sumKey
+	sumKey,
+	treeQuery
 } from "#test/unit/program/records.fixtures.ts"
 
 /** The declaration a field holds (schema/relation.ts describeDeclared). */
@@ -194,3 +217,132 @@ export const aQuerysRecordsHoldEachColumnAsItsOwnFieldAndReadBackThroughItsOwnDe
 			]
 		}
 	)
+
+/** What a drawn tree of attachments reaches: a path three levels deep, and a name repeated under another parent. */
+type PathsFeature = "a path three levels deep" | "a name repeated under another parent"
+
+/**
+ * recordPaths lists the path of every attachment of a query at any depth, each before those under it, and records(...)
+ * given a name for each of them names every relation beside the root as stated.
+ */
+export const recordPathsListEveryAttachmentAtAnyDepthAndNameEveryRelationRecordsMake =
+	property.explore(attachmentsGen, {
+		needs: {},
+		situations: [
+			"a path three levels deep",
+			"a name repeated under another parent"
+		] satisfies ReadonlyArray<Reached<PathsFeature>>,
+		check: (_, k: Case<PathsFeature>) => (tree: Attachments) =>
+			Effect.sync(() => {
+				const what = `the paths of ${Formatter.format(tree)}`
+				const q = treeQuery(tree)
+				const paths = recordPaths(q)
+				assert.deepEqual(paths, pathsOfTree(tree, []), what)
+				if (depthOf(tree) >= 3) {
+					k.note("a path three levels deep")
+				}
+				const names = Arr.map(paths, (path) => Arr.lastNonEmpty(Str.split(path, ".")))
+				if (Arr.dedupe(names).length < names.length) {
+					k.note("a name repeated under another parent")
+				}
+				const stated = Rcd.fromEntries(Arr.map(paths, (path, i) => [path, `Named${i}`] as const))
+				const made = recordsBuilder("Paths", q, { at: natural }, ["at"], [{ names: stated }])
+				assert.deepEqual<ReadonlyArray<string>>(
+					Arr.map(made.relations, (r) => r.name),
+					["PathsRow", ...Arr.map(paths, (_, i) => `Named${i}`)],
+					`${what}: every relation beside the root named as stated`
+				)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the drawn tree's own paths, read off it in the order attached"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/program/records.ts",
+				original: '\t\treturn [at.join("."), ...attachmentPaths(a.child.attached, at)]',
+				replacement: '\t\treturn [at.join(".")]',
+				why: "The paths stop at the first level: an attachment under another has no path, so its relation is never named by a generator that names each path."
+			}
+		]
+	})
+
+/**
+ * The dynamic door's records, their stem typed `string` and a run-time record naming every path, name every relation as
+ * stated, list in a level that compiles, and declare every relation and law records' builder declares of the same
+ * arguments.
+ */
+export const theDynamicDoorsRecordsNameEveryRelationAsStatedAndDeclareWhatRecordsBuilderDeclares =
+	property.explore(attachmentsGen, {
+		needs: {},
+		situations: [
+			"a path three levels deep",
+			"a name repeated under another parent"
+		] satisfies ReadonlyArray<Reached<PathsFeature>>,
+		check: (_, k: Case<PathsFeature>) => (tree: Attachments) =>
+			Effect.sync(() => {
+				const what = `the dynamic records of ${Formatter.format(tree)}`
+				const q = treeQuery(tree)
+				const paths = recordPaths(q)
+				if (depthOf(tree) >= 3) {
+					k.note("a path three levels deep")
+				}
+				const last = Arr.map(paths, (path) => Arr.lastNonEmpty(Str.split(path, ".")))
+				if (Arr.dedupe(last).length < last.length) {
+					k.note("a name repeated under another parent")
+				}
+				const stem = `Generated${paths.length}`
+				const names: Readonly<Record<string, string>> = Rcd.fromEntries(
+					Arr.map(paths, (path, i) => [path, `Named${i}`] as const)
+				)
+				const generated = dynamicRecords(stem, q, { at: natural }, ["at"], { names })
+				assert.deepEqual<ReadonlyArray<string>>(
+					Arr.map(generated.relations, (r) => r.name),
+					[`${stem}Row`, ...Arr.map(paths, (_, i) => `Named${i}`)],
+					`${what}: every relation beside the root named as stated`
+				)
+				lawsOf(schema.extend([Rec], "Den", generated.relations, generated.rules))
+				const built: GeneratedRecords = recordsBuilder(
+					stem,
+					q,
+					{ at: natural },
+					["at"],
+					[{ names }]
+				)
+				assert.equal(
+					generated.relations.length,
+					built.relations.length,
+					`${what}: as many relations as records' builder makes`
+				)
+				for (const [door, builder] of Arr.zip(generated.relations, built.relations)) {
+					assert.ok(
+						sameContent(relationDescOf(door, "door"), relationDescOf(builder, "builder")),
+						`${what}: ${door.name} declares what records' builder declares`
+					)
+				}
+				assert.deepEqual(
+					Arr.map(generated.rules, statementTextsOf),
+					Arr.map(built.rules, statementTextsOf),
+					`${what}: every law is records' builder's`
+				)
+				assert.deepEqual(
+					Arr.map(generated.apart, (r) => r.name),
+					Arr.map(built.apart, (r) => r.name),
+					`${what}: the relations an insert states apart are records' builder's`
+				)
+			}),
+		oracle: {
+			kind: "second-implementation",
+			name: "records' builder of the same arguments, one Description by semantic identity, and the names stated"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/public/dynamic.ts",
+				original: "\t\t[options, ...extra]",
+				replacement: "\t\t[...extra]",
+				why: "The door drops its options: the names it is handed are never stated, so every relation's name is derived, none as stated."
+			}
+		]
+	})

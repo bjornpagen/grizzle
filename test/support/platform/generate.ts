@@ -25,7 +25,7 @@ import { Array as Arr, Option, pipe, String as Str } from "effect"
 import type { Addition } from "#compiler/public/changeset.ts"
 
 import * as P from "#test/support/fixtures/api/platform.ts"
-import { Id, type IdValue } from "#test/support/ids.ts"
+import { type IdValue, toId } from "#test/support/ids.ts"
 import {
 	type CardM,
 	cardAt,
@@ -53,11 +53,11 @@ const daysIn2026 = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31] as const
 
 /** A deterministic uuid: the family in the first group, the row number in the last. */
 export const uid = (family: number, n: number): IdValue =>
-	Id(
+	toId(
 		`${pipe(family.toString(16), Str.padStart(8, "0"))}-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
 	)
 
-const spanOf = (s: SpanV) => ({ start: P.Instant(s.start), end: P.Instant(s.end) })
+const spanOf = (s: SpanV) => ({ start: P.toInstant(s.start), end: P.toInstant(s.end) })
 
 /**
  * A relation's facts as its caller writes them (Addition<R>): grizzle draws every count and accumulates every sum of a
@@ -406,17 +406,17 @@ export const settleRequests = (
 				kind: k.kind,
 				model: q.model,
 				priced: spanOf(pricedAt(q.during)),
-				tokens: P.Tokens(tokensOf(k.kind)),
-				amount: P.Micros(k.amount),
-				credited: P.Micros(k.credited)
+				tokens: P.toTokens(tokensOf(k.kind)),
+				amount: P.toMicros(k.amount),
+				credited: P.toMicros(k.credited)
 			})),
-			total: { event: q.id, workspace, month: P.MonthNo(monthNo), amount: P.Micros(total) },
-			cost: { event: q.id, amount: P.Micros(cost) },
+			total: { event: q.id, workspace, month: P.toMonthNo(monthNo), amount: P.toMicros(total) },
+			cost: { event: q.id, amount: P.toMicros(cost) },
 			debits: Arr.map(settlement.debits, (d) => ({
 				grant: d.grant,
 				event: q.id,
 				kind: d.kind,
-				amount: P.Micros(d.amount),
+				amount: P.toMicros(d.amount),
 				during: spanOf(q.during)
 			}))
 		})

@@ -29,12 +29,13 @@ import type {
  * phantoms no runtime value holds. Logic.when hands its branch's function the term its guard holds, which is the
  * guard's subject with the guard's facts proved, and builds over the term the function returns.
  *
- * Type: a typed constant of a descriptor's type, a contract dropped to its base, and a checked cast.
+ * Type: a typed constant of a descriptor's type, a contract dropped to its base, and a checked cast, into a consumer's
+ * contract under its key.
  */
 export const Type: TypeApi = Object.freeze<TypeApi>({
 	literal: (type, value) => C.literal(type, value),
 	base: (x) => C.base(x),
-	cast: (x, to) => C.cast(x, to)
+	cast: (x, to, ...key) => C.cast(x, to, ...key)
 })
 
 /** Num: arithmetic, rounding and the numeric functions over the numeric family, and the guards over it. */
@@ -76,8 +77,8 @@ export const Logic: LogicApi = Object.freeze<LogicApi>({
 	cond: (p, then, otherwise) => C.cond(p, then, otherwise),
 	when: (guard, then, otherwise) => C.when(guard, then(guard[guarded]), otherwise),
 	not: (p) => C.not(p),
-	and: (...ps) => C.and(ps),
-	or: (...ps) => C.or(ps),
+	and: (ps) => C.and(ps),
+	or: (ps) => C.or(ps),
 	eq: (a, b) => C.eq(a, b),
 	ne: (a, b) => C.ne(a, b),
 	lt: (a, b) => C.lt(a, b),

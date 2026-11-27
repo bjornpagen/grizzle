@@ -27,22 +27,37 @@ type Start = (typeof starts)[number]
 const values = [0, 1, 2] as const
 type Value = (typeof values)[number]
 
+/** The relations a DELETE removes a stored row of, and a TRUNCATE every row of: Node and Expr, both immutable. */
+const deleted = ["Node", "Expr"] as const
+type Deleted = (typeof deleted)[number]
+
 /**
- * A case: the shape of the whole judge it runs on, and the UPDATE the table's owner runs over the stored document, of
- * `target` at the row at start `at`, to `value`.
+ * The write the table's owner runs over the stored document at the row at start `at`: an UPDATE of `target` to `value`,
+ * a DELETE of the row of `of`, or a TRUNCATE of `of`, CASCADE, so no foreign key of another table refuses it before
+ * its table's triggers fire.
  */
+export type Write =
+	| { readonly kind: "update"; readonly target: Target; readonly value: Value }
+	| { readonly kind: "delete" | "truncate"; readonly of: Deleted }
+
+/** A case: the shape of the whole judge it runs on, the row at start `at` of the stored document, and the write. */
 export interface Rewrite {
 	readonly shape: ShapeKey
-	readonly target: Target
 	readonly at: Start
-	readonly value: Value
+	readonly write: Write
+}
+
+const writeGen: Gen<Write> = (s) => {
+	const kind = s.draw(element(["update", "delete", "truncate"] as const))
+	return kind === "update"
+		? { kind, target: s.draw(element(targets)), value: s.draw(element(values)) }
+		: { kind, of: s.draw(element(deleted)) }
 }
 
 export const rewriteGen: Gen<Rewrite> = (s) => ({
 	shape: s.draw(element(shapeKeys)),
-	target: s.draw(element(targets)),
 	at: s.draw(element(starts)),
-	value: s.draw(element(values))
+	write: s.draw(writeGen)
 })
 
 export type RewriteFeature =
@@ -50,20 +65,24 @@ export type RewriteFeature =
 	| "an UPDATE of a key field refused"
 	| "an UPDATE of an expression refused"
 	| "an UPDATE that changes no row runs"
+	| "a DELETE of a node refused"
+	| "a DELETE of an expression refused"
+	| "a TRUNCATE of the nodes refused"
+	| "a TRUNCATE of the expressions refused"
 
 /**
  * The value the row at start `at` of document 1, written whole and lawful (rule-whole.fixtures.ts statementsOf `unit`
  * at type 1, which keeps every rule; at type 0 One type refuses it), holds at `target`: its nodes at starts 0, 1 and 2
  * of kinds 2, 1 and 0, each its parent 0, and its expressions each of type 1.
  */
-const stored = (r: Rewrite): number => {
-	switch (r.target) {
+const stored = (target: Target, at: Start): number => {
+	switch (target) {
 		case "node kind":
-			return 2 - r.at
+			return 2 - at
 		case "node parent":
 			return 0
 		case "node start":
-			return r.at
+			return at
 		case "node doc":
 			return 1
 		case "expr type":
@@ -82,6 +101,17 @@ const updated = {
 	readonly [T in Target]: { readonly relation: "Node" | "Expr"; readonly column: string }
 }
 
+/** What a refused DELETE and a refused TRUNCATE show of their relation. */
+const removed = {
+	delete: { Node: "a DELETE of a node refused", Expr: "a DELETE of an expression refused" },
+	truncate: {
+		Node: "a TRUNCATE of the nodes refused",
+		Expr: "a TRUNCATE of the expressions refused"
+	}
+} as const satisfies {
+	readonly [K in "delete" | "truncate"]: { readonly [R in Deleted]: RewriteFeature }
+}
+
 /** What a refused UPDATE shows of its target. */
 const shown = {
 	"node kind": "an UPDATE of a field beside the key refused",
@@ -91,12 +121,32 @@ const shown = {
 	"expr type": "an UPDATE of an expression refused"
 } as const satisfies { readonly [T in Target]: RewriteFeature }
 
+/** The command each write runs. */
+const commands = {
+	update: "UPDATE",
+	delete: "DELETE",
+	truncate: "TRUNCATE"
+} as const satisfies { readonly [K in Write["kind"]]: string }
+
+/** The statement of the write `w` of `table`, an UPDATE or a DELETE at the row `at` selects. */
+const statementOf = (w: Write, table: string, at: string): string => {
+	switch (w.kind) {
+		case "update":
+			return `${commands[w.kind]} ${table} SET ${updated[w.target].column} = ${w.value} ${at}`
+		case "delete":
+			return `${commands[w.kind]} FROM ${table} ${at}`
+		case "truncate":
+			return `${commands[w.kind]} ${table} CASCADE`
+	}
+}
+
 class Unguarded extends Data.TaggedError("Unguarded")<{ readonly message: string }> {}
 
 /**
- * Stores document 1 whole as the owner, then runs the case's UPDATE as the owner in a transaction of its own: refused
- * with insufficient_privilege naming the updated table where it changes the row, and run where it sets the value the row
- * holds; either way every stored row is as it was.
+ * Stores document 1 whole as the owner, then runs the case's write as the owner in a transaction of its own: a DELETE
+ * or a TRUNCATE refused with insufficient_privilege naming the table, a closed relation's facts never removed; an UPDATE
+ * refused alike where it changes the row, and run where it sets the value the row holds; either way every stored row is
+ * as it was.
  */
 export const runRewrite = (
 	installed: Installed,
@@ -122,14 +172,15 @@ export const runRewrite = (
 			(found) => Formatter.format(found)
 		)
 		const before = yield* rows
-		const { relation, column } = updated[r.target]
+		const w = r.write
+		const relation = w.kind === "update" ? updated[w.target].relation : w.of
 		const table = relation === "Expr" ? tables.expr : tables.node
-		const update = `UPDATE ${table} SET ${column} = ${r.value} WHERE doc = 1 AND start = ${r.at}`
+		const statement = statementOf(w, table, `WHERE doc = 1 AND start = ${r.at}`)
 		yield* session.begin
-		const refused = yield* refusalOf(session.query(update, []))
+		const refused = yield* refusalOf(session.query(statement, []))
 		yield* Option.isNone(refused) ? session.commit : session.rollback
-		const changes = r.value !== stored(r)
-		const where = `${update} over ${Formatter.format(r)}`
+		const changes = w.kind !== "update" || w.value !== stored(w.target, r.at)
+		const where = `${statement} over ${Formatter.format(r)}`
 		const named = installed.installation.names.relation(relation).name
 		if (!changes) {
 			if (Option.isSome(refused)) {
@@ -144,14 +195,17 @@ export const runRewrite = (
 			!Option.contains(refused.value.table, named)
 		) {
 			return yield* new Unguarded({
-				message: `the owner's UPDATE of an immutable relation's row ${Option.match(refused, {
-					onNone: () => "committed",
-					onSome: (e) =>
-						`was refused under ${e.code} naming ${Option.getOrElse(e.table, () => "no table")}`
-				})}, where it is refused under ${sqlstates.insufficientPrivilege} naming ${named}, ${where}`
+				message: `the owner's ${commands[w.kind]} of an immutable relation's rows ${Option.match(
+					refused,
+					{
+						onNone: () => "committed",
+						onSome: (e) =>
+							`was refused under ${e.code} naming ${Option.getOrElse(e.table, () => "no table")}`
+					}
+				)}, where it is refused under ${sqlstates.insufficientPrivilege} naming ${named}, ${where}`
 			})
 		} else {
-			c.note(shown[r.target])
+			c.note(w.kind === "update" ? shown[w.target] : removed[w.kind][w.of])
 		}
 		const after = yield* rows
 		if (after !== before) {

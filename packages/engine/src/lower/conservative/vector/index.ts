@@ -172,7 +172,7 @@ export const lowerVectorOp = (
 		case "zoneLibrary":
 		case "epochDay":
 		case "dateOfEpochDay":
-		case "canonicalZero":
+		case "canonical":
 		case "searchPart":
 		case "textSearch":
 			return refuseAt("UnsupportedOperation", at, `the vector operation ${describeOp(expr.op)}`)

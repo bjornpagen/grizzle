@@ -79,9 +79,23 @@ export const writeOracle = property.explore(perturbedRunGen, {
 			reason:
 				"a read-back of G0R1's removed facts attaching G0R0, both deleted in one stratum their containment orders, runs after the writes over its delta carried out of G0R1's deletion, whose carrier's fill is a data-modifying CTE no part of the statement reads, with no RETURNING",
 			since: "2026-11-24"
+		},
+		{
+			token: ReplayToken(
+				"test/pg/write/oracle/oracle.test.ts#writeOracle:-:1.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.cn4.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.4.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.1.0.0.0.0.0.0.0.1.0.0.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.2.0.1.0.0.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.1.0.0.0.0.0.1.0.0.0.0.0.1.2.1.0.0.9.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.1"
+			),
+			reason:
+				"a put of no fact beside the deletion of its scope's absent keys, `put G0R2 $rp0` and `delete G0R2 scoped where a = $p1 and key not in $rp0` over G0R2 {0, 0}, rp0 empty and p1 0: the deletion removes {0, 0}, which the MERGE absorbing it left, sent only where its put input held a fact, the optimized program answering no-change where the conservative one deletes",
+			since: "2026-11-27"
 		}
 	],
 	kills: [
+		{
+			file: "packages/engine/src/write/put/statement.ts",
+			original: "\t\t\tneeds: either([inputNeeds(input), spec.scope.deleted]),",
+			replacement: "\t\t\tneeds: inputNeeds(input),",
+			why: "A MERGE that absorbs a deletion is sent only where its put input holds a fact, so a put of no fact beside the deletion of its scope's absent keys deletes nothing: the optimized program answers no-change where the conservative one, its two statements, deletes the scope's rows."
+		},
 		{
 			file: "packages/engine/src/physical/ddl/roles.ts",
 			original: '\t\t\treturn ["SELECT", "INSERT"]',
@@ -122,8 +136,8 @@ export const writeOracle = property.explore(perturbedRunGen, {
 		},
 		{
 			file: "packages/engine/src/check/checker.ts",
-			original: "\t\t\tconst found = pending.find((q) => waiting(q.match).length === 0)",
-			replacement: "\t\t\tconst found = pending.find((q) => waiting(q.match).length === (-1))",
+			original: "\t\t\tconst found = pending.find((q) => waiting(q).length === 0)",
+			replacement: "\t\t\tconst found = pending.find((q) => waiting(q).length === (-1))",
 			why: "Operator mutant (bound) at packages/engine/src/check/checker.ts:2568 in <module>: `0` becomes `(-1)`; the property fails (lane CATCH, grizzle 0baff5d6, against the mutation tester's oracle subset scripts/dev/mutate/oracle/writes.test.ts, which this property replaces)."
 		},
 		{
@@ -137,6 +151,12 @@ export const writeOracle = property.explore(perturbedRunGen, {
 			original: "\t\t\t\t\tunmatched\n",
 			replacement: "\t\t\t\t\tlit.bool(true)\n",
 			why: "A deferred foreign key's witness query names the least row of its table whatever it references: a deferred containment's refusal at COMMIT is witnessed by the least source fact, one naming a target fact where the source holds such a fact below every unmatched one, where the expectation is a source fact naming none."
+		},
+		{
+			file: "packages/grizzle/src/adapter/apply/run.ts",
+			original: "\t\t\t\t...statements,\n",
+			replacement: "\t\t\t\t...statements.slice(0, -1),\n",
+			why: "The diagnosis of a refusal at COMMIT sends the write's statements before its last one, not through it: its witness query reads a state the write's last statement never reached, so a deferred containment the final state breaks is witnessed by no row or by another, where the expectation is the primary key of a source fact naming no target fact."
 		}
 	]
 })

@@ -279,7 +279,7 @@ export default defineGate({
 	} satisfies { readonly full: Options; readonly quick: Options },
 	run: ({ options }) =>
 		Effect.gen(function* () {
-			const fx = yield* installFixture(Plan, programs, {}, "benchplanning", [])
+			const fx = yield* installFixture(Plan, programs, {}, "benchplanning", () => [])
 			yield* fill(fx, "Edge", options.nodes * 2, {
 				src: "(1 + (g - 1) / 2)::int8",
 				dst: `(1 + (2 * ((g - 1) / 2) + g % 2) % ${options.nodes})::int8`,

@@ -1,5 +1,6 @@
 import { identity } from "#compiler/core/identity.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { installOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import { succeeded } from "#test/support/assert.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"

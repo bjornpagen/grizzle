@@ -57,7 +57,7 @@ export const anAttachmentOverAUnionOfRulesReadsEachArmByItsParentsKeysSoItsWorkI
 			({ ledger }, c) =>
 			(drawn) =>
 				Effect.flatMap(ledger, ({ substrate, value }) =>
-					runAttachUnion(value, substrate.admin, drawn, c)
+					runAttachUnion(value.installed, substrate.admin, drawn, c)
 				),
 		oracle: {
 			kind: "universal",

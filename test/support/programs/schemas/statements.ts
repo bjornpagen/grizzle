@@ -4,7 +4,6 @@
  * this module alone.
  */
 export type {
-	Alternatives,
 	Check,
 	Containment,
 	Counted,

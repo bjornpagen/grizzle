@@ -96,7 +96,7 @@ const built = <N, B>(
 			case "not":
 				return Logic.not(go(x.arg))
 			case "or":
-				return Logic.or(go(x.left), go(x.right))
+				return Logic.or([go(x.left), go(x.right)])
 		}
 	}
 	return go(shape)

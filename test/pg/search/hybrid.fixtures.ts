@@ -10,7 +10,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { fixtureSpec, fixtureTemplate } from "#test/pg/reads/support.ts"
 import {
 	dimensions,
 	generator,
@@ -18,7 +18,11 @@ import {
 	unitVector,
 	vectorText
 } from "#test/pg/vector/ann/support.ts"
-import type { Installed } from "#test/support/install-migrate.ts"
+import {
+	type Installed,
+	loadMigrated,
+	seededGeneratedTemplate
+} from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { FactSet } from "#test/support/oracle/install/load.ts"
 import { countedAsVacuumed } from "#test/support/substrate/fill.ts"
@@ -76,15 +80,15 @@ const nearestArm = query(Catalog)
 		return r
 			.match(Lesson, { lesson, subject, grade, app, intervention, embedding })
 			.where(
-				r.and(
+				r.and([
 					r.eq(subject, r.param("subject", Lesson.fields.subject)),
 					r.le(grade, r.param("grade", Lesson.fields.grade)),
 					r.eq(app, r.param("app", Lesson.fields.app)),
-					r.or(
+					r.or([
 						r.eq(intervention, r.param("intervention", Lesson.fields.intervention)),
 						r.eq(intervention, "both")
-					)
-				)
+					])
+				])
 			)
 			.find({
 				lesson,
@@ -101,16 +105,16 @@ const textArm = query(Catalog)
 		return r
 			.match(Lesson, { lesson, subject, grade, app, intervention, search })
 			.where(
-				r.and(
+				r.and([
 					Search.matches(search, q),
 					r.eq(subject, r.param("subject", Lesson.fields.subject)),
 					r.le(grade, r.param("grade", Lesson.fields.grade)),
 					r.eq(app, r.param("app", Lesson.fields.app)),
-					r.or(
+					r.or([
 						r.eq(intervention, r.param("intervention", Lesson.fields.intervention)),
 						r.eq(intervention, "both")
-					)
-				)
+					])
+				])
 			)
 			.find({ lesson, rank: Search.rank(search, q) })
 	})
@@ -136,10 +140,10 @@ const places = query(Catalog)
 			.match(near, { lesson: x.lesson, distance: x.distance })
 			.match(near, { lesson: y.lesson, distance: y.distance })
 			.where(
-				r.or(
+				r.or([
 					r.lt(y.distance, x.distance),
-					r.and(r.eq(y.distance, x.distance), r.le(y.lesson, x.lesson))
-				)
+					r.and([r.eq(y.distance, x.distance), r.le(y.lesson, x.lesson)])
+				])
 			)
 			.find({ arm: "nearest", lesson: x.lesson, place: r.count() })
 	})
@@ -156,7 +160,7 @@ const places = query(Catalog)
 		return r
 			.match(text, { lesson: x.lesson, rank: x.rank })
 			.match(text, { lesson: y.lesson, rank: y.rank })
-			.where(r.or(r.gt(y.rank, x.rank), r.and(r.eq(y.rank, x.rank), r.le(y.lesson, x.lesson))))
+			.where(r.or([r.gt(y.rank, x.rank), r.and([r.eq(y.rank, x.rank), r.le(y.lesson, x.lesson)])]))
 			.find({ arm: "text", lesson: x.lesson, place: r.count() })
 	})
 
@@ -206,10 +210,10 @@ const route = query(Catalog).rule((r) => {
 	return r
 		.match(Lesson, { lesson, subject, app })
 		.where(
-			r.and(
+			r.and([
 				r.eq(app, r.param("app", Lesson.fields.app)),
 				r.eq(subject, r.param("subject", Lesson.fields.subject))
-			)
+			])
 		)
 		.find({ lesson })
 })
@@ -221,6 +225,9 @@ export const hybridInstall = { label: "hybrid", programs } as const
 
 /** Catalog installed once per member (reads/support.ts fixtureTemplate), which each case's own clone holds. */
 export const hybridTemplate = fixtureTemplate(import.meta, Catalog, hybridInstall)
+
+/** The seeded catalog's installation: the same programs, under a label of its own. */
+export const seededInstall = { label: "hybrid-seeded", programs } as const
 
 /** The words a text is drawn of: inflections english stems together, stop words, and a few other words. */
 const vocabulary = [
@@ -281,23 +288,33 @@ const probeGen =
 		take: s.draw(int(1, 2 * armTake))
 	})
 
-/**
- * A case: how many lessons, how many subjects and apps they span, the number their fields and embeddings are drawn
- * from, and up to eight probes.
- */
-export interface HybridCase {
+/** A catalog: how many lessons, how many subjects and apps they span, and the number their fields and embeddings are drawn from. */
+export interface CatalogSpec {
 	readonly lessons: number
 	readonly subjects: number
 	readonly apps: number
 	readonly draw: number
+}
+
+/**
+ * Where a case's catalog stands: drawn by the case, which loads it into its own clone of hybridTemplate; or the seeded
+ * catalog (`seededCatalog`), which hybridSeededTemplate's build loads once per member, each case's clone holding it.
+ */
+export type Population =
+	| { readonly kind: "drawn"; readonly catalog: CatalogSpec }
+	| { readonly kind: "seeded" }
+
+/** A case: its catalog's population, and up to eight probes of it. */
+export interface HybridCase {
+	readonly population: Population
 	readonly probes: Arr.NonEmptyReadonlyArray<Probe>
 }
 
 /**
  * The most lessons a small case holds, and how many subjects and apps they span: few enough that a case loads in a
  * moment. A small case's nearest arm reads its relation whole and sorted, exactly, its route's filters above the ordered
- * stream (lower/shapes/vector fenceOf); a large case's, of 2^16 lessons and more (`hybridCaseGen`), reads the stream
- * from the HNSW index, so the route's filters meet the index's iterative scan: PostgreSQL drives the stream from the
+ * stream (lower/shapes/vector fenceOf); a large case's, the seeded catalog's 2^16 lessons (`seededCatalog`), reads the
+ * stream from the HNSW index, so the route's filters meet the index's iterative scan: PostgreSQL drives the stream from the
  * index once the relation holds more rows than the index scan costs over a sorted read of all, on PostgreSQL 19 with
  * pgvector 0.8.7 over eight dimensions a sorted read up to 40,000 rows and the index from 50,000
  * (~/.cache/grizzle/DECLSTATS-work/fence/run5.log, 2026-11-23). Measured before the stream was fenced, over 40,000 routes
@@ -307,21 +324,45 @@ export interface HybridCase {
  */
 const mostLessons = 2400
 
+/**
+ * The large catalog, 2^16 lessons over two subjects and two apps, past the 50,000 rows from which PostgreSQL drives the
+ * nearest arm's stream from the HNSW index (`mostLessons`), seeded once per member (hybridSeededTemplate), where each
+ * large case loaded a catalog of its own: an insert into Lesson walks its HNSW graph, pgvector's ef_construction
+ * candidates and their 2m neighbours, 1,760 buffer hits and 0.77 ms of its backend's CPU a row on PostgreSQL 19 with
+ * pgvector 0.8.7 (an INSERT of 1,000 lessons, EXPLAIN ANALYZE: 767 ms), so a case of 69,261 lessons spent 53 s of
+ * backend CPU loading them and 7 s of its own, past the runner's 60 s case deadline, which counts the backends a case's
+ * sockets hold since 875c04cf22 (lane TOOLBUMP), before its first probe (lane REDB, 2026-11-27).
+ */
+export const seededCatalog: CatalogSpec = { lessons: 2 ** 16, subjects: 2, apps: 2, draw: 1 }
+
+/** A case's catalog, its own or the seeded one. */
+export const catalogOf = (population: Population): CatalogSpec =>
+	population.kind === "drawn" ? population.catalog : seededCatalog
+
+/** A catalog drawn by a case of `lessons` lessons over one or two subjects and apps. */
+const drawnGen =
+	(lessons: Gen<number>): Gen<Population> =>
+	(s) => ({
+		kind: "drawn",
+		catalog: {
+			lessons: s.draw(lessons),
+			subjects: s.draw(int(1, 2)),
+			apps: s.draw(int(1, 2)),
+			draw: s.draw(int(0, 2 ** 31 - 1))
+		}
+	})
+
 export const hybridCaseGen: Gen<HybridCase> = (s) => {
-	const lessons = s.draw(
-		weighted<number>([
-			[3, int(1600, mostLessons)],
-			[1, int(0, 80)],
-			[1, int(2 ** 16, 2 ** 16 + 2 ** 12)]
+	const population = s.draw(
+		weighted<Population>([
+			[3, drawnGen(int(1600, mostLessons))],
+			[1, drawnGen(int(0, 80))],
+			[1, () => ({ kind: "seeded" })]
 		])
 	)
-	const subjects = s.draw(int(1, 2))
-	const apps = s.draw(int(1, 2))
+	const { subjects, apps } = catalogOf(population)
 	return {
-		lessons,
-		subjects,
-		apps,
-		draw: s.draw(int(0, 2 ** 31 - 1)),
+		population,
 		probes: [
 			s.draw(probeGen(subjects, apps)),
 			...s.draw(array(probeGen(subjects, apps), { min: 0, max: 7 }))
@@ -333,8 +374,8 @@ export const hybridCaseGen: Gen<HybridCase> = (s) => {
 export const vectorOf = (n: number) =>
 	Vector.make(Float32Array.from(unitVector(generator(n))), dimensions)
 
-/** A case's facts: each lesson by its position, its route, texts and embedding drawn from the case's number. */
-export const hybridFacts = (c: HybridCase): FactSet => {
+/** A catalog's facts: each lesson by its position, its route, texts and embedding drawn from the catalog's number. */
+export const catalogFacts = (c: CatalogSpec): FactSet => {
 	const next = generator(c.draw)
 	const pick = (count: number): number => Math.floor(next() * count)
 	const words = (least: number, most: number): string =>
@@ -355,6 +396,49 @@ export const hybridFacts = (c: HybridCase): FactSet => {
 		}))
 	}
 }
+
+/**
+ * The facts a case loads into its own clone: its drawn catalog's, or none over the seeded catalog, which its clone
+ * holds.
+ */
+export const hybridFacts = (c: HybridCase): FactSet =>
+	c.population.kind === "drawn" ? catalogFacts(c.population.catalog) : {}
+
+/**
+ * The CPU the seeded catalog's template's open may spend: its build, the install and the seeded catalog's 2^16 lessons
+ * loaded, their backend's HNSW walk the most of it, or its first clone.
+ *
+ * @limitKind measured
+ * @owner test/pg/search/hybrid.fixtures.ts hybridSeededTemplate
+ * @unit milliseconds of CPU as the runner's meter reads it: the worker's, its descendants' and its backends'
+ * @scope each open of hybridSeededTemplate on one worker
+ * @evidence `toolchain-test run test/pg/search/hybrid.test.ts` with an uncommitted print at the end of the template's
+ *   install (install-migrate.ts generatedTemplateOf): the worker's CPU from the install's start and the CPU of the
+ *   template database's backends then alive, the load's among them (lane REDB's hyb3.log, build.txt)
+ * @observed 2026-11-27 13:20Z to 13:25Z
+ * @environment cassowary, Ubuntu 26.04 (Linux 7.0.0) on an AWS Graviton3 (arm64) instance with 64 logical CPUs and
+ *   247 GiB, Node 26.13.1, PostgreSQL 19.0 with pgvector 0.8.7; grizzle b0737bd3f9 with this change, toolchain
+ *   54e53afbe; load 345 to 420
+ * @workload the property's one readying, its two templates built: hybridTemplate and this one
+ * @result this template's install and seed: 3.3 s of the worker's CPU and 71.8 s of the load's backend, 92.6 s of wall
+ *   time; hybridTemplate's whole install 2.5 s of the worker's and 4.0 s of wall time, the drafting every worker
+ *   computes beside it a few seconds more
+ * @decision 160 s: twice the open the print read, 75.1 s, and the drafting beside it, rounded up. An open past it has
+ *   regressed
+ * @revalidate a larger seeded catalog, another HNSW index setting or pgvector version, another machine, a PostgreSQL or
+ *   Node upgrade, a change of the runner's meter, the template reported unopened over its budget
+ */
+const seededBudget = 160_000
+
+/**
+ * The seeded catalog installed and loaded once per member (install-migrate.ts seededGeneratedTemplate), which each
+ * large case's own clone holds.
+ */
+export const hybridSeededTemplate = seededGeneratedTemplate(
+	fixtureSpec(import.meta, Catalog, seededInstall),
+	(installed) => loadMigrated(installed, catalogFacts(seededCatalog)),
+	seededBudget
+)
 
 /** Counts Lesson's size as autovacuum's VACUUM does (fill.ts countedAsVacuumed), so the planner reads it. */
 export const analyzed = (installed: Installed) =>

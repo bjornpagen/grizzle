@@ -11,8 +11,8 @@ import type { RoleContext } from "#adapter/served/role.ts"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
 import { lawsAbove } from "#adapter/witness/keylaw.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { Engine, levelChain, type RowDecoder } from "#compiler/plan/common.ts"
-import { everySlice, servedSnapshot } from "#compiler/plan/serve.ts"
+import { levelChain, type RowDecoder } from "#compiler/plan/common.ts"
+import { servedSnapshot } from "#compiler/plan/serve.ts"
 import type { AnyLoginRole } from "#compiler/types/schema/world.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import { snapshotValue } from "#test/support/snapshot-json.ts"
@@ -34,7 +34,8 @@ export class RoleSetupError extends Data.TaggedError("RoleSetupError")<{ readonl
  * `recorded`), and the login's roles compiled over
  * them (adapter/served/login.ts loginRoles), its own workload left out. A program the suite compiles through the role
  * casts a parameter only to a type the installation installs, or is refused as UninstalledDomain where it compiles, so
- * the installation must plan the parameter types of every program the suite runs (test/support/compile.ts paramsOver).
+ * the installation must plan the parameter types of every program the suite runs, as it does where its login serves
+ * them as its workload (install-migrate.ts installGenerated).
  */
 export const servedRoleContext = (
 	installed: Installed,
@@ -53,20 +54,18 @@ export const servedRoleContext = (
 				levelChain(login.base.desc).length - 1
 			)
 		)
-		const slice = everySlice(owned.base)
-		const { artifacts } = yield* fromEngine(
-			artifactsUnder(owned.base, snapshot.codes, snapshot.derived, slice, {
-				kind: "recorded",
-				installed: snapshot.derived.params
-			})
+		const artifacts = yield* fromEngine(
+			artifactsUnder(
+				owned.base,
+				snapshot.codes,
+				snapshot.derived,
+				{ kind: "recorded", installed: snapshot.derived.params },
+				{ kind: "analyzed" },
+				new Set()
+			)
 		)
 		const roles = yield* Effect.mapError(
-			loginRoles(
-				{ ...login, workload: [] },
-				owned,
-				{ slice, artifacts, over: () => Engine.ok(artifacts) },
-				lawsAbove(snapshot)
-			),
+			loginRoles({ ...login, workload: [] }, owned, artifacts, lawsAbove(snapshot)),
 			(refused) => refused.error
 		)
 		const found = Arr.findFirst(roles, (r) => r.role.name === role.role.name)

@@ -139,7 +139,6 @@ const installLiterals = (install: InstallSpec): ReadonlyArray<HostValue> => {
 				return [...Rec.values(law.source.where), ...Rec.values(law.target.where)]
 			case "key":
 			case "spanKey":
-			case "alternatives":
 				return []
 		}
 	})
@@ -1617,7 +1616,6 @@ const baseLiterals = (base: BaseSpec): ReadonlySet<string> =>
 					case "key":
 					case "spanKey":
 					case "check":
-					case "alternatives":
 						return []
 				}
 			}),

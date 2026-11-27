@@ -26,8 +26,8 @@ import {
 } from "#compiler/scalar/compute/lower.ts"
 import { nativeHolds } from "#compiler/scalar/compute/native.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
-import { formOctets, parseTargetOf } from "#compiler/scalar/lexical.ts"
-import { formIncludes, patternIncludes } from "#compiler/scalar/regex/inclusion.ts"
+import { formOctets, formSource, parseTargetOf } from "#compiler/scalar/lexical.ts"
+import { languageIncludes } from "#compiler/scalar/regex/inclusion.ts"
 import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
 import { AnalyzedPatterns } from "#compiler/text/refinement.ts"
 
@@ -35,7 +35,8 @@ import { AnalyzedPatterns } from "#compiler/text/refinement.ts"
  * Whether a proof's premises establish its precondition: the proof kernel, which re-checks the kept proofs a lowering
  * builds (ir/proof.ts PreconditionProof). A fact precondition holds by a premise of that fact on its operand, or by an
  * interval premise on it whose every value has the fact (bounds.ts premiseHas); powerDomain by fact premises of power's
- * sign; fits, contract, powerRange, bucketDomain and clock by interval premises the caller's `judge` reads, with the
+ * sign; integral by a scale premise on its operand at a scale of 0 or below, which the caller's `judge` reads; fits,
+ * contract, powerRange, bucketDomain and clock by interval premises the caller's `judge` reads, with the
  * arithmetic scalar/compute/lower.ts writes once for each, fits over the values but NaN and the others over intervals
  * that hold no NaN; lexical by a language premise whose language the judge finds inside the parse's form again, within
  * the form's byte bound where it has one, or a literal it parses; a contract into a regex-refined text with no contract by a language premise whose language it
@@ -58,6 +59,7 @@ const checkProof = (
 					((m.kind === "fact" && m.fact === p.kind) ||
 						(m.kind === "interval" && premiseHas(m, p.kind)))
 			)
+		case "integral":
 		case "fits":
 		case "contract":
 		case "language":
@@ -94,6 +96,11 @@ const proofHolds = (
 			return p === undefined || p.nan ? undefined : p
 		}
 		switch (precondition.kind) {
+			case "integral":
+				return Arr.some(
+					premises,
+					(m) => m.kind === "scale" && m.operand === precondition.operand && m.scale <= 0
+				)
 			case "fits": {
 				const p = interval(0)
 				const range = fitRange(node.type)
@@ -110,16 +117,17 @@ const proofHolds = (
 				) {
 					return false
 				}
-				const octets = octetsOf(refinement.check)
 				return Arr.some(
 					premises,
 					(m: OperandPremise) =>
 						(m.kind === "checked" && m.operand === 0) ||
 						(m.kind === "language" &&
 							m.operand === 0 &&
-							(octets === undefined || (m.bytes !== undefined && m.bytes <= octets)) &&
-							patternIncludes(m.patterns, refinement.patterns, new AnalyzedPatterns()).kind ===
-								"included")
+							languageIncludes(
+								{ patterns: m.patterns, octets: m.bytes },
+								{ patterns: refinement.patterns, octets: octetsOf(refinement.check) },
+								new AnalyzedPatterns()
+							) === "included")
 				)
 			}
 			case "contract": {
@@ -189,8 +197,11 @@ const proofHolds = (
 							p.operand === 0 &&
 							((p.kind === "checked" && p.by === "literal") ||
 								(p.kind === "language" &&
-									(octets === undefined || (p.bytes !== undefined && p.bytes <= octets)) &&
-									formIncludes(p.patterns, form, new AnalyzedPatterns()).kind === "included"))
+									languageIncludes(
+										{ patterns: p.patterns, octets: p.bytes },
+										{ patterns: [{ source: formSource(form), flags: "u" }], octets },
+										new AnalyzedPatterns()
+									) === "included"))
 					)
 				)
 			}

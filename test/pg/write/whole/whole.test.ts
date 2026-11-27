@@ -79,8 +79,8 @@ export const deletingAGroupWholeAndReplacingItOnPostgreSQL19EveryChangeSetStores
 				Effect.flatMap(whole, ({ substrate: s, value: done }) =>
 					Effect.provideService(
 						Effect.gen(function* () {
-							const world = worldOf(done.schema)
-							const names = namesOf(done)
+							const world = worldOf(done.installed.schema)
+							const names = namesOf(done.installed)
 							const lawNames = lawNamesOf(world)
 							/** The laws of the trees' and the shelves' relations, which a unit differing at a stored key breaks. */
 							const unitLaws: ReadonlyArray<LawId> = [
@@ -105,13 +105,13 @@ export const deletingAGroupWholeAndReplacingItOnPostgreSQL19EveryChangeSetStores
 							}
 							const served = fullWorld(world, {})
 							return yield* Effect.gen(function* () {
-								const db = yield* openServedDb(done, served.server.roles.app, {})
+								const db = yield* openServedDb(done.installed, served.server.roles.app, {})
 								/** Every relation's stored rows equal the model's. */
 								const storesExactly = (m: Model, what: string) =>
 									Effect.gen(function* () {
 										const expected = render(m)
 										for (const name of relationNames) {
-											const stored = yield* tableState(done, relations[name])
+											const stored = yield* tableState(done.installed, relations[name])
 											unorderedEqual(stored, expected[name], `${name}'s rows after ${what}`)
 										}
 									})
@@ -124,7 +124,7 @@ export const deletingAGroupWholeAndReplacingItOnPostgreSQL19EveryChangeSetStores
 										const texts: Array<string> = []
 										for (const [r, field] of unitParts[unit]) {
 											const rows = yield* s.admin.queryValues(
-												`SELECT ctid::text || '@' || xmin::text FROM ${printObjectName(done.names.relation(r.name))} WHERE ${quoteIdent(done.names.column(r.name, field))} = ${String(key)} ORDER BY ctid`,
+												`SELECT ctid::text || '@' || xmin::text FROM ${printObjectName(done.installed.names.relation(r.name))} WHERE ${quoteIdent(done.installed.names.column(r.name, field))} = ${String(key)} ORDER BY ctid`,
 												[]
 											)
 											texts.push(
@@ -580,8 +580,9 @@ export const deletingAGroupWholeAndReplacingItOnPostgreSQL19EveryChangeSetStores
 			},
 			{
 				file: "packages/grizzle/src/adapter/apply/run.ts",
-				original: "\treturn detail === undefined ? unreproduced : unmatchedKey(unmatched, detail)",
-				replacement: "\treturn unreproduced",
+				original:
+					"\treturn detail === undefined ? unreproduced : unmatchedKey(unmatched, detail)\n",
+				replacement: "\treturn unreproduced\n",
 				why: "The diagnosis of a refusal at COMMIT reads no row: a crossing group a test's or an assembly's delete leaves partial, which the family's deferred predecessor or last key refuses at COMMIT, is refused with an unreproduced witness, as though another commit had changed the state, where the write's statements sent again leave the row that key leaves unmatched, whose key is the witness."
 			}
 		]

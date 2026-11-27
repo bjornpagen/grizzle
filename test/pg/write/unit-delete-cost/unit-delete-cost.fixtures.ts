@@ -134,7 +134,7 @@ export const runDelete = (stored: Stored, c: Case<DeleteFeature>) =>
 		Effect.gen(function* () {
 			const fx = yield* installWrites(build("UnitDeleteCost"), "unitdeletecost", {
 				programs: { byKind: byKindOf(build("UnitDeleteCost")) },
-				logins: []
+				logins: () => []
 			})
 			const S: Schema = build(fx.installed.declared)
 			const substrate = yield* Substrate

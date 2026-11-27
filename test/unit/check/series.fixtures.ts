@@ -35,20 +35,23 @@ export const elementBox: FiniteSpace<ElementCase> = finite((source) => {
 	return { a, b, c, d, l, h }
 })
 
+const hiKey = Symbol("Hi")
+const loKey = Symbol("Lo")
+const targetKey = Symbol("Target")
 /**
  * Whether the engine compiles a rule over a row of lo within [a, b] and hi within [c, d] that matches the series from
  * lo to hi and delivers each element cast into the contract within [l, h], which the row's `target` installs: no guard,
  * so the cast stands only on the element's interval.
  */
 export const compilesCast = (k: ElementCase): boolean => {
-	const Lo = contract("Lo", pg.bigint, (x) =>
-		Logic.and(Logic.ge(x, BigInt(k.a)), Logic.le(x, BigInt(k.b)))
+	const Lo = contract<typeof loKey>()("Lo", pg.bigint, (x) =>
+		Logic.and([Logic.ge(x, BigInt(k.a)), Logic.le(x, BigInt(k.b))])
 	)
-	const Hi = contract("Hi", pg.bigint, (x) =>
-		Logic.and(Logic.ge(x, BigInt(k.c)), Logic.le(x, BigInt(k.d)))
+	const Hi = contract<typeof hiKey>()("Hi", pg.bigint, (x) =>
+		Logic.and([Logic.ge(x, BigInt(k.c)), Logic.le(x, BigInt(k.d))])
 	)
-	const Target = contract("Target", pg.bigint, (x) =>
-		Logic.and(Logic.ge(x, BigInt(k.l)), Logic.le(x, BigInt(k.h)))
+	const Target = contract<typeof targetKey>()("Target", pg.bigint, (x) =>
+		Logic.and([Logic.ge(x, BigInt(k.l)), Logic.le(x, BigInt(k.h))])
 	)
 	const Ends = relation("Ends", { id: pg.integer, lo: Lo, hi: Hi, target: Target }, ["id"])
 	const S = schema("Series", [Ends], [])
@@ -59,7 +62,7 @@ export const compilesCast = (k: ElementCase): boolean => {
 		return r
 			.match(Ends, { id, lo, hi })
 			.match(elements, { at })
-			.find({ id, at: Type.cast(at, Target) })
+			.find({ id, at: Type.cast(at, Target, targetKey) })
 	})
 	return compileTemplate(q, undefined, testCompile).ok
 }
@@ -79,13 +82,15 @@ export const everyElementWithin = (k: ElementCase): boolean => {
 /** The microseconds of one UTC day. */
 const dayMicros = 86_400_000_000n
 
+const momentKey = Symbol("Moment")
 /** The ledger's clock: an instant before 10000-01-01, the instant after which no day a date holds begins. */
-const Moment = contract("Moment", pg.bigint, (t) =>
+const Moment = contract<typeof momentKey>()("Moment", pg.bigint, (t) =>
 	Num.within(t, 0n, 253_402_300_800_000_000n - 1n)
 )
 
+const stampKey = Symbol("Stamp")
 /** An instant a candidate's application stamps, on a clock wider than the ledger's. */
-const Stamp = contract("Stamp", pg.bigint, (t) => Num.within(t, 0n, 2n ** 62n))
+const Stamp = contract<typeof stampKey>()("Stamp", pg.bigint, (t) => Num.within(t, 0n, 2n ** 62n))
 
 /**
  * The ledger's piece of presence (qti-pie ledger delivery.ts presentPieces and PresentTime): a window's credit, from

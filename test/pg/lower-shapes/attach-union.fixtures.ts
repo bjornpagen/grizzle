@@ -4,32 +4,20 @@ import { assert } from "@bjornpagen/testing/assert"
 import { type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
-import {
-	descentsOf,
-	type PlanNode,
-	parsePlan,
-	planNodes,
-	scannedRows
-} from "#bench/harness/explain.ts"
+import { descentsOf, type PlanNode, planNodes, scannedRows } from "#bench/harness/explain.ts"
 import { identity } from "#compiler/core/identity.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
-import { workload } from "#compiler/program/workload/value.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
-import {
-	compileTemplate,
-	declaredOf,
-	paramTexts,
-	testCompile,
-	workloadOver
-} from "#test/support/compile.ts"
-import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
+import { compileTemplate, declaredOf, paramTexts, testCompile } from "#test/support/compile.ts"
+import { type Installed } from "#test/support/install-migrate.ts"
+import { fullWorldTemplate } from "#test/support/installed.ts"
+import { planAsRun } from "#test/support/judge.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
+import { beginSerializable } from "#test/support/substrate/session.ts"
 
 /**
  * A package's documents, as edullm's qti.document: each by its package and path. A document references media files of
@@ -95,18 +83,13 @@ const documents = query(Files)
 	)
 
 /** The schema installed through its first migration, with a reader login whose workload's indexes `documents` earns. */
-export const attachUnionTemplate = migratedTemplate({
+export const attachUnionTemplate = fullWorldTemplate({
 	declaredIn: import.meta,
 	name: "attach union",
-	content: { schema: Files.name, logins: [] },
-	versions: [{ schema: Files, logins: [], declarations: noDeclarations }],
-	options: {
-		label: "attach_union",
-		extensions: [workloadOver([{ login: "reader", workloads: [workload(Files, { documents })] }])],
-		compile: compileInstallation,
-		ambient: ordinarySession,
-		review: noPlaceholders
-	}
+	fixture: Files,
+	programs: { documents },
+	label: "attach_union",
+	ambient: ordinarySession
 })
 
 /**
@@ -158,8 +141,8 @@ const mediaPath = (m: number): number => 100 + m
 const digestOf = (p: number, m: number): number => 1000 * p + m
 
 /**
- * The statements loading packages `from` to `to`, the tables' triggers off, as a publish writes them whole, then each
- * table vacuumed and analyzed, every page all-visible as autovacuum leaves a stored corpus at rest, so the planner meets
+ * The statements loading packages `from` to `to`, ordinary writes in a SERIALIZABLE transaction of their own, as a
+ * publish writes them whole, then each table vacuumed and analyzed, every page all-visible as autovacuum leaves a stored corpus at rest, so the planner meets
  * one visibility state at both sizes where autovacuum's progress by the read chose it. Reference and Candidate are read
  * by their covering index (path, pkg, target) index-only where their pages are all-visible, two buffers a descent, and
  * by their key with a heap page a row where they are not: the release check at 8d95ede9d read Reference index-only at
@@ -181,12 +164,12 @@ const loaded = (
 	]
 	const series = `generate_series(${from}, ${to}) AS g(p), generate_series(0, ${c.documents - 1}) AS h(d)`
 	return [
-		...Arr.map(tables, (t) => `ALTER TABLE ${t} DISABLE TRIGGER USER`),
+		beginSerializable,
 		`INSERT INTO ${names.table(Document)} SELECT p, d FROM ${series}`,
 		`INSERT INTO ${names.table(Reference)} SELECT p, d, i, 100 + (d + i) % ${c.media + 2} FROM ${series}, generate_series(0, ${c.references - 1}) AS k(i)`,
 		`INSERT INTO ${names.table(Candidate)} SELECT p, d, i, 100 + (d + 2 * i) % ${c.media + 2} FROM ${series}, generate_series(0, ${c.candidates - 1}) AS k(i)`,
 		`INSERT INTO ${names.table(Media)} SELECT p, 100 + m, 1000 * p + m FROM generate_series(${from}, ${to}) AS g(p), generate_series(0, ${c.media - 1}) AS k(m)`,
-		...Arr.map(tables, (t) => `ALTER TABLE ${t} ENABLE TRIGGER USER`),
+		"COMMIT",
 		...Arr.map(tables, (t) => `VACUUM (ANALYZE) ${t}`)
 	]
 }
@@ -230,11 +213,7 @@ const measured = (installed: Installed, connection: PgConnection, p: number) =>
 			{ pkg: p },
 			declaredOf(template, documents, undefined, options)
 		)
-		const explained = yield* connection.queryValues(
-			`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${statement.sql}`,
-			params
-		)
-		const plan = succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan
+		const plan = yield* planAsRun(connection.queryValues, statement.sql, params)
 		const rows = yield* connection.queryValues(statement.sql, params)
 		return { plan, rows }
 	})
@@ -290,7 +269,7 @@ const scaledLess = (before: Read, after: Read, growth: number): boolean =>
 
 /**
  * One case on a fresh clone of the template, which no other case's rows, live or dead, share pages with: `packages`
- * packages loaded with the triggers off, vacuumed and analyzed (loaded), the read of package `read` explained and run;
+ * packages loaded by ordinary writes, vacuumed and analyzed (loaded), the read of package `read` explained and run;
  * then `more` packages loaded and the read again. Each time
  * it answers the host's files of every document of the package, and each arm reads only what the package's documents'
  * keys match, whatever else is stored: of Reference and Candidate the documents' own rows, and of Media at most the

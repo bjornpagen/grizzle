@@ -10,7 +10,7 @@ import { nominal } from "#compiler/core/brand.ts"
 import { sameContent } from "#compiler/core/canonical.ts"
 import { bitsColumn, codeColumn } from "#compiler/core/decoder.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import type { DeclaredName } from "#compiler/core/identity.ts"
+import { admitClosedIdField, type HeldName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { builtMark, fieldMark } from "#compiler/core/phantom.ts"
@@ -18,6 +18,7 @@ import { hasProperties, isList, isPlainRecord } from "#compiler/core/record.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import {
 	builtNode,
+	closedIdBase,
 	type ClosedRow,
 	closedRelationOver,
 	closedRowKey,
@@ -32,6 +33,10 @@ import {
 	type PlaceOrderDesc,
 	type QueryDesc,
 	type RelationDesc,
+	type RelationNaming,
+	type RosterNaming,
+	declaredNaming,
+	derivedNaming,
 	recordAdmitted,
 	type RosterDesc,
 	rosterOrderOf,
@@ -64,6 +69,7 @@ import {
 	closedRowTerm
 } from "#compiler/scalar/compute/closed.ts"
 import { termExpr } from "#compiler/scalar/compute/term.ts"
+import { admitMintKey } from "#compiler/scalar/contract.ts"
 import { storedLiteral } from "#compiler/scalar/literal.ts"
 import { unnamedIdRefusal } from "#compiler/scalar/minted.ts"
 import { drawnTypes, isDrawnType, naturalDescriptor } from "#compiler/scalar/natural.ts"
@@ -94,6 +100,7 @@ import {
 	queryDescOf,
 	builderRefusal,
 	requireDeclaredName,
+	requireDerivedName,
 	requireName,
 	requireNames
 } from "#compiler/schema/protocol.ts"
@@ -271,20 +278,25 @@ const instantWriting: Writing = Object.freeze({ kind: "instant" })
 
 /**
  * drawn(type): a value of `type` grizzle draws from the nested arrays its caller writes, a family's index or count or a
- * tree's start or end: natural, or a contract over an integer (scalar/natural.ts isDrawnType). The value carries its
- * type, its column and its SQL type, so it is read as every field of its type is.
+ * tree's start or end: natural, or a contract over an integer (scalar/natural.ts isDrawnType), a consumer's under its key,
+ * the one value `rest` holds (scalar/contract.ts admitMintKey), since grizzle makes its values by counting. The value
+ * carries its type, its column and its SQL type, so it is read as every field of its type is.
  */
 export const drawnField = <F extends FieldBase>(
 	type: F,
-	extra: ReadonlyArray<unknown>
+	rest: ReadonlyArray<unknown>
 ): DrawnField<F> => {
-	if (extra.length > 0) {
-		throw malformed("drawn", "drawn(type): one argument")
-	}
 	const described = valueTypeOf(type, "drawn type", () => builderRefusal("drawn", drawnTypes))
 	if (!isDrawnType(described.desc)) {
 		throw builderRefusal("drawn", drawnTypes)
 	}
+	admitMintKey(
+		described.scalar,
+		rest,
+		builderLoc("drawn", []),
+		"drawn(type): one argument",
+		"drawn(C, key)"
+	)
 	const value: DrawnField<F> = Object.freeze({
 		...builtMark,
 		...fieldMark,
@@ -361,16 +373,14 @@ export const placeDescriptor: PlaceDescriptor = placed(
 /**
  * accumulated(type, start): a field of `type` grizzle fills on the host and PostgreSQL proves, a fold's accumulator or
  * a copy along a family axis, holding `start` at its axis's base. `start` is a value of `type`, checked here as every
- * literal of it is.
+ * literal of it is. A consumer's contract accumulates under its key, the one value `rest` holds (scalar/contract.ts
+ * admitMintKey), since a fold makes its values from its members'.
  */
 export const accumulatedField = <F extends FieldBase>(
 	type: F,
 	start: unknown,
-	extra: ReadonlyArray<unknown>
+	rest: ReadonlyArray<unknown>
 ): AccumulatedField<F> => {
-	if (extra.length > 0) {
-		throw malformed("accumulated", "accumulated(type, start): two arguments")
-	}
 	const valueType: Refused =
 		"an accumulated field is of a value type: no span, vector or field of a writing of its own"
 	const described = valueTypeOf(type, "accumulated type", () =>
@@ -379,6 +389,13 @@ export const accumulatedField = <F extends FieldBase>(
 	if (described.desc.kind === "span" || described.desc.kind === "vector") {
 		throw builderRefusal("accumulated", valueType)
 	}
+	admitMintKey(
+		described.scalar,
+		rest,
+		builderLoc("accumulated", []),
+		"accumulated(type, start): two arguments",
+		"accumulated(C, start, key)"
+	)
 	const stored = storedLiteral(described.scalar, start)
 	if (!stored.ok) {
 		throw malformed("accumulated start", stored.error)
@@ -508,19 +525,80 @@ const keyListedOnce = (key: unknown, label: string): void => {
 const ordinaryDesc = (
 	label: string,
 	relationName: string,
+	naming: RelationNaming,
 	fields: Readonly<Record<string, FieldDecl>>,
 	primaryKey: unknown
 ): OrdinaryRelationDesc => {
 	keyListedOnce(primaryKey, label)
-	return orThrow(relationOver(relationName, fields, primaryKey, builderLoc(label, [relationName])))
+	const desc = orThrow(
+		relationOver(relationName, naming, fields, primaryKey, builderLoc(label, [relationName]))
+	)
+	for (const [field, decl] of Object.entries(desc.fields)) {
+		if (closedIdBase(decl.type) !== undefined) {
+			orThrow(admitClosedIdField(relationName, field, builderLoc(label, [relationName, field])))
+		}
+	}
+	return desc
 }
 
 /**
- * The admission core of relation(...): a JavaScript caller's arguments checked and described, the one path a relation's
- * Description is built by. Every field is one its caller writes.
+ * A relation's or roster's name, a `kind`'s, admitted by the naming its Description records (ir/desc.ts RelationNaming,
+ * RosterNaming): a declared name, refused past PostgreSQL's identifier (requireDeclaredName), or a name a library
+ * derives, a declared name's characters at any length (requireDerivedName).
+ */
+const admittedName = (
+	name: unknown,
+	naming: RelationNaming | RosterNaming,
+	label: string,
+	kind: string
+): HeldName => {
+	switch (naming.kind) {
+		case "declared":
+			return requireDeclaredName(name, label, kind)
+		case "derived":
+			return requireDerivedName(name, label, kind)
+	}
+}
+
+/**
+ * The naming a library states for the relations and rosters it derives the names of (the package root's derivedName):
+ * the stem and the path their hashed objects are spelled after, each a word a JavaScript caller writes.
+ */
+export interface DerivedNamingInput {
+	readonly stem: string
+	readonly path: ReadonlyArray<string>
+}
+
+/**
+ * The admission core of derivedName(...): a JavaScript caller's naming checked, its stem a name and its path a list of
+ * names (requireName, the storable text every name is), and described as a relation's derived naming (ir/desc.ts
+ * derivedNaming); its relations' names are admitted where each is built, by the derived-name rule.
+ */
+export const admitDerivedNaming = (
+	naming: unknown,
+	extra: ReadonlyArray<unknown>
+): RelationNaming => {
+	const label = "derivedName"
+	if (extra.length > 0) {
+		throw malformed(label, "derivedName({ stem, path }): one argument")
+	}
+	if (!hasProperties(naming) || !isList(naming["path"])) {
+		throw malformed(label, "a naming { stem, path }: a stem and a list of names")
+	}
+	return derivedNaming(
+		requireName(naming["stem"], label, "a stem"),
+		naming["path"].map((word) => requireName(word, label, "a path's name"))
+	)
+}
+
+/**
+ * The admission core of relation(...) and of each relation records make: a JavaScript caller's arguments checked and
+ * described under the relation's naming, the one path a relation's Description is built by. Every field is one its
+ * caller writes.
  */
 export const admitRelation = (
 	name: unknown,
+	naming: RelationNaming,
 	fields: unknown,
 	primaryKey: unknown,
 	extra: ReadonlyArray<unknown>
@@ -529,15 +607,21 @@ export const admitRelation = (
 	/**
 	 * The rules of the description (ir/desc.ts relationDescShape) are relationOver's: storable names, a field at least,
 	 * and a nonempty primary key over the relation's own fields. The builder checks only what it reads before then: the
-	 * name its location is built from, its arity, and the descriptors, which only a builder made.
+	 * name its location is built from, by its naming, its arity, and the descriptors, which only a builder made.
 	 */
-	const relationName = requireDeclaredName(name, label, "relation")
+	const relationName = admittedName(name, naming, label, "relation")
 	if (extra.length > 0) {
 		throw malformed(label, "relation(name, fields, primaryKey): three arguments")
 	}
 	const values = descriptorRecord(fields, label)
 	const described = describedFields(values, label)
-	return ordinaryDesc(label, relationName, writtenDecls(values, described, label), primaryKey)
+	return ordinaryDesc(
+		label,
+		relationName,
+		naming,
+		writtenDecls(values, described, label),
+		primaryKey
+	)
 }
 
 /**
@@ -602,20 +686,22 @@ const generatedDecl = (value: unknown, label: string): FieldDecl => {
 }
 
 /**
- * The admission core of relation.generated(...): the written fields checked and described as relation's are, the
- * callback run once over their row, and each field it returns a generated field named apart from every written field.
+ * The admission core of relation.generated(...), its name admitted by its naming as relation's is: the written fields
+ * checked and described as relation's are, the callback run once over their row, and each field it returns a generated
+ * field named apart from every written field.
  * The relation's fields are its written fields, then its generated ones. The row types each field by its declared
  * type, a drawn or an accumulated one's included, as the public type's row does (schema/api.ts GenerationRow).
  */
 const admitGenerated = <G>(
 	name: unknown,
+	naming: RelationNaming,
 	written: unknown,
 	primaryKey: unknown,
 	generate: RowCallback<G>["run"],
 	extra: ReadonlyArray<unknown>
 ): { readonly desc: OrdinaryRelationDesc; readonly generated: G } => {
 	const label = `relation ${typeof name === "string" ? name : "?"}`
-	const relationName = requireDeclaredName(name, label, "relation")
+	const relationName = admittedName(name, naming, label, "relation")
 	if (extra.length > 0) {
 		throw malformed(
 			label,
@@ -647,7 +733,7 @@ const admitGenerated = <G>(
 		}
 		fields[field] = generatedDecl(value, `${label} generated field ${field}`)
 	}
-	return { desc: ordinaryDesc(label, relationName, fields, primaryKey), generated }
+	return { desc: ordinaryDesc(label, relationName, naming, fields, primaryKey), generated }
 }
 
 /**
@@ -691,9 +777,27 @@ export const relationBuilder = <
 	fields: Fields,
 	primaryKey: PrimaryKey,
 	extra: ReadonlyArray<unknown>
+): Relation<Name, Fields, readonly [...PrimaryKey]> =>
+	namedRelationBuilder(name, declaredNaming, fields, primaryKey, extra)
+
+/**
+ * The relation of `name` under `naming` (ir/desc.ts RelationNaming): relation(...)'s, declared; derivedName's, derived;
+ * and each relation records make (program/records.ts), declared where its name is stated and derived where records
+ * derive it, one builder.
+ */
+export const namedRelationBuilder = <
+	const Name extends string,
+	const Fields extends Readonly<Record<string, FieldBase>>,
+	const PrimaryKey extends ReadonlyArray<keyof Fields & string>
+>(
+	name: Name,
+	naming: RelationNaming,
+	fields: Fields,
+	primaryKey: PrimaryKey,
+	extra: ReadonlyArray<unknown>
 ): Relation<Name, Fields, readonly [...PrimaryKey]> => {
 	/** Admission first: a JavaScript caller's malformed argument is MalformedDescription before anything is copied. */
-	const desc = admitRelation(name, fields, primaryKey, extra)
+	const desc = admitRelation(name, naming, fields, primaryKey, extra)
 	const copied = frozenCopy(fields)
 	return ownValue({
 		kind: "relation",
@@ -712,8 +816,7 @@ export const relationBuilder = <
 
 /**
  * relation.generated(name, written, primaryKey, generate): the relation of the written fields and the generated fields
- * `generate` returns over their row. Its value holds the written fields and then the generated ones, a frozen copy, and
- * its `fact` reads both: a generated field is read as every field is.
+ * `generate` returns over their row, its name declared (namedGeneratedRelation).
  */
 export const generatedRelation = <
 	const Name extends string,
@@ -726,8 +829,29 @@ export const generatedRelation = <
 	primaryKey: PrimaryKey,
 	generate: RowCallback<G>["run"],
 	extra: ReadonlyArray<unknown>
+): Relation<Name, Written & G, readonly [...PrimaryKey]> =>
+	namedGeneratedRelation(name, declaredNaming, written, primaryKey, generate, extra)
+
+/**
+ * The relation of `name` under `naming` (ir/desc.ts RelationNaming) whose fields are the written fields and the
+ * generated fields `generate` returns over their row: relation.generated(...)'s, declared, and a derived name's (the
+ * package root's derivedName), one builder. Its value holds the written fields and then the generated ones, a frozen
+ * copy, and its `fact` reads both: a generated field is read as every field is.
+ */
+export const namedGeneratedRelation = <
+	const Name extends string,
+	const Written extends Readonly<Record<string, FieldBase>>,
+	const PrimaryKey extends ReadonlyArray<keyof (Written & G) & string>,
+	const G extends Readonly<Record<string, GeneratedField<FieldBase>>>
+>(
+	name: Name,
+	naming: RelationNaming,
+	written: Written,
+	primaryKey: PrimaryKey,
+	generate: RowCallback<G>["run"],
+	extra: ReadonlyArray<unknown>
 ): Relation<Name, Written & G, readonly [...PrimaryKey]> => {
-	const admitted = admitGenerated(name, written, primaryKey, generate, extra)
+	const admitted = admitGenerated(name, naming, written, primaryKey, generate, extra)
 	const copied = frozenCopy({ ...written, ...admitted.generated })
 	return ownValue({
 		kind: "relation",
@@ -775,17 +899,19 @@ const handleList = (value: unknown, label: string): ReadonlyArray<string> => {
 /**
  * The admission core of closed.ordered(...) and closed.unordered(...): a JavaScript caller's arguments checked and
  * described, an unordered roster's handles held in its canonical order (ir/scalar.ts handlesInOrder) and its order
- * stated, an ordered roster's in declared order, which is its order; and its name, parsed by the declared-name rule
- * (requireDeclaredName), which names the roster it types.
+ * stated, an ordered roster's in declared order, which is its order; and its name, admitted by its naming (ir/desc.ts
+ * RosterNaming): a declared name, parsed by the declared-name rule, or a derived one, its characters at any length,
+ * which names the roster it types.
  */
 export const admitRoster = (
 	name: unknown,
 	handles: unknown,
 	order: RosterOrder,
+	naming: RosterNaming,
 	extra: ReadonlyArray<unknown>
-): { readonly desc: RosterDesc; readonly declared: DeclaredName } => {
+): { readonly desc: RosterDesc; readonly declared: HeldName } => {
 	const label = `closed ${typeof name === "string" ? name : "?"}`
-	const rosterName = requireDeclaredName(name, label, "roster")
+	const rosterName = admittedName(name, naming, label, "roster")
 	if (extra.length > 0) {
 		throw malformed(
 			label,
@@ -804,18 +930,13 @@ export const admitRoster = (
 	const loc = builderLoc(label, [rosterName])
 	const desc: RosterDesc =
 		order === "ordered"
-			? builtNode({ kind: "closed", name: rosterName, handles: held, loc })
-			: builtNode({ kind: "closed", name: rosterName, handles: held, order, loc })
+			? builtNode({ kind: "closed", name: rosterName, naming, handles: held, loc })
+			: builtNode({ kind: "closed", name: rosterName, naming, handles: held, order, loc })
 	return { desc, declared: rosterName }
 }
 
-/**
- * closed.ordered(name, handles) and closed.unordered(name, handles): a roster of `order`. The id of every fact is the
- * roster's closed id column, over the caller's handles, which admission read; a fact is the handle under id.
- * `handle(member)` is the member as a typed constant (scalar/compute/builders.ts handleTerm). Its owned entry holds the
- * roster its admitted name and handles type, their digest taken once (ir/scalar.ts Roster), which every closed id over
- * it reads (closedIdOf). A name the declared-name rule refuses is refused here, so every built roster types one.
- */
+/** closed.ordered(name, handles) and closed.unordered(name, handles): a roster of `order`, its name declared
+ * (namedClosedBuilder). */
 export const closedBuilder = <
 	const Name extends string,
 	const Handles extends ReadonlyArray<string>,
@@ -825,8 +946,29 @@ export const closedBuilder = <
 	handles: Handles,
 	order: Order,
 	extra: ReadonlyArray<unknown>
+): Roster<Name, readonly [...Handles], Order> =>
+	namedClosedBuilder(name, declaredNaming, handles, order, extra)
+
+/**
+ * The roster of `name` under `naming` (ir/desc.ts RosterNaming) of `order`: closed.ordered(...)'s and
+ * closed.unordered(...)'s, declared, and a derived name's (the package root's derivedName), one builder. The id of every
+ * fact is the roster's closed id column, over the caller's handles, which admission read; a fact is the handle under id.
+ * `handle(member)` is the member as a typed constant (scalar/compute/builders.ts handleTerm). Its owned entry holds the
+ * roster its admitted name and handles type, their digest taken once (ir/scalar.ts Roster), which every closed id over
+ * it reads (closedIdOf). A name its naming's rule refuses is refused here, so every built roster types one.
+ */
+export const namedClosedBuilder = <
+	const Name extends string,
+	const Handles extends ReadonlyArray<string>,
+	const Order extends RosterOrder
+>(
+	name: Name,
+	naming: RosterNaming,
+	handles: Handles,
+	order: Order,
+	extra: ReadonlyArray<unknown>
 ): Roster<Name, readonly [...Handles], Order> => {
-	const { desc, declared } = admitRoster(name, handles, order, extra)
+	const { desc, declared } = admitRoster(name, handles, order, naming, extra)
 	const roster = frozenTuple<Handles>(handles)
 	const id: ClosedId<Handles[number], Name, Order> = Object.freeze({
 		id: Object.freeze({ column: codeColumn<Handles[number]>(name, handles), sql: carrierSql.code })
@@ -1195,13 +1337,14 @@ export const relationDescOf = (
 	}
 	if (hasProperties(value) && owned === undefined) {
 		if (value["kind"] === "relation") {
-			return admitRelation(value["name"], value["fields"], value["primaryKey"], [])
+			return admitRelation(value["name"], declaredNaming, value["fields"], value["primaryKey"], [])
 		}
 		if (value["kind"] === "closed") {
 			return admitRoster(
 				value["name"],
 				value["handles"],
 				rosterOrderRead(value["order"], label),
+				declaredNaming,
 				[]
 			).desc
 		}

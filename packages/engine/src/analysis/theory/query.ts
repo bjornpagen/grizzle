@@ -1,4 +1,5 @@
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { sameOrder } from "@bjornpagen/grizzle-text/base/array"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	extendNonEmpty,
 	flatMapNonEmpty,
@@ -6,6 +7,7 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
+import { TupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { refuse, refuseNamed } from "#compiler/analysis/theory/build.ts"
 import {
 	type ColumnTypes,
@@ -18,8 +20,9 @@ import {
 	varRef,
 	varsOf
 } from "#compiler/analysis/theory/leaves.ts"
-import type { FieldContainment } from "#compiler/analysis/theory/unit.ts"
-import { encode, withoutSourceLocs } from "#compiler/core/canonical.ts"
+import type { FieldContainment, RegionFacts } from "#compiler/analysis/theory/unit.ts"
+import { canonicalEquals, encode, ownedText, withoutSourceLocs } from "#compiler/core/canonical.ts"
+import type { StoredRelationName } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { isList, isRecord, mapRecord } from "#compiler/core/record.ts"
@@ -40,8 +43,16 @@ import type {
 	TermDesc,
 	VarDesc
 } from "#compiler/ir/desc.ts"
-import { connectiveExpr, exprChildren, mapExpr, refusalCondition } from "#compiler/ir/desc.ts"
-import type { LawField } from "#compiler/ir/law.ts"
+import {
+	callsOf,
+	connectiveExpr,
+	exprChildren,
+	mapExpr,
+	refusalCondition,
+	termText
+} from "#compiler/ir/desc.ts"
+import { type ClockHead, type Instants, sameHead, scopeOrder } from "#compiler/ir/instant.ts"
+import type { LawField, TheoryRelation } from "#compiler/ir/law.ts"
 import type { DeltaSide } from "#compiler/ir/rel.ts"
 import type { Unit } from "#compiler/ir/unit.ts"
 import { compatible, sameCarrier } from "#compiler/scalar/compute/types.ts"
@@ -57,9 +68,10 @@ import { type GuardedTerm, guardedTerm, naturalType } from "#compiler/scalar/nat
  * arm, and stays one match where it has several (`DefinedMatch`), a union of its arms, never distributed into an arm
  * for each choice of one of its rules. Each negation of such an arm, alone as a filter or inside a conjunction that is
  * one, is read the same way: it negates the arms of a stored or closed relation, of a query or of a derived relation,
- * each an arm of its own that may negate in turn (`Negation`). A definition that aggregates,
- * recurses, orders or takes, approximates, attaches or nests a stage, or negates a query that does, is refused
- * (UnsupportedLawFamily), naming what it does.
+ * each an arm of its own that may negate in turn (`Negation`). A rule of a definition that aggregates is one grouped
+ * match (`GroupedMatch`), read where the law's binding holds its groups inside one unit and refused where they span
+ * units (`refuseAggregatesAcrossUnits`). A definition that recurses, orders or takes, approximates, attaches or nests a stage, or
+ * negates a query that does, is refused (UnsupportedLawFamily), naming what it does.
  *
  * Every side of such a rule, a side over a stored relation among them, is read as arms (`SideArm`) by its probes
  * (`probes`), which the judge runs at COMMIT over the rows a transaction wrote, the side its facts meet read by arm, so each probe reads the rows of the keys its write reaches and never the
@@ -243,11 +255,11 @@ export interface WholeRule {
 	 */
 	readonly definitionOf: (query: InferredQuery) => InferredQuery
 	/**
-	 * The holders whose gained rows its region reads only where they replace a row the transaction lost at the `fields`
-	 * a witness fixes its rows at, proved at generate time to open a fact only there (unit.ts proofsOf): the rows each
-	 * lost, at those fields, which the judge captures for the region, beside the sides its occurrences read.
+	 * Each side of a holder its region reads (unit.ts regionOf), with the columns its occurrences there bind: what the
+	 * judge captures of the holder's writes, so a side no occurrence's rule reads, a closed holder's rows removed or the
+	 * rows a witness proves open no fact (unit.ts proofsOf), is captured by no rule.
 	 */
-	readonly replaced: ReadonlyArray<ReplacedRead>
+	readonly sides: ReadonlyArray<RegionSide>
 	/**
 	 * The violation query itself: the rule's check over every row, which the migration that adds the rule runs, the judge
 	 * of the transaction that writes every row, whose units are every unit, so no region restricts it. Navigated as the
@@ -257,11 +269,11 @@ export interface WholeRule {
 	readonly everyRow: InferredQuery
 }
 
-/** A holder whose lost rows a whole rule's region reads, and the fields at which the witness that proves it fixes its
- * rows, a key of it among them or its tree's root fields (WholeRule `replaced`, unit.ts witnessesOf). */
-export interface ReplacedRead {
+/** A side of a holder a whole rule's region reads (WholeRule `sides`), and the columns its occurrences there bind. */
+export interface RegionSide {
 	readonly relation: string
-	readonly fields: NonEmptyReadonlyArray<string>
+	readonly side: ProbeSide
+	readonly columns: NonEmptyReadonlyArray<string>
 }
 
 /**
@@ -313,6 +325,7 @@ const foreignReads: { readonly [K in InferredExpr["kind"]]: string | undefined }
 	retype: undefined,
 	guarded: undefined,
 	cond: undefined,
+	variant: undefined,
 	when: undefined,
 	compare: undefined,
 	between: undefined,
@@ -777,7 +790,7 @@ class Flattener {
 	/** A head term of a rule that folds nothing: an aggregating rule is its own arm (`#groupedArm`). */
 	#headTerm(relation: string, term: InferredHead): InferredExpr {
 		if (term.kind === "aggregate") {
-			throw defect("a rule that folds is read as its groups, never as a conjunctive arm")
+			defect("a rule that folds is read as its groups, never as a conjunctive arm")
 		}
 		if (term.kind === "producer") {
 			return this.#refuseKind(
@@ -790,9 +803,15 @@ class Flattener {
 
 	/**
 	 * What a source the definition matches or negates (`verb`) is to an arm: a stored or closed relation, which the arm
-	 * reads itself, or a derived relation's definition or an imported query that binds no parameter (Inlined).
+	 * reads itself, an imported query whose canonical relation is stored among them, by its name (`storedSource`), as a
+	 * live reading reads it; or a derived relation's definition or an imported query that binds no parameter, live
+	 * (Inlined).
 	 */
 	#source(relation: string, source: InferredSource, verb: "matches" | "negates"): Matched {
+		const stored = storedSource(source, this.env.live.stored)
+		if (stored !== undefined) {
+			return { kind: "stored", stored }
+		}
 		switch (source.kind) {
 			case "relation": {
 				const definition = this.env.definition(source.name)
@@ -804,7 +823,7 @@ class Flattener {
 				if (Object.keys(source.bind).length > 0) {
 					return this.#refuse(relation, `${verb} an imported query that binds parameters`)
 				}
-				return this.#inlined(relation, source.query)
+				return this.#inlined(relation, inPlace(source, this.env.live.stored).query)
 			case "step":
 				return this.#refuse(relation, `${verb} a navigation step`)
 			case "param":
@@ -824,6 +843,8 @@ class Flattener {
 			case "delta":
 			case "row":
 				return this.#refuse(relation, `${verb} a ${source.kind} source`)
+			case "arm":
+				return this.#refuse(relation, `${verb} a variant's arm, which only a unit-local rule reads`)
 		}
 	}
 
@@ -924,6 +945,252 @@ export const derivedSideArms = (
 			terms: mapNonEmpty(guarded, (g) => mapLeaves(g.term, leaves))
 		}
 	})
+
+/**
+ * The variables of `arm` that `seeds` hold at one value, each with every variable an equality of its conditions sets
+ * equal to a held one or to a term that reads no variable.
+ */
+const heldVars = (arm: ConjunctiveArm, seeds: ReadonlySet<string>): ReadonlySet<string> => {
+	const held = new Set(seeds)
+	const holds = (e: InferredExpr): boolean =>
+		e.kind === "var" ? held.has(e.var) : varsOf(e, new Set()).size === 0
+	let grew = true
+	while (grew) {
+		grew = false
+		for (const w of arm.where) {
+			if (w.kind !== "compare" || w.op !== "eq") {
+				continue
+			}
+			for (const [v, term] of [
+				[w.left, w.right],
+				[w.right, w.left]
+			] as const) {
+				if (v.kind === "var" && !held.has(v.var) && holds(term)) {
+					held.add(v.var)
+					grew = true
+				}
+			}
+		}
+	}
+	return held
+}
+
+/** A stored relation an aggregating rule's body matches whose unit's fields its groups leave free. */
+interface FreeUnit {
+	readonly relation: string
+	readonly fields: NonEmptyReadonlyArray<string>
+}
+
+/**
+ * The first stored relation `arm` matches, at any depth of the definitions and aggregates it matches, whose unit's
+ * fields (`unitOf`, none for a relation in no declared unit) some binding leaves unheld by `seeds` (`heldVars`): a
+ * match of it binding one of them to a variable the seeds do not hold, or not binding it at all, reads its rows across
+ * the unit's values. A definition's or an aggregate's arm is read at the variables its heading's fields hold where the
+ * match binds them to a held term.
+ */
+const freeUnitIn = (
+	arm: ConjunctiveArm,
+	seeds: ReadonlySet<string>,
+	unitOf: (relation: string) => ReadonlyArray<string>
+): FreeUnit | undefined => {
+	const held = heldVars(arm, seeds)
+	const holds = (e: InferredExpr): boolean =>
+		e.kind === "var" ? held.has(e.var) : varsOf(e, new Set()).size === 0
+	for (const m of arm.matches) {
+		if (m.kind === "stored") {
+			const [first, ...rest] = unitOf(m.relation)
+			if (first !== undefined) {
+				const fields: NonEmptyReadonlyArray<string> = [first, ...rest]
+				const bound = (f: string): boolean => {
+					const e = m.bindings[f]
+					return e !== undefined && holds(e)
+				}
+				if (!fields.every(bound)) {
+					return { relation: m.relation, fields }
+				}
+			}
+			continue
+		}
+		const fields = m.kind === "defined" ? Object.keys(m.bindings) : m.groups.keys
+		for (const inner of m.kind === "defined" ? m.arms : m.groups.body) {
+			const innerSeeds = new Set(
+				fields.flatMap((f) => {
+					const outer = m.bindings[f]
+					const head = inner.head[f]
+					return outer !== undefined && holds(outer) && head?.kind === "var" ? [head.var] : []
+				})
+			)
+			const found = freeUnitIn(inner, innerSeeds, unitOf)
+			if (found !== undefined) {
+				return found
+			}
+		}
+	}
+	return undefined
+}
+
+/**
+ * The variables of `inner`, an arm a match or a negation reads, that its outer arm's held terms hold: each heading field
+ * of `fields` the match binds to a term `holds` holds, at the variable the arm's head stands there.
+ */
+const innerSeeds = (
+	bindings: InferredBindings,
+	fields: ReadonlyArray<string>,
+	inner: ConjunctiveArm,
+	holds: (e: InferredExpr) => boolean
+): ReadonlySet<string> =>
+	new Set(
+		fields.flatMap((f) => {
+			const outer = bindings[f]
+			const head = inner.head[f]
+			return outer !== undefined && holds(outer) && head?.kind === "var" ? [head.var] : []
+		})
+	)
+
+/** An aggregating rule a law reads whose body's unit (`FreeUnit`) its binding leaves free (`aggregateUnitFree`). */
+interface FreeAggregate {
+	readonly grouped: GroupedMatch
+	readonly body: LiveArm
+	readonly free: FreeUnit
+}
+
+/**
+ * The first aggregating rule `arm` reads, at any depth of its matches, definitions, negations and aggregates' bodies,
+ * whose body leaves a stored relation's unit fields free (`freeUnitIn`) at the group fields `seeds` hold, through every
+ * binding between: a probe at those seeds folds again every group of the body there, across the units.
+ */
+const aggregateUnitFree = (
+	arm: LiveArm,
+	seeds: ReadonlySet<string>,
+	unitOf: (relation: string) => ReadonlyArray<string>
+): FreeAggregate | undefined => {
+	const held = heldVars(arm, seeds)
+	const holds = (e: InferredExpr): boolean =>
+		e.kind === "var" ? held.has(e.var) : varsOf(e, new Set()).size === 0
+	for (const m of arm.matches) {
+		switch (m.kind) {
+			case "stored":
+				break
+			case "grouped":
+				for (const body of m.groups.body) {
+					const at = innerSeeds(m.bindings, m.groups.keys, body, holds)
+					const free = freeUnitIn(body, at, unitOf)
+					const found =
+						free === undefined ? aggregateUnitFree(body, at, unitOf) : { grouped: m, body, free }
+					if (found !== undefined) {
+						return found
+					}
+				}
+				break
+			case "defined":
+				for (const inner of m.arms) {
+					const found = aggregateUnitFree(
+						inner,
+						innerSeeds(m.bindings, Object.keys(m.bindings), inner, holds),
+						unitOf
+					)
+					if (found !== undefined) {
+						return found
+					}
+				}
+		}
+	}
+	for (const n of arm.negated) {
+		for (const inner of n.arms) {
+			const found = aggregateUnitFree(
+				inner,
+				innerSeeds(n.bindings, Object.keys(n.bindings), inner, holds),
+				unitOf
+			)
+			if (found !== undefined) {
+				return found
+			}
+		}
+	}
+	return undefined
+}
+
+/**
+ * Refuses a rule judged by its probes (`ProbedRule`) whose side over `relation`, read as `arms` at its terms `terms`,
+ * reads an aggregating rule at a binding that leaves free the unit fields (`unitOf`: a relation's declared unit's
+ * fields, schema/own.ts unitOf, none for a relation in no declared unit) of a stored relation its body matches
+ * (`aggregateUnitFree`): a law over an aggregate is judged within a unit or refused. Each probe of the side reads its
+ * facts at the terms the rows a write touched bind, and a fact of an aggregate is its group's fold, so a probe at a
+ * binding whose groups span the units folds again every row of every group there, its work growing with the units
+ * however few rows the write wrote, where a write's law checks are O(k log n) probes for the k facts it moves. Either
+ * the groups themselves span the units, and the remedy is to group within a unit, adding the unit's fields to the
+ * grouping; or the groups lie inside one unit and the law's terms leave it free, metis's key over a count of each
+ * learner's sessions of an item at the item alone, and the remedy is to bind the unit's fields in the law. A binding
+ * that holds them reads groups inside one unit, which bounds each re-fold as a unit-local rule's read of its unit is
+ * bounded, and stays. No consumer's law reads an aggregate (metis, qti-pie and edullm at 2026-11-26), and an aggregate a
+ * workload query reads is untouched.
+ *
+ * Storage is needed only for these, which are refused. A law over a derived relation that aggregates nothing, read at a
+ * binding that leaves its unit free, is judged by keyed probe chains from that binding, each step a lookup of the index
+ * its binding requests, its lead declared an anchor of the member (physical/statistics/declared.ts spanningLeads), so
+ * it is O(k log n) for the k facts at the binding, live or stored, with no storage of its own: the consumers' 19 such
+ * laws (metis's PartByBase, AwardDemanded and Submitted, qti-pie's ledger and pantry value containments), each shape
+ * measured beside 2,048 units and more (test/pg/laws/unit-free.test.ts). A native constraint in place of their judge
+ * would gain a constant factor, no ceiling.
+ *
+ * Were a consumer to need a law over an aggregate across units, its construction is a stored fact, never a re-fold:
+ * the aggregating rule stored as a holding of its own (ir/unit.ts StoredHolding `groups`, beside `unit` and
+ * `installation`), a table keyed by its group fields holding its folds and a hidden count n of its body's facts, a group
+ * of none deleted; kept by a counted upkeep (analysis/theory/upkeep.ts, physical/ddl/rules.ts upkeepBlock, phase A after
+ * its body's) over its body's exact net delta, the captured sides of the one relation it matches or, where it joins or
+ * negates, of its body stored first as a derived relation keyed by its body's key (FoldOverProjection keys every body
+ * fact), `INSERT ... SELECT g, sum(±1), sum(±x) ... GROUP BY g ON CONFLICT (g) DO UPDATE SET n = t.n + excluded.n, ...`
+ * and a DELETE of the touched groups whose n is 0, one probe and one upsert a touched group; count and sum so kept,
+ * mean read as their quotient, min and max only over closed bodies (monotone: LEAST and GREATEST on gain; a closed
+ * holder loses rows only to a migration's data step, which fills the table again) and refused over open ones, which no
+ * write keeps in O(1) under deletes. The law then reads the table at each touched group by an index of its binding, a
+ * probe PostgreSQL prices at a few tuples whatever the statistics. A group's row is a serialization point across
+ * units, which the upsert's row lock orders at READ COMMITTED (analysis/isolation/certify.ts would admit the holding by
+ * that lock, never a unit's borrow).
+ */
+export const refuseAggregatesAcrossUnits = (
+	relation: string,
+	terms: NonEmptyReadonlyArray<TermDesc>,
+	arms: ReadonlyArray<LiveArm>,
+	unitOf: (relation: string) => ReadonlyArray<string>,
+	loc: SourceLoc
+): void => {
+	for (const arm of arms) {
+		const bound = new Set(
+			terms.flatMap((t) => {
+				const head = arm.head[t.field]
+				return head?.kind === "var" ? [head.var] : []
+			})
+		)
+		const found = aggregateUnitFree(arm, bound, unitOf)
+		if (found === undefined) {
+			continue
+		}
+		const keys = found.grouped.groups.keys
+		const groups = new Set(
+			keys.flatMap((k) => {
+				const head = found.body.head[k]
+				return head?.kind === "var" ? [head.var] : []
+			})
+		)
+		const spanning = freeUnitIn(found.body, groups, unitOf)
+		const grouping = keys.join(", ")
+		if (spanning !== undefined) {
+			const fields = spanning.fields.join(", ")
+			refuse(
+				"UnsupportedLawFamily",
+				loc,
+				`a rule judged by its probes over an aggregate whose groups lie inside one unit; ${relation} reads an aggregate grouped by (${grouping}), whose groups do not hold ${spanning.relation}'s unit fields (${fields}), so a write would fold again every row of a group that spans ${spanning.relation}'s units, its work growing with them however few rows it wrote: group within a unit, adding the unit's fields (${fields}) to the grouping`
+			)
+		}
+		const fields = found.free.fields.join(", ")
+		refuse(
+			"UnsupportedLawFamily",
+			loc,
+			`a rule judged by its probes over an aggregate read inside one unit; ${relation} is read at (${terms.map(termText).join(", ")}), which leaves ${found.free.relation}'s unit fields (${fields}) free in its aggregate grouped by (${grouping}), so each probe would fold again every group at its terms across ${found.free.relation}'s units, its work growing with them however few rows a write wrote: bind the unit's fields (${fields}) in the law`
+		)
+	}
+}
 
 /** The fields a selection's conjunct reads. */
 const fieldsOf = (e: InferredExpr, into: Set<string>): Set<string> => {
@@ -1467,14 +1734,14 @@ const probeOf = (
 	const terms = mapNonEmpty(breakingArms(rule)[0].terms, (_, i) => termName(i))
 	const fields = rowFields(rule).map(headName)
 	if (first === undefined) {
-		throw defect("a probe of no candidate")
+		defect("a probe of no candidate")
 	}
 	if (!isNonEmpty(rest)) {
 		const head = first.rule.head
 		const term = (name: string): InferredExpr => {
 			const h = head[name]
 			if (h === undefined || h.kind === "aggregate" || h.kind === "producer") {
-				throw defect(`a probe's row derives its term ${name}`)
+				defect(`a probe's row derives its term ${name}`)
 			}
 			return h
 		}
@@ -1519,14 +1786,46 @@ const sourcesThrough = (
 /**
  * How a theory's violation queries read their relations live: the source each relation is read through, an ordinary,
  * closed or stored derived relation by its name, a live derived relation as its definition, read live and imported as a
- * query of its own (`liveQuery`); and each query read live, once however many laws read it (`liveReading`).
+ * query of its own (`liveQuery`); the stored canonical relation a query imported under an empty bind map is, by its
+ * name, none where the import is live (`stored`); and each query read live, once however many laws read it
+ * (`liveReading`).
  */
 export interface LiveReading {
 	readonly relation: (relation: string) => InferredSource
+	readonly stored: StoredImports
 	readonly query: (query: InferredQuery) => InferredQuery
 	/** One rule of a definition as a query of its own, read live, once however many laws read it: an aggregating rule's
 	 * groups (Groups `query`). */
 	readonly rule: (rule: InferredRule) => InferredQuery
+}
+
+/**
+ * The stored canonical relation a query imported under an empty bind map is (analysis/derived/canonical.ts), by its name,
+ * where its table holds its rows; none where it is live (analysis/schema.ts CheckedSchema storedImport).
+ */
+export type StoredImports = (query: InferredQuery) => string | undefined
+
+/**
+ * The stored canonical relation a source is, by its name: a query imported under an empty bind map whose canonical
+ * relation is stored (`StoredImports`), which every reading reads as that relation, as it reads a stored derived
+ * relation by its name; none for any other source.
+ */
+const storedSource = (s: InferredSource, stored: StoredImports): string | undefined =>
+	s.kind === "query" && Object.keys(s.bind).length === 0 ? stored(s.query) : undefined
+
+/**
+ * `i`, an imported query a reading reads in place, its rows its definition's: never one whose canonical relation is
+ * stored, which every reading reads by its name (`storedSource`), so no statement an upkeep or the judge runs spells a
+ * stored relation's definition again where a definition imports it. One read in place is an internal compiler error.
+ */
+const inPlace = <I extends ImportDesc<Located, Inferred>>(i: I, stored: StoredImports): I => {
+	const name = Object.keys(i.bind).length === 0 ? stored(i.query) : undefined
+	if (name !== undefined) {
+		defect(
+			`stored relation ${name} read by its name wherever a definition imports it, never its definition spelled in place`
+		)
+	}
+	return i
 }
 
 /**
@@ -1536,7 +1835,10 @@ export interface LiveReading {
  * once (analysis/theory/navigate.ts boundInside, physical/ddl/context.ts InstallBuilder.columns), where each law read
  * a copy of its own.
  */
-export const liveReading = (definition: LiveEnv["definition"]): LiveReading => {
+export const liveReading = (
+	definition: LiveEnv["definition"],
+	stored: StoredImports
+): LiveReading => {
 	const known = new WeakMap<InferredQuery, InferredQuery>()
 	const rules = new WeakMap<InferredRule, InferredQuery>()
 	const reading: LiveReading = {
@@ -1546,6 +1848,7 @@ export const liveReading = (definition: LiveEnv["definition"]): LiveReading => {
 				? { kind: "relation", name: relation }
 				: { kind: "query", query: reading.query(d), bind: {} }
 		},
+		stored,
 		query: (query) => {
 			const found = known.get(query)
 			if (found !== undefined) {
@@ -1571,11 +1874,17 @@ export const liveReading = (definition: LiveEnv["definition"]): LiveReading => {
 /**
  * A query read live: every derived relation it matches or negates that the reading reads no table of, at any depth, in
  * every stage, interior stage, attachment and import of it, read as its own definition, live, imported (`LiveReading`),
- * and every query it imports read so in turn. Each stays a query of its own, so its rows are computed at a level of
- * their own, joined to the level that reads them by the columns that level binds; none stays a relation by its name,
- * which a walk of the query (analysis/theory/unit.ts) would read as a closed relation, the same at every state and in
- * no unit, and the checker as a table. The query builder names every derived relation by its name, whatever the
- * installation infers of its storage (query/build/state.ts), so the reading is where a definition takes its place.
+ * every interior stage read as the closed import of its arms (`rule`), and every query it imports read so in turn. Each
+ * stays a query of its own, so its rows are computed at a level of their own, joined to the level that reads them by the
+ * columns that level binds; none stays a relation by its name, which a walk of the query (analysis/theory/unit.ts) would
+ * read as a closed relation, the same at every state and in no unit, and the checker as a table. The query builder
+ * names every derived relation by its name, whatever the installation infers of its storage (query/build/state.ts), so
+ * the reading is where a definition takes its place. Converse to it, a query imported under an empty bind map whose
+ * canonical relation is stored (LiveReading `stored`) is read as that relation, by its name, as a stored derived
+ * relation is: a definition a stored relation's table holds is read by reference wherever it stands, its rows that
+ * table's, never its definition spelled again in place, so a statement over it, a stored relation's upkeep or a law's
+ * judge, is as large as its own definition whatever stands beneath it, and its upkeep runs after the one it reads
+ * (physical/ddl/rules.ts stratumOf) and reads that table's captured deltas, as it reads a named one's.
  */
 const liveQuery = (query: InferredQuery, live: LiveReading): InferredQuery => {
 	/** A query read under a bind map, live, and each query's rows its bind map binds a relation parameter to. */
@@ -1585,10 +1894,15 @@ const liveQuery = (query: InferredQuery, live: LiveReading): InferredQuery => {
 		bind: mapRecord(i.bind, (b) => (b.kind === "rows" ? liveImport(b) : b))
 	})
 	const source = (s: InferredSource): InferredSource => {
+		const stored = storedSource(s, live.stored)
+		if (stored !== undefined) {
+			return { kind: "relation", name: stored }
+		}
 		switch (s.kind) {
 			case "relation":
 				return live.relation(s.name)
 			case "query":
+				return liveImport(inPlace(s, live.stored))
 			case "step":
 				return liveImport(s)
 			case "call":
@@ -1597,6 +1911,7 @@ const liveQuery = (query: InferredQuery, live: LiveReading): InferredQuery => {
 					...s,
 					args: mapRecord(s.args, (a) => (a.kind === "rows" ? liveImport(a) : a))
 				}
+			case "arm":
 			case "split":
 			case "series":
 			case "param":
@@ -1609,13 +1924,29 @@ const liveQuery = (query: InferredQuery, live: LiveReading): InferredQuery => {
 				return s
 		}
 	}
-	const rule = (r: InferredRule): InferredRule => ({
-		...r,
-		matches: r.matches.map((m) => ({ ...m, source: source(m.source) })),
-		where: r.where.map((w) => sourcesThrough(w, source)),
-		interiors: r.interiors.map((i) => ({ ...i, arms: mapNonEmpty(i.arms, rule) })),
-		attach: r.attach.map((a) => ({ ...a, child: live.query(a.child) }))
-	})
+	/**
+	 * A rule read live, each interior stage it matches read as the closed import it is, a query of its arms under an
+	 * empty bind map, live: an interior stage's arms are rules of their own, which read nothing of the rule that matches
+	 * them (query/build/rule.ts interior), so the stage is the closed sub-query an import of its arms is, and every walk
+	 * of the reading, a unit's (analysis/theory/unit.ts) among them, reads it as it reads any import, one path.
+	 */
+	const rule = (r: InferredRule): InferredRule => {
+		const interiors = new Map(r.interiors.map((i) => [i.id, i] as const))
+		const read = (s: InferredSource): InferredSource => {
+			if (s.kind !== "interior") {
+				return source(s)
+			}
+			const interior = defined(interiors.get(s.id), `the interior stage ${s.id} of its rule`)
+			return { kind: "query", query: live.query(queryOf(interior.arms, r.loc)), bind: {} }
+		}
+		return {
+			...r,
+			matches: r.matches.map((m) => ({ ...m, source: read(m.source) })),
+			where: r.where.map((w) => sourcesThrough(w, read)),
+			interiors: [],
+			attach: r.attach.map((a) => ({ ...a, child: live.query(a.child) }))
+		}
+	}
 	const stage = (st: InferredStage): InferredStage => {
 		switch (st.kind) {
 			case "rules":
@@ -1666,7 +1997,7 @@ const rulesOf = (query: InferredQuery): InferredQuery => {
 			case "order":
 			case "take":
 			case "approx":
-				throw defect(`a negated definition of a ${stage.kind} stage, which no rule reads`)
+				defect(`a negated definition of a ${stage.kind} stage, which no rule reads`)
 		}
 	}
 	const stage = query.stage
@@ -2293,8 +2624,72 @@ interface Moved {
 /** The direction a negation turns a move: a definition gaining facts withdraws those of the arm that negates it. */
 const turned = (direction: ProbeSide): ProbeSide => (direction === "added" ? "removed" : "added")
 
-/** What a probe's rows read of the definitions they meet, once a definition, fields, directions and depth (`movedOf`). */
-type MovedMemo = Map<string | InferredQuery, Map<string, ReadonlyArray<Moved>>>
+/**
+ * What one probe's walk over the arms a write of `relation` touches reads once (`rowsOf`, `gainedFacts`, `lostFacts`):
+ * what the write moves of each definition it meets, by the definition, then its fields, directions and depth
+ * (`movedOf`), and how a sibling covers each match of an arm (`coverOf`), by the arm and the match, by the walk's
+ * proofs, each arm's stored matches assigned once (`assignedCovers`): none for a walk of no proofs (Proofs `none`).
+ */
+class MovedMemo {
+	readonly #relation: string
+	readonly #proofs: Proofs
+	readonly #moved = new Map<string | InferredQuery, Map<string, ReadonlyArray<Moved>>>()
+	readonly #covers = new WeakMap<LiveArm, Map<ArmMatch, Cover | undefined>>()
+	readonly #assigned = new WeakMap<LiveArm, ReadonlyMap<StoredMatch, StoredCover | undefined>>()
+	readonly #regained = new WeakMap<Negation, Regained | undefined>()
+
+	constructor(relation: string, proofs: Proofs) {
+		this.#relation = relation
+		this.#proofs = proofs
+	}
+
+	/** What the walk has moved of the definition read once by `key` (`movedKey`), by fields, directions and depth. */
+	movesOf(key: string | InferredQuery): Map<string, ReadonlyArray<Moved>> {
+		return this.#moved.getOrInsertComputed(key, () => new Map<string, ReadonlyArray<Moved>>())
+	}
+
+	/** How a sibling covers `m` in `arm` (`coverOf`), none where the walk's proofs are none. */
+	cover(arm: LiveArm, m: ArmMatch): Cover | undefined {
+		const proofs = this.#proofs
+		if (proofs.kind === "none") {
+			return undefined
+		}
+		const known = this.#covers.getOrInsertComputed(
+			arm,
+			() => new Map<ArmMatch, Cover | undefined>()
+		)
+		if (known.has(m)) {
+			return known.get(m)
+		}
+		const assigned = this.#assigned.getOrInsertComputed(arm, () =>
+			assignedCovers(arm, proofs.facts)
+		)
+		const cover = coverOf(arm, m, this.#relation, proofs.facts, assigned)
+		known.set(m, cover)
+		return cover
+	}
+
+	/**
+	 * How a sibling among `arms` regains what `arm`'s negation `n` withdraws where a write adds a row of the written
+	 * relation (`regainedBy`), none where the walk's proofs are none or `n` negates another relation.
+	 */
+	regained(arms: ReadonlyArray<LiveArm>, arm: LiveArm, n: Negation): Regained | undefined {
+		const proofs = this.#proofs
+		if (
+			proofs.kind === "none" ||
+			n.source.kind !== "relation" ||
+			n.source.name !== this.#relation
+		) {
+			return undefined
+		}
+		if (this.#regained.has(n)) {
+			return this.#regained.get(n)
+		}
+		const regained = regainedBy(arms, arm, n, proofs.facts)
+		this.#regained.set(n, regained)
+		return regained
+	}
+}
 
 /** The key a definition is read once by (MovedMemo): a stored or closed relation by its name, a query as the one object. */
 const movedKey = (source: NegatedSource): string | InferredQuery =>
@@ -2335,8 +2730,7 @@ const movedOf = (
 	loc: SourceLoc
 ): ReadonlyArray<Moved> => {
 	const key = `${fields.join(",")} ${directions.join("+")} ${String(depth)}`
-	const bySource = memo.get(movedKey(definition.source)) ?? new Map<string, ReadonlyArray<Moved>>()
-	memo.set(movedKey(definition.source), bySource)
+	const bySource = memo.movesOf(movedKey(definition.source))
 	const known = bySource.get(key)
 	if (known !== undefined) {
 		return known
@@ -2488,108 +2882,598 @@ const varOf = (e: InferredExpr | undefined): string | undefined =>
 	e?.kind === "var" ? e.var : undefined
 
 /**
- * Whether the added rows of `relation` that `m`, a match of a probed rule's breaking arm `arm`, reads add no fact of the
- * arm that another probe of the rule does not read: a sibling stored match covers it (`covers`) and no match of the arm
- * covers that sibling, so a chain of containments keeps the probe of its last link and a cycle prunes none of its
- * links.
+ * What a probe's walk proves the occurrences of the written relation it covers by (`coverOf`): `facts`, the schema's
+ * containments, closed under composition, and each stored relation's keys (analysis/theory/unit.ts RegionFacts), each a
+ * law every committed state holds, whatever discharges it; or `none`, a walk that covers nothing, every occurrence's
+ * touches read as its relation's writes move it (`touches` as the witnesses read a rule, analysis/isolation).
  */
-const covered = (
-	arm: LiveArm,
-	m: ArmMatch,
-	relation: string,
-	containments: ReadonlyArray<FieldContainment>
-): boolean =>
-	arm.matches.some(
-		(s) =>
-			s !== m &&
-			s.kind === "stored" &&
-			covers(s, m, relation, containments) &&
-			!arm.matches.some(
-				(t) => t !== s && t.kind === "stored" && covers(t, s, s.relation, containments)
-			)
+export type Proofs =
+	| { readonly kind: "facts"; readonly facts: CoverFacts }
+	| { readonly kind: "none" }
+
+/**
+ * The laws a cover reads (Proofs `facts`): each containment over every row of its source, by its source and its
+ * target (`between`), and each stored relation's keys, its primary key first.
+ */
+export interface CoverFacts {
+	readonly between: (from: string, to: string) => ReadonlyArray<FieldContainment>
+	readonly keys: RegionFacts["keys"]
+	/**
+	 * Whether `relation` is closed, an ordinary relation no `mutable` opens: no served write, and no writer its
+	 * immutability guard stands before, updates or deletes its rows (physical/ddl/immutable.ts), so its side of the rows
+	 * a write removes holds none and no probe reads it.
+	 */
+	readonly closed: (relation: string) => boolean
+	/**
+	 * The scope's order of the clock `field` of `relation` (ir/instant.ts scopeOrder): its head and the fields of the
+	 * relation that hold the head's key; none for a field that is no clock.
+	 */
+	readonly clock: (relation: string, field: string) => ClockOrder | undefined
+}
+
+/** A clock's scope order (CoverFacts `clock`): its head, and its relation's fields that hold the head's key. */
+export interface ClockOrder {
+	readonly head: ClockHead
+	readonly key: NonEmptyReadonlyArray<LawField>
+}
+
+/** The scope orders of the clocks of `instants` (CoverFacts `clock`), by relation and field (ir/instant.ts scopeOrder). */
+export const clockOrders = (instants: Instants): CoverFacts["clock"] => {
+	const named = new Map<string, StoredRelationName>(
+		[...instants.roles.keys()].map((r) => [r, r] as const)
 	)
+	return (relation, field) => {
+		const name = named.get(relation)
+		return name === undefined ? undefined : scopeOrder(instants, name, field)
+	}
+}
+
+/** No clock's scope order: a walk that proves nothing by a clock, an upkeep's (analysis/theory/upkeep.ts). */
+export const noClocks: CoverFacts["clock"] = () => undefined
 
 /**
- * Whether the stored match `s` covers `m`'s reads of `relation` (`covered`): a containment over every row of `s`'s
- * relation, s[F] ⊆ R[G] with R `relation` (`containments`, the schema's closed under composition), where each field `m`
- * reads of R is a field of G bound to the variable `s` binds at its pair in F, directly where `m` is R's match, or
- * through the heading of a definition of several rules (DefinedMatch) every arm of which reads R in such matches of its
- * own alone and under no negation, at fields its head delivers at the heading fields `m` binds.
- *
- * Every row of `s`'s relation that is no row the transaction added stood before it, and so did a row of R that agreed
- * with it at G, since every committed state holds the containment: one that agrees, at every field `m` reads of R, with
- * any row of R the transaction added that the fact meets `s`'s row beside. So a fact the arm gains through an added row
- * of R and a row of `s`'s relation that stood was the arm's fact before the transaction, the stood row of R in place of
- * the added one, unless another of its rows is one the transaction added, or one of a relation it negates is one it
- * removed, which that row's own probe reads; and where `s`'s row is one it added, the probe of `s`'s relation's added
- * rows reads the fact. A fact the arm held before held its law then, the same values now.
+ * Whether `relation` is closed: an ordinary relation no `mutable` opens, whose rows no served write updates or deletes,
+ * and no writer its immutability guard stands before (physical/ddl/immutable.ts). A data step lifts the guard, and its
+ * bracket re-checks what this premise spares (physical/ddl/recheck.ts).
  */
-const covers = (
-	s: StoredMatch,
-	m: ArmMatch,
-	relation: string,
-	containments: ReadonlyArray<FieldContainment>
-): boolean =>
-	containments.some((c) => {
-		if (c.from !== s.relation || c.to !== relation || c.selection.length > 0) {
-			return false
+export const isClosedRelation = (relation: TheoryRelation | undefined): boolean =>
+	relation?.kind === "relation" && !relation.mutable
+
+/**
+ * The proofs of `region`'s facts over the theory's `relations` (Proofs), each containment over every row of its source
+ * held by its source and target once.
+ */
+export const proofsOf = (
+	region: RegionFacts,
+	relations: (relation: string) => TheoryRelation | undefined,
+	clock: CoverFacts["clock"]
+): Proofs => {
+	const bySource = new Map<string, Map<string, Array<FieldContainment>>>()
+	for (const c of region.containments) {
+		if (c.selection.length > 0) {
+			continue
 		}
-		/** Whether the field `field` of R, read at the variable `v`, is a field of G at whose pair `s` binds `v`. */
-		const pinned = (field: string, v: string | undefined): boolean =>
-			v !== undefined && c.pairs.some((p) => p.to === field && varOf(s.bindings[p.from]) === v)
-		return readsPinned(m, relation, pinned)
-	})
-
-/**
- * Whether every field `m` reads of `relation` is `pinned` at the variable `m`'s arm reads it at (`covers`): `m` being
- * R's stored match, at its own bindings; a definition of several rules, at the heading field each of its arms delivers
- * it at, every match of `relation` in each arm a stored one of it, none under a negation, and no other match of the arm
- * reading it at any depth.
- */
-const readsPinned = (
-	m: ArmMatch,
-	relation: string,
-	pinned: (field: string, v: string | undefined) => boolean
-): boolean => {
-	switch (m.kind) {
-		case "stored":
-			return (
-				m.relation === relation &&
-				Object.entries(m.bindings).every(([field, e]) => pinned(field, varOf(e)))
-			)
-		case "grouped":
-			return false
-		case "defined":
-			return m.arms.every((a) => {
-				const outer = (v: string | undefined): ReadonlyArray<string> =>
-					Object.entries(a.head).flatMap(([h, e]) => {
-						const w = varOf(m.bindings[h])
-						return v !== undefined && varOf(e) === v && w !== undefined ? [w] : []
-					})
-				return (
-					!readsAt({ matches: [], negated: a.negated }, "positive")
-						.concat(readsAt({ matches: [], negated: a.negated }, "negative"))
-						.flatMap(storedOf)
-						.some((o) => o.relation === relation) &&
-					a.matches.every((o) =>
-						o.kind === "stored"
-							? o.relation !== relation ||
-								Object.entries(o.bindings).every(([field, e]) =>
-									outer(varOf(e)).some((w) => pinned(field, w))
-								)
-							: !everyRead({ matches: [o], negated: [] })
-									.flatMap(storedOf)
-									.some((r) => r.relation === relation)
-					)
-				)
-			})
+		const into = bySource.getOrInsertComputed(
+			c.from,
+			() => new Map<string, Array<FieldContainment>>()
+		)
+		into.getOrInsertComputed(c.to, () => []).push(c)
+	}
+	return {
+		kind: "facts",
+		facts: {
+			between: (from, to) => bySource.get(from)?.get(to) ?? [],
+			keys: region.keys,
+			closed: (relation) => isClosedRelation(relations(relation)),
+			clock
+		}
 	}
 }
 
 /**
- * The candidates of the facts of `arms` a transaction's write of `relation` on `side` may add, each beside its arm, of
- * the matches `touching` holds of (every match of a group's body; of a probed rule's breaking side, those no sibling
- * covers, `uncovered`):
+ * Why a sibling covers an occurrence of the written relation R in an arm (`coverOf`): the stored match of relation
+ * `sibling` beside it, and the containment sibling[F] ⊆ R[G] it is read through (`containment`), each field of R it
+ * pins bound to the variable the sibling binds at its pair:
+ *
+ * - `read`: every field the occurrence reads of R, at any depth, is a pinned field of G. Every row of the sibling a
+ *   transaction did not add stood before it, and so did a row of R agreeing with it at G, since the committed state
+ *   before the transaction held the containment: one that agrees, at every field the occurrence reads, with any row of
+ *   R the transaction added that the fact meets the sibling's row beside. So a fact the arm gains through an added row
+ *   of R and a sibling row that stood is the fact it held before, the row of R that stood in place of the added one.
+ * - `fresh`: R is closed (CoverFacts `closed`), and the fields of a key of R, `key`, are pinned at every occurrence of
+ *   R the match reads, at any depth, and none under a negation; the occurrence may read any other field of R. A sibling
+ *   row that stood met a row r₀ of R at the key before the transaction, and an added row r₁ of R at the same key is
+ *   not r₀, which stood before; R holds one row at a key, and no write its immutability guard stands before removes a
+ *   row of a closed relation (physical/ddl/immutable.ts), so r₀ stands, and r₁ is r₀: a row a write adds of R is a row
+ *   of a new key, whose children the same write creates if any. A fact the arm gains through it beside a sibling row
+ *   that stood is none, and one beside a row the sibling gained is the sibling's own probe's. A mutable R, whose rows
+ *   a write updates and deletes, is covered at no key: an added row at a key a sibling pins may replace the row that
+ *   stood there. A migration's data step, which drops the guard, re-checks every rule over a closed relation whole
+ *   in its own transaction (physical/ddl/recheck.ts).
+ *
+ * The containment holds over every row of the sibling's relation (`proofsOf`): one over the rows a selection admits
+ * would pin only the rows its condition holds of.
+ */
+export type Cover =
+	| { readonly kind: "read"; readonly sibling: string; readonly containment: FieldContainment }
+	| {
+			readonly kind: "fresh"
+			readonly sibling: string
+			readonly containment: FieldContainment
+			readonly key: NonEmptyReadonlyArray<string>
+	  }
+
+/** What a sibling's cover asks of each occurrence of R (Cover): every field it reads pinned, or a key's. */
+type Pinning =
+	| { readonly kind: "read" }
+	| { readonly kind: "key"; readonly key: NonEmptyReadonlyArray<string> }
+
+/** Whether the arm `a` reads `relation` under a negation, at any depth. */
+const negatesRelation = (a: Pick<LiveArm, "negated">, relation: string): boolean =>
+	everyRead({ matches: [], negated: a.negated })
+		.flatMap(storedOf)
+		.some((o) => o.relation === relation)
+
+/** Whether the match `m` reads `relation`, at any depth and either polarity. */
+const readsRelation = (m: ArmMatch, relation: string): boolean =>
+	everyRead({ matches: [m], negated: [] })
+		.flatMap(storedOf)
+		.some((o) => o.relation === relation)
+
+/**
+ * Whether every occurrence of `relation` `m` reads, at any depth, holds each field `pinning` asks of it (Pinning) at a
+ * variable `pinned` accepts, a field R holds read at the variable of the arm the walk began in that the variable it is
+ * bound to is delivered at: a stored match of R at its own bindings; a definition of several rules (DefinedMatch) at the
+ * heading field each of its arms delivers the variable at, no arm reading R under a negation; and, for a key, an
+ * aggregating rule's groups (GroupedMatch) at the group fields its body delivers it at, the body reading R under no
+ * negation, since each row of R its body reads then stands in a group of the row's key and no other. A read of every
+ * field is held through no group: a group's fact folds its rows, which agreeing at the fields read is no proof of.
+ */
+const pinnedIn = (
+	m: ArmMatch,
+	relation: string,
+	pinning: Pinning,
+	pinned: (field: string, v: string) => boolean
+): boolean => {
+	/** Whether arm `a`, read at `outer` (the binding of the reading match at each heading field), pins R. */
+	const through = (a: LiveArm, outer: (field: string) => InferredExpr | undefined): boolean =>
+		!negatesRelation(a, relation) &&
+		a.matches.every((o) =>
+			pinnedIn(o, relation, pinning, (field, w) =>
+				Object.entries(a.head).some(([h, e]) => {
+					const v = varOf(outer(h))
+					return varOf(e) === w && v !== undefined && pinned(field, v)
+				})
+			)
+		)
+	switch (m.kind) {
+		case "stored": {
+			if (m.relation !== relation) {
+				return true
+			}
+			const asked = pinning.kind === "read" ? Object.keys(m.bindings) : pinning.key
+			return asked.every((field) => {
+				const v = varOf(m.bindings[field])
+				return v !== undefined && pinned(field, v)
+			})
+		}
+		case "defined":
+			return m.arms.every((a) => through(a, (h) => m.bindings[h]))
+		case "grouped":
+			return pinning.kind === "key"
+				? m.groups.body.every((b) =>
+						through(b, (h) => (m.groups.keys.includes(h) ? m.bindings[h] : undefined))
+					)
+				: !readsRelation(m, relation)
+	}
+}
+
+/**
+ * How the stored match `s` covers `m`'s reads of `relation` (Cover), through a containment of `s`'s relation into R over
+ * every row of it, s[F] ⊆ R[G], one the schema states or composes (`laws`, no selection among them): every field `m`
+ * reads of R a field of G at the variable `s` binds at its pair (`read`), else, R closed, a key of R among G so
+ * (`fresh`); none where neither holds.
+ */
+const coveredBy = (
+	s: StoredMatch,
+	m: ArmMatch,
+	relation: string,
+	laws: CoverFacts
+): Cover | undefined => {
+	let keyed: Cover | undefined
+	for (const c of laws.between(s.relation, relation)) {
+		/** The variable `s` binds at the field of F that the field `field` of R is paired with, none where G lacks it. */
+		const pin = (field: string): string | undefined => {
+			const p = c.pairs.find((x) => x.to === field)
+			return p === undefined ? undefined : varOf(s.bindings[p.from])
+		}
+		const pinned = (field: string, v: string): boolean => pin(field) === v
+		if (pinnedIn(m, relation, { kind: "read" }, pinned)) {
+			return { kind: "read", sibling: s.relation, containment: c }
+		}
+		if (keyed !== undefined || !laws.closed(relation)) {
+			continue
+		}
+		const key = (laws.keys.get(relation) ?? []).find((k) =>
+			pinnedIn(m, relation, { kind: "key", key: k }, pinned)
+		)
+		if (key !== undefined) {
+			keyed = { kind: "fresh", sibling: s.relation, containment: c, key }
+		}
+	}
+	return keyed
+}
+
+/**
+ * The sibling that covers each stored match of `arm` (`coveredBy`), each at its own relation, none for a match no
+ * sibling covers: assigned once for the arm, in the order of its matches, each match covered by the first stored
+ * sibling that covers it at every field it reads, or else by the first that covers it at a key, whose chain of covers,
+ * following each covered sibling to the one that covers it, does not reach back to it. So every chain ends at a match
+ * the assignment covers by nothing, whose probe reads its relation's added rows: a cycle of containments prunes all of
+ * its links but one, and a chain all but its last, its links pinned field to field or not (Session's deadline pinned
+ * by Visit's rows beside Test's, though no composition carries Test's key to Visit). The walk of every written
+ * relation reads the one assignment, so a match pruned in one relation's probes is a match its sibling's probes read,
+ * or prune in turn, down to the chain's end, where the fact is read.
+ */
+const assignedCovers = (
+	arm: LiveArm,
+	laws: CoverFacts
+): ReadonlyMap<StoredMatch, StoredCover | undefined> => {
+	const assigned = new Map<StoredMatch, StoredCover | undefined>()
+	/** Whether the chain of covers from `s` reaches `target`, by the assignment made so far. */
+	const reaches = (s: StoredMatch, target: StoredMatch): boolean => {
+		for (let at: StoredMatch | undefined = s; at !== undefined; at = assigned.get(at)?.by) {
+			if (at === target) {
+				return true
+			}
+		}
+		return false
+	}
+	for (const m of arm.matches) {
+		if (m.kind !== "stored") {
+			continue
+		}
+		let chosen: StoredCover | undefined
+		for (const s of arm.matches) {
+			if (s === m || s.kind !== "stored") {
+				continue
+			}
+			const cover = coveredBy(s, m, m.relation, laws)
+			if (cover === undefined || reaches(s, m)) {
+				continue
+			}
+			if (cover.kind === "read") {
+				chosen = { by: s, cover }
+				break
+			}
+			chosen ??= { by: s, cover }
+		}
+		assigned.set(m, chosen)
+	}
+	return assigned
+}
+
+/** The sibling that covers a stored match (`assignedCovers`), and how. */
+interface StoredCover {
+	readonly by: StoredMatch
+	readonly cover: Cover
+}
+
+/**
+ * How a sibling of `m` in `arm` covers `m`'s reads of the written relation `relation` (Cover), none where none does or
+ * `m` reads no row of it: a stored match by its arm's assignment (`assigned`, `assignedCovers`); a definition or a
+ * fold, which covers no sibling, by any stored sibling that covers it (`coveredBy`), every such sibling's chain ending
+ * at a match the assignment covers by nothing. A cover of every field read is taken before one of a key. Every arm at
+ * every depth is so covered, a definition's, a group's body and a negated query's alike: a fact the arm gains through
+ * R's added rows at `m` is then one it gains through the sibling's added rows, which the sibling's own touch reads, or
+ * its chain's next link's.
+ */
+const coverOf = (
+	arm: LiveArm,
+	m: ArmMatch,
+	relation: string,
+	laws: CoverFacts,
+	assigned: ReadonlyMap<StoredMatch, StoredCover | undefined>
+): Cover | undefined => {
+	if (!readsRelation(m, relation)) {
+		return undefined
+	}
+	if (m.kind === "stored") {
+		return assigned.get(m)?.cover
+	}
+	let keyed: Cover | undefined
+	for (const s of arm.matches) {
+		if (s === m || s.kind !== "stored") {
+			continue
+		}
+		const c = coveredBy(s, m, relation, laws)
+		if (c?.kind === "read") {
+			return c
+		}
+		keyed ??= c
+	}
+	return keyed
+}
+
+/**
+ * A negation of the written relation R whose loss a sibling arm regains (`regainedBy`), the clock's class: the fields of
+ * R the negation binds, and R's clocks the sibling reads, each stated no earlier than a clock of its scope.
+ */
+export interface Regained {
+	readonly kind: "clock"
+	readonly fields: NonEmptyReadonlyArray<string>
+	readonly clocks: NonEmptyReadonlyArray<string>
+}
+
+/** Why a probe of the rows a write adds to a relation spares an occurrence of it (`coversOf`): a cover, or a regain. */
+export type Proved = Cover | Regained
+
+/**
+ * Whether two terms, the first's variables renamed by `named` (each of its arm's to the sibling's it pairs with), are one
+ * canonically, source locations aside; a variable `named` pairs with none makes them none.
+ */
+const sameTerm = (
+	a: InferredExpr,
+	b: InferredExpr,
+	named: (id: string) => string | undefined
+): boolean => {
+	if (![...varsOf(a, new Set<string>())].every((id) => named(id) !== undefined)) {
+		return false
+	}
+	const renamed = mapLeaves(a, {
+		var: (id) => {
+			const to = named(id)
+			return to === undefined ? undefined : varRef(to)
+		},
+		field: () => undefined
+	})
+	return ownedText(renamed, withoutSourceLocs) === ownedText(b, withoutSourceLocs)
+}
+
+/** Whether two bindings bind the same fields, each to one term under `named` (`sameTerm`). */
+const sameBindings = (
+	a: InferredBindings,
+	b: InferredBindings,
+	named: (id: string) => string | undefined
+): boolean =>
+	sameOrder(Object.keys(a).toSorted(compareStrings), Object.keys(b).toSorted(compareStrings)) &&
+	Object.entries(a).every(([f, e]) => {
+		const other = b[f]
+		return other !== undefined && sameTerm(e, other, named)
+	})
+
+/**
+ * The pairing of an arm's variables with a sibling's (`regainedBy`), its matches and the sibling's `matches` place by
+ * place: each of one stored relation, or of one definition's arms, binding the same fields, a variable paired once and
+ * with one variable, any other term the same; none where a pair differs.
+ */
+const pairedMatches = (
+	arm: ReadonlyArray<ArmMatch>,
+	matches: ReadonlyArray<ArmMatch>
+): ReadonlyMap<string, string> | undefined => {
+	const paired = new Map<string, string>()
+	const taken = new Set<string>()
+	const pair = (a: InferredExpr, b: InferredExpr): boolean => {
+		if (a.kind !== "var" || b.kind !== "var") {
+			return sameTerm(a, b, (id) => paired.get(id))
+		}
+		const known = paired.get(a.var)
+		if (known !== undefined) {
+			return known === b.var
+		}
+		if (taken.has(b.var)) {
+			return false
+		}
+		paired.set(a.var, b.var)
+		taken.add(b.var)
+		return true
+	}
+	const sameSource = (a: ArmMatch, b: ArmMatch): boolean => {
+		switch (a.kind) {
+			case "stored":
+				return b.kind === "stored" && a.relation === b.relation
+			case "defined":
+				return (
+					b.kind === "defined" &&
+					ownedText(a.arms, withoutSourceLocs) === ownedText(b.arms, withoutSourceLocs)
+				)
+			case "grouped":
+				return false
+		}
+	}
+	const each =
+		arm.length === matches.length &&
+		arm.every((a, j) => {
+			const b = matches[j]
+			const fields = Object.keys(a.bindings).toSorted(compareStrings)
+			return (
+				b !== undefined &&
+				sameSource(a, b) &&
+				sameOrder(fields, Object.keys(b.bindings).toSorted(compareStrings)) &&
+				fields.every((f) => {
+					const x = a.bindings[f]
+					const y = b.bindings[f]
+					return x !== undefined && y !== undefined && pair(x, y)
+				})
+			)
+		})
+	return each ? paired : undefined
+}
+
+/**
+ * The regain of `arm`'s negation `n` by a sibling among `arms` (Regained), the clock's class, none where no sibling
+ * regains it: `n` negates a closed relation R at the fields N, no other negation of `arm` reads R, and a sibling B reads
+ * every match of `arm` as `arm` reads it, its every condition, its every other negation and delivers its every head
+ * field, so its every term (derivedSideArms), beside one match more, of R, binding N as `n` binds them and every other field of R a clock at a
+ * variable of its own (`regains`), which B's conditions read only to state it no earlier than a clock of its scope one
+ * of `arm`'s matches binds at the same key, `x <= r.at` (`clockImplied`).
+ *
+ * The proof. Let a row r a write adds to R withdraw a fact f of `arm`: r agrees with `n`, at N, and f's matches stand
+ * after the write, as B reads them. Each of them holding a clock x of r's scope at r's key was stamped by an earlier call
+ * than r's, at an instant below r's, or by the write itself, at its one instant at that key (ir/instant.ts scopeOrder,
+ * every writer's rows stamped so, physical/ddl/clocked.ts), so x <= r.at: B holds f through r, and the union of `arms`
+ * loses no fact by a row R gains through `n`. R is closed, so no write moves a row of it to N (physical/ddl/immutable.ts),
+ * a data step, the one writer that may, re-checking every rule over it whole (physical/ddl/recheck.ts). So no probe of
+ * the rows R gains reads `n` (`occurrencesOf`): no block of a rule reads the rows R gains where every occurrence of R
+ * it reads there is so regained, and no capture writes them for it; the arms' every other occurrence reads as before. A sibling that reads R at a field past N but a clock, or states anything else of it, regains nothing: a row
+ * of R at N that misses it withdraws `arm`'s fact for good (qti-pie's "Inside a candidate session", whose ended arm reads
+ * the end's own kind).
+ */
+const regainedBy = (
+	arms: ReadonlyArray<LiveArm>,
+	arm: LiveArm,
+	n: Negation,
+	laws: CoverFacts
+): Regained | undefined => {
+	const source = n.source
+	if (source.kind !== "relation" || !laws.closed(source.name)) {
+		return undefined
+	}
+	const others = arm.negated.filter((x) => x !== n)
+	if (negatesRelation({ negated: others }, source.name)) {
+		return undefined
+	}
+	for (const b of arms) {
+		const regained = b === arm ? undefined : regains(arm, n, source.name, others, b, laws)
+		if (regained !== undefined) {
+			return regained
+		}
+	}
+	return undefined
+}
+
+/** How `b` regains the facts `arm`'s negation `n` of R withdraws (`regainedBy`), none where it does not. */
+const regains = (
+	arm: LiveArm,
+	n: Negation,
+	relation: string,
+	others: ReadonlyArray<Negation>,
+	b: LiveArm,
+	laws: CoverFacts
+): Regained | undefined => {
+	const fields = Object.keys(n.bindings).toSorted(compareStrings)
+	if (
+		b.matches.length !== arm.matches.length + 1 ||
+		b.negated.length !== others.length ||
+		!isNonEmpty(fields)
+	) {
+		return undefined
+	}
+	for (const [at, r] of b.matches.entries()) {
+		if (r.kind !== "stored" || r.relation !== relation) {
+			continue
+		}
+		const rest = b.matches.filter((_, j) => j !== at)
+		const paired = pairedMatches(arm.matches, rest)
+		if (paired === undefined) {
+			continue
+		}
+		const named = (id: string): string | undefined => paired.get(id)
+		const bound = new Set(paired.values())
+		const clocks = new Map<string, ClockOrder>()
+		const read = Object.entries(r.bindings).every(([f, e]) => {
+			const negated = n.bindings[f]
+			if (negated !== undefined) {
+				return sameTerm(negated, e, named)
+			}
+			const order = laws.clock(relation, f)
+			if (e.kind !== "var" || bound.has(e.var) || order === undefined) {
+				return false
+			}
+			clocks.set(e.var, order)
+			return true
+		})
+		const clocked = [...clocks.keys()]
+		const regainedHere =
+			read &&
+			fields.every((f) => r.bindings[f] !== undefined) &&
+			isNonEmpty(clocked) &&
+			arm.where.every((c) => b.where.some((d) => sameTerm(c, d, named))) &&
+			b.where.every(
+				(d) =>
+					arm.where.some((c) => sameTerm(c, d, named)) || clockImplied(d, rest, r, clocks, laws)
+			) &&
+			others.every((x) =>
+				b.negated.some(
+					(y) =>
+						ownedText(x.source, withoutSourceLocs) === ownedText(y.source, withoutSourceLocs) &&
+						ownedText(x.arms, withoutSourceLocs) === ownedText(y.arms, withoutSourceLocs) &&
+						sameBindings(x.bindings, y.bindings, named)
+				)
+			) &&
+			sameBindings(arm.head, b.head, named)
+		if (regainedHere) {
+			const stamped = Object.entries(r.bindings).flatMap(([f, e]) =>
+				e.kind === "var" && clocks.has(e.var) ? [f] : []
+			)
+			return isNonEmpty(stamped) ? { kind: "clock", fields, clocks: stamped } : undefined
+		}
+	}
+	return undefined
+}
+
+/**
+ * Whether a sibling's condition `d` is one the clock implies of a row its match `r` of R reads (`regains`): `x <= w`
+ * or `w >= x`, w the variable of a clock of `r` (`clocks`), x a variable a stored match of `rest` binds to a clock of
+ * the same scope (ir/instant.ts sameHead), that match binding the scope's key at the variables `r` binds its own at.
+ */
+const clockImplied = (
+	d: InferredExpr,
+	rest: ReadonlyArray<ArmMatch>,
+	r: StoredMatch,
+	clocks: ReadonlyMap<string, ClockOrder>,
+	laws: CoverFacts
+): boolean => {
+	if (d.kind !== "compare" || (d.op !== "le" && d.op !== "ge")) {
+		return false
+	}
+	const [earlier, later] = d.op === "le" ? [d.left, d.right] : [d.right, d.left]
+	const order = later.kind === "var" ? clocks.get(later.var) : undefined
+	if (earlier.kind !== "var" || order === undefined) {
+		return false
+	}
+	return rest.some(
+		(x) =>
+			x.kind === "stored" &&
+			Object.entries(x.bindings).some(([f, e]) => {
+				const theirs =
+					e.kind === "var" && e.var === earlier.var ? laws.clock(x.relation, f) : undefined
+				return (
+					theirs !== undefined &&
+					sameHead(theirs.head, order.head) &&
+					theirs.key.length === order.key.length &&
+					theirs.key.every((k, i) => {
+						const mine = x.bindings[k.name]
+						const at = order.key[i]
+						const other = at === undefined ? undefined : r.bindings[at.name]
+						return mine?.kind === "var" && other?.kind === "var" && mine.var === other.var
+					})
+				)
+			})
+	)
+}
+
+/**
+ * How a write of `relation` on `side` touches the match `m` of `arm` (Touch): as `matchTouches` reads it, but where a
+ * sibling covers it (`coverOf`, by the walk's proofs, MovedMemo `cover`), not at all on the side of what the write adds,
+ * every fact it would gain or move there another touch's.
+ */
+const occurrenceTouches = (
+	arm: LiveArm,
+	m: ArmMatch,
+	relation: string,
+	side: ProbeSide,
+	depth: number,
+	memo: MovedMemo,
+	loc: SourceLoc
+): ReadonlyArray<Touch> =>
+	side === "added" && memo.cover(arm, m) !== undefined
+		? []
+		: matchTouches(m, relation, side, depth, memo, loc)
+
+/**
+ * The candidates of the facts of `arms` a transaction's write of `relation` on `side` may add, each beside its arm, by
+ * the touches of each match a sibling does not cover on that side (`occurrenceTouches`):
  *
  * - by a match that gains facts (Touch `added`): a stored relation's rows added, or an aggregating rule's groups it
  *   touched as they stand (`gainedBy`);
@@ -2601,12 +3485,11 @@ const gainedOf = <A extends LiveArm>(
 	side: ProbeSide,
 	depth: number,
 	memo: MovedMemo,
-	touching: (arm: A, m: ArmMatch) => boolean,
 	loc: SourceLoc
 ): ReadonlyArray<{ readonly arm: A; readonly candidate: Candidate }> => [
 	...arms.flatMap((arm) =>
 		arm.matches.flatMap((m, at) =>
-			(touching(arm, m) ? matchTouches(m, relation, side, depth, memo, loc) : []).flatMap((t) =>
+			occurrenceTouches(arm, m, relation, side, depth, memo, loc).flatMap((t) =>
 				t.direction === "added"
 					? [
 							{
@@ -2702,7 +3585,7 @@ const relaxedOf = <A extends LiveArm>(
 ): ReadonlyArray<{ readonly arm: A; readonly candidate: Candidate }> => [
 	...arms.flatMap((arm) =>
 		arm.matches.flatMap((m, at) =>
-			matchTouches(m, relation, side, depth, memo, loc).flatMap((t) => {
+			occurrenceTouches(arm, m, relation, side, depth, memo, loc).flatMap((t) => {
 				if (t.direction !== direction) {
 					return []
 				}
@@ -2748,19 +3631,10 @@ const gainedRows = (
 	rule: ProbedRule,
 	relation: string,
 	side: ProbeSide,
-	containments: ReadonlyArray<FieldContainment>,
 	memo: MovedMemo,
 	loc: SourceLoc
 ): ReadonlyArray<ProbeRow> =>
-	gainedOf(
-		breakingArms(rule),
-		relation,
-		side,
-		0,
-		memo,
-		(arm, m) => side === "removed" || !covered(arm, m, relation, containments),
-		loc
-	).map(({ arm, candidate: c }) =>
+	gainedOf(breakingArms(rule), relation, side, 0, memo, loc).map(({ arm, candidate: c }) =>
 		rowOf(
 			rule,
 			c.region,
@@ -2868,18 +3742,18 @@ export const everyRowProbe = (
  * (`lostRows`). On the side of what a transaction adds (delta.added, the images the relation holds at COMMIT that it did
  * not hold before, so a row is read from the net write and never again from its table), the gained first; on the side
  * of what it removes (delta.removed, the rows a DELETE or an UPDATE of a column read found), the lost first. A match
- * of the written relation that a sibling covers through one of the schema's `containments` (`covered`) adds no row:
- * every fact it gains another probe of the rule reads.
+ * of the written relation that a sibling covers by `proofs` (`coverOf`) adds no row on the side of what it adds: every
+ * fact it gains another row of the rule reads, the sibling's.
  */
 const rowsOf = (
 	rule: ProbedRule,
 	relation: string,
 	side: ProbeSide,
-	containments: ReadonlyArray<FieldContainment>,
+	proofs: Proofs,
 	loc: SourceLoc
 ): ReadonlyArray<ProbeRow> => {
-	const memo: MovedMemo = new Map()
-	const gained = gainedRows(rule, relation, side, containments, memo, loc)
+	const memo = new MovedMemo(relation, proofs)
+	const gained = gainedRows(rule, relation, side, memo, loc)
 	const lost = rule.kind === "contained" ? lostRows(rule, relation, side, memo, loc) : []
 	return side === "added" ? [...gained, ...lost] : [...lost, ...gained]
 }
@@ -2889,28 +3763,389 @@ export const probeRows = (
 	rule: ProbedRule,
 	relation: string,
 	side: ProbeSide,
-	containments: ReadonlyArray<FieldContainment>,
+	proofs: Proofs,
 	loc: SourceLoc
 ): ReadonlyArray<InferredRule> =>
-	rowsOf(rule, relation, side, containments, loc).map((row) => overAny(row.region, row.rule, loc))
+	rowsOf(rule, relation, side, proofs, loc).map((row) => overAny(row.region, row.rule, loc))
 
 /**
  * The probe of `rule` over what a transaction wrote of `relation` on `side`, none where the write breaks it at no row:
  * the rule's meeting part over every row the write may break it at (`probeOf`), each row read from the net write's
  * region outward (analysis/theory/navigate.ts), the side its rows meet read by arm (`readAs`): a key's side and a
- * containment's target arm by arm, each negation of the target keyed by the row's terms. `containments` are the
- * schema's, closed under composition (analysis/theory/unit.ts RegionFacts), which every committed state holds.
+ * containment's target arm by arm, each negation of the target keyed by the row's terms. `proofs` are the schema's
+ * containments, closed under composition, and keys (analysis/theory/unit.ts RegionFacts, `proofsOf`), which every
+ * committed state holds.
  */
 export const probe = (
 	rule: ProbedRule,
 	relation: string,
 	side: ProbeSide,
-	containments: ReadonlyArray<FieldContainment>,
+	proofs: Proofs,
 	loc: SourceLoc
 ): InferredQuery | undefined => {
-	const rows = rowsOf(rule, relation, side, containments, loc)
+	const rows = rowsOf(rule, relation, side, proofs, loc)
 	return isNonEmpty(rows) ? probeOf(rule, rows, loc) : undefined
 }
+
+/**
+ * The facts of a stored relation's definition, its live arms `arms`, that a transaction's write of `relation` on `side`
+ * gains, each a rule over its region delivering the definition's heading (analysis/theory/upkeep.ts, a delta program's
+ * gained rules): the arm read from the written rows outward, every other match and every negation as it stands at
+ * COMMIT (`gainedOf`), what a law's probe reads of a derived side's facts, here every fact itself. So each row is a fact
+ * of the definition as the transaction leaves it, and every fact it gains is a row: each derivation of a fact it did not
+ * hold reads a row the transaction wrote, or one a negation no longer blocks.
+ */
+export const gainedFacts = (
+	arms: NonEmptyReadonlyArray<LiveArm>,
+	relation: string,
+	side: ProbeSide,
+	loc: SourceLoc,
+	proofs: Proofs
+): ReadonlyArray<InferredRule> =>
+	gainedOf(arms, relation, side, 0, new MovedMemo(relation, proofs), loc).map(
+		({ arm, candidate: c }) =>
+			overAny(
+				c.region,
+				ruleDesc(
+					c.vars,
+					c.matches.map(matchDesc),
+					conditionsOf({ where: c.where, negated: c.negated }, loc),
+					mapBindings(arm.head, c.leaves),
+					loc
+				),
+				loc
+			)
+	)
+
+/**
+ * `rules`, the facts a write gains, as one query that evaluates their heads' calls once (Gained of a delta form,
+ * analysis/theory/upkeep.ts gainedQuery): where each rule's head computes the same calls of a declared function, its
+ * fields `calls` the same terms in each rule but for their variables, the rules are a union `drivers` of their other
+ * head fields and the calls' arguments (`a0`, `a1`, …), each argument the variable of its rule the call reads at its
+ * place; the calls one rule over the drivers' distinct arguments (`computed`), each call evaluated once for each
+ * distinct tuple of them, its projection reading the drivers as a set (analysis/physical/consumers.ts), and read whole,
+ * before every step, its rows read from the region alone (analysis/theory/navigate.ts callsOnce); and the facts one
+ * rule joining each driver to its arguments' calls. Each arm of a union is navigated apart, so an inlined call in each
+ * rule's head ran once for every rule that derives the fact: a closed delta form's gain of a place and its link written
+ * in one transaction, three rules each joined to the place's value, compiled the value three times
+ * (test/pg/derived/stored's calls); and `computed` read at each read, keyed by the drivers before it, ran its call
+ * once per driver: two linked places of one value, compiled twice. The rules as they are where no head calls a
+ * function, or where the calls' terms or the fields they leave apart differ between rules.
+ */
+export const sharedCalls = (
+	rules: NonEmptyReadonlyArray<InferredRule>,
+	loc: SourceLoc
+): InferredQuery => {
+	const [first] = rules
+	const calls = Object.keys(first.head)
+		.filter((f) => callsOf(first.head[f]).size > 0)
+		.toSorted(compareStrings)
+	if (!isNonEmpty(calls)) {
+		return queryOf(rules, loc)
+	}
+	const named = (j: number): string => `a${j}`
+	const plain = Object.keys(first.head)
+		.filter((f) => !calls.includes(f))
+		.toSorted(compareStrings)
+	/** Each rule's calls' arguments, the variables its call terms read, in the order they read them. */
+	const argumentsOf = (r: InferredRule): ReadonlyArray<string> | undefined => {
+		const fields = Object.keys(r.head).toSorted(compareStrings)
+		if (!sameOrder(fields, Object.keys(first.head).toSorted(compareStrings))) {
+			return undefined
+		}
+		const read = new Set<string>()
+		for (const f of calls) {
+			const term = r.head[f]
+			if (term === undefined || term.kind === "aggregate" || term.kind === "producer") {
+				return undefined
+			}
+			varsOf(term, read)
+		}
+		return [...read]
+	}
+	/** A call term with its variables named by their argument's place. */
+	const shaped = (r: InferredRule, args: ReadonlyArray<string>): string | undefined => {
+		const place = new Map(args.map((a, j) => [a, named(j)] as const))
+		const terms = calls.map((f) => {
+			const term = r.head[f]
+			return term === undefined || term.kind === "aggregate" || term.kind === "producer"
+				? undefined
+				: mapLeaves(term, {
+						var: (id) => varRef(defined(place.get(id), "a call's argument")),
+						field: () => undefined
+					})
+		})
+		return terms.some((t) => t === undefined) ? undefined : ownedText(terms, withoutSourceLocs)
+	}
+	const argsOfFirst = argumentsOf(first)
+	const shape = argsOfFirst === undefined ? undefined : shaped(first, argsOfFirst)
+	const each = rules.map((r) => {
+		const args = argumentsOf(r)
+		return args === undefined || shaped(r, args) !== shape ? undefined : { rule: r, args }
+	})
+	const arity = argsOfFirst?.length ?? 0
+	const taken = new Set([...plain, ...calls])
+	if (
+		shape === undefined ||
+		each.some((e) => e === undefined) ||
+		Array.from({ length: arity }, (_, j) => named(j)).some((a) => taken.has(a))
+	) {
+		return queryOf(rules, loc)
+	}
+	const driven = each.flatMap((e) => (e === undefined ? [] : [e]))
+	const [d0, ...ds] = driven.map(({ rule, args }): InferredRule => ({
+		...rule,
+		head: {
+			...Object.fromEntries(plain.map((f) => [f, defined(rule.head[f], "a head field")] as const)),
+			...Object.fromEntries(args.map((a, j) => [named(j), varRef(a)] as const))
+		}
+	}))
+	if (d0 === undefined) {
+		return queryOf(rules, loc)
+	}
+	const drivers: InferredSource = { kind: "query", query: queryOf([d0, ...ds], loc), bind: {} }
+	const argNames = Array.from({ length: arity }, (_, j) => named(j))
+	const fresh = (prefix: string, field: string): VarDesc => ({
+		id: `${prefix}.${field}`,
+		origin: undefined,
+		loc
+	})
+	const firstArgs = defined(driven[0], "a rule of the gain").args
+	const place = new Map(firstArgs.map((a, j) => [a, `in.${named(j)}`] as const))
+	const computed: InferredSource = {
+		kind: "query",
+		query: queryOf(
+			[
+				ruleDesc(
+					argNames.map((a) => fresh("in", a)),
+					[
+						{
+							source: drivers,
+							bindings: Object.fromEntries(argNames.map((a) => [a, varRef(`in.${a}`)] as const)),
+							loc
+						}
+					],
+					[],
+					{
+						...Object.fromEntries(argNames.map((a) => [a, varRef(`in.${a}`)] as const)),
+						...Object.fromEntries(
+							calls.map((f) => {
+								const term = first.head[f]
+								if (term === undefined || term.kind === "aggregate" || term.kind === "producer") {
+									defect("a call's term, checked above")
+								}
+								return [
+									f,
+									mapLeaves(term, {
+										var: (id) => varRef(defined(place.get(id), "a call's argument")),
+										field: () => undefined
+									})
+								] as const
+							})
+						)
+					},
+					loc
+				)
+			],
+			loc
+		),
+		bind: {}
+	}
+	const driverFields = [...plain, ...argNames]
+	return queryOf(
+		[
+			ruleDesc(
+				[...driverFields.map((f) => fresh("d", f)), ...calls.map((f) => fresh("c", f))],
+				[
+					{
+						source: drivers,
+						bindings: Object.fromEntries(driverFields.map((f) => [f, varRef(`d.${f}`)] as const)),
+						loc
+					},
+					{
+						source: computed,
+						bindings: {
+							...Object.fromEntries(argNames.map((a) => [a, varRef(`d.${a}`)] as const)),
+							...Object.fromEntries(calls.map((f) => [f, varRef(`c.${f}`)] as const))
+						},
+						loc
+					}
+				],
+				[],
+				{
+					...Object.fromEntries(plain.map((f) => [f, varRef(`d.${f}`)] as const)),
+					...Object.fromEntries(calls.map((f) => [f, varRef(`c.${f}`)] as const))
+				},
+				loc
+			)
+		],
+		loc
+	)
+}
+
+/**
+ * The facts of a stored relation of heading `heading` that a transaction's write of `relation` on `side` may withdraw
+ * from its definition, its live arms `arms`, and that the definition no longer derives, each a rule over its region
+ * delivering the fact (analysis/theory/upkeep.ts, a delta form's lost rules, whose facts its upkeep deletes from the
+ * table): the candidates of the facts the write moves out (`relaxedOf`, seeded at the head, what a containment's lost
+ * probe reads of its target), each its arm's head read through the candidate, and the check at the fact, that no arm of
+ * the definition derives it: one negation of each arm whose head's literals are the fact's, met at the fact's heading
+ * (`readAs`'s reading of a side), which navigation reads keyed by the fact's fields, since no fact of a union agrees with
+ * the row exactly when no fact of any arm does, and an arm of another literal derives none of the row's. The candidates are a superset of the facts the write withdraws: a fact the definition lost lost each of its
+ * derivations, each of which read a row the transaction removed or meets a row a negation reads that the transaction
+ * added, which a candidate of that match or of that negation reads; and the check keeps every candidate the definition
+ * still derives at COMMIT. So the rows are exactly the facts the definition lost, and the stored table's rows they meet
+ * are its rows the write withdraws.
+ *
+ * A candidate that leaves fields of the heading free, fields only a match its relaxation drops binds, reads the facts at
+ * the fields it binds from the stored table itself, `stored` (StoredAt): its rows there hold every fact the definition
+ * derived before the write that agrees with the candidate, the facts it lost among them, and each is checked at the fact
+ * as any candidate is. That costs the stored rows at those fields, one range of an index the read requests, so it is
+ * read only where the fields it binds hold the stored relation's unit and more, no term computed from a variable: a
+ * removed snapshot's facts in each candidate session of its sitting (ledger's SessionSnapshot, its candidate the
+ * snapshot, the visit it read dropped), never the learner's whole history. Undefined where a candidate computes a field of the fact from a
+ * variable (`computedOfVars`) or leaves a field free that no such read delivers (`readAtStored`): no lost rule keeps such
+ * a definition (upkeep.ts deltaClassOf).
+ */
+export const lostFacts = (
+	arms: NonEmptyReadonlyArray<LiveArm>,
+	relation: string,
+	side: ProbeSide,
+	heading: NonEmptyReadonlyArray<string>,
+	stored: StoredAt,
+	loc: SourceLoc,
+	proofs: Proofs
+): ReadonlyArray<InferredRule> | undefined => {
+	const rules: Array<InferredRule> = []
+	const candidates = relaxedOf(
+		arms,
+		"removed",
+		(arm) => heading.map((f) => headOf(arm, f, loc)),
+		relation,
+		side,
+		0,
+		new MovedMemo(relation, proofs),
+		loc
+	)
+	for (const { arm, candidate: c } of candidates) {
+		const derived = Object.fromEntries(
+			heading.map((f) => [f, mapLeaves(headOf(arm, f, loc), c.leaves)] as const)
+		)
+		const read = readAtStored(derived, heading, c.unbound, stored, loc)
+		if (read === undefined) {
+			return undefined
+		}
+		const fact = read.fact
+		/** Whether the arm `a` may derive the fact: each literal the fact holds is the arm's head's there, where its head
+		 * holds one, as navigation reads a union met at literals (navigate.ts); an arm of another literal derives none of
+		 * its facts, so no negation of it is the check's. */
+		const meets = (a: LiveArm): boolean =>
+			heading.every((f) => {
+				const term = fact[f]
+				const head = a.head[f]
+				return (
+					term?.kind !== "literal" ||
+					head?.kind !== "literal" ||
+					canonicalEquals(head.value, term.value)
+				)
+			})
+		rules.push(
+			overAny(
+				c.region,
+				ruleDesc(
+					[...c.vars, ...read.vars],
+					[...c.matches.map(matchDesc), ...read.matches],
+					[
+						...c.where,
+						...arms.filter(meets).map((a): InferredExpr => ({
+							kind: "absent",
+							source: imported(
+								[ruleDesc(a.vars, a.matches.map(matchDesc), conditionsOf(a, loc), a.head, loc)],
+								loc
+							),
+							bindings: fact
+						}))
+					],
+					fact,
+					loc
+				),
+				loc
+			)
+		)
+	}
+	return rules
+}
+
+/**
+ * Where a candidate reads the lost facts at the fields it binds (`lostFacts`): `table`, the stored relation's own, by
+ * the derived relation's declared name, which every query of its schema reads as its table, with its unit's fields,
+ * which those fields must hold and pass; or `none`, for a relation no query names, a canonical one an import is, whose
+ * candidates must bind its whole heading.
+ */
+export type StoredAt =
+	| {
+			readonly kind: "table"
+			readonly relation: string
+			readonly unit: NonEmptyReadonlyArray<string>
+	  }
+	| { readonly kind: "none" }
+
+/**
+ * The fact a candidate stands for, `derived` its heading's terms through it, where it binds each field (`unbound` none
+ * of them), as it is; where it leaves some free, the stored relation `stored`'s rows at the fields it binds, each a
+ * fact, read by a match of the table binding those fields to the candidate's terms and each free one to a variable of its
+ * own, with those variables; none where a bound term is computed from the candidate's variables (`computedOfVars`),
+ * which no check binds, or a free field's read would bind no more than the unit's fields (`lostFacts`).
+ */
+const readAtStored = (
+	derived: Readonly<Record<string, InferredExpr>>,
+	heading: NonEmptyReadonlyArray<string>,
+	unbound: (e: InferredExpr) => boolean,
+	stored: StoredAt,
+	loc: SourceLoc
+):
+	| {
+			readonly fact: Readonly<Record<string, InferredExpr>>
+			readonly vars: ReadonlyArray<VarDesc>
+			readonly matches: ReadonlyArray<InferredMatch>
+	  }
+	| undefined => {
+	const free = heading.filter((f) => {
+		const term = derived[f]
+		return term === undefined || unbound(term)
+	})
+	const bound = heading.filter((f) => !free.includes(f))
+	if (bound.some((f) => computedOfVars(defined(derived[f], f)))) {
+		return undefined
+	}
+	if (free.length === 0) {
+		return { fact: derived, vars: [], matches: [] }
+	}
+	if (stored.kind === "none") {
+		return undefined
+	}
+	if (bound.length <= stored.unit.length || !stored.unit.every((f) => bound.includes(f))) {
+		return undefined
+	}
+	const id = (f: string): string => `stored.${f}`
+	const fact = Object.fromEntries(
+		heading.map((f) => [f, free.includes(f) ? varRef(id(f)) : defined(derived[f], f)] as const)
+	)
+	return {
+		fact,
+		vars: free.map((f) => ({ id: id(f), origin: { relation: stored.relation, field: f }, loc })),
+		matches: [{ source: { kind: "relation", name: stored.relation }, bindings: fact, loc }]
+	}
+}
+
+/**
+ * Whether `term`, a field of a fact a lost rule checks, is computed from the rule's variables: a negation binds a column
+ * to a variable, a literal or a value of no variable (check/checker.ts negatedTerm), so a fact computing a field from a
+ * variable, a function of a stored relation's column below the definition's head, states no check a negation holds, and
+ * its definition keeps no checked form (analysis/theory/upkeep.ts lostRules).
+ */
+const computedOfVars = (term: InferredExpr): boolean =>
+	term.kind !== "var" && varsOf(term, new Set()).size > 0
 
 /** The fields of each stored relation's primary key, in key order, by its name; none for a closed relation. */
 export type KeysOf = (relation: string) => ReadonlyArray<string> | undefined
@@ -3359,7 +4594,7 @@ export const probeKey = (row: InferredRule): string => {
 	}
 	const text = encode(renamed(row), withoutSourceLocs)
 	if (!text.ok) {
-		throw defect(`a probe's canonical text: ${text.error.message}`)
+		defect(`a probe's canonical text: ${text.error.message}`)
 	}
 	return text.value
 }
@@ -3417,70 +4652,177 @@ const columnsOf = (
 		: [...new Set(read.flatMap((m) => Object.keys(m.bindings)))].toSorted(compareStrings)
 }
 
-/** What writing `relation` can break of `rule` (`Touches`), undefined where the rule reads no row of it. */
-export const touches = (rule: QueryRule, relation: string): Touches | undefined => {
+/**
+ * What writing `relation` can break of `rule` (`Touches`), undefined where no probe of the rule reads a row of it: a
+ * probed rule's by `proofs`, its occurrences a sibling covers read on the side of what a write removes alone
+ * (`probedTouches`).
+ */
+export const touches = (rule: QueryRule, relation: string, proofs: Proofs): Touches | undefined => {
 	switch (rule.kind) {
 		case "contained":
 		case "key":
 		case "check":
-			return probedTouches(rule, relation)
+			return probedTouches(rule, relation, proofs)
 		case "whole":
 			return wholeTouches(rule, relation)
 	}
 }
 
 /**
- * What writing `relation` can break of a whole rule (`touches`): the columns its positive occurrences bind, by INSERT,
- * and its negative ones', by DELETE, an occurrence of both polarities on each side; and, by DELETE, the fields at which
- * its region reads the rows a holder lost to find the gained rows that replace them (WholeRule `replaced`).
+ * What writing `relation` can break of a whole rule (`touches`): the sides of it the rule's region reads (WholeRule
+ * `sides`), each with the columns its occurrences there bind.
  */
 const wholeTouches = (rule: WholeRule, relation: string): Touches | undefined => {
-	const of = rule.reads.filter((r) => r.relation === relation)
-	const replaced = rule.replaced.filter((r) => r.relation === relation).flatMap((r) => r.fields)
-	const columns = (
-		polarity: "positive" | "negative",
-		also: ReadonlyArray<string>
-	): ReadonlyArray<string> | undefined => {
-		const read = of.filter((r) => r.polarity === polarity || r.polarity === "both")
-		return read.length === 0 && also.length === 0
-			? undefined
-			: [...new Set([...read.flatMap((r) => r.columns), ...also])].toSorted(compareStrings)
-	}
-	return touchesOf(columns("positive", []), columns("negative", replaced))
+	const on = (side: ProbeSide): ReadonlyArray<string> | undefined =>
+		rule.sides.find((s) => s.relation === relation && s.side === side)?.columns
+	return touchesOf(on("added"), on("removed"))
 }
 
 /**
- * What writing `relation` can break of a probed rule (`touches`): by adding rows, what the breaking arms read positively
- * and the target's arms negatively; by removing them, what the target's arms read positively and the breaking arms
- * negatively (Polarity); and by either, what an aggregating rule's groups read anywhere (`storedOf`), whose facts any
- * row of their body put or taken replaces.
+ * An occurrence of a relation a probed rule reads (`occurrencesOf`): its match; its polarity, read from the breaking
+ * side, so a target's arms read the other way (Polarity), or both under an aggregating rule's groups; and the cover of
+ * the outermost match on its way down from the rule's arm a sibling covers (`coverOf`), none where none is.
  */
-const probedTouches = (rule: ProbedRule, relation: string): Touches | undefined => {
-	const reads = (arms: ReadonlyArray<LiveArm>, polarity: Polarity) =>
-		arms.flatMap((a) => readsAt(a, polarity))
-	const grouped = groupedAmong([...breakingArms(rule), ...targetArms(rule)].flatMap(everyRead))
+interface Occurrence {
+	readonly match: StoredMatch
+	readonly yields: Yields
+	readonly under: Cover | undefined
+}
+
+/**
+ * Each occurrence of `relation` `arm` reads at `yields` (Occurrence), at any depth, each match of every arm on the way
+ * covered as a probe's walk covers it (MovedMemo `cover`): a definition's arms at the arm's polarity, a group's body
+ * both ways, a negation's arms the other way. The way down is the walk's, so an occurrence a covered match stands in is
+ * one no probe of the side of what a write adds reads (`occurrenceTouches`).
+ */
+const occurrencesOf = (
+	arms: ReadonlyArray<LiveArm>,
+	arm: LiveArm,
+	yields: Yields,
+	under: Cover | undefined,
+	relation: string,
+	memo: MovedMemo
+): ReadonlyArray<Occurrence> => [
+	...arm.matches.flatMap((m) =>
+		matchOccurrences(m, yields, under ?? memo.cover(arm, m), relation, memo)
+	),
+	...arm.negated.flatMap((n) =>
+		yields === "negative" && memo.regained(arms, arm, n) !== undefined
+			? []
+			: n.arms.flatMap((a) =>
+					occurrencesOf(n.arms, a, flippedYields(yields), under, relation, memo)
+				)
+	)
+]
+
+/** Each occurrence of `relation` the match `m` reads at `yields` (`occurrencesOf`), the way down covered by `under`. */
+const matchOccurrences = (
+	m: ArmMatch,
+	yields: Yields,
+	under: Cover | undefined,
+	relation: string,
+	memo: MovedMemo
+): ReadonlyArray<Occurrence> => {
+	switch (m.kind) {
+		case "stored":
+			return m.relation === relation ? [{ match: m, yields, under }] : []
+		case "defined":
+			return m.arms.flatMap((a) => occurrencesOf(m.arms, a, yields, under, relation, memo))
+		case "grouped":
+			return m.groups.body.flatMap((b) =>
+				occurrencesOf(m.groups.body, b, "both", under, relation, memo)
+			)
+	}
+}
+
+/**
+ * Each occurrence of `relation` a probed rule reads (`occurrencesOf`), its breaking arms read positively and its
+ * target's arms negatively, each match on the way covered by `proofs` as a probe's walk covers it.
+ */
+const ruleOccurrences = (
+	rule: ProbedRule,
+	relation: string,
+	proofs: Proofs
+): ReadonlyArray<Occurrence> => {
+	const memo = new MovedMemo(relation, proofs)
+	const breaking = breakingArms(rule)
+	const target = targetArms(rule)
+	return [
+		...breaking.flatMap((a) => occurrencesOf(breaking, a, "positive", undefined, relation, memo)),
+		...target.flatMap((a) => occurrencesOf(target, a, "negative", undefined, relation, memo))
+	]
+}
+
+/**
+ * What writing `relation` can break of a probed rule (`touches`), by its occurrences (`occurrencesOf`, read from the
+ * breaking arms positively and the target's arms negatively): by adding rows, those of positive polarity no sibling
+ * covers on their way down, a write's added rows of a covered one opening no fact another probe does not read
+ * (`coverOf`); by removing them, those of negative polarity; an aggregating rule's groups both ways. Each names the
+ * columns its occurrences bind. A closed relation's rows are never removed (CoverFacts `closed`), so no probe reads the
+ * side of what a write removes of it.
+ */
+const probedTouches = (rule: ProbedRule, relation: string, proofs: Proofs): Touches | undefined => {
+	const read = ruleOccurrences(rule, relation, proofs)
+	const at = (keep: (o: Occurrence) => boolean): ReadonlyArray<StoredMatch> =>
+		read.flatMap((o) => (keep(o) ? [o.match] : []))
 	return touchesOf(
 		columnsOf(
-			[
-				...storedAmong([
-					...reads(breakingArms(rule), "positive"),
-					...reads(targetArms(rule), "negative")
-				]),
-				...grouped
-			],
+			at((o) => yieldsAt(o.yields, "positive") && o.under === undefined),
 			relation
 		),
-		columnsOf(
-			[
-				...storedAmong([
-					...reads(targetArms(rule), "positive"),
-					...reads(breakingArms(rule), "negative")
-				]),
-				...grouped
-			],
-			relation
-		)
+		proofs.kind === "facts" && proofs.facts.closed(relation)
+			? undefined
+			: columnsOf(
+					at((o) => yieldsAt(o.yields, "negative")),
+					relation
+				)
 	)
+}
+
+/**
+ * The covers of the occurrences of `relation` a probed rule reads at the polarity a write's added rows break it at
+ * (Cover, `occurrencesOf`), each once, in the order the rule's walk first meets it, then each negation of it a target's
+ * sibling arm regains (Regained, `regainedBy`): why a probe of the rows a write
+ * adds to the relation reads none of them there, what generate records beside the installation (deploy/snapshot
+ * build.ts provedOf). None for a whole rule, whose region reads every occurrence by its witnesses (unit.ts).
+ */
+export const coversOf = (
+	rule: QueryRule,
+	relation: string,
+	proofs: Proofs
+): ReadonlyArray<Proved> => {
+	if (rule.kind === "whole") {
+		return []
+	}
+	const seen = new TupleSet<ReadonlyArray<string>>()
+	const once = (p: Proved, identity: ReadonlyArray<string>): ReadonlyArray<Proved> => {
+		if (seen.has(identity)) {
+			return []
+		}
+		seen.add(identity)
+		return [p]
+	}
+	const memo = new MovedMemo(relation, proofs)
+	const target = targetArms(rule)
+	return [
+		...ruleOccurrences(rule, relation, proofs).flatMap((o) => {
+			const c = o.under
+			return c === undefined || !yieldsAt(o.yields, "positive")
+				? []
+				: once(c, [
+						c.kind,
+						c.sibling,
+						...c.containment.pairs.flatMap((p) => [p.from, p.to]),
+						...(c.kind === "read" ? [] : c.key)
+					])
+		}),
+		...target.flatMap((a) =>
+			a.negated.flatMap((n) => {
+				const r = memo.regained(target, a, n)
+				return r === undefined ? [] : once(r, [r.kind, ...r.fields, "", ...r.clocks])
+			})
+		)
+	]
 }
 
 /**
@@ -3554,7 +4896,7 @@ const matched = (matches: ReadonlyArray<ReadMatch>): NonEmptyReadonlyArray<strin
 	}
 	const [one, ...more] = groupedAmong(matches).map((m) => m.relation)
 	if (one === undefined) {
-		throw defect("an arm's groups read some relation")
+		defect("an arm's groups read some relation")
 	}
 	return [one, ...more]
 }

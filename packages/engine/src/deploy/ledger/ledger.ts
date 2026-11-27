@@ -21,10 +21,11 @@ import {
 	snapshotGuardName
 } from "#compiler/physical/ddl/ledger.ts"
 import { namedIdent, qualifiedIdent } from "#compiler/physical/obligations/graph.ts"
-import { bookkeepingDeclaration } from "#compiler/physical/statistics/declared.ts"
+import { ownTableDeclaration } from "#compiler/physical/statistics/declared.ts"
 import type {
 	ColumnDef,
 	CreateTable,
+	DeclareStatistics,
 	Delete,
 	EmittedSql,
 	Expr,
@@ -349,14 +350,22 @@ export interface BookkeepingTable {
 	readonly statistics: (schema: string) => PhysicalObject<SqlStatement>
 }
 
+/** A bookkeeping table's declared statistics (ownTableDeclaration): its columns, its primary key its one key. */
+const declarationOfCreated = (create: CreateTable): DeclareStatistics =>
+	ownTableDeclaration(
+		create.table,
+		mapNonEmpty(create.columns, (c) => c.name),
+		mapNonEmpty(create.primaryKey.columns, (c) => c.column)
+	)
+
 /** A bookkeeping table's declared statistics as an object of a snapshot manifest, `statistics:<schema>.<table>`,
- * declared in Indexes as every table's are (physical/statistics/declared.ts bookkeepingDeclaration). */
+ * declared in Indexes as every table's are (physical/statistics/declared.ts ownTableDeclaration). */
 const bookkeepingStatistics =
 	(name: string, created: (schema: string) => CreateTable) =>
 	(schema: string): PhysicalObject<SqlStatement> => ({
 		kind: "statistics",
 		ident: qualifiedIdent("statistics", schema, name),
-		ddl: [bookkeepingDeclaration(created(schema))],
+		ddl: [declarationOfCreated(created(schema))],
 		reasons: [{ kind: "enforcement", of: `the declared statistics of ${name}` }],
 		state: "needed",
 		phase: "indexes"
@@ -636,6 +645,22 @@ const guardCall = (schema: string): Expr =>
 const localSetting = (name: string, index: number): Expr =>
 	call("set_config", [lit.text(name, types.text), param(index, types.text), lit.bool(true)])
 
+/**
+ * A Db transaction's prologue statement over the ledger of `schema` (LedgerStatements `enter`): the guard's call, then the
+ * role and the claims setting, both local to the transaction.
+ */
+export const enterQuery = (schema: string): Select =>
+	provedSelect(
+		"oneRow",
+		[
+			targetAs(guardCall(schema), "c1"),
+			targetAs(localSetting("role", 2), "c2"),
+			targetAs(localSetting(claimsSettingName, 3), "c3")
+		],
+		[],
+		undefined
+	)
+
 /** The statements the apply runner, admission and every Db transaction run against a schema's ledger, emitted like
  * every other text. */
 export const ledgerStatements = (schema: string): Result.Result<LedgerStatements, CompileError> =>
@@ -651,16 +676,7 @@ export const ledgerStatements = (schema: string): Result.Result<LedgerStatements
 			),
 			orderBy: [asc(col(r1, "folder")), asc(col(r1, "ordinal"))]
 		}
-		const enter = provedSelect(
-			"oneRow",
-			[
-				targetAs(guardCall(schema), "c1"),
-				targetAs(localSetting("role", 2), "c2"),
-				targetAs(localSetting(claimsSettingName, 3), "c3")
-			],
-			[],
-			undefined
-		)
+		const enter = enterQuery(schema)
 		return {
 			recordFolder: emitted(insertRow(schema, "folder")),
 			redraftFolder: emitted(redraftUpdate(schema)),

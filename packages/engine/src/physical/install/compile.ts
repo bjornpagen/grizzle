@@ -1,6 +1,5 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
-import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { isAsciiDigit } from "@bjornpagen/grizzle-text/text"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
@@ -17,13 +16,22 @@ import type { IdentityKind, LawId } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import { type Phases, phased, silentPhases } from "#compiler/core/phase.ts"
+import { type Phases, phased } from "#compiler/core/phase.ts"
 import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { LibraryFn } from "#compiler/ir/physical.ts"
-import type { IndexRequest, InstallationManifest } from "#compiler/ir/products.ts"
+import type { AccessPath, IndexRequest, InstallationManifest } from "#compiler/ir/products.ts"
 import type { RegexRef } from "#compiler/ir/scalar.ts"
-import { undischargedLaws } from "#compiler/laws/model/model.ts"
 import type { LivePlan } from "#compiler/live/notify.ts"
+import { pathRequest } from "#compiler/physical/access/paths.ts"
+import {
+	judgeSeeks,
+	keyTableIndexes,
+	plannedTableIndexes,
+	seekPaths,
+	type SeekTargets,
+	seekTargets
+} from "#compiler/physical/access/seeks.ts"
+import { addClockGuards } from "#compiler/physical/ddl/clocked.ts"
 import { addClosedRelations, addRosters } from "#compiler/physical/ddl/constants.ts"
 import { InstallBuilder, type InstallSettings } from "#compiler/physical/ddl/context.ts"
 import {
@@ -40,11 +48,13 @@ import { addImmutableGuards } from "#compiler/physical/ddl/immutable.ts"
 import { readCommittedRelations } from "#compiler/physical/ddl/isolation.ts"
 import { addLibrary } from "#compiler/physical/ddl/library.ts"
 import { addLiveSource } from "#compiler/physical/ddl/live.ts"
+import { addDataStepRecheck, type DataStepRecheck } from "#compiler/physical/ddl/recheck.ts"
 import { addWorlds, grantedPrivileges, type InstalledLogin } from "#compiler/physical/ddl/roles.ts"
 import { addRules } from "#compiler/physical/ddl/rules.ts"
 import { addSeals } from "#compiler/physical/ddl/seal.ts"
 import { addStamps } from "#compiler/physical/ddl/stamps.ts"
 import { addTables } from "#compiler/physical/ddl/tables.ts"
+import { addVariants } from "#compiler/physical/ddl/variants.ts"
 import { wholeTables } from "#compiler/physical/ddl/whole.ts"
 import { storedTablesExtension } from "#compiler/physical/derived/objects.ts"
 import {
@@ -56,13 +66,12 @@ import { commentsOf } from "#compiler/physical/install/comments.ts"
 import type {
 	InstallExtension,
 	LoginFence,
-	RoleOfLogin
+	RoleOfLogin,
+	ServedProgram
 } from "#compiler/physical/install/extension.ts"
 import {
 	freshPlanSettings,
 	type InstallBasis,
-	conservativeBasis,
-	installBasis,
 	type InstallPlan,
 	type ParamSource,
 	planInstallation
@@ -72,8 +81,8 @@ import { refinedConstantsExtension } from "#compiler/physical/refined/constants.
 import { addSpanStorage } from "#compiler/physical/span/storage.ts"
 import { planDeclarations } from "#compiler/physical/statistics/statistics.ts"
 import { type Owned, ownedIdentities, rostersOf } from "#compiler/schema/own.ts"
-import { everySlice } from "#compiler/schema/reach.ts"
 import type { OperandSelect, SqlStatement } from "#compiler/sql/ast.ts"
+import { seekProgram } from "#compiler/sql/seeks.ts"
 
 /** The settings the installation runs under (`InstallSettings`: the PostgreSQL schema; the vector extension's and
  * btree_gist's schemas; the logins over the schema), the
@@ -129,6 +138,28 @@ export interface Installation extends InstallPlan {
 	 * violation.ts lawChecks).
 	 */
 	readonly ruleChecks: ReadonlyMap<LawId, OperandSelect>
+	/**
+	 * Every stored table with the indexes planned on it, and every view a role reads its relations through
+	 * (physical/access/seeks.ts SeekTargets): what each statement the installation installs is held to, and each read
+	 * and write a login's served file sends (judgeSeeks).
+	 */
+	readonly seeks: SeekTargets
+	/**
+	 * Each served program's access paths, by its login and its name, every seek its statements make (physical/access/
+	 * seeks.ts seekPaths), which the installation asked an index for: what the snapshot records of a ChangeSet beside the
+	 * paths its plan reads off its IR (program/workload/compile.ts changeSetAccess).
+	 */
+	readonly programAccess: ReadonlyArray<{
+		readonly login: string
+		readonly program: string
+		readonly paths: ReadonlyArray<AccessPath>
+	}>
+	/**
+	 * The re-check a data step runs after its statements (physical/ddl/recheck.ts), none where no rule and no stored
+	 * relation reads a closed relation: what a draft's Structure runs after the reviewer's data step
+	 * (deploy/diff/diff.ts structure.recheck), and the body of the function a custom migration's data step calls.
+	 */
+	readonly recheck: DataStepRecheck | undefined
 }
 
 /** A role's certificate as an installation holds it: its login, its name, and its level, the one fact of a certificate
@@ -158,7 +189,7 @@ const statedOnce = <R extends RoleOfLogin>(
 	for (const c of stated) {
 		const same = stated.filter((d) => d.login === c.login && d.role === c.role)
 		if (same.length > 1 || !installed.some((r) => r.login === c.login && r.role === c.role)) {
-			throw defect(`one ${what} of role ${c.role} of login ${c.login}, a role it installs`)
+			defect(`one ${what} of role ${c.role} of login ${c.login}, a role it installs`)
 		}
 	}
 	return stated
@@ -178,7 +209,7 @@ const fencedOnce = (
 			stated.filter((g) => g.login === f.login).length > 1 ||
 			!plan.logins.some(({ login }) => login.name === f.login)
 		) {
-			throw defect(`one fence statement of login ${f.login}, a login it installs`)
+			defect(`one fence statement of login ${f.login}, a login it installs`)
 		}
 	}
 	return stated
@@ -253,58 +284,11 @@ const admittedSchema = (name: string): boolean => {
 	return true
 }
 
-/** The installation of an owned schema, under the policy it was owned under, for the installation that holds
- * `options.codes`: the obligation graph of every native object, each with its DDL, its reasons and its phase, in a
- * deterministic install order; the manifest; the planned indexes with their merged provenance; and the install script,
- * its statements as SQL trees, printed only where they are sent or drafted. It is pure: no database, no clock, no file.
- *
- * The steps follow the dependency order: the namespace and the refusal function every write statement that can refuse
- * raises through; the isolation default and guard; each roster's names constant and domains and each closed
- * relation's constants (physical/ddl/constants.ts), the structural text domains and the contract domains; the declared
- * functions, their row types and their owner (physical/ddl/functions.ts); the tables with their identities; the tags, keys, CHECKs and references the law model specialized; the shape, width
- * and contract-endpoint CHECKs of every span column (`addSpanStorage`), which every installation carries because a span's
- * storage is never optional; the validation of every closed payload with a nontrivial refinement
- * (`refinedConstantsExtension`), which every installation carries because the compiler relies on a closed fact's
- * membership only once PostgreSQL has validated it; then the caller's extensions; then the law-maintenance and workload
- * indexes, deduplicated against the key indexes; then, in Publish, the worlds: the logins, their roles with their
- * schemas, views, grants and policies, the logins' defaults, and the PUBLIC revokes. An extension of btree_gist precedes
- * any span key or GiST index with a scalar component.
- *
- * Every constraint it installs, with the law a violation reports, is its plan's (InstallPlan.constraintLaws), which no
- * extension adds to. A derived relation that no extension claims is
- * reported in `deferred`: the natives are installed, and the caller decides whether the installation is complete
- * enough for its purpose.
- *
- * The script is one transaction run as the migration identity, the owner; on a fresh schema every table is empty, so
- * ordinary CREATE INDEX serves. */
-export const compileInstallation = (
-	owned: Owned,
-	options: InstallOptions
-): Result.Result<Installation, CompileError> =>
-	Result.flatMap(installBasis(owned, options.codes, everySlice(owned)), (basis) =>
-		installationOver(basis, options, silentPhases)
-	)
-
-/**
- * The law oracle's conservative installation of `owned`: compileInstallation's under `options`, over the law model that
- * discharges every rule over a query by its deferred constraint triggers (laws/model/model.ts conservativeLaws), a rule
- * that lowers to foreign keys among them, as the write oracle's conservative realization keeps every boundary the
- * optimized artifact elides. Its laws are the installation's laws under the same identities, so a write each
- * installation refuses names one law through its own constraint map. No generate, snapshot or served artifact reads it.
- */
-export const conservativeInstallation = (
-	owned: Owned,
-	options: InstallOptions
-): Result.Result<Installation, CompileError> =>
-	Result.flatMap(conservativeBasis(owned, options.codes, everySlice(owned)), (basis) =>
-		installationOver(basis, options, silentPhases)
-	)
-
 /** The settings of `options`, refused unless every schema identifier it names is one the installation may create, the
  * installed schema's being the naming door's, the extension schema lies outside the installed schema, which it outlives,
  * every login is over the installed schema, and the logins' and their roles' names convert apart: each one's
  * PostgreSQL role is `<schema>__<name>`, so they are one namespace of declared names (IdentifierCollision). */
-const admittedSettings = (
+export const admittedSettings = (
 	owned: Owned,
 	options: InstallSettings
 ): Result.Result<InstallSettings, CompileError> => {
@@ -400,7 +384,7 @@ const servedParams = (
 
 /** The plan of the installation over `basis` under `settings` with `extensions`, the types their served programs cast
  * their parameters to among it (servedParams), a phase reported to `phases` (`installPlan`). */
-const servedPlan = (
+export const servedPlan = (
 	basis: InstallBasis,
 	settings: InstallSettings,
 	extensions: ReadonlyArray<InstallExtension>,
@@ -413,150 +397,165 @@ const servedPlan = (
 	)
 
 /**
- * The installation over a basis (installBasis) under the settings and extensions of `options`, whose codes are the
- * basis's (compileInstallation): its settings admitted, its plan (planInstallation) with the types its extensions'
- * served programs cast their parameters to (servedParams), then its objects built from the plan, those parameters'
- * pattern domains and contracts' domains among them. The span CHECKs (`addSpanStorage`) and the closed facts'
- * validation (`refinedConstantsExtension`) precede the caller's extensions, each once: a caller that lists one
- * extension twice adds nothing twice. Its plan, its rules' checks and its index plan are phases reported to `phases`
- * (`installPlan`, `judge`, `indexes`).
+ * The installation of `plan` (servedPlan) over `basis` under `options` and its admitted `settings`
+ * (admittedSettings), the last step of an installation's compile (program/install.ts installationOver): its objects
+ * built from the plan, those parameters' pattern domains and contracts' domains among them. The span CHECKs
+ * (`addSpanStorage`) and the closed facts' validation (`refinedConstantsExtension`) precede the caller's extensions,
+ * each once: a caller that lists one extension twice adds nothing twice. Each index it judges refused goes in `keys`;
+ * its rules' checks and its index plan are phases reported to `phases` (`judge`, `indexes`).
  */
-export const installationOver = (
+export const installationOfPlan = (
 	basis: InstallBasis,
 	options: Omit<InstallOptions, "codes">,
-	phases: Phases
-): Result.Result<Installation, CompileError> => {
-	const undischarged = undischargedLaws(basis.model)
-	if (isNonEmpty(undischarged)) {
-		throw defect(
-			`an installation discharges every law of its theory: no native object holds, no migration checks and no rule trigger judges ${undischarged.join(", ")}`
-		)
-	}
-	const keys = new KeyLedger(basis.model.unrepresentable)
-	return keys.settle(installationIn(basis, options, keys, phases))
-}
-
-/** The installation over `basis` under `options` (installationOver), each index it judges refused in `keys`, its phases
- * reported to `phases`. */
-const installationIn = (
-	basis: InstallBasis,
-	options: Omit<InstallOptions, "codes">,
+	settings: InstallSettings,
+	plan: InstallPlan,
 	keys: KeyLedger,
 	phases: Phases
 ): Result.Result<Installation, CompileError> =>
-	Result.flatMap(admittedSettings(basis.owned, options), (settings) =>
-		Result.flatMap(servedPlan(basis, settings, options.extensions, phases), (plan) =>
-			catchRefusal((): Installation => {
-				const { owned, model, planned } = basis
-				const certification = certificationOf(plan, options.extensions)
-				const levelOf = (login: string, role: string) =>
-					defined(
-						certification.find((c) => c.login === login && c.role === role),
-						`the certificate of role ${role} of login ${login}`
-					).certificate.level
-				const b = new InstallBuilder({
-					owned,
-					checked: plan.checked,
-					model,
-					names: plan.names,
-					settings,
-					library: plan.library,
-					keys,
-					readCommitted: readCommittedRelations(
-						plan.logins.flatMap(({ login, roles }) =>
-							roles.map(({ checked }) => ({
-								level: levelOf(login.name, checked.world.role.name),
-								privileges: grantedPrivileges(model, checked)
-							}))
-						)
-					)
-				})
-				const rosters = addRosters(b)
-				addClosedRelations(b, planned)
-				addLibrary(b)
-				const domains = [
-					b.names.digestDomain,
-					...rosters.flatMap((r) =>
-						r.bits === undefined ? [r.domain.name] : [r.domain.name, r.bits.domain.name]
-					),
-					...addTextDomains(b, plan.textPlans),
-					...addContractDomains(b),
-					...addOutsideContractDomains(b, plan.outsideContracts)
-				]
-				const declared = addFunctions(b)
-				const { keyIndexes, lawColumns, tables } = addTables(b)
-				const stamps = addStamps(b)
-				addImmutableGuards(b)
-				addSeals(b)
-				addSpanStorage(b, plan.spans)
-
-				const extensionRequests: Array<IndexRequest> = []
-				for (const extension of new Set([
-					refinedConstantsExtension,
-					...options.extensions,
-					storedTablesExtension
-				])) {
-					appendAll(extensionRequests, unwrap(extension.contribute(b)).indexRequests)
-				}
-				/** The judge after the extensions, whose stored derived relations' tables its upkeep writes and its captures
-				 * stand on. */
-				const rules = phased(phases, { name: "judge", of: [] }, () => addRules(b))
-				const paramDomains = addParamDomains(b, plan.paramDomains)
-
-				const requests = [...reverseRequests(b), ...rules.requests, ...extensionRequests]
-				const indexes = phased(phases, { name: "indexes", of: [] }, () =>
-					unwrap(planIndexes(b, keyIndexes, requests))
+	catchRefusal((): Installation => {
+		const { owned, model, planned } = basis
+		const certification = certificationOf(plan, options.extensions)
+		const levelOf = (login: string, role: string) =>
+			defined(
+				certification.find((c) => c.login === login && c.role === role),
+				`the certificate of role ${role} of login ${login}`
+			).certificate.level
+		const b = new InstallBuilder({
+			owned,
+			checked: plan.checked,
+			model,
+			names: plan.names,
+			settings,
+			library: plan.library,
+			keys,
+			readCommitted: readCommittedRelations(
+				plan.logins.flatMap(({ login, roles }) =>
+					roles.map(({ checked }) => ({
+						level: levelOf(login.name, checked.world.role.name),
+						privileges: grantedPrivileges(model, checked)
+					}))
 				)
-				planDeclarations(b, keyIndexes, lawColumns, indexes)
+			)
+		})
+		const rosters = addRosters(b)
+		const variants = addVariants(b)
+		addClosedRelations(b, planned)
+		addLibrary(b)
+		const domains = [
+			b.names.digestDomain,
+			...rosters.flatMap((r) =>
+				r.bits === undefined ? [r.domain.name] : [r.domain.name, r.bits.domain.name]
+			),
+			...addTextDomains(b, plan.textPlans),
+			...addContractDomains(b),
+			...addOutsideContractDomains(b, plan.outsideContracts),
+			...variants.map((v) => v.domain)
+		]
+		const declared = addFunctions(b)
+		const { keyIndexes, lawColumns, tables } = addTables(b)
+		const stamps = addStamps(b)
+		addClockGuards(b)
+		addImmutableGuards(b)
+		addSeals(b)
+		addSpanStorage(b, plan.spans)
 
-				const live = liveOf(options.extensions)
-				const worlds = addWorlds(
-					b,
-					stamps,
-					{ tables, domains: [...domains, ...paramDomains] },
-					plan.logins,
-					statedOnce(
-						installedRoles(plan),
-						options.extensions.flatMap((e) => e.carriers),
-						"carrier statement"
-					),
-					{ calls: options.extensions.flatMap((e) => e.calls), declared },
-					fencedOnce(
-						plan,
-						options.extensions.flatMap((e) => e.fences)
-					),
-					rules.standUps
-				)
-				addLiveSource(b, live)
-				const identities = [...ownedIdentities(owned), ...model.identities, ...b.named()]
-				const census = unwrap(censusOf(identities))
-				const ordered = b.graph.manifest({
-					roleDefaults: worlds.roleDefaults,
-					publicRevokes: worlds.publicRevokes
-				})
-				assertCreatesOwned(ordered.objects)
-				const created = ordered.objects.flatMap((o) => o.ddl)
-				const comments = commentsOf(created, census)
-				const manifest = { ...ordered, comments }
-				const statements = [
-					...wholeTables(created),
-					...worlds.publicRevokes,
-					...worlds.roleDefaults,
-					...comments
-				]
-				return {
-					...plan,
-					settings,
-					manifest,
-					statements,
-					textDomains: plan.textPlans.map((p) => p.domain),
-					indexes,
-					worlds: worlds.worlds,
-					identities,
-					certification,
-					live,
-					ruleChecks: rules.checks
-				}
-			})
+		const extensionRequests: Array<IndexRequest> = []
+		const programs: Array<ServedProgram> = []
+		for (const extension of new Set([
+			refinedConstantsExtension,
+			...options.extensions,
+			storedTablesExtension
+		])) {
+			const contribution = unwrap(extension.contribute(b))
+			appendAll(extensionRequests, contribution.indexRequests)
+			appendAll(programs, contribution.programs)
+		}
+		/** The judge after the extensions, whose stored derived relations' tables its upkeep writes and its captures
+		 * stand on. */
+		const rules = phased(phases, { name: "judge", of: [] }, () =>
+			addRules(b, seekTargets(b, keyTableIndexes(b, keyIndexes), []))
 		)
-	)
+		const recheck = addDataStepRecheck(b, rules.checks)
+		const paramDomains = addParamDomains(b, plan.paramDomains)
+
+		const live = liveOf(options.extensions)
+		const worlds = addWorlds(
+			b,
+			stamps,
+			{ tables, domains: [...domains, ...paramDomains] },
+			plan.logins,
+			statedOnce(
+				installedRoles(plan),
+				options.extensions.flatMap((e) => e.carriers),
+				"carrier statement"
+			),
+			{ calls: options.extensions.flatMap((e) => e.calls), declared },
+			fencedOnce(
+				plan,
+				options.extensions.flatMap((e) => e.fences)
+			),
+			rules.standUps
+		)
+		addLiveSource(b, live)
+		/** Each served program's paths, every seek its statements make at the installation's tables and views before any
+		 * index is planned, whose items of one row are the planned installation's (seeks.ts keyTableIndexes). */
+		const preplanned = seekTargets(b, keyTableIndexes(b, keyIndexes), b.graph.statements())
+		const programAccess = programs.map((p) => ({
+			login: p.login,
+			program: p.program,
+			paths: p.seeks.flatMap((program) => seekPaths(program, preplanned))
+		}))
+		const requests = [
+			...reverseRequests(b),
+			...rules.requests,
+			...extensionRequests,
+			...programAccess.flatMap((p) =>
+				p.paths.map((path) => pathRequest(path, b.settings.vectorSchema))
+			)
+		]
+		const indexes = phased(phases, { name: "indexes", of: [] }, () =>
+			unwrap(planIndexes(b, keyIndexes, requests))
+		)
+		planDeclarations(b, keyIndexes, lawColumns, indexes)
+
+		const identities = [...ownedIdentities(owned), ...model.identities, ...b.named()]
+		const census = unwrap(censusOf(identities))
+		const ordered = b.graph.manifest({
+			roleDefaults: worlds.roleDefaults,
+			publicRevokes: worlds.publicRevokes
+		})
+		assertCreatesOwned(ordered.objects)
+		const seeks = seekTargets(
+			b,
+			plannedTableIndexes(indexes),
+			ordered.objects.flatMap((o) => o.ddl)
+		)
+		for (const o of ordered.objects) {
+			judgeSeeks(seekProgram(o.ddl), seeks, o.ident)
+		}
+		const created = ordered.objects.flatMap((o) => o.ddl)
+		const comments = commentsOf(created, census)
+		const manifest = { ...ordered, comments }
+		const statements = [
+			...wholeTables(created),
+			...worlds.publicRevokes,
+			...worlds.roleDefaults,
+			...comments
+		]
+		return {
+			...plan,
+			settings,
+			manifest,
+			statements,
+			textDomains: plan.textPlans.map((p) => p.domain),
+			indexes,
+			worlds: worlds.worlds,
+			identities,
+			certification,
+			live,
+			ruleChecks: rules.checks,
+			seeks,
+			programAccess,
+			recheck
+		}
+	})

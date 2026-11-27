@@ -41,8 +41,9 @@ export type Reached =
 	| "the member's place written before its presentation"
 	| "the written row's matches written last"
 
+const placingKey = Symbol("Placing")
 /** A place in a sitting's order: a whole number from 1, a domain over bigint as qti-pie's `natural` is. */
-const Placing = contract("Placing", pg.bigint, (x) => Logic.ge(x, 1n))
+const Placing = contract<typeof placingKey>()("Placing", pg.bigint, (x) => Logic.ge(x, 1n))
 
 const Presented = relation(
 	"Presented",

@@ -23,7 +23,7 @@ const sizeOf = (expr: ScalarExpr): number => Object.keys(predicateTable(expr).ex
 const relationOf = (laws: LawModel, relation: string): RelationInfo => {
 	const r = laws.theory.relations[relation]
 	if (r?.kind !== "relation") {
-		throw defect(`the table ${relation} an UPDATE writes is a stored relation of the theory`)
+		defect(`the table ${relation} an UPDATE writes is a stored relation of the theory`)
 	}
 	return r
 }
@@ -55,7 +55,7 @@ const storedGenerated = (laws: LawModel, relation: string): ReadonlyArray<Stored
 		if (lawColumnNames.has(name)) {
 			return { columns: [name], size: 0 }
 		}
-		throw defect(`the column ${name} a generated column of ${relation} reads`)
+		defect(`the column ${name} a generated column of ${relation} reads`)
 	}
 	const over = (
 		exprs: ReadonlyArray<ScalarExpr>
@@ -160,9 +160,7 @@ export const migrationGenerations = (
 	return (table) => {
 		const relation = relations.get(nameKey(table))
 		if (relation === undefined) {
-			throw defect(
-				`the table ${table.schema}.${table.name} an UPDATE writes is a stored relation's`
-			)
+			defect(`the table ${table.schema}.${table.name} an UPDATE writes is a stored relation's`)
 		}
 		return of(relation)
 	}

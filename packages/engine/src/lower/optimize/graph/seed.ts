@@ -359,6 +359,8 @@ const sameAtSeed = (
 			return y.kind === "closedRow" && x.relation === y.relation && argsAlike()
 		case "closedHas":
 			return y.kind === "closedHas" && x.relation === y.relation && argsAlike()
+		case "variant":
+			return y.kind === "variant" && canonicalEquals(x.op, y.op) && argsAlike()
 		case "call":
 			return (
 				y.kind === "call" &&

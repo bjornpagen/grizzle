@@ -10,9 +10,11 @@ import { check } from "#cli/check.ts"
  * again with them, drafting no folder and leaving manifest.json and the fingerprint as they were.
  *
  * A case takes the committed directory of one schema's first draft and makes the facts its snapshot.json records stale
- * (Staling), every way over the members the draft records: the `derived` member removed; or any of its members left
- * out, every one of them included; or the closed
- * facts holding one of a relation the schema does not declare beside their own. The oracle is the first draft itself:
+ * (Staling), every way a member's own reading meets: the `derived` member removed; each of its members left out alone,
+ * and every one of them; or every member kept and the closed facts holding one of a relation the schema does not
+ * declare beside their own. Each member is read apart from every other, so the members left out together reach no
+ * reading one left out alone does not, and the space is linear in the members (derived.fixtures.ts Staling). The oracle
+ * is the first draft itself:
  * check finds exactly the one stale-facts finding; generate exits 0, writes no folder, leaves manifest.json byte for
  * byte, and writes snapshot.json back to the very bytes the first draft wrote; and check then passes. DbLayer.make's
  * parse refuses a snapshot.json that does not record every fact the layer reads as a MalformedArtifact at `derived`
@@ -20,8 +22,8 @@ import { check } from "#cli/check.ts"
  *
  * Oracle: the first draft itself, its snapshot.json and manifest.json, which generate must write back.
  *
- * Features: the derived member removed, a member left out, every member left out, a foreign fact, and a foreign fact
- * beside every member.
+ * Features: the derived member removed, a member left out, every member left out, and a foreign fact beside every
+ * member.
  */
 import { silentPhases } from "#compiler/core/phase.ts"
 
@@ -32,7 +34,6 @@ import { succeeded } from "#test/support/assert.ts"
 import { chunked } from "#test/support/chunked.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
 import {
-	at,
 	baseNeed,
 	config,
 	members,
@@ -47,13 +48,12 @@ import {
 /** Derived runtime facts: check refuses stale derived facts, and generate writes snapshot.json back with the compile's, drafting no folder. */
 export const derivedRuntimeFactsCheckRefusesStaleDerivedFactsAndGenerateWritesSnapshotJsonBackWithTheCompilesDraftingNoFolder =
 	property.exhaust(finite(stalingGen), {
-		box: "a snapshot.json whose derived member is removed, or which leaves out any of the members the draft records, or whose closed facts hold one of a relation the schema lacks",
+		box: "a snapshot.json whose derived member is removed, or which leaves out one of the members the draft records or every one, or whose closed facts hold one of a relation the schema lacks beside every member",
 		needs: { baseNeed },
 		situations: [
 			"the derived member removed",
 			"a member left out",
 			"every member left out",
-			"a foreign fact",
 			"a foreign fact beside every member"
 		] satisfies ReadonlyArray<Reached<Situation>>,
 		check:
@@ -81,7 +81,7 @@ export const derivedRuntimeFactsCheckRefusesStaleDerivedFactsAndGenerateWritesSn
 							`DbLayer.make's parse refuses ${Formatter.format(staling)} by name: ${Formatter.format(served)}`
 						)
 					}
-					const refused = yield* cliOver(ws, config, ["check", configName], at(1))
+					const refused = yield* cliOver(ws, config, ["check", configName])
 					assert.equal(refused.code, 1, refused.stdout)
 					const read = yield* resolvedConfig(config, `${ws}/${configName}`)
 					const resolved = succeeded(read)
@@ -91,7 +91,7 @@ export const derivedRuntimeFactsCheckRefusesStaleDerivedFactsAndGenerateWritesSn
 						["derivedFacts"],
 						Formatter.format(staling)
 					)
-					const regenerated = yield* cliOver(ws, config, ["generate", configName], at(2))
+					const regenerated = yield* cliOver(ws, config, ["generate", configName])
 					assert.equal(regenerated.code, 0, regenerated.stderr)
 					const after = yield* fs.readDirectory(`${ws}/${schemaDir}`)
 					assert.deepEqual(Arr.sort(after, Order.String), entries, "generate drafts no folder")
@@ -99,7 +99,7 @@ export const derivedRuntimeFactsCheckRefusesStaleDerivedFactsAndGenerateWritesSn
 					assert.equal(rewritten, snapshot, "snapshot.json is the draft's again")
 					const kept = yield* fs.readFileString(`${ws}/${schemaDir}/${manifestFileName}`)
 					assert.equal(kept, manifest, "manifest.json stands")
-					const passed = yield* cliOver(ws, config, ["check", configName], at(3))
+					const passed = yield* cliOver(ws, config, ["check", configName])
 					assert.equal(passed.code, 0, passed.stderr)
 				}),
 		oracle: {
@@ -109,9 +109,16 @@ export const derivedRuntimeFactsCheckRefusesStaleDerivedFactsAndGenerateWritesSn
 		kept: [],
 		kills: [
 			{
+				file: "packages/engine/src/deploy/snapshot/served.ts",
+				original: "\tif (!isRecord(planned)) {\n",
+				replacement: "\tif (planned === null) {\n",
+				why: "DbLayer.make's parse reads a snapshot.json that records no planned queries: the one member left out alone is a case of its own, which no subset of members another case leaves out stands for."
+			},
+			{
 				file: "packages/engine/src/deploy/snapshot/build.ts",
-				original: "\tcanonicalEquals(recorded, derivedForm(computed))",
-				replacement: "\trecorded === undefined || canonicalEquals(recorded, derivedForm(computed))",
+				original: "\tcanonicalEquals(recorded, derivedForm(computed, asValues))",
+				replacement:
+					"\trecorded === undefined || canonicalEquals(recorded, derivedForm(computed, asValues))",
 				why: "A snapshot.json that records no derived member holds the compile's facts."
 			},
 			{

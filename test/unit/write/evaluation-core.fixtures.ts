@@ -3,9 +3,9 @@
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
 import { Fn } from "#compiler/public/compute.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { closedId, pg } from "#compiler/public/fields.ts"
 import { query, type Rule, v } from "#compiler/public/query.ts"
-import { fn, relation, row, rows, schema } from "#compiler/public/schema.ts"
+import { closed, fn, relation, row, rows, schema } from "#compiler/public/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -33,7 +33,20 @@ const fields = { session: pg.integer, k: pg.bigint, v: pg.bigint } as const
 const Out0 = relation("Out0", fields, ["session", "k", "v"])
 const Out1 = relation("Out1", fields, ["session", "k", "v"])
 
-const Core = schema("EvaluationCore", [Item, Done, Out0, Out1, machine], [])
+/** Ranks, a closed relation: each tier's k and v, constants every read reads whole. */
+const Tier = closed.ordered("Tier", ["low", "mid", "high"])
+const Rank = closed.relation(
+	"Rank",
+	{ tier: closedId(Tier), k: pg.bigint, v: pg.bigint },
+	["tier"],
+	[
+		{ tier: "low", k: 1n, v: 1n },
+		{ tier: "mid", k: 2n, v: 2n },
+		{ tier: "high", k: 3n, v: 3n }
+	]
+)
+
+const Core = schema("EvaluationCore", [Item, Done, Tier, Rank, Out0, Out1, machine], [])
 
 /** The sessions a write reads, a relation parameter each query binds to its own. */
 const sessions = { session: pg.integer } as const
@@ -41,12 +54,13 @@ const sessions = { session: pg.integer } as const
 /** A query's binding of `sittings` to the sessions of the rule `r` reads it in: each import of it a copy of its own. */
 const bySession = (r: Rule<typeof Core>) => ({ sittings: r.relation("sittings", sessions) })
 
-/** What the arguments read: a fold or a join at the call's sessions, each argument's import a copy of its own, or a
- * join of every session, one node every argument reads. */
+/** What the arguments read: a fold or a join at the call's sessions, each argument's import a copy of its own, a
+ * join of every session, one node every argument reads, or a closed relation, each argument's match a copy of it. */
 export type CoreKind =
 	| "a fold at the call's sessions"
 	| "a join at the call's sessions"
 	| "a join of every session"
+	| "a closed relation"
 
 /**
  * The core at the call's sessions, folded: each session's items no Done fact matches, the greatest v of each, a fold
@@ -115,6 +129,26 @@ const argumentOfEvery = (j: number) =>
 			.find({ k, v: x })
 	})
 
+/** The ranks at the call's sessions, which a member that reads the core reads: each session with every rank. */
+const ranked = query(Core).rule((r) => {
+	const { session } = v(r.relation("sittings", sessions), "s")
+	const { k, v: x } = v(Rank, "rank")
+	return r
+		.match(r.relation("sittings", sessions), { session })
+		.match(Rank, { k, v: x })
+		.find({ session, k, v: x })
+})
+
+/** The `j`-th argument over the ranks: those whose v is at least j. */
+const argumentOfRanks = (j: number) =>
+	query(Core).rule((r) => {
+		const { k, v: x } = v(Rank, "rank")
+		return r
+			.match(Rank, { k, v: x })
+			.where(r.ge(x, BigInt(j)))
+			.find({ k, v: x })
+	})
+
 /** How many of the call's four arguments read the core; the others are empty. */
 export type Reading = 1 | 2 | 4
 
@@ -140,7 +174,8 @@ export const boxGen: Gen<Box> = element<Box>(
 		[
 			"a fold at the call's sessions",
 			"a join at the call's sessions",
-			"a join of every session"
+			"a join of every session",
+			"a closed relation"
 		] as const,
 		(core) =>
 			Arr.flatMap([1, 2, 4] as const, (reading) =>
@@ -159,7 +194,7 @@ export const boxGen: Gen<Box> = element<Box>(
 )
 
 /** No rows of (k, v): an argument that reads nothing. */
-const none = query(Core).rule((r) => r.where(r.or()).find({ k: 0n, v: 0n }))
+const none = query(Core).rule((r) => r.where(r.or([])).find({ k: 0n, v: 0n }))
 
 /** The call of a rule `r`, its first `reading` arguments each reading the core, at `r`'s sessions. */
 const callIn = (r: Rule<typeof Core>, core: CoreKind, reading: Reading) => {
@@ -175,6 +210,8 @@ const callIn = (r: Rule<typeof Core>, core: CoreKind, reading: Reading) => {
 				return argumentOfJoined(j).bind(bySession(r))
 			case "a join of every session":
 				return argumentOfEvery(j)
+			case "a closed relation":
+				return argumentOfRanks(j)
 		}
 	}
 	return Fn.row(machine, { in0: argument(0), in1: argument(1), in2: argument(2), in3: argument(3) })
@@ -220,6 +257,11 @@ const coreMember = (core: CoreKind) =>
 				const { session, k, v: x } = v(everySession, "core")
 				return r.match(everySession, { session, k, v: x }).find({ session, k, v: x })
 			}
+			case "a closed relation": {
+				const p = ranked.bind(bySession(r))
+				const { session, k, v: x } = v(p, "core")
+				return r.match(p, { session, k, v: x }).find({ session, k, v: x })
+			}
 		}
 	})
 
@@ -245,6 +287,11 @@ const callAndCoreMember = (core: CoreKind, reading: Reading, field: "a0" | "a1")
 					.match(everySession, { session })
 					.match(read, { k, v: x })
 					.find({ session, k, v: x })
+			}
+			case "a closed relation": {
+				const p = ranked.bind(bySession(r))
+				const { session } = v(p, "core")
+				return r.match(p, { session }).match(read, { k, v: x }).find({ session, k, v: x })
 			}
 		}
 	})
@@ -286,6 +333,9 @@ export const statementsOf = (box: Box): ReadonlyArray<string> =>
 /** How many times `sql` scans Done, the core's anti-join's right side. */
 export const doneScans = (sql: string): number =>
 	Str.split('"evaluation_core"."done" AS')(sql).length - 1
+
+/** How many VALUES lists `sql` prints: the ranks', each a copy of the closed relation. */
+export const valuesLists = (sql: string): number => Str.split("(VALUES ")(sql).length - 1
 
 /** How many MATERIALIZED CTEs `sql` defines: its parts and every shared sub-query of them. */
 export const materializedCtes = (sql: string): number =>

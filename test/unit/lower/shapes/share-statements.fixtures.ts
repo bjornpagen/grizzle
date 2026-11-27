@@ -63,37 +63,73 @@ export const program = (statements: number) => {
 }
 
 /**
- * A statement reading r copies of the union of two projections of tasks: an unbounded sub-query, which the CTE policy
- * shares only by its reads.
+ * What a statement's repeated sub-query is: the union of two projections of tasks, an unbounded sub-query, which the CTE
+ * policy shares by its reads; a closed relation, whose rows are constants; or a step of a navigation over the tasks,
+ * which every lowering reads apart (cte-policy readWhole for the last two).
  */
-export const repeated = (reads: number) => {
+export type Repeated = "union" | "closed" | "step"
+
+/** Each repeated sub-query by the reads of it, one to four. */
+export const repeatedGen: Gen<readonly [Repeated, number]> = element<readonly [Repeated, number]>(
+	Arr.flatMap(["union", "closed", "step"] as const, (subject) =>
+		Arr.map([1, 2, 3, 4] as const, (reads) => [subject, reads] as const)
+	)
+)
+
+/** A statement reading r copies of `subject`, each the highest node the copies share. */
+export const repeated = (subject: Repeated, reads: number) => {
 	const q = new Q()
-	const all = () =>
-		q.union(
-			[
-				q.project(
-					q.region([{ source: q.base(Task, conservativeMeta), bind: { id: "id" }, constants: {} }]),
-					[["id", "id"]],
-					conservativeMeta
-				),
-				q.project(
-					q.region([
-						{
-							source: q.base(Task, conservativeMeta),
-							bind: { id: "id", account: "account" },
-							constants: {}
-						}
-					]),
+	const copy = (): RelNode => {
+		switch (subject) {
+			case "union":
+				return q.project(
+					q.union(
+						[
+							q.project(
+								q.region([
+									{ source: q.base(Task, conservativeMeta), bind: { id: "id" }, constants: {} }
+								]),
+								[["id", "id"]],
+								conservativeMeta
+							),
+							q.project(
+								q.region([
+									{
+										source: q.base(Task, conservativeMeta),
+										bind: { id: "id", account: "account" },
+										constants: {}
+									}
+								]),
+								[["id", "id"]],
+								conservativeMeta
+							)
+						],
+						[]
+					),
 					[["id", "id"]],
 					conservativeMeta
 				)
-			],
-			[]
-		)
-	/** Each read is a projection of its own copy: the highest node the copies share. */
-	const copies = Array.from({ length: reads }, () =>
-		q.project(all(), [["id", "id"]], conservativeMeta)
-	)
+			case "closed":
+				return q.closed(
+					"Kind",
+					[{ name: "id", type: T.kind }],
+					[[{ kind: "handle", handle: "Automatic" }], [{ kind: "handle", handle: "Manual" }]]
+				)
+			case "step": {
+				const tasks = q.region([
+					{ source: q.base(Task, conservativeMeta), bind: { id: "id" }, constants: {} }
+				])
+				return q.node({
+					kind: "Step",
+					input: tasks,
+					heading: tasks.heading,
+					loc: undefined,
+					meta: conservativeMeta
+				})
+			}
+		}
+	}
+	const copies = Array.from({ length: reads }, copy)
 	const built = q.build(q.union(copies, []))
 	return { built, copies }
 }

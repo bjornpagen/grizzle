@@ -143,6 +143,17 @@ export const predicateSource = (
 			return go(e.arg)
 		case "cond":
 			return call(spelling.cond, [go(e.pred), go(e.onTrue), go(e.onFalse)])
+		case "variant":
+			switch (e.op.kind) {
+				case "tag":
+					return call("tag", e.args.map(go))
+				case "digest":
+					return call("digest", e.args.map(go))
+				case "field":
+					return `${e.args.map(go).join(", ")}.${e.op.field}`
+				case "make":
+					return call("make", [JSON.stringify(e.op.handle), ...e.args.map(go)])
+			}
 		case "when":
 			return call(spelling.when, [
 				guardSource(e.guard, go(e.subject), pattern),

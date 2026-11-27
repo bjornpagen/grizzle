@@ -15,7 +15,6 @@ import type {
 	BaseSpec,
 	CatalogPerturbation,
 	FieldSpec,
-	LawIds,
 	ModelState,
 	RelationSpec,
 	RoleSpec,
@@ -55,23 +54,9 @@ const through = <A, B>(gen: Gen<A> | undefined, f: (value: A) => B): Gen<B> | un
 /** Every law identity of the installation: each primary key's and each declared law's. */
 export const lawIdsOf = (state: ModelState): Arr.NonEmptyReadonlyArray<LawId> =>
 	knownNonEmpty(
-		[...Record.values(state.names.primaryKeys), ...Arr.flatMap(state.names.laws, identitiesOf)],
+		[...Record.values(state.names.primaryKeys), ...Arr.map(state.names.laws, (ids) => ids.law)],
 		"the installation's law identities"
 	)
-
-/** Every identity one declared law carries: its own, or an alternatives law's arms and reverses. */
-const identitiesOf = (ids: LawIds): ReadonlyArray<LawId> => {
-	switch (ids.kind) {
-		case "key":
-		case "spanKey":
-		case "check":
-		case "contained":
-		case "covered":
-			return [ids.law]
-		case "alternatives":
-			return [...Record.values(ids.arms), ...Record.values(ids.reverse)]
-	}
-}
 
 /**
  * Every function a direct writer may try to call: the installation's own, none when it holds no query entry. No law

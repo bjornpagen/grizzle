@@ -207,7 +207,7 @@ const compared = (
 	const index = held.flatMap((h) => (h === "another term" ? [] : [h]))
 	const [heldFirst, ...heldRest] = index
 	if (first === undefined) {
-		throw defect(
+		defect(
 			`a unique object's columns, at least one, of ${relation.name}, which the law model planned`
 		)
 	}
@@ -254,7 +254,7 @@ const spanObject = (
 	}
 	const [spanField, ...equal] = c.equal
 	if (!isSpanField(spanField) || equal.includes(spanField)) {
-		throw defect(
+		defect(
 			`a span key's span column, a span field's values, of ${relation.name}, which the law model planned`
 		)
 	}

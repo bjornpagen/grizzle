@@ -41,7 +41,8 @@ export const carrierTypes = (vectorSchema: string): Readonly<Record<Carrier, str
 	vector: `${vectorSchema}.vector`,
 	tsvector: "tsvector",
 	exactInteger: "numeric",
-	exactMoney: "numeric"
+	exactMoney: "numeric",
+	variant: "record"
 })
 
 /**
@@ -114,7 +115,14 @@ export const exclusions: Readonly<
 	 * (scalar/native.ts, ir/scalar.ts SearchType): no key, rule or comparison reads one, so its equality, B-tree and
 	 * GiST classes are none of the language's.
 	 */
-	tsvector: ["equality", "gist", "ordering"]
+	tsvector: ["equality", "gist", "ordering"],
+	/**
+	 * A variant has equality and hashing and no stated order (scalar/native.ts, ir/scalar.ts VariantType): its
+	 * composite's B-tree order is the tag's code, then the arm's fields, an order of codes no roster states, so no
+	 * comparison, ORDER BY or least or greatest of the language reads one, and a completed order breaks ties by it
+	 * alone (scalar/registry.ts breaksTies).
+	 */
+	variant: ["minMax", "ordering"]
 }
 
 /** The capabilities the registry claims for a carrier. */

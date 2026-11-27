@@ -10,7 +10,7 @@ import {
 	type TaggedValue
 } from "#compiler/core/canonical.ts"
 import { ownedDigest, type RosterDigest, rosterDigest } from "#compiler/core/fingerprint.ts"
-import type { DeclaredName } from "#compiler/core/identity.ts"
+import type { DeclaredName, HeldName } from "#compiler/core/identity.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { isIntegerTypmod } from "#compiler/ir/carriers.ts"
 import type { ExprTable } from "#compiler/ir/expr.ts"
@@ -24,8 +24,9 @@ import type { TextSearchConfiguration } from "#compiler/ir/search.ts"
  * is a search document, a value PostgreSQL alone computes and matches (SearchType); there is
  * no timestamp, interval, JSON or array carrier. exactInteger and exactMoney are the exact arithmetic carriers
  * (ExactType), and a field of any size of each holds what that arithmetic delivers. sha256 is a SHA-256 digest, 32 bytes
- * of bytea under the installation's digest domain (DigestType), the newest carrier and so the last, every other's place
- * among them kept.
+ * of bytea under the installation's digest domain (DigestType). variant is a typed sum, one of a roster's arms, each a
+ * heading of typed fields, stored as one column of a domain over a composite (VariantType), the newest carrier and so
+ * the last, every other's place among them kept.
  */
 export const carriers = [
 	"int2",
@@ -51,7 +52,8 @@ export const carriers = [
 	"tsvector",
 	"exactInteger",
 	"exactMoney",
-	"sha256"
+	"sha256",
+	"variant"
 ] as const
 export type Carrier = (typeof carriers)[number]
 
@@ -91,7 +93,8 @@ export const fewValued: Readonly<Record<Carrier, boolean>> = {
 	vector: false,
 	tsvector: false,
 	exactInteger: false,
-	exactMoney: false
+	exactMoney: false,
+	variant: false
 }
 
 /**
@@ -127,7 +130,8 @@ export const routable: Readonly<Record<Carrier, boolean>> = {
 	vector: false,
 	tsvector: false,
 	exactInteger: false,
-	exactMoney: false
+	exactMoney: false,
+	variant: false
 }
 
 /** The span carriers over integer endpoints, range4 over int4 and range8 over int8. */
@@ -501,10 +505,10 @@ export const handlesInOrder = (
 }
 
 /**
- * A closed roster: the closed relation's declared name, its order, and its distinct live handles in that order
+ * A closed roster: the closed relation's name (a declared one, or one a library derives), its order, and its distinct live handles in that order
  * (handlesInOrder): an ordered roster's in declared order, which is their codes' order and so comparison order, and an
  * unordered roster's in one canonical order, which no code follows. The name is the roster's whole link to its domain
- * and codes: the naming door mints the roster's domain from it (core/identity.ts identity.rosterDomain), and the
+ * and codes: the naming door mints the roster's domain from it by its naming (schema/own.ts), and the
  * installation's codebook holds its codes (ir/codes.ts), which no type holds, since they depend on the codes the
  * installation held before.
  *
@@ -516,13 +520,13 @@ export const handlesInOrder = (
  * with its handles.
  */
 export class Roster implements Canonicalizable {
-	readonly closed: DeclaredName
+	readonly closed: HeldName
 	readonly order: RosterOrder
 	readonly handles: ReadonlyArray<string>
 	readonly digest: RosterDigest
 
 	/** The roster of `closed` of `order` over `handles`, its digest taken here (core/fingerprint.ts rosterDigest). */
-	static of(closed: DeclaredName, order: RosterOrder, handles: ReadonlyArray<string>): Roster {
+	static of(closed: HeldName, order: RosterOrder, handles: ReadonlyArray<string>): Roster {
 		const held = handlesInOrder(order, handles)
 		return new Roster(closed, order, held, rosterDigest(held))
 	}
@@ -533,7 +537,7 @@ export class Roster implements Canonicalizable {
 	 * so a load hashes no handle.
 	 */
 	constructor(
-		closed: DeclaredName,
+		closed: HeldName,
 		order: RosterOrder,
 		handles: ReadonlyArray<string>,
 		digest: RosterDigest
@@ -718,6 +722,63 @@ interface ExactType {
 	readonly digits: number
 }
 
+/**
+ * One field of a variant's arm: its name, unique within its arm and never `tag`, which names the arm itself, and its
+ * declared type, every value type a field declares but a variant, bytes, a search document, a vector and money
+ * (scalar/registry.ts isArmFieldType).
+ */
+export interface ArmField {
+	readonly name: string
+	readonly type: DeclaredType
+}
+
+/** One arm of a variant: the roster handle that tags it and its fields, in declared order, none for a payload-less arm. */
+export interface VariantArm {
+	readonly handle: string
+	readonly fields: ReadonlyArray<ArmField>
+	/**
+	 * The arm's check, a predicate over the variant's VALUE that reads that arm's fields alone (ir/desc.ts VariantArmDesc
+	 * `check`), an ExprTable in normal form as a contract's predicate is, which the variant's domain's CHECK holds under
+	 * the arm's code (physical/ddl/variants.ts); none for an arm of no check, and none in a descriptor read outside a
+	 * schema, which types it where the schema compiles (scalar/registry.ts variantAt).
+	 */
+	readonly check: ExprTable | undefined
+}
+
+/**
+ * A variant: a closed sum of headings. Its tag is a closed id of the subset of `roster`'s live handles its arms name,
+ * every handle or some (variantOnly), each tagging exactly one arm, in the roster's handle order; a value is one arm's
+ * handle with a value of each of that arm's fields, and a handle no arm names is no value of it. Its identity is its
+ * declared name, its roster and its arms, field by field (sameVariant). The installation names its composite and its
+ * domain by its declared name (core/identity.ts identity.variantRow, identity.variantDomain), so an arm appended to it
+ * alters its composite in place rather than retyping a column.
+ */
+export interface VariantInfo {
+	readonly name: DeclaredName
+	readonly roster: Roster
+	readonly arms: NonEmptyReadonlyArray<VariantArm>
+}
+
+/**
+ * A typed sum value: one of a variant's arms (VariantInfo), stored as one column whose type is a domain over a
+ * composite (physical/ddl/variants.ts): the composite's first attribute is the tag, the arm's code, a smallint, then
+ * each arm's fields at their base types, the arms in their codes' order (ir/codes.ts variantLayout), a float's value
+ * followed by whether it is -0; the domain's CHECK holds the tagged arm's attributes present, each field judged by its
+ * own type and each arm check the variant states, and every other arm's absent. PostgreSQL's record equality, hash and
+ * B-tree order over that composite read two absent attributes as equal and a float's zero sign beside it, so its one
+ * equality is the variant's identity (scalar/variant-digest.ts): its tag, then its arm's fields, -0 apart from 0, every
+ * NaN one, a text by its bytes; and its order is the tag's code, then the arm's fields in declared order: keys,
+ * references, DISTINCT, UNION, GROUP BY and ORDER BY read a variant column as they read any column. It has equality
+ * and hashing and no stated order (scalar/native.ts); a completed order breaks ties by it (scalar/registry.ts
+ * breaksTies). No contract is over one.
+ */
+export interface VariantType {
+	readonly carrier: "variant"
+	readonly caps: CapabilitySet
+	readonly contract: undefined
+	readonly variant: VariantInfo
+}
+
 /** A type with no contract: what a contract is over at its last level (baseOf), and every operation's result. */
 export type PlainType =
 	| IntegerType<"int2">
@@ -734,12 +795,16 @@ export type PlainType =
 	| VectorType
 	| SearchType
 	| ExactType
+	| VariantType
 
 /**
  * The plain value domains a contract is over at its last level: every value type a field declares but an exact value, a
- * set, bytes, a digest and a search document.
+ * set, bytes, a digest, a search document and a variant.
  */
-type ContractedType = Exclude<PlainType, ExactType | BitsType | BytesType | DigestType | SearchType>
+type ContractedType = Exclude<
+	PlainType,
+	ExactType | BitsType | BytesType | DigestType | SearchType | VariantType
+>
 
 /** The carriers a contract is over. */
 export type ContractCarrier = ContractedType["carrier"]
@@ -772,7 +837,14 @@ export type ContractBase = ContractedType | ContractTypes
  * narrower digit bound and a computed numeric's narrower bound are a value's making, which no declaration states. How a
  * field is written, by its sequence among the ways, is the field's writing, never its type.
  */
-export type DeclaredType = ContractBase | BitsType | BytesType | DigestType | SearchType | ExactType
+export type DeclaredType =
+	| ContractBase
+	| BitsType
+	| BytesType
+	| DigestType
+	| SearchType
+	| ExactType
+	| VariantType
 
 /** A date: a calendar day, or a contract over one, as a span's endpoint, a closed id's payload or a field. */
 export type DateType = (BareType & { readonly carrier: "date" }) | ContractType<"date">
@@ -819,6 +891,9 @@ export const isExactValue = (t: ScalarType): t is ExactType =>
  */
 export type ScalarType = PlainType | ContractTypes
 
+/** The name of natural, the builtin contract over bigint whose values are never below zero (scalar/natural.ts). */
+export const naturalName = "natural"
+
 /** A contract contributes its base: the plain type a contract is over at its last level, every other type itself. */
 export const baseOf = (t: ScalarType): PlainType =>
 	t.contract === undefined ? t : baseOf(t.contract.base)
@@ -836,17 +911,31 @@ export const floatCarrierOf = (t: ScalarType): "float4" | "float8" | undefined =
 export const isFloat = (t: ScalarType): boolean => floatCarrierOf(t) !== undefined
 
 /**
- * Whether PostgreSQL's equality over a carrier is identity: two values it holds equal are one value, written and
- * delivered alike, so a column an equality holds at a value holds that very value. Its equality holds equal a float's
- * two zeros (-0 = 0), which a fact's identity tells apart (ir/compare.ts factEq), and a numeric's display scales (1.0 =
- * 1) and a vector's component spellings, which PostgreSQL writes and delivers apart; an exact arithmetic carrier is a
- * numeric's. Every text is C-collated, so a text's equality is its bytes'.
+ * Whether equality over a carrier is identity: two values PostgreSQL's equality holds equal are one value of grizzle's,
+ * written and delivered alike, so a column an equality holds at a value holds that very value. A float's two zeros are
+ * not (-0 = 0), which a fact's identity tells apart (ir/compare.ts factEq). Every other carrier's are:
+ *
+ * - a numeric's display scales (1.0 = 1.00) are no part of its value: its output text decodes to one Decimal in its one
+ *   form, of no display scale (scalar/values/decimal.ts fromOutput; test/unit/values/decimal.test.ts
+ *   decimalParsingConvertsNumericOutTextAtEveryDisplayScaleToTheValuesOneFormItsTextAndPartsTheValues), and each
+ *   overload that reads a display scale reads its operands through trim_scale (lower/conservative/expr/ops.ts
+ *   operandsAsRead; test/pg/compute/catalogue.test.ts), so no term grizzle computes reads one. The exact carriers are
+ *   numerics.
+ * - a vector's components' zeros ('[-0]' = '[0]') are one: its output text decodes into its one form, each component's
+ *   -0 read as 0 (scalar/values/float.ts convertComponent; test/unit/codec/float.test.ts
+ *   exactBinary32ReadingAgreesWithAnIndependentRationalReadingOnRandomDecimalsAndRefusesOverflowAndNonzeroUnderflow),
+ *   and Vector.componentText writes -0 as 0 in identity texts, canonical payloads and literals (scalar/values/vector.ts;
+ *   test/unit/values/vector.test.ts
+ *   vectorInTheCanonicalSerializerRoundTripsEveryFloat32VectorBitForBitAHostVectorOneTextWithItsCanonicalForm), so no
+ *   vector grizzle reads or writes holds a zero's sign.
+ * - every text is C-collated, so a text's equality is its bytes'; inet and cidr, ranges, tsvector and money normalize
+ *   on input, so equal values print alike (measured on PostgreSQL 19). grizzle has no interval carrier.
  */
-const equalityIsIdentityOf: { readonly [C in Carrier]: boolean } = {
+const equalityIsIdentityOf = {
 	int2: true,
 	int4: true,
 	int8: true,
-	numeric: false,
+	numeric: true,
 	float4: false,
 	float8: false,
 	money: true,
@@ -862,16 +951,39 @@ const equalityIsIdentityOf: { readonly [C in Carrier]: boolean } = {
 	range4: true,
 	range8: true,
 	rangeDate: true,
-	vector: false,
+	vector: true,
 	tsvector: true,
-	exactInteger: false,
-	exactMoney: false,
-	sha256: true
+	exactInteger: true,
+	exactMoney: true,
+	sha256: true,
+	variant: true
+} as const satisfies { readonly [C in Carrier]: boolean }
+
+/**
+ * The carriers whose equality is no identity (equalityIsIdentityOf), each with its canonical form (ir/expr.ts
+ * canonicalIds): real and double precision.
+ */
+export type NonIdentityCarrier = {
+	readonly [C in Carrier]: (typeof equalityIsIdentityOf)[C] extends true ? never : C
+}[Carrier]
+
+/** Whether a carrier's equality is no identity (NonIdentityCarrier). */
+export const isNonIdentity = (carrier: Carrier): carrier is NonIdentityCarrier =>
+	!equalityIsIdentityOf[carrier]
+
+/**
+ * A type's carrier where its equality is no identity (equalityIsIdentityOf), a contract's its base's; undefined for a
+ * type whose equality is identity. The one fact of it: what a merge and a navigation deliver of a term several equal
+ * values may stand for (scalar/compute/registry.ts canonicalSpec), and wherever an equality is read as fixing a value,
+ * read it.
+ */
+export const nonIdentityCarrierOf = (t: ScalarType): NonIdentityCarrier | undefined => {
+	const carrier = baseOf(t).carrier
+	return isNonIdentity(carrier) ? carrier : undefined
 }
 
-/** Whether a type's equality is identity (equalityIsIdentityOf), a contract's its base's. */
-export const equalityIsIdentity = (t: ScalarType): boolean =>
-	equalityIsIdentityOf[baseOf(t).carrier]
+/** Whether a type's equality is identity (nonIdentityCarrierOf). */
+export const equalityIsIdentity = (t: ScalarType): boolean => nonIdentityCarrierOf(t) === undefined
 
 /** The capabilities of a descriptor, a contract's its base's. */
 export const capsOf = (t: ScalarType): CapabilitySet => baseOf(t).caps
@@ -900,14 +1012,32 @@ export const rosterOf = (t: ScalarType): Roster | undefined => {
 	return b.carrier === "code" || b.carrier === "bits" ? b.roster : undefined
 }
 
+/** The arm of `variant` its handle tags; none for a handle no arm of it holds. */
+export const armAt = (variant: VariantInfo, handle: string): VariantArm | undefined =>
+	variant.arms.find((arm) => arm.handle === handle)
+
+/** Whether `handles` are live handles of `roster`, each once, in its order: every one of them or some. */
+export const inRosterOrder = (roster: Roster, handles: ReadonlyArray<string>): boolean =>
+	sameOrder(
+		roster.handles.filter((handle) => handles.includes(handle)),
+		handles
+	)
+
 /**
  * Whether `only` is a subset of `roster`'s handles as a closed id holds one (CodeType): live handles of the roster,
  * each once, in its order, short of every handle, so one subset has one spelling.
  */
-export const isRosterSubset = (roster: Roster, only: NonEmptyReadonlyArray<string>): boolean => {
-	const held = roster.handles.filter((handle) => only.includes(handle))
-	return held.length < roster.handles.length && sameOrder(held, only)
-}
+export const isRosterSubset = (roster: Roster, only: NonEmptyReadonlyArray<string>): boolean =>
+	only.length < roster.handles.length && inRosterOrder(roster, only)
+
+/**
+ * The subset of its roster's handles a variant holds, as a closed id of its tag holds it (CodeType `only`): its arms'
+ * handles, in the roster's order; none where its arms name every handle.
+ */
+export const variantOnly = (variant: VariantInfo): NonEmptyReadonlyArray<string> | undefined =>
+	variant.arms.length === variant.roster.handles.length
+		? undefined
+		: mapNonEmpty(variant.arms, (arm) => arm.handle)
 
 /**
  * The subset of its roster's handles a closed id holds, read through its contracts: none for a closed id of every
@@ -999,6 +1129,28 @@ const sameRoster = (a: Roster, b: Roster): boolean =>
 	a.closed === b.closed && a.order === b.order && a.digest === b.digest
 
 /**
+ * One variant: its declared name, its roster, and its arms, each of one handle and one list of fields, each of one name
+ * and one type.
+ */
+const sameVariant = (a: VariantInfo, b: VariantInfo): boolean =>
+	a === b ||
+	(a.name === b.name &&
+		sameRoster(a.roster, b.roster) &&
+		a.arms.length === b.arms.length &&
+		a.arms.every((arm, i) => {
+			const other = b.arms[i]
+			return (
+				other !== undefined &&
+				arm.handle === other.handle &&
+				arm.fields.length === other.fields.length &&
+				arm.fields.every((f, j) => {
+					const g = other.fields[j]
+					return g !== undefined && f.name === g.name && sameScalarType(f.type, g.type)
+				})
+			)
+		}))
+
+/**
  * Two plain types of one carrier and capability set are one where their carrier's fields are: its numeric typmod or
  * computed bound, its vector dimensions, a search document's configuration, its exact digit bound, its text refinement
  * (patterns and language key), its roster or its span.
@@ -1034,6 +1186,8 @@ const samePlain = (a: PlainType, b: PlainType): boolean => {
 			return b.carrier === "code" && sameRoster(a.roster, b.roster) && sameSubset(a.only, b.only)
 		case "bits":
 			return b.carrier === "bits" && sameRoster(a.roster, b.roster)
+		case "variant":
+			return b.carrier === "variant" && sameVariant(a.variant, b.variant)
 		case "range4":
 		case "range8":
 		case "rangeDate":
@@ -1087,6 +1241,25 @@ export const enteredType = (t: ScalarType): ScalarType =>
 		: t
 
 /**
+ * Subsumption: every value of `sub` is a value of `sup` as it stands, so an expression of `sub` stands wherever `sup` is
+ * asked for, with no node of its own: `sup` is `sub` itself, an ancestor along `sub`'s contract chain (a domain's base,
+ * or a wider contract it refines), or the text a refined text refines (enteredType: the text of a pattern or a byte
+ * bound). PostgreSQL compares a domain's value as its base's, relabelled where it matches an index, so a cast up to
+ * such a `sup` is no conversion and the IR builds none (ir/expr.ts builtExpr), where it hid the stored column from
+ * every walk that reads a comparison's columns: metis carryEnter's `stage: Type.base(number)`, and every foreign key
+ * law's anti-join over a child column of a domain. A narrowing from `sup` down to `sub` stays a cast, its domain the
+ * judge.
+ */
+export const subsumes = (sup: ScalarType, sub: ScalarType): boolean => {
+	for (let t: ScalarType | undefined = sub; t !== undefined; t = t.contract?.base) {
+		if (sameScalarType(sup, t) || sameScalarType(sup, enteredType(t))) {
+			return true
+		}
+	}
+	return false
+}
+
+/**
  * Whether two types differ only in what a column's domain enforces (enteredType): a value of either enters a stored
  * column of the other, its domain the judge.
  */
@@ -1119,13 +1292,20 @@ const withinExact = (column: ScalarType, value: ScalarType): boolean =>
  * of a subset, which no value of it is proved to keep to; and an exact value of its carrier within the column's digit
  * bound (withinExact).
  */
-export const entersColumn = (column: ScalarType, value: ScalarType): boolean => {
-	const held = onlyOf(column)
+export const entersColumn = (column: ScalarType, value: ScalarType): boolean =>
+	(sameEnteredType(everyHandle(column), everyHandle(value)) || withinExact(column, value)) &&
+	subsetWithin(column, value)
+
+/**
+ * Whether every handle a value of type `value` can be is one a closed id of type `target` holds (onlyOf): always where
+ * the target holds every handle, and otherwise exactly where the value's type is of a subset within the target's. A
+ * closed id of the whole roster is within no subset, so a value of a subset comes from a value of that subset alone:
+ * the one rule a stored column, a generated field, a made value's field and a cast hold a value's handles to.
+ */
+export const subsetWithin = (target: ScalarType, value: ScalarType): boolean => {
+	const held = onlyOf(target)
 	const given = onlyOf(value)
-	return (
-		(sameEnteredType(everyHandle(column), everyHandle(value)) || withinExact(column, value)) &&
-		(held === undefined || given?.every((h) => held.includes(h)) === true)
-	)
+	return held === undefined || given?.every((h) => held.includes(h)) === true
 }
 
 /**
@@ -1136,6 +1316,20 @@ export const isRefined = (t: ScalarType): boolean => {
 	const text = textOf(t)
 	return t.contract !== undefined || (text !== undefined && regexOf(text) !== undefined)
 }
+
+/** Whether a field of type `t` is a float, which a variant's layout gives a zero-sign attribute (ir/codes.ts FieldLayout). */
+export const isFloatType = (t: ScalarType): boolean => {
+	const carrier = baseOf(t).carrier
+	return carrier === "float4" || carrier === "float8"
+}
+
+/**
+ * Whether a value of this type is held to a domain beyond its base's values, which the host judges as PostgreSQL's
+ * domain does (scalar/compute/evaluate.ts membership): a refined type's contract and patterns, and a variant's domain,
+ * which holds its tagged arm's fields each to its own type and the arm's check. Every admission and decode of a row on
+ * the host judges exactly these fields.
+ */
+export const isJudged = (t: ScalarType): boolean => isRefined(t) || baseOf(t).carrier === "variant"
 
 /** Each carrier's PostgreSQL type name, which typeLabel prints for a carrier of no parameters. */
 export const nativeNames = {
@@ -1162,7 +1356,8 @@ export const nativeNames = {
 	vector: "vector",
 	tsvector: "tsvector",
 	exactInteger: "numeric",
-	exactMoney: "numeric"
+	exactMoney: "numeric",
+	variant: "record"
 } as const satisfies { readonly [C in Carrier]: string }
 
 /**
@@ -1201,6 +1396,8 @@ export const typeLabel = (t: ScalarType): string => {
 		}
 		case "bits":
 			return `bits ${t.roster.closed}`
+		case "variant":
+			return `variant ${t.variant.name}`
 		case "text": {
 			return t.text === "wildcard"
 				? "text"

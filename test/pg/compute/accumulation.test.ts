@@ -98,7 +98,7 @@ export const deliversEveryFloatAndMoneySumAndMeanAsTheExactReferenceStatesItInAn
 									schema
 								)
 							}
-							const side = catalogLowering(labOptions)
+							const side = catalogLowering(labOptions())
 							const facts: Facts = { sittings: k.sittings, prices: [], points: [] }
 							yield* judged(
 								"R41 running total",

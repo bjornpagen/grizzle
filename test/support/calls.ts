@@ -26,7 +26,7 @@ export const oneOf = <Row, E, R>(
 	Effect.map(value, (rows) => {
 		const [first, second] = [...rows]
 		if (second !== undefined) {
-			throw defect("a value of at most one row holds two")
+			defect("a value of at most one row holds two")
 		}
 		return Option.fromUndefinedOr(first)
 	})
@@ -55,7 +55,7 @@ export const readOnce =
 			case "answeredList":
 				return rowsOf(calls.once(input))
 			case "write":
-				return Effect.die(defect("a read of a write member"))
+				return Effect.sync(() => defect("a read of a write member"))
 		}
 	}
 
@@ -63,7 +63,9 @@ export const readOnce =
 export const writeOnce =
 	(calls: OnceCalls) =>
 	(input: unknown): Effect.Effect<WrittenOutcome, CallError> =>
-		calls.shape === "write" ? calls.once(input) : Effect.die(defect("a write of a read member"))
+		calls.shape === "write"
+			? calls.once(input)
+			: Effect.sync(() => defect("a write of a read member"))
 
 /**
  * The Function Scan nodes of a plan, at any depth: each a function in a FROM list the statement calls once per row that

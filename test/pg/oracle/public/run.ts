@@ -14,6 +14,7 @@ import {
 	type Scope
 } from "effect"
 import { memberCalls, type WrittenOutcome } from "#adapter/db/handles.ts"
+import { login } from "#compiler/public/schema.ts"
 import type { StatementRoots, StatementTree } from "#compiler/runtime/lower/tree.ts"
 import { type ValueIdentity, sameIdentity } from "#test/support/kernel/identity.ts"
 import { type ReferenceObserver, unobserved } from "#test/support/oracle/reference/evaluate.ts"
@@ -43,9 +44,9 @@ import {
 } from "#test/pg/oracle/public/cells.ts"
 import type { PublicFeature } from "#test/pg/oracle/public/suite.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { compileTemplate, installedCodes, paramsOver, testCompile } from "#test/support/compile.ts"
+import { compileTemplate, installedCodes, testCompile } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
-import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
+import { type Installed, installGenerated } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { SpelledValue } from "#test/support/oracle/gen/domain.ts"
 import {
@@ -112,7 +113,7 @@ import {
 } from "#test/support/oracle/public/program.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
-import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
+import { claimsOfNoFact, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { outputText } from "#test/support/wire.ts"
 
 /**
@@ -678,24 +679,21 @@ const noteQuery = (q: ProgramQuery<ParentColumn>, note: Note): void => {
 	}
 }
 
-/**
- * Notes which way the reference delivered each arm to its parents: Some where the parent's field holds the handle,
- * None where it holds another.
- */
-const noteArms = (shape: Shape, rows: ReadonlyArray<Nested>, note: Note): void => {
+/** Notes which way the reference delivered each Option to its parents: Some of a child, or None. */
+const noteOptions = (shape: Shape, rows: ReadonlyArray<Nested>, note: Note): void => {
 	for (const row of rows) {
-		noteRowArms(shape, row, note)
+		noteRowOptions(shape, row, note)
 	}
 }
 
-/** Notes which way the reference delivered each arm of one row to its parents, and of its children. */
-const noteRowArms = (shape: Shape, row: Nested, note: Note): void => {
+/** Notes which way the reference delivered each Option of one row to its parents, and of its children. */
+const noteRowOptions = (shape: Shape, row: Nested, note: Note): void => {
 	for (const [i, a] of shape.attachments.entries()) {
 		const children = row.attachments[i] ?? []
-		if (a.delivery.kind === "arm") {
-			note(children.length > 0 ? "arm some" : "arm none")
+		if (a.delivery.kind === "option") {
+			note(children.length > 0 ? "option some" : "option none")
 		}
-		noteArms(a.shape, children, note)
+		noteOptions(a.shape, children, note)
 	}
 }
 
@@ -1048,7 +1046,7 @@ const queryRead = (
 					report: `${label}: the language proves a delivery the reference breaks: ${broken.value}\n${printCase(c)}`
 				})
 			}
-			noteArms(shape, expected.success, note)
+			noteOptions(shape, expected.success, note)
 			noteTakes(read.query, expected.success, note)
 			noteRootTake(read.query, expected.success, note)
 		}
@@ -1486,7 +1484,7 @@ const storeDirectly = (
 		const substrate = yield* Substrate
 		yield* Effect.mapError(
 			Effect.gen(function* () {
-				const writer = yield* substrate.session(worldSession(done.world(role)))
+				const writer = yield* substrate.session(worldSession(done.world(role), claimsOfNoFact))
 				yield* writer.begin
 				for (const sql of statements.value) {
 					yield* writer.query(sql, [])
@@ -1661,10 +1659,10 @@ interface Members {
  *
  * Rule: grizzle runs the case exactly as an application deploys and reads it.
  *
- * 1. The schema, built by the public constructors (build.ts), is installed through its first migration
- *    (test/support/install-migrate.ts): `grizzle migrate generate` drafts it and `grizzle migrate apply` runs it as the
- *    migration identity, so the catalog is a deployment's, with the parameter types of the case's programs
- *    (test/support/compile.ts paramsOver), the only types a served compile under its snapshot may cast a parameter to.
+ * 1. The schema, built by the public constructors (build.ts), is installed through its first migration as `grizzle
+ *    generate` drafts it with its login, whose workload holds the case's programs (install-migrate.ts
+ *    installGenerated), and `grizzle migrate` runs it as the migration identity, so the catalog is a deployment's, with
+ *    what generate installs for the programs, every type a served compile under its snapshot may cast a parameter to.
  * 2. Every program of the case is a member of its full role's workload (casePrograms): every read, every query read's
  *    read-back, and the store of its facts, compiled into the login's served file under the snapshot the migration
  *    reached by the one compile `grizzle generate` runs, and the Db opens through that login's served layer
@@ -1714,20 +1712,22 @@ export const runCase = (
 		const built = buildSchema(c.schema)
 		const unready = (what: string) => (e: unknown) =>
 			new Disagreement({ check: "setup", report: `${what}: ${describe(e)}\n${printCase(c)}` })
-		const done = yield* Effect.mapError(
-			install(built.schema, {
-				ambient: c.ambient,
-				label: "real",
-				logins: [built.world.server],
-				extensions: [
-					paramsOver([
-						{
-							login: "server",
-							workloads: [workload(built.world.app, casePrograms(c, built, built.schema))]
-						}
-					])
-				]
-			}),
+		const { installed: done } = yield* Effect.mapError(
+			installGenerated(
+				(name) => {
+					const value = built.installedAs(name)
+					const { app } = built.worldAs(name)
+					return {
+						schema: value,
+						logins: [
+							login(value, "server", [app], {
+								workload: [workload(app, casePrograms(c, built, value))]
+							})
+						]
+					}
+				},
+				{ ambient: c.ambient, label: "real" }
+			),
 			unready("the schema did not install")
 		)
 		const value = built.installedAs(done.schema)

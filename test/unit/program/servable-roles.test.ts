@@ -2,7 +2,8 @@
  * A role's change members hold no more of each compile than what reads them after it (write/program/served.ts
  * ServableWrite, program/workload/change.ts CertifiableEntry, certifiedRole): its write's level and exclusion, its
  * statements as its application runs them (texts, parts, slots and steps, projected at its level), its read-backs as
- * its served file holds them, whether it may create a carrier and its carriers' columns, its parameters and binding, and
+ * its served file holds them, its carriers' columns (`carried`: since 28b731aa29 a carrier travels in its transaction's
+ * settings, so no write creates one), what its statements seek (`seeks`, ACCESS2-P3's), its parameters and binding, and
  * of its front end the schema, written relations and codes; as certification reads it, beside those its isolation facts, extracted as it compiled
  * (program/isolation/member-facts.ts compiledFacts), and the contexts it was prepared for, which a SERIALIZABLE compile
  * of it prepares it for again from its value: no prepared write, so no front end, outlives its compile.
@@ -35,11 +36,14 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order, Record as Rec } from "effect"
 import { silentPhases } from "#compiler/core/phase.ts"
 import {
+	type CertifiableEntry,
 	certifiedRole,
 	readCommittedChanges,
+	type ServableEntry,
 	type ServableRole
 } from "#compiler/program/workload/change.ts"
 import { PreparedWrite } from "#compiler/write/program/compile.ts"
+import type { ServableWrite } from "#compiler/write/program/served.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
 	changeLoginOf,
@@ -56,19 +60,57 @@ const fieldsOf = (o: object): ReadonlyArray<string> => Arr.sort(Rec.keys(o), Ord
 /** The prepared writes alive, counted by V8 after a full collection. */
 const preparedAlive = (): number => queryObjects(PreparedWrite, { format: "count" })
 
-/** The fields of a servable write (write/program/compile.ts ServableWrite). */
-const servableFields = [
-	"binding",
-	"carriers",
-	"clocked",
-	"exclusion",
-	"frontend",
-	"level",
-	"params",
-	"readBacks",
-	"standUps",
-	"statements"
-] as const
+/**
+ * The fields of a servable write (write/program/served.ts ServableWrite), named off a record of them as every slice's
+ * below is: each record `satisfies Record<keyof T, true>` of its type T, so it holds T's keys exactly, and a field T
+ * gains, loses or renames is a compile error here, where ServableWrite's `seeks` and `carried` each turned this property
+ * red at run time.
+ */
+const servableFields = fieldsOf({
+	binding: true,
+	carried: true,
+	clocked: true,
+	exclusion: true,
+	frontend: true,
+	level: true,
+	params: true,
+	reach: true,
+	readBacks: true,
+	seeks: true,
+	standUps: true,
+	statements: true
+} satisfies Record<keyof ServableWrite, true>)
+
+/** The fields of an entry as certification reads it (program/workload/change.ts CertifiableEntry). */
+const certifiableFields = fieldsOf({
+	change: true,
+	claims: true,
+	clock: true,
+	compiled: true,
+	facts: true,
+	names: true,
+	params: true,
+	schema: true,
+	source: true
+} satisfies Record<keyof CertifiableEntry, true>)
+
+/** The fields of a servable entry (program/workload/change.ts ServableEntry). */
+const servableEntryFields = fieldsOf({
+	change: true,
+	clock: true,
+	compiled: true,
+	names: true,
+	params: true,
+	schema: true,
+	source: true
+} satisfies Record<keyof ServableEntry, true>)
+
+/** The fields of a servable write's front end (ServableWrite `frontend`). */
+const frontendFields = fieldsOf({
+	codes: true,
+	schema: true,
+	written: true
+} satisfies Record<keyof ServableWrite["frontend"], true>)
 
 /**
  * The servable roles of `drawn`'s login, compiled for READ COMMITTED, each whole role and the login itself unreachable
@@ -90,17 +132,7 @@ const servableRoles = (
 				for (const entry of entriesOf(variants)) {
 					assert.deepEqual(
 						fieldsOf(entry),
-						[
-							"change",
-							"claims",
-							"clock",
-							"compiled",
-							"facts",
-							"names",
-							"params",
-							"schema",
-							"source"
-						],
+						certifiableFields,
 						"the entry certification reads: its servable fields, its facts and its claims, no prepared write"
 					)
 					assert.deepEqual(
@@ -134,7 +166,7 @@ export const aRolesServableChangeMembersHoldTheirWritesSlicesAloneAndNoPreparedW
 						for (const entry of entriesOf(variants)) {
 							assert.deepEqual(
 								fieldsOf(entry),
-								["change", "clock", "compiled", "names", "params", "schema", "source"],
+								servableEntryFields,
 								"the entry's fields, no prepared write"
 							)
 							assert.deepEqual(
@@ -144,7 +176,7 @@ export const aRolesServableChangeMembersHoldTheirWritesSlicesAloneAndNoPreparedW
 							)
 							assert.deepEqual(
 								fieldsOf(entry.compiled.frontend),
-								["codes", "schema", "written"],
+								frontendFields,
 								"the front end's schema, written relations and codes alone"
 							)
 						}

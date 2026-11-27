@@ -71,6 +71,9 @@ const side = (relationName: string, fields: Arr.NonEmptyReadonlyArray<string>): 
 	where: {}
 })
 
+/** The attendances of an excused status: an excuse note's attendance is one, and each has its excuse note. */
+const excused: SideSpec = { relation: "Attendance", fields: ["id"], where: { status: "Excused" } }
+
 const contained = (source: SideSpec, target: SideSpec): LawSpec => ({
 	kind: "contained",
 	source,
@@ -244,13 +247,8 @@ const laws: ReadonlyArray<LawSpec> = [
 	contained(side("Grade", ["enrollment"]), side("Enrollment", ["id"])),
 	contained(side("Attendance", ["enrollment"]), side("Enrollment", ["id"])),
 	{ kind: "key", relation: "Attendance", fields: ["enrollment", "day"] },
-	{
-		kind: "alternatives",
-		relation: "Attendance",
-		tag: "status",
-		closed: attendanceStatus.name,
-		arms: { Excused: "ExcuseNote" }
-	},
+	contained(side("ExcuseNote", ["attendance"]), excused),
+	contained(excused, side("ExcuseNote", ["attendance"])),
 	contained(side("Administrator", ["school"]), side("School", ["id"]))
 ]
 

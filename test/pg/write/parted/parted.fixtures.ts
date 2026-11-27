@@ -196,8 +196,7 @@ export const wholeChange = (change: LoadedChange): LoadedChange => {
 								statement.forms.large.sentFor(() => true),
 								"every unit of its large form"
 							)
-						},
-			staged: { kind: "none" }
+						}
 		}
 	}
 	const program: FlightWrite = {

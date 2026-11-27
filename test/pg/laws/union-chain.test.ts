@@ -54,6 +54,14 @@ export const aCheckOverAChainOfUnionsIsJudgedOverTheUnitsATransactionWroteExactl
 		kept: [],
 		kills: [
 			{
+				file: "packages/engine/src/physical/ddl/rules.ts",
+				original:
+					'\t\tconst columns = [...bound].filter((c) => table.holds.get(c) !== "none").toSorted(compareStrings)\n',
+				replacement:
+					'\t\tconst columns = [...bound].filter((c) => table.holds.get(c) !== "none").toSorted(compareStrings).slice(1)\n',
+				why: "A judge's request leaves out a column its seek binds: the check over a document's top nodes, read at the document and kind 0, asks no index holding the document, and the installation refuses the judge as a missed index, as the extraction that never asked the kind its lowering lands on the step did."
+			},
+			{
 				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
 				original: "\t\t\tif (!sees(at, region, read)) {\n\t\t\t\tbreak\n\t\t\t}\n",
 				replacement: "",

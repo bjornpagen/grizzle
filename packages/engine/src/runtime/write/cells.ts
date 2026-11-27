@@ -42,7 +42,7 @@ export const textAt = (values: Cells, texts: Texts, at: number, spec: CarrierSpe
 	}
 	const value = values[at]
 	if (value === undefined) {
-		throw defect(`a value at position ${at} of a row a reader reads`)
+		defect(`a value at position ${at} of a row a reader reads`)
 	}
 	const text = admittedText(spec, value)
 	texts[at] = text

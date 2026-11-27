@@ -78,7 +78,7 @@ export {
 export { workloadState } from "#compiler/program/workload/value.ts"
 export { hostArguments } from "#compiler/query/build/host.ts"
 export { isOrderedValue, isQueryValue } from "#compiler/query/build/index.ts"
-export { keyLookup, keyQuery } from "#compiler/query/build/key.ts"
+export { keyLookup } from "#compiler/query/build/key.ts"
 export { queryState } from "#compiler/query/build/state.ts"
 export { columnPosition, columnType } from "#compiler/runtime/lower/columns.ts"
 export { runsLargeForm } from "#compiler/runtime/lower/take.ts"

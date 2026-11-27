@@ -4,9 +4,8 @@
  * The fixtures state each worked example's schema as a SchemaDesc written out as data, the form the surface builders
  * record and ownership consumes. These helpers spell the descriptors and statements the way the
  * builders of packages/engine/src/schema emit them, so a fixture reads like its public-API form while staying plain IR: a
- * side's field term is its field's name and a pred term is pred(field), mirrors is its two containments, the
- * alternatives helper expands to both containments per arm, each carrying the origin marker, and a relation used in key
- * position stands for its primary key.
+ * side's field term is its field's name and a pred term is pred(field), mirrors is its two containments, and a
+ * relation used in key position stands for its primary key.
  */
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
@@ -18,6 +17,7 @@ import {
 	type ChangeSetDesc as ChangeSetOf,
 	type WorkloadDesc as WorkloadOf,
 	conjunctsOf,
+	declaredNaming,
 	decodeDesc,
 	everyFact,
 	type ExprDesc,
@@ -274,6 +274,7 @@ export const relation = (
 	return {
 		kind: "relation",
 		name,
+		naming: declaredNaming,
 		fields: Rec.map(fields, declOf),
 		primaryKey: [key, ...rest]
 	}
@@ -290,6 +291,7 @@ export const closed = Object.freeze({
 	): AuthoredRelationDesc & { readonly kind: "closed" } => ({
 		kind: "closed",
 		name,
+		naming: declaredNaming,
 		handles: nonEmptyList(handles, "a roster's handles")
 	}),
 	unordered: (
@@ -298,6 +300,7 @@ export const closed = Object.freeze({
 	): AuthoredRelationDesc & { readonly kind: "closed" } => ({
 		kind: "closed",
 		name,
+		naming: declaredNaming,
 		handles: handlesInOrder("unordered", nonEmptyList(handles, "a roster's handles")),
 		order: "unordered"
 	})
@@ -431,29 +434,3 @@ export const mirrors = (
 	Extract<AuthoredStatementDesc, { readonly kind: "contained" }>,
 	Extract<AuthoredStatementDesc, { readonly kind: "contained" }>
 ] => [contained(left, right), contained(right, left)]
-
-/**
- * alternatives(parent, discriminator, roster, arms): its own statement, over every fact of the parent by its primary
- * key and each handle's arm by its primary key, in roster order. The discriminator's containment in the roster is its
- * closedId field's type, no statement.
- */
-export const alternatives = (
-	parent: { readonly name: string; readonly primaryKey: ReadonlyArray<string> },
-	discriminator: string,
-	roster: { readonly name: string; readonly handles: ReadonlyArray<string> },
-	arms: Readonly<
-		Record<string, { readonly name: string; readonly primaryKey: ReadonlyArray<string> }>
-	>
-): AuthoredStatementDesc => ({
-	kind: "alternatives",
-	parent: on(parent.name, parent.primaryKey),
-	discriminator,
-	roster: roster.name,
-	arms: nonEmptyList(
-		Arr.flatMap(roster.handles, (handle) => {
-			const arm = arms[handle]
-			return arm === undefined ? [] : [{ handle, arm: on(arm.name, arm.primaryKey) }]
-		}),
-		`the arms of alternatives over ${parent.name}.${discriminator}`
-	)
-})

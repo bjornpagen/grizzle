@@ -5,7 +5,7 @@ import { String as Str } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema, select } from "#compiler/public/schema.ts"
@@ -102,7 +102,6 @@ const compiled = (c: Placed): Result.Result<unknown, CompileError> => {
 		Result.flatMap(codebookFor(schemaInputOf(s), firstCodes), (codes) =>
 			planRealInstall(s, {
 				installation: identity.schema(parsedSchemaName("LiteralOpposite")),
-				logins: [],
 				extensions: [],
 				codes,
 				compile: compileInstallation

@@ -4,7 +4,7 @@ import { type Aimed, aimed, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record, Result } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { codebookFor, firstCodes, schemaInputOf } from "#test/support/compile.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -39,7 +39,6 @@ export const writeLawNames = (schema: WSchema): WriteLawNames => {
 	const plan = succeeded(
 		planRealInstall(value, {
 			installation: identity.schema(parsedSchemaName(declared)),
-			logins: [],
 			extensions: [],
 			codes: succeeded(codebookFor(schemaInputOf(value), firstCodes)),
 			compile: compileInstallation

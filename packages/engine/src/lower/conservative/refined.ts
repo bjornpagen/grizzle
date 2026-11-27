@@ -3,7 +3,11 @@ import { topoOrder } from "#compiler/ir/dag.ts"
 import type { Heading, HeadingColumn } from "#compiler/ir/rel.ts"
 import { isRefined, regexRefOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { LowerContext } from "#compiler/lower/conservative/context.ts"
-import { type ConservativeParamSlot, judgesLaw } from "#compiler/lower/conservative/types.ts"
+import {
+	type ConservativeParamSlot,
+	type DeclaredValue,
+	judgesLaw
+} from "#compiler/lower/conservative/types.ts"
 import { CompilePatterns, type PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import {
 	type Cte,
@@ -121,18 +125,35 @@ interface Supplied {
 	readonly type: ScalarType
 }
 
-/** The placeholder a declared parameter's value fills, by its number (Supplied); none for a placeholder a lowering
- * allocates itself, or a ChangeSet member's, which no bind checks against its refinements. */
+/** The value a declared parameter's placeholder carries (Supplied): a scalar's, or a relation parameter's field at its
+ * part; none for its count. */
+const suppliedOf = (value: DeclaredValue): Supplied | undefined => {
+	switch (value.kind) {
+		case "scalar":
+			return { name: value.param, type: value.type }
+		case "relation": {
+			const field = value.part.kind === "column" ? value.columns[value.part.index] : undefined
+			return field === undefined
+				? undefined
+				: { name: `${value.param}.${field.name}`, type: field.type }
+		}
+	}
+}
+
+/** The placeholder a declared parameter's value fills, by its number (Supplied), an admission's the value it admits;
+ * none for a placeholder a lowering allocates itself, or a ChangeSet member's, which no bind checks against its
+ * refinements. */
 const parameterOf = (slot: ConservativeParamSlot): ReadonlyArray<readonly [number, Supplied]> => {
+	const supplied = (value: DeclaredValue): ReadonlyArray<readonly [number, Supplied]> => {
+		const s = suppliedOf(value)
+		return s === undefined ? [] : [[slot.number, s]]
+	}
 	switch (slot.kind) {
 		case "scalar":
-			return [[slot.number, { name: slot.param, type: slot.type }]]
-		case "relation": {
-			const field = slot.part.kind === "column" ? slot.columns[slot.part.index] : undefined
-			return field === undefined
-				? []
-				: [[slot.number, { name: `${slot.param}.${field.name}`, type: field.type }]]
-		}
+		case "relation":
+			return supplied(slot)
+		case "admission":
+			return supplied(slot.admits)
 		case "member":
 		case "nestedRows":
 		case "page":
@@ -164,7 +185,7 @@ export class Tracer {
 		if (supplied === undefined) {
 			return "unproved"
 		}
-		return guarantees(supplied.type, claim.type)
+		return guarantees(supplied.type, claim.type, this.#patterns)
 			? "proved"
 			: { kind: "parameter", name: supplied.name }
 	}
@@ -267,6 +288,7 @@ export class Tracer {
 			case "lowerAscii":
 			case "nullif":
 			case "subscript":
+			case "attribute":
 				return ["unproved"]
 		}
 	}
@@ -290,7 +312,11 @@ export class Tracer {
 					typeof item.table === "string"
 						? undefined
 						: this.#stored.get(storedColumnKey(nameKey(item.table), column))
-				return [stored !== undefined && guarantees(stored, claim.type) ? "proved" : "unproved"]
+				return [
+					stored !== undefined && guarantees(stored, claim.type, this.#patterns)
+						? "proved"
+						: "unproved"
+				]
 			}
 			case "probe":
 			case "met": {
@@ -299,7 +325,11 @@ export class Tracer {
 					driven === undefined
 						? undefined
 						: this.#stored.get(storedColumnKey(nameKey(item.table), driven.read))
-				return [stored !== undefined && guarantees(stored, claim.type) ? "proved" : "unproved"]
+				return [
+					stored !== undefined && guarantees(stored, claim.type, this.#patterns)
+						? "proved"
+						: "unproved"
+				]
 			}
 			case "metRows":
 				return ["unproved"]
@@ -326,7 +356,8 @@ export class Tracer {
 						const array = source.columns.find((c) => c.definition.name === column)
 						return [array === undefined ? "unproved" : this.#supplied(array.array.number, claim)]
 					}
-					case "carried": {
+					case "carried":
+					case "setting": {
 						const array = source.columns.find((c) => c.definition.name === column)
 						return array === undefined ? ["unproved"] : this.expr(array.array, scope, claim)
 					}

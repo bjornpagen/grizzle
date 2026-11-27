@@ -4,10 +4,9 @@ import { checkedSchema, derivedAnalysis } from "#compiler/analysis/schema.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
-import { derivedKeyConstraints, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
+import { derivedEvidence, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { compileLaws, type LawModel } from "#compiler/laws/model/model.ts"
 import type { Owned } from "#compiler/schema/own.ts"
-import { everySlice } from "#compiler/schema/reach.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
@@ -17,7 +16,8 @@ import { ownedInput } from "#test/support/policy.ts"
 /**
  * The evidence catalog a test compiles or analyzes against, built the production way: a fixture schema is owned once
  * (schema/own.ts), its law model compiled (laws/model) and its derived relations analyzed (analysis/derived), and
- * laws/model/catalog.ts reads the theory's keys, the views' unique indexes and the law model's containments off that
+ * laws/model/catalog.ts reads the theory's keys, the views' unique indexes and drawn containments and the law model's
+ * containments off that
  * one parse, so every constraint is named as the installation installs it. A test never spells a constraint name:
  * where it needs one (to plant a deferrable key), it reads it off the catalog.
  *
@@ -29,8 +29,8 @@ export const installedCatalog = (installation: {
 	readonly laws: LawModel
 }): EvidenceCatalog => {
 	const views = Result.map(
-		Result.map(checkedSchema(installation.owned, everySlice(installation.owned)), derivedAnalysis),
-		derivedKeyConstraints
+		Result.map(checkedSchema(installation.owned), derivedAnalysis),
+		(analysis) => derivedEvidence(analysis, installation.laws.existence)
 	)
 	if (!views.ok) {
 		throw new Error(`the derived analysis refuses the test's schema: ${views.error.message}`)
@@ -55,7 +55,7 @@ export const ownedFixture = (desc: SchemaDesc): OwnedFixture => {
 	if (!owned.ok) {
 		throw new Error(`fixture ${desc.name}: ownership refuses it: ${owned.error.message}`)
 	}
-	const laws = compileLaws(owned.value, everySlice(owned.value), { kind: "planned" })
+	const laws = compileLaws(owned.value, { kind: "planned" })
 	if (!laws.ok) {
 		throw new Error(`fixture ${desc.name}: the law model refuses it: ${laws.error.message}`)
 	}

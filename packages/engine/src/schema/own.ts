@@ -34,10 +34,10 @@ import {
 	conversionOf,
 	type DeclaredName,
 	DeclaredNamespace,
-	decodedColumnFits,
 	type Identity,
 	identifierOf,
-	identity
+	identity,
+	type HeldName
 } from "#compiler/core/identity.ts"
 import { namedatalen } from "#compiler/core/identity.ts"
 import {
@@ -54,6 +54,7 @@ import { type NonEmptyCanonicalSet, nonEmptyNameSet } from "#compiler/core/set.t
 import {
 	type AdmittedClosedRelation,
 	candidateKeyFields,
+	closedIdBase,
 	fieldTermsOf,
 	type CompareOp,
 	conjunctsOf,
@@ -76,6 +77,9 @@ import {
 	heldRelation,
 	leadsWithHeading,
 	type RelationDesc,
+	type RelationNaming,
+	type RosterNaming,
+	declaredNaming,
 	type RoleDesc,
 	type RoleEntryDesc,
 	type RosterDesc,
@@ -100,8 +104,9 @@ import type { Inserts } from "#compiler/ir/law.ts"
 import type { OwnedSchema } from "#compiler/ir/products.ts"
 import type { DeclaredKey } from "#compiler/ir/rel.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
+import { compatible } from "#compiler/scalar/compute/types.ts"
 import { isDrawnType, isNaturalDesc, naturalDescriptor } from "#compiler/scalar/natural.ts"
-import { descCapabilities } from "#compiler/scalar/registry.ts"
+import { descCapabilities, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import {
 	type DeclaredEntries,
 	derivedStatement,
@@ -117,7 +122,7 @@ import {
 } from "#compiler/schema/function-own.ts"
 import type { SchemaContent } from "#compiler/schema/levels.ts"
 import { type KeyLayout, keyLayout } from "#compiler/schema/representability.ts"
-import { determines, entryScope, type Scope } from "#compiler/schema/scope.ts"
+import { headTypes, ownersOf, type UnitOwner } from "#compiler/schema/scope.ts"
 import { foreignInput } from "#compiler/schema/terms.ts"
 import { approximates, attachesHeading, queryUses } from "#compiler/schema/walk.ts"
 import type { StatedEntry } from "#compiler/types/changeset/changeset.ts"
@@ -166,15 +171,16 @@ export interface OwnedCheck {
 	readonly constraint: ConstraintName
 }
 
-/** What an owned relation of any kind holds before its kind: its name, level and location. */
-type OwnedBase = Omit<Owning<RelationDesc["kind"]>, "kind" | "desc">
+/** What an owned closed relation or derived relation holds before its kind: its declared name, level and location. */
+type OwnedBase = Omit<Owning<"closedRelation" | "derived">, "kind" | "desc">
 
 /**
- * An owned relation of kind K. `level` is the schema level that declares it: 0 for the root schema, n for its n-th
- * extension.
+ * An owned relation of kind K, its name as the schema's namespace took it, N: a declared name, or, for an ordinary
+ * relation or a roster, a name a library derives (ir/desc.ts RelationNaming, RosterNaming), which no readable identity
+ * takes. `level` is the schema level that declares it: 0 for the root schema, n for its n-th extension.
  */
-interface Owning<K extends RelationDesc["kind"]> {
-	readonly name: DeclaredName
+interface Owning<K extends RelationDesc["kind"], N extends HeldName = DeclaredName> {
+	readonly name: N
 	readonly kind: K
 	readonly level: number
 	readonly desc: Extract<SchemaRelationDesc, { readonly kind: K }>
@@ -182,19 +188,32 @@ interface Owning<K extends RelationDesc["kind"]> {
 }
 
 /**
- * What an installed relation is named by: `named` its table's, roster domain's or stored table's identity at the
- * naming door, and `ident` that identity's identifier. A closed relation installs no relation of its own. Every
- * derived relation's table is named, whether or not the installation stores it (analysis/derived/storage.ts), so a
- * schema whose change stores one never meets a name it had not reserved.
+ * A stored relation's or roster's names (Owner #storedNames, #rosterNames): its name as the schema's namespace took it,
+ * and the identities at the naming door of what it installs, its table or domain (`named`), and of its whole view, each
+ * as its naming names it.
  */
-interface Installed<K extends "table" | "rosterDomain" | "view"> {
+interface NamedBy<K extends "table" | "rosterDomain"> {
+	readonly name: HeldName
+	readonly named: Identity<K>
+	readonly whole: Identity<"wholeView">
+}
+
+/**
+ * What an installed relation is named by: `named` its table's or roster domain's identity at the naming door, and
+ * `ident` that identity's identifier. A closed relation installs no relation of its own, and a derived relation none
+ * by its name: the table that holds its rows, where one does, is its canonical relation's, named by the digest of its
+ * canonical form (analysis/derived/canonical.ts; core/identity.ts view), a hashed name no declared name meets.
+ */
+interface Installed<K extends "table" | "rosterDomain"> {
 	readonly named: Identity<K>
 	readonly ident: RelationIdent
 }
 
 export type OwnedRelation =
-	| (Owning<"relation"> &
+	| (Owning<"relation", HeldName> &
 			Installed<"table"> & {
+				/** Its whole view's identity, named by its naming as its table is (NamedBy). */
+				readonly whole: Identity<"wholeView">
 				readonly fields: Readonly<Record<string, OwnedField>>
 				/** Its primary key, then each key statement's key over it, in statement order. */
 				readonly keys: readonly [OwnedKey, ...ReadonlyArray<OwnedKey>]
@@ -203,8 +222,10 @@ export type OwnedRelation =
 				readonly mutable: boolean
 				readonly inserts: Inserts
 			})
-	| (Owning<"closed"> &
+	| (Owning<"closed", HeldName> &
 			Installed<"rosterDomain"> & {
+				/** Its whole view's identity, named by its naming as its domain is (NamedBy). */
+				readonly whole: Identity<"wholeView">
 				/**
 				 * The roster its handles type, its handles' digest taken once here, which every reading of the owned schema
 				 * types a closed id over it by.
@@ -220,13 +241,12 @@ export type OwnedRelation =
 			readonly keys: readonly []
 			readonly mutable: false
 	  })
-	| (Owning<"derived"> &
-			Installed<"view"> & {
-				readonly fields: Readonly<Record<string, never>>
-				readonly keys: readonly []
-				readonly mutable: false
-				readonly reads: ReadonlyArray<string>
-			})
+	| (Owning<"derived"> & {
+			readonly fields: Readonly<Record<string, never>>
+			readonly keys: readonly []
+			readonly mutable: false
+			readonly reads: ReadonlyArray<string>
+	  })
 
 /**
  * An owned contract: its declared name, its type-level brand, its descriptor, and its level, the lowest level of a
@@ -238,6 +258,19 @@ export type OwnedRelation =
 export interface OwnedContract {
 	readonly name: DeclaredName
 	readonly desc: ContractFieldDesc
+	readonly loc: SourceLoc
+	readonly level: number
+}
+
+/**
+ * An owned variant (ir/scalar.ts VariantType): its declared name, its descriptor, where it was first used, and its level,
+ * the lowest level of a stored relation whose fields hold its values. Its name is one of the schema's one namespace of
+ * relations, rosters, contracts and variants, since the installation names its domain by it (core/identity.ts
+ * identity.variantDomain), and one name is one declaration.
+ */
+export interface OwnedVariant {
+	readonly name: DeclaredName
+	readonly desc: FieldDesc & { readonly kind: "variant" }
 	readonly loc: SourceLoc
 	readonly level: number
 }
@@ -262,7 +295,7 @@ export interface OwnedContract {
  *   and a key over a closed relation (MalformedDescription);
  * - a key over a field of a type with no equality, and a side that reads one, as bytes is (UnsupportedOperation,
  *   scalar/registry.ts descCapabilities);
- * - a family, tree, fold, alternatives or mutable statement over anything but ordinary relations (a derived relation's
+ * - a family, tree, fold or mutable statement over anything but ordinary relations (a derived relation's
  *   rows are its definition's, which no write draws), its slots' owner one with a field of its count, and a roster
  *   (MalformedDescription); a key's, a check's or a containment's side may read a derived relation, its terms and
  *   selection fields of the definition's heading, and the theory reads the rule over its definition
@@ -325,6 +358,8 @@ export interface Owned extends OwnedSchema {
 	 */
 	readonly declared: DeclaredEntries
 	readonly contracts: Readonly<Record<string, OwnedContract>>
+	/** Every variant a stored relation's field holds, by its declared name (OwnedVariant). */
+	readonly variants: Readonly<Record<string, OwnedVariant>>
 	/** Every function a level declares, by its declared name (schema/function-own.ts). */
 	readonly functions: Readonly<Record<string, OwnedFunction>>
 	/** Every field of every relation and closed relation, sorted. */
@@ -367,8 +402,7 @@ export type OwnedKeyLaw =
 /**
  * A statement as ownership admitted it. A statement over two sides holds their scopes and their terms paired by
  * position, which ownership parsed once from two sides of one width (pairSides), so no later pass pairs two sides by
- * position. A family, a tree, a fold and an alternatives statement are their Descriptions, whose families the theory
- * resolves.
+ * position. A family, a tree and a fold are their Descriptions, whose families the theory resolves.
  */
 export type OwnedStatement =
 	| Extract<StatementDesc, { readonly kind: "mutable" | "race" | "unit" | "series" }>
@@ -379,20 +413,21 @@ export type OwnedStatement =
 			readonly right: SideScope
 			readonly pairs: NonEmptyReadonlyArray<SidePair>
 	  })
-	| Extract<StatementDesc, { readonly kind: "family" | "tree" | "fold" | "alternatives" }>
+	| Extract<StatementDesc, { readonly kind: "family" | "tree" | "fold" }>
 
 /**
  * Every identity ownership minted, each once, in relation name order: the installation's, each relation's and its
  * fields', sequences', keys' and checks'. A contract's domain is the installation's to name. The installation's census
  * and its comments read them (physical/install/comments.ts).
  */
-/** The identity of the relation PostgreSQL installs for `r`, a derived relation's table's whether or not it is stored
- * (Installed), none for a closed relation. */
+/** The identity of the relation PostgreSQL installs for `r` (Installed): none for a closed relation, and none for a
+ * derived relation, whose table, where one holds it, is its canonical relation's, named by its canonical form
+ * (analysis/derived/canonical.ts). */
 const installedIdentity = (r: OwnedRelation): ReadonlyArray<Identity<IdentityKind>> => {
 	switch (r.kind) {
 		case "closedRelation":
-			return []
 		case "derived":
+			return []
 		case "relation":
 		case "closed":
 			return [r.named]
@@ -667,6 +702,66 @@ const declareName = (
 	loc: SourceLoc
 ): DeclaredName => unwrap(namespace.declare(name, kind, loc))
 
+/**
+ * A relation's or roster's name declared, a `kind` at `loc`, into `namespace` by its naming (ir/desc.ts RelationNaming,
+ * RosterNaming): a declared name, or a name a library derives, at any length (DeclaredNamespace declareDerived), which
+ * converts into the namespace as a declared one does; the name, parsed, or its refusal.
+ */
+const declareNamed = (
+	namespace: DeclaredNamespace,
+	name: string,
+	naming: RelationNaming | RosterNaming,
+	kind: string,
+	loc: SourceLoc
+): Result.Result<HeldName, CompileError> => {
+	switch (naming.kind) {
+		case "declared":
+			return namespace.declare(name, kind, loc)
+		case "derived":
+			return namespace.declareDerived(name, kind, loc)
+	}
+}
+
+/** An owned relation's naming: an ordinary relation's and a roster's its Description states, every other kind's
+ * declared. */
+const namingOf = (relation: OwnedRelation): RelationNaming | RosterNaming => {
+	switch (relation.kind) {
+		case "relation":
+		case "closed":
+			return relation.desc.naming
+		case "closedRelation":
+		case "derived":
+			return declaredNaming
+	}
+}
+
+/**
+ * An owned relation's name declared again, a `kind` at `loc`, into another namespace of the schema's names (a role's
+ * relations, the installation's types) by its naming (declareNamed): its name, or its refusal.
+ */
+export const declareRelation = (
+	namespace: DeclaredNamespace,
+	relation: OwnedRelation,
+	kind: string,
+	loc: SourceLoc
+): Result.Result<HeldName, CompileError> =>
+	declareNamed(namespace, relation.name, namingOf(relation), kind, loc)
+
+/**
+ * The whole view of an owned relation at the naming door, in its level's schema of whole views: a stored relation's or
+ * a roster's as its naming names it (NamedBy), any other's by its declared name.
+ */
+export const wholeViewOf = (relation: OwnedRelation): Identity<"wholeView"> => {
+	switch (relation.kind) {
+		case "relation":
+		case "closed":
+			return relation.whole
+		case "closedRelation":
+		case "derived":
+			return identity.wholeView(relation.name)
+	}
+}
+
 const textOf = (value: unknown): WellFormedText => unwrap(descText(value))
 
 /**
@@ -680,7 +775,7 @@ const naturalOwned = ((): {
 } => {
 	const desc = naturalDescriptor.desc
 	if (desc.kind !== "contract") {
-		throw defect("natural is a contract")
+		defect("natural is a contract")
 	}
 	return { desc, text: textOf(desc), loc: SourceLoc("natural", []) }
 })()
@@ -788,10 +883,6 @@ export const visitDeclaredFields = (
 
 /** An ordinary relation's Description. */
 type OrdinaryRelationOf = Extract<RelationDesc, { readonly kind: "relation" }>
-
-/** The closedId a descriptor is, through any depth of contracts. */
-const closedIdBase = (desc: FieldDesc): (FieldDesc & { readonly kind: "closedId" }) | undefined =>
-	desc.kind === "closedId" ? desc : desc.kind === "contract" ? closedIdBase(desc.base) : undefined
 
 /** The roster a closed relation's closed-id field `field` is over, through any depth of contracts. */
 const fieldRosterOf = (r: AdmittedClosedRelation, field: string): string | undefined => {
@@ -953,6 +1044,7 @@ const canonicalizer = (): Canonicalizer => {
 			case "base":
 			case "retype":
 			case "cond":
+			case "variant":
 			case "when":
 			case "between":
 			case "allen":
@@ -1025,7 +1117,6 @@ const canonicalizer = (): Canonicalizer => {
 			case "race":
 			case "family":
 			case "tree":
-			case "alternatives":
 			case "unit":
 			case "series":
 				return asIs(s)
@@ -1091,8 +1182,6 @@ export const statementLabel = (s: StatementDesc): string => {
 			return `tree ${s.member.relation}`
 		case "fold":
 			return `fold ${s.monoid} of ${s.step.relation} into ${s.end.relation}`
-		case "alternatives":
-			return `alternatives ${s.parent.relation}.${s.discriminator}`
 		case "unit":
 			return `unit ${s.name}`
 		case "series":
@@ -1302,6 +1391,19 @@ class Owner {
 			readonly level: number
 		}
 	>()
+	/**
+	 * Each variant by its name: its first descriptor, that descriptor's canonical text, where it was first used, and the
+	 * lowest level of a relation that uses it (OwnedVariant `level`).
+	 */
+	readonly #variants = new Map<
+		string,
+		{
+			readonly desc: FieldDesc & { readonly kind: "variant" }
+			readonly text: string
+			readonly loc: SourceLoc
+			readonly level: number
+		}
+	>()
 	readonly #mutable = new Set<string>()
 	/** Each raced relation, by the race statement that races it (#checkRaces). */
 	readonly #raced = new Map<string, StatementEntry>()
@@ -1350,6 +1452,7 @@ class Owner {
 			(level) => this.#levelName(level)
 		)
 		const contracts = this.#ownContracts()
+		const variants = this.#ownVariants()
 		const functions = unwrap(ownFunctions(this.#levels))
 		const canonical = this.#canonicalDesc()
 		const levels = ownedLevels(canonical, fingerprinted)
@@ -1372,6 +1475,7 @@ class Owner {
 			unitOf,
 			declared: this.#lawEntries,
 			contracts,
+			variants,
 			functions,
 			fieldIds,
 			unrepresentable: this.#keys.met()
@@ -1489,6 +1593,31 @@ class Owner {
 	 * table (physical/ddl/context.ts). natural is every schema's first, whatever its fields: it is the type of every
 	 * count (scalar/aggregate.ts countOverload), and every query over the schema may count.
 	 */
+	/**
+	 * A contract a declaration at `level` types a value by, at `loc`: a relation's field, or a derived definition's cast
+	 * or typed literal, whose heading's field it may type (analysis/derived/fields.ts inferredFields), so every contract a
+	 * derived relation's field can carry is the schema's, its domain installed. One name holds one contract, at the lowest
+	 * level that declares it.
+	 */
+	#ownContract(
+		d: Extract<FieldDesc, { readonly kind: "contract" }>,
+		loc: SourceLoc,
+		level: number
+	): void {
+		const prior = this.#contracts.get(d.name)
+		if (prior === undefined) {
+			this.#contracts.set(d.name, { desc: d, text: textOf(d), loc, level })
+		} else if (prior.text !== textOf(d)) {
+			failWith({
+				_tag: "DuplicateIdentity",
+				at: loc,
+				duplicate: { kind: "contract", name: d.name, earlier: prior.loc }
+			})
+		} else if (level < prior.level) {
+			this.#contracts.set(d.name, { ...prior, level })
+		}
+	}
+
 	#collectFields(): void {
 		this.#contracts.set(naturalOwned.desc.name, { ...naturalOwned, level: 0 })
 		const ordered = [...this.#relations.values()].toSorted((a, b) =>
@@ -1496,6 +1625,13 @@ class Owner {
 		)
 		for (const entry of ordered) {
 			if (entry.desc.kind === "derived") {
+				for (const d of queryUses(entry.desc.query).contracts) {
+					this.#ownContract(
+						d,
+						labeledChildLoc(entry.desc.loc, "query", `derived ${entry.desc.name}`),
+						entry.level
+					)
+				}
 				continue
 			}
 			const locOf = (field: string): SourceLoc =>
@@ -1511,10 +1647,11 @@ class Owner {
 						"str.pattern as a closed relation's own field: its values are patterns admitted where the schema compiles, which only a closed relation's rows state"
 					)
 				}
-				if (d.kind === "contract") {
-					const prior = this.#contracts.get(d.name)
+				if (d.kind === "variant") {
+					this.#rosterAt(d.roster, entry, locOf(field), "closedId")
+					const prior = this.#variants.get(d.name)
 					if (prior === undefined) {
-						this.#contracts.set(d.name, {
+						this.#variants.set(d.name, {
 							desc: d,
 							text: textOf(d),
 							loc: locOf(field),
@@ -1524,11 +1661,14 @@ class Owner {
 						failWith({
 							_tag: "DuplicateIdentity",
 							at: locOf(field),
-							duplicate: { kind: "contract", name: d.name, earlier: prior.loc }
+							duplicate: { kind: "variant", name: d.name, earlier: prior.loc }
 						})
 					} else if (entry.level < prior.level) {
-						this.#contracts.set(d.name, { ...prior, level: entry.level })
+						this.#variants.set(d.name, { ...prior, level: entry.level })
 					}
+				}
+				if (d.kind === "contract") {
+					this.#ownContract(d, locOf(field), entry.level)
 				}
 			})
 			switch (entry.desc.kind) {
@@ -1648,8 +1788,8 @@ class Owner {
 	}
 
 	/**
-	 * A role view shows each closed-id field `f` beside its name, the column decodedColumn(f): that column's identifier
-	 * fits a name, and no other field of the relation converts to it.
+	 * A role view shows each closed-id field `f` beside its name, the column decodedColumn(f): no other field of the
+	 * relation converts to it. Its identifier fits a name, which the relation's builder admitted (admitClosedIdField).
 	 */
 	#checkDecodedColumns(entry: RelationEntry, r: OrdinaryRelationOf): void {
 		const fields = Object.entries(r.fields).map(([field, decl]) => ({
@@ -1665,13 +1805,6 @@ class Owner {
 				continue
 			}
 			const loc = labeledChildLoc(entry.desc.loc, field, `field ${r.name}.${field}`)
-			if (!decodedColumnFits(declared)) {
-				fail(
-					"MalformedDescription",
-					loc,
-					`a closed-id field whose decoded column ${field}_name fits a name of ${handleMaxBytes} bytes`
-				)
-			}
 			const other = columns.get(identifierOf(identity.decodedColumn(declared)))
 			if (other !== undefined) {
 				fail(
@@ -1744,8 +1877,8 @@ class Owner {
 	}
 
 	/**
-	 * A stored relation a statement names, declared at the statement's level or below: a family, a tree, a fold, an
-	 * alternatives statement and mutable name the rows grizzle writes, which a derived relation's definition states.
+	 * A stored relation a statement names, declared at the statement's level or below: a family, a tree, a fold and
+	 * mutable name the rows grizzle writes, which a derived relation's definition states.
 	 */
 	#lawRelation(name: string, s: StatementEntry): LawRelationEntry {
 		const entry = this.#declared(name, s)
@@ -1960,6 +2093,7 @@ class Owner {
 			case "closedRow":
 			case "closedHas":
 			case "call":
+			case "variant":
 				return
 		}
 	}
@@ -1977,7 +2111,7 @@ class Owner {
 	 * PostgreSQL judges on every row, so a write of the lower level meets it as a law above, naming it by its level
 	 * (types/changeset Law `above`), and changes nothing of how that write is compiled or drawn. A process over the lower
 	 * level holds none of the levels above it and compiles its writes alone, so every other reach is LevelRefused: a key,
-	 * mutable, a family, tree, fold or alternatives over a lower relation, and a containment with both sides on lower
+	 * mutable, a family, a tree or a fold over a lower relation, and a containment with both sides on lower
 	 * relations, whose foreign key would order the lower level's own statements, reaching one by a pred or span term, or
 	 * into a target no key holds. A roster's, a closed relation's and a derived relation's rows no write changes.
 	 */
@@ -2043,8 +2177,6 @@ class Owner {
 				return reach([d.member.relation, d.slots.owner])
 			case "fold":
 				return reach([d.family.owner, d.step.relation, d.end.relation])
-			case "alternatives":
-				return reach([d.parent.relation, ...d.arms.map((a) => a.arm.relation)])
 		}
 	}
 
@@ -2052,7 +2184,7 @@ class Owner {
 	#levelName(index: number): string {
 		const level = this.#levels[index]
 		if (level === undefined) {
-			throw defect(`ownership's level ${index} is one of the schema's levels`)
+			defect(`ownership's level ${index} is one of the schema's levels`)
 		}
 		return level.name
 	}
@@ -2230,40 +2362,6 @@ class Owner {
 				this.#checkSide(d.end, s)
 				return d
 			}
-			case "alternatives": {
-				const parent = this.#ordinary(d.parent.relation, s, "is no alternatives parent")
-				this.#checkSide(d.parent, s)
-				for (const a of d.arms) {
-					this.#ordinary(a.arm.relation, s, "is no alternatives arm")
-					this.#checkSide(a.arm, s)
-				}
-				const roster = this.#lawRelation(d.roster, s)
-				if (roster.desc.kind !== "closed") {
-					fail(
-						"MalformedDescription",
-						s.desc.loc,
-						`${statementLabel(d)} over a roster; ${d.roster} is none`
-					)
-				}
-				const disc = parent.heading[d.discriminator]
-				if (disc === undefined || closedIdBase(disc)?.roster !== d.roster) {
-					fail(
-						"MalformedDescription",
-						s.desc.loc,
-						`${statementLabel(d)} discriminated by a closedId(${d.roster}) field of ${d.parent.relation}`
-					)
-				}
-				for (const a of d.arms) {
-					if (!isHandle(roster.desc, a.handle)) {
-						fail(
-							"MalformedDescription",
-							s.desc.loc,
-							`${statementLabel(d)} armed by ${d.roster}'s handles; ${a.handle} is not one`
-						)
-					}
-				}
-				return d
-			}
 		}
 	}
 
@@ -2368,9 +2466,9 @@ class Owner {
 		this.#requireFields(owner, [slots.count], s)
 	}
 
-	/** The schema's one namespace of relations, derived relations, rosters and contracts (PostgreSQL's relation and type
-	 * namespaces, which grizzle treats as one). */
-	readonly #schemaNames = DeclaredNamespace.of("relation, roster and contract")
+	/** The schema's one namespace of relations, derived relations, rosters, contracts and variants (PostgreSQL's relation
+	 * and type namespaces, which grizzle treats as one). */
+	readonly #schemaNames = DeclaredNamespace.of("relation, roster, contract and variant")
 
 	/** The relations, each owning the keys and checks `statements` state over it, read off them once by relation. */
 	#ownRelations(
@@ -2405,49 +2503,50 @@ class Owner {
 	 */
 	#ownRelation(laws: RelationLaws, declared: string, entry: RelationEntry): OwnedRelation {
 		const r = entry.desc
-		const what: Readonly<Record<RelationDesc["kind"], string>> = {
-			relation: "relation",
-			closed: "roster",
-			closedRelation: "closed relation",
-			derived: "relation"
-		}
-		const name = declareName(this.#schemaNames, declared, what[r.kind], entry.desc.loc)
-		const owning: OwnedBase = { name, level: entry.level, loc: entry.desc.loc }
+		/** The relation's base under its declared name, a `kind` of the schema's namespace (OwnedBase). */
+		const owningAs = (kind: string): OwnedBase => ({
+			name: declareName(this.#schemaNames, declared, kind, r.loc),
+			level: entry.level,
+			loc: r.loc
+		})
 		switch (r.kind) {
 			case "relation":
-				return this.#ownStored(laws, owning, entry, r)
+				return this.#ownStored(laws, declared, entry, r)
 			case "closed": {
-				const named = identity.rosterDomain(name)
+				const { name, named, whole } = this.#rosterNames(declared, r)
 				return {
-					...owning,
+					name,
+					level: entry.level,
+					loc: r.loc,
 					kind: r.kind,
 					desc: r,
 					roster: Roster.of(name, rosterOrderOf(r), r.handles),
 					named,
 					ident: identifierOf(named),
-					fields: this.#closedFields(owning, entry, rosterHeading(r)),
+					whole,
+					fields: this.#closedFields(name, entry, rosterHeading(r)),
 					keys: [],
 					mutable: false
 				}
 			}
-			case "closedRelation":
+			case "closedRelation": {
+				const owning = owningAs("closed relation")
 				return {
 					...owning,
 					kind: r.kind,
 					desc: r,
-					fields: this.#closedFields(owning, entry, r.fields),
+					fields: this.#closedFields(owning.name, entry, r.fields),
 					keys: [],
 					mutable: false
 				}
+			}
 			case "derived": {
+				const owning = owningAs("relation")
 				const reads = [...queryUses(r.query).relations].toSorted(compareStrings)
-				const named = identity.view(name)
 				return {
 					...owning,
 					kind: r.kind,
 					desc: r,
-					named,
-					ident: identifierOf(named),
 					fields: {},
 					keys: [],
 					mutable: false,
@@ -2457,22 +2556,70 @@ class Owner {
 		}
 	}
 
+	/**
+	 * A stored relation's name declared into the schema's namespace by its naming (ir/desc.ts RelationNaming), and its
+	 * table's and whole view's identities at the naming door: a declared name's, readable, its conversion; a name a
+	 * library derives, any length, declared as a derived name so it still meets every name that converts alike, its
+	 * table and whole view hashed over that name, which the namespace keeps unique, spelled after its naming's stem and
+	 * path.
+	 */
+	#storedNames(declared: string, r: OrdinaryRelationOf): NamedBy<"table"> {
+		switch (r.naming.kind) {
+			case "declared": {
+				const name = declareName(this.#schemaNames, declared, "relation", r.loc)
+				return { name, named: identity.table(name), whole: identity.wholeView(name) }
+			}
+			case "derived": {
+				const spelling = [r.naming.stem, ...r.naming.path]
+				const name = unwrap(this.#schemaNames.declareDerived(declared, "relation", r.loc))
+				return {
+					name,
+					named: identity.derivedTable(name, spelling),
+					whole: identity.derivedWholeView(name, spelling)
+				}
+			}
+		}
+	}
+
+	/**
+	 * A roster's name declared into the schema's namespace by its naming (ir/desc.ts RosterNaming), and its domain's and
+	 * whole view's identities at the naming door: a declared name's, readable, its conversion; a name a library derives,
+	 * any length, declared as a derived name so it still meets every name that converts alike, its domain and whole view
+	 * hashed over that name and spelled after it.
+	 */
+	#rosterNames(declared: string, r: RosterDesc): NamedBy<"rosterDomain"> {
+		switch (r.naming.kind) {
+			case "declared": {
+				const name = declareName(this.#schemaNames, declared, "roster", r.loc)
+				return { name, named: identity.rosterDomain(name), whole: identity.wholeView(name) }
+			}
+			case "derived": {
+				const name = unwrap(this.#schemaNames.declareDerived(declared, "roster", r.loc))
+				return {
+					name,
+					named: identity.derivedRosterDomain(name),
+					whole: identity.derivedWholeView(name, [name])
+				}
+			}
+		}
+	}
+
 	/** A stored relation's columns, keys and row checks. */
 	#ownStored(
 		laws: RelationLaws,
-		owning: OwnedBase,
+		declared: string,
 		entry: RelationEntry,
 		r: OrdinaryRelationOf
 	): OwnedRelation {
-		const { name } = owning
+		const { name, named: table, whole } = this.#storedNames(declared, r)
 		const fields: Record<string, OwnedField> = {}
 		const columns = DeclaredNamespace.columns(`relation ${name}'s field`)
-		for (const [declared, decl] of Object.entries(r.fields)) {
+		for (const [declaredField, decl] of Object.entries(r.fields)) {
 			const field = declareName(
 				columns,
-				declared,
+				declaredField,
 				"field",
-				labeledChildLoc(entry.desc.loc, declared, `field ${name}.${declared}`)
+				labeledChildLoc(entry.desc.loc, declaredField, `field ${name}.${declaredField}`)
 			)
 			const named = identity.column(field)
 			fields[field] = {
@@ -2492,13 +2639,15 @@ class Owner {
 			true,
 			labeledChildLoc(entry.desc.loc, "primaryKey", `primary key of ${name}`)
 		)
-		const named = identity.table(name)
 		return {
-			...owning,
+			name,
+			level: entry.level,
+			loc: r.loc,
 			kind: r.kind,
 			desc: r,
-			named,
-			ident: identifierOf(named),
+			named: table,
+			ident: identifierOf(table),
+			whole,
 			fields,
 			keys: distinctKeys(name, [primary, ...laws.keys]),
 			checks: laws.checks,
@@ -2507,13 +2656,12 @@ class Owner {
 		}
 	}
 
-	/** A roster's or closed relation's fields: every one fixed when the schema compiles. */
+	/** A roster's or closed relation's fields, `name` its name: every one fixed when the schema compiles. */
 	#closedFields(
-		owning: OwnedBase,
+		name: HeldName,
 		entry: RelationEntry,
 		heading: Readonly<Record<string, FieldDesc>>
 	): Readonly<Record<string, OwnedField>> {
-		const { name } = owning
 		const fields: Record<string, OwnedField> = {}
 		const columns = DeclaredNamespace.columns(`closed relation ${name}'s field`)
 		for (const [declared, desc] of Object.entries(heading)) {
@@ -2543,6 +2691,19 @@ class Owner {
 		for (const [declared, c] of byName(this.#contracts)) {
 			const name = declareName(names, declared, "contract", c.loc)
 			out[name] = { name, desc: c.desc, loc: c.loc, level: c.level }
+		}
+		return out
+	}
+
+	/**
+	 * Each variant by its declared name (OwnedVariant), each name declared in the schema's one namespace beside its
+	 * relations, rosters and contracts, so no variant's domain takes another object's name.
+	 */
+	#ownVariants(): Readonly<Record<string, OwnedVariant>> {
+		const out: Record<string, OwnedVariant> = {}
+		for (const [declared, v] of byName(this.#variants)) {
+			const name = declareName(this.#schemaNames, declared, "variant", v.loc)
+			out[name] = { name, desc: v.desc, loc: v.loc, level: v.level }
 		}
 		return out
 	}
@@ -2685,13 +2846,13 @@ const ownWith = (
 export type OwnedEntry =
 	| {
 			readonly kind: "whole"
-			readonly name: DeclaredName
+			readonly name: HeldName
 			readonly relation: OwnedRelation
 			readonly loc: SourceLoc
 	  }
 	| OwnedWorldEntry
 
-/** A role's query entry as ownership admitted it (OwnedEntry), a scoped entry's among them, whose view is its query's. */
+/** A role's query entry as ownership admitted it (OwnedEntry), whose view is its query's. */
 export interface OwnedWorldEntry {
 	readonly kind: "world"
 	readonly name: DeclaredName
@@ -2706,9 +2867,7 @@ export interface OwnedWorldEntry {
  * One entry of a role's insert or write list as ownership admitted it, under its list's mode (ir/desc.ts WriteMode),
  * an open relation's alone under `write`: "whole", a whole entry of an ordinary relation, which writes its table as it
  * is; "rows", a query entry the writable-entry analysis admits, with its analysis, whose writes the table's row
- * security holds to the entry's membership; "scoped", a scoped entry of an ordinary relation, which writes its table
- * as a whole entry does, behind the precheck and row security of its membership (its analysis, EntryKeys scoped), under
- * its scope.
+ * security holds to the entry's membership.
  */
 export type OwnedWrite =
 	| {
@@ -2724,16 +2883,6 @@ export type OwnedWrite =
 			readonly mode: WriteMode
 			readonly entry: OwnedWorldEntry
 			readonly writable: WritableEntry<string, string>
-			readonly loc: SourceLoc
-	  }
-	| {
-			readonly kind: "scoped"
-			readonly name: string
-			readonly mode: WriteMode
-			readonly relation: Extract<OwnedRelation, { readonly kind: "relation" }>
-			readonly entry: OwnedWorldEntry
-			readonly writable: WritableEntry<string, string>
-			readonly scope: Scope
 			readonly loc: SourceLoc
 	  }
 
@@ -2778,8 +2927,11 @@ export interface OwnedRole {
 	readonly writes: ReadonlyMap<string, OwnedWrite>
 	readonly full: boolean
 	readonly contexts: Readonly<Record<string, ContextDesc>>
-	/** Each scoped entry's scope (scope.ts Scope), by its relation's name, in name order: its query entry's query. */
-	readonly scoped: ReadonlyMap<string, Scope>
+	/**
+	 * The units its claims bind (schema/scope.ts), each by its owner, in unit name order: its world holds every member of
+	 * each at the keys its owner finds alone, which every read on the role means.
+	 */
+	readonly scope: ReadonlyArray<OwnedScope>
 	/**
 	 * The derived relations of its base it reads in full, in name order: every relation PostgreSQL holds that each one's
 	 * definition reads, at any depth through the derived relations it names, is a whole entry of the role, and no entry
@@ -2788,6 +2940,12 @@ export interface OwnedRole {
 	 * being exactly the definition's over the rows the role sees.
 	 */
 	readonly wholeDerived: ReadonlyArray<string>
+}
+
+/** A unit a role's claims bind (OwnedRole `scope`): the unit as ownership resolved it, and its owner. */
+export interface OwnedScope {
+	readonly unit: OwnedUnit
+	readonly owner: UnitOwner
 }
 
 /** The owned login: its name, its base's Owned and its owned roles in name order. */
@@ -2808,11 +2966,12 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 	 * ownership holds it apart from the login's other names. */
 	const roleName = declareName(DeclaredNamespace.of("role"), desc.name, "role", desc.loc)
 	const relations: Record<string, OwnedEntry> = {}
-	const scoped = new Map<string, Scope>()
-	/** The role's schema holds one view per relation, named by the relation's declared name. */
+	/**
+	 * The role's relations, one name each: a query entry's view in the role's schema named by its declared name, and a
+	 * whole entry by its base relation's, declared by that relation's naming (declareRelation).
+	 */
 	const views = DeclaredNamespace.of(`${label}'s relation`)
 	for (const e of desc.relations) {
-		const entryName = declareName(views, e.name, "relation", e.loc)
 		if (e.kind === "whole") {
 			const relation = base.relations[e.name]
 			if (relation === undefined) {
@@ -2830,9 +2989,15 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 						"a role holds no derived relation: it reads one through the relations its definition reads"
 				})
 			}
-			relations[e.name] = { kind: "whole", name: entryName, relation, loc: e.loc }
+			relations[e.name] = {
+				kind: "whole",
+				name: unwrap(declareRelation(views, relation, "relation", e.loc)),
+				relation,
+				loc: e.loc
+			}
 			continue
 		}
+		const entryName = declareName(views, e.name, "relation", e.loc)
 		if (e.query.stage.kind === "order") {
 			broken(e.loc, { kind: "entryOrdered", entry: e.name })
 		}
@@ -2875,13 +3040,6 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 			contexts: [...uses.contexts.keys()].toSorted(compareStrings),
 			loc: e.loc
 		}
-		if (e.kind === "scoped") {
-			const scope = entryScope(base.desc, e.name, e.query)
-			if (scope === undefined) {
-				broken(e.loc, { kind: "entryScope", entry: e.name })
-			}
-			scoped.set(e.name, scope)
-		}
 	}
 	const targets = new Map<string, string>()
 	/** The base relation `relation` written by `entry` under `mode`: once across both lists, and an open one under
@@ -2915,49 +3073,122 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 			admitted.set(w, { kind: "whole", name: w, mode, relation, loc: r.loc })
 			continue
 		}
-		const scope = scoped.get(w)
-		const analyzed = writableEntry(
-			base.desc,
-			r.entry,
-			scope === undefined
-				? { kind: "probed" }
-				: { kind: "scoped", determines: (fields) => determines(scope, fields) }
-		)
+		const analyzed = writableEntry(base.desc, r.entry)
 		if (!analyzed.ok) {
 			broken(r.loc, { kind: "writeUnwritable", entry: w, why: analyzed.error.reason })
 		}
 		target(analyzed.value.target, w, mode)
-		if (scope === undefined) {
-			admitted.set(w, {
-				kind: "rows",
-				name: w,
-				mode,
-				entry: r,
-				writable: analyzed.value,
-				loc: r.loc
-			})
-			continue
-		}
-		const relation = base.relations[w]
-		if (relation?.kind !== "relation") {
-			broken(desc.loc, { kind: "writeKind", name: w, entryKind: "derived" })
-		}
 		admitted.set(w, {
-			kind: "scoped",
+			kind: "rows",
 			name: w,
 			mode,
-			relation,
 			entry: r,
 			writable: analyzed.value,
-			scope,
 			loc: r.loc
 		})
 	}
 	const full = Object.values(base.relations).every(
 		(r) => !heldRelation(r.desc) || relations[r.name]?.kind === "whole"
 	)
-	/** Whether the role sees every row of `relation`: a held relation it holds whole, a closed relation every role reads,
-	 * a derived relation every relation of whose definition it sees so (OwnedRole `wholeDerived`). */
+	const seesWhole = seesWholeOver(base, relations)
+	const wholeDerived = Object.values(base.relations)
+		.flatMap((r) =>
+			r.kind === "derived" && relations[r.name] === undefined && seesWhole(r.name) ? [r.name] : []
+		)
+		.toSorted(compareStrings)
+	const ownedContexts: Record<string, ContextDesc> = {}
+	for (const c of [...desc.contexts].toSorted((a, b) => compareStrings(a.name, b.name))) {
+		ownedContexts[c.name] = c
+	}
+	const scoped = ownersOf(base.desc, desc.scope)
+	if (!scoped.ok) {
+		failWith({ _tag: "ScopeRefused", at: desc.loc, role: desc.name, rule: scoped.error.rule })
+	}
+	/** A field's type as its value carries it (scalar/registry.ts scalarTypeOf), the base's rosters resolving a code. */
+	const rosters = new Map(rostersOf(base).map((r) => [r.closed, r] as const))
+	const typeOf = (field: FieldDesc) => {
+		const typed = scalarTypeOf(
+			field,
+			{ kind: "builder", roster: (name) => rosters.get(name) },
+			desc.loc
+		)
+		return typed.ok ? typed.value : undefined
+	}
+	const scope = new Map<string, OwnedScope>()
+	for (const owner of scoped.value) {
+		const query = owner.query
+		const unit = defined(base.units.get(owner.unit), "the unit an owner's head names")
+		for (const f of unit.heading) {
+			const keyed = typeOf(f.type)
+			/** Each arm's head binds the unit's key at a type one variable binds beside the unit's own (types.ts
+			 * compatible): the owner's keys are the unit's, compared at the unit's equality. */
+			const apart = headTypes(base.desc, owner, f.field).some((t) => {
+				const bound = t === undefined ? undefined : typeOf(t)
+				return bound === undefined || keyed === undefined || !compatible(bound, keyed)
+			})
+			if (apart) {
+				failWith({
+					_tag: "ScopeRefused",
+					at: desc.loc,
+					role: desc.name,
+					rule: { kind: "unitType", unit: unit.name, field: f.field }
+				})
+			}
+		}
+		const contextBreak = entryContextBreak(desc.contexts, queryUses(query).contexts)
+		if (contextBreak?.kind === "undeclared") {
+			failWith({
+				_tag: "OutsideRole",
+				at: desc.loc,
+				role: desc.name,
+				access: {
+					kind: "context",
+					context: contextBreak.context,
+					declared: desc.contexts.map((c) => c.name)
+				}
+			})
+		}
+		if (contextBreak?.kind === "another") {
+			failWith({
+				_tag: "DuplicateIdentity",
+				at: desc.loc,
+				duplicate: { kind: "context", name: contextBreak.context, earlier: desc.loc }
+			})
+		}
+		for (const read of [...queryUses(query).relations].toSorted(compareStrings)) {
+			if (relations[read]?.kind !== "whole") {
+				failWith({
+					_tag: "OutsideRole",
+					at: desc.loc,
+					role: desc.name,
+					access: { kind: "read", relation: read, base: base.name }
+				})
+			}
+		}
+		scope.set(unit.name, { unit, owner })
+	}
+	return {
+		name: roleName,
+		loc: desc.loc,
+		base,
+		relations,
+		writes: new Map([...admitted].toSorted(([a], [b]) => compareStrings(a, b))),
+		full,
+		contexts: ownedContexts,
+		scope: [...scope.values()].toSorted((a, b) => compareStrings(a.unit.name, b.unit.name)),
+		wholeDerived
+	}
+}
+
+/**
+ * Whether a role over `base` holding `relations` sees every row of a relation: a held relation it holds whole, a closed
+ * relation every role reads, a derived relation every relation of whose definition it sees so (OwnedRole
+ * `wholeDerived`), each relation's answer read once.
+ */
+const seesWholeOver = (
+	base: Owned,
+	relations: Readonly<Record<string, OwnedEntry>>
+): ((relation: string) => boolean) => {
 	const seen = new Map<string, boolean>()
 	const seesWhole = (relation: string): boolean => {
 		const known = seen.get(relation)
@@ -2974,27 +3205,16 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 		seen.set(relation, whole)
 		return whole
 	}
-	const wholeDerived = Object.values(base.relations)
-		.flatMap((r) =>
-			r.kind === "derived" && relations[r.name] === undefined && seesWhole(r.name) ? [r.name] : []
-		)
-		.toSorted(compareStrings)
-	const ownedContexts: Record<string, ContextDesc> = {}
-	for (const c of [...desc.contexts].toSorted((a, b) => compareStrings(a.name, b.name))) {
-		ownedContexts[c.name] = c
-	}
-	return {
-		name: roleName,
-		loc: desc.loc,
-		base,
-		relations,
-		writes: new Map([...admitted].toSorted(([a], [b]) => compareStrings(a, b))),
-		full,
-		contexts: ownedContexts,
-		scoped: new Map([...scoped].toSorted(([a], [b]) => compareStrings(a, b))),
-		wholeDerived
-	}
+	return seesWhole
 }
+
+/**
+ * Whether the role `role` sees every row of a relation of its base (`seesWholeOver`): a relation whose rows a canonical
+ * relation's table holds, read by every relation its definition reads (analysis/derived/canonical.ts), is a table the
+ * role may read where it sees each of those whole, the rows it holds then a function of rows it sees.
+ */
+export const roleSeesWhole = (role: OwnedRole): ((relation: string) => boolean) =>
+	seesWholeOver(role.base, role.relations)
 
 /**
  * Owns a role description, its base first.
@@ -3108,6 +3328,7 @@ export const fullRoleDesc = (
 			insert: relations.filter((r) => r.kind === "relation" && !r.mutable).map((r) => r.name),
 			write: relations.filter((r) => r.kind === "relation" && r.mutable).map((r) => r.name),
 			contexts: [],
+			scope: [],
 			loc
 		})
 	})

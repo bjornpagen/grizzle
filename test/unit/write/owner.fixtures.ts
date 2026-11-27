@@ -5,7 +5,8 @@ import { Array as Arr, Option } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import type { WriteOp } from "#compiler/ir/desc.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { installOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -20,7 +21,6 @@ import {
 	schema,
 	unit
 } from "#compiler/public/schema.ts"
-import { carrierScope } from "#compiler/sql/naming.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
@@ -150,8 +150,7 @@ export const compile = (value: unknown) =>
 		derived: artifacts.derived,
 		level: "serializable",
 		clock: noClock,
-		source: transactionClock,
-		carrierScope: carrierScope(undefined)
+		source: transactionClock
 	})
 
 /** The first stratum whose owners a query may insert beside an insert or put of their members: the refusal's place,

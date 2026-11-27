@@ -20,7 +20,8 @@ import {
 	noContribution,
 	noFences,
 	noCalls,
-	type RoleCall
+	type RoleCall,
+	type ServedProgram
 } from "#compiler/physical/install/extension.ts"
 
 /** What the installation needs of a compiled workload. */
@@ -38,7 +39,8 @@ export interface WorkloadPhysical {
 }
 
 const kindOf = (b: InstallBuilder, relation: string): string | undefined =>
-	b.owned.relations[relation]?.kind
+	b.owned.relations[relation]?.kind ??
+	(b.checked.canonicalNamed(relation) === undefined ? undefined : "derived")
 
 /** The access requests of a workload for an installation whose vector extension lives in `vectorSchema`. */
 export const workloadRequests = (
@@ -95,9 +97,9 @@ export const workloadExtension = (workload: WorkloadPhysical): InstallExtension 
 /**
  * The served workload's extension: the workload's (workloadExtension), its parameters' types among it; the
  * certificate of every role of every login its plan certified (program/workload/compile.ts servedWorkload), which the
- * installation's guards follow; the roles whose served ChangeSets create a carrier, which it grants TEMPORARY on
- * the database; the roles whose served programs reach a declared function, which it grants EXECUTE on the function; its live
- * plan; and the relations each login fences, on which it grants the login MAINTAIN.
+ * installation's guards follow; the roles whose served ChangeSets fill a carrier, which it grants EXECUTE on what the
+ * CHECKs of their columns' domains call; the roles whose served programs reach a declared function, which it grants
+ * EXECUTE on the function; its live plan; and the relations each login fences, on which it grants the login MAINTAIN.
  */
 export const servedWorkloadExtension = (
 	workload: WorkloadPhysical & {
@@ -106,9 +108,15 @@ export const servedWorkloadExtension = (
 		readonly calls: ReadonlyArray<RoleCall>
 		readonly live: LivePlan
 		readonly fences: ReadonlyArray<Fence>
+		readonly programs: ReadonlyArray<ServedProgram>
 	}
 ): InstallExtension => ({
 	...workloadExtension(workload),
+	contribute: (b) =>
+		Result.map(workloadExtension(workload).contribute(b), (c) => ({
+			...c,
+			programs: workload.programs
+		})),
 	certifies: workload.certification,
 	carriers: workload.carriers,
 	calls: workload.calls,

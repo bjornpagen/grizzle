@@ -90,8 +90,24 @@ export const eachRewritePassPreservesTheDeliveredResultOnGeneratedCasesEveryPass
 				kind: "second-implementation",
 				name: "the reference evaluator's delivery of the query before the passes"
 			},
-			kept: [],
+			kept: [
+				{
+					token: ReplayToken(
+						"test/unit/lower/rewrite/generated.test.ts#eachRewritePassPreservesTheDeliveredResultOnGeneratedCasesEveryPassAloneOnCasesOfThePopulation:7f.6:0.1.1.0.4.2.0.0.0.0.0.1.0.0.1.0.0.0.0.1.0.0.1.0.0.0.0.1.0.0.1.0.0.0.0.1.0.0.0.0.0.0.1.3.2.2.2.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.1.0.0.1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.1.0.0.0.0.0.1.1.3.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.1.0.0.1.0.0.1.2.2.2.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.2.0.2.0.0.2.0.0.0.0.0.0.0.0.4.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.4.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.1.0.0.0.0.0.1.0.0.0.0.0.0.0.0.1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.5.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1"
+					),
+					reason:
+						"a conditional of text ~ /^.*$/u whose other branch is text ~ /^.{0,2}$/su, coerced into it with no node of its own since bbfa4eca06 (a refined text's entered type subsumes it), which the DAG's rule refused as a branch of neither the conditional's type nor its entered type (the merged tree's floor stream, seed 0x6149ccb1, case 15): a branch stands at a type either subsumes (ir/expr.ts condProblems)",
+					since: "2026-11-26"
+				}
+			],
 			kills: [
+				{
+					file: "packages/engine/src/ir/expr.ts",
+					original: "\t\t[t, e].every((b) => typed.some((branch) => subsumes(branch, b.type)))\n",
+					replacement:
+						"\t\t[t, e].every((b) => typed.some((branch) => sameScalarType(b.type, branch)))\n",
+					why: "A conditional's branch held to the conditional's type or its entered type by equality, where a coercion into it builds no node for a branch either subsumes: the kept case's refined branch breaks the DAG's rule."
+				},
 				{
 					file: "packages/engine/src/logical/props.ts",
 					original: "\t\twhile (edge !== undefined) {",
@@ -167,8 +183,6 @@ export const theComposedRewritePhasesPreserveTheDeliveredResultDemandSemanticSim
 		evidence: "snapshot",
 		situations: [...pipelineRules, "simplify.mergeProjections", "node Take"],
 		aims: [
-			["pushdown.semiSource", ["semiOver"]],
-			["pushdown.semiGroup", ["semiOver"]],
 			["simplify.mergeProjections", ["project"]],
 			["node Take", ["match", "filter", "take"]]
 		],
@@ -200,25 +214,9 @@ export const theComposedRewritePhasesPreserveTheDeliveredResultDemandSemanticSim
 				),
 				reason: "a filter on a group's key",
 				since: "2026-10-29"
-			},
-			{
-				token: ReplayToken(
-					"test/unit/lower/rewrite/generated.test.ts#theComposedRewritePhasesPreserveTheDeliveredResultDemandSemanticSimplificationAndRelationalRewritesInASnapshotReadFiringEveryRuleFamily:8000.f:1.0.0.0.1.2.0.0.0.0.0.0.1.0.3.0.0.1.0.0.0.1.0.0.0.1.0.0.0.1.0.0.1.0.2.0.1.0.2.0.1.0.2.0.1.0.2.0.0.2.0.3.0.2.0.3.0.2.0.3.0.2.0.3.0.0.3.0.0.1.0.0.0.1.0.0.0.1.0.0.0.1.0.0.1.0.2.0.1.0.2.0.1.0.2.0.1.0.2.0.0.2.0.3.0.2.0.3.0.2.0.3.0.2.0.3.0.0.3.0.0.1.0.0.0.1.0.0.0.1.0.0.0.1.0.0.1.0.2.0.1.0.2.0.1.0.2.0.1.0.2.0.0.2.0.3.0.2.0.3.0.2.0.3.0.2.0.3.0.0.3.0.0.1.0.0.0.1.0.0.0.1.0.0.0.1.0.0.1.0.2.0.1.0.2.0.1.0.2.0.1.0.2.0.0.2.0.3.0.2.0.3.0.2.0.3.0.2.0.3.0.0.0.1.2.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.4.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.3.3.3.3.3.3.3.3.3.3.3.3.3.3.3.3.3.3.3.3.0.0.2.3.3.3.3.3.3.1.0.0.2.3.3.0.3"
-				),
-				reason: "a filter over a take whose bound cuts a row the filter passes",
-				since: "2026-11-14"
 			}
 		],
-		kills: [
-			{
-				file: "packages/engine/src/lower/optimize/pushdown/index.ts",
-				original:
-					'\t\t\tcase "Base":\n\t\t\tcase "Closed":\n\t\t\tcase "Context":\n\t\t\tcase "InputSet":\n\t\t\tcase "Delta":\n\t\t\tcase "Filter":\n\t\t\tcase "Take":',
-				replacement:
-					'\t\t\tcase "Take": {\n\t\t\t\tif (!exclusive(cx, xCell) || x.correlation.length > 0) {\n\t\t\t\t\treturn false\n\t\t\t\t}\n\t\t\t\tconst moved = filterOver(cx.editor, x.input, cx.editor.copyExpr(m.filter.pred, cx.editor.retarget(xCell, x.input)))\n\t\t\t\ttakeOver(cx.editor, m, { ...x, input: moved })\n\t\t\t\tcertify(cx, pushdownRules.left, m, xCell.id, [m.cell.id, moved.id])\n\t\t\t\treturn true\n\t\t\t}\n\t\t\tcase "Base":\n\t\t\tcase "Closed":\n\t\t\tcase "Context":\n\t\t\tcase "InputSet":\n\t\t\tcase "Delta":\n\t\t\tcase "Filter":',
-				why: "A filter moved below an uncorrelated take, so the take ranks other rows; the pipeline-snapshot-planted search fails at its kept filter over a take."
-			}
-		]
+		kills: []
 	})
 
 /**

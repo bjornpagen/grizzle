@@ -1,10 +1,16 @@
-import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import {
+	isNonEmpty,
+	lastNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { wellFormed } from "#compiler/core/text.ts"
 import type {
-	ResetDatabaseDefault,
 	CatalogTypeName,
 	Expr,
+	GuardBracket,
+	GuardFiring,
 	ObjectName,
 	PlDeclaration,
 	PlStatement,
@@ -109,8 +115,11 @@ export const catalogFunctions = [
 	"quote_ident",
 	"reverse",
 	"right",
+	"set_config",
 	"sha256",
+	"split_part",
 	"string_agg",
+	"string_to_array",
 	"strpos",
 	"to_regnamespace",
 	"to_regprocedure",
@@ -238,16 +247,6 @@ export type CatalogFrom =
 			readonly rows: NonEmptyReadonlyArray<NonEmptyReadonlyArray<CatalogExpr>>
 			readonly alias: string
 			readonly columns: NonEmptyReadonlyArray<string>
-	  }
-	| {
-			/**
-			 * The elements of an installed constant of an array type, in its order: the constant called with no argument,
-			 * unnested WITH ORDINALITY, as `element` and its position from 1, `position`. `grizzle upgrade` reads a
-			 * roster's names constant so, the one installed record of its codes (the shell's adapter/admission/history.ts).
-			 */
-			readonly kind: "constantElements"
-			readonly constant: ObjectName
-			readonly alias: string
 	  }
 	| {
 			readonly kind: "join"
@@ -413,10 +412,6 @@ export const fromRows = (
 	alias: string,
 	columns: NonEmptyReadonlyArray<string>
 ): CatalogSource => source({ kind: "rowsFrom", calls, alias, columns }, alias)
-
-/** The elements of the installed array constant `constant`, in order, under `alias` (CatalogFrom constantElements). */
-export const fromConstantElements = (constant: ObjectName, alias: string): CatalogSource =>
-	source({ kind: "constantElements", constant, alias }, alias)
 
 /** (VALUES <rows>) under `alias`, its columns named. */
 export const fromValues = (
@@ -762,30 +757,6 @@ export const advisoryKey = (lock: AdvisoryLock): bigint =>
 	)
 
 /**
- * The DO block that resets the current database's default (sql/ast.ts ResetDatabaseDefault): ALTER DATABASE of the
- * database's own name, which format quotes as an identifier (`%I`). It writes a row every installation in the database
- * writes, so the printer emits it behind the database lock (databaseLock).
- */
-export const databaseResetBlock = (statement: ResetDatabaseDefault): DoBlock => ({
-	kind: "do",
-	declare: [],
-	body: [
-		{
-			kind: "execute",
-			command: {
-				kind: "formatted",
-				text: valueCall("format", [
-					lit.text(`ALTER DATABASE %I RESET ${statement.parameter}`, types.text),
-					valueCall("current_database", [])
-				])
-			},
-			into: undefined,
-			using: []
-		}
-	]
-})
-
-/**
  * How the migration identity gives the installation's decoder login its replication right: the REPLICATION attribute,
  * which a superuser or a role holding it may give; or, on Amazon RDS, where no customer role holds it, a membership in
  * rds_replication, inherited and never SET, which a role holding ADMIN on rds_replication may give.
@@ -844,6 +815,211 @@ export const replicationRightBlock = (role: string, grant: ReplicationGrant): Do
 		}
 	]
 })
+
+/** How an immutability guard fires, by what it fires on: its timing and events, and its level. */
+const guardFirings: {
+	readonly [O in GuardFiring]: { readonly events: string; readonly level: "ROW" | "STATEMENT" }
+} = {
+	rows: { events: "BEFORE UPDATE OR DELETE", level: "ROW" },
+	truncate: { events: "BEFORE TRUNCATE", level: "STATEMENT" }
+}
+
+/**
+ * The CREATE TRIGGER of an immutability guard firing on `on`, its name, table and function as given, in its three
+ * clauses: the one spelling of a guard, which the guard's own statement prints with its names quoted (sql/print.ts
+ * createImmutableGuardTrigger) and a bracket's `reguard` formats with each read from the catalog (guardBracketBlock), so
+ * a guard created again fires as the closed rule created it.
+ */
+export const guardTriggerClauses = (
+	on: GuardFiring,
+	name: string,
+	table: string,
+	fn: string
+): readonly [string, string, string] => {
+	const firing = guardFirings[on]
+	return [
+		`CREATE TRIGGER ${name}`,
+		`${firing.events} ON ${table}`,
+		`FOR EACH ${firing.level} EXECUTE FUNCTION ${fn}()`
+	]
+}
+
+/** The transaction's own setting a bracket's `unguard` records the guards it dropped in, and its `reguard` reads. */
+const guardsSetting = "grizzle.guards"
+
+/** A text a DO block's PL/pgSQL variable holds. */
+const textVariable = (name: string): PlDeclaration => ({ name, type: types.text })
+
+/** EXECUTE of the text the variable `name` holds. */
+const executeVariable = (name: string): DoStatement => ({
+	kind: "execute",
+	command: { kind: "formatted", text: { kind: "plVar", name } },
+	into: undefined,
+	using: []
+})
+
+/**
+ * The texts of `value` over a read's rows, distinct and ascending, joined by `separator`, or `none` over no row: each
+ * command a bracket's side runs, as one text EXECUTE runs, `SELECT` doing nothing where it runs none.
+ */
+const joinedOr = (value: CatalogExpr, separator: string, none: string): CatalogExpr =>
+	coalesce([joinedSet(value, text(separator)), text(none)])
+
+/**
+ * The DO block of one side of a guard bracket (sql/ast.ts GuardBracket), over the catalog alone. `unguard` reads every
+ * trigger of a table in scope whose name is a guard's, its table, namespace and name, and in one SELECT both records
+ * them, `<table oid>:<function oid>:<name>` each, joined by commas, in the transaction's own grizzle.guards
+ * (`set_config(..., true)`, which the transaction's end discards), and spells the DROP TRIGGER of each, which it then
+ * EXECUTEs. `reguard` reads the setting back, joins each record to the table and the function of its oids where both
+ * still stand, and EXECUTEs the CREATE TRIGGER of each by its name's firing (guardTriggerClauses), every name formatted
+ * as an identifier (`%I`). Nothing in either names an installation's object but the scope's tables or schemas, so a
+ * migration's data step and a test's reset of a closed relation bracket themselves by the one block. A `reguard` with no
+ * `unguard` before it in the session reads no setting, which PostgreSQL refuses (42704), and one run twice creates each
+ * guard over itself, which it refuses too (42710).
+ */
+export const guardBracketBlock = (bracket: GuardBracket): DoBlock => {
+	const c = from("pg_class", "c")
+	const n = from("pg_namespace", "n")
+	const names = array(
+		bracket.guards.map((g) => literal(g.name, "name")),
+		"name"
+	)
+	switch (bracket.side) {
+		case "unguard": {
+			const g = from("pg_trigger", "g")
+			const scope =
+				bracket.scope.kind === "tables"
+					? any(g.col("tgrelid"), array(bracket.scope.tables.map(regclass), "regclass"))
+					: any(
+							n.col("nspname"),
+							array(
+								bracket.scope.schemas.map((schema) => literal(schema, "name")),
+								"name"
+							)
+						)
+			return {
+				kind: "do",
+				declare: [textVariable("recorded"), textVariable("dropping")],
+				body: [
+					{
+						kind: "selectInto",
+						query: catalogCore(
+							[
+								catalogCall("set_config", [
+									text(guardsSetting),
+									joinedOr(
+										catalogCall("concat_ws", [
+											text(":"),
+											asText(g.col("tgrelid")),
+											asText(g.col("tgfoid")),
+											asText(g.col("tgname"))
+										]),
+										",",
+										""
+									),
+									bool(true)
+								]),
+								joinedOr(
+									catalogCall("format", [
+										text("DROP TRIGGER %I ON %I.%I"),
+										g.col("tgname"),
+										n.col("nspname"),
+										c.col("relname")
+									]),
+									"; ",
+									"SELECT"
+								)
+							],
+							[
+								inNamespace(
+									join(g.item, c.item, eq(c.col("oid"), g.col("tgrelid"))),
+									n,
+									c.col("relnamespace")
+								)
+							],
+							and([any(g.col("tgname"), names), scope])
+						),
+						into: ["recorded", "dropping"]
+					},
+					executeVariable("dropping")
+				]
+			}
+		}
+		case "reguard": {
+			const r = fromFunction(
+				catalogCall("unnest", [
+					catalogCall("string_to_array", [
+						catalogCall("current_setting", [text(guardsSetting)]),
+						text(",")
+					])
+				]),
+				"r",
+				["guard"],
+				false
+			)
+			const p = from("pg_proc", "p")
+			const pn = from("pg_namespace", "pn")
+			const part = (position: bigint): CatalogExpr =>
+				catalogCall("split_part", [r.col("guard"), text(":"), literal(position, "integer")])
+			/** Each guard's CREATE TRIGGER, its names formatted: the last guard's the ELSE of a CASE over the others' names,
+			 * since the setting records no name but the guards', so the CASE yields a command for every one it reads. */
+			const command = (g: (typeof bracket.guards)[number]) =>
+				text(guardTriggerClauses(g.on, "%I", "%I.%I", "%I.%I").join(" "))
+			const last = lastNonEmpty(bracket.guards)
+			const earlier = bracket.guards.slice(0, -1)
+			const commanded = isNonEmpty(earlier)
+				? caseOf(
+						part(3n),
+						mapNonEmpty(earlier, (g) => ({ when: text(g.name), result: command(g) })),
+						command(last)
+					)
+				: command(last)
+			return {
+				kind: "do",
+				declare: [textVariable("restoring")],
+				body: [
+					{
+						kind: "selectInto",
+						query: catalogCore(
+							[
+								joinedOr(
+									catalogCall("format", [
+										commanded,
+										part(3n),
+										n.col("nspname"),
+										c.col("relname"),
+										pn.col("nspname"),
+										p.col("proname")
+									]),
+									"; ",
+									"SELECT"
+								)
+							],
+							[
+								inNamespace(
+									join(
+										inNamespace(
+											join(r.item, c.item, eq(c.col("oid"), cast(part(1n), "oid"))),
+											n,
+											c.col("relnamespace")
+										),
+										p.item,
+										eq(p.col("oid"), cast(part(2n), "oid"))
+									),
+									pn,
+									p.col("pronamespace")
+								)
+							],
+							undefined
+						),
+						into: ["restoring"]
+					},
+					executeVariable("restoring")
+				]
+			}
+		}
+	}
+}
 
 /**
  * The database lock, `SELECT pg_advisory_xact_lock(<key>)`, held to the end of the transaction: the statement the

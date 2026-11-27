@@ -135,6 +135,8 @@ const hostLiteral = (base: PlainType, value: unknown): Result.Result<LiteralDesc
 			return Result.map(toSha256(value), (digest) => ({ sha256: sha256Text(digest) }))
 		case "tsvector":
 			return Result.err("textType")
+		case "variant":
+			return Result.err("variantType")
 		case "code":
 			return typeof value === "string" && base.roster.handles.includes(value)
 				? Result.ok(value)

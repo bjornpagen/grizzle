@@ -20,7 +20,7 @@ import { allenExpr } from "#compiler/check/allen.ts"
 import { completeStated } from "#compiler/check/complete.ts"
 import {
 	declaredKeys,
-	deliversFloat,
+	deliversNonIdentity,
 	pickFree,
 	regionMatches,
 	type StatedMerge
@@ -65,15 +65,16 @@ import { normalizeDag } from "#test/support/dag.ts"
 import { defined } from "@bjornpagen/testing/assert"
 import {
 	baseOf,
+	equalityIsIdentity,
 	exactDigitsOf,
-	isFloat,
 	isRefined,
 	type ScalarType,
 	sameScalarType,
 	spanCarrierOf,
 	spanOf
 } from "#compiler/ir/scalar.ts"
-import { canonicalZeroSpec, definedRangeOp } from "#compiler/scalar/compute/registry.ts"
+import { canonicalSpec, definedRangeOp } from "#compiler/scalar/compute/registry.ts"
+import { compatible } from "#compiler/scalar/compute/types.ts"
 import { foldInputOf, keyedFoldInput } from "#test/support/fixtures/ir/fold.ts"
 import { parameterNames } from "#test/support/kernel/dict.ts"
 import { liveOf, validateDag } from "#test/support/oracle/dag-validate.ts"
@@ -492,8 +493,7 @@ export interface QueryConfig {
 	 */
 	readonly regions: boolean
 	/**
-	 * Whether a filter over a group with keys may compare its key columns only, the shape pushdown.group moves below
-	 * the group.
+	 * Whether a filter over a group with keys may compare its key columns only, which keeps or removes whole groups.
 	 */
 	readonly groupFilter: boolean
 	/**
@@ -1431,6 +1431,8 @@ class QueryResolver {
 			keys: Arr.map(relation.keys, (k) => nonEmptyList(k, "a candidate key")),
 			relationKind: "relation",
 			generated: [],
+			unit: [],
+			determined: [],
 			heading
 		})
 		return { node: id, heading }
@@ -1570,7 +1572,7 @@ class QueryResolver {
 	/**
 	 * The key columns of `input` where it is a group with keys, or the projection narrowing a group's exact outputs
 	 * (stored), and the configuration and the swarm draw a filter over them: the predicate then compares those columns
-	 * only, the shape pushdown.group moves below the group, through the projection by pushdown.project.
+	 * only, which keeps or removes whole groups, through the projection.
 	 */
 	groupKeyed(input: Built): Heading | undefined {
 		if (!this.config.groupFilter || !this.kept(this.rewrite, "groupFilter")) {
@@ -1618,7 +1620,7 @@ class QueryResolver {
 		}
 		const out = Arr.map(built.heading, (c) => {
 			const read = this.col(built.node, c)
-			const spec = zeroed.has(c.name) ? canonicalZeroSpec(read) : undefined
+			const spec = zeroed.has(c.name) ? canonicalSpec(read) : undefined
 			return { name: c.name, expr: spec === undefined ? read : this.b.expr(spec) }
 		})
 		return {
@@ -1658,7 +1660,8 @@ class QueryResolver {
 			region,
 			new Set(
 				Arr.flatMap(region.heading, (c) =>
-					isFloat(c.type) && (equated.has(c.name) || !pickFree(matches, delivered, keyed, c.name))
+					!equalityIsIdentity(c.type) &&
+					(equated.has(c.name) || !pickFree(matches, delivered, keyed, c.name))
 						? [c.name]
 						: []
 				)
@@ -1876,7 +1879,7 @@ class QueryResolver {
 			const b = at(vars, j)
 			const unbound =
 				a !== b &&
-				sameScalarType(baseOf(a.type), baseOf(b.type)) &&
+				compatible(a.type, b.type) &&
 				!Arr.some(equalities, (e) => (e.a === a && e.b === b) || (e.a === b && e.b === a))
 			if (unbound) {
 				equalities.push({ a, b })
@@ -2325,8 +2328,11 @@ class QueryResolver {
 			aggs,
 			heading
 		})
-		/** A group key takes one of the equal values it groups: a float key its canonical zero (check/merge.ts). */
-		const mergedKeys = new Set(Arr.flatMap(keys, (k) => (isFloat(k.type) ? [k.name] : [])))
+		/** A group key takes one of the equal values it groups: a key of a non-identity type its canonical form
+		 * (check/merge.ts). */
+		const mergedKeys = new Set(
+			Arr.flatMap(keys, (k) => (equalityIsIdentity(k.type) ? [] : [k.name]))
+		)
 		return this.stored(this.#zeroedOver({ node: id, heading }, mergedKeys))
 	}
 
@@ -3180,7 +3186,7 @@ export const resolveQuery =
 		 */
 		const merges = new Map<RelNode, StatedMerge>(
 			Arr.flatMap(topoOrder(built), (node) =>
-				node.kind === "ProjectSet" && deliversFloat(node)
+				node.kind === "ProjectSet" && deliversNonIdentity(node)
 					? [[node, { projection: node, rule: { kind: "always" }, at: generatedAt }] as const]
 					: []
 			)

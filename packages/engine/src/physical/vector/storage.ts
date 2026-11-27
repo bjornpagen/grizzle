@@ -52,6 +52,7 @@ const normPredicate = (vectorSchema: string, column: Expr): Expr => ({
  * and the statement finds it present (`vectorProvider`). A schema without vectors gets no extension object at all. */
 export const vectorNorm = Object.freeze({
 	holds: isVectorType,
+	generationProves: false,
 	named: identity.normCheck,
 	predicate: (b: InstallBuilder, column: Expr): Expr =>
 		normPredicate(b.settings.vectorSchema, column),

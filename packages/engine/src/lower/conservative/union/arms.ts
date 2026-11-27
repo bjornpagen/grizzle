@@ -4,7 +4,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { Heading, RelNode } from "#compiler/ir/rel.ts"
-import { isRefined } from "#compiler/ir/scalar.ts"
+import { isRefined, type ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	type ColumnMap,
 	columnIn,
@@ -45,28 +45,59 @@ const typedAs = (e: Expr, type: TypeRef): Expr =>
  * never merges its ORDER BY or LIMIT into the set operation. A set-operation arm carries no aliases: the
  * operation takes its left arm's names, and the consumer renames positionally through its own column list.
  *
- * Every arm delivers each column at one explicit PostgreSQL type, so the operation never resolves a common type across
- * its arms. An unrefined column is its base type in every arm already. A refined column is
- * not: an arm reading a stored refined field delivers its domain, while an arm of a literal, a VALUES or input array
- * column or a recursive state delivers the base type. Every arm therefore casts a refined column to its
- * base type, which is the type literals and recursive state use; the cast of a domain to its base is a binary-compatible
- * relabel, which PostgreSQL strips when it matches an index, and it is never a cast of a column to its own type.
+ * Every arm delivers each column at one explicit PostgreSQL type, its heading type's base, so the operation never
+ * resolves a common type across its arms and PostgreSQL's type of every column is that base. An arm delivers a column at
+ * another type where the column is refined or the arm delivers a refined value under it: an arm reading a stored refined
+ * field delivers its domain, while an arm of a literal, a VALUES or input array column or a recursive state delivers the
+ * base type, and an arm's term a type subsumes stands bare under it (ir/scalar.ts subsumes: a domain's value under its
+ * base's column), so PostgreSQL resolves arms of one domain to that domain and arms of two refinements of one base to the
+ * base. An arm whose column is refined, or delivers a refined value (deliveredType), therefore casts it to the base type,
+ * which the type literals and recursive state use; the cast of a domain to its base is a binary-compatible relabel, which
+ * PostgreSQL strips when it matches an index, printed at the boundary alone, never a node a walk reads.
  */
 export const armTargets = (
 	cx: LowerContext,
 	heading: Heading,
+	arm: RelNode,
 	map: ColumnMap
-): NonEmptyReadonlyArray<Target> => armColumns(cx, heading, map).targets
+): NonEmptyReadonlyArray<Target> => armColumns(cx, heading, arm, map).targets
+
+/**
+ * The type an arm delivers its column `name` at in PostgreSQL: a projection's term's, a column it reads read through to
+ * the column it names in its input, a filter's input's, and any other node's heading type, which its terms carry.
+ */
+const deliveredType = (node: RelNode, name: string, heading: ScalarType): ScalarType => {
+	if (node.kind === "ProjectSet") {
+		const out = node.out.find((o) => o.name === name)
+		if (out === undefined) {
+			return heading
+		}
+		const term = out.expr
+		return term.kind === "column" && term.column.node === node.input.id
+			? deliveredType(node.input, term.column.name, term.type)
+			: term.pgType
+	}
+	if (node.kind === "Filter") {
+		return deliveredType(node.input, name, heading)
+	}
+	return node.heading.find((c) => c.name === name)?.type ?? heading
+}
 
 /** One arm's targets (armTargets) and the expression each delivers, by its column of `heading`. */
 export const armColumns = (
 	cx: LowerContext,
 	heading: Heading,
+	arm: RelNode,
 	map: ColumnMap
 ): { readonly targets: NonEmptyReadonlyArray<Target>; readonly delivered: ColumnMap } => {
 	const columns = heading.map((c): readonly [string, Expr] => {
 		const e = columnIn(map, c.name)
-		return [c.name, isRefined(c.type) ? typedAs(e, cx.baseTypeRef(c.type)) : e]
+		return [
+			c.name,
+			isRefined(c.type) || isRefined(deliveredType(arm, c.name, c.type))
+				? typedAs(e, cx.baseTypeRef(c.type))
+				: e
+		]
 	})
 	return {
 		targets: isNonEmpty(columns) ? mapNonEmpty(columns, ([, e]) => target(e)) : unitTargets,
@@ -80,7 +111,7 @@ export const armColumns = (
  */
 export const armCore = (cx: LowerContext, arm: RelNode, heading: Heading, env: Env): SelectCore => {
 	const source = cx.source(arm, env)
-	const targets = armTargets(cx, heading, source.map)
+	const targets = armTargets(cx, heading, arm, source.map)
 	return readsSet(source.item)
 		? provedCore("keyed", targets, [source.item], undefined)
 		: core(targets, [source.item], undefined)

@@ -1,17 +1,12 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
-import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { nominal } from "#compiler/core/brand.ts"
-import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { FieldId, NodeId, OccurrenceId, ParamId, VarId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { temporarySchema } from "#compiler/core/temporary.ts"
 import {
 	bodyPositionNames,
 	type ColumnDef,
-	type FromSource,
 	type CteBody,
 	isSetQuery,
 	type OperandBody,
@@ -21,7 +16,7 @@ import {
 	type SelectCore,
 	type SetOperand
 } from "#compiler/sql/ast.ts"
-import { mapTargets, qualifiedCall, withArms } from "#compiler/sql/build.ts"
+import { mapTargets, withArms } from "#compiler/sql/build.ts"
 
 /**
  * Single-assignment SQL names.
@@ -61,108 +56,28 @@ export type NameMap = ReadonlyArray<NameEntry>
 
 export const emptyNameMap: NameMap = []
 
-/**
- * A carrier's declaration: the columns of its CREATE TEMPORARY TABLE, of any width, and its key's columns, or none.
- */
+/** A carrier's declaration: its columns, of any width, each typed as its values travel (write/carriers). */
 export interface CarrierDeclaration {
 	readonly columns: ReadonlyArray<ColumnDef>
-	readonly primaryKey: NonEmptyReadonlyArray<string> | undefined
 }
 
 /**
- * __carrier_<ordinal>_<digest>: a write program's transaction-scoped carrier (write/carriers), the one name CREATE
- * TEMPORARY TABLE takes. Only carrierName spells one, through the naming door (core/identity.ts
- * identity.carrier). The ordinal is the carrier's place among its program's carriers, from 1, and the digest is its
- * declaration's: a session keeps each served statement under its text (core/prepared.ts), and PostgreSQL plans it again
- * over the carrier its next call creates, so a text that names a carrier must name one declaration, or a statement of
- * another program over a carrier of its ordinal with other column types or collations meets the plan its text cached
- * and fails as "cached plan must not change result type".
+ * __carrier_<ordinal>: a write program's carrier (write/carriers), the name its settings take (write/carriers/carriers.ts
+ * carrierSetting), the ordinal its place among its program's carriers, from 1. Only carrierName spells one. A carrier
+ * lives in its transaction's settings, which its flight writes before any statement reads it, so a name is its program's
+ * alone: two programs' carriers of one ordinal never meet, and every reader's text casts the setting to the type it
+ * reads.
  */
 export type CarrierName = string & { readonly [carrierNameBrand]: true }
 declare const carrierNameBrand: unique symbol
 const CarrierName = nominal<string, CarrierName>()
 
-/**
- * The name of `carrier`'s reader, the session function every statement reads the carrier through (sql/print.ts
- * carrierReader): the carrier's own name and `_rows`, beside its emptying, which takes the carrier's name itself
- * (sql/print.ts carrierEmptying), within PostgreSQL's identifier length since a carrier's name is a fixed-width digest's.
- */
-export const carrierReaderName = (carrier: CarrierName): string => `${carrier}${carrierReaderTail}`
+/** What every carrier's name starts with, before its ordinal (`carrierName`). */
+export const carrierPrefix = "__carrier_"
 
-/**
- * The rows of the carrier `carrier`, whose columns are `columns` in its table's order, as a statement reads them under
- * `alias`: through its reader, pg_temp."<carrier>_rows"() (`carrierReaderName`, write/carriers/carriers.ts
- * carrierReader), each column named in the FROM item's alias list as the carrier's table names it, so the statement's
- * plan depends on the function, never on the table its emptying may truncate. The one way a statement reads a carrier.
- */
-export const carrierReaderScan = (
-	carrier: CarrierName,
-	columns: ReadonlyArray<string>,
-	alias: string
-): FromSource => ({
-	kind: "function",
-	call: qualifiedCall(
-		{
-			kind: "qualified",
-			schema: temporarySchema,
-			name: carrierReaderName(carrier),
-			volatility: "VOLATILE"
-		},
-		[]
-	),
-	alias,
-	columns: { kind: "named", names: columns, ordinality: false },
-	lateral: false
-})
-
-/** What a carrier's reader's name adds to the carrier's (`carrierReaderName`). */
-const carrierReaderTail = "_rows"
-
-/**
- * The carrier whose reader `fn` names (`carrierReaderName`), none where it names no reader: how a reading of a
- * statement finds the carriers it reads through their readers (test/support/carrier-reads.ts).
- */
-export const readerCarrier = (fn: string): CarrierName | undefined =>
-	fn.endsWith(carrierReaderTail) ? CarrierName(fn.slice(0, -carrierReaderTail.length)) : undefined
-
-/**
- * The carrier a FROM item reads through its reader (`carrierReaderScan`), none where it reads none: pg_temp."<carrier>_rows"()
- * of no argument and no ordinality, which returns every row of the carrier, every column under its own name, the call's
- * own rows its fill states.
- */
-export const carrierReadBy = (
-	source: Extract<FromSource, { readonly kind: "function" }>
-): CarrierName | undefined =>
-	source.columns.kind !== "named" ||
-	source.columns.ordinality ||
-	source.call.args.length > 0 ||
-	source.call.fn.kind !== "qualified" ||
-	source.call.fn.schema !== temporarySchema
-		? undefined
-		: readerCarrier(source.call.fn.name)
-
-/**
- * Whose session tables a program's carriers are: the role it runs as, or reality's. A login's pooled session runs every
- * role of the login, each transaction under one, and a carrier, a session table every COMMIT keeps (sql/ast.ts
- * CreateCarrier), is owned by the role whose stand-up made it, which alone may truncate it, as a use's emptying does
- * (sql/print.ts carrierEmptying): so a carrier's name digests its scope beside its declaration, and two roles' programs
- * of one declaration never meet one table, where the second's TRUNCATE of the first's was refused (42501).
- */
-export type CarrierScope = string & { readonly [carrierScopeBrand]: true }
-declare const carrierScopeBrand: unique symbol
-const CarrierScope = nominal<string, CarrierScope>()
-
-/** The carrier scope of a program that runs as the role `role`, or as reality where none. */
-export const carrierScope = (role: string | undefined): CarrierScope =>
-	CarrierScope(role === undefined ? "reality" : `role ${role}`)
-
-/** The `ordinal`-th carrier of a program, from 1, of `declaration`, in its scope `scope`. */
-export const carrierName = (
-	scope: CarrierScope,
-	ordinal: number,
-	declaration: CarrierDeclaration
-): CarrierName =>
-	CarrierName(identifierOf(identity.carrier(scope, ordinal, canonicalTextOf(declaration))))
+/** The `ordinal`-th carrier of a program, from 1. */
+export const carrierName = (ordinal: number): CarrierName =>
+	CarrierName(`${carrierPrefix}${ordinal}`)
 
 /**
  * The first relation and column numbers: 1 for a statement of its own; the write protocols number the input arrays
@@ -333,7 +248,7 @@ const renameOperand = (
 export const namedQuery = (select: OperandSelect, names: ReadonlyArray<string>): OperandSelect => {
 	const renamed = renameSelect(select, names)
 	if (!renamed.ok) {
-		throw defect(`a name for each of a query's outputs: ${renamed.error.message}`)
+		defect(`a name for each of a query's outputs: ${renamed.error.message}`)
 	}
 	return renamed.value
 }
@@ -347,7 +262,7 @@ export const namedBody = (body: CteBody, names: ReadonlyArray<string>): CteBody 
 		return namedQuery(body, names)
 	}
 	if (body.returning.length !== names.length) {
-		throw defect(
+		defect(
 			`a name for each of a data-modifying statement's ${body.returning.length} RETURNING targets, not ${names.length}`
 		)
 	}
@@ -364,7 +279,7 @@ export const renameToPublicHeading = (
 ): Result.Result<Select, CompileError> =>
 	Result.map(renameSelect(select, heading), (renamed) => {
 		if (!isSetQuery(renamed)) {
-			throw defect("a rename that keeps a set query a set")
+			defect("a rename that keeps a set query a set")
 		}
 		return renamed
 	})

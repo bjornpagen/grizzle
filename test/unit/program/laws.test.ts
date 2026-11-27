@@ -1,19 +1,21 @@
 /**
  * lawsOf(schema) lists exactly the laws the schema's installation can report, each once, in the schema's canonical order.
  *
- * Each case draws a schema of one or two levels: a family core as the family swarm draws it (test/pg/write/swarm/spec.ts:
- * ordered and counted families, trees, folds of every monoid, copies along every axis, generated fields, plain sets and
- * referrers, keys, checks, containments and selections over copies, mutable relations), beside tables under names drawn
- * apart from name order, each keyed by its id or by its id and a span of a checked contract, with fields drawn apart
- * from name order: texts of a palette pattern spelled plainly, with every atom grouped, or respelled as a longer run of
- * the same language, so one domain comes in spellings whose CHECKs differ and tautologies such as `^.*$` under `su` come
- * up beside refined patterns; contracts over a palette pattern; integers; two bigint contracts of one definition, which
- * share a domain with the span's; and a contract that refines nothing; and generated integers and refined texts read
- * from those fields. Statements over the tables key an integer, key a selection, check a row, contain one table's ids
- * in another's, mirror two tables, cover one table's spans by another's and make a table mutable, a statement drawn
- * twice standing twice; an alternatives law over a roster, a closed relation of a palette pattern's payload and a
- * sealed unit over two relations may stand beside them. On two levels the tables stand above the core, which
- * may restate core statements.
+ * Each case draws a schema of one or two levels: a family core as the family swarm draws it
+ * (test/pg/write/swarm/spec.ts: ordered and counted families, trees, folds of every monoid, copies along every axis,
+ * generated fields, plain sets and referrers, keys, checks, containments and selections over copies, mutable
+ * relations), beside tables under names drawn apart from name order, each keyed by its id or by its id and a span of a
+ * checked contract, with fields drawn apart from name order: texts of a palette pattern spelled plainly, with every
+ * atom grouped, or respelled as a longer run of the same language, so one domain comes in spellings whose CHECKs differ
+ * and tautologies such as `^.*$` under `su` come up beside refined patterns; contracts over a palette pattern;
+ * integers; two bigint contracts of one definition, which share a domain with the span's; a contract that refines
+ * nothing; and a variant of the field's own, whose arms hold a text of a palette pattern and one of the two bigint
+ * contracts, so its arms' fields' domains are a stored field's too; and generated integers and refined texts read from
+ * those fields. Statements over the tables key an integer, key a selection, check a row, contain one table's ids in
+ * another's, mirror two tables, cover one table's spans by another's and make a table mutable, a statement drawn twice
+ * standing twice; a tagged header whose arms each mirror the rows of their tag, a closed relation of a palette
+ * pattern's payload and a sealed unit over two relations may stand beside them. On two levels the tables stand above
+ * the core, which may restate core statements.
  *
  * The oracle is the installation's own constraint-to-law map (adapter/witness/keylaw.ts keyLawsOf), the map a refusal is
  * read through: the laws of every table constraint, unique index and domain constraint the install script creates, read
@@ -23,7 +25,8 @@
  * each ordinary relation's primary key by relation name, as the relation declares it, and closes with the pattern law of
  * every stored text field whose column a planned text domain types, spelled as the case declares it (a core tree's
  * root texts, on its relation and on the members of a family it owns, among them: fill.ts rootTextFieldsOf), then the
- * law of every generated field, each by relation name and each relation's fields in declared order, then the sealed unit's
+ * variant law of every variant field, which its variant's domain and every domain of its arms' fields report at its
+ * column, then the law of every generated field, each by relation name and each relation's fields in declared order, then the sealed unit's
  * seal law; between them every contract's law follows every statement's, by contract name; and the same schema declared in another order of its
  * relations and statements lists the same laws in the same order. Planted in a scratch copy, lawsOf leaving out the
  * primary keys, the pattern laws or the generated laws, listing a law twice, or ordering the pattern laws by declaration
@@ -35,7 +38,7 @@
  * that holds one, as the installation describes the law its objects report. Every statement of the schema, and every
  * statement of its twin built again in another order, gives exactly those laws, in lawsOf's order, each one the
  * installation can report; every law lawsOf lists
- * is some statement's, a primary key's, a contract's, a pattern's or a generated field's, and every statement's law is
+ * is some statement's, a primary key's, a contract's, a pattern's, a variant field's or a generated field's, and every statement's law is
  * one lawsOf lists. A statement of another drawn schema gives the laws the installation's theory holds for it when this
  * schema states it, and is refused as MalformedDescription when it does not, as is a copy of a statement no builder
  * made. Planted in a scratch copy, a mirrors giving only its first containment fails it.
@@ -89,7 +92,8 @@ import {
 	type Spelled,
 	sameLawText,
 	statedBy,
-	subjectOf
+	subjectOf,
+	variantName
 } from "#test/unit/program/laws.fixtures.ts"
 
 /** LawsOf lists exactly the laws the installation can report, each once, in the schema's canonical order. Its budget is its suite's before it was a property (test/unit/program/laws.test.ts at 4ca3036a): 120 runs and 120 steered cases. */
@@ -107,7 +111,7 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 			"a generated refined text",
 			"a key restating the primary key refused",
 			"a mirrors",
-			"an alternatives law",
+			"a tagged header's arms",
 			"a statement declared twice",
 			"a statement restated a level above",
 			"a level above",
@@ -119,6 +123,7 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 			"a statement of another schema refused",
 			"a value no builder made refused",
 			"a check's installed name",
+			"an arm's field's domain beside a stored field's",
 			...Rec.values(lawKinds)
 		] satisfies ReadonlyArray<Reached<LawsFeature>>,
 		check: (_2, k: Case<LawsFeature>) => (c) =>
@@ -278,6 +283,24 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 							)
 					})
 				)
+				const variants = Arr.flatMap(relations, (r): ReadonlyArray<OwnLaw> =>
+					Option.match(tableAt(r.name), {
+						onNone: () => [],
+						onSome: (t) =>
+							Arr.flatMap(t.fields, ([field, f]): ReadonlyArray<OwnLaw> =>
+								f.kind === "variant"
+									? [
+											derivedLaw({
+												kind: "variant",
+												relation: r.name,
+												field,
+												variant: variantName(t, field)
+											})
+										]
+									: []
+							)
+					})
+				)
 				const generated = Arr.flatMap(relations, (r): ReadonlyArray<OwnLaw> => {
 					const core = Arr.findFirst(c.core.fill.relations, (_, i) => relationName(i) === r.name)
 					return Option.isSome(core)
@@ -296,13 +319,16 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 					? [derivedLaw({ kind: "sealed", unit: "Victor" })]
 					: []
 				const middle = Arr.drop(
-					Arr.take(laws, laws.length - patterns.length - generated.length - seals.length),
+					Arr.take(
+						laws,
+						laws.length - patterns.length - variants.length - generated.length - seals.length
+					),
 					primaryKeys.length
 				)
 				assert.deepEqual(
 					laws,
-					[...primaryKeys, ...middle, ...patterns, ...generated, ...seals],
-					"lawsOf opens with the primary keys and closes with the pattern laws, then the generated fields' laws, then the sealed units' seal laws, as the case declares them"
+					[...primaryKeys, ...middle, ...patterns, ...variants, ...generated, ...seals],
+					"lawsOf opens with the primary keys and closes with the pattern laws, then the variant fields' laws, then the generated fields' laws, then the sealed units' seal laws, as the case declares them"
 				)
 				const contracts = Arr.flatMap(middle, (l) => (l.kind === "contract" ? [l.contract] : []))
 				assert.deepEqual(
@@ -397,6 +423,7 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 					...primaryKeys,
 					...Arr.filter(reported, (l) => l.kind === "contract"),
 					...patterns,
+					...variants,
 					...generated
 				]
 				const knownTexts = Arr.map([...fromStatements, ...unstated], lawText)
@@ -404,7 +431,7 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 					const text = lawText(law)
 					assert.ok(
 						Arr.some(knownTexts, (l) => sameLawText(text, l)),
-						`lawsOf's ${law.kind} law is a statement's, a primary key's, a contract's, a pattern's or a generated field's: ${Formatter.format(law)}`
+						`lawsOf's ${law.kind} law is a statement's, a primary key's, a contract's, a pattern's, a variant field's or a generated field's: ${Formatter.format(law)}`
 					)
 				}
 				for (const law of fromStatements) {
@@ -451,6 +478,7 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 								break
 							case "integer":
 							case "count":
+							case "variant":
 								break
 						}
 					}
@@ -485,6 +513,13 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 					) {
 						k.note("two contracts of one domain")
 					}
+					if (
+						cl.kind === "domainConstraint" &&
+						Arr.some(cl.uses, (u) => u.law.described.kind === "variant") &&
+						Arr.some(cl.uses, (u) => u.law.described.kind !== "variant")
+					) {
+						k.note("an arm's field's domain beside a stored field's")
+					}
 				}
 				for (const s of c.statements) {
 					switch (s.kind) {
@@ -504,8 +539,8 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 				if (new Set(Arr.map(c.statements, (s) => Formatter.format(s))).size < c.statements.length) {
 					k.note("a statement declared twice")
 				}
-				if (c.alternatives) {
-					k.note("an alternatives law")
+				if (c.arms) {
+					k.note("a tagged header's arms")
 				}
 				if (c.levels.kind === "above") {
 					k.note("a level above")

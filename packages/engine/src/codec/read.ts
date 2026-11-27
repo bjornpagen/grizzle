@@ -29,6 +29,7 @@
  * | bits | bit_out text, read as the set of handles |
  * | range4, range8, rangeDate | range_out of a bounded half-open range |
  * | vector | vector_out text, components read exactly as binary32, -0 as 0 |
+ * | variant | record_out of its composite, read as its tag's handle and its arm's fields |
  *
  * Raw text results. The adapter's wire requests text results and parses no type
  * (packages/grizzle/src/adapter/wire/session.ts), and the outermost SELECT casts every column to text, so every cell is
@@ -54,6 +55,7 @@ import {
 import {
 	type CarrierHost,
 	type CarrierSpec,
+	canonicalText,
 	keyText,
 	type SpecOf
 } from "#compiler/scalar/values/identity.ts"
@@ -76,7 +78,8 @@ export interface ScalarReader {
 	 * which is the value's canonical text; a vector's "-0" components as "0"; a boolean's
 	 * "t"/"f" as "true"/"false"; a set's 0s and 1s as X and their hex digits; a bytes value's SHA-256 digest
 	 * (core/sha256.ts sha256Hex), which two values share only if their bytes are equal or they are a SHA-256 collision,
-	 * so a reader that takes two cells of one text as one compares their bytes too. Chosen once per column; no
+	 * so a reader that takes two cells of one text as one compares their bytes too; a variant's its converted value's
+	 * canonical text, since its attributes' output texts are their types' raw ones. Chosen once per column; no
 	 * allocation where the cell is already the one text.
 	 */
 	readonly cellText: (cell: Cell) => string
@@ -158,7 +161,8 @@ const cellTextByCarrier: { readonly [C in TextCarrier]: (cell: string) => string
 	vector: vectorCellText,
 	tsvector: itself,
 	exactInteger: itself,
-	exactMoney: numericCellText
+	exactMoney: numericCellText,
+	variant: itself
 }
 
 /** The reader of one text carrier's spec: its conversion read through the spec's own carrier, of a text cell. */
@@ -169,7 +173,10 @@ const textReaderOf = <C extends TextCarrier>(
 	const own: SpecOf<C> = spec
 	const convertOf: (spec: SpecOf<C>) => Converter<C> = convertByCarrier[own.carrier]
 	const convert = convertOf(own)
-	const text = cellTextByCarrier[own.carrier]
+	const text: (text: OutputText) => string =
+		own.carrier === "variant"
+			? (cell) => canonicalText(spec, convert(cell))
+			: cellTextByCarrier[own.carrier]
 	return Object.freeze({
 		type,
 		spec,

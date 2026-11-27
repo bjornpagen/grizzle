@@ -24,7 +24,6 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { compileLaws } from "#compiler/laws/model/model.ts"
-import { everySlice } from "#compiler/schema/reach.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import {
@@ -51,10 +50,7 @@ export const theObjectsBeyondAPrimaryKeyAndTheImmediateLawsAreDecidedAsBeforeOnc
 		check: (_, k: Case<BeyondFeature>) => (c) =>
 			Effect.sync(() => {
 				const owned = succeeded(ownedInput(schemaOf(c)))
-				const model = succeeded(
-					compileLaws(owned, everySlice(owned), { kind: "planned" }),
-					"the schema compiles"
-				)
+				const model = succeeded(compileLaws(owned, { kind: "planned" }), "the schema compiles")
 				for (const [name, laws] of model.relations) {
 					const expected = restated(laws.uniques)
 					assert.deepEqual(

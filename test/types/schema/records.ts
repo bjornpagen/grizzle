@@ -1,5 +1,5 @@
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
-import { recordsBuilder } from "#compiler/program/records.ts"
+import { recordPathsOf, recordsBuilder } from "#compiler/program/records.ts"
 import {
 	ownerOf,
 	ownerText,
@@ -15,7 +15,8 @@ import { identifiers, preludeAt, preludeFrom, preludeModule } from "#test/suppor
 import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
 
 /**
- * The records program: for each drawn query over Shelves (test/support/agreement/records.ts), the records of it
+ * The records program: for each drawn query over Shelves (test/support/agreement/records.ts), its attachments' paths as
+ * RecordPaths types them, exactly the paths recordPaths lists at run time, and the records of it
  * (records(stem, query, owner, ownerKey, { names }), a name stated for the books' or the chapters' path or none) typed
  * as the engine builds them, a stray path among names written apart from the call refused by name, each relation's
  * name, key and fields the runtime records' own (the oracle, each case's records built by the engine as the program's
@@ -166,8 +167,8 @@ const unionText = (names: ReadonlyArray<string>): string =>
 /** The owner's values of a shape, as a call states them. */
 const ownerValues = (shape: RecordsShape): string =>
 	shape.owner === "run"
-		? '{ run: Id("00000000-0000-4000-8000-000000000001") }'
-		: '{ run: Id("00000000-0000-4000-8000-000000000001"), step: 1 }'
+		? '{ run: toId("00000000-0000-4000-8000-000000000001") }'
+		: '{ run: toId("00000000-0000-4000-8000-000000000001"), step: 1 }'
 
 /** One case's lines: the query, its records, their relations against the engine's, their level, read and insert. */
 const caseLines = (stated: StatedShape, at: number): ReadonlyArray<string> => {
@@ -177,6 +178,7 @@ const caseLines = (stated: StatedShape, at: number): ReadonlyArray<string> => {
 	const rels = `Rels${at}`
 	return [
 		`export const q${at} = ${shapeText(shape)}`,
+		`export type Paths${at} = Expect<Equals<RecordPaths<typeof q${at}>, ${unionText(recordPathsOf(shapeQuery(Shelves, shape)))}>>`,
 		`export const kept${at} = records("Kept", q${at}, ${owner.fields}, ${owner.key}${statedText(stated)})`,
 		`type ${rels} = (typeof kept${at})["relations"][number]`,
 		`export type Names${at} = Expect<Equals<${rels}["name"], ${unionText(Arr.map(built.relations, (r) => r.name))}>>`,

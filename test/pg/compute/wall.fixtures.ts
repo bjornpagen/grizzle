@@ -279,14 +279,18 @@ export const featuresOf = (
 	return features
 }
 
+const millisKey = Symbol("Millis")
 /**
  * A case's schema under its declared name: Zone, a zone roster of its zones; Millis, a bigint within timestamptz's
  * range in milliseconds, as a millis reading of the database's clock is; and Probe, an instant and a zone by id.
  */
 const wallSchema = (name: string, roster: Arr.NonEmptyReadonlyArray<string>) => {
 	const Zone = closed.zones("Zone", roster)
-	const Millis = contract("Millis", pg.bigint, (x) =>
-		Logic.and(Logic.ge(x, clockReadingRange.millis.low), Logic.le(x, clockReadingRange.millis.high))
+	const Millis = contract<typeof millisKey>()("Millis", pg.bigint, (x) =>
+		Logic.and([
+			Logic.ge(x, clockReadingRange.millis.low),
+			Logic.le(x, clockReadingRange.millis.high)
+		])
 	)
 	const Probe = relation("Probe", { id: pg.integer, at: Millis, zone: closedId(Zone) }, ["id"])
 	const s = schema(name, [Zone, Probe], [])

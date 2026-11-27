@@ -20,8 +20,8 @@
  *   and last axes carry both), which judges it;
  * - a check: every fact of its relation holds its predicate, which over an owner reads its family's sum, the sum of its
  *   members' step values, an empty family's zero;
- * - an alternatives arm: every arm fact's key is the key of a parent fact whose discriminator is the arm's handle; and
- *   each armed handle's reverse law: every parent fact of that handle has its arm fact.
+ * - a state's detail row, its mirrors with the parents in that state: every detail fact's key is the key of a parent
+ *   fact in that state; and its reverse law: every parent fact in that state has its detail fact.
  * The contracts' checks (an amount at least zero) and the closed rosters' heads are left out: no write the suites build
  * holds a value outside its contract or its roster.
  *
@@ -47,6 +47,7 @@ import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Formatter, Order, Record as Rec } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import { contained, on, type Statement, select } from "#compiler/public/schema.ts"
+import type { MirrorsBase } from "#compiler/types/schema/statements.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
 import { type Atom, sameIdentity, type ValueIdentity } from "#test/support/kernel/identity.ts"
 import type { LawNames } from "#test/support/kernel/naming.ts"
@@ -494,12 +495,13 @@ const rowCheck = (
 const amountOf = (row: PlatformRow, field: string): bigint => amountValue(row[field])
 
 /**
- * An alternatives statement's laws: each arm's key into its parent's facts of the arm's handle, and each armed handle's
- * reverse law, every parent fact of that handle obliged to its arm fact.
+ * Each state's detail row's laws, the two containments of its mirrors (fixtures/api/platform.ts keyRevocation): its arm
+ * law, the detail row's key into its parent's facts of that state, and its reverse law, every parent fact of that state
+ * obliged to its detail row.
  */
-const alternativesLaws = (
+const armLaws = (
 	name: string,
-	value: Parameters<LawNames["alternativesOf"]>[0],
+	value: Readonly<Record<string, MirrorsBase>>,
 	parent: RelationName,
 	discriminator: string,
 	armed: ReadonlyArray<{
@@ -513,7 +515,7 @@ const alternativesLaws = (
 		family: "arm",
 		relations: [arm, parent],
 		checkedAt: [],
-		id: (names) => defined(names.alternativesOf(value).arms[handle], `the ${handle} arm's law`),
+		id: (names) => names.mirrorsOf(defined(value[handle], `the ${handle} arm`)).forward,
 		broken: (s) =>
 			containBroken(s, side(arm, key), selected(parent, { [discriminator]: handle }, "id"))
 	})),
@@ -522,8 +524,7 @@ const alternativesLaws = (
 		family: "reverse",
 		relations: [parent, arm],
 		checkedAt: [],
-		id: (names) =>
-			defined(names.alternativesOf(value).reverse[handle], `the ${handle} reverse law`),
+		id: (names) => names.mirrorsOf(defined(value[handle], `the ${handle} arm`)).reverse,
 		broken: (s) =>
 			containBroken(s, selected(parent, { [discriminator]: handle }, "id"), side(arm, key))
 	}))
@@ -831,15 +832,15 @@ export const platformLaws: ReadonlyArray<HostLaw> = [
 		side("Refund", "invoice"),
 		selected("Invoice", { state: "paid" }, "id")
 	),
-	...alternativesLaws("keyRevocation", P.keyRevocation, "ApiKey", "state", [
+	...armLaws("keyRevocation", P.keyRevocation, "ApiKey", "state", [
 		{ handle: "revoked", arm: "Revocation", key: "key" }
 	]),
-	...alternativesLaws("invoiceSettlement", P.invoiceSettlement, "Invoice", "state", [
+	...armLaws("invoiceSettlement", P.invoiceSettlement, "Invoice", "state", [
 		{ handle: "paid", arm: "Payment", key: "invoice" },
 		{ handle: "void", arm: "Voiding", key: "invoice" },
 		{ handle: "disputed", arm: "Dispute", key: "invoice" }
 	]),
-	...alternativesLaws("lineDetail", P.lineDetail, "InvoiceLine", "source", [
+	...armLaws("lineDetail", P.lineDetail, "InvoiceLine", "source", [
 		{ handle: "usage", arm: "UsageLine", key: "line" },
 		{ handle: "plan", arm: "PlanLine", key: "line" }
 	])

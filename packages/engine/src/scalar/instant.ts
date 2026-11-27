@@ -1,6 +1,5 @@
 import type { Brand } from "effect"
-import { nominal } from "#compiler/core/brand.ts"
-import { brandColumn, type Column } from "#compiler/core/decoder.ts"
+import { type Column, hostColumn } from "#compiler/core/decoder.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { instantName } from "#compiler/ir/instant.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
@@ -20,17 +19,14 @@ const parts = contractParts(instantName, pgDescriptors.bigint, [
 
 /**
  * An instant as the host holds it: microseconds since the Unix epoch on the database's clock, a bigint under the brand
- * "instant", which a read's column alone mints (`column`). So a host holds an instant only where a read of one
+ * "instant", which a read's column alone claims (`column`). So a host holds an instant only where a read of one
  * delivered it, and writes one only as it read it, into a stored instant (instant.stored), never one its own clock or
  * arithmetic made: a bigint is no Instant.
  */
 export type Instant = bigint & Brand.Brand<"instant">
 
-/** The mint of an instant's host value: a read's column, its one caller. */
-const instantValue = nominal<bigint, Instant>()
-
-/** pg.bigint's column, its values branded Instant (instantValue): what an instant's values are read by. */
-const column: Column<Instant> = brandColumn(pgDescriptors.bigint.column, instantValue)
+/** pg.bigint's column, its values claimed Instant (core/decoder.ts hostColumn): what an instant's values are read by. */
+const column: Column<Instant> = hostColumn<bigint, Instant>(pgDescriptors.bigint.column)
 
 /** The members every instant descriptor has: the builtin contract's name, base and predicate, and its column. */
 const members = Object.freeze({

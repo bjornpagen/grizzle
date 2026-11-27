@@ -8,7 +8,6 @@ import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import type { ServedTables } from "#compiler/plan/serve.ts"
 import {
 	all,
-	carriersWhole,
 	caseGen,
 	depthOf,
 	installedJson,
@@ -35,9 +34,8 @@ export const eXPLAINFORMATJSONVERBOSEDecodingKeepsEachNodesTypeEstimatesAndChild
 			"a table read whole",
 			"an index scan",
 			"a bitmap index scan under its heap",
-			"a carrier",
 			"a plan refused",
-			"an index under a carrier refused"
+			"a temporary table refused"
 		] satisfies ReadonlyArray<Reached<PlanFeature>>,
 		check: (_, k: CaseOf<PlanFeature>) => (c) =>
 			Effect.sync(() => {
@@ -48,8 +46,8 @@ export const eXPLAINFORMATJSONVERBOSEDecodingKeepsEachNodesTypeEstimatesAndChild
 				if (expected === undefined) {
 					assert.ok(Result.isFailure(decoded), "a plan the file does not name is refused")
 					k.note("a plan refused")
-					if (projected(c, carriersWhole(c.root)) !== undefined) {
-						k.note("an index under a carrier refused")
+					if (Arr.some(nodes, (n) => n.read.kind === "temporary")) {
+						k.note("a temporary table refused")
 					}
 				} else {
 					assert.deepEqual(decoded, Result.succeed(expected))
@@ -71,9 +69,6 @@ export const eXPLAINFORMATJSONVERBOSEDecodingKeepsEachNodesTypeEstimatesAndChild
 					}
 					if (Arr.some(plans(expected), (p) => p.node === "Bitmap Index Scan")) {
 						k.note("a bitmap index scan under its heap")
-					}
-					if (Arr.some(targets, (t) => t.kind === "carrier")) {
-						k.note("a carrier")
 					}
 				}
 				if (c.root.children.length === 0) {
@@ -111,9 +106,10 @@ export const eXPLAINFORMATJSONVERBOSEDecodingKeepsEachNodesTypeEstimatesAndChild
 			},
 			{
 				file: "packages/grizzle/src/adapter/explain/plan.ts",
-				original: `\t\t\treturn Result.fail(\`the index \${name}, of a carrier, which holds none\`)`,
-				replacement: "\t\t\treturn Result.succeed(carrier)",
-				why: "An index under a carrier is read as the carrier rather than refused."
+				original: "\tif (relation === undefined) {\n\t\treturn Result.map(",
+				replacement:
+					'\tif (relation === undefined || node.Schema === "pg_temp") {\n\t\treturn Result.map(',
+				why: "A node of the session's temporary schema is read as reading nothing, as a format 8 carrier's was, rather than refused as a table the served file does not name."
 			}
 		]
 	})

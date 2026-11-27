@@ -251,6 +251,20 @@ export class KeyKernel {
 	 * The column of `node` an expression is, as an equality compares it: the column itself, or an injective cast of it
 	 * (ir/injective.ts comparedValue), which holds two values apart exactly when the column does.
 	 */
+	/**
+	 * The value a projection's output `o` holds where it is known only by its name: a parameter, a column of a node
+	 * outside the projection's input; none for a literal, a copy or a computation.
+	 */
+	#namedValue(n: NodeOf<"ProjectSet">, o: string): string | undefined {
+		const e = Option.getOrUndefined(Arr.findFirst(n.out, (p) => p.name === o))?.expr
+		if (e?.kind === "param") {
+			return `param\u0000${e.param}`
+		}
+		return e?.kind === "column" && e.column.node !== n.input.id
+			? `outer\u0000${e.column.node}\u0000${e.column.name}`
+			: undefined
+	}
+
 	#columnOf(e: ScalarExpr, node: NodeId): string | undefined {
 		const value = comparedValue(e)
 		return value.kind === "column" && value.column.node === node ? value.column.name : undefined
@@ -269,6 +283,7 @@ export class KeyKernel {
 				return { kind: "param", param: e.param }
 			case "column":
 				return this.#outer(n, e.column.node, e.column.name)
+			case "variant":
 			case "value":
 			case "op":
 			case "cast":
@@ -461,10 +476,6 @@ export class KeyKernel {
 		const one = (part: KeyProof | Implication, held: RelNode | undefined): ReadonlyArray<Located> =>
 			held === undefined ? [] : [{ part, at: held }]
 		switch (rule.rule) {
-			case "fixed":
-				return rule.witness.kind === "semiJoinPair" && n.kind === "SemiJoin"
-					? one(rule.witness.right, n.right)
-					: []
 			case "equal":
 				return rule.witness.kind === "arms"
 					? zipped(rule.witness.arms, arms)
@@ -479,6 +490,8 @@ export class KeyKernel {
 			case "kept":
 			case "intersected":
 				return one(rule.input, this.#carriedAt(n, rule.rule))
+			case "paired":
+				return one(rule.input, n.kind === "SemiJoin" ? n.right : undefined)
 			case "produced":
 				return one(rule.input, n.kind === "Produce" ? n.input : undefined)
 			case "agreed":
@@ -489,6 +502,7 @@ export class KeyKernel {
 				return [...zipped(rule.arms, arms), ...this.#separationParts(arms, rule.separations)]
 			case "declared":
 			case "viewAlternative":
+			case "fixed":
 			case "correlated":
 			case "generated":
 			case "group":
@@ -765,7 +779,7 @@ export class KeyKernel {
 			}
 			case "fixed":
 				return d.from.length === 0 && d.to.length === 1
-					? this.#fixed(n, d.to[0] ?? "", r.witness, checked)
+					? this.#fixed(n, d.to[0] ?? "", r.witness)
 					: ["a fixed column is one column from nothing"]
 			case "equal": {
 				const [a] = d.from
@@ -829,6 +843,19 @@ export class KeyKernel {
 					within(d.to, this.#attributes(n))
 					? [...checked.implication(r.input, kept.input)]
 					: ["not a dependency of an input whose rows the node keeps"]
+			}
+			case "paired": {
+				if (n.kind !== "SemiJoin") {
+					return ["a paired dependency outside a semi-join"]
+				}
+				const derived = this.#derived(r.input)
+				return Arr.every(r.input.from, (x) =>
+					Arr.some(n.on, (p) => p.right === x && d.from.includes(p.left))
+				) && Arr.every(d.to, (l) => Arr.some(n.on, (p) => p.left === l && derived.has(p.right)))
+					? [...checked.implication(r.input, n.right)]
+					: [
+							"not a dependency of the right side among the semi-join's pairs, at their left columns"
+						]
 			}
 			case "atMostOne":
 				return d.from.length === 0 && within(heading, d.to) && this.#atMostOne(n, r.witness)
@@ -1045,8 +1072,7 @@ export class KeyKernel {
 	#fixed(
 		n: RelNode,
 		column: string,
-		w: Extract<Rule, { readonly rule: "fixed" }>["witness"],
-		checked: Checked
+		w: Extract<Rule, { readonly rule: "fixed" }>["witness"]
 	): ReadonlyArray<string> {
 		switch (w.kind) {
 			case "conjunct": {
@@ -1086,15 +1112,6 @@ export class KeyKernel {
 					!this.#reads(c.expr, new Set([n.input.id]))
 					? []
 					: ["no take correlation fixing the column"]
-			}
-			case "semiJoinPair": {
-				const pair = n.kind === "SemiJoin" ? n.on[w.index] : undefined
-				return n.kind === "SemiJoin" &&
-					pair?.left === column &&
-					w.right.from.length === 0 &&
-					this.#derived(w.right).has(pair.right)
-					? [...checked.implication(w.right, n.right)]
-					: ["no semi-join pair with a fixed right column"]
 			}
 			case "attachCorrelation": {
 				const attach = this.#node(w.attach)
@@ -1272,7 +1289,12 @@ export class KeyKernel {
 				const cx = copyOf(x)
 				const cy = copyOf(y)
 				if (cx === undefined || cy === undefined) {
-					return ["an equality through an output copying no input column"]
+					const vx = this.#namedValue(n, x)
+					return vx !== undefined && vx === this.#namedValue(n, y)
+						? []
+						: [
+								"an equality through an output copying no input column and holding no parameter or outer column the other holds"
+							]
 				}
 				return cx === cy ? [] : this.#equalChain(r.input, n.input, cx, cy)
 			}
@@ -1301,6 +1323,7 @@ export class KeyKernel {
 			case "produced":
 			case "ranked":
 			case "numbered":
+			case "paired":
 			case "agreed":
 			case "unionKey":
 			case "separated":
@@ -1537,6 +1560,18 @@ export class KeyKernel {
 			case "intersected":
 			case "grouped":
 				return this.#carried(n, r.input, this.#carriedAt(n, r.rule), column)
+			case "paired": {
+				const derived = this.#derived(r.input)
+				const pair =
+					n.kind === "SemiJoin"
+						? Option.getOrUndefined(
+								Arr.findFirst(n.on, (p) => p.left === column && derived.has(p.right))
+							)
+						: undefined
+				return n.kind !== "SemiJoin" || pair === undefined
+					? { kind: "opaque" }
+					: this.#carried(n, r.input, n.right, pair.right)
+			}
 			case "agreed": {
 				const [first] = r.arms
 				return this.#carried(n, first, n.kind === "Union" ? armsOf(n)[0] : undefined, column)
@@ -1588,12 +1623,6 @@ export class KeyKernel {
 			case "takeCorrelation": {
 				const c = n.kind === "Take" ? n.correlation[w.index] : undefined
 				return c === undefined ? { kind: "opaque" } : this.#classify(n, c.expr)
-			}
-			case "semiJoinPair": {
-				const pair = n.kind === "SemiJoin" ? n.on[w.index] : undefined
-				return pair === undefined || n.kind !== "SemiJoin"
-					? { kind: "opaque" }
-					: this.#carried(n, w.right, n.right, pair.right)
 			}
 			case "attachCorrelation": {
 				const attach = this.#node(w.attach)
@@ -1651,9 +1680,6 @@ export class KeyKernel {
 						if (r.witness.kind === "closedValue") {
 							contexts.push("queryLocal")
 						}
-						if (r.witness.kind === "semiJoinPair") {
-							fromImplication(r.witness.right)
-						}
 						break
 					case "match":
 						fromImplication(r.source)
@@ -1662,6 +1688,7 @@ export class KeyKernel {
 					case "grouped":
 					case "kept":
 					case "intersected":
+					case "paired":
 						fromImplication(r.input)
 						break
 					case "produced":

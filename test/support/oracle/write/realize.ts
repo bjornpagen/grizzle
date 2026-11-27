@@ -6,33 +6,38 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { DagTemplates } from "#compiler/ir/dag-digest.ts"
+import { always } from "#compiler/ir/needs.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { DeltaSide } from "#compiler/ir/rel.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import type { ReadBack } from "#compiler/ir/write.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { generations, reality } from "#compiler/laws/model/generation.ts"
+import type { LowerContext } from "#compiler/lower/conservative/context.ts"
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import type {
 	BoundCarrier,
 	BoundCarrierOf,
 	ConservativeProgram,
-	DeltaRelation
+	DeltaRelation,
+	ReadBackAdmission
 } from "#compiler/lower/conservative/types.ts"
 import { roleUpdates } from "#compiler/physical/ddl/roles.ts"
 
 import type { CarrierCasts } from "#compiler/runtime/write/steps.ts"
-import { freshNames } from "#compiler/sql/naming.ts"
+import type { EmittedSql } from "#compiler/sql/ast.ts"
+import { emitText } from "#compiler/sql/emit.ts"
+import { emptyNameMap, freshNames } from "#compiler/sql/naming.ts"
 import {
-	buildEmptyCarrier,
 	buildFillCarrier,
 	type CarrierDeclaring,
-	carrierColumns,
 	carrierField,
 	carrierRows,
 	type WriteCarrier,
 	CarrierSupply,
+	emptyStash,
+	nodeRows,
 	relationCarrier
 } from "#compiler/write/carriers/carriers.ts"
 import { buildDisplacingDelete, buildExactDelete } from "#compiler/write/delete/exact.ts"
@@ -61,10 +66,10 @@ import {
 	type InsertResult,
 	keyFirst,
 	type StatementShare,
-	type WriteContext,
+	writeContext,
 	type WriteNames,
 	type WriteStatement,
-	writeContext
+	type StatementWriting
 } from "#compiler/write/insert/statement.ts"
 import { castsNothing } from "#compiler/write/program/artifact.ts"
 import { differingOf, inPlaceOf } from "#compiler/write/put/choose.ts"
@@ -76,7 +81,8 @@ import { breachGuard } from "#compiler/write/refusal.ts"
  *   or a delta around the strata;
  * - `action`, a statement of an action of a stratum, `action` its index there (ir.strata[stratum].actions): its insert
  *   or deletion, whose rows are its changes (`changeTags`);
- * - `readBack`, a read-back's conservative lowering;
+ * - `readBack`, a read-back's conservative lowering, admitting its write's caller parameters itself where no step
+ *   precedes it, a ChangeSet of reads alone (lower/conservative/types.ts ReadBackAdmission);
  * - `check`, a query entry's check of an addition's facts;
  * - `family`, a family statement of a stratum, where its schedule runs it among the stratum's actions. */
 type ConservativeStep =
@@ -94,7 +100,12 @@ type ConservativeStep =
 			readonly stratum: StratumAt
 			readonly action: number
 	  }
-	| { readonly kind: "readBack"; readonly read: ReadBack; readonly program: ConservativeProgram }
+	| {
+			readonly kind: "readBack"
+			readonly read: ReadBack
+			readonly program: ConservativeProgram
+			readonly admission: ReadBackAdmission
+	  }
 	| {
 			readonly kind: "check"
 			readonly statement: WriteStatement<EntryCheckResult>
@@ -113,6 +124,8 @@ export interface ConservativeWrite {
 	readonly steps: ReadonlyArray<ConservativeStep>
 	readonly carriers: ReadonlyArray<WriteCarrier>
 	readonly deltas: Readonly<Record<string, DeltaCarriers>>
+	/** The context its statements were lowered in, which its admission is built in (write/program/admission.ts). */
+	readonly cx: LowerContext
 }
 
 interface ConservativeWriteOptions {
@@ -121,7 +134,7 @@ interface ConservativeWriteOptions {
 	/** The names the members and read-backs read their relations under: reality's own, or a role's views. */
 	readonly reads: PhysicalNames
 	/** The statements the compilation's optimized artifact built, which an equal request shares. */
-	readonly share: StatementShare
+	readonly share: StatementShare<EmittedSql>
 	/** The level the write runs at, the compiled write's (write/program/compile.ts CompiledWrite `level`). */
 	readonly level: Isolation
 	/** How its carriers are declared, the compiled write's (write/schedule/plan.ts WritePlan `declaring`). */
@@ -146,14 +159,14 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 	const ownsFamily = (relation: string): boolean =>
 		Arr.some(frontend.laws.families, (f) => f.owner.name === relation)
 	/** The templates of the realization's keys and digests, its write's and its read-backs', as a compile's. */
-	const templates = new DagTemplates()
+	const templates = new DagTemplates("derivation")
 	/** The carrier of each carried bound input, by its parameter, filled first among its stratum's steps: each one's one
 	 * evaluation, in the state the strata before it left, which every member and read-back that reads the parameter
 	 * reads (ir/write.ts BoundInput). The supply types carriers through this lowering, so they are held here once made,
 	 * before any statement reads one. */
 	const bound = new Map<ParamId, BoundCarrier>()
 	const boundRows: BoundCarrierOf = (param) => bound.get(param)
-	const w: WriteContext = writeContext(ir.dag, {
+	const w: StatementWriting<EmittedSql> = writeContext(ir.dag, {
 		templates,
 		level: options.level,
 		names: options.names,
@@ -173,14 +186,6 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 		stratum: StratumAt | undefined,
 		casts: CarrierCasts
 	) => {
-		steps.push(
-			Object.freeze({
-				kind: "carrier",
-				statement: buildEmptyCarrier(w, carrier),
-				stratum,
-				casts: castsNothing
-			})
-		)
 		steps.push(
 			Object.freeze({
 				kind: "carrier",
@@ -209,7 +214,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 		for (const input of Arr.filter(ir.bound, (b) => b.stratum === s)) {
 			const carrier = supply.next(
 				Arr.map(input.node.heading, (c) => ({ name: c.name, type: c.type })),
-				undefined
+				nodeRows([input.node], `relation parameter ${input.param}`)
 			)
 			carry(carrier, { kind: "member", node: input.node }, s, castsNothing)
 			bound.set(input.param, carrierRows(carrier))
@@ -247,7 +252,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 					Arr.some(info.heading, (c) => c.name === f.name)
 				)
 				const heading = action.op === "delete" ? compareHeading(fields) : factHeading(fields)
-				const carrier = supply.next(heading, undefined)
+				const carrier = supply.next(heading, nodeRows([reads.node], "a member"))
 				carry(carrier, { kind: "member", node: reads.node }, s, {
 					kind: "member",
 					relation: info.relation.name,
@@ -362,11 +367,22 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 			continue
 		}
 		const create = (): WriteCarrier => {
-			const carrier = supply.next(named.heading, undefined)
+			const carrier = supply.next(named.heading, {
+				ranks: [undefined],
+				rows: "a delta the oracle holds"
+			})
+			const ast = emptyStash(carrier)
 			steps.push(
 				Object.freeze({
 					kind: "carrier",
-					statement: buildEmptyCarrier(w, carrier),
+					statement: Object.freeze({
+						role: "carrier" as const,
+						ast,
+						sql: emitText(ast, emptyNameMap),
+						params: [],
+						result: Object.freeze({ kind: "carrier" as const, carrier: carrier.name }),
+						needs: always
+					}),
 					stratum: undefined,
 					casts: castsNothing
 				})
@@ -391,7 +407,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 		return {
 			kind: "carrier",
 			carrier: carrier.name,
-			table: carrierColumns(carrier),
+			table: carrier.declaration.columns,
 			columns:
 				entry === undefined
 					? Arr.map(carrier.heading, (c) => ({ field: c.name, column: c.column }))
@@ -402,6 +418,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 		}
 	}
 	for (const read of ir.reads) {
+		const admission: ReadBackAdmission = steps.length === 0 ? "own" : "write"
 		const program = lowerConservative(
 			{ dag: ir.dag, root: read.node },
 			{
@@ -413,20 +430,22 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 					breach: breachGuard(options.names.schema),
 					start: freshNames,
 					templates,
-					bound: boundRows
+					bound: boundRows,
+					admission
 				}
 			}
 		)
 		if (!program.ok) {
 			throw new Refusal(program.error)
 		}
-		steps.push(Object.freeze({ kind: "readBack", read, program: program.value }))
+		steps.push(Object.freeze({ kind: "readBack", read, program: program.value, admission }))
 	}
 
 	return Object.freeze({
 		steps: Object.freeze(steps),
 		carriers: Object.freeze(supply.all()),
-		deltas: Object.freeze(deltas)
+		deltas: Object.freeze(deltas),
+		cx: w.cx
 	})
 }
 

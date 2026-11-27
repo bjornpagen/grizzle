@@ -6,7 +6,7 @@ import { meaningDigestWithin, rooted, StatedFacts, topoOrder } from "#compiler/i
 import { servedDag } from "#compiler/ir/derived.ts"
 import { makePassContext } from "#compiler/ir/pass.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
-import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
+import { evidenceCatalog, noViewEvidence } from "#compiler/laws/model/catalog.ts"
 import { type TheoryViolations, theoryViolations } from "#compiler/laws/model/violations.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { type ConservativeInput, conservativeInput } from "#compiler/lower/conservative/types.ts"
@@ -32,7 +32,7 @@ const readsOf = (installation: Installation, violation: RelNode): ConservativeIn
 			{ dag: rooted([violation]), params: [] },
 			makePassContext({
 				evidenceContext: "transaction",
-				catalog: evidenceCatalog({ laws: installation.laws, views: [] })
+				catalog: evidenceCatalog({ laws: installation.laws, views: noViewEvidence })
 			})
 		)
 	)
@@ -124,7 +124,7 @@ const readsAndIdentity = (
 } => {
 	const violation = violations.forbids.get(law)
 	if (violation === undefined) {
-		throw defect(`the violation queries hold the law ${law} of the theory`)
+		defect(`the violation queries hold the law ${law} of the theory`)
 	}
 	const reads = readsOf(installation, violation)
 	const identity = unwrap(meaningDigestWithin(reads.dag, [reads.root], "law-check", stated))
@@ -235,7 +235,7 @@ export const definedRuleChecks = (installation: Installation): ReadonlyArray<Def
 	return installation.laws.rules.map((r): DefinedCheck => {
 		const violation = violations.forbids.get(r.law.id)
 		if (violation === undefined) {
-			throw defect(`the violation queries hold the law ${r.law.id} of the theory`)
+			defect(`the violation queries hold the law ${r.law.id} of the theory`)
 		}
 		const served = servedDag(rooted([violation]), definitions).of(violation)
 		return {

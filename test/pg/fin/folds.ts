@@ -842,23 +842,32 @@ export const byMember = (s: FoldStored): FoldStored => ({
  * check the model judges fires where it would over a stored state: an immediate one at its statement, a deferred one
  * at the commit or a SET CONSTRAINTS that follows the state's writes.
  */
+/** No statement around a case's statements (sentOver). */
+export const nothingAround = { prefix: [], suffix: [] } as const
+
 /**
- * `statements` sent on a fold's seat over the state `before`, written first, and `prefix` after it, as one case ends
- * (installed.ts ended): what PostgreSQL did, unjudged, and the statements before `statements`, the state's writes and
- * the prefix, whose refusal is none of theirs. judgedFold judges it against the fold's model; a case the model does not
- * speak to, a guard's refusal, reads it alone.
+ * `statements` sent on a fold's seat over the state `before`, written first, and `prefix` after it, and `suffix` after
+ * them, as one case ends (installed.ts ended): what PostgreSQL did, unjudged, and the statements before `statements`,
+ * the state's writes and the prefix, whose refusal is none of theirs. A prefix and a suffix are a data step's bracket
+ * (data-step.ts asDataStep) or a SET CONSTRAINTS. judgedFold judges it against the fold's model; a case the model does
+ * not speak to, a guard's refusal, reads it alone.
  */
 export const sentOver = (
 	fold: FoldSeat,
 	before: FoldStored,
 	statements: ReadonlyArray<FoldStatement>,
-	prefix: ReadonlyArray<string>,
+	around: { readonly prefix: ReadonlyArray<string>; readonly suffix: ReadonlyArray<string> },
 	end: End
 ) =>
 	Effect.gen(function* () {
 		const sql = (s: ReadonlyArray<FoldStatement>) => Arr.map(s, (st) => foldStatementSql(fold, st))
-		const unseen = [...sql(foldWriteOf(before)), ...prefix]
-		const sent = yield* ended(fold.seat, [...unseen, ...sql(statements)], end, foldRead(fold))
+		const unseen = [...sql(foldWriteOf(before)), ...around.prefix]
+		const sent = yield* ended(
+			fold.seat,
+			[...unseen, ...sql(statements), ...around.suffix],
+			end,
+			foldRead(fold)
+		)
 		return { sent, unseen }
 	})
 
@@ -866,7 +875,7 @@ export const judgedFold = (
 	j: Judging,
 	before: FoldStored,
 	statements: ReadonlyArray<FoldStatement>,
-	prefix: ReadonlyArray<string>,
+	around: { readonly prefix: ReadonlyArray<string>; readonly suffix: ReadonlyArray<string> },
 	end: End
 ): Effect.Effect<FoldJudged, SqlError | TransactionRolledBack | Disagreed> =>
 	Effect.gen(function* () {
@@ -876,7 +885,7 @@ export const judgedFold = (
 			new Disagreed({
 				message: `${j.label}, its ${end} end: ${why}; the model predicts ${predictedText(model)}, PostgreSQL gave ${attemptedText(real)}, over ${Formatter.format(before)}, for ${Formatter.format(statements)}`
 			})
-		const { sent, unseen } = yield* sentOver(j.fold, before, statements, prefix, end)
+		const { sent, unseen } = yield* sentOver(j.fold, before, statements, around, end)
 		if (
 			sent.kind === "refused" &&
 			sent.moment.kind === "statement" &&

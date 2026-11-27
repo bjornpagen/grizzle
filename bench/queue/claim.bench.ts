@@ -45,14 +45,14 @@ import { type Fixture, fill, GateSetupError, settle } from "#bench/query/support
 import {
 	claimLabel,
 	claimOf,
-	Digest,
 	digestOf,
 	queueSchema,
 	queueBenchWorlds,
 	randomDigest,
-	SeatNo,
-	Slot,
 	settleOf,
+	toDigest,
+	toSeatNo,
+	toSlot,
 	Wanted,
 	QueueWork
 } from "#bench/queue/support/queue.ts"
@@ -71,7 +71,6 @@ import {
 	oneRow,
 	type OpenedDb,
 	openDb,
-	owner,
 	ownerTransaction,
 	readBackRows,
 	type RoleSamples,
@@ -84,7 +83,7 @@ import type { CallError } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
-import { Instant } from "#test/support/fixtures/api/contracts.ts"
+import { toInstant } from "#test/support/fixtures/api/contracts.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { member } from "#test/support/served-db.ts"
 import { connectionsPerWorker } from "#test/support/substrate/connections.ts"
@@ -98,7 +97,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  * "Measure it against a reference production load: about 800 claims/s on one lane with 256 holders, over a `Work` relation of more
  * than a million pending items, with a claim p95 of 54 to 109 ms at a width of 16 as the latency reference.
  * Record claim throughput and tail latency; the transient failure rate by reason, item collision against seat
- * collision, with fresh random and fixed start keys; the per-claim cost of the alternatives reverse check; settlement
+ * collision, with fresh random and fixed start keys; the per-claim cost of the standing arms' reverse check; settlement
  * latency; reclaim behavior after worker loss; large enqueues running beside claimers. Compare against a hand-written
  * claim using a locking scan with skipped rows on the same schema". Work is open, mutable inside its item's unit, since
  * a claim and a settlement change it: the immutable Work the requirement once compared it with is gone, a closed
@@ -126,10 +125,9 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  *
  * The hand-written baseline claims with SELECT ... FOR UPDATE SKIP LOCKED on the same installed schema, SERIALIZABLE as
  * every transaction, as the owner (FOR UPDATE needs UPDATE privilege, which the worker identity has on no Seat), and
- * retries a serialization failure or deadlock as the holders do: the first
- * unlocked wanted item at or after the holder's start key (then below it), the first unlocked free seat from the
- * holder's seat, the same three writes, and COMMIT, which fires the same alternatives law. SKIP LOCKED is excluded from
- * the language and exists only here.
+ * retries a serialization failure or deadlock as the holders do: the first unlocked wanted item at or after the
+ * holder's start key (then below it), the first unlocked free seat from the holder's seat, the same three writes, and
+ * COMMIT, which fires the same standing arms' laws. SKIP LOCKED is excluded from the language and exists only here.
  */
 interface Options extends Readonly<Record<string, unknown>> {
 	/** Pending items of the claimed lane. */
@@ -327,7 +325,7 @@ const showRead = (r: StoredRead): string =>
 
 /**
  * The put of Work a claim program makes where Work is mutable, by its steps: one UPDATE in place. Work's UNIQUE (key,
- * standing), which the alternatives' arms reference, compares its whole primary key, so no update of one fact meets
+ * standing), which the standings' arms reference, compares its whole primary key, so no update of one fact meets
  * it, and nothing else would make the put the pair.
  */
 const putsWorkInPlace = (statements: ReadonlyArray<ObservedStatement>): boolean =>
@@ -402,9 +400,9 @@ export default defineGate({
 
 			/**
 			 * The lane: `pending` wanted render items in slot 0, `seats` gpu seats; `dead` transcode items and cpu seats for the
-			 * reclaim case. The law's triggers are off while the owner loads the lawful state, in one transaction: the
-			 * alternatives' foreign key is native and deferred, which no DISABLE TRIGGER USER turns off, and holds only
-			 * once each item's Wanted row is in beside it.
+			 * reclaim case. The owner loads the lawful state in one transaction, its rows captured and judged at its COMMIT
+			 * (ownerTransaction): the standing arms' foreign key is native and deferred, and holds only once each item's
+			 * Wanted row is in beside it.
 			 */
 			const seed = <F>(fx: Fixture<F>) =>
 				Effect.gen(function* () {
@@ -426,19 +424,12 @@ export default defineGate({
 							", "
 						)}) ` +
 						`SELECT ${digestOf("g")}, 0, 0 FROM pg_catalog.generate_series(${from}, ${from + n - 1}) AS g`
-					const governed = ["Work", "Wanted", "Leased", "Done", "Denied"]
-					for (const t of governed) {
-						yield* owner(`ALTER TABLE ${fx.table(t)} DISABLE TRIGGER USER`)
-					}
-					yield* ownerTransaction([
+					yield* ownerTransaction(fx, [
 						work(1, options.pending, "render"),
 						wanted(1, options.pending),
 						work(options.pending + 1, options.dead, "transcode"),
 						wanted(options.pending + 1, options.dead)
 					])
-					for (const t of governed) {
-						yield* owner(`ALTER TABLE ${fx.table(t)} ENABLE TRIGGER USER`)
-					}
 					yield* fill(fx, "Seat", seats, { resource: resource("gpu"), seat: "(g - 1)::int4" })
 					yield* fill(fx, "Seat", options.dead, {
 						resource: resource("cpu"),
@@ -452,10 +443,12 @@ export default defineGate({
 			 * claim and settlement request.
 			 */
 			const base = queueSchema("Queue")
-			const declared = queueBenchWorlds(base)
 			const fx = yield* installWrites(base, "benchqueue", {
 				programs: { claim: claimOf(base), settle: settleOf(base) },
-				logins: [declared.workers, declared.enqueuers, declared.operators]
+				logins: (name) => {
+					const named = queueBenchWorlds(queueSchema(name))
+					return [named.workers, named.enqueuers, named.operators]
+				}
 			})
 			const installedIndexes = (yield* lawObjects(fx)).indexes
 			yield* seed(fx)
@@ -528,12 +521,12 @@ export default defineGate({
 									() =>
 										h.claim({
 											kind: lane.kind,
-											slot: Slot(lane.slot),
+											slot: toSlot(lane.slot),
 											resource: lane.resource,
-											from: Digest(from),
-											fromSeat: SeatNo(w % seats),
-											now: Instant(now),
-											expires: Instant(forever)
+											from: toDigest(from),
+											fromSeat: toSeatNo(w % seats),
+											now: toInstant(now),
+											expires: toInstant(forever)
 										}),
 									(o) => o.attempted.transient,
 									options.retry
@@ -729,20 +722,20 @@ export default defineGate({
 							[`{${Arr.join(keys, ",")}}`]
 						)
 						const digests = trusted<ReadonlyArray<TextRow>>(rows)
-						const facts = Arr.map(digests, ([key], i) => ({ key: Digest(key), i }))
+						const facts = Arr.map(digests, ([key], i) => ({ key: toDigest(key), i }))
 						const items = {
 							insert: {
 								[QueueWork.name]: Arr.map(facts, (f) => ({
 									key: f.key,
 									kind: "render" as const,
-									slot: Slot(0),
+									slot: toSlot(0),
 									standing: "wanted" as const,
 									epoch: 0n,
-									enqueued: Instant(BigInt(from + f.i))
+									enqueued: toInstant(BigInt(from + f.i))
 								})),
 								[Wanted.name]: Arr.map(facts, (f) => ({
 									key: f.key,
-									due: Instant(0n),
+									due: toInstant(0n),
 									attempts: 0
 								}))
 							}
@@ -803,13 +796,10 @@ export default defineGate({
 						kind: "none"
 					})
 					/**
-					 * The claim's statements, which the probed claim's program holds alike: a carrier's emptying has no plan of
-					 * the write's to explain.
+					 * The claim's statements, which the probed claim's program holds alike: a carrier's fill runs as it is.
 					 */
 					const explained = Arr.flatMap(plainClaim.statements, (statement, i) =>
-						statement.label.kind === "carrier" && statement.label.step === "empty"
-							? []
-							: [{ number: i + 1, sql: statement.sql }]
+						statement.label.kind === "carrier" ? [] : [{ number: i + 1, sql: statement.sql }]
 					)
 					const footprint: {
 						locks: ReadonlyArray<PredicateLocks>
@@ -873,12 +863,12 @@ export default defineGate({
 					const live = Math.max(1, Math.floor(seats / 2))
 					const claimParams = (w: number) => ({
 						kind: lane.kind,
-						slot: Slot(lane.slot),
+						slot: toSlot(lane.slot),
 						resource: lane.resource,
-						from: Digest(randomDigest()),
-						fromSeat: SeatNo(w % seats),
-						now: Instant(now),
-						expires: Instant(forever)
+						from: toDigest(randomDigest()),
+						fromSeat: toSeatNo(w % seats),
+						now: toInstant(now),
+						expires: toInstant(forever)
 					})
 					const held: Array<{ readonly key: string; readonly epoch: bigint }> = []
 					for (let i = 0; i < live; i++) {
@@ -923,12 +913,12 @@ export default defineGate({
 					for (let i = 0; i < options.dead; i++) {
 						const reclaimed = yield* reclaimer.claim({
 							kind: "transcode",
-							slot: Slot(0),
+							slot: toSlot(0),
 							resource: "cpu",
-							from: Digest(Str.repeat(64)("0")),
-							fromSeat: SeatNo(0),
-							now: Instant(now),
-							expires: Instant(now)
+							from: toDigest(Str.repeat(64)("0")),
+							fromSeat: toSeatNo(0),
+							now: toInstant(now),
+							expires: toInstant(now)
 						})
 						appendAll(deadLeases, leasedRows(reclaimed))
 					}
@@ -943,12 +933,12 @@ export default defineGate({
 						const t = performance.now()
 						const o = yield* reclaimer.claim({
 							kind: "transcode",
-							slot: Slot(0),
+							slot: toSlot(0),
 							resource: "cpu",
-							from: Digest(lease.key),
-							fromSeat: SeatNo(0),
-							now: Instant(now + 10n),
-							expires: Instant(forever)
+							from: toDigest(lease.key),
+							fromSeat: toSeatNo(0),
+							now: toInstant(now + 10n),
+							expires: toInstant(forever)
 						})
 						reclaimMs.push(performance.now() - t)
 						appendAll(reclaimed, leasedRows(o))

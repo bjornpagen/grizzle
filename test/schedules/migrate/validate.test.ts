@@ -304,7 +304,7 @@ export const aMigrationsValidatePhaseOverViolatingRowsEveryKindOfLawRefusesWithI
 								if (found === payload) {
 									target = x.target
 								} else {
-									yield* x.owner(found.fix)
+									yield* x.dataStep(found.fix)
 								}
 							}
 							unorderedEqual(

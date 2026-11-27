@@ -18,4 +18,4 @@ export {
 export { Bits, closedId, pg } from "#compiler/public/fields.ts"
 export { query, v } from "#compiler/public/query.ts"
 export type { HeadOf } from "#compiler/public/query.ts"
-export { check, closed, contained, on, relation, schema } from "#compiler/public/schema.ts"
+export { check, closed, contained, fn, on, relation, schema } from "#compiler/public/schema.ts"

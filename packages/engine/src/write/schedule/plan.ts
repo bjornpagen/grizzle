@@ -15,14 +15,19 @@ import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import { boundParamsRead, type DeltaSide, inputsOf, type RelNode } from "#compiler/ir/rel.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import type { BoundInput, ReadBack } from "#compiler/ir/write.ts"
+import { type Rank, rowsBound } from "#compiler/lower/optimize/cte-policy/index.ts"
 import type { CarriedShare } from "#compiler/lower/shapes/share/statements.ts"
 import {
+	type CarriedRows,
 	type CarrierDeclaring,
-	type WriteCarrier,
-	CarrierSupply
+	CarrierSupply,
+	nodeRows,
+	type WriteCarrier
 } from "#compiler/write/carriers/carriers.ts"
 import { type DeleteAnchor, deleteAnchor } from "#compiler/write/delete/anchor.ts"
+import { type FamilySource, familyInput } from "#compiler/write/delete/unit.ts"
 import type {
+	ClaimsCheck,
 	MemberCheck,
 	WriteFrontend,
 	WrittenRelation
@@ -66,23 +71,29 @@ export interface PlanAction {
 	readonly dependsOn: ReadonlyArray<number>
 }
 
-/** What a check of a query entry refuses: an addition's facts outside the entry or at a key a fact outside it holds; or
- * any fact of an addition the Db's claims leave outside the world. */
+/** The write a check checks, which follows it: an action's, or facts only a family statement writes
+ * (write/frontend/compile.ts MemberCheck), which no action does. */
+export type CheckedAddition =
+	| { readonly kind: "action"; readonly action: PlanAction }
+	| { readonly kind: "family" }
+
+/** What a check refuses: an addition's facts outside a query entry or at a key a fact outside it holds; a write's facts
+ * outside the units the role's claims bind, by the relation's claims membership (write/frontend/compile.ts ClaimsCheck
+ * `claimed`); or any fact of an addition the Db's claims leave outside the world. */
 export type PlannedCheck =
 	| {
 			readonly kind: "membership"
 			readonly entry: CheckedEntry
-			/** The addition it checks, which follows it: an action's, or facts only a family statement writes
-			 * (write/frontend/compile.ts MemberCheck), which no action does. */
-			readonly addition:
-				| { readonly kind: "action"; readonly action: PlanAction }
-				| { readonly kind: "family" }
+			readonly addition: CheckedAddition
 			readonly relation: WrittenRelation
-			/** The unique objects it probes for a fact outside the entry: a query entry's every probe, a scoped entry's
-			 * those its owner's rows do not determine (write/frontend/compile.ts WholeCheck). */
+			/** The unique objects it probes for a fact outside the entry: every probe of its relation. */
 			readonly probes: ReadonlyArray<OutsideProbe>
 	  }
+	| (Claimed & { readonly addition: CheckedAddition; readonly relation: WrittenRelation })
 	| { readonly kind: "outside"; readonly entry: EntryName }
+
+/** A write's claims precheck: the claims membership it judges each fact by, and the name it refuses one under. */
+type Claimed = Extract<ClaimsCheck, { readonly kind: "claimed" }>
 
 /** A write action's statement by what it does, with what its builder reads beyond the action's own input: an insertion
  * or a put's insert half, an exact deletion with the stratum's additions it excepts (D EXCEPT A), a deletion whose
@@ -120,10 +131,8 @@ export type PlannedWrite = {
 
 /** One step of a write plan:
  * - `bound`, a relation parameter the ChangeSet binds to a query that a reader in another state reads (ir/write.ts
- *   BoundInput): its carrier, which the session's stand-up of the write made, emptied and filled from its query first
- *   among its stratum's steps, every reader's InputSet of it reading that carrier;
- * - `emptyCarrier`, a carrier emptied at the start of its stratum, a member's or a shared sub-query's, which the
- *   session's stand-up of the write made (runtime/write/flight.ts StandUp);
+ *   BoundInput): its carrier, filled from its query first among its stratum's steps, every reader's InputSet of it
+ *   reading that carrier;
  * - `fillMember`, a member's carrier, filled from its node: the facts its action writes into `relation`, cast into its
  *   columns' types;
  * - `fillShare`, the carrier of a sub-query several statements of the stratum read, filled from the share's copy;
@@ -139,11 +148,6 @@ export type PlannedWrite = {
  *   the stratum's writes. */
 export type PlanStep =
 	| { readonly kind: "bound"; readonly input: BoundInput; readonly carrier: WriteCarrier }
-	| {
-			readonly kind: "emptyCarrier"
-			readonly carrier: WriteCarrier
-			readonly stratum: StratumAt
-	  }
 	| {
 			readonly kind: "fillMember"
 			readonly carrier: WriteCarrier
@@ -192,10 +196,9 @@ export type PlanStep =
 /**
  * One side of a relation's delta carried out of the one statement that makes it whole, for the read-backs after the
  * last stratum that read it: `side` of `relation`'s delta, the relation a stored one (a query entry's delta named by its
- * target), and the carrier of the relation's heading that holds it. The carrier is emptied right before that statement
- * (step `emptyCarrier`), which fills it inside itself from the rows its RETURNING returns of that side
- * (write/readback/deltas.ts carriedFill), and no other statement writes it, so after that statement it holds exactly
- * the side's rows: the facts the write made present, absent or met there, which no later statement nets or makes
+ * target), and the carrier of the relation's heading that holds it. That statement fills it inside itself from the rows
+ * its RETURNING returns of that side (write/readback/deltas.ts carriedStash), and no other statement writes it, so after
+ * that statement it holds exactly the side's rows: the facts the write made present, absent or met there, which no later statement nets or makes
  * again (`placeReadBacks`).
  */
 export interface CarriedSide {
@@ -217,7 +220,13 @@ export interface WritePlan {
 	/** The carrier of each side a statement carries out of itself (CarriedSide), by its relation, then its side: every
 	 * side some statement makes that a read-back after the last stratum reads. */
 	readonly carried: ReadonlyMap<string, ReadonlyMap<DeltaSide, WriteCarrier>>
+	/** Each unit delete's described source a claims precheck reads, by its node, with the carrier the precheck's steps
+	 * fill, which the delete reads in its place (`familyStepsOf`, write/delete/unit.ts FamilySource). */
+	readonly sources: ReadonlyMap<RelNode, CarriedSource>
 }
+
+/** A family statement's source as a carrier holds it (write/delete/unit.ts FamilySource). */
+type CarriedSource = Extract<FamilySource, { readonly kind: "carrier" }>
 
 /** One statement of an action before its stratum's inputs are placed: an exact deletion's excepted additions are
  * the actions its draft reads after its own, and whether it is anchored is decided once its input is placed. */
@@ -226,8 +235,13 @@ type DraftStep =
 	| { readonly op: "exactDelete" }
 	| {
 			readonly op: "precheck"
-			readonly entry: CheckedEntry
-			readonly probes: ReadonlyArray<OutsideProbe>
+			readonly check:
+				| {
+						readonly kind: "membership"
+						readonly entry: CheckedEntry
+						readonly probes: ReadonlyArray<OutsideProbe>
+				  }
+				| Claimed
 	  }
 
 /** A statement that writes its relation: every one but a query entry's precheck, which reads its input. */
@@ -339,13 +353,7 @@ const statementStep = (
 				kind: "check",
 				stratum: draft.at.stratum,
 				input,
-				check: {
-					kind: "membership",
-					entry: step.entry,
-					addition: { kind: "action", action: draft.at },
-					relation,
-					probes: step.probes
-				}
+				check: { ...step.check, addition: { kind: "action", action: draft.at }, relation }
 			}
 		case "exactDelete":
 		case "insert":
@@ -377,7 +385,7 @@ const placedSteps = (
 const opsOf = (action: ChosenAction): ReadonlyArray<DraftStep> => {
 	switch (action.op) {
 		case "delete":
-			return [{ op: "exactDelete" }]
+			return [...claimedPrecheckOf(action), { op: "exactDelete" }]
 		case "insert":
 			return [...precheckOf(action), { op: "insert", stamps: action.info.stamps }]
 		case "put":
@@ -386,39 +394,38 @@ const opsOf = (action: ChosenAction): ReadonlyArray<DraftStep> => {
 }
 
 /**
- * The precheck of an addition into a query entry, right before its insert statement, probing every unique object of
- * its relation as the entry reaches it; or of an addition through a scoped entry, right before its first statement,
- * probing the objects its check names (write/frontend/compile.ts WholeCheck); none for a whole write held to nothing.
+ * The prechecks of an addition, right before its insert statement: its claims (`claimedPrecheckOf`), then, into a query
+ * entry, its membership, probing every unique object of its relation as the entry reaches it.
  */
 const precheckOf = (action: ChosenAction): ReadonlyArray<DraftStep> => {
 	const entry = action.info.entry
+	const claimed = claimedPrecheckOf(action)
 	switch (entry.kind) {
+		case "whole":
+			return claimed
 		case "entry":
 			return [
+				...claimed,
 				{
 					op: "precheck",
-					entry: entry.entry,
-					probes: action.info.relation.uniques.probes
+					check: {
+						kind: "membership",
+						entry: entry.entry,
+						probes: action.info.relation.uniques.probes
+					}
 				}
 			]
-		case "whole":
-			return entry.check.kind === "scoped"
-				? [
-						{
-							op: "precheck",
-							entry: entry.check.entry,
-							probes: entry.check.probes
-						}
-					]
-				: []
 	}
 }
 
-/** The precheck of a put through a scoped entry, before every form of its put: no form of a whole put meets a row
- * outside the owner's rows as the entry's law, so the precheck refuses one first. A put of any other target is
- * prechecked where its form inserts (`precheckOf`). */
-const scopedPrecheckOf = (put: ChosenAction): ReadonlyArray<DraftStep> =>
-	put.info.entry.kind === "whole" ? precheckOf(put) : []
+/** The precheck of a write held to the role's claims, whole or through a query entry alike (write/frontend/compile.ts
+ * ClaimsCheck), before every statement of it but a put's displacing deletion: no statement of a write meets a fact
+ * outside the world as a law, so the precheck refuses one first, a delete's and every form of a put's among them; none
+ * for a write held to nothing. */
+const claimedPrecheckOf = (action: ChosenAction): ReadonlyArray<DraftStep> => {
+	const claims = action.info.claims
+	return claims.kind === "claimed" ? [{ op: "precheck", check: claims }] : []
+}
 
 /**
  * Why a write has no READ COMMITTED form (core/errors.ts NoReadCommittedForm): the relation of its first insert, in its
@@ -474,7 +481,7 @@ const putOps = (put: Extract<ChosenAction, { readonly op: "put" }>): ReadonlyArr
 		}
 		case "onConflictDoUpdate":
 			return [
-				...scopedPrecheckOf(put),
+				...claimedPrecheckOf(put),
 				{
 					op: "upsert",
 					input: choice.slot.input,
@@ -483,7 +490,7 @@ const putOps = (put: Extract<ChosenAction, { readonly op: "put" }>): ReadonlyArr
 				}
 			]
 		case "updateFrom":
-			return [...scopedPrecheckOf(put), { op: "updateFrom", inPlace: choice.inPlace }]
+			return [...claimedPrecheckOf(put), { op: "updateFrom", inPlace: choice.inPlace }]
 		case "ownerPut":
 			return [
 				...precheckOf(put),
@@ -494,7 +501,7 @@ const putOps = (put: Extract<ChosenAction, { readonly op: "put" }>): ReadonlyArr
 			]
 		case "merge":
 			return [
-				...scopedPrecheckOf(put),
+				...claimedPrecheckOf(put),
 				{ op: "merge", inPlace: choice.inPlace, arbiter: choice.arbiter, scope: choice.merge.scope }
 			]
 	}
@@ -508,8 +515,7 @@ interface PlanEvidence {
 	 * carried across them (`planStatementShares`); where one statement realizes the stratum (`single`), each evaluation
 	 * it holds as a part of its own is a statement of the planning, the only one that reads its call's arguments. */
 	readonly shares: (members: ReadonlyArray<RelNode>, single: boolean) => ReadonlyArray<CarriedShare>
-	/** How its carriers are declared, whose session tables they are and each column's type, which their names digest
-	 * (write/carriers CarrierDeclaring). */
+	/** How its carriers are declared, each column's type (write/carriers CarrierDeclaring). */
 	readonly carriers: CarrierDeclaring
 }
 
@@ -585,13 +591,37 @@ const sourceInput = (action: ChosenAction, evidence: PlanEvidence): WriteInput =
  * The steps of stratum `stratum`'s family statements, each its statement after the prechecks of the facts `checks` it is
  * the first of the stratum's to write (write/frontend/compile.ts MemberCheck): a check reads the relation its statement
  * writes, so the statement follows it (program/artifact.ts DependencyTracker), and every earlier statement of the
- * stratum, an owner's insert a reached entry's membership reads among them, precedes it.
+ * stratum, an owner's insert a reached entry's membership reads among them, precedes it. A check of a unit delete's
+ * described source and the delete read one evaluation of it: a carrier from `supply` the check's steps fill, recorded in
+ * `sources`, which the delete then reads in its place (write/delete/unit.ts FamilySource), as an action's described
+ * member several statements read is carried (`sequentialSteps`).
  */
 const familyStepsOf = (
 	stratum: StratumAt,
-	checks: ReadonlyArray<MemberCheck>
+	checks: ReadonlyArray<MemberCheck>,
+	supply: CarrierSupply,
+	sources: Map<RelNode, CarriedSource>
 ): ((f: FamilyAt) => ReadonlyArray<PlanStep>) => {
 	const checked = new Set<MemberCheck>()
+	/** The steps of check `c`: its source carried first where it is described, then the check of it. */
+	const checkSteps = (c: MemberCheck): ReadonlyArray<PlanStep> => {
+		const check = { ...c.check, addition: { kind: "family" } as const, relation: c.relation }
+		if (c.source.kind !== "described") {
+			return [{ kind: "check", stratum, input: familyInput(c.source), check }]
+		}
+		const node = c.source.node
+		const fields = keyFirst(c.relation).filter((f) => node.heading.some((h) => h.name === f.name))
+		const carrier = supply.next(
+			compareHeading(fields),
+			nodeRows([node], `a member of ${c.relation.name}`)
+		)
+		const input = { kind: "carrier", carrier, proof: unproved } as const
+		sources.set(node, { kind: "carrier", input })
+		return [
+			{ kind: "fillMember", carrier, node, relation: c.relation.name, stratum },
+			{ kind: "check", stratum, input, check }
+		]
+	}
 	return (f) => {
 		const written = familyNodeRelations(f.node)
 		const due = checks.filter((c) => !checked.has(c) && written.includes(c.relation.name))
@@ -599,18 +629,7 @@ const familyStepsOf = (
 			checked.add(c)
 		}
 		return [
-			...due.map((c): PlanStep => ({
-				kind: "check",
-				stratum,
-				input: c.slot.input,
-				check: {
-					kind: "membership",
-					entry: c.check.entry,
-					addition: { kind: "family" },
-					relation: c.relation,
-					probes: c.check.probes
-				}
-			})),
+			...due.flatMap(checkSteps),
 			{ kind: "family", stratum, node: f.node, readBacks: [], carries: [] }
 		]
 	}
@@ -633,9 +652,8 @@ const sequentialSteps = (
 	for (const share of shares) {
 		const carrier = supply.next(
 			share.node.heading.map((c) => ({ name: c.name, type: c.type })),
-			undefined
+			nodeRows([share.node], "a shared sub-query")
 		)
-		steps.push({ kind: "emptyCarrier", carrier, stratum })
 		steps.push({ kind: "fillShare", carrier, share, stratum })
 	}
 	const carried = new Set(shares.flatMap((share) => share.copies))
@@ -661,8 +679,7 @@ const sequentialSteps = (
 			action.info.heading.some((c) => c.name === f.name)
 		)
 		const heading = action.op === "delete" ? compareHeading(fields) : factHeading(fields)
-		const carrier = supply.next(heading, undefined)
-		steps.push({ kind: "emptyCarrier", carrier, stratum })
+		const carrier = supply.next(heading, nodeRows([reads.node], `a member of ${relation.name}`))
 		steps.push({ kind: "fillMember", carrier, node: reads.node, relation: relation.name, stratum })
 		return { kind: "reread", draft, input: { kind: "carrier", carrier, proof } }
 	}
@@ -726,7 +743,6 @@ const stepWrites = (step: PlanStep): ReadonlyArray<string> => {
 		case "family":
 			return familyNodeRelations(step.node)
 		case "bound":
-		case "emptyCarrier":
 		case "fillMember":
 		case "fillShare":
 		case "check":
@@ -763,6 +779,36 @@ const withCascades = (
  * statement, or a family statement that inserts a stamped nesting's root (write/frontend/compile.ts readableRoots). */
 type Rideable = Extract<PlanStep, { readonly kind: "write" | "single" | "family" }>
 
+/**
+ * The rows of `named`'s delta side the statement `step` makes, by what bounds them: each write of the relation in it,
+ * by what it reads (`writtenRank`); a family statement's nested rows, the call's own.
+ */
+const deltaRows = (named: NamedSide, step: Rideable): CarriedRows => {
+	const rows = `the ${named.side} side of ${named.relation}'s delta`
+	if (step.kind === "family") {
+		return { ranks: ["held"], rows }
+	}
+	const ranks = (step.kind === "single" ? step.writes : [step])
+		.filter((w) => w.relation.name === named.relation)
+		.map((w) => writtenRank(w.input))
+	return { ranks: isNonEmpty(ranks) ? ranks : ["held"], rows }
+}
+
+/**
+ * The rank of the rows a write reads as its input bounds them: a described member's node's (rowsBound), a carried
+ * member's its carrier's, none for an unbounded one; a relation parameter's facts, the call's own.
+ */
+const writtenRank = (input: WriteInput): Rank | undefined => {
+	switch (input.kind) {
+		case "described":
+			return rowsBound(input.node)
+		case "carrier":
+			return input.carrier.bound === "none" ? undefined : input.carrier.bound
+		case "relation":
+			return "held"
+	}
+}
+
 /** `step` with the read-backs `riders` riding it and the delta sides `carries` carried out of it: a single statement's
  * own or a family statement's, or a lone write's as a single statement of that one write. */
 const ridden = (
@@ -786,12 +832,8 @@ const ridden = (
 	}
 }
 
-/** The stratum of a statement a read-back may ride or a side be carried out of. */
-const rideableStratum = (step: Rideable): StratumAt =>
-	step.kind === "write" ? step.action.stratum : step.stratum
-
-/** Where each read-back runs: the strata's statements with the read-backs riding them, the delta sides carried out of
- * them and each carrier's emptying right before the statement that fills it; the read-backs after the last stratum;
+/** Where each read-back runs: the strata's statements with the read-backs riding them and the delta sides carried out
+ * of them; the read-backs after the last stratum;
  * the sides of each relation's delta some statement makes, every other side empty by construction; and the carrier of
  * each carried side. */
 interface ReadBackPlacement {
@@ -865,7 +907,6 @@ const stepSides = (step: PlanStep): ReadonlyArray<SideWrite> => {
 				}))
 			)
 		case "bound":
-		case "emptyCarrier":
 		case "fillMember":
 		case "fillShare":
 		case "check":
@@ -918,7 +959,7 @@ const cancels = (side: DeltaSide, maker: SideWrite, other: SideWrite): boolean =
  *   frontend/schedule.ts canonicalActionOrder), so it rides wherever the stratum's keys allow it.
  * - Otherwise it is evaluated after the last stratum, in the state the whole write leaves, and each side it names that a
  *   statement makes is carried there (CarriedSide): the statement making it whole fills a carrier of its own from its
- *   RETURNING inside itself, emptied right before it, and the read-back reads the carrier where it reads the side. The
+ *   RETURNING inside itself, and the read-back reads the carrier where it reads the side. The
  *   carrier holds exactly that statement's rows of the side, which are the whole netted side, so the read-back reads the
  *   write's own delta, its keys as the write made them, joined to every relation as the whole write leaves it: never
  *   the delta re-derived by a search of the state. A read-back that names no side a statement makes runs there too,
@@ -929,7 +970,7 @@ const cancels = (side: DeltaSide, maker: SideWrite, other: SideWrite): boolean =
  * the call's own, made under the call's borrows: at READ COMMITTED a unit's rows are written only under its exclusive
  * borrow, which the call holds until it ends (analysis/isolation/borrows.ts), so no other call writes a row at the
  * keys the side holds before the read-back reads them, and under SERIALIZABLE the transaction's one snapshot and its
- * own writes are what every statement of it reads. A carrier holds no predicate lock and is the session's alone.
+ * own writes are what every statement of it reads. A carrier holds no predicate lock and is the transaction's alone.
  */
 const placeReadBacks = (
 	frontend: WriteFrontend,
@@ -962,7 +1003,7 @@ const placeReadBacks = (
 	const completion = (named: NamedSide): number | undefined => {
 		const [maker, ...others] = makers(named.relation, named.side)
 		if (maker === undefined) {
-			throw defect(`a statement making the ${named.side} side of ${named.relation}'s delta`)
+			defect(`a statement making the ${named.side} side of ${named.relation}'s delta`)
 		}
 		if (others.length > 0) {
 			return undefined
@@ -982,9 +1023,7 @@ const placeReadBacks = (
 		) {
 			return step
 		}
-		throw defect(
-			`a read-back's delta made by a statement that returns no rows of it, at ${position}`
-		)
+		defect(`a read-back's delta made by a statement that returns no rows of it, at ${position}`)
 	}
 	/** Whether the state `read` reads is settled at the statement at `position`, the one it would ride: no statement
 	 * there or after writes a stored relation it reads, and every bound input it reads is filled before it. */
@@ -1056,7 +1095,7 @@ const placeReadBacks = (
 		)
 		const carrier = supply.next(
 			relation.heading.map((f) => ({ name: f.name, type: f.type })),
-			undefined
+			deltaRows(named, step)
 		)
 		own.set(named.side, carrier)
 		const side: CarriedSide = { relation: named.relation, side: named.side, carrier }
@@ -1104,14 +1143,9 @@ const placeReadBacks = (
 			}
 			const riding = riders.get(step) ?? []
 			const carrying = carries.get(step) ?? []
-			if (riding.length === 0 && carrying.length === 0) {
-				return [step]
-			}
-			const stratum = rideableStratum(step)
-			return [
-				...carrying.map((c): PlanStep => ({ kind: "emptyCarrier", carrier: c.carrier, stratum })),
-				ridden(step, riding, carrying)
-			]
+			return riding.length === 0 && carrying.length === 0
+				? [step]
+				: [ridden(step, riding, carrying)]
 		}),
 		after,
 		made,
@@ -1136,7 +1170,7 @@ const placeReadBacks = (
  * stratum's writes, once. A member is a leading CTE of the statement that consumes it when that statement is its only
  * consumer and no earlier statement of the stratum writes a relation it reads, so the statement's snapshot is the
  * stratum's starting state for everything the member reads; this is the one-statement, no-carrier realization.
- * Otherwise it is evaluated into a transaction-scoped carrier at the start of the stratum, before any of the stratum's
+ * Otherwise it is evaluated into a carrier at the start of the stratum, before any of the stratum's
  * writes, and every consumer reads the carrier: the two statements of an immutable put, an insertion followed by its
  * classification into a span primary key, an addition a deletion reads as D EXCEPT A, or a
  * member that would otherwise read a relation an earlier statement of its stratum changed. An insertion's or a put's
@@ -1165,7 +1199,7 @@ const placeReadBacks = (
  * Read-backs are placed by what they read (`placeReadBacks`): a read-back whose deltas one statement makes whole, and
  * whose state reads that statement and every later one leave alone, rides that statement, evaluated in it over its
  * RETURNING; any other comes last, after the last stratum, each delta side a statement makes that it reads carried
- * there in a carrier the statement making it fills from its RETURNING, emptied right before it; one that reads a side
+ * there in a carrier the statement making it fills from its RETURNING; one that reads a side
  * no one statement makes whole is refused (ReadBackCrossesStatements).
  *
  * A stratum is realized sequentially, one statement per write action plus the member carriers and classifications the
@@ -1188,11 +1222,13 @@ export const planWrite = (
 		input,
 		carrier: supply.next(
 			input.node.heading.map((c) => ({ name: c.name, type: c.type })),
-			undefined
+			nodeRows([input.node], `relation parameter ${input.param}`)
 		)
 	}))
 	/** The strata's statements, the read-backs placed among them below. */
 	const strata: Array<PlanStep> = []
+	/** Each checked unit delete's described source with the carrier its precheck fills (WritePlan `sources`). */
+	const sources = new Map<RelNode, CarriedSource>()
 	/** The nodes each stratum's members reach: a carrier holds its stratum's starting state, so a node another
 	 * stratum's member also reaches is never carried across statements; a single statement's parts are its own CTEs,
 	 * which no later statement reads (write/program/compile.ts uncarries them), so it holds such a node too. */
@@ -1262,7 +1298,7 @@ export const planWrite = (
 				realization.kind === "single" ||
 				!share.copies.some((copy) => reached.some((nodes, t) => t !== s && nodes.has(copy)))
 		)
-		const familyStep = familyStepsOf(s, checks)
+		const familyStep = familyStepsOf(s, checks, supply, sources)
 		if (realization.kind === "sequential") {
 			refuseStampedStatements(
 				drafted.map((d) => ({
@@ -1304,6 +1340,7 @@ export const planWrite = (
 		carriers: Object.freeze(supply.all()),
 		declaring: evidence.carriers,
 		made: placement.made,
-		carried: placement.carried
+		carried: placement.carried,
+		sources
 	})
 }

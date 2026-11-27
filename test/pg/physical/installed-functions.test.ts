@@ -31,7 +31,7 @@ import {
 	functionSchemaOf
 } from "#test/pg/physical/installed-functions.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { installMigrated } from "#test/support/install-migrate.ts"
+import { installGenerated } from "#test/support/install-migrate.ts"
 import { ownerSession, Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 type KindFeature =
@@ -75,13 +75,10 @@ export const everyFunctionAnInstallationEmitsOfEveryConstantKindPassesTheInstall
 						const owner = yield* substrate.session({ ...ownerSession(), label: "functions owner" })
 						return yield* Effect.scoped(
 							Effect.gen(function* () {
-								const { schema, logins } = functionSchemaOf(functionCase)
-								const installed = yield* installMigrated(schema, {
-									label: "functions",
-									logins,
-									extensions: [],
-									ambient: ordinarySession
-								})
+								const { installed } = yield* installGenerated(
+									(name) => functionSchemaOf(functionCase, name),
+									{ label: "functions", ambient: ordinarySession }
+								)
 								const i = installed.installation
 								const created = Arr.flatMap(i.manifest.objects, (o) =>
 									o.kind === "constant"

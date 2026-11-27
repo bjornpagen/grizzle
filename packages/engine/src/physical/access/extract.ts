@@ -1,9 +1,11 @@
 import { firstIndex, appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { postorder } from "@bjornpagen/grizzle-text/base/graph"
 import {
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
+import { fusedAttachments } from "#compiler/check/approximate/attach.ts"
 import { traceApproximate } from "#compiler/check/approximate/trace.ts"
 import { searchedOccurrence } from "#compiler/check/search/fence.ts"
 import {
@@ -16,10 +18,12 @@ import {
 	thenBy
 } from "#compiler/core/order.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
+import type { KeyName, TheoryRelation } from "#compiler/ir/law.ts"
 import type { AccessKey, AccessPath, AccessUse, ProgramAccess } from "#compiler/ir/products.ts"
 import {
 	type CompletedOrder,
 	type Heading,
+	inputsOf,
 	type KeySet,
 	type NodeOf,
 	type OrderKey,
@@ -31,6 +35,20 @@ import {
 import { baseOf, type Carrier, fewValued, isSpanCarrier } from "#compiler/ir/scalar.ts"
 import { conjuncts } from "#compiler/logical/props.ts"
 import {
+	attachmentRead,
+	type ChainStep,
+	correlatedSites,
+	restrictedByValues,
+	semiJoinDriven
+} from "#compiler/lower/optimize/cte-policy/index.ts"
+import {
+	type PageWindow,
+	pagedReads,
+	type WindowDriver
+} from "#compiler/lower/shapes/page/driver.ts"
+import { type RowReading, rowReading } from "#compiler/lower/shapes/share/keys.ts"
+import { regionChain } from "#compiler/lower/shapes/share/sites.ts"
+import {
 	type Atom,
 	atomKey,
 	fixedAt,
@@ -41,8 +59,67 @@ import { type Lookup, uniqueLookups, uniquePaths } from "#compiler/physical/acce
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 
 interface ExtractOptions {
-	/** The roots that are a paged ordered program: a workload program whose root is an ordered result. */
-	readonly pageable: ReadonlyArray<RelNode>
+	/**
+	 * The roots that are a paged ordered program, a workload program whose root is an ordered result, each with how its
+	 * windows read its rows (lower/shapes/page/driver.ts PageWindow).
+	 */
+	readonly pageable: ReadonlyArray<PagedRoot>
+	/** Each stored relation's keys as their unique indexes order their columns (`keyOrdersOf`). */
+	readonly keyOrders: KeyOrders
+	/** Each world relation the program reads, as the security barrier view it is installed as (`WorldView`). */
+	readonly worlds: WorldViews
+}
+
+/**
+ * A role's world relation as a reader's statement reads it: the security barrier view of its definition
+ * (physical/ddl/roles.ts worldView), which PostgreSQL never flattens into its reader and passes only the reader's
+ * leakproof quals (allpaths.c qual_is_pushdown_safe), so the reads beneath it are its definition's, read at those quals
+ * alone: its definition's IR as its view's lowering rewrites it (`root`), and its heading's columns whose equality is
+ * leaky (physical/access/seeks.ts leakyEquality), which stay above the barrier.
+ */
+export interface WorldView {
+	readonly root: RelNode
+	readonly leaky: ReadonlySet<string>
+}
+
+/** The world views of a program's role, by their relations' names; none for a program over reality. */
+export type WorldViews = (relation: string) => WorldView | undefined
+
+/** A program that reads no world relation: one over reality, a rule's judged read, a write filter's membership. */
+export const noWorlds: WorldViews = () => undefined
+
+/** What a barrier view passes of the facts `pushed` on its outputs into its definition: those of no leaky column. */
+const beneath = (view: WorldView, pushed: Pushed): Pushed =>
+	mapPushed(pushed, (c) => (view.leaky.has(c) ? undefined : c))
+
+/**
+ * Each key of a stored relation in the column order of the unique index the installation creates for it, which a seek
+ * reads the leading run of: an ordinary relation's as its key states it, a span last (laws/model/plan.ts
+ * primaryKeyPlan), and a stored derived relation's primary key led by its unit (analysis/derived/storage.ts
+ * storedPrimaryKey), where a Base over it lists its proof's fields (ViewKey `fields`); none for a relation the theory
+ * holds no table of.
+ */
+export type KeyOrders = (relation: string) => ReadonlyArray<ReadonlyArray<string>>
+
+/** A key's columns in its index's order (KeyOrders): its fields as it states them, its span field last. */
+const indexOrder = (key: KeyName<"primaryKey" | "key" | "derivedKey">): ReadonlyArray<string> => {
+	const span = key.span?.name
+	const names = key.fields.map((f) => f.name)
+	return span === undefined ? names : [...names.filter((f) => f !== span), span]
+}
+
+/** The key orders of the theory's relations `relations` (KeyOrders). */
+export const keyOrdersOf =
+	(relations: Readonly<Record<string, TheoryRelation>>): KeyOrders =>
+	(relation) => {
+		const r = Object.hasOwn(relations, relation) ? relations[relation] : undefined
+		return r === undefined ? [] : r.keyNames.map(indexOrder)
+	}
+
+/** A paged ordered program's root, and how its windows read its rows: as they stand, or driven by a window driver. */
+export interface PagedRoot {
+	readonly root: RelNode
+	readonly window: PageWindow
 }
 
 type Bound = "lower" | "upper" | "pair"
@@ -326,6 +403,32 @@ const correlatedFixed = (n: NodeOf<"MatchRegion">, column: string): boolean =>
 		return c.var.name === column && (operand.kind === "fixed" || operand.kind === "literal")
 	})
 
+/** No variable of a region. */
+const noVariables: ReadonlySet<string> = new Set()
+
+/**
+ * The variables of region `n` a filter over it fixes per evaluation (`pushed`): each it equates with a fixed value or a
+ * literal, which the lowering prints in a chain step's read as it prints a parameter, and each it equates with a term of
+ * fixed ones (atoms.ts termEq), a correlated value (`correlatedFixed`) or a variable
+ * fixed so, closed under those terms: a navigation step's column bound to a term computed from the channels it passes
+ * in, which a chain of the region seeks by as by the channel itself (`Extractor.chained`), as `regionFacts` fixes it.
+ */
+const pushedFixed = (n: NodeOf<"MatchRegion">, pushed: Pushed): ReadonlySet<string> => {
+	const held = new Set(pushed.eq.keys())
+	const terms = pushed.pairs.flatMap((a) => (a.kind === "termEq" ? [a] : []))
+	const fixed = (column: string): boolean => held.has(column) || correlatedFixed(n, column)
+	for (let grew = true; grew;) {
+		grew = false
+		for (const t of terms) {
+			if (!held.has(t.column) && t.reads.every(fixed)) {
+				held.add(t.column)
+				grew = true
+			}
+		}
+	}
+	return held
+}
+
 /** The facts of every occurrence of a region under the pushed facts on its heading. */
 const regionFacts = (n: NodeOf<"MatchRegion">, pushed: Pushed): RegionFacts => {
 	const rootOf = regionVarClasses(n)
@@ -570,6 +673,23 @@ const regionFacts = (n: NodeOf<"MatchRegion">, pushed: Pushed): RegionFacts => {
 }
 
 /**
+ * The facts the values a region's evaluation fixes hold of an occurrence's columns: its own facts and every partner's
+ * of at most one row (PartnerFacts `single`), each partner's equality a fixed one, what a source read where it stands,
+ * never probed at a partner of many rows, is read at; a join with a partner of many rows binds it at nothing.
+ */
+const valuesOf = (o: OccurrenceFacts): Pushed => {
+	const eq = new Map(o.eq)
+	for (const p of o.partners.values()) {
+		if (p.single) {
+			for (const c of p.eq) {
+				eq.set(c, "fixed")
+			}
+		}
+	}
+	return { eq, range: o.range, span: o.span, suffix: o.suffix, pairs: [] }
+}
+
+/**
  * Whether an occurrence carries a fixed restriction: an equality with a fixed value, a range, a span predicate or a
  * suffix test.
  */
@@ -580,6 +700,17 @@ const restricted = (o: OccurrenceFacts): boolean =>
 	o.suffix.size > 0
 
 type KeysOf = (base: NodeOf<"Base">) => ReadonlyArray<KeySet>
+
+/**
+ * The declared keys of a stored relation's occurrence, or the proven keys of a derived relation's view, which its unique
+ * indexes carry and the checker stamped on its Base: the keys the extraction reads, and a window driver's proof reads
+ * where its access is extracted (program/workload/compile.ts).
+ */
+export const declaredKeys: KeysOf = (base) =>
+	(base.relationKind === "derived"
+		? base.view.map((k) => k.fields)
+		: [base.primaryKey, ...base.keys]
+	).filter((k) => k.length > 0)
 
 /** A span key's index is GiST; every other key's is a B-tree. */
 const keyMethod = (base: NodeOf<"Base">, key: ReadonlyArray<string>): "btree" | "gist" =>
@@ -700,11 +831,20 @@ interface Answer<A> {
 }
 
 /** The requested columns of a node read from one occurrence of a stored relation: the relation, the facts pushed on
- * that occurrence and its region's other occurrences, and each request's answer, in request order. */
+ * that occurrence, whether its region's rows come in its order (`leads`), and each request's answer, in request order. */
 interface Resolution<A> {
 	readonly base: NodeOf<"Base">
 	readonly facts: OccurrenceFacts
-	readonly others: ReadonlyArray<OccurrenceFacts>
+	/**
+	 * Whether the region's rows come in this occurrence's order, what an ordered path of it serves (orderedPath): it leads
+	 * the chain the lowering reads its region by where it stands (share/sites.ts regionChain), each later step read per
+	 * row of it; where PostgreSQL joins the region, no other occurrence of it is restricted; a stored relation read
+	 * alone, always. A take over a region its chain starts elsewhere sorts the chain's rows: metis's myOpenSittingsOf, the
+	 * signed-in learner's open sittings of a test, the lowest two first, reads the claims' Clerk user, its person and the
+	 * person's assignments of the test, where a take seek of every learner's assignments of the test in number order,
+	 * which no plan of the chain reads, cost a B-tree insert on every assignment.
+	 */
+	readonly leads: boolean
 	readonly columns: ReadonlyArray<Answer<A>>
 }
 
@@ -722,7 +862,7 @@ class Extractor {
 	readonly seeks: Array<SuffixSeek> = []
 	/** The pushed facts each node was visited under, by their key: the walk's seen-set. */
 	readonly #visited = new Map<RelNode, Set<string>>()
-	readonly #pageable: ReadonlySet<RelNode>
+	readonly #pageable: ReadonlyMap<RelNode, PageWindow>
 	/**
 	 * The searched occurrences of approximate reads and of text searches, each read through its fence alone
 	 * (lower/shapes/vector fenceOf, lower/shapes/search searchFenced), which no path of their region's filters, matches
@@ -730,26 +870,62 @@ class Extractor {
 	 * search, so none is asked (`basePaths`).
 	 */
 	readonly #streamed = new Set<NodeOf<"Base">>()
+	/**
+	 * The reads the lowering makes per row of a driver and the regions they hold at a restriction (lower/shapes/share/
+	 * keys.ts rowReading), the one walk the lowering reads them by, and each node's readers among the walked nodes.
+	 */
+	readonly #reading: RowReading
+	readonly #readers = new Map<RelNode, Set<RelNode>>()
+	/**
+	 * The attachments whose child the lowering reads whole, once for every parent: a co-group's (cte-policy
+	 * attachmentRead `coGroup`, lower/shapes/attach coGroupedRows), its child grouped at its correlation by one GROUP BY
+	 * beside the parent keys, so no statement seeks the child at a parent's values, where a statement of its own reads it;
+	 * fused into a statement whose rows read a search (check/approximate/attach.ts fusedAttachments), every child is read
+	 * per parent row.
+	 */
+	readonly #wholeChildren: ReadonlySet<NodeOf<"Attach">>
 
-	constructor(options: ExtractOptions) {
+	constructor(
+		options: ExtractOptions,
+		roots: ReadonlyArray<RelNode>,
+		nodes: ReadonlyArray<RelNode>
+	) {
 		this.options = options
-		this.#pageable = new Set(options.pageable)
+		this.#pageable = new Map(options.pageable.map((p) => [p.root, p.window] as const))
+		const fused = new Set(roots.flatMap(fusedAttachments))
+		this.#wholeChildren = new Set(
+			nodes.flatMap((n) =>
+				n.kind === "Attach" && attachmentRead(n).kind === "coGroup" && !fused.has(n) ? [n] : []
+			)
+		)
+		this.#reading = rowReading(
+			nodes,
+			options.pageable.flatMap((p) => pagedReads(p.window))
+		)
+		for (const node of nodes) {
+			for (const input of inputsOf(node)) {
+				this.#readers.getOrInsertComputed(input, () => new Set()).add(node)
+			}
+		}
 	}
 
 	/** The declared keys of a stored relation's occurrence, or the proven keys of a derived relation's view, which its
 	 * unique indexes carry and the checker stamped on its Base. */
-	readonly keysOf: KeysOf = (base) => {
-		const keys =
-			base.relationKind === "derived"
-				? base.view.map((k) => k.fields)
-				: [base.primaryKey, ...base.keys]
-		return keys.filter((k) => k.length > 0)
-	}
+	readonly keysOf: KeysOf = (base) => declaredKeys(base)
 
 	keyWithin(base: NodeOf<"Base">, columns: ReadonlySet<string>): ReadonlyArray<string> | undefined {
 		return this.keysOf(base).find((k) => k.every((f) => columns.has(f)))
 	}
 
+	/**
+	 * The paths `n`'s reads ask, each read under what `pushed` holds of its columns. An existence test's right side is
+	 * probed at its pairs per left row, but a semi-join its right side drives (cte-policy semiJoinDriven) reads that side
+	 * once, at what holds the semi-join's columns its pairs carry, and its left side per key: no left row probes the
+	 * driver, which asks the paths its own values seek. A semi-join whose right side's rows the statement's own values
+	 * restrict (cte-policy restrictedByValues), driven or not, holds its left side's pair columns at values fixed where it
+	 * is evaluated, each left row's a row of those, as a join with that side in one region does: a read of T by its text
+	 * where a parameter's row of S holds the text (test/unit/physical/digest-seeks `a shared variable`) seeks T at it.
+	 */
 	visit(n: RelNode, pushed: Pushed): void {
 		const key = pushedKey(pushed)
 		const seen = this.#visited.get(n)
@@ -770,6 +946,9 @@ class Extractor {
 			case "MatchRegion":
 				return this.region(n, pushed)
 			case "Base":
+				if (n.relationKind === "world") {
+					return this.throughBarrier(n, pushed)
+				}
 				this.basePaths(
 					n,
 					{
@@ -800,11 +979,16 @@ class Extractor {
 				this.ordered(n.input, mergeOrder(n.orders, n.input.heading), "take seek", input)
 				return this.visit(n.input, input)
 			}
-			case "OrderedResult":
-				if (this.#pageable.has(n)) {
-					this.ordered(n.input, mergeOrder(n.orders, n.input.heading), "page seek", pushed)
+			case "OrderedResult": {
+				const window = this.#pageable.get(n)
+				const order = mergeOrder(n.orders, n.input.heading)
+				if (window?.kind === "driven") {
+					this.drivenSeek(window.driver, order)
+				} else if (window?.kind === "asItStands") {
+					this.ordered(n.input, order, "page seek", pushed)
 				}
 				return this.visit(n.input, pushed)
+			}
 			case "Group":
 				return this.visit(n.input, restrict(pushed, n.keys))
 			case "Union":
@@ -826,6 +1010,23 @@ class Extractor {
 					[n.right, fixedOn(n.right.heading.map((c) => c.name))]
 				])
 			case "SemiJoin":
+				return all([
+					[
+						n.left,
+						restrictedByValues(n.right)
+							? withAtoms(
+									pushed,
+									n.on.map((p) => ({ kind: "eq", column: p.left, with: "fixed" }) as const)
+								)
+							: pushed
+					],
+					[
+						n.right,
+						semiJoinDriven(n) === undefined
+							? fixedOn(n.on.map((p) => p.right))
+							: mapPushed(pushed, (c) => n.on.find((p) => p.left === c)?.right)
+					]
+				])
 			case "AntiJoin":
 				return all([
 					[n.left, pushed],
@@ -834,7 +1035,10 @@ class Extractor {
 			case "Attach":
 				return all([
 					[n.parent, pushed],
-					[n.child, fixedOn(n.correlation.map((c) => c.child))]
+					[
+						n.child,
+						this.#wholeChildren.has(n) ? nothing : fixedOn(n.correlation.map((c) => c.child))
+					]
 				])
 			case "Recursive":
 				return all([
@@ -913,6 +1117,14 @@ class Extractor {
 	}
 
 	region(n: NodeOf<"MatchRegion">, pushed: Pushed): void {
+		const chains = this.chainsOf(n)
+		const held = pushedFixed(n, pushed)
+		for (const steps of chains.steps) {
+			this.chained(steps, held)
+		}
+		if (chains.alone) {
+			return
+		}
 		const facts = regionFacts(n, pushed)
 		const keyDriven = new Set(
 			facts.occurrences.flatMap((o, at) => {
@@ -922,6 +1134,134 @@ class Extractor {
 		)
 		for (const o of facts.occurrences) {
 			this.occurrence(o, keyDriven)
+		}
+	}
+
+	/**
+	 * The chains the lowering reads a region by (lower/shapes/region regionSelect, share/sites.ts regionChain): the one its
+	 * own fixed values and correlated sites start, read wherever it stands, and one for each restriction a row site's
+	 * walk holds it at (share/keys.ts rowReading `restricted`); `alone` where every read of it is chained, its own chain
+	 * starting, or every reader reading it per row of a driver, so no plan of it orders its occurrences by estimates and
+	 * no path anticipating such an order is asked.
+	 */
+	chainsOf(n: NodeOf<"MatchRegion">): {
+		readonly steps: ReadonlyArray<ReadonlyArray<ChainStep>>
+		readonly alone: boolean
+	} {
+		const sites = correlatedSites(n)
+		const own = regionChain(n, [], sites)
+		const walked = (this.#reading.restricted.get(n) ?? []).flatMap((columns) => {
+			const steps = regionChain(n, columns, sites)
+			return steps === undefined ? [] : [steps]
+		})
+		const perRow = this.#reading.readers.get(n)
+		const readers = [...(this.#readers.get(n) ?? [])]
+		return {
+			steps: own === undefined ? walked : [own, ...walked],
+			alone:
+				own !== undefined || (walked.length > 0 && readers.every((r) => perRow?.has(r) === true))
+		}
+	}
+
+	/**
+	 * The paths one chain's steps seek by, each step's alone (cte-policy ChainStep): a stored source's at the columns
+	 * its seek binds (`stepPath`), those the steps before it bind and those `fixed` says the statement's values fix of
+	 * its occurrence, a parameter's, a literal's or an outer row's, which the step's WHERE states beside them, and any
+	 * other source, a row site, read at them, its own reads walked under them; or,
+	 * a source a row site's root holds once (share/keys.ts rowReading `held`), derived at each restriction it is held at,
+	 * its CTE, which the step reads where it stands, at its own columns: a batch's scores, a union a probe's attachment
+	 * reads at its x and stage and at its y and stage, is derived once per probe at the stage alone, and its arms' paths
+	 * are the stage's, where asked at each read's columns they were paths no plan reads and the stage's none. A step's
+	 * seek binds beside its own columns each column of its occurrence bound to a variable `held` holds, one a filter over
+	 * the region fixes (`pushedFixed`), which the lowering prints in the step's own read: a navigation step's column bound
+	 * to a term of the channels it passes in, `g = CASE WHEN octet_length(x) ... END` (PUBLISH2's placed variable
+	 * reference, its identifier a bounded text's guarded cast of its declaration's attribute value).
+	 */
+	chained(steps: ReadonlyArray<ChainStep>, held: ReadonlySet<string>): void {
+		for (const step of steps) {
+			const source = step.occurrence.source
+			const at = [
+				...step.at,
+				...step.occurrence.bindings.flatMap((b) =>
+					held.has(b.var.name) && !step.at.includes(b.column) ? [b.column] : []
+				)
+			]
+			if (source.kind === "Base") {
+				this.stepPath(source, at)
+				continue
+			}
+			for (const restriction of this.#reading.held.get(source) ?? [at]) {
+				this.visit(source, fixedOn(restriction))
+			}
+		}
+	}
+
+	/**
+	 * The path a chain step seeks a stored relation by, at `at`, the columns its seek binds in the order the step leads
+	 * with them: a key's own index where they hold a declared key whole or are the leading run of its index, in the order
+	 * the installation creates it (ExtractOptions `keyOrders`), else an equality lookup of exactly the columns it binds,
+	 * in that order, the step's bound columns before its codes (never the key prefix a dependency proves, which the seek
+	 * binds no column of); a world relation's view read beneath its barrier at them (`throughBarrier`); none for a
+	 * searched or streamed occurrence read through its fence, or columns of codes alone, which pick a roster's share of
+	 * the rows. A key's own
+	 * order is its index's, never the order a Base lists it in: a stored derived relation's key is its proof's fields,
+	 * where its table's unique index leads with its unit (analysis/derived/storage.ts storedPrimaryKey), so a seek of
+	 * Counted at its document, its key (doc, shelf) and its index (shelf, doc), read as a lookup of the key's index asked
+	 * no index leading with the document.
+	 */
+	stepPath(base: NodeOf<"Base">, at: ReadonlyArray<string>): void {
+		if (base.relationKind === "world") {
+			this.throughBarrier(base, fixedOn(at))
+			return
+		}
+		if (this.#streamed.has(base)) {
+			return
+		}
+		const heading = base.heading
+		const seeks = at.filter((c) => !isSpanColumn(heading, c) && !isVectorColumn(heading, c))
+		if (!isNonEmpty(seeks)) {
+			return
+		}
+		/** A declared key the seek binds whole, or whose index leads with exactly the columns it binds: its own index. */
+		const bound = new Set(seeks)
+		const key =
+			this.keyWithin(base, bound) ??
+			this.options
+				.keyOrders(base.relation)
+				.find((k) => k.length > bound.size && k.slice(0, bound.size).every((f) => bound.has(f)))
+		const path: AccessPath | undefined =
+			key !== undefined
+				? {
+						relation: base.relation,
+						derived: base.relationKind === "derived",
+						method: keyMethod(base, key),
+						keys: key.map((f) => asc(f)),
+						fixed: key.length,
+						use: "key lookup"
+					}
+				: seeks.some((c) => !isFewValued(heading, c))
+					? {
+							relation: base.relation,
+							derived: base.relationKind === "derived",
+							method: "btree",
+							keys: seeks.map((f) => asc(f)),
+							fixed: seeks.length,
+							use: "equality lookup"
+						}
+					: undefined
+		if (path !== undefined) {
+			this.lookups.push({ path, binds: [sorted(seeks)] })
+		}
+	}
+
+	/**
+	 * The reads beneath a world relation's barrier view read at `pushed` (WorldView): its definition at the facts the
+	 * barrier passes; none for a world the program's options hold no view of.
+	 */
+	throughBarrier(base: NodeOf<"Base">, pushed: Pushed): void {
+		const view = this.options.worlds(base.relation)
+		if (view !== undefined) {
+			this.visit(view.root, beneath(view, pushed))
 		}
 	}
 
@@ -942,6 +1282,10 @@ class Extractor {
 	 * `keyDriven` holds the region's occurrences that drive through their keys (drivesByKey), by index. */
 	occurrence(o: OccurrenceFacts, keyDriven: ReadonlySet<number>): void {
 		const source = o.source
+		if (source.kind === "Base" && source.relationKind === "world") {
+			this.throughBarrier(source, valuesOf(o))
+			return
+		}
 		if (source.kind === "Base") {
 			this.basePaths(source, o, keyDriven)
 			return
@@ -1029,29 +1373,41 @@ class Extractor {
 		/** The partners the span predicate's context binds: those fixing no key. */
 		const unkeyed = joined.flatMap((j) => (j.classified.kind === "keyed" ? [] : [j.partner]))
 		const keyed = classified.some((c) => c.kind === "keyed")
-		const all = bound(unkeyed)
-		const key = keyWithin(new Set(all.eq.keys()))
-		/** Beside a key lookup a span predicate is requested only with a scalar a GiST index leads: on the span alone it
-		 * is an index no plan reads, the occurrence being reached by its key, or a span key's own index, which the key
-		 * already holds and through which the occurrence drives (drivesByKey). */
-		const scalar = [...all.eq].some(
-			([c, k]) => k === "fixed" && !isSpanColumn(heading, c) && !isVectorColumn(heading, c)
-		)
-		if (key !== undefined) {
-			return [...out, { kind: "key", key, bound: all }]
+		/**
+		 * The span predicate's context of the binding `b`: its key's lookup where its equalities hold a key; beside a key
+		 * lookup only with a scalar a GiST index leads, a column equal to a parameter's value or to a literal, each of
+		 * which the statement's seek binds, since on the span alone it is an index no plan reads, the occurrence being
+		 * reached by its key, or a span key's own index, which the key already holds and through which the occurrence
+		 * drives (drivesByKey).
+		 */
+		const spanned = (b: Binding): ReadonlyArray<ProbeContext> => {
+			const key = keyWithin(new Set(b.eq.keys()))
+			if (key !== undefined) {
+				return [{ kind: "key", key, bound: b }]
+			}
+			const scalar = [...b.eq.keys()].some(
+				(c) => !isSpanColumn(heading, c) && !isVectorColumn(heading, c)
+			)
+			return isNonEmpty(b.spans) && (!keyed || scalar)
+				? [{ kind: "span", eq: b.eq, range: b.range, spans: b.spans }]
+				: []
 		}
-		return isNonEmpty(all.spans) && (!keyed || scalar)
-			? [...out, { kind: "span", eq: all.eq, range: all.range, spans: all.spans }]
-			: out
+		/**
+		 * The occurrence's own span binding, its facts and its partners' of one row, where partners of many rows bind it
+		 * beside: the seek its statement makes wherever PostgreSQL reads those partners by a join, which binds nothing,
+		 * as a statement binding a span at a literal and a scalar beside a join of a many-row relation makes it.
+		 */
+		const own = base.kind === "spanned" && isNonEmpty(unkeyed) ? spanned(bound([])) : []
+		return [...out, ...own, ...spanned(bound(unkeyed))]
 	}
 
 	/** The access paths of an occurrence of a stored relation, one path family per
 	 * probe context under the fixed form policy. Handle columns alone are no access path: equal to a parameter or a
 	 * partner as to a literal, they select a roster's share of the rows at best, and a range over them is no more than
-	 * an equality. A world relation is a view: its program is planned through its definition, inlined before
-	 * extraction, so its own name never reaches an index. */
+	 * an equality. A world relation is a view, read beneath its barrier (`throughBarrier`), so its own name never reaches
+	 * an index. */
 	basePaths(base: NodeOf<"Base">, o: OccurrenceFacts, keyDriven: ReadonlySet<number>): void {
-		if (base.relationKind === "world" || this.#streamed.has(base)) {
+		if (this.#streamed.has(base)) {
 			return
 		}
 		const heading = base.heading
@@ -1158,7 +1514,9 @@ class Extractor {
 	 * attachment's parent and the left side of a semi-join, anti-join, intersection or difference, which keep that
 	 * input's rows and heading columns and the facts pushed on it; an attached column is computed. Empty when a column
 	 * is computed, the columns span several occurrences, or another node stands between: one whose columns are computed
-	 * or whose rows are not one occurrence's. */
+	 * or whose rows are not one occurrence's, or a driven semi-join (cte-policy semiJoinDriven), which reads its left
+	 * side per right-side key, each key's read reaching the left side's relations by its chain, which no order above it
+	 * seeks. */
 	resolve<A>(
 		n: RelNode,
 		requests: ReadonlyArray<Request<A>>,
@@ -1211,7 +1569,7 @@ class Extractor {
 					asked: r.asked,
 					resolved: r.kind === "fixed" ? fixedColumn : resolvedIn(facts, r.name)
 				}))
-				return [{ base: n, facts, others: [], columns }]
+				return [{ base: n, facts, leads: true, columns }]
 			}
 			case "MatchRegion": {
 				const region = regionFacts(n, pushed)
@@ -1244,7 +1602,8 @@ class Extractor {
 					}
 					return out
 				}
-				for (const facts of region.occurrences) {
+				const [lead] = regionChain(n, [], correlatedSites(n)) ?? []
+				for (const [at, facts] of region.occurrences.entries()) {
 					const source = facts.source
 					if (source.kind !== "Base") {
 						continue
@@ -1255,7 +1614,10 @@ class Extractor {
 							{
 								base: source,
 								facts,
-								others: region.occurrences.filter((o) => o !== facts),
+								leads:
+									lead === undefined
+										? region.occurrences.every((o) => o === facts || !restricted(o))
+										: lead.occurrence === n.occurrences[at],
 								columns
 							}
 						]
@@ -1268,6 +1630,7 @@ class Extractor {
 					? []
 					: this.resolve(n.parent, requests, pushed)
 			case "SemiJoin":
+				return semiJoinDriven(n) === undefined ? this.resolve(n.left, requests, pushed) : []
 			case "AntiJoin":
 			case "Intersect":
 			case "Difference":
@@ -1308,54 +1671,102 @@ class Extractor {
 		}
 	}
 
-	/** The ordered path of one resolution of an ordered input: none when another occurrence of its region is
-	 * restricted, its equalities already fix a key, the order reaches a vector column, no ordered column is stored, or
-	 * the relation is a world's. */
+	/** The ordered path of one resolution of an ordered input: none when its region's rows come in another occurrence's
+	 * order (Resolution `leads`), its equalities already fix a key, the order reaches a vector column, no ordered column
+	 * is stored, or the relation is a world's. */
 	orderedPath(r: Resolution<OrderKey>, use: AccessUse): AccessPath | undefined {
-		if (r.others.some((o) => restricted(o)) || r.base.relationKind === "world") {
+		if (!r.leads || r.base.relationKind === "world") {
 			return undefined
 		}
-		const heading = r.base.heading
-		if (this.keyWithin(r.base, new Set(r.facts.eq.keys())) !== undefined) {
+		return this.seekPath(
+			r.base,
+			[...r.facts.eq].flatMap(([c, k]) => (k === "fixed" ? [c] : [])),
+			new Set(r.facts.eq.keys()),
+			r.columns.flatMap(({ asked: k, resolved }) => {
+				const column = storedColumn(resolved)
+				return column === undefined ? [] : [{ field: column, dir: k.dir }]
+			}),
+			use
+		)
+	}
+
+	/**
+	 * The page seek of a driven window (lower/shapes/page/driver.ts): the driver's own index, its prefix's columns (the
+	 * call's points, then the columns its value set's chain reads) then the order's, the seek each part of the window the
+	 * lowering prints reads (page/rows.ts drivenRows), the first instance of extraction asking exactly the seek a lowering
+	 * prints, where it anticipates every join order elsewhere; none where the prefix's columns determine the driver's unit
+	 * (WindowDriver unitBound), whose seek reads that unit's rows by its key's prefix. The value set's chain seeks each of
+	 * its steps as any chain does (`chained`).
+	 */
+	drivenSeek(driver: WindowDriver, order: CompletedOrder): void {
+		this.chained(driver.values.steps, noVariables)
+		if (driver.unitBound) {
+			return
+		}
+		const fixed = driver.prefix
+		const path = this.seekPath(
+			driver.base,
+			fixed,
+			new Set(fixed),
+			order.keys.flatMap((k) => {
+				const column = driver.columns.find((c) => c.heading === k.column)?.column
+				return column === undefined ? [] : [{ field: column, dir: k.dir }]
+			}),
+			"page seek"
+		)
+		if (path !== undefined) {
+			this.lookups.push({ path, binds: [] })
+		}
+	}
+
+	/**
+	 * The B-tree path of a seek of `base`: its `fixed` columns, those a value fixes and no span or vector holds, then the
+	 * `ordered` columns with their directions, the fixed ones first in code point order, each taking the first ordered
+	 * column's direction, so the exact reverse of an order is the exact reverse of the path, which one index serves
+	 * forward and backward. Once the columns `determined` and the order so far contain a declared key the rest of the
+	 * order breaks no tie, so the index stops there (`(account, priority DESC, id)`). None where the determined columns
+	 * hold a key already, the order reaches a vector column, or no ordered column is stored.
+	 */
+	seekPath(
+		base: NodeOf<"Base">,
+		fixed: ReadonlyArray<string>,
+		determined: ReadonlySet<string>,
+		ordered: ReadonlyArray<AccessKey>,
+		use: AccessUse
+	): AccessPath | undefined {
+		const heading = base.heading
+		if (this.keyWithin(base, determined) !== undefined) {
 			return undefined
 		}
 		const prefix = sorted(
-			[...r.facts.eq]
-				.filter(
-					([c, k]) => k === "fixed" && !isSpanColumn(heading, c) && !isVectorColumn(heading, c)
-				)
-				.map(([c]) => c)
+			fixed.filter((c) => !isSpanColumn(heading, c) && !isVectorColumn(heading, c))
 		)
 		const seen = new Set(prefix)
-		/** The columns already determined: the equalities, literal ones included, and the order so far. Once they
-		 * contain a declared key the rest of the completed order breaks no tie, so the index stops there
-		 * (`(account, priority DESC, id)`). */
-		const determined = new Set(r.facts.eq.keys())
-		const ordered: Array<AccessKey> = []
-		for (const { asked: k, resolved } of r.columns) {
-			const column = storedColumn(resolved)
-			if (column === undefined || seen.has(column)) {
+		const held = new Set(determined)
+		const keys: Array<AccessKey> = []
+		for (const k of ordered) {
+			if (seen.has(k.field)) {
 				continue
 			}
-			if (isVectorColumn(heading, column)) {
+			if (isVectorColumn(heading, k.field)) {
 				return undefined
 			}
-			seen.add(column)
-			determined.add(column)
-			ordered.push({ field: column, dir: k.dir })
-			if (this.keyWithin(r.base, determined) !== undefined) {
+			seen.add(k.field)
+			held.add(k.field)
+			keys.push(k)
+			if (this.keyWithin(base, held) !== undefined) {
 				break
 			}
 		}
-		if (!isNonEmpty(ordered)) {
+		if (!isNonEmpty(keys)) {
 			return undefined
 		}
-		const [lead] = ordered
+		const [lead] = keys
 		return {
-			relation: r.base.relation,
-			derived: r.base.relationKind === "derived",
+			relation: base.relation,
+			derived: base.relationKind === "derived",
 			method: "btree",
-			keys: [...prefix.map((field): AccessKey => ({ field, dir: lead.dir })), ...ordered],
+			keys: [...prefix.map((field): AccessKey => ({ field, dir: lead.dir })), ...keys],
 			fixed: prefix.length,
 			use
 		}
@@ -1513,7 +1924,8 @@ class Extractor {
  * pass through a Filter, which adds its predicate's atoms (`predicateAtoms`), and through a projection by column reference;
  * they stop at a take, an approximate retrieval and a recursion, whose inputs PostgreSQL does not filter from outside.
  * A take's correlation, an attachment's correlation, the right side of a semi-join, anti-join, intersection or
- * difference, and a group's key columns pass what PostgreSQL can apply below them.
+ * difference, and a group's key columns pass what PostgreSQL can apply below them; a co-grouped attachment's child,
+ * read whole beside its parent keys, is passed nothing.
  *
  * In a match region every occurrence of a stored relation receives probe contexts (ProbeContext), each the columns one
  * probe binds: the base context, its own fixed equalities and ranges, and one context per join partner adding the
@@ -1607,7 +2019,7 @@ export const extractJudgedReads = (
 
 /** The walk of `roots` (see `extractAccess`). */
 const extracted = (roots: ReadonlyArray<RelNode>, options: ExtractOptions): Extractor => {
-	const x = new Extractor(options)
+	const x = new Extractor(options, roots, postorder<RelNode>(roots, inputsOf))
 	for (const root of roots) {
 		x.visit(root, nothing)
 	}

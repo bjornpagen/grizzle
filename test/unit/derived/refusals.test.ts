@@ -3,16 +3,19 @@
  * type level): a JavaScript caller, or a SchemaDesc decoded from data, meets the same rules at construction or at
  * ownership, before any definition is read, and so at every entry that installs or analyzes a schema.
  *
- * - Statements over derived relations: each case draws a law of a drawn shape (a key over drawn fields, mutable, a
- *   check, a containment in either or both directions, a family whose member or owner or both are derived, an
- *   alternatives arm) over the worked example's Reports level with a second derived relation beside AccountBudget, each
- *   slot drawn among the derived relations or the base's sides of its type, at least one derived. Mutable, a family
- *   and an alternatives arm name rows grizzle writes, which a derived relation's definition states, so ownership
- *   refuses each (MalformedDescription) at every entry. A key, a check and a containment are rules over the
- *   definition, which ownership owns and the analysis of derived relations reads, and AccountBudget's definition
- *   aggregates, whose groups the rule's probes read where a write touches them (analysis/theory/query.ts
- *   GroupedMatch), so the entry that compiles the laws installs each. Oracle: that rule, restated per law shape. Features: each law shape, a law naming both derived
- *   relations, a containment out of and into a derived relation.
+ * - - Statements over derived relations: each case draws a law of a drawn shape (a key over drawn fields, mutable, a
+ *   check, a containment in either or both directions, a family whose member or owner or both are derived) over the
+ *   worked example's Reports level with a second derived relation beside AccountBudget, each slot drawn among the
+ *   derived relations or the base's sides of its type, at least one derived. Mutable and a family name rows grizzle
+ *   writes, which a derived relation's definition states, so ownership refuses each (MalformedDescription) at every
+ *   entry. A key, a check and a containment are rules over the definition, which ownership owns and the analysis of
+ *   derived relations reads; AccountBudget's definition counts and sums Task's rows by account, groups that do not hold
+ *   Task's unit fields (id), so a probe of a touched group would fold again every row of a group that spans Task's
+ *   units, and the entry that compiles the laws refuses each as UnsupportedLawFamily, naming the remedy, to group within
+ *   a unit (analysis/theory/query.ts refuseAggregatesAcrossUnits: lane NOSETTINGS's 37b7e030f2 and 51aa55e1f8), where
+ *   it installed each, its probes reading the groups a write touched (GroupedMatch). Oracle: that rule, restated per
+ *   law shape. Features: each law shape, a law naming both derived relations, a containment out of and into a derived
+ *   relation.
  * - Unwritable definitions: levels, parameters and contexts an unchecked description can still write down are refused
  *   as MalformedDescription, a derived definition reading no parameter and holding no session. Each case draws a schema
  *   of the derived oracle (drawn levels and definitions over drawn base relations), which ownership admits, and one
@@ -24,8 +27,8 @@
  */
 
 import { type Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Option } from "effect"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Option, String as Str } from "effect"
 import { isCompileError } from "#compiler/core/errors.ts"
 
 import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
@@ -49,14 +52,17 @@ import {
 	writesRows
 } from "#test/unit/derived/refusals.fixtures.ts"
 
+/** The remedy a rule over AccountBudget is refused with: its groups, by account, span Task's units, keyed by id. */
+const acrossUnits = "group within a unit, adding the unit's fields (id) to the grouping"
+
 /**
- * Derived relation refusals refuse a statement writing a derived relation's rows at every entry, and install a rule over
- * an aggregate where the laws compile.
+ * Derived relation refusals refuse a statement writing a derived relation's rows at every entry, and a rule over an
+ * aggregate whose groups span their units where the laws compile.
  *
  * Budget: 100 runs and 100 steered cases, what its suite stated before it became a property
  * (test/unit/derived/refusals.test.ts:528 at 8cad5bce, its runs and its coverage's cases).
  */
-export const derivedRelationRefusalsRefuseAStatementWritingADerivedRelationsRowsAtEveryEntryAndInstallARuleOverAnAggregate =
+export const derivedRelationRefusalsRefuseAStatementWritingADerivedRelationsRowsAtEveryEntryAndARuleOverAnAggregateAcrossUnitsWhereTheLawsCompile =
 	property.explore(lawSketchGen, {
 		needs: {},
 		budget: { runs: 100, steered: 100 },
@@ -66,7 +72,6 @@ export const derivedRelationRefusalsRefuseAStatementWritingADerivedRelationsRows
 			"law check",
 			"law contained",
 			"law family",
-			"law alternatives",
 			"a law naming both derived relations",
 			"a containment out of a derived relation",
 			"a containment into a derived relation"
@@ -96,15 +101,34 @@ export const derivedRelationRefusalsRefuseAStatementWritingADerivedRelationsRows
 				const [owned, analyzed, installed] = entries(desc)
 				assert.ok(owned?.ok === true, "ownership owns a rule over a derived relation")
 				assert.ok(analyzed?.ok === true, "the analysis of derived relations reads it")
-				const done = defined(installed, "the installation's entry")
-				assert.ok(done.ok, done.ok ? "" : refusal(done).message)
+				const refused = refusal(defined(installed, "the installation's entry"))
+				assert.equal(refused.reason._tag, "UnsupportedLawFamily", refused.message)
+				assert.ok(
+					Str.endsWith(acrossUnits)(refused.message),
+					`the refusal names the remedy, to group within Task's unit: ${refused.message}`
+				)
 			}),
 		oracle: {
 			kind: "specification",
-			name: "a statement naming rows grizzle writes is refused at every entry; a rule over a definition that aggregates is owned and installed, its probes reading the groups a write touches"
+			name: "a statement naming rows grizzle writes is refused at every entry; a rule over a definition that aggregates across its units is owned, and refused where the laws compile, naming the remedy to group within a unit"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/derived/refusals.test.ts#derivedRelationRefusalsRefuseAStatementWritingADerivedRelationsRowsAtEveryEntryAndARuleOverAnAggregateAcrossUnitsWhereTheLawsCompile:-:0.0.1.0"
+				),
+				reason:
+					"A key over AccountBudget at its account, an aggregate whose groups by account span Task's units (id): installed with its probes reading the touched groups until NOSETTINGS's refusal (37b7e030f2, 51aa55e1f8), refused UnsupportedLawFamily on the merged tree, where the oracle said installed (floor stream 0xb011c592, case 0)",
+				since: "2026-11-27"
+			}
+		],
 		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/query.ts",
+				original: "\t\t\t\t\tconst free = freeUnitIn(body, at, unitOf)\n",
+				replacement: "\t\t\t\t\tconst free = freeUnitIn(body, at, () => [])\n",
+				why: "No binding leaves a unit free, so a rule over AccountBudget, whose groups by account span Task's units, compiles again, its probe folding every row of a touched account's tasks at each write: the installation succeeds where it is refused, and the property fails."
+			},
 			{
 				file: "packages/engine/src/analysis/schema.ts",
 				original:

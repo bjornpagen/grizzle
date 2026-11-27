@@ -366,9 +366,11 @@ interface RefusalGuardInput {
  *   the DETAIL `o["<entry>"]` (outsideDetail), which carries no value of the fact.
  * - a claims setting a context source cannot read, raised by the source itself (sql/print.ts contextClaims), never by a
  *   write statement's guard: SQLSTATE 22P02 (invalid_text_representation), `grizzle.claims` as the constraint name, and
- *   the DETAIL `c[]` for a setting that is no claims document, or `c["<Context>"]` for a context's member holding other
- *   keys than its fields, which carry no claim value. Only a direct writer's hand-set claims meet it: a Db's setting is
- *   a claims document by construction (adapter/db/claims.ts).
+ *   the DETAIL `c-` for a setting that holds no claims document at all, unset or empty, `c[]` for one that is no claims
+ *   document, or `c["<Context>"]` for a context's member holding other keys than its fields, none of which carries a
+ *   claim value. An absent setting is refused as a malformed one is, never read as the empty document, so a caller that
+ *   set no claims reads no world of no facts by mistake. Only a direct writer's claims, hand-set or never set, meet it:
+ *   a Db's setting is a claims document by construction, `{}` where it holds no fact (adapter/db/claims.ts).
  *
  * Each DETAIL is composed from builtin operators alone: the constant prefix, then `to_jsonb(<value>::text)::text` per
  * value. JSON string escaping is the escape. readLawDetail and readChangeDetail convert a DETAIL without a check, each

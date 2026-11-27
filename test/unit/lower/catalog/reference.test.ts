@@ -43,7 +43,7 @@ export const theCatalogsRewritesAgainstTheirCompositionsByTheReferenceDeliverOne
 			Effect.sync(() => {
 				for (const [label, desc] of entries) {
 					const original = oracleCase(label, desc, facts)
-					const rewritten = succeeded(rewriteCatalog(original.query.dag, labOptions), label)
+					const rewritten = succeeded(rewriteCatalog(original.query.dag, labOptions()), label)
 					if (agrees(original, { dag: rewritten.dag, params: [] }) === "agree") {
 						c.note(`judged: ${label}`)
 					}

@@ -2,7 +2,7 @@
  * A member that binds a parameter to the database's clock (workload clocked) is its program served with that one input
  * read by the server: generated logins over the clock box, each drawn program served twice, once with the call's `now`
  * and once with the clock's, compiled by the one draft `grizzle generate` and `grizzle check` run (draftSchema, then
- * servedFiles).
+ * eachServedFile).
  *
  * Properties, each against the plain compile of the same programs:
  *

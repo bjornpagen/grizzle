@@ -1,4 +1,4 @@
-import { Array as Arr, Data, Effect, Predicate } from "effect"
+import { Array as Arr, Data, Effect, Option, Predicate } from "effect"
 import { quoteString } from "#compiler/core/text.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 
@@ -12,12 +12,13 @@ export interface VolumeTable {
 }
 
 /**
- * A volume fill: its tables filled over one series of indices, 0 to `rows` − 1, in chunks, each chunk one transaction
+ * A volume fill: its tables filled over one series of `rows` indices from `first`, in chunks, each chunk one transaction
  * that inserts the same slice of the series into every table, in order, so rows of the tables that belong together by
  * their index commit together. A row whose key another already holds is refused, or skipped where `conflicts` says so.
  */
 export interface VolumeFill {
 	readonly tables: Arr.NonEmptyReadonlyArray<VolumeTable>
+	readonly first: number
 	readonly rows: number
 	readonly conflicts: "refused" | "skipped"
 }
@@ -176,10 +177,10 @@ const fillFrom = (
 	size: number,
 	filled: Filled
 ): Effect.Effect<Filled, SqlError> =>
-	from >= fill.rows
+	from >= fill.first + fill.rows
 		? Effect.succeed(filled)
 		: Effect.gen(function* () {
-				const rows = Math.min(size, fill.rows - from)
+				const rows = Math.min(size, fill.first + fill.rows - from)
 				const inserted = yield* chunk(session, fill, from, from + rows - 1)
 				const written = yield* flushedWal(session)
 				const wal = written - filled.written
@@ -249,11 +250,51 @@ export const volumeFill = (
 			const filled = yield* Effect.reduce(
 				Arr.map(fills, (f, at) => [at, f] as const),
 				(): Filled => ({ chunks: [], written }),
-				(done, [at, f]) => fillFrom(session, segment, f, at, 0, 1, done)
+				(done, [at, f]) => fillFrom(session, segment, f, at, f.first, 1, done)
 			)
 			return filled.chunks
 		})
 	)
+
+/**
+ * PostgreSQL 19's default costs (postgresql.conf, costsize.c), which every store a case stands beside is sized against
+ * (`rowsBeside`): a page read in sequence, a page read at random, a row a scan examines, and an operator it evaluates.
+ */
+const defaultCosts = { seqPage: 1, randomPage: 4, cpuTuple: 0.01, cpuOperator: 0.0025 } as const
+
+/** `bytes` rounded up to PostgreSQL's MAXALIGN, 8 on this machine's arm64. */
+const maxAligned = (bytes: number): number => Math.ceil(bytes / 8) * 8
+
+/**
+ * The rows a heap page holds of `bytes` bytes of data a row, none null: the page's 8192 bytes past its 24-byte header,
+ * over each row's 23-byte tuple header and its data, each aligned, and its 4-byte line pointer (bufpage.h, htup_details.h).
+ */
+export const rowsPerPage = (bytes: number): number =>
+	Math.floor((8192 - 24) / (maxAligned(23) + maxAligned(bytes) + 4))
+
+/**
+ * The rows a table holds beside a case's own so that PostgreSQL reads it through an index wherever a statement binds its
+ * key, as a store worth planning is read, under no planner setting: the least power of two at which a sequential scan of
+ * the table, `perPage` rows a page (rowsPerPage) and one equality evaluated on each, prices past twice `probes` index
+ * probes of one row each, a leaf page and a heap page each read at random (cost_seqscan against cost_index at the
+ * default costs). A table of a page or two prices cheaper scanned whole, and the scan reads every row, so a bound on a
+ * statement's rows over such a table judges PostgreSQL's choice of a scan, never the statement.
+ *
+ * @limitKind derived
+ * @owner test/support/substrate/fill.ts
+ * @unit rows
+ * @scope the rows of one table a case stands beside, at `perPage` rows a page, for a statement of `probes` probes of it
+ * @derivation PostgreSQL 19's cost_seqscan and cost_index at their default costs, the scan past twice the probes
+ * @from defaultCosts, rowsPerPage
+ */
+export const rowsBeside = (probes: number, perPage: number): number => {
+	const scan = (rows: number): number =>
+		Math.ceil(rows / perPage) * defaultCosts.seqPage +
+		rows * (defaultCosts.cpuTuple + defaultCosts.cpuOperator)
+	const probed = probes * 2 * defaultCosts.randomPage
+	const exponent = Arr.findFirst(Arr.range(0, 30), (k) => scan(2 ** k) > 2 * probed)
+	return 2 ** Option.getOrThrow(exponent)
+}
 
 /**
  * The statement that records a filled table's size as a VACUUM of it counts it, where no VACUUM can run, in a
@@ -269,3 +310,51 @@ export const countedAsVacuumed = (quoted: string): string =>
 	"FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace, " +
 	"LATERAL (SELECT (pg_catalog.pg_relation_size(c.oid) / pg_catalog.current_setting('block_size')::bigint)::integer AS pages) AS p " +
 	`WHERE c.oid = ${quoteString(quoted)}::pg_catalog.regclass`
+
+/**
+ * How a table's columns' statistics are stated (`statedDistinct`): each value its own (every value of each column one
+ * row's), or one value (every row of the table at one value of each column).
+ */
+export type StatedDistinct = "unique" | "one value"
+
+/**
+ * The statement that states every column of a table its installation declares at a count of values at `stated`
+ * distinct values in its transaction (pg_restore_attribute_stats, n_distinct -1 or 1), whatever its rows hold: a planner's
+ * estimate of a seek by such columns is then one row of it, or all of them, so a plan its estimates choose is the one
+ * those statements lead to, and a plan its lowering fixes stands whatever they state. A column the installation declares
+ * by a share of the table's rows (physical/statistics/declared.ts, a negative n_distinct) keeps its declaration: an
+ * anchor, which holds a bounded number of rows a value at any size, a unit's key, a key's scope or a field a containment
+ * proves determines one, and a key of one column, each value its own. It is a fact of the schema's keys, units and
+ * containments, as a unique index's values are each their own, which no ANALYZE, stale or fresh, states otherwise, and
+ * the index PostgreSQL takes for a seek stands on it: a child's seats read by the child's user and ordered by the seat,
+ * the user stated at one value, were read through the seats' key in order, every child's seats.
+ */
+export const statedDistinct = (quoted: string, stated: StatedDistinct): string =>
+	"SELECT pg_catalog.pg_restore_attribute_stats('schemaname', n.nspname::text, 'relname', c.relname::text, " +
+	`'attname', a.attname::text, 'inherited', false, 'n_distinct', ${stated === "unique" ? "-1" : "1"}::real) ` +
+	"FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace " +
+	"JOIN pg_catalog.pg_attribute AS a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped " +
+	`WHERE c.oid = ${quoteString(quoted)}::pg_catalog.regclass AND NOT EXISTS (SELECT FROM pg_catalog.pg_stats AS s ` +
+	"WHERE s.schemaname = n.nspname AND s.tablename = c.relname AND s.attname = a.attname AND s.n_distinct < 0)"
+
+/**
+ * The statements that state each of `columns` of a table its installation declares, by its name, at its number of
+ * distinct values (pg_restore_attribute_stats n_distinct, a share of the rows where negative), whatever its rows hold:
+ * statistics that mislead a planner's estimates of a read, as `statedDistinct` states every column. A column the
+ * installation declares by a share of the table's rows, an anchor, keeps its declaration there too: a fact of the
+ * schema's keys, units and containments, which no ANALYZE states otherwise (physical/statistics/declared.ts), so the
+ * statistics a case states are ones a production's table can hold beside its keys.
+ */
+export const misleadingDistinct = (
+	quoted: string,
+	columns: ReadonlyArray<readonly [column: string, distinct: string]>
+): ReadonlyArray<string> =>
+	Arr.map(
+		columns,
+		([column, distinct]) =>
+			"SELECT pg_catalog.pg_restore_attribute_stats('schemaname', n.nspname::text, 'relname', c.relname::text, " +
+			`'attname', ${quoteString(column)}::text, 'inherited', false, 'null_frac', 0::real, 'n_distinct', ${distinct}::real) ` +
+			"FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace " +
+			`WHERE c.oid = ${quoteString(quoted)}::pg_catalog.regclass AND NOT EXISTS (SELECT FROM pg_catalog.pg_stats AS s ` +
+			`WHERE s.schemaname = n.nspname AND s.tablename = c.relname AND s.attname = ${quoteString(column)} AND s.n_distinct < 0)`
+	)

@@ -241,34 +241,33 @@ export const anExistenceTestReadsARightSideOfSeveralSourcesOrAFoldByItsKeysPerLe
 			kept: [],
 			kills: [
 				{
-					file: "packages/engine/src/lower/conservative/semi-join/exists.ts",
-					original: "\treadsStored(node.right) &&\n",
-					replacement: "\tfalse &&\n",
+					file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
+					original: "\t\treadsStored(node.right) &&\n",
+					replacement: "\t\tfalse &&\n",
 					why: "Every right side stays in a bare NOT EXISTS: the scan, the join and the fold by the keys are tested there, which PostgreSQL pulls up, plans every parameterization of and joins by the method an estimate picks, and the property fails."
 				},
 				{
-					file: "packages/engine/src/lower/conservative/semi-join/exists.ts",
-					original: '\tpostorder([right], (n) => inputsOf(n)).some((n) => n.kind === "Base")',
-					replacement: "\tpostorder([right], (n) => inputsOf(n)).length > 0",
+					file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
+					original: '\tpostorder([node], (n) => inputsOf(n)).some((n) => n.kind === "Base")',
+					replacement: "\tpostorder([node], (n) => inputsOf(n)).length > 0",
 					why: "A right side that reads no stored relation is read per left row too: the closed relation's rows, which no index reads, are read again for each row of A, and the property fails."
 				},
 				{
 					file: "packages/engine/src/lower/conservative/semi-join/exists.ts",
 					original:
-						"fencedRead(headingTargets(node.right.heading, right.map), right.item, conjunction(on)),",
-					replacement:
-						"fencedRead(headingTargets(node.right.heading, right.map), right.item, undefined),",
+						"headingRead(node.right.heading, right.map, right.item, conjunction(onOf(right.map))),",
+					replacement: "headingRead(node.right.heading, right.map, right.item, undefined),",
 					why: "The step reads the right side at no left row: its equalities dropped, the test asks whether the right side holds any row at all, and the property fails."
 				},
 				{
-					file: "packages/engine/src/lower/conservative/semi-join/exists.ts",
-					original: "\trestrictedByKeys(\n",
-					replacement: "\t(() => true)(\n",
+					file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
+					original: "\t\trestrictedByKeys(\n",
+					replacement: "\t\t(() => true)(\n",
 					why: "A right side is read per left row though a join column stops at its fold's count: the fold whose count is bound is derived whole for each left row, and the property fails."
 				},
 				{
-					file: "packages/engine/src/lower/conservative/semi-join/exists.ts",
-					original: "\t!restrictedWithin(node.right, node) &&\n",
+					file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
+					original: "\t\t(!restrictedWithin(node.right, node) || leftLeads(node)) &&\n",
 					replacement: "",
 					why: "A right side the statement's value restricts is read per left row too, as 2bdab1f6f's did: the fold at the asked k1, a few rows, folded again for each row of A, where it is derived once and each of its rows probes A."
 				},

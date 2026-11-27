@@ -16,12 +16,12 @@ import {
 } from "#compiler/ir/expr.ts"
 import type { OperationProof } from "#compiler/ir/proof.ts"
 import type { Cell } from "#compiler/ir/rel.ts"
-import { baseOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, type ScalarType, sameScalarType, subsumes } from "#compiler/ir/scalar.ts"
 import type { CatalogEditor } from "#compiler/lower/shapes/catalog/edit.ts"
 import {
 	binaryCoercion,
 	booleanAnd,
-	canonicalZeroSpec,
+	canonicalSpec,
 	castOf,
 	type NativeFn,
 	type NativeOp,
@@ -101,15 +101,11 @@ export const literalOf = (e: ScalarExpr): TypedLiteral | undefined =>
 	e.kind === "literal" ? e.value : undefined
 
 /**
- * `e`, or its canonical zero where `canonical`, as ir/expr.ts zeroPeeled read the head output whose term `e` takes the
+ * `e`, or its canonical zero where `canonical`, as ir/expr.ts canonicalPeeled read the head output whose term `e` takes the
  * place of: a rewrite that reads a term delivers the canonical zero of what replaces it.
  */
-export const canonicalZeroOver = (
-	ed: CatalogEditor,
-	e: ScalarExpr,
-	canonical: boolean
-): ScalarExpr => {
-	const spec = canonical ? canonicalZeroSpec(e) : undefined
+export const canonicalOver = (ed: CatalogEditor, e: ScalarExpr, canonical: boolean): ScalarExpr => {
+	const spec = canonical ? canonicalSpec(e) : undefined
 	return spec === undefined ? e : ed.expr(spec)
 }
 
@@ -180,6 +176,7 @@ export const sameExpr = (x: ScalarExpr, y: ScalarExpr): boolean => {
 		case "value":
 		case "domainCast":
 		case "cond":
+		case "variant":
 		case "closedAt":
 		case "closedRow":
 		case "closedHas":
@@ -274,10 +271,12 @@ export const andExpr = (ed: CatalogEditor, args: ReadonlyArray<ScalarExpr>): Sca
 }
 
 /**
- * A cast a catalog rewrite builds: within a carrier the binary coercion, which changes a typmod, a refinement or an
- * exact bound immutably; between two carriers the registered cast, as volatile as it is, defined on every value or
- * partial with the proof the rewrite states for it (`proof`). A partial cast without one is no match: the rewrite
- * cannot keep the program total without its proof.
+ * A cast a catalog rewrite builds: none where `type` subsumes the argument's (ir/scalar.ts subsumes), a value of a type
+ * standing where a type that subsumes it is asked for with no node of its own (ir/expr.ts builtExpr refuses the up-cast);
+ * within a carrier the binary coercion, which changes a typmod, a refinement or an exact bound immutably; between two
+ * carriers the registered cast, as volatile as it is, defined on every value or partial with the proof the rewrite
+ * states for it (`proof`). A partial cast without one is no match: the rewrite cannot keep the program total without
+ * its proof.
  */
 export const castExpr = (
 	ed: CatalogEditor,
@@ -285,6 +284,9 @@ export const castExpr = (
 	type: ScalarType,
 	proof: OperationProof | undefined
 ): ScalarExpr => {
+	if (subsumes(type, arg.type)) {
+		return arg
+	}
 	const from = baseOf(arg.type).carrier
 	const to = baseOf(type).carrier
 	if (from === to || (from === "numeric" && to === "exactInteger")) {

@@ -256,8 +256,7 @@ const nestedRefusal = (
  * (NestedGeneratedNull, the first such fact's) only once every other fact has filled, so an encoding failure of any
  * fact is the write's refusal instead. A fact `into` holds already, at its key with every row it nests, adds nothing.
  * A level's row whose binary arrays no Bind message of `transport` carries alone, with the row's placeholders, is
- * refused as its MessageBound before any of its bytes is read, since a nested write's rows are cut row by row into its
- * statement's fills (runtime/write/staged.ts executionsOf).
+ * refused as its MessageBound before any of its bytes is read, since the statement that sends the row carries it whole.
  */
 export const nestedRows = (
 	nesting: NestingData,
@@ -300,7 +299,7 @@ export const nestedRows = (
 		}
 		const layout = nesting.layouts.get(reached)
 		if (layout === undefined) {
-			throw defect(`the row layout of ${reached}, a relation the nesting reaches`)
+			defect(`the row layout of ${reached}, a relation the nesting reaches`)
 		}
 		const made = rowShape(walk.codes, walk.columns(reached), layout)
 		shapes.set(reached, made)
@@ -672,7 +671,7 @@ export const sentLayout = <C extends LaidColumn>(at: {
 } => {
 	const [first, ...rest] = at.layout.key.filter((c) => !at.pending.has(c.key))
 	if (first === undefined) {
-		throw defect(`the key of ${at.layout.relation} its walk fills, a stamp's child`)
+		defect(`the key of ${at.layout.relation} its walk fills, a stamp's child`)
 	}
 	return {
 		relation: at.layout.relation,

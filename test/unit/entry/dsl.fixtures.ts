@@ -106,6 +106,8 @@ export const printer: ReadonlyArray<string> = Arr.sort(
 		"packages/engine/src/sql/lexer.ts",
 		"packages/engine/src/sql/print.ts",
 		"packages/engine/src/sql/print-once.ts",
+		"packages/engine/src/sql/pull-up.ts",
+		"packages/engine/src/sql/scope.ts",
 		"packages/engine/src/sql/transform.ts"
 	],
 	Order.String

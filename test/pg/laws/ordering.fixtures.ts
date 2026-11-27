@@ -1,12 +1,12 @@
 /** What the property of ordering.test.ts reads: its schema and template, its cases and aims, and its judge. */
-import { type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { assert } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Data, Effect, Equivalence, Formatter, Option, Order, Result } from "effect"
 import { rowEvaluator } from "#adapter/public/host.ts"
 import { constraintNamesOf } from "#compiler/program/laws.ts"
 import { Range } from "#compiler/public/compute.ts"
-import { contract, pg, span } from "#compiler/public/fields.ts"
+import { contract, mintOf, pg, span } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, derived, relation, schema } from "#compiler/public/schema.ts"
 import {
@@ -17,10 +17,14 @@ import {
 	seatTemplate
 } from "#test/pg/fin/installed.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { refusalOf } from "#test/support/substrate.ts"
+import { asDataStep } from "#test/support/data-step.ts"
+import type { PgErrorFields } from "#test/support/pg.ts"
+import { firstRefusalOf, refusalOf } from "#test/support/substrate.ts"
 
+const secondsKey = Symbol("Seconds")
 /** A point of a sitting's timeline, whole seconds. */
-const Seconds = contract("Seconds", pg.bigint)
+const Seconds = contract<typeof secondsKey>()("Seconds", pg.bigint)
+const toSeconds = mintOf(secondsKey)
 
 /** A sitting's start, at most one. */
 const Began = relation("Began", { sitting: pg.integer, at: Seconds }, ["sitting"])
@@ -256,10 +260,14 @@ const overlaps = (a: VisitSpan, b: VisitSpan): boolean => a.start < b.end && b.s
 /** The visits of `sitting` in `s`, in the order they were written. */
 const visitsOf = (s: State, sitting: number) => Arr.filter(s.visits, (v) => v.sitting === sitting)
 
-/** A write resolved against the state it meets: its statements, and the state it leaves; none for a write it makes moot. */
+/**
+ * A write resolved against the state it meets: its statements, the state it leaves, and whether it removes a fact, which
+ * a closed relation loses only in a data step; none for a write it makes moot.
+ */
 interface Resolved {
 	readonly statements: ReadonlyArray<string>
 	readonly next: State
+	readonly removes: boolean
 }
 
 /** `op` resolved against `s` on `seat`: an insert of a fact the state holds at its key, an overlap, or a delete of none is moot. */
@@ -274,7 +282,8 @@ const resolve = (seat: Seat, s: State, op: Op): Resolved | undefined => {
 					statements: [
 						`INSERT INTO ${t(r)} (${c(r, "sitting")}, ${c(r, "at")}) VALUES (${sitting}, ${at})`
 					],
-					next: { ...s, [kind]: new Map([...s[kind], [sitting, at]]) }
+					next: { ...s, [kind]: new Map([...s[kind], [sitting, at]]) },
+					removes: false
 				}
 	const unpoint = (r: "Began" | "EndedAt", kind: "began" | "ended", sitting: number) => {
 		if (!s[kind].has(sitting)) {
@@ -284,7 +293,8 @@ const resolve = (seat: Seat, s: State, op: Op): Resolved | undefined => {
 		rest.delete(sitting)
 		return {
 			statements: [`DELETE FROM ${t(r)} WHERE ${c(r, "sitting")} = ${sitting}`],
-			next: { ...s, [kind]: rest }
+			next: { ...s, [kind]: rest },
+			removes: true
 		}
 	}
 	switch (op.kind) {
@@ -305,7 +315,8 @@ const resolve = (seat: Seat, s: State, op: Op): Resolved | undefined => {
 				statements: [
 					`INSERT INTO ${t("Visit")} (${c("Visit", "sitting")}, ${c("Visit", "during")}) VALUES (${op.sitting}, ${range(during)})`
 				],
-				next: { ...s, visits: [...s.visits, { sitting: op.sitting, during }] }
+				next: { ...s, visits: [...s.visits, { sitting: op.sitting, during }] },
+				removes: false
 			}
 		}
 		case "unvisit": {
@@ -318,7 +329,8 @@ const resolve = (seat: Seat, s: State, op: Op): Resolved | undefined => {
 				statements: [
 					`DELETE FROM ${t("Visit")} WHERE ${c("Visit", "sitting")} = ${op.sitting} AND ${c("Visit", "during")} = ${range(gone.during)}`
 				],
-				next: { ...s, visits: Arr.filter(s.visits, (v) => v !== gone) }
+				next: { ...s, visits: Arr.filter(s.visits, (v) => v !== gone) },
+				removes: true
 			}
 		}
 	}
@@ -401,69 +413,87 @@ export const judgeHistory = (taken: SeatCase, c: Case, note: (f: Feature) => voi
 			const where = `transaction ${at} of ${Formatter.format(c)}`
 			let next = state
 			const statements: Array<string> = []
+			let removes = false
 			for (const op of ops) {
 				const resolved = resolve(seat, next, op)
-				if (resolved !== undefined) {
-					for (const sql of resolved.statements) {
-						statements.push(sql)
-					}
-					next = resolved.next
+				if (resolved === undefined) {
+					continue
 				}
+				for (const sql of resolved.statements) {
+					statements.push(sql)
+				}
+				next = resolved.next
+				removes = removes || resolved.removes
 			}
 			if (statements.length === 0) {
 				continue
 			}
 			yield* session.begin
-			for (const sql of statements) {
-				yield* Effect.onError(session.query(sql, []), () => Effect.ignore(session.rollback))
-			}
-			const restated = factsOf(next)
-			for (const check of CHECKS) {
-				const point = pointOf[check]
-				const rows = yield* Effect.onError(
-					session.values(
-						`SELECT v.${seat.column("Visit", "sitting")}::text, lower(v.${seat.column("Visit", "during")})::text, upper(v.${seat.column("Visit", "during")})::text, p.${seat.column(point, "at")}::text FROM ${seat.table("Visit")} v JOIN ${seat.table(point)} p ON p.${seat.column(point, "sitting")} = v.${seat.column("Visit", "sitting")}`,
-						[]
-					),
-					() => Effect.ignore(session.rollback)
+			/** A refusal of the transaction's data step at its bracket, which runs the judge and the installation's re-check
+			 * after the step's statements (test/support/data-step.ts asDataStep), as a migration's runner does: the
+			 * transaction's refusal, as SET CONSTRAINTS ALL IMMEDIATE's is otherwise. */
+			let bracketed: Option.Option<PgErrorFields> = Option.none()
+			if (removes) {
+				bracketed = yield* firstRefusalOf(
+					asDataStep(seat.installed.installation, statements),
+					(sql) => session.query(sql, [])
 				)
-				const read = Arr.map(rows, (r) => ({
-					sitting: intOf(r[0]),
-					during: { start: intOf(r[1]), end: intOf(r[2]) },
-					at: intOf(r[3])
-				}))
-				const judged = (j: Joined): string => {
-					const admitted = succeeded(
-						evaluate.admit(derivedOf[check], {
-							sitting: j.sitting,
-							during: {
-								start: Seconds(BigInt(j.during.start)),
-								end: Seconds(BigInt(j.during.end))
-							},
-							at: Seconds(BigInt(j.at))
-						}),
-						`the host admits ${joinedText(j)}`
-					)
-					const verdict = evaluate(derivedOf[check], admitted).checks[check]
-					return `${joinedText(j)} ${Result.isSuccess(verdict) ? verdict.success : "unevaluated"}`
+			} else {
+				for (const sql of statements) {
+					yield* Effect.onError(session.query(sql, []), () => Effect.ignore(session.rollback))
 				}
-				const host = Arr.sort(Arr.map(read, judged), Order.String)
-				const spec = Arr.sort(
-					Arr.map(
-						restated[check],
-						(j) => `${joinedText(j)} ${holds(check, j) ? "holds" : "breaks"}`
-					),
-					Order.String
-				)
-				if (!sameTexts(host, spec)) {
-					yield* Effect.ignore(session.rollback)
-					return yield* new Disagreed({
-						message: `${check}: the host judges the rows the database holds as\n${Arr.join(host, "\n")}\nwhere the restatement judges\n${Arr.join(spec, "\n")}\n${where}`
-					})
+			}
+			if (Option.isNone(bracketed)) {
+				const restated = factsOf(next)
+				for (const check of CHECKS) {
+					const point = pointOf[check]
+					const rows = yield* Effect.onError(
+						session.values(
+							`SELECT v.${seat.column("Visit", "sitting")}::text, lower(v.${seat.column("Visit", "during")})::text, upper(v.${seat.column("Visit", "during")})::text, p.${seat.column(point, "at")}::text FROM ${seat.table("Visit")} v JOIN ${seat.table(point)} p ON p.${seat.column(point, "sitting")} = v.${seat.column("Visit", "sitting")}`,
+							[]
+						),
+						() => Effect.ignore(session.rollback)
+					)
+					const read = Arr.map(rows, (r) => ({
+						sitting: intOf(r[0]),
+						during: { start: intOf(r[1]), end: intOf(r[2]) },
+						at: intOf(r[3])
+					}))
+					const judged = (j: Joined): string => {
+						const admitted = succeeded(
+							evaluate.admit(derivedOf[check], {
+								sitting: j.sitting,
+								during: {
+									start: toSeconds(BigInt(j.during.start)),
+									end: toSeconds(BigInt(j.during.end))
+								},
+								at: toSeconds(BigInt(j.at))
+							}),
+							`the host admits ${joinedText(j)}`
+						)
+						const verdict = evaluate(derivedOf[check], admitted).checks[check]
+						return `${joinedText(j)} ${Result.isSuccess(verdict) ? verdict.success : "unevaluated"}`
+					}
+					const host = Arr.sort(Arr.map(read, judged), Order.String)
+					const spec = Arr.sort(
+						Arr.map(
+							restated[check],
+							(j) => `${joinedText(j)} ${holds(check, j) ? "holds" : "breaks"}`
+						),
+						Order.String
+					)
+					if (!sameTexts(host, spec)) {
+						yield* Effect.ignore(session.rollback)
+						return yield* new Disagreed({
+							message: `${check}: the host judges the rows the database holds as\n${Arr.join(host, "\n")}\nwhere the restatement judges\n${Arr.join(spec, "\n")}\n${where}`
+						})
+					}
 				}
 			}
 			const broken = brokenOf(next)
-			const refused = yield* refusalOf(session.query("SET CONSTRAINTS ALL IMMEDIATE", []))
+			const refused = Option.isSome(bracketed)
+				? bracketed
+				: yield* refusalOf(session.query("SET CONSTRAINTS ALL IMMEDIATE", []))
 			if (Option.isNone(refused)) {
 				if (broken.length > 0) {
 					yield* Effect.ignore(session.rollback)

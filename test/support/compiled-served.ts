@@ -18,15 +18,16 @@ import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import { servedWorkloadExtension } from "#compiler/physical/access/extension.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { namedLogin } from "#compiler/physical/ddl/names.ts"
-import { type Installation, installationOver } from "#compiler/physical/install/compile.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
 import { installBasis, unserved } from "#compiler/physical/install/plan.ts"
+import { installationOver } from "#compiler/program/install.ts"
 import {
 	planWorkload,
 	type ServedWorkloadPlan,
+	servedPrograms,
 	servedWorkload
 } from "#compiler/program/workload/compile.ts"
 import { installationsOf, type Owned, rostersOf } from "#compiler/schema/own.ts"
-import { everySlice } from "#compiler/schema/reach.ts"
 import type { AnyLogin } from "#compiler/types/schema/world.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { jsonOf } from "#test/support/chunked.ts"
@@ -44,7 +45,7 @@ export const compiledInstallation = (
 	ServedRefusal
 > =>
 	Effect.gen(function* () {
-		const basis = succeeded(installBasis(owned, codes, everySlice(owned)), "the base's basis")
+		const basis = succeeded(installBasis(owned, codes, new Set()), "the base's basis")
 		const checking = succeeded(artifactsOver(basis, unserved), "the base's artifacts")
 		const ownedLogin = succeeded(ownLoginOver(login, owned), "the login over its base")
 		const options = { artifacts: checking, roles: ownedLogin.roles }
@@ -96,7 +97,7 @@ export const compiledInstallation = (
 						owned,
 						installationsOf(owned),
 						[ownedLogin],
-						[servedWorkloadExtension(plan)],
+						[servedWorkloadExtension({ ...plan, programs: servedPrograms(plan.changes) })],
 						codes
 					),
 					silentPhases

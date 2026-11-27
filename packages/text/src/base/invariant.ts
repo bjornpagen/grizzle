@@ -25,5 +25,12 @@ export const invariant: (condition: boolean, what: string) => asserts condition 
 	}
 }
 
-/** The defect thrown, or an effect dies with, when an invariant breaks: `throw defect(what)`. */
-export const defect = (what: string): Error => new Error(`grizzle internal invariant: ${what}`)
+/**
+ * An invariant's break, thrown where it is found: `defect(what)` ends the code that found it, and an effect dies of one
+ * as `Effect.sync(() => defect(what))`. No caller holds the Error, so none can build it and drop it: SUBMITKEY's up-cast
+ * refusal (ir/expr.ts builtExpr) built its defect with no `throw`, and no up-cast was ever refused (lane REDS-PHYS,
+ * 2026-11-26).
+ */
+export const defect: (what: string) => never = (what) => {
+	throw new Error(`grizzle internal invariant: ${what}`)
+}

@@ -100,7 +100,8 @@ export type Situation = (typeof situations)[number]
 export const children: ReadonlyArray<number> = [1, 2]
 
 /** The stored moments, each a child's and its instant's, microseconds since the epoch as an instant is stored (2026-01-01,
- * -02 and -03), each before the call's at each child. */
+ * -02 and -03), each before the call's at each child, a child's in the order of their instants: a seed stamps each in a
+ * transaction of its own first, as every writer of Moment stamps its clock (physical/ddl/clocked.ts). */
 export const storedMoments: ReadonlyArray<readonly [number, string]> = [
 	[1, "1767225600000000"],
 	[1, "1767312000000000"],

@@ -31,19 +31,18 @@ import {
 } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import {
-	alternativesBuilder,
 	checkBuilder,
 	keyBuilder,
 	mirrorsBuilder,
 	mutableBuilder,
 	onBuilder,
+	selectBuilder,
 	statementDescOf
 } from "#compiler/schema/statements.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
 import { Id } from "#test/support/ids.ts"
-import { argumentsOf } from "#test/support/list.ts"
 import {
 	patternOnly,
 	rawClosedId,
@@ -828,7 +827,7 @@ export const built = (e: Row, p: CheckPredicate): unknown => {
 			return e[p.op](e.charLength(e.label), p.n)
 		case "and":
 		case "or":
-			return e[p.kind](...argumentsOf(Arr.map(p.args, (a) => built(e, a))))
+			return e[p.kind](Arr.map(p.args, (a) => built(e, a)))
 		case "not":
 			return e.not(built(e, p.arg))
 	}
@@ -905,46 +904,6 @@ export const plantedConjunct = (e: Row, defect: CheckDefect): unknown => {
 	}
 }
 
-type AlternativesDefect =
-	| "none"
-	| "a discriminator of another type"
-	| "a discriminator of another roster"
-	| "an arm off the roster"
-	| "no arms"
-	| "an arm keyed unlike the parent"
-	| "the parent as an arm"
-
-export const alternativesDefects: Arr.NonEmptyReadonlyArray<AlternativesDefect> = [
-	"none",
-	"a discriminator of another type",
-	"a discriminator of another roster",
-	"an arm off the roster",
-	"no arms",
-	"an arm keyed unlike the parent",
-	"the parent as an arm"
-]
-
-/** The reason each defect is refused for: a malformed call, or a rule the types name too. */
-export const alternativesTags: {
-	readonly [D in Exclude<AlternativesDefect, "none">]: "MalformedDescription" | "Refused"
-} = {
-	"a discriminator of another type": "MalformedDescription",
-	"a discriminator of another roster": "MalformedDescription",
-	"an arm off the roster": "Refused",
-	"no arms": "Refused",
-	"an arm keyed unlike the parent": "Refused",
-	"the parent as an arm": "Refused"
-}
-
-export type AlternativesFeature =
-	| AlternativesDefect
-	| "a Key as the parent"
-	| "a Key as an arm"
-	| "an unarmed handle"
-	| "a two-field key"
-
-export const Alien = closed("Alien", ["X"], "ordered", [])
-
 const Account = relation("Account", { id: Id, name: regex("^[a-z]{1,40}$", "u") }, ["id"], [])
 
 const AutomaticTask = relation("AutomaticTask", { task: Id, budget: Cents }, ["task"], [])
@@ -978,8 +937,11 @@ export const statementValues: Arr.NonEmptyReadonlyArray<{
 	{ statement: mutableBuilder(Task), over: ["Task"] },
 	{ statement: keyBuilder(onBuilder(Account, ["name"])), over: ["Account"] },
 	{
-		statement: alternativesBuilder(Task, "kind", Kind, { Automatic: AutomaticTask }),
-		over: ["Task", "Kind", "AutomaticTask"]
+		statement: mirrorsBuilder(
+			onBuilder(AutomaticTask, ["task"]),
+			onBuilder(selectBuilder(Task, ofKind("Automatic")), ["id"])
+		),
+		over: ["AutomaticTask", "Task", "Kind"]
 	},
 	{
 		statement: mirrorsBuilder(onBuilder(AutomaticTask, ["task"]), onBuilder(Task, ["id"])),

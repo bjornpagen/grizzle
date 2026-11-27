@@ -149,8 +149,6 @@ const lawJoins = (law: LawSpec): ReadonlyArray<string> => {
 		case "contained":
 		case "covered":
 			return [law.source.relation, law.target.relation]
-		case "alternatives":
-			return [law.relation, ...Record.values(law.arms)]
 	}
 }
 

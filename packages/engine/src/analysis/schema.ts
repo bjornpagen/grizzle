@@ -1,5 +1,5 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
-import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	isNonEmpty,
 	mapNonEmpty,
@@ -7,22 +7,34 @@ import {
 	sortNonEmpty
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { type Closure, closureOf } from "#compiler/analysis/closure.ts"
 import {
 	analyzeDerivedRelation,
 	type DerivedDefinition,
 	derivedDefinition,
 	type DerivedRelationAnalysis,
-	shapedDefinition
+	type DerivedSubject,
+	type OwnedDerived,
+	shapedDefinition,
+	storedRead
 } from "#compiler/analysis/derived/analyze.ts"
+import { type CanonicalRelation, canonicalName } from "#compiler/analysis/derived/canonical.ts"
+import { declaredDependencies } from "#compiler/analysis/derived/drawn.ts"
 import {
 	type DerivedHolding,
 	derivedHolding,
 	holdersOf
 } from "#compiler/analysis/derived/storage.ts"
 import { analyzeWorld, type WorldAnalysis } from "#compiler/analysis/derived/world.ts"
-import { liveReading } from "#compiler/analysis/theory/query.ts"
-import type { DeclaredMember } from "#compiler/analysis/theory/unit.ts"
+import { knownColumns } from "#compiler/analysis/theory/columns.ts"
+import { foundedAt } from "#compiler/analysis/theory/frozen.ts"
+import { headingOf, liveReading } from "#compiler/analysis/theory/query.ts"
+import {
+	type DeclaredMember,
+	regionFactsOf,
+	type UnitFacts,
+	withUnitHeads
+} from "#compiler/analysis/theory/unit.ts"
+import { deltaBoundOf } from "#compiler/analysis/theory/upkeep.ts"
 import { closedReads, closedReadsAmong } from "#compiler/check/closed.ts"
 import { DeclarationTable } from "#compiler/check/declarations.ts"
 import { fail, failWith } from "#compiler/check/fail.ts"
@@ -35,19 +47,35 @@ import {
 	rowNode,
 	type UnwrittenRead
 } from "#compiler/check/generated.ts"
-import type { AdmittedQuery } from "#compiler/check/index.ts"
+import { type AdmittedQuery, checkClosedImport } from "#compiler/check/index.ts"
 import type { ClosedRelation, SchemaReading } from "#compiler/check/schema.ts"
 import { CheckSession } from "#compiler/check/session.ts"
 import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import type { GeneratedRule } from "#compiler/core/causes.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { StoredRelationName } from "#compiler/core/ids.ts"
+import { once } from "#compiler/core/lazy.ts"
 import { childLoc, labeledChildLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings, mapInput } from "#compiler/core/order.ts"
-import type { DerivedRows } from "#compiler/ir/derived.ts"
+import { CanonicalDigests, type DagDigest, nodeShapes } from "#compiler/ir/dag.ts"
+import {
+	type CanonicalForms,
+	type DerivedRows,
+	formShape,
+	noForms,
+	noneWritten,
+	type Owning,
+	realityRows,
+	type Restriction,
+	type StoredForm,
+	type WorldRows
+} from "#compiler/ir/derived.ts"
 import {
 	descText,
 	type ExprDesc,
+	type InferredQuery,
+	type QueryDesc,
 	type FieldDesc,
 	type KeySlotDesc,
 	type LiteralDesc,
@@ -56,7 +84,7 @@ import {
 } from "#compiler/ir/desc.ts"
 import { type ExprTable, fieldReads, type TypedLiteral, storedColumn } from "#compiler/ir/expr.ts"
 import { instantInputText, isInstantDesc, isInstantType } from "#compiler/ir/instant.ts"
-import type { GeneratedRead, ViewRead } from "#compiler/ir/keys.ts"
+import type { ContainedDependency, GeneratedRead, ViewRead } from "#compiler/ir/keys.ts"
 import {
 	type ClosedSlot,
 	type ClosedTheoryRelation,
@@ -72,19 +100,21 @@ import {
 import { closedCell, closedValues, type DeclaredKey } from "#compiler/ir/rel.ts"
 import {
 	enteredType,
-	isFloat,
+	equalityIsIdentity,
 	isRefined,
 	Roster,
 	type ScalarType,
 	sameScalarType,
+	subsumes,
 	typeLabel
 } from "#compiler/ir/scalar.ts"
+import { queryEvidence, SharedAnalyses } from "#compiler/logical/annotate.ts"
 import type { ClosedTable } from "#compiler/runtime/write/fill.ts"
 import { admitLiteral, refined } from "#compiler/scalar/compute/evaluate.ts"
 import { admittedLiteral, type LiteralMeeting } from "#compiler/scalar/compute/literal.ts"
 import { exprEmitter, lowerTerm } from "#compiler/scalar/compute/lower.ts"
 import { binaryCoercion } from "#compiler/scalar/compute/registry.ts"
-import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
+import { schemaEnvOf } from "#compiler/scalar/compute/total.ts"
 import { type ClosedRelations, type LeafDesc, noParams } from "#compiler/scalar/compute/typing.ts"
 import { isDrawnType } from "#compiler/scalar/natural.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
@@ -95,18 +125,46 @@ import {
 	storedOnly
 } from "#compiler/scalar/registry.ts"
 import type { WritableEntry } from "#compiler/schema/entry.ts"
-import type {
-	Owned,
-	OwnedEntry,
-	OwnedKey,
-	OwnedRelation,
-	OwnedRole,
-	OwnedWorldEntry,
-	OwnedWrite
+import {
+	type Owned,
+	type OwnedEntry,
+	type OwnedKey,
+	type OwnedRelation,
+	type OwnedRole,
+	type OwnedWorldEntry,
+	type OwnedWrite,
+	roleSeesWhole
 } from "#compiler/schema/own.ts"
-import { type Slice, writesOf } from "#compiler/schema/reach.ts"
-import type { Scope } from "#compiler/schema/scope.ts"
+import { writesOf } from "#compiler/schema/reach.ts"
+import { claimsFilter } from "#compiler/schema/scope.ts"
+import { closedImportsOf, readsOf } from "#compiler/schema/walk.ts"
 import { AnalyzedPatterns } from "#compiler/text/refinement.ts"
+
+/** A canonical form (analysis/derived/canonical.ts): its digest and its root's form shape (ir/derived.ts formShape). */
+interface Form {
+	readonly digest: DagDigest
+	readonly shape: string
+}
+
+/** A query read as a canonical relation: the closed import of it its readers read, checked, and its form. */
+interface Formed {
+	readonly checked: AdmittedQuery
+	readonly form: Form
+}
+
+/** Where an anonymous canonical relation is read: the location its refusals name, and its derived level. */
+interface Placement {
+	readonly loc: SourceLoc
+	readonly level: number
+}
+
+/** The derived level of a served program's closed import `query`: one above the highest derived level of the relations
+ * it reads, 1 over ordinary and closed relations alone, as a derived relation's definition's is. */
+const servedLevel = (owned: Owned, query: QueryDesc): number =>
+	readsOf(query).reduce((most, name) => {
+		const r = owned.relations[name]
+		return Math.max(most, r?.kind === "derived" ? r.desc.level + 1 : 1)
+	}, 1)
 
 /**
  * A derived relation as a query reads it, stored or live alike (analysis/derived/analyze.ts DerivedDefinition): a Base
@@ -182,17 +240,6 @@ export type RoleWrite =
 			readonly writable: CheckedEntry
 			readonly loc: SourceLoc
 	  }
-	| {
-			/** A scoped entry's write (schema/own.ts OwnedWrite scoped): its relation written whole, behind the precheck of
-			 * its membership, its analysis `writable`, under its scope. */
-			readonly kind: "scoped"
-			readonly name: string
-			readonly mode: WriteMode
-			readonly relation: RelationInfo
-			readonly writable: CheckedEntry
-			readonly scope: Scope
-			readonly loc: SourceLoc
-	  }
 
 /** A role's world: the owned role, its base's checked schema and its write list over the base's handles, by name. */
 export interface RoleWorld {
@@ -205,53 +252,167 @@ export interface RoleWorld {
 /** The descriptor registry's environment of a schema (scalar/registry.ts ScalarEnv), which lowers contract predicates. */
 type SchemaEnv = Extract<ScalarEnv, { readonly kind: "schema" }>
 
-/** Reality's world: the relations and statements of an owned schema's closure over a slice (analysis/closure.ts). */
+/** Reality's world: every relation and statement of an owned schema, and `served`, the closed imports of the programs
+ * it serves (schema/reach.ts servedImportsOf), each a canonical relation it admits, read as `reading` says. */
 interface RealityWorld {
 	readonly kind: "reality"
-	readonly closure: Closure
+	readonly served: ReadonlySet<QueryDesc>
+	readonly reading: RealityReading
 }
 
 /**
- * What a checked schema reads as: reality, the relations of an owned schema's closure; or a role, whose relations are
+ * Where reality reads each relation from: `analyzed` here, each derived relation over the ones before it; or `within`
+ * the installation the schema is a level of, every relation of it one of the installation's. A level reads only the
+ * levels below it (schema/own.ts), so the installation's reading of each relation of a level, its info, its holding,
+ * its canonical relation, its definition and its analysis, is the level's own: a level read within its installation
+ * holds the installation's, by reference, held once however many levels read them, where each level analyzed its whole
+ * chain again (metis at PIN 2: nine levels, about 60 MB of analysis each, the base's).
+ */
+export type RealityReading =
+	| { readonly kind: "analyzed" }
+	| { readonly kind: "within"; readonly installation: CheckedSchema }
+
+/**
+ * What a checked schema reads as: reality, the relations of an owned schema; or a role, whose relations are
  * its entries over its base's checked schema.
  */
 type CheckedWorld = RealityWorld | RoleWorld
 
 /**
+ * What a role's world holds of each stored relation (ir/derived.ts WorldRows, schema/scope.ts): for each unit its claims
+ * bind, its owner checked over the base, whose rows are the keys the claims name, read whole, and each stored relation
+ * the unit holds restricted to them, each ordinary member (schema/own.ts OwnedUnit members) at the fields that hold the
+ * unit's key, and each stored derived relation whose declared unit it is (ir/unit.ts StoredUnit `declared`) at the
+ * fields that carry it, unit-local by its admission, so its table at the owner's keys holds its definition's rows over
+ * the world. Each field is paired with the owner's head field of the unit's heading at its position.
+ */
+const claimedRows = (role: OwnedRole, base: CheckedSchema): WorldRows => {
+	const restricted = new Map<string, Restriction>()
+	const session = new CheckSession(base.patterns)
+	for (const { unit, owner } of role.scope) {
+		const checked = unwrap(
+			shapedDefinition(
+				base,
+				`role ${role.name} owner of ${unit.name}`,
+				owner.query,
+				unit.name,
+				role.loc,
+				session
+			)
+		).checked
+		const owning: Owning = { unit: unit.name, dag: checked.dag }
+		const at = (fields: NonEmptyReadonlyArray<string>): Restriction => ({
+			owner: owning,
+			on: mapNonEmpty(fields, (left, i) => ({
+				left,
+				right: defined(
+					owner.fields[i],
+					"an owner's head field at each position of its unit's heading"
+				)
+			}))
+		})
+		for (const member of unit.members) {
+			restricted.set(member.relation, at(member.fields))
+		}
+		for (const [name, holding] of base.holdings) {
+			const held = holding.kind === "stored" ? holding.relation.unit : undefined
+			if (held?.kind === "unit" && held.declared.unit === unit.name) {
+				restricted.set(name, at(held.declared.fields))
+			}
+		}
+	}
+	return { restricted }
+}
+
+/**
  * A role's write list over `base`'s handles: the one site where ownership's writable-entry analysis, which names a
  * target and its fields (schema/entry.ts writableEntry), meets the base's handles, which every write and the
  * installation read. Ownership analyzed each entry over the base's description, so a name it gives is one the base
- * declares; one it does not is a malformed role. It holds each write that reads only relations of the base's closure,
- * as the role's entries are (CheckedSchema): every write for everySlice.
+ * declares; one it does not is a malformed role.
  */
-const roleWrites = (role: OwnedRole, base: CheckedSchema): ReadonlyMap<string, RoleWrite> => {
-	const ordinary = (name: string, loc: SourceLoc): RelationInfo =>
-		base.relations.get(name) ??
-		fail("MalformedDescription", loc, `a write into an ordinary relation of the base, not ${name}`)
-	const checkedEntry = (
-		w: Extract<OwnedWrite, { readonly kind: "rows" | "scoped" }>
-	): CheckedEntry => {
-		const owned = w.writable
-		const target = ordinary(owned.target, w.loc)
-		const byName = new Map(target.heading.map((f) => [f.name, f] as const))
-		const field = (name: string): LawField =>
-			byName.get(name) ??
-			fail(
-				"MalformedDescription",
-				w.loc,
-				`a writable entry over fields of ${target.name}, not ${name}`
+/** No claims membership: reality's, whose world holds every row. */
+const noClaimed: ReadonlyMap<string, ClaimsMembership> = new Map()
+
+/** An ordinary relation of `base` a write writes, by name; one it lacks is a malformed role. */
+const ordinaryOf = (base: CheckedSchema, name: string, loc: SourceLoc): RelationInfo =>
+	base.relations.get(name) ??
+	fail("MalformedDescription", loc, `a write into an ordinary relation of the base, not ${name}`)
+
+/** A writable entry as ownership analyzed it (schema/entry.ts writableEntry) over `base`'s handles. */
+const checkedEntryOf = (
+	owned: WritableEntry<string, string>,
+	base: CheckedSchema,
+	loc: SourceLoc
+): CheckedEntry => {
+	const target = ordinaryOf(base, owned.target, loc)
+	const byName = new Map(target.heading.map((f) => [f.name, f] as const))
+	const field = (name: string): LawField =>
+		byName.get(name) ??
+		fail("MalformedDescription", loc, `a writable entry over fields of ${target.name}, not ${name}`)
+	const filter = owned.filter
+	return {
+		entry: owned.entry,
+		target,
+		head: new Map(
+			[...owned.head].map(([head, h]) => [head, { field: field(h.field), kind: h.kind }] as const)
+		),
+		fixed: owned.fixed.map((f) => ({ field: field(f.field), value: f.value })),
+		filter: filter.kind === "none" ? filter : { ...filter, fields: filter.fields.map(field) }
+	}
+}
+
+/**
+ * Whether a fact a write of an ordinary member states lies in the world its role's claims bind (schema/scope.ts): its
+ * relation, the fields of it that hold the unit's key, at the unit heading's positions, and the claims filter over them
+ * (claimsFilter), a membership query over the row the write states, holding a row exactly where the fact's key is one
+ * the owner finds.
+ */
+export interface ClaimsMembership {
+	readonly target: RelationInfo
+	readonly fields: NonEmptyReadonlyArray<LawField>
+	readonly filter: QueryDesc
+}
+
+/**
+ * The claims membership of each ordinary member of a unit a role's claims bind (ClaimsMembership), by the member's name,
+ * over `base`'s handles: what a write of the member on the role asks of each fact it states (write/entry/precheck.ts), a
+ * fact outside the units the claims bind outsideWorld.
+ */
+const claimsMemberships = (
+	role: OwnedRole,
+	base: CheckedSchema
+): ReadonlyMap<string, ClaimsMembership> => {
+	const memberships = new Map<string, ClaimsMembership>()
+	for (const { unit, owner } of role.scope) {
+		for (const member of unit.members) {
+			const target = ordinaryOf(base, member.relation, role.loc)
+			const fields = mapNonEmpty(member.fields, (name) =>
+				defined(
+					target.heading.find((f) => f.name === name),
+					`the unit ${unit.name}'s key field ${name} of its member ${member.relation}`
+				)
 			)
-		const filter = owned.filter
-		return {
-			entry: owned.entry,
-			target,
-			head: new Map(
-				[...owned.head].map(([head, h]) => [head, { field: field(h.field), kind: h.kind }] as const)
-			),
-			fixed: owned.fixed.map((f) => ({ field: field(f.field), value: f.value })),
-			filter: filter.kind === "none" ? filter : { ...filter, fields: filter.fields.map(field) }
+			const key = mapNonEmpty(fields, (f) => ({
+				field: f.name,
+				type: defined(
+					role.base.relations[member.relation]?.fields[f.name]?.desc,
+					`the declared type of ${member.relation}.${f.name}`
+				)
+			}))
+			memberships.set(member.relation, {
+				target,
+				fields,
+				filter: claimsFilter(key, owner, role.loc)
+			})
 		}
 	}
+	return memberships
+}
+
+const roleWrites = (role: OwnedRole, base: CheckedSchema): ReadonlyMap<string, RoleWrite> => {
+	const ordinary = (name: string, loc: SourceLoc): RelationInfo => ordinaryOf(base, name, loc)
+	const checkedEntry = (w: Extract<OwnedWrite, { readonly kind: "rows" }>): CheckedEntry =>
+		checkedEntryOf(w.writable, base, w.loc)
 	const checkedWrite = (w: OwnedWrite): RoleWrite => {
 		switch (w.kind) {
 			case "whole":
@@ -270,31 +431,9 @@ const roleWrites = (role: OwnedRole, base: CheckedSchema): ReadonlyMap<string, R
 					writable: checkedEntry(w),
 					loc: w.loc
 				}
-			case "scoped":
-				return {
-					kind: "scoped",
-					name: w.name,
-					mode: w.mode,
-					relation: ordinary(w.relation.name, w.loc),
-					writable: checkedEntry(w),
-					scope: w.scope,
-					loc: w.loc
-				}
 		}
 	}
-	const within = base.closure.relations
-	const inside = (w: OwnedWrite): boolean => {
-		switch (w.kind) {
-			case "whole":
-				return within.has(w.relation.name)
-			case "rows":
-			case "scoped":
-				return within.has(w.writable.target) && w.entry.reads.every((r) => within.has(r))
-		}
-	}
-	return new Map(
-		[...role.writes].flatMap(([name, w]) => (inside(w) ? [[name, checkedWrite(w)] as const] : []))
-	)
+	return new Map([...role.writes].map(([name, w]) => [name, checkedWrite(w)] as const))
 }
 
 /**
@@ -364,7 +503,8 @@ const cascadedMembers = (owned: Owned): ReadonlySet<string> =>
 
 /**
  * The generated fields of `fields` each with the fields its generation reads, those that determine it (ir/keys.ts
- * GeneratedRead): every generated field but one whose generation reads a float, in field order.
+ * GeneratedRead): every generated field but one whose generation reads a field whose equality is no identity (ir/scalar.ts
+ * equalityIsIdentity), a float, two of whose equal values may generate two values, in field order.
  */
 const generatedReadsOf = (fields: ReadonlyArray<LawField>): ReadonlyArray<GeneratedRead> =>
 	fields.flatMap((f): ReadonlyArray<GeneratedRead> => {
@@ -373,7 +513,7 @@ const generatedReadsOf = (fields: ReadonlyArray<LawField>): ReadonlyArray<Genera
 			return []
 		}
 		const reads = fieldReads([generation])
-		return reads.some((r) => fields.some((x) => x.name === r && isFloat(x.type)))
+		return reads.some((r) => fields.some((x) => x.name === r && !equalityIsIdentity(x.type)))
 			? []
 			: [Object.freeze({ field: f.name, reads })]
 	})
@@ -463,19 +603,23 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	readonly closed: ReadonlyMap<string, ClosedRelation>
 	/** The closed relations C.at and C.row apply, by name: every closed relation (no roster) the schema reads. */
 	readonly closedReads: ClosedRelations
-	/** A role's entries over its base, each reading only relations of the base's closure, in name order; reality holds
-	 * none. */
+	/** A role's entries over its base, in name order; reality holds none. */
 	readonly entries: ReadonlyArray<RoleEntry>
 	/** The ordinary and closed relations' handles, in name order: what the theory's laws read. */
 	readonly stored: ReadonlyArray<TheoryRelation>
-	/** The closure it reads (analysis/closure.ts): reality's own, whose statements its theory normalizes; a role's, its
-	 * base's. */
-	readonly closure: Closure
 	/**
-	 * Where each derived relation of the closure keeps its rows, by name, as the schema's dependency structure decides it
+	 * Where each derived relation keeps its rows, by name, as the schema's dependency structure decides it
 	 * (analysis/derived/storage.ts DerivedHolding): a role's are its base's.
 	 */
 	readonly holdings: ReadonlyMap<string, DerivedHolding>
+	/**
+	 * Each canonical relation of the schema (analysis/derived/canonical.ts) by its form's digest, in admission order,
+	 * every one a derived relation's definition is or one of them imports under an empty bind map: a role's are its
+	 * base's.
+	 */
+	readonly canonical: ReadonlyMap<DagDigest, CanonicalRelation>
+	/** Each canonical relation by every name it is read by: each derived relation's whose definition it is, and its own. */
+	readonly #canonicalNamed: ReadonlyMap<string, CanonicalRelation>
 	/**
 	 * Whether a derived relation's table holds its rows as this schema reads it (`serves`): reality a stored one's, a role
 	 * a stored one's it reads in full (schema/own.ts OwnedRole `wholeDerived`), its table's rows being then exactly its
@@ -491,8 +635,30 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	/** Every derived relation's definition as every reader reads it (analyze.ts DerivedDefinition), by name: a role's are
 	 * its base's. */
 	readonly #definitions: ReadonlyMap<string, DerivedDefinition>
+	/**
+	 * The digests of each named derived relation's closed imports (closedImportsOf), by its name, in its definition's
+	 * order: the canonical relations its admission admits beside its own, which a level read within the installation
+	 * holds of the installation's (RealityReading `within`). A role's are its base's.
+	 */
+	readonly #imports: ReadonlyMap<string, ReadonlyArray<DagDigest>>
+	/** The digest of each served program's closed import reality serves (RealityWorld `served`), by the import, as its
+	 * admission admitted it (`admitServed`): what a level read within the installation holds of the installation's. A
+	 * role's are its base's. */
+	readonly #served: ReadonlyMap<QueryDesc, DagDigest>
+	/**
+	 * The digest of each query a derived relation's definition or a served program imports under an empty bind map, at any
+	 * depth (closedImportsOf), by the import, as its admission formed it: the canonical relation it is, which a reading
+	 * of a definition reads by its name where it is stored (`storedImport`). A role's and a level's are their
+	 * installation's.
+	 */
+	readonly #importForms: ReadonlyMap<InferredQuery, DagDigest>
 	/** A derived relation's definition as this schema reads it (`definition`). */
 	readonly #definitionOf: (relation: string) => AdmittedQuery
+	/** What this schema's world holds of each stored relation (ir/derived.ts WorldRows): reality's every row, a role's the
+	 * rows of the units its claims bind at its owners' keys (`claimedRows`), computed where a read first needs them. */
+	readonly #world: () => WorldRows
+	/** The claims membership of each ordinary member of a unit the world restricts (`claimsMemberships`): none in reality. */
+	readonly #claimed: () => ReadonlyMap<string, ClaimsMembership>
 	/**
 	 * Every stored derived relation's analysis in creation order's levels, level then name: a role's are its base's. A
 	 * live derived relation is read as a relation too (`relation`), its rows its definition's (ir/derived.ts), and a
@@ -513,6 +679,8 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	readonly #predicates: ReadonlyMap<string, Result.Result<ExprTable, CompileError>>
 	/** The relations whose accumulated fields a mutable owner's update cascades into (cascadedMembers). */
 	readonly #cascaded: ReadonlySet<string>
+	/** The dependencies each relation's declared containments give it, by its name, read once a schema. */
+	readonly #determined: ReadonlyMap<string, ReadonlyArray<ContainedDependency>>
 	/**
 	 * The admitted patterns the schema's compile meets, with the text analysis of each conjunction it types
 	 * (text/refinement.ts AnalyzedPatterns): its one table, which its fields' and closed rows' typing, its contracts'
@@ -523,24 +691,32 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	readonly patterns: AnalyzedPatterns
 
 	/**
-	 * Reality holds its closure's stored relations: its rosters and closed relations first, which a generated field's
-	 * expression reads, then its ordinary relations, each in name order; then each of its derived relations analyzed in
-	 * level order against the relations held so far: a definition reads only the levels below its own (schema/own.ts),
-	 * and the closure holds every relation a held one reads, so each Base it reads finds its view's keys. Every roster
-	 * types a field, whatever the closure. A role holds its entries that read only relations of its base's closure: its
-	 * whole entries as its base's relations, each query entry analyzed against its base, and its base's closed relations.
+	 * Reality holds its stored relations: its rosters and closed relations first, which a generated field's expression
+	 * reads, then its ordinary relations, each in name order; then each of its derived relations analyzed in level order
+	 * against the relations held so far: a definition reads only the levels below its own (schema/own.ts), so each Base it
+	 * reads finds its view's keys. A role holds its entries: its whole entries as its base's relations, each query entry
+	 * analyzed against its base, and its base's closed relations.
 	 */
 	constructor(owned: Owned, world: World) {
 		this.owned = owned
 		this.#cascaded = cascadedMembers(owned)
+		this.#determined = declaredDependencies(owned)
 		this.world = world
 		for (const r of Object.values(owned.relations)) {
 			if (r.kind === "closed") {
 				this.#rosters.set(r.name, r.roster)
 			}
 		}
-		this.patterns = world.kind === "role" ? world.base.patterns : new AnalyzedPatterns()
-		this.#predicates = world.kind === "role" ? world.base.#predicates : this.#declaredPredicates()
+		/** The checked schema whose patterns and predicates this one's types resolve against: a role's base's, a level's
+		 * installation's, or its own. */
+		const typing: CheckedSchema | undefined =
+			world.kind === "role"
+				? world.base
+				: world.reading.kind === "within"
+					? world.reading.installation
+					: undefined
+		this.patterns = typing === undefined ? new AnalyzedPatterns() : typing.patterns
+		this.#predicates = typing === undefined ? this.#declaredPredicates() : typing.#predicates
 		const relations = new Map<string, RelationInfo>()
 		const closed = new Map<string, ClosedRelation>()
 		const held = new Map<string, BaseRelation>()
@@ -568,7 +744,12 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		}
 		if (read.kind === "role") {
 			this.holdings = read.base.holdings
+			this.canonical = read.base.canonical
+			this.#canonicalNamed = read.base.#canonicalNamed
 			this.#definitions = read.base.#definitions
+			this.#imports = read.base.#imports
+			this.#served = read.base.#served
+			this.#importForms = read.base.#importForms
 			/** A role reads a derived relation's definition over its own relations, each by its name, checked when a read
 			 * of the role first needs it: a definition reading a relation the role holds none of is refused there, as a
 			 * read of that relation is (OutsideRole). */
@@ -594,19 +775,27 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 				roleDefinitions.set(relation, checked)
 				return checked
 			}
+			const role = read.role
+			const base = read.base
+			this.#world = once(() => claimedRows(role, base))
+			this.#claimed = once(() => claimsMemberships(role, base))
 			this.writable = writesOf(
 				read.base.owned,
 				[...read.writes.values()].map((write) =>
 					write.kind === "rows" ? write.writable.target.name : write.relation.name
 				)
 			)
-			const readsWhole = new Set(read.role.wholeDerived)
-			this.#tables = (relation) =>
-				read.base.holdings.get(relation)?.kind === "stored" && readsWhole.has(relation)
+			/** Whether the role sees every row of a relation (schema/own.ts roleSeesWhole): a canonical relation's table
+			 * serves the role where it sees so every relation the canonical relation's definition reads, its rows then a
+			 * function of rows the role sees, a named one's whose rows it reads in full (OwnedRole `wholeDerived`) and an
+			 * anonymous one's alike. */
+			const seesWhole = roleSeesWhole(read.role)
+			this.#tables = (relation) => {
+				const c = read.base.#canonicalNamed.get(relation)
+				return c?.holding.kind === "stored" && c.subject.reads.every(seesWhole)
+			}
 			this.derived = read.base.derived
 			this.closedReads = read.base.closedReads
-			this.closure = read.base.closure
-			const within = this.closure.relations
 			/** Each stored derived relation the role reads in full (schema/own.ts OwnedRole `wholeDerived`), held as a whole
 			 * entry of its own: its table serves the role exactly where the role sees every row its definition reads. */
 			const wholeDerived = read.role.wholeDerived.flatMap((relation): ReadonlyArray<OwnedEntry> => {
@@ -616,9 +805,6 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 					: []
 			})
 			this.entries = [...Object.values(read.role.relations), ...wholeDerived]
-				.filter((e) =>
-					e.kind === "whole" ? within.has(e.relation.name) : e.reads.every((r) => within.has(r))
-				)
 				.toSorted(byName)
 				.map((e): RoleEntry =>
 					e.kind === "whole"
@@ -644,11 +830,11 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 					reads.push({ info: c, whole: false })
 				}
 			}
-			/** Every other derived relation of the base's closure, its rows its definition's over the role's relations: by the
+			/** Every other derived relation of the base, its rows its definition's over the role's relations: by the
 			 * keys its definition proves, as the base reads it. */
 			const throughDefinitions = [...read.base.#definitions].flatMap(([name, definition]) => {
 				const derived = read.base.owned.relations[name]
-				return derived !== undefined && within.has(name) && !this.#tables(name)
+				return derived !== undefined && !this.#tables(name)
 					? [
 							{
 								info: {
@@ -669,10 +855,119 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			return
 		}
 		this.entries = []
-		this.closure = read.closure
-		const ownedRelations = Object.values(owned.relations).filter((o) =>
-			read.closure.relations.has(o.name)
-		)
+		if (read.reading.kind === "within") {
+			const installation = read.reading.installation
+			const within = new Set(Object.keys(owned.relations))
+			for (const name of within) {
+				if (installation.owned.relations[name] === undefined) {
+					defect(
+						`a level read within its installation reads only relations the installation holds, not ${name}`
+					)
+				}
+			}
+			for (const [name, info] of installation.#held) {
+				if (within.has(name) && info.kind !== "derived") {
+					hold(info, true)
+				}
+			}
+			this.closedReads = closedReads(
+				[...closed.values()].filter((c) => !this.#rosters.has(c.name)),
+				this.patterns
+			)
+			/**
+			 * The canonical relations the level's own admission admits, in its order (as the analyzed reading below admits
+			 * them): each named derived relation of the schema in level and name order, its closed imports' then its own,
+			 * then each served program's closed import; each the installation's, whose subject, placement and holding are
+			 * the level's own.
+			 */
+			const named = Object.values(owned.relations)
+				.flatMap((o) => (o.kind === "derived" && within.has(o.name) ? [o] : []))
+				.toSorted((a, b) =>
+					a.desc.level === b.desc.level
+						? compareStrings(a.name, b.name)
+						: a.desc.level - b.desc.level
+				)
+			const canonical = new Map<DagDigest, CanonicalRelation>()
+			const canonicalNamed = new Map<string, CanonicalRelation>()
+			const holdings = new Map<string, DerivedHolding>()
+			const definitions = new Map<string, DerivedDefinition>()
+			const derived: Array<DerivedRelationAnalysis> = []
+			const imports = new Map<string, ReadonlyArray<DagDigest>>()
+			const served = new Map<QueryDesc, DagDigest>()
+			const installed = (digest: DagDigest): CanonicalRelation =>
+				defined(
+					installation.canonical.get(digest),
+					`the installation's canonical relation ${digest}`
+				)
+			const admit = (c: CanonicalRelation): void => {
+				if (canonical.has(c.digest)) {
+					return
+				}
+				canonical.set(c.digest, c)
+				canonicalNamed.set(c.subject.name, c)
+				holdings.set(c.subject.name, c.holding)
+				definitions.set(c.subject.name, c.definition)
+				if (c.holding.kind === "stored") {
+					derived.push(c.holding.analysis)
+					hold(
+						defined(
+							installation.#held.get(c.subject.name),
+							`the installation's stored canonical relation ${c.subject.name}`
+						),
+						true
+					)
+				}
+			}
+			for (const r of named) {
+				const own = defined(
+					installation.#imports.get(r.name),
+					`the imports of derived relation ${r.name}`
+				)
+				imports.set(r.name, own)
+				for (const digest of own) {
+					admit(installed(digest))
+				}
+				const relation = defined(
+					installation.#canonicalNamed.get(r.name),
+					`the canonical relation of derived relation ${r.name}`
+				)
+				admit(relation)
+				canonicalNamed.set(r.name, relation)
+				holdings.set(r.name, relation.holding)
+				definitions.set(r.name, relation.definition)
+				hold(
+					defined(installation.#held.get(r.name), `the installation's derived relation ${r.name}`),
+					true
+				)
+			}
+			for (const q of read.served) {
+				const digest = installation.#served.get(q)
+				if (digest === undefined) {
+					defect(
+						"a level read within its installation serves only closed imports the installation admitted"
+					)
+				}
+				served.set(q, digest)
+				admit(installed(digest))
+			}
+			this.#imports = imports
+			this.#served = served
+			this.#importForms = installation.#importForms
+			this.canonical = canonical
+			this.#canonicalNamed = canonicalNamed
+			this.holdings = holdings
+			this.#definitions = definitions
+			this.derived = derived
+			this.#definitionOf = (relation) =>
+				defined(definitions.get(relation), `the definition of the derived relation ${relation}`)
+					.checked
+			this.#world = () => realityRows
+			this.#claimed = () => noClaimed
+			this.writable = new Set(relations.keys())
+			this.#tables = storedTables(canonicalNamed)
+			return
+		}
+		const ownedRelations = Object.values(owned.relations)
 		const ownedStored = ownedRelations
 			.flatMap((o): ReadonlyArray<OwnedStored> => (o.kind === "derived" ? [] : [o]))
 			.toSorted(byName)
@@ -691,76 +986,370 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		this.derived = derived
 		const holdings = new Map<string, DerivedHolding>()
 		this.holdings = holdings
-		/** The relations a stored relation's unit-locality reads (storage.ts HoldingInput `known`): the closure's ordinary
+		const canonical = new Map<DagDigest, CanonicalRelation>()
+		this.canonical = canonical
+		const canonicalNamed = new Map<string, CanonicalRelation>()
+		this.#canonicalNamed = canonicalNamed
+		/** The relations a stored relation's unit-locality reads (storage.ts HoldingInput `known`): the schema's ordinary
 		 * and closed ones, and each stored derived relation of the levels decided so far. */
 		const known = new Map<string, TheoryRelation>(stored.map((r) => [r.name, r] as const))
 		const members = new Map<string, DeclaredMember>()
+		/** What admission reads of the units (storage.ts HoldingInput `units`): each relation's declared unit, an ordinary
+		 * relation's by the unit statements and a stored derived relation's by its admission so far; whether a unit is
+		 * sealed; and the containments the schema's statements and definitions state, which a read by reference of a
+		 * sealed unit's relation stands on, none where no unit is sealed, since no definition reads one by reference; and each
+		 * stored derived relation's definition as its admission read it, once it is admitted. */
+		const storedDefinitions = new Map<string, InferredQuery>()
+		const units: UnitFacts = {
+			storedDefinition: (relation) => storedDefinitions.get(relation),
+			memberOf: (relation) => owned.unitOf.get(relation) ?? members.get(relation),
+			sealed: (unit) => foundedAt(owned, unit),
+			containments: [...owned.units.values()].some((u) => u.sealed)
+				? regionFactsOf(
+						owned.statements,
+						known,
+						new Map(
+							ownedRelations.flatMap((o) =>
+								o.kind === "derived" ? [[o.name, o.desc.query] as const] : []
+							)
+						),
+						owned.unitOf
+					).containments
+				: []
+		}
 		const definitions = new Map<string, DerivedDefinition>()
 		this.#definitions = definitions
-		/**
-		 * The one session of every derived definition's check (check/session.ts CheckSession): a definition reads a
-		 * derived relation below it as a relation, and an import its definitions share, a query several of them read, is
-		 * checked once for the schema (check/checker.ts #closedImport), where a session of each definition's own checked it
-		 * again for each.
-		 */
-		const session = new CheckSession(this.patterns)
+		const imports = new Map<string, ReadonlyArray<DagDigest>>()
+		this.#imports = imports
+		const servedDigests = new Map<QueryDesc, DagDigest>()
+		this.#served = servedDigests
+		const importForms = new Map<InferredQuery, DagDigest>()
+		this.#importForms = importForms
 		this.#definitionOf = (relation) =>
 			defined(definitions.get(relation), `the definition of the derived relation ${relation}`)
 				.checked
+		this.#world = () => realityRows
+		this.#claimed = () => noClaimed
 		this.writable = new Set(relations.keys())
-		this.#tables = (relation) => holdings.get(relation)?.kind === "stored"
+		this.#tables = storedTables(canonicalNamed)
 		/** A definition as its unit-locality reads it (storage.ts HoldingInput `definition`): every live derived relation it
-		 * names, at any depth, read through its own definition, whose rows its upkeep would read. */
-		const live = liveReading((relation) => {
+		 * names, at any depth, read through its own definition, whose rows its upkeep would read, and every stored canonical
+		 * relation it imports by its name (`storedImport`), as its upkeep reads it, each import admitted before its reader. */
+		const liveDefinition = (relation: string) => {
 			const r = owned.relations[relation]
 			return r?.kind === "derived" && holdings.get(relation)?.kind !== "stored"
 				? r.desc.query
 				: undefined
-		})
-		for (const r of ownedRelations
+		}
+		const live = liveReading(liveDefinition, (query) => this.storedImport(query))
+		/** The columns of each definition a delta class reads, each checked once (theory/columns.ts knownColumns). */
+		const columnType = knownColumns(this)
+		const namedDerived = ownedRelations
 			.flatMap((o) => (o.kind === "derived" ? [o] : []))
 			.toSorted((a, b) =>
 				a.desc.level === b.desc.level ? compareStrings(a.name, b.name) : a.desc.level - b.desc.level
-			)) {
-			const definition = unwrap(derivedDefinition(this, r, session))
-			definitions.set(r.name, definition)
-			const holding = derivedHolding({
-				owned,
-				relation: r,
-				definition: live.query(r.desc.query),
-				known,
-				memberOf: (relation) => owned.unitOf.get(relation) ?? members.get(relation),
-				analyze: () => analyzeDerivedRelation(this, r, definition)
-			})
-			holdings.set(r.name, holding)
-			switch (holding.kind) {
-				case "stored":
-					derived.push(holding.analysis)
-					known.set(r.name, holding.relation)
-					if (holding.relation.unit.kind === "unit") {
-						members.set(r.name, holding.relation.unit.declared)
-					}
-					break
-				case "live":
-					break
+			)
+		{
+			/**
+			 * The one session of every derived definition's check (check/session.ts CheckSession): a definition reads a
+			 * derived relation below it as a relation, and an import its definitions share, a query several of them read, is
+			 * checked once for the schema (check/checker.ts #closedImport), where a session of each definition's own checked it
+			 * again for each. It, the digests and the analyses below are this block's, the admission of the canonical
+			 * relations, so no closure the schema keeps holds them past it.
+			 */
+			const session = new CheckSession(this.patterns)
+			/** The canonical forms of the definitions and their closed imports (ir/dag.ts CanonicalDigests), each closed
+			 * sub-query digested once for the schema however many forms read it. */
+			const digests = new CanonicalDigests()
+			const shapes = nodeShapes()
+			/** The analyses of the canonical relations' definitions (logical/annotate.ts SharedAnalyses), under the evidence a
+			 * view's keys give: each closed import of the session annotated once, however many definitions read it. */
+			const analyses = new SharedAnalyses(queryEvidence, session.closedRoots())
+			/** `query` read as a canonical relation (canonical.ts): the closed import of it every definition of the session reads
+			 * (check/index.ts checkClosedImport), checked once for the schema, and its form. */
+			const formOf = (query: QueryDesc, label: string): Formed => {
+				const checked = unwrap(checkClosedImport(this, label, query, session))
+				const root = checked.dag.roots[0]
+				return {
+					checked,
+					form: { digest: unwrap(digests.of(root)), shape: formShape(shapes, root) }
+				}
 			}
-			hold({ kind: "derived", name: r.name, loc: r.loc, analysis: { read: definition.read } }, true)
+			/**
+			 * The first derived relation in level and name order whose definition each canonical form is, its name the form's,
+			 * each level's read where the levels below it are held, which its definitions read.
+			 */
+			const namedForms = new Map<DagDigest, OwnedDerived>()
+			/** Each derived relation's definition and form, read once, a level's where that level's turn comes. */
+			const forms = new Map<OwnedDerived, Formed>()
+			/** The derived level whose forms are read. */
+			let formedLevel = 0
+			const formsAt = (level: number): void => {
+				if (level === formedLevel) {
+					return
+				}
+				formedLevel = level
+				for (const r of namedDerived) {
+					if (r.desc.level !== level) {
+						continue
+					}
+					const formed = formOf(r.desc.query, `derived ${r.name}`)
+					forms.set(r, formed)
+					if (!namedForms.has(formed.form.digest)) {
+						namedForms.set(formed.form.digest, r)
+					}
+				}
+			}
+			/** The subject of the canonical relation of form `digest` and definition `query`: the derived relation's whose
+			 * definition it is where one's is (`namedForms`), its canonical name otherwise, placed where `at` reads it. */
+			const subjectOf = (digest: DagDigest, query: QueryDesc, at: Placement): DerivedSubject => {
+				const named = namedForms.get(digest)
+				return {
+					name: named?.name ?? canonicalName(digest),
+					loc: named?.loc ?? at.loc,
+					ident: identifierOf(identity.view(digest)),
+					level: named?.desc.level ?? at.level,
+					reads: named?.reads ?? readsOf(query),
+					query: named?.desc.query ?? query
+				}
+			}
+			/** The canonical relation of `subject` under its form `digest`, its definition `definition`: its holding decided
+			 * once (storage.ts derivedHolding), over the relations decided so far; held by its name where it is stored, a
+			 * relation every reading of a definition that imports it reads (`storedImport`), a named relation's again under
+			 * its own name, with the keys its statements declare. */
+			const admit = (
+				{ digest, shape }: Form,
+				subject: DerivedSubject,
+				definition: DerivedDefinition
+			): CanonicalRelation => {
+				const reading = live.query(subject.query)
+				const holding = derivedHolding({
+					owned,
+					subject,
+					definition: reading,
+					known,
+					units,
+					analyze: () => analyzeDerivedRelation(this, subject, definition),
+					deltaBound: (admitted, unit) =>
+						deltaBoundOf({
+							name: subject.name,
+							definition: admitted,
+							heading: headingOf(subject.name, admitted, subject.loc),
+							table:
+								owned.relations[subject.name]?.kind === "derived"
+									? { kind: "table", relation: subject.name, unit: unit.fields }
+									: { kind: "none" },
+							stored: unit,
+							known,
+							env: { definition: liveDefinition, columnType, live, loc: subject.loc },
+							holder: (relation) => {
+								const kind = known.get(relation)?.kind
+								return (
+									(kind === "relation" || kind === "stored") && !unit.references.includes(relation)
+								)
+							},
+							fieldOf: (relation, field) =>
+								known.get(relation)?.fields.find((f) => f.name === field)?.desc,
+							proofs: { kind: "none" },
+							loc: subject.loc
+						}),
+					extended: (fields, vars) => {
+						const rows: DerivedSubject = {
+							...subject,
+							query: withUnitHeads(subject.query, fields, vars)
+						}
+						return {
+							query: rows.query,
+							definition: live.query(rows.query),
+							analyze: () =>
+								Result.flatMap(
+									checkClosedImport(
+										this,
+										`derived ${subject.name} with its unit`,
+										rows.query,
+										session
+									),
+									(checked) =>
+										Result.flatMap(derivedDefinition(owned, rows, checked, analyses), (extended) =>
+											analyzeDerivedRelation(this, rows, extended)
+										)
+								)
+						}
+					}
+				})
+				const relation: CanonicalRelation = Object.freeze({
+					digest,
+					shape,
+					subject,
+					definition,
+					holding,
+					holders: holdersOf(owned, subject.reads)
+				})
+				canonical.set(digest, relation)
+				canonicalNamed.set(subject.name, relation)
+				holdings.set(subject.name, holding)
+				definitions.set(subject.name, definition)
+				switch (holding.kind) {
+					case "stored":
+						derived.push(holding.analysis)
+						known.set(subject.name, holding.relation)
+						storedDefinitions.set(subject.name, reading)
+						if (holding.relation.unit.kind === "unit") {
+							members.set(subject.name, holding.relation.unit.declared)
+						}
+						hold(
+							{
+								kind: "derived",
+								name: subject.name,
+								loc: subject.loc,
+								analysis: { read: storedRead(owned, subject.name, definition.read) }
+							},
+							true
+						)
+						break
+					case "live":
+						break
+				}
+				return relation
+			}
+			/** The canonical relation `formed` is, the closed import of `query` read where `at` reads it, its definition
+			 * analyzed (analyze.ts derivedDefinition) and admitted; or the refusal of a definition no derived relation may
+			 * have. */
+			const admitted = (
+				{ checked, form }: Formed,
+				query: QueryDesc,
+				at: Placement
+			): Result.Result<CanonicalRelation, CompileError> => {
+				const subject = subjectOf(form.digest, query, at)
+				return Result.map(derivedDefinition(owned, subject, checked, analyses), (definition) =>
+					admit(form, subject, definition)
+				)
+			}
+			for (const r of namedDerived) {
+				formsAt(r.desc.level)
+				const at: Placement = { loc: r.loc, level: r.desc.level }
+				const own: Array<DagDigest> = []
+				for (const q of closedImportsOf(r.desc.query)) {
+					const formed = formOf(q, `derived ${r.name}'s import`)
+					own.push(formed.form.digest)
+					importForms.set(q, formed.form.digest)
+					if (!canonical.has(formed.form.digest)) {
+						admitted(formed, q, at)
+					}
+				}
+				imports.set(r.name, own)
+				const formed = defined(forms.get(r), `the form of derived relation ${r.name}`)
+				const relation =
+					canonical.get(formed.form.digest) ?? unwrap(admitted(formed, r.desc.query, at))
+				canonicalNamed.set(r.name, relation)
+				holdings.set(r.name, relation.holding)
+				definitions.set(r.name, relation.definition)
+				hold(
+					{
+						kind: "derived",
+						name: r.name,
+						loc: r.loc,
+						analysis: {
+							read:
+								relation.holding.kind === "stored"
+									? storedRead(owned, r.name, relation.definition.read)
+									: relation.definition.read
+						}
+					},
+					true
+				)
+			}
+			/**
+			 * A closed import of a program reality serves (RealityWorld `served`), admitted after every derived relation,
+			 * whose tables its definition may read: a canonical relation as a definition's import is, at the derived level
+			 * above the highest it reads (`servedLevel`), none where no derived relation may have it for its definition.
+			 */
+			const admitServed = (q: QueryDesc): void => {
+				const formed = formOf(q, "a served program's closed import")
+				servedDigests.set(q, formed.form.digest)
+				importForms.set(q, formed.form.digest)
+				if (!canonical.has(formed.form.digest)) {
+					admitted(formed, q, {
+						loc: SourceLoc(
+							`a served program's closed import ${canonicalName(formed.form.digest)}`,
+							[]
+						),
+						level: servedLevel(owned, q)
+					})
+				}
+			}
+			read.served.forEach(admitServed)
 		}
 	}
 
 	/**
 	 * The definition of the derived relation `relation` as this schema reads it, checked: reality's, checked once when
-	 * the schema was built (analyze.ts derivedDefinition); a role's, over the role's own relations (`#definitionOf`). The
-	 * lowering reads it where the relation's table does not serve a read (ir/derived.ts servedDag).
+	 * the schema was built (analyze.ts derivedDefinition), a named relation's and an anonymous canonical relation's alike,
+	 * each by its name, since a statement read over the rows a COMMIT leaves reads either's table by that name and a
+	 * verdict over the same statement through every definition (`expanded`) reads it back; a role's, over the role's own
+	 * relations (`#definitionOf`). The lowering reads it where the relation's table does not serve a read (ir/derived.ts
+	 * servedDag).
 	 */
 	definition(relation: string): AdmittedQuery {
 		return this.#definitionOf(relation)
 	}
 
+	/**
+	 * The claims membership a write of ordinary relation `relation` on this schema asks of each fact it states, where its
+	 * world restricts the relation (`claimsMemberships`, write/entry/precheck.ts); none for a relation every row of which
+	 * the world holds.
+	 */
+	claimsMembership(relation: string): ClaimsMembership | undefined {
+		return this.#claimed().get(relation)
+	}
+
+	/** What this schema's world holds of each stored relation (ir/derived.ts WorldRows): what every read of it reads. */
+	worldRows(): WorldRows {
+		return this.#world()
+	}
+
 	/** Every derived relation read through its definition, whatever this schema stores: what a membership reads, and
 	 * what a verdict over a query's rows reads them from (ir/derived.ts DerivedRows). */
 	expanded(): DerivedRows {
-		return { serves: () => false, definition: (relation) => this.definition(relation) }
+		return {
+			serves: () => false,
+			definition: (relation) => this.definition(relation),
+			forms: noForms,
+			world: this.#world()
+		}
+	}
+
+	/**
+	 * How a COMMIT's statements read the schema's derived relations, a stored relation's fill, upkeep and meaning and every
+	 * rule the judge tests: `rows` of a statement that writes nothing, every stored relation's table that serves read, but
+	 * no canonical relation read in place of its form (ir/derived.ts noForms), so a fill reads no table whose upkeep its
+	 * own COMMIT runs after it, nor its own. An upkeep's and the judge's queries hold no such form: the theory reads each
+	 * stored canonical relation a definition imports by its name (`storedImport`), as it reads a named one.
+	 */
+	definitionRows(): DerivedRows {
+		return { ...this.rows(noneWritten), forms: noForms }
+	}
+
+	/** The stored canonical relations as the lowering reads them in place of their forms (ir/derived.ts CanonicalForms). */
+	#forms: CanonicalForms | undefined
+
+	/** `#forms`, gathered once from the canonical relations. */
+	#storedForms(): CanonicalForms {
+		const known = this.#forms
+		if (known !== undefined) {
+			return known
+		}
+		const stored = new Map<string, StoredForm>()
+		const shapes = new Set<string>()
+		for (const c of this.canonical.values()) {
+			if (c.holding.kind === "stored") {
+				stored.set(c.digest, { relation: c.subject.name, read: c.definition.read })
+				shapes.add(c.shape)
+			}
+		}
+		const forms: CanonicalForms = { stored, shapes }
+		this.#forms = forms
+		return forms
 	}
 
 	/** How a statement of a write that writes the relations `written` reads this schema's derived relations
@@ -768,7 +1357,9 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	rows(written: ReadonlySet<string>): DerivedRows {
 		return {
 			serves: (relation) => this.serves(relation, written),
-			definition: (relation) => this.definition(relation)
+			definition: (relation) => this.definition(relation),
+			forms: this.#storedForms(),
+			world: this.#world()
 		}
 	}
 
@@ -783,12 +1374,49 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 	 * (ir/derived.ts servedDag).
 	 */
 	serves(relation: string, written: ReadonlySet<string>): boolean {
-		const r = this.owned.relations[relation]
+		const c = this.#canonicalNamed.get(relation)
 		return (
-			r?.kind === "derived" &&
-			this.#tables(relation) &&
-			!holdersOf(this.owned, r).some((holder) => written.has(holder))
+			c !== undefined && this.#tables(relation) && !c.holders.some((holder) => written.has(holder))
 		)
+	}
+
+	/** The canonical relation `relation` names (analysis/derived/canonical.ts): a derived relation's, or an anonymous
+	 * one's by its canonical name. */
+	canonicalOf(relation: string): CanonicalRelation {
+		return defined(this.#canonicalNamed.get(relation), `the canonical relation of ${relation}`)
+	}
+
+	/** The canonical relation `relation` names, none where it names none: an ordinary, closed or unknown relation. */
+	canonicalNamed(relation: string): CanonicalRelation | undefined {
+		return this.#canonicalNamed.get(relation)
+	}
+
+	/**
+	 * The relation `relation` is installed as: a derived relation's canonical relation, by its subject's name, which
+	 * every derived relation of its definition names (analysis/derived/canonical.ts), an alias's among them; any other
+	 * relation itself. A canonical relation's stored table, its key and its indexes are planned and named once, by it,
+	 * and every alias reads them: no object of the installation is planned, named or found by an alias's own name.
+	 */
+	installedAs(relation: string): string {
+		return this.#canonicalNamed.get(relation)?.subject.name ?? relation
+	}
+
+	/**
+	 * The name of the stored canonical relation the query `query` imported under an empty bind map is (`#importForms`),
+	 * where its table serves this schema's reads (`#tables`): what every reading of a definition reads it by, as it reads a
+	 * stored derived relation by its name (analysis/theory/query.ts LiveReading `stored`), so no statement spells a
+	 * stored relation's definition in place. None for a live one, or an import no admission formed.
+	 */
+	storedImport(query: InferredQuery): string | undefined {
+		const digest = this.#importForms.get(query)
+		const c = digest === undefined ? undefined : this.canonical.get(digest)
+		return c !== undefined && this.#tables(c.subject.name) ? c.subject.name : undefined
+	}
+
+	/** The canonical relation of the form `digest` (analysis/derived/canonical.ts), a definition's or an import's, a served
+	 * program's among them; none for a form its admission made nothing of. */
+	formOf(digest: DagDigest): CanonicalRelation | undefined {
+		return this.canonical.get(digest)
 	}
 
 	/** A relation of this schema a role over it holds whole, with its handles: the role reads the base's own. */
@@ -920,6 +1548,8 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			inserts: r.inserts,
 			inPlace: this.#inPlace(r, declared, primaryFields),
 			generated: generatedReadsOf(declared),
+			unit: this.owned.unitOf.get(name)?.fields ?? [],
+			determined: this.#determined.get(name) ?? [],
 			level: r.level,
 			loc
 		}
@@ -1108,8 +1738,11 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		return {
 			kind: r.desc.primaryKey.includes(field) ? "keyGenerated" : "generated",
 			desc,
+			/** The term as it stands where the field's type subsumes the term's (ir/scalar.ts subsumes; ir/expr.ts
+			 * builtExpr refuses the up-cast) or the term is of the field's entered type, cast into the field's type
+			 * otherwise. */
 			expr:
-				sameScalarType(term.expr.type, term.nominal) ||
+				subsumes(term.nominal, term.expr.type) ||
 				sameScalarType(term.expr.type, enteredType(term.nominal))
 					? term.expr
 					: emit({
@@ -1281,23 +1914,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		patterns: PatternAutomata,
 		declared: ReadonlyMap<string, Result.Result<ExprTable, CompileError>>
 	): SchemaEnv {
-		const env: SchemaEnv = {
-			kind: "schema",
-			roster: (name) => this.#rosters.get(name),
-			contractPredicate: (
-				predicate,
-				base,
-				contract,
-				facts
-			): Result.Result<ExprTable, CompileError> =>
-				declared.get(contract) ??
-				contractPredicateTable(predicate, base, contract, facts, {
-					loc: SourceLoc(`contract ${contract}`, []),
-					fieldType: (d, at) => scalarTypeOf(d, env, at),
-					patterns
-				})
-		}
-		return env
+		return schemaEnvOf((name) => this.#rosters.get(name), patterns, declared)
 	}
 
 	/**
@@ -1438,16 +2055,32 @@ export const derivedAnalysis = (schema: CheckedSchema): DerivedAnalysis => ({
 	order: schema.derived
 })
 
-/** The checker's reading of an owned schema over the closure of `slice` (analysis/closure.ts closureOf): every relation
- * and statement for everySlice. A pass that reads it again takes the one its caller holds (program/schema.ts
- * SchemaArtifacts.checked, the installation's builder), never this again. */
-export const checkedSchema = (
+/** Whether a derived relation's table serves reality's read of it, by its canonical relation `named` gives: where it is stored. */
+const storedTables =
+	(named: ReadonlyMap<string, CanonicalRelation>) =>
+	(relation: string): boolean =>
+		named.get(relation)?.holding.kind === "stored"
+
+/** The checker's reading of an owned schema, every relation and statement of it, serving no program's closed import
+ * (checkedReality). A pass that reads it again takes the one its caller holds (program/schema.ts SchemaArtifacts.checked,
+ * the installation's builder), never this again. */
+export const checkedSchema = (owned: Owned): Result.Result<CheckedSchema, CompileError> =>
+	checkedReality(owned, new Set(), { kind: "analyzed" })
+
+/**
+ * The checker's reading of `owned`, every relation and statement of it, admitting `served`, the closed imports of the
+ * programs it serves (schema/reach.ts servedImportsOf), each relation read as `reading` says: analyzed here
+ * (checkedSchema), or, `owned` a level of an installation, within the installation (RealityReading `within`), the
+ * installation's info, holding, canonical relation, definition and analysis of it, by reference, which are the level's
+ * own, so a generate that compiles each level's logins over its own artifacts holds the installation's analysis once
+ * (cli/generate.ts).
+ */
+export const checkedReality = (
 	owned: Owned,
-	slice: Slice
+	served: ReadonlySet<QueryDesc>,
+	reading: RealityReading
 ): Result.Result<CheckedSchema, CompileError> =>
-	catchRefusal(
-		() => new CheckedSchema(owned, { kind: "reality", closure: closureOf(owned, slice) })
-	)
+	catchRefusal(() => new CheckedSchema(owned, { kind: "reality", served, reading }))
 
 /** The checker's reading of an owned role, over its base's reading `base` (checkedSchema of role.base). */
 export const checkedRoleOver = (

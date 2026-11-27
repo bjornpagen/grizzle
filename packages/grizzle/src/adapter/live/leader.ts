@@ -203,7 +203,7 @@ export const alone = (
 	Effect.flatMap(runApart(session, [sent]), (answers) => {
 		const [answer] = answers
 		if (answer === undefined) {
-			return Effect.die(defect("a flight of one statement answered it"))
+			return Effect.sync(() => defect("a flight of one statement answered it"))
 		}
 		return Result.isFailure(answer)
 			? Effect.fail(answer.failure)
@@ -240,7 +240,7 @@ export const slotCheckOf = (rows: ReadonlyArray<ReadonlyArray<string>>): SlotChe
 	const position = (text: string | undefined): WalPosition => {
 		const read = text === undefined ? undefined : parseWalPosition(text)
 		if (read?.ok !== true) {
-			throw defect(`the slot check answers WAL positions, not ${String(text)}`)
+			defect(`the slot check answers WAL positions, not ${String(text)}`)
 		}
 		return read.value
 	}
@@ -257,7 +257,7 @@ export const snapshotOf = (rows: ReadonlyArray<ReadonlyArray<string>>): Snapshot
 	const cell = onlyCell(rows)
 	const read = cell === undefined ? undefined : parseSnapshot(cell)
 	if (read?.ok !== true) {
-		throw defect(`the snapshot statement answers pg_snapshot's text, not ${String(cell)}`)
+		defect(`the snapshot statement answers pg_snapshot's text, not ${String(cell)}`)
 	}
 	return read.value
 }
@@ -311,7 +311,7 @@ export const deadlined = <E>(
 const freshNonce = Effect.sync(() => {
 	const nonce = sealNonce(SecureRandom.randomBytesUnsafe(sealNonceBytes))
 	if (!nonce.ok) {
-		throw defect("randomBytes answered a nonce of sealNonceBytes bytes")
+		defect("randomBytes answered a nonce of sealNonceBytes bytes")
 	}
 	return nonce.value
 })

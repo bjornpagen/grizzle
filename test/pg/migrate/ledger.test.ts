@@ -97,8 +97,8 @@ export const ledgerMachine = property.explore(
 			},
 			{
 				file: "packages/grizzle/src/adapter/migrate/apply.ts",
-				original: "\t\t([guards, standUps]) => dataStepBracket(guards, standUps)\n",
-				replacement: "\t\t([guards]) => dataStepBracket(guards, [])\n",
+				original: "([standUps, rechecks]) => dataStepBracket(levels, standUps, rechecks)",
+				replacement: "([standUps, rechecks]) => dataStepBracket(levels, [], rechecks)",
 				why: "A custom migration's data step stands up no rule judge's table before its statements: its write of a table a rule over a query reads is refused at the statement (55Z03), where the data step that breaks the rule is refused at its COMMIT."
 			}
 		]

@@ -269,6 +269,17 @@ const deliveredAttachments = (root: RelNode): ReadonlyArray<DeliveredAttachment>
 }
 
 /**
+ * The attachments `root` delivers fused into the statement whose rows they attach to, each child read per parent row by
+ * a correlated ARRAY (lower/shapes/attach fusedAttachment): those whose statement's rows read a search (`searchInRows`,
+ * lower/shapes/index.ts OptimizedDelivery rowsPart). Every other attachment is a statement of its own, which reads its
+ * child as its attachment's read says (cte-policy attachmentRead).
+ */
+export const fusedAttachments = (root: RelNode): ReadonlyArray<NodeOf<"Attach">> =>
+	deliveredAttachments(root).flatMap(({ attach, statement }) =>
+		searchInRows(statement) === undefined ? [] : [attach]
+	)
+
+/**
  * Approximate searches and attachments: one search per execution, and never one search per parent.
  *
  * An attachment is Nest: for each parent p, the child's facts for p. Two placements of a search under an

@@ -27,6 +27,8 @@ import type { FillAt } from "#compiler/ir/fill.ts"
 import { familyKey, type GeneratedLaw, type ColumnKey, columnKeyOf } from "#compiler/ir/law.ts"
 import { holds, type NeededInput } from "#compiler/ir/needs.ts"
 import {
+	type CallerParamDecl,
+	type DeclaredSlot,
 	type FilledRows,
 	filledRowsKey,
 	type LiteralBound,
@@ -38,8 +40,8 @@ import type { StratumAt } from "#compiler/ir/stratum.ts"
 import { runsLargeForm } from "#compiler/runtime/lower/take.ts"
 import type {
 	Binding,
+	ComputedFields,
 	CountedFamily,
-	FamilyNames,
 	FreshStratum,
 	JudgedRelation,
 	OwnedColumn
@@ -53,6 +55,17 @@ import {
 } from "#compiler/runtime/write/cells.ts"
 import type { MemberCell } from "#compiler/runtime/write/draw.ts"
 import {
+	type Execution,
+	type ExecutionPart,
+	executionOf,
+	type NestedCells,
+	nestedColumn,
+	type NestedPlaceholder,
+	type NestedSource,
+	nestedSource
+} from "#compiler/runtime/write/executions.ts"
+import {
+	type CallEvaluator,
 	type FilledNode,
 	type Filler,
 	fillRefusal,
@@ -64,7 +77,8 @@ import {
 	type FlightStatement,
 	type FlightWrite,
 	sentForm,
-	type ServedWriteChoice
+	type ServedWriteChoice,
+	sharedWhole
 } from "#compiler/runtime/write/flight.ts"
 import {
 	type Fact,
@@ -92,20 +106,7 @@ import {
 	type SlotData
 } from "#compiler/runtime/write/normalize.ts"
 import { keyWitness } from "#compiler/runtime/write/outcome.ts"
-import {
-	type Execution,
-	type ExecutionPart,
-	executionsOf,
-	type NestedCells,
-	nestedColumn,
-	type NestedPlaceholder,
-	type NestedRowBound,
-	type NestedSource,
-	type PreparedStaged,
-	type Unsendable,
-	nestedSource
-} from "#compiler/runtime/write/staged.ts"
-import type { OwnStep } from "#compiler/runtime/write/steps.ts"
+import { type OwnStep, sentWhere } from "#compiler/runtime/write/steps.ts"
 import type { Batching, Transport } from "#compiler/runtime/write/transport.ts"
 import {
 	type FilledColumn,
@@ -114,9 +115,18 @@ import {
 	type StatedRows,
 	type WitnessField
 } from "#compiler/runtime/write/witness.ts"
+import { type SqlValue, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import { hostOfLiteral } from "#compiler/scalar/compute/literal.ts"
-import { admitted, compareValues } from "#compiler/scalar/values/identity.ts"
-import type { RecordedLaw, Witness } from "#compiler/types/changeset/changeset.ts"
+import { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
+import {
+	admitted,
+	admitValue,
+	compareValues,
+	evaluatedValue,
+	type HostValue,
+	heldValue
+} from "#compiler/scalar/values/identity.ts"
+import type { DrawnBy, RecordedLaw, Witness } from "#compiler/types/changeset/changeset.ts"
 import type { SingleAct } from "#compiler/write/frontend/compile.ts"
 import type { Proposal } from "#compiler/write/insert/statement.ts"
 
@@ -126,16 +136,9 @@ interface BindInputs {
 	/** The declared parameters' values, by name: the caller's, and the values ChangeSet.bind closed under the private
 	 * names the Description lists. */
 	readonly params: Readonly<Record<string, unknown>>
-	/** What one statement carries, which a staged statement's nested rows are cut to (runtime/write/transport.ts
+	/** What one statement carries, which a statement's batched executions are cut to (runtime/write/transport.ts
 	 * inForce over the wire's Bind frame). */
 	readonly transport: Transport
-}
-
-/** A row of a nested write that no statement can carry even alone, as its family names it. */
-export interface FamilyRowBound {
-	readonly _tag: "FamilyRowBound"
-	readonly family: FamilyNames
-	readonly row: Unsendable
 }
 
 /**
@@ -205,15 +208,13 @@ export interface InsertedStratum {
 
 /**
  * The executions of a statement under `transport`, the message bound of the session that sends them, in the order they
- * are sent (write/program/staged.ts Execution): its one, its `values`, or, where its nested rows' arrays are past the
- * transport's message, its staged form's: its carriers created and filled chunk by chunk, then the staged statement (write/program/staged.ts executionsOf). Its rows are every
- * execution's, in order. A nested row no statement or fill carries even alone is its family's FamilyRowBound, before
- * any statement is sent.
+ * are sent (runtime/write/executions.ts Execution): its facts cut into batched executions where its transport bounds
+ * them (`batchedExecutions`), or its one, its `values`. Its rows are every execution's, in order.
  */
 export type Chunks = (
 	statement: FlightStatement,
 	transport: Transport
-) => Result.Result<ReadonlyArray<Execution>, EncodingFailure | LiteralBound | FamilyRowBound>
+) => Result.Result<ReadonlyArray<Execution>, EncodingFailure | LiteralBound>
 
 /**
  * A write the host refuses before any write statement, filling a row whose generated field has no value
@@ -284,13 +285,10 @@ export type RowsResult = BoundRows | Rejected
 /** What binding one application gives (`bindWrite`): its bound write, or its refusal. */
 export type BindResult = BoundWrite | Rejected
 
-/** A statement sent inline, whose nested rows, a single statement's none, ride its own Bind message. */
-const inline: PreparedStaged = Object.freeze({ kind: "none" })
-
 /**
  * The form a call sends of `statement`, whose inputs `holdsFact` says hold a fact or none, its per-execution choices
- * run as `runsLarge` says: a whole statement's chosen form, where its rows' needs hold, and a single statement's
- * assembled of the units of its chosen form its inputs give rows; none where it sends nothing.
+ * run as `runsLarge` says: a whole statement's chosen form, where its step sends it (steps.ts sentWhere), and a single
+ * statement's assembled of the units of its chosen form its inputs give rows; none where it sends nothing.
  */
 const sentFormOf = (
 	statement: FlightStatement,
@@ -298,12 +296,10 @@ const sentFormOf = (
 	holdsFact: (input: NeededInput) => boolean
 ): FlightForm | undefined => {
 	switch (statement.kind) {
-		case "whole": {
-			const step = statement.step
-			return (step.kind === "write" || step.kind === "check") && !holds(step.needs, holdsFact)
-				? undefined
-				: sentForm(statement, runsLarge)
-		}
+		case "whole":
+			return holds(sentWhere(statement.step), holdsFact)
+				? sentForm(statement, runsLarge)
+				: undefined
 		case "parted":
 			return sentForm(statement, runsLarge).sentFor(holdsFact)
 	}
@@ -369,6 +365,47 @@ interface HostRows extends BoundRows {
 }
 
 /**
+ * The fields of a relation's rows a stratum's call computes (`computedValues`): each the host evaluates at its value, as
+ * the field holds it, and each it does not by what supplies it, its term's source (binding.ts ComputedFields).
+ */
+interface CallFields {
+	readonly values: ReadonlyMap<string, HostValue>
+	readonly drawn: ReadonlyMap<string, DrawnBy>
+}
+
+/** The fields of a relation's rows a stratum computes none of. */
+const noneComputed: CallFields = Object.freeze({ values: new Map(), drawn: new Map() })
+
+/**
+ * Each stratum's computed fields of each relation it inserts computing some (binding.ts ComputedFields), by stratum and
+ * relation (CallFields): each field's term over the call's parameters as their admission holds them, `params`,
+ * evaluated once a call, its value the one every row of the call holds there, which the statement that writes them
+ * fills; a term the host does not evaluate, one reading the call's clock among them, is the database's to supply, named
+ * by its source; and a term NULL, which the field's NOT NULL refuses, neither.
+ */
+const computedValues = (
+	computed: ReadonlyArray<ComputedFields>,
+	evaluate: CallEvaluator,
+	params: (id: ParamId) => SqlValue | undefined
+): ReadonlyMap<StratumAt, ReadonlyMap<StoredRelationName, CallFields>> => {
+	const out = new Map<StratumAt, Map<StoredRelationName, CallFields>>()
+	for (const { stratum, relation, fields } of computed) {
+		const values = new Map<string, HostValue>()
+		const drawn = new Map<string, DrawnBy>()
+		for (const field of fields) {
+			const value = evaluate(field.term, params)
+			if (!value.ok) {
+				drawn.set(field.name, field.source)
+			} else if (value.value !== sqlNull) {
+				values.set(field.name, heldValue(field.type, value.value))
+			}
+		}
+		out.getOrInsertComputed(stratum, () => new Map()).set(relation, { values, drawn })
+	}
+	return out
+}
+
+/**
  * Binds one application's rows on the host, before any statement is written: steps 1 and 2 of `bindWrite`, every
  * member's facts admitted and normalized, each counted family's fresh groups drawn and every row the write's statements
  * insert filled, from the write's host half alone (`HostBinding`), its statements unread.
@@ -384,6 +421,8 @@ const hostRows = (
 	/** Each relation parameter's input, normalized once for the application: the one set its count and every statement
 	 * that binds it read. */
 	const relationInputs = new Map<ParamId, NormalizedRelation>()
+	/** Each scalar parameter by its id, which a computed field's term reads (`computedValues`). */
+	const scalars = new Map<ParamId, Extract<CallerParamDecl, { readonly kind: "scalar" }>>()
 	const paramValue = (name: string): unknown => inputs.params[name]
 	for (const decl of host.params) {
 		const value = paramValue(decl.name)
@@ -409,7 +448,28 @@ const hostRows = (
 		if (!text.ok) {
 			return Result.err(text.error)
 		}
+		scalars.set(decl.id, decl)
 	}
+	/** A scalar parameter's value as the call's admission holds it, as the evaluator computes with it, read where a
+	 * computed field's term reads it; its encoder admitted it above. */
+	const admittedParam = (id: ParamId): SqlValue | undefined => {
+		const decl = scalars.get(id)
+		if (decl === undefined) {
+			return undefined
+		}
+		const spec = carrierSpecOf(decl.type, codes)
+		const read = admitValue(spec, paramValue(decl.name))
+		if (!read.ok) {
+			defect(`the value of parameter ${decl.name}, which its encoder admitted`)
+		}
+		return evaluatedValue(
+			decl.type,
+			spec.carrier === "bytes" && read.value instanceof Uint8Array
+				? new AdmittedBytes(read.value)
+				: read.value
+		)
+	}
+	const computed = computedValues(binding.computed, prepared.evaluateCall, admittedParam)
 	const normalization = normalizeChangeSet(
 		prepared.groups,
 		{ fill: prepared.fill, codes, columns: prepared.columns },
@@ -458,6 +518,10 @@ const hostRows = (
 	/** The write's rows as normalization leaves them: each slot's normal facts, each nested row as the walk filled it. */
 	const normalRows: WriteRows = { slot: factsOf, nested: normalNestedRows }
 	const ctx: FillContext = { codes, evaluate: prepared.evaluate, columns: prepared.columns }
+	/** The fields of `relation`'s rows the call computes at `stratum`, each at its value (`computedValues`); none where
+	 * the stratum computes none of them. */
+	const computedAt = (stratum: StratumAt, relation: StoredRelationName): CallFields =>
+		computed.get(stratum)?.get(relation) ?? noneComputed
 	/** How `relation`'s stated rows are judged, which the binding decided when the write compiled. */
 	const judgedOf = (relation: StoredRelationName): JudgedRelation =>
 		defined(binding.judged.get(relation), `the judged relation ${relation}, a written one`)
@@ -486,19 +550,22 @@ const hostRows = (
 		op: "insert" | "put" | "delete",
 		keyed: boolean,
 		source: ColumnsSource,
-		proposal: Proposal
+		proposal: Proposal,
+		calls: CallFields
 	): JudgedRow => {
 		const judged = judgedOf(relation)
+		/** A field the row states: one the call computes, at the value its term took (`computedValues`), which no row the
+		 * host holds holds, or one the row holds. */
 		const stated = Object.freeze(
 			Object.fromEntries(
 				judged.stated.flatMap((name) => {
-					const value = held(columnKeyOf(name))
+					const value = calls.values.get(name) ?? held(columnKeyOf(name))
 					return value === undefined ? [] : [[name, value] as const]
 				})
 			)
 		)
 		if (fill.kind === "unplanned" || !keyed) {
-			return { kind: "known", stated, filled: () => unfilled }
+			return { kind: "known", stated, filled: () => unfilled, drawn: calls.drawn }
 		}
 		/** A column as the row holds it, unfilled where it holds none. */
 		const heldColumn = (column: ColumnKey): FilledColumn => {
@@ -508,6 +575,7 @@ const hostRows = (
 		return {
 			kind: proposal === "unstored" ? "ifFresh" : "known",
 			stated,
+			drawn: calls.drawn,
 			filled: (column): FilledColumn => {
 				const owned = judged.owned.get(column)
 				switch (source) {
@@ -534,7 +602,8 @@ const hostRows = (
 					return fill.rows.slot(slot.slot).facts.map((fact): JudgedRow => ({
 						kind: "known",
 						stated: fact,
-						filled: () => unfilled
+						filled: () => unfilled,
+						drawn: noneComputed.drawn
 					}))
 				case "relation":
 					return ownRows(fill, group, input, slot)
@@ -542,6 +611,7 @@ const hostRows = (
 		},
 		nested: (stratum: StratumAt, relation: StoredRelationName) => {
 			const columns = prepared.columns(relation)
+			const calls = computedAt(stratum, relation)
 			return fill.rows
 				.nested(stratum, relation)
 				.map((row) =>
@@ -552,7 +622,8 @@ const hostRows = (
 						"insert",
 						true,
 						"walk",
-						"every"
+						"every",
+						calls
 					)
 				)
 		}
@@ -581,15 +652,17 @@ const hostRows = (
 			binding.proposals.get(slot.slot),
 			`the proposal of member slot ${slot.slot}`
 		)
+		const calls = computedAt(group.stratum, relation)
 		return facts.map((fact) =>
 			judgedRow(
 				fill,
 				relation,
 				(column) => (Object.hasOwn(fact, column) ? fact[column] : undefined),
 				op,
-				primary.every((name) => Object.hasOwn(fact, name)),
+				primary.every((name) => Object.hasOwn(fact, name) || calls.values.has(name)),
 				source,
-				proposal
+				proposal,
+				calls
 			)
 		)
 	}
@@ -685,7 +758,7 @@ const hostRows = (
 			type: fieldOf(name).type
 		}))
 		if (!isNonEmpty(stated)) {
-			throw defect(
+			defect(
 				`a field ${relation} states besides its key's stamped one, its clock's child or its place's group`
 			)
 		}
@@ -845,15 +918,10 @@ const boundStatements = (flight: FlightWrite, inputs: BindInputs, host: HostRows
 				return factsOf(input.slot).count > 0
 		}
 	}
-	/**
-	 * A placeholder's text: a declared parameter's host value, by its declared name; the array at its part of a
-	 * relation parameter's normalized input or a member slot's facts in `rows`, which its own encoder writes; or the array
-	 * of one column of a stratum's nested rows of a relation in `rows`, in their sent layout, as a family statement's rows
-	 * are written (order.ts columnArray).
-	 */
-	const encodeSlot = (
-		slot: WriteSlot,
-		rows: WriteRows
+	/** A declared parameter's placeholder's text: its host value, by its declared name, or the array at its part of a
+	 * relation parameter's normalized input, which its own encoder writes, whole whatever share an execution carries. */
+	const encodeDeclared = (
+		slot: DeclaredSlot
 	): Result.Result<Param, EncodingFailure | LiteralBound> => {
 		switch (slot.kind) {
 			case "scalar":
@@ -866,6 +934,24 @@ const boundStatements = (flight: FlightWrite, inputs: BindInputs, host: HostRows
 					),
 					slot.part
 				)
+		}
+	}
+	/**
+	 * A placeholder's text: a declared parameter's (`encodeDeclared`), and an admission's, the declared parameter's it
+	 * admits; the array at its part of a member slot's facts in `rows`, which its own encoder writes; or the array of one
+	 * column of a stratum's nested rows of a relation in `rows`, in their sent layout, as a family statement's rows are
+	 * written (order.ts columnArray).
+	 */
+	const encodeSlot = (
+		slot: WriteSlot,
+		rows: WriteRows
+	): Result.Result<Param, EncodingFailure | LiteralBound> => {
+		switch (slot.kind) {
+			case "scalar":
+			case "relation":
+				return encodeDeclared(slot)
+			case "admission":
+				return encodeDeclared(slot.admits)
 			case "member":
 				return slot.encode(rows.slot(slot.slot), slot.part)
 			case "nestedRows": {
@@ -876,7 +962,7 @@ const boundStatements = (flight: FlightWrite, inputs: BindInputs, host: HostRows
 	}
 	/**
 	 * A stratum's host-filled rows of `relation` (ir/products.ts FilledRows) as their placeholders carry them: their
-	 * layout's column types, and each row's cells in its order (write/program/staged.ts NestedCells): the walk's nested
+	 * layout's column types, and each row's cells in its order (runtime/write/executions.ts NestedCells): the walk's nested
 	 * rows (`nestedRows`) in their sent layout, or a counted family's fresh groups' members, as the stratum's fresh fill
 	 * drew them (`freshOwners`), in the family's fresh layout.
 	 */
@@ -901,7 +987,7 @@ const boundStatements = (flight: FlightWrite, inputs: BindInputs, host: HostRows
 		}
 	}
 	/** A stratum's nested rows of `relation` as their placeholders carry them: their sent layout's column types, and each
-	 * row's cells in its order (write/program/staged.ts NestedCells), as the row holds them. */
+	 * row's cells in its order (runtime/write/executions.ts NestedCells), as the row holds them. */
 	const nestedCellsOf = (
 		nestedRows: (stratum: StratumAt, relation: StoredRelationName) => ReadonlyArray<NestedRow>,
 		stratum: StratumAt,
@@ -938,19 +1024,9 @@ const boundStatements = (flight: FlightWrite, inputs: BindInputs, host: HostRows
 			sentForms.get(statement.index),
 			`the form of statement ${statement.index}, which the call sends`
 		)
-	/** A row of a nested relation no fill carries even alone, as the first family it is a member of names it (binding.ts
-	 * Binding rowFamilies). */
-	const nestedRowBound = (bound: NestedRowBound): FamilyRowBound => ({
-		_tag: "FamilyRowBound",
-		family: defined(
-			binding.rowFamilies.get(bound.relation),
-			`a family whose member is ${bound.relation}, a relation a nested write fills`
-		),
-		row: bound.row
-	})
 	/**
 	 * Every stratum's nested rows of a relation a statement of the flight sends, by stratum and relation, as each
-	 * statement that sends them reads them (staged.ts NestedSource): built once for the write, where a statement first
+	 * statement that sends them reads them (executions.ts NestedSource): built once for the write, where a statement first
 	 * sends them (`sourceOf`), so no statement builds, writes or measures the cells or a column another statement sends,
 	 * and a binding none of whose statements is sent, an insertion preview's (program/preview.ts), encodes none.
 	 */
@@ -974,18 +1050,15 @@ const boundStatements = (flight: FlightWrite, inputs: BindInputs, host: HostRows
 	): Result.Result<ReadonlyArray<Param>, EncodingFailure | LiteralBound> =>
 		Result.each(form(statement).paramSlots, (slot) => encodeSlot(slot, sentRows))
 	/**
-	 * The executions under `transport` of a statement: its one, or, where its nested rows' arrays are past the
-	 * transport's message, its staged form's (`Chunks`); each placeholder of nested rows sends its source as the write
-	 * built it (`sourceOf`).
-	 */
-	/**
 	 * The executions of a statement of member inserts under `batching` (transport.ts Batching), each carrying a share of
 	 * every member slot's facts, cut in the slots' order and each slot's canonical order (`batchCuts`), its form the units
-	 * of the parts its share gives rows (`sentFormOf`): none where the batching is whole, the statement inserts nothing
-	 * or reads a relation parameter or nested rows, a slot has a bytes column (normalize.ts cuttable), or its facts fit
-	 * one execution, which `chunks` then sends as one. Every share is a call's facts as host normalization left them:
-	 * deduplicated, no two of one key, so no execution meets a fact another inserted at its key, and the deferred
-	 * constraints and the judge read every execution's rows at COMMIT. Its rows are every execution's, in order.
+	 * of the parts its share gives rows (`sentFormOf`), and every other placeholder whole (`sharedWhole`), its admission's
+	 * among them, so each execution's Bind admits every parameter the statement carries: none where the batching is
+	 * whole, the statement inserts nothing or reads a relation parameter or nested rows, a slot has a bytes column
+	 * (normalize.ts cuttable), or its facts fit one execution, which `chunks` then sends as one. Every share is a call's
+	 * facts as host normalization left them: deduplicated, no two of one key, so no execution meets a fact another
+	 * inserted at its key, and the deferred constraints and the judge read every execution's rows at COMMIT. Its rows are
+	 * every execution's, in order.
 	 */
 	const batchedExecutions = (
 		statement: FlightStatement,
@@ -998,7 +1071,7 @@ const boundStatements = (flight: FlightWrite, inputs: BindInputs, host: HostRows
 		if (statement.kind === "parted" && !sentForm(statement, runsLarge).cuttable) {
 			return undefined
 		}
-		if (!sent.paramSlots.every((slot) => slot.kind === "member" || slot.kind === "scalar")) {
+		if (!sent.paramSlots.every((slot) => slot.kind === "member" || sharedWhole(slot))) {
 			return undefined
 		}
 		const members = [
@@ -1043,6 +1116,10 @@ const boundStatements = (flight: FlightWrite, inputs: BindInputs, host: HostRows
 		}
 		return Result.ok(executions)
 	}
+	/**
+	 * The executions under `transport` of a statement (`Chunks`): its batched ones, or its one, each placeholder of
+	 * nested rows sending its source as the write built it (`sourceOf`).
+	 */
 	const chunks: Chunks = (statement, transport) => {
 		const sent = sentForms.get(statement.index)
 		if (sent === undefined) {
@@ -1055,21 +1132,15 @@ const boundStatements = (flight: FlightWrite, inputs: BindInputs, host: HostRows
 		const nested = sent.paramSlots.map((slot): NestedPlaceholder | undefined =>
 			slot.kind === "nestedRows" ? { part: slot.part, source: sourceOf(slot) } : undefined
 		)
-		const executions = executionsOf(
-			{ text: sent.text, staged: statement.kind === "whole" ? statement.staged : inline, nested },
-			partOf(statement.step),
-			(position) =>
+		return Result.map(
+			executionOf(sent.text, nested, partOf(statement.step), (position) =>
 				encodeSlot(
 					defined(sent.paramSlots[position], "a placeholder of the statement's form"),
 					sentRows
-				),
-			transport
+				)
+			),
+			(execution) => [execution]
 		)
-		if (executions.ok) {
-			return executions
-		}
-		const refused = executions.error
-		return Result.err(refused._tag === "NestedRowBound" ? nestedRowBound(refused) : refused)
 	}
 	return {
 		kind: "bound",
@@ -1148,7 +1219,6 @@ const insertsOnly = (step: OwnStep): boolean => {
 		case "carrier":
 		case "check":
 		case "familyWrite":
-		case "admission":
 			return false
 	}
 }
@@ -1204,16 +1274,15 @@ const batchCuts = (
 	return cuts
 }
 
-/** What a statement of `step` does, as its executions are read (write/program/staged.ts ExecutionPart). */
+/** What a statement of `step` does, as its executions are read (runtime/write/executions.ts ExecutionPart). */
 const partOf = (step: OwnStep): ExecutionPart => {
 	switch (step.kind) {
 		case "carrier":
-			return step.step
+			return "fill"
 		case "write":
 		case "check":
 		case "single":
 		case "familyWrite":
-		case "admission":
 			return "statement"
 	}
 }

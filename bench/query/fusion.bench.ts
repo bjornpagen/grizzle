@@ -76,7 +76,7 @@ import { str } from "#compiler/public/text.ts"
  *   deferred foreign key admits until commit, with every other account's many tasks as duplicate referring facts), and
  *   the transaction template agrees with the conservative join there while the snapshot elimination delivers the
  *   dangling tasks; the transaction rolls back. Account is immutable, so a key change is a deletion and an addition, and
- *   the fixture has no alternatives, so no arm switches.
+ *   the fixture switches no task's kind, so no arm switches.
  * - R17: a retained-key projection and a retained-key bounded subset plan with no Unique node, the
  *   bounded subset reading no more Task rows than its bound, beside the handwritten redundant DISTINCT whose Unique node
  *   is the mechanism the rule removes; a projection that drops the key keeps exact deduplication and delivers no
@@ -249,7 +249,7 @@ export default defineGate({
 	} satisfies { readonly full: Options; readonly quick: Options },
 	run: ({ options }) =>
 		Effect.gen(function* () {
-			const fx = yield* installFixture(Fusion, programs, {}, "benchfusion", [])
+			const fx = yield* installFixture(Fusion, programs, {}, "benchfusion", () => [])
 			const tasks = options.accounts * options.tasksPerAccount
 			const notes = 2 * Math.floor(tasks / 3)
 			yield* fill(fx, "Account", options.accounts, { id: "g::int8", region: "(g % 100)::int4" })

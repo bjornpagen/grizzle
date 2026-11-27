@@ -261,10 +261,12 @@ export const aCellBreakingOneToThreeRulesIsRefusedNamingEveryRuleItBreaksUnderAn
 		],
 		kills: [
 			{
-				file: "packages/engine/src/runtime/write/witness.ts",
-				original: "\t\tsortNonEmpty(once, (a, b) => order(a.law.law) - order(b.law.law)),",
-				replacement: "\t\tsortNonEmpty(once, (a, b) => order(b.law.law) - order(a.law.law)),",
-				why: "Operator mutant (operands swapped) at packages/engine/src/runtime/write/witness.ts in brokenLaws: a refusal lists the laws its row breaks against the schema's canonical order of laws, so a cell breaking two rules names them out of its naming's canonical order, and the property fails."
+				file: "packages/grizzle/src/adapter/witness/classify.ts",
+				original:
+					"): Arr.NonEmptyReadonlyArray<L> => Arr.sort(laws, (a: L, b: L) => compareCodePoints(a.id, b.id))",
+				replacement:
+					"): Arr.NonEmptyReadonlyArray<L> => Arr.sort(laws, (a: L, b: L) => compareCodePoints(b.id, a.id))",
+				why: "Operator mutant (operands swapped) in adapter/witness/classify.ts byIdentity, where the one canonical order of a refusal's laws is decided (canonicalRefusal; restated from runtime/write/witness.ts brokenLaws's theory-order sort, which 2cf8b4bf1a's canonical order superseded and which is gone): a refusal lists the laws its row breaks against their identities' code point order, so a cell breaking two rules names them out of it, and the property fails."
 			}
 		]
 	})

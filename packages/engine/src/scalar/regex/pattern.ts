@@ -39,7 +39,7 @@ export class Pattern<S extends string = string> {
 		const source = formSource(target)
 		const value = admitSpelling(source)
 		if (!value.ok) {
-			throw defect(`a lexical form's pattern its admission admits: /${source}/u`)
+			defect(`a lexical form's pattern its admission admits: /${source}/u`)
 		}
 		return Object.freeze(new Pattern(source, value.value))
 	}

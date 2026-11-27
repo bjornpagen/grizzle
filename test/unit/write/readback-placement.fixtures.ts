@@ -6,13 +6,13 @@ import { Array as Arr, Equivalence, Option, Order, Record as Rec } from "effect"
 import type { NamedSide } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { noClock, transactionClock } from "#compiler/ir/clock.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { installOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { removedTag, type WriteStepResult } from "#compiler/runtime/write/steps.ts"
-import { carrierScope } from "#compiler/sql/naming.ts"
 import {
 	changeSetDesc,
 	changeSetOver,
@@ -292,8 +292,7 @@ export const compiledSketch = (s: Sketch, at: Subject) =>
 		derived: at.artifacts.derived,
 		level: "serializable",
 		clock: noClock,
-		source: transactionClock,
-		carrierScope: carrierScope(undefined)
+		source: transactionClock
 	})
 
 /** The kind of write a statement's result says made its delta: a put's insert half of the mutable M is its upsert. */

@@ -135,7 +135,7 @@ export const aClosedImportReadByEveryMemberOfAWriteIsOneNodeOfItsDagItsEveryRead
 					Math.min(members, 2),
 					"the members' reads of one field of the call are one node"
 				)
-				const keys = new EvaluationKeys(dag, new DagTemplates())
+				const keys = new EvaluationKeys(dag, new DagTemplates("derivation"))
 				const evaluations = new Set(Arr.map(calls, (n) => keys.of(n)))
 				assert.equal(evaluations.size, 1, "every read of a field of the call reads one evaluation")
 				assert.equal(

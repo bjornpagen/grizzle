@@ -6,17 +6,15 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order, Struct } from "effect"
 import { type PlanNode, parsePlan, rowsRead } from "#bench/harness/explain.ts"
 import { identity } from "#compiler/core/identity.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
-import { workload } from "#compiler/program/workload/value.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { compileTemplate, testCompile, workloadOver } from "#test/support/compile.ts"
-import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
+import { compileTemplate, testCompile } from "#test/support/compile.ts"
+import { type Installed } from "#test/support/install-migrate.ts"
+import { fullWorldTemplate } from "#test/support/installed.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 import { countedAsVacuumed } from "#test/support/substrate/fill.ts"
 
@@ -246,20 +244,13 @@ const versions = query(Ledger)
 	)
 
 /** The ledger installed through its first migration, with a reader login whose workload's indexes `sets` earns. */
-export const readOnceTemplate = migratedTemplate({
+export const readOnceTemplate = fullWorldTemplate({
 	declaredIn: import.meta,
 	name: "read once",
-	content: { schema: Ledger.name, logins: [] },
-	versions: [{ schema: Ledger, logins: [], declarations: noDeclarations }],
-	options: {
-		label: "read_once",
-		extensions: [
-			workloadOver([{ login: "reader", workloads: [workload(Ledger, { sets, versions })] }])
-		],
-		compile: compileInstallation,
-		ambient: ordinarySession,
-		review: noPlaceholders
-	}
+	fixture: Ledger,
+	programs: { sets, versions },
+	label: "read_once",
+	ambient: ordinarySession
 })
 
 /**
@@ -344,7 +335,7 @@ const tablesOf = (installed: Installed): ReadonlyArray<string> => {
 const counted = (installed: Installed): ReadonlyArray<string> =>
 	Arr.map(tablesOf(installed), countedAsVacuumed)
 
-/** The statements loading packages `from` to `to`, the tables' triggers off, as a publish writes them whole. */
+/** The statements loading packages `from` to `to`, ordinary writes, as a publish writes them whole. */
 const loaded = (
 	installed: Installed,
 	c: ReadOnce,
@@ -353,7 +344,6 @@ const loaded = (
 ): ReadonlyArray<string> => {
 	const names = namesOf(installed)
 	const node = names.table(Node)
-	const tables = tablesOf(installed)
 	const series = `generate_series(${from}, ${to}) AS g(p)`
 	const lom = Arr.flatMap([0, 1, 2], (b) => {
 		const at = 10 + 10 * b
@@ -379,15 +369,13 @@ const loaded = (
 			? `CASE WHEN p % ${c.gone} = 0 THEN ${status.gone} ELSE ${status.final} END`
 			: `${status.final}`
 	return [
-		...Arr.map(tables, (t) => `ALTER TABLE ${t} DISABLE TRIGGER USER`),
 		`INSERT INTO ${names.table(Pkg)} SELECT p FROM ${series}`,
 		`INSERT INTO ${node} SELECT v.* FROM ${series}, LATERAL (VALUES (p, 0, 1, 0, ${kind.manifest}, 0), (p, 0, 2, 1, ${kind.status}, 0), (p, 0, 3, 2, ${kind.statusValue}, ${statusValue}), ${Arr.join(lom, ", ")}) AS v`,
 		`INSERT INTO ${node} SELECT p, 0, 100 + r, 1, ${kind.resource}, r FROM ${series}, generate_series(1, ${c.resources}) AS h(r)`,
 		`INSERT INTO ${node} SELECT p, i, b, 0, ${kind.body}, b FROM ${series}, generate_series(1, ${c.items}) AS h(i), generate_series(1, ${c.body}) AS k(b)`,
 		`INSERT INTO ${names.table(Doc)} SELECT p, i, true FROM ${series}, generate_series(1, ${c.items}) AS h(i)`,
 		`INSERT INTO ${names.table(Doc)} SELECT p, 1000, false FROM ${series}`,
-		`INSERT INTO ${names.table(Item)} SELECT p, i, i FROM ${series}, generate_series(1, ${c.items}) AS h(i)`,
-		...Arr.map(tables, (t) => `ALTER TABLE ${t} ENABLE TRIGGER USER`)
+		`INSERT INTO ${names.table(Item)} SELECT p, i, i FROM ${series}, generate_series(1, ${c.items}) AS h(i)`
 	]
 }
 
@@ -551,7 +539,7 @@ const answerOf = (rows: ReadonlyArray<ReadonlyArray<unknown>>): ReadonlyArray<st
 }
 
 /**
- * One case in its one transaction, which the case's end rolls back: `packages` packages loaded with the triggers off,
+ * One case in its one transaction, which the case's end rolls back: `packages` packages loaded by ordinary writes,
  * the read explained and run; then `more` packages loaded and the read again, the tables' sizes standing as the
  * case's state puts them (StatsState). Each time it answers the host's count of every term's current packages and their
  * items, and every scan its plan runs more than once, of a stored relation or of a CTE it derived once, handles fewer

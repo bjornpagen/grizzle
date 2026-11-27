@@ -1,6 +1,6 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
-import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
+import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { deepFreeze } from "#compiler/core/record.ts"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import { type ExprTable, predicateProblems, predicateTable } from "#compiler/ir/expr.ts"
@@ -14,6 +14,7 @@ import {
 	unprovedFact
 } from "#compiler/scalar/compute/typing.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
+import { type RosterLookup, type ScalarEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 
 interface TotalOptions {
 	/** Where the declaration is: every diagnostic is located inside it. */
@@ -94,4 +95,31 @@ export const contractPredicateTable = (
 					)
 				)
 	})
+}
+
+/**
+ * The descriptor registry's environment of a schema (scalar/registry.ts ScalarEnv), which types each contract's
+ * predicate as the schema's compile does: rosters by `roster`, and a contract's predicate lowered over its base as a
+ * field of the contract types it (contractPredicateTable), by `patterns`, its compile's table, each literal in it typed
+ * by this environment; `declared` the tables its compile lowered once already, by contract name, read before any
+ * contract's predicate is lowered again. The one environment a schema's fields (analysis/schema.ts) and a contract's
+ * host parse (program/contract.ts contractParserOver) are typed by.
+ */
+export const schemaEnvOf = (
+	roster: RosterLookup,
+	patterns: PatternAutomata,
+	declared: ReadonlyMap<string, Result.Result<ExprTable, CompileError>>
+): Extract<ScalarEnv, { readonly kind: "schema" }> => {
+	const env: Extract<ScalarEnv, { readonly kind: "schema" }> = {
+		kind: "schema",
+		roster,
+		contractPredicate: (predicate, base, contract, facts) =>
+			declared.get(contract) ??
+			contractPredicateTable(predicate, base, contract, facts, {
+				loc: SourceLoc(`contract ${contract}`, []),
+				fieldType: (d, at) => scalarTypeOf(d, env, at),
+				patterns
+			})
+	}
+	return env
 }

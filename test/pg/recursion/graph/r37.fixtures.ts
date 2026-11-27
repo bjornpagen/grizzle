@@ -11,6 +11,7 @@ import { contained, schema as declareSchema, on, relation } from "#compiler/publ
 import { publicCase } from "#test/pg/recursion/graph/support.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import type { GenContainment } from "#test/support/oracle/gen/schema.ts"
+import { rowsBeside, rowsPerPage } from "#test/support/substrate/fill.ts"
 
 /**
  * R37: a recursive attachment seeded once from the parent keys.
@@ -77,9 +78,19 @@ export const forestGen: Gen<Forest> = (source) => ({
 
 const int4 = (n: number): TypedLiteral => ({ kind: "int", value: BigInt(n) })
 
-/** Each root's id and its chain's depth. */
-const chainsOf = (f: Forest): ReadonlyArray<readonly [root: number, depth: number]> =>
-	Arr.map(indices(f.roots), (i) => [10 * i, f.page[i] ?? f.depth] as const)
+/**
+ * The roots a forest holds beside its own, each heading a chain of one edge, after every root it draws: so many that a
+ * sequential scan of the edges prices past the page's probes of each step (fill.ts rowsBeside, the edge relation two
+ * integers a row), and PostgreSQL reads the edges a step binds by the key's index under no planner setting, as at a
+ * production's size, where a forest of a few dozen edges on one heap page it reads whole for what a probe costs.
+ */
+const besideRoots = (f: Forest): number => rowsBeside(f.page.length, rowsPerPage(2 * 4))
+
+/** Each root's id and its chain's depth: the forest's own, then those beside them (`besideRoots`). */
+const chainsOf = (f: Forest): ReadonlyArray<readonly [root: number, depth: number]> => [
+	...Arr.map(indices(f.roots), (i) => [10 * i, f.page[i] ?? f.depth] as const),
+	...Arr.map(indices(besideRoots(f)), (j) => [10 * (f.roots + j), 1] as const)
+]
 
 const edgesOf = (f: Forest): ReadonlyArray<readonly [number, number]> =>
 	Arr.flatMap(chainsOf(f), ([r, d]) => Arr.map(indices(d), (k) => [r + k, r + k + 1] as const))

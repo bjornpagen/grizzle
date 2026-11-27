@@ -129,7 +129,7 @@ const sealTriggerName: Identifier<"sealTrigger"> = identifierOf(identity.sealTri
 const memberTable = (owned: Owned, relation: string): RelationIdent => {
 	const r = owned.relations[relation]
 	if (r?.kind !== "relation") {
-		throw defect(`a unit's member ${relation} is a stored relation`)
+		defect(`a unit's member ${relation} is a stored relation`)
 	}
 	return r.ident
 }

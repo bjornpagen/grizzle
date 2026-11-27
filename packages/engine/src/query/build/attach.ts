@@ -1,6 +1,5 @@
 import {
 	attachment,
-	decoderOf,
 	type Delivered,
 	type Delivery,
 	merge,
@@ -12,7 +11,6 @@ import type { AttachDesc } from "#compiler/ir/desc.ts"
 import { type Heading, hasName, headingField } from "#compiler/query/build/heading.ts"
 import {
 	type AttachScope,
-	isObjectRecord,
 	newAttachScope,
 	requireLevel,
 	withAttach
@@ -21,19 +19,12 @@ import { type QueryState, queryState } from "#compiler/query/build/state.ts"
 import { fieldTerm, type UntypedTerm, untypedTerm } from "#compiler/query/build/terms.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { Level } from "#compiler/schema/level.ts"
-import { isName, malformed, requireName } from "#compiler/schema/protocol.ts"
+import { malformed, requireName } from "#compiler/schema/protocol.ts"
 import { mint, named, record } from "#compiler/schema/record.ts"
 import type { Carrier, Carriers, Minted, Term } from "#compiler/types/core/phantom.ts"
 import type {
-	Arm,
-	ArmNone,
-	ArmSome,
-	AttachedHeads,
-	AttachmentDelivery,
 	AttachmentName,
 	Decoders,
-	DeliveryArg,
-	DeliveryKind,
 	OneName,
 	ReadBack,
 	WithChild
@@ -51,19 +42,6 @@ export const attachmentName = (name: unknown, parent: Heading, label: string): s
 	return n
 }
 
-/**
- * arm(field, handle): the attachment is the arm of `handle` of an alternatives law, keyed by the parent's key, and
- * `field` the parent's head field that holds the parent's discriminator.
- */
-export const arm = <const F extends string, const Hd extends string>(
-	field: F,
-	handle: Hd
-): Arm<"arm", F, Hd> => {
-	requireName(field, "arm", "the parent's head field that holds its discriminator")
-	requireName(handle, "arm", "the handle whose arm the attachment is")
-	return Object.freeze({ kind: "arm", field, handle })
-}
-
 /** The delivery names, each the delivery it names. */
 const deliveryNames: ReadonlyMap<unknown, Delivery> = new Map<unknown, Delivery>([
 	["array", "array"],
@@ -71,35 +49,13 @@ const deliveryNames: ReadonlyMap<unknown, Delivery> = new Map<unknown, Delivery>
 	["one", "one"]
 ])
 
-/**
- * The delivery a caller states, parsed: a delivery name, or an arm whose field is a scalar field of the parent's
- * heading, held as arm(field, handle) builds it; anything else a JavaScript caller passes is refused.
- */
-export const statedDelivery = (
-	delivery: unknown,
-	parent: Heading,
-	label: string
-): AttachmentDelivery => {
+/** The delivery a caller states, parsed: a delivery name; anything else a JavaScript caller passes is refused. */
+export const statedDelivery = (delivery: unknown, label: string): Delivery => {
 	const stated = deliveryNames.get(delivery)
-	if (stated !== undefined) {
-		return stated
+	if (stated === undefined) {
+		throw malformed(label, `a delivery: "array", "option" or "one"`)
 	}
-	if (
-		!isObjectRecord(delivery) ||
-		delivery["kind"] !== "arm" ||
-		!isName(delivery["field"]) ||
-		!isName(delivery["handle"])
-	) {
-		throw malformed(label, `a delivery: "array", "option", "one" or arm(field, handle)`)
-	}
-	const field = delivery["field"]
-	if (!parent.fields.has(field)) {
-		throw malformed(
-			label,
-			`an arm whose field is a field of the parent's heading; ${JSON.stringify(field)} is not one`
-		)
-	}
-	return arm(field, delivery["handle"])
+	return stated
 }
 
 /** The parent's records with the child's under `name`, in a delivery the analysis must prove. */
@@ -114,35 +70,13 @@ const withChild = <Head, const Name extends string, CH, D extends Delivery>(
 		record(named<Name, RecordField<Delivered<CH>[D]>>(name, attachment(child, delivery)))
 	)
 
-/**
- * The parent's records with the arm of handle `handle` under `name`, chosen by the parent's decoded `field`: where it
- * is another handle, the record holds that handle there and None; where it is `handle`, it holds `handle` and Some of
- * the child.
- */
-const armed = <
-	Head,
-	const Name extends string,
-	CH,
-	F extends keyof Head & string,
-	Hd extends string
->(
-	parent: RowDecoder<Head>,
-	name: OneName<Name>,
-	child: RowDecoder<CH>,
-	field: F,
-	handle: Hd
-): RowDecoder<ArmSome<Head, Name, CH, F, Hd> | ArmNone<Head, Name, CH, F, Hd>> =>
-	decoderOf(
-		Object.freeze({ kind: "arm", parent: parent.form, name, child: child.form, field, handle })
-	)
-
 /** How a read inside a write transaction reads each stated delivery (types/query ReadBack). */
-const readBack: ReadBack = { array: "array", option: "option", one: "option", arm: "option" }
+const readBack: ReadBack = { array: "array", option: "option", one: "option" }
 
 /**
  * The decoders of a parent with an attachment under `name`, in the stated delivery: under the snapshot reading the
- * child's records as an array, an Option, the one child or an arm (types/query AttachedHeads), and under a
- * read-back's the child's read-back records as an array or an Option (ReadBack). The delivery's kind keys both.
+ * child's records as an array, an Option or the one child (types/query WithChild), and under a read-back's the child's
+ * read-back records as an array or an Option (ReadBack). The delivery's kind keys both.
  */
 export const attachedDecoders = <
 	Head,
@@ -150,37 +84,21 @@ export const attachedDecoders = <
 	const Name extends string,
 	CH,
 	CI,
-	K extends DeliveryKind,
-	F extends keyof Head & string,
-	Hd extends string
+	K extends Delivery
 >(
 	parent: Decoders<Head, IHead>,
 	name: AttachmentName<Name, Head>,
 	child: Decoders<CH, CI>,
-	delivery: DeliveryArg<K, F, Hd>
-): Decoders<AttachedHeads<Head, Name, CH, F, Hd>[K], WithChild<IHead, Name, CI, ReadBack[K]>> => {
-	const rows: {
-		readonly [P in DeliveryKind]: (
-			stated: DeliveryArg<P, F, Hd>
-		) => RowDecoder<AttachedHeads<Head, Name, CH, F, Hd>[P]>
-	} = {
-		array: () => withChild<Head, Name, CH, "array">(parent.rows, name, child.rows, "array"),
-		option: () => withChild<Head, Name, CH, "option">(parent.rows, name, child.rows, "option"),
-		one: () => withChild<Head, Name, CH, "one">(parent.rows, name, child.rows, "one"),
-		arm: (stated) =>
-			armed<Head, Name, CH, F, Hd>(parent.rows, name, child.rows, stated.field, stated.handle)
-	}
-	const kind: K = typeof delivery === "string" ? delivery : delivery.kind
-	return {
-		rows: rows[kind](delivery),
-		immediate: withChild<IHead, Name, CI, ReadBack[K]>(
-			parent.immediate,
-			name,
-			child.immediate,
-			readBack[kind]
-		)
-	}
-}
+	delivery: K
+): Decoders<WithChild<Head, Name, CH, K>, WithChild<IHead, Name, CI, ReadBack[K]>> => ({
+	rows: withChild<Head, Name, CH, K>(parent.rows, name, child.rows, delivery),
+	immediate: withChild<IHead, Name, CI, ReadBack[K]>(
+		parent.immediate,
+		name,
+		child.immediate,
+		readBack[delivery]
+	)
+})
 
 /**
  * The parent variables of an attachment's child under `scope`: a term over each field of the parent's heading, minted
@@ -220,8 +138,8 @@ export const parentVars = <Origins, C extends Carriers>(
  * operands compose with it. The child is a Query or an Ordered (whose delivered array follows its completed order);
  * whether it binds a parent variable is the checker's (AttachedParentUnbound).
  *
- * The delivery is stated: every child ("array"), at most one ("option"), exactly one ("one"), or the arm of one handle
- * of an alternatives law, `arm(field, handle)`. The parent's decoders are built from it (attachedDecoders): its records
+ * The delivery is stated: every child ("array"), at most one ("option") or exactly one ("one"). The parent's decoders
+ * are built from it (attachedDecoders): its records
  * with the child's records under the attachment's name, in that delivery. The type level checks the stated delivery
  * against the child's evidence (types/evidence DeliveryClaim), and the decoder's binding against the delivery the
  * analysis proves (core/decoder.ts attachment), so a delivery neither proves is refused.

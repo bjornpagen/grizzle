@@ -10,7 +10,6 @@ import type { Drawn, LawRelation, NativeColumn, NativeObject, NativeOf } from "#
 import { compileLaws, type LawModel } from "#compiler/laws/model/model.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import { own } from "#compiler/schema/own.ts"
-import { everySlice } from "#compiler/schema/reach.ts"
 import { type SqlStatement, type TableConstraint, tableConstraints } from "#compiler/sql/ast.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { decodedSchema, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
@@ -30,7 +29,7 @@ import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
  */
 export const compiledModel = (desc: SchemaDesc): EngineResult.Result<LawModel, CompileError> =>
 	EngineResult.flatMap(own(decodedSchema(desc)), (owned) =>
-		EngineResult.flatMap(compileLaws(owned, everySlice(owned), { kind: "planned" }), (model) =>
+		EngineResult.flatMap(compileLaws(owned, { kind: "planned" }), (model) =>
 			settled(model.unrepresentable, EngineResult.ok(model))
 		)
 	)

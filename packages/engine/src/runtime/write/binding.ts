@@ -9,7 +9,7 @@ import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonemp
 import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { MemberDesc } from "#compiler/ir/desc.ts"
-import type { TypedLiteral } from "#compiler/ir/expr.ts"
+import type { ExprTable, TypedLiteral } from "#compiler/ir/expr.ts"
 import type { FillAt } from "#compiler/ir/fill.ts"
 import type { ColumnKey, FamilyId } from "#compiler/ir/law.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
@@ -17,6 +17,8 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import { type ColumnIndex, columnIndex } from "#compiler/runtime/write/cells.ts"
 import {
+	type CallEvaluator,
+	callEvaluator,
 	closedIndexOf,
 	closedLeaf,
 	closedNamed,
@@ -37,6 +39,7 @@ import {
 	type Witnessing
 } from "#compiler/runtime/write/witness.ts"
 import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
+import type { DrawnBy } from "#compiler/types/changeset/changeset.ts"
 import type { Proposal } from "#compiler/write/insert/statement.ts"
 
 /**
@@ -54,6 +57,31 @@ export interface CountedFamily {
 		readonly member: HeadingColumn
 		readonly owner: HeadingColumn
 	}>
+}
+
+/**
+ * A member slot whose facts hold rows of a counted family's owner or of its member, as the call's read names their
+ * groups (FamilyShares): for each pair of the family's group the shares key, the field of a fact's top level, as the
+ * call's read holds it (runtime/write/read-call.ts SlotReads `field`), whose value every row of the relation the fact
+ * holds has at the pair's field: the row's own field, where the fact is the row, or the field the row's nesting copies
+ * down to it unchanged along its families' groups, a tree's root field at every node.
+ */
+interface GroupHolder {
+	readonly slot: string
+	readonly fields: ReadonlyArray<string>
+}
+
+/**
+ * A counted family's groups as a call's facts name them (adapter/apply/shares.ts drawShares): each slot whose facts hold
+ * rows of its owner and each whose facts hold rows of its member, with the fields that name, in every such fact alike,
+ * the pairs of its group each of those slots' facts holds a field of (write/program/decide.ts familyShares). A pair some
+ * slot's facts hold no field of, a key field its walk draws, as a tree node's `start`, or one the call computes, is no
+ * part of the key, so the facts are grouped coarser and never apart: every fact that holds a row of one group holds
+ * one key. Where no pair is held, every fact of the family is one group.
+ */
+export interface FamilyShares {
+	readonly owners: ReadonlyArray<GroupHolder>
+	readonly members: ReadonlyArray<GroupHolder>
 }
 
 /**
@@ -114,6 +142,9 @@ export interface FreshStratum {
 	/** Each counted family's fresh layout (write/program/decide.ts freshLayoutOf), by the family's key: its fresh groups'
 	 * members, the stratum's fresh fills draw, as its additions statement reads them. */
 	readonly fresh: ReadonlyMap<string, LaidLayout>
+	/** Each counted family of `counted`, as the call's facts name its groups (FamilyShares), by the family's key: what a
+	 * call drawn in shares holds whole in one share. */
+	readonly shares: ReadonlyMap<string, FamilyShares>
 	readonly owners: ReadonlyMap<StoredRelationName, FreshOwner>
 	/** The columns of each relation's rows its fresh fills leave to the statement that writes them, their stamps' and
 	 * every generated field over one (write/frontend/compile.ts FreshFill `left`): no row the host holds holds one, and a
@@ -148,12 +179,25 @@ export const drawableShape = (
 	new Set(members.map((m) => m.stratum)).size === 1 &&
 	params.every((p) => p.kind !== "relation")
 
-/** A family as a row of it past every statement is reported by (bind.ts FamilyRowBound): its owner relation, its count
- * field and its member relation, by name. */
-export interface FamilyNames {
-	readonly owner: StoredRelationName
-	readonly count: string
-	readonly member: StoredRelationName
+/**
+ * The fields of a relation's host rows one stratum's insert computes (ir/instant.ts Computed, ChangeSet.insertAllComputed),
+ * each by its name and its type with its term, which reads the call alone, its declared parameters, its clock and
+ * literals, lowered as the host evaluator reads it: the host evaluates each once a call (runtime/write/bind.ts
+ * computedValues), so the rows its write states hold the value every row of the call holds there, as the statement
+ * that writes them fills it, and a refusal of one is witnessed by its whole key. A term the host does not evaluate, one
+ * reading the call's clock among them, leaves its field to the statement, and a witness names it by its `source`.
+ */
+export interface ComputedFields {
+	readonly stratum: StratumAt
+	readonly relation: StoredRelationName
+	readonly fields: ReadonlyArray<{
+		readonly name: string
+		readonly type: ScalarType
+		readonly term: ExprTable
+		/** What supplies its value where the host does not evaluate its term (types/changeset DrawnBy): the database's
+		 * clock where the term reads it, else the statement's evaluation of the call's term. */
+		readonly source: Extract<DrawnBy, "clock" | "call">
+	}>
 }
 
 /** Each relation whose rows one stratum's nested writes fill, by name, as the first of them that fills it lays it out. */
@@ -170,15 +214,14 @@ export interface Binding {
 	readonly groups: ReadonlyArray<GroupData>
 	/** Each stratum's nested layouts, in the strata's order. */
 	readonly nested: ReadonlyArray<NestedAt>
-	/** Each relation a nested write fills, by name, as the first family it is a member of names it, which a row of it no
-	 * statement carries even alone is reported by. */
-	readonly rowFamilies: ReadonlyMap<StoredRelationName, FamilyNames>
 	/** Which facts of each member slot the statement that writes them proposes (insert/statement.ts Proposal). */
 	readonly proposals: ReadonlyMap<ParamId, Proposal>
 	/** Each stratum whose fresh owners the host counts, in order. */
 	readonly fresh: ReadonlyArray<FreshStratum>
 	/** Each relation whose stated rows are judged, by name. */
 	readonly judged: ReadonlyMap<StoredRelationName, JudgedRelation>
+	/** Each stratum's computed fields of each relation it inserts computing some (ComputedFields). */
+	readonly computed: ReadonlyArray<ComputedFields>
 	/** What the write's nested walks and fresh fills fill by: the layouts they meet. */
 	readonly fill: HostFill
 	/** What the fill's evaluator reads. */
@@ -191,6 +234,8 @@ export interface Binding {
  * write's nested walks and fresh fills fill by, and the column index every row of the write is laid out by. */
 export interface PreparedBinding {
 	readonly evaluate: HostEvaluator
+	/** The evaluator of a computed field's term over the call (ComputedFields). */
+	readonly evaluateCall: CallEvaluator
 	readonly fill: Filler
 	/** Each relation's columns, at the positions a row of it holds them (cells.ts ColumnIndex), which its filler, its
 	 * binds and its preview share. */
@@ -212,13 +257,12 @@ export const prepareBinding = (
 	closed: ClosedTable,
 	patterns: PatternReads
 ): PreparedBinding => {
-	const evaluate = hostEvaluator(
-		closedLeaf(closedIndexOf(closedNamed(binding.evaluation.closed, closed))),
-		patterns
-	)
+	const leaf = closedLeaf(closedIndexOf(closedNamed(binding.evaluation.closed, closed)))
+	const evaluate = hostEvaluator(leaf, patterns)
 	const columns = columnIndex()
 	return Object.freeze({
 		evaluate,
+		evaluateCall: callEvaluator(leaf, patterns),
 		fill: filler(binding.fill, codes, evaluate, columns),
 		columns,
 		groups: binding.groups.map((g) => bindGroup(g, codes)),

@@ -4,7 +4,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
-import { draftSchema, servedFiles } from "#cli/generate.ts"
+import { draftSchema, eachServedFile } from "#cli/generate.ts"
 import { silentPhases } from "#compiler/core/phase.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { workload } from "#compiler/program/workload/value.ts"
@@ -218,6 +218,7 @@ export const servedRoles = (c: Case) =>
 	Effect.gen(function* () {
 		const config = yield* resolveConfig(
 			defineConfig({
+				contracts: [],
 				schemas: [Base],
 				logins: [loginOf(c.roles)],
 				migrations: "migrations",
@@ -237,7 +238,7 @@ export const servedRoles = (c: Case) =>
 		)
 		const served = draft.served
 		assert.ok(served.kind === "logins", "a schema with a login plans its logins")
-		const entries = yield* servedFiles(compiled, draft, served, silentPhases)
+		const entries = yield* eachServedFile(compiled, draft, served, silentPhases, Effect.succeed)
 		const installation = draft.installation
 		const app = defined(
 			Option.getOrUndefined(Arr.findFirst(installation.worlds, (l) => l.name === "app")),

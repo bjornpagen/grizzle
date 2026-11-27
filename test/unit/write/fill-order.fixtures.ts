@@ -10,7 +10,8 @@ import { identity } from "#compiler/core/identity.ts"
 import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { columnKeyOf } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { installOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -19,7 +20,6 @@ import type { Cells } from "#compiler/runtime/write/cells.ts"
 import { normalizeChangeSet } from "#compiler/runtime/write/normalize.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { roleBuilder as role, wholeWritesOf } from "#compiler/schema/world.ts"
-import { carrierScope } from "#compiler/sql/naming.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
@@ -572,8 +572,7 @@ export const guards = (spec: FillSpec, note: (situation: FillSituation) => void)
 						derived: roleArtifacts.derived,
 						level: "serializable",
 						clock: noClock,
-						source: transactionClock,
-						carrierScope: carrierScope(world.role.name)
+						source: transactionClock
 					})
 				)
 				const label = `a ${op} of ${written} under a role leaving out ${left}`

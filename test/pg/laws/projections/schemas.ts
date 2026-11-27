@@ -279,7 +279,7 @@ const urgentTickets = on(
 	"id"
 )
 const watchedTickets = on(
-	select(Ticket, (t) => t.and(t.ge(t.level, 2), t.ne(t.priority, "low"))),
+	select(Ticket, (t) => t.and([t.ge(t.level, 2), t.ne(t.priority, "low")])),
 	"id"
 )
 const escalationTicket = on(Escalation, "ticket")

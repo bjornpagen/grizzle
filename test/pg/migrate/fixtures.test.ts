@@ -81,8 +81,8 @@ export const workedExamples = property.explore(steered(historySteered), {
 		{
 			file: "packages/engine/src/deploy/render/generate.ts",
 			original:
-				"\t\tconst changed = plan.steps.length > 0 || snapshot.fingerprint !== previous.fingerprint",
-			replacement: "\t\tconst changed = plan.steps.length > 0 || snapshot !== previous",
+				'\t\t\tplan.steps.length > 0 || snapshot.fingerprint !== previous.fingerprint ? "schema" : "none"',
+			replacement: '\t\t\tplan.steps.length > 0 || snapshot !== previous ? "schema" : "none"',
 			why: "A version drafted again after itself reports a schema change: generate compares the finished snapshot with the previous one as objects, never by content."
 		},
 		{

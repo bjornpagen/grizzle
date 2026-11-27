@@ -5,7 +5,11 @@
  */
 import { Array as Arr, Effect } from "effect"
 import { attemptLabel, type OpenedDb, observedChange } from "#bench/write/support/writes.ts"
-import { auditStatementViolations, auditTextViolations } from "#test/support/oracle/verify/sql.ts"
+import {
+	auditStatementViolations,
+	auditTextViolations,
+	guardedTermsOf
+} from "#test/support/oracle/verify/sql.ts"
 
 /** Every violation the audit finds in the statements of the write of `changes` on `opened`, each as one line. */
 export const writeAuditViolations = (
@@ -15,7 +19,10 @@ export const writeAuditViolations = (
 	Effect.map(observedChange(opened, changes, attemptLabel, { kind: "none" }), (observed) =>
 		Arr.flatMap(observed.statements, (s, i) =>
 			Arr.map(
-				[...auditStatementViolations(s.ast), ...Arr.flatMap(s.texts, auditTextViolations)],
+				[
+					...auditStatementViolations(s.ast),
+					...Arr.flatMap(s.texts, (text) => auditTextViolations(text, guardedTermsOf(s.ast)))
+				],
 				(v) => `statement ${i}: ${v.rule} at ${v.where}: ${v.detail}`
 			)
 		)

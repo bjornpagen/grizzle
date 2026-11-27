@@ -6,7 +6,8 @@ import { Array as Arr, Effect, Option, Order } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { installOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
 	compileTemplate,

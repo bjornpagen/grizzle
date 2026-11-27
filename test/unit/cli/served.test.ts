@@ -35,7 +35,6 @@ import { cliOver, configName, resolvedConfig, workspace } from "#test/pg/cli/sup
 import { succeeded } from "#test/support/assert.ts"
 
 import {
-	at,
 	baseNeed,
 	config,
 	editedText,
@@ -103,7 +102,7 @@ export const servedFilesCheckRefusesAServedFileThatIsNotItsLoginsCompileOneMissi
 							break
 					}
 					const expected = expectedOf(plant, programs, written, text)
-					const refused = yield* cliOver(ws, config, ["check", configName], at(2))
+					const refused = yield* cliOver(ws, config, ["check", configName])
 					assert.equal(refused.code, expected.length === 0 ? 0 : 1, refused.stdout)
 					const read = yield* resolvedConfig(config, `${ws}/${configName}`)
 					const [checked] = yield* check(succeeded(read), ws, silentPhases)
@@ -120,7 +119,7 @@ export const servedFilesCheckRefusesAServedFileThatIsNotItsLoginsCompileOneMissi
 							`the finding names ${e.says}: ${Formatter.format(found)}`
 						)
 					}
-					const regenerated = yield* cliOver(ws, config, ["generate", configName], at(3))
+					const regenerated = yield* cliOver(ws, config, ["generate", configName])
 					assert.equal(regenerated.code, 0, regenerated.stderr)
 					for (const e of expected) {
 						assert.ok(
@@ -138,7 +137,7 @@ export const servedFilesCheckRefusesAServedFileThatIsNotItsLoginsCompileOneMissi
 					)
 					const rewritten = yield* fs.readFileString(planted)
 					assert.equal(rewritten, text, "the served file is the first draft's again")
-					const again = yield* cliOver(ws, config, ["check", configName], at(4))
+					const again = yield* cliOver(ws, config, ["check", configName])
 					assert.equal(again.code, 0, again.stdout)
 				}),
 		oracle: {

@@ -611,8 +611,8 @@ const insertOf = (
  * that no Db runs while its statements run alone (the stale-Db fence, TODO 0b; adapter/migrate/apply.ts
  * recordFolderRow); the row outlives the failure. A folder whose first file is transactional and fails has no row.
  *
- * A data step that inserts an automatic task without its arm is refused at COMMIT by the reverse containment Shop v2's
- * alternatives adds, a native foreign key deferred on the cycle (fin.md §7); an empty
+ * A data step that inserts an automatic task without its arm is refused at COMMIT by the reverse containment of Shop
+ * v2's Automatic arm's mirrors, a native foreign key deferred on the cycle (fin.md §7); an empty
  * custom folder of the empty snapshot, sorted before the first, finds no ledger to record in.
  */
 const realOf = (

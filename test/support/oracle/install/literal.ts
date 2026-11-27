@@ -1,4 +1,5 @@
 import { Array as Arr, Option, pipe, Predicate, Record as Rec, Result, String as Str } from "effect"
+import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { floatSpecials, isFloatSpecialName } from "#compiler/core/canonical.ts"
 import { taggedValueOf } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
@@ -192,6 +193,7 @@ const spelledLiteral = (
 		case "code":
 		case "bits":
 		case "span":
+		case "variant":
 			return refuse(location, `${type.value.kind}, which has no twin spelling`, spelling.text)
 	}
 }
@@ -377,6 +379,12 @@ export const literalFor = (
 				return refuse(location, `vector(${v.dimensions})`, value)
 			}
 			return Result.succeed(literal({ kind: "text", value: vector.toString() }, type))
+		}
+		case "variant": {
+			const text = scalarCodec(v.type, v.codes).encode(value)
+			return text.ok
+				? Result.succeed(literal({ kind: "text", value: text.value }, type))
+				: refuse(location, "a value of the variant", value)
 		}
 	}
 }

@@ -8,6 +8,7 @@ import {
 	Effect,
 	Formatter,
 	Option,
+	Order,
 	Record as Rec,
 	Result,
 	String as Str
@@ -19,13 +20,15 @@ import {
 	planNodes,
 	rowsTouched
 } from "#bench/harness/explain.ts"
+import { isCanonicalName } from "#compiler/analysis/derived/canonical.ts"
 import type { LawId, RelationIdent } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { violationCheck } from "#compiler/deploy/render/sql.ts"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
+import { violationCheck } from "#compiler/physical/ddl/recheck.ts"
 import { fillStatement } from "#compiler/physical/derived/objects.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -37,6 +40,7 @@ import {
 	on,
 	relation,
 	schema,
+	sealed,
 	select,
 	unit
 } from "#compiler/public/schema.ts"
@@ -55,6 +59,7 @@ import { identityHooks, transformQuery } from "#compiler/sql/transform.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
+import { standUpJudge } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -128,7 +133,7 @@ const Base = schema(
 		mutable(Decl),
 		contained(
 			on(
-				select(Node, (n) => n.or(n.eq(n.kind, 1), n.eq(n.kind, 2))),
+				select(Node, (n) => n.or([n.eq(n.kind, 1), n.eq(n.kind, 2)])),
 				"pkg",
 				"path",
 				"at"
@@ -137,7 +142,7 @@ const Base = schema(
 		),
 		contained(
 			on(
-				select(Node, (n) => n.and(n.eq(n.tag, 5), n.eq(n.grp, 5), n.eq(n.band, 5))),
+				select(Node, (n) => n.and([n.eq(n.tag, 5), n.eq(n.grp, 5), n.eq(n.band, 5)])),
 				"pkg",
 				"path",
 				"at"
@@ -229,7 +234,7 @@ const Checked = schema.extend(
 	[Mid],
 	"CheckCost_2",
 	[Fit],
-	[check("Fit", Fit, (f) => f.or(f.ne(f.attr, 1), f.eq(f.base, 1)))]
+	[check("Fit", Fit, (f) => f.or([f.ne(f.attr, 1), f.eq(f.base, 1)]))]
 )
 
 /**
@@ -271,7 +276,7 @@ export const checkCostTemplate = migratedTemplate({
 	declaredIn: import.meta,
 	name: "check cost",
 	content: { schema: Checked.name, logins: [] },
-	versions: [{ schema: Checked, logins: [], declarations: noDeclarations }],
+	versions: [{ schema: Checked, declarations: noDeclarations }],
 	options: {
 		label: "check_cost",
 		extensions: [],
@@ -485,6 +490,38 @@ const holdsTheBound = (
 }
 
 /**
+ * The tables `all` loaded by `inserts` through the captures, the judge deferred to a COMMIT the case never reaches, so
+ * no stored relation's upkeep fills its table before the fill a case explains, and analyzed, as a migration's are by
+ * the runbook and autovacuum: what a plan over them is held to (`holdsTheBound`), their rows counted, and what an index
+ * probe of one row costs PostgreSQL at least, twice random_page_cost.
+ */
+const loaded = (
+	connection: PgConnection,
+	all: ReadonlyArray<string>,
+	inserts: ReadonlyArray<string>
+) =>
+	Effect.gen(function* () {
+		for (const sql of [...inserts, ...Arr.map(all, (t) => `ANALYZE ${t}`)]) {
+			yield* connection.query(sql, [])
+		}
+		const counted = yield* connection.queryValues(
+			`SELECT ${Arr.join(
+				Arr.map(all, (t) => `(SELECT pg_catalog.count(*) FROM ${t})`),
+				" + "
+			)}`,
+			[]
+		)
+		const costs = yield* connection.queryValues(
+			"SELECT pg_catalog.current_setting('random_page_cost')::pg_catalog.float8",
+			[]
+		)
+		return {
+			rows: Number(defined(counted[0]?.[0], "the tables' count")),
+			probeCost: 2 * Number(defined(costs[0]?.[0], "random_page_cost"))
+		} satisfies Bound
+	})
+
+/**
  * A stored relation's fill, as the migration that creates its table runs it, into the table empty, once every row its
  * definition reads is written (physical/derived/objects.ts fillStatement, deploy/diff/diff.ts view): the relation, its
  * table, the INSERT's query and text, and the laws its table's natives hold, every law the installation's constraint map
@@ -498,18 +535,24 @@ interface StoredFill {
 	readonly natives: ReadonlyArray<LawId>
 }
 
-/** The fill of each derived relation `installation` stores (StoredFill), in name order. */
+/**
+ * The fill of each derived relation `installation` stores (StoredFill), in the order the installation creates their
+ * tables, which the migration fills them in: a stored relation another's definition reads is filled before it.
+ */
 const storedFills = (installation: Installation): ReadonlyArray<StoredFill> => {
 	const creates = Arr.flatMap(installation.statements, (s) =>
 		s.kind === "createStoredTable" ? [s] : []
 	)
-	const stored = Arr.sort(
-		Arr.flatMap(Arr.fromIterable(installation.checked.holdings), ([relation, holding]) =>
-			holding.kind === "stored" ? [relation] : []
-		),
-		Str.Order
+	const stored = Arr.flatMap(
+		Arr.fromIterable(installation.checked.holdings),
+		([relation, holding]) => (holding.kind === "stored" ? [relation] : [])
 	)
-	return Arr.map(stored, (relation) => {
+	const placeOf = (relation: string): number =>
+		Arr.findFirstIndex(
+			creates,
+			(create) => nameKey(create.name) === nameKey(installation.names.relation(relation))
+		).pipe(Option.getOrElse(() => creates.length))
+	return Arr.map(Arr.sort(stored, Order.mapInput(Order.Number, placeOf)), (relation) => {
 		const table = installation.names.relation(relation)
 		const fill = fillStatement(
 			defined(
@@ -532,25 +575,27 @@ const storedFills = (installation: Installation): ReadonlyArray<StoredFill> => {
 }
 
 /**
- * One case in its one transaction, which the case's end rolls back: the elements of `c` loaded with the triggers off,
- * a declaration at each of a declaring kind or of tag 5, weighed by its place, the tables analyzed; then, as the
- * migration that creates them runs them, each stored relation's fill (`storedFills`), explained with ANALYZE, which runs
- * it, and each rule's check, as the migration that adds the rule runs it (deploy/render/sql.ts violationCheck), each
- * statement it plans explained with ANALYZE, and the block run. A law the installation holds by a native of a stored
- * relation's table, Declared's key, has no check of its own: its migration's cost is the fill's, which the table's
- * unique index refuses at the first row that breaks the key. Every plan, a fill's and a check's, reads each table by one
- * node per occurrence its law or definition reads it at as the box declares it, so it derives no relation twice, and
- * handles each row it reads a bounded number of times: its rows touched (bench/harness/explain.ts rowsTouched, every row
- * each node handled over all its loops, a join's examined pairs among them) at most its nodes times the rows of the
- * tables and the rows its sequential rescans of tables no larger than an index probe touch (`smallTableRescans`), since
- * a filter, a projection, a deduplication, a hash, a sort and a merge pass each row of their input once, and an anti join
- * over sets passes each outer row once and meets each inner row once in its hash or merge. A plan that reads a set again
- * for each row of another, a nested loop over a materialized set, handles the product of the two, past the bound once the
- * outer holds more rows than the plan has nodes. The fill and the blocks raise nothing; then, the stored tables emptied
- * as their migration found them, with one element of a declaring kind and of tag, group and band 5 and no declaration
- * added, two declared elements of one document and kind of one weight, a name its document declares at two places of
- * two cardinalities, and a binding of attribute 1 to a variable of base type 2, each block raises SQLSTATE 23000 under
- * its law's identity and Declared's fill raises 23505 under its key's, the constraint the installation maps to it.
+ * One case in its one transaction, which the case's end rolls back: the elements of `c` written through the captures, a
+ * declaration at each of a declaring kind or of tag 5, weighed by its place, the tables analyzed, as a migration's data
+ * steps write the rows its checks then read in its one transaction, the judge deferred to a COMMIT the case never
+ * reaches; then, as the migration that creates them runs them, each stored relation's fill (`storedFills`), explained
+ * with ANALYZE, which runs it, and each rule's check, as the migration that adds the rule runs it (deploy/render/sql.ts
+ * violationCheck), each statement it plans explained with ANALYZE, and the block run. A law the installation holds by a
+ * native of a stored relation's table, Declared's key, has no check of its own: its migration's cost is the fill's,
+ * which the table's unique index refuses at the first row that breaks the key. Every plan, a fill's and a check's,
+ * reads each table by one node per occurrence its law or definition reads it at as the box declares it, so it derives
+ * no relation twice, and handles each row it reads a bounded number of times: its rows touched
+ * (bench/harness/explain.ts rowsTouched, every row each node handled over all its loops, a join's examined pairs among
+ * them) at most its nodes times the rows of the tables and the rows its sequential rescans of tables no larger than an
+ * index probe touch (`smallTableRescans`), since a filter, a projection, a deduplication, a hash, a sort and a merge
+ * pass each row of their input once, and an anti join over sets passes each outer row once and meets each inner row
+ * once in its hash or merge. A plan that reads a set again for each row of another, a nested loop over a materialized
+ * set, handles the product of the two, past the bound once the outer holds more rows than the plan has nodes. The fill
+ * and the blocks raise nothing; then, the stored tables emptied as their migration found them, with one element of a
+ * declaring kind and of tag, group and band 5 and no declaration added, two declared elements of one document and kind
+ * of one weight, a name its document declares at two places of two cardinalities, and a binding of attribute 1 to a
+ * variable of base type 2, each block raises SQLSTATE 23000 under its law's identity and Declared's fill raises 23505
+ * under its key's, the constraint the installation maps to it.
  */
 export const runCheck = (
 	migrated: Installed,
@@ -559,6 +604,7 @@ export const runCheck = (
 	k: Case<CheckFeature>
 ) =>
 	Effect.gen(function* () {
+		yield* standUpJudge(connection, migrated.installation)
 		const names = namesOf(migrated)
 		const nodeTable = names.table(Node)
 		const declTable = names.table(Decl)
@@ -570,33 +616,14 @@ export const runCheck = (
 			bind: names.table(Bind)
 		}
 		const all = [nodeTable, declTable, tables.dcl, tables.card, tables.typed, tables.bind]
-		for (const sql of [
-			...Arr.map(all, (t) => `ALTER TABLE ${t} DISABLE TRIGGER USER`),
+		const bound = yield* loaded(connection, all, [
 			`INSERT INTO ${nodeTable} ${elementsOf(c)}`,
 			`INSERT INTO ${declTable} SELECT pkg, path, at, at FROM ${nodeTable} WHERE kind IN (1, 2) OR tag = 5`,
 			`INSERT INTO ${tables.dcl} ${declared.dcl}`,
 			`INSERT INTO ${tables.card} ${declared.card}`,
 			`INSERT INTO ${tables.typed} ${declared.typed}`,
-			`INSERT INTO ${tables.bind} ${declared.bind}`,
-			...Arr.map(all, (t) => `ANALYZE ${t}`)
-		]) {
-			yield* connection.query(sql, [])
-		}
-		const counted = yield* connection.queryValues(
-			`SELECT ${Arr.join(
-				Arr.map(all, (t) => `(SELECT pg_catalog.count(*) FROM ${t})`),
-				" + "
-			)}`,
-			[]
-		)
-		const costs = yield* connection.queryValues(
-			"SELECT pg_catalog.current_setting('random_page_cost')::pg_catalog.float8",
-			[]
-		)
-		const bound: Bound = {
-			rows: Number(defined(counted[0]?.[0], "the tables' count")),
-			probeCost: 2 * Number(defined(costs[0]?.[0], "random_page_cost"))
-		}
+			`INSERT INTO ${tables.bind} ${declared.bind}`
+		])
 		const installation = migrated.installation
 		const fills = storedFills(installation)
 		assert.deepEqual<ReadonlyArray<string>>(
@@ -713,4 +740,278 @@ export const runCheck = (
 			assert.equal(fields?.constraint, law, `${Formatter.format(c)}: under the law's identity`)
 		}
 		k.note("a violation found")
+	})
+
+/**
+ * A package's manifest's elements, by package, document and place, each of a kind and under its parent, as pantry's
+ * Node: a resource, under the manifest's root, and its metadata, under the resource.
+ */
+const ManifestNode = relation(
+	"ManifestNode",
+	{ pkg: pg.integer, path: pg.integer, start: pg.integer, kind: pg.integer, parent: pg.integer },
+	["pkg", "path", "start"]
+)
+
+/** The elements of the documents records are read from, each with its parent's kind, as pantry's RecordNode stores them. */
+const RecordNode = relation(
+	"RecordNode",
+	{
+		pkg: pg.integer,
+		path: pg.integer,
+		start: pg.integer,
+		kind: pg.integer,
+		parent: pg.integer,
+		parentKind: pg.integer
+	},
+	["pkg", "path", "start"]
+)
+
+/** An element's attribute, by the element's place and the attribute's name, with the element's kind: pantry's Attribute. */
+const Attribute = relation(
+	"Attribute",
+	{
+		pkg: pg.integer,
+		path: pg.integer,
+		start: pg.integer,
+		name: pg.integer,
+		kind: pg.integer,
+		value: pg.integer
+	},
+	["pkg", "path", "start", "name"]
+)
+
+/** A resource's `href` that resolves in its package, by the resource's place: the path of the entry it names. */
+const HrefPath = relation(
+	"HrefPath",
+	{ pkg: pg.integer, path: pg.integer, start: pg.integer, target: pg.integer },
+	["pkg", "path", "start"]
+)
+
+/** A document a resource of its package lists, by its package and path, with that resource's type: ResourceDocument. */
+const ListedDocument = relation(
+	"ListedDocument",
+	{ pkg: pg.integer, path: pg.integer, type: pg.integer },
+	["pkg", "path"]
+)
+
+/** The kinds of a resource, its metadata and a record, the attribute names `type` and `href`, and two object types. */
+const naming = {
+	resource: 1,
+	metadata: 2,
+	record: 3,
+	type: 1,
+	href: 2,
+	item: 8,
+	test: 14,
+	web: 19
+} as const
+
+/**
+ * The manifest's relations under the package, sealed at its founding as pantry's Package is, so the installation stores
+ * every derived relation over a package's content, each filled by the migration that creates it.
+ */
+const Manifest = schema(
+	"NamingFill",
+	[ManifestNode, RecordNode, Attribute, HrefPath, ListedDocument],
+	[sealed(unit("Package", { pkg: pg.integer }))]
+)
+
+/** A resource's type, by its place: its `type` attribute's value, as pantry's resourceTypes (attributeCodes). */
+const resourceTypes = query(Manifest).rule((r) => {
+	const { pkg, path, start, value } = v(Attribute, "typed")
+	return r
+		.match(Attribute, { kind: naming.resource, name: naming.type, pkg, path, start, value })
+		.find({ code: value, pkg, path, start })
+})
+
+/**
+ * The records that name a document, each with that document, as pantry's namingRecords (qti/queries.ts): a record under
+ * a resource's metadata, the resource's type an object's, and the document its `href` lists. Its matches and their
+ * bindings are namingRecords' own: the metadata element is the one occurrence that relates the record to its resource,
+ * and the `href` the one that relates the resource to its document, so neither is an existence test, each read at the
+ * key the other relations carry (lower/optimize/demand/restriction.ts). As existence tests, the record is joined to
+ * every typed resource of its document and each to every listed document of its package, the two tests applied to the
+ * product: the fill of edullm's QTI copy ran 452 s over its 0 rows, 656,026,169 buffers.
+ */
+const Named = derived(
+	"Named",
+	query(Manifest).rule((r) => {
+		const { pkg, path, parent: metadata, start: record } = v(RecordNode, "record")
+		const { parent: resource } = v(ManifestNode, "metadata")
+		const { target: document } = v(HrefPath, "href")
+		const { code: type } = v(resourceTypes, "resourceType")
+		return r
+			.match(RecordNode, {
+				kind: naming.record,
+				parent: metadata,
+				parentKind: naming.metadata,
+				pkg,
+				path,
+				start: record
+			})
+			.match(ManifestNode, { parent: resource, pkg, path, start: metadata })
+			.match(HrefPath, { pkg, path, start: resource, target: document })
+			.match(resourceTypes, { code: type, pkg, path, start: resource })
+			.match(ListedDocument, { pkg, path: document })
+			.where(r.in(type, [naming.item, naming.test]))
+			.find({ document, pkg, path, record })
+	})
+)
+
+const Naming = schema.extend([Manifest], "NamingFill_1", [Named], [])
+
+/**
+ * The relations each stored relation's fill reads, one at each occurrence of its definition: the resource types, a
+ * closed sub-query over the sealed package's content that Named imports, are a canonical relation the installation
+ * stores (analysis/derived/canonical.ts), filled from the attributes, and Named's fill derives its definition from the
+ * relations it matches, the resource types from the attributes where the import stands, beside the manifest's records,
+ * elements, `href`s and listed documents.
+ */
+const namingReads = (relation: string): ReadonlyArray<string> =>
+	relation === Named.name
+		? [RecordNode.name, ManifestNode.name, HrefPath.name, Attribute.name, ListedDocument.name]
+		: [Attribute.name]
+
+/** The manifest's schema installed through its first migration, its tables empty. */
+export const namingFillTemplate = migratedTemplate({
+	declaredIn: import.meta,
+	name: "naming fill",
+	content: { schema: Naming.name, logins: [] },
+	versions: [{ schema: Naming, declarations: noDeclarations }],
+	options: {
+		label: "naming_fill",
+		extensions: [],
+		compile: compileInstallation,
+		ambient: ordinarySession,
+		review: noPlaceholders
+	}
+})
+
+/**
+ * How a package's resources stand: `listed`, every resource of an object's type, its `href` resolved and its document
+ * listed; `mixed`, every third without a resolved `href`, every fifth of a type no object is, every seventh naming a
+ * document its package lists none at.
+ */
+const namingLayouts = ["listed", "mixed"] as const
+
+export interface NamingCase {
+	readonly layout: (typeof namingLayouts)[number]
+	readonly packages: 1 | 4
+	readonly resources: 16 | 64 | 256
+}
+
+/** The box: every layout, at one package and at four, of 16, 64 and 256 resources each. */
+export const namingCaseGen: Gen<NamingCase> = (s) => ({
+	layout: s.draw(element(namingLayouts)),
+	packages: s.draw(element([1, 4] as const)),
+	resources: s.draw(element([16, 64, 256] as const))
+})
+
+export type NamingFeature = "a record that names its document" | "a record that names none"
+
+/** Whether resource `n` of a package names its document: under `mixed`, one whose `href`, type and listing all stand. */
+const namesItsDocument = (c: NamingCase, n: number): boolean =>
+	c.layout === "listed" || (n % 3 !== 2 && n % 5 !== 4 && n % 7 !== 6)
+
+/**
+ * The rows of `c`, each table's one INSERT's SELECT over packages p and resources n: in each package's manifest, path 0,
+ * resource n at place 10n + 1 under the root, its metadata at 10n + 2 and its record at 10n + 3; the resource's `type`
+ * and `href` attributes; its resolved `href` to document n + 1; and document n + 1 listed, of the resource's type.
+ */
+const namingRowsOf = (c: NamingCase): Readonly<Record<NamingTable, string>> => {
+	const grid = `FROM pg_catalog.generate_series(1, ${c.packages}) AS p(p), pg_catalog.generate_series(0, ${c.resources - 1}) AS g(n)`
+	const mixed = c.layout === "mixed"
+	const type = mixed
+		? `CASE WHEN n % 5 = 4 THEN ${naming.web} WHEN n % 2 = 0 THEN ${naming.item} ELSE ${naming.test} END`
+		: `CASE WHEN n % 2 = 0 THEN ${naming.item} ELSE ${naming.test} END`
+	return {
+		node: `SELECT p, 0, 10 * n + 1, ${naming.resource}, 0 ${grid} UNION ALL SELECT p, 0, 10 * n + 2, ${naming.metadata}, 10 * n + 1 ${grid}`,
+		record: `SELECT p, 0, 10 * n + 3, ${naming.record}, 10 * n + 2, ${naming.metadata} ${grid}`,
+		attribute: `SELECT p, 0, 10 * n + 1, ${naming.type}, ${naming.resource}, ${type} ${grid} UNION ALL SELECT p, 0, 10 * n + 1, ${naming.href}, ${naming.resource}, n + 1 ${grid}`,
+		href: `SELECT p, 0, 10 * n + 1, n + 1 ${grid}${mixed ? " WHERE n % 3 <> 2" : ""}`,
+		listed: `SELECT p, n + 1, ${type} ${grid}${mixed ? " WHERE n % 7 <> 6" : ""}`
+	}
+}
+
+/** The box's tables, each by its part in a case's rows. */
+const namingTables = ["node", "record", "attribute", "href", "listed"] as const
+type NamingTable = (typeof namingTables)[number]
+
+/**
+ * One case in its one transaction, which the case's end rolls back: the packages of `c` written through the captures
+ * and analyzed, the judge deferred to a COMMIT the case never reaches, then each stored relation's fill, as the
+ * migration that creates their tables runs them, the resource types' canonical relation first, then Named's, each
+ * explained with ANALYZE, which runs it. Each plan reads each table by at most one node per occurrence its definition
+ * reads it at, and touches at most its nodes times the rows of the tables (`holdsTheBound`): each record, its metadata,
+ * its resource's `href` and type and the listed document read a bounded number of times, by a lookup of what the steps
+ * before it bound, at most a log of the rows each, the fill's work O(n log n) in its records, elements, attributes and
+ * documents. Where a record is joined to its resource's type and document by its package alone, the metadata and the
+ * `href` tests above, or PostgreSQL's estimates join it to its manifest's every typed resource by the manifest alone,
+ * it touches the product of the package's records, resources and documents, past the bound once a package holds more
+ * resources than the plan has nodes. And Named's fill holds each record that names a document, and only those.
+ */
+export const runNamingFill = (
+	migrated: Installed,
+	connection: PgConnection,
+	c: NamingCase,
+	k: Case<NamingFeature>
+) =>
+	Effect.gen(function* () {
+		yield* standUpJudge(connection, migrated.installation)
+		const tableOf = namesOf(migrated).table
+		const tables: Readonly<Record<NamingTable, string>> = {
+			node: tableOf(ManifestNode),
+			record: tableOf(RecordNode),
+			attribute: tableOf(Attribute),
+			href: tableOf(HrefPath),
+			listed: tableOf(ListedDocument)
+		}
+		const rows = namingRowsOf(c)
+		const bound = yield* loaded(
+			connection,
+			Arr.map(namingTables, (t) => tables[t]),
+			Arr.map(namingTables, (t) => `INSERT INTO ${tables[t]} ${rows[t]}`)
+		)
+		const installation = migrated.installation
+		const fills = storedFills(installation)
+		const [types, named, ...more] = fills
+		assert.ok(
+			types !== undefined &&
+				isCanonicalName(types.relation) &&
+				named?.relation === Named.name &&
+				more.length === 0,
+			`the box's stored relations, as the installation infers them: the resource types' canonical relation, then Named, ${Formatter.format(Arr.map(fills, (f) => f.relation))}`
+		)
+		for (const fill of fills) {
+			const plan = yield* explainedPlan(connection, fill.text)
+			holdsTheBound(
+				plan,
+				Arr.map(
+					namingReads(fill.relation),
+					(relation) => installation.names.relation(relation).name
+				),
+				bound,
+				`${Formatter.format(c)}: ${fill.relation}'s fill`
+			)
+			if (fill.relation !== Named.name) {
+				continue
+			}
+			const filled = yield* connection.queryValues(
+				`SELECT pg_catalog.count(*) FROM ${printObjectName(fill.table)}`,
+				[]
+			)
+			const namers = Arr.filter(
+				Array.from({ length: c.resources }, (_, n) => n),
+				(n) => namesItsDocument(c, n)
+			).length
+			assert.equal(
+				Number(defined(filled[0]?.[0], "the fill's count")),
+				c.packages * namers,
+				`${Formatter.format(c)}: ${fill.relation}'s fill holds each record that names a document`
+			)
+			k.note("a record that names its document")
+			if (namers < c.resources) {
+				k.note("a record that names none")
+			}
+		}
 	})

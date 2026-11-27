@@ -429,7 +429,7 @@ const readOnce =
 					return Effect.fail(state.error)
 				case "opening":
 				case "provisional":
-					return Effect.die(defect("a read's events end at its ready or its error"))
+					return Effect.sync(() => defect("a read's events end at its ready or its error"))
 			}
 		})
 

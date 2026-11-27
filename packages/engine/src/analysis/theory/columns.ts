@@ -1,7 +1,7 @@
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { refuse } from "#compiler/analysis/theory/build.ts"
 import type { ColumnTypes } from "#compiler/analysis/theory/leaves.ts"
-import { checkDefinition } from "#compiler/check/index.ts"
+import { checkDefinition, checkQuery } from "#compiler/check/index.ts"
 /**
  * The descriptor each column of a query is delivered at, as the checker types it: what a bare literal standing for a
  * column takes, a rule's head term or a binding of the column, wherever a rule of the query is inlined into another and
@@ -9,8 +9,11 @@ import { checkDefinition } from "#compiler/check/index.ts"
  */
 import { CheckSession } from "#compiler/check/session.ts"
 import { unwrap } from "#compiler/core/canonical.ts"
+import type { IdentityDigest } from "#compiler/core/fingerprint.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import type { InferredQuery } from "#compiler/ir/desc.ts"
+import { deepFreeze } from "#compiler/core/record.ts"
+import { noClock } from "#compiler/ir/clock.ts"
+import { descIdentity, type InferredQuery } from "#compiler/ir/desc.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { fieldDescOf, ownedContractsByName } from "#compiler/schema/field-desc.ts"
 
@@ -81,14 +84,80 @@ export const knownColumns = (
 	}
 }
 
-/** The columns of each query a navigation inlines (definitionColumns), read where it meets a bare literal. */
-export type QueryColumns = (query: InferredQuery) => ColumnTypes
+/**
+ * The columns of each source a navigation reads: an imported query's each by the descriptor the checker types it at,
+ * which a bare literal standing for it takes (`desc`, definitionColumns); a relation's field by its type as the schema
+ * declares it (`field`), a stored, closed or derived relation's, which navigation reads for its one fact
+ * (ir/scalar.ts equalityIsIdentity, analysis/theory/navigate.ts sourceType).
+ */
+export interface QueryColumns {
+	readonly desc: (query: InferredQuery) => ColumnTypes
+	readonly type: (query: InferredQuery, column: string) => ScalarType | undefined
+	readonly field: (relation: string, column: string) => ScalarType
+}
 
 /**
- * The columns of each query `checked` reads (`knownColumns`), each query's checked once however often a navigation
- * meets it, an imported query named for the refusal that locates at `loc`.
+ * Each column of `query` and its type, as the checker types it read as a rule judge's region reads it (check/checker.ts
+ * QueryRead `region`), which admits every source a reader of an import reads, a delta among them, so an import a
+ * write's read-back or a judge reads is typed as its reader types it; undefined where the check refuses the query read
+ * apart from every reader, a parameter only its reader's bind map binds among them. One check, in `session`.
+ */
+const typedHeading = (
+	checked: CheckedSchema,
+	session: CheckSession,
+	query: InferredQuery
+): ReadonlyMap<string, ScalarType> | undefined => {
+	const result = checkQuery(checked, query, {
+		read: "region",
+		label: "an imported query navigation types",
+		clock: noClock,
+		session
+	})
+	return result.ok
+		? new Map(result.value.dag.roots[0].heading.map((c) => [c.name, c.type] as const))
+		: undefined
+}
+
+/**
+ * The columns of each source `checked` reads (QueryColumns): each query's descriptors checked once however often a
+ * navigation meets it (`knownColumns`), an imported query named for the refusal that locates at `loc`; each query's
+ * types checked once for its identity (ir/desc.ts descIdentity, `typedHeading`), so two Descriptions of one query, a
+ * walked copy and its definition, every reader's, are one check, and each relation's heading read once.
  */
 export const queryColumns = (checked: CheckedSchema, loc: SourceLoc): QueryColumns => {
 	const known = knownColumns(checked)
-	return (query) => known("an imported query", query, loc)
+	const session = new CheckSession(checked.patterns)
+	const typed = new Map<IdentityDigest, ReadonlyMap<string, ScalarType> | undefined>()
+	const headings = new Map<string, ReadonlyMap<string, ScalarType>>()
+	const headingOf = (relation: string): ReadonlyMap<string, ScalarType> => {
+		const info = checked.relation(relation, loc)
+		const heading =
+			info.kind === "relation" || info.kind === "closed" ? info.heading : info.analysis.read.heading
+		return new Map(heading.map((c) => [c.name, c.type] as const))
+	}
+	return {
+		desc: (query) => known("an imported query", query, loc),
+		type: (query, column) =>
+			typed
+				.getOrInsertComputed(unwrap(descIdentity(deepFreeze(query))), () =>
+					typedHeading(checked, session, query)
+				)
+				?.get(column),
+		field: (relation, column) =>
+			headings.getOrInsertComputed(relation, headingOf).get(column) ??
+			refuse("MalformedDescription", loc, `a field ${column} of ${relation}`)
+	}
 }
+
+/**
+ * `columns` read at the definition each query `definitionOf` reads it as: a walked copy of a query at the query it was
+ * walked from (physical/ddl/rules.ts, analysis/theory/unit.ts WholeRule `definitionOf`).
+ */
+export const definedAt = (
+	columns: QueryColumns,
+	definitionOf: (query: InferredQuery) => InferredQuery
+): QueryColumns => ({
+	desc: (query) => columns.desc(definitionOf(query)),
+	type: (query, column) => columns.type(definitionOf(query), column),
+	field: columns.field
+})

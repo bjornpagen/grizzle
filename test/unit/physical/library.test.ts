@@ -25,7 +25,7 @@ import { identifierOf } from "#compiler/core/identity.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { libraryIdentity } from "#compiler/physical/ddl/library.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { Logic, Text } from "#compiler/public/compute.ts"
 import { contract } from "#compiler/public/fields.ts"
 import { check, login, relation, schema } from "#compiler/public/schema.ts"
@@ -51,8 +51,9 @@ const uses: Arr.NonEmptyReadonlyArray<Use> = [
 
 const text = str.regex("^.*$", "su")
 
+const unfragmentedKey = Symbol("Unfragmented")
 /** An href no fragment ends: its target against the empty reference is itself. */
-const Unfragmented = contract(
+const Unfragmented = contract<typeof unfragmentedKey>()(
 	"Unfragmented",
 	text,
 	(v) => Logic.eq(Text.resolveReference(v, ""), v),

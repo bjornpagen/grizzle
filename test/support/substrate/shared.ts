@@ -6,15 +6,7 @@ import { installationRoleOf } from "#compiler/core/identity.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { InitializedCluster, lentVariable } from "#test/support/cluster.ts"
 import { adminUrl } from "#test/support/env.ts"
-import {
-	awaitingBackend,
-	awaitingUnchecked,
-	backendOf,
-	devSession,
-	type PgConnection,
-	type SqlError,
-	sqlErrorOf
-} from "#test/support/pg.ts"
+import { devSession, type PgConnection, type SqlError, sqlErrorOf } from "#test/support/pg.ts"
 import { type BudgetedCluster, budgeted, connectionBudget } from "#test/support/substrate/budget.ts"
 import { allocatingPid } from "#test/support/substrate/names.ts"
 
@@ -26,7 +18,7 @@ const textTypes = { getTypeParser: (): ((text: string) => string) => asText } as
 
 /** A bootstrap superuser's connection (superuserClient): its statements, each answering its rows, every column its text. */
 export interface SuperuserClient {
-	/** One statement and its parameters, its answer awaited as a checked wait on the client's backend (pg.ts awaitingBackend). */
+	/** One statement and its parameters, and its answer. */
 	readonly query: (
 		sql: string,
 		params: ReadonlyArray<string>
@@ -36,10 +28,9 @@ export interface SuperuserClient {
 /**
  * A connection to `database` as the bootstrap superuser, the account's own user, over the member's socket, which trusts
  * it (env.ts adminUrl); the TLS sessions of test/support/pg.ts reach no superuser. It lives for the scope, drawing one
- * of its budget's permits; a connection refused is a failure its caller makes a defect of the run. Its connect awaits
- * PostgreSQL as a trusted declared wait (pg.ts awaitingUnchecked), and every statement as a checked one on its backend
- * (pg.ts awaitingBackend): what the substrate's superuser statements and reads (substrate.ts asSuperuser,
- * asSuperuserRead) and the toolchain's resources (runner.ts superuserSession) send.
+ * of its budget's permits; a connection refused is a failure its caller makes a defect of the run. What the
+ * substrate's superuser statements and reads (substrate.ts asSuperuser, asSuperuserRead) and the toolchain's resources
+ * (runner.ts superuserSession) send.
  */
 export const superuserClient = (
 	cluster: BudgetedCluster,
@@ -55,18 +46,13 @@ export const superuserClient = (
 						application_name: applicationName,
 						types: textTypes
 					})
-					return Effect.as(
-						awaitingUnchecked(`connect as the superuser to ${database}`)(
-							Effect.tryPromise({ try: () => c.connect(), catch: sqlErrorOf })
-						),
-						c
-					)
+					return Effect.as(Effect.tryPromise({ try: () => c.connect(), catch: sqlErrorOf }), c)
 				}),
 				(c) => Effect.promise(() => c.end())
 			)
 		),
-		(c): SuperuserClient => {
-			const answer = (sql: string, params: ReadonlyArray<string>) =>
+		(c): SuperuserClient => ({
+			query: (sql, params) =>
 				Effect.map(
 					Effect.tryPromise({
 						try: () => c.query({ text: sql, values: [...params], rowMode: "array" }),
@@ -74,9 +60,7 @@ export const superuserClient = (
 					}),
 					(result) => trusted<ReadonlyArray<ReadonlyArray<string | null>>>(result.rows)
 				)
-			const pid = backendOf(c)
-			return { query: (sql, params) => awaitingBackend(cluster, pid, sql)(answer(sql, params)) }
-		}
+		})
 	)
 
 /**

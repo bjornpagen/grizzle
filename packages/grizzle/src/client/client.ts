@@ -123,7 +123,7 @@ const routeOf = (
 		program === undefined ||
 		rest.length > 0
 	) {
-		throw defect(`a document path of the form /<login>/<role>/<program>, ${path}`)
+		defect(`a document path of the form /<login>/<role>/<program>, ${path}`)
 	}
 	return { login, role, program }
 }
@@ -177,7 +177,7 @@ export const clientCalls = <E = never>(
 	for (const [path, wire] of read.operations) {
 		const route = routeOf(path)
 		if (route.login !== name) {
-			throw defect(`a document of login ${name} holding the path ${path}`)
+			defect(`a document of login ${name} holding the path ${path}`)
 		}
 		const member: ClientMember = {
 			route: urlOf(options.url, path),

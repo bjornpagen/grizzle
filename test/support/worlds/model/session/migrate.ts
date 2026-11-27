@@ -219,8 +219,7 @@ export type FolderFile = "setup" | "structure" | "indexes" | "concurrent" | "val
 /**
  * The relations the native objects of a law are built on, each by a statement of its own that fails over data breaking
  * it: a key's or a span key's, a check's, a containment's or a coverage's source; none for a containment into a closed
- * roster, which its field's type enforces; and for alternatives, the source of each of its containments (fin.md §7),
- * the parent and every arm. Every law is native.
+ * roster, which its field's type enforces. Every law is native.
  */
 const builtOn = (base: BaseSpec, law: LawSpec): ReadonlyArray<string> => {
 	switch (law.kind) {
@@ -234,8 +233,6 @@ const builtOn = (base: BaseSpec, law: LawSpec): ReadonlyArray<string> => {
 				: [law.source.relation]
 		case "covered":
 			return [law.source.relation]
-		case "alternatives":
-			return [law.relation, ...Arr.dedupe(Rec.values(law.arms))]
 	}
 }
 

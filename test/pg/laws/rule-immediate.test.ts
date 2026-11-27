@@ -8,9 +8,11 @@
  *
  * Over each unit shape's whole judge of rule-whole.fixtures.ts, a document stored whole, then one statement in a
  * transaction of its own, deferred or after SET CONSTRAINTS ALL IMMEDIATE: a lawful document, one that breaks One type
- * (a key), or a delete that breaks Expressed (a containment). Each breaking one is refused by its rule's SQLSTATE, at
- * COMMIT deferred and at its statement immediate; the lawful one commits; after each transaction every session table
- * holds no row.
+ * (a key), or a delete that breaks Expressed (a containment). The breaking insert is refused by its rule's SQLSTATE, at
+ * COMMIT deferred and at its statement immediate. The delete removes a closed relation's row, a data step's, inside the
+ * bracket a migration's runner sends (data-step.ts dataStepOf): the judge reads none of a closed relation's removed
+ * rows, so it passes its statement in either mode and the bracket's re-check refuses it under Expressed's law (23000).
+ * The lawful one commits; after each transaction every session table holds no row.
  */
 import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -20,8 +22,9 @@ import { standUpJudge } from "#test/support/judge.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * Every write is judged in its transaction, at its statement after SET CONSTRAINTS ALL IMMEDIATE and at COMMIT before
- * it, a breaking insert and a breaking delete alike, and no delta row outlives the transaction that wrote it.
+ * Every served write is judged in its transaction, at its statement after SET CONSTRAINTS ALL IMMEDIATE and at COMMIT
+ * before it, a data step's breaking delete by its bracket's re-check in either mode, and no delta row outlives the
+ * transaction that wrote it.
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
  */
@@ -31,9 +34,9 @@ export const everyWriteIsJudgedInItsTransactionAtItsStatementAfterSetConstraints
 		situations: [
 			"a lawful write committed",
 			"a breaking insert refused at COMMIT",
-			"a breaking delete refused at COMMIT",
 			"a breaking insert refused at its statement",
-			"a breaking delete refused at its statement"
+			"a breaking delete refused by its bracket's re-check, deferred",
+			"a breaking delete refused by its bracket's re-check, immediate"
 		],
 		check: (judges, c) => (k) =>
 			Effect.gen(function* () {
@@ -44,23 +47,23 @@ export const everyWriteIsJudgedInItsTransactionAtItsStatementAfterSetConstraints
 			}).pipe(Effect.scoped),
 		oracle: {
 			kind: "postgresql",
-			name: "each transaction's refusal and its SQLSTATE, against the rule its write breaks, and each session table's rows after it: a breaking write refused at its statement immediate and at COMMIT deferred, a lawful one committed, and no row held"
+			name: "each transaction's refusal and its SQLSTATE, against the rule its write breaks, and each session table's rows after it: a breaking insert refused at its statement immediate and at COMMIT deferred, a breaking delete by its bracket's re-check under Expressed's law, a lawful one committed, and no row held"
 		},
 		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
 				original:
-					"\t): ReadonlyArray<PlStatement> => [\n\t\t...standing(\n\t\t\t[\n\t\t\t\tsentinelStood(sentinel, judge),\n\t\t\t\t...deltas.map(deltaStood),\n\t\t\t\t...deltas.flatMap((d) => besides.get(d.name) ?? []).map(deltaStood),\n\t\t\t\t...read\n\t\t\t],\n\t\t\trequired\n\t\t),\n\t\t...writes,\n\t\t...arming(sentinel, deltas)\n\t]",
+					"\t): ReadonlyArray<PlStatement> => [...required, ...writes, ...arming(sentinel, deltas)]",
 				replacement:
-					"\t): ReadonlyArray<PlStatement> => [\n\t\t...standing(\n\t\t\t[\n\t\t\t\tsentinelStood(sentinel, judge),\n\t\t\t\t...deltas.map(deltaStood),\n\t\t\t\t...deltas.flatMap((d) => besides.get(d.name) ?? []).map(deltaStood),\n\t\t\t\t...read\n\t\t\t],\n\t\t\trequired\n\t\t),\n\t\t...arming(sentinel, deltas),\n\t\t...writes\n\t]",
-				why: "The capture inserts the sentinel's row before its rows, as before, so after SET CONSTRAINTS ALL IMMEDIATE the judge fires inside the capture over a written set naming no delta that holds a row yet: a breaking insert and a breaking delete run past their statements and commit, and their rows stand in the deltas after COMMIT."
+					"\t): ReadonlyArray<PlStatement> => [...required, ...arming(sentinel, deltas), ...writes]",
+				why: "The capture inserts the sentinel's row before its rows, as before, so after SET CONSTRAINTS ALL IMMEDIATE the judge fires inside the capture over a written set naming no delta that holds a row yet: a breaking insert runs past its statement and commits, and its rows stand in the deltas after COMMIT."
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
 				original:
-					'\t\t\t})),\n\t\t\t...(part.pass === "rules" ? part.deltas.map(emptiedWhereWritten) : [])\n',
-				replacement: "\t\t\t}))\n",
+					'\t\t\t),\n\t\t\t...(part.pass.kind === "rules" ? part.deltas.map(emptiedWhereWritten) : [])\n',
+				replacement: "\t\t\t)\n",
 				why: "No part deletes the rows it read, so a lawful document's rows stand in the deltas past its COMMIT."
 			},
 			{
@@ -68,7 +71,7 @@ export const everyWriteIsJudgedInItsTransactionAtItsStatementAfterSetConstraints
 				original:
 					'\t\t{ kind: "createSessionTrigger", name: sentinel, table: sentinel, function: judge }\n',
 				replacement: "",
-				why: "The stand-up makes the sentinel without its trigger, which every site reads as standing from its pg_class row alone: no judge fires, so a breaking insert and a breaking delete commit, deferred and immediate alike."
+				why: "The stand-up makes the sentinel without its trigger, which every site reads as standing from its pg_class row alone: no judge fires, so a breaking insert commits, deferred and immediate alike."
 			}
 		]
 	})

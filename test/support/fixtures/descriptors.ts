@@ -5,11 +5,11 @@
  * registry (scalar/registry.ts defineField), so the schema builders admit it as a builder-made descriptor.
  */
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { brandColumn } from "#compiler/core/decoder.ts"
+import { type Column, hostColumn } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { descText, type ExprDesc } from "#compiler/ir/desc.ts"
-import { contractParts } from "#compiler/scalar/contract.ts"
+import { admitContractCall, contractParts } from "#compiler/scalar/contract.ts"
 import {
 	bareEnv,
 	carrierSql,
@@ -24,14 +24,13 @@ interface ContractDescriptor extends Descriptor {
 	/** The descriptor the caller passed, unchanged: a str.regex field keeps its pattern. */
 	readonly base: object
 	readonly predicate: ExprDesc | undefined
-	(value: unknown): unknown
 }
 
 /**
- * A contract's descriptor from its admitted parts: a fresh unchecked brand constructor, one function per contract,
- * which is the plain identity, with the contract's members; its column is the base's, branded. `rest` is what follows
- * the base. describeField admitted `base`, so it is an object or a function: the public `base` member is the caller's
- * descriptor itself, and an unowned str.regex field keeps its pattern.
+ * A contract's descriptor from its admitted parts, with the contract's members; its column is the base's, read as the
+ * host type (core/decoder.ts hostColumn). `rest` is what follows the base. describeField admitted `base`, so it is an
+ * object or a function: the public `base` member is the caller's descriptor itself, and an unowned str.regex field keeps
+ * its pattern.
  */
 export const admitContract = (
 	name: unknown,
@@ -42,10 +41,9 @@ export const admitContract = (
 	if (base === null || (typeof base !== "object" && typeof base !== "function")) {
 		throw malformedDescription(captureLoc(`contract ${parts.name} base`, []), "a field descriptor")
 	}
-	const brand = (value: unknown): unknown => value
-	const column = brandColumn(parts.base.column, brand)
+	const column: Column<unknown> = hostColumn(parts.base.column)
 	return defineField(
-		brand,
+		{},
 		parts.sql,
 		parts.desc,
 		{ name: parts.name, base, predicate: parts.predicate, column },
@@ -54,12 +52,18 @@ export const admitContract = (
 	)
 }
 
-/** contract(name, base) or contract(name, base, predicate), as a JavaScript caller calls it. */
+/** contract()(name, base) or contract()(name, base, predicate), the second call, as a JavaScript caller calls it. */
 export const contractDescriptor = (
 	name: unknown,
 	base: unknown,
 	...rest: ReadonlyArray<unknown>
 ): ContractDescriptor => admitContract(name, base, rest)
+
+/** contract(...first), the first call, as a JavaScript caller calls it, then its second (contractDescriptor). */
+export const contractCall = (...first: ReadonlyArray<unknown>): typeof contractDescriptor => {
+	admitContractCall(first)
+	return contractDescriptor
+}
 
 /**
  * span(endpoint) or span(endpoint, width), as a JavaScript caller calls it: the descriptor holds the width it was

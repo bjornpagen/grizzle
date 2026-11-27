@@ -13,6 +13,7 @@ export {
 	Decimal,
 	drawn,
 	generated,
+	mintOf,
 	Money,
 	natural,
 	pg,
@@ -34,6 +35,7 @@ export type {
 	FieldBase,
 	Infer,
 	LiteralOf,
+	Marked,
 	NaturalField,
 	NumericField,
 	NumericTypmodField,
@@ -42,4 +44,5 @@ export type {
 	SpanField,
 	VectorField
 } from "#compiler/public/fields.ts"
-export { Id } from "#test/support/ids.ts"
+export { Id, idKey } from "#test/support/ids.ts"
+export type { IdKey } from "#test/support/ids.ts"

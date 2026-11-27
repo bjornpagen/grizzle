@@ -44,6 +44,7 @@ import {
 	select,
 	setOperation,
 	table,
+	tableCol,
 	target,
 	types
 } from "#compiler/sql/build.ts"
@@ -224,13 +225,23 @@ const statementAt = (depth: number): Gen<PlStatement> =>
 				]
 			])
 
+/**
+ * The variables the drawn statements read and assign, which every block declares, as PostgreSQL refuses a block reading
+ * one it does not: n, the CASE operand and an IF's integer; t, assigned and an IF's text; r, the FOR loop's row.
+ */
+const readVariables: ReadonlyArray<PlDeclaration> = [
+	{ name: "n", type: types.integer },
+	{ name: "t", type: types.text },
+	{ name: "r", type: types.integer }
+]
+
 /** Up to three integer declarations, d0 onward. */
 const declarations: Gen<ReadonlyArray<PlDeclaration>> = (s) =>
 	Array.from({ length: s.draw(int(0, 3)) }, (_, i) => ({ name: `d${i}`, type: types.integer }))
 
-/** A PL/pgSQL block nested to a drawn depth. */
+/** A PL/pgSQL block nested to a drawn depth, declaring the variables its statements read and up to three more. */
 export const plBlockGen: Gen<PlBlock> = (s) => ({
-	declare: s.draw(declarations),
+	declare: [...readVariables, ...s.draw(declarations)],
 	body: s.draw(nonEmptyStatements(s.draw(int(0, 3))))
 })
 
@@ -362,10 +373,16 @@ const doLoc = SourceLoc("DO block", [])
 /** A block's DO block text. */
 export const doText = (block: PlBlock): string => sqlText(doLoc, (out) => writeDoBlock(out, block))
 
-/** A DO block's statement lines, physical lines included: everything between its BEGIN line and its END line. */
+/**
+ * A DO block's statement lines, physical lines included: everything between its BEGIN line and its END line, the
+ * block declaring the variables they read.
+ */
 export const statementLines = (
 	body: Arr.NonEmptyReadonlyArray<PlStatement>
-): ReadonlyArray<string> => Str.split(doText({ declare: [], body }), "\n").slice(2, -2)
+): ReadonlyArray<string> => {
+	const lines = Str.split(doText({ declare: readVariables, body }), "\n")
+	return lines.slice(lines.indexOf("BEGIN") + 1, -2)
+}
 
 /** What a block written through the line sink reached: narrow or wide at a position, and a split. */
 export type WriteFeature = `wide ${WidePosition}` | "narrow" | "split"
@@ -550,6 +567,8 @@ const literalOf = (constant: ClauseConstant): Expr => {
 
 const from = [table("audit", "order", "r1")] as const
 const column = col("r1", "id")
+/** The column as a set operation's ORDER BY names it: its output, unqualified, as no FROM of the operation reaches it. */
+const output = tableCol("id")
 const other = col("r1", "select")
 
 /** A case's query, and how many items each of its clauses must print. */
@@ -561,8 +580,9 @@ export const clauseQuery = (
 } => {
 	const literal = literalOf(c.constant)
 	const constant: Expr = c.negated ? { kind: "negate", expr: literal } : literal
-	const items: Arr.NonEmptyReadonlyArray<Expr> =
-		c.place === "alone" ? [constant] : c.place === "first" ? [constant, column] : [column, constant]
+	const itemsOver = (named: Expr): Arr.NonEmptyReadonlyArray<Expr> =>
+		c.place === "alone" ? [constant] : c.place === "first" ? [constant, named] : [named, constant]
+	const items = itemsOver(column)
 	const targets: Arr.NonEmptyReadonlyArray<Target> = [target(column)]
 	switch (c.clause) {
 		case "GROUP BY":
@@ -617,7 +637,7 @@ export const clauseQuery = (
 									provedCore("certified", targets, from, undefined)
 								])
 							),
-							orderBy: ordered
+							orderBy: Arr.map(itemsOver(output), asc)
 						},
 						printed: { "ORDER BY": columns, "GROUP BY": 0, "DISTINCT ON": 0 }
 					}

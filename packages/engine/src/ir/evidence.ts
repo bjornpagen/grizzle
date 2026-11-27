@@ -43,15 +43,19 @@ export interface KeyConstraint {
 }
 
 /**
- * A containment law proving that a referencing fact has a referenced one: its two sides, the law, which is the premise
- * every proof that rests on it names, whatever discharges it, and the context the law model's discharge of it holds in
- * (theory/theory.ts ContainmentEvidence): immediate where an immediate native holds it at every statement, committed
- * snapshot where it holds at COMMIT, a deferred foreign key's or the rule judge's.
+ * A containment proving that a referencing fact has a referenced one: its two sides, the laws every proof that rests
+ * on it names, and the context it holds in. A declared containment rests on its own law, whatever discharges it, in the
+ * context the law model's discharge of it holds in (theory/theory.ts ContainmentEvidence): immediate where an immediate
+ * native holds it at every statement, committed snapshot where it holds at COMMIT, a deferred foreign key's or the rule
+ * judge's. One a stored derived relation's definition draws (analysis/derived/drawn.ts viewContainments: every rule
+ * draws its columns, jointly, from one row of the target) rests on the declared containments its draw rides on, none
+ * where every rule reads the target's rows themselves, at committed snapshot at the least, where the relation's table
+ * holds its definition's rows (laws/model/catalog.ts derivedEvidence).
  */
 export interface ExistenceConstraint {
 	readonly from: { readonly relation: string; readonly fields: ReadonlyArray<string> }
 	readonly to: { readonly relation: string; readonly fields: ReadonlyArray<string> }
-	readonly law: LawId
+	readonly laws: ReadonlyArray<LawId>
 	readonly context: EvidenceContext
 }
 
@@ -76,7 +80,7 @@ export interface EvidenceCatalog {
 	 * relation's inherited key), of the kind the key was installed as, or undefined when none is installed.
 	 */
 	readonly keyConstraint: (relation: string, columns: KeySet) => KeyConstraint | undefined
-	/** The containments the schema installs. */
+	/** The containments the schema installs, and those its stored derived relations' definitions draw. */
 	readonly containments: ReadonlyArray<ExistenceConstraint>
 	/** A declared closed relation by its name, or undefined when the schema declares none of that name. */
 	readonly closed: (relation: string) => ClosedEvidence | undefined

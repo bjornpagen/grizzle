@@ -39,9 +39,10 @@ const Sub = str.regex("^u_[a-z]{1,8}$")
 
 const Session = context("Session", { sub: Sub })
 
+const capKey = Symbol("Cap")
 /** The version `k` under the declared name `name`. */
 export const versionOf = (name: string, k: Knobs) => {
-	const Cap = contract("Cap", pg.integer, (x) => Logic.ge(x, k.capLeast))
+	const Cap = contract<typeof capKey>()("Cap", pg.integer, (x) => Logic.ge(x, k.capLeast))
 	const Quota = context("Quota", { cap: Cap }, { claim: "q" })
 	const Tier = closed.ordered("Tier", k.tiers)
 	const Org = relation("Org", { id: Id, tier: closedId(Tier) }, ["id"])

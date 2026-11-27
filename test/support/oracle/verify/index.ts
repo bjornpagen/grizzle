@@ -13,7 +13,11 @@ import type { OracleTemplate } from "#test/support/conservative.ts"
 import { artifactProblems, channelProblems } from "#test/support/oracle/verify/channels.ts"
 import { verifyMultiplicity } from "#test/support/oracle/verify/multiplicity.ts"
 import { problemText, type VerificationProblem } from "#test/support/oracle/verify/problems.ts"
-import { auditStatementViolations, auditTextViolations } from "#test/support/oracle/verify/sql.ts"
+import {
+	auditStatementViolations,
+	auditTextViolations,
+	guardedTermsOf
+} from "#test/support/oracle/verify/sql.ts"
 
 /** What a lowering is checked against: the conservative artifact of the same template, or none for a read-back. */
 export type Alignment =
@@ -134,7 +138,7 @@ const auditedText = (s: SqlStatement): string =>
 export const checkedStatements = (statements: ReadonlyArray<SqlStatement>, label: string): void => {
 	const violations = Arr.flatMap(statements, (s, i) =>
 		Arr.map(
-			[...auditStatementViolations(s), ...auditTextViolations(auditedText(s))],
+			[...auditStatementViolations(s), ...auditTextViolations(auditedText(s), guardedTermsOf(s))],
 			(v) => `${label} ${i}: ${v.rule} at ${v.where}: ${v.detail}`
 		)
 	)

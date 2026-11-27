@@ -106,7 +106,7 @@ export default defineGate({
 			const s = yield* Substrate
 			const fx = yield* installWrites(build("Events"), "benchevents", {
 				programs: {},
-				logins: []
+				logins: () => []
 			})
 			const M = fx.table("Member")
 			const c = (rel: string, f: string) => fx.column(rel, f)

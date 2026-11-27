@@ -1,19 +1,29 @@
 /** What the properties of refined-order.test.ts read: its spaces, models and helpers. */
 
-import { identity } from "#compiler/core/identity.ts"
+import { defined } from "@bjornpagen/testing/assert"
+import { Effect } from "effect"
+import { builtLogin } from "#adapter/served/login.ts"
 import { type Direction } from "#compiler/core/order.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { firstCodebook } from "#compiler/ir/codes.ts"
 
 import { query, v } from "#compiler/public/query.ts"
-import { derived, relation, schema, unit } from "#compiler/public/schema.ts"
+import {
+	derived,
+	login,
+	relation,
+	role,
+	schema,
+	unit,
+	wholeEntriesOf
+} from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { workload } from "#compiler/public/workload.ts"
+import { rostersOf } from "#compiler/schema/own.ts"
 import type { OrderItem, SqlStatement, Target } from "#compiler/sql/ast.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { allocatedLevels, servingParams } from "#test/support/compile.ts"
+import { compiledInstallation } from "#test/support/compiled-served.ts"
 import { installedCatalog } from "#test/support/evidence.ts"
 import { Id } from "#test/support/ids.ts"
-import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { owning } from "#test/support/policy.ts"
 
 const Slug = str.regex("^[a-z][a-z0-9-]*$")
@@ -93,19 +103,29 @@ export const tagged = Object.freeze({
 
 const owned = owning(Refined)
 
-/** The installation the queries are compiled over, serving the parameter's program, so its pattern domain is
- * installed (physical/install/plan.ts ParamSource `planned`). */
-export const installation = succeeded(
-	compileInstallation(
-		owned,
-		servingParams(
-			{
-				...installOptions(owned),
-				levels: allocatedLevels(identity.schema(parsedSchemaName("refined_order")), owned.levels)
-			},
-			Refined,
-			{ passedTags: passedTags("the tag alone", "asc") }
-		)
+/** The reader of Refined whose login's workload serves the parameter's program. */
+const reader = role(Refined, "reader", wholeEntriesOf(Refined))
+
+/**
+ * The installation the queries are compiled over, as `grizzle generate` compiles it with a login whose workload serves
+ * the parameter's program (test/support/compiled-served.ts compiledInstallation), so its pattern domain is installed
+ * (physical/install/plan.ts ParamSource `planned`).
+ */
+export const installation = Effect.runSync(
+	Effect.map(
+		compiledInstallation(
+			defined(
+				builtLogin(
+					login(Refined, "server", [reader], {
+						workload: [workload(reader, { passedTags: passedTags("the tag alone", "asc") })]
+					})
+				),
+				"the reader's login"
+			),
+			owned,
+			firstCodebook(rostersOf(owned))
+		),
+		(compiled) => compiled.installation
 	)
 )
 

@@ -34,12 +34,7 @@ import {
 	held,
 	pack
 } from "#compiler/sql/constants.ts"
-import {
-	type CarrierDeclaration,
-	carrierName,
-	type CarrierName,
-	carrierScope
-} from "#compiler/sql/naming.ts"
+import { carrierName, type CarrierName } from "#compiler/sql/naming.ts"
 import { printExpr, printObjectName, printStatement, printType } from "#compiler/sql/print.ts"
 import { type AstHooks, Transform } from "#compiler/sql/transform.ts"
 import { hexOfText } from "#test/support/closed/bit-text.ts"
@@ -49,12 +44,8 @@ import { oracleLiteral, oracleCells, oraclePayloads } from "#test/support/closed
 export const transformOperand = (s: OperandSelect, hooks: AstHooks): OperandSelect =>
 	new Transform(hooks).select(s)
 
-/** The declaration of the unit relation's carrier: no column and no key. */
-const unitCarrier: CarrierDeclaration = { columns: [], primaryKey: undefined }
-
-/** The `ordinal`-th carrier of a program, of the unit relation (sql/naming.ts carrierName). */
-export const unitCarrierName = (ordinal: number): CarrierName =>
-	carrierName(carrierScope(undefined), ordinal, unitCarrier)
+/** The `ordinal`-th carrier of a program (sql/naming.ts carrierName). */
+export const unitCarrierName = (ordinal: number): CarrierName => carrierName(ordinal)
 
 /**
  * The tests' one door of SQL text to grizzle's wire: a statement a wire suite sends that neither the engine's AST nor

@@ -98,9 +98,9 @@ export const theWorldsModelsStepKeepsEveryInvariantOnEveryBranchAndAgreesWithIts
 		kills: [
 			{
 				file: "packages/text/src/regex/subset.ts",
-				original: `subset.kind === "done"\n\t\t? "done"\n\t\t: \`\${subset.initial ? "i" : "n"}\${[...subset.configs].toSorted((a, b) => a - b).join(",")}\``,
-				replacement: `subset.kind === "done" ? \`\${subset.initial ? "i" : "n"}\${[...subset.configs].toSorted((a, b) => a - b).join(",")}\` : "done"`,
-				why: "Census mutant 8d79a8a065 (packages/text/src/regex/subset.ts subsetKey), restated on the counting automaton's configurations: every subset but the sink is keyed as the sink, and the sink by its configurations; the property fails (the census, lane TESTPOLICY2; restated by lane TEXTSPEC)."
+				original: '\t\tif (subset.kind === "done") {\n\t\t\treturn this.#done\n',
+				replacement: '\t\tif (subset.kind !== "done") {\n\t\t\treturn this.#done\n',
+				why: "Census mutant 8d79a8a065 (packages/text/src/regex/subset.ts subsetKey), restated on the counting automaton's configurations and then on SubsetNumbers slot, the trie that numbers subsets in its place: every subset but the sink is numbered as the sink; the property fails (the census, lane TESTPOLICY2; restated by lanes TEXTSPEC and PRINTONCE4)."
 			}
 		]
 	})

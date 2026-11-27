@@ -5,16 +5,19 @@ import type { RegionFacts } from "#compiler/analysis/theory/unit.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import type { NativeColumn } from "#compiler/ir/law.ts"
-import type { IndexRequest } from "#compiler/ir/products.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { BuiltTarget, IndexColumn, InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import type { KeyIndex } from "#compiler/physical/ddl/tables.ts"
-import { type IndexKey, keyTermText, type PlannedIndex } from "#compiler/physical/indexes/engine.ts"
+import {
+	type IndexKey,
+	keyTermText,
+	nativeText,
+	type PlannedIndex,
+	requestBindings
+} from "#compiler/physical/indexes/engine.ts"
 import type { Node } from "#compiler/physical/obligations/graph.ts"
 import { enforcement } from "#compiler/physical/obligations/graph.ts"
 import {
-	type Binding,
 	type ColumnValues,
 	type CrossingBound,
 	type Declaration,
@@ -32,38 +35,6 @@ const valuesOf = (type: ScalarType): ColumnValues => {
 		return { kind: "few", handles: (base.only ?? base.roster.handles).length }
 	}
 	return base.carrier === "bool" ? { kind: "few", handles: 2 } : { kind: "many" }
-}
-
-/** A native column's text, as an index's key names it (physical/indexes/engine.ts keyTermText). */
-const nativeText = (c: NativeColumn): string => (c.kind === "field" ? c.field.name : c.column)
-
-/** The columns a request binds by equality: a workload path's fixed keys; a law's lookups of a unit, each; or every key
- * of a law's other request but a suffix key, which its seek matches a prefix of. */
-const requestBindings = (r: IndexRequest): ReadonlyArray<Binding> => {
-	if (r.role === "access") {
-		return [
-			{
-				columns: r.keys
-					.slice(0, r.fixed)
-					.flatMap((k) => (typeof k.expr === "string" ? [k.expr] : [])),
-				by: `${r.use} of ${r.relation}`
-			}
-		]
-	}
-	if (r.reads.kind === "unit") {
-		return r.reads.lookups.map((lookup) => ({
-			columns: lookup.map(nativeText),
-			by: `${r.use} of ${r.relation}`
-		}))
-	}
-	return [
-		{
-			columns: r.blocks
-				.flat()
-				.flatMap((k) => (k.column.kind === "suffix" ? [] : [nativeText(k.column)])),
-			by: `${r.use} of ${r.relation}`
-		}
-	]
 }
 
 /** The columns an index's equalities may bind, in key order: its keys up to the first a suffix seek reads. */

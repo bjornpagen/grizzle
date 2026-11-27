@@ -239,7 +239,7 @@ export const cellOfKey = (key: ClosedKey, digits: NonEmptyReadonlyArray<Expr>): 
 	}
 	const reading = dependentReading(key, digits)
 	if (reading.local === undefined || reading.next !== undefined) {
-		throw defect("a full key's digits include every block coordinate's")
+		defect("a full key's digits include every block coordinate's")
 	}
 	return guarded(reading.checks, plus(reading.base, reading.local), key.cells)
 }
@@ -275,7 +275,7 @@ const completions = (
 	prefix: ReadonlyArray<Expr>
 ): Expr => {
 	if (prefix.length !== closedKeyFields(key).length - 1) {
-		throw defect("a closed row's prefix is every key field but the last")
+		defect("a closed row's prefix is every key field but the last")
 	}
 	const rowOf = (first: Expr, count: Expr): Expr =>
 		qualifiedCall(row.run, [constantValue(cells), first, count, row.empty])

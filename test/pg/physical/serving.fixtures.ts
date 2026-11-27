@@ -17,13 +17,14 @@ import {
 import { Array as Arr, Effect, Option, Order, Result } from "effect"
 import { isCompileError } from "#compiler/core/errors.ts"
 import type { Direction } from "#compiler/core/order.ts"
+import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { AccessUse } from "#compiler/ir/products.ts"
-import { workload } from "#compiler/program/workload/value.ts"
 import type { DeclaredDistinct } from "#compiler/sql/ast.ts"
 import { autovacuumAnalyzeScaleMax, autovacuumAnalyzeThresholdMax } from "#compiler/sql/print.ts"
 import {
+	analyzedAroundAChange,
 	drawnRequests,
 	judgeServing,
 	loadAtVolume,
@@ -34,7 +35,6 @@ import {
 	type VolumeLoad
 } from "#test/pg/physical/serving.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { workloadOver } from "#test/support/compile.ts"
 import {
 	closed,
 	contained,
@@ -48,8 +48,9 @@ import {
 	relation,
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import { installFullWorld } from "#test/support/installed.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
-import { valueClasses } from "#test/support/oracle/gen/domain.ts"
+import { fixedTypmod, valueClasses } from "#test/support/oracle/gen/domain.ts"
 import { installRealSchema, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { buildMixed, buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
 import {
@@ -70,6 +71,22 @@ import { sha256Uuid, spread } from "#test/support/plans.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 
+/**
+ * The values a field of the fixed kind holds in units of its scale, its typmod's (oracle/gen/domain.ts fixedTypmod,
+ * numeric(5,2)): every hundredth from -999.99 to 999.99, so a load's series is drawn within the column's precision,
+ * where its own value over 100 passed 999.99 past 99,999 rows, a filled state's size, and the fill failed 22003 before
+ * any plan was read (serving's rotating seed 0xaf91f91d). A series past them repeats a key the fill skips, as a key of
+ * closed handles holds as many rows as its key admits.
+ *
+ * @limitKind derived
+ * @owner the volume loads (serving.fixtures.ts fieldSql)
+ * @unit values
+ * @scope one fixed field of a load's relation
+ * @derivation numeric(p, s) holds 2 · 10^p − 1 values, ±(10^p − 1) / 10^s and every 10^−s between
+ * @from oracle/gen/domain.ts fixedTypmod
+ */
+const fixedValues = 2 * 10 ** fixedTypmod.precision - 1
+
 const fieldSql = (
 	kind: FieldKind,
 	value: string,
@@ -86,7 +103,7 @@ const fieldSql = (
 		case "tick":
 			return `(${value})::int8`
 		case "fixed":
-			return `((${value})::numeric / 100)`
+			return `((((${value}) % ${String(fixedValues)}) - ${String((fixedValues - 1) / 2)})::numeric / ${String(10 ** fixedTypmod.scale)})`
 		case "numeric":
 			return `((${value})::numeric / 7)`
 		case "float4":
@@ -128,13 +145,60 @@ const declaredValue = (d: DeclaredDistinct): number =>
 	d.kind === "relative" ? -1 / 2 ** d.exponent : 2 ** d.exponent
 
 /**
- * Every table's declared statistics as the catalog holds them are those its manifest declares: each column's statistics
- * target 0, so no ANALYZE samples it, its declared number of distinct values, and no sampled statistic beside it; and
- * every index the manifest creates stands on a law or the workload's access. What each declares is
+ * Each column the installed snapshot's manifest declares statistics of: `<table>.<column>`, and its declared number of
+ * distinct values as pg_stats reads it back (declaredValue).
+ */
+const declaredColumns = (snapshot: DeploySnapshot) =>
+	Arr.flatMap(snapshot.manifest.objects, (o) =>
+		Arr.flatMap(o.ddl, (st) =>
+			st.kind === "declareStatistics"
+				? Arr.map(st.columns, (c) => ({
+						column: `${st.table.name}.${c.column}`,
+						distinct: declaredValue(c.distinct)
+					}))
+				: []
+		)
+	)
+
+/**
+ * Every statistic pg_stats holds of the schema's relations after `analyzedAroundAChange` (serving.ts) analyzed every
+ * table over two populations: exactly the declared ones, each declared column's number of distinct values as declared
+ * and no sampled statistic beside it, and none of any other column, an index's expression's among them, which ANALYZE
+ * samples by its own statistics target. An ANALYZE writes a table's sizes in pg_class whatever its columns' targets
+ * (analyze.c do_analyze_rel), so what a declaration keeps is its columns' statistics; the plans it bounds are the
+ * contract tier's (test/pg/contracts).
+ */
+const statisticsKeptAsDeclared = (plan: RealInstallPlan, snapshot: DeploySnapshot) =>
+	Effect.gen(function* () {
+		const substrate = yield* Substrate
+		const held = yield* substrate.admin.queryValues(
+			`SELECT st.tablename::text || '.' || st.attname::text || ' ' || coalesce(st.n_distinct::text, '-') || coalesce(CASE WHEN st.most_common_vals IS NOT NULL OR st.histogram_bounds IS NOT NULL OR st.correlation IS NOT NULL THEN ' sampled' END, '') FROM pg_catalog.pg_stats AS st WHERE st.schemaname = $1::text AND NOT st.inherited`,
+			[plan.schema]
+		)
+		assert.deepEqual(
+			Arr.sort(
+				Arr.map(held, (row) => String(row[0])),
+				Order.String
+			),
+			Arr.sort(
+				Arr.map(declaredColumns(snapshot), (c) => `${c.column} ${c.distinct}`),
+				Order.String
+			),
+			"after two VACUUM ANALYZEs, the rows changed between them, every column's statistics are exactly as declared and no other column holds any"
+		)
+	})
+
+/**
+ * Every table's declared statistics as the catalog holds them are those the installed snapshot's manifest declares, as
+ * `grizzle generate` drafts it: every table grizzle installs declares its own, an authored or a stored derived
+ * relation's, each bookkeeping table's (deploy/snapshot/build.ts targetState) and the live secret's alike, each column's
+ * statistics target 0, so no ANALYZE samples it, its declared number of distinct values, and no sampled statistic
+ * beside it; and every index the manifest creates stands on a law or the workload's access. What each declares is
  * test/unit/statistics's; that it is installed as declared is here.
  */
 const declarationsAsPlanned = (
 	plan: RealInstallPlan,
+	snapshot: DeploySnapshot,
 	note: (feature: ServingFeature | WorkloadFeature) => void
 ) =>
 	Effect.gen(function* () {
@@ -147,15 +211,9 @@ const declarationsAsPlanned = (
 				)
 			}
 		}
-		const planned = Arr.flatMap(plan.installation.manifest.objects, (o) =>
-			Arr.flatMap(o.ddl, (st) =>
-				st.kind === "declareStatistics"
-					? Arr.map(
-							st.columns,
-							(c) => `${st.table.name}.${c.column} 0 ${declaredValue(c.distinct)}` as const
-						)
-					: []
-			)
+		const planned = Arr.map(
+			declaredColumns(snapshot),
+			(c) => `${c.column} 0 ${c.distinct}` as const
 		)
 		/** Each column of the schema's tables: its table and name, its statistics target and pg_stats' n_distinct, and
 		 * whether it holds a sampled statistic. */
@@ -171,7 +229,7 @@ const declarationsAsPlanned = (
 			Arr.sort(planned, Order.String),
 			"every column of every table holds its declared statistics, its target 0 and nothing sampled"
 		)
-		const declaredTables = Arr.flatMap(plan.installation.manifest.objects, (o) =>
+		const declaredTables = Arr.flatMap(snapshot.manifest.objects, (o) =>
 			Arr.flatMap(o.ddl, (st) => (st.kind === "declareStatistics" ? [st.table.name] : []))
 		)
 		/** Each table's storage parameters, which its declaration sets: its automatic ANALYZE's thresholds at their
@@ -222,12 +280,9 @@ export const workloadCase = (
 			}
 		}
 		const installed = yield* Effect.result(
-			installRealSchema(built.schema, {
+			installFullWorld(built.schema, programs, {
 				label: "serving_workload",
-				logins: [],
-				extensions: [
-					workloadOver([{ login: "server", workloads: [workload(built.schema, programs)] }])
-				]
+				ambient: ordinarySession
 			})
 		)
 		if (Result.isFailure(installed)) {
@@ -240,7 +295,7 @@ export const workloadCase = (
 		}
 		note("a workload installed")
 		const judged = installed.success.plan
-		yield* declarationsAsPlanned(judged, note)
+		yield* declarationsAsPlanned(judged, installed.success.snapshot, note)
 		const domain = rosterDomainSql(judged, c.schema.roster.name)
 		const codec = defined(
 			judged.installation.names.codes.rosters.get(parsedName(c.schema.roster.name)),
@@ -276,6 +331,8 @@ export const workloadCase = (
 			[],
 			`PostgreSQL serves every request and needs every created index\n${printCase(c)}`
 		)
+		yield* analyzedAroundAChange(settled)
+		yield* statisticsKeptAsDeclared(judged, installed.success.snapshot)
 	})
 
 /**
@@ -598,7 +655,6 @@ export const requestCase = (sketch: RequestSketch, note: (feature: RequestFeatur
 		}
 		const { plan } = yield* installRealSchema(requestSchema(sketch.shades), {
 			label: "serving_requests",
-			logins: [],
 			extensions: [drawnRequests(specs)]
 		})
 		const settled = yield* loadAtVolume(plan, [...indexedLoads, rotaLoad(plan, sketch.shades)])

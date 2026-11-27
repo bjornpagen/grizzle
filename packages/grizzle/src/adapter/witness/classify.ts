@@ -1,3 +1,4 @@
+import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import * as Arr from "effect/Array"
 import type { ServerError } from "#adapter/errors/failures.ts"
 import {
@@ -16,6 +17,7 @@ import type {
 	LawDetail,
 	RecordedLaw,
 	BrokenLaws,
+	KeyWitness,
 	RefusedLaw,
 	RefusedLaws,
 	Refuser,
@@ -28,6 +30,7 @@ import type {
 	ConstraintOwner,
 	EntryName,
 	LawId,
+	OutputText,
 	RelationIdent,
 	StoredRelationName
 } from "#compiler/plan/common.ts"
@@ -187,21 +190,20 @@ const liveCodesText = (roster: RosterDomain): string => {
 }
 
 /**
- * The defect a roster domain's violation is, raised at `at`, a statement of grizzle's or its COMMIT: the domain, its
- * roster and the codes it admits, which are every code grizzle's codec writes.
+ * What breaks when a roster domain's violation is raised at `at`, a statement of grizzle's or its COMMIT: the domain,
+ * its roster and the codes it admits, which are every code grizzle's codec writes. A defect of grizzle's, which the
+ * write's flight dies of (adapter/apply/run.ts).
  */
-export const rosterDomainDefect = (
+export const rosterDomainBreak = (
 	violation: Extract<Violation, { readonly kind: "defect" }>,
 	at: string
-): Error => {
+): string => {
 	const { carrier, codec } = violation.roster
 	const admits =
 		carrier === "code"
 			? `a live handle's code (${liveCodesText(violation.roster)})`
 			: `a set of live handles' bits, bit(${codec.width}) with a 0 at every hole and every padding bit past code ${codec.size - 1} (${liveCodesText(violation.roster)})`
-	return defect(
-		`grizzle writes only live handles, and ${carrier === "code" ? "the code" : "the bits"} domain ${violation.domain} of roster ${codec.roster} admits ${admits}, yet ${at} raised 23514 on it`
-	)
+	return `grizzle writes only live handles, and ${carrier === "code" ? "the code" : "the bits"} domain ${violation.domain} of roster ${codec.roster} admits ${admits}, yet ${at} raised 23514 on it`
 }
 
 /** The write statement that raised a law it refused under its identity (write/refusal.ts). */
@@ -274,6 +276,43 @@ const nativeLaws = (
 				refused
 			)
 		}
+	}
+}
+
+/** A refusal's laws in canonical order: by their identities, each a law's identity name, in code point order. */
+const byIdentity = <L extends { readonly id: string }>(
+	laws: Arr.NonEmptyReadonlyArray<L>
+): Arr.NonEmptyReadonlyArray<L> => Arr.sort(laws, (a: L, b: L) => compareCodePoints(a.id, b.id))
+
+/**
+ * A refusal in the one order every refusal leaves the database in (Bjorn's canonical-order ruling): each of its lists,
+ * its own laws and a level above's, by its laws' identities in code point order, pg_c_utf8's, the collation the
+ * canonical result order sorts text by, whatever order PostgreSQL reported or the host judged them in. The two
+ * constructors of a refusal a caller meets read it, a write's outcome (outcomes/index.ts applyOutcome) and a read's
+ * refusal by a domain (domainRefusal), so every reporter, the runtime's outcome, the command line's and an explain's,
+ * names the laws alike.
+ */
+export const canonicalRefusal = (refused: BrokenLaws): BrokenLaws => {
+	switch (refused.kind) {
+		case "every":
+		case "first":
+			return { kind: refused.kind, laws: byIdentity(refused.laws) }
+		case "some": {
+			const [first, second, ...more] = byIdentity(refused.laws)
+			if (second === undefined) {
+				defect("a `some` refusal of one law")
+			}
+			return { kind: "some", laws: [first, second, ...more] }
+		}
+		case "above":
+			return refused.own === "every"
+				? {
+						kind: "above",
+						own: "every",
+						above: byIdentity(refused.above),
+						laws: byIdentity(refused.laws)
+					}
+				: { kind: "above", own: refused.own, above: byIdentity(refused.above) }
 	}
 }
 
@@ -420,8 +459,18 @@ export const domainRefusal =
 			? undefined
 			: {
 					kind: "laws",
-					refused: objectRefused(nativeLaws(native, new Set(), nativeObject(constraint, owner)))
+					refused: canonicalRefusal(
+						objectRefused(nativeLaws(native, new Set(), nativeObject(constraint, owner)))
+					)
 				}
+	}
+
+/** The key a witness query's DETAIL names, a law refusal's (write/refusal.ts lawKeyDetail), as `decoder` reads it. */
+export const detailKey =
+	(decoder: KeyDecoder) =>
+	(detail: OutputText): KeyWitness | undefined => {
+		const read = readLawDetail(detail)
+		return read.kind === "law" ? decoder.fromRefusal(read.relation, read.key) : undefined
 	}
 
 /** The classifier of one installation's violations (see the header), whose relations it names are `names`. */

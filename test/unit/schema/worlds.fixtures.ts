@@ -1,6 +1,7 @@
 /** What the properties of worlds.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	array,
@@ -525,9 +526,11 @@ const plant = (healthy: RoleSpec, defect: Defect): RoleCase => {
 			const [first, second] = defect.wholeFirst
 				? [relation, `${relation}Twice`]
 				: [`${relation}Twice`, relation]
+			const [earlier, later] =
+				compareCodePoints(first, second) < 0 ? [first, second] : [second, first]
 			return of(
 				{ ...withEntries, write: [...unwritten, first, second] },
-				{ kind: "writeTwice", relation, entries: [first, second] }
+				{ kind: "writeTwice", relation, entries: [earlier, later] }
 			)
 		}
 	}

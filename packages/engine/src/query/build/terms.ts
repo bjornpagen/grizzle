@@ -346,16 +346,21 @@ export const predicateOperand = (value: unknown, label: string): OpenExpr => {
 	throw malformed(label, "a predicate built from comparisons, r.and, r.or, r.not or Logic")
 }
 
-/** r.and and r.or, total: of no predicate the constant true and false, of one that predicate (connectiveExpr). */
+/** r.and and r.or, over one list of predicates, total: of none the constant true and false, of one that predicate
+ * (connectiveExpr). */
 const connective =
 	(kind: "and" | "or") =>
-	(ps: ReadonlyArray<unknown>): PredicateValue =>
-		predicateValue(
+	(ps: unknown): PredicateValue => {
+		if (!isList(ps)) {
+			throw malformed(`r.${kind}`, `one list of predicates: r.${kind}([p, q])`)
+		}
+		return predicateValue(
 			connectiveExpr(
 				kind,
 				ps.map((p) => predicateOperand(p, `r.${kind}`))
 			)
 		)
+	}
 
 export const and = connective("and")
 export const or = connective("or")

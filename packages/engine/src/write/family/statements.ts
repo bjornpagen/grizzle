@@ -74,9 +74,8 @@ export const laidLayout = (layout: LaidLayout): LaidLayout => {
 /**
  * The families `relation` is a member of, in their order by what they are (ir/family.ts familyOrder): the sequence that
  * nests its rows first, a relation being a member of at most one, then its counted families by key. The one spelling of
- * a member's families every reader of them goes through, so its layout (`rowLayout`), the family a row of it is reported
- * by (write/program/decide.ts rowFamilies) and every pick among them is the same whatever order the law model states its
- * families in.
+ * a member's families every reader of them goes through, so its layout (`rowLayout`) and every pick among them is the
+ * same whatever order the law model states its families in.
  */
 export const memberFamilies = (
 	relation: string,
@@ -147,11 +146,21 @@ export interface LaidRows {
 }
 
 /**
- * The key a member relation's INSERT arbitrates (write/family/additions.ts memberArbiter): its primary key, ON CONFLICT
- * at which meets an exact repeat and the key's conflict witness (`primaryKey`); or none, a plain INSERT of rows no stored
- * row repeats, each stored repeat and conflict read by a probe (`none`).
+ * What a member relation's INSERT arbitrates (write/family/additions.ts memberArbiter): every unique and exclusion object,
+ * ON CONFLICT DO NOTHING with no target, at which it meets an exact repeat, its key's conflict and a slot key's member of
+ * a stored group, each classified in its statement (`every`); or none, a plain INSERT of rows no stored row repeats,
+ * each stored repeat and conflict read by a probe (`none`).
+ *
+ * `every` is SERIALIZABLE's: there a row the INSERT meets that its snapshot cannot see raises 40001, so every met row
+ * is a stored row the statement reads (sql/ast.ts FromSource `met`) and its class is read from it. READ COMMITTED's is
+ * `none`, by construction rather than by cost: its probes find every stored repeat and conflict and its groups are drawn
+ * past their stored members (scan.ts GroupState `stored`), so the only row its INSERT can meet is a racer's, committed
+ * after the statement's snapshot, which the snapshot cannot see. Under DO NOTHING PostgreSQL would wait for that racer
+ * and skip the row, and neither the met-row read nor a family's probe would find its occupant, so the classification
+ * would name a primary key's race a slot's law, or a defect; the plain INSERT's 23505 names the object and the key the
+ * racer took, which its classifier reads (adapter/witness/classify.ts), exactly.
  */
-export type Arbiter = "primaryKey" | "none"
+export type Arbiter = "every" | "none"
 
 /** A member relation's INSERT as its gate reads it: its relation, its row layout, its unique objects, and the key it
  * arbitrates (`Arbiter`). */
@@ -194,7 +203,7 @@ export const candidateGate = (
 	)
 	const probed = ((): { readonly requested: Requested; readonly checks: ReadonlyArray<Probed> } => {
 		switch (insert.arbiter) {
-			case "primaryKey":
+			case "every":
 				return { requested: { kind: "complete", arbiter: uniques.arbiter }, checks: uniques.checks }
 			case "none":
 				return {

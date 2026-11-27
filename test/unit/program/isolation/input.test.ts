@@ -75,7 +75,7 @@ export const isolationFactsGiveOneFactForEveryRelationAndEveryMemberEachItsBuild
 					'\t\t\treturn object.kind === "Unique" ? [[object.relation.name, object.columns.map(columnKey)]] : []',
 				replacement:
 					'\t\t\treturn object.kind === "Unique" && object.columns.every((c) => c.kind === "field")\n\t\t\t\t? [[object.relation.name, object.columns.map(columnKey)]]\n\t\t\t\t: []',
-				why: "A UNIQUE over a law column left out of the keys, as before, so a check by an alternatives arm's or a family slot's law columns binds no whole key (edullm's decideStage)."
+				why: "A UNIQUE over a law column left out of the keys, as before, so a check by a selected side's or a family slot's law columns binds no whole key (edullm's decideStage)."
 			},
 			{
 				file: "packages/engine/src/program/isolation/input.ts",
@@ -83,7 +83,7 @@ export const isolationFactsGiveOneFactForEveryRelationAndEveryMemberEachItsBuild
 					"\t\t\t\t\tcolumns: object.targetColumns.map(columnKey),\n\t\t\t\t\tonUpdate: object.onUpdate",
 				replacement:
 					'\t\t\t\t\tcolumns: object.targetColumns.flatMap((c) => (c.kind === "field" ? [c.field.name] : [])),\n\t\t\t\t\tonUpdate: object.onUpdate',
-				why: "A foreign key's law columns left out of its referenced columns, so its check by an alternatives arm's or a family slot's key binds no whole key."
+				why: "A foreign key's law columns left out of its referenced columns, so its check by a selected side's or a family slot's key binds no whole key."
 			},
 			{
 				file: "packages/engine/src/program/isolation/input.ts",

@@ -33,8 +33,11 @@ import {
 /** A name of lower-case letters, one to eight. */
 const Name = str.regex("^[a-z]{1,8}$")
 
+/** The key of an item's tag. */
+const itemTag = Symbol("ItemTag")
+
 /** An item's tag: a uuid, under a contract that says whose id it is, as grizzle takes every uuid. */
-const Tag = contract("ItemTag", uuid)
+const Tag = contract<typeof itemTag>()("ItemTag", uuid)
 
 const Item = relation(
 	"Item",

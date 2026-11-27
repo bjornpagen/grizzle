@@ -61,6 +61,7 @@ import {
 	type EvalLeaves,
 	type EvalStop,
 	compiledExpr,
+	noParamLeaf,
 	type SqlValue,
 	sqlNull
 } from "#compiler/scalar/compute/evaluate.ts"
@@ -451,7 +452,7 @@ const hostRule = (
 		case "owner":
 		case "ownerCopy": {
 			if (targets.owner === undefined) {
-				throw defect(`an owner a member's ${rule.kind} rule reads, at a position in a family`)
+				defect(`an owner a member's ${rule.kind} rule reads, at a position in a family`)
 			}
 			return { kind: rule.kind, to: targets.owner.at(rule.to) }
 		}
@@ -568,10 +569,27 @@ export const hostEvaluator =
 						? sqlNull
 						: evaluatedValue(type, value)
 			},
-			closed
+			closed,
+			param: noParamLeaf
 		}
 		return compiledExpr(table)(leaves, patterns)
 	}
+
+/**
+ * The evaluator of a term over one call, over the closed relations `closed` answers and the program's admitted patterns:
+ * its declared parameters, each by its id, as `param` reads them, and no row, as a computed field's term reads the call
+ * alone (runtime/write/binding.ts ComputedFields).
+ */
+export type CallEvaluator = (
+	table: ExprTable,
+	param: EvalLeaves["param"]
+) => Result.Result<SqlValue, EvalStop>
+
+/** The evaluator of terms over one call (CallEvaluator), its leaves the call's parameters and the closed relations. */
+export const callEvaluator =
+	(closed: EvalLeaves["closed"], patterns: PatternReads): CallEvaluator =>
+	(table, param) =>
+		compiledExpr(table)({ value: undefined, column: () => undefined, closed, param }, patterns)
 
 /**
  * What the host's evaluator reads beside a row, for the expressions a write evaluates: the name of each closed
@@ -715,7 +733,7 @@ const combineHost = (
 ): unknown => {
 	const monoid = monoidSpecs[fold.monoid]
 	if (!isNonEmpty(befores)) {
-		throw defect("a fold's after reads a before per plane")
+		defect("a fold's after reads a before per plane")
 	}
 	const step: CombineStep<unknown> =
 		monoid.step === "none" ? { kind: "one" } : { kind: "value", expr: x }
@@ -841,7 +859,7 @@ const valueOf = (
 	}
 	const column = row.layout.byPosition.get(at)
 	if (column === undefined) {
-		throw defect(`a column at ${at} of ${row.layout.relation.name} the fill order laid out`)
+		defect(`a column at ${at} of ${row.layout.relation.name} the fill order laid out`)
 	}
 	const value = ruleValue(row, column, evaluate)
 	if (!value.ok) {
@@ -932,16 +950,14 @@ const filledBefore = (
 	if (from.layout.byPosition.get(at)?.rule.kind === "generated") {
 		return valueOf(from, at, evaluate)
 	}
-	throw defect(
-		`the column at ${at} of a row the walk filled before ${reader.layout.relation.name}'s`
-	)
+	defect(`the column at ${at} of a row the walk filled before ${reader.layout.relation.name}'s`)
 }
 
 /** A tree node's interval: a tree root's, or a member's of a family that is a tree of its relation. */
 const treeOf = (row: Row): Interval => {
 	const place = row.place
 	if (place.kind === "top" || place.kind === "entered" || place.tree === undefined) {
-		throw defect(`a tree node of ${row.layout.relation.name}`)
+		defect(`a tree node of ${row.layout.relation.name}`)
 	}
 	return place.tree
 }
@@ -949,7 +965,7 @@ const treeOf = (row: Row): Interval => {
 /** A member's owner row. */
 const ownerOf = (row: Row): Row => {
 	if (row.place.kind !== "member") {
-		throw defect(`an owner of ${row.layout.relation.name}'s member`)
+		defect(`an owner of ${row.layout.relation.name}'s member`)
 	}
 	return row.place.owner
 }
@@ -962,7 +978,7 @@ const ruleValue = (
 	const rule = column.rule
 	switch (rule.kind) {
 		case "given":
-			throw defect(`the caller's ${column.name} of ${row.layout.relation.name}, admitted`)
+			defect(`the caller's ${column.name} of ${row.layout.relation.name}, admitted`)
 		case "owner":
 		case "ownerCopy":
 			return filledBefore(ownerOf(row), rule.to, row, evaluate)
@@ -975,7 +991,7 @@ const ruleValue = (
 		case "copy":
 			switch (row.place.kind) {
 				case "top":
-					throw defect(`a row of ${row.layout.relation.name} in a family`)
+					defect(`a row of ${row.layout.relation.name} in a family`)
 				case "entered":
 				case "root":
 					return drawnValue(row, column, row.counts.get(row.place.family) ?? 0)
@@ -1161,7 +1177,7 @@ const subtreeSizes = (
 			for (const m of g.members) {
 				const sized = sizes.get(m)
 				if (sized === undefined) {
-					throw defect("a tree node sized after its children")
+					defect("a tree node sized after its children")
 				}
 				size += sized
 			}
@@ -1195,7 +1211,7 @@ export const filler = (
 		}
 		const family = byKey.get(familyKey(id))
 		if (family === undefined) {
-			throw defect(`the family ${id.owner}.${id.count} of the write's fill`)
+			defect(`the family ${id.owner}.${id.count} of the write's fill`)
 		}
 		byId.set(id, family)
 		return family
@@ -1228,7 +1244,7 @@ export const filler = (
 			}
 			const layout = fill.layouts.get(key)
 			if (layout === undefined) {
-				throw defect(`the layout of ${relation} at a position the write's fill lays out`)
+				defect(`the layout of ${relation} at a position the write's fill lays out`)
 			}
 			const built = hostLayout(
 				layout,
@@ -1298,7 +1314,7 @@ export const filler = (
 		const intervalOf = (node: HostNode, start: number): Interval => {
 			const size = sizes.get(node)
 			if (size === undefined) {
-				throw defect(`the subtree size of a node of ${node.relation}`)
+				defect(`the subtree size of a node of ${node.relation}`)
 			}
 			return { start, end: start + size }
 		}
@@ -1386,14 +1402,14 @@ export const filler = (
 			parent.previous = frame.row
 			const owned = parent.families[parent.family]
 			if (owned === undefined) {
-				throw defect("a member's owner fills the family it walks")
+				defect("a member's owner fills the family it walks")
 			}
 			const into = parent.filled[owned.place]
 			if (into === undefined) {
-				throw defect("a member's owner holds the family it walks")
+				defect("a member's owner holds the family it walks")
 			}
 			into.members.push(done)
 		}
-		throw defect("the walk ends at its root")
+		defect("the walk ends at its root")
 	}
 }

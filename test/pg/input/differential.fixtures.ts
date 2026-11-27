@@ -21,8 +21,6 @@ import { noLevelAbove } from "#adapter/witness/keylaw.ts"
 import { identity, type ParamPlace } from "#compiler/core/identity.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { paramDomainsOf } from "#compiler/physical/ddl/domains.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
-import { workload } from "#compiler/program/workload/value.ts"
 import { Logic } from "#compiler/public/compute.ts"
 import { contract, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -30,23 +28,19 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { templateNeedBudget } from "#test/support/budgets.ts"
-import {
-	compileTemplate,
-	installationSql,
-	testArtifacts,
-	testCompile,
-	workloadOver
-} from "#test/support/compile.ts"
+import { compileTemplate, testArtifacts, testCompile } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
 import { Id } from "#test/support/ids.ts"
+import { appliedGenerated, generatedDraft, noPlaceholders } from "#test/support/install-migrate.ts"
+import { fullVersion } from "#test/support/installed.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { oracleOwnedLogin } from "#test/support/oracle/install/real.ts"
-import { transaction } from "#test/support/oracle/install/transaction.ts"
+import { fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { owning } from "#test/support/policy.ts"
 import { serverError } from "#test/support/server-error.ts"
-import { installTemplate, Substrate } from "#test/support/substrate/substrate.ts"
+import { installTemplate } from "#test/support/substrate/substrate.ts"
 
 /** A pattern a stored field declares. */
 const Slug = str.regex("^[a-z]{1,8}$", "u")
@@ -54,9 +48,11 @@ const Slug = str.regex("^[a-z]{1,8}$", "u")
 /** A pattern no stored field declares: only a parameter's pattern domain checks it. */
 const Tag = str.regex("^#[0-9]{1,3}$", "u")
 
-const Cents = contract("Cents", pg.bigint, (x) => Logic.between(x, 0n, 10_000n))
+const centsKey = Symbol("Cents")
+const Cents = contract<typeof centsKey>()("Cents", pg.bigint, (x) => Logic.between(x, 0n, 10_000n))
 
-const Rate = contract("Rate", pg.numeric(7, 6), (x) => Logic.between(x, 0n, 1n))
+const rateKey = Symbol("Rate")
+const Rate = contract<typeof rateKey>()("Rate", pg.numeric(7, 6), (x) => Logic.between(x, 0n, 1n))
 
 const Article = relation("Article", { id: Id, slug: Slug }, ["id"])
 
@@ -107,10 +103,20 @@ const echoed = query(Shop).rule((r) => {
 })
 
 /**
- * The lookups' queries as the workload the installation installs, which installs the pattern domain of every pattern a
- * parameter names (physical/access/extension.ts workloadExtension), as a served workload's installation does.
+ * Shop under the allocated name `name` with its full world's login, whose workload holds every lookup, drafted as
+ * `grizzle generate` drafts its first migration (install-migrate.ts generatedDraft): the installation installs the
+ * pattern domain of every pattern a parameter names (physical/access/extension.ts servedWorkloadExtension), as a
+ * served workload's installation does.
  */
-const lookupsWorkload = workload(Shop, { bySlug, tagged, byAmount, byRate, echoed })
+const shopDraft = (name: string) =>
+	generatedDraft(
+		{
+			...fullVersion(Shop, { bySlug, tagged, byAmount, byRate, echoed }, name),
+			declarations: noDeclarations
+		},
+		{ installation: identity.schema(parsedSchemaName(name)), previous: fromEmpty, step: 0 },
+		noPlaceholders
+	)
 
 /** One lookup: its query, the parameter it binds, and how a drawn value is bound to it. */
 export interface Lookup {
@@ -238,8 +244,6 @@ export const readsAsRule = (lookup: Lookup, reading: DomainRefusal | undefined):
 	}
 }
 
-const owned = owning(Shop)
-
 /**
  * Shop installed with every lookup's workload under the template's name, and what a case over it reads: each lookup's
  * template compiled for that name and the witness that reads PostgreSQL's refusals of the installation. Planned once per
@@ -252,11 +256,11 @@ export const shopTemplate = installTemplate({
 	name: "shop",
 	content: {
 		schema: "Shop",
-		login: "differential",
+		login: "server",
 		workloads: ["bySlug", "tagged", "byAmount", "byRate", "echoed"]
 	},
 	plan: (names) =>
-		Effect.sync(() => {
+		Effect.gen(function* () {
 			const installationName = identity.schema(parsedSchemaName(names.schema))
 			const templates = new Map(
 				Arr.map(lookups, (l): readonly [Lookup, OracleTemplate] => {
@@ -271,19 +275,7 @@ export const shopTemplate = installTemplate({
 				})
 			)
 			const params = Arr.flatMap([...templates.values()], (t) => t.params)
-			const options = installOptions(owned)
-			const installed = compileInstallation(owned, {
-				...options,
-				levels: [installationName],
-				logins: [oracleOwnedLogin(owned.desc)],
-				extensions: [
-					...options.extensions,
-					workloadOver([{ login: "differential", workloads: [lookupsWorkload] }])
-				]
-			})
-			if (!installed.ok) {
-				throw new Error(`install: ${Formatter.format(installed.error)}`)
-			}
+			const drafted = yield* shopDraft(names.schema)
 			const artifacts = testArtifacts(Shop, {
 				installation: installationName,
 				codes: testCompile.codes
@@ -296,11 +288,13 @@ export const shopTemplate = installTemplate({
 				noLevelAbove,
 				shopCodes
 			)
-			return { installation: installed.value, templates, witness }
+			return { names, drafted, templates, witness }
 		}),
-	install: ({ installation }) =>
-		Effect.flatMap(Substrate, (s) =>
-			transaction(s.admin, installationSql(installation, s.database))
+	install: ({ names, drafted }) =>
+		Effect.asVoid(
+			appliedGenerated([drafted], names.schema, ordinarySession, (fresh) =>
+				Effect.map(shopDraft(fresh), (again) => again.plan)
+			)
 		),
 	bind: ({ templates, witness }) => ({ templates, witness })
 })

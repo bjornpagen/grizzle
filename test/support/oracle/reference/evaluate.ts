@@ -231,6 +231,7 @@ const appliedAtoms = (expr: ScalarExpr): ReadonlyArray<Atom> => {
 			return [expr.relation]
 		case "call":
 			return [expr.function.name]
+		case "variant":
 		case "domainCast":
 		case "cond":
 			return []
@@ -238,7 +239,7 @@ const appliedAtoms = (expr: ScalarExpr): ReadonlyArray<Atom> => {
 		case "value":
 		case "param":
 		case "literal":
-			throw referenceUnsupported(`a ${expr.kind} with no value, read by a declined term`)
+			referenceUnsupported(`a ${expr.kind} with no value, read by a declined term`)
 	}
 }
 
@@ -307,7 +308,7 @@ interface Tuple {
  */
 const truthOf = (v: Value): boolean => {
 	if (v instanceof Declined) {
-		throw referenceUnsupported("a predicate over a declined term's value")
+		referenceUnsupported("a predicate over a declined term's value")
 	}
 	return v === true
 }
@@ -390,7 +391,7 @@ export const tupleOf = (layout: Layout, row: Row): Tuple => {
 const lookup = <K, V>(map: { get(key: K): V | undefined }, key: K, what: string): V => {
 	const v = map.get(key)
 	if (v === undefined) {
-		throw referenceUnsupported(what)
+		referenceUnsupported(what)
 	}
 	return v
 }
@@ -398,7 +399,7 @@ const lookup = <K, V>(map: { get(key: K): V | undefined }, key: K, what: string)
 /** A value a term reads; a missing one is a column or parameter value the case lacks. */
 const stated = (v: Value | undefined, what: string): Value => {
 	if (v === undefined) {
-		throw referenceUnsupported(what)
+		referenceUnsupported(what)
 	}
 	return v
 }
@@ -407,7 +408,7 @@ const stated = (v: Value | undefined, what: string): Value => {
 const literalAt = (row: ReadonlyArray<TypedLiteral>, i: number): TypedLiteral => {
 	const l = row[i]
 	if (l === undefined) {
-		throw referenceUnsupported(`a row column ${i}`)
+		referenceUnsupported(`a row column ${i}`)
 	}
 	return l
 }
@@ -416,7 +417,7 @@ const literalAt = (row: ReadonlyArray<TypedLiteral>, i: number): TypedLiteral =>
 const columnAt = (heading: Heading, i: number): Heading[number] => {
 	const c = heading[i]
 	if (c === undefined) {
-		throw referenceUnsupported(`a heading column ${i}`)
+		referenceUnsupported(`a heading column ${i}`)
 	}
 	return c
 }
@@ -448,7 +449,7 @@ const bind = (scope: Bindings, entries: ReadonlyArray<readonly [NodeId, Tuple]>)
 export const columnIndex = (heading: Heading, name: string, at: string): number => {
 	const i = Arr.findFirstIndex(heading, (c) => c.name === name)
 	if (Option.isNone(i)) {
-		throw referenceUnsupported(`${at}: a column ${name}`)
+		referenceUnsupported(`${at}: a column ${name}`)
 	}
 	return i.value
 }
@@ -962,7 +963,7 @@ export class Reference {
 	state(node: NodeOf<"SelfRef">): RelationValue {
 		const state = this.#state.get(node.recursive)
 		if (state === undefined) {
-			throw referenceUnsupported(`${node.id} outside its recursion`)
+			referenceUnsupported(`${node.id} outside its recursion`)
 		}
 		return state
 	}
@@ -978,7 +979,7 @@ export class Reference {
 	param(id: ParamId): GenParam {
 		const p = Rec.has(this.input.params, id) ? this.input.params[id] : undefined
 		if (p === undefined) {
-			throw referenceUnsupported(`a value for the parameter ${id}`)
+			referenceUnsupported(`a value for the parameter ${id}`)
 		}
 		return p
 	}
@@ -1011,7 +1012,7 @@ export class Reference {
 		if (atom === pointAtom) {
 			const [s, p] = e.args
 			if (s === undefined || p === undefined) {
-				throw referenceUnsupported(`${describeOp(e.op)} without a span and a point`)
+				referenceUnsupported(`${describeOp(e.op)} without a span and a point`)
 			}
 			const span = asSpan(this.expr(s, scope))
 			const point = asBigint(this.expr(p, scope))
@@ -1020,7 +1021,7 @@ export class Reference {
 		if (atom !== undefined && rangeAtoms.has(atom)) {
 			const [l, r] = e.args
 			if (l === undefined || r === undefined) {
-				throw referenceUnsupported(`${describeOp(e.op)} without two operands`)
+				referenceUnsupported(`${describeOp(e.op)} without two operands`)
 			}
 			const a = asSpan(this.expr(l, scope))
 			const b = asSpan(this.expr(r, scope))
@@ -1108,7 +1109,7 @@ export class Reference {
 					`the reference met an operation where its precondition fails (${outcome.what}): a partial operation stands without its proof`
 				)
 			case "unsupported":
-				throw referenceUnsupported(outcome.what)
+				referenceUnsupported(outcome.what)
 		}
 	}
 
@@ -1228,7 +1229,7 @@ export class Reference {
 						const a = Option.getOrUndefined(Arr.findFirst(node.args, (x) => x.name === name))
 						const value = a?.kind === "value" ? this.expr(a.expr, scope) : undefined
 						if (typeof value !== "string") {
-							throw referenceUnsupported(`a split's ${name} that is no text`)
+							referenceUnsupported(`a split's ${name} that is no text`)
 						}
 						return value
 					},
@@ -1239,7 +1240,7 @@ export class Reference {
 					const a = Option.getOrUndefined(Arr.findFirst(node.args, (x) => x.name === name))
 					const value = a?.kind === "value" ? this.expr(a.expr, scope) : undefined
 					if (typeof value !== "bigint") {
-						throw referenceUnsupported(`a series' ${name} end that is no integer`)
+						referenceUnsupported(`a series' ${name} end that is no integer`)
 					}
 					return value
 				}
@@ -1249,6 +1250,8 @@ export class Reference {
 					low + BigInt(i)
 				])
 			}
+			case "arm":
+				referenceUnsupported("a variant's arm, which the reference draws none of")
 		}
 	}
 
@@ -1256,7 +1259,7 @@ export class Reference {
 	#modelled(node: NodeOf<"Call">, name: string, scope: Bindings): ModelResult {
 		const model = this.input.functions.get(name)
 		if (model === undefined) {
-			throw referenceUnsupported(
+			referenceUnsupported(
 				`the call of declared function ${name}, of no model, which PostgreSQL alone evaluates`
 			)
 		}
@@ -1317,14 +1320,14 @@ export class Reference {
 			case "InputSet": {
 				const input = node.input
 				if (input.kind === "member") {
-					throw referenceUnsupported(`${input.slot}, a write's member slot`)
+					referenceUnsupported(`${input.slot}, a write's member slot`)
 				}
 				if (input.kind === "row") {
-					throw referenceUnsupported("a write filter's membership row")
+					referenceUnsupported("a write filter's membership row")
 				}
 				const p = this.param(input.param)
 				if (p.kind !== "relation") {
-					throw referenceUnsupported(`${input.param} as a relation`)
+					referenceUnsupported(`${input.param} as a relation`)
 				}
 				return Arr.map(p.rows, (row) =>
 					Arr.map(node.heading, (c) =>
@@ -1347,7 +1350,7 @@ export class Reference {
 					return Arr.map(node.heading, (c) => {
 						const out = Arr.findFirst(node.out, (o) => o.name === c.name)
 						if (Option.isNone(out)) {
-							throw referenceUnsupported(`a projection named ${c.name}`)
+							referenceUnsupported(`a projection named ${c.name}`)
 						}
 						return coerce(this.expr(out.value.expr, inner), c.type)
 					})
@@ -1427,7 +1430,7 @@ export class Reference {
 			case "Delta":
 			case "Forbid":
 			case "Produce":
-				throw referenceUnsupported(`a ${node.kind} node`)
+				referenceUnsupported(`a ${node.kind} node`)
 		}
 	}
 
@@ -1477,13 +1480,13 @@ export class Reference {
 		}
 		const at = (e: ScalarExpr | undefined, row: Row): Value => {
 			if (e === undefined) {
-				throw referenceUnsupported(`an argument of the window ${node.id}`)
+				referenceUnsupported(`an argument of the window ${node.id}`)
 			}
 			return this.expr(e, bind(scope, [[node.input.id, tupleOf(input, row)]]))
 		}
 		const type = (e: ScalarExpr | undefined): ScalarType => {
 			if (e === undefined) {
-				throw referenceUnsupported(`an argument of the window ${node.id}`)
+				referenceUnsupported(`an argument of the window ${node.id}`)
 			}
 			return e.type
 		}
@@ -1555,7 +1558,7 @@ export class Reference {
 							const [arg] = node.args
 							const values = Arr.map(framed(i), (r) => at(arg, r))
 							if (values.length === 0) {
-								throw referenceUnsupported(`a ${node.fn} over an empty frame of ${node.id}`)
+								referenceUnsupported(`a ${node.fn} over an empty frame of ${node.id}`)
 							}
 							return aggregate(node.fn, values, type(arg))
 						}
@@ -1564,7 +1567,7 @@ export class Reference {
 							const [arg, offset, fallback] = node.args
 							const k = at(offset, row)
 							if (typeof k !== "bigint") {
-								throw referenceUnsupported(`an integer offset of ${node.id}`)
+								referenceUnsupported(`an integer offset of ${node.id}`)
 							}
 							const neighbour = rows[node.fn === "lag" ? i - Number(k) : i + Number(k)]
 							return neighbour === undefined ? at(fallback, row) : at(arg, neighbour)
@@ -1589,9 +1592,7 @@ export class Reference {
 		const input = this.eval(node.input, scope)
 		const [by, ...more] = node.order.keys
 		if (by === undefined || more.length > 0) {
-			throw referenceUnsupported(
-				`an ordered-set aggregate ordered by other than one value ${node.id}`
-			)
+			referenceUnsupported(`an ordered-set aggregate ordered by other than one value ${node.id}`)
 		}
 		const at = columnIndex(input.heading, by.column, node.id)
 		const type = columnAt(input.heading, at).type
@@ -1613,12 +1614,12 @@ export class Reference {
 			}
 		}
 		if (groups.size === 0 && node.keys.length === 0) {
-			throw referenceUnsupported(`an ordered-set aggregate over no row ${node.id}`)
+			referenceUnsupported(`an ordered-set aggregate over no row ${node.id}`)
 		}
 		const fraction = (e: ScalarExpr | undefined): number => {
 			const f = e === undefined ? undefined : this.expr(e, scope)
 			if (typeof f !== "number" || !(f >= 0 && f <= 1)) {
-				throw referenceUnsupported(`a fraction outside 0 to 1 of ${node.id}`)
+				referenceUnsupported(`a fraction outside 0 to 1 of ${node.id}`)
 			}
 			return f
 		}
@@ -1675,7 +1676,7 @@ export class Reference {
 					}
 					const outAt = node.outs.indexOf(c.name)
 					if (outAt < 0) {
-						throw referenceUnsupported(`a key or output named ${c.name}`)
+						referenceUnsupported(`a key or output named ${c.name}`)
 					}
 					return coerce(defined(results[outAt], `output ${outAt} of ${node.id}`), c.type)
 				})
@@ -1687,7 +1688,7 @@ export class Reference {
 	base(node: NodeOf<"Base">): ReadonlyArray<Row> {
 		const relation = Arr.findFirst(this.input.schema.relations, (r) => r.name === node.relation)
 		if (Option.isNone(relation)) {
-			throw referenceUnsupported(`the relation ${node.relation}`)
+			referenceUnsupported(`the relation ${node.relation}`)
 		}
 		const facts = this.input.facts[node.relation] ?? []
 		const index = Arr.map(node.heading, (c) =>
@@ -1697,7 +1698,7 @@ export class Reference {
 			Arr.map(node.heading, (c, i) => {
 				const at = index[i]
 				if (at === undefined) {
-					throw referenceUnsupported(`a column ${c.name} of ${node.relation}`)
+					referenceUnsupported(`a column ${c.name} of ${node.relation}`)
 				}
 				return literalOf(literalAt(rowValues(fact), at), c.type)
 			})
@@ -1843,7 +1844,7 @@ export class Reference {
 				const holds = Arr.every(o.constants, (c) => {
 					const column = Arr.findFirst(source.heading, (h) => h.name === c.column)
 					if (Option.isNone(column)) {
-						throw referenceUnsupported(`a constant column ${c.column}`)
+						referenceUnsupported(`a constant column ${c.column}`)
 					}
 					return equal(
 						lookup(tuple, c.column, `a constant column ${c.column}`),
@@ -1891,7 +1892,7 @@ export class Reference {
 			pending = left.value
 		}
 		if (pending.length > 0) {
-			throw referenceUnsupported(`a value for every equated variable of ${node.id}`)
+			referenceUnsupported(`a value for every equated variable of ${node.id}`)
 		}
 		return Option.some(
 			Arr.map(node.heading, (c) =>
@@ -1954,7 +1955,7 @@ export class Reference {
 				return Arr.every(node.on, (p) => {
 					const column = Arr.findFirst(left.heading, (c) => c.name === p.left)
 					if (Option.isNone(column)) {
-						throw referenceUnsupported(`a join column ${p.left}`)
+						referenceUnsupported(`a join column ${p.left}`)
 					}
 					return equal(
 						lookup(tuple, p.left, `a join column ${p.left}`),
@@ -1981,7 +1982,7 @@ export class Reference {
 		}
 		const p = this.param(node.bound.param)
 		if (p.kind !== "scalar" || p.value.kind !== "int") {
-			throw referenceUnsupported("a take bound value")
+			referenceUnsupported("a take bound value")
 		}
 		return p.value.value
 	}
@@ -1994,7 +1995,7 @@ export class Reference {
 			return Arr.every(node.correlation, (c) => {
 				const column = Arr.findFirst(input.heading, (h) => h.name === c.column)
 				if (Option.isNone(column)) {
-					throw referenceUnsupported(`a correlated column ${c.column}`)
+					referenceUnsupported(`a correlated column ${c.column}`)
 				}
 				return equal(
 					lookup(tuple, c.column, `a correlated column ${c.column}`),
@@ -2066,7 +2067,7 @@ export class Reference {
 					}
 					const agg = Arr.findFirst(node.aggs, (a) => a.name === c.name)
 					if (Option.isNone(agg)) {
-						throw referenceUnsupported(`a key or aggregate named ${c.name}`)
+						referenceUnsupported(`a key or aggregate named ${c.name}`)
 					}
 					const arg = agg.value.args[0]
 					const argType = arg?.type
@@ -2104,7 +2105,7 @@ export class Reference {
 		const seen = new Map<Interned, number>()
 		for (let i = 0; ; i++) {
 			if (i >= maxIterations) {
-				throw referenceUnsupported(`a recursion of more than ${maxIterations} steps`)
+				referenceUnsupported(`a recursion of more than ${maxIterations} steps`)
 			}
 			this.#state.set(node.id, { ...layoutOf(node.self.heading), rows: state })
 			const step = cast(this.eval(node.step, scope))
@@ -2179,7 +2180,7 @@ class ScaledReference extends Reference {
 		if (Option.isSome(row)) {
 			this.#completed++
 			if (this.#completed > scaledRegionRows) {
-				throw referenceUnsupported(`more than ${scaledRegionRows} region rows over repeated facts`)
+				referenceUnsupported(`more than ${scaledRegionRows} region rows over repeated facts`)
 			}
 		}
 		return row

@@ -44,10 +44,13 @@ export const strictlyInside = query(Schedule).rule((r) => {
 		.find({ room, during, open })
 })
 
+const instantKey = Symbol("Instant")
 /** A calendar as a span relation, its days keyed and its spans a nonoverlap key. */
-const Instant = contract("Instant", pg.bigint)
-const ChicagoDay = contract("ChicagoDay", pg.bigint)
-const ChicagoWeek = contract("ChicagoWeek", pg.bigint)
+const Instant = contract<typeof instantKey>()("Instant", pg.bigint)
+const chicagoDayKey = Symbol("ChicagoDay")
+const ChicagoDay = contract<typeof chicagoDayKey>()("ChicagoDay", pg.bigint)
+const chicagoWeekKey = Symbol("ChicagoWeek")
+const ChicagoWeek = contract<typeof chicagoWeekKey>()("ChicagoWeek", pg.bigint)
 const Weekday = closed.ordered("Weekday", ["mon", "tue", "wed", "thu", "fri", "sat", "sun"])
 export const ChicagoCalendar = relation(
 	"ChicagoCalendar",

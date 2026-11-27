@@ -10,7 +10,7 @@
  * "Refusals"):
  *
  * - `generate` drafts a folder for each selected schema whose code differs from what its snapshot.json was generated
- *   from, `<timestamp>_<name>`, the timestamp the clock's second or one past the schema's newest folder, the name
+ *   from, `<timestamp>_<name>`, the timestamp one second past the schema's newest folder, the epoch for its first, the name
  *   `--name`'s or the change's; and nothing for a schema that did not change. Each field added to a relation that
  *   already stood is a placeholder, its marker line and its value's line; a schema's first draft beside the directory
  *   of a schema the configuration no longer lists starts under the loss of its rows. `--custom --name` writes an empty
@@ -76,9 +76,9 @@ export const theLoopOverAGeneratedProjectEveryCommandsExitStatusRefusalAndFolder
 		kept: [],
 		kills: [
 			{
-				file: "packages/grizzle/src/cli/clock.ts",
-				original: "\treturn current > timestampText(newest)",
-				replacement: "\treturn current >= timestampText(newest)",
+				file: "packages/grizzle/src/cli/timestamp.ts",
+				original: "\t\t\tonSome: (last) => DateTime.add(instantOf(last), timestampResolution)",
+				replacement: "\t\t\tonSome: (last) => instantOf(last)",
 				why: "A folder's timestamp repeats the newest folder's."
 			},
 			{

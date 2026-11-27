@@ -23,7 +23,6 @@ import {
 	caseGen,
 	type ConditionFeature,
 	type CoreShape,
-	condition,
 	conditionFeatures,
 	featuresOf,
 	marked,
@@ -39,10 +38,10 @@ export const everyConditionOfAQueryIsRewrittenOnceBesideItsCoresFrom = property.
 			for (const feature of featuresOf(c)) {
 				k.note(feature)
 			}
-			const query = queryOf(c, (n) => condition(n))
+			const query = queryOf(c, (e) => e)
 			assert.equal(
 				printStatement(conditionsRewritten(query, (e, from) => marked(e, from.length))),
-				printStatement(queryOf(c, (n, items) => marked(condition(n), items))),
+				printStatement(queryOf(c, marked)),
 				`${Formatter.format(c)}: each condition marked in place, beside its core's FROM`
 			)
 			assert.equal(

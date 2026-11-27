@@ -35,6 +35,7 @@ export {
 	Tag,
 	Task,
 	Ticket,
+	toCents,
 	Work
 } from "#test/support/agreement/changeset-schema.ts"
 export { Wherer } from "#test/support/agreement/delete-where.ts"

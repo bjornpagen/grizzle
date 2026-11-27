@@ -5,7 +5,7 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { generated, pg } from "#compiler/public/fields.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { apply, checkedAdmission, openMigrator } from "#test/pg/migrate/support.ts"
@@ -15,8 +15,7 @@ import {
 	type DraftedVersion,
 	draftVersion,
 	expectFreshCatalog,
-	noPlaceholders,
-	noVersionWorkload
+	noPlaceholders
 } from "#test/support/install-migrate.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
@@ -116,10 +115,7 @@ export const walk = (c: DeferralCase, note: (feature: Feature) => void) =>
 		let previous: Previous = fromEmpty
 		for (const [step, shape] of [c.before, c.after].entries()) {
 			const draft = yield* draftVersion(
-				{
-					version: { schema: schemaOf(name, shape), logins: [], declarations: noDeclarations },
-					workload: noVersionWorkload
-				},
+				{ schema: schemaOf(name, shape), declarations: noDeclarations },
 				{ installation, previous, step },
 				{ extensions: [], compile: compileInstallation, review: noPlaceholders }
 			)

@@ -20,12 +20,19 @@ import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { boolean, element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Result } from "effect"
+import { Array as Arr, Effect, Record as Rec, Result } from "effect"
+import { isCanonicalName } from "#compiler/analysis/derived/canonical.ts"
 import type { Named } from "#compiler/core/errors.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import {
 	boxGen,
+	type CanonicalOp,
+	canonicalDeclarations,
+	canonicalFirst,
+	canonicalOps,
+	canonicalRenamed,
+	canonicalSubject,
 	draft,
 	type Feature,
 	FEATURES,
@@ -204,3 +211,73 @@ export const declaredRenamesAndDropsDraftExactlyTheModelsIdentitiesForEveryPairO
 			}
 		]
 	})
+
+/**
+ * A draft over a snapshot that records an anonymous canonical relation beside the declared names keeps, renames,
+ * respells and drops its stored relations as one without it does: the canonical relation's name is its form's, no
+ * declared name, so no declaration renames or drops it and no name is alike it (deploy/diff/declared.ts relationName),
+ * where the draft read it as a declared name and stopped on an internal error (den's slice, `grizzle check` over its
+ * first migration, its programs importing its queues). The box, exhausted: the relation beside it kept, renamed by a
+ * declaration, respelled alike or dropped by one.
+ */
+export const aDraftOverASnapshotRecordingAnAnonymousCanonicalRelationKeepsRenamesRespellsAndDropsItsRelationsAsDeclared =
+	property.exhaust(
+		finite((source) => source.draw(element(canonicalOps))),
+		{
+			needs: {},
+			situations: canonicalOps satisfies ReadonlyArray<Reached<CanonicalOp>>,
+			check: (_, c: Case<CanonicalOp>) => (op) =>
+				Effect.sync(() => {
+					const previous = draft(
+						emptySnapshot({ schemaName: "Renames", schema: "renames" }),
+						canonicalSubject(op, "start"),
+						{ renames: [], drops: [] },
+						new Map()
+					)
+					if (Result.isFailure(previous)) {
+						return assert.fail(`the starting draft: ${previous.failure.message}`)
+					}
+					const recorded = Rec.keys(previous.success.snapshot.theory.relations)
+					assert.ok(
+						Arr.some(recorded, isCanonicalName),
+						"the first draft's snapshot records the anonymous canonical relation"
+					)
+					const drafted = draft(
+						previous.success.snapshot,
+						canonicalSubject(op, "target"),
+						canonicalDeclarations(op),
+						new Map()
+					)
+					if (Result.isFailure(drafted)) {
+						return assert.fail(`the draft over it: ${drafted.failure.message}`)
+					}
+					const relations = drafted.success.snapshot.theory.relations
+					const held = op === "renamed" ? canonicalRenamed : canonicalFirst
+					assert.equal(
+						Rec.has(relations, held) || op === "respelled",
+						op !== "dropped",
+						`the relation ${op === "dropped" ? "is dropped" : "stands"}`
+					)
+					assert.deepEqual(
+						Arr.filter(Rec.keys(relations), isCanonicalName),
+						Arr.filter(recorded, isCanonicalName),
+						"the canonical relation stands under its own name"
+					)
+					c.note(op)
+				}),
+			oracle: {
+				kind: "specification",
+				name: "the declarations' rule over the declared names alone: a canonical relation's name is its form's, kept as it is"
+			},
+			box: "the relation beside an anonymous canonical relation kept, renamed, respelled alike or dropped",
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/deploy/diff/declared.ts",
+					original: "\tisCanonicalName(name) ? undefined : declared(name)\n",
+					replacement: "\tdeclared(name)\n",
+					why: "A snapshot's anonymous canonical relation read as a declared name: every draft over a snapshot that records one stops on an internal error, den's `grizzle check` over its first migration among them."
+				}
+			]
+		}
+	)

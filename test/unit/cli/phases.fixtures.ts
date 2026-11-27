@@ -18,7 +18,7 @@ import type { PhaseMeter } from "#cli/phases.ts"
 import { type PhaseEdge, type PhaseName, phaseNames } from "#compiler/core/phase.ts"
 import { cliMetered, configName, workspace } from "#test/pg/cli/support.ts"
 import { fixtureNeedBudget } from "#test/support/budgets.ts"
-import { at, config } from "#test/unit/cli/served.fixtures.ts"
+import { config } from "#test/unit/cli/served.fixtures.ts"
 
 /**
  * The phase each phase runs inside, as the pipeline nests them: none for a phase of the whole run, and the schema's
@@ -43,6 +43,7 @@ const parentOf: { readonly [P in PhaseName]: PhaseName | undefined } = {
 	draft: "schema",
 	served: "schema",
 	servedLogin: "served",
+	render: "schema",
 	write: undefined
 }
 
@@ -180,26 +181,23 @@ export const phasesNeed = {
 		const generated: Array<string> = []
 		const checked: Array<string> = []
 		const generate = ["generate", configName, "--name", "init"]
-		const plainGenerate = yield* cliMetered(plain, config, generate, at(0), recordingMeter(unused))
+		const plainGenerate = yield* cliMetered(plain, config, generate, recordingMeter(unused))
 		const phasedGenerate = yield* cliMetered(
 			phased,
 			config,
 			[...generate, "--phases"],
-			at(0),
 			recordingMeter(generated)
 		)
 		const plainCheck = yield* cliMetered(
 			plain,
 			config,
 			["check", configName],
-			at(1),
 			recordingMeter(unused)
 		)
 		const phasedCheck = yield* cliMetered(
 			phased,
 			config,
 			["check", "--phases", configName],
-			at(1),
 			recordingMeter(checked)
 		)
 		assert.equal(plainGenerate.code, 0, plainGenerate.stderr)

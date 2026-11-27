@@ -3,9 +3,16 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
-import { probe, probeKey, probeRows } from "#compiler/analysis/theory/query.ts"
+import {
+	clockOrders,
+	probe,
+	probeKey,
+	probeRows,
+	proofsOf
+} from "#compiler/analysis/theory/query.ts"
 import type { InferredQuery } from "#compiler/ir/desc.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { installOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { Num, Type } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -113,15 +120,19 @@ export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 	const owned = owning(built)
 	const installation = succeeded(compileInstallation(owned, installOptions(owned)))
 	const laws = succeeded(testArtifacts(built, testCompile)).laws
-	const containments = laws.theory.regionFacts.containments
+	const proofs = proofsOf(
+		laws.theory.regionFacts,
+		(relation) => laws.theory.relations[relation],
+		clockOrders(laws.theory.instants)
+	)
 	for (const rule of laws.rules) {
 		for (const table of rule.tables) {
 			if (table.touches.kind === "added") {
 				continue
 			}
 			const probed = probedRule(rule.rule)
-			const rows = probeRows(probed, table.relation.name, "removed", containments, rule.law.loc)
-			const read = probe(probed, table.relation.name, "removed", containments, rule.law.loc)
+			const rows = probeRows(probed, table.relation.name, "removed", proofs, rule.law.loc)
+			const read = probe(probed, table.relation.name, "removed", proofs, rule.law.loc)
 			const distinct = new Set(Arr.map(rows, probeKey)).size
 			assert.equal(
 				read === undefined ? 0 : rowArmsOf(read),

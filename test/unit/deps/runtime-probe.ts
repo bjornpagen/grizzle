@@ -267,7 +267,7 @@ const wire = await import("#test/support/wire.ts")
 const values: Readonly<typeof import("#compiler/scalar/values/float.ts")> =
 	await import("#compiler/scalar/values/float.ts")
 const codecSupport = await import("#test/unit/codec/support.ts")
-const codecTypes = codecSupport.types
+const codecTypes = codecSupport.codecTypes
 const codecTexts: ReadonlyArray<readonly [keyof typeof codecTypes, ReadonlyArray<string>]> = [
 	["int2", ["0", "-32768", "32767", "1", "-1", "12345", "100", "-100"]],
 	["int4", ["0", "-2147483648", "2147483647", "42"]],
@@ -316,7 +316,12 @@ const { query, v }: Readonly<typeof import("#compiler/public/query.ts")> =
 const { relation, schema }: Readonly<typeof import("#compiler/public/schema.ts")> =
 	await import("#compiler/public/schema.ts")
 const { compileTemplate, testCompile } = await import("#test/support/compile.ts")
-const Flagged = relation("Flagged", { id: contract("FlagId", uuid), flag: pg.boolean }, ["id"])
+const flagIdKey = Symbol("FlagId")
+const Flagged = relation(
+	"Flagged",
+	{ id: contract<typeof flagIdKey>()("FlagId", uuid), flag: pg.boolean },
+	["id"]
+)
 const Flags = schema("Flags", [Flagged], [])
 /** The query compiled, or the probe fails. */
 const compiles = (q: unknown): void => {

@@ -2,9 +2,9 @@ import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { CompileError, type RoleAccess } from "#compiler/core/errors.ts"
-import { headsOf } from "#compiler/ir/instant.ts"
+import { headNameOf } from "#compiler/ir/instant.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
-import type { CteBody, MergeWhen, ObjectName, SqlStatement, TableName } from "#compiler/sql/ast.ts"
+import type { CteBody, MergeWhen, ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
 import type { WriteWorld } from "#compiler/write/entry/precheck.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import type { ArtifactStatement } from "#compiler/write/program/artifact.ts"
@@ -14,7 +14,7 @@ type BeyondInsert = Extract<RoleAccess, { readonly kind: "insert" }>
 
 /** A table one data-modifying statement updates or deletes from, and which. */
 interface Modified {
-	readonly table: TableName
+	readonly table: ObjectName
 	readonly operation: BeyondInsert["operation"]
 }
 
@@ -71,10 +71,10 @@ const modifiedBy = (body: CteBody): ReadonlyArray<Modified> => {
  * role naming the relation and the operation. Every statement counts, a member's and grizzle's own alike: the artifact
  * places a family's edits, recounts and refills among them (compile.ts familyProgram). Its first UPDATE, DELETE, INSERT
  * ON CONFLICT DO UPDATE or MERGE WHEN that updates or deletes, of a stored table its role does not hold the privilege
- * on, is refused, named by the relation of `laws` the table is or whose clock's or place's head it is, judged by that
- * relation's privilege (a place's release deletes its head's rows of the groups a delete of the relation removes,
- * write/insert/stamp.ts placeReleases); a carrier is the program's own temporary table, no relation's. A program of
- * reality passes.
+ * on, is refused, named by the relation of `laws` the table is or whose place's head it is, judged by that relation's
+ * privilege (a place's release deletes its head's rows of the groups a delete of the relation removes,
+ * write/insert/stamp.ts placeReleases); a carrier is the program's own temporary table, no relation's. No statement
+ * names a clock's head, which its stamp function alone writes. A program of reality passes.
  */
 export const insertOnly = (
 	schema: CheckedSchema,
@@ -96,8 +96,8 @@ export const insertOnly = (
 	for (const relation of laws.relations.keys()) {
 		owned(names.relation(relation), relation)
 	}
-	for (const head of headsOf(laws.theory.instants)) {
-		owned(names.head(head.relation, head.field.name), head.relation)
+	for (const place of laws.theory.instants.places.values()) {
+		owned(names.head(headNameOf(place)), place.relation)
 	}
 	for (const statement of statements) {
 		for (const modified of bodiesOf(statement.ast).flatMap(modifiedBy)) {

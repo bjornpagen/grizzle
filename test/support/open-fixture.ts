@@ -2,28 +2,22 @@ import { Array as Arr, Effect, Formatter, type Scope, String as Str } from "effe
 import type { ServedRefusal } from "#adapter/public/compile.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import {
-	type AnyClosed,
-	type AnyLogin,
-	type AnyRelation,
-	type AnyRole,
-	type AnySchema,
-	type Declared,
-	type Schema,
-	type Statement,
-	type StatementsByName,
-	type StatementsReadBack,
-	type StatementsWithin
+import type {
+	AnyClosed,
+	AnyLogin,
+	AnyRelation,
+	AnyRole,
+	Statement
 } from "#compiler/public/schema.ts"
-import { schemaBuilder as builtSchema } from "#compiler/schema/schema.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import {
 	type Installed,
-	installMigrated as install,
+	installGenerated,
 	loadMigrated as load,
-	type MigratedOptions
+	type Version
 } from "#test/support/install-migrate.ts"
+import { type Rebuildable, type Rebuilt, rebuild } from "#test/support/installed.ts"
 import type { FactSet } from "#test/support/oracle/install/load.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { SqlError } from "#test/support/pg.ts"
@@ -33,31 +27,12 @@ import {
 	type TransactionRolledBack
 } from "#test/support/substrate/errors.ts"
 import type { PsqlWriter } from "#test/support/substrate/psql.ts"
-import { Substrate, type SubstrateShape, worldPsql } from "#test/support/substrate/substrate.ts"
-
-/** A schema's relations as the list it was built from, its record's members. */
-type Listed<R> = ReadonlyArray<R[keyof R]>
-
-/**
- * A schema value whose statements name only its relations and read back from their names as themselves, as
- * schema(...) checked when it was built, over the list of its relations it is rebuilt from.
- */
-type Checked<N extends string, R, St extends ReadonlyArray<Statement>> = Schema<
-	N,
-	R,
-	StatementsByName<St, R>
-> & {
-	readonly statements: St & StatementsWithin<St, R> & StatementsReadBack<St, Declared<Listed<R>>>
-}
-
-/** A schema's relations as the list it was built from: its record's members, in the record's order. */
-const listed = <R extends Record<string, AnyRelation | AnyClosed>>(relations: R): Listed<R> => {
-	const out: Array<R[keyof R]> = []
-	for (const name in relations) {
-		out.push(relations[name])
-	}
-	return out
-}
+import {
+	claimsOfNoFact,
+	Substrate,
+	type SubstrateShape,
+	worldPsql
+} from "#test/support/substrate/substrate.ts"
 
 export interface Fixture {
 	readonly installed: Installed
@@ -72,8 +47,8 @@ export interface Fixture {
 		R extends Record<string, AnyRelation | AnyClosed>,
 		const St extends ReadonlyArray<Statement>
 	>(
-		value: Checked<N, R, St>
-	) => Schema<string, Declared<Listed<R>>, StatementsByName<St, Declared<Listed<R>>>>
+		value: Rebuildable<N, R, St>
+	) => Rebuilt<R, St>
 	/**
 	 * A login of the rebuilt worlds served as an application serves it, from its own served file over the installation
 	 * (test/support/served-db.ts servedFixture): its served login, whose roles a Db opens, and its layer.
@@ -105,19 +80,19 @@ export interface OpenOptions {
  * A fixture installs under a fresh schema name with its complete installation: its native laws and its derived
  * relations (packages/engine/src/physical/derived), as the fresh installer runs them. Its facts
  * load as the owner in one transaction, so every deferred law judges the loaded state at its COMMIT, and a schema value
- * of the fixture is rebuilt under the installed name from its own relations and statements, typed by them, so a login
- * of its worlds serves the installed objects and logs in as the installed login (test/pg/reads/support.ts). The
- * fixture installs with the logins its caller gives, over the declared schema; its worlds are rebuilt over the
+ * of the fixture is rebuilt under the installed name (installed.ts rebuild), typed by its relations and statements, so a
+ * login of its worlds serves the installed objects and logs in as the installed login (test/pg/reads/support.ts). The
+ * fixture installs with the logins its caller builds under the allocated name; its worlds are rebuilt over the
  * installed name by the caller. Writers are grizzle (the members of a login served from its own served file, through
  * `served` and Db.open of its role) and psql children in a role's world, logged in as its login over verify-full TLS,
  * which see PostgreSQL's native errors ("Direct SQL writers").
  *
- * Installs `fixture` completely under a fresh schema name with `logins`, each over the declared fixture, loads its
- * facts, and returns the helpers above.
+ * Installs `build(name)`, the fixture and its logins under the allocated name `name`, completely under a fresh schema
+ * name as `grizzle generate` drafts and serves it (install-migrate.ts installGenerated), loads its facts, and returns
+ * the helpers above.
  */
 export const openFixture = (
-	fixture: AnySchema,
-	logins: ReadonlyArray<AnyLogin>,
+	build: (name: string) => Version,
 	options: OpenOptions
 ): Effect.Effect<
 	Fixture,
@@ -126,7 +101,10 @@ export const openFixture = (
 > =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
-		const done = yield* install(fixture, fixtureInstall(logins))
+		const { installed: done } = yield* installGenerated(build, {
+			ambient: ordinarySession,
+			label: "real"
+		})
 		yield* load(done, options.facts)
 		const fx = fixtureOf(s, done)
 		if (options.after.length > 0) {
@@ -134,14 +112,6 @@ export const openFixture = (
 		}
 		return fx
 	})
-
-/** How openFixture installs a fixture: its complete installation under the cluster's own ambient, with `logins`. */
-const fixtureInstall = (logins: ReadonlyArray<AnyLogin>): MigratedOptions => ({
-	ambient: ordinarySession,
-	extensions: [],
-	logins,
-	label: "real"
-})
 
 /** The fixture of the installation `done` in the substrate `s`: its names, its owner's statements and its psql children. */
 const fixtureOf = (s: SubstrateShape, done: Installed): Fixture => {
@@ -154,14 +124,8 @@ const fixtureOf = (s: SubstrateShape, done: Installed): Fixture => {
 			R extends Record<string, AnyRelation | AnyClosed>,
 			const St extends ReadonlyArray<Statement>
 		>(
-			value: Checked<N, R, St>
-		) =>
-			builtSchema<string, Listed<R>, St>(
-				done.schema,
-				listed<R>(value.relations),
-				value.statements,
-				[]
-			),
+			value: Rebuildable<N, R, St>
+		) => rebuild(value, done.declared),
 		served: (login) => servedFixture(done, login),
 		owner: (sql) =>
 			transaction(
@@ -174,6 +138,6 @@ const fixtureOf = (s: SubstrateShape, done: Installed): Fixture => {
 					Arr.map(r, (x) => (x === null ? "NULL" : typeof x === "string" ? x : Formatter.format(x)))
 				)
 			),
-		psql: (role) => s.psql({ ...worldPsql(done.world(role)), label: role.name })
+		psql: (role) => s.psql({ ...worldPsql(done.world(role), claimsOfNoFact), label: role.name })
 	}
 }

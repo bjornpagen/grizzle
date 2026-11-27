@@ -13,7 +13,7 @@ import {
 } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
-import { Array as Arr, DateTime, Effect, FileSystem, Option, Order, String as Str } from "effect"
+import { Array as Arr, Effect, FileSystem, Option, Order, String as Str } from "effect"
 import { roleNameOf } from "#adapter/served/served.ts"
 import {
 	conversionOf,
@@ -189,16 +189,6 @@ const folderName = regex("^[0-9]{14}_")
 /** A CREATE ROLE statement's role, as it is written. */
 const createdRole = regex("^\\s*CREATE ROLE (\\S+)", "m")
 
-const at = DateTime.makeUnsafe({
-	year: 2026,
-	month: 11,
-	day: 11,
-	hour: 12,
-	minute: 0,
-	second: 0,
-	millisecond: 0
-})
-
 export const draftCase = (d: Drafting, c: Case<DraftFeature>) =>
 	Effect.scoped(
 		Effect.gen(function* () {
@@ -206,13 +196,14 @@ export const draftCase = (d: Drafting, c: Case<DraftFeature>) =>
 			const shop = shopV1(d.schema, "full")
 			const dir = yield* workspace("variables")
 			const config = defineConfig({
+				contracts: [],
 				schemas: [shop.schema],
 				logins: [shop.server],
 				migrations: "migrations",
 				rolePrefixBytes: 0,
 				connection: () => offlineOwner
 			})
-			const ran = yield* cliOver(dir, config, ["generate", configName], at)
+			const ran = yield* cliOver(dir, config, ["generate", configName])
 			assert.equal(ran.code, 0, `grizzle generate: ${ran.stderr}`)
 			if (d.schema !== Str.toLowerCase(d.schema)) {
 				c.note("a capitalized schema spelling")

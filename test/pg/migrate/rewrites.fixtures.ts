@@ -291,9 +291,9 @@ export const rewriteCase = (c: RewriteCase, notes: Case<Feature>) =>
 				schemaName: { kind: "unique" },
 				first: (name) => {
 					state.schema = identifierOf(identity.schema(parsedSchemaName(name)))
-					return { schema: first(name), logins: [] }
+					return { described: first(name) }
 				},
-				later: [(name) => ({ schema: second(name, d), logins: [] })],
+				later: [(name) => ({ described: second(name, d) })],
 				apply: { kind: "values", value: reviewed },
 				declared: declaredOf(d),
 				observe: Option.some(observe)
@@ -311,7 +311,7 @@ export const rewriteCase = (c: RewriteCase, notes: Case<Feature>) =>
 			const fresh = yield* migrated({
 				label: "rewrites_fresh",
 				schemaName: { kind: "unique" },
-				first: (name) => ({ schema: second(name, d), logins: [] }),
+				first: (name) => ({ described: second(name, d) }),
 				later: [],
 				apply: { kind: "noPlaceholders" },
 				declared: () => noDeclarations,

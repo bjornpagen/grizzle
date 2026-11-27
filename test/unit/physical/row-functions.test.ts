@@ -58,6 +58,7 @@ const spelledBytes = (value: LiteralValue): number => {
 			return utf8Length(value.value)
 		case "bits":
 			return Math.ceil(value.hex.length / 2)
+		case "null":
 		case "bool":
 		case "int":
 		case "float":

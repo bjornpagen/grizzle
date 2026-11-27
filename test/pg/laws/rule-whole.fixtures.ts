@@ -9,8 +9,8 @@ import { identifierOf } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { baselineRuleChecks, lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -27,7 +27,13 @@ import {
 } from "#compiler/public/schema.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
+import { dataStepOf, refusedByRecheck } from "#test/support/data-step.ts"
+import {
+	type Installed,
+	migratedTemplate,
+	noPlaceholders,
+	seededTemplate
+} from "#test/support/install-migrate.ts"
 import {
 	foundQueryOf,
 	judgedPlans,
@@ -39,7 +45,8 @@ import {
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
-import { refusalOf } from "#test/support/substrate.ts"
+import { storedSeed } from "#test/support/stored.ts"
+import { firstRefusalOf, refusalOf } from "#test/support/substrate.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 
@@ -173,7 +180,7 @@ const relationsOf = Rec.map(shapes, (shape) => ({
 const placed = (doc: number): string => `${doc}, ${doc + 1000000}, ${doc + 2000000}`
 
 /** The judges of each shape: whole, its relations immutable, and probed, its relations mutable and keyed apart. */
-type Judge = "whole" | "probed"
+export type Judge = "whole" | "probed"
 
 /** The kinds of node Expressed's selection holds, each an expression: a node of any other kind stands outside it. */
 const expressedKinds = [1, 2] as const satisfies ReadonlyArray<Kind>
@@ -328,7 +335,7 @@ const judgeSchema = (judge: Judge, shape: ShapeKey) => {
 		contained(on(Typed, "doc", "sub", "part", "parent"), on(Expr, "doc", "sub", "part", "start")),
 		check("Kinded", KindOne, (k) => k.eq(k.type, 1)),
 		key(on(Parents, "doc", "sub", "part", "parent")),
-		check("Marked", Marks, (m) => m.or(m.ne(m.mark, 1), m.eq(m.kind, 0)))
+		check("Marked", Marks, (m) => m.or([m.ne(m.mark, 1), m.eq(m.kind, 0)]))
 	] as const
 	if (probed) {
 		return schema.extend([Base], `${name}_1`, [Typed, Parents, KindOne, Marks], spj)
@@ -419,7 +426,7 @@ const judgeSchema = (judge: Judge, shape: ShapeKey) => {
 			const at = ordered({ doc, sub, part })
 			return r
 				.match(Node, { ...at, start, parent })
-				.where(r.and(r.ne(start, parent), r.not(Node, { ...at, parent: start })))
+				.where(r.and([r.ne(start, parent), r.not(Node, { ...at, parent: start })]))
 				.find({ ...at, parent })
 		})
 	)
@@ -442,7 +449,7 @@ const judgeSchema = (judge: Judge, shape: ShapeKey) => {
 		[
 			...spj,
 			check("Fanout", Fanout, (f) =>
-				f.and(f.le(f.children, 3n), f.or(f.ne(f.kind, 2), f.ge(f.children, 2n)))
+				f.and([f.le(f.children, 3n), f.or([f.ne(f.kind, 2), f.ge(f.children, 2n)])])
 			),
 			contained(on(Expr, "doc", "sub", "part", "start"), on(Reach, "doc", "sub", "part", "node")),
 			check("Leafed", Barren, (b) => b.ne(b.kind, 2))
@@ -458,7 +465,7 @@ const judgeTemplate = (judge: Judge, shape: ShapeKey) => {
 		declaredIn: import.meta,
 		name: `${judge} judge ${shape}`,
 		content: { schema: schemaValue.name, logins: [] },
-		versions: [{ schema: schemaValue, logins: [], declarations: noDeclarations }],
+		versions: [{ schema: schemaValue, declarations: noDeclarations }],
 		options: {
 			label: `${judge}_judge_${width}_${order}`,
 			extensions: [],
@@ -467,6 +474,62 @@ const judgeTemplate = (judge: Judge, shape: ShapeKey) => {
 			review: noPlaceholders
 		}
 	})
+}
+
+/**
+ * The lawful documents `from` to `to`, each a unit of a root and two children: rows a case reads as stored beside the
+ * ones it writes.
+ */
+const storedDocuments = (
+	{ node, expr }: Tables,
+	from: number,
+	to: number
+): ReadonlyArray<string> => [
+	`INSERT INTO ${node} (doc, sub, part, start, parent, kind) SELECT d, d + 1000000, d + 2000000, s, 0, CASE WHEN s = 0 THEN 2 WHEN s = 1 THEN 1 ELSE 0 END FROM generate_series(${from}, ${to}) AS g(d), generate_series(0, 2) AS h(s)`,
+	`INSERT INTO ${expr} (doc, sub, part, start, type) SELECT d, d + 1000000, d + 2000000, s, 1 FROM generate_series(${from}, ${to}) AS g(d), generate_series(0, 2) AS h(s)`
+]
+
+/** The documents stored beside the written ones, a template's: thousands, then twice as many, documents 10 and up. */
+const storedSizes = { stored: 2500, more: 5000 } as const
+
+/**
+ * The whole judge of `shape` installed, and `documents` lawful documents, 10 to documents + 9, committed through the
+ * captures once per member, judged at their COMMIT (stored.ts storedSeed): the template a locality or a commute case of
+ * that shape writes beside.
+ */
+const storedTemplate = (shape: ShapeKey, documents: number): SubstrateTemplate<Installed> => {
+	const [width, order] = shapes[shape]
+	return seededTemplate({
+		declaredIn: import.meta,
+		name: `whole judge ${shape} stored ${documents}`,
+		schema: judgeSchema("whole", shape),
+		options: {
+			ambient: ordinarySession,
+			extensions: [],
+			label: `whole_judge_${width}_${order}`
+		},
+		seed: storedSeed((installed) => storedDocuments(tablesOf(installed, shape), 10, documents + 9))
+	})
+}
+
+/** Each shape's whole judge with its stored documents, and with twice as many. */
+export const storedTemplates = (
+	shape: ShapeKey
+): {
+	readonly stored: SubstrateTemplate<Installed>
+	readonly more: SubstrateTemplate<Installed>
+} => ({
+	stored: storedTemplate(shape, storedSizes.stored),
+	more: storedTemplate(shape, storedSizes.more)
+})
+
+/** Every shape's whole judge with its stored documents, of which a commute case takes its shape's (Substrate.oneOf). */
+export const commuteTemplates: Readonly<Record<ShapeKey, SubstrateTemplate<Installed>>> = {
+	"1 key": storedTemplate("1 key", storedSizes.stored),
+	"2 key": storedTemplate("2 key", storedSizes.stored),
+	"2 reversed": storedTemplate("2 reversed", storedSizes.stored),
+	"3 key": storedTemplate("3 key", storedSizes.stored),
+	"3 reversed": storedTemplate("3 reversed", storedSizes.stored)
 }
 
 /** Every judge of every shape, of which a case takes the two of the shape it draws (Substrate.oneOf). */
@@ -497,6 +560,18 @@ export const tablesOf = (installed: Installed, shape: ShapeKey): Tables => {
 	const { Node, Expr, Tag } = relationsOf[shape].whole
 	return { node: names.table(Node), expr: names.table(Expr), tag: names.table(Tag) }
 }
+
+/**
+ * What a transaction of `ops` runs around its writes on `judge`'s installation `installed`: on the whole judge, whose
+ * relations are closed, one that removes a row (`removes`) is a migration's data step, inside the one bracket a
+ * migration's runner sends (data-step.ts dataStepOf), `before` after its BEGIN and `after`, the judge and the re-check,
+ * which judge it, after its last write; none for any other, and none on the probed judge, whose relations are mutable,
+ * so a removal there is a served write, judged as any other is.
+ */
+export const bracketOf = (judge: Judge, installed: Installed, ops: ReadonlyArray<Op>) =>
+	judge === "whole" && Arr.some(ops, (op) => removes[op.kind])
+		? Option.some(dataStepOf(installed.installation))
+		: Option.none()
 
 class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}
 
@@ -534,6 +609,23 @@ export type Op =
 	| { readonly kind: "unit"; readonly doc: Doc; readonly type: Type }
 	| { readonly kind: "drop"; readonly doc: Doc }
 	| { readonly kind: "judge" }
+
+/**
+ * Whether each write removes a row, a removal's or a replacement's, which a closed relation loses only in a data step:
+ * on the whole judge a transaction that removes one runs its writes inside a data step's bracket (`bracketOf`).
+ */
+export const removes: { readonly [K in Op["kind"]]: boolean } = {
+	node: false,
+	expr: false,
+	tag: false,
+	unnode: true,
+	unexpr: true,
+	untag: true,
+	renode: true,
+	unit: false,
+	drop: true,
+	judge: false
+}
 
 /** A case of the equivalence: the shape of its judges, and its transactions, each its writes in order. */
 export interface Schedule {
@@ -597,10 +689,18 @@ const opGen: Gen<Op> = weighted<Op>([
 	[1, () => ({ kind: "judge" })]
 ])
 
-/** A case of transactions `transactions` draws, at a shape drawn first. */
+/**
+ * A transaction as it runs: one that removes a row (`removes`) is the whole judge's data step, which its bracket's
+ * checks judge at its end alone (`bracketOf`), as a migration's runner judges a custom data step, so it runs no judge
+ * of its own; any other as drawn.
+ */
+const asRun = (ops: ReadonlyArray<Op>): ReadonlyArray<Op> =>
+	Arr.some(ops, (op) => removes[op.kind]) ? Arr.filter(ops, (op) => op.kind !== "judge") : ops
+
+/** A case of transactions `transactions` draws, at a shape drawn first, each as it runs (`asRun`). */
 const shaped =
 	(transactions: Gen<Schedule["transactions"]>): Gen<Schedule> =>
-	(s) => ({ shape: s.draw(shapeGen), transactions: s.draw(transactions) })
+	(s) => ({ shape: s.draw(shapeGen), transactions: Arr.map(s.draw(transactions), asRun) })
 
 const scheduleGen: Gen<Schedule> = shaped(
 	array(array(opGen, { min: 1, max: 6 }), { min: 1, max: 4 })
@@ -755,8 +855,7 @@ const aims: ReadonlyArray<readonly [WholeFeature, Gen<Schedule>]> = [
 				: [
 						{ kind: "node", doc, start: 3, parent: 1, nodeKind: 0 },
 						{ kind: "unexpr", doc, start: 2 },
-						{ kind: "unnode", doc, start: 2 },
-						{ kind: "judge" }
+						{ kind: "unnode", doc, start: 2 }
 					]
 			return [lawful(doc, 1), changed]
 		})
@@ -864,7 +963,17 @@ const aims: ReadonlyArray<readonly [WholeFeature, Gen<Schedule>]> = [
 		shaped((s) => {
 			const doc = s.draw(docGen)
 			return [
-				[...lawful(doc, 1), { kind: "judge" }, { kind: "unexpr", doc, start: s.draw(startGen) }]
+				[
+					...lawful(doc, 1),
+					{ kind: "judge" },
+					{
+						kind: "node",
+						doc,
+						start: 3,
+						parent: s.draw(startGen),
+						nodeKind: s.draw(element(kinds))
+					}
+				]
 			]
 		})
 	]
@@ -938,7 +1047,7 @@ const refusedLaws = (
 }
 
 /** The rules and containments the schemas state, by the names their features read. */
-type RuleName =
+export type RuleName =
 	| "Rooted"
 	| "Kinded"
 	| "One type"
@@ -1013,6 +1122,15 @@ const ruleNameOf = (installation: Installation, law: LawId): RuleName => {
 	return nameOfLaw(detail.rule.kind === "whole" ? detail.rule.law : detail.rule)
 }
 
+/** The law of the rule or containment `rule` that `installation` states, whichever strategy discharges it. */
+export const lawNamed = (installation: Installation, rule: RuleName): LawId =>
+	defined(
+		Arr.findFirst(installation.laws.rules, (r) => ruleNameOf(installation, r.law.id) === rule).pipe(
+			Option.getOrUndefined
+		),
+		`the law of ${rule} among ${installation.names.schema}'s rules`
+	).law.id
+
 /** What one installation's judge made of a state: the laws its whole checks find broken, and the law it refused by. */
 interface Verdict {
 	readonly broken: ReadonlySet<RuleName>
@@ -1022,14 +1140,18 @@ interface Verdict {
 /**
  * Judges the state `session`'s transaction leaves against every check of the laws its judge holds, the violation
  * queries a migration runs over every row, and `held`, the laws found broken in the same state that it holds natively,
- * then runs the judge and every deferred foreign key (SET CONSTRAINTS ALL IMMEDIATE): it must refuse exactly when a
- * check finds the state broken, naming a law it finds broken under that law's SQLSTATE.
+ * then runs `judge`, what judges that state: at a served transaction's judge op or end, SET CONSTRAINTS ALL IMMEDIATE,
+ * the judge and every deferred foreign key; at a data step's end, its bracket's checks (`bracketOf`), the judge and
+ * then the re-check, which checks every rule over a closed relation over every row, the judge reading none of the rows
+ * a data step removes of one. It must refuse exactly when a check finds the state broken, naming a law it finds broken:
+ * the judge under that law's SQLSTATE, the re-check under 23000 and the law's identity (data-step.ts refusedByRecheck).
  */
 const judged = (
 	installed: Installed,
 	session: RawSession,
 	where: string,
-	held: ReadonlySet<RuleName>
+	held: ReadonlySet<RuleName>,
+	judge: ReadonlyArray<string>
 ) =>
 	Effect.gen(function* () {
 		const installation = installed.installation
@@ -1050,7 +1172,7 @@ const judged = (
 				})
 			}
 		}
-		const refused = yield* refusalOf(session.query("SET CONSTRAINTS ALL IMMEDIATE", []))
+		const refused = yield* firstRefusalOf(judge, (sql) => session.query(sql, []))
 		if (Option.isNone(refused)) {
 			if (broken.size > 0) {
 				return yield* new Disagreed({
@@ -1059,11 +1181,25 @@ const judged = (
 			}
 			return { broken, refused: undefined } satisfies Verdict
 		}
+		/** The law the re-check refused under, none where the judge or a foreign key refused. */
+		const rechecked = Arr.filter(
+			Arr.map(installation.laws.rules, (r) => r.law.id),
+			(law) => refusedByRecheck(refused.value, law)
+		)
 		const rule = Arr.findFirst(
-			Arr.map(refusedLaws(installation, refused.value), (law) => ruleNameOf(installation, law)),
+			Arr.map(
+				Arr.isReadonlyArrayNonEmpty(rechecked)
+					? rechecked
+					: refusedLaws(installation, refused.value),
+				(law) => ruleNameOf(installation, law)
+			),
 			(r) => broken.has(r)
 		).pipe(Option.getOrUndefined)
-		if (rule === undefined || !["23503", "23505", "23514"].includes(refused.value.code)) {
+		if (
+			rule === undefined ||
+			(!Arr.isReadonlyArrayNonEmpty(rechecked) &&
+				!["23503", "23505", "23514"].includes(refused.value.code))
+		) {
 			return yield* new Disagreed({
 				message: `${installation.names.schema}: the judge refused under ${refused.value.code} ${refused.value.constraint ?? "naming no constraint"} where the whole checks find ${Formatter.format([...broken])}, ${where}`
 			})
@@ -1105,7 +1241,10 @@ const unitsOf = (ops: ReadonlyArray<Op>): ReadonlySet<Doc> =>
  * of each at SERIALIZABLE, the whole judge's and the probed judge's in lockstep. At each judge op and at the
  * transaction's end, each installation's judge is held to its whole checks (`judged`), and the whole judge refuses
  * exactly where the probed judge does, wherever the aggregate's rule, which only the whole schema states, holds. A
- * refusal of either rolls both back, so the two hold one state throughout.
+ * transaction that removes a row is the whole judge's data step, inside its bracket (`bracketOf`), judged at its end by
+ * the bracket's checks, the re-check refusing what the judge, which reads none of a closed relation's removed rows, does
+ * not; on the probed judge, whose relations are mutable, it is a served write. A refusal of either rolls both back, so
+ * the two hold one state throughout.
  */
 export const runEquivalence = (
 	whole: { readonly installed: Installed; readonly session: RawSession },
@@ -1120,16 +1259,31 @@ export const runEquivalence = (
 			) && Arr.every(probed.installed.installation.laws.rules, (r) => r.rule.kind !== "whole"),
 			"the whole judge judges every rule over a query whole and every containment by its probes, and the probed judge none whole"
 		)
-		const sides = Arr.map([whole, probed], (side) => ({
-			...side,
-			tables: tablesOf(side.installed, schedule.shape)
-		}))
+		const sides = [
+			{ ...whole, judge: "whole", tables: tablesOf(whole.installed, schedule.shape) },
+			{ ...probed, judge: "probed", tables: tablesOf(probed.installed, schedule.shape) }
+		] as const
 		const wholeTables = tablesOf(whole.installed, schedule.shape)
 		c.note(shapeFeatures[schedule.shape])
 		for (const [at, ops] of schedule.transactions.entries()) {
 			const where = `transaction ${at} of ${Formatter.format(schedule)}`
+			/** Each judge's bracket of the transaction, the whole judge's where it is a data step (`bracketOf`). */
+			const brackets = {
+				whole: bracketOf("whole", whole.installed, ops),
+				probed: bracketOf("probed", probed.installed, ops)
+			} as const satisfies Record<Judge, unknown>
+			assert.ok(
+				Option.isNone(brackets.whole) || !Arr.some(ops, (op) => op.kind === "judge"),
+				`a data step runs no judge of its own, its bracket's checks judging it at its end (asRun), ${where}`
+			)
 			for (const side of sides) {
 				yield* side.session.begin
+				for (const sql of Option.match(brackets[side.judge], {
+					onNone: () => [],
+					onSome: (b) => b.before
+				})) {
+					yield* side.session.query(sql, [])
+				}
 			}
 			if (unitsOf(ops).size > 1) {
 				c.note("two units written in one transaction")
@@ -1139,24 +1293,34 @@ export const runEquivalence = (
 			 * only the whole schema states hold, the probed one's containments, its native foreign keys, judged by the
 			 * whole one's checks of the same state.
 			 */
-			const both = Effect.gen(function* () {
-				const w = yield* judged(whole.installed, whole.session, where, new Set())
-				const p = yield* judged(
-					probed.installed,
-					probed.session,
-					where,
-					new Set(Arr.filter(containments, (r) => w.broken.has(r)))
-				)
-				if (
-					!Arr.some(wholeOnly, (rule) => w.broken.has(rule)) &&
-					(w.refused === undefined) !== (p.refused === undefined)
-				) {
-					return yield* new Disagreed({
-						message: `the whole judge ${w.refused === undefined ? "accepted" : `refused by ${w.refused}`} where the probed judge ${p.refused === undefined ? "accepted" : `refused by ${p.refused}`}, ${where}`
-					})
-				}
-				return w.refused
-			})
+			const both = (judging: (judge: Judge) => ReadonlyArray<string>) =>
+				Effect.gen(function* () {
+					const w = yield* judged(
+						whole.installed,
+						whole.session,
+						where,
+						new Set(),
+						judging("whole")
+					)
+					const p = yield* judged(
+						probed.installed,
+						probed.session,
+						where,
+						new Set(Arr.filter(containments, (r) => w.broken.has(r))),
+						judging("probed")
+					)
+					if (
+						!Arr.some(wholeOnly, (rule) => w.broken.has(rule)) &&
+						(w.refused === undefined) !== (p.refused === undefined)
+					) {
+						return yield* new Disagreed({
+							message: `the whole judge ${w.refused === undefined ? "accepted" : `refused by ${w.refused}`} where the probed judge ${p.refused === undefined ? "accepted" : `refused by ${p.refused}`}, ${where}`
+						})
+					}
+					return w.refused
+				})
+			/** What judges a served write's state: SET CONSTRAINTS ALL IMMEDIATE, the judge and the deferred foreign keys. */
+			const served = (): ReadonlyArray<string> => ["SET CONSTRAINTS ALL IMMEDIATE"]
 			let ended = false
 			let judgedOnce = false
 			/** Whether this transaction wrote an expression at a node that stood before outside Expressed's selection. */
@@ -1174,7 +1338,7 @@ export const runEquivalence = (
 			const nodesWritten = new Set<string>()
 			for (const op of ops) {
 				if (op.kind === "judge") {
-					const refused = yield* both
+					const refused = yield* both(served)
 					if (refused !== undefined) {
 						noteRefused(refused)
 						for (const side of sides) {
@@ -1232,7 +1396,10 @@ export const runEquivalence = (
 			if (ended) {
 				continue
 			}
-			const refused = yield* both
+			/** The transaction's end: a data step's bracket's checks judge it, where it is one; else as at a judge op. */
+			const refused = yield* both((judge) =>
+				Option.match(brackets[judge], { onNone: served, onSome: (b) => b.after })
+			)
 			if (refused === undefined) {
 				for (const side of sides) {
 					yield* side.session.commit
@@ -1270,33 +1437,21 @@ export interface Locality {
 	 * (analysis/theory/unit.ts walkedRule).
 	 */
 	readonly shape: ShapeKey
-	readonly stored: number
-	readonly more: number
 	readonly statistics: "none" | "analyzed"
 	/** The documents a transaction then writes beside the first, and three times as many again. */
 	readonly written: number
 }
 
-/** Hundreds of stored documents beside the written one, each a lawful unit of a root and two children. */
-export const localityGen: Gen<Locality> = (s) => ({
-	shape: s.draw(shapeGen),
-	stored: s.draw(int(2000, 3000)),
-	more: s.draw(int(2000, 3000)),
-	statistics: s.draw(element(["none", "analyzed"] as const)),
-	written: s.draw(int(30, 60))
-})
+/** A locality case of `shape`, its stored documents its templates' (storedTemplates). */
+export const localityGen =
+	(shape: ShapeKey): Gen<Locality> =>
+	(s) => ({
+		shape,
+		statistics: s.draw(element(["none", "analyzed"] as const)),
+		written: s.draw(int(30, 60))
+	})
 
 export type LocalityFeature = "measured with no statistics" | "measured analyzed"
-
-/** The statements loading lawful documents `from` to `to`, the tables' captures off. */
-const loaded = ({ node, expr }: Tables, from: number, to: number): ReadonlyArray<string> => [
-	`ALTER TABLE ${node} DISABLE TRIGGER USER`,
-	`ALTER TABLE ${expr} DISABLE TRIGGER USER`,
-	`INSERT INTO ${node} (doc, sub, part, start, parent, kind) SELECT d, d + 1000000, d + 2000000, s, 0, CASE WHEN s = 0 THEN 2 WHEN s = 1 THEN 1 ELSE 0 END FROM generate_series(${from}, ${to}) AS g(d), generate_series(0, 2) AS h(s)`,
-	`INSERT INTO ${expr} (doc, sub, part, start, type) SELECT d, d + 1000000, d + 2000000, s, 1 FROM generate_series(${from}, ${to}) AS g(d), generate_series(0, 2) AS h(s)`,
-	`ALTER TABLE ${node} ENABLE TRIGGER USER`,
-	`ALTER TABLE ${expr} ENABLE TRIGGER USER`
-]
 
 /** Each whole rule's statement's plan, as EXPLAIN ANALYZE runs it, on `connection`. */
 const plansOf = (installed: Installed, connection: PgConnection) =>
@@ -1350,57 +1505,58 @@ const writtenWhole = ({ node, expr }: Tables, from: number, to: number): Readonl
 const judgeRun = "SET CONSTRAINTS ALL IMMEDIATE"
 
 /**
- * One locality case in its one transaction, which the case's end rolls back: `stored` lawful documents loaded with the
- * captures off, ANALYZE where the case draws it, and one document written whole, which the captures hold. Every whole
- * rule's statement is explained over the deltas that hold its rows (test/support/judge.ts judgedPlans); then `more`
- * documents are loaded and each explained again. Each must read
- * fewer rows than there are documents beside the written one, each three rows of each table, both times: the written
- * document's rows, three of each table, read once per unit of the region or once per fact a negation reads them at,
- * whichever plan PostgreSQL chooses, and never a row of another document, a read of which reads past the written unit's
- * key range into all of them.
+ * One locality case over two clones, each in one transaction the case's end rolls back: on `stored`'s, beside its
+ * template's committed lawful documents (storedTemplates), ANALYZE where the case draws it, and one document written
+ * whole, which the captures hold; every whole rule's statement is explained over the deltas that hold its rows
+ * (test/support/judge.ts judgedPlans); then the same on `more`'s, beside twice as many. Each must read fewer rows than
+ * there are documents beside the written one, each three rows of each table, both times: the written document's rows,
+ * three of each table, read once per unit of the region or once per fact a negation reads them at, whichever plan
+ * PostgreSQL chooses, and never a row of another document, a read of which reads past the written unit's key range into
+ * all of them.
  *
- * Then `written` more documents are written whole, and three times as many again, each statement explained both times
- * over the deltas that hold every document written so far, and the judge runs at the case's end, after every
- * measurement, since it deletes every row of a delta it reads:
- * every node of its plan that runs more than once must handle fewer rows a run than there are documents written. A
- * node runs more than once inside a step, once per written unit, and reads that unit's rows alone, a few of each
- * table, whatever the units written; one that reads the region again inside a step, or a second copy of it that an
- * anti join loops over, handles every written unit at every run, so the statement's work grows with the square of the
- * units written.
+ * Then, on `more`'s, `written` more documents are written whole, and three times as many again, each statement
+ * explained both times over the deltas that hold every document written so far, and the judge runs at the case's end,
+ * after every measurement, since it deletes every row of a delta it reads: every node of its plan that runs more than
+ * once must handle fewer rows a run than there are documents written. A node runs more than once inside a step, once
+ * per written unit, and reads that unit's rows alone, a few of each table, whatever the units written; one that reads
+ * the region again inside a step, or a second copy of it that an anti join loops over, handles every written unit at
+ * every run, so the statement's work grows with the square of the units written.
  */
 export const runLocality = (
-	installed: Installed,
-	connection: PgConnection,
+	stored: { readonly installed: Installed; readonly connection: PgConnection },
+	more: { readonly installed: Installed; readonly connection: PgConnection },
 	locality: Locality,
 	c: Case<LocalityFeature>
 ) =>
 	Effect.gen(function* () {
-		yield* standUpJudge(connection, installed.installation)
-		const tables = tablesOf(installed, locality.shape)
-		const statistics =
-			locality.statistics === "analyzed" ? [`ANALYZE ${tables.node}`, `ANALYZE ${tables.expr}`] : []
-		for (const sql of [...loaded(tables, 10, 10 + locality.stored), ...statistics]) {
-			yield* connection.query(sql, [])
-		}
-		const written = 0
-		for (const sql of [
-			`INSERT INTO ${tables.node} (doc, sub, part, start, parent, kind) VALUES (${placed(written)}, 0, 0, 2), (${placed(written)}, 1, 0, 1), (${placed(written)}, 2, 0, 0)`,
-			`INSERT INTO ${tables.expr} (doc, sub, part, start, type) VALUES (${placed(written)}, 0, 1), (${placed(written)}, 1, 1), (${placed(written)}, 2, 1)`
-		]) {
-			yield* connection.query(sql, [])
-		}
-		const first = yield* readsOf(installed, connection)
+		/** The judge's reads over document 0 written whole on one clone. */
+		const measured = (installed: Installed, connection: PgConnection) =>
+			Effect.gen(function* () {
+				yield* standUpJudge(connection, installed.installation)
+				const tables = tablesOf(installed, locality.shape)
+				const written = 0
+				for (const sql of [
+					...(locality.statistics === "analyzed"
+						? [`ANALYZE ${tables.node}`, `ANALYZE ${tables.expr}`]
+						: []),
+					`INSERT INTO ${tables.node} (doc, sub, part, start, parent, kind) VALUES (${placed(written)}, 0, 0, 2), (${placed(written)}, 1, 0, 1), (${placed(written)}, 2, 0, 0)`,
+					`INSERT INTO ${tables.expr} (doc, sub, part, start, type) VALUES (${placed(written)}, 0, 1), (${placed(written)}, 1, 1), (${placed(written)}, 2, 1)`
+				]) {
+					yield* connection.query(sql, [])
+				}
+				return yield* readsOf(installed, connection)
+			})
+		const first = yield* measured(stored.installed, stored.connection)
 		assert.ok(first.length > 0, "the judge holds a whole rule's statement")
-		const from = 11 + locality.stored
-		for (const sql of [...loaded(tables, from, from + locality.more), ...statistics]) {
-			yield* connection.query(sql, [])
-		}
-		const again = yield* readsOf(installed, connection)
-		const beside = locality.stored
+		yield* stored.connection.query(judgeRun, [])
+		const again = yield* measured(more.installed, more.connection)
+		const beside = storedSizes.stored
 		assert.ok(
 			Arr.every([...first, ...again], (rows) => rows < beside),
-			`${Formatter.format(locality)}: each whole rule's statement reads the written document's rows alone, fewer than the ${beside} documents beside it, ${Formatter.format(first)} and then ${Formatter.format(again)} beside ${locality.more} more`
+			`${Formatter.format(locality)}: each whole rule's statement reads the written document's rows alone, fewer than the ${beside} documents beside it, ${Formatter.format(first)} and then ${Formatter.format(again)} beside ${storedSizes.more}`
 		)
+		const { installed, connection } = more
+		const tables = tablesOf(installed, locality.shape)
 		for (const [from, to] of [
 			[-locality.written, -1],
 			[-4 * locality.written, -locality.written - 1]
@@ -1425,14 +1581,10 @@ export const runLocality = (
  */
 export interface Commute {
 	readonly shape: ShapeKey
-	readonly stored: number
 }
 
-/** Thousands of stored documents, between the two a case's transactions write. */
-export const commuteGen: Gen<Commute> = (s) => ({
-	shape: s.draw(shapeGen),
-	stored: s.draw(int(2000, 3000))
-})
+/** A commute case's shape, its stored documents, thousands, its template's (commuteTemplates). */
+export const commuteGen: Gen<Commute> = (s) => ({ shape: s.draw(shapeGen) })
 
 /**
  * The relations, Node's and Expr's tables and their indexes, that `session`'s transaction holds a SIRead lock on whole,
@@ -1466,10 +1618,7 @@ export const runCommute = (
 ) =>
 	Effect.gen(function* () {
 		const tables = tablesOf(installed, commute.shape)
-		for (const sql of loaded(tables, 10, 10 + commute.stored)) {
-			yield* first.query(sql, [])
-		}
-		const right = 20 + commute.stored
+		const right = 20 + storedSizes.stored
 		const written: ReadonlyArray<readonly [RawSession, number]> = [
 			[first, 0],
 			[second, right]
@@ -1493,7 +1642,7 @@ export const runCommute = (
 				Option.map((f) => f.code)
 			),
 			[Option.none(), Option.none()],
-			`${Formatter.format(commute)}: two transactions each writing a unit of its own beside ${commute.stored} stored both commit`
+			`${Formatter.format(commute)}: two transactions each writing a unit of its own beside ${storedSizes.stored} stored both commit`
 		)
 		c.note("two units written at once, both committed")
 	})

@@ -27,7 +27,7 @@ import type { QueryTemplate } from "#compiler/program/compile.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { servedSpine } from "#compiler/served/spine.ts"
-import type { CarrierDeclaring } from "#compiler/write/carriers/carriers.ts"
+import type { EmittedSql } from "#compiler/sql/ast.ts"
 import { StatementShare } from "#compiler/write/insert/statement.ts"
 import type { WriteArtifact } from "#compiler/write/program/artifact.ts"
 import {
@@ -36,7 +36,6 @@ import {
 	type FamilyPlacement,
 	finish,
 	newBuilder,
-	placeAdmission,
 	placeFamily,
 	placeReadBack,
 	placeStatement,
@@ -141,35 +140,31 @@ export const conservativePageRuntime = (
  * The write oracle's baseline of a compiled ChangeSet: `entry` with its program's conservative realization
  * (write/program/compile.ts conservativeWrite) and that realization's read-backs in their place, which an application
  * then runs as it runs the optimized one, its members and read-backs read under the names of the artifacts its role
- * compiled it against (db/context.ts RoleContext.programArtifacts); beside it the realization whole, its statements'
+ * compiled it against (served/role.ts RoleContext `artifacts`); beside it the realization whole, its statements'
  * ASTs among it, which an audit reads.
  */
 export const conservativeChange = (
 	{ entry, program: compiled }: CompiledProgram,
-	role: Pick<RoleContext, "programArtifacts">
+	{ artifacts }: Pick<RoleContext, "artifacts">
 ): Result.Result<CompiledProgram, CompileError> =>
-	Result.flatMap(
-		role.programArtifacts({ kind: "changeSet", changeSet: entry.change.desc }),
-		({ artifacts }) =>
-			Result.map(
-				conservativeWrite(compiled, {
-					names: entry.names,
-					reads: artifacts.reads,
-					world: writeWorldOf(artifacts.world, artifacts.laws)
-				}),
-				(program) => {
-					const servable = servableWrite(program)
-					return {
-						entry: {
-							...entry,
-							program: flightOf(servable, entry.names.codes),
-							compiled: servable,
-							readBacks: readBacks(servable.readBacks, entry.names.codes)
-						},
-						program
-					}
-				}
-			)
+	Result.map(
+		conservativeWrite(compiled, {
+			names: entry.names,
+			reads: artifacts.reads,
+			world: writeWorldOf(artifacts.world, artifacts.laws)
+		}),
+		(program) => {
+			const servable = servableWrite(program)
+			return {
+				entry: {
+					...entry,
+					program: flightOf(servable, entry.names.codes),
+					compiled: servable,
+					readBacks: readBacks(servable.readBacks, entry.names.codes)
+				},
+				program
+			}
+		}
 	)
 
 /**
@@ -195,19 +190,18 @@ export const conservativePage = (
 	})
 
 /**
- * The conservative artifact of a write: its admission first (write/program/compile.ts placeAdmission), then its
- * conservative realization's steps (oracle/write/realize.ts), every statement after the one before it, each family statement where its stratum's schedule runs it, as the program placed
- * it (write/program/compile.ts CompiledWrite.placements).
+ * The conservative artifact of a write: its conservative realization's steps (oracle/write/realize.ts), every statement
+ * after the one before it, each family statement where its stratum's schedule runs it, as the program placed it
+ * (write/program/compile.ts CompiledWrite.placements), and its caller parameters `params` admitted in the statements a
+ * call may send first, as the program's are (write/program/admission.ts).
  */
 const conservativeArtifact = (
 	write: ConservativeWrite,
 	codes: Codebook,
 	placements: ReadonlyArray<FamilyPlacement>,
-	admission: CompiledWrite["admission"],
-	declaring: CarrierDeclaring
+	params: CompiledWrite["params"]
 ): WriteArtifact => {
 	const b = newBuilder(codes)
-	placeAdmission(b, admission)
 	const after = (): ReadonlyArray<number> =>
 		b.statements.length === 0 ? [] : [b.statements.length - 1]
 	for (const step of write.steps) {
@@ -217,7 +211,7 @@ const conservativeArtifact = (
 				placeFamily(b, placements, step.stratum, step.node, after, { kind: "none" })
 				break
 			case "readBack":
-				placeReadBack(b, step.read, conservativeStatement(step.program), previous)
+				placeReadBack(b, step.read, conservativeStatement(step.program), step.admission, previous)
 				break
 			case "carrier": {
 				const result = step.statement.result
@@ -227,7 +221,6 @@ const conservativeArtifact = (
 					{
 						kind: "carrier",
 						carrier: result.carrier,
-						step: result.step,
 						stratum: step.stratum,
 						casts: step.casts
 					},
@@ -274,7 +267,7 @@ const conservativeArtifact = (
 			}
 		}
 	}
-	return finish(b, write.carriers, declaring)
+	return finish(b, write.carriers, write.cx, params)
 }
 
 /**
@@ -291,7 +284,7 @@ export const conservativeWrite = (
 			names: options.names,
 			reads: options.reads,
 			world: options.world,
-			share: new StatementShare(),
+			share: new StatementShare<EmittedSql>(),
 			level: program.level,
 			carriers: program.plan.declaring
 		}),
@@ -301,8 +294,7 @@ export const conservativeWrite = (
 					write,
 					options.names.codes,
 					program.placements,
-					program.admission,
-					program.plan.declaring
+					program.params
 				)
 				return {
 					...program,

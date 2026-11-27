@@ -128,6 +128,14 @@ export const wireScalarOf = (descriptor: ScalarType): WireScalar => {
 			}
 		case "vector":
 			return { carrier: "vector", dimensions: type.typmod.dims }
+		case "variant":
+			return {
+				carrier: "variant",
+				arms: type.variant.arms.map((arm) => ({
+					handle: arm.handle,
+					fields: arm.fields.map((f) => ({ name: f.name, spec: wireScalarOf(f.type) }))
+				}))
+			}
 	}
 }
 
@@ -228,7 +236,7 @@ type Bound<A> = Result.Result<A, CompileError>
 /** A value's JSON with no null in it: a head literal's spelling, which a scalar's encode never writes as null. */
 const literalJson = (json: WireJson): Json => {
 	if (json === null) {
-		throw defect("a head literal spelled as null")
+		defect("a head literal spelled as null")
 	}
 	if (typeof json !== "object") {
 		return json
@@ -280,22 +288,17 @@ const attachedField = (
 			refusedAt(binding.role, binding.member, `the attachment ${key} its decoder reads`)
 		)
 	}
-	return Result.map(recordOf(binding, field.child, at.layouts), (child): WireField<ServedLeaf> => {
-		switch (field.kind) {
-			case "attachment":
-				return { kind: "attachment", delivery: field.delivery, child }
-			case "some":
-				return { kind: "some", child }
-			case "none":
-				return { kind: "none", child }
-		}
-	})
+	return Result.map(recordOf(binding, field.child, at.layouts), (child): WireField<ServedLeaf> => ({
+		kind: "attachment",
+		delivery: field.delivery,
+		child
+	}))
 }
 
 /**
  * The fields of `form` bound to one layout, in the order its record fills them (runtime/read/record.ts fillsOf): a
- * record's own, a merge's first's then its second's, the arm of a union that owns the largest heading the layout
- * delivers, and an alternatives arm's parent's fields then its own.
+ * record's own, a merge's first's then its second's, and the arm of a union that owns the largest heading the layout
+ * delivers.
  */
 const fieldsOf = (
 	binding: Binding,
@@ -329,26 +332,6 @@ const fieldsOf = (
 				? fieldsOf(binding, form.first, layout)
 				: fieldsOf(binding, form.second, layout)
 		}
-		case "arm":
-			return Result.flatMap(fieldsOf(binding, form.parent, layout), (parent) => {
-				const at = layout.attachments.get(form.name)
-				if (at === undefined) {
-					return Result.err(
-						refusedAt(
-							binding.role,
-							binding.member,
-							`the alternatives arm ${form.name} its decoder reads`
-						)
-					)
-				}
-				return Result.map(recordOf(binding, form.child, at.layouts), (child) => [
-					...parent,
-					{
-						name: form.name,
-						field: { kind: "arm", field: form.field, handle: form.handle, child }
-					}
-				])
-			})
 		case "refused":
 			return Result.err(
 				refusedAt(

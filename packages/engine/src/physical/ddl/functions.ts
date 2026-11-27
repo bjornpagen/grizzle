@@ -1,15 +1,28 @@
-import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { FunctionNullInput, FunctionVolatility } from "#compiler/core/function.ts"
 import { type Identity, identifierOf, identity } from "#compiler/core/identity.ts"
 import { compareStrings } from "#compiler/core/order.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import {
 	type FieldDesc,
 	type FunctionTypeDesc,
 	type HeadingDesc,
-	nullInputOf
+	nullInputOf,
+	type VariantSpellingDesc
 } from "#compiler/ir/desc.ts"
-import { baseTypeRef, type RowAttribute, type RowType, rowTypeOf } from "#compiler/ir/physical.ts"
+import {
+	baseTypeRef,
+	missing,
+	qualifiedType,
+	type RowAttribute,
+	type RowType,
+	rowTypeOf,
+	variantAttributes,
+	variantAttributeType
+} from "#compiler/ir/physical.ts"
+import { baseOf } from "#compiler/ir/scalar.ts"
+import { negativeZeroTest } from "#compiler/lower/conservative/expr/variant.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
 import type { OwnedFunction } from "#compiler/schema/function-own.ts"
@@ -22,7 +35,7 @@ import {
 	type FunctionParam,
 	type TypeRef
 } from "#compiler/sql/ast.ts"
-import { arrayOf, functionNameOf } from "#compiler/sql/build.ts"
+import { arrayOf, functionNameOf, sameTypeRef } from "#compiler/sql/build.ts"
 import { typeOnSearchPath } from "#compiler/sql/print.ts"
 import { installationTypes } from "#compiler/sql/type-schemas.ts"
 
@@ -44,9 +57,12 @@ import { installationTypes } from "#compiler/sql/type-schemas.ts"
  *   rows is an array of it, its result of rows a set of it, and an argument or a result of one row the row type itself.
  * - Each function: CREATE OR REPLACE FUNCTION <level>.<name>(<arguments>), its parameters in code point order of the
  *   arguments' names (schema/function.ts byName), RETURNS <type> | SETOF <row type> LANGUAGE <language> <volatility>
- *   [STRICT, a strict function's] SECURITY DEFINER SET search_path = pg_catalog, <level>, pg_temp AS <body>, the body byte for byte but for each
- *   heading it names, which is its row type's name alone, the one the pinned search_path resolves
- *   (sql/print.ts typeOnSearchPath), and which the function's object depends on (sql/ast.ts CreateDeclaredFunction);
+ *   [STRICT, a strict function's] SECURITY DEFINER SET search_path = pg_catalog, <level>[, <installation>], pg_temp AS
+ *   <body>, the body byte for byte but for each heading it names, which is its row type's name alone, and each variant's
+ *   spelling, which names the variant's composite and domain alone, the ones the pinned search_path resolves
+ *   (sql/print.ts typeOnSearchPath), the installation's types schema on it after the level's wherever a body at a level
+ *   below the installation's own names a variant (sql/ast.ts CreateDeclaredFunction `namedAlone`), and which the
+ *   function's object depends on;
  *   EXECUTE revoked from PUBLIC; then handed over to the owner (sql/ast.ts HandOverFunction). A value's type is its field's base type: PostgreSQL holds a function's arguments and result to
  *   their declared types exactly, so a contract's or a pattern's domain is a statement's to check where it reads the
  *   value, never the signature's.
@@ -209,11 +225,85 @@ export const addFunctions = (b: InstallBuilder): ReadonlyMap<string, InstalledFu
 			return made
 		}
 		const used: Array<Node<"setup">> = []
+		/** Every type the body names alone, in the order it first names it (sql/ast.ts CreateDeclaredFunction). */
+		const namedAlone: Array<TypeRef> = []
+		/** `type` as the body names it, alone, its search_path finding it (sql/print.ts typeOnSearchPath). */
+		const alone = (type: TypeRef): string => {
+			if (type.kind === "named" && !namedAlone.some((t) => sameTypeRef(t, type))) {
+				namedAlone.push(type)
+			}
+			return typeOnSearchPath(type)
+		}
 		/** The type of the row type of `heading`, which the function's object depends on. */
 		const rowType = (heading: HeadingDesc): TypeRef => {
 			const made = rowTypeIn(heading)
 			used.push(made.node)
 			return made.rowType.type
+		}
+		/**
+		 * A variant's spelling as the body holds it (ir/desc.ts VariantSpellingDesc), under the installing installation's
+		 * codes and its composite's layout (ir/physical.ts variantAttributes), as a column of the variant is: its arm's
+		 * code; the attribute an arm's field's value is, quoted; or a value of an arm, `ROW(<code>, …)::<composite>::<domain>`,
+		 * each of the arm's fields the body's text at its attribute, a float's zero sign beside it, every other attribute
+		 * NULL, the composite and the domain named alone, which the function's pinned search_path resolves (`alone`): a
+		 * function of any level names a variant of any level its schema extends, whose types stand in the installation's
+		 * types schema, so two installations of one level's function, of two codebooks, print its body each under its own
+		 * codes. The function's object depends on the variant's domain, which is created after its composite.
+		 */
+		const spellingText = (spelling: VariantSpellingDesc): string => {
+			const type = b.checked.fieldType(spelling.variant, fn.desc.loc)
+			const base = baseOf(type)
+			if (base.carrier !== "variant") {
+				defect("a variant's spelling names a variant")
+			}
+			const { variant } = base
+			const domain = b.names.variantDomain(variant.name)
+			const node = b.typeNamed(domain)
+			if (node === undefined) {
+				missing(
+					`function ${fn.name}'s variant ${variant.name}, which a relation of the schema holds`
+				)
+			}
+			used.push(node)
+			const layout = variantAttributes(variant, b.names.codes)
+			const arm = layout.find((a) => a.handle === spelling.handle)
+			if (arm === undefined) {
+				return missing(`an arm ${spelling.handle} of variant ${variant.name}`)
+			}
+			switch (spelling.kind) {
+				case "code":
+					return String(arm.code)
+				case "attribute":
+					return quoteIdent(
+						defined(
+							arm.fields.find((f) => f.field.name === spelling.field),
+							`the field ${spelling.field} of the arm ${spelling.handle}`
+						).attribute
+					)
+				case "of": {
+					const given = new Map(spelling.fields.map((f) => [f.name, f.sql] as const))
+					const items = [`${arm.code}::int2`]
+					for (const other of layout) {
+						for (const f of other.fields) {
+							const held = variantAttributeType(b.names, f.field.type).type
+							if (other.handle === arm.handle) {
+								const value = `(${defined(given.get(f.field.name), `the field ${f.field.name} of a value of the arm ${arm.handle}`)})::${alone(held)}`
+								items.push(value)
+								if (f.zero !== undefined) {
+									const test = negativeZeroTest(f.field.type)
+									items.push(`(${test.send}(${value}) = decode('${test.hex}', 'hex'))`)
+								}
+							} else {
+								items.push(`NULL::${alone(held)}`)
+								if (f.zero !== undefined) {
+									items.push("NULL::boolean")
+								}
+							}
+						}
+					}
+					return `ROW(${items.join(", ")})::${alone(qualifiedType(b.names.variantRow(variant.name)))}::${alone(qualifiedType(domain))}`
+				}
+			}
 		}
 		const argType = (t: FunctionTypeDesc): TypeRef => {
 			switch (t.kind) {
@@ -235,7 +325,8 @@ export const addFunctions = (b: InstallBuilder): ReadonlyMap<string, InstalledFu
 				? { setOf: rowType(returned.heading), rows: { kind: "planner" } }
 				: argType(returned)
 		const body = fn.desc.body.named.reduce(
-			(text, next) => `${text}${typeOnSearchPath(rowType(next.rowType))}${next.text}`,
+			(text, next) =>
+				`${text}${"spelling" in next ? spellingText(next.spelling) : alone(rowType(next.rowType))}${next.text}`,
 			fn.desc.body.text
 		)
 		const callees = fn.desc.calls.map(
@@ -256,6 +347,7 @@ export const addFunctions = (b: InstallBuilder): ReadonlyMap<string, InstalledFu
 						language: fn.desc.language,
 						volatility: volatilityClause[fn.desc.volatility],
 						nullInput: nullInputClause[nullInputOf(fn.desc)],
+						namedAlone,
 						body: declaredBody(body)
 					},
 					{

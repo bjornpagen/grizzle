@@ -12,7 +12,13 @@ import { lawStatement } from "#compiler/analysis/theory/theory.ts"
 import { ownedText, withoutSourceLocs } from "#compiler/core/canonical.ts"
 import { identifierOf, identity, type LawColumnStatement } from "#compiler/core/identity.ts"
 import type { Identifier, LawId } from "#compiler/core/ids.ts"
-import type { ComputeFn, ExprDesc, FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
+import {
+	type ComputeFn,
+	decodeDesc,
+	type ExprDesc,
+	type FieldDesc,
+	type LiteralDesc
+} from "#compiler/ir/desc.ts"
 import { identityValueOf, type TypedLiteral } from "#compiler/ir/expr.ts"
 import type { LawField, TheoryRelation } from "#compiler/ir/law.ts"
 import { rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
@@ -146,6 +152,7 @@ const descRoster = (t: FieldDesc): string | undefined => {
 		case "span":
 		case "vector":
 		case "search":
+		case "variant":
 			return undefined
 	}
 }
@@ -185,6 +192,8 @@ const rosterIn = (e: ExprDesc, scope: Scope): string | undefined => {
 			return rosterIn(e.proved, scope) ?? rosterIn(e.otherwise, scope)
 		case "compute":
 			return rosterFns.has(e.fn) ? firstRoster(e.args, scope) : undefined
+		case "variant":
+			return undefined
 		case "closedAt":
 			return fieldRoster(scope.closed(e.relation)?.fields.find((f) => f.name === e.field))
 		case "closedRow": {
@@ -240,8 +249,9 @@ const restatedValue = (
 	return value
 }
 
-/** A field descriptor as the previous snapshot spells it: each roster by its previous name, a contract's predicate
- * restated over its VALUE (restatedExpr); none where a roster is new. */
+/** A field descriptor as the previous snapshot spells it: each roster by its previous name, a variant's arms by their
+ * handles' previous names, a contract's predicate restated over its VALUE (restatedExpr); none where a roster or a
+ * handle is new. */
 const restatedType = (t: FieldDesc, names: PreviousNames): FieldDesc | undefined => {
 	switch (t.kind) {
 		case "closedId":
@@ -266,6 +276,26 @@ const restatedType = (t: FieldDesc, names: PreviousNames): FieldDesc | undefined
 			return base === undefined || (t.predicate !== undefined && predicate === undefined)
 				? undefined
 				: { ...t, base, predicate }
+		}
+		case "variant": {
+			const roster = names.relation(t.roster)
+			const arms = each(t.arms, (arm) => {
+				const handle = names.handle(t.roster, arm.handle)
+				const fields = each(arm.fields, (f) => {
+					const desc = restatedType(f.desc, names)
+					return desc === undefined ? undefined : { name: f.name, desc }
+				})
+				const check =
+					arm.check === undefined
+						? undefined
+						: restatedArms(arm.check, (h) => names.handle(t.roster, h))
+				return handle === undefined ||
+					fields === undefined ||
+					(arm.check !== undefined && check === undefined)
+					? undefined
+					: { handle, fields, check }
+			})
+			return roster === undefined || arms === undefined ? undefined : { ...t, roster, arms }
 		}
 		case "pg":
 		case "numeric":
@@ -323,6 +353,21 @@ const restatedExpr = (
 			}
 			const type = restatedType(e.type, names)
 			return type === undefined ? undefined : { ...e, value, type }
+		}
+		case "variant": {
+			const args = each(e.args, own)
+			if (args === undefined) {
+				return undefined
+			}
+			if (e.op.kind !== "make") {
+				return { ...e, args }
+			}
+			const variant = restatedType(e.op.variant, names)
+			const handle =
+				e.op.variant.kind === "variant" ? names.handle(e.op.variant.roster, e.op.handle) : undefined
+			return variant === undefined || handle === undefined
+				? undefined
+				: { ...e, op: { ...e.op, variant, handle }, args }
 		}
 		case "compute": {
 			const roster = rosterFns.has(e.fn) ? (expected ?? firstRoster(e.args, scope)) : undefined
@@ -713,9 +758,40 @@ export const restatedLawColumn = (
 		const law = (id: LawId): Identifier<"law"> => {
 			const stated = laws.get(id)
 			if (stated === undefined) {
-				throw defect(`the law ${id} a drawn column is named by is a law of the theory`)
+				defect(`the law ${id} a drawn column is named by is a law of the theory`)
 			}
 			return spell.law(stated)
 		}
 		return identifierOf(identity.lawColumn(lawColumnStatement(plan, spell, law)))
 	})
+
+/**
+ * An arm's check (ir/desc.ts VariantArmDesc `check`) under the history's handle renames: each of its variant's
+ * operations naming an arm by its handle names it by the handle it is renamed to, `handle`'s, or by its own where
+ * none renames it. A check is plain data, its operations nested at any depth.
+ */
+const restatedArms = (
+	check: ExprDesc,
+	handle: (h: string) => string | undefined
+): ExprDesc | undefined => {
+	const walk = (x: unknown): unknown => {
+		if (Array.isArray(x)) {
+			return x.map(walk)
+		}
+		if (typeof x !== "object" || x === null) {
+			return x
+		}
+		const out: Record<string, unknown> = {}
+		for (const [key, value] of Object.entries(x)) {
+			out[key] = walk(value)
+		}
+		const op = out["op"]
+		if (out["kind"] === "variant" && typeof op === "object" && op !== null && "handle" in op) {
+			const own = Reflect.get(op, "handle")
+			out["op"] = { ...op, handle: typeof own === "string" ? (handle(own) ?? own) : own }
+		}
+		return Object.freeze(out)
+	}
+	const restated = decodeDesc("expr", walk(check))
+	return restated.ok ? restated.value : undefined
+}

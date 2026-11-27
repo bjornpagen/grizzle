@@ -20,6 +20,7 @@ import { lit, types } from "#compiler/sql/build.ts"
  */
 export const dateRange = Object.freeze({
 	holds: (type: ScalarType): boolean => baseOf(type).carrier === "date",
+	generationProves: false,
 	named: identity.dateCheck,
 	predicate: (_: unknown, column: Expr): Expr => ({
 		kind: "between",

@@ -46,6 +46,14 @@ export const cost = costGate(plainQueries, {
 			replacement:
 				"type Mismatched<X, All> = X extends unknown\n\t? All extends unknown\n\t\t? false extends { [K in keyof X & keyof All]-?: KeyMeets<X[K], All[K]> }[keyof X & keyof All]\n\t\t\t? true\n\t\t\t: false\n\t\t: never\n\t: never\n",
 			why: "A union's further arm is met beside each arm before it, a mapped type of every field it shares with each (Mismatched pairwise), where it is met beside each carrier the arms deliver at a field once: a union of sixteen rules costs 58,474 instantiations against its bound of 55,160."
+		},
+		{
+			file: "packages/engine/src/types/query/query.ts",
+			original:
+				"\tIHead = Head,\n\tin out Hc extends Carriers = HeadingCarriers<Head>,\n\tCx = never,\n\tAt = NoAttachments\n>\n\textends\n\t\tPhantom<{\n\t\t\treadonly headingInvariant: Invariant<Head>",
+			replacement:
+				"\tIHead = Head,\n\tHc extends Carriers = HeadingCarriers<Head>,\n\tCx = never,\n\tAt = NoAttachments\n>\n\textends\n\t\tPhantom<{\n\t\t\treadonly headingInvariant: Invariant<Head>",
+			why: "Finished's carriers are left to the checker's measure, which attach's parent variables, a mapped type of Hc (ParentVars), leave unreliable, so each further arm of a union compares two Finished member by member, attach's signature instantiated at each, as the merged tree's slice B attach did (271ffecf2): a union of two rules costs 3,832 instantiations against its bound of 3,643."
 		}
 	]
 })

@@ -4,7 +4,7 @@
  */
 export { ChangeSet } from "#compiler/public/changeset.ts"
 export { pg } from "#compiler/public/fields.ts"
-export { arm, query, v } from "#compiler/public/query.ts"
+export { query, v } from "#compiler/public/query.ts"
 export type { HeadOf, ImmediateHeadOf } from "#compiler/public/query.ts"
 export {
 	login,
@@ -16,7 +16,7 @@ export {
 	wholeEntriesOf
 } from "#compiler/public/schema.ts"
 export { workload } from "#compiler/public/workload.ts"
-export type { Fact } from "#compiler/public/schema.ts"
+export type { Fact, RecordPaths } from "#compiler/public/schema.ts"
 export {
 	Blurb,
 	Book,
@@ -29,4 +29,4 @@ export {
 	Shelves,
 	Spine
 } from "#test/support/fixtures/records/shelves.ts"
-export { Id } from "#test/support/ids.ts"
+export { Id, toId } from "#test/support/ids.ts"

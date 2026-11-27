@@ -12,7 +12,6 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
-import type { LoginSource } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { checkedIn } from "#test/support/policy.ts"
@@ -99,13 +98,11 @@ const compileFailed = (e: CompileError): OracleFixtureFailed =>
 		message: `the generated schema does not compile: ${e.message}`
 	})
 
-/** Installs `declared` (the schema built under any name) with `facts` and `logins`, each a login value or a LoginDesc
- * over the declared schema ([] for none). */
+/** Installs `declared` (the schema built under any name) with `facts` and no login. */
 export const installDerived = (
 	declared: FixtureSchema,
 	facts: Facts,
-	label: string,
-	logins: ReadonlyArray<LoginSource>
+	label: string
 ): Effect.Effect<
 	Opened,
 	OracleFixtureFailed | CompileError | SqlError | TransactionRolledBack,
@@ -114,7 +111,7 @@ export const installDerived = (
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const installed = yield* Effect.mapError(
-			install(declared, { ambient: ordinarySession, extensions: [], label, logins }),
+			install(declared, { ambient: ordinarySession, extensions: [], label }),
 			(e) => (e._tag === "CompileError" ? compileFailed(e) : e)
 		)
 		const analyzed = Result.map(checkedIn(installed.installation.owned), derivedAnalysis)

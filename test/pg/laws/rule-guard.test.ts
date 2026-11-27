@@ -8,19 +8,24 @@
  * value over its bound, written in the same transaction as the content, is refused; and an arm that reaches the written
  * relation through a match binding the learner's package to nothing of the written row is never guarded, so another
  * package's mark that breaks it is refused; and a containment whose target reaches the written relation two ways, an
- * odd one at the unit and an even one at any package, is guarded on the side only the odd one yields rows of, and on
- * the other side is not, so another package's withdrawn row that breaks it is refused (rule-guard.fixtures.ts).
+ * odd one at the unit and an even one at any package, is guarded on the side only the odd one yields rows of; another
+ * package's withdrawn row that breaks it, a data step's removal of a closed row, which no judge reads, is refused by the
+ * step's re-check under the rule's law (rule-guard.fixtures.ts).
  */
 import type { Reached } from "@bjornpagen/testing/features"
-import { property } from "@bjornpagen/testing/property"
+import { finite } from "@bjornpagen/testing/gen"
+import { property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
 	type GuardFeature,
 	guardTemplate,
+	type GuardWorkFeature,
 	learnerGen,
+	populationGen,
 	type RaceFeature,
 	raceGen,
 	runGuard,
+	runGuardWork,
 	runRace
 } from "#test/pg/laws/rule-guard.fixtures.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -34,7 +39,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export const aProbeOfTheContentRunsOnlyWhereALearnersRowStandsAtItsUnit = property.explore(
 	learnerGen,
 	{
-		needs: { substrate: Substrate.rolledBack(guardTemplate) },
+		needs: { fresh: Substrate.fresh(guardTemplate) },
 		situations: [
 			"skipped where no value of the package stands",
 			"skipped where another package's value stands",
@@ -43,14 +48,18 @@ export const aProbeOfTheContentRunsOnlyWhereALearnersRowStandsAtItsUnit = proper
 			"refused where another package's mark breaks an arm read past the unit",
 			"skipped on the added side where no session of the document stands",
 			"refused on the added side by a session of the document",
-			"refused on the removed side, unguarded, by another package's withdrawn template"
+			"refused on the removed side by the re-check, another package's template withdrawn"
 		] satisfies ReadonlyArray<Reached<GuardFeature>>,
 		check:
-			({ substrate }, c) =>
+			({ fresh }, c) =>
 			(learner) =>
 				Effect.gen(function* () {
-					const { connection, value } = yield* substrate
-					yield* runGuard(value, connection, learner, c)
+					const { substrate, value } = yield* fresh
+					yield* Effect.scoped(
+						Effect.flatMap(substrate.admin.pin, (connection) =>
+							runGuard(value, connection, learner, c)
+						)
+					)
 				}),
 		oracle: {
 			kind: "postgresql",
@@ -69,8 +78,8 @@ export const aProbeOfTheContentRunsOnlyWhereALearnersRowStandsAtItsUnit = proper
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
 				original:
-					"\t\t\t\t\t\t\tbody: [guarded === undefined ? judged : whenFound(guarded.statement, [judged])]",
-				replacement: "\t\t\t\t\t\t\tbody: [judged]",
+					"\t\t\t\t\t\t\t\t\tbody: [guarded === undefined ? judged : whenExists(guarded.statement, [judged])]",
+				replacement: "\t\t\t\t\t\t\t\t\tbody: [judged]",
 				why: "No probe is guarded, as before: a write of the content with no learner's value at its package still runs the probe, which reads Node."
 			},
 			{
@@ -133,6 +142,65 @@ export const aGuardedPublishRacingALearnersWriteAtItsUnitNeverCommitsBesideItInt
 				original: "\t\t\t\t\t\t\t\t\t\t\t\t\tvarRef(guardId(k)),\n",
 				replacement: "\t\t\t\t\t\t\t\t\t\t\t\t\tvarRef(guardId(guard.fields.length - 1 - k)),\n",
 				why: "The guard reads Sess with the unit's fields crossed, package 2's item 1 where the part is package 1's item 2: it finds no session where one stands, skips the probe whose learner's row exists, and commits it beside an unready item."
+			}
+		]
+	})
+
+/**
+ * A probe's guard is an existence: it reads one row of its relation, the first it finds at the written units, however
+ * many rows stand there (sql/build.ts whenExists, lower/conservative/step headingRead). Value, keyed by the learner
+ * first, is read by the guard at the written content's package alone, every learner's values of the package there,
+ * 200 or 2,000 at each of three written packages: the judge reads one entry of Value at both populations, where a guard
+ * read to its every row read them all (qti-pie's takeSitting under LEDGER-VALUECELL, member_place by its package:
+ * about 11.6k pages warm at 1x and 15.6k at 10x, in __judge_attempt and both __judge_placed_ref_in_*).
+ */
+export const aProbesGuardReadsOneRowOfItsRelationHoweverManyStandAtTheWrittenUnits =
+	property.exhaust(finite(populationGen), {
+		needs: { fresh: Substrate.fresh(guardTemplate) },
+		situations: ["at one population", "at ten times it"] satisfies ReadonlyArray<
+			Reached<GuardWorkFeature>
+		>,
+		check:
+			({ fresh }, c) =>
+			(population) =>
+				Effect.gen(function* () {
+					const { substrate, value } = yield* fresh
+					yield* Effect.scoped(
+						Effect.flatMap(substrate.admin.pin, (connection) =>
+							runGuardWork(value, connection, population, c)
+						)
+					)
+				}).pipe(Effect.scoped),
+		oracle: {
+			kind: "postgresql",
+			name: "each guard over Value explained as the judge runs it (EXPLAIN ANALYZE): the rows it reads of the stored relations and the index entries its bitmaps read, against the one row an existence reads"
+		},
+		box: "the content of three packages written beside 200 or 2,000 learners' values at each of them and at a fourth, Value keyed by the learner first",
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/laws/rule-guard.test.ts#aProbesGuardReadsOneRowOfItsRelationHoweverManyStandAtTheWrittenUnits:-:1"
+				),
+				reason:
+					"qti-pie's member_place, keyed by the child first and read by the guard by its package beside every other child's places (LEDGER-VALUECELL, __judge_attempt and both __judge_placed_ref_in_*): the guard, a PERFORM of every row its lateral read of the package found, read every learner's row of the package, about 11.6k pages warm at 1x and 15.6k at 10x; here 6,000 values at 10x",
+				since: "2026-11-27"
+			}
+		],
+		kills: [
+			{
+				file: "packages/engine/src/lower/conservative/step/index.ts",
+				original:
+					'\t\t: {\n\t\t\t\t...operandSelect(provedCore("oneRow", unitTargets, [input], where)),\n\t\t\t\tlimit: lit.int(1, types.integer)\n\t\t\t}\n',
+				replacement: "\t\t: fencedRead(unitTargets, input, where)\n",
+				why: "A read of no column reads every row of its input, as the fence of a step does: the guard's read of Value at each written package is planned for every value there, which PostgreSQL reads by a bitmap of every index entry before the EXISTS takes the first; the judge reads every value of the first package it seeks."
+			},
+			{
+				file: "packages/engine/src/physical/ddl/rules.ts",
+				original:
+					"\t\t\t\t\t\t\t\t\tbody: [guarded === undefined ? judged : whenExists(guarded.statement, [judged])]",
+				replacement:
+					"\t\t\t\t\t\t\t\t\tbody: [guarded === undefined ? judged : whenFound(guarded.statement, [judged])]",
+				why: "The guard is a PERFORM run to its end, as before: it reads a value at every written package where its first was enough, three entries of Value where it read one."
 			}
 		]
 	})

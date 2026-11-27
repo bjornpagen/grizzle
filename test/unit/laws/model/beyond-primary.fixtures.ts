@@ -162,7 +162,7 @@ export const schemaOf = (c: BeyondCase) => {
 			first === undefined
 				? T
 				: selectBuilder(T, (r: TRow) =>
-						second === undefined ? atom(r, first) : r.and(atom(r, first), atom(r, second))
+						second === undefined ? atom(r, first) : r.and([atom(r, first), atom(r, second)])
 					)
 		return keyBuilder(onBuilder(side, k.fields))
 	})

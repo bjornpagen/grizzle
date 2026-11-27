@@ -11,20 +11,20 @@ import {
 	type Steered,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, Exit, Fiber, Option, Record as Rec } from "effect"
-import type { RoleCertificate } from "#compiler/core/certificate.ts"
+import { Array as Arr, Effect, Exit, Fiber, Option, Record as Rec, String as Str } from "effect"
 import type { Isolation } from "#compiler/core/isolation.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { instant, natural, place } from "#compiler/public/fields.ts"
+import { contract, instant, natural, pg, place } from "#compiler/public/fields.ts"
 import { query } from "#compiler/public/query.ts"
-import { login, relation, role, schema } from "#compiler/public/schema.ts"
+import { login, mutable, relation, role, schema, unit } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import {
 	callStandUps,
 	callStatements,
-	certifiedShapeTemplate,
-	type Certifier,
-	type InstalledShape
+	type InstalledShape,
+	shapeTemplate,
+	writeBegin
 } from "#test/pg/isolation/support/race.ts"
 import { replaceMigrated } from "#test/support/install-migrate.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
@@ -35,99 +35,102 @@ import { lockWaitOf } from "#test/support/substrate/barrier.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 
-/** A child's fact at the database's instant: its clock's child is (child, part). */
-const Event = relation("Event", { child: natural, part: natural, at: instant, kind: natural }, [
+const kidNoKey = Symbol("KidNo")
+/** A kid's number, the unit Kid's key: a contract of its own, so Tick's natural child sits in no unit. */
+const KidNo = contract<typeof kidNoKey>()("KidNo", pg.integer)
+
+/** A kid's fact at the database's instant: its clock's child is (kid, part), its scope the unit Kid's. */
+const Event = relation("Event", { kid: KidNo, part: natural, at: instant, kind: natural }, [
+	"kid",
+	"part",
+	"at"
+])
+
+/** A kid's other fact at the database's instant: a second clock of the unit Kid, its child (kid, part), mutable, so a
+ * writer that holds UPDATE may move its clock (clock guard, physical/ddl/clocked.ts). */
+const Mark = relation("Mark", { kid: KidNo, part: natural, at: instant, kind: natural }, [
+	"kid",
+	"part",
+	"at"
+])
+
+/** A kid's numbered fact: its place's group is (kid, part). */
+const Slot = relation("Slot", { kid: KidNo, part: natural, n: place, v: natural }, [
+	"kid",
+	"part",
+	"n"
+])
+
+/** A child's fact at the database's instant, under no unit: its clock's child (child, part) is its own scope. */
+const Tick = relation("Tick", { child: natural, part: natural, at: instant, kind: natural }, [
 	"child",
 	"part",
 	"at"
 ])
 
-/** A child's numbered fact: its place's group is (child, part). */
-const Slot = relation("Slot", { child: natural, part: natural, n: place, v: natural }, [
-	"child",
-	"part",
-	"n"
-])
+/** What a call appends, by its member: an Event with its Slot; a Mark with an Event, two clocks of Kid in one call; or a
+ * Tick. */
+export type StampClock = "event" | "mark" | "tick"
 
 /**
- * The stamp shape under the name `name`: the role `writer`, whose one member `append` adds a child's Event and Slot,
- * the Event stamped by its clock and the Slot by its place, at the child its parameters name, each carrying the call's
- * `kind`.
+ * The stamp shape under the name `name`: the unit Kid over Event, Mark and Slot, and Tick under none; the role
+ * `writer`, whose members each append at the kid or child their parameters name, each row carrying the call's `kind`:
+ * `event` an Event, stamped by Kid's head, and its Slot, stamped by its place; `mark` a Mark and an Event, both stamped
+ * by Kid's head in the one call, at its one instant; and
+ * `tick` a Tick, stamped by its own child's head.
  */
 const stampShape = (name: string) => {
-	const relations = { Event, Slot } as const
-	const base = schema(name, Rec.values(relations), [])
-	const writer = role(base, "writer", relations, { insert: ["Event", "Slot"] })
+	const relations = { Event, Mark, Slot, Tick } as const
+	const base = schema(name, Rec.values(relations), [unit("Kid", { kid: KidNo }), mutable(Mark)])
+	const writer = role(base, "writer", relations, { insert: ["Event", "Mark", "Slot", "Tick"] })
 	const mine = writer.relations
-	const append = ChangeSet.empty(writer)
-		.insert(
-			mine.Event,
-			query(writer).rule((r) =>
-				r.find({
-					child: r.param("child", natural),
-					part: r.param("part", natural),
-					kind: r.param("kind", natural)
-				})
-			)
-		)
+	const at = query(writer).rule((r) =>
+		r.find({
+			kid: r.param("kid", KidNo),
+			part: r.param("part", natural),
+			kind: r.param("kind", natural)
+		})
+	)
+	const event = ChangeSet.empty(writer)
+		.insert(mine.Event, at)
 		.insert(
 			mine.Slot,
 			query(writer).rule((r) =>
 				r.find({
-					child: r.param("child", natural),
+					kid: r.param("kid", KidNo),
 					part: r.param("part", natural),
 					v: r.param("kind", natural)
 				})
 			)
 		)
+	const mark = ChangeSet.empty(writer).insert(mine.Mark, at).insert(mine.Event, at)
+	const tick = ChangeSet.empty(writer).insert(
+		mine.Tick,
+		query(writer).rule((r) =>
+			r.find({
+				child: r.param("child", natural),
+				part: r.param("part", natural),
+				kind: r.param("kind", natural)
+			})
+		)
+	)
 	return {
 		schema: base,
 		roles: { writer },
-		login: login(base, "app", [writer], { workload: [workload(writer, { append })] })
+		login: login(base, "app", [writer], { workload: [workload(writer, { event, mark, tick })] })
 	}
 }
 
-/** The certificate a race at `level` states for the writer. */
-const certificateAt = (level: Isolation): RoleCertificate =>
-	level === "readCommitted"
-		? { level }
-		: {
-				level,
-				why: {
-					kind: "own",
-					reasons: [
-						{
-							condition: "facts",
-							at: { kind: "role" },
-							detail: "the race runs the writer SERIALIZABLE"
-						}
-					]
-				}
-			}
+/**
+ * The stamp shape installed once per member as `grizzle generate` drafts and serves it (race.ts shapeTemplate): the
+ * writer at the level generate certifies it at, READ COMMITTED.
+ */
+export const generatedShape = shapeTemplate(import.meta, "stamps", stampShape)
 
-const atLevel = (level: Isolation): Extract<Certifier, { readonly kind: "stated" }> => ({
-	kind: "stated",
-	roles: [{ login: "app", role: "writer", certificate: certificateAt(level) }]
-})
-
-/** The stamp shape installed once per member with the writer READ COMMITTED (race.ts certifiedShapeTemplate). */
-export const readCommittedShape = certifiedShapeTemplate(
-	import.meta,
-	"stamps read committed",
-	stampShape,
-	atLevel("readCommitted")
-)
-
-/** The stamp shape installed once per member with the writer SERIALIZABLE (race.ts certifiedShapeTemplate). */
-export const serializableShape = certifiedShapeTemplate(
-	import.meta,
-	"stamps serializable",
-	stampShape,
-	atLevel("serializable")
-)
-
-/** One call of a race: the child it appends at, and how its session ends once its stamp is through. */
+/** One call of a race: the clock it stamps, the kid or child and part it appends at, and how its session ends once its
+ * stamp is through. */
 export interface StampCall {
+	readonly clock: StampClock
 	readonly child: number
 	readonly part: number
 	readonly ends: "commit" | "rollback"
@@ -145,8 +148,16 @@ export interface StampRace {
 	readonly ends: ReadonlyArray<number>
 }
 
-/** A child of the race's two by two box, drawn toward a few children, so calls meet at one child often. */
+/** A call of the race's box, its clock drawn toward the unit's two and its kid or child toward a few, so calls meet at
+ * one key often, across the unit's clocks and children. */
 const callGen: Gen<StampCall> = (s) => ({
+	clock: s.draw(
+		weighted([
+			[2, constant<StampClock>("event")],
+			[2, constant<StampClock>("mark")],
+			[1, constant<StampClock>("tick")]
+		])
+	),
 	child: s.draw(element([0, 1])),
 	part: s.draw(
 		weighted([
@@ -169,37 +180,41 @@ const stampRaces: Gen<StampRace> = (s) => {
 	return { calls, starts: s.draw(shuffled(order, all)), ends: s.draw(shuffled(order, all)) }
 }
 
-/** The calls of an aimed race, each at its child, ending as it states. */
+/** The calls of an aimed race, each at its clock, kid or child and part, ending as it states. */
 const aimedCalls = (
-	calls: Arr.NonEmptyReadonlyArray<readonly [number, number, StampCall["ends"]]>
+	calls: Arr.NonEmptyReadonlyArray<readonly [StampClock, number, number, StampCall["ends"]]>
 ): Arr.NonEmptyReadonlyArray<StampCall> =>
-	Arr.map(calls, ([child, part, ends]) => ({ child, part, ends }))
+	Arr.map(calls, ([clock, child, part, ends]) => ({ clock, child, part, ends }))
 
 /**
- * A race that reaches every situation but a holder's rollback: three calls at (0, 0), the second begun stamping first
- * and the first waiting on it, both committing, and one at (0, 1) beside them; and one that reaches a holder's
- * rollback: two calls at (0, 0), the second begun stamping first and rolling back, beside one at (1, 0). Each ends in
- * a drawn order.
+ * A race that reaches every situation but a holder's rollback and a unitless clock's children sharing a field: an
+ * Event at kid 0, a Mark at kid 0 begun after it and stamping first, an Event at kid 0 again, and a Tick beside them,
+ * all committing; and one that reaches those two: an Event at kid 0, one at kid 0's other part begun after it,
+ * stamping first and rolling back, and two Ticks at one child's two parts. Each ends in a drawn order. The first is
+ * qti-pie's sitting (edullm QP-SITTING-READ P8): a save of a learner's item session, on its session's clock, begun
+ * before the end of the learner's sitting, on the sitting's clock, which takes the learner's borrow first, so per-child
+ * heads stamped the save below the end it commits after.
  */
 const aimedRaces: ReadonlyArray<Gen<StampRace>> = [
 	(s) => ({
 		calls: aimedCalls([
-			[0, 0, "commit"],
-			[0, 0, "commit"],
-			[0, 0, "commit"],
-			[0, 1, "commit"]
+			["event", 0, 0, "commit"],
+			["mark", 0, 1, "commit"],
+			["event", 0, 0, "commit"],
+			["tick", 0, 1, "commit"]
 		]),
 		starts: [1, 0, 2, 3],
 		ends: s.draw(shuffled([0, 1, 2, 3], { min: 4, max: 4 }))
 	}),
 	(s) => ({
 		calls: aimedCalls([
-			[0, 0, "commit"],
-			[0, 0, "rollback"],
-			[1, 0, "commit"]
+			["event", 0, 0, "commit"],
+			["event", 0, 1, "rollback"],
+			["tick", 1, 0, "commit"],
+			["tick", 1, 1, "commit"]
 		]),
-		starts: [1, 0, 2],
-		ends: s.draw(shuffled([0, 1, 2], { min: 3, max: 3 }))
+		starts: [1, 0, 2, 3],
+		ends: s.draw(shuffled([0, 1, 2, 3], { min: 4, max: 4 }))
 	})
 ]
 
@@ -214,13 +229,27 @@ export const aimedStampRaces: Steered<StampRace, StampFeature>["under"] = (steer
 export type StampFeature =
 	| "a waiter whose holder committed"
 	| "a waiter whose holder rolled back"
-	| "three calls at one child"
-	| "children apart at once"
-	| "children sharing a field"
+	| "three calls at one key"
+	| "keys apart at once"
+	| "two clocks of one unit at one key"
+	| "two clocks of one unit in one call"
+	| "two children of one unit's clock at one key"
+	| "children of a clock no unit holds sharing a field"
 	| "a later-begun call stamped first"
+	| "a later-begun call stamped first at another clock or child of its unit"
 	| "a SERIALIZABLE call refused at an advanced head"
 
-/** A child's text, as the race's rows and messages name it. */
+/**
+ * The key of the head a call stamps: its kid's, Kid's scope, for an Event or a Mark, every clock and child of the unit
+ * alike; its child's, Tick's own scope, for a Tick.
+ */
+const keyOf = (c: StampCall): string =>
+	c.clock === "tick" ? `tick (${c.child}, ${c.part})` : `kid ${c.child}`
+
+/** A call's text, as the race's messages name it. */
+const callText = (c: StampCall): string => `${c.clock} (${c.child}, ${c.part})`
+
+/** A row's child, as the race's rows name it. */
 const childText = (c: StampCall): string => `(${c.child}, ${c.part})`
 
 /** Call `i` of a race. */
@@ -230,8 +259,8 @@ const callOf = (race: StampRace, i: number): StampCall => defined(race.calls[i],
 const holdersOf = (race: StampRace, i: number): ReadonlyArray<number> =>
 	Arr.takeWhile(race.starts, (j) => j !== i)
 
-/** Whether two calls append at one child. */
-const sameChild = (a: StampCall, b: StampCall): boolean => a.child === b.child && a.part === b.part
+/** Whether two calls stamp one head at one key, so the later waits on the earlier. */
+const sameKey = (a: StampCall, b: StampCall): boolean => keyOf(a) === keyOf(b)
 
 /** What a call's statements showed: the SQLSTATE of the first that failed, none where all succeeded. */
 const failureOf = (outcomes: ReadonlyArray<ScheduleOutcome>): string | undefined => {
@@ -248,9 +277,6 @@ const failureOf = (outcomes: ReadonlyArray<ScheduleOutcome>): string | undefined
 
 /** The call's reading of the database's clock in microseconds, as a stamping statement reads it (write/insert/stamp.ts). */
 const clockSql = `SELECT (pg_catalog.extract('epoch'::pg_catalog.text, pg_catalog.transaction_timestamp()) * 1000000::pg_catalog.numeric)::pg_catalog.int8::pg_catalog.text`
-
-const levelSql = (level: Isolation): string =>
-	`SET TRANSACTION ISOLATION LEVEL ${level === "readCommitted" ? "READ COMMITTED" : "SERIALIZABLE"}`
 
 /** The one text of an outcome's one row, none for any other outcome. */
 const onlyText = (o: ScheduleOutcome): string | undefined =>
@@ -269,26 +295,36 @@ interface Stamped {
 	readonly session: number
 }
 
-/** What a race shows at one level: each session's run, the order its sessions committed in, the problems the run met on
- * the way, and the rows it left. */
-export interface RaceRun {
-	readonly runs: ReadonlyArray<Run>
-	readonly commits: ReadonlyArray<number>
-	readonly problems: ReadonlyArray<string>
+/** The rows a race leaves, by relation: Event's, Mark's and Tick's, each stamped by its clock, and Slot's, by its
+ * place. */
+interface RaceRows {
 	readonly events: ReadonlyArray<Stamped>
+	readonly marks: ReadonlyArray<Stamped>
+	readonly ticks: ReadonlyArray<Stamped>
 	readonly slots: ReadonlyArray<Stamped>
 }
 
+/** What a race shows at one level: each session's run, the order its sessions committed in, the problems the run met on
+ * the way, and the rows it left. */
+export interface RaceRun extends RaceRows {
+	readonly runs: ReadonlyArray<Run>
+	readonly commits: ReadonlyArray<number>
+	readonly problems: ReadonlyArray<string>
+}
+
+/** No rows: a race stopped by a problem before its sessions ended. */
+const noRows: RaceRows = { events: [], marks: [], ticks: [], slots: [] }
+
 /**
- * Runs `race` over `s` at `level` (StampRace): every session begins at `level` and reads its clock; each in `starts`'
- * order sends its call's statements on a fiber of its own, while every session before it holds its transaction open:
- * one whose child an open session before it stamped must wait on a lock (the problem otherwise is that it stamped
- * through), and any other must finish without waiting on one (the problem otherwise is that it waited on a call of
- * another child), each read by polling its backend's lock wait (substrate/barrier.ts lockWaitOf) against its fiber's
+ * Runs `race` over `s` (StampRace): every session begins as the writer's served writes do, at the level generate
+ * certifies it at (race.ts writeBegin), and reads its clock; each in `starts`' order sends its call's statements on a fiber of its own, while every session before it holds its transaction open:
+ * one whose head's key an open session before it stamped (keyOf) must wait on a lock (the problem otherwise is that it
+ * stamped through), and any other must finish without waiting on one (the problem otherwise is that it waited on a call
+ * of another key), each read by polling its backend's lock wait (substrate/barrier.ts lockWaitOf) against its fiber's
  * end. Then each session ends in `ends`' order, the first whose stamp is through, committing where its call drew it and
  * succeeded, a session still waiting taking its turn once the one it waits on ended. The observer reads the rows last.
  */
-export const runRace = (s: InstalledShape, race: StampRace, level: Isolation) =>
+export const runRace = (s: InstalledShape, race: StampRace) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const substrate = yield* Substrate
@@ -306,8 +342,8 @@ export const runRace = (s: InstalledShape, race: StampRace, level: Isolation) =>
 				)
 			)
 			const actorOf = (i: number): DirectActor => defined(actors[`s${i}`], `session s${i}`)
-			for (const [i] of sessions.entries()) {
-				for (const sql of callStandUps(s, { role: "writer", member: "append" })) {
+			for (const [i, c] of race.calls.entries()) {
+				for (const sql of callStandUps(s, { role: "writer", member: c.clock })) {
 					yield* actorOf(i).perform({ _tag: "Sql", sql })
 				}
 			}
@@ -316,17 +352,19 @@ export const runRace = (s: InstalledShape, race: StampRace, level: Isolation) =>
 					kind: "change",
 					session: `s${i}`,
 					role: "writer",
-					member: "append",
+					member: c.clock,
 					input: {
 						kind: "params",
-						params: { child: BigInt(c.child), part: BigInt(c.part), kind: BigInt(i) }
+						params:
+							c.clock === "tick"
+								? { child: BigInt(c.child), part: BigInt(c.part), kind: BigInt(i) }
+								: { kid: c.child, part: BigInt(c.part), kind: BigInt(i) }
 					}
 				})
 			)
 			const clocks: Array<bigint> = []
 			for (const [i] of sessions.entries()) {
-				yield* actorOf(i).perform({ _tag: "Begin" })
-				yield* actorOf(i).perform({ _tag: "Sql", sql: levelSql(level) })
+				yield* actorOf(i).perform(writeBegin(s, "writer"))
 				const read = yield* actorOf(i).perform({ _tag: "Sql", sql: clockSql })
 				clocks.push(BigInt(defined(onlyText(read), `session s${i}'s clock`)))
 			}
@@ -346,7 +384,7 @@ export const runRace = (s: InstalledShape, race: StampRace, level: Isolation) =>
 				})
 			for (const i of race.starts) {
 				const call = defined(race.calls[i], `call ${i}`)
-				const held = Arr.some(holdersOf(race, i), (j) => sameChild(callOf(race, j), call))
+				const held = Arr.some(holdersOf(race, i), (j) => sameKey(callOf(race, j), call))
 				const fiber = yield* Effect.forkChild(stamp(i))
 				fibers.set(i, fiber)
 				for (;;) {
@@ -357,7 +395,7 @@ export const runRace = (s: InstalledShape, race: StampRace, level: Isolation) =>
 								? (failureOf(through.value) ?? "succeeded")
 								: "died"
 							problems.push(
-								`s${i} stamped ${childText(call)} through (${shown}) while a session before it held the child's stamp`
+								`s${i} stamped ${callText(call)} through (${shown}) while a session before it held the stamp of ${keyOf(call)}`
 							)
 						}
 						break
@@ -366,7 +404,7 @@ export const runRace = (s: InstalledShape, race: StampRace, level: Isolation) =>
 					if (wait !== undefined) {
 						if (!held) {
 							problems.push(
-								`s${i} at ${childText(call)} waited on ${wait.locktype} ${wait.mode}, held by a call of another child`
+								`s${i} at ${callText(call)} waited on ${wait.locktype} ${wait.mode}, held by a call of another key`
 							)
 						}
 						break
@@ -374,7 +412,7 @@ export const runRace = (s: InstalledShape, race: StampRace, level: Isolation) =>
 					yield* Effect.yieldNow
 				}
 				if (problems.length > 0) {
-					return { runs: [], commits: [], problems, events: [], slots: [] }
+					return { runs: [], commits: [], problems, ...noRows }
 				}
 			}
 			const outcomes = new Map<number, ReadonlyArray<ScheduleOutcome>>()
@@ -394,16 +432,9 @@ export const runRace = (s: InstalledShape, race: StampRace, level: Isolation) =>
 					continue
 				}
 				const through = ready.value
-				const exit = defined(
-					defined(fibers.get(through), `s${through}'s fiber`).pollUnsafe(),
-					"an ended fiber"
-				)
-				const own = Exit.isSuccess(exit) ? exit.value : []
+				const own = yield* Fiber.join(defined(fibers.get(through), `s${through}'s fiber`))
 				outcomes.set(through, own)
-				const commit =
-					Exit.isSuccess(exit) &&
-					failureOf(own) === undefined &&
-					callOf(race, through).ends === "commit"
+				const commit = failureOf(own) === undefined && callOf(race, through).ends === "commit"
 				const ended = yield* actorOf(through).perform(
 					commit ? { _tag: "Commit" } : { _tag: "Rollback" }
 				)
@@ -423,10 +454,16 @@ export const runRace = (s: InstalledShape, race: StampRace, level: Isolation) =>
 				)
 			const t = s.names
 			const events = yield* rows(
-				`SELECT ${t.column(Event, "child")}::text, ${t.column(Event, "part")}::text, ${t.column(Event, "at")}::text, ${t.column(Event, "kind")}::text FROM ${t.table(Event)}`
+				`SELECT ${t.column(Event, "kid")}::text, ${t.column(Event, "part")}::text, ${t.column(Event, "at")}::text, ${t.column(Event, "kind")}::text FROM ${t.table(Event)}`
+			)
+			const marks = yield* rows(
+				`SELECT ${t.column(Mark, "kid")}::text, ${t.column(Mark, "part")}::text, ${t.column(Mark, "at")}::text, ${t.column(Mark, "kind")}::text FROM ${t.table(Mark)}`
+			)
+			const ticks = yield* rows(
+				`SELECT ${t.column(Tick, "child")}::text, ${t.column(Tick, "part")}::text, ${t.column(Tick, "at")}::text, ${t.column(Tick, "kind")}::text FROM ${t.table(Tick)}`
 			)
 			const slots = yield* rows(
-				`SELECT ${t.column(Slot, "child")}::text, ${t.column(Slot, "part")}::text, ${t.column(Slot, "n")}::text, ${t.column(Slot, "v")}::text FROM ${t.table(Slot)}`
+				`SELECT ${t.column(Slot, "kid")}::text, ${t.column(Slot, "part")}::text, ${t.column(Slot, "n")}::text, ${t.column(Slot, "v")}::text FROM ${t.table(Slot)}`
 			)
 			return {
 				runs: Arr.map(race.calls, (_, i): Run => ({
@@ -436,6 +473,8 @@ export const runRace = (s: InstalledShape, race: StampRace, level: Isolation) =>
 				commits,
 				problems,
 				events,
+				marks,
+				ticks,
 				slots
 			}
 		})
@@ -443,12 +482,13 @@ export const runRace = (s: InstalledShape, race: StampRace, level: Isolation) =>
 
 /**
  * What a race's run should have left, by the serial run of its committed calls in the order they committed, each
- * call's stamp at its child the greater of its clock reading and one past the stamp before it there, its place one past
- * the place before it, the first at a child its clock and 0; and each call's own fate at `level`. At READ COMMITTED
- * every call succeeds. At SERIALIZABLE a call whose child a call stamped before it, which then committed, is refused
- * with 40001, a call that stamps after a head its snapshot did not see, and every other call succeeds. The problems are
- * every difference: a refused or a succeeded call against its fate, and each child's events and slots against the
- * model, as sets of (child, stamp, session).
+ * call's stamp at its head's key (keyOf) the greater of its clock reading and one past the stamp before it there,
+ * whichever clock and child of the key's scope stamped it, the first at a key its clock; its place one past the place
+ * before it in its group, from 0; and each call's own fate at `level`. So a scope's instants rise in commit order across
+ * every clock and child it holds. At READ COMMITTED every call succeeds. At SERIALIZABLE a call whose key a call stamped
+ * before it, which then committed, is refused with 40001, a call that stamps after a head its snapshot did not see, and
+ * every other call succeeds. The problems are every difference: a refused or a succeeded call against its fate, and each
+ * relation's rows against the model, as sets of (child, stamp, session).
  */
 export const problemsOf = (
 	race: StampRace,
@@ -460,35 +500,57 @@ export const problemsOf = (
 		const failure = failureOf(own.outcomes)
 		const advanced = Arr.some(
 			holdersOf(race, i),
-			(j) => sameChild(callOf(race, j), call) && Arr.contains(run.commits, j)
+			(j) => sameKey(callOf(race, j), call) && Arr.contains(run.commits, j)
 		)
 		const expected = level === "serializable" && advanced ? "40001" : undefined
 		return failure === expected
 			? []
 			: [
-					`s${i} at ${childText(call)}: ${failure ?? "succeeded"}, where ${expected ?? "success"} was due`
+					`s${i} at ${callText(call)}: ${failure ?? "succeeded"}, where ${expected ?? "success"} was due`
 				]
 	})
-	const modelEvents: Array<Stamped> = []
-	const modelSlots: Array<Stamped> = []
-	const heads = new Map<string, { readonly at: bigint; readonly n: bigint }>()
+	const model: Record<keyof RaceRows, Array<Stamped>> = {
+		events: [],
+		marks: [],
+		ticks: [],
+		slots: []
+	}
+	const instants = new Map<string, bigint>()
+	const places = new Map<string, bigint>()
 	for (const i of run.commits) {
-		const child = childText(callOf(race, i))
-		const head = heads.get(child)
+		const call = callOf(race, i)
+		const child = childText(call)
+		const key = keyOf(call)
+		const head = instants.get(key)
 		const clock = defined(run.runs[i], `s${i}'s run`).clock
-		const at = head === undefined || clock > head.at + 1n ? clock : head.at + 1n
-		const n = head === undefined ? 0n : head.n + 1n
-		heads.set(child, { at, n })
-		modelEvents.push({ child, stamp: at, session: i })
-		modelSlots.push({ child, stamp: n, session: i })
+		const at = head === undefined || clock > head + 1n ? clock : head + 1n
+		instants.set(key, at)
+		const stamped = { child, stamp: at, session: i }
+		switch (call.clock) {
+			case "event": {
+				const before = places.get(child)
+				const n = before === undefined ? 0n : before + 1n
+				places.set(child, n)
+				model.events.push(stamped)
+				model.slots.push({ child, stamp: n, session: i })
+				break
+			}
+			case "mark":
+				model.marks.push(stamped)
+				model.events.push(stamped)
+				break
+			case "tick":
+				model.ticks.push(stamped)
+				break
+		}
 	}
 	const text = (rows: ReadonlyArray<Stamped>): ReadonlyArray<string> =>
 		Arr.sort(
 			Arr.map(rows, (r) => `${r.child} ${r.stamp} s${r.session}`),
 			(a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 		)
-	const compare = (what: string, actual: ReadonlyArray<Stamped>, model: ReadonlyArray<Stamped>) => {
-		const [a, m] = [text(actual), text(model)]
+	const compare = (what: keyof RaceRows) => {
+		const [a, m] = [text(run[what]), text(model[what])]
 		return Arr.join(a, "; ") === Arr.join(m, "; ")
 			? []
 			: [
@@ -497,8 +559,10 @@ export const problemsOf = (
 	}
 	return [
 		...fates,
-		...compare("events", run.events, modelEvents),
-		...compare("slots", run.slots, modelSlots)
+		...compare("events"),
+		...compare("marks"),
+		...compare("ticks"),
+		...compare("slots")
 	]
 }
 
@@ -510,7 +574,7 @@ export const featuresOf = (
 ): ReadonlyArray<StampFeature> => {
 	const committed = (i: number) => Arr.contains(run.commits, i)
 	const holders = (i: number) =>
-		Arr.filter(holdersOf(race, i), (j) => sameChild(callOf(race, j), callOf(race, i)))
+		Arr.filter(holdersOf(race, i), (j) => sameKey(callOf(race, j), callOf(race, i)))
 	const waiters = Arr.filter(
 		upTo(race.calls.length, (i) => i),
 		(i) => holders(i).length > 0
@@ -518,6 +582,13 @@ export const featuresOf = (
 	const pairs = Arr.flatMap(race.calls, (c, i) =>
 		Arr.flatMap(race.calls, (d, j) => (i === j ? [] : [[c, d] as const]))
 	)
+	/** Whether a waiter `i` began before its holder `j`, which stamped first, both committing. */
+	const laterFirst = (i: number, j: number): boolean => j > i && committed(j) && committed(i)
+	/** Whether two calls of one key stamp another clock or child of it: an Event and a Mark, or two parts. */
+	const elsewhere = (i: number, j: number): boolean => {
+		const [c, d] = [callOf(race, i), callOf(race, j)]
+		return c.clock !== d.clock || c.part !== d.part
+	}
 	return [
 		...(Arr.some(waiters, (i) => Arr.some(holders(i), committed))
 			? ["a waiter whose holder committed" as const]
@@ -525,18 +596,217 @@ export const featuresOf = (
 		...(Arr.some(waiters, (i) => Arr.some(holders(i), (j) => callOf(race, j).ends === "rollback"))
 			? ["a waiter whose holder rolled back" as const]
 			: []),
-		...(Arr.some(race.calls, (c) => Arr.filter(race.calls, (d) => sameChild(c, d)).length >= 3)
-			? ["three calls at one child" as const]
+		...(Arr.some(race.calls, (c) => Arr.filter(race.calls, (d) => sameKey(c, d)).length >= 3)
+			? ["three calls at one key" as const]
 			: []),
-		...(Arr.some(pairs, ([c, d]) => !sameChild(c, d)) ? ["children apart at once" as const] : []),
-		...(Arr.some(pairs, ([c, d]) => c.child === d.child && c.part !== d.part)
-			? ["children sharing a field" as const]
+		...(Arr.some(pairs, ([c, d]) => !sameKey(c, d)) ? ["keys apart at once" as const] : []),
+		...(Arr.some(pairs, ([c, d]) => sameKey(c, d) && c.clock !== d.clock)
+			? ["two clocks of one unit at one key" as const]
 			: []),
-		...(Arr.some(waiters, (i) => Arr.some(holders(i), (j) => j > i && committed(j) && committed(i)))
+		...(Arr.some(run.commits, (i) => callOf(race, i).clock === "mark")
+			? ["two clocks of one unit in one call" as const]
+			: []),
+		...(Arr.some(
+			pairs,
+			([c, d]) => c.clock !== "tick" && c.clock === d.clock && sameKey(c, d) && c.part !== d.part
+		)
+			? ["two children of one unit's clock at one key" as const]
+			: []),
+		...(Arr.some(
+			pairs,
+			([c, d]) =>
+				c.clock === "tick" && d.clock === "tick" && c.child === d.child && c.part !== d.part
+		)
+			? ["children of a clock no unit holds sharing a field" as const]
+			: []),
+		...(Arr.some(waiters, (i) => Arr.some(holders(i), (j) => laterFirst(i, j)))
 			? ["a later-begun call stamped first" as const]
+			: []),
+		...(Arr.some(waiters, (i) => Arr.some(holders(i), (j) => laterFirst(i, j) && elsewhere(i, j)))
+			? ["a later-begun call stamped first at another clock or child of its unit" as const]
 			: []),
 		...(level === "serializable" && Arr.some(run.runs, (r) => failureOf(r.outcomes) === "40001")
 			? ["a SERIALIZABLE call refused at an advanced head" as const]
 			: [])
 	]
 }
+
+/**
+ * What a direct writer states of a Mark's clock at kid 0, after a served Mark of kid 0 committed and left the head at
+ * its instant h: an insert below h, at h, which the served call stamped, or above it, none of them stamped by the
+ * writer's own transaction; an insert at the instant its own call of the scope's stamp function returned, or at that
+ * instant at kid 1, which it did not stamp there; an UPDATE that moves the stored Mark off its instant, or to the instant
+ * its own stamp returned.
+ */
+export type DirectStatement =
+	| "below the head"
+	| "at the head another call stamped"
+	| "above the head, unstamped"
+	| "at its own stamp"
+	| "at its own stamp, at another key"
+	| "a move off its stamp"
+	| "a move to its own stamp"
+
+/** Who states it: a session of the writer's role, which holds INSERT on Mark and no UPDATE, or the owner's. */
+export type DirectWriter = "role" | "owner"
+
+/** One direct write of the box: its writer and what it states. */
+export interface DirectCase {
+	readonly writer: DirectWriter
+	readonly states: DirectStatement
+}
+
+/** The box: each writer, each statement, the role's two moves among them, which its privileges refuse. */
+export const directGen: Gen<DirectCase> = (source) => ({
+	writer: source.draw(element(["role", "owner"] as const)),
+	states: source.draw(
+		element([
+			"below the head",
+			"at the head another call stamped",
+			"above the head, unstamped",
+			"at its own stamp",
+			"at its own stamp, at another key",
+			"a move off its stamp",
+			"a move to its own stamp"
+		] as const)
+	)
+})
+
+/** Whether a statement moves the stored Mark, an UPDATE, which the role holds no privilege for. */
+const moves = (states: DirectStatement): boolean =>
+	states === "a move off its stamp" || states === "a move to its own stamp"
+
+/** How the installation answers a direct write: admitted, or refused with a SQLSTATE under a constraint. */
+export type DirectFate =
+	| { readonly kind: "admitted" }
+	| { readonly kind: "refused"; readonly code: string; readonly constraint: string | undefined }
+
+/**
+ * The fate of `c`: a role's move refused by its privileges (42501, no constraint); a write at its transaction's own
+ * stamp at its key admitted; every other refused by its clock's guard, 23514 under `__clocked` for an insert and
+ * `__clock_moved` for a move.
+ */
+export const fateOf = (c: DirectCase): DirectFate =>
+	c.writer === "role" && moves(c.states)
+		? { kind: "refused", code: "42501", constraint: undefined }
+		: c.states === "at its own stamp" || c.states === "a move to its own stamp"
+			? { kind: "admitted" }
+			: {
+					kind: "refused",
+					code: "23514",
+					constraint: c.states === "a move off its stamp" ? "__clock_moved" : "__clocked"
+				}
+
+/**
+ * What a direct write showed: the served Mark's instant h; the unit head's scans in the served call's transaction,
+ * its sequential and its index scans (pg_stat_xact_user_tables); the direct write's failure, its SQLSTATE and
+ * constraint, none where it committed; and the Marks stored after it, each `kid part at`.
+ */
+interface DirectRun {
+	readonly head: bigint
+	readonly served: { readonly seqScans: bigint; readonly indexScans: bigint }
+	readonly failure: { readonly code: string; readonly constraint: string | undefined } | undefined
+	readonly marks: ReadonlyArray<string>
+}
+
+/** The failure of a direct transaction's outcomes: the first PostgreSQL error, its code and its constraint. */
+const pgFailureOf = (outcomes: ReadonlyArray<ScheduleOutcome>): DirectRun["failure"] => {
+	for (const o of outcomes) {
+		if (o._tag === "PgError") {
+			return { code: o.fields.code, constraint: o.fields.constraint }
+		}
+	}
+	return undefined
+}
+
+/**
+ * Runs `c` over `s` (DirectCase): a served Mark of kid 0, part 0, in a session of the writer's role, committed, its
+ * transaction's scans of Kid's head read before its COMMIT; then the direct writer's one transaction, what it states,
+ * and its COMMIT, which judges a move's guard, a deferred one; then the Marks as they stand.
+ */
+export const runDirect = (s: InstalledShape, c: DirectCase) =>
+	Effect.scoped(
+		Effect.gen(function* () {
+			const substrate = yield* Substrate
+			yield* Effect.provideService(replaceMigrated(s.installed, {}), Substrate, substrate)
+			const env = yield* exploreEnv(substrate)
+			const writer = defined(s.shape.roles["writer"], "the writer")
+			const actors = yield* openActors(substrate, {
+				served: { kind: "raw", as: s.installed.world(writer) },
+				role: { kind: "raw", as: s.installed.world(writer) },
+				owner: { kind: "raw", as: substrate.owner }
+			})
+			const n = s.names
+			const head = s.installed.installation.names.head({ kind: "unit", unit: "Kid" })
+			const headTable = `${quoteIdent(head.schema)}.${quoteIdent(head.name)}`
+			for (const sql of callStandUps(s, { role: "writer", member: "mark" })) {
+				yield* actors.served.perform({ _tag: "Sql", sql })
+			}
+			const sent = yield* callStatements(s, {
+				kind: "change",
+				session: "served",
+				role: "writer",
+				member: "mark",
+				input: { kind: "params", params: { kid: 0, part: 0n, kind: 1n } }
+			})
+			yield* actors.served.perform({ _tag: "Begin" })
+			for (const sql of sent) {
+				yield* actors.served.perform({ _tag: "Sql", sql })
+			}
+			const scans = yield* actors.served.perform({
+				_tag: "Sql",
+				sql: `SELECT coalesce(sum(seq_scan), 0)::text || ' ' || coalesce(sum(idx_scan), 0)::text FROM pg_catalog.pg_stat_xact_user_tables WHERE relid = '${headTable}'::pg_catalog.regclass`
+			})
+			const [seqScans, indexScans] = Str.split(String(onlyText(scans)), " ")
+			yield* actors.served.perform({ _tag: "Commit" })
+			const [headRow] = yield* env.observer.queryValues(
+				`SELECT __instant::text FROM ${headTable} WHERE ${quoteIdent("kid")} = 0`,
+				[]
+			)
+			const h = BigInt(String(textOfValue(headRow?.[0])))
+			const mark = n.table(Mark)
+			const cols = `(${n.column(Mark, "kid")}, ${n.column(Mark, "part")}, ${n.column(Mark, "at")}, ${n.column(Mark, "kind")})`
+			const stamp = (kid: number) => `${n.stampCall(Mark, "at", [`${kid}`], `${h}`)} AS s`
+			const statement = ((): string => {
+				switch (c.states) {
+					case "below the head":
+						return `INSERT INTO ${mark} ${cols} VALUES (0, 1, ${h - 1n}, 9)`
+					case "at the head another call stamped":
+						return `INSERT INTO ${mark} ${cols} VALUES (0, 1, ${h}, 9)`
+					case "above the head, unstamped":
+						return `INSERT INTO ${mark} ${cols} VALUES (0, 1, ${h + 1000n}, 9)`
+					case "at its own stamp":
+						return `INSERT INTO ${mark} ${cols} SELECT 0, 1, s.__instant, 9 FROM ${stamp(0)}`
+					case "at its own stamp, at another key":
+						return `INSERT INTO ${mark} ${cols} SELECT 1, 1, s.__instant, 9 FROM ${stamp(0)}`
+					case "a move off its stamp":
+						return `UPDATE ${mark} SET ${n.column(Mark, "at")} = ${n.column(Mark, "at")} + 1 WHERE ${n.column(Mark, "kid")} = 0`
+					case "a move to its own stamp":
+						return `UPDATE ${mark} SET ${n.column(Mark, "at")} = s.__instant FROM ${stamp(0)} WHERE ${mark}.${n.column(Mark, "kid")} = 0`
+				}
+			})()
+			const direct = actors[c.writer]
+			const begun = yield* direct.perform({ _tag: "Begin" })
+			const stated = yield* direct.perform({ _tag: "Sql", sql: statement })
+			const ended = yield* direct.perform(
+				pgFailureOf([begun, stated]) === undefined ? { _tag: "Commit" } : { _tag: "Rollback" }
+			)
+			const outcomes: ReadonlyArray<ScheduleOutcome> = [begun, stated, ended]
+			const marks = yield* env.observer.queryValues(
+				`SELECT ${n.column(Mark, "kid")}::text || ' ' || ${n.column(Mark, "part")}::text || ' ' || ${n.column(Mark, "at")}::text FROM ${mark}`,
+				[]
+			)
+			return {
+				head: h,
+				served: {
+					seqScans: BigInt(defined(seqScans, "the head's sequential scans")),
+					indexScans: BigInt(defined(indexScans, "the head's index scans"))
+				},
+				failure: pgFailureOf(outcomes),
+				marks: Arr.sort(
+					Arr.map(marks, (row) => String(textOfValue(row[0]))),
+					(a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+				)
+			} satisfies DirectRun
+		})
+	)

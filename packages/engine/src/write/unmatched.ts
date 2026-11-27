@@ -96,7 +96,7 @@ const columnOf = (names: PhysicalNames, relation: string, c: NativeColumn): stri
 const primaryFields = (relation: TableRelation): readonly [LawField, ...Array<LawField>] => {
 	const [primary] = relation.keyNames
 	if (primary === undefined) {
-		throw defect(`the primary key of ${relation.name}`)
+		defect(`the primary key of ${relation.name}`)
 	}
 	return primary.fields
 }
@@ -114,7 +114,7 @@ export const unmatchedQueryOf = (
 	const pairs = key.columns.map((c, i) => {
 		const t = key.targetColumns[i]
 		if (t === undefined) {
-			throw defect(`the target column ${i} of ${constraint}`)
+			defect(`the target column ${i} of ${constraint}`)
 		}
 		return binary("=", theirs(t), own(c))
 	})

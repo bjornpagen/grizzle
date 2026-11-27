@@ -8,7 +8,8 @@ import { bigint } from "@bjornpagen/testing/values"
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { cellsOfLiteral, payloadsOfLiteral } from "#compiler/ir/cells.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { installOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { closedId, drawn as drawnField, natural, slot } from "#compiler/public/fields.ts"
 import {
 	type AnyClosed,

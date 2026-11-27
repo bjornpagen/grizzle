@@ -112,14 +112,36 @@ export const perEvaluation = differentialProperty(
 				reason:
 					"seed 0x6e1e5955, case 469, built by hand: a region another reads laterally, held where its reader reads it",
 				since: "2026-11-21"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/oracle/optimized/per-evaluation.test.ts#perEvaluation:-:7.0.0.0.0.0.0.0.0.1.0"
+				),
+				reason:
+					"built by hand beside key-sets' rotating 0x9368d051 case 35: a chain's take per parent correlated to a column of the closed relation it leads with that its key set holds no class of, read per row (lower/shapes/region atKeySet), where read at its key set the optimized lowering would refuse it",
+				since: "2026-11-26"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/oracle/optimized/per-evaluation.test.ts#perEvaluation:-:8.0.0.0.0.0.0.0.0.1.0"
+				),
+				reason:
+					"built by hand from the sixth: its tested region read twice by one region beside R0, shared as a CTE of the statement, the first region held inside that CTE's body (cte-policy holderOf's first holder); the sixth reaches that branch no more, its tested region read once, inline, holding no CTE either way",
+				since: "2026-11-26"
 			}
 		],
 		kills: [
 			{
+				file: "packages/engine/src/lower/shapes/region/index.ts",
+				original: "\treturn unheld\n\t\t? undefined\n\t\t: (scope, at) =>",
+				replacement: "\treturn (scope: Env, at: ReadonlyArray<Expr>): Env =>",
+				why: "A source whose correlation reads a column of the region its key set holds no class of read at the key set all the same: the kept take's correlation reads the lead's p1 where only the key is in scope, and the optimized lowering refuses the query."
+			},
+			{
 				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
 				original: "\t\t\tif (read.size === 0) {\n\t\t\t\tbreak\n\t\t\t}\n",
 				replacement: "",
-				why: "A node that reads no outer value is held in the outermost region on its chain of dominators, the root semi-join's, whose CTE the statement its reader stands in reads out of scope: the optimized statement fails its scope audit."
+				why: "A node that reads no outer value is held in the outermost region on its chain of dominators: the eighth kept case's first region is held in the root region's query while every read of it stands in the body of the CTE the statement shares its tested region as, out of its reach, which the printer refuses."
 			}
 		]
 	}

@@ -3,10 +3,8 @@ import { caVariable, type PgMember, type Platform } from "@bjornpagen/testing/pg
 import * as NodeChildProcessSpawner from "@effect/platform-node/NodeChildProcessSpawner"
 import {
 	Array as Arr,
-	Clock,
 	Config,
 	ConfigProvider,
-	DateTime,
 	Effect,
 	FileSystem,
 	Layer,
@@ -38,12 +36,7 @@ import { memberAt as clusterMemberAt } from "#test/support/cluster.ts"
 import { clusterPort, pgCluster, pgPin } from "#test/support/env.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { decodersIn, type SourcedLayer, servedSourcedLayer } from "#test/support/live-layer.ts"
-import {
-	awaitingUnchecked,
-	clusterConnection,
-	clusterPool,
-	type SqlError
-} from "#test/support/pg.ts"
+import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
 import { hardenedNode } from "#test/support/process.ts"
 import { type BudgetedCluster, budgeted, connectionBudget } from "#test/support/substrate/budget.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -70,7 +63,7 @@ const configChild = `${repo}test/pg/cli/config.child.ts`
  * the migration identity `grizzle_dev`, whose password and CA come from the initialised cluster
  * (test/support/cluster.ts), which a CLI child reads for itself (config.child.ts), or as a role a test created, whose
  * password its spec names.
- * `cli` runs a command line in process with a fixed clock; `bin` runs the real bin, `node packages/grizzle/src/cli/bin.ts`, as a child
+ * `cli` runs a command line in process; `bin` runs the real bin, `node packages/grizzle/src/cli/bin.ts`, as a child
  * process the test owns.
  *
  * The password of the configuration's "wrong" connection, which no role has.
@@ -90,7 +83,7 @@ export const workspace = (
 
 /**
  * One schema of a configuration (fixture.ts): the shop at a version, its login owning a workload (both programs,
- * ordersOf alone, or none), or the ledger, with its alternatives, derived relation and full workload.
+ * ordersOf alone, or none), or the ledger, with its plan arms, derived relation and full workload.
  */
 export type SchemaSpec =
 	| {
@@ -236,6 +229,7 @@ export const configOf = (
 	return {
 		schemas: [first, ...rest],
 		logins: Arr.map(built, (b) => b.server),
+		contracts: [],
 		migrations: "migrations",
 		rolePrefixBytes: 0,
 		connection
@@ -363,43 +357,6 @@ export interface CliRun {
 }
 
 /**
- * A fixed, increasing clock its test file owns: each reading one second after the last, from 2026-10-12 12:00:00 UTC,
- * so the folders a file's commands draft sort in drafting order.
- */
-export const cliClock = (): (() => DateTime.Utc) => {
-	let seconds = 0
-	return () =>
-		DateTime.makeUnsafe({
-			year: 2026,
-			month: 10,
-			day: 12,
-			hour: 12,
-			minute: 0,
-			second: seconds++,
-			millisecond: 0
-		})
-}
-
-/**
- * A Clock whose current time is `now` and whose sleep is the default clock's: a command reads its folder timestamp
- * from it, and a migrate's connect deadlines still elapse on the live clock.
- */
-const fixedClock = (now: DateTime.Utc): Clock.Clock => {
-	const live = Clock.Clock.defaultValue()
-	const millis = DateTime.toEpochMillis(now)
-	const nanos = BigInt(millis) * 1_000_000n
-	return {
-		currentTimeMillisUnsafe: () => millis,
-		currentTimeMillis: Effect.succeed(millis),
-		currentTimeNanosUnsafe: () => nanos,
-		currentTimeNanos: Effect.succeed(nanos),
-		monotonicTimeNanosUnsafe: () => live.monotonicTimeNanosUnsafe(),
-		monotonicTimeNanos: live.monotonicTimeNanos,
-		sleep: (duration) => live.sleep(duration)
-	}
-}
-
-/**
  * A configuration value checked as the default export of `file`, its directories resolved by Path.
  *
  * @internal
@@ -432,23 +389,21 @@ const workspaceConfig: ConfigLoader = (file) =>
 			)
 		)
 		const value = defineConfig(config)
-		const loaded: ConfigFile = { file, value }
+		const loaded: ConfigFile = { file, value, closure: [] }
 		return loaded
 	})
 
 /**
- * Runs a command line in process in `dir` at `now`, its configuration file imported by `load` and its phases, where it
- * asks (`--phases`), written to `meter`; its report's lines read back as the text the bin writes.
+ * Runs a command line in process in `dir`, its configuration file imported by `load` and its phases, where it asks
+ * (`--phases`), written to `meter`; its report's lines read back as the text the bin writes.
  */
 const runIn = (
 	dir: string,
 	load: ConfigLoader,
 	argv: ReadonlyArray<string>,
-	now: DateTime.Utc,
 	meter: PhaseMeter
 ): Effect.Effect<CliRun, never, FileSystem.FileSystem | Path.Path> =>
-	runCli(argv, dir, load, meter).pipe(
-		Effect.provideService(Clock.Clock, fixedClock(now)),
+	runCli(argv, dir, process.version, load, meter).pipe(
 		Effect.map((report) => ({
 			code: report.code,
 			stdout: text(report.stdout),
@@ -458,35 +413,33 @@ const runIn = (
 	)
 
 /**
- * Runs a command line in process in `dir` at `now`, over the configuration of the spec writeConfig wrote beside the
+ * Runs a command line in process in `dir`, over the configuration of the spec writeConfig wrote beside the
  * configuration file it names; its report's lines read back as the text the bin writes.
  *
  * @internal
  */
 export const cli = (
 	dir: string,
-	argv: ReadonlyArray<string>,
-	now: DateTime.Utc
+	argv: ReadonlyArray<string>
 ): Effect.Effect<CliRun, never, FileSystem.FileSystem | Path.Path> =>
-	runIn(dir, workspaceConfig, argv, now, processMeter)
+	runIn(dir, workspaceConfig, argv, processMeter)
 
 /**
- * Runs a command line in process in `dir` at `now` over `value`, the default export of whatever configuration file it
- * names, as the bin imports it.
+ * Runs a command line in process in `dir` over `value`, the default export of whatever configuration file it names, as
+ * the bin imports it.
  *
  * @internal
  */
 export const cliOver = (
 	dir: string,
 	value: unknown,
-	argv: ReadonlyArray<string>,
-	now: DateTime.Utc
+	argv: ReadonlyArray<string>
 ): Effect.Effect<CliRun, never, FileSystem.FileSystem | Path.Path> =>
-	runIn(dir, (file) => Effect.succeed({ file, value }), argv, now, processMeter)
+	runIn(dir, (file) => Effect.succeed({ file, value, closure: [] }), argv, processMeter)
 
 /**
- * Runs a command line in process in `dir` at `now` over `value` (cliOver), its phases, where it asks (`--phases`),
- * written to `meter`.
+ * Runs a command line in process in `dir` over `value` (cliOver), its phases, where it asks (`--phases`), written to
+ * `meter`.
  *
  * @internal
  */
@@ -494,10 +447,9 @@ export const cliMetered = (
 	dir: string,
 	value: unknown,
 	argv: ReadonlyArray<string>,
-	now: DateTime.Utc,
 	meter: PhaseMeter
 ): Effect.Effect<CliRun, never, FileSystem.FileSystem | Path.Path> =>
-	runIn(dir, (file) => Effect.succeed({ file, value }), argv, now, meter)
+	runIn(dir, (file) => Effect.succeed({ file, value, closure: [] }), argv, meter)
 
 /**
  * The drift check's mismatches a refused `grizzle migrate` or `grizzle drift` reports, each as its kind and fact: none
@@ -521,8 +473,8 @@ export interface BinRun {
 
 /**
  * Runs the real bin in `dir` as a child process of the effect, killed when it is interrupted, its environment this
- * process's extended by `env`. The run is a declared wait (pg.ts awaitingUnchecked): the bin's statements are waits of
- * its own process, which no guard of this one reads, so a case would read the child blocked on the server as a stall.
+ * process's extended by `env`. The bin and the backends it is the client of are the case's own work, as its process
+ * tree's.
  *
  * @internal
  */
@@ -531,22 +483,39 @@ export const bin = (
 	argv: ReadonlyArray<string>,
 	env: Readonly<Record<string, string>>
 ): Effect.Effect<BinRun, PlatformError.PlatformError, ChildProcessSpawner.ChildProcessSpawner> =>
+	binWith(dir, argv, [], env)
+
+/**
+ * Runs the real bin as bin does, Node importing each of `imports` before it (`--import`): a module that records what the
+ * process does, such as test/support/read-trace.ts.
+ *
+ * @internal
+ */
+export const binWith = (
+	dir: string,
+	argv: ReadonlyArray<string>,
+	imports: ReadonlyArray<string>,
+	env: Readonly<Record<string, string>>
+): Effect.Effect<BinRun, PlatformError.PlatformError, ChildProcessSpawner.ChildProcessSpawner> =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const handle = yield* ChildProcess.make(
 				process.execPath,
-				[...hardenedNode, `${repo}packages/grizzle/src/cli/bin.ts`, ...argv],
+				[
+					...hardenedNode,
+					...Arr.flatMap(imports, (m) => ["--import", m]),
+					`${repo}packages/grizzle/src/cli/bin.ts`,
+					...argv
+				],
 				{ cwd: dir, env: { ...env }, extendEnv: true, stdin: "ignore" }
 			)
-			const [stdout, stderr, status] = yield* awaitingUnchecked(`grizzle ${Arr.join(argv, " ")}`)(
-				Effect.all(
-					[
-						Stream.mkString(Stream.decodeText(handle.stdout)),
-						Stream.mkString(Stream.decodeText(handle.stderr)),
-						handle.exitCode
-					],
-					{ concurrency: "unbounded" }
-				)
+			const [stdout, stderr, status] = yield* Effect.all(
+				[
+					Stream.mkString(Stream.decodeText(handle.stdout)),
+					Stream.mkString(Stream.decodeText(handle.stderr)),
+					handle.exitCode
+				],
+				{ concurrency: "unbounded" }
 			)
 			const ran: BinRun = { status, stdout, stderr }
 			return ran

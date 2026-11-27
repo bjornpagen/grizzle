@@ -135,17 +135,26 @@ export const words = oneOf<VocabularyWord>([
 
 export const listed: ReadonlySet<NativeFn> = new Set(Arr.map(nativeOps, (op) => op.fn))
 
+const kept_bigintKey = Symbol("Kept_bigint")
+const kept_booleanKey = Symbol("Kept_boolean")
+const kept_doubleKey = Symbol("Kept_double")
+const kept_integerKey = Symbol("Kept_integer")
+const kept_moneyKey = Symbol("Kept_money")
+const kept_numericKey = Symbol("Kept_numeric")
+const kept_realKey = Symbol("Kept_real")
+const kept_smallintKey = Symbol("Kept_smallint")
+const kept_textKey = Symbol("Kept_text")
 /** A contract over each type min, max, LEAST and GREATEST are defined on. */
 export const kept = [
-	contract("Kept_smallint", pg.smallint),
-	contract("Kept_integer", pg.integer),
-	contract("Kept_bigint", pg.bigint),
-	contract("Kept_numeric", pg.numeric(7, 2)),
-	contract("Kept_real", pg.real),
-	contract("Kept_double", pg["double precision"]),
-	contract("Kept_money", pg.money),
-	contract("Kept_boolean", pg.boolean),
-	contract("Kept_text", str.regex("^.*$", "su"))
+	contract<typeof kept_smallintKey>()("Kept_smallint", pg.smallint),
+	contract<typeof kept_integerKey>()("Kept_integer", pg.integer),
+	contract<typeof kept_bigintKey>()("Kept_bigint", pg.bigint),
+	contract<typeof kept_numericKey>()("Kept_numeric", pg.numeric(7, 2)),
+	contract<typeof kept_realKey>()("Kept_real", pg.real),
+	contract<typeof kept_doubleKey>()("Kept_double", pg["double precision"]),
+	contract<typeof kept_moneyKey>()("Kept_money", pg.money),
+	contract<typeof kept_booleanKey>()("Kept_boolean", pg.boolean),
+	contract<typeof kept_textKey>()("Kept_text", str.regex("^.*$", "su"))
 ] as const
 
 type Kept = (typeof kept)[number]

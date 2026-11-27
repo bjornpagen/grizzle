@@ -22,7 +22,7 @@ export type Batching =
 	| { readonly kind: "bounded"; readonly bytes: number }
 
 /** Every fact of a call in one execution (Batching `whole`). */
-export const wholeBatching: Batching = { kind: "whole" }
+const wholeBatching: Batching = { kind: "whole" }
 
 /**
  * What one statement carries, one array per column: a Bind message of at most `messageBytes` bytes, as its length

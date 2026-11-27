@@ -54,9 +54,9 @@ export const anAttachmentWhoseChildReadsAUnionAtTheParentsKeyReadsItPerParentKey
 		kills: [
 			{
 				file: "packages/engine/src/lower/shapes/share/keys.ts",
-				original: "\t\t\t\tfor (const [source, columns] of bySource) {\n\t\t\t\t\tenter(\n",
+				original: '\t\t\t\t\tif (source.kind === "Base") {\n\t\t\t\t\t\tcontinue\n',
 				replacement:
-					"\t\t\t\tfor (const [source, columns] of bySource.size < 0 ? bySource : []) {\n\t\t\t\t\tenter(\n",
+					'\t\t\t\t\tif (source.kind === "Base" || source.kind !== "Base") {\n\t\t\t\t\t\tcontinue\n',
 				why: "The parent key stops at the child's region: the status union it reads is read as the statement's MATERIALIZED CTE, derived whole, and filtered by each parent's number beside it."
 			}
 		]

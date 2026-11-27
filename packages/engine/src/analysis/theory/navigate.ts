@@ -19,17 +19,19 @@ import {
 	varRef,
 	varsOf
 } from "#compiler/analysis/theory/leaves.ts"
+import { type Successor, successorOf } from "#compiler/analysis/theory/successor.ts"
 import type { FieldContainment, RegionFacts } from "#compiler/analysis/theory/unit.ts"
 import { leavesOf, ruleLeaves } from "#compiler/check/scan.ts"
 import { canonicalEquals } from "#compiler/core/canonical.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import { compareStrings } from "#compiler/core/order.ts"
+import { compareStrings, type Direction } from "#compiler/core/order.ts"
 import { deepFreeze, mapRecord } from "#compiler/core/record.ts"
 import {
 	callsOf,
 	type Channel,
 	descIdentity,
 	exprChildren,
+	headTerms,
 	type InferredBindings,
 	type InferredExpr,
 	type InferredMatch,
@@ -40,6 +42,7 @@ import {
 	queryParamNames,
 	type VarDesc
 } from "#compiler/ir/desc.ts"
+import { equalityIsIdentity, type ScalarType } from "#compiler/ir/scalar.ts"
 
 /**
  * Navigation: a conjunctive rule over stored relations as one chain of steps (ir/desc.ts SourceDesc `step`, ir/rel.ts
@@ -200,6 +203,68 @@ const originOf = (
 }
 
 /**
+ * The type column `column` of `source` holds (analysis/theory/columns.ts QueryColumns): a relation's field, a delta's
+ * or a relation parameter's relation's, off the schema; an imported query's or a step's column at the variable a rule of
+ * it delivers there, by the column a match of that rule binds the variable at, so a column the schema types takes no
+ * check; else as the checker types the query's heading, once for its identity (QueryColumns `type`), undefined where
+ * that check refuses the query read apart. Undefined for any other source.
+ */
+const sourceType = (
+	columns: QueryColumns,
+	source: InferredSource,
+	column: string
+): ScalarType | undefined => {
+	switch (source.kind) {
+		case "relation":
+			return columns.field(source.name, column)
+		case "delta":
+			return columns.field(source.relation, column)
+		case "paramOf":
+			return columns.field(source.relation, column)
+		case "query":
+		case "step": {
+			const stage = source.query.stage
+			for (const arm of stage.kind === "rules" ? stage.arms : []) {
+				const head = arm.head[column]
+				if (head?.kind !== "var") {
+					continue
+				}
+				for (const m of arm.matches) {
+					for (const [at, e] of Object.entries(m.bindings)) {
+						const type =
+							e.kind === "var" && e.var === head.var ? sourceType(columns, m.source, at) : undefined
+						if (type !== undefined) {
+							return type
+						}
+					}
+				}
+			}
+			return columns.type(source.query, column)
+		}
+		case "param":
+		case "call":
+		case "callField":
+		case "split":
+		case "series":
+		case "context":
+		case "row":
+		case "interior":
+		case "self":
+		case "arm":
+			return undefined
+	}
+}
+
+/**
+ * Whether a column holds a type whose equality is identity (ir/scalar.ts equalityIsIdentity), as `sourceType` types it;
+ * a column no check types is held to be of none, so navigation keeps every binding a merge may read there.
+ */
+const identityAt = (columns: QueryColumns, source: InferredSource, column: string): boolean => {
+	const type = sourceType(columns, source, column)
+	return type !== undefined && equalityIsIdentity(type)
+}
+
+/**
  * How navigation reads the imports a rule's unfolding multiplies, an import of one rule read more than once that joins
  * and every import of several rules (`sharedImports`): `perStatement`, each one read, its query navigated as a query of
  * its own, restricted inside to the parameters its reads fix it at, a whole rule's unit channels among them, which the
@@ -315,11 +380,12 @@ export class Navigation {
 
 	/** Whether lookup `l`'s bound columns hold a key of its relation (RegionFacts `keys`), so it reads one row at most. */
 	#unique(l: Lookup): boolean {
-		const source = l.read.source
-		return (
-			source.kind === "relation" &&
-			(this.#keys.get(source.name) ?? []).some((key) => key.every((f) => l.bound.has(f)))
-		)
+		return this.keysOf(l.read.source).some((key) => key.every((f) => l.bound.has(f)))
+	}
+
+	/** The keys of a read's relation over every row (RegionFacts `keys`), its primary key first; none of any other source. */
+	keysOf(source: ReadSource): ReadonlyArray<ReadonlyArray<string>> {
+		return source.kind === "relation" ? (this.#keys.get(source.name) ?? []) : []
 	}
 
 	/**
@@ -424,7 +490,7 @@ export class Navigation {
 	identity(query: InferredQuery): string {
 		const identity = descIdentity(deepFreeze(query))
 		if (!identity.ok) {
-			throw defect(`a navigated query encodes: ${identity.error.message}`)
+			defect(`a navigated query encodes: ${identity.error.message}`)
 		}
 		return identity.value
 	}
@@ -441,7 +507,7 @@ export class Navigation {
 	importKey(query: InferredQuery, bind: Binds): string {
 		const key = descIdentity([query, [...bind].toSorted(([a], [b]) => compareStrings(a, b))])
 		if (!key.ok) {
-			throw defect(`an import's key encodes: ${key.error.message}`)
+			defect(`an import's key encodes: ${key.error.message}`)
 		}
 		return key.value
 	}
@@ -456,9 +522,20 @@ export class Navigation {
 		if (known !== undefined) {
 			return known
 		}
-		const reads = ruleReads(rule, (r) => this.reads(r))
+		const reads = ruleReads(this.successorFold(rule) ? foldsRemoved(rule) : rule, (r) =>
+			this.reads(r)
+		)
 		this.#reads.set(rule, reads)
 		return reads
+	}
+
+	/**
+	 * Whether `rule`'s one fold reads a successor of its matches (`successorBeside`): one row of a relation per binding of
+	 * its other matches, which its chain reads by one descent (`Navigator.#chain`), so navigation chains the rule whole,
+	 * its fold over the chain, as it chains a rule that folds nothing (`reads`).
+	 */
+	successorFold(rule: InferredRule): boolean {
+		return rule.matches.some((m) => successorBeside(rule, m, this) !== undefined)
 	}
 
 	/**
@@ -545,6 +622,27 @@ const armsAt = (
 	}
 }
 
+/**
+ * Whether an import of the one rule `rule`, read over the units a transaction wrote, is read whole and before every step
+ * (`sharedWithin`): its head calls a declared function, and every row it derives is read from the rows the transaction
+ * wrote, its rule matching a delta or an import each rule of which is so read (`fromRegion`), so read whole it reads no
+ * unit's rows but those. Its call is evaluated over its own rows, once per distinct row (ir/expr.ts evaluatesCall), where
+ * read at each read, or partnered among the steps that restrict it, it stood in a step keyed by the steps before and
+ * ran again for every row they deliver: the gain of a closed delta form (analysis/theory/query.ts sharedCalls), whose
+ * calls one import computes over the distinct arguments its arms deliver.
+ */
+const callsOnce = (rule: InferredRule): boolean => callsOf(rule.head).size > 0 && fromRegion(rule)
+
+/** Whether every row `rule` derives is read from the rows a transaction wrote (`callsOnce`). */
+const fromRegion = (rule: InferredRule): boolean =>
+	rule.matches.some(
+		(m) =>
+			m.source.kind === "delta" ||
+			(m.source.kind === "query" &&
+				m.source.query.stage.kind === "rules" &&
+				m.source.query.stage.arms.every(fromRegion))
+	)
+
 const sharedWithin = (
 	flat: Flat,
 	loc: SourceLoc,
@@ -575,7 +673,8 @@ const sharedWithin = (
 			inside === read &&
 			sharing.kind === "perStatement" &&
 			sharing.extent === "units" &&
-			stage.kind === "rules"
+			stage.kind === "rules" &&
+			!(stage.arms.length === 1 && callsOnce(stage.arms[0]))
 		if (overUnits && stage.arms.length === 1) {
 			unrestricted.add(interned.importKey(r.source.query, scalarBinds(r.source.bind) ?? new Map()))
 			return r
@@ -965,9 +1064,13 @@ class Navigator {
 
 	/**
 	 * Whether navigation reads a relational filter's source (`#filtered`): a stored or closed relation, or an imported
-	 * query of rules binding no parameter each of which navigation reads (`RuleReads`). Any other filter stays the
-	 * chain's condition as written (`#chain`): a whole rule's read of a recursion per unit (analysis/theory/unit.ts
-	 * readPerUnit), whose filter imports the recursion whole.
+	 * query of rules binding no parameter each of which, as the filter reads it (`filteredArm`), navigation reads
+	 * (`RuleReads`) and whose head holds each field the filter binds as a term of its matches (`equatedAt`), which the
+	 * filter's step equates with its outer value. Any other filter stays the chain's condition as written (`#chain`): a
+	 * whole rule's read of a recursion per unit (analysis/theory/unit.ts readPerUnit), whose filter imports the recursion
+	 * whole, and a filter binding a fold its arm computes, as a negation of N0's greatest key at its folded field, a
+	 * successor navigation reads by its one descent (Navigation `successorFold`, 1beed3dbb3), which the arm's whole body
+	 * computes and no step restricted at the filter's terms reads, so navigating it was a refusal (`#filtered`).
 	 */
 	#readable(a: Filtered): boolean {
 		const source = a.source
@@ -978,13 +1081,20 @@ class Navigator {
 				return (
 					Object.keys(source.bind).length === 0 &&
 					source.query.stage.kind === "rules" &&
-					source.query.stage.arms.every((arm) => this.#interned.reads(arm).every !== undefined)
+					source.query.stage.arms.every((written) => {
+						const arm = filteredArm(written, a.bindings)
+						return (
+							Object.keys(a.bindings).every((field) => equatedAt(arm, field) !== undefined) &&
+							this.#interned.reads(arm).every !== undefined
+						)
+					})
 				)
 			case "step":
 			case "param":
 			case "paramOf":
 			case "call":
 			case "callField":
+			case "arm":
 			case "split":
 			case "series":
 			case "interior":
@@ -1052,6 +1162,14 @@ class Navigator {
 	 * conditions beside the rule's, and each term the match binds equated with the head field it binds; but an import of
 	 * `shared` (`sharedImports`), by its key under `toTop`, which lifts a term of `rule` into the outermost rule's
 	 * scope: that import is one read, of its query navigated as a query of its own, which every read of it shares.
+	 *
+	 * A match binds a variable at each field it binds to one, and where the field's equality is no identity (ir/scalar.ts
+	 * equalityIsIdentity, a float's) a merge reads that binding (check/merge.ts regionMatches): so the import's head
+	 * variable at such a field is that variable itself, inlined (`renamedAt`), each read of the import's rule that binds it
+	 * binding the rule's variable in its place, where an equality between the two would bind it nowhere and the rule would
+	 * deliver the -0 another read held where the written rule delivers +0. An import whose binding renaming cannot keep is
+	 * read whole, as written: a head term that is no variable, or a variable no read of its rule binds or that the match
+	 * binds at two variables.
 	 */
 	#inline(
 		rule: InferredRule,
@@ -1094,13 +1212,24 @@ class Navigator {
 				return this.#refuse("an imported query of one rule")
 			}
 			const prefix = `n${this.#next++}.`
-			const leaves = { var: (id: string) => varRef(`${prefix}${id}`), field: () => undefined }
+			/** The import's head variables bound to the rule's own, each by its rule variable (`renamedAt`). */
+			let renamed: ReadonlyMap<string, string> = new Map()
+			const leaves = {
+				var: (id: string) => varRef(renamed.get(id) ?? `${prefix}${id}`),
+				field: () => undefined
+			}
 			/** An inner expression in the rule's scope: its variables renamed apart, its parameters what the import binds. */
 			const lift = (e: InferredExpr): InferredExpr => boundIn(mapLeaves(e, leaves), binds)
 			const inner = this.#inline(stage.arms[0], shared, (e) => toTop(lift(e)))
+			const kept = this.#renamedAt(rule, m, inner)
+			if (kept === undefined) {
+				reads.push({ source, bindings: m.bindings, loc: m.loc })
+				continue
+			}
+			renamed = kept
 			appendAll(
 				vars,
-				inner.vars.map((v) => ({ ...v, id: `${prefix}${v.id}` }))
+				inner.vars.flatMap((v) => (renamed.has(v.id) ? [] : [{ ...v, id: `${prefix}${v.id}` }]))
 			)
 			const lifted = (r: Read): Read => ({
 				...r,
@@ -1128,16 +1257,93 @@ class Navigator {
 				}))
 			)
 			appendAll(where, inner.where.map(lift))
-			const columns = this.#columns(source.query)
+			const columns = this.#columns.desc(source.query)
 			for (const [field, outer] of Object.entries(m.bindings)) {
 				const head = inner.head[field]
 				if (head === undefined || head.kind === "aggregate" || head.kind === "producer") {
 					return this.#refuse(`an imported query whose head derives ${field}`)
 				}
-				where.push(equal(lift(atColumn(head, field, columns)), atColumn(outer, field, columns)))
+				if (head.kind !== "var" || outer.kind !== "var" || renamed.get(head.var) !== outer.var) {
+					where.push(equal(lift(atColumn(head, field, columns)), atColumn(outer, field, columns)))
+				}
 			}
 		}
 		return { vars, region, reads, grouped, where, head: rule.head }
+	}
+
+	/**
+	 * The head variables of `inner`, the inlined rule of `rule`'s match `m`, that are `rule`'s own variables (#inline),
+	 * each by that variable: those delivered at the fields `m` binds to a variable the written rule binds at two columns
+	 * or more, `m`'s fields and other matches' (check/merge.ts regionMatches), where the column's type's equality is no
+	 * identity, so the inlined rule binds it at two reads or more too and a merge reads it as the written rule's does. A
+	 * variable bound at one column is one read's value as written, whatever navigation makes of the import. Undefined
+	 * where renaming cannot keep the variable bound twice, so the import is read whole: a field's head term is no
+	 * variable, or a variable no read of `inner` binds, or one `m` binds at two variables, or the renamed variables'
+	 * reads and the other matches bind it once. Another match's column types the variable, the import's heading only
+	 * where no other match binds it, each off the schema (`sourceType`, `identityAt`), a column it cannot type of none.
+	 */
+	#renamedAt(
+		rule: InferredRule,
+		m: InferredMatch,
+		inner: Flat
+	): ReadonlyMap<string, string> | undefined {
+		const source = m.source
+		if (source.kind !== "query") {
+			return new Map()
+		}
+		/** How many columns the reads of `inner` bind variable `id` at. */
+		const innerBinders = (id: string): number =>
+			[...inner.reads, ...inner.region, ...inner.grouped].reduce(
+				(n, r) =>
+					n + Object.values(r.bindings).filter((e) => e.kind === "var" && e.var === id).length,
+				0
+			)
+		/** Each column a match of `rule` other than `m` binds variable `id` at, with whether its equality is identity. */
+		const elsewhere = (id: string): ReadonlyArray<() => boolean> =>
+			rule.matches.flatMap((n) => {
+				const at = n.source
+				if (n === m) {
+					return []
+				}
+				return Object.entries(n.bindings).flatMap(([column, e]) =>
+					e.kind === "var" && e.var === id ? [() => identityAt(this.#columns, at, column)] : []
+				)
+			})
+		const fieldsOf = Map.groupBy(
+			Object.entries(m.bindings).flatMap(([field, e]) =>
+				e.kind === "var" ? [[e.var, field] as const] : []
+			),
+			([id]) => id
+		)
+		const renamed = new Map<string, string>()
+		for (const [id, bound] of fieldsOf) {
+			const fields = bound.map(([, field]) => field)
+			const other = elsewhere(id)
+			const [first] = fields
+			const identity =
+				other[0] ??
+				(first === undefined ? undefined : () => identityAt(this.#columns, source, first))
+			if (other.length + fields.length < 2 || identity === undefined || identity()) {
+				continue
+			}
+			const heads = new Set<string>()
+			for (const field of fields) {
+				const head = inner.head[field]
+				if (head?.kind !== "var" || innerBinders(head.var) === 0) {
+					return undefined
+				}
+				const prior = renamed.get(head.var)
+				if (prior !== undefined && prior !== id) {
+					return undefined
+				}
+				renamed.set(head.var, id)
+				heads.add(head.var)
+			}
+			if (other.length + [...heads].reduce((n, h) => n + innerBinders(h), 0) < 2) {
+				return undefined
+			}
+		}
+		return renamed
 	}
 
 	/**
@@ -1235,6 +1441,39 @@ class Navigator {
 			}
 		}
 		const isKnown = (e: InferredExpr): boolean => [...readsOf(e)].every((id) => known.has(id))
+		const others = (r: Read): ReadonlyArray<{ readonly bindings: InferredBindings }> =>
+			[...flat.region, ...flat.reads, ...flat.grouped].filter((o) => o !== r)
+		/**
+		 * The successor read `r` is where `bound` holds of a variable (analysis/theory/successor.ts): the one row of its
+		 * relation the head's fold reads, past the cut, which its step reads by one descent of its key's order.
+		 */
+		const successorWhere = (r: Read, bound: (variable: string) => boolean): Successor | undefined =>
+			successorOf(
+				r.bindings,
+				this.#interned.keysOf(r.source),
+				{
+					head,
+					conditions: flat.where,
+					beside: others(r).flatMap((o) => Object.values(o.bindings))
+				},
+				bound
+			)
+		/** The successor read `r` is from the values known so far. */
+		const successorAt = (r: Read): Successor | undefined => successorWhere(r, (v) => known.has(v))
+		/**
+		 * Whether `r` is a successor read only once the reads beside it are placed, its cut or its key's other fields
+		 * bound by them, and not yet: it waits for them, so the probe admission claims of it (unit.ts ruleClosure) is
+		 * the step navigation reads it by, whichever match the rule states first.
+		 */
+		const waiting = (r: Read): boolean => {
+			const beside = new Set(
+				others(r).flatMap((o) => Object.values(o.bindings).flatMap((e) => [...readsOf(e)]))
+			)
+			return (
+				successorAt(r) === undefined &&
+				successorWhere(r, (v) => known.has(v) || beside.has(v)) !== undefined
+			)
+		}
 		/**
 		 * The variables an equality still pending fixes to values the steps placed so far hold, each with whether one
 		 * such value is keyed (`keyedTerm`).
@@ -1387,18 +1626,39 @@ class Navigator {
 				matchWhole(read)
 			}
 		}
-		/** `read` placed next: a step, its variables bound from then on, or an import its partners restrict (`matchWhole`). */
+		/**
+		 * `read` placed next: a step, its variables bound from then on, or an import its partners restrict (`matchWhole`).
+		 * A known variable the step reads at a column whose equality is no identity (ir/scalar.ts equalityIsIdentity, a
+		 * float's) is passed in and delivered again, bound to the variable, so the rule binds it at every match the
+		 * written rule bound it at, and a merge delivers its canonical form as it does the written rule's (check/merge.ts
+		 * regionMatches): bound at the step's input alone, the rule delivered the -0 one read held where the written rule
+		 * delivered +0.
+		 */
 		const place = (read: Read): void => {
 			if (partnered.has(read)) {
 				matchWhole(read)
 				return
 			}
+			const successor = successorAt(read)
 			const passing = new Passing(depth)
 			const own = new Set<string>()
 			const bindings: Record<string, InferredExpr> = {}
+			/**
+			 * Each known variable the read binds at a column whose equality is no identity, with the channel it is passed in,
+			 * which the step delivers again, bound to the variable, so the rule binds it at every match that bound it.
+			 */
+			const rebound = new Map<string, InferredExpr>()
 			for (const [column, e] of Object.entries(read.bindings)) {
 				if (isKnown(e)) {
-					bindings[column] = passing.expr(e)
+					const passed = passing.expr(e)
+					bindings[column] = passed
+					if (
+						e.kind === "var" &&
+						!rebound.has(e.var) &&
+						!identityAt(this.#columns, read.source, column)
+					) {
+						rebound.set(e.var, passed)
+					}
 				} else if (e.kind === "var") {
 					own.add(e.var)
 					bindings[column] = e
@@ -1421,6 +1681,11 @@ class Navigator {
 				(id) => declared.get(id) ?? this.#refuse(`a declaration of variable ${id}`)
 			)
 			const delivered = Object.fromEntries(outputs.map((id, i) => [`o${i}`, varRef(id)] as const))
+			const again = [...rebound].map(([id, passed], i) => ({
+				column: `o${outputs.length + i}`,
+				id,
+				passed
+			}))
 			const source: ReadSource =
 				read.source.kind === "query"
 					? { ...read.source, bind: mapBindMap(read.source.bind, (e) => passing.expr(e)) }
@@ -1429,23 +1694,50 @@ class Navigator {
 				vars: stepVars,
 				matches: [{ source, bindings, loc: read.loc }],
 				where: inner,
-				head: delivered,
+				head: {
+					...delivered,
+					...Object.fromEntries(again.map((a) => [a.column, a.passed] as const))
+				},
 				interiors: [],
 				attach: [],
 				loc: read.loc
 			}
+			const rules: InferredQuery["stage"] = {
+				kind: "rules",
+				arms: [source.kind === "query" ? this.#grouped(stepRule, source, bindings) : stepRule],
+				loc: read.loc
+			}
+			/** A successor's step reads its relation's first row past the cut in its key's order, one descent. */
 			const step: InferredSource = {
 				kind: "step",
 				query: {
-					stage: {
-						kind: "rules",
-						arms: [source.kind === "query" ? this.#grouped(stepRule, source, bindings) : stepRule],
-						loc: read.loc
-					}
+					stage:
+						successor === undefined
+							? rules
+							: {
+									kind: "take",
+									input: {
+										kind: "order",
+										input: rules,
+										order: [
+											{ column: `o${outputs.indexOf(successor.variable)}`, dir: successor.dir }
+										],
+										loc: read.loc
+									},
+									take: { kind: "literal", k: 1 },
+									loc: read.loc
+								}
 				},
 				bind: Object.fromEntries(passing.bind)
 			}
-			matches.push({ source: step, bindings: delivered, loc: read.loc })
+			matches.push({
+				source: step,
+				bindings: {
+					...delivered,
+					...Object.fromEntries(again.map((a) => [a.column, varRef(a.id)] as const))
+				},
+				loc: read.loc
+			})
 			appendAll(vars, stepVars)
 			for (const id of outputs) {
 				known.add(id)
@@ -1458,10 +1750,11 @@ class Navigator {
 			appendAll(pending, implied(pending, isKnown))
 			const values = fixed()
 			const seeks = sought()
-			let best = 0
+			const ready = reads.some((r) => !waiting(r))
+			let best = reads.findIndex((r) => !ready || !waiting(r))
 			for (const [i, r] of reads.entries()) {
 				const current = reads[best]
-				if (current === undefined) {
+				if (current === undefined || (ready && waiting(r))) {
 					continue
 				}
 				const at = lookupOf(r, values, seeks)
@@ -1490,21 +1783,26 @@ class Navigator {
 	}
 
 	/**
-	 * `m`, a match of an import navigation reads apart as a chain of its own (`chainedApart`), restricted where it stands:
-	 * each of its columns bound to a variable `bound` holds, one a match navigation reads where it stands binds, is
-	 * equated inside each rule of the import with a parameter of its own (`boundInside`), which its bind map binds to that
-	 * variable, so the chain navigation builds for the import apart starts at a lookup at the reader's values, never a
-	 * read of every row, and the import is correlated to the reader's row, read after the matches it reads, with no step
-	 * of its own around it. Undefined where no column of it is bound to such a variable. The restriction crosses only
-	 * the rule's matches, its positive conjunctive occurrences, never a relational filter. edullm's ledger finalize, the
-	 * call's sittings beside SettledSitting, read every ended sitting's test_end row in a fenced step and refuted each
+	 * `m`, a match of an import navigation reads apart, restricted where it stands: each of its columns bound to a
+	 * variable `bound` holds is equated inside each rule of the import with a parameter of its own (`boundInside`), which
+	 * its bind map binds to that variable, and each the rule fixes (`fixed`, its fixedTerms) with that term, so the chain
+	 * navigation builds for the import apart starts at a lookup at the reader's values, never a read of every row, and the
+	 * import is correlated to the reader's row, read after the matches it reads, with no step of its own around it; one
+	 * import for each set of its columns so bound, its identity the parameters' (Navigation `navigated`). Undefined where
+	 * no column of it is bound to such a variable. `bound` is, for an import read as a chain of its own (`chainedApart`),
+	 * what the matches navigation reads where they stand bind, and for one that passes rows through (`passesThrough`),
+	 * what the call's own rows bind (navigatedRule `inputs`), which no import binds, so no import is correlated to another;
+	 * none for one that computes apart, which the region's chain reads at the call's key set. The restriction crosses
+	 * only the rule's matches, its positive conjunctive occurrences, never a relational filter. edullm's ledger finalize,
+	 * the call's sittings beside SettledSitting, read every ended sitting's test_end row in a fenced step and refuted each
 	 * by its pending attempts, 82,526 at 1x, for the call's one sitting; restricted, the chain starts at the call's
 	 * sitting.
 	 */
 	restrictedApart(
 		m: InferredMatch,
 		source: Imported,
-		bound: ReadonlySet<string>
+		bound: ReadonlySet<string>,
+		fixed: (term: InferredExpr) => InferredExpr | undefined
 	): InferredMatch | undefined {
 		const passing = new Passing(0)
 		const keyed = (e: InferredExpr): boolean => {
@@ -1517,7 +1815,7 @@ class Navigator {
 		const inside = boundInside(
 			source,
 			mapRecord(m.bindings, (e) => (keyed(e) ? passing.expr(e) : e)),
-			(term) => (isFixed(term) ? term : undefined),
+			(term) => (isFixed(term) ? term : fixed(term)),
 			this.#columns
 		)
 		const bind = mapBindMap(inside.bind, (e) =>
@@ -1592,15 +1890,16 @@ class Navigator {
 				if (Object.keys(source.bind).length > 0 || stage.kind !== "rules") {
 					return this.#refuse("a filter of an imported query of rules binding no parameter")
 				}
-				const columns = this.#columns(source.query)
+				const columns = this.#columns.desc(source.query)
 				const arms = stage.arms
 				const keptOf = (arm: InferredRule): KeptImports =>
 					sharedImports([arm], this.#interned, this.#sharing)
-				const navigated = flatMapNonEmpty(arms, (arm) => {
+				const navigated = flatMapNonEmpty(arms, (written) => {
+					const arm = filteredArm(written, a.bindings)
 					const at: Array<InferredExpr> = []
 					for (const [field, outer] of Object.entries(a.bindings)) {
-						const head = arm.head[field]
-						if (head === undefined || head.kind === "aggregate" || head.kind === "producer") {
+						const head = equatedAt(arm, field)
+						if (head === undefined) {
 							return this.#refuse(`a filtered query whose head derives ${field}`)
 						}
 						at.push(
@@ -1627,6 +1926,7 @@ class Navigator {
 			case "paramOf":
 			case "call":
 			case "callField":
+			case "arm":
 			case "split":
 			case "series":
 			case "interior":
@@ -1842,6 +2142,21 @@ const navigatedRule = (
 	}
 	const fixed = fixedTerms(rule)
 	const navigator = new Navigator(loc, columns, sharing, interned)
+	/**
+	 * The variables the call's own rows bind, a relation input's match (`param`, `paramOf`): values the rule holds as it
+	 * holds its parameters, at which every import the rule reads apart is restricted (`restrictedApart`), its chain
+	 * starting where those rows bind it, once for each set of its columns they bind (Navigation `navigated`). No import
+	 * binds them, so no two imports are correlated to each other. Navigated from no value, an import that joins, read
+	 * beside the call's sittings at (child, stage), led with every learner's snapshots of one variable and read the
+	 * sessions last (CARRYKEY's finding 5).
+	 */
+	const inputs = new Set(
+		rule.matches.flatMap((m) =>
+			m.source.kind === "param" || m.source.kind === "paramOf"
+				? Object.values(m.bindings).flatMap((e) => [...readsOf(e)])
+				: []
+		)
+	)
 	/** The variables the matches bind that navigation reads where they stand, never apart as a chain. */
 	const bound = new Set(
 		rule.matches.flatMap((m) =>
@@ -1859,9 +2174,13 @@ const navigatedRule = (
 		if (source.kind !== "query") {
 			return m
 		}
-		const restricted = chainedApart(source, interned)
-			? navigator.restrictedApart(m, source, bound)
-			: undefined
+		const passes = passesThrough(source.query)
+		const restricted = navigator.restrictedApart(
+			m,
+			source,
+			chainedApart(source, interned) ? bound : passes ? inputs : noVariables,
+			fixed
+		)
 		if (restricted !== undefined) {
 			return restricted
 		}
@@ -1871,14 +2190,75 @@ const navigatedRule = (
 	})
 	const read = matches.every((m, i) => m === rule.matches[i]) ? rule : { ...rule, matches }
 	return [
-		sharing.kind === "perStatement" && interned.overSteps(read)
+		sharing.kind === "perStatement" && (interned.overSteps(read) || read.where.some(testsGroups))
 			? new Navigator(loc, columns, sharing, interned).filteredOverSteps(read, 0)
 			: read
 	]
 }
 
+/**
+ * The term of `arm`'s head at `field` a filter binding it equates with its own term (Navigator #filtered): a term of the
+ * arm's matches; none where the head folds or produces it, or holds no such field, which no step of the arm reads.
+ */
+const equatedAt = (arm: InferredRule, field: string): InferredExpr | undefined => {
+	const head = arm.head[field]
+	return head === undefined || head.kind === "aggregate" || head.kind === "producer"
+		? undefined
+		: head
+}
+
+/**
+ * Whether `e` is a relational filter over a query's groups: one that tests only that a group stands at the terms it
+ * binds, whose arm reads the body as a chain (`filteredArm`), or one whose arm matches an import of a rule that folds
+ * (`foldsIn`) and reads its fold, which matches the groups as a step restricted inside at the group fields it binds
+ * (Navigator #grouped, boundInside, as a rule's gained side reads them), the fold compared after. Either is navigated
+ * after the rule's matches as they stand (Navigator.filteredOverSteps), as a rule over steps navigates its filters,
+ * each step asking the index of its binding. As written it stayed the fold, its body one join PostgreSQL read by its
+ * estimates beside each key, through no index of its binding (rule-aggregate's locality: a count by n of Attempt joined
+ * to Topic under a containment into it at its fold, both tables hashed whole at the touched n, no index led by n). A
+ * filter that binds a fold its own arm computes stays as written: the fold is over the arm's whole body, which no
+ * binding of the filter restricts.
+ */
+const testsGroups = (e: InferredExpr): boolean =>
+	isFiltered(e) &&
+	e.source.kind === "query" &&
+	e.source.query.stage.kind === "rules" &&
+	e.source.query.stage.arms.some(
+		(arm) =>
+			filteredArm(arm, e.bindings) !== arm ||
+			arm.matches.some((m) => foldsIn(m.source) !== undefined)
+	)
+
 /** An import a rule matches (ir/desc.ts SourceDesc `query`). */
 type Imported = Extract<InferredSource, { readonly kind: "query" }>
+
+/** No variable: an import read beside the call's rows that is restricted at none of theirs (`passesThrough`). */
+const noVariables: ReadonlySet<string> = new Set()
+
+/**
+ * Whether `query` passes rows through: one rule, its head no fold's nor producer's, every match a stored or closed
+ * relation, a delta or an import that passes rows through in turn, at any depth. Restricted at the call's rows
+ * (navigatedRule `inputs`), such an import is correlated to them and read once for each of their rows, a lookup per row,
+ * as many as the call holds. An import that computes apart, a fold, a union, a producer, stays navigated apart, and the
+ * region's chain reads it at the key set of the call's rows (lower/shapes/region heldChain `keyset`), each distinct key
+ * once, where correlated to the rows it was derived again for each row that repeats a key: two seats of one stage, the
+ * stage's attempts read twice (held-drives `fold`).
+ */
+const passesThrough = (query: InferredQuery): boolean => {
+	if (query.stage.kind !== "rules") {
+		return false
+	}
+	const [rule, ...more] = query.stage.arms
+	return (
+		more.length === 0 &&
+		Object.values(rule.head).every((h) => h.kind !== "aggregate" && h.kind !== "producer") &&
+		rule.matches.every((m) =>
+			m.source.kind === "relation" || m.source.kind === "delta"
+				? true
+				: (m.source.kind === "query" || m.source.kind === "step") && passesThrough(m.source.query)
+		)
+	)
+}
 
 /**
  * An import a rule matches at `bindings`, which navigation reads apart from the rule (`navigatedRule`), with each
@@ -1981,7 +2361,7 @@ const boundInside = (
 	if (stage.kind !== "rules") {
 		return source
 	}
-	const columns = columnsOf(source.query)
+	const columns = columnsOf.desc(source.query)
 	const own = queryParamNames(source.query)
 	const bind: Record<string, Imported["bind"][string]> = { ...source.bind }
 	/** Each binding held inside: its term, and the term each rule's head binds it at, rule by rule. */
@@ -2057,63 +2437,147 @@ export const navigateQuery = (
 	navigation: Navigation
 ): InferredQuery => navigatedQuery(query, loc, columns, sharing, navigation)
 
-/** The name an aggregating rule's body delivers its `i`-th variable under (`foldedOverBody`). */
-const boundName = (i: number): string => `b${i}`
+/**
+ * The successor read match `m` of `rule` is once the rule's other matches are read (analysis/theory/successor.ts): its
+ * key's other fields and its cut bound by them, by a parameter or by a constant. Such a rule's fold reads one row of m
+ * for each binding of the others, which navigation reads by one descent as it chains the rule (`#chain`), so the rule is
+ * navigated whole, its fold over the chain, never over its body apart, whose chain sees no fold.
+ */
+const successorBeside = (
+	rule: InferredRule,
+	m: InferredMatch,
+	interned: Navigation
+): Successor | undefined => {
+	if (m.source.kind !== "relation") {
+		return undefined
+	}
+	const others = rule.matches.filter((o) => o !== m).flatMap((o) => Object.values(o.bindings))
+	const bound = new Set(others.flatMap((e) => [...readsOf(e)]))
+	return successorOf(
+		m.bindings,
+		interned.keysOf(m.source),
+		{ head: rule.head, conditions: rule.where, beside: others },
+		(v) => bound.has(v)
+	)
+}
+
+/** `rule` read as its matches and conditions alone: its folds dropped from its head, what a chain reads of it. */
+const foldsRemoved = (rule: InferredRule): InferredRule => ({
+	...rule,
+	head: Object.fromEntries(Object.entries(rule.head).filter(([, h]) => h.kind !== "aggregate"))
+})
+
+/** Whether `rule` folds the facts of its body at one group field or more: some head term aggregates, and some does not. */
+const foldsAtGroups = (rule: InferredRule): boolean => {
+	const heads = Object.values(rule.head)
+	return heads.some((h) => h.kind === "aggregate") && heads.some((h) => h.kind !== "aggregate")
+}
 
 /**
- * An aggregating rule whose body joins (`joins`) as a fold over its body: the rule's matches and conditions an import of
- * one rule, its head every variable they bind, which navigation reads as a chain of steps as it reads any join
- * (`navigatedQuery`), the rule matching that import at each variable and folding its head over it. A rule's fold
- * reads the complete binding of its matches (check/checker.ts Group), each distinct binding once, and the import
- * delivers exactly those bindings, each once, so the fold is the same; read as written, the body is one join
- * PostgreSQL orders by its estimates, which flip with the tables' sizes, where every step of a chain reads one relation
- * by what the steps before it bound, a grouped read's group fields first (`boundInside`). The rule itself where its
- * head folds nothing, its body reads one relation, or it matches one import alone, whose query navigation reads as a
- * query of its own already (`navigatedRule`), the fold over its body's import among them.
+ * `m` as a filter's arm reads it where it matches a query each of whose rules folds at one group field or more
+ * (`foldsAtGroups`), every fold of it bound to a variable `readNowhere` says nothing else of the arm reads, or bound to
+ * none: a match of the query's bodies, their folds dropped (`foldsRemoved`), at its group fields alone, since such a
+ * match holds a row exactly where a group of the query stands, and a group stands exactly where its body holds a row (a
+ * group is the body's rows at its group fields, check/checker.ts Group). Any other match as it is.
  */
-const foldedOverBody = (rule: InferredRule, interned: Navigation): InferredRule => {
-	const [only, ...more] = rule.matches
-	if (
-		!Object.values(rule.head).some((h) => h.kind === "aggregate") ||
-		(only?.source.kind === "query" && more.length === 0)
-	) {
-		return rule
+const bodyOfGroups = (
+	m: InferredMatch,
+	readNowhere: (variable: string) => boolean
+): InferredMatch => {
+	const source = m.source
+	if (source.kind !== "query" || Object.keys(source.bind).length > 0) {
+		return m
 	}
-	const ids = [
-		...new Set(
-			rule.matches.flatMap((m) =>
-				Object.values(m.bindings).flatMap((e) => (e.kind === "var" ? [e.var] : []))
-			)
-		)
-	]
-	const body: InferredRule = {
-		...rule,
-		head: Object.fromEntries(ids.map((id, i) => [boundName(i), varRef(id)] as const))
+	const stage = source.query.stage
+	if (stage.kind !== "rules" || !stage.arms.every(foldsAtGroups)) {
+		return m
 	}
-	if (!joins(interned.reads(body))) {
-		return rule
-	}
-	const passed = ruleLeaves(body, true).params.flatMap((p) =>
-		p.kind === "param" ? [[p.name, p] as const] : []
+	const folded = (field: string): boolean =>
+		stage.arms.some((arm) => arm.head[field]?.kind === "aggregate")
+	const freed = Object.entries(m.bindings).every(
+		([field, e]) => !folded(field) || (e.kind === "var" && readNowhere(e.var))
 	)
-	return {
-		vars: rule.vars.filter((v) => ids.includes(v.id)),
-		matches: [
-			{
+	return freed
+		? {
+				...m,
 				source: {
-					kind: "query",
-					query: { stage: { kind: "rules", arms: [body], loc: rule.loc } },
-					bind: Object.fromEntries(passed)
+					...source,
+					query: {
+						...source.query,
+						stage: { ...stage, arms: mapNonEmpty(stage.arms, foldsRemoved) }
+					}
 				},
-				bindings: Object.fromEntries(ids.map((id, i) => [boundName(i), varRef(id)] as const)),
-				loc: rule.loc
+				bindings: Object.fromEntries(Object.entries(m.bindings).filter(([field]) => !folded(field)))
 			}
-		],
-		where: [],
-		head: rule.head,
-		interiors: [],
-		attach: [],
-		loc: rule.loc
+		: m
+}
+
+/** The variables `rule` reads but through its `skipped`-th match: its head's, its conditions' and its other matches'. */
+const readOutside = (rule: InferredRule, skipped: number): ReadonlySet<string> => {
+	const read = new Set<string>()
+	for (const h of Object.values(rule.head)) {
+		for (const t of headTerms(h)) {
+			varsOf(t, read)
+		}
+	}
+	for (const w of rule.where) {
+		varsOf(w, read)
+	}
+	for (const [at, m] of rule.matches.entries()) {
+		if (at !== skipped) {
+			for (const e of Object.values(m.bindings)) {
+				varsOf(e, read)
+			}
+		}
+	}
+	return read
+}
+
+/**
+ * An arm of a filtered query as a relational filter binding the fields `bindings` reads it (Navigator `#readable`,
+ * `#filtered`), the filter testing only that a fact of it stands at them. An aggregating rule of one group field or more
+ * whose folds the filter binds none of is its body, its folds dropped (`foldsRemoved`), and a rule matching a query of
+ * such rules whose folds it reads nowhere else matches their bodies at its group fields (`bodyOfGroups`): a group stands
+ * at its fields exactly where its body holds a row there (a group is the body's rows at its group fields,
+ * check/checker.ts Group), and no condition of an aggregating rule reads a fold, which only its head computes. So a
+ * negation or an existence of a query's groups at their keys reads the body as a chain, each relation stepped at what
+ * the steps before it bound, and the index of each step's binding is requested, where it stayed a join PostgreSQL
+ * ordered by its estimates, its fold computed for nothing (rule-aggregate's locality: a count by n of Attempt joined to
+ * Topic under a containment into it, its groups at n read as a hash join of both tables whole, no index led by n). Any
+ * other arm as it is: one whose fold the filter or the rule reads, one of no group field, whose fold stands over an empty
+ * body too, one that folds what it matches, whose multiplicities its fold reads, and one that nests or attaches.
+ */
+const filteredArm = (arm: InferredRule, bindings: InferredBindings): InferredRule => {
+	if (foldsAtGroups(arm)) {
+		return Object.keys(bindings).every((field) => arm.head[field]?.kind !== "aggregate")
+			? foldsRemoved(arm)
+			: arm
+	}
+	if (
+		Object.values(arm.head).some((h) => h.kind === "aggregate") ||
+		arm.interiors.length > 0 ||
+		arm.attach.length > 0
+	) {
+		return arm
+	}
+	const matches = arm.matches.map((m, at) => {
+		const outside = readOutside(arm, at)
+		return bodyOfGroups(m, (variable) => !outside.has(variable))
+	})
+	if (matches.every((m, at) => m === arm.matches[at])) {
+		return arm
+	}
+	const bound = new Set<string>()
+	for (const m of matches) {
+		for (const e of Object.values(m.bindings)) {
+			varsOf(e, bound)
+		}
+	}
+	const read = readOutside({ ...arm, matches }, -1)
+	return {
+		...arm,
+		vars: arm.vars.filter((v) => bound.has(v.id) || read.has(v.id)),
+		matches
 	}
 }
 
@@ -2133,16 +2597,95 @@ const navigatedQuery = (
 		if (stage.kind !== "rules") {
 			return query
 		}
+		const extreme = extremeOf(stage, interned)
+		if (extreme !== undefined) {
+			return extreme
+		}
 		const keptOf = (rule: InferredRule): KeptImports => sharedImports([rule], interned, sharing)
 		const arms = flatMapNonEmpty(stage.arms, (arm): NonEmptyReadonlyArray<InferredRule> => {
-			const rule = foldedOverBody(arm, interned)
-			if (!splits(rule) || !someConjunctionJoins(interned.reads(rule))) {
-				return navigatedRule(rule, loc, columns, sharing, keptOf(rule), interned)
+			if (!splits(arm) || !someConjunctionJoins(interned.reads(arm))) {
+				return navigatedRule(arm, loc, columns, sharing, keptOf(arm), interned)
 			}
-			return navigate(rule, loc, columns, sharing, keptOf(rule), interned)
+			return navigate(arm, loc, columns, sharing, keptOf(arm), interned)
 		})
-		return arms.length === stage.arms.length && arms.every((rule, i) => rule === stage.arms[i])
-			? query
-			: { ...query, stage: { ...stage, arms } }
+		const navigated =
+			arms.length === stage.arms.length && arms.every((rule, i) => rule === stage.arms[i])
+				? stage
+				: { ...stage, arms }
+		const witnessed = oneWitness(navigated)
+		return witnessed === undefined
+			? navigated === stage
+				? query
+				: { ...query, stage: navigated }
+			: { ...query, stage: witnessed }
 	})
+}
+
+/** The first row of `stage`'s rows in the order of its column `column`, `dir`: take(1) of order([column]). */
+const firstOf = (
+	stage: InferredQuery["stage"],
+	column: string,
+	dir: Direction,
+	loc: SourceLoc
+): InferredQuery["stage"] => ({
+	kind: "take",
+	input: { kind: "order", input: stage, order: [{ column, dir }], loc },
+	take: { kind: "literal", k: 1 },
+	loc
+})
+
+/**
+ * A rules stage of one rule that matches one relation M and folds a successor of it (analysis/theory/successor.ts), the
+ * key's other fields and the cut fixed by the parameters and literals the rule reads, as the stage M's first row in
+ * the fold's order past the cut, its head delivering that row's x where it folded x: one descent of M's key, where the
+ * fold read every row of M at those values (ledger's latestMoments, a sitting's latest moment, its upkeep reading every
+ * moment of the sitting at each write). Undefined for any other stage.
+ */
+const extremeOf = (
+	stage: Extract<InferredQuery["stage"], { readonly kind: "rules" }>,
+	interned: Navigation
+): InferredQuery | undefined => {
+	const [rule, ...more] = stage.arms
+	const [match, ...others] = rule.matches
+	const successor =
+		more.length === 0 && match !== undefined && others.length === 0
+			? successorBeside(rule, match, interned)
+			: undefined
+	const folded = Object.entries(rule.head).find(([, h]) => h.kind === "aggregate")
+	if (successor === undefined || folded === undefined) {
+		return undefined
+	}
+	const [column] = folded
+	const read: InferredRule = {
+		...rule,
+		head: { ...rule.head, [column]: varRef(successor.variable) }
+	}
+	return {
+		stage: firstOf(
+			{ kind: "rules", arms: [read], loc: stage.loc },
+			column,
+			successor.dir,
+			stage.loc
+		)
+	}
+}
+
+/**
+ * A rules stage of one rule that reads a relation and whose every head term is a parameter or a literal, fixed before
+ * its reads (a unit's channels, analysis/theory/unit.ts channelled), as the stage's first row: it derives one fact at
+ * most, so one witness of its reads derives it, where its rows were read every one and their projection made distinct
+ * (a sitting with an unsuspended visit, read at the sitting a write touched: every visit of the sitting). Undefined for
+ * any other stage, one that folds or produces among them.
+ */
+const oneWitness = (
+	stage: Extract<InferredQuery["stage"], { readonly kind: "rules" }>
+): InferredQuery["stage"] | undefined => {
+	const [rule, ...more] = stage.arms
+	const [column] = Object.keys(rule.head)
+	const pinned = Object.values(rule.head).every(
+		(h) => h.kind !== "aggregate" && h.kind !== "producer" && readsOf(h).size === 0
+	)
+	return more.length > 0 || column === undefined || rule.matches.length === 0 || !pinned
+		? undefined
+		: firstOf(stage, column, "asc", stage.loc)
 }

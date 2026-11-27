@@ -120,8 +120,14 @@ const dfaOf = (outcome: DfaOutcome): CanonicalDfa | undefined =>
 	outcome.kind === "minimal" ? outcome.dfa : undefined
 
 /**
+ * A judgment of one canonical DFA's language inside another's: `included`, or within.ts includedWithin, the inner
+ * language within a byte bound.
+ */
+export type Judge = (inner: CanonicalDfa, outer: CanonicalDfa) => Inclusion
+
+/**
  * Whether the intersection of `inner`'s languages is included in `outer`'s language, the canonical DFA of one member of
- * the outer conjunction: by the inner intersection's own DFA `product` where the bounds reach it (`included`); where
+ * the outer conjunction, by `judge`: by the inner intersection's own DFA `product` where the bounds reach it; where
  * they reach neither the intersection nor its walk, proved where one inner member's language lies inside, which holds
  * the intersection's, and unknown otherwise.
  */
@@ -129,30 +135,30 @@ const inclusionInto = (
 	inner: ReadonlyArray<CanonicalDfa | undefined>,
 	product: IntersectionOutcome,
 	outer: CanonicalDfa,
-	limits: DfaLimits
+	judge: Judge
 ): Inclusion => {
 	const verdict: Inclusion =
-		product.kind === "minimal" ? included(product.dfa, outer, limits) : { kind: "bounded" }
+		product.kind === "minimal" ? judge(product.dfa, outer) : { kind: "bounded" }
 	return verdict.kind === "bounded" &&
-		inner.some(
-			(member) => member !== undefined && included(member, outer, limits).kind === "included"
-		)
+		inner.some((member) => member !== undefined && judge(member, outer).kind === "included")
 		? { kind: "included" }
 		: verdict
 }
 
 /**
- * Whether the language of the conjunction `inner` is included in that of the conjunction `outer`, each member given by
- * its minimization within `limits` (dfa.ts minimalDfa of its automaton under the admitted grammar's search semantics,
- * nfa.ts buildNfa), the canonical DFA that reads whole values: a caller that compares one pattern often minimizes it
- * once and hands the outcome to every comparison. The inner ones are intersected (dfa.ts intersectionDfa), and the
- * intersection's walked against each outer member's (inclusionInto). Refuted where it falls outside an outer member, by
- * the first such member's witness; proved where it lies inside every one; and unknown where a construction past the
- * bounds leaves one undecided.
+ * Whether the language of the conjunction `inner` is included in that of the conjunction `outer` by `judge`, each
+ * member given by its minimization within `limits` (dfa.ts minimalDfa of its automaton under the admitted grammar's
+ * search semantics, nfa.ts buildNfa), the canonical DFA that reads whole values: a caller that compares one pattern
+ * often minimizes it once and hands the outcome to every comparison. The inner ones are intersected (dfa.ts
+ * intersectionDfa), and the intersection's judged against each outer member's (inclusionInto). Refuted where it falls
+ * outside an outer member, by the first such member's witness; proved where it lies inside every one; and unknown where
+ * a construction past the bounds leaves one undecided. `inclusion` judges whole languages; the engine's text guarantee
+ * judges an inner language within its byte bound by within.ts includedWithin, through the same conjunction.
  */
-export const inclusion = (
+export const conjunctionInclusion = (
 	inner: NonEmptyReadonlyArray<DfaOutcome>,
 	outer: NonEmptyReadonlyArray<DfaOutcome>,
+	judge: Judge,
 	limits: DfaLimits
 ): Inclusion => {
 	const innerDfas = mapNonEmpty(inner, dfaOf)
@@ -163,13 +169,20 @@ export const inclusion = (
 			: { kind: "bounded" }
 	const verdicts = outer.map((outcome): Inclusion => {
 		const dfa = dfaOf(outcome)
-		return dfa === undefined ? { kind: "bounded" } : inclusionInto(innerDfas, product, dfa, limits)
+		return dfa === undefined ? { kind: "bounded" } : inclusionInto(innerDfas, product, dfa, judge)
 	})
 	return (
 		verdicts.find((v) => v.kind === "refuted") ??
 		verdicts.find((v) => v.kind === "bounded") ?? { kind: "included" }
 	)
 }
+
+/** Whether the language of the conjunction `inner` is included in that of `outer`, whole (conjunctionInclusion by `included`). */
+export const inclusion = (
+	inner: NonEmptyReadonlyArray<DfaOutcome>,
+	outer: NonEmptyReadonlyArray<DfaOutcome>,
+	limits: DfaLimits
+): Inclusion => conjunctionInclusion(inner, outer, (a, b) => included(a, b, limits), limits)
 
 /**
  * Whether every whole text `small` holds `big` holds too: `inclusion` of the two languages of whole texts, each read as

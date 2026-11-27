@@ -51,6 +51,7 @@ import {
 } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { type Anchor, RowKey } from "#compiler/live/index.ts"
+import { queryEvidence } from "#compiler/logical/annotate.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import {
 	conservativeInput,
@@ -58,7 +59,7 @@ import {
 	type ConservativeStatement,
 	flight
 } from "#compiler/lower/conservative/types.ts"
-import { lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
+import { annotatedInput, lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
 import { conservativeStatement } from "#compiler/lower/shapes/index.ts"
 import { compilePage, type PageTemplate } from "#compiler/lower/shapes/page/compile.ts"
 import type { Row as DeliveredRow } from "#compiler/plan/common.ts"
@@ -69,6 +70,7 @@ import { hasCapability } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { storedValue } from "#compiler/scalar/values/identity.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { admitGenerated, filledSql, programAsts } from "#test/support/compile.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { sentSql } from "#test/support/flight/scripted.ts"
@@ -91,8 +93,8 @@ import { printQueryCase } from "#test/support/oracle/gen/print.ts"
 import { type GenParam, normalQuery } from "#test/support/oracle/gen/query.ts"
 import { type GenRelation, schemaDesc, schemaName } from "#test/support/oracle/gen/schema.ts"
 import { everyRow, type RawCaptureError } from "#test/support/oracle/install/capture.ts"
+import { oraclePlan } from "#test/support/oracle/install/drafted.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
-import { oraclePlan } from "#test/support/oracle/install/real.ts"
 import {
 	CurrentPerturbation,
 	multiplyFacts,
@@ -1450,7 +1452,7 @@ export const generatedProperty = (
 			const catalog = genCatalog(o.c.schema)
 			const admission = admitGenerated(query)
 			const optimized = admission.ok
-				? lowerOptimized(admission.value, {
+				? lowerOptimized(succeeded(annotatedInput(admission.value, queryEvidence)), {
 						names,
 						context: "snapshot",
 						catalog,

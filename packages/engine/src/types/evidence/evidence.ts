@@ -26,20 +26,8 @@ import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { FieldBase, GeneratedField } from "#compiler/types/fields/field.ts"
 import type { Aggregate, Producer, ResultOf } from "#compiler/types/query/terms.ts"
 import type { AnyClosed, AnyRelation, HeadingOf, NameOf } from "#compiler/types/schema/relation.ts"
-import type {
-	ContainmentsOf,
-	DeclaredKeysOfAll,
-	OwnKeysOf,
-	StatementsOf
-} from "#compiler/types/schema/schema.ts"
-import type {
-	Alternatives,
-	AlternativesBase,
-	Containment,
-	KeyFieldsOf,
-	RelationOfKey,
-	Side
-} from "#compiler/types/schema/statements.ts"
+import type { ContainmentsOf, DeclaredKeysOfAll, OwnKeysOf } from "#compiler/types/schema/schema.ts"
+import type { Containment, Side } from "#compiler/types/schema/statements.ts"
 import type { AnyContext, AnyWorld } from "#compiler/types/schema/world.ts"
 
 type Card = "many" | "atMostOne" | "one"
@@ -83,10 +71,7 @@ type Card = "many" | "atMostOne" | "one"
  * read-back (changes.read), uses immediate evidence only. Of the two proofs, only a containment that is not immediate
  * differs: a containment into a roster is its domain's, and one into a closed relation a table CHECK, both immediate;
  * every other containment lowers to a foreign key, which may be deferred and so false before COMMIT. A read-back reads a stated one child as an Option whatever the proof (query.ts
- * ReadBack), which is at most one child under either reading, so the evidence carries the snapshot card alone. An
- * alternatives arm keyed by the parent's key is at most one child under both readings: its stated arm narrows it to
- * Some in the records the parent's handle selects and None in the others, which the `arm` the evidence records
- * licenses, and a read-back reads it as an Option.
+ * ReadBack), which is at most one child under either reading, so the evidence carries the snapshot card alone.
  *
  * Anything else widens. A wider type is sound only where the runtime value has the same representation, so a proof
  * the IR makes is one these types make too, and the agreement is tested (test/types/evidence).
@@ -101,30 +86,11 @@ export type Evidence = {
 	 * read the parent's fields, and a ChangeSet types a head-only parameter at the field its member writes.
 	 */
 	readonly origins?: OriginMap
-	/** The child reads the arm relation of one handle of an alternatives law, keyed by the parent's key (ArmProof). */
-	readonly arm?: ArmProof
 	/**
 	 * Each head field's value where the rule fixes it per binding and the types name it (HeadValues), which a union reads
 	 * (UnionEvidence): absent where there is none.
 	 */
 	readonly values?: ValueMap
-}
-
-/**
- * The arm of handle Handle of an alternatives law over Parent discriminated by Discriminator: a fact of the arm exists
- * exactly for the parent facts of that handle, the fact of the parent's scope Scope whose key the arm's key is bound
- * to.
- */
-interface ArmProof<
-	Parent extends string = string,
-	Discriminator extends string = string,
-	Handle = unknown,
-	Scope extends string = string
-> {
-	readonly parent: Parent
-	readonly discriminator: Discriminator
-	readonly handle: Handle
-	readonly scope: Scope
 }
 
 /** Each head field's provenance: a witnessed variable origin. */
@@ -157,25 +123,14 @@ export declare namespace Evidence {
 type KeyOver<K extends string> = ReadonlyArray<K>
 
 /**
- * What an attachment's stated delivery K claims of its child, whose evidence is ChildEv, under a parent of evidence
- * ParentEv and heading Head: unknown when the evidence proves it, a Refusal otherwise. Every child may be delivered as
- * an array; an Option needs a child proved at most one per parent, and the one child a child proved exactly one, card
- * "one" including an aggregate child whose group a reflexive self-match on parent-bound variables proves nonempty.
- * arm(F, Hd) needs the child to be the arm of handle Hd of an alternatives law keyed by the parent's key (ArmProof),
- * F the one parent head field that holds the discriminator of the parent's fact the key is of, its scope's, and Hd one
- * literal of F's type: the arm's
- * records whose F is not Hd are narrowed by `row[F] !== Hd`, a true predicate of Exclude<Head[F], Hd> only when Hd is
- * one value.
+ * What an attachment's stated delivery K claims of its child, whose evidence is ChildEv: unknown when the evidence
+ * proves it, a Refusal otherwise. Every child may be delivered as an array; an Option needs a child proved at most one
+ * per parent, and the one child a child proved exactly one, card "one" including an aggregate child whose group a
+ * reflexive self-match on parent-bound variables proves nonempty.
  */
-export type DeliveryClaim<K, F, Hd, ChildEv, ParentEv, Head> = Claims<
-	F,
-	Hd,
-	ChildEv,
-	ParentEv,
-	Head
->[K & keyof Claims<F, Hd, ChildEv, ParentEv, Head>]
+export type DeliveryClaim<K, ChildEv> = Claims<ChildEv>[K & keyof Claims<ChildEv>]
 
-interface Claims<F, Hd, ChildEv, ParentEv, Head> {
+interface Claims<ChildEv> {
 	readonly array: unknown
 	readonly option: ChildEv extends { readonly card: "atMostOne" | "one" }
 		? unknown
@@ -183,37 +138,7 @@ interface Claims<F, Hd, ChildEv, ParentEv, Head> {
 	readonly one: ChildEv extends { readonly card: "one" }
 		? unknown
 		: Refusal<"the one child needs a child the evidence proves exactly one per parent">
-	readonly arm: ArmClaim<F, Hd, ChildEv, ParentEv, Head>
 }
-
-type ArmClaim<F, Hd, ChildEv, ParentEv, Head> = ChildEv extends {
-	readonly arm: ArmProof<infer PN, infer D, infer ArmHandle, infer N>
-}
-	? [HandleField<OriginsOf<ParentEv>, PN, D, N>] extends [F]
-		? [F] extends [HandleField<OriginsOf<ParentEv>, PN, D, N>]
-			? IsOneLiteral<Hd> extends true
-				? [Hd] extends [ArmHandle]
-					? [ArmHandle] extends [Hd]
-						? Hd extends Head[F & keyof Head]
-							? unknown
-							: Refusal<"the arm's handle is a value of the parent field's type">
-						: Refusal<"the arm's handle is the handle the child is the arm of">
-					: Refusal<"the arm's handle is the handle the child is the arm of">
-				: Refusal<"the arm's handle is one literal">
-			: Refusal<"the arm's field is the parent's head field that holds its discriminator">
-		: Refusal<"the arm's field is the parent's head field that holds its discriminator">
-	: Refusal<"an arm needs a child that is the arm of one handle of an alternatives law, keyed by the parent's key">
-
-/** The one parent head field whose origin is the parent relation's discriminator in scope N, the arm key's. */
-type HandleField<O, PN, D, N> = {
-	[K in keyof O]-?: O[K] extends Origin<PN & string, D & string, N & string> ? K : never
-}[keyof O] extends infer F
-	? [F] extends [never]
-		? never
-		: IsOneLiteral<F> extends true
-			? F & string
-			: never
-	: never
 
 /** The key of origin (R, F, N), `relation.scope.field`: the one variable of its rule it names. */
 export type ScopedKey<R extends string, F extends string, N extends string> = `${R}.${N}.${F}`
@@ -486,15 +411,13 @@ type ProducerFields<H> = {
 }[keyof H]
 /**
  * What a child's clauses prove beyond its keys (Rule.find): whether a containment proves it, true or never
- * (ContainmentProof), whether a reflexive self-match proves a nonempty group (ReflexiveProof), and the arm an
- * alternatives law makes it (ArmProofOf).
+ * (ContainmentProof), and whether a reflexive self-match proves a nonempty group (ReflexiveProof).
  */
-export interface Proofs<out Contained extends true, out Reflexive extends boolean, out Arm> {
+export interface Proofs<out Contained extends true, out Reflexive extends boolean> {
 	readonly contained: Contained
 	readonly reflexive: Reflexive
-	readonly arm: Arm
 }
-type NoProofs = Proofs<never, false, never>
+type NoProofs = Proofs<never, false>
 
 /**
  * The evidence of a finished head H over a rule whose head fields have the origins O and the values V (HeadValues),
@@ -507,7 +430,7 @@ export type EvidenceOf<
 	Keys,
 	V,
 	O = unknown,
-	Pr extends Proofs<true, boolean, unknown> = NoProofs,
+	Pr extends Proofs<true, boolean> = NoProofs,
 	B extends RuleBindings<boolean, Card> = RuleBindings<
 		IsPinned<Keys> extends true ? true : never,
 		H[ProducerFields<H>] extends { readonly produces: "intersection" | "span" } ? never : "many"
@@ -558,10 +481,9 @@ export type BindingsProved<Pinned extends boolean, Produced extends Card> = Rule
 >
 
 /** Proofs over what a rule's clauses prove alone, never the schema they were read off (BindingsProved). */
-export type ProofsOf<Contained extends true, Reflexive extends boolean, Arm> = Proofs<
+export type ProofsOf<Contained extends true, Reflexive extends boolean> = Proofs<
 	Contained,
-	Reflexive,
-	Arm
+	Reflexive
 >
 
 /**
@@ -887,16 +809,11 @@ type KeyOf<K> = K extends readonly [infer F] ? KeyOver<F & string> : never
 /** Whether the empty key is among the keys: the head has at most one row per input binding. */
 type IsPinned<Keys> = [Extract<Keys, readonly [never]>] extends [never] ? false : true
 
-/**
- * A plain head: one where a containment proves it, an Option otherwise when pinned, and an arm's Option records the
- * arm.
- */
+/** A plain head: one where a containment proves it, an Option otherwise when pinned. */
 type PlainEvidence<Keys, Pinned extends boolean, O, Pr> = Pinned extends true
-	? Pr extends Proofs<infer C, boolean, infer A>
+	? Pr extends Proofs<infer C, boolean>
 		? [C] extends [never]
-			? [A] extends [never]
-				? { readonly keys: Keys; readonly card: "atMostOne"; readonly origins: O }
-				: { readonly keys: Keys; readonly card: "atMostOne"; readonly origins: O; readonly arm: A }
+			? { readonly keys: Keys; readonly card: "atMostOne"; readonly origins: O }
 			: { readonly keys: Keys; readonly card: "one"; readonly origins: O }
 		: never
 	: { readonly keys: Keys; readonly card: "many"; readonly origins: O }
@@ -923,11 +840,7 @@ type GroupedEvidence<G, Keys, Pinned extends boolean, O, Pr> = {
 	readonly keys: [Beside<Keys, G>] extends [never]
 		? readonly [KeyOver<G & string>]
 		: readonly [KeyOver<G & string>, ...ReadonlyArray<KeyOf<Beside<Keys, G>>>]
-	readonly card: Pr extends Proofs<true, true, unknown>
-		? "one"
-		: Pinned extends true
-			? "atMostOne"
-			: "many"
+	readonly card: Pr extends Proofs<true, true> ? "one" : Pinned extends true ? "atMostOne" : "many"
 	readonly origins: O
 }
 
@@ -1243,15 +1156,13 @@ type ProperSubsetIn<X, All> = All extends readonly [infer Y]
 /**
  * take(k) closes an ordered query into a set: take(1) is atMostOne. The child of a take is no plain
  * match and no grouped region, so neither attach proof reads through it (logical/attach.ts): a proved "one"
- * is at most one fact after any take, and the handle reads no arm's Option after it as Some or None.
+ * is at most one fact after any take.
  */
 export type TakeEvidence<Ev extends Evidence, K> = K extends 1
 	? { readonly keys: Ev["keys"]; readonly card: "atMostOne" } & OriginsPart<Ev>
 	: Ev["card"] extends "one"
 		? { readonly keys: Ev["keys"]; readonly card: "atMostOne" } & OriginsPart<Ev>
-		: Ev extends { readonly arm: unknown }
-			? { readonly keys: Ev["keys"]; readonly card: Ev["card"] } & OriginsPart<Ev>
-			: Ev
+		: Ev
 
 /** The origins an evidence carries, as the part of another evidence that keeps them: absent where it carries none. */
 type OriginsPart<Ev> = Ev extends { readonly origins: infer O extends OriginMap }
@@ -1383,9 +1294,10 @@ type DeltaOf<R> = R extends { readonly [delta]?: Invariant<infer D> | undefined 
 
 /**
  * The keys of a source that is no relation, as a match of it reads them: its whole heading H, every field of every arm,
- * since it is a set; and, for a query, a bound import or an interior stage, every key its own evidence proves, Ks, which
- * holds per binding of the inputs it reads (ReadsOf). A relation parameter, a recursive definition's self and a delta
- * are keyed by their heading alone.
+ * since it is a set; and, for a query, a bound import, an interior stage or a call's rows, every key its own evidence
+ * proves, Ks, which holds per binding of the inputs it reads (ReadsOf): a call's, the keys of one evaluation's rows at
+ * its arguments (types/compute/call.ts CallEvidence), so an arm's source of a cell is keyed by the cell alone. A
+ * relation parameter, a recursive definition's self and a delta are keyed by their heading alone.
  */
 type ShownKeysOf<H, Ks> = HeadingKey<KeyOfAnyArm<H>> | Ks
 type HeadingKey<F> = ReadonlyArray<F & string>
@@ -1397,8 +1309,9 @@ type EvidenceKeys<R> =
 			: never
 		: never
 /**
- * What a bound import's facts depend on beside its keys: the origins its bindings read, whose values select which facts
- * it holds (BoundSource's `reads`); none for any other source, whose inputs are the rule's own parameters.
+ * What a bound import's or a call's facts depend on beside their keys: the origins its bindings or its arguments read,
+ * whose values select which facts it holds (BoundSource's and CallSource's `reads`); none for any other source, whose
+ * inputs are the rule's own parameters.
  */
 type ReadsOf<R> = R extends Phantom<{ readonly reads: infer Rd }> ? Rd : never
 /** A source keyed by its heading H alone: one key of every field its arms share. */
@@ -1617,79 +1530,6 @@ type HeadingFieldOf<R, G> = R extends { readonly heading: infer C }
 		? C[G]
 		: never
 	: never
-
-/**
- * The alternatives row of the attach table: the child's only clause is a match of an arm relation keyed by the parent
- * (KeyedByParent), and S declares alternatives(parentKey, D, roster, arms) whose arm at a handle is that relation,
- * with the arm key exactly the parent-bound fields, each bound to the parent variable of origin Parent.parentKey at
- * the same position, every one of one scope, whose fact's discriminator the arm's handle is read against (ArmClaim).
- * The arm exists exactly for the parent facts of that handle: the law's expansion mirrors the parent's facts selected
- * by that handle with the arm. The handle is read from the alternatives value's arm map, since a selection's
- * predicate is its Description's, which no type reads.
- */
-export type ArmProofOf<S, Sole, H> =
-	Sole extends SoleMatch<infer Sh, infer B>
-		? KeyedByParent<S, Sh, B, H> extends true
-			? OneRelationEach<ShownName<Sh>, B> extends true
-				? ArmsOf<AlternativesBetween<S, ParentRelations<B>, ShownName<Sh>>, ShownName<Sh>, B>
-				: never
-			: never
-		: never
-
-/**
- * S's alternatives laws, each under the pair of names `${parent} ${arm}` for every arm relation it names, and none under
- * any other pair: built once per schema, so a proof reads the laws that make the matched relation an arm of the
- * parent's relation by name, as ContainmentIndexOf reads containments.
- */
-type AlternativesIndexOf<S> = {
-	readonly [A in Extract<StatementsOf<S>[number], AlternativesBase> as AlternativesPairs<A>]: A
-} & { readonly [pair: string]: never }
-
-type AlternativesPairs<A> =
-	A extends Alternatives<infer PK, string, unknown, infer Arms>
-		? `${NameOf<RelationOfKey<PK>>} ${NameOf<RelationOfKey<Exclude<Arms[keyof Arms], undefined>>>}`
-		: never
-
-/** The alternatives laws S declares over one of the relations named PN with an arm the relation named RN. */
-type AlternativesBetween<S, PN, RN extends string> = PN extends string
-	? AlternativesIndexOf<S>[`${PN} ${RN}`]
-	: never
-
-type ArmsOf<A, RN, B> =
-	A extends Alternatives<infer PK, infer D, unknown, infer Arms>
-		? {
-				[Hd in keyof Arms & string]-?: ArmAt<
-					RelationOfKey<PK>,
-					KeyFieldsOf<PK>,
-					D,
-					Hd,
-					Exclude<Arms[Hd], undefined>,
-					RN,
-					B
-				>
-			}[keyof Arms & string]
-		: never
-
-/**
- * The arm at handle Hd of an alternatives law over parent P keyed by PKF, discriminated by D, when it is the matched
- * relation RN keyed by the parent: a handle and a discriminator that are no single literal tell no arm apart.
- */
-type ArmAt<P, PKF, D extends string, Hd extends string, A, RN, B> =
-	RelationOfKey<A> extends infer Arm extends AnyRelation
-		? NameOf<Arm> extends RN
-			? KeyFieldsOf<A> extends infer AKF extends ReadonlyArray<string>
-				? SameSet<AKF[number], ParentFields<B, RN>> extends true
-					? ParentsAt<B, AKF, NameOf<P>, PKF, SharedScope<B, AKF>> extends true
-						? IsSingle<D> extends true
-							? string extends Hd
-								? never
-								: ArmProof<NameOf<P> & string, D, Hd, SharedScope<B, AKF> & string>
-							: never
-						: never
-					: never
-				: never
-			: never
-		: never
 
 /**
  * The reflexive row of the attach table, as logical/attach.ts reflexiveOne reads it: the

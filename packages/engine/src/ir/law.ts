@@ -6,7 +6,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { nominal } from "#compiler/core/brand.ts"
-import type { DeclaredName, Identity, IndexMethod } from "#compiler/core/identity.ts"
+import type { DeclaredName, Identity, IndexMethod, HeldName } from "#compiler/core/identity.ts"
 import type { ColumnIdent, LawId, RelationIdent, StoredRelationName } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import type { Direction } from "#compiler/core/order.ts"
@@ -30,7 +30,7 @@ import {
 	type ScalarExpr,
 	type TypedLiteral
 } from "#compiler/ir/expr.ts"
-import type { GeneratedRead, ViewRead } from "#compiler/ir/keys.ts"
+import type { ContainedDependency, GeneratedRead, ViewRead } from "#compiler/ir/keys.ts"
 import type { DeclaredKey, HeadingColumn } from "#compiler/ir/rel.ts"
 import {
 	baseOf,
@@ -289,6 +289,20 @@ export interface RelationInfo extends StoredRelationOf<"relation">, TableRelatio
 	 * types the relation (analysis/schema.ts generatedReadsOf); every Base over it carries them (rel.ts StoredBase).
 	 */
 	readonly generated: ReadonlyArray<GeneratedRead>
+	/**
+	 * Its unit's key, the fields of its primary key that hold the key of the unit it sits under (schema/own.ts unitOf),
+	 * none for a relation under no unit: a read whose bound fields determine them, itself or through `determined`, reads
+	 * one unit's rows, however many units the store holds (lower/optimize/cte-policy keyedRegionChain). Every Base over it
+	 * carries them (rel.ts StoredBase).
+	 */
+	readonly unit: ReadonlyArray<string>
+	/**
+	 * The dependencies its declared containments give it (ir/keys.ts ContainedDependency), in statement order: a
+	 * declared-key prefix a read binds holds every field a dependency's `by` determines (cte-policy boundPrefix), its
+	 * rows those of one key's value, as a seek of the key itself reads. Decided once where the checked schema types the
+	 * relation (analysis/derived/drawn.ts declaredDependencies).
+	 */
+	readonly determined: ReadonlyArray<ContainedDependency>
 }
 
 /**
@@ -420,8 +434,8 @@ export interface EvidenceSide {
 
 /**
  * What declares a law: `statement` is the index of the declaring statement in the schema description, of the relation
- * for a primary key, or of the contract for a contract. A law an alternatives or a series statement, a family, a tree
- * or a fold expands to is its statement's, by the statement's kind.
+ * for a primary key, or of the contract for a contract. A law a series statement, a family, a tree or a fold expands
+ * to is its statement's, by the statement's kind.
  */
 export interface LawSource {
 	readonly kind:
@@ -433,7 +447,6 @@ export interface LawSource {
 		| "family"
 		| "tree"
 		| "fold"
-		| "alternatives"
 		| "series"
 	readonly statement: number
 }
@@ -772,7 +785,7 @@ type NativeBody =
 			 * catalog alone.
 			 */
 			readonly kind: "RosterDomain"
-			readonly name: DeclaredName
+			readonly name: HeldName
 	  }
 	| {
 			/**

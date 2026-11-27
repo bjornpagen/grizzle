@@ -3,12 +3,17 @@ import type { CheckedEntry } from "#compiler/analysis/schema.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { DeltaSide } from "#compiler/ir/rel.ts"
 import { columnIn } from "#compiler/lower/conservative/context.ts"
-import type { Cte } from "#compiler/sql/ast.ts"
+import type { Cte, Select, StatementText } from "#compiler/sql/ast.ts"
 import { col, conjunction, cteRef, provedSelect, target } from "#compiler/sql/build.ts"
 import { namedBody, type NameSupply } from "#compiler/sql/naming.ts"
 import {
 	type CarrierColumn,
-	carrierColumns,
+	carrierStash,
+	emptyStash,
+	ridingStash,
+	type RidingNames,
+	type StashNames,
+	stashedWidth,
 	type WriteCarrier
 } from "#compiler/write/carriers/carriers.ts"
 import type { FamilyReturning } from "#compiler/write/family/written.ts"
@@ -29,7 +34,7 @@ export const deltaTarget = (entries: ReadonlyMap<string, CheckedEntry>, relation
  * One side of a relation's delta as a read-back reads it: a CTE of the one statement that makes that side whole, over
  * the rows that statement returns, where the read-back rides that statement (`deltaCte`), each of the relation's fields
  * in heading order with the column that holds it; the carrier that statement fills from the same rows, where the
- * read-back runs after the last stratum (`carriedFill`), each field in its column; or the empty relation, where no
+ * read-back runs after the last stratum (`carriedStash`), each field in its column; or the empty relation, where no
  * statement makes the side.
  *
  * Read-back deltas from the write statements' RETURNING channels.
@@ -109,7 +114,9 @@ export const deltaCteName = (
  * insertion removes nothing and only an insertion meets stored facts it did not refuse (insert/protocol.ts
  * writesMet). */
 const returnedSideOf = (
-	statement: ModifyingStatement<InsertResult | DeleteResult> | PutStatement,
+	statement:
+		| ModifyingStatement<InsertResult | DeleteResult, StatementText>
+		| PutStatement<StatementText>,
 	side: DeltaSide
 ): ReturnedSide | undefined => {
 	const returned = statement.returning
@@ -135,7 +142,9 @@ const returnedSideOf = (
  * casts nothing. None where the statement returns no rows of that side, whose delta is the empty relation (`deltaIn`).
  */
 export const deltaCte = (
-	statement: ModifyingStatement<InsertResult | DeleteResult> | PutStatement,
+	statement:
+		| ModifyingStatement<InsertResult | DeleteResult, StatementText>
+		| PutStatement<StatementText>,
 	named: DeltaCteName
 ): Cte | undefined => {
 	const returned = returnedSideOf(statement, named.side)
@@ -162,7 +171,9 @@ export const deltaCte = (
 /** What a read-back riding `statement` reads of the delta `named`: its CTE, or the empty relation where the statement
  * returns no rows of its side (`deltaCte`). */
 export const deltaIn = (
-	statement: ModifyingStatement<InsertResult | DeleteResult> | PutStatement,
+	statement:
+		| ModifyingStatement<InsertResult | DeleteResult, StatementText>
+		| PutStatement<StatementText>,
 	named: DeltaCteName
 ): DeltaHeld =>
 	returnedSideOf(statement, named.side) === undefined
@@ -171,39 +182,52 @@ export const deltaIn = (
 
 /**
  * The fill of `carrier`, a carried side's (write/schedule/plan.ts CarriedSide), from the delta CTE `named` of the one
- * statement that makes that side whole: a data-modifying CTE of that statement, named `name`, inserting every row of
- * the side into the carrier, each of the relation's fields into its column, which the carrier's heading holds in
- * heading order as `named` does:
+ * statement that makes that side whole, riding that statement as a part of no row (write/carriers/carriers.ts
+ * ridingStash): every row of the side, each of the relation's fields in its column, which the carrier's heading holds in
+ * heading order as `named` does, under `names` (`carriedNames`); no row where the statement returns none of the side:
  *
- *   "r12" AS (INSERT INTO "__carrier_<k>" ("c1", "c2") SELECT "r9"."c20", "r9"."c21" FROM "r9")
+ *   SELECT FROM (SELECT pg_catalog.set_config('grizzle.__carrier_<k>_c1', COALESCE(pg_catalog.array_agg("r10"."c30"::
+ *     uuid), '{}'::uuid[])::text, true) ... FROM (SELECT "r9"."c20", ... FROM "r9") AS "r10"("c30", ...)) AS "r11"("c31")
+ *     OFFSET 1
  *
- * PostgreSQL runs a data-modifying CTE to its end whether or not the statement reads it, once, after the writes whose
- * RETURNING it reads, so the carrier, emptied right before the statement, holds exactly the side's rows once the
- * statement has run. Each column of the side is a stored column of the relation, cast to the carrier column's session
- * type by assignment, which every base type of a domain admits.
+ * The statement reads it to its end once its writes have returned their rows, so the carrier holds exactly the side's
+ * rows once the statement has run. Each column of the side is a stored column of the relation, cast to the carrier
+ * column's session type, which every base type of a domain admits.
  */
-export const carriedFill = (name: string, named: DeltaCteName, carrier: WriteCarrier): Cte => ({
-	name,
-	materialized: undefined,
-	query: {
-		kind: "insert",
-		table: carrier.name,
-		columns: carrierColumns(carrier),
-		source: {
-			kind: "query",
-			query: provedSelect(
-				"keyed",
-				carrier.heading.map((c) => target(col(named.cte, deltaColumn(named, c.name)))),
-				[cteRef(named.cte)],
-				undefined
-			)
-		},
-		with: undefined,
-		alias: undefined,
-		onConflict: undefined,
-		returning: []
+export const carriedStash = (
+	named: DeltaCteName | undefined,
+	carrier: WriteCarrier,
+	names: CarriedNames
+): Select =>
+	ridingStash(
+		named === undefined
+			? emptyStash(carrier)
+			: carrierStash(
+					carrier,
+					provedSelect(
+						"keyed",
+						carrier.heading.map((c) => target(col(named.cte, deltaColumn(named, c.name)))),
+						[cteRef(named.cte)],
+						undefined
+					),
+					names
+				),
+		names
+	)
+
+/** The names a carried side's fill riding its statement defines (`carriedStash`). */
+export type CarriedNames = StashNames & RidingNames
+
+/** The names of `carrier`'s fill riding its statement, drawn from `supply`. */
+export const carriedNames = (carrier: WriteCarrier, supply: NameSupply): CarriedNames => {
+	const origin = { kind: "internal", purpose: "carried side" } as const
+	return {
+		alias: supply.relation(origin),
+		columns: carrier.heading.map(() => supply.column(origin)),
+		stash: supply.relation(origin),
+		stashed: Array.from({ length: stashedWidth(carrier) }, () => supply.column(origin))
 	}
-})
+}
 
 /** The column of the delta CTE `named` that holds the relation field `field`. */
 const deltaColumn = (named: DeltaCteName, field: string): string =>

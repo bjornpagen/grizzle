@@ -143,6 +143,7 @@ const withPost = (name: string, version: Version) => {
 		)
 	)
 	return defineConfig({
+		contracts: [],
 		schemas: [S],
 		logins: [
 			login(S, "app", [writer, other], {
@@ -180,6 +181,7 @@ const withNote = (name: string, version: Version) => {
 		)
 	)
 	return defineConfig({
+		contracts: [],
 		schemas: [S],
 		logins: [
 			login(S, "app", [writer, other], {

@@ -196,7 +196,7 @@ export const decodeRefusesExactlyWhereTheInsertsOwnAdmissionRefusesAtTheSameFiel
 			{
 				file: "packages/engine/src/program/decode.ts",
 				original:
-					'\t\t\treturn isRefined(type) ? [{ name, type, writing: { kind: "caller" } }] : []',
+					'\t\t\treturn isJudged(type) ? [{ name, type, writing: { kind: "caller" } }] : []',
 				replacement: "\t\t\treturn []",
 				why: "decode holds no field to its contract or pattern: a value outside its domain is decoded, where rowEvaluator refuses the row the insert stores and PostgreSQL's domain CHECK refuses it."
 			},

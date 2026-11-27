@@ -267,12 +267,14 @@ const pool: PoolBounds = { max: 1 }
 
 /** A command line's run in process over the configuration, refused unless it ended with status 0. */
 const command = (phase: Phase, argv: ReadonlyArray<string>, cwd: string, load: ConfigLoader) =>
-	Effect.flatMap(timedEffect(runCli(argv, cwd, load, processMeter)), ([report, spent]) =>
-		report.code === 0
-			? Effect.succeed(spent)
-			: Effect.fail(
-					new PhaseFailed({ phase, reason: Arr.join([...report.stdout, ...report.stderr], "\n") })
-				)
+	Effect.flatMap(
+		timedEffect(runCli(argv, cwd, process.version, load, processMeter)),
+		([report, spent]) =>
+			report.code === 0
+				? Effect.succeed(spent)
+				: Effect.fail(
+						new PhaseFailed({ phase, reason: Arr.join([...report.stdout, ...report.stderr], "\n") })
+					)
 	)
 
 /** Every phase at one scale, in a scratch directory removed when it ends. */
@@ -282,13 +284,14 @@ const measure = Effect.fn("measure")(function* (scale: Scale) {
 	const dir = yield* fs.makeTempDirectoryScoped({ prefix: "grizzle-bench-compile-" })
 	const file = `${dir}/grizzle.config.ts`
 	const config = defineConfig({
+		contracts: [],
 		schemas: [made.base],
 		logins: [made.web],
 		migrations: "migrations",
 		rolePrefixBytes: 0,
 		connection: () => owner
 	})
-	const load: ConfigLoader = (at) => Effect.succeed({ file: at, value: config })
+	const load: ConfigLoader = (at) => Effect.succeed({ file: at, value: config, closure: [] })
 	const generate = yield* command("generate", ["generate", file, "--name", "init"], dir, load)
 	const check = yield* command("check", ["check", file], dir, load)
 	const [resolved, migrate] = yield* timedEffect(

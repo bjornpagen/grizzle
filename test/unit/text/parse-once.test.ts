@@ -31,7 +31,6 @@ import { rowEvaluator } from "#adapter/public/host.ts"
 import { predicateTable } from "#compiler/ir/expr.ts"
 import { compileLaws } from "#compiler/laws/model/model.ts"
 import { closedLeaf, evaluatedRelation, hostEvaluator } from "#compiler/runtime/write/fill.ts"
-import { everySlice } from "#compiler/schema/reach.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
@@ -70,13 +69,11 @@ export const anAdmittedPatternIsParsedWhereItsProgramCompilesOnceATableWhateverR
 					"the multiplied schema owns"
 				)
 				const [model, drawnCounts] = yield* callCounts(
-					Effect.sync(() => compileLaws(drawnOwned, everySlice(drawnOwned), { kind: "planned" })),
+					Effect.sync(() => compileLaws(drawnOwned, { kind: "planned" })),
 					parseSites
 				)
 				const [, multipliedCounts] = yield* callCounts(
-					Effect.sync(() =>
-						compileLaws(multipliedOwned, everySlice(multipliedOwned), { kind: "planned" })
-					),
+					Effect.sync(() => compileLaws(multipliedOwned, { kind: "planned" })),
 					parseSites
 				)
 				const laws = succeeded(model, "the schema compiles")

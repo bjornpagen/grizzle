@@ -89,7 +89,7 @@ export type Row = ReadonlyArray<Value>
  */
 const wrongCarrier = (v: Value, expected: string): never => {
 	if (v instanceof Declined) {
-		throw referenceUnsupported(`the value of a declined term, read as ${expected}`)
+		referenceUnsupported(`the value of a declined term, read as ${expected}`)
 	}
 	throw new Error(
 		`the reference holds ${typeof v} ${Formatter.format(v)} where ${expected} was expected`
@@ -151,8 +151,9 @@ export class ReferenceUnsupported extends Data.TaggedError("ReferenceUnsupported
 }
 
 /** The refusal of a construct outside the fragment the reference evaluates, naming what it lacks. */
-export const referenceUnsupported = (what: string): ReferenceUnsupported =>
-	new ReferenceUnsupported({ refusal: { kind: "unsupported", what } })
+export const referenceUnsupported: (what: string) => never = (what) => {
+	throw new ReferenceUnsupported({ refusal: { kind: "unsupported", what } })
+}
 
 /**
  * The value a column of `type` holds for `v`: numeric typmod coercion; every other carrier holds the value unchanged,
@@ -181,7 +182,7 @@ export const coerceStated = (v: ModelValue, type: ScalarType): ModelValue => {
 /** A set's members in its roster's declared order; a value that is no Set of handles is a defect of the case. */
 const setMembers = (v: Value, handles: ReadonlyArray<string>): ReadonlyArray<string> => {
 	if (!(v instanceof Set)) {
-		throw referenceUnsupported("a set value that is no Set of handles")
+		referenceUnsupported("a set value that is no Set of handles")
 	}
 	return Arr.filter(handles, (h) => v.has(h))
 }
@@ -199,11 +200,11 @@ export const compare = (a: Value, b: Value, type: ScalarType): -1 | 0 | 1 => {
 		return 0
 	}
 	if (a instanceof Declined || b instanceof Declined) {
-		throw referenceUnsupported("a comparison of a declined term's value")
+		referenceUnsupported("a comparison of a declined term's value")
 	}
 	const c = compareCarried(a, b, type)
 	if (c === undefined) {
-		throw referenceUnsupported(`comparison of ${baseOf(type).carrier} values`)
+		referenceUnsupported(`comparison of ${baseOf(type).carrier} values`)
 	}
 	return c
 }
@@ -239,9 +240,9 @@ export const valueIdentity = (v: Value, type: ScalarType): ValueIdentity => {
 			return ["value", v === true]
 		case "sha256":
 		case "bytes":
-			throw referenceUnsupported("a bytes value, which is stored only")
+			referenceUnsupported("a bytes value, which is stored only")
 		case "tsvector":
-			throw referenceUnsupported("a search document, which PostgreSQL alone parses")
+			referenceUnsupported("a search document, which PostgreSQL alone parses")
 		case "uuid":
 		case "date":
 		case "inet":
@@ -263,6 +264,8 @@ export const valueIdentity = (v: Value, type: ScalarType): ValueIdentity => {
 			const components = asVector(v).components
 			return ["value", components.length, ...components]
 		}
+		case "variant":
+			referenceUnsupported("a variant, which the reference draws none of")
 	}
 }
 
@@ -294,6 +297,7 @@ export const indexIdentity = (v: Value, type: ScalarType): ValueIdentity | undef
 			return v instanceof Money ? valueIdentity(v, type) : undefined
 		case "bool":
 			return typeof v === "boolean" ? valueIdentity(v, type) : undefined
+		case "variant":
 		case "sha256":
 		case "bytes":
 		case "tsvector":
@@ -389,7 +393,7 @@ const decidedKeysBy = (
 		const key = elementOf(keys, r)
 		const other = decided.get(partial)
 		if (other !== undefined && other !== key) {
-			throw referenceUnsupported(`${at} over rows told apart by declined terms alone`)
+			referenceUnsupported(`${at} over rows told apart by declined terms alone`)
 		}
 		decided.set(partial, key)
 	}
@@ -508,9 +512,9 @@ export const literalOfValue = (v: Value, type: ScalarType): TypedLiteral => {
 			return { kind: "bool", value: asBoolean(v) }
 		case "sha256":
 		case "bytes":
-			throw referenceUnsupported("a bytes value, which is stored only")
+			referenceUnsupported("a bytes value, which is stored only")
 		case "tsvector":
-			throw referenceUnsupported("a search document, which PostgreSQL alone parses")
+			referenceUnsupported("a search document, which PostgreSQL alone parses")
 		case "text":
 			return { kind: "text", value: asString(v) }
 		case "uuid":
@@ -520,14 +524,14 @@ export const literalOfValue = (v: Value, type: ScalarType): TypedLiteral => {
 		case "inet": {
 			const read = admitInet(asString(v))
 			if (!read.ok) {
-				throw referenceUnsupported(`an inet value that is no inet: ${asString(v)}`)
+				referenceUnsupported(`an inet value that is no inet: ${asString(v)}`)
 			}
 			return { kind: "inet", value: read.value }
 		}
 		case "cidr": {
 			const read = admitCidr(asString(v))
 			if (!read.ok) {
-				throw referenceUnsupported(`a cidr value that is no cidr: ${asString(v)}`)
+				referenceUnsupported(`a cidr value that is no cidr: ${asString(v)}`)
 			}
 			return { kind: "cidr", value: read.value }
 		}
@@ -543,5 +547,7 @@ export const literalOfValue = (v: Value, type: ScalarType): TypedLiteral => {
 		}
 		case "vector":
 			return { kind: "vector", value: asVector(v) }
+		case "variant":
+			referenceUnsupported("a variant, which the reference draws none of")
 	}
 }

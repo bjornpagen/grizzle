@@ -6,6 +6,7 @@ import { once } from "#compiler/core/lazy.ts"
 import { fieldReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { Fold } from "#compiler/ir/fold.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
+import type { Needs } from "#compiler/ir/needs.ts"
 import {
 	inputPlaceholders,
 	keptRowsOf,
@@ -15,6 +16,7 @@ import {
 } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
 import { type CatalogSchema, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
+import { needsOf } from "#compiler/logical/needs.ts"
 import { fixedEqual, type FixedName, fixedNameKey, valueAt } from "#compiler/logical/props.ts"
 import { only } from "#compiler/write/defined.ts"
 import { unrefined } from "#compiler/write/insert/statement.ts"
@@ -342,16 +344,26 @@ const keyedBy = (node: RelNode, relation: RelationInfo): ReadonlyArray<string> =
 	)
 ]
 
-/** The scope of a proved MERGE deletion: the scope predicate is the conjunction of `predicates` and of each field in
- * `constants` equal to its expression, every column the expressions read being a column of one of the nodes `nodes`
- * names that `fieldOf` maps to a field of the relation. */
-export interface MergeScope {
+/** The scope predicate of a proved MERGE deletion: the conjunction of `predicates` and of each field in `constants`
+ * equal to its expression, every column the expressions read being a column of one of the nodes `nodes` names that
+ * `fieldOf` maps to a field of the relation. */
+interface ScopePredicate {
 	/** The labels of the match region over the relation and the filters above it, whose columns the predicates read. */
 	readonly nodes: ReadonlyArray<NodeId>
 	/** Column name (in every node of `nodes`) to the relation's field. */
 	readonly fieldOf: ReadonlyMap<string, string>
 	readonly predicates: ReadonlyArray<ScalarExpr>
 	readonly constants: ReadonlyArray<{ readonly field: string; readonly expr: ScalarExpr }>
+}
+
+/**
+ * The scope of a proved MERGE deletion: its predicate, and what the rows the deletion removes need of a call's inputs
+ * (logical/needs.ts needsOf over the deletion member), which the MERGE that absorbs it is sent wherever, beside its put
+ * input's facts (write/put/statement.ts buildMerge): `R where <scope> and key not in <put input>` removes the scope's
+ * every row where the put input is empty, so a MERGE sent only where its put input holds a fact leaves them all.
+ */
+export interface MergeScope extends ScopePredicate {
+	readonly deleted: Needs
 }
 
 /** Each variable of a match region's one occurrence to the column it binds, and the bound columns, when no variable or
@@ -385,7 +397,7 @@ const regionScope = (
 	columns: ReadonlyMap<string, KeyValue>,
 	predicates: ReadonlyArray<ScalarExpr>,
 	nodes: ReadonlyArray<NodeId>
-): MergeScope | undefined => {
+): ScopePredicate | undefined => {
 	const occurrence = only(node.occurrences)
 	if (occurrence === undefined || node.equalities.length > 0 || node.correlated.length > 0) {
 		return undefined
@@ -439,7 +451,7 @@ const scopedFacts = (
 	start: RelNode,
 	relation: RelationInfo,
 	fields: ReadonlyMap<string, KeyValue>
-): MergeScope | undefined => {
+): ScopePredicate | undefined => {
 	let node = start
 	let columns = fields
 	const predicates: Array<ScalarExpr> = []
@@ -621,5 +633,7 @@ export const mergeScopeProof = (
 		pairs.map((p) => p.right)
 	)
 	const input = keySetIdentity(put, pk)
-	return right !== undefined && input !== undefined && sameKeySet(right, input) ? scope : undefined
+	return right !== undefined && input !== undefined && sameKeySet(right, input)
+		? { ...scope, deleted: needsOf(anti) }
+		: undefined
 }

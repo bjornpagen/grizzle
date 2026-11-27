@@ -151,7 +151,7 @@ post-beta swarm's fixes for the next release.
   key's set merges into that key (laws/model/model.ts nativeIdentity), but ownership (schema/own.ts distinctKeys) does
   not refuse it as it refuses two declared keys over one set. analysis/theory/laws.ts keyedWithin and
   analysis/isolation/certify.ts sameKey keep field-set comparisons of their own instead of KeyColumnSet.
-- **The types and the engine part on family members (COMPUTE, 2026-11-10):** `select(R, w => w.and())` as a family
+- **The types and the engine part on family members (COMPUTE, 2026-11-10):** `select(R, w => w.and([]))` as a family
   member is refused by the types and admitted by the engine, which reads the empty conjunction as the relation (it
   predates COMPUTE-02, found by reading); a tree over a selection may print the tree's refusal beside the member
   refusal, since types/schema/statements.ts SideShowsKeyed reads no selection. A primary key over a set is still refused
@@ -660,9 +660,8 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   (text/field.ts keeps them in order into FieldDesc.patterns), a contained statement's term pairs (schema/own.ts
   canonicalSide canonicalizes the selection, never the terms) and and/or/IN nested under cond, when, cast or compute
   (QSET's walk). Hardening only: SchemaDesc relations and statements, contract facts, closed slots, login roles, field
-  records (a built description creates columns in declared order, a decoded one in name order, under one fingerprint),
-  a decoded description's alternatives arms (the builder already keeps roster order) and role entry lists (nothing
-  digests RoleDesc list order). Parked in ~/.cache/grizzle-release/SETFP: parked-sweep-over-874e7b05.patch (typecheck
+  records (a built description creates columns in declared order, a decoded one in name order, under one fingerprint)
+  and role entry lists (nothing digests RoleDesc list order). Parked in ~/.cache/grizzle-release/SETFP: parked-sweep-over-874e7b05.patch (typecheck
   clean, ungated; it holds CanonicalText and other QSET imports), parked-fields-wip-over-eb56d58b.patch and
   parked-fields-wip-set.ts.
 - **INDUCTIVE-02, Aiming.read as data across suites:** the draft is ~/.cache/grizzle-release/INDUCTIVE/draft-02
@@ -681,7 +680,7 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
 - **REDTESTS-04, grizzleActor through the approved recordingDriver:** grizzleActor learns a Db session's backend from a
   recording driver (BackendKeyData), per layer build. Parked at
   ~/.cache/grizzle-release/REDTESTS/parked/REDTESTS-04.patch (with its .msg), applying over 4dfbdba9 with REDTESTS-01 to 03, typechecked only. It owes the lint gate, payroll,
-  queue, derived/refreshers, races-alternatives and its kill (a recorder recording the first session twice fails
+  queue, derived/refreshers, races-tagged-arms and its kill (a recorder recording the first session twice fails
   payroll at its actor).
 - **DERIVEDWRITE, a write whose rows derive in its own statement (edullm, 2026-11-11):** a ChangeSet insert's source is
   given rows (`r.relation` inputs) or a rule over stored relations, with no aggregate, arithmetic or ranking term, so a

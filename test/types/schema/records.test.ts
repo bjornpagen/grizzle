@@ -2,7 +2,8 @@
  * The records agreement (test/types/schema/records.ts): over drawn queries of Shelves, each with its books attached as
  * an array and each book with a drawn subset of its blurb, spine, paper, digital and chapters, each chapter with its
  * remark (test/support/agreement/records.ts), at depths one to three and every delivery, and a name stated for the
- * books' or the chapters' path or none, the types of records(...) name, key and field each relation exactly as the
+ * books' or the chapters' path or none, RecordPaths types exactly the paths recordPaths lists at run time, and the
+ * types of records(...) name, key and field each relation exactly as the
  * engine builds it, a stated name the relation's at its path, an attachment's relation qualified by its parent's name,
  * stated or derived, where its name repeats in the tree and an array's place moved past a column or attachment named
  * `at`; a stray path among the names is refused by name;
@@ -23,7 +24,6 @@ import { recordsProgram } from "#test/types/schema/records.ts"
 type RecordsFeature =
 	| "an option"
 	| "one child"
-	| "an arm"
 	| "a nested array"
 	| "a third level"
 	| "a repeated name"
@@ -71,7 +71,6 @@ const notes = (stated: StatedShape): ReadonlyArray<RecordsFeature> => {
 	return [
 		...feature(delivered("option"), "an option"),
 		...feature(delivered("one"), "one child"),
-		...feature(delivered("arm"), "an arm"),
 		...feature(Option.isSome(b.chapters), "a nested array"),
 		...feature(third, "a third level"),
 		...feature(repeated, "a repeated name"),
@@ -91,7 +90,6 @@ export const recordsAgree = agreement(statedShapeGen, {
 	situations: [
 		"an option",
 		"one child",
-		"an arm",
 		"a nested array",
 		"a third level",
 		"a repeated name",
@@ -105,6 +103,12 @@ export const recordsAgree = agreement(statedShapeGen, {
 	oracle: { kind: "second-implementation", name: "the engine's records of each drawn query" },
 	kept: [],
 	kills: [
+		{
+			file: "packages/engine/src/types/schema/records.ts",
+			original: "| AttachmentPaths<ChildrenOf<At[N]>, ",
+			replacement: "| AttachmentPaths<ChildrenOf<never>, ",
+			why: "The paths stop at the books (types/schema/records.ts AttachmentPaths): RecordPaths types no path under them where recordPaths lists the chapters' and the rest, and a name stated for the chapters' path is refused as no path."
+		},
 		{
 			file: "packages/engine/src/types/schema/records.ts",
 			original:

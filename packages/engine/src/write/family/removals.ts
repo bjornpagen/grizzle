@@ -452,7 +452,7 @@ export const removalsSql = (
 		relations
 	)
 	if (firstReturning === undefined) {
-		throw defect("a family write that removes returns its deletions")
+		defect("a family write that removes returns its deletions")
 	}
 	return taggedRows(supply, ctes, [firstReturning, ...restReturnings], params, [])
 }
@@ -1634,7 +1634,7 @@ const redraw = (
 			}
 			const [firstArm, ...restArms] = arms
 			if (firstArm === undefined) {
-				throw defect("a redraw of no rows")
+				defect("a redraw of no rows")
 			}
 			return select(unionAll("disjoint", [firstArm, ...restArms]))
 		}
@@ -1794,7 +1794,7 @@ const writesOf = (
 	})
 	const [firstKeyed, ...restKeyed] = keyed
 	if (firstKeyed === undefined) {
-		throw defect("a member's writes read its updates")
+		defect("a member's writes read its updates")
 	}
 	ctes.push(cte(written_.name, select(unionAll("disjoint", [firstKeyed, ...restKeyed]))))
 	/** A written row's final value of a column: the scan of the family that draws it where it redrew the row, else the
@@ -1950,7 +1950,7 @@ const writesOf = (
 		]
 		const [firstField, ...restFields] = fields
 		if (firstField === undefined) {
-			throw defect(`the fields of ${name}`)
+			defect(`the fields of ${name}`)
 		}
 		const update = supply.relation(internal("family update"))
 		const returning = updateReturning(w, supply, relation, [firstField, ...restFields], update)

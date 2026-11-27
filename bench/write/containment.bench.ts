@@ -98,7 +98,7 @@ export default defineGate({
 		Effect.gen(function* () {
 			const fx = yield* installWrites(build("Shifts"), "benchcontain", {
 				programs: {},
-				logins: []
+				logins: () => []
 			})
 			const names = namesOf(fx.installed)
 			const law = names.lawOf(covered)

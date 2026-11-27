@@ -43,9 +43,9 @@ import {
 import { readSnapshot } from "#adapter/boundary/snapshot.ts"
 import { parseArgs } from "#cli/args.ts"
 import { check } from "#cli/check.ts"
-import { formatTimestamp } from "#cli/clock.ts"
 import type { CliError } from "#cli/errors.ts"
 import type { refusalText } from "#cli/refusals.ts"
+import { formatTimestamp } from "#cli/timestamp.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { silentPhases } from "#compiler/core/phase.ts"
 import type { AbandonedSchema, Declarations } from "#compiler/deploy/diff/plan.ts"
@@ -67,7 +67,7 @@ import {
 } from "#compiler/deploy/snapshot/types.ts"
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { closed, login, type Relation, role, schema } from "#compiler/public/schema.ts"
 import { installationsOf, ownLogin } from "#compiler/schema/own.ts"
@@ -130,7 +130,7 @@ type FolderName =
 
 /** A folder a schema's directory holds, as the model knows it. */
 interface FolderModel {
-	/** Its timestamp, in seconds after the clock's start. */
+	/** Its timestamp, in seconds after the Unix epoch. */
 	readonly second: number
 	readonly name: FolderName
 	readonly kind: "drafted" | "custom"
@@ -157,8 +157,6 @@ interface Model {
 	readonly schemas: Arr.NonEmptyReadonlyArray<SchemaState>
 	/** The declared names of the schemas no longer configured whose directory holds a snapshot.json. */
 	readonly abandoned: ReadonlyArray<string>
-	/** The clock, in seconds after its start. */
-	readonly clock: number
 	/** The next fresh name's number. */
 	readonly fresh: number
 }
@@ -182,7 +180,6 @@ const initial: Model = {
 		})
 	],
 	abandoned: [],
-	clock: 0,
 	fresh: 3
 }
 
@@ -523,8 +520,6 @@ type SchemaFlag =
 	| { readonly kind: "unknown" }
 
 interface GenerateParameters {
-	/** The seconds the clock moved since the last command. */
-	readonly advance: 0 | 1 | 2
 	readonly naming: Naming
 	readonly flag: SchemaFlag
 	/** Whether the command line declares the renames and drops the drafts need. */
@@ -555,7 +550,6 @@ const nameGen: Gen<MigrationName> = weighted([
 const generateGen =
 	(m: Model): Gen<GenerateParameters> =>
 	(source) => ({
-		advance: source.draw(element<0 | 1 | 2>([0, 1, 2])),
 		naming: source.draw(
 			weighted<Naming>([
 				[3, constant({ kind: "derived" })],
@@ -598,27 +592,22 @@ const declarationsOf = (m: Model, p: GenerateParameters): ReadonlyArray<string> 
 				neededOf(defined(m.schemas[i], "a selected schema"))
 			)
 
-/** A schema's next folder's timestamp: the clock's second, or one past its newest folder's. */
-const stampOf = (s: SchemaState, now: number): number =>
+/** A schema's next folder's timestamp: one second past its newest folder's, the epoch for its first. */
+const stampOf = (s: SchemaState): number =>
 	Option.match(Arr.last(s.folders), {
-		onNone: () => now,
-		onSome: (f) => Math.max(now, f.second + 1)
+		onNone: () => 0,
+		onSome: (f) => f.second + 1
 	})
 
 /** What generate does to one selected schema: nothing, a custom folder, or a draft. */
-const generatedFor = (
-	m: Model,
-	s: SchemaState,
-	p: GenerateParameters,
-	now: number
-): SchemaState => {
+const generatedFor = (m: Model, s: SchemaState, p: GenerateParameters): SchemaState => {
 	if (p.naming.kind === "custom") {
 		return {
 			...s,
 			folders: [
 				...s.folders,
 				{
-					second: stampOf(s, now),
+					second: stampOf(s),
 					name: { kind: "given", name: p.naming.name },
 					kind: "custom",
 					placeholders: 0,
@@ -643,7 +632,7 @@ const generatedFor = (
 		folders: [
 			...s.folders,
 			{
-				second: stampOf(s, now),
+				second: stampOf(s),
 				name:
 					p.naming.kind === "named" ? { kind: "given", name: p.naming.name } : { kind: "derived" },
 				kind: "drafted",
@@ -686,13 +675,9 @@ const judgeGenerate = (m: Model, p: GenerateParameters): Verdict<Model, Refusal>
 			}
 		}
 	}
-	const now = m.clock + p.advance
 	return accepted({
 		...m,
-		clock: now,
-		schemas: Arr.map(m.schemas, (s, i) =>
-			Arr.contains(selected, i) ? generatedFor(m, s, p, now) : s
-		)
+		schemas: Arr.map(m.schemas, (s, i) => (Arr.contains(selected, i) ? generatedFor(m, s, p) : s))
 	})
 }
 
@@ -850,7 +835,6 @@ export type ProjectFeature =
 	| "a folder named at the file name limit"
 	| "a custom folder"
 	| "a custom folder before the first draft"
-	| "a folder in the same second as the newest"
 	| "two schemas drafted at once"
 	| "--schema by its declared name"
 	| "--schema by its PostgreSQL schema"
@@ -873,7 +857,6 @@ export const projectFeatures = [
 	"a folder named at the file name limit",
 	"a custom folder",
 	"a custom folder before the first draft",
-	"a folder in the same second as the newest",
 	"two schemas drafted at once",
 	"--schema by its declared name",
 	"--schema by its PostgreSQL schema",
@@ -956,6 +939,7 @@ const builtOf = (spec: SchemaSpec) => {
 const configOf = (m: Model) => {
 	const built = Arr.map(m.schemas, (s) => builtOf(s.current))
 	return defineConfig({
+		contracts: [],
 		schemas: [Arr.headNonEmpty(built).schema, ...Arr.map(Arr.tailNonEmpty(built), (b) => b.schema)],
 		logins: Arr.map(built, (b) => b.server),
 		migrations: "migrations",
@@ -964,20 +948,8 @@ const configOf = (m: Model) => {
 	})
 }
 
-/** The clock's start, 2026-10-12T12:00:00Z. */
-const clockStart = DateTime.makeUnsafe({
-	year: 2026,
-	month: 10,
-	day: 12,
-	hour: 12,
-	minute: 0,
-	second: 0,
-	millisecond: 0
-})
-
-const instantOf = (second: number): DateTime.Utc => DateTime.add(clockStart, { seconds: second })
-
-const stampText = (second: number): string => formatTimestamp(instantOf(second))
+/** The timestamp of a folder `second` seconds after the Unix epoch, as the command line writes it. */
+const stampText = (second: number): string => formatTimestamp(DateTime.makeUnsafe(second * 1000))
 
 const directoryOf = (r: Workspace, s: SchemaState): string =>
 	`${r.dir}/migrations/${identOf(s.current.name)}`
@@ -1224,7 +1196,7 @@ const runGenerate = (
 		const argv = generateArgv(before, p)
 		const listed = yield* contents(r)
 		const previous = yield* Effect.forEach(before.schemas, (s) => snapshotFilesOf(r, s))
-		const ran = yield* cliOver(r.dir, configOf(before), argv, instantOf(before.clock + p.advance))
+		const ran = yield* cliOver(r.dir, configOf(before), argv)
 		const answer = answerOf(ran)
 		assert.equal(ran.code, statusOf(answer), `grizzle ${Arr.join(argv, " ")}: ${ran.stderr}`)
 		if (Arr.some(before.schemas, (s) => s.hidden)) {
@@ -1286,9 +1258,6 @@ const runGenerate = (
 			const name = Arr.lastNonEmpty(nonEmpty(onDisk, "a folder on disk"))
 			const dir = `${directoryOf(r, s)}/${name}`
 			const timestamp = stampText(folder.second)
-			if (Option.exists(Arr.last(was.folders), (f) => f.second >= before.clock + p.advance)) {
-				r.c.note("a folder in the same second as the newest")
-			}
 			if (Str.length(name) === fileNameMaxBytes) {
 				r.c.note("a folder named at the file name limit")
 			}
@@ -1371,7 +1340,7 @@ const runGenerate = (
 const runCheck = (r: Workspace, m: Model) =>
 	Effect.gen(function* () {
 		const config = configOf(m)
-		const ran = yield* cliOver(r.dir, config, ["check", configName], instantOf(m.clock))
+		const ran = yield* cliOver(r.dir, config, ["check", configName])
 		const read = yield* resolvedConfig(config, `${r.dir}/${configName}`)
 		const resolved = succeeded(read)
 		const checks = yield* check(resolved, r.dir, silentPhases)
@@ -1587,7 +1556,6 @@ const scripted =
 const generateStep = (declare: boolean) => (): Gen<ProjectStep> => (source) => ({
 	command: "grizzle generate",
 	parameters: {
-		advance: source.draw(element<0 | 1 | 2>([0, 1, 2])),
 		naming: source.draw(
 			weighted<Naming>([
 				[3, constant({ kind: "derived" })],

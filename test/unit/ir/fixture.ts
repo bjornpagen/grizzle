@@ -60,7 +60,19 @@ export const scalarTypes = {
 	kind: scalarOf(f.closedId("Kind"), { Kind: ["Automatic", "Manual"] }),
 	range8: scalarOf(f.span(f.bigint, undefined), {}),
 	vector3: scalarOf({ kind: "vector", dimensions: 3 }, {}),
-	cents: scalarOf(f.contract("Cents", f.bigint, undefined), {})
+	cents: scalarOf(f.contract("Cents", f.bigint, undefined), {}),
+	pick: scalarOf(
+		{
+			kind: "variant",
+			name: "Pick",
+			roster: "Kind",
+			arms: [
+				{ handle: "Automatic", fields: [], check: undefined },
+				{ handle: "Manual", fields: [{ name: "n", desc: f.integer }], check: undefined }
+			]
+		},
+		{ Kind: ["Automatic", "Manual"] }
+	)
 } as const satisfies Readonly<Record<string, ScalarType>>
 
 /**
@@ -204,6 +216,8 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 		keys: [["account", "id"]],
 		relationKind: "relation",
 		generated: [],
+		unit: [],
+		determined: [],
 		heading: taskHeading,
 		loc: undefined,
 		meta: conservativeMeta
@@ -396,6 +410,8 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 		keys: [],
 		relationKind: "relation",
 		generated: [],
+		unit: [],
+		determined: [],
 		heading: heading(["id", scalarTypes.uuid], ["during", scalarTypes.range8]),
 		loc: undefined,
 		meta: conservativeMeta
@@ -422,6 +438,8 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 			keys: [],
 			relationKind: "relation",
 			generated: [],
+			unit: [],
+			determined: [],
 			heading: edgeHeading,
 			loc: undefined,
 			meta: conservativeMeta
@@ -495,6 +513,8 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 		keys: [],
 		relationKind: "relation",
 		generated: [],
+		unit: [],
+		determined: [],
 		heading: heading(["id", scalarTypes.uuid], ["embedding", scalarTypes.vector3]),
 		loc: undefined,
 		meta: conservativeMeta

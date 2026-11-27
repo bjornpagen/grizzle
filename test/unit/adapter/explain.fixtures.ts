@@ -15,18 +15,19 @@ import type { Json } from "#compiler/core/canonical.ts"
  * Over drawn installed tables, two schemas holding tables of the same names, each a relation of its own with indexes of
  * the same names across tables, and drawn plan trees over them: each node of a type
  * PostgreSQL names, its estimates drawn apart from each other so no two coincide by accident, reading nothing, a table
- * whole, a table through an index, a table by a bitmap whose Bitmap Index Scans name their index alone, or a carrier,
- * a table of the session's temporary schema, read whole, or through an index or by a bitmap of one, which no carrier
- * holds, beside members PostgreSQL prints that the Plan drops. The answer's json text decodes to
- * the tree's projection onto the Plan's fields, or is refused exactly where some node names a table the file does not
- * hold, an index its table does not, or an index of a carrier. The oracle is that projection, written from the
- * documented mapping ("Node Type" to node, "Startup Cost", "Total Cost", "Plan Rows" and "Plan Width" to the estimates,
- * "Plans" to the children, "Schema" and "Relation Name" to the relation the file names for that table, "Index Name" to
- * that table's index by its name, under a Bitmap Heap Scan the heap's table, and the temporary schema to the carrier).
+ * whole, a table through an index, a table by a bitmap whose Bitmap Index Scans name their index alone, or a table of
+ * the session's temporary schema, which no served statement names (write/carriers/carriers.ts: a ChangeSet's carriers
+ * travel in its transaction's settings), read whole, through an index or by a bitmap, beside members PostgreSQL prints
+ * that the Plan drops. The answer's json text decodes to the tree's projection onto the Plan's fields, or is refused
+ * exactly where some node names a table the file does not hold, a temporary one among them, or an index its table does
+ * not. The oracle is that projection, written from the documented mapping ("Node Type" to node, "Startup Cost", "Total
+ * Cost", "Plan Rows" and "Plan Width" to the estimates, "Plans" to the children, "Schema" and "Relation Name" to the
+ * relation the file names for that table, "Index Name" to that table's index by its name, under a Bitmap Heap Scan the
+ * heap's table).
  *
  * Features: a leaf, a node with several children, a tree nested three deep, members the Plan drops, a table read
- * whole, an index scan, a bitmap index scan under its heap, a carrier, a plan refused for a table or an index the file
- * does not name, and one refused for an index under a carrier.
+ * whole, an index scan, a bitmap index scan under its heap, a plan refused for a table or an index the file does not
+ * name, and one refused for a temporary table.
  */
 
 /** The schemas, tables and indexes a case names, each name shared across its owners so a lookup must take its owner. */
@@ -87,10 +88,11 @@ export const installedJson = (tables: ReadonlyArray<TableDraw>): Json =>
 		})
 	)
 
-/** How a node reads a carrier: whole, or, as no carrier can since it holds no index, through an index or by a bitmap. */
-type CarrierAccess = "whole" | "key" | "bitmap"
+/** How a node reads a temporary table: whole, through an index, or by a bitmap. */
+type TemporaryAccess = "whole" | "key" | "bitmap"
 
-/** What a drawn node reads: nothing, a table whole, a table through an index, a bitmap of a table, or a carrier. */
+/** What a drawn node reads: nothing, a table whole, a table through an index, a bitmap of a table, or a temporary
+ * table. */
 type Read =
 	| { readonly kind: "none" }
 	| { readonly kind: "scan"; readonly schema: number; readonly table: number }
@@ -106,7 +108,7 @@ type Read =
 			readonly table: number
 			readonly bitmaps: ReadonlyArray<number>
 	  }
-	| { readonly kind: "carrier"; readonly access: CarrierAccess }
+	| { readonly kind: "temporary"; readonly access: TemporaryAccess }
 
 interface Estimates {
 	readonly startup: number
@@ -174,13 +176,13 @@ const readGen: Gen<Read> = oneOf<Read>([
 		bitmaps: source.draw(array(place, { min: 1, max: 2 }))
 	}),
 	(source) => ({
-		kind: "carrier",
+		kind: "temporary",
 		access: source.draw(element(["whole", "key", "bitmap"] as const))
 	})
 ])
 
-/** The types PostgreSQL names a node reading a carrier by, by how it reads it. */
-const carrierTypes: { readonly [A in CarrierAccess]: Gen<string> } = {
+/** The types PostgreSQL names a node reading a temporary table by, by how it reads it. */
+const temporaryTypes: { readonly [A in TemporaryAccess]: Gen<string> } = {
 	whole: element(["Seq Scan", "Insert", "Delete"] as const),
 	key: element(["Index Scan", "Index Only Scan"] as const),
 	bitmap: element(["Bitmap Heap Scan"] as const)
@@ -197,8 +199,8 @@ const typeOf = (read: Read): Gen<string> => {
 			return element(["Index Scan", "Index Only Scan"] as const)
 		case "heap":
 			return element(["Bitmap Heap Scan"] as const)
-		case "carrier":
-			return carrierTypes[read.access]
+		case "temporary":
+			return temporaryTypes[read.access]
 	}
 }
 
@@ -244,10 +246,10 @@ const estimatesJson = (e: Estimates): Readonly<Record<string, Json>> => ({
 	"Plan Width": e.width
 })
 
-/** A carrier's table, and an index of it, as PostgreSQL would name a PRIMARY KEY's index. */
-const carrierName = "__carrier_1"
+/** A temporary table, and an index of it, as PostgreSQL would name a PRIMARY KEY's index. */
+const temporaryName = "__carrier_1"
 
-const carrierKey = `${carrierName}_pkey`
+const temporaryKey = `${temporaryName}_pkey`
 
 /** What PostgreSQL prints of what a node reads under VERBOSE: its table and schema, and its index. */
 const readJson = (read: Read): Readonly<Record<string, Json>> => {
@@ -266,21 +268,21 @@ const readJson = (read: Read): Readonly<Record<string, Json>> => {
 				Schema: schemaNames[read.schema] ?? "",
 				"Index Name": indexNames[read.index] ?? ""
 			}
-		case "carrier":
+		case "temporary":
 			return {
-				"Relation Name": carrierName,
+				"Relation Name": temporaryName,
 				Schema: "pg_temp",
-				...(read.access === "key" ? { "Index Name": carrierKey } : {})
+				...(read.access === "key" ? { "Index Name": temporaryKey } : {})
 			}
 	}
 }
 
-/** The index names a node's Bitmap Index Scans print: a table's drawn ones, a carrier's index, or none. */
+/** The index names a node's Bitmap Index Scans print: a table's drawn ones, a temporary table's index, or none. */
 const bitmapIndexes = (read: Read): ReadonlyArray<string> =>
 	read.kind === "heap"
 		? Arr.map(read.bitmaps, (index) => indexNames[index] ?? "")
-		: read.kind === "carrier" && read.access === "bitmap"
-			? [carrierKey]
+		: read.kind === "temporary" && read.access === "bitmap"
+			? [temporaryKey]
 			: []
 
 /** A Bitmap Heap Scan's Bitmap Index Scans, which name their index alone. */
@@ -327,8 +329,8 @@ const targetOf = (c: Case, read: Read): PlanTarget | undefined => {
 	switch (read.kind) {
 		case "none":
 			return { kind: "none" }
-		case "carrier":
-			return read.access === "whole" ? { kind: "carrier" } : undefined
+		case "temporary":
+			return undefined
 		case "scan":
 		case "heap": {
 			const table = tableAt(c, read.schema, read.table)
@@ -343,8 +345,8 @@ const targetOf = (c: Case, read: Read): PlanTarget | undefined => {
 	}
 }
 
-/** The targets of a node's Bitmap Index Scans: its table's index each, or none the file does not name; none of a carrier,
- * which holds no index. */
+/** The targets of a node's Bitmap Index Scans: its table's index each, or none the file does not name, a temporary
+ * table's among them. */
 const bitmapTargets = (c: Case, read: Read): ReadonlyArray<PlanTarget | undefined> => {
 	if (read.kind === "heap") {
 		const table = tableAt(c, read.schema, read.table)
@@ -352,7 +354,7 @@ const bitmapTargets = (c: Case, read: Read): ReadonlyArray<PlanTarget | undefine
 			table === undefined ? undefined : indexTarget(table, index)
 		)
 	}
-	return read.kind === "carrier" && read.access === "bitmap" ? [undefined] : []
+	return read.kind === "temporary" && read.access === "bitmap" ? [undefined] : []
 }
 
 /** The documented mapping onto the Plan, or none where some node reads what the file does not name. */
@@ -387,13 +389,6 @@ export const projected = (c: Case, node: Node): Plan | undefined => {
 			}
 }
 
-/** `node` with every carrier it reads read whole: a tree refused for an index under a carrier alone projects so. */
-export const carriersWhole = (node: Node): Node => ({
-	...node,
-	read: node.read.kind === "carrier" ? { kind: "carrier", access: "whole" } : node.read,
-	children: Arr.map(node.children, carriersWhole)
-})
-
 export const depthOf = (node: Node): number =>
 	1 + Arr.reduce(node.children, 0, (deepest, child) => Math.max(deepest, depthOf(child)))
 
@@ -407,6 +402,5 @@ export type PlanFeature =
 	| "a table read whole"
 	| "an index scan"
 	| "a bitmap index scan under its heap"
-	| "a carrier"
 	| "a plan refused"
-	| "an index under a carrier refused"
+	| "a temporary table refused"

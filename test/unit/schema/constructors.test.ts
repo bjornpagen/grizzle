@@ -36,8 +36,8 @@ import { Array as Arr, Effect, Option, Order, Record as Rec } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	conjunctsOf,
+	declaredNaming,
 	everyFact,
-	expandAlternatives,
 	type LiteralDesc,
 	type SelectionDesc,
 	type SideDesc,
@@ -63,7 +63,6 @@ import {
 } from "#compiler/schema/relation.ts"
 import { admitSchema, schemaBuilder as schema, schemaDescOf } from "#compiler/schema/schema.ts"
 import {
-	alternativesBuilder,
 	checkBuilder,
 	containedBuilder,
 	expansionDescOf,
@@ -83,14 +82,9 @@ import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { AnyTerm } from "#compiler/types/schema/statements.ts"
 import { faulted, placeOf, refusalLoc, succeeded, throwsRefused } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
-import { whereIndex } from "#test/support/oracle/pick.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 import {
 	agrees,
-	Alien,
-	alternativesDefects,
-	type AlternativesFeature,
-	alternativesTags,
 	built,
 	builtDescriptors,
 	caseGen,
@@ -220,6 +214,7 @@ export const relationRequiresANonemptyNameBuiltDescriptorsAndANonemptyDistinctPr
 							() =>
 								admitRelation(
 									name,
+									declaredNaming,
 									fields,
 									primaryKey,
 									s.defect === "a fourth argument" ? [{}] : []
@@ -306,7 +301,13 @@ export const closedRecordsARostersHandlesInDeclaredOrderTypesEachHandleAsACodeOf
 						const roster = s.defect === "a repeated handle" ? [...handles, target] : handles
 						throwsRefused(
 							() =>
-								admitRoster(s.name, roster, "ordered", s.defect === "a third argument" ? [{}] : []),
+								admitRoster(
+									s.name,
+									roster,
+									"ordered",
+									declaredNaming,
+									s.defect === "a third argument" ? [{}] : []
+								),
 							s.defect === "a repeated handle" ? "Refused" : "MalformedDescription"
 						)
 						return
@@ -895,7 +896,7 @@ export const statementsCheckRecordsTheRowPredicateOverItsOwnRowLiteralsAdoptingT
 									? true
 									: defect === "none"
 										? built(e, predicate)
-										: e.and(built(e, predicate), plantedConjunct(e, defect))
+										: e.and([built(e, predicate), plantedConjunct(e, defect)])
 							)
 						if (defect !== "none") {
 							return void throwsRefused(
@@ -934,177 +935,6 @@ export const statementsCheckRecordsTheRowPredicateOverItsOwnRowLiteralsAdoptingT
 					original: '\t\t\treturn at.reason._tag === "IdentifierCollision"',
 					replacement: '\t\t\treturn at.reason._tag !== "IdentifierCollision"',
 					why: "Operator mutant dc39ca55e1 in packages/engine/src/core/errors.ts compileErrorMessage: `===` becomes `!==`; the property fails (the census, lane TESTPOLICY2)."
-				}
-			]
-		}
-	)
-
-/** Alternatives is one statement of its armed handles in roster order, expanding to each arm's containment and each handle's reverse. Its budget is its suite's before it was a property (test/unit/schema/constructors.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
-export const alternativesIsOneStatementOfItsArmedHandlesInRosterOrderExpandingToEachArmsContainmentAndEachHandlesReverse =
-	property.explore(
-		(source) => ({
-			handles: source.draw(
-				uniqueKeys(matching(arkregex("^[A-Z][a-z]{0,6}$")), {
-					min: 1,
-					max: 4
-				})
-			),
-			armed: source.draw(array(boolean, { min: 4, max: 4 })),
-			arming: source.draw(array(boolean, { min: 4, max: 4 })),
-			wide: source.draw(boolean),
-			parentKey: source.draw(boolean),
-			defect: source.draw(element(Arr.append(alternativesDefects, "none" as const))),
-			at: source.draw(pickGen)
-		}),
-		{
-			needs: {},
-			budget: { runs: 300, steered: 300 },
-			situations: [
-				...alternativesDefects,
-				"a Key as the parent",
-				"a Key as an arm",
-				"an unarmed handle",
-				"a two-field key"
-			] satisfies ReadonlyArray<Reached<AlternativesFeature>>,
-			check: (_, c: Case<AlternativesFeature>) => (s) =>
-				Effect.sync(() => {
-					c.note(s.defect)
-					const Mode = closed("Mode", rosterOf(s.handles), "ordered", [])
-					const Job = relation(
-						"Job",
-						{ id: Id, mode: rawClosedId(Mode), other: Id, alien: rawClosedId(Alien) },
-						["id"],
-						[]
-					)
-					/** The parent's key: Job's primary key, a one-field Key, or a two-field Key. */
-					const parentFields = s.wide ? ["id", "other"] : s.parentKey ? ["other"] : ["id"]
-					const parent = s.wide || s.parentKey ? keyBuilder(onBuilder(Job, parentFields)) : Job
-					if (s.wide) {
-						c.note("a two-field key")
-					} else if (s.parentKey) {
-						c.note("a Key as the parent")
-					}
-					/** The armed handles, at least one: the first is armed when the draw arms none. */
-					const drawnArmed = whereIndex(s.handles, (i) => s.armed[i] === true)
-					const armedHandles = drawnArmed.length > 0 ? drawnArmed : s.handles.slice(0, 1)
-					if (armedHandles.length < s.handles.length) {
-						c.note("an unarmed handle")
-					}
-					const target = defined(armedHandles[pickIndex(s.at, armedHandles.length)])
-					const arms: Record<string, unknown> = {}
-					const armKeys: Record<
-						string,
-						{ readonly relation: string; readonly fields: ReadonlyArray<string> }
-					> = {}
-					for (const h of armedHandles) {
-						const i = s.handles.indexOf(h)
-						const Arm = relation(`Arm${i}`, { job: Id, extra: Id }, ["job"], [])
-						const unlike = s.defect === "an arm keyed unlike the parent" && h === target
-						const two = s.wide !== unlike
-						const viaKey = two || s.arming[i] === true
-						const fields = two ? ["job", "extra"] : viaKey ? ["extra"] : ["job"]
-						if (viaKey && !two) {
-							c.note("a Key as an arm")
-						}
-						arms[h] = viaKey ? keyBuilder(onBuilder(Arm, fields)) : Arm
-						armKeys[h] = { relation: `Arm${i}`, fields }
-					}
-					if (s.defect === "an arm off the roster") {
-						arms[`${target}Off`] = arms[target]
-					}
-					if (s.defect === "the parent as an arm") {
-						arms[target] = parent
-					}
-					const discriminator =
-						s.defect === "a discriminator of another type"
-							? "other"
-							: s.defect === "a discriminator of another roster"
-								? "alien"
-								: "mode"
-					const armMap = s.defect === "no arms" ? {} : arms
-					const build = () => alternativesBuilder(parent, discriminator, Mode, armMap)
-					if (s.defect !== "none") {
-						return void throwsRefused(build, alternativesTags[s.defect])
-					}
-					const law = build()
-					assert.equal(Object.isFrozen(law), true)
-					matchesObject(law, {
-						kind: "alternatives",
-						parent,
-						discriminator: "mode",
-						roster: Mode
-					})
-					assert.deepEqual(law.arms, arms)
-					/** Each armed handle in roster order, with its arm's key side. */
-					const armed = Arr.flatMap(s.handles, (h) => {
-						const arm = armKeys[h]
-						return arm === undefined
-							? []
-							: [
-									{
-										handle: h,
-										arm: {
-											relation: arm.relation,
-											terms: fieldTerms(arm.fields),
-											selection: everyFact
-										}
-									}
-								]
-					})
-					const desc = statementDescOf(law)
-					if (desc?.kind !== "alternatives") {
-						return assert.fail("an alternatives statement")
-					}
-					matchesObject(desc, {
-						kind: "alternatives",
-						parent: { relation: "Job", terms: fieldTerms(parentFields), selection: everyFact },
-						discriminator: "mode",
-						roster: "Mode",
-						arms: armed
-					})
-					/**
-					 * No head containment: the roster's domain types the discriminator. Each arm, its own relation here, is
-					 * contained in its handle's parents, selected by their discriminator; then each handle's parents are
-					 * contained in its arm (ir/desc.ts expandAlternatives).
-					 */
-					const selected = (h: string) => ({
-						relation: "Job",
-						terms: fieldTerms(parentFields),
-						selection: {
-							conjuncts: [
-								{
-									kind: "compare" as const,
-									op: "eq" as const,
-									left: { kind: "field" as const, field: "mode" },
-									right: { kind: "literal" as const, value: h }
-								}
-							]
-						}
-					})
-					matchesObject(expandAlternatives(desc), [
-						...Arr.map(armed, (a) => ({
-							kind: "contained" as const,
-							left: a.arm,
-							right: selected(a.handle)
-						})),
-						...Arr.map(armed, (a) => ({
-							kind: "contained" as const,
-							left: selected(a.handle),
-							right: a.arm
-						}))
-					])
-				}),
-			oracle: {
-				kind: "specification",
-				name: "each arm's containment and each handle's reverse, in roster order"
-			},
-			kept: [],
-			kills: [
-				{
-					file: "packages/engine/src/ir/shape.ts",
-					original: "\t\t\tsymbols: Object.getOwnPropertySymbols(value).length > 0",
-					replacement: "\t\t\tsymbols: Object.getOwnPropertySymbols(value).length <= 0",
-					why: "Operator mutant 288f9b9210 at packages/engine/src/ir/shape.ts:411 in readObject: `>` becomes `<=`; the property fails (the census, lane TESTPOLICY2)."
 				}
 			]
 		}

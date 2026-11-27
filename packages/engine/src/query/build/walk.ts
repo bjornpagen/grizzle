@@ -66,6 +66,13 @@ const spellSource = (source: OpenSource, s: Spellings): SourceDesc => {
 		case "context":
 		case "row":
 			return source
+		case "arm":
+			return {
+				kind: "arm",
+				variant: source.variant,
+				handle: source.handle,
+				value: spellExpr(source.value, s)
+			}
 	}
 }
 

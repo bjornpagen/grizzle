@@ -165,6 +165,7 @@ const fill =
 				return undefined
 			case "member":
 			case "nestedRows":
+			case "admission":
 			case "page":
 				throw new Error(
 					`a query statement's placeholder is a declared parameter, not a ${slot.kind} placeholder`

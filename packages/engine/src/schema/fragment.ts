@@ -46,7 +46,6 @@ const decidedRelations = (
 			)
 		case "check":
 		case "contained":
-		case "alternatives":
 			return []
 	}
 }

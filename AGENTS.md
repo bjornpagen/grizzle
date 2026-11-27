@@ -50,16 +50,18 @@ reopen)" are closed questions. Do not propose, prototype or reintroduce a settle
   - **Big keys are a modelling bug.** An identity is a short name, a path or a digest, never a document. A schema that
     needs a long text's identity declares its digest as a field and keys by it, in plain sight.
 
-- **A format change reaches a live installation by rebasing, and leaves stored representations alone (2026-11-21).**
-  grizzle converts no committed record of another format. `grizzle upgrade` rebases a live installation onto this
-  grizzle's compile of the source it was deployed from: it reads the live database's history (each roster's codes off
-  its names constant, each table's attribute numbers, each pattern language's spelling, every fact proven by the drift
-  check) and writes either the snapshot's files again, or a folder `grizzle migrate` applies, drafted by the normal diff
-  from the target's objects the database holds (README "Upgrading across a format"). It writes nothing to the database.
-  So, after edullm's production cutover, a format change must leave grizzle's bookkeeping tables (`__ledger`,
-  `__drift_proofs`) and every stored column's type unchanged, unless it ships an explicit carried conversion: their rows
-  are no rebase's to rewrite, and migrate reads the ledger before it applies anything. `grizzle upgrade` refuses such a
-  change by name (UpgradeRefused, an object that holds stored rows held otherwise). Main's ruling on lane UPGRADE's
-  rehearsal of format 5 to 6, which retyped the ledger's digests and could not be rebased. Why:
-  - **The database is the authority** on what its stored codes and rows mean; a converted record could disagree with it.
-  - **No migrate reads another format's ledger**, so a ledger change has no folder that could carry it.
+- **Migration bankruptcy: no installation crosses a format; purge and regenerate (2026-11-26).** grizzle reads exactly
+  its own format (core/format.ts) and carries nothing of another forward: no command reads, converts or rebases another
+  format's snapshot, manifest, meta.json or ledger, and no code cleans up what an older format left in a database.
+  An artifact or installation of another format is refused, with one remedy: drop the installation (`grizzle
+  uninstall`), empty its migrations directory, and regenerate, `grizzle generate` drafting the schema afresh as one
+  init migration that `grizzle migrate` installs. A format change ships no converter, no rebase and no tolerance of the
+  format before it. `grizzle generate` and `grizzle migrate` between versions of a consumer's own schema (the diff, data
+  steps, renames, drift, the ledger of applied folders) are the product and stay. This replaces the 2026-11-21 ruling
+  that a format change reaches a live installation by rebasing (`grizzle upgrade`, deleted with its readers). Bjorn,
+  verbatim, 2026-11-26: "no need to keep migration backwards compat btw. there is too much defensive migration logic,
+  let's just declare migration bankruptcy, sweep all the code to remove and purge all branches that are now moot, and
+  for all of our apps like qti-pie, qti app in edullm, metis, just fully purge and regen all the schemas." Why:
+  - **No app has a student**, so no installation holds rows a purge would lose.
+  - **Every compatibility path is code that never runs again**: a rebase, a converter or a leftover's cleanup serves
+    one crossing and then stands, tested and maintained, against states no installation of this format reaches.

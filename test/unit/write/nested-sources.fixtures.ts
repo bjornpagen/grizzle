@@ -224,8 +224,6 @@ const transportOf = (cut: Cut): Transport =>
 export type Feature =
 	| "several sources in one stratum"
 	| "a statement inline"
-	| "a statement staged in several fills"
-	| "a row past one fill alone"
 	| "an owner of no member"
 
 /** The form and the chunks of a write a case's facts bind: lawful by construction, it binds. */
@@ -265,15 +263,8 @@ export const property = (sketch: Sketch, c: Case<Feature>) =>
 			if (sent.length === 0) {
 				continue
 			}
-			if (!got.ok) {
-				c.note("a row past one fill alone")
-				continue
-			}
-			if (got.value.length === 1) {
+			if (got.ok && got.value.length === 1) {
 				c.note("a statement inline")
-			}
-			if (Arr.filter(got.value, (e) => e.part === "fill").length > 1) {
-				c.note("a statement staged in several fills")
 			}
 		}
 		if (sources.size > 1) {

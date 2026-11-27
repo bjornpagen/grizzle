@@ -11,12 +11,16 @@
  * And a join the statement's own values restrict is computed once as a fold is (lower/shapes/share/statements.ts
  * sharedOnce, lower/optimize/cte-policy restrictedByValues, rule 5d), where a join no value of the statement restricts
  * stays inline at each read (rules 4 and 6): computed once it would be derived whole, every session's items, where each
- * inline read is restricted where it stands.
+ * inline read is restricted where it stands. And a closed relation the arguments and a member read is printed once,
+ * one part of the statement every read reads (lower/shapes/share/statements.ts planStatementShares, ShareIndex cteKey),
+ * and a projection of it an argument reads through that part is a scan of the part, never a CTE of its own
+ * (statementCtes).
  *
  * The box, exhausted: a call of four rows arguments, one, two or all four reading a core, a fold over an anti-join or
  * the anti-join alone at the call's sessions (each argument's import of it bound to its own relation parameter, so each
- * reads a copy of its own), or the anti-join over every session, which no value of the call restricts; the call read by
- * one member, or by one of two members of one statement, or by both.
+ * reads a copy of its own), the anti-join over every session, which no value of the call restricts, or a closed
+ * relation, each argument's match a copy of it; the call read by one member, or by one of two members of one statement,
+ * or by both, and the core by a member or none.
  *
  * And an evaluation the statement holds is one statement of its share planning (lower/shapes/share/statements.ts
  * planStatementShares, HeldEvaluation): its call's arguments are read by it alone, so none is carried as a part of its
@@ -24,9 +28,9 @@
  * CTE of the statement, each CTE a cost PostgreSQL's planner pays per entry.
  *
  * Oracle: specification, a core at the call's sessions computed once, the statement scanning Done, the core's
- * anti-join's right side, once; the core over every session scanned at each argument that reads it; and the
- * statement's MATERIALIZED CTEs at two or four arguments as many as at one, but the core's own where the statement first
- * shares it.
+ * anti-join's right side, once; the core over every session scanned at each argument that reads it; the closed
+ * relation's VALUES printed once; and the statement's MATERIALIZED CTEs at two or four arguments as many as at one, but
+ * the core's own where the statement first shares it.
  *
  * Features: one member; two members, one reading the call; two members, both reading it.
  */
@@ -40,7 +44,8 @@ import {
 	doneScans,
 	materializedCtes,
 	type Members,
-	statementsOf
+	statementsOf,
+	valuesLists
 } from "#test/unit/write/evaluation-core.fixtures.ts"
 
 /**
@@ -62,17 +67,24 @@ export const aSubQueryTheArgumentsOfACallsEvaluationReadIsComputedOnceInItsState
 				k.note(box.members)
 				const statements = statementsOf(box)
 				const expected =
-					box.core !== "a join of every session"
-						? 1
-						: box.reading +
-							(box.members === "two, one reads the call, one the core" ||
-							box.members === "two, both read the call, one the core too"
-								? 1
-								: 0)
+					box.core === "a closed relation"
+						? 0
+						: box.core !== "a join of every session"
+							? 1
+							: box.reading +
+								(box.members === "two, one reads the call, one the core" ||
+								box.members === "two, both read the call, one the core too"
+									? 1
+									: 0)
 				assert.equal(
 					Arr.reduce(statements, 0, (n, sql) => n + doneScans(sql)),
 					expected,
 					`${box.reading} of four arguments reading ${box.core}, ${box.members}: Done scanned ${expected} times\n${Arr.join(statements, "\n")}`
+				)
+				assert.equal(
+					Arr.reduce(statements, 0, (n, sql) => n + valuesLists(sql)),
+					box.core === "a closed relation" ? 1 : 0,
+					`${box.reading} of four arguments reading ${box.core}, ${box.members}: the closed relation's VALUES lists\n${Arr.join(statements, "\n")}`
 				)
 				const ctes = (b: typeof box) =>
 					Arr.reduce(statementsOf(b), 0, (n, sql) => n + materializedCtes(sql))
@@ -122,9 +134,16 @@ export const aSubQueryTheArgumentsOfACallsEvaluationReadIsComputedOnceInItsState
 			{
 				file: "packages/engine/src/lower/shapes/share/statements.ts",
 				original:
-					"\t\t\treturn key !== undefined && costly.get(node) === true ? [[node.id, key] as const] : []\n",
-				replacement: "\t\t\treturn key !== undefined ? [[node.id, key] as const] : []\n",
+					"\t\t\t\t(costly.get(node) === true || (index.readWhole(node) && !closedDerivation(node)))\n",
+				replacement: "\t\t\t\ttrue\n",
 				why: "A sub-query whose only stage that is no scan is a carried part is shared as well: where both members read the call and one the core, the arguments' read of the carried core is a CTE of its own beside the core's part."
+			},
+			{
+				file: "packages/engine/src/lower/shapes/share/statements.ts",
+				original:
+					"\t\t\t\t(costly.get(node) === true || (index.readWhole(node) && !closedDerivation(node)))\n",
+				replacement: "\t\t\t\t(costly.get(node) === true || index.readWhole(node))\n",
+				why: "A closed derivation is computed once wherever it is read twice, though the statement reads its closed relation in a carried part: where one member reads the ranks and the call's arguments read them too, the arguments' projection of the carried part is a MATERIALIZED CTE of its own."
 			},
 			{
 				file: "packages/engine/src/lower/shapes/share/statements.ts",
@@ -135,8 +154,8 @@ export const aSubQueryTheArgumentsOfACallsEvaluationReadIsComputedOnceInItsState
 			{
 				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
 				original:
-					"\t\t\t(o.constants.some((c) => fixedValue(c.expr, outside)) ||\n\t\t\t\to.bindings.some((b) => reached.has(b.var)))\n",
-				replacement: "\t\t\ttrue\n",
+					'\t\t\t\t(isNonEmpty(held) && (o.source.kind === "Base" || restrictedByKeys(o.source, held))) ||\n',
+				replacement: "\t\t\t\ttrue ||\n",
 				why: "Every stored relation a region reads counts as restricted by the statement's values: the join over every session is computed once, derived whole, where each argument read it restricted."
 			}
 		]

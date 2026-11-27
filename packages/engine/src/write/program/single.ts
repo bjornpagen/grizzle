@@ -20,7 +20,8 @@ import type {
 	Select,
 	SetArm,
 	SqlStatement,
-	Target
+	Target,
+	UnprintedSql
 } from "#compiler/sql/ast.ts"
 import {
 	col,
@@ -66,9 +67,9 @@ export interface SharedPart {
 /** One action's write statement as a part of a single statement, with the width of its rows. */
 export interface WritePart {
 	readonly statement:
-		| ModifyingStatement<InsertResult>
-		| ModifyingStatement<DeleteResult>
-		| PutStatement
+		| ModifyingStatement<InsertResult, UnprintedSql>
+		| ModifyingStatement<DeleteResult, UnprintedSql>
+		| PutStatement<UnprintedSql>
 	readonly width: number
 }
 
@@ -86,12 +87,11 @@ export interface ReadBackPart {
 }
 
 /** What rides a single statement: the CTEs holding the deltas its riding read-backs read or its carriers hold, over its
- * writes' RETURNING (write/readback/deltas.ts deltaCte), the data-modifying CTEs filling its carried sides' carriers
- * from them (write/readback/deltas.ts carriedFill), with the names they define and the writes, by their index among the
- * statement's, whose RETURNING they read, and each riding read-back's sent statements, in order. */
+ * writes' RETURNING (write/readback/deltas.ts deltaCte), with the names they define and the writes, by their index among
+ * the statement's, whose RETURNING they read, and each riding read-back's sent statements, in order, then each carried
+ * side's fill, a part of no row (write/readback/deltas.ts carriedStash). */
 export interface Riding {
 	readonly deltas: ReadonlyArray<Cte>
-	readonly fills: ReadonlyArray<Cte>
 	readonly read: ReadonlyArray<number>
 	readonly nameMap: NameMap
 	readonly parts: ReadonlyArray<ReadBackPart>
@@ -100,7 +100,6 @@ export interface Riding {
 /** A single statement no read-back rides and no side is carried out of. */
 export const noRiding: Riding = Object.freeze({
 	deltas: [],
-	fills: [],
 	read: [],
 	nameMap: [],
 	parts: []
@@ -175,8 +174,9 @@ export const freshNames = (
  * rows behind its tag after the writes' tags, padded as theirs are; the runtime reads them as that read-back's
  * statements' rows. No arm orders its rows: an ordered part's rows carry their row number in the part's order, which
  * the runtime reads them back in (lower/parts.ts TaggedPart). A side carried out of the statement for a read-back after
- * the last stratum is a delta CTE too, and its carrier's fill a data-modifying CTE after the deltas, which no arm
- * reads and PostgreSQL runs whole all the same. A write whose RETURNING a delta reads is sent whatever its needs. */
+ * the last stratum is a delta CTE too, and its carrier's fill a part after the read-backs' that delivers no row
+ * (write/carriers/carriers.ts ridingStash), whose arm PostgreSQL reads to its end all the same. A write whose RETURNING a
+ * delta reads is sent whatever its needs. */
 export const singleStatement = (
 	shares: ReadonlyArray<SharedPart>,
 	writes: NonEmptyReadonlyArray<WritePart>,
@@ -242,7 +242,7 @@ export const singleStatement = (
 		const ctes: NonEmptyReadonlyArray<Cte> = [own]
 		return { name: out.relation, columns: out.columns, ctes }
 	})
-	const rideCtes = [...riding.deltas, ...riding.fills, ...rides.flatMap((r) => r.ctes)]
+	const rideCtes = [...riding.deltas, ...rides.flatMap((r) => r.ctes)]
 	const ctes = concatNonEmpty(
 		shareCtes,
 		extendNonEmpty(
@@ -300,7 +300,7 @@ const printedUnits = (
 				? unitOfCte[site.at]
 				: unitOfArm[arms.findIndex((arm) => readsCte(arm, name))]
 		if (reader !== unitOfCte[at]) {
-			throw defect(`a single statement's CTE ${name}, printed in place, is read in another unit`)
+			defect(`a single statement's CTE ${name}, printed in place, is read in another unit`)
 		}
 	}
 	const printed = printedOnce(ast)
@@ -356,13 +356,11 @@ export const partedOf = <Slot>(
 	units: NonEmptyReadonlyArray<UnitShape>
 ): Parted<Slot> => {
 	if (ast.kind !== "select" || ast.with === undefined) {
-		throw defect("a single statement is a SELECT under a WITH")
+		defect("a single statement is a SELECT under a WITH")
 	}
 	const { printed, units: own } = printedUnits(ast, units)
 	if (printed.kind !== "select" || printed.with === undefined) {
-		throw defect(
-			"a single statement printed once is a SELECT under a WITH: its units' arms read CTEs"
-		)
+		defect("a single statement printed once is a SELECT under a WITH: its units' arms read CTEs")
 	}
 	const ctes = printed.with.ctes
 	const body = printed.body
@@ -390,7 +388,7 @@ export const partedOf = <Slot>(
 		cte += cteCount
 		const armTexts = arms.slice(arm, arm + armCount).map((a) => {
 			if (a.kind !== "core") {
-				throw defect("a single statement's arm is a core")
+				defect("a single statement's arm is a core")
 			}
 			return printArmBlock(a)
 		})
@@ -424,7 +422,7 @@ export const partedOf = <Slot>(
 		}
 	})
 	if (cte !== ctes.length || arm !== arms.length || placed !== params.length) {
-		throw defect("a single statement's units hold its every CTE, arm and placeholder")
+		defect("a single statement's units hold its every CTE, arm and placeholder")
 	}
 	return { units: parted }
 }
@@ -447,7 +445,7 @@ const cutTexts = (
 				continue
 			}
 			if (l.index <= from) {
-				throw defect(`a placeholder $${l.index} of a single statement's unit after $${from}`)
+				defect(`a placeholder $${l.index} of a single statement's unit after $${from}`)
 			}
 			numbers.add(l.index)
 			holes.push({
@@ -460,7 +458,7 @@ const cutTexts = (
 	})
 	const count = maxOf([...numbers], from) - from
 	if (numbers.size !== count) {
-		throw defect(`the placeholders of a single statement's unit after $${from} are a block`)
+		defect(`the placeholders of a single statement's unit after $${from} are a block`)
 	}
 	return { texts: cut, count }
 }
@@ -468,8 +466,8 @@ const cutTexts = (
 /**
  * The family statement `family` with read-backs riding it or sides carried out of it (write/program/compile.ts
  * placeFamily): `deltas`, each added side a rider reads or a carrier holds, CTEs over the statement's inserts' RETURNING,
- * and the carriers' fills over them, named by `deltaNames`, after its own CTEs; then each
- * rider's statement whole as one CTE, its placeholders numbered past the statement's and every earlier rider's, its
+ * named by `deltaNames`, after its own CTEs; then each rider's statement, a carried side's fill among them, whole as one
+ * CTE, its placeholders numbered past the statement's and every earlier rider's, its
  * names past `cursor`; and its rows behind `tag`, an arm after the family's, every arm padded with empty texts to the
  * widest, the family's tags and its riders' integers alike, as a single statement's riders ride it (`singleStatement`).
  */

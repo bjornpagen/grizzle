@@ -8,8 +8,6 @@ import { existencePass } from "#compiler/lower/optimize/existence/index.ts"
 import { fusePass } from "#compiler/lower/optimize/fuse/index.ts"
 import { lateFetchPass } from "#compiler/lower/optimize/late-fetch/index.ts"
 import { prunePass } from "#compiler/lower/optimize/prune/index.ts"
-import { pushdownPass } from "#compiler/lower/optimize/pushdown/index.ts"
-import { semiPushdownPass } from "#compiler/lower/optimize/pushdown/semi.ts"
 import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
 
 /**
@@ -43,21 +41,31 @@ export const sequence = (
 	}
 })
 
-export const semanticSimplification: Pass<LogicalQuery, LogicalQuery> = sequence("simplify", [
+/** The passes of the "semantic simplification", in order. */
+export const semanticSimplificationPasses: ReadonlyArray<Pass<LogicalQuery, LogicalQuery>> = [
 	simplifyPass,
 	fusePass,
 	simplifyPass
-])
+]
 
-/** The "relational rewrites" pass, under the compilation's catalog (PassContext). */
-export const relationalRewrites: Pass<LogicalQuery, LogicalQuery> = sequence("rewrites", [
+export const semanticSimplification: Pass<LogicalQuery, LogicalQuery> = sequence(
+	"simplify",
+	semanticSimplificationPasses
+)
+
+/** The passes of the "relational rewrites", in order. */
+export const relationalRewritePasses: ReadonlyArray<Pass<LogicalQuery, LogicalQuery>> = [
 	prunePass,
 	eliminatePass,
 	closedPass,
 	existencePass,
-	pushdownPass,
-	semiPushdownPass,
 	simplifyPass,
 	prunePass,
 	lateFetchPass
-])
+]
+
+/** The "relational rewrites" pass, under the compilation's catalog (PassContext). */
+export const relationalRewrites: Pass<LogicalQuery, LogicalQuery> = sequence(
+	"rewrites",
+	relationalRewritePasses
+)

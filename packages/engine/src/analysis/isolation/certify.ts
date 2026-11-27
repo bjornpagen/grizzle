@@ -1944,7 +1944,17 @@ const absenceSites = (
 	return out
 }
 
-/** Condition 3: no change member of any role reads the absence or a count of a relation the role writes. */
+/**
+ * Condition 3: no change member of any role reads the absence or a count of a relation the role writes. It never decides
+ * a level alone: generate's report names each site it finds, with its fix, so an author sees what to restate, but every
+ * site leaves the roles writing its relation SERIALIZABLE by another condition too. A site of a role that runs
+ * SERIALIZABLE is one of its sites (RoleView `sites`, every read and unfenced check), which gives every role writing the
+ * relation `laws` (givenReasons). A site of a judged role makes that role SERIALIZABLE by a condition of its own, which
+ * then gives `laws` too: its change member writes, so a negated or counted read of another call's rows fails `pivot`
+ * (pivotReasons reads every outside read's mode), as an arbitration of no whole key does, unsealed; and a check of the
+ * rows that reference a row it updates or deletes is a role's that holds UPDATE or DELETE, which fails `privileges`. The
+ * sites left read the call's own rows, or a row its own arbitration fixed, which no other call changes.
+ */
 const absenceReasons = (
 	view: RoleView,
 	absent: ReadonlyMap<string, ReadonlyArray<AbsenceSite>>
@@ -1962,7 +1972,10 @@ const absenceReasons = (
 /**
  * Condition 5a: an outside read that is no sealed group shares its statement with every other outside read, and no
  * outside foreign key check, which reads at a later snapshot, stands beside it; an unsealed check stands beside no other
- * outside read. One reason per unsealed read or check that has another snapshot beside it.
+ * outside read. One reason per unsealed read or check that has another snapshot beside it. It never decides a level
+ * alone: generate's report names each such read, with its fix, but every read it names is an unsealed outside read of a
+ * change member, which writes, so it fails `pivot` too, and every check it names is unsealed, which fails `pivot`
+ * whatever the member reads (pivotReasons).
  */
 const snapshotReasons = (view: RoleView): ReadonlyArray<IsolationReason<"snapshot">> =>
 	view.members.flatMap((v) => {

@@ -2,7 +2,7 @@ import { firstIndex } from "@bjornpagen/grizzle-text/base/array"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { floatLiteral as literalOfFloat } from "#compiler/ir/carriers.ts"
 import type { ColumnRef, ScalarExpr } from "#compiler/ir/expr.ts"
-import { OpId, zeroPeeled } from "#compiler/ir/expr.ts"
+import { OpId, canonicalPeeled } from "#compiler/ir/expr.ts"
 import {
 	type Cell,
 	conservativeMeta,
@@ -11,7 +11,7 @@ import {
 	type OccurrenceOver,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
-import { baseOf, isFloat } from "#compiler/ir/scalar.ts"
+import { baseOf, equalityIsIdentity } from "#compiler/ir/scalar.ts"
 import { conjuncts } from "#compiler/logical/props.ts"
 import {
 	bindingsByVar,
@@ -35,7 +35,7 @@ import {
 	plain,
 	required,
 	sameExpr,
-	canonicalZeroOver
+	canonicalOver
 } from "#compiler/lower/shapes/catalog/exprs.ts"
 import { type SelfMatch, selfMatch } from "#compiler/lower/shapes/catalog/ordinal.ts"
 import { binary64DecimalDigits, binary64Precision } from "#compiler/scalar/lexical.ts"
@@ -523,7 +523,7 @@ export const tryPercentile = (cx: CatalogContext, cell: Cell): PercentileResult 
 			loc: undefined
 		})
 		const out = head.out.map((o) => {
-			const read = zeroPeeled(o.expr)
+			const read = canonicalPeeled(o.expr)
 			const ref = columnRef(read.term)
 			demand(
 				ref !== undefined && ref.node === filterCell.id,
@@ -532,8 +532,8 @@ export const tryPercentile = (cx: CatalogContext, cell: Cell): PercentileResult 
 			const name = ref.name
 			const valueIndex = firstIndex(ordinals, (x) => x.value === name)
 			demand(
-				valueIndex === undefined || read.canonical || !isFloat(valueType),
-				"a float's selected value delivered as its canonical zero, since PERCENTILE_DISC takes one of equal values"
+				valueIndex === undefined || read.canonical || equalityIsIdentity(valueType),
+				"a float's selected value delivered as its canonical form, since PERCENTILE_DISC takes one of equal values"
 			)
 			const column = required(
 				groupOut(name) ?? (valueIndex === undefined ? undefined : outs[valueIndex]),
@@ -545,7 +545,7 @@ export const tryPercentile = (cx: CatalogContext, cell: Cell): PercentileResult 
 			).type
 			return {
 				name: o.name,
-				expr: canonicalZeroOver(cx.ed, colExpr(cx.ed, osa, column, type), read.canonical)
+				expr: canonicalOver(cx.ed, colExpr(cx.ed, osa, column, type), read.canonical)
 			}
 		})
 		cx.ed.redefine(cell, {
@@ -631,7 +631,7 @@ export const tryPercentile = (cx: CatalogContext, cell: Cell): PercentileResult 
 			head.heading.find((h) => h.name === o.name),
 			`a head column ${o.name}`
 		).type
-		const read = zeroPeeled(o.expr)
+		const read = canonicalPeeled(o.expr)
 		const ref = columnRef(read.term)
 		if (ref !== undefined && ref.node === filterCell.id) {
 			const g = required(
@@ -640,7 +640,7 @@ export const tryPercentile = (cx: CatalogContext, cell: Cell): PercentileResult 
 			)
 			return {
 				name: o.name,
-				expr: canonicalZeroOver(cx.ed, colExpr(cx.ed, out, g, type), read.canonical)
+				expr: canonicalOver(cx.ed, colExpr(cx.ed, out, g, type), read.canonical)
 			}
 		}
 		demand(isInterpolation(read.term), "the interpolation a + f · (b − a)")
@@ -650,11 +650,11 @@ export const tryPercentile = (cx: CatalogContext, cell: Cell): PercentileResult 
 		)
 		return {
 			name: o.name,
-			expr: canonicalZeroOver(cx.ed, colExpr(cx.ed, out, outName, type), read.canonical)
+			expr: canonicalOver(cx.ed, colExpr(cx.ed, out, outName, type), read.canonical)
 		}
 	})
 	demand(
-		head.out.filter((o) => columnRef(zeroPeeled(o.expr).term) === undefined).length === 1,
+		head.out.filter((o) => columnRef(canonicalPeeled(o.expr).term) === undefined).length === 1,
 		"one interpolated value"
 	)
 	cx.ed.redefine(cell, {

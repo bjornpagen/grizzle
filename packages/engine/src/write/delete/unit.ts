@@ -147,7 +147,12 @@ import {
 	taggedRows
 } from "#compiler/write/family/written.ts"
 import type { MemberSlot } from "#compiler/write/frontend/compile.ts"
-import { readInput, type RelationInput, unproved } from "#compiler/write/insert/input.ts"
+import {
+	readInput,
+	type RelationInput,
+	unproved,
+	type WriteInput
+} from "#compiler/write/insert/input.ts"
 import { placeReleases } from "#compiler/write/insert/stamp.ts"
 import {
 	keyFirst,
@@ -156,10 +161,22 @@ import {
 	type WriteContext
 } from "#compiler/write/insert/statement.ts"
 
-/** Where a unit delete's rows come from: an enumerated slot's facts, or a described source of the write DAG. */
-export type UnitSource =
+/** Where a family statement's rows come from, a unit delete's and a claims precheck's of them alike
+ * (write/frontend/compile.ts MemberCheck): an enumerated slot's facts; a described source of the write DAG, read inline;
+ * or, where the plan places one, the carrier a described source fills, which a precheck reads too, so both read one
+ * evaluation of it (write/schedule/plan.ts familyStepsOf), as an action's described member several statements read is
+ * carried. */
+export type FamilySource =
 	| { readonly kind: "slot"; readonly input: RelationInput }
 	| { readonly kind: "described"; readonly node: RelNode }
+	| { readonly kind: "carrier"; readonly input: Extract<WriteInput, { readonly kind: "carrier" }> }
+
+/** A family statement's source as its statement reads it: its slot's relation parameter, its described source inline,
+ * proving nothing of its rows, or its carrier. */
+export const familyInput = (source: FamilySource): WriteInput =>
+	source.kind === "described"
+		? { kind: "described", node: source.node, proof: unproved }
+		: source.input
 
 /**
  * How a unit delete's rows name its root relation's rows: a tree's by its root fields (`tree`, its family, whose shape
@@ -185,7 +202,7 @@ export interface UnitMember {
 export interface UnitDelete {
 	readonly relation: RelationInfo
 	readonly match: UnitMatch
-	readonly source: UnitSource
+	readonly source: FamilySource
 }
 
 /**
@@ -802,9 +819,7 @@ export const unitSql = (
 		const sourceKeys = fieldColumns(fields, () => supply.column(internal("unit source column")))
 		const read = readInput(
 			w,
-			unit.source.kind === "slot"
-				? unit.source.input
-				: { kind: "described", node: unit.source.node, proof: unproved },
+			familyInput(unit.source),
 			{ kind: "input", fields, alias: scan, keys: sourceKeys, into: { as: "compare" } },
 			`delete ${unit.relation.name}`
 		)

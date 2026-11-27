@@ -7,6 +7,7 @@ export {
 	Distance,
 	Fn,
 	Logic,
+	Net,
 	Num,
 	Range,
 	Search,
@@ -31,5 +32,23 @@ export type {
 } from "#compiler/types/core/phantom.ts"
 export type { Infer } from "#compiler/types/fields/field.ts"
 export type { Aggregate } from "#compiler/types/query/terms.ts"
-export { Cell, Cells, Heads, Hue, Tone, Tuning } from "#test/support/agreement/compute-schema.ts"
-export { Id } from "#test/support/ids.ts"
+export type { SqlTag } from "#compiler/scalar/registry.ts"
+export {
+	bodyKey,
+	Cell,
+	Cells,
+	centsKey,
+	divisorKey,
+	epochDayKey,
+	Heads,
+	Hue,
+	rateKey,
+	toBody,
+	toCents,
+	toDivisor,
+	toEpochDay,
+	Tone,
+	toRate,
+	Tuning
+} from "#test/support/agreement/compute-schema.ts"
+export { Id, idKey, toId } from "#test/support/ids.ts"

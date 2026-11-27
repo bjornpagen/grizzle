@@ -107,9 +107,7 @@ const rootShape = (root: RelNode) => {
 	}
 	for (const n of spineOf(rows).nodes) {
 		if (hetero(n) !== undefined) {
-			throw referenceUnsupported(
-				`the delivery of the heterogeneous union ${n.id} beneath ${rows.kind}`
-			)
+			referenceUnsupported(`the delivery of the heterogeneous union ${n.id} beneath ${rows.kind}`)
 		}
 	}
 	return { rows }
@@ -123,7 +121,7 @@ const groupRows = (
 ): { readonly heading: Heading; readonly rows: ReadonlyArray<Row> } => {
 	const group = union.groups[index]
 	if (group === undefined) {
-		throw referenceUnsupported(`heading group ${index} of ${union.id}`)
+		referenceUnsupported(`heading group ${index} of ${union.id}`)
 	}
 	const rows = distinctRows(
 		Arr.flatMap(group.arms, (arm) => {
@@ -178,7 +176,7 @@ const parentKeysOf = (
 	const needed = new Set(Arr.map(attach.correlation, (c) => c.parent))
 	for (const [node, columns] of freeColumns(ref, attach.child)) {
 		if (!parent.spine.has(node)) {
-			throw referenceUnsupported(
+			referenceUnsupported(
 				`${attach.id}: a child correlated with ${node}, outside its parent's rows`
 			)
 		}
@@ -236,7 +234,7 @@ const attachmentOf = (
 				const column = keyHeading[columnIndex(keyHeading, c.parent, attach.id)]
 				const parentValue = tuple.get(c.parent)
 				if (column === undefined || parentValue === undefined) {
-					throw referenceUnsupported(`${attach.id}: a parent key column ${c.parent}`)
+					referenceUnsupported(`${attach.id}: a parent key column ${c.parent}`)
 				}
 				return equal(
 					parentValue,
@@ -304,7 +302,7 @@ export const expectedStatements = (
 	const covered = new Set<RelNode>()
 	const push = (statement: ExpectedStatement) => {
 		if (Arr.some(out, (s) => s.label === statement.label)) {
-			throw referenceUnsupported(`two statements labeled ${statement.label}`)
+			referenceUnsupported(`two statements labeled ${statement.label}`)
 		}
 		out.push(statement)
 	}
@@ -350,7 +348,7 @@ export const expectedStatements = (
 	}
 	for (const node of ref.reach(root)) {
 		if (node.kind === "Attach" && !covered.has(node)) {
-			throw referenceUnsupported(
+			referenceUnsupported(
 				`the delivery of the attachment ${node.id}, which is not on a delivered relation's rows`
 			)
 		}

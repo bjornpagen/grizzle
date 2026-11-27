@@ -6,7 +6,7 @@ import { Array as Arr, pipe, String as Str } from "effect"
 import { drawn, natural } from "#compiler/public/fields.ts"
 import { fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { Id, type IdValue } from "#test/support/ids.ts"
+import { Id, type IdValue, toId } from "#test/support/ids.ts"
 import { longFamily } from "#test/support/kernel/long-keys.ts"
 
 /** A text of lowercase letters and digits, of any length: what a title and a line's body hold. */
@@ -53,7 +53,7 @@ export const longTextsCase: Gen<LongTextsCase> = (source) => {
 
 /** The doc numbered `n`'s id. */
 const docId = (n: number): IdValue =>
-	Id(`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`)
+	toId(`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`)
 
 /** A case's facts as insertAll takes them: each doc, its title and its lines' bodies, in order. */
 export const factsOf = (c: LongTextsCase) => ({

@@ -4,7 +4,6 @@
  */
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import {
 	byteaElementBytes,
 	byteaHeaderBytes,
@@ -237,7 +236,8 @@ const arrayForms: { readonly [C in Carrier]: (codec: ScalarCodec) => ArrayForm }
 	vector: literalArray,
 	tsvector: literalArray,
 	exactInteger: literalArray,
-	exactMoney: literalArray
+	exactMoney: literalArray,
+	variant: literalArray
 }
 
 interface BuiltSpec {
@@ -350,7 +350,7 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 			return byteaElementBytes(value.bytes.length)
 		}
 		if (!(value instanceof Uint8Array)) {
-			throw defect("a read fact's bytes field holds the caller's array")
+			defect("a read fact's bytes field holds the caller's array")
 		}
 		return byteaElementBytes(value.length)
 	}
@@ -553,18 +553,6 @@ const appended = (
 	return undefined
 }
 
-/**
- * The literal of `text` alone, as `columnLiteral` writes it, measured without writing it: its UTF-16 code units, its
- * braces, quotes and escaping backslashes among them (`elementOverhead`), and its UTF-8 bytes, the text's own
- * (grizzle-text utf8.ts utf8Length) and one for each character the literal adds, all of them ASCII.
- */
-export const literalAlone = (
-	text: ParamText
-): { readonly units: number; readonly bytes: number } => {
-	const added = "{}".length + elementOverhead(text)
-	return { units: text.length + added, bytes: utf8Length(text) + added }
-}
-
 /** A written literal's text: its elements between braces. */
 const closed = (literal: OpenLiteral): ParamText => arrayLiteral(`{${literal.elements.join(",")}}`)
 
@@ -677,7 +665,7 @@ export const normalArray = (
 			return Result.ok(countParam(normal.facts.length))
 		}
 		if (column.form.kind === "binary") {
-			throw defect(`a relation parameter's column ${column.field} of bytes`)
+			defect(`a relation parameter's column ${column.field} of bytes`)
 		}
 		return column.form.array(spec.relation, column.field, normal.facts)
 	}

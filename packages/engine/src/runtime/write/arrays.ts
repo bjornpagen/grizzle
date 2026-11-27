@@ -40,7 +40,7 @@ const columnArray = (
 	if (texts.length === 0) {
 		return byteaArray(input, column, values)
 	}
-	throw defect(`a family statement's column ${column} carries one kind of cell`)
+	defect(`a family statement's column ${column} carries one kind of cell`)
 }
 
 /**
@@ -59,7 +59,7 @@ export const typedColumnArray = (
 	const texts: Array<ParamText> = []
 	for (const cell of cells) {
 		if (typeof cell !== "string") {
-			throw defect(`a text column ${column} of ${input} carrying bytes`)
+			defect(`a text column ${column} of ${input} carrying bytes`)
 		}
 		texts.push(cell)
 	}

@@ -48,8 +48,8 @@ export const everyKeyAProgramFixesAtItsParameterIsBoundToItWhereItsStoredRelatio
 			},
 			{
 				file: "packages/engine/src/lower/optimize/propagate/index.ts",
-				original: "\t\t\t\t\tadded.push(o.source.id)\n",
-				replacement: "\t\t\t\t\treturn o\n",
+				original: "\t\t\t\tadded.push(o.source.id)\n",
+				replacement: "\t\t\t\treturn o\n",
 				why: "No occurrence of a stored relation fixes the key its region holds at the parameter: the read-back joins Visit to the projected rows by the column of their CTE, which binds nothing."
 			},
 

@@ -44,6 +44,7 @@ import {
 import { succeeded } from "#test/support/assert.ts"
 import { setText, setWidth } from "#test/support/closed/bit-text.ts"
 import { type RosterState, codeAt, sizeOf } from "#test/support/closed/generate.ts"
+import { asDataStep } from "#test/support/data-step.ts"
 import { roleNamesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { expectConstraint, inTransaction } from "#test/support/substrate/expect.ts"
@@ -173,16 +174,19 @@ export const aSetRoundTripsThroughItsBitColumnDecodesUnchangedAfterGrowthAndARem
 										),
 										`the refusal names its data step, before the migration or outside it: ${failure.message}`
 									)
-									/** A person's data step between the attempts: each set deleted and inserted again with the
-									 * removed bit cleared, as an immutable relation's rows change outside a migration's bracketed
-									 * steps. */
-									const dataStep = `WITH gone AS (DELETE FROM ${table} RETURNING ${id}, ${members}) INSERT INTO ${table} (${id}, ${members}) SELECT ${id}, ${members} & $1::text::bit(${setWidth(sizeOf(after))}) FROM gone`
-									yield* m.owner.query(dataStep, [
-										setText(
-											sizeOf(after),
-											Arr.flatMap(after.slots, (slot, code) => (slot.kind === "live" ? [code] : []))
-										)
-									])
+									/** A person's data step between the attempts, in a transaction of its own as a data step over
+									 * Sets (data-step.ts asDataStep), the one way a closed relation's rows are removed: each set
+									 * deleted and inserted again with the removed bit cleared, its mask spelled as a literal. */
+									const live = setText(
+										sizeOf(after),
+										Arr.flatMap(after.slots, (slot, code) => (slot.kind === "live" ? [code] : []))
+									)
+									const dataStep = `WITH gone AS (DELETE FROM ${table} RETURNING ${id}, ${members}) INSERT INTO ${table} (${id}, ${members}) SELECT ${id}, ${members} & B'${live}'::bit(${setWidth(sizeOf(after))}) FROM gone`
+									yield* m.owner.begin
+									for (const sql of asDataStep(m.installation, [dataStep])) {
+										yield* m.owner.query(sql, [])
+									}
+									yield* m.owner.commit
 									k.note("a removal refused until the data step")
 								}
 								yield* applyNext(m, drafted)

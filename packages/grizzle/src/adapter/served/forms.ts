@@ -315,22 +315,23 @@ export interface CompiledProgram {
 }
 
 /** The program entry of a ChangeSet for a role, compiled now for the contexts `claims` holds a fact of, against the
- * role's artifacts for it (db/context.ts RoleContext.programArtifacts). */
+ * role's artifacts (served/role.ts RoleContext `artifacts`, `witness`). */
 const writeEntry = (
 	role: RoleContext,
 	change: ParsedChangeSet,
 	claims: ReadonlySet<string>
 ): Result.Result<CompiledProgram, CompileError> =>
-	Result.flatMap(
-		toResult(role.programArtifacts({ kind: "changeSet", changeSet: change.desc })),
-		({ artifacts, witness }) =>
-			Result.map(
-				toResult(compileParsed(artifacts, change, claims, "serializable", noClock, role.clock)),
-				(entry) => ({
-					entry: runtimeEntry(servableEntry(entry), artifacts.names.codes, witness, role.bind),
-					program: entry.compiled
-				})
-			)
+	Result.map(
+		toResult(compileParsed(role.artifacts, change, claims, "serializable", noClock, role.clock)),
+		(entry) => ({
+			entry: runtimeEntry(
+				servableEntry(entry),
+				role.artifacts.names.codes,
+				role.witness,
+				role.bind
+			),
+			program: entry.compiled
+		})
 	)
 
 /**

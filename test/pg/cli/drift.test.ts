@@ -5,8 +5,8 @@
  *
  * The installation is the worlds fixture (fixture.ts): `editor` reads Doc and inserts into Mine, the notes of the
  * documents its session's subject owns, under row security, through a filter that reads Doc beside Note; `viewer` reads
- * Doc; `keeper` writes Doc through a put whose flight creates a carrier, so migrate grants it TEMPORARY on the
- * database; all in the login `desk`. It is generated and migrated through the command line once. Each case draws, for
+ * Doc; `keeper` writes Doc through a put whose flight fills a carrier, in its transaction's settings, so no role holds
+ * TEMPORARY on the database; all in the login `desk`. It is generated and migrated through the command line once. Each case draws, for
  * every operator below, whether it plants a change and where, its target picked among what the installed catalog holds,
  * and makes every drawn change at once as the cluster's superuser:
  *
@@ -22,8 +22,7 @@
  *   administrator may set;
  * - one role becomes a member of the other;
  * - a table is created in a schema of views, a role's or the schema of whole views;
- * - a role holding its own TEMPORARY on the database, as the catalog reads it, has it revoked;
- * - a role or the login not holding it is granted TEMPORARY on the database.
+ * - a role or the login is granted TEMPORARY on the database, which no installation grants any role.
  *
  * A grant or revoke on the database runs under the lock every installation's does (test/support/substrate/substrate.ts
  * underDatabaseLock), since the files of a run share the database's one pg_database row.
@@ -46,7 +45,6 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { defineConfig } from "#index.ts"
 import {
 	aimedPlantsGen,
-	at,
 	type Change,
 	changeOf,
 	type DriftFeature,
@@ -80,7 +78,6 @@ export const drift = property.explore(steered(aimedPlantsGen), {
 		"a role's attribute",
 		"a membership granted",
 		"a table in a schema of views",
-		"a TEMPORARY grant revoked",
 		"a TEMPORARY grant beyond the snapshot",
 		"a privilege granted beside the role's column grants",
 		"nothing planted",
@@ -98,6 +95,7 @@ export const drift = property.explore(steered(aimedPlantsGen), {
 					const w = worlds(name)
 					const ws = yield* workspace("drift")
 					const config = defineConfig({
+						contracts: [],
 						schemas: [w.schema],
 						logins: [w.desk],
 						migrations: "migrations",
@@ -105,7 +103,7 @@ export const drift = property.explore(steered(aimedPlantsGen), {
 						connection: () =>
 							connectionOf(substrate.cluster, ownerOn(substrate.cluster, substrate.database))
 					})
-					const run = (command: string) => cliOver(ws, config, [command, configName], at)
+					const run = (command: string) => cliOver(ws, config, [command, configName])
 					const fresh = yield* Effect.forEach(["generate", "migrate", "drift"], (command) =>
 						Effect.map(run(command), (ran) => ({ command, ran }))
 					)
@@ -196,13 +194,6 @@ export const drift = property.explore(steered(aimedPlantsGen), {
 				"\tconst mismatches = [...ledgerMismatches(snapshot, ledger), ...verdict.mismatches]",
 			replacement: "\tconst mismatches = [...ledgerMismatches(snapshot, ledger)]",
 			why: "The drift check compares no catalog fact, so drift passes over every change made by hand."
-		},
-		{
-			file: "packages/grizzle/src/adapter/admission/roles.ts",
-			original: "\t\t\t\tC.notExists(C.anyRow([h.item], samePrivilege(h, x)))",
-			replacement:
-				'\t\t\t\tC.and([\n\t\t\t\t\tC.notExists(C.anyRow([h.item], samePrivilege(h, x))),\n\t\t\t\t\tC.ne(x.col("family"), C.text("database"))\n\t\t\t\t])',
-			why: "The drift check never reports a login's or role's missing TEMPORARY on the database, so a revoked TEMPORARY goes unnamed."
 		}
 	]
 })

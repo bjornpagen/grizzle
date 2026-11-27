@@ -96,7 +96,7 @@ export interface CompiledLogin {
  * an explain of the login's members names a plan by. The planner may scan any of a footprint table's indexes, whatever
  * level's law or access asked for it, and no table outside the footprint: a relation the statements name, read through a
  * role's views, stands for the base relations its entry reads, and a derived one for what its definition reads
- * (schema/reach.ts sliceOf). Each index's reasons stay in snapshot.json, which generate reads and no layer loads.
+ * (schema/reach.ts footprintOf). Each index's reasons stay in snapshot.json, which generate reads and no layer loads.
  */
 const tablesOf = (installed: SnapshotTables, footprint: ReadonlySet<string>): ServedTables => {
 	const out: Record<string, Readonly<Record<string, ServedTable>>> = {}
@@ -183,7 +183,7 @@ const memberOf = (
 			case "live": {
 				const read = footprints.get(name)
 				if (read === undefined) {
-					throw defect(
+					defect(
 						`the footprint of query program ${name}, a live query of its login's workload plan`
 					)
 				}
@@ -490,12 +490,12 @@ export const servedFileOf = (
 		const { login, snapshot } = compiled
 		const [first] = compiled.roles
 		if (first === undefined) {
-			throw defect("a compiled login holds a role")
+			defect("a compiled login holds a role")
 		}
 		const schema = first.artifacts.names.schema
 		const [root] = snapshot.schemas
 		if (root === undefined) {
-			throw defect("a served snapshot records its root level")
+			defect("a served snapshot records its root level")
 		}
 		const ledger = yield* toResult(ledgerStatements(schema))
 		const role = yield* toResult(loginStem(login))

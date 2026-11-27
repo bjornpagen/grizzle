@@ -217,7 +217,9 @@ export type KeyFault =
  * - `call`: it calls a declared function that is not immutable, or one whose body calls one that is not, or passes a
  *   call rows;
  * - `borrow`: a relation it reads sits in no declared unit, two sit in two, or the declared unit's key is wider than its
- *   own unit's, so no one exclusive borrow covers every write its rows follow.
+ *   own unit's, so no one exclusive borrow covers every write its rows follow;
+ * - `reference`: it reads a relation of a sealed unit at a key no row of its own unit it matches reaches by a
+ *   containment the schema states, so a later founding there could change its rows at a unit no write touched.
  */
 export type UnitLocalityCondition =
 	| "inPlace"
@@ -231,6 +233,29 @@ export type UnitLocalityCondition =
 	| "noUnit"
 	| "call"
 	| "borrow"
+	| "reference"
+
+/**
+ * Why a definition's delta form bounds no upkeep (analysis/theory/upkeep.ts deltaBoundOf), the first condition it lacks,
+ * and where:
+ *
+ * - `arms`: the probes cannot read it as arms (analysis/theory/query.ts liveArms): it folds, recurses, attaches, orders
+ *   or takes;
+ * - `match`: an arm matches what no table holds, a definition of several rules or a fold's groups, read as a query;
+ * - `negation`: an arm negates a query, which no probe of one relation's key reads;
+ * - `unreached`: a rule is no outermost rule of it, an import's, or a read of a holder its head's variables reach by no
+ *   key nor seek, an existence test of one occurrence at one index descent whose changed rows name their facts by keys
+ *   (analysis/theory/unit.ts StepBy `seek`), so a fact lost cannot be checked at the fact by one probe of each;
+ * - `loss`: a fact a write may withdraw leaves a field of its heading free (analysis/theory/query.ts lostFacts), and its
+ *   arms negate, so a served write may withdraw it;
+ * - `open`: its delta form unchecked, `unreached` or `loss`, its arms negating nothing, so a closed form would be
+ *   monotone, but a relation it holds is open or stored, so a served write removes a row of it, whose facts its upkeep
+ *   could find only across the unit (ledger's UnsettledSitting over its two stored imports).
+ */
+export interface UncheckedDelta {
+	readonly reason: "arms" | "match" | "negation" | "unreached" | "loss" | "open"
+	readonly detail: string
+}
 
 /** A condition of unit-locality a query lacks, and where: the first the walk met (analysis/theory/unit.ts). */
 export interface UnitLocality {
@@ -302,13 +327,12 @@ export type EntryKind = "relation" | "closed" | "derived" | "query"
  * - `entryApproximate`: a query entry that searches approximately.
  * - `entryContext`: a query entry that matches `context`, which the role does not declare: a role's Db holds facts of
  *   its declared contexts alone.
- * - `entryScope`: a scoped entry whose query states no scope of its relation (schema/scope.ts entryScope), which only a
- *   Description written by hand holds: scopedEntriesOf builds each scoped entry's query.
  * - `writeOutside`: an insert or write list naming `name`, no relation of the role.
  * - `writeKind`: an insert or write list naming a closed or derived whole entry.
  * - `writeUnwritable`: an insert or write list naming a query entry the writable-entry analysis refuses, for `why`.
  * - `writeTwice`: two written entries, `entries`, that both write the base relation `relation`, in one list or across
- *   the two, so each relation is written under one mode.
+ *   the two, so each relation is written under one mode; the two by name in code point order, as a role's writes are
+ *   checked (ir/desc.ts writtenNames).
  * - `writeClosed`: a write list naming `entry`, which writes `relation`, a closed relation: its facts are inserted,
  *   never changed or deleted, so a role names it under `insert`, where it holds no DELETE or UPDATE.
  */
@@ -319,7 +343,6 @@ export type RoleRule =
 	| { readonly kind: "entryAttaches"; readonly entry: string }
 	| { readonly kind: "entryApproximate"; readonly entry: string }
 	| { readonly kind: "entryContext"; readonly entry: string; readonly context: string }
-	| { readonly kind: "entryScope"; readonly entry: string }
 	| { readonly kind: "writeOutside"; readonly name: string }
 	| { readonly kind: "writeKind"; readonly name: string; readonly entryKind: "closed" | "derived" }
 	| { readonly kind: "writeUnwritable"; readonly entry: string; readonly why: WritabilityReason }
@@ -348,31 +371,25 @@ export type LoginRule =
 	| { readonly kind: "programTwice"; readonly program: string }
 
 /**
- * A rule of scoped entries a description breaks (schema/world.ts scopedEntriesOf), the rule of a ScopeRefused
- * CompileError:
- * - `owner`: an owner that is no query of one field reading the role's contexts and the rows they determine by a key
- *   (schema/scope.ts ownerOf), for `why`: `heading`, no rules stage of one head field, the same in every arm, a
- *   variable; `source`, a match of something but a context or an ordinary relation, a term but a variable or a literal,
- *   a filter reading a relation, or an interior or an attachment; `noContext`, an arm reading no context;
- *   `undetermined`, a row no key bound to the contexts and the rows they determine fixes, or a head they do not fix.
- * - `rootRelation`: a root naming `relation`, which no role holds scoped: no ordinary or stored derived relation of
- *   the schema under its own name.
- * - `rootField`: a root naming `field`, no field of `relation`.
- * - `ambiguous`: `relation`, whose declared containments reach scoped relations' keys in two forms holding different
- *   rows, `through` naming two: its owner would be no one row's.
+ * A rule of a role's scope a description breaks (schema/scope.ts ownerOf, schema/own.ts ownRole), the rule of a
+ * ScopeRefused CompileError:
+ * - `owner`: an owner that is no query reading the role's contexts and, from them, ordinary relations down an index,
+ *   for `why`: `heading`, no rules stage of one head, the same fields in every arm, each a variable; `source`, a match of
+ *   something but a context or an ordinary relation, a term but a variable or a literal, a filter reading a relation, or
+ *   an interior or an attachment; `noContext`, an arm reading no context; `undetermined`, a relation read at no key
+ *   prefix the contexts and the rows before it bind, or a head variable they do not bind.
+ * - `unit`: an owner whose head `fields` is no unit's heading: an owner names keys of one unit.
+ * - `unitType`: an owner whose head field `field` is bound at another type than unit `unit` keys it by.
+ * - `twice`: two owners of unit `unit`: a role's claims bind a unit by one owner, whose arms are its every way.
  */
 export type ScopeRule =
 	| {
 			readonly kind: "owner"
 			readonly why: "heading" | "source" | "noContext" | "undetermined"
 	  }
-	| { readonly kind: "rootRelation"; readonly relation: string }
-	| { readonly kind: "rootField"; readonly relation: string; readonly field: string }
-	| {
-			readonly kind: "ambiguous"
-			readonly relation: string
-			readonly through: readonly [string, string]
-	  }
+	| { readonly kind: "unit"; readonly fields: Names }
+	| { readonly kind: "unitType"; readonly unit: string; readonly field: string }
+	| { readonly kind: "twice"; readonly unit: string }
 
 /**
  * A rule of a context's claims a description breaks (schema/world.ts contextBuilder), the rule of a ContextRefused
@@ -572,8 +589,6 @@ export const roleRuleText = (rule: RoleRule): string => {
 			return `a query entry that searches nothing approximately; ${rule.entry} does`
 		case "entryContext":
 			return `a query entry matching only the contexts the role declares; ${rule.entry} matches ${rule.context}, which it does not declare`
-		case "entryScope":
-			return `a scoped entry whose query is the row predicate scopedEntriesOf builds of its relation; ${rule.entry}'s states no scope`
 		case "writeOutside":
 			return `insert and write lists of the role's relations; ${rule.name} is none of them`
 		case "writeKind":
@@ -772,25 +787,25 @@ export const instantRuleText = (rule: InstantRule): string => {
 const ownerBreakText: {
 	readonly [W in Extract<ScopeRule, { readonly kind: "owner" }>["why"]]: string
 } = {
-	heading: "its rules find no one field, the same in every arm, by a variable",
+	heading: "its rules find no one head, the same fields in every arm, each by a variable",
 	source:
 		"it matches something but a context or an ordinary relation, binds a term but a variable or a literal, filters by a relation, or nests an interior or an attachment",
 	noContext: "an arm of it reads no context",
 	undetermined:
-		"it reads a row, or finds a value, that no key bound to the contexts and the rows they determine fixes"
+		"it reads a relation at no key prefix the contexts and the rows before it bind, or finds a value they do not bind"
 }
 
 /** A scope rule's sentence. */
 export const scopeRuleText = (rule: ScopeRule): string => {
 	switch (rule.kind) {
 		case "owner":
-			return `an owner of one field read from the role's contexts and the rows they determine by a key; ${ownerBreakText[rule.why]}`
-		case "rootRelation":
-			return `roots that name ordinary or stored derived relations of the schema; ${rule.relation} is none`
-		case "rootField":
-			return `a root's field of its relation; ${rule.field} is no field of ${rule.relation}`
-		case "ambiguous":
-			return `one owner row for each row of ${rule.relation}; its declared containments reach scoped keys in two forms, ${rule.through[0]} and ${rule.through[1]}: state it as a root, or keep it whole`
+			return `an owner read from the role's contexts and, from them, down an index; ${ownerBreakText[rule.why]}`
+		case "unit":
+			return `an owner whose head is a unit's heading, the keys it names; (${rule.fields.join(", ")}) is no unit's`
+		case "unitType":
+			return `an owner whose head holds unit ${rule.unit}'s keys; its field ${rule.field} is bound at another type than ${rule.unit} keys by`
+		case "twice":
+			return `one owner of each unit the role's claims bind, its arms every way they bind it; unit ${rule.unit} has two`
 	}
 }
 
@@ -1011,41 +1026,4 @@ export const staleDerivedReadText = (read: {
 		.join("")
 	const why = staleCauseText(read.member, read.cause)
 	return `${how}${carried}; ${derivedReaderText(read.reader)} reads it, a value grizzle draws again by refilling its family's groups, and ${why}`
-}
-
-/**
- * Why a unit's column is not fixed at a scan of a call's statement (sql/unit-bound.ts): no equality of the scan's level
- * states it (`unstated`), or only a join with columns no constant of the level fixes (`joined`), which PostgreSQL may
- * plan as a hash join that reads the relation whole; or the walk reached no level that holds the scan (`unwalked`), a
- * shape it does not model, which it never passes as bound.
- */
-export type UnfixedReason = "unstated" | "joined" | "unwalked"
-
-/**
- * A scan of a relation under a declared unit in a call's statement that reads it at no unit the call fixes
- * (UnboundUnitRead): the statement, the relation, the alias it is scanned under and the path to the scan in the
- * statement, the unit, and each column of the unit's key no value fixed for the scan holds, with why.
- */
-export interface UnboundUnitReadCause {
-	readonly statement: string
-	readonly relation: string
-	readonly alias: string
-	readonly at: ReadonlyArray<string>
-	readonly unit: string
-	readonly missing: NonEmptyReadonlyArray<{
-		readonly column: string
-		readonly reason: UnfixedReason
-	}>
-}
-
-/**
- * A closed derivation a call's statement computes whole (UnstoredDerivation): the statement, the relations it reads,
- * where PostgreSQL computes it apart (a CTE's body, a FROM query no constant reaches, or a sub-link's query), and the
- * path to it in the statement. Its rows are one set for every call.
- */
-export interface UnstoredDerivationCause {
-	readonly statement: string
-	readonly reads: NonEmptyReadonlyArray<string>
-	readonly site: "body" | "from" | "sublink"
-	readonly at: ReadonlyArray<string>
 }

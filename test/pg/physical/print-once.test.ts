@@ -154,8 +154,8 @@ export const aStatementOfSingleUseCtesPlansInTimeLinearInItsSize = property.expl
 			{
 				file: "packages/engine/src/sql/print-once.ts",
 				original:
-					"\tconst nested = transformStatement(statement, { ...identityHooks, select: queryPrintedOnce })\n\tconst printed = isDmlWithWith(nested) ? dmlPrintedOnce(nested) : nested\n\tassertPrintedOnce(printed)\n",
-				replacement: "\tconst printed = statement\n",
+					"\tconst nested = transformStatement(statement, { ...identityHooks, select: queryPrintedOnce })\n\tconst printed = pulledUpStatement(isDmlWithWith(nested) ? dmlPrintedOnce(nested) : nested)\n\tassertPrintedOnce(printed)\n",
+				replacement: "\tconst printed = pulledUpStatement(statement)\n",
 				why: "Every single-use CTE printed as a CTE, left to PostgreSQL's walk of the whole statement for each: planning O(k * size)."
 			}
 		]

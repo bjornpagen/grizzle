@@ -7,7 +7,10 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * The plan shapes a read is held to one answer under, each a whole assignment of the planner settings it moves, so
  * one shape's assignment overrides every other's: hash joins and aggregates, merge joins and sorts, nested loops over
  * index scans, and every eligible query in a parallel worker (debug_parallel_query = regress). A test sets them on a
- * login in its case's own database before its Db opens (planShapeOn); grizzle sets none.
+ * login in its case's own database before its Db opens (planShapeOn); grizzle sets none. A shape only widens what an
+ * answer is compared under: a run under one asserts its answer's equality to the oracle's and nothing else, never a
+ * page, a row count, a plan's shape or a cost bound, and no property that bounds a statement's work reads one
+ * (test/support/oracle/perturb.ts, the same line).
  */
 const planShapes = {
 	hash: {

@@ -133,8 +133,8 @@ export const aCustomDataStepWritesAGuardedTableInsideItsTransactionsBracketItsGu
 			{
 				file: "packages/engine/src/deploy/diff/diff.ts",
 				original:
-					'\t\t\treturn v.kind === "immutableTrigger" && kept.has(nameKey(v.create.table)) ? [v.create] : []\n',
-				replacement: "\t\t\treturn []\n",
+					'\t\t\t\treturn v.kind === "immutableTrigger" && kept.has(nameKey(v.create.table))\n',
+				replacement: '\t\t\t\treturn v.kind === "immutableTrigger" && kept.has("")\n',
 				why: "A draft brackets no guarded table at its data-step slot: the reviewer's UPDATE of Sets there is refused, 42501."
 			},
 			{

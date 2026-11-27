@@ -4,14 +4,15 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
-	alternatives,
 	contained,
 	key as keyOn,
 	login,
+	mirrors,
 	mutable,
 	on,
 	role,
 	schema,
+	select,
 	unit
 } from "#compiler/public/schema.ts"
 import {
@@ -22,18 +23,18 @@ import {
 	queueQueries,
 	Denied,
 	Seat,
-	SeatNo,
-	Slot,
-	Standing,
+	toDigest,
+	toSeatNo,
+	toSlot,
 	Wanted,
 	QueueWork
 } from "#test/support/fixtures/api/queue.ts"
 import { type fullWorld, heldRelations } from "#test/support/worlds.ts"
 
-export { Digest, SeatNo, Slot, Wanted, QueueWork }
+export { toDigest, toSeatNo, toSlot, Wanted, QueueWork }
 
 /**
- * The work queue for the queue gate and the law gates that reuse its alternatives.
+ * The work queue for the queue gate and the law gates that reuse its standings' arms.
  *
  * The schema is test/support/fixtures/api/queue.ts's relations and statements, built under any name so a Db opened on
  * it logs in as the installed roles: Work, Wanted and Leased open, mutable inside the unit of an item's key, so a
@@ -42,14 +43,20 @@ export { Digest, SeatNo, Slot, Wanted, QueueWork }
  * The claim and the settlement are the fixture's, built over the schema (queueQueries): a ChangeSet's member queries
  * must be written over a level of its schema.
  *
- * A work item's standing and its four arms: the queue schema declares it, and a gate reads its laws from this value.
+ * A work item's standing and its four arms, each mirrored with the work of its standing: the queue schema declares
+ * them.
  */
-const workStanding = alternatives(QueueWork, "standing", Standing, {
-	wanted: Wanted,
-	leased: Leased,
-	done: Done,
-	denied: Denied
-})
+const standingOf = (s: "wanted" | "leased" | "done" | "denied") =>
+	on(
+		select(QueueWork, (w) => w.eq(w.standing, s)),
+		"key"
+	)
+const workStanding = [
+	mirrors(on(Wanted, "key"), standingOf("wanted")),
+	mirrors(on(Leased, "key"), standingOf("leased")),
+	mirrors(on(Done, "key"), standingOf("done")),
+	mirrors(on(Denied, "key"), standingOf("denied"))
+] as const
 
 /** The queue schema, Work, Wanted and Leased open in the unit of an item's key. */
 export const queueSchema = (name: string) =>
@@ -58,7 +65,7 @@ export const queueSchema = (name: string) =>
 		mutable(QueueWork),
 		mutable(Wanted),
 		mutable(Leased),
-		workStanding,
+		...workStanding,
 		keyOn(on(Leased, "resource", "seat")),
 		contained(on(Leased, "resource", "seat"), on(Seat, "resource", "seat"))
 	])
@@ -179,7 +186,6 @@ export const claimLabel = (f: AttemptFailure): string => {
 		case "carrier":
 		case "readBack":
 		case "check":
-		case "admission":
 		case "single":
 			return `at ${labelText(label)} ${f.sqlstate}`
 	}

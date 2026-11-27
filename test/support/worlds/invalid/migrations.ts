@@ -45,27 +45,8 @@ const violatedBy = (state: ModelState, law: LawSpec): boolean => {
 	)
 }
 
-/** Identities of a law's own shape, every one the stand-in. */
-const standInsOf = (law: LawSpec, standIn: LawId): LawIds => {
-	switch (law.kind) {
-		case "key":
-		case "spanKey":
-		case "check":
-		case "contained":
-		case "covered":
-			return { kind: law.kind, law: standIn }
-		case "alternatives":
-			return {
-				kind: "alternatives",
-				arms: Record.fromEntries(
-					Arr.map(Record.keys(law.arms), (handle) => [handle, standIn] as const)
-				),
-				reverse: Record.fromEntries(
-					Arr.map(Record.keys(law.arms), (handle) => [handle, standIn] as const)
-				)
-			}
-	}
-}
+/** The identity of a law's own shape, the stand-in. */
+const standInsOf = (law: LawSpec, standIn: LawId): LawIds => ({ kind: law.kind, law: standIn })
 
 /** The relations a declared law reads. */
 const relationsOf = (law: LawSpec): ReadonlyArray<string> => {
@@ -73,7 +54,6 @@ const relationsOf = (law: LawSpec): ReadonlyArray<string> => {
 		case "key":
 		case "spanKey":
 		case "check":
-		case "alternatives":
 			return [law.relation]
 		case "contained":
 		case "covered":
@@ -116,7 +96,6 @@ export const takenIdentity = (base: BaseSpec, law: LawSpec): boolean => {
 					conversionOf(old.name) === conversionOf(law.name)
 			)
 		case "spanKey":
-		case "alternatives":
 			return Arr.some(base.laws, (old) => samePlain(old, law))
 	}
 }
@@ -308,11 +287,24 @@ const holds = (state: ModelState, roster: string, handle: string): boolean =>
 
 /**
  * Whether the installation names `handle` of `roster` anywhere but its roster: a handle literal (`{kind: "handle",
- * closed, member}`) in a law, a rule or a role's entry, a match of the roster itself whose field is the handle's literal
- * (generate/install.ts's closed filter, `{source: {kind: "closed", name}, fields: {id: {kind: "literal", value}}}`), or
- * an alternatives law's arm. A removal leaves such a handle alone, a harness invariant: the installation it would leave
- * names a handle its roster no longer holds, which the builders refuse before any migration is drafted.
+ * closed, member}`) in a law, a rule or a role's entry, a match of the roster itself whose field is the handle's
+ * literal (generate/install.ts's closed filter, `{source: {kind: "closed", name}, fields: {id: {kind: "literal",
+ * value}}}`), or a law side's selection of it (`{relation, fields, where: {field: handle}}`, the field of the roster).
+ * A removal leaves such a handle alone, a harness invariant: the installation it would leave names a handle its roster
+ * no longer holds, which the builders refuse before any migration is drafted.
  */
+/** Whether `relation`'s `field` holds a handle of `roster`. */
+const ofRoster = (install: InstallSpec, relation: string, field: string, roster: string): boolean =>
+	Arr.some(
+		install.base.relations,
+		(r) =>
+			r.name === relation &&
+			Arr.some(
+				r.fields,
+				(f) => f.name === field && f.domain.kind === "handle" && f.domain.closed === roster
+			)
+	)
+
 const mentioned = (install: InstallSpec, roster: string, handle: string): boolean => {
 	const walk = (value: unknown): boolean => {
 		if (Arr.isArray(value)) {
@@ -338,12 +330,15 @@ const mentioned = (install: InstallSpec, roster: string, handle: string): boolea
 		) {
 			return true
 		}
-		const arms = value["arms"]
+		const relation = value["relation"]
+		const where = value["where"]
 		if (
-			value["kind"] === "alternatives" &&
-			value["closed"] === roster &&
-			Predicate.isObject(arms) &&
-			Record.has(arms, handle)
+			typeof relation === "string" &&
+			Predicate.isObject(where) &&
+			Arr.some(
+				Record.toEntries(where),
+				([field, held]) => held === handle && ofRoster(install, relation, field, roster)
+			)
 		) {
 			return true
 		}

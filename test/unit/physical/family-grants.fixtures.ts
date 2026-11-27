@@ -7,7 +7,8 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Option, Order, Record as Rec, String as Str } from "effect"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -523,6 +524,7 @@ const literalOf = (e: Expr): string | undefined => {
 			return `num:${e.value.value}`
 		case "text":
 			return `text:${Str.toLowerCase(e.value.value)}`
+		case "null":
 		case "bits":
 		case "float":
 		case "floatSpecial":

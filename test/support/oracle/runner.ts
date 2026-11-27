@@ -105,10 +105,11 @@ import {
 	type QueryRunner,
 	type RowBound
 } from "#test/support/oracle/install/capture.ts"
+import { oraclePlanUnder } from "#test/support/oracle/install/drafted.ts"
 import { InputSpelling, moneyText } from "#test/support/oracle/install/literal.ts"
 import { type FactSet, factStatements } from "#test/support/oracle/install/load.ts"
 import type { InstallPlan } from "#test/support/oracle/install/model.ts"
-import { oraclePlanUnder, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
+import type { RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import {
 	complementOf,
 	CurrentPerturbation,
@@ -362,7 +363,7 @@ export interface Installations {
 
 /**
  * The plan of `schema`'s installation under the schema `name`, owned by `owner`, installing the types the case's query
- * casts its declared parameters `params` to (install/real.ts oraclePlanUnder).
+ * casts its declared parameters `params` to (install/drafted.ts oraclePlanUnder).
  */
 const planned = (
 	schema: GenSchema,
@@ -696,7 +697,8 @@ const paramValues = (
  * deduplicates itself, or, for an input of no column, its count of rows. The literal is the oracle's own, each element
  * quoted with its backslashes and quotes escaped (array_in's quoting, test/support/arrays.ts).
  *
- * A write's member slot or a page's placeholder: no query statement holds one, so the caller fails the case.
+ * A write's member slot, nested rows or admission, or a page's placeholder: no query statement holds one, so the caller
+ * fails the case.
  */
 export const slotValue = (c: QueryCase, slot: ConservativeParamSlot): string | undefined => {
 	switch (slot.kind) {
@@ -731,6 +733,7 @@ export const slotValue = (c: QueryCase, slot: ConservativeParamSlot): string | u
 		}
 		case "member":
 		case "nestedRows":
+		case "admission":
 		case "page":
 			return undefined
 	}

@@ -15,22 +15,32 @@
  *
  * Features: a conversion under the limit, at it, one byte past and far past, and two names at the limit apart; each
  * builder building a name and refusing one, and a name within the limit whose conversion passes it.
+ *
+ * A closed-id field is admitted where its relation is built exactly when its conversion fits closedIdFieldBytes,
+ * PostgreSQL's identifier less `_name`, so the decoded column `<field>_name` each role view shows beside its code fits;
+ * past it, DecodedColumnTooLong where the relation is built, naming the relation, the field, its conversion, its bytes and
+ * the budget, never a refusal of a later stage. Any other field takes the identifier whole. The box: a closed id and a
+ * plain field at every conversion from one under the budget to one past the identifier. Oracle: the budget, and the
+ * conversion the box spells.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
-import { aimed } from "@bjornpagen/testing/gen"
+import { aimed, element, finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, String as Str } from "effect"
 import {
+	closedIdFieldBytes,
 	maxIdentifierBytes,
 	conversionOf,
 	identity,
 	parseDeclaredName
 } from "#compiler/core/identity.ts"
-import { pg } from "#compiler/public/fields.ts"
-import { relation, schema } from "#compiler/public/schema.ts"
-import { throwsRefused } from "#test/support/assert.ts"
+import { lawsOf } from "#compiler/program/laws.ts"
+import { relation as dynamicRelation } from "#compiler/public/dynamic.ts"
+import { closedId, pg } from "#compiler/public/fields.ts"
+import { closed, relation, schema } from "#compiler/public/schema.ts"
+import { succeeded, throwsRefused } from "#test/support/assert.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import {
 	builderAims,
@@ -185,7 +195,7 @@ export const everyBuilderOfADeclaredNameBuildsOneWithinTheLimitAndRefusesOnePast
 		kills: [
 			{
 				file: "packages/engine/src/schema/relation.ts",
-				original: '\tconst rosterName = requireDeclaredName(name, label, "roster")',
+				original: '\tconst rosterName = admittedName(name, naming, label, "roster")',
 				replacement: '\tconst rosterName = requireName(name, label, "a roster name")',
 				why: "closed.ordered and closed.unordered take any storable name, as they did: a roster past the limit builds, typed under no roster, and a closed id over it is refused when its schema compiles as no closed relation of its name, never as a name too long (metis's catalog-sync refusal); the builder property fails at a roster past the limit."
 			}
@@ -247,3 +257,80 @@ export const aRelationsFieldIsAdmittedExactlyWhenItsConversionIsNoneOfPostgreSQL
 			}
 		]
 	})
+
+/** The roster a box's closed-id field is over. */
+const Shade = closed.unordered("Shade", ["Light", "Dark"])
+
+/** What a cell of the closed-id box reaches: its kind of field, and whether its relation is built. */
+type DecodedFeature = "a closed id built" | "a closed id refused" | "a plain field built"
+
+/**
+ * A closed-id field is admitted where its relation is built exactly when its decoded column fits PostgreSQL's
+ * identifier; past it, DecodedColumnTooLong there, naming the relation, the field, its conversion and the budget.
+ */
+export const aClosedIdFieldIsAdmittedExactlyWhenItsDecodedColumnFitsAndRefusedWhereItsRelationIsBuilt =
+	property.exhaust(
+		finite((source) => ({
+			closedField: source.draw(element([true, false] as const)),
+			bytes: source.draw(int(closedIdFieldBytes - 1, maxIdentifierBytes))
+		})),
+		{
+			needs: {},
+			situations: [
+				"a closed id built",
+				"a closed id refused",
+				"a plain field built"
+			] satisfies ReadonlyArray<Reached<DecodedFeature>>,
+			check:
+				(_, c: Case<DecodedFeature>) =>
+				({ closedField, bytes }) =>
+					Effect.sync(() => {
+						const field = `f${Str.repeat(bytes - 1)("x")}`
+						assert.equal(Buffer.byteLength(conversionOf(field)), bytes, field)
+						const build = () =>
+							dynamicRelation(
+								"Swatch",
+								{ id: pg.integer, [field]: closedField ? closedId(Shade) : pg.integer },
+								["id"]
+							)
+						if (closedField && bytes > closedIdFieldBytes) {
+							const { reason } = throwsRefused(build, "DecodedColumnTooLong", field)
+							if (reason._tag !== "DecodedColumnTooLong") {
+								return assert.fail(`${field} is refused as DecodedColumnTooLong`)
+							}
+							assert.deepEqual(
+								[reason.relation, reason.field, reason.conversion, reason.bytes, reason.limit],
+								["Swatch", field, field, bytes, closedIdFieldBytes],
+								field
+							)
+							c.note("a closed id refused")
+							return
+						}
+						const built = build()
+						lawsOf(schema("Swatches", [Shade, built], []))
+						if (closedField) {
+							const declared = succeeded(parseDeclaredName(field), field)
+							assert.ok(
+								Buffer.byteLength(identity.decodedColumn(declared).identifier) <=
+									maxIdentifierBytes,
+								`${field}'s decoded column fits`
+							)
+						}
+						c.note(closedField ? "a closed id built" : "a plain field built")
+					}),
+			oracle: {
+				kind: "specification",
+				name: "the budget, PostgreSQL's identifier less _name, and the conversion the box spells"
+			},
+			box: "a closed id and a plain field at every conversion from one byte under the closed id's budget to the identifier's whole",
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/core/identity.ts",
+					original: "\treturn bytes > closedIdFieldBytes\n\t\t? Result.err(",
+					replacement: "\treturn bytes > maxIdentifierBytes\n\t\t? Result.err(",
+					why: "A closed-id field is held to the identifier's whole bytes, not its decoded column's: a field of 59 to 63 bytes builds, and its decoded column passes PostgreSQL's identifier."
+				}
+			]
+		}
+	)

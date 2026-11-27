@@ -3,7 +3,17 @@
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen, int, subset } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
-import { Array as Arr, Data, Effect, Formatter, Option, Order, Record as Rec } from "effect"
+import {
+	Array as Arr,
+	Data,
+	Effect,
+	Formatter,
+	Option,
+	Order,
+	Record as Rec,
+	Result,
+	String as Str
+} from "effect"
 import { natural, pg } from "#compiler/public/fields.ts"
 import type { AnyDerived, AnySchema, Relation, Statement } from "#compiler/public/schema.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -24,13 +34,15 @@ import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { installMigrated, type Installed } from "#test/support/install-migrate.ts"
+import { installFullWorld } from "#test/support/installed.ts"
 import {
 	committedJudged,
 	judgeRun,
 	judgeStatementsOf,
-	largeTables,
-	scannedWork,
-	standUpJudge
+	keyedWork,
+	probeCostOf,
+	standUpJudge,
+	wideScans
 } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { argumentsOf } from "#test/support/list.ts"
@@ -1062,14 +1074,14 @@ export const caseGen: Gen<AggregateCase> = (s) => {
 }
 
 /**
- * A case aimed at a situation: a mutable shape drawn with what it needs, so its writes put and delete, `opening`
- * written first, two to six writes kept lawful, so its relations hold rows a law reads, and then one to three writes
+ * A case aimed at a situation: a mutable shape drawn with what it needs, its groups within its units (`withinUnits`), so
+ * it compiles and its writes put and delete, `opening` written first, two to six writes kept lawful, so its relations hold rows a law reads, and then one to three writes
  * of the ops that reach it alone.
  */
 const aimedCase =
 	(aim: ShapeAim, focus: Focus, opening: (shape: Shape) => Write): Gen<AggregateCase> =>
 	(s) => {
-		const shape = { ...s.draw(shapeGen({ locality: false, aim })), mutable: true }
+		const shape = withinUnits({ ...s.draw(shapeGen({ locality: false, aim })), mutable: true })
 		return {
 			shape,
 			writes: s.draw(
@@ -1184,6 +1196,7 @@ const crossArm: AggregateCase = {
 export const keptCases: Arr.NonEmptyReadonlyArray<AggregateCase> = [trigger, crossArm]
 
 export type Feature =
+	| typeof refusedAcrossUnits
 	| "accepted"
 	| "refused by a key"
 	| "refused by a check"
@@ -1256,6 +1269,120 @@ class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string
 /** The name every case declares its schema under. */
 const declaredName = "RuleAggregate"
 
+/** The unit fields a shape's aggregate body matches: Attempt's child, and Topic's item where the body joins Topic. */
+const unitsOf = (shape: Shape): ReadonlyArray<GroupColumn> =>
+	shape.join ? ["child", "item"] : ["child"]
+
+/**
+ * Why a shape's laws read its aggregate across its units, where its relations are open, each in the unit its key leads
+ * with (support/open.ts opened): its groups leave a unit field free, Attempt's child first, else Topic's item where the
+ * body joins Topic, the remedy to group within the unit; or its groups hold every unit and a key's terms leave one free,
+ * the remedy to bind it in the law; none where every law binds every unit the body matches, or the relations are
+ * closed, in no declared unit. A law over such an aggregate is refused when its schema compiles
+ * (analysis/theory/query.ts refuseAggregatesAcrossUnits): a probe at its binding would fold again every row of every
+ * group there across the units.
+ */
+interface AcrossUnits {
+	readonly kind: "groups" | "key"
+	readonly free: GroupColumn
+	readonly remedy: string
+}
+
+const acrossUnitsOf = (shape: Shape): Option.Option<AcrossUnits> => {
+	if (!shape.mutable) {
+		return Option.none()
+	}
+	const units = unitsOf(shape)
+	const spanning = Arr.findFirst(units, (u) => !Arr.contains(shape.groups, u))
+	if (Option.isSome(spanning)) {
+		return Option.some({
+			kind: "groups",
+			free: spanning.value,
+			remedy: `group within a unit, adding the unit's fields (${spanning.value}) to the grouping`
+		})
+	}
+	return Arr.findFirst(
+		Arr.flatMap(shape.laws, (law) => (law.kind === "key" ? [law.terms] : [])),
+		(terms) => Arr.some(units, (u) => !Arr.contains(terms, u))
+	).pipe(
+		Option.flatMap((terms) => Arr.findFirst(units, (u) => !Arr.contains(terms, u))),
+		Option.map((free): AcrossUnits => ({
+			kind: "key",
+			free,
+			remedy: `bind the unit's fields (${free}) in the law`
+		}))
+	)
+}
+
+/**
+ * `shape` read within its units: its groups with the child, and the item where its body joins Topic, added, and each
+ * key's terms with them, in the heading's order.
+ */
+const withinUnits = (shape: Shape): Shape => {
+	const held = unitsOf(shape)
+	const [first, ...rest] = Arr.filter(
+		groupColumns,
+		(g) => Arr.contains(shape.groups, g) || Arr.contains(held, g)
+	)
+	return {
+		...shape,
+		groups: [first ?? "child", ...rest],
+		laws: Arr.map(shape.laws, (law): LawSpec => {
+			if (law.kind !== "key") {
+				return law
+			}
+			const [t, ...ts] = Arr.filter(
+				[...groupColumns, "folded"] as const,
+				(c) => Arr.contains(law.terms, c) || Arr.contains<HeadColumn>(held, c)
+			)
+			return { kind: "key", terms: [t ?? "child", ...ts] }
+		})
+	}
+}
+
+/** What a case notes where its shape's laws read its aggregate across its units (`acrossUnitsOf`). */
+export const refusedAcrossUnits =
+	"refused when its schema compiles: its laws read its groups across its units"
+
+/**
+ * `shape`'s schema installed by `install`, its laws judged within its units; or none, its refusal asserted, UnsupportedLawFamily naming the remedy (`acrossUnitsOf`). A shape
+ * whose groups span its units is refused. One whose key's terms leave a unit free is refused where its probe would fold
+ * the aggregate again at the key, and installs where no probe folds it: Read stored, its key its table's own UNIQUE, or
+ * the aggregate Read matches stored, which a probe reads by its table's index at the key. Which is stored is the
+ * storage's decision (analysis/derived/storage.ts), which the model does not restate; an installed shape is held by
+ * the property's own oracle, a history's verdicts or the touched group's work beside more groups.
+ */
+const installedWithinUnits = (
+	shape: Shape,
+	install: (schema: AnySchema) => ReturnType<typeof installMigrated>
+) =>
+	Effect.gen(function* () {
+		const declared = builtOf(shape, declaredName)
+		const installing = install(declared.schema)
+		const across = acrossUnitsOf(shape)
+		if (Option.isNone(across)) {
+			const installed = yield* installing
+			return Option.some(installed)
+		}
+		const outcome = yield* Effect.result(installing)
+		if (Result.isSuccess(outcome)) {
+			assert.equal(
+				across.value.kind,
+				"key",
+				`${Formatter.format(shape)}: its groups leave ${across.value.free} free, so it is refused naming the remedy ${across.value.remedy}`
+			)
+			return Option.some(outcome.success)
+		}
+		const refusal = outcome.failure
+		assert.ok(
+			refusal._tag === "CompileError" &&
+				refusal.reason._tag === "UnsupportedLawFamily" &&
+				Str.includes(across.value.remedy)(refusal.reason.capability),
+			`${Formatter.format(shape)}: refused when its schema compiles, its laws leaving ${across.value.free} free, naming the remedy ${across.value.remedy}: ${refusal.message}`
+		)
+		return Option.none()
+	})
+
 /** The rows each stored relation of the shape holds, as their columns' texts, by key text: what a direct reader reads back. */
 const storedRows = (shape: Shape, installed: Installed, session: RawSession, built: Built) =>
 	Effect.forEach(storedOf(shape), (stored) =>
@@ -1292,21 +1419,23 @@ const modelRows = (shape: Shape, state: State) =>
 	)
 
 /**
- * One case: the shape installed through its first migration, then each write applied through grizzle's served write as
- * the full world's login. A write is accepted exactly when the state it leaves keeps every law in the model, the
+ * One case: a shape whose laws read its groups across its units refused when its schema compiles (`installedWithinUnits`); any
+ * other installed
+ * through its first migration, then each write applied through grizzle's served write as the full world's login. A write is accepted exactly when the state it leaves keeps every law in the model, the
  * stored state then the model's; and refused `invariant-rejected` naming only laws the model finds broken, its witness
  * unreported, the stored state as before. After the history, every stored relation holds the model's rows.
  */
 export const runHistory = (c: AggregateCase, note: Case<Feature>["note"]) =>
 	Effect.gen(function* () {
 		const shape = c.shape
-		const declared = builtOf(shape, declaredName)
-		const done = yield* installMigrated(declared.schema, {
-			ambient: ordinarySession,
-			extensions: [],
-			label: "rule_aggregate",
-			logins: [fullWorld(declared.schema, {}).server]
-		})
+		const installed = yield* installedWithinUnits(shape, (schema) =>
+			installFullWorld(schema, {}, { ambient: ordinarySession, label: "rule_aggregate" })
+		)
+		if (Option.isNone(installed)) {
+			note(refusedAcrossUnits)
+			return
+		}
+		const done = installed.value
 		const built = builtOf(shape, done.schema)
 		const world = fullWorld(built.schema, {})
 		const state = yield* withServedDb(done, world.server.roles.app, {}, ({ serve }) =>
@@ -1485,27 +1614,35 @@ const insertSql = (shape: Shape, installed: Installed, built: Built, op: Op): st
 const touch: Op = { kind: "insert", relation: "Attempt", row: [1, 1, 1, 2, 0] }
 
 /**
- * The work of each statement the judge runs over the touch (`scannedWork`), explained on `session` while the deltas hold
- * the touch's rows, before the judge reads them, in a transaction rolled back (test/support/judge.ts judgeRun): each
- * statement of the judge, a stored relation's upkeep's or a rule's, over a delta holding a row, Attempt's side of news,
- * which the touch writes, or one an upkeep's write filled, a stored aggregate's, in the judge's order, each upkeep's
- * DELETE and INSERT run as phase A runs them, before the rules over what they wrote.
+ * The work of each statement the judge runs over the touch, explained on `session` while the deltas hold the touch's
+ * rows, before the judge reads them, in a transaction rolled back (test/support/judge.ts judgeRun), with no planner
+ * setting: each statement of the judge, a stored relation's upkeep's or a rule's, over a delta holding a row,
+ * Attempt's side of news, which the touch writes, or one an upkeep's write filled, a stored aggregate's, in the judge's
+ * order, each upkeep's DELETE and INSERT run as phase A runs them, before the rules over what they wrote; each with its
+ * keyed work and the tables it reads whole by a scan that costs more than a probe, `probeCost` (judge.ts keyedWork,
+ * wideScans).
  */
-const touchedWork = (shape: Shape, installed: Installed, built: Built, session: RawSession) =>
+const touchedWork = (
+	shape: Shape,
+	installed: Installed,
+	built: Built,
+	session: RawSession,
+	probeCost: number
+) =>
 	Effect.gen(function* () {
 		yield* session.begin
 		const work = yield* Effect.onError(
 			Effect.gen(function* () {
-				for (const setting of largeTables) {
-					yield* session.query(setting, [])
-				}
 				yield* session.query(insertSql(shape, installed, built, touch), [])
 				const plans = yield* judgeRun(
 					(sql) => session.values(sql, []),
 					installed.installation,
 					judgeStatementsOf(installed.installation)
 				)
-				return Arr.map(plans, (p) => scannedWork(p.plan))
+				return Arr.map(plans, (p) => ({
+					rows: keyedWork(p.plan, probeCost),
+					wide: wideScans(p.plan, probeCost)
+				}))
 			}),
 			() => Effect.ignore(session.rollback)
 		)
@@ -1514,22 +1651,46 @@ const touchedWork = (shape: Shape, installed: Installed, built: Built, session: 
 	})
 
 /**
- * One locality case: the shape installed, the touched group's first attempt stored beside `before` untouched groups,
- * and the touch's work measured; `more` untouched groups stored beside them, and the touch's work measured again. Every
- * judged statement's work is the same both times: a stored relation's upkeep at the touched group's unit, and a probe
- * of the groups a write touched, read those groups alone, however many groups stand beside them, each in a learner's
- * unit of its own.
+ * The untouched groups every locality case stores beside the ones it draws, so each table is larger than one probe of it
+ * and PostgreSQL looks a key up in it, as at a production's size, with no planner setting: a table of a page or two it
+ * reads whole for what a probe costs (test/support/judge.ts keyedWork).
+ *
+ * @limitKind derived
+ * @owner the locality property (rule-aggregate.test.ts)
+ * @unit groups
+ * @scope the background each locality case measures beside
+ * @evidence ~/.cache/grizzle/DECLSTATS-work/unitscale/run3.sh, its output unitscale3.log beside it (2026-11-23): a
+ *   delta's reader declared at 10 rows is read by a probe of the key at every table from 2^10 rows, a hash over a scan below
  */
-export const runLocality = (d: LocalityCase, note: Case<"measured">["note"]) =>
+const backgroundGroups = 2048
+
+/** What a locality case reaches: its touched group's work measured, or its schema refused (`refusedAcrossUnits`). */
+export type LocalityFeature = "measured" | typeof refusedAcrossUnits
+
+/**
+ * One locality case: a shape whose laws read its groups across its units refused when its schema compiles
+ * (`installedWithinUnits`); any other
+ * installed, the touched group's first attempt stored beside `before` untouched groups and
+ * a background of more (`backgroundGroups`), and the touch's work measured; `more` untouched groups stored beside them,
+ * and the touch's work measured again. No judged statement reads a table larger than a probe whole, and each one's
+ * keyed work is the same both times: a stored relation's upkeep at the touched group's unit, and a probe of the groups a
+ * write touched, read those groups alone, however many groups stand beside them, each in a learner's unit of its own.
+ */
+export const runLocality = (d: LocalityCase, note: Case<LocalityFeature>["note"]) =>
 	Effect.gen(function* () {
 		const shape = d.shape
-		const declared = builtOf(shape, declaredName)
-		const done = yield* installMigrated(declared.schema, {
-			ambient: ordinarySession,
-			extensions: [],
-			label: "rule_aggregate_locality",
-			logins: []
-		})
+		const installed = yield* installedWithinUnits(shape, (schema) =>
+			installMigrated(schema, {
+				ambient: ordinarySession,
+				extensions: [],
+				label: "rule_aggregate_locality"
+			})
+		)
+		if (Option.isNone(installed)) {
+			note(refusedAcrossUnits)
+			return
+		}
+		const done = installed.value
 		const built = builtOf(shape, done.schema)
 		const substrate = yield* Substrate
 		const session = yield* substrate.session({
@@ -1537,24 +1698,34 @@ export const runLocality = (d: LocalityCase, note: Case<"measured">["note"]) =>
 			label: "rule aggregate locality"
 		})
 		yield* standUpJudge(session, done.installation)
+		const probeCost = yield* probeCostOf((sql) => session.values(sql, []))
+		const past = d.before + d.more
 		yield* committedJudged(session, [
 			...Arr.map(touchedBase(shape), (op) => insertSql(shape, done, built, op)),
-			...untouchedSql(shape, done, built, 0, d.before - 1)
+			...untouchedSql(shape, done, built, 0, d.before - 1),
+			...untouchedSql(shape, done, built, past, past + backgroundGroups - 1)
 		])
-		const few = yield* touchedWork(shape, done, built, session)
+		const few = yield* touchedWork(shape, done, built, session, probeCost)
 		yield* committedJudged(
 			session,
 			untouchedSql(shape, done, built, d.before, d.before + d.more - 1)
 		)
-		const many = yield* touchedWork(shape, done, built, session)
+		const many = yield* touchedWork(shape, done, built, session, probeCost)
 		assert.ok(
-			Arr.some(few, (w) => w > 0),
+			Arr.some(few, (w) => w.rows > 0),
 			`${Formatter.format(d)}: some judged statement reads the touched group`
 		)
+		for (const w of [...few, ...many]) {
+			assert.deepEqual(
+				w.wide,
+				[],
+				`${Formatter.format(d)}: no judged statement reads a table larger than a probe whole`
+			)
+		}
 		assert.deepEqual(
 			many,
 			few,
-			`${Formatter.format(d)}: each judged statement reads the same rows beside ${d.before} untouched groups and beside ${d.before + d.more}`
+			`${Formatter.format(d)}: each judged statement does the same keyed work beside ${d.before + backgroundGroups} untouched groups and beside ${d.before + d.more + backgroundGroups}`
 		)
 		note("measured")
 	})

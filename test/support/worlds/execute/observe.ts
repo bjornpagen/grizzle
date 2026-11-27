@@ -108,8 +108,6 @@ export const applyFailed = (error: ApplyError): Effect.Effect<Observation> => {
 			switch (reason._tag) {
 				case "ServerError":
 					return Effect.succeed({ kind: "refused", sqlstate: sqlStateOf(reason.sqlstate) })
-				case "TemporaryRefused":
-					return Effect.succeed({ kind: "refused", sqlstate: sqlStateOf(reason.error.sqlstate) })
 				case "CompileError":
 					return Effect.succeed({ kind: "compile-refused" })
 				case "InputTooLarge":
@@ -135,8 +133,6 @@ export const readFailed = (error: ReadError): Effect.Effect<Observation> => {
 	switch (reason._tag) {
 		case "ServerError":
 			return Effect.succeed({ kind: "refused", sqlstate: sqlStateOf(reason.sqlstate) })
-		case "TemporaryRefused":
-			return Effect.succeed({ kind: "refused", sqlstate: sqlStateOf(reason.error.sqlstate) })
 		case "CompileError":
 			return Effect.succeed({ kind: "compile-refused" })
 		case "EncodingFailure":

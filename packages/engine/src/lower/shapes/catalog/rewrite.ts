@@ -9,7 +9,7 @@ import type { OpId } from "#compiler/ir/expr.ts"
 import type { Pass } from "#compiler/ir/pass.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { Cell, RelKind, Roots, ValidDag } from "#compiler/ir/rel.ts"
-import { analyzeLogical, keptNodes, queryEvidence } from "#compiler/logical/annotate.ts"
+import type { SharedAnalyses } from "#compiler/logical/annotate.ts"
 import {
 	CatalogContext,
 	type CatalogOptions,
@@ -124,16 +124,6 @@ const families: ReadonlyArray<{
 	{ name: "ordinal", kinds: ["Group"], run: tryOrdinal }
 ]
 
-/**
- * An edited DAG annotated again (logical/annotate.ts analyzeLogical) under the evidence the optimized input is annotated
- * with (lower/optimize/pipeline.ts optimizedInput): every node a rewrite built keyed by what the analysis proves of it,
- * as every other node is.
- */
-const annotated = <R extends Roots>(dag: ValidDag<R>): ValidDag<R> => {
-	const analysis = unwrap(analyzeLogical(dag, queryEvidence, keptNodes([])))
-	return analysis.dag
-}
-
 /** Which rules an entry applied at a node, or why it was not applied: the inspectable record of the pass. */
 type CatalogDecision =
 	| { readonly node: NodeId; readonly entry: string; readonly applied: ReadonlyArray<string> }
@@ -239,7 +229,7 @@ export const rewriteCatalog = <R extends Roots>(
 			}
 		}
 		return {
-			dag: decisions.some((d) => "applied" in d) ? annotated(ed.build()) : dag,
+			dag: decisions.some((d) => "applied" in d) ? ed.build() : dag,
 			certificates,
 			decisions
 		}
@@ -249,10 +239,13 @@ export const rewriteCatalog = <R extends Roots>(
  * The catalog as a pass of the optimized pipeline: the rewrites, each certificate recorded in the context's log, for
  * the execution context the template is compiled for and under its evidence catalog.
  */
-export const catalogPass = (parents: ParentPolicy): Pass<LogicalQuery, LogicalQuery> => ({
+export const catalogPass = (
+	parents: ParentPolicy,
+	analyses: SharedAnalyses
+): Pass<LogicalQuery, LogicalQuery> => ({
 	name: "compileTargetCatalog",
 	run: (query, ctx) => {
-		const options: CatalogOptions = { catalog: ctx.catalog, parents }
+		const options: CatalogOptions = { catalog: ctx.catalog, parents, analyses }
 		return Result.map(rewriteCatalog(query.dag, options), (result) => {
 			for (const cert of result.certificates) {
 				ctx.certificates.record(cert)

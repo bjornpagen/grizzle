@@ -91,6 +91,7 @@ export const operandOf = (local: NodeId, e: ScalarExpr): Operand => {
 		case "cast":
 		case "domainCast":
 		case "cond":
+		case "variant":
 		case "closedAt":
 		case "closedRow":
 		case "closedHas":
@@ -381,7 +382,7 @@ export const predicateAtoms = (
 		case "netWithin":
 		case "netStrictlyWithin":
 		case "netOverlaps":
-		case "canonicalZero":
+		case "canonical":
 		case "ne":
 		case "not":
 		case "cast":

@@ -30,7 +30,8 @@ import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import {
 	type Aim,
 	apply,

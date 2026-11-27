@@ -21,9 +21,15 @@ import {
 import { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import { moneyFractionDigits, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { decimalToBinary32 } from "#compiler/scalar/values/float.ts"
-import type { CarrierHost, CarrierSpec, SpecOf } from "#compiler/scalar/values/identity.ts"
+import type {
+	CarrierHost,
+	CarrierSpec,
+	SpecOf,
+	VariantValue
+} from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { admitCidr, admitInet } from "#compiler/scalar/values/net.ts"
+import { recordAttributes } from "#compiler/scalar/values/record.ts"
 import {
 	makeSpan,
 	type Span,
@@ -495,6 +501,51 @@ const readDigest = (text: string): Result.Result<Uint8Array, StrictFault> => {
 	return bytes.length === sha256Octets ? Result.succeed(bytes) : Result.fail("sha256Value")
 }
 
+/**
+ * A variant's record_out, strictly: a parenthesized record of exactly the spec's attributes, its tag a live handle's code,
+ * each field of that arm read strictly by its own spec, a float's zero sign `t` exactly where it is -0, and every other
+ * attribute absent; anything else variantType, an unknown code variantTag.
+ */
+const readVariant =
+	(spec: SpecOf<"variant">) =>
+	(text: string): Result.Result<VariantValue, StrictFault> => {
+		if (!Str.startsWith("(")(text) || !Str.endsWith(")")(text)) {
+			return Result.fail("variantType")
+		}
+		const attributes = recordAttributes(text)
+		const code = readNumber("int2")(attributes[0] ?? "")
+		if (Result.isFailure(code)) {
+			return Result.fail("variantTag")
+		}
+		const tag = spec.roster.names[code.success]
+		const arm = tag === undefined || tag === "" ? undefined : spec.arms.get(tag)
+		if (tag === undefined || arm === undefined) {
+			return Result.fail("variantTag")
+		}
+		if (attributes.length !== spec.attributes) {
+			return Result.fail("variantType")
+		}
+		const own = new Set(
+			Arr.flatMap(arm.fields, (f) => (f.zero === undefined ? [f.at] : [f.at, f.zero]))
+		)
+		if (Arr.some(attributes, (a, i) => i > 0 && !own.has(i) && a !== undefined)) {
+			return Result.fail("variantType")
+		}
+		const value: Record<string, unknown> = { tag }
+		for (const field of arm.fields) {
+			const read = readerOf(field.spec)(attributes[field.at] ?? "")
+			if (!Result.isSuccess(read)) {
+				return Result.fail(read.failure)
+			}
+			const zero = field.zero === undefined ? undefined : attributes[field.zero]
+			if (field.zero !== undefined && zero !== (Object.is(read.success, -0) ? "t" : "f")) {
+				return Result.fail("variantType")
+			}
+			value[field.name] = read.success
+		}
+		return Result.succeed(Object.freeze({ ...value, tag }))
+	}
+
 const readers: {
 	readonly [C in Carrier]: (
 		spec: SpecOf<C>
@@ -523,7 +574,8 @@ const readers: {
 	vector: (spec) => readVector(spec),
 	tsvector: () => (text) => toResult(validateText(text)),
 	exactInteger: () => strictIntegers.exactInteger,
-	exactMoney: () => readExactMoney
+	exactMoney: () => readExactMoney,
+	variant: (spec) => readVariant(spec)
 }
 
 const readerOf = <C extends Carrier>(

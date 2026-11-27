@@ -58,7 +58,7 @@ export const runningPerStudent = query(Lab).rule((r) => {
 	return r
 		.match(Sitting, { id, student, day })
 		.match(Sitting, { id: t.id, student, day: t.day, score: t.score })
-		.where(r.or(r.lt(t.day, day), r.and(r.eq(t.day, day), r.le(t.id, id))))
+		.where(r.or([r.lt(t.day, day), r.and([r.eq(t.day, day), r.le(t.id, id)])]))
 		.find({
 			student,
 			id,
@@ -76,7 +76,7 @@ export const ordinalPerStudent = query(Lab).rule((r) => {
 	return r
 		.match(Sitting, { id, student, day })
 		.match(Sitting, { id: t.id, student, day: t.day })
-		.where(r.or(r.lt(t.day, day), r.and(r.eq(t.day, day), r.le(t.id, id))))
+		.where(r.or([r.lt(t.day, day), r.and([r.eq(t.day, day), r.le(t.id, id)])]))
 		.find({ student, id, ordinal: r.count() })
 })
 
@@ -90,7 +90,10 @@ export const runningQualified = query(Lab).rule((r) => {
 	return r
 		.match(Sitting, { id, student, day })
 		.match(Sitting, { id: t.id, student, day: t.day, score: t.score })
-		.where(r.or(r.lt(t.day, day), r.and(r.eq(t.day, day), r.le(t.id, id))), r.gt(t.score, f8(3)))
+		.where(
+			r.or([r.lt(t.day, day), r.and([r.eq(t.day, day), r.le(t.id, id)])]),
+			r.gt(t.score, f8(3))
+		)
 		.find({ student, id, top: r.max(t.score) })
 })
 
@@ -139,7 +142,7 @@ const scoreOrdinals = query(Lab).rule((r) => {
 	return r
 		.match(Sitting, { id, student, score })
 		.match(Sitting, { id: t.id, student, score: t.score })
-		.where(r.or(r.lt(t.score, score), r.and(r.eq(t.score, score), r.le(t.id, id))))
+		.where(r.or([r.lt(t.score, score), r.and([r.eq(t.score, score), r.le(t.id, id)])]))
 		.find({ student, id, score, ord: r.count() })
 })
 
@@ -175,7 +178,7 @@ const roomOrdinals = query(Lab).rule((r) => {
 	return r
 		.match(Sitting, { id, room, score })
 		.match(Sitting, { id: t.id, room, score: t.score })
-		.where(r.or(r.lt(t.score, score), r.and(r.eq(t.score, score), r.le(t.id, id))))
+		.where(r.or([r.lt(t.score, score), r.and([r.eq(t.score, score), r.le(t.id, id)])]))
 		.find({ room, id, score, ord: r.count() })
 })
 
@@ -257,10 +260,10 @@ const nextSitting = query(Lab)
 				score: n.score
 			})
 			.where(
-				r.or(
+				r.or([
 					r.gt(n.day, r.param("d", pg.integer)),
-					r.and(r.eq(n.day, r.param("d", pg.integer)), r.gt(n.id, r.param("i", pg.bigint)))
-				)
+					r.and([r.eq(n.day, r.param("d", pg.integer)), r.gt(n.id, r.param("i", pg.bigint))])
+				])
 			)
 			.find({ nid: n.id, nday: n.day, nscore: n.score })
 	})

@@ -20,7 +20,7 @@ import {
 	textBoundsOf,
 	wildcardPattern
 } from "#compiler/ir/scalar.ts"
-import { compiledExpr, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
+import { compiledExpr, sqlNull, noParamLeaf } from "#compiler/scalar/compute/evaluate.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { bytesMaxLength } from "#compiler/scalar/values/fault.ts"
@@ -380,7 +380,8 @@ const hostValue = (
 				{
 					value: undefined,
 					column: (ref) => column(ref.name) ?? sqlNull,
-					closed: () => undefined
+					closed: () => undefined,
+					param: noParamLeaf
 				},
 				ProgramPatterns.of(tablePatterns(table))
 			),

@@ -9,14 +9,16 @@ import {
 import { completedOrderItems } from "#compiler/lower/conservative/take/order.ts"
 import {
 	comparatorColumn,
+	edgeStart,
 	type PageComparator,
 	type PageDirection,
 	reversedOrder,
 	seekPredicate,
 	type WindowStart
 } from "#compiler/lower/shapes/page/seek.ts"
-import type { Expr, OperandSelect, OrderItem, Select } from "#compiler/sql/ast.ts"
+import type { Expr, FromItem, OperandSelect, OrderItem, Select } from "#compiler/sql/ast.ts"
 import {
+	binary,
 	conjunction,
 	countStar,
 	exists,
@@ -86,6 +88,90 @@ export const pagedRows = (cx: LowerContext, spec: PagedRowsSpec): Select => {
 		orderBy,
 		limit: spec.limit,
 		offset: start.kind === "offset" ? start.offset.value() : undefined
+	}
+}
+
+interface DrivenRowsSpec {
+	/**
+	 * S (driver.ts DriverValues): the rows of the prefix's columns the call reads, as a FROM item and its columns by the
+	 * driver's names; the unit row where the call's points fix the whole prefix.
+	 */
+	readonly values: { readonly item: FromItem; readonly map: ColumnMap }
+	/** One part's driver rows at S's row `values`, the prefix and the interval its filter, its columns named as D's. */
+	readonly driver: (values: ColumnMap) => OperandSelect
+	readonly driverHeading: Heading
+	/** D's heading, which the window delivers. */
+	readonly heading: Heading
+	readonly origin: NameOrigin
+	readonly start: WindowStart
+	readonly direction: PageDirection
+	/** The ORDER BY in the declared order, over a map holding the order's columns: the driver rows' or D's. */
+	readonly order: (map: ColumnMap, heading: Heading) => ReadonlyArray<OrderItem>
+	/** The window's size, allocated after the rows' own placeholders and before the seek's or the offset's. */
+	readonly limit: () => Expr
+	/** D read at each driver row's key, its key columns read through `keys`, the driver row's (semi-join readPerDrivingRow). */
+	readonly rows: (keys: ColumnMap) => { readonly item: FromItem; readonly map: ColumnMap }
+}
+
+/**
+ * SELECT <D's heading> FROM (SELECT <the driver's columns> FROM <S> AS s, LATERAL (<one part: pagedRows over the
+ * driver's rows at s>) AS w ORDER BY <the order> LIMIT <size> [OFFSET <offset>]) AS m, LATERAL (<D at m's key>) AS d
+ * ORDER BY <the order over d, reversed when backward>.
+ *
+ * A driven window (lower/shapes/page/driver.ts): for each row of S, the take of its driver alone at that row's prefix,
+ * at most the window's size of its rows from the window's start (from the order's first row, o + k of them, past an
+ * offset o), each seek and the order reading the driver's columns, which an index on the prefix's columns then the order
+ * reads in order, the interval bounding its scan; then the parts' driver rows merged in the order and cut at the
+ * window's size, past the offset; then D read once per kept row at its key, a LATERAL PostgreSQL never pulls up, whose
+ * region's chain leads with the driver's whole key, so no row the offset skips is read past its driver's index entry.
+ * Each driver row meets exactly one row of D, and the parts are disjoint
+ * (driver.ts, the rule and its proof), so the window's rows are D's first `size` from its start: the first k of a
+ * disjoint union lie among each part's first k. No row of D beyond the parts' takes is read, whatever the statistics
+ * state; where the call's points fix the whole prefix, S is one row and the window one part.
+ */
+export const drivenRows = (cx: LowerContext, spec: DrivenRowsSpec): Select => {
+	const rel = spec.driver(spec.values.map)
+	const limit = spec.limit()
+	const start = spec.start
+	/** The window's offset, which each part reads past from the order's first row and the merge skips. */
+	const skipped = start.kind === "offset" ? start.offset.value() : undefined
+	const part = pagedRows(cx, {
+		rel,
+		heading: spec.driverHeading,
+		origin: spec.origin,
+		start: start.kind === "offset" ? edgeStart : start,
+		direction: spec.direction,
+		order: (map) => spec.order(map, spec.driverHeading),
+		limit: skipped === undefined ? limit : binary("+", skipped, limit)
+	})
+	const w = cx.wrapAs(part, spec.driverHeading, spec.origin, true)
+	const parts = spec.order(w.map, spec.driverHeading)
+	const merged: Select = {
+		...select(
+			keyedSet(
+				headingTargets(spec.driverHeading, w.map),
+				[spec.values.item, w.item],
+				undefined,
+				"a driven window's merged parts"
+			)
+		),
+		orderBy: spec.direction === "backward" ? reversedOrder(parts) : parts,
+		limit,
+		offset: skipped
+	}
+	const m = cx.wrap(merged, spec.driverHeading, spec.origin)
+	const d = spec.rows(m.map)
+	const declared = spec.order(d.map, spec.heading)
+	return {
+		...select(
+			keyedSet(
+				headingTargets(spec.heading, d.map),
+				[m.item, d.item],
+				undefined,
+				"a driven window's rows"
+			)
+		),
+		orderBy: spec.direction === "backward" ? reversedOrder(declared) : declared
 	}
 }
 

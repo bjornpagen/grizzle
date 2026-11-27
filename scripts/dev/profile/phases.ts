@@ -12,9 +12,9 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import { compileLaws } from "#compiler/laws/model/model.ts"
 import { workloadRequests, withWorkload } from "#compiler/physical/access/extension.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { lowerQuery } from "#compiler/program/describe.ts"
 import { parseSchemaInput } from "#compiler/program/input.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { schemaArtifacts } from "#compiler/program/schema.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { natural } from "#compiler/public/fields.ts"
@@ -24,9 +24,7 @@ import { isOrderedValue, isQueryValue, queryOver, varsOver } from "#compiler/que
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { own, rostersOf } from "#compiler/schema/own.ts"
 import { ownedDesc } from "#compiler/schema/protocol.ts"
-import { everySlice } from "#compiler/schema/reach.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
-import { carrierScope } from "#compiler/sql/naming.ts"
 import { changeSetDesc, changeSetOver } from "#compiler/write/changeset/value.ts"
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
@@ -210,9 +208,7 @@ export const compilePhases = ({ fixture: f, timed, each }: PhasesInput) => {
 	const owned = timed(`${f.label} own`, () =>
 		ok(own(input.kind === "role" ? input.desc.base : input.desc), "own")
 	)
-	timed(`${f.label} laws`, () =>
-		ok(compileLaws(owned, everySlice(owned), { kind: "planned" }), "laws")
-	)
+	timed(`${f.label} laws`, () => ok(compileLaws(owned, { kind: "planned" }), "laws"))
 	/** A fresh installation's codes: every roster's handles in declared order. */
 	const codes = firstCodebook(rostersOf(owned))
 	const base = { ...completeInstallOptions(owned, [installedAt], [], [], codes), owner }
@@ -267,7 +263,7 @@ export const compilePhases = ({ fixture: f, timed, each }: PhasesInput) => {
 			: []
 	)
 	const sets = writeChangeSets(f)
-	const checked = ok(checkedSchema(owned, everySlice(owned)), "checked")
+	const checked = ok(checkedSchema(owned), "checked")
 	/** The keys of every view a write program's members and read-backs read, as the schema's artifacts know them. */
 	const artifacts = ok(schemaArtifacts(input, { codes }), "artifacts")
 	const writes = timed(`${f.label} writes`, () =>
@@ -289,8 +285,7 @@ export const compilePhases = ({ fixture: f, timed, each }: PhasesInput) => {
 								derived: artifacts.derived,
 								level: "serializable",
 								clock: noClock,
-								source: transactionClock,
-								carrierScope: carrierScope(undefined)
+								source: transactionClock
 							}
 						)
 					)

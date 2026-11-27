@@ -59,7 +59,7 @@ export const aColumnARulesHeadFixesAtALiteralCompilesWhereverANavigatedRuleReads
 				},
 				{
 					file: "packages/engine/src/physical/ddl/rules.ts",
-					original: "\t\t\t(query) => b.columns(unit.definitionOf(query)),\n",
+					original: "\t\t\tdefinedAt(b.columns, unit.definitionOf),\n",
 					replacement: "\t\t\tb.columns,\n",
 					why: "A whole rule's statement over its units reads the heading of the walked copy of the union it selects at a literal, checked alone, where the copy's recursive import reads the document's channel, which only its import types: refused as a channel bound to a column, as pantry's assembledPartRows was (tests.ts:1040)."
 				},
@@ -125,7 +125,7 @@ export const anImportsHeadingIsCheckedOncePerInstallationHoweverManyProbesNaviga
 					original:
 						'\t\tthis.columns = queryColumns(input.checked, SourceLoc("the installation", []))\n',
 					replacement:
-						'\t\tthis.columns = (query) => queryColumns(input.checked, SourceLoc("the installation", []))(query)\n',
+						'\t\tthis.columns = { desc: (query) => queryColumns(input.checked, SourceLoc("the installation", [])).desc(query), field: (relation, column) => queryColumns(input.checked, SourceLoc("the installation", [])).field(relation, column) }\n',
 					why: "Each statement navigation reads gets a QueryColumns of its own, so the import's heading is checked again for every probe that inlines it: three readers check it more often than one."
 				},
 				{

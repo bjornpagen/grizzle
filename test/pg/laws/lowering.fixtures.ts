@@ -12,11 +12,8 @@ import type { LawId } from "#compiler/core/ids.ts"
 import type { NativeColumn } from "#compiler/ir/law.ts"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import type { CallError } from "#compiler/live/index.ts"
-import {
-	compileInstallation,
-	conservativeInstallation,
-	type Installation
-} from "#compiler/physical/install/compile.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation, conservativeInstallation } from "#compiler/program/install.ts"
 import { ChangeSet, type KeyHost, type Witness } from "#compiler/public/changeset.ts"
 import {
 	type Catalogued,
@@ -46,10 +43,11 @@ import { succeeded } from "#test/support/assert.ts"
 import { writeAnswerOf } from "#test/support/calls.ts"
 import {
 	type Installed,
-	type InstallVersion,
 	migratedTemplate,
-	noPlaceholders
+	noPlaceholders,
+	type Version
 } from "#test/support/install-migrate.ts"
+import { migratedOnceTemplate } from "#test/support/installed.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { draftCodes, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
 import { planRealInstall } from "#test/support/oracle/install/real.ts"
@@ -1191,23 +1189,10 @@ const sameVerdict = (
 }
 
 /** The fields a lowered installation's latest version declares under the declared name `name`, with its full world's login. */
-const lastOf = (shape: Shape, name: string): InstallVersion => {
+const lastOf = (shape: Shape, name: string): Version => {
 	const declared = loweringSchema(shape, name)
-	return {
-		schema: declared,
-		logins: [fullWorld(declared, {}).server],
-		declarations: noDeclarations
-	}
+	return { schema: declared, logins: [fullWorld(declared, {}).server] }
 }
-
-/** How every lowered installation is drafted: grizzle's own compile, no placeholder. */
-const loweredOptions = {
-	label: "lowering",
-	extensions: [],
-	ambient: ordinarySession,
-	compile: compileInstallation,
-	review: noPlaceholders
-} as const
 
 /** The name a shape's fresh installation is planned under to read what it lowers to: it is never installed. */
 const plannedName = "lowering"
@@ -1222,9 +1207,8 @@ const plannedOf = (shape: Shape): Installation => {
 	return succeeded(
 		planRealInstall(desc, {
 			installation: identity.schema(parsedSchemaName(plannedName)),
-			logins: version.logins,
 			extensions: [],
-			codes: succeeded(draftCodes(desc, fromEmpty, version.declarations)),
+			codes: succeeded(draftCodes(desc, fromEmpty, noDeclarations)),
 			compile: compileInstallation
 		})
 	).installation
@@ -1249,21 +1233,22 @@ export const loweredShapes: ReadonlyArray<PlannedShape> = Arr.map(shapes, (shape
 	return { shape, situations: situationsOf(installation, ["fresh", ...histories]) }
 })
 
-/** A lowered shape installed through `history`, its first version then its last, once per member. */
+/**
+ * A lowered shape installed through `history`, its first version then its last, once per member (installed.ts
+ * migratedOnceTemplate): the first, a description serving no login, drafted from it alone, and the last, with its
+ * login, as `grizzle generate` drafts it.
+ */
 const historyTemplate = (shape: Shape, history: History): SubstrateTemplate<Installed> =>
-	migratedTemplate({
+	migratedOnceTemplate({
 		declaredIn: import.meta,
 		name: `lowering ${shape} ${history}`,
-		content: { shape, order: history },
-		versions: [
-			{
-				schema: firstVersion(history, shape, "Lowering"),
-				logins: [],
-				declarations: noDeclarations
-			},
-			lastOf(shape, "Lowering")
-		],
-		options: loweredOptions
+		options: {
+			label: `lowering_${history}`,
+			first: (name) => ({ described: succeeded(schemaDescIn(firstVersion(history, shape, name))) }),
+			later: [(name) => lastOf(shape, name)],
+			apply: noPlaceholders,
+			declared: () => noDeclarations
+		}
 	})
 
 /**
@@ -1272,12 +1257,16 @@ const historyTemplate = (shape: Shape, history: History): SubstrateTemplate<Inst
  * one's tables emptied by its seat after a case.
  */
 export const loweringTemplatesOf = (shape: Shape) => ({
-	fresh: migratedTemplate({
+	fresh: migratedOnceTemplate({
 		declaredIn: import.meta,
 		name: `lowering ${shape} fresh`,
-		content: { shape, order: "fresh" },
-		versions: [lastOf(shape, "Lowering")],
-		options: loweredOptions
+		options: {
+			label: "lowering",
+			first: (name) => lastOf(shape, name),
+			later: [],
+			apply: noPlaceholders,
+			declared: () => noDeclarations
+		}
 	}),
 	histories: {
 		aboveLater: historyTemplate(shape, "aboveLater"),
@@ -1288,10 +1277,14 @@ export const loweringTemplatesOf = (shape: Shape) => ({
 		declaredIn: import.meta,
 		name: `lowering ${shape} oracle`,
 		content: { shape, order: "oracle" },
-		versions: [
-			{ schema: loweringSchema(shape, "LoweringOracle"), logins: [], declarations: noDeclarations }
-		],
-		options: { ...loweredOptions, label: "lowering_oracle", compile: conservativeInstallation }
+		versions: [{ schema: loweringSchema(shape, "LoweringOracle"), declarations: noDeclarations }],
+		options: {
+			label: "lowering_oracle",
+			extensions: [],
+			ambient: ordinarySession,
+			compile: conservativeInstallation,
+			review: noPlaceholders
+		}
 	})
 })
 

@@ -57,7 +57,7 @@ export const fold = <Row extends object>(
 			case "upsert":
 			case "remove":
 				if (current.kind === "opening") {
-					throw defect("a read's change came before its reset")
+					defect("a read's change came before its reset")
 				}
 				pending.push(event)
 				break
@@ -72,7 +72,7 @@ export const fold = <Row extends object>(
 				current = settled(current, pending)
 				pending = []
 				if (current.kind === "opening") {
-					throw defect("a read's ready came before its reset")
+					defect("a read's ready came before its reset")
 				}
 				current = current.kind === "provisional" ? { kind: "ready", value: current.value } : current
 				break
@@ -112,13 +112,13 @@ export const foldWrite = <Outcome>(
 		switch (event.kind) {
 			case "outcome":
 				if (current.kind !== "opening") {
-					throw defect("a write answered twice")
+					defect("a write answered twice")
 				}
 				current = { kind: "ready", value: event.outcome }
 				break
 			case "error":
 				if (current.kind === "ready") {
-					throw defect("a write answered twice")
+					defect("a write answered twice")
 				}
 				current = current.kind === "failed" ? current : { kind: "failed", error: event.error }
 				break

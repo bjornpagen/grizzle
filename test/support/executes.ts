@@ -283,8 +283,9 @@ export const executesWorldGen: Gen<ExecutesWorld> = (source) => {
 /** The name of the contract every count field is typed by, its domain's. */
 const countName = "Count"
 
+const countKey = Symbol("Count")
 /** The contract every count field is typed by: an integer above zero. */
-const Count = contract(countName, pg.integer, (x) => Logic.gt(x, 0))
+const Count = contract<typeof countKey>()(countName, pg.integer, (x) => Logic.gt(x, 0))
 
 /**
  * The world built through the public builders under the declared name `name`: its schema and its login `desk`, whose

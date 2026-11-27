@@ -9,6 +9,7 @@ import {
 	Order,
 	Path,
 	type PlatformError,
+	type Scope,
 	String as Str
 } from "effect"
 import { readLaidOut } from "#adapter/boundary/laid-out.ts"
@@ -58,11 +59,13 @@ import {
  * Reading is strict, because a draft continues exactly the committed chain: a schema directory holds the snapshot's two
  * files, both or neither, and migration folders, a folder holds meta.json and its SQL files, and anything else is
  * refused, except hidden entries (a leading dot), which no generator writes and an editor or the operating system may
- * leave. Writing is atomic per entry: a folder is written whole into a hidden scratch directory beside it and renamed
- * into place, then manifest.json and snapshot.json are each replaced by rename, so an interrupted generate leaves
- * either nothing or a complete folder; a complete folder without its snapshot, or the files of two snapshots, are the
- * inconsistencies left, and the next generate refuses them: the newest folder's target is not snapshot.json's
- * fingerprint (generate.ts), or the files' fingerprint does not hold (boundary/snapshot.ts readSnapshot).
+ * leave. Writing is staged, then atomic per entry: each file is written into the process's hidden staging entry of the
+ * schema's directory as its text is made (Staging), so no text is held past its write, and once every selected schema
+ * has drafted, a folder is renamed into place whole, then manifest.json and snapshot.json are each replaced by rename,
+ * so an interrupted generate leaves either nothing or a complete folder; a complete folder without its snapshot, or the
+ * files of two snapshots, are the inconsistencies left, and the next generate refuses them: the newest folder's target
+ * is not snapshot.json's fingerprint (generate.ts), or the files' fingerprint does not hold (boundary/snapshot.ts
+ * readSnapshot).
  */
 export interface SchemaTree {
 	readonly directory: string
@@ -112,8 +115,12 @@ const strayIn = (schema: string, fault: TreeRefused["fault"]): CliError =>
 
 const visible = (name: string): boolean => !Str.startsWith(".")(name)
 
-/** The entries of a directory a generator may have written, every hidden one left out, in code-unit order. */
-const visibleEntries = (
+/**
+ * The entries of a directory a generator may have written, every hidden one left out, in code-unit order: the one
+ * listing every command reads of a migrations directory, so an entry whose name starts with `.` (an editor's, an
+ * interrupted write's scratch) is never an input of a draft.
+ */
+export const visibleEntries = (
 	fs: FileSystem.FileSystem,
 	directory: string
 ): Effect.Effect<ReadonlyArray<string>, PlatformError.PlatformError> =>
@@ -340,13 +347,75 @@ export const unsplitWithin = (
 	)
 
 /**
- * Writes `final` by way of a hidden scratch path beside it: whatever was left at the scratch path is removed, `write`
- * fills it, and it is renamed into place; if anything fails or is interrupted before the rename, the scratch path is
- * removed again, so `final` is written whole or not at all. The scratch path is named after the process alone, never
- * after `final`, so a folder whose name is the longest file name (folder.ts fileNameMaxBytes) has a scratch path the
- * file system takes; a process writes one entry of a directory at a time.
+ * The hidden entry of a schema's directory a process of id `pid` stages its files in (Staging): hidden, so no command
+ * reads it as an entry of its directory (visibleEntries), and the process's own, which the scope that made it removes.
  */
-const writeAtomically = Effect.fn("writeAtomically")(function* <R>(
+export const scratchName = (pid: number): string => `.partial-${pid}`
+
+/**
+ * Where a run writes one schema's files as their texts are made, so that no text outlives its write and none is in
+ * place before every selected schema has drafted: the process's hidden entry of the schema's directory (scratchName),
+ * holding each staged file at the path it takes in the directory (a folder, manifest.json's parts, snapshot.json,
+ * `served/<login>.json`, `openapi/<login>.json`) until the commit renames it into place (commitFolder,
+ * commitSnapshotFiles, commitLoginFiles), each entry by one rename, as atomic as a rename is. The area is its scope's
+ * (stagingArea): what is left of it as the scope closes is removed, and so is each directory above it that the run
+ * made and that holds nothing then, so a run refused before its commit leaves the migrations directory as it found it.
+ */
+export interface Staging {
+	/** The schema's directory, which the commit renames each staged file into. */
+	readonly directory: string
+	/** The hidden entry of `directory` each file is staged in. */
+	readonly scratch: string
+}
+
+/**
+ * The staging area of the schema whose directory is `directory`, in the migrations directory `migrations` (Staging), the
+ * scope's: whatever an earlier process of the same id left at its scratch entry is removed as it is made, and as the
+ * scope closes the scratch entry is removed with what is left in it, then each directory from `directory` up to
+ * `migrations` that did not exist as the area was made and holds nothing then, the deepest first. Making it reads no
+ * path outside the migrations directory; the first file staged makes the directories.
+ */
+export const stagingArea = Effect.fn("stagingArea")(
+	function* (
+		...[, directory, migrations]: [schema: string, directory: string, migrations: string]
+	): Effect.fn.Return<
+		Staging,
+		PlatformError.PlatformError,
+		FileSystem.FileSystem | Path.Path | Scope.Scope
+	> {
+		const fs = yield* FileSystem.FileSystem
+		const path = yield* Path.Path
+		const scratch = path.join(directory, scratchName(process.pid))
+		const made: Array<string> = []
+		for (
+			let at = directory;
+			(at === migrations || Str.startsWith(`${migrations}/`)(at)) && !(yield* fs.exists(at));
+			at = path.dirname(at)
+		) {
+			made.push(at)
+		}
+		const emptied = (at: string) =>
+			Effect.flatMap(fs.exists(at), (exists) =>
+				exists
+					? Effect.flatMap(fs.readDirectory(at), (entries) =>
+							entries.length === 0 ? fs.remove(at, { recursive: true }) : Effect.void
+						)
+					: Effect.void
+			)
+		const removed = fs.remove(scratch, { recursive: true, force: true })
+		yield* Effect.addFinalizer(() =>
+			Effect.ignore(Effect.andThen(removed, Effect.forEach(made, emptied, { discard: true })))
+		)
+		yield* removed
+		return { directory, scratch }
+	},
+	(effect, schema, directory) =>
+		Effect.catchTag(effect, "PlatformError", (cause) =>
+			Effect.fail(cliError(new TreeUnread({ schema, directory, cause })))
+		)
+)
+
+export const writeAtomically = Effect.fn("writeAtomically")(function* <R>(
 	directory: string,
 	final: string,
 	write: (scratch: string) => Effect.Effect<void, PlatformError.PlatformError, R>
@@ -354,7 +423,7 @@ const writeAtomically = Effect.fn("writeAtomically")(function* <R>(
 	const fs = yield* FileSystem.FileSystem
 	const path = yield* Path.Path
 	const target = path.join(directory, final)
-	const scratch = path.join(directory, `.partial-${process.pid}`)
+	const scratch = path.join(directory, scratchName(process.pid))
 	const clear = fs.remove(scratch, { recursive: true, force: true })
 	yield* clear
 	yield* write(scratch).pipe(
@@ -365,37 +434,27 @@ const writeAtomically = Effect.fn("writeAtomically")(function* <R>(
 })
 
 /**
- * Writes a drafted folder into the schema's directory, whole or not at all, meta.json and each SQL file laid out within
- * `bound` bytes (`laidOut`); returns its path.
+ * Stages a drafted folder (Staging), meta.json and each SQL file laid out within `bound` bytes (`laidOut`), each file
+ * written as its text's chunks are encoded (writeText).
  */
-export const writeFolder = Effect.fn("writeFolder")(
+export const stageFolder = Effect.fn("stageFolder")(
 	function* (
-		schema: string,
-		directory: string,
-		folder: MigrationFolder,
-		bound: number
-	): Effect.fn.Return<
-		string,
-		CliError | PlatformError.PlatformError,
-		FileSystem.FileSystem | Path.Path
-	> {
+		...[, staging, folder, bound]: [
+			schema: string,
+			staging: Staging,
+			folder: MigrationFolder,
+			bound: number
+		]
+	): Effect.fn.Return<void, PlatformError.PlatformError, FileSystem.FileSystem | Path.Path> {
 		const fs = yield* FileSystem.FileSystem
 		const path = yield* Path.Path
-		yield* fs.makeDirectory(directory, { recursive: true })
-		const final = path.join(directory, folder.name)
-		if (yield* fs.exists(final)) {
-			return yield* cliError(new FolderExists({ schema, path: final }))
+		const staged = path.join(staging.scratch, folder.name)
+		yield* fs.makeDirectory(staged, { recursive: true })
+		for (const f of [{ name: metaFileName, text: folder.metaText }, ...folder.files]) {
+			for (const part of laidOut(f.name, f.text, bound)) {
+				yield* writeText(path.join(staged, part.entry), part.text)
+			}
 		}
-		return yield* writeAtomically(directory, folder.name, (scratch) =>
-			Effect.gen(function* () {
-				yield* fs.makeDirectory(scratch)
-				for (const f of [{ name: metaFileName, text: folder.metaText }, ...folder.files]) {
-					for (const part of laidOut(f.name, f.text, bound)) {
-						yield* writeText(path.join(scratch, part.entry), part.text)
-					}
-				}
-			})
-		)
 	},
 	(effect, schema, ...[, folder]) =>
 		Effect.catchTag(effect, "PlatformError", (cause) =>
@@ -404,17 +463,43 @@ export const writeFolder = Effect.fn("writeFolder")(
 )
 
 /**
- * Replaces the schema's manifest.json, laid out within `bound` bytes (`laidOut`), each of its entries by rename and then
- * every entry of the manifest it held before and no longer does removed, and then its snapshot.json, by rename; returns
- * the paths written. snapshot.json, which records the fingerprint over both, is replaced last, so an interrupted write
- * leaves the files of two snapshots, or parts of two manifests, whose seal does not hold or whose parts do not lay out
- * one file, and the next generate refuses them.
+ * Puts the folder `name` the staging area holds (stageFolder) into the schema's directory by one rename, never over an
+ * entry of its name: a migration folder is never overwritten (FolderExists); returns its path.
  */
-export const writeSnapshotFiles = Effect.fn("writeSnapshotFiles")(
+export const commitFolder = Effect.fn("commitFolder")(
 	function* (
-		...[, directory, files, bound]: [
+		schema: string,
+		staging: Staging,
+		name: string
+	): Effect.fn.Return<
+		string,
+		CliError | PlatformError.PlatformError,
+		FileSystem.FileSystem | Path.Path
+	> {
+		const fs = yield* FileSystem.FileSystem
+		const path = yield* Path.Path
+		const final = path.join(staging.directory, name)
+		if (yield* fs.exists(final)) {
+			return yield* cliError(new FolderExists({ schema, path: final }))
+		}
+		yield* fs.rename(path.join(staging.scratch, name), final)
+		return final
+	},
+	(effect, schema, ...[, name]) =>
+		Effect.catchTag(effect, "PlatformError", (cause) =>
+			Effect.fail(cliError(new FolderUnwritten({ schema, folder: name, cause })))
+		)
+)
+
+/**
+ * Stages the schema's manifest.json, laid out within `bound` bytes (`laidOut`), and its snapshot.json (Staging);
+ * returns the entries manifest.json is laid out in, which its commit puts in place (commitSnapshotFiles).
+ */
+export const stageSnapshotFiles = Effect.fn("stageSnapshotFiles")(
+	function* (
+		...[, staging, files, bound]: [
 			schema: string,
-			directory: string,
+			staging: Staging,
 			files: SnapshotFiles,
 			bound: number
 		]
@@ -425,21 +510,13 @@ export const writeSnapshotFiles = Effect.fn("writeSnapshotFiles")(
 	> {
 		const fs = yield* FileSystem.FileSystem
 		const path = yield* Path.Path
-		yield* fs.makeDirectory(directory, { recursive: true })
+		yield* fs.makeDirectory(staging.scratch, { recursive: true })
 		const parts = laidOut(manifestFileName, files.manifest, bound)
-		const manifest = yield* Effect.forEach(parts, (part) =>
-			writeAtomically(directory, part.entry, (scratch) => writeText(scratch, part.text))
-		)
-		const kept = new Set(Arr.map(parts, (p) => p.entry))
-		for (const entry of yield* visibleEntries(fs, directory)) {
-			if (isEntryOf(entry, manifestFileName) && !kept.has(entry)) {
-				yield* fs.remove(path.join(directory, entry))
-			}
+		for (const part of parts) {
+			yield* writeText(path.join(staging.scratch, part.entry), part.text)
 		}
-		const snapshot = yield* writeAtomically(directory, snapshotFileName, (scratch) =>
-			writeText(scratch, files.snapshot)
-		)
-		return [...manifest, snapshot]
+		yield* writeText(path.join(staging.scratch, snapshotFileName), files.snapshot)
+		return Arr.map(parts, (part) => part.entry)
 	},
 	(effect, schema) =>
 		Effect.catchTag(effect, "PlatformError", (cause) =>
@@ -447,24 +524,79 @@ export const writeSnapshotFiles = Effect.fn("writeSnapshotFiles")(
 		)
 )
 
-/** A login's file as generate writes it: its login's declared name and its text, as its chunks. */
-export interface LoginText {
-	readonly login: string
-	readonly text: TextChunks
-}
-
 /**
- * Brings a schema's directory of one kind of login file (loginFiles) to what generate compiled: each file of `write`
- * written by rename, the directory made first when it writes one, then each file of a login in `remove` removed;
- * returns the paths written and removed.
+ * Replaces the schema's manifest.json by the entries `manifest` the staging area holds (stageSnapshotFiles), each by
+ * rename, then removes every entry of the manifest the directory held before that it no longer does, and then replaces
+ * its snapshot.json, by rename; returns the paths written. snapshot.json, which records the fingerprint over both, is
+ * replaced last, so an interrupted commit leaves the files of two snapshots, or parts of two manifests, whose seal does
+ * not hold or whose parts do not lay out one file, and the next generate refuses them.
  */
-export const writeLoginFiles = Effect.fn("writeLoginFiles")(
+export const commitSnapshotFiles = Effect.fn("commitSnapshotFiles")(
 	function* (
-		...[, kind, directory, write, remove]: [
+		...[, staging, manifest]: [schema: string, staging: Staging, manifest: ReadonlyArray<string>]
+	): Effect.fn.Return<
+		ReadonlyArray<string>,
+		PlatformError.PlatformError,
+		FileSystem.FileSystem | Path.Path
+	> {
+		const fs = yield* FileSystem.FileSystem
+		const path = yield* Path.Path
+		const put = (entry: string) =>
+			Effect.as(
+				fs.rename(path.join(staging.scratch, entry), path.join(staging.directory, entry)),
+				path.join(staging.directory, entry)
+			)
+		const written = yield* Effect.forEach(manifest, put)
+		const kept = new Set(manifest)
+		for (const entry of yield* visibleEntries(fs, staging.directory)) {
+			if (isEntryOf(entry, manifestFileName) && !kept.has(entry)) {
+				yield* fs.remove(path.join(staging.directory, entry))
+			}
+		}
+		const snapshot = yield* put(snapshotFileName)
+		return [...written, snapshot]
+	},
+	(effect, schema) =>
+		Effect.catchTag(effect, "PlatformError", (cause) =>
+			Effect.fail(cliError(new SnapshotUnwritten({ schema, cause })))
+		)
+)
+
+/** Stages a login's file of `kind` (loginFiles), its text written as its chunks are encoded (writeText). */
+export const stageLoginFile = Effect.fn("stageLoginFile")(
+	function* (
+		...[, kind, staging, login, text]: [
 			schema: string,
 			kind: LoginFileKind,
-			directory: string,
-			write: ReadonlyArray<LoginText>,
+			staging: Staging,
+			login: string,
+			text: TextChunks
+		]
+	): Effect.fn.Return<void, PlatformError.PlatformError, FileSystem.FileSystem | Path.Path> {
+		const fs = yield* FileSystem.FileSystem
+		const path = yield* Path.Path
+		const files = loginFiles[kind]
+		yield* fs.makeDirectory(path.join(staging.scratch, files.directory), { recursive: true })
+		yield* writeText(path.join(staging.scratch, files.path(login)), text)
+	},
+	(effect, schema, kind) =>
+		Effect.catchTag(effect, "PlatformError", (cause) =>
+			Effect.fail(cliError(new ServedUnwritten({ schema, kind, cause })))
+		)
+)
+
+/**
+ * Brings a schema's directory of one kind of login file (loginFiles) to what generate compiled: the file of each login
+ * of `write` the staging area holds (stageLoginFile) put in place by rename, the directory made first when it puts
+ * one, then each file of a login in `remove` removed; returns the paths written and removed.
+ */
+export const commitLoginFiles = Effect.fn("commitLoginFiles")(
+	function* (
+		...[, kind, staging, write, remove]: [
+			schema: string,
+			kind: LoginFileKind,
+			staging: Staging,
+			write: ReadonlyArray<string>,
 			remove: ReadonlyArray<string>
 		]
 	): Effect.fn.Return<
@@ -476,18 +608,17 @@ export const writeLoginFiles = Effect.fn("writeLoginFiles")(
 		const path = yield* Path.Path
 		const files = loginFiles[kind]
 		if (write.length > 0) {
-			yield* fs.makeDirectory(path.join(directory, files.directory), { recursive: true })
+			yield* fs.makeDirectory(path.join(staging.directory, files.directory), { recursive: true })
 		}
 		const written: Array<string> = []
-		for (const file of write) {
-			const target = yield* writeAtomically(directory, files.path(file.login), (scratch) =>
-				writeText(scratch, file.text)
-			)
+		for (const login of write) {
+			const target = path.join(staging.directory, files.path(login))
+			yield* fs.rename(path.join(staging.scratch, files.path(login)), target)
 			written.push(target)
 		}
 		const removed: Array<string> = []
 		for (const login of remove) {
-			const file = path.join(directory, files.path(login))
+			const file = path.join(staging.directory, files.path(login))
 			yield* fs.remove(file)
 			removed.push(file)
 		}

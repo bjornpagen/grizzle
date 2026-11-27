@@ -19,14 +19,28 @@ import {
 	type ValueRefs
 } from "#compiler/ir/rel.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { installOptions } from "#compiler/physical/install/compile.ts"
 import { queryInput } from "#compiler/program/input.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 
+import { Distance, Type } from "#compiler/public/compute.ts"
+import { query, v } from "#compiler/public/query.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { compute } from "#compiler/scalar/compute/builders.ts"
 import type { OperandSelect, SqlStatement } from "#compiler/sql/ast.ts"
 import { type AstHooks, identityHooks, transformStatement } from "#compiler/sql/transform.ts"
+import {
+	Agree,
+	Cents,
+	Item,
+	Owned,
+	Slot,
+	Tag,
+	Tone,
+	Tones,
+	toCents
+} from "#test/support/agreement/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { lowerAligned } from "#test/support/compile.ts"
 import { rebuildDag } from "#test/support/dag.ts"
@@ -37,7 +51,7 @@ import {
 	DocumentEmbedding,
 	Search
 } from "#test/support/fixtures/api/search.ts"
-import { Id } from "#test/support/ids.ts"
+import { Id, toId } from "#test/support/ids.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import { checking, checkOptions, owning } from "#test/support/policy.ts"
@@ -354,3 +368,129 @@ export const placements = finite((source) => ({
 	),
 	again: source.draw(boolean)
 }))
+
+/**
+ * Searches whose rule's existential witness the semi-join rewrite takes out of the region (lower/optimize/existence
+ * R02.semiJoin), its restoring projection then left between the region and the rule's filters, each the agreement's
+ * shrunk counterexample (test/types/evidence/agreement.test.ts kept): an interior stage of Item equated to the item by
+ * a `where`, beside a range filter (#evidence, floor seed 0xa72d70a7); a second match of Slot ranked beside a tag
+ * equated to the first Slot's item, a union of rosters and Item pinned at a handle (#reordered, seed 0xe1d76d2e); and
+ * Item pinned by its key beside Owned bound at a parameter and an interior stage equated to its n, which a parameter
+ * fixes, so the restoring projection copies n under its class's other name and constant propagation then makes it the
+ * parameter, a column that stands for no variable of the region (#reordered, seed 0x80ae3f4d).
+ */
+export const narrowedSearches = {
+	"an interior stage the rule equates to its item": () =>
+		query(Agree)
+			.rule((r) => {
+				const stageSource = r.interior((r) => {
+					const inner = v(Item, "inner")
+					return r
+						.match(Item, { id: inner.id, owner: r.param("p0", Item.fields.owner), n: inner.n })
+						.find({ id: inner.id, n: inner.n })
+				})
+				const item = v(Item, "item")
+				const stage = v(stageSource, "stage")
+				const slot = v(Slot, "slot")
+				return r
+					.match(Item, {
+						id: item.id,
+						owner: item.owner,
+						n: item.n,
+						m: item.m,
+						tone: item.tone,
+						cost: item.cost
+					})
+					.match(stageSource, { id: stage.id, n: stage.n })
+					.match(Slot, { item: slot.item, during: slot.during, embedding: slot.embedding })
+					.where(r.eq(item.id, stage.id), r.pointIn(item.n, r.param("p1", Slot.fields.during)))
+					.find({
+						h0: item.id,
+						h1: Distance.cosine(slot.embedding, r.param("p2", Slot.fields.embedding))
+					})
+			})
+			.approximateNearest({ by: "h1", take: 1 }),
+	"a second match of the searched relation beside a tag equated to the first's item": () =>
+		query(Agree)
+			.rule((r) => {
+				const item = v(Item, "item")
+				const tag = v(Tag, "tag")
+				const slot = v(Slot, "slot")
+				const secondSlot = v(Slot, "secondSlot")
+				return r
+					.match(Item, {
+						id: item.id,
+						owner: item.owner,
+						n: item.n,
+						m: item.m,
+						tone: Tone.handle("low"),
+						cost: item.cost
+					})
+					.match(Tag, { item: tag.item, label: tag.label, w: tag.w })
+					.match(Slot, {
+						item: slot.item,
+						during: slot.during,
+						budget: slot.budget,
+						raw: slot.raw,
+						day: slot.day,
+						when: slot.when
+					})
+					.match(Slot, {
+						item: secondSlot.item,
+						during: secondSlot.during,
+						embedding: secondSlot.embedding
+					})
+					.match(Tones, { tone: Tone.handle("low") })
+					.where(r.eq(tag.item, slot.item))
+					.find({
+						h0: Tone.handle("low"),
+						h1: Distance.cosine(secondSlot.embedding, r.param("p0", Slot.fields.embedding))
+					})
+			})
+			.approximateNearest({ by: "h1", take: 1 }),
+	"an item pinned by its key beside an interior stage equated to its fixed n": () =>
+		query(Agree)
+			.rule((r) => {
+				const stageSource = r.interior((r) => {
+					const inner = v(Item, "inner")
+					return r
+						.match(Item, {
+							id: inner.id,
+							owner: toId("00000000-0000-4000-8000-000000000000"),
+							n: inner.n
+						})
+						.find({ id: inner.id, n: inner.n })
+				})
+				const item = v(Item, "item")
+				const stage = v(stageSource, "stage")
+				const slot = v(Slot, "slot")
+				const ownedSource = Owned.bind({ owner: r.param("p2", Item.fields.id) })
+				const owned = v(ownedSource, "owned")
+				return r
+					.match(Item, {
+						id: r.param("p0", Item.fields.id),
+						owner: r.param("p1", Item.fields.owner),
+						n: item.n,
+						m: item.n,
+						tone: item.tone,
+						cost: Type.literal(Cents, toCents(0n))
+					})
+					.match(ownedSource, { id: owned.id, n: item.n })
+					.match(stageSource, { id: item.id, n: stage.n })
+					.match(Slot, { item: slot.item, during: slot.during, embedding: slot.embedding })
+					.match(Tones, { tone: Tone.handle("low") })
+					.where(
+						r.eq(Tone.handle("low"), item.tone),
+						r.eq(item.n, r.param("p3", Item.fields.n)),
+						r.eq(item.n, stage.n)
+					)
+					.find({
+						h0: item.n,
+						h1: Distance.cosine(slot.embedding, r.param("p4", Slot.fields.embedding))
+					})
+			})
+			.approximateNearest({ by: "h1", take: 1 })
+} as const
+
+/** Each narrowed search, by its shape. */
+export type NarrowedSearch = keyof typeof narrowedSearches

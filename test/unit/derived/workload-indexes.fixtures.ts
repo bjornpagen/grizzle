@@ -19,10 +19,14 @@ import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import type { IndexKey, SqlStatement } from "#compiler/sql/ast.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { compileTestWorkload, type FixtureSchema, testCompile } from "#test/support/compile.ts"
+import {
+	compileTestWorkload,
+	type FixtureSchema,
+	testArtifacts,
+	testCompile
+} from "#test/support/compile.ts"
 import { Cents } from "#test/support/fixtures/api/contracts.ts"
 import { Id } from "#test/support/ids.ts"
-import { parsedName } from "#test/support/kernel/naming.ts"
 import { asDrafted, type CompileOver } from "#test/support/migrate/kit.ts"
 
 /**
@@ -156,16 +160,30 @@ export const planned = (
 				: []
 	)
 
-/** AccountBudget's table, as the naming door names it. */
-const budgetView: string = identifierOf(identity.view(parsedName("AccountBudget")))
+/** AccountBudget's table under `over`'s definition of it, as the naming door names it: its canonical form's
+ * (analysis/derived/canonical.ts, core/identity.ts view), which a redefinition names anew. */
+const budgetView = (over: FixtureSchema): string =>
+	identifierOf(
+		identity.view(
+			succeeded(testArtifacts(over, testCompile)).laws.checked.canonicalOf("AccountBudget").digest
+		)
+	)
 
-export const onView = (statement: SqlStatement): boolean =>
-	(statement.kind === "createIndex" && statement.table.name === budgetView) ||
-	(statement.kind === "createStoredTable" && statement.name.name === budgetView) ||
-	(statement.kind === "drop" &&
-		statement.object !== "ROLE" &&
-		statement.object !== "SCHEMA" &&
-		statement.name.name === budgetView)
+/** AccountBudget's tables under both its definitions. */
+const views: ReadonlySet<string> = new Set([budgetView(Reports), budgetView(Redefined)])
+
+/** Whether a statement creates, indexes or drops a table of AccountBudget, under either definition. */
+export const onView = (statement: SqlStatement): boolean => {
+	const named = views
+	return (
+		(statement.kind === "createIndex" && named.has(statement.table.name)) ||
+		(statement.kind === "createStoredTable" && named.has(statement.name.name)) ||
+		(statement.kind === "drop" &&
+			statement.object !== "ROLE" &&
+			statement.object !== "SCHEMA" &&
+			named.has(statement.name.name))
+	)
+}
 
 /** The column identifier a drafted index's key holds, or none for an expression. */
 export const keyIdent = (k: IndexKey): string =>

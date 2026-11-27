@@ -4,7 +4,7 @@ import { Checker, type CheckOptions, type RootRole } from "#compiler/check/check
 import { validateQueryStructure } from "#compiler/check/description.ts"
 import { fail, rootLoc } from "#compiler/check/fail.ts"
 import { checkMemberHeading } from "#compiler/check/member.ts"
-import { resolveQuery } from "#compiler/check/params.ts"
+import { resolveImport, resolveQuery } from "#compiler/check/params.ts"
 import type { MemberRelation, SchemaReading } from "#compiler/check/schema.ts"
 import type { CheckSession } from "#compiler/check/session.ts"
 import { nominal } from "#compiler/core/brand.ts"
@@ -12,6 +12,7 @@ import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { noClock } from "#compiler/ir/clock.ts"
+import { assembledDag } from "#compiler/ir/dag.ts"
 import type { InferredQuery, ReadBackDesc, WriteOp } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 
@@ -126,6 +127,30 @@ export const checkDefinition = (
 	session: CheckSession
 ): Result.Result<AdmittedQuery, CompileError> =>
 	checkRelation(base, query, { label, clock: noClock, session })
+
+/**
+ * A definition read as the closed import of `query` under an empty bind map, over `base`, in `session` (Checker
+ * `closedImport`): the very node every query `session` checks over `base` reads where it imports `query` so, checked
+ * once for the compile, `label` naming it to the checker where this check is its first, and admitted as a query of its
+ * own, rooted there. A definition's rows are a set, as an import's are: a take it ends in bounds them and orders nothing.
+ * A canonical relation's definition and its form are this query's (analysis/derived/canonical.ts), so the relation its
+ * readers import and the relation the installation stores are one node, checked once.
+ */
+export const checkClosedImport = (
+	base: SchemaReading,
+	label: string,
+	query: InferredQuery,
+	session: CheckSession
+): Result.Result<AdmittedQuery, CompileError> => {
+	const options: CheckOptions = { read: "rows", label, clock: noClock, session }
+	return Result.flatMap(validateQueryStructure(query, { read: "rows", session }), (q) =>
+		catchRefusal(() => {
+			const loc = rootLoc(label)
+			const node = Checker.closedImport(base, options, resolveImport(q, session), loc)
+			return admit({ dag: assembledDag([node]), params: [] }, loc)
+		})
+	)
+}
 
 /** A read-back of a ChangeSet. */
 export const checkReadBack = (

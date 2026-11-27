@@ -34,6 +34,9 @@
  *   its own rows alone, and the analysis drops each node's properties once its readers are built. Oracle: the
  *   specification, the functions alive with the analysis held, which its held properties' key functions count, as
  *   many at either length.
+ * - A node's sets of attributes told apart (logical/attributes.ts BitsSet, logical/props.ts determinantsOf): by a trie
+ *   of their words, so adding n sets reads each set's words once an add, never comparing it with every set held.
+ *   Oracle: that growth bound.
  * - A key search's tests (logical/closure.ts minimalKeys): each candidate is tested against the keys found by their
  *   set-trie, so over n columns each alone a key the tests grow as the n² candidates do, never as n³. Oracle: that
  *   growth bound.
@@ -51,7 +54,7 @@
  * Features: a closure that adds nothing, one of three passes or more, and a dependency that never fires; a row asked
  * again once a value is named, a value named and a column reached by a row that names nothing; a search from n = 4 and
  * from n = 6; a factor search from m = 4 and from m = 6; one relation and several joined; one query of a reading and several;
- * a shared chain from n = 4 and from n = 6; a child of one column kept beside its correlated one and of two; chains of
+ * sets from n = 16 and from n = 18; a shared chain from n = 4 and from n = 6; a child of one column kept beside its correlated one and of two; chains of
  * 40 and 60 analyzed and held, and of 60 and 90.
  */
 
@@ -75,6 +78,7 @@ import {
 import {
 	attributesOver,
 	type Bits,
+	BitsSet,
 	bitsAt,
 	bitsOf,
 	isEmpty,
@@ -82,6 +86,7 @@ import {
 } from "#compiler/logical/attributes.ts"
 import {
 	closure,
+	FactorScratch,
 	independentFactors,
 	rowsOver,
 	rowsThrough,
@@ -123,8 +128,13 @@ import {
 	redundantTable,
 	insideRecord,
 	type SharedPoint,
+	scratchSites,
+	type ScratchPoint,
+	setSites,
+	type SetsPoint,
 	sharedChain,
 	taskReading,
+	twoWordSets,
 	sizeOfMask,
 	startedGen,
 	visitSites
@@ -616,7 +626,9 @@ export const theFactorSearchJudgesADependencyByAClosureThatStopsAtItsTargetsFiri
 				for (const m of [2 * half, 4 * half, 6 * half]) {
 					const table = redundantTable(m)
 					const [factors, counts] = yield* callCounts(
-						Effect.sync(() => independentFactors(table.columns, table.stated).factors),
+						Effect.sync(
+							() => independentFactors(new FactorScratch(), table.columns, table.stated).factors
+						),
 						factorSites
 					)
 					assert.deepEqual(
@@ -624,6 +636,7 @@ export const theFactorSearchJudgesADependencyByAClosureThatStopsAtItsTargetsFiri
 						table.factors,
 						"each a_i and b_i alone, in heading order"
 					)
+					assert.ok(counts.fire > 0, "the search fires its dependencies")
 					counted.set(m, counts.fire)
 				}
 				incrementsDoNotGrow(
@@ -641,12 +654,74 @@ export const theFactorSearchJudgesADependencyByAClosureThatStopsAtItsTargetsFiri
 		kills: [
 			{
 				file: "packages/engine/src/logical/closure.ts",
-				original: "\t\t\t\tif (done()) {\n\t\t\t\t\treturn\n\t\t\t\t}\n\t\t\t\tfire(row)",
-				replacement: "\t\t\t\tfire(row)",
-				why: "Every judging closure fires every dependency of no determinant, as each closure of the search did (logical/closure.ts factorClosures); the firings grow as m²."
+				original:
+					"\t\t\tif (this.#done()) {\n\t\t\t\treturn\n\t\t\t}\n\t\t\tthis.#fire(this.#given[i] ?? 0)",
+				replacement: "\t\t\tthis.#fire(this.#given[i] ?? 0)",
+				why: "Every judging closure fires every dependency of no determinant, as each closure of the search did (logical/closure.ts FactorScratch add); the firings grow as m²."
 			}
 		]
 	})
+
+/**
+ * A key search works in its analysis's scratch (logical/closure.ts FactorScratch): its table, its closures' counters
+ * and its walk of connected sets are arrays the scratch grows to the largest search it has held, so k searches of one
+ * table in one scratch allocate the arrays the first search did and no more, and each finds the factors the first did.
+ * Over a table of m redundant dependencies searched once and three times, the arrays allocated are as many.
+ */
+export const aKeySearchAllocatesItsScratchOnceHoweverManySearchesItRuns = property.exhaust(
+	finite(int(2, 3)),
+	{
+		needs: {},
+		situations: ["from m = 8", "from m = 12"] satisfies ReadonlyArray<Reached<ScratchPoint>>,
+		check: (_, c: Case<ScratchPoint>) => (step) =>
+			Effect.gen(function* () {
+				c.note(step === 2 ? "from m = 8" : "from m = 12")
+				const table = redundantTable(4 * step)
+				const allocations = new Map<number, number>()
+				for (const k of [1, 3]) {
+					const [found, counts] = yield* callCounts(
+						Effect.sync(() => {
+							const scratch = new FactorScratch()
+							return Array.from({ length: k }, () =>
+								Arr.map(independentFactors(scratch, table.columns, table.stated).factors, (f) =>
+									namesOf(table.attributes, f)
+								)
+							)
+						}),
+						scratchSites
+					)
+					for (const factors of found) {
+						assert.deepEqual(
+							factors,
+							table.factors,
+							"each search's factors, each a_i and b_i alone"
+						)
+					}
+					allocations.set(k, counts.allocated)
+				}
+				assert.equal(
+					allocations.get(3),
+					allocations.get(1),
+					"the arrays three searches allocate are those of one"
+				)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "a scratch allocates an array only to grow it, counted by V8's precise coverage"
+		},
+		box: "m redundant dependencies at 8 and 12, one search and three",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/logical/closure.ts",
+				original:
+					"const grown = (held: Int32Array, n: number): Int32Array => (n <= held.length ? held : allocated(n))",
+				replacement: "const grown = (held: Int32Array, n: number): Int32Array => allocated(n)",
+				why: "Every search allocates every array of its table, closures and walk afresh (logical/closure.ts FactorScratch grown), as each search did before its scratch; three searches allocate three times the arrays of one."
+			}
+		]
+	}
+)
 
 /**
  * A node's steps read what they fix off its reading indexed once (logical/props.ts readingIndex, stepSource): a
@@ -719,6 +794,61 @@ export const aNodesStepsReadTheirSourcesOffItsReadingIndexedOnceAffineInItsColum
 			}
 		]
 	})
+
+/**
+ * A node's sets of attributes are told apart by a trie of their words (logical/attributes.ts BitsSet), never each
+ * against every set held, as a node's determinants are (logical/props.ts determinantsOf): adding n distinct sets of two
+ * words, and then each again, reads each set's words once an add, so the words read grow as n, where comparing each
+ * with every set held read n² of them.
+ */
+export const aSetOfAttributesIsHeldOnceItsWordsReadOnceAnAddLinearInTheSets = property.exhaust(
+	finite(int(8, 9)),
+	{
+		needs: {},
+		situations: ["from n = 16", "from n = 18"] satisfies ReadonlyArray<Reached<SetsPoint>>,
+		check: (_, c: Case<SetsPoint>) => (half) =>
+			Effect.gen(function* () {
+				c.note(half === 8 ? "from n = 16" : "from n = 18")
+				const counted = new Map<number, number>()
+				for (const n of [2 * half, 4 * half, 6 * half]) {
+					const sets = twoWordSets(n)
+					const [added, counts] = yield* callCounts(
+						Effect.sync(() => {
+							const held = new BitsSet()
+							return Arr.map([...sets, ...sets], (bits) => held.add(bits))
+						}),
+						setSites
+					)
+					assert.deepEqual(
+						added,
+						Array.from({ length: 2 * n }, (_, i) => i < n),
+						"each set new once, then held"
+					)
+					counted.set(n, counts.wordAt)
+				}
+				incrementsDoNotGrow(
+					(n) => defined(counted.get(n), `the words read at n = ${n}`),
+					half,
+					"the words a set's adds read"
+				)
+			}),
+		oracle: {
+			kind: "universal",
+			name: "a count that grows no faster than linearly increments no more over its second equal step than over its first"
+		},
+		box: "n sets of two words at 2h, 4h and 6h, h at 8 and 9",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/logical/attributes.ts",
+				original: "\tadd(bits: Bits): boolean {\n\t\tlet level = this.#root\n",
+				replacement:
+					"\treadonly #held: Array<Bits> = []\n\n\tadd(bits: Bits): boolean {\n\t\tif (this.#held.some((h) => h.every((_, w) => wordAt(h, w) === wordAt(bits, w)))) {\n\t\t\treturn false\n\t\t}\n\t\tthis.#held.push(bits)\n\t\treturn true\n\t\tlet level = this.#root\n",
+				why: "A set is compared word by word with every set held (logical/attributes.ts BitsSet add), as a node's determinants were before the trie; the words read grow as n²."
+			}
+		]
+	}
+)
 
 /** Each node's attributes and dependencies are interned once, however many closures read them. */
 export const eachNodesAttributesAndDependenciesAreInternedOnceHoweverManyClosuresReadThem =

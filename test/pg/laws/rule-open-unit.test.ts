@@ -60,9 +60,29 @@ export const aRuleOverOneUnitsMutableRelationsIsJudgedWholeAndRefusesExactlyTheW
 				reason:
 					"a seat's cap lowered in place under a presence's score, its key and openness as they were: the update no side of olds captures, which a witness of the seat through Seated would read as no replacement",
 				since: "2026-11-23"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/laws/rule-open-unit.test.ts#aRuleOverOneUnitsMutableRelationsIsJudgedWholeAndRefusesExactlyTheWritesUpdatesAndDeletesAmongThemWhoseStateBreaksALaw:-:2"
+				),
+				reason:
+					"an open seat closed in place under a scored presence: Present, judged whole, is broken through the seat's old row alone, the side of what a write removes at its target's negative occurrence, which no other law of the shape reads",
+				since: "2026-11-27"
 			}
 		],
 		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/unit.ts",
+				original: '\t\t\treturn ["removed"]',
+				replacement: "\t\t\treturn []",
+				why: "A whole rule's region holds no unit a write removed rows of at a negative occurrence: an open seat closed in place under a scored presence is judged by no region of Present, and the transaction that breaks it commits."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/unit.ts",
+				original: '\tp === "positive" ? "negative" : p === "negative" ? "positive" : "both"',
+				replacement: "\tp",
+				why: "A relation a containment's target reads keeps its polarity under the rule's negation, read on its side of news alone at the target's conditions: a seat closed in place leaves no new row open, so Present's region holds no unit, and the transaction that breaks it commits."
+			},
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
 				original: '\tif (r.polarity !== "positive" || n?.kind !== "relation" || n.mutable) {',

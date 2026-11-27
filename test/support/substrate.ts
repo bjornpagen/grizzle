@@ -41,6 +41,25 @@ export const refusalOf = <A, E, R>(
 		}
 	})
 
+/**
+ * The first refusal of `statements`, each sent by `send` in order (`refusalOf`), none sent past it: none where every one
+ * runs. What reads a data step's bracket's checks (test/support/data-step.ts dataStepOf `after`), whose first refusal is
+ * the transaction's.
+ */
+export const firstRefusalOf = <A, E, R>(
+	statements: ReadonlyArray<string>,
+	send: (sql: string) => Effect.Effect<A, E, R>
+): Effect.Effect<Option.Option<PgErrorFields>, E, R> =>
+	Effect.gen(function* () {
+		for (const sql of statements) {
+			const refused = yield* refusalOf(send(sql))
+			if (Option.isSome(refused)) {
+				return refused
+			}
+		}
+		return Option.none()
+	})
+
 /** A transaction's refusal: the moment PostgreSQL refused it, and its error's fields. */
 type Refused = Extract<Attempted, { readonly kind: "refused" }>
 

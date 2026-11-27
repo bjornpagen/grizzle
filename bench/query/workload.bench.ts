@@ -29,8 +29,9 @@ import {
 } from "#bench/query/support/kit.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { withWorkload } from "#compiler/physical/access/extension.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { installOptions } from "#compiler/physical/install/compile.ts"
 import { parseIdent } from "#compiler/physical/obligations/graph.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -134,8 +135,14 @@ export default defineGate({
 	run: ({ options }) =>
 		Effect.gen(function* () {
 			const s = yield* Substrate
-			const fx = yield* installFixture(Workload, programs, { tasksTitled }, "benchworkload", [])
-			const bare = yield* installFixture(Workload, {}, {}, "benchworkloadbare", [])
+			const fx = yield* installFixture(
+				Workload,
+				programs,
+				{ tasksTitled },
+				"benchworkload",
+				() => []
+			)
+			const bare = yield* installFixture(Workload, {}, {}, "benchworkloadbare", () => [])
 			for (const f of [fx, bare]) {
 				yield* fill(f, "Account", options.accounts, { id: "g::int8", region: "(g % 100)::int4" })
 				yield* fill(f, "Task", options.tasks, {

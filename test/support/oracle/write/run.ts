@@ -9,7 +9,6 @@ import {
 	String as Str
 } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
-import { fromEngine } from "#adapter/engine.ts"
 import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
 import type { ServedRefusal } from "#adapter/public/compile.ts"
 import { type CompiledEntry, type CompiledProgram, compiledWrite } from "#adapter/served/forms.ts"
@@ -19,10 +18,12 @@ import type { Session } from "#adapter/wire/session.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { isRecord } from "#compiler/core/record.ts"
+import { quoteString } from "#compiler/core/text.ts"
 import { workload } from "#compiler/program/workload/value.ts"
-import { standUpTexts } from "#compiler/runtime/write/flight.ts"
+import { login, role, wholeEntriesOf, wholeWritesOf } from "#compiler/public/schema.ts"
 import { factIdentity } from "#compiler/scalar/values/identity.ts"
 import type {
+	DrawnBy,
 	Law,
 	RecordedLaw,
 	BrokenLaws,
@@ -30,8 +31,7 @@ import type {
 } from "#compiler/types/changeset/changeset.ts"
 import type { ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { AmbientSession } from "#test/support/ambient.ts"
-import { paramsOver } from "#test/support/compile.ts"
-import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
+import { type Installed, installGenerated } from "#test/support/install-migrate.ts"
 import { namesOf, reportedLawId } from "#test/support/kernel/naming.ts"
 import type { Fact, FactsByTexts } from "#test/support/oracle/addwins.ts"
 import type { FactTexts } from "#test/support/oracle/delta.ts"
@@ -57,11 +57,18 @@ import { openServedDb } from "#test/support/served-db.ts"
 import { type RoleSetupError, runEntry, servedRoleContext } from "#test/support/served-role.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { replaceRows, tablesGroup } from "#test/support/substrate/replace.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { autovacuumOff, Substrate } from "#test/support/substrate/substrate.ts"
 
-/** A refusal's witness as plain values: the violating fact's key, or why it names none. */
+/** A refusal's witness as plain values: the violating fact's key, the key a drawn field of which the database draws,
+ * or why it names none. */
 export type OutcomeWitness =
 	| { readonly kind: "key"; readonly relation: string; readonly values: Fact }
+	| {
+			readonly kind: "drawn"
+			readonly relation: string
+			readonly values: Fact
+			readonly drawn: Readonly<Record<string, DrawnBy>>
+	  }
 	| { readonly kind: "unreported" }
 	| { readonly kind: "unreproduced" }
 
@@ -170,10 +177,10 @@ type TargetError = OpenError | ServedRefusal | CompileError | RoleSetupError
  * the fixtures). Every law of a write schema is native, so the installation leaves nothing to the residual laws'
  * extension. The writer's Db is opened on it by withTarget alone, in a scope of its own.
  *
- * The installation installs the types `changes`, every ChangeSet the run applies, cast their parameters to: each built
- * over the declared schema, a program of the writer's workload whose parameter types alone are planned
- * (test/support/compile.ts paramsOver), each pattern domain and outside contract, and no index or statistics object of
- * that workload, so the catalog is the bare migration's otherwise. The writer's role compiles every case's ChangeSet
+ * The installation is drafted as `grizzle generate` drafts it (install-migrate.ts installGenerated), its login serving
+ * `changes`, every ChangeSet the run applies, each built over the declared schema, as the writer's workload: it
+ * installs what generate installs for them, each type they cast their parameters to, every pattern domain and outside
+ * contract among them, and their access paths. The writer's role compiles every case's ChangeSet
  * under what the snapshot records the installation installs (served-role.ts servedRoleContext), so none casts a
  * parameter to a type the installation lacks.
  */
@@ -190,32 +197,35 @@ export const installTarget = (
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const built = buildWSchema(schema, "Wo")
-		const declared = built.worldOf(built.value)
 		const programs = Rec.fromEntries(
 			Arr.map(changes, (c, i) => [
 				`change${i}`,
 				buildChangeSet(built.value, built.relations, c.group, c.changes).changes
 			])
 		)
-		const done = yield* install(built.value, {
-			ambient,
-			label: "real",
-			logins: [declared.server],
-			extensions: [
-				paramsOver([{ login: "server", workloads: [workload(declared.writer, programs)] }])
-			]
-		})
-		/** Planner statistics are the run's (step 1 of the header), never autovacuum's. */
-		const laws = lawNames(done.plan)
-		yield* transaction(
-			s.admin,
-			Arr.flatMap(schema.groups, (g) =>
-				Arr.map(
-					g.relations,
-					(r) => `ALTER TABLE ${laws.table(r.name)} SET (autovacuum_enabled = false)`
-				)
-			)
+		const { installed: done } = yield* installGenerated(
+			(name) => {
+				const value = built.rename(name)
+				const writer = role(value, "writer", wholeEntriesOf(value), wholeWritesOf(value))
+				return {
+					schema: value,
+					logins: [login(value, "server", [writer], { workload: [workload(writer, programs)] })]
+				}
+			},
+			{ ambient, label: "real" }
 		)
+		/** Planner statistics are the run's (step 1 of the header), never autovacuum's (substrate.ts autovacuumOff). */
+		const laws = lawNames(done.plan)
+		yield* transaction(s.admin, [
+			autovacuumOff(
+				`ARRAY[${Arr.join(
+					Arr.flatMap(schema.groups, (g) =>
+						Arr.map(g.relations, (r) => `${quoteString(laws.table(r.name))}::pg_catalog.regclass`)
+					),
+					", "
+				)}]::pg_catalog.regclass[]`
+			)
+		])
 		const value = built.rename(done.schema)
 		return {
 			schema,
@@ -454,13 +464,7 @@ export const applyWith = (
 	const once = Effect.suspend(() =>
 		Effect.result(
 			runEntry(
-				loggedContext(
-					perturbed,
-					log,
-					new Set(
-						Arr.flatMap(entry.program.standUps, (u) => Arr.map(standUpTexts(u), (text) => text.sql))
-					)
-				),
+				loggedContext(perturbed, log, new Set(Arr.map(entry.program.standUps, (u) => u.call.sql))),
 				entry,
 				params,
 				changes.reads
@@ -477,15 +481,10 @@ export const applyWith = (
 	)
 	return Effect.flatMap(Effect.result(once), (result): Effect.Effect<Applied, SqlError> => {
 		if (Result.isSuccess(result)) {
-			return Effect.map(
-				Effect.orDie(
-					fromEngine(t.ctx.programArtifacts({ kind: "changeSet", changeSet: entry.change.desc }))
-				),
-				({ artifacts }): Applied => ({
-					outcome: Result.succeed(outcomeOf(artifacts.described, result.success)),
-					flights: log.length
-				})
-			)
+			return Effect.succeed({
+				outcome: Result.succeed(outcomeOf(t.ctx.artifacts.described, result.success)),
+				flights: log.length
+			})
 		}
 		return Effect.succeed({ outcome: Result.fail(result.failure), flights: log.length })
 	})

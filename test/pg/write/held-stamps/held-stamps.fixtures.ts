@@ -2,16 +2,21 @@
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
-import { pg } from "#compiler/public/fields.ts"
-import { relation, schema } from "#compiler/public/schema.ts"
+import { closedId, pg } from "#compiler/public/fields.ts"
+import { query, v } from "#compiler/public/query.ts"
+import { closed, derived, relation, schema } from "#compiler/public/schema.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 
+/** A sitting event's kind, a code: metis's start, submission, abandonment and expiry. */
+const EventKind = closed.unordered("EventKind", ["start", "submit", "abandon", "expire"])
+
 /**
  * metis's hold gate, reduced (METISPERF's heldOnAssign repro): each child's assignments with the user that assigned
- * them, the test and when it expires; the sitting events and the expiry holds that close one; each test's subject and
- * grade; each person's read-aloud need; and the read-aloud stamp the write gives each due assignment.
+ * them, the test and when it expires; the sitting events, each of a kind, and the expiry holds that close one; the
+ * invalidations of a sitting and the reinstatements that lift one; each test's subject and grade; each person's
+ * read-aloud need; and the read-aloud stamp the write gives each due assignment.
  */
 export const Assignment = relation(
 	"Assignment",
@@ -26,8 +31,18 @@ export const Assignment = relation(
 )
 const SittingEvent = relation(
 	"SittingEvent",
-	{ child: pg.integer, number: pg.integer, step: pg.integer },
+	{ child: pg.integer, number: pg.integer, step: pg.integer, kind: closedId(EventKind) },
 	["child", "number", "step"]
+)
+const Invalidation = relation(
+	"Invalidation",
+	{ child: pg.integer, number: pg.integer, change: pg.integer },
+	["child", "number", "change"]
+)
+const Reinstatement = relation(
+	"Reinstatement",
+	{ child: pg.integer, number: pg.integer, change: pg.integer },
+	["child", "number", "change"]
 )
 export const ExpiryHeld = relation(
 	"ExpiryHeld",
@@ -48,10 +63,77 @@ export const AssignmentReadAloud = relation(
 	["child", "number"]
 )
 
-export const build = (name: string) =>
-	schema(name, [Assignment, SittingEvent, ExpiryHeld, Test, ReadAloudNeed, AssignmentReadAloud], [])
+const base = (name: string) =>
+	schema(
+		name,
+		[
+			EventKind,
+			Assignment,
+			SittingEvent,
+			ExpiryHeld,
+			Invalidation,
+			Reinstatement,
+			Test,
+			ReadAloudNeed,
+			AssignmentReadAloud
+		],
+		[]
+	)
 
-export type Schema = ReturnType<typeof build>
+type Base = ReturnType<typeof base>
+
+/**
+ * metis's Open, as its views declare it: each assignment no submission, abandonment or expiry event closes, a code's
+ * value in each negation, and no expiry hold.
+ */
+const openViewOf = (s: Base) =>
+	derived(
+		"OpenView",
+		query(s).rule((r) => {
+			const { child, number } = v(Assignment, "assignment")
+			return r
+				.match(Assignment, { child, number })
+				.where(
+					r.not(SittingEvent, { child, number, kind: "submit" }),
+					r.not(SittingEvent, { child, number, kind: "abandon" }),
+					r.not(SittingEvent, { child, number, kind: "expire" }),
+					r.not(ExpiryHeld, { child, number })
+				)
+				.find({ child, number })
+		})
+	)
+
+/** metis's Valid, as its views declare it: each assignment no standing invalidation (one no reinstatement lifts) holds. */
+const validViewOf = (s: Base) => {
+	const standing = query(s).rule((r) => {
+		const { child, number, change } = v(Invalidation, "standing")
+		return r
+			.match(Invalidation, { child, number, change })
+			.where(r.not(Reinstatement, { child, number, change }))
+			.find({ child, number })
+	})
+	return derived(
+		"ValidView",
+		query(s).rule((r) => {
+			const { child, number } = v(Assignment, "assignment")
+			return r
+				.match(Assignment, { child, number })
+				.where(r.not(standing, { child, number }))
+				.find({ child, number })
+		})
+	)
+}
+
+/** The relations and metis's two views over them, a level above. */
+export const build = (name: string) => {
+	const s = base(name)
+	const OpenView = openViewOf(s)
+	const ValidView = validViewOf(s)
+	return { schema: schema.extend([s], `${name}_1`, [OpenView, ValidView], []), OpenView, ValidView }
+}
+
+export type Built = ReturnType<typeof build>
+type Schema = Built["schema"]
 
 /**
  * Each assignment's read-aloud: its stamp; or, unstamped, on for a test of subject 7 at grade 2 or below; or, unstamped,
@@ -97,20 +179,27 @@ const openOf = (s: Schema): QueryValue =>
 
 /**
  * How the due assignments are read: the user's expired ones read again in the open assignments by their key, a step of
- * a navigation equating the open row to the values its reader passes in, or with the two negations of their own.
+ * a navigation equating the open row to the values its reader passes in; with the two negations of their own; or as
+ * metis's dueOfCall reads them, through its declared Open and Valid views, each a step whose one occurrence is the
+ * view's rows held at the outer row's key, and a negation of every sitting event of its own.
  */
-export type Due = "through the open assignments" | "by negations of its own"
+export type Due =
+	| "through the open assignments"
+	| "by negations of its own"
+	| "through metis's views"
 
 export const dues = [
 	"through the open assignments",
-	"by negations of its own"
+	"by negations of its own",
+	"through metis's views"
 ] as const satisfies ReadonlyArray<Due>
 
 export const dueGen: Gen<Due> = element<Due>(dues)
 
 /** The call's user's assignments expired by the call's instant, read as `due` says. */
-const dueOf = (s: Schema, due: Due): QueryValue =>
-	queryOver(s).rule((r: RuleValue) => {
+const dueOf = (b: Built, due: Due): QueryValue => {
+	const s = b.schema
+	return queryOver(s).rule((r: RuleValue) => {
 		const { child, number, expiresAt } = varsOver(Assignment, "due")
 		const expired = r.match(Assignment, {
 			child,
@@ -132,19 +221,30 @@ const dueOf = (s: Schema, due: Due): QueryValue =>
 						r.le(expiresAt, r.param("now", pg.integer))
 					)
 					.find({ child, number })
+			case "through metis's views":
+				return expired
+					.match(b.OpenView, { child, number })
+					.match(b.ValidView, { child, number })
+					.where(
+						r.not(SittingEvent, { child, number }),
+						r.le(expiresAt, r.param("now", pg.integer))
+					)
+					.find({ child, number })
 		}
 	})
+}
 
 /**
  * The case's write: each due assignment unstamped gets its read-aloud stamp, beside the test the call names, as metis's
  * hold gate inserts it.
  */
-export const changeOf = (s: Schema, due: Due): ChangeSetValue =>
-	ChangeSet.empty(s)
+export const changeOf = (b: Built, due: Due): ChangeSetValue => {
+	const s = b.schema
+	return ChangeSet.empty(s)
 		.insert(
 			AssignmentReadAloud,
 			queryOver(s).rule((r: RuleValue) => {
-				const d = dueOf(s, due).bind({
+				const d = dueOf(b, due).bind({
 					user: r.param("user", pg.integer),
 					now: r.param("now", pg.integer)
 				})
@@ -164,6 +264,7 @@ export const changeOf = (s: Schema, due: Due): ChangeSetValue =>
 		.bind({
 			target: queryOver(s).rule((r: RuleValue) => r.find({ test: r.param("test", pg.integer) }))
 		})
+}
 
 /** The test the call names, as metis's hold gate binds the assigned test. */
 const targetHeading = { test: pg.integer } as const

@@ -317,7 +317,7 @@ export const rosterRenames = (
 	declarations: Declarations,
 	rosters: ReadonlyArray<Roster>
 ): Result.Result<RosterRenames, DeclarationRefused> => {
-	const byRoster = new Map<DeclaredName, Map<string, string>>()
+	const byRoster = new Map<Roster["closed"], Map<string, string>>()
 	for (const { from, to } of declarations.renames) {
 		if (from.kind !== "handle" || to.kind !== "handle") {
 			continue
@@ -332,7 +332,7 @@ export const rosterRenames = (
 	}
 	return Result.succeed(
 		new Map(
-			Arr.map([...byRoster], ([roster, handles]): readonly [DeclaredName, HandleRenames] => [
+			Arr.map([...byRoster], ([roster, handles]): readonly [Roster["closed"], HandleRenames] => [
 				roster,
 				handles
 			])

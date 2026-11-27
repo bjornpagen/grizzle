@@ -12,10 +12,10 @@ import {
 } from "#compiler/codec/recordset.ts"
 import { paramEncoder } from "#compiler/codec/scalar.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import type { ParamSlot, WriteSlot } from "#compiler/ir/products.ts"
+import type { DeclaredSlot, ParamSlot, WriteSlot } from "#compiler/ir/products.ts"
 import type {
 	ArrayPart,
-	DeclaredParamSlot,
+	DeclaredValue,
 	MemberParamSlot,
 	PageParamSlot,
 	PageStatementSlot,
@@ -47,9 +47,7 @@ const partIndex = (part: ArrayPart): number => (part.kind === "column" ? part.in
  */
 export const declaredSlotOf =
 	(codes: Codebook) =>
-	(
-		slot: ServedSlot<DeclaredParamSlot>
-	): Extract<ParamSlot, { readonly kind: "scalar" | "relation" }> => {
+	(slot: ServedSlot<DeclaredValue>): DeclaredSlot => {
 		switch (slot.kind) {
 			case "scalar":
 				return {
@@ -92,7 +90,8 @@ const pageSlotOf = (slot: PageParamSlot): Extract<ParamSlot, { readonly kind: "p
 })
 
 /** What fills a write statement's placeholder under the installation's codes: a declared parameter's or a member
- * slot's, with its encoder, or a column of a stratum's nested rows, which the binding encodes. */
+ * slot's, with its encoder, a column of a stratum's nested rows, which the binding encodes, or the admission's, the
+ * declared parameter's it admits. */
 export const writeSlotOf =
 	(codes: Codebook) =>
 	(slot: ServedSlot<WriteParamSlot>): WriteSlot => {
@@ -107,6 +106,8 @@ export const writeSlotOf =
 					rows: slot.rows,
 					part: partIndex(slot.part)
 				}
+			case "admission":
+				return { kind: "admission", admits: declaredSlotOf(codes)(slot.admits) }
 			case "scalar":
 			case "relation":
 				return declaredSlotOf(codes)(slot)

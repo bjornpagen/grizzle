@@ -6,7 +6,7 @@ import { Result as Answered, Array as Arr, Effect, Formatter, Option } from "eff
 import { installationWitness } from "#adapter/served/refusals.ts"
 import type { WrittenAt } from "#adapter/witness/classify.ts"
 import { servedWitness } from "#adapter/witness/index.ts"
-import { type DeclaredName, identifierOf, identity } from "#compiler/core/identity.ts"
+import { identifierOf, identity, type HeldName } from "#compiler/core/identity.ts"
 import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { type Codebook, rosterCodebook, type RosterCodec } from "#compiler/ir/codes.ts"
@@ -14,6 +14,7 @@ import { rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import type { ConcurrentChangeTag } from "#compiler/runtime/write/refusal.ts"
 import type { Refuser } from "#compiler/runtime/write/witness.ts"
+import { parsedName } from "#test/support/kernel/naming.ts"
 import { type CaseSketch, caseSketchGen } from "#test/support/oracle/public/generate.ts"
 import {
 	type LawFeature,
@@ -80,7 +81,7 @@ const changeReasons: Arr.NonEmptyReadonlyArray<ConcurrentChangeTag> = [
 ]
 
 /** The codes the installation holds for `roster`, every roster a column or a cast value of it holds among them. */
-const codecNamed = (codes: Codebook, roster: DeclaredName): RosterCodec =>
+const codecNamed = (codes: Codebook, roster: HeldName): RosterCodec =>
 	defined(codes.rosters.get(roster), `the installation's codes of roster ${roster}`)
 
 /**
@@ -264,7 +265,7 @@ const refusalsOf = (
 		const codec = codecNamed(names.codes, roster)
 		return Arr.map(
 			[
-				{ domain: names.rosterDomain(roster), check: identity.rosterDomain(roster) },
+				{ domain: names.rosterDomain(roster), check: identity.rosterDomain(parsedName(roster)) },
 				{ domain: names.bitsDomain(roster), check: identity.bitsDomain(roster, codec.width) }
 			],
 			({ domain, check }): Refusal => ({

@@ -193,7 +193,7 @@ export const aRoleMayExecuteExactlyTheDeclaredFunctionsItsProgramsReachThroughEv
 		kills: [
 			{
 				file: "packages/engine/src/program/workload/compile.ts",
-				original: "\t\t\t\tdefinitionsOf(parsed.value.owned)\n",
+				original: "\t\t\t\tdefinitionsOf(loginRole(role, login.named.owned))\n",
 				replacement: "\t\t\t\t() => undefined\n",
 				why: "A role's grants follow no relation its programs read into its definition, its programs' own calls alone, as before queries named derived relations: a program reading Derived, Nested or Entry is refused its function, permission denied as it runs, as edullm's answerTestItem was for credit."
 			},

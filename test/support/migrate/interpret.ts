@@ -616,6 +616,7 @@ const valueOf = (value: string, type: TypeRef): SqlValue => {
 		case "interval":
 		case "pg_dependencies":
 		case "xid8":
+		case "tid":
 			return unevaluable(`a ${type.name} literal`)
 	}
 }
@@ -763,7 +764,8 @@ const boolValue = (b: boolean | undefined): SqlValue =>
 	b === undefined ? undefined : { kind: "bool", value: b }
 
 /** A value cast to `t`: a domain's through its base, then judged by its CHECKs (TypeReader), and a builtin's as
- * PostgreSQL casts it: an integer to an integer type within its range or to numeric, which keeps it; a bit string to
+ * PostgreSQL casts it: an integer to an integer type within its range, to numeric or to xid8 (the model's transaction
+ * id, modelTransaction), which keeps it; a bit string to
  * bit(n), padded or cut, or to bit varying; a text to text or name. */
 const castTo = (v: SqlValue, t: TypeRef, scope: Scope): SqlValue => {
 	if (v === undefined) {
@@ -796,6 +798,9 @@ const castTo = (v: SqlValue, t: TypeRef, scope: Scope): SqlValue => {
 			return inRange(t.name, v.value)
 		}
 		if (t.name === "numeric" && v.kind === "int") {
+			return v
+		}
+		if (t.name === "xid8" && v.kind === "int") {
 			return v
 		}
 		if (t.name === "integer" && v.kind === "bool") {
@@ -857,10 +862,17 @@ const intOf = (v: SqlValue, what: string): bigint | undefined =>
 export const modelInstant = { micros: 1_700_000_000_123_456n, millis: 1_700_000_000_123n } as const
 
 /**
+ * The 64-bit id of every transaction of the model, pg_current_xact_id(): a migration's, which a head's fill names as
+ * its stamper (physical/ddl/stamps.ts headFill). Any value a running transaction could hold, at least
+ * FirstNormalTransactionId's 3.
+ */
+const modelTransaction = 1_000_003n
+
+/**
  * The value of `e`, evaluated as PostgreSQL would over the fragment a constant's body and a roster's or a set's domain
  * CHECK are written in: literals, a bit string's hex literal among them, casts, VALUE, + and -, = and <>, & and |, a
- * subscript, a CASE, substring, a call of the schema's constant, and a reading of the clock, the model's instant
- * (modelInstant). Any other expression is Unevaluable.
+ * subscript, a CASE, substring, a call of the schema's constant, a reading of the clock, the model's instant
+ * (modelInstant), and the transaction's id, the model's (modelTransaction). Any other expression is Unevaluable.
  */
 const evaluate = (e: Expr, scope: Scope): SqlValue => {
 	switch (e.kind) {
@@ -883,6 +895,7 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 				case "decimal":
 				case "float":
 				case "floatSpecial":
+				case "null":
 					return unevaluable(`a ${e.value.kind} literal`)
 			}
 		case "cast":
@@ -1031,6 +1044,9 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 					value: Str.slice(first - 1, Math.max(last - 1, first - 1))(bits.value)
 				}
 			}
+			if (e.fn.name === "pg_current_xact_id" && e.args.length === 0) {
+				return { kind: "int", value: modelTransaction }
+			}
 			if (e.fn.name === "record_image_ne") {
 				const [left, right] = e.args
 				if (
@@ -1079,6 +1095,7 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 			const v = intOf(evaluate(e.expr, scope), "a negation")
 			return v === undefined ? undefined : { kind: "int", value: -v }
 		}
+		case "attribute":
 		case "array":
 		case "between":
 		case "coalesce":
@@ -1175,6 +1192,8 @@ const callsAggregate = (e: Expr): boolean => {
 		case "subquery":
 		case "user":
 			return false
+		case "attribute":
+			return callsAggregate(e.record)
 	}
 }
 
@@ -1553,6 +1572,10 @@ class Model {
 	readonly #indexes = new Map<string, Index>()
 	readonly #statistics = new Map<string, Statistics>()
 	readonly #triggers = new Map<string, Map<string, Trigger>>()
+	/** The guards the last bracket's `unguard` dropped, each its table, name and trigger: the transaction's grizzle.guards. */
+	#lifted:
+		| ReadonlyArray<{ readonly table: string; readonly name: string; readonly trigger: Trigger }>
+		| undefined = undefined
 	readonly #views = new Map<string, View>()
 	/**
 	 * The database's publications, by name: each table of the schema it publishes, whole or by its column list, whose
@@ -3089,6 +3112,61 @@ class Model {
 		of.set(name, { function: fn.name, columns, types })
 	}
 
+	/**
+	 * One side of a guard bracket (sql/ast.ts GuardBracket): `unguard` drops every trigger of a table of its scope named
+	 * as one of its guards, the schema's tables where its scope is schemas that hold the schema, and records them;
+	 * `reguard` sets each recorded trigger again on its table where the table and the trigger's function still stand.
+	 * PostgreSQL refuses a scope's table that does not exist (42P01), a `reguard` with no setting recorded (42704), and a
+	 * trigger set over one that stands (42710).
+	 */
+	#bracket(s: Extract<SqlStatement, { readonly kind: "guardBracket" }>): void {
+		switch (s.side) {
+			case "unguard": {
+				const names = new Set(Arr.map(s.guards, (g) => g.name))
+				const tables =
+					s.scope.kind === "tables"
+						? Arr.flatMap(s.scope.tables, (t) => {
+								if (!this.#ours(t)) {
+									return []
+								}
+								this.#table(t)
+								return [t.name]
+							})
+						: s.scope.schemas.includes(this.#schema)
+							? [...this.#tables.keys()]
+							: []
+				this.#lifted = Arr.flatMap(tables, (table) => {
+					const of = this.#triggersOf(table)
+					return Arr.flatMap([...of], ([name, trigger]) => {
+						if (!names.has(name)) {
+							return []
+						}
+						of.delete(name)
+						return [{ table, name, trigger }]
+					})
+				})
+				return
+			}
+			case "reguard": {
+				const lifted = this.#lifted
+				if (lifted === undefined) {
+					refuse("42704", "the setting grizzle.guards is not recorded")
+				}
+				for (const l of lifted) {
+					if (!this.#tables.has(l.table) || !this.#functions.has(l.trigger.function)) {
+						continue
+					}
+					const of = this.#triggersOf(l.table)
+					if (of.has(l.name)) {
+						refuse("42710", `the trigger ${l.name} of ${l.table} already exists`)
+					}
+					of.set(l.name, l.trigger)
+				}
+				return
+			}
+		}
+	}
+
 	/** The index becomes the constraint's, under its name. */
 	#alterTable(s: Extract<SqlStatement, { readonly kind: "alterTable" }>): void {
 		for (const a of s.actions) {
@@ -3487,15 +3565,12 @@ class Model {
 					refuse("42704", `the statistics object ${printObjectName(s.name)} does not exist`)
 				}
 				return
-			case "FUNCTION":
-				this.#dropFunction(s.name, s.ifExists)
-				return
 		}
 	}
 
 	/**
-	 * A function's drop, by its signature or by its name alone, one function of a name in a schema as grizzle installs
-	 * every function: refused where it does not exist and the drop is no IF EXISTS, and where a function calls it.
+	 * A function's drop, by its signature, one function of a name in a schema as grizzle installs every function:
+	 * refused where it does not exist and the drop is no IF EXISTS, and where a function calls it.
 	 */
 	#dropFunction(name: ObjectName, ifExists: boolean): void {
 		if (!this.#functions.has(name.name)) {
@@ -3709,7 +3784,7 @@ class Model {
 				}
 				return
 			case "createGuardTrigger":
-			case "createUpdateGuardTrigger":
+			case "createImmutableGuardTrigger":
 			case "createTransitionTrigger":
 				if (this.#ours(s.table)) {
 					this.#trigger(s.table, s.name, s.function, [], [])
@@ -3955,6 +4030,15 @@ class Model {
 				}
 				this.#rowTypes.add(s.name.name)
 				return
+			case "alterRowType":
+				if (!this.#ours(s.name)) {
+					return
+				}
+				if (!this.#rowTypes.has(s.name.name)) {
+					refuse("42704", `the type ${printObjectName(s.name)} does not exist`)
+				}
+				this.#typeExists(s.add.type)
+				return
 			case "handOverFunction":
 				if (this.#ours(s.name) && !this.#functions.has(s.name.name)) {
 					refuse("42883", `the function ${printObjectName(s.name)} handed over does not exist`)
@@ -4053,8 +4137,10 @@ class Model {
 				}
 				return
 			}
+			case "guardBracket":
+				this.#bracket(s)
+				return
 			case "createSchema":
-			case "resetDatabaseDefault":
 			case "createRole":
 			case "alterRole":
 			case "grantRole":
@@ -4083,8 +4169,6 @@ class Model {
 				return
 			case "delete":
 			case "merge":
-			case "createCarrier":
-			case "emptyCarrier":
 			case "stubConstant":
 			case "beginRead":
 			case "beginWrite":

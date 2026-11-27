@@ -56,7 +56,7 @@ const pairSafe = (text: string, at: number): number =>
  */
 const wellFormedChunk = (text: string): WellFormedText => {
 	if (!isWellFormedText(text)) {
-		throw defect("a chunk cut where no surrogate pair parts is well-formed")
+		defect("a chunk cut where no surrogate pair parts is well-formed")
 	}
 	return text
 }
@@ -179,7 +179,7 @@ const lastEnding = (pieces: ReadonlyArray<string>, seam: "\n\n" | "\n"): PieceCu
  */
 export const partsOf = (text: TextChunks, bound: number): ReadonlyArray<TextChunks> => {
 	if (bound < 4) {
-		throw defect("a part's bound holds a code point's longest UTF-8")
+		defect("a part's bound holds a code point's longest UTF-8")
 	}
 	const parts: Array<TextChunks> = []
 	const pending: Array<string> = [...text].toReversed()

@@ -4,7 +4,7 @@
  * empties it, and how a judged statement reads it. physical/ddl/rules.ts holds the captures' triggers, the sentinel
  * that arms the judge, the parts and the judge.
  */
-import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
 	headNonEmpty,
@@ -37,7 +37,6 @@ import {
 import type {
 	ColumnDefinition,
 	Cte,
-	Delete,
 	Expr,
 	FromSource,
 	Insert,
@@ -74,7 +73,7 @@ import {
 	types,
 	windowOf
 } from "#compiler/sql/build.ts"
-import { printExpr, sessionReaderRows, sessionTableEmptied } from "#compiler/sql/print.ts"
+import { printExpr, sessionTableEmptied } from "#compiler/sql/print.ts"
 import { identityHooks, inertVisitor, Transform, visitSelect } from "#compiler/sql/transform.ts"
 
 /**
@@ -227,8 +226,6 @@ export const deltaTable = (delta: SessionDelta): PlStatement => ({
 	kind: "createSessionTable",
 	name: delta.name,
 	columns: delta.table,
-	notNull: false,
-	primaryKey: undefined,
 	storage: delta.storage
 })
 
@@ -474,6 +471,18 @@ export class DeltaReads {
 		})
 	}
 
+	/**
+	 * The deltas `body` reads, each once, in the order of their names: those of the reads whose readers it calls
+	 * (`readersCalled`), as every judged statement reads a delta (`headed`): where none of them holds a row, a call of
+	 * the judge over `body` has nothing to read, so its part calls it where one does (physical/ddl/rules.ts upkeepBlock).
+	 */
+	readBy(body: ReadonlyArray<PlStatement>): ReadonlyArray<SessionDelta> {
+		const called = readersCalled(body)
+		return this.all().flatMap(({ of, reads }) =>
+			reads.some((read) => called.has(read.reader.identifier)) ? [of.delta] : []
+		)
+	}
+
 	/** The B-trees the delta named `name` is stood up with (`deltaIndexes`). */
 	indexesOf(name: string): ReadonlyArray<DeltaIndex> {
 		const of = this.#deltas.get(name)
@@ -606,6 +615,7 @@ const overDelta = (
 			case "complement":
 			case "lowerAscii":
 			case "subscript":
+			case "attribute":
 				return undefined
 		}
 	}
@@ -900,28 +910,6 @@ export const headed = (statement: OperandSelect, reads: DeltaReads): OperandSele
 }
 
 /**
- * `statement`, a DELETE, with its reads of a session's deltas read as `headed` reads a query's, the query being the
- * DELETE's reads: its target and its USING under its WHERE, below its WITH, as PostgreSQL reads a DELETE USING as their
- * join. So each selection it reads is read through one reader for the whole statement, its USING and each subquery of
- * its WHERE alike, where each part headed apart read a selection the parts share once for each: a stored relation's
- * upkeep's DELETE reads its region in its USING and again in its definition at the region, which its NOT EXISTS reads
- * (physical/ddl/rules.ts upkeepBlock). The target, a stored relation's table, is no delta, so `headed` leaves it as it
- * stands, first in the query's FROM.
- */
-export const headedDelete = (statement: Delete, reads: DeltaReads): Delete => {
-	const target: FromSource = { kind: "table", table: statement.table, alias: statement.alias }
-	const read = headed(
-		{ ...simpleSelect([], [target, ...statement.using], statement.where), with: statement.with },
-		reads
-	)
-	const [first, ...using] = read.body.kind === "core" ? read.body.from : []
-	if (read.body.kind !== "core" || first?.kind !== "table" || first.alias !== statement.alias) {
-		throw defect("a DELETE's reads headed as one core whose FROM leads with the DELETE's target")
-	}
-	return { ...statement, with: read.with, using, where: read.body.where }
-}
-
-/**
  * A pass-through projection a statement reads a delta through (`headed`): a derived table of one core that projects
  * columns of one source alone, a read of a delta, `read` saying which CTE names one, or another such projection, under
  * no condition, grouping, order or limit; its alias, its columns, and each target's column read of the source.
@@ -1209,9 +1197,15 @@ export const deltaIndex = (delta: SessionDelta, index: DeltaIndex): PlStatement 
  * every column, toasted text among them, once for each statement that read the delta: 378 times, 9.75 million rows,
  * 118.6 s of a 540-item package's COMMIT at f87b2aaab.
  *
- * It declares the rows a call returns (`sessionReaderRows`), so a statement that reads the delta looks each row's key up
- * in the tables it probes, where at PostgreSQL's own estimate for a set-returning function, a thousand rows, it hashed
- * a scan of the table below a million rows.
+ * It declares no rows a call returns: PostgreSQL estimates a set-returning function's thousand, and no plan of a judge
+ * statement turns on it, every read of a stored table beside the delta a step at its rows (lower/conservative/step
+ * fencedRead: `LATERAL (... WHERE <column> = <delta's value> OFFSET 0)`, a correlated EXISTS over OFFSET 0), which
+ * PostgreSQL runs once for each row the delta holds whatever it estimates the reader returns, and never joins to the
+ * table by a hash. Declared at ten rows (DECLSTATS's measurement over an unfenced anti join of a reader and a table,
+ * ~/.cache/grizzle/DECLSTATS-work/unitscale/run3.sh), and at PostgreSQL's thousand, plan-shape's 24 cases and its kept judge (LC-WRITERS'),
+ * upkeep-bound's box, rule-delta-reads, stored-judged, delta-upkeep and probe-share each read every table alike: the
+ * upkeep's DELETE reads its stored rows `LATERAL (... OFFSET 0)` at the delta's units, and its definition under a
+ * Materialize of the same steps.
  *
  * A plan of a statement that reads the delta through it depends on the function, never on the table, so a TRUNCATE
  * the judge empties the table with once it has outgrown its page (`emptied`), a new file of the table and an
@@ -1237,7 +1231,7 @@ export const addReaders = (
 						params: [],
 						returns: {
 							setOf: types.record,
-							rows: { kind: "declared", rows: sessionReaderRows }
+							rows: { kind: "planner" }
 						},
 						volatility: "VOLATILE",
 						parallel: "UNSAFE",

@@ -8,7 +8,7 @@
  */
 import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
-import { confinedTemplate, runConfined, storedGen } from "#test/pg/laws/rule-confined.fixtures.ts"
+import { confinedTemplates, runConfined, storedGen } from "#test/pg/laws/rule-confined.fixtures.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -19,15 +19,13 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const aWholeRulesLookupReadsOneUnitALoopThroughWhateverIndexPostgreSQLTakes =
 	property.explore(storedGen, {
-		needs: { substrate: Substrate.rolledBack(confinedTemplate) },
+		needs: Substrate.oneOf(confinedTemplates, Substrate.rolledBack),
 		situations: ["measured with no statistics", "measured analyzed"],
-		check:
-			({ substrate }, c) =>
-			(stored) =>
-				Effect.gen(function* () {
-					const { connection, value } = yield* substrate
-					yield* runConfined(value, connection, stored, c)
-				}),
+		check: (templates, c) => (stored) =>
+			Effect.gen(function* () {
+				const { connection, value } = yield* templates[`${stored.size}`]
+				yield* runConfined(value, connection, stored, c)
+			}),
 		oracle: {
 			kind: "universal",
 			name: "bound: each scan of a stored table a whole rule's statement makes reads at most its unit's one row a loop, its output and its filters' removals together"

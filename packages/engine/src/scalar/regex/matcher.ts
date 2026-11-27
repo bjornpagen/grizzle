@@ -171,7 +171,7 @@ export class ServedPatterns {
 	readonly matcher = (pattern: PatternSource): Matcher => {
 		const known = this.#table.get(pattern.flags)?.get(pattern.source)
 		if (known === undefined) {
-			throw defect(`a pattern its served file's matchers hold: /${pattern.source}/${pattern.flags}`)
+			defect(`a pattern its served file's matchers hold: /${pattern.source}/${pattern.flags}`)
 		}
 		return known
 	}

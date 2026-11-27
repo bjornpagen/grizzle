@@ -25,7 +25,7 @@ import {
 import * as W from "#test/schedules/platform/world.ts"
 import { succeeded } from "#test/support/assert.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
-import { Id } from "#test/support/ids.ts"
+import { toId } from "#test/support/ids.ts"
 import { FAR, JAN } from "#test/support/platform/generate.ts"
 import { rowsIn, type State } from "#test/support/platform/laws.ts"
 import { covers, type GrantM, settle, platformSpan } from "#test/support/platform/model.ts"
@@ -111,8 +111,8 @@ export const creditSketchGen: Gen<CreditSketch> = (source) => {
 /** The grants of a state, as the host model reads them. */
 const grantsIn = (s: State): ReadonlyArray<GrantM> =>
 	Arr.map(rowsIn(s, "CreditGrant"), (g) => ({
-		id: Id(succeeded(Uuid.parse(textOf(g, "id")), "a stored grant's id")),
-		org: Id(succeeded(Uuid.parse(textOf(g, "org")), "a stored grant's organization")),
+		id: toId(succeeded(Uuid.parse(textOf(g, "id")), "a stored grant's id")),
+		org: toId(succeeded(Uuid.parse(textOf(g, "org")), "a stored grant's organization")),
 		amount: amountOf(g, "amount"),
 		valid: spanField(g, "valid")
 	}))
@@ -147,7 +147,7 @@ export const resolveCredits =
 		const first: Addition<typeof P.CreditGrant> = {
 			id: W.grantId(1),
 			org: W.ids.org,
-			amount: P.Micros(prior + BigInt(k.amounts[0])),
+			amount: P.toMicros(prior + BigInt(k.amounts[0])),
 			valid: W.instants(platformSpan(JAN, firstEnd))
 		}
 		const second: ReadonlyArray<Addition<typeof P.CreditGrant>> = on("second grant")
@@ -155,7 +155,7 @@ export const resolveCredits =
 					{
 						id: W.grantId(2),
 						org: W.ids.org,
-						amount: P.Micros(BigInt(k.amounts[1])),
+						amount: P.toMicros(BigInt(k.amounts[1])),
 						valid: W.instants(platformSpan(JAN, FAR))
 					}
 				]

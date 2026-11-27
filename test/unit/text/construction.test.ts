@@ -76,7 +76,7 @@ export const theWholeConstructionKeysEachStatesDistinctStepsOnceAndSpendsWhatThe
 					const nfa = nfaOf(alternation)
 					const [outcome, counts] = yield* callCounts(
 						Effect.sync(() => minimalDfa(nfa, regexDfaLimits)),
-						{ keys: { file: "packages/text/src/regex/subset.ts", name: "subsetKey" } }
+						{ keys: { file: "packages/text/src/regex/subset.ts", name: "slot" } }
 					)
 					const atomic = atomByAtom(nfa)
 					const label = sourceOf(alternation)

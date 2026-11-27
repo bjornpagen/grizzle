@@ -1,6 +1,6 @@
 /**
  * The shape of each file grizzle reads back, as core/format.ts recordShapes states it: the SHA-256 digest of the
- * structure of the type the file holds (a committed snapshot's, deploy/snapshot/build.ts SealedRecord, the record its
+ * structure of the type the file holds (a committed snapshot's, deploy/snapshot/types.ts DeploySnapshot, the record its
  * seal holds; a served file's, served/forms.ts ServedFile), resolved by the TypeScript compiler's checker
  * (typescript/sync) over the engine's project.
  *
@@ -30,8 +30,9 @@ interface ShapeNode {
 const rootOf: {
 	readonly [F in FormattedFile]: { readonly module: string; readonly name: string }
 } = {
-	snapshot: { module: "deploy/snapshot/build.ts", name: "SealedRecord" },
-	served: { module: "served/forms.ts", name: "ServedFile" }
+	snapshot: { module: "deploy/snapshot/types.ts", name: "DeploySnapshot" },
+	served: { module: "served/forms.ts", name: "ServedFile" },
+	contract: { module: "runtime/contract.ts", name: "ContractFile" }
 }
 
 /** The flags of a type printed by its intrinsic name. */

@@ -1,5 +1,6 @@
 /** What the properties of universe.test.ts read: its spaces, models and helpers. */
 
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { defined } from "@bjornpagen/testing/assert"
 import { element, finite, type Gen } from "@bjornpagen/testing/gen"
 import {
@@ -14,7 +15,8 @@ import { checkQuery } from "#compiler/check/index.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import { makePassContext } from "#compiler/ir/pass.ts"
-import { rewritePipeline } from "#compiler/lower/optimize/pipeline.ts"
+import { queryEvidence } from "#compiler/logical/annotate.ts"
+import { annotatedInput, rewritePipeline } from "#compiler/lower/optimize/pipeline.ts"
 import { type ReferenceInput, unobserved } from "#test/support/oracle/reference/evaluate.ts"
 import { noFunctions } from "#test/support/oracle/reference/functions.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
@@ -84,7 +86,10 @@ const preserves = (inst: Installed, plan: Plan, c: Case<UniverseFeature>): void 
 			evidenceContext: context,
 			catalog: inst.physical(context).catalog
 		})
-		const rewritten = rewritePipeline("query").run(query, ctx)
+		const input = annotatedInput(query, queryEvidence)
+		const rewritten = Result.flatMap(input, (annotated) =>
+			rewritePipeline("query", annotated.analyses).run(annotated.query, ctx)
+		)
 		if (!rewritten.ok) {
 			throw new Error(
 				`the rewrite pipeline refuses a checked query: ${rewritten.error.message}\n${at}`

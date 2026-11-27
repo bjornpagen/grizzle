@@ -31,15 +31,11 @@ import type { Named } from "#compiler/core/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
-import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
-import { firstCodebook } from "#compiler/ir/codes.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { findMarkers, splitStatements } from "#compiler/plan/migration.ts"
 import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import { type AnyRelation, schema, type Statement } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { varlenaHeaderBytes } from "#compiler/scalar/values/fault.ts"
-import { rostersOf } from "#compiler/schema/own.ts"
 import {
 	generatedField,
 	generatedRelation,
@@ -65,11 +61,15 @@ import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { apply, checkedAdmission, openMigrator, sameCatalog } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
-import { succeeded } from "#test/support/assert.ts"
 import { writeOnce } from "#test/support/calls.ts"
 import { filledSql } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
-import { type Installed, installedOf, loginCredentials } from "#test/support/install-migrate.ts"
+import {
+	generatedDrafting,
+	type Installed,
+	installedOf,
+	loginCredentials
+} from "#test/support/install-migrate.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
 	column,
@@ -81,19 +81,15 @@ import {
 	withDataStep
 } from "#test/support/migrate/keyed-tree.ts"
 import {
-	draftedAt,
 	fromEmpty,
 	fromSnapshot,
-	generate,
 	noDeclarations,
 	type Previous
 } from "#test/support/migrate/kit.ts"
 import { type Placeholder, readsBack, review } from "#test/support/migrate/review.ts"
 import { type RewriteObserver, rewriteObserver } from "#test/support/migrate/rewrites.ts"
-import { planRealInstall, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
-import { ownedInput, owning } from "#test/support/policy.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
@@ -544,17 +540,21 @@ const builtOf = (w: World, declared: string) => {
 	return { value, relation: valueAt, world: fullWorld(value, {}) }
 }
 
-/** The installation of a version's schema value under the allocated `name`, owned by `owner`, with its login. */
-const planned = (built: ReturnType<typeof builtOf>, name: string): RealInstallPlan =>
-	succeeded(
-		planRealInstall(built.value, {
-			installation: identity.schema(parsedSchemaName(name)),
-			logins: [built.world.server],
-			extensions: [],
-			codes: firstCodebook(rostersOf(owning(built.value))),
-			compile: compileInstallation
-		}),
-		"the installation of a version"
+/**
+ * A version's schema value under the allocated `name` with its login drafted from `previous` at `step` under
+ * `declarations` as `grizzle generate` drafts it (install-migrate.ts generatedDrafting), before any review: its plan,
+ * with its login's world, and the draft as generate wrote it.
+ */
+const draftOf = (
+	built: ReturnType<typeof builtOf>,
+	name: string,
+	declarations: Declarations,
+	previous: Previous,
+	step: number
+) =>
+	generatedDrafting(
+		{ schema: built.value, logins: [built.world.server], declarations },
+		{ installation: identity.schema(parsedSchemaName(name)), previous, step }
 	)
 
 /** The row of a fact as a ChangeSet states it: its caller's fields, a sequence it owns nested at its count, the
@@ -1415,17 +1415,8 @@ const migration = (
 			h.steps++
 			const what = `step ${h.steps}`
 			const built = builtOf(after.installed, h.declared)
-			const plan = planned(built, h.declared)
-			const g = succeeded(
-				generate({
-					previous: h.previous,
-					installation: plan.installation,
-					name: `step_${h.steps}`,
-					timestamp: draftedAt(h.steps),
-					workload: noWorkload,
-					declared: declarationsOf(stored)
-				}),
-				`${what} drafts`
+			const { plan, generated: g } = yield* Effect.orDie(
+				draftOf(built, h.declared, declarationsOf(stored), h.previous, h.steps)
 			)
 			assert.notEqual(g.change, "none", `${what}: the version's deltas draft no change`)
 			const expected = placeholdersOf(h, stored)
@@ -1487,20 +1478,14 @@ const migration = (
 				folders: nonEmpty(h.folders, "a history's folders"),
 				snapshot: g.snapshot
 			}
-			const again = succeeded(
-				generate({
-					previous: h.previous,
-					installation: plan.installation,
-					name: `step_${h.steps}_again`,
-					timestamp: draftedAt(h.steps),
-					workload: noWorkload,
-					declared: noDeclarations
-				}),
-				`${what} drafts again`
+			const { generated: again } = yield* Effect.orDie(
+				draftOf(built, h.declared, noDeclarations, h.previous, h.steps)
 			)
 			assert.equal(again.change, "none", `${what}: the version drafts a further change`)
 			const fresh = yield* substrate.schema({ create: false, label: "cutover_fresh" })
-			const freshPlan = planned(built, fresh)
+			const { plan: freshPlan } = yield* Effect.orDie(
+				draftOf(builtOf(after.installed, fresh), fresh, noDeclarations, fromEmpty, 0)
+			)
 			yield* transaction(substrate.admin, filledSql(freshPlan.drafted, substrate.database))
 			yield* sameCatalog(plan.installation, freshPlan.installation, what)
 			yield* sameRows(h, after.installed, after.facts, what)
@@ -1510,26 +1495,18 @@ const migration = (
 /** A re-key past the limit: the draft of the pending version with it is refused as UnrepresentableKey over the
  * relation's two texts, as its own key holds them or a reference to it does, and nothing is applied. */
 const pastLimit = (h: History, before: Model, p: Params["re-key a relation past BTMaxItemSize"]) =>
-	Effect.sync(() => {
+	Effect.gen(function* () {
 		const world = withRel(before.pending, p.rel, (rel) => ({
 			...rel,
 			key: { kind: "compound", widths: p.widths }
 		}))
 		const built = builtOf(world, h.declared)
-		const owned = ownedInput(built.value)
-		const plan = owned.ok
-			? planRealInstall(built.value, {
-					installation: identity.schema(parsedSchemaName(h.declared)),
-					logins: [built.world.server],
-					extensions: [],
-					codes: firstCodebook(rostersOf(owned.value)),
-					compile: compileInstallation
-				})
-			: owned
-		if (plan.ok) {
+		const drafted = yield* Effect.result(draftOf(built, h.declared, noDeclarations, fromEmpty, 0))
+		if (drafted._tag === "Success") {
 			return took
 		}
-		const reason = plan.error.reason
+		const refusal = drafted.failure
+		const reason = refusal.reason
 		assert.ok(
 			reason._tag === "UnrepresentableKey" &&
 				Arr.some(
@@ -1538,7 +1515,7 @@ const pastLimit = (h: History, before: Model, p: Params["re-key a relation past 
 						(key.includes("ka") && key.includes("kb")) ||
 						(key.includes(`p${p.rel}a`) && key.includes(`p${p.rel}b`))
 				),
-			`a re-key of ${relName(p.rel)} past the limit is refused otherwise: ${plan.error.message}`
+			`a re-key of ${relName(p.rel)} past the limit is refused otherwise: ${refusal.message}`
 		)
 		return refused<"UnrepresentableKey">("UnrepresentableKey")
 	})
@@ -1587,17 +1564,8 @@ export const history = (c: Cutover, note: (f: Feature) => void) =>
 			const ambient = yield* ambientOwner(ordinarySession, [schemaIdent])
 			const m = yield* openMigrator(substrate, ambient.credentials)
 			const built = builtOf(c.world, declared)
-			const plan = planned(built, declared)
-			const first = succeeded(
-				generate({
-					previous: fromEmpty,
-					installation: plan.installation,
-					name: "step_0",
-					timestamp: draftedAt(0),
-					workload: noWorkload,
-					declared: noDeclarations
-				}),
-				"the first version"
+			const { plan, generated: first } = yield* Effect.orDie(
+				draftOf(built, declared, noDeclarations, fromEmpty, 0)
 			)
 			const folder: FolderTexts = {
 				name: first.folder.name,

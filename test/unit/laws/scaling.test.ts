@@ -73,12 +73,11 @@ export const installationSizeNoInstallationOrSnapshotGrowsFasterThanOneDimension
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/ir/desc.ts",
-				original:
-					'\tconst reverse = mapNonEmpty(a.arms, ({ handle, arm }): ContainedDesc => ({\n\t\tkind: "contained",\n\t\tleft: discriminated(a, [handle]),\n\t\tright: arm,\n\t\tloc: a.loc\n\t}))',
+				file: "packages/engine/src/physical/ddl/tables.ts",
+				original: "\t\t\t\treasons: lawReasons(o.lawIds),\n",
 				replacement:
-					'\tconst reverse = a.arms.flatMap(({ handle }) =>\n\t\ta.arms.map(({ arm }): ContainedDesc => ({\n\t\t\tkind: "contained",\n\t\t\tleft: discriminated(a, [handle]),\n\t\t\tright: arm,\n\t\t\tloc: a.loc\n\t\t}))\n\t)\n',
-				why: "An alternatives statement states a reverse containment for every pair of a handle and an arm (ir/desc.ts expandAlternatives), its laws quadratic in the roster."
+					'\t\t\t\treasons: lawReasons(b.natives.flatMap((m) => (m.namespace === "column" ? m.object.lawIds : []))),\n',
+				why: "Each law column's manifest reasons name every law column's laws (physical/ddl/tables.ts addNatives), not its own: a schema's manifest grows with the square of its selected sides, each arm's law columns among them."
 			}
 		]
 	})

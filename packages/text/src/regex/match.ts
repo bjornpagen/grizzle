@@ -1,7 +1,7 @@
 import { codePointAt, codePointUnits } from "@bjornpagen/grizzle-text/text"
 import { regexSpaceStates } from "#text/regex/ir.ts"
 import { configurationsOf, type Nfa } from "#text/regex/nfa.ts"
-import { SearchSubsets, type Subset, subsetKey } from "#text/regex/subset.ts"
+import { SearchSubsets, type Subset, SubsetNumbers } from "#text/regex/subset.ts"
 import { entry } from "#text/regex/table.ts"
 
 /**
@@ -70,9 +70,9 @@ export class Matcher {
 	readonly #segmentLows: Int32Array
 	readonly #segmentHighs: Int32Array
 	readonly #segmentAtoms: Int32Array
-	/** The states kept, the initial one first, and each one's number by its subset's key. */
+	/** The states kept, the initial one first, and each one's number by its subset (SubsetNumbers). */
 	readonly #states: Array<DfaState> = []
-	readonly #numbers = new Map<string, number>()
+	readonly #numbers = new SubsetNumbers()
 	#spent: number
 
 	private constructor(nfa: Nfa) {
@@ -167,10 +167,9 @@ export class Matcher {
 	 * configurations a counted repetition's counters reach never pile up past the states that hold them.
 	 */
 	#numbered(subset: Subset): number {
-		const key = subsetKey(subset)
-		const known = this.#numbers.get(key)
-		if (known !== undefined) {
-			return known
+		const slot = this.#numbers.slot(subset)
+		if (slot.number >= 0) {
+			return slot.number
 		}
 		if (this.#states.length >= this.#capacity) {
 			this.#states.length = 0
@@ -180,7 +179,7 @@ export class Matcher {
 			return this.#numbered(carried)
 		}
 		const number = this.#states.length
-		this.#numbers.set(key, number)
+		slot.number = number
 		this.#states.push({
 			subset,
 			accepts: this.#subsets.acceptsAtEnd(subset),

@@ -13,7 +13,6 @@ import {
 import type { Case } from "@bjornpagen/testing/property"
 import {
 	Array as Arr,
-	DateTime,
 	Effect,
 	FileSystem,
 	Option,
@@ -148,16 +147,6 @@ const loginColumn = (rows: ReadonlyArray<readonly [string, string]>, logins: boo
 		Order.String
 	)
 
-const at = DateTime.makeUnsafe({
-	year: 2026,
-	month: 10,
-	day: 12,
-	hour: 12,
-	minute: 0,
-	second: 0,
-	millisecond: 0
-})
-
 const notesOf = (n: Names): ReadonlyArray<LimitFeature> => [
 	n.past ? "one byte past" : "at the limit",
 	utf8Length(converted(n.login)) === longest(n)
@@ -188,6 +177,7 @@ export const limitCase = (n: Names, c: Case<LimitFeature>) =>
 			const fs = yield* FileSystem.FileSystem
 			const dir = yield* workspace("limit")
 			const config = defineConfig({
+				contracts: [],
 				schemas: [world.schema],
 				logins: [world.login],
 				migrations: "migrations",
@@ -195,7 +185,7 @@ export const limitCase = (n: Names, c: Case<LimitFeature>) =>
 				connection: () =>
 					connectionOf(substrate.cluster, ownerOn(substrate.cluster, substrate.database))
 			})
-			const run = (command: string) => cliOver(dir, config, [command, configName], at)
+			const run = (command: string) => cliOver(dir, config, [command, configName])
 			if (n.past) {
 				const ran = yield* run("generate")
 				const report = ran.report

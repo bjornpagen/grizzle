@@ -7,7 +7,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
-import { Id } from "#test/support/ids.ts"
+import { Id, toId } from "#test/support/ids.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** A pattern a stored field declares. */
@@ -25,7 +25,7 @@ const scalarRead = (filter: Filter) =>
 	query(Unread).rule((r) => {
 		const { id } = v(Item, "item")
 		const matched = r.match(Item, { id, code: r.param("p", Code) })
-		return (filter === "false" ? matched.where(r.or()) : matched).find({ id })
+		return (filter === "false" ? matched.where(r.or([])) : matched).find({ id })
 	})
 
 /** The rows of the relation parameter `named`, an item and a code, filtered by `filter`. */
@@ -34,12 +34,12 @@ const relationRead = (filter: Filter) =>
 		const named = r.relation("named", { item: Item.fields.id, code: Code })
 		const { item, code } = v(named, "named")
 		const matched = r.match(named, { item, code })
-		return (filter === "false" ? matched.where(r.or()) : matched).find({ item, code })
+		return (filter === "false" ? matched.where(r.or([])) : matched).find({ item, code })
 	})
 
 export const stored = [
-	{ id: Id("00000000-0000-4000-8000-000000000001"), code: "abc" },
-	{ id: Id("00000000-0000-4000-8000-000000000002"), code: "de" }
+	{ id: toId("00000000-0000-4000-8000-000000000001"), code: "abc" },
+	{ id: toId("00000000-0000-4000-8000-000000000002"), code: "de" }
 ] as const
 
 /** A text inside Code about half the time, a stored item's code among them: lowercase letters, or printable ASCII. */

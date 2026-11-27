@@ -40,9 +40,14 @@ import { agree, exact } from "@bjornpagen/testing/oracle"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
-import { sharedExpr } from "#compiler/lower/conservative/expr/share.ts"
+import { FieldTexts, sharedExpr } from "#compiler/lower/conservative/expr/share.ts"
 import { closedLeaf } from "#compiler/runtime/write/fill.ts"
-import { compiledExpr, type EvalLeaves, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
+import {
+	compiledExpr,
+	type EvalLeaves,
+	sqlNull,
+	noParamLeaf
+} from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
 import { hostColumns } from "#test/support/null/build.ts"
@@ -77,7 +82,7 @@ const hostAt =
 	(item: Item, id: number): string => {
 		const table = predicateTable(expr)
 		const value = compiledExpr(table)(
-			{ value: undefined, column: hostColumns(item, id), closed },
+			{ value: undefined, column: hostColumns(item, id), closed, param: noParamLeaf },
 			ProgramPatterns.of(tablePatterns(table))
 		)
 		return value.ok
@@ -116,7 +121,8 @@ export const aTermsSharedSubtermsAreEvaluatedOnceItsRewriteKeepsItsValueAtEveryR
 				const rewritten = sharedExpr(g, {
 					closed: installation.names.closedRelations,
 					host: closed,
-					size: () => 0
+					size: () => 0,
+					texts: new FieldTexts()
 				})
 				const before = hostAt(g, closed)
 				const after = hostAt(rewritten, closed)

@@ -8,13 +8,15 @@
  * id order takes every kind of a lower rank first, whatever the keys. The text is each part in turn, its length in
  * characters, a colon and the part, so no two lists of parts spell one text. A key value's image is its text under
  * equality's own reading of it, so two equal values give one id: a numeric's without the trailing zeros its scale
- * keeps (1.0 and 1.00 are one value), a float's zero `0` whatever its sign (-0 = +0), every other value's text, which
- * its equality reads whole. Nothing is stored: two units whose ids meet share one lock, which makes their writers wait
+ * keeps (1.0 and 1.00 are one value), a display scale the text reads (scalar/compute/registry.ts OperandReading); a
+ * value of a type whose equality is no identity, a float, its canonical form's (lower/conservative/expr/ops.ts
+ * canonicalForm, -0 written 0); every other value's text, which its equality reads whole. Nothing is stored: two units whose ids meet share one lock, which makes their writers wait
  * on each other and changes no outcome, and ids stay totally ordered.
  */
-import { baseOf, isFloat, type ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, nonIdentityCarrierOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { canonicalForm } from "#compiler/lower/conservative/expr/ops.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
-import { binary, call, cast, eq, lit, types } from "#compiler/sql/build.ts"
+import { binary, call, cast, lit, types } from "#compiler/sql/build.ts"
 
 /** A key value a lock is taken at, and the type its column holds it as. */
 export interface LockKey {
@@ -36,15 +38,8 @@ const keyImage = (key: LockKey): Expr => {
 	if (baseOf(key.type).carrier === "numeric") {
 		return text(call("trim_scale", [key.expr]))
 	}
-	if (isFloat(key.type)) {
-		return {
-			kind: "case",
-			operand: undefined,
-			whens: [{ when: eq(key.expr, lit.int(0, types.integer)), result: lit.text("0", types.text) }],
-			else: text(key.expr)
-		}
-	}
-	return text(key.expr)
+	const carrier = nonIdentityCarrierOf(key.type)
+	return text(carrier === undefined ? key.expr : canonicalForm(key.expr, carrier))
 }
 
 /** A part of a lock's canonical text, its length first: `<length>:<part>`. */

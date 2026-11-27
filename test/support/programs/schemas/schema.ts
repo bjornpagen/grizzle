@@ -4,7 +4,6 @@
  * this module alone.
  */
 export {
-	alternatives,
 	check,
 	closed,
 	contained,

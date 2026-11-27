@@ -1155,12 +1155,10 @@ export class DependencyDraft {
 		const heading = new Set(table.columns)
 		const ns = embedding.namespace
 		if (this.#namespaces.has(ns)) {
-			throw defect(`physical: two embeddings of one dependency draft under the namespace ${ns}`)
+			defect(`physical: two embeddings of one dependency draft under the namespace ${ns}`)
 		}
 		if (this.#extended) {
-			throw defect(
-				`physical: an embedding under ${ns} into a dependency draft that extends a table`
-			)
+			defect(`physical: an embedding under ${ns} into a dependency draft that extends a table`)
 		}
 		this.#namespaces.add(ns)
 		/** Each attribute's name in the embedding, made once for every implication and point rule that reads it. */
@@ -1250,11 +1248,11 @@ export class DependencyDraft {
 			this.#imps.length > 0 ||
 			this.#points.length > 0
 		) {
-			throw defect("physical: a dependency draft extends a table only as the first table it holds")
+			defect("physical: a dependency draft extends a table only as the first table it holds")
 		}
 		for (const c of table.columns) {
 			if (!this.#members.has(c)) {
-				throw defect(`physical: an extended table's column ${c} is no column of its draft`)
+				defect(`physical: an extended table's column ${c} is no column of its draft`)
 			}
 		}
 		this.#extended = true

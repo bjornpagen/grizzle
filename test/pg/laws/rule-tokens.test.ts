@@ -19,6 +19,7 @@
 import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
+	localityTemplates,
 	runTokensLocality,
 	runWritten,
 	type TokensFeature,
@@ -101,17 +102,26 @@ export const aRuleOverATextsTokensIsJudgedAsXMLReadsTheListItsTokensSplitAtEachR
  */
 export const aWholeRuleOverATextsTokensReadsTheTokensOfTheUnitsATransactionWroteAlone =
 	property.explore(tokensLocalityGen, {
-		needs: { substrate: Substrate.rolledBack(tokensTemplate) },
+		needs: {
+			stored: Substrate.rolledBack(localityTemplates.stored),
+			more: Substrate.rolledBack(localityTemplates.more)
+		},
 		situations: [
 			"measured with no statistics",
 			"measured analyzed"
 		] satisfies ReadonlyArray<TokensLocalityFeature>,
 		check:
-			({ substrate }, c) =>
+			({ stored, more }, c) =>
 			(drawn) =>
 				Effect.gen(function* () {
-					const { connection, value } = yield* substrate
-					yield* runTokensLocality(value, connection, drawn, c)
+					const s = yield* stored
+					const m = yield* more
+					yield* runTokensLocality(
+						{ installed: s.value, connection: s.connection },
+						{ installed: m.value, connection: m.connection },
+						drawn,
+						c
+					)
 				}),
 		oracle: {
 			kind: "universal",

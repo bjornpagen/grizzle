@@ -336,7 +336,7 @@ export const alikeQuery = (part: Part, conjuncts: Conjuncts): unknown =>
 		const [first, second] = pair
 		return r
 			.match(KindReach, { origin, kind })
-			.where(conjuncts === "one" ? first : r.and(first, second))
+			.where(conjuncts === "one" ? first : r.and([first, second]))
 			.find({ kind })
 	})
 
@@ -456,6 +456,8 @@ const alikeByName = (x: ScalarExpr, y: ScalarExpr): boolean => {
 		case "domainCast":
 		case "cond":
 			return true
+		case "variant":
+			return y.kind === "variant" && x.op.kind === y.op.kind
 	}
 }
 

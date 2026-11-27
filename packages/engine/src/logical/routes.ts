@@ -303,7 +303,7 @@ export const footprintOf = (
 					])
 					break
 				case "world":
-					throw defect(`a base-level program reads no world relation; it reads ${node.relation}`)
+					defect(`a base-level program reads no world relation; it reads ${node.relation}`)
 			}
 		}
 		for (const [input, read] of reads(node, r)) {

@@ -35,7 +35,8 @@ import { type LockKey, lockId } from "#compiler/write/borrow/lock.ts"
 import { type BorrowArm, borrowQuery } from "#compiler/write/borrow/statement.ts"
 import { ownStatement } from "#compiler/write/insert/statement.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { type Installed, installedTemplate } from "#test/support/install-migrate.ts"
+import { type Installed } from "#test/support/install-migrate.ts"
+import { fullWorldTemplate } from "#test/support/installed.ts"
 import { float8 } from "#test/support/oracle/gen/domain.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { type DirectActor, openActors, textOfValue } from "#test/support/schedules/actors.ts"
@@ -55,11 +56,13 @@ const Borrows = schema("Borrows", [Mark], [])
 const world = fullWorld(Borrows, {})
 
 /** Borrows installed once per member with its full world's login: the installation and its borrow function. */
-export const borrowsTemplate = installedTemplate({
+export const borrowsTemplate = fullWorldTemplate({
 	declaredIn: import.meta,
 	name: "borrows",
-	schema: Borrows,
-	options: { ambient: ordinarySession, label: "borrows", logins: [world.server], extensions: [] }
+	fixture: Borrows,
+	programs: {},
+	label: "borrows",
+	ambient: ordinarySession
 })
 
 /**

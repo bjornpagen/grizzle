@@ -2,9 +2,9 @@
  * What the properties of record-names.test.ts read: a schema whose relations a query attaches as options at one and two
  * levels below its root, the positions a records relation's name is derived at (the root's, an attachment's of a name
  * the tree holds once, a repeated name's under its parent, and a repeated name's under a parent whose name is stated),
- * each built so its derived name's identifier takes a given count of bytes; and a document read in the shape metis reads
- * an item's documents in (an item's scan and each stimulus's, pantry's documentScanOf below each) under a stem den
- * derives (a flow's, a step's and a read's names).
+ * each built so its derived name's conversion takes a given count of bytes, and a name of as many bytes stated at its
+ * path; and a document read in the shape metis reads an item's documents in (an item's scan and each stimulus's,
+ * pantry's documentScanOf below each) under a stem den derives (a flow's, a step's and a read's names).
  */
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { Array as Arr, String as Str } from "effect"
@@ -18,6 +18,16 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 export const positions = ["root", "attachment", "repeated", "under a stated parent"] as const
 
 export type Position = (typeof positions)[number]
+
+/**
+ * How a cell names the relation it measures: as records derive it, or by a name its author states at the relation's
+ * path, which the root has none of.
+ */
+export type CellNaming = "derived" | "stated"
+
+/** The namings a cell at `position` takes: the root's derived alone, an attachment's either. */
+export const namingsAt = (position: Position): readonly [CellNaming, ...Array<CellNaming>] =>
+	position === "root" ? ["derived"] : ["derived", "stated"]
 
 /** The faults of records' options a caller can write, each refused where the options are read. */
 export const optionFaults = [
@@ -56,7 +66,7 @@ const Ent = relation("Ent", { p: K, s: K, k: K, o: K, w: K }, ["p", "s", "k", "o
 const Ns = relation("Ns", { p: K, s: K, k: K, w: K }, ["p", "s", "k"])
 
 /** The schema every query of the properties is over. */
-const Names = schema(
+export const Names = schema(
 	"Names",
 	[P, A1, A2, B1, B2, Doc, Ref, Node, Opt, Row, Decl, Enc, Sd, Attr, Ent, Ns],
 	[]
@@ -98,6 +108,9 @@ export interface NamedCell {
 
 /** The name a parent states in the cell whose parent's name is stated. */
 const statedParent = "Stated"
+
+/** A name stated for a relation whose conversion takes exactly `bytes`: `Sx` and as many `y`s as make it. */
+export const statedOfBytes = (bytes: number): string => fitted("Sx", (word) => word, bytes)
 
 /** The cell of a position and a count of bytes (NamedCell). */
 export const namedCell = (position: Position, bytes: number): NamedCell => {
@@ -242,7 +255,11 @@ export const documentsRead: QueryValue = queryOver(Names)
 /** A stem den derives for a step's read of the documents: the flow's, the step's (`step` letters past its first) and the read's names. */
 export const denStem = (step: number): string => `EssayE${Str.repeat(step)("s")}ReadDocuments`
 
-/** The most letters past its first a step's name takes in den's stem with the records' root, `${stem}Row`, fitting. */
+/**
+ * The most letters past its first a step's name takes in den's stems the box reads: as many as leave the records'
+ * root's conversion, `${stem}Row`'s, within PostgreSQL's identifier, the stems den could write before records' derived
+ * names were hashed, every one of whose reads held a derived name past the bound.
+ */
 export const longestStep: number = maxIdentifierBytes - identifierBytes(`${denStem(0)}Row`)
 
 /** The relations a document read's records hold, by name: a records value's own (its `relations`). */

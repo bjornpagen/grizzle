@@ -35,7 +35,7 @@ import {
 import { buildSwarm } from "#test/pg/write/swarm/spec.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
-import { installMigrated } from "#test/support/install-migrate.ts"
+import { installFullWorld } from "#test/support/installed.ts"
 import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"
 import { oneFlight } from "#test/support/one-flight.ts"
 import { refusedEntries } from "#test/support/refused.ts"
@@ -53,12 +53,11 @@ export const theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRo
 					Effect.gen(function* () {
 						const built = buildSwarm(spec)
 						const declared = built.rename("Swarm")
-						const done = yield* installMigrated(declared, {
-							ambient: ordinarySession,
-							label: "swarm",
-							logins: [fullWorld(declared, {}).server],
-							extensions: []
-						})
+						const done = yield* installFullWorld(
+							declared,
+							{},
+							{ ambient: ordinarySession, label: "swarm" }
+						)
 						const value = built.rename(done.schema)
 						const names = namesOf(done)
 						const lawNames = lawNamesOf(value)

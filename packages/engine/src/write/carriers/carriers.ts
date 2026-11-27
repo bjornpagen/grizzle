@@ -4,10 +4,6 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
-import { Refusal } from "#compiler/core/canonical.ts"
-import { resourceBound } from "#compiler/core/errors.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
-import { temporarySchema } from "#compiler/core/temporary.ts"
 import { type FactColumn, factOperand, factSet } from "#compiler/ir/compare.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import { always } from "#compiler/ir/needs.ts"
@@ -17,61 +13,60 @@ import type { Heading, HeadingColumn, RelNode } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { columnIn, emptyEnv } from "#compiler/lower/conservative/context.ts"
 import type { BoundCarrier } from "#compiler/lower/conservative/types.ts"
+import { loosestRank, type Rank, rowsBound } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
-import type { StandUp } from "#compiler/runtime/write/flight.ts"
 import {
 	type ColumnDef,
-	type CreateCarrier,
-	type EmittedText,
-	type EmptyCarrier,
+	type EmittedSql,
+	type Expr,
 	type FromItem,
 	type FromSource,
-	type Insert,
 	isSetQuery,
-	type PlFunction,
+	type OperandSelect,
 	type Select,
 	type SetCore,
+	type Target,
 	type TypeRef
 } from "#compiler/sql/ast.ts"
 import {
+	call,
+	cast,
 	col,
+	countStar,
 	cUtf8Collation,
 	derived,
 	distinctCore,
+	firstNonNull,
 	keyedSet,
-	namedType,
-	objectName,
+	lit,
 	provedCore,
+	provedSelect,
 	select,
-	simpleSelect,
 	target,
+	types,
 	unitTargets
 } from "#compiler/sql/build.ts"
-import { emitText } from "#compiler/sql/emit.ts"
 import {
-	type CarrierDeclaration,
-	carrierName,
-	carrierReaderName,
-	carrierReaderScan,
-	type CarrierScope,
-	emptyNameMap,
-	namedQuery
-} from "#compiler/sql/naming.ts"
-import { carrierEmptying, printTableName, sessionReaderRows } from "#compiler/sql/print.ts"
-import { sessionTypes } from "#compiler/sql/type-schemas.ts"
+	carrierReading,
+	carrierSetting,
+	travelling,
+	travellingArray
+} from "#compiler/sql/carriers.ts"
+import { type CarrierDeclaration, carrierName, namedQuery } from "#compiler/sql/naming.ts"
 import {
 	buildStatement,
 	type CarrierResult,
 	ownBuild,
 	type WriteContext,
-	type WriteStatement,
 	writeKeeps,
-	writeValue
+	type WriteStatement,
+	writeValue,
+	type StatementWriting
 } from "#compiler/write/insert/statement.ts"
 
 /**
- * The most columns one table of PostgreSQL holds: a stored relation's table with the tag columns added to it, a view, a
- * stored derived relation's table and a write program's carrier, each refused as ResourceBound (tableColumns) where it is emitted,
+ * The most columns one table of PostgreSQL holds: a stored relation's table with the tag columns added to it, a view and
+ * a stored derived relation's table, each refused as ResourceBound (tableColumns) where it is emitted,
  * since PostgreSQL refuses the statement with 54011, "tables can have at most 1600 columns". A column the table once
  * held and dropped counts too, which a migration cannot see: PostgreSQL refuses such an ADD COLUMN itself.
  *
@@ -91,73 +86,95 @@ export interface CarrierColumn extends HeadingColumn {
 	readonly column: string
 }
 
-/** A carrier: its declaration, each field of its heading with its column; a carrier of the unit relation has none.
+/**
+ * A carrier: rows one statement of a write's flight makes and a later statement of the same flight reads, which no
+ * later statement could make again, since they are of a state the statements between have changed: a relation
+ * parameter's evaluation another state reads (write/schedule/plan.ts step `bound`), a described member or a shared
+ * sub-query several statements of a stratum read, a delta side a read-back after the last stratum reads, a member slot
+ * several statements read (write/program/slot-carriers.ts). Its declaration, each field of its heading with its column,
+ * c1 to cn; a carrier of the unit relation has none.
  *
- * Session carriers filled by INSERT ... SELECT, each holding one use's rows.
+ * A carrier travels in the transaction's own settings, never in a relation: each column is one transaction-local
+ * setting (`carrierSetting`), the text of the array of the column's values, one element per row, all of one length,
+ * written by the statement that makes the rows, `set_config(name, value, true)`, and read by every later statement of
+ * the flight as `unnest(current_setting(name)::text[])` in lockstep, one function scan of them all, each element cast
+ * back into its column's type (`carrierRead`), which PostgreSQL evaluates once a statement however often a plan
+ * rescans it:
  *
- * A described member is a leading CTE of the statement that consumes it, or a carrier of the same NOT NULL shape,
- * filled by INSERT ... SELECT, when sequential statements consume it: a same-key deletion and addition on an immutable
- * relation. A carrier holds a delta side only where a read-back after the last stratum reads it: the statement making
- * the side whole fills it from its RETURNING inside itself (write/readback/deltas.ts carriedFill). A carrier is a
- * temporary relation, so it lives in pg_temp and is never schema-qualified, and every column is NOT NULL. It is the
- * session's own: the session's stand-up of the write makes it, ON COMMIT PRESERVE ROWS, with its emptying, a session
- * function of its own name (`carrierStandUp`, runtime/write/flight.ts StandUp), once, before the session's first call
- * of the write, and each use empties it before it fills it (`buildEmptyCarrier`), so it holds that use's rows alone and
- * no COMMIT drops it, and it lives until the session ends. A carrier of a relation's facts, the write oracle's state
- * snapshot, is keyed by the relation's primary key (`relationCarrier`):
+ *   SELECT pg_catalog.set_config('grizzle.__carrier_<k>_c1', COALESCE(pg_catalog.array_agg("r1"."c1"::uuid),
+ *     '{}'::uuid[])::text, true), ... FROM (<member query>) AS "r1"("c1", ...)                        (its fill)
+ *   ... FROM (SELECT "u"."c1"::uuid AS "c1", ... FROM ROWS FROM (pg_catalog.unnest(pg_catalog.current_setting(
+ *     'grizzle.__carrier_<k>_c1')::text[]), ...) AS "u"("c1", ...)) AS "r9"                          (a reader)
  *
- *   CREATE TEMPORARY TABLE "pg_temp"."__carrier_<k>" ("c1" uuid NOT NULL, "c2" uuid NOT NULL,
- *     "c3" "work"."kind" NOT NULL) ON COMMIT PRESERVE ROWS                        (the stand-up)
- *   SELECT "pg_temp"."__carrier_<k>"()                                            (each use: its emptying)
- *   INSERT INTO "pg_temp"."__carrier_<k>" ("c1", "c2", "c3") SELECT ... FROM (<member query>) AS "r0"(...)
+ * So no statement names an object of the session, and its text and its identity are the program's alone: it is one
+ * statement in every session (one queryid, one entry a budget holds), a session plans it once, and no session creates,
+ * empties or drops anything to run a write. A relation kept the rows otherwise, a temporary table the session stood up
+ * once: its OID was the session's, so every statement naming it was a new statement in each session; its stand-up was
+ * DDL at each session's first call, catalog rows and invalidations every backend reads, and a queue of them past its
+ * length reset every backend's plans; its reader was a function no plan saw into, so metis's assign read every test of
+ * the catalog for one (edullm Q14); and its emptying truncated it past 100 pages, planning what read it again. A
+ * setting writes no heap, no catalog and no WAL, and every plan over it stays valid. A setting lives until the
+ * transaction ends, its value reverting there, and each flight writes every carrier it reads before any statement reads
+ * it (write/program/compile.ts), so a reader never meets another flight's rows, a share's of one call among them.
  *
- * and a keyed one's CREATE ends its columns with PRIMARY KEY ("c1") DEFERRABLE INITIALLY IMMEDIATE.
- *
- * Carriers are named `__carrier_<k>_<digest>`, k the carrier's ordinal among its program's carriers from 1 and the
- * digest its declaration's, and their columns c1 to cn (sql/naming.ts CarrierName): a session keeps each served
- * statement under its text (core/prepared.ts), so the name a text reads a carrier by fixes the carrier's declaration,
- * its row type among it. A column
- * is typed as the value it carries is written: a contract's domain, a refinement's `__text_` domain, a
- * roster's domain, or the builtin with its typmod, a builtin text column naming pg_catalog.pg_c_utf8 like every stored column,
- * so a statement reading the carrier sees the types a stored column of the relation has. A deletion's
- * member writes nothing, so its carrier is typed as the deletion compares it instead: each field's base type with its
- * typmod, no contract or refinement domain (`compareHeading`, `CastInto` "compare").
- *
- * A carrier is filled only by INSERT ... SELECT: from a described member, from a stored relation (the conservative
- * realization's state snapshot), from the difference of two such relations (a delta by state comparison), or from a
- * delta side's rows, a data-modifying CTE of the statement that makes it (a carried side). A carrier
- * of no column, which PostgreSQL holds, is the unit relation's: filled by
- * `INSERT INTO "__carrier_<k>" SELECT FROM ...`, one row of no column per row its source reads, and read through
- * the unit marker. */
+ * A column's array is typed by the column's session type (`CarrierTyping`): its value's base type, never an
+ * installation's domain, the type every statement reading it reads; a value reaches a stored column through the column's
+ * domain, which judges it there. Its text is PostgreSQL's own output of the array, which its input reads back exactly
+ * under the settings every Db session fixes (extra_float_digits = 1, DateStyle ISO, bytea_output hex): the one form a
+ * parameter of every statement already travels in. A column's setting holds its text whole, so one carrier is bounded
+ * by a setting's value, PostgreSQL's longest text, MaxAllocSize, as a parameter is: every carrier's rows are of one
+ * statement's evaluation over one call's rows.
+ */
 export interface WriteCarrier extends CarrierDecl {
 	readonly heading: ReadonlyArray<CarrierColumn>
-	/**
-	 * Its CREATE TEMPORARY TABLE's columns, each typed as its value is written, and the columns of its primary key, in
-	 * key order: a carrier of a relation's facts (`relationCarrier`) holds a set of them, keyed as the relation is, so
-	 * the key a reader of it relies on is the carrier's own constraint; a member's or a share's rows, a set by their
-	 * fill (`memberRows`), have none. Its name digests it.
-	 */
+	/** Its columns, each typed as its value travels, which its name digests. */
 	readonly declaration: CarrierDeclaration
+	/** The rank its rows are bounded at, which the compiler states of each carrier (`CarrierBound`). */
+	readonly bound: CarrierBound
+	/** What its rows are, as a refusal names them. */
+	readonly rows: string
 }
+
+/**
+ * The rank a carrier's rows are bounded at (lower/optimize/cte-policy rowsBound): `key`, a row of a key the call fixes;
+ * `held`, the call's own rows, its input's, each led at a key; `unit`, one unit's rows, or a unit's per row of the
+ * call's own; `prefix`, `cross` or `none`, rows that grow with the store. A setting holds a carrier's column whole, at
+ * most MaxAllocSize, 1 GB, so the last three are a population-scaling read held whole in a backend's memory (plan
+ * contract 3).
+ */
+export type CarrierBound = Rank | "none"
+
+/**
+ * What a carrier's rows are, by what bounds them: the rank of each source of its rows, a node's (rowsBound) or the
+ * call's own, a slot's facts or a family statement's nested rows, `held`; `rows` names them.
+ */
+export interface CarriedRows {
+	readonly ranks: NonEmptyReadonlyArray<Rank | undefined>
+	readonly rows: string
+}
+
+/** The rows of the nodes `nodes`, each ranked by what bounds it (rowsBound), named `rows`. */
+export const nodeRows = (nodes: NonEmptyReadonlyArray<RelNode>, rows: string): CarriedRows => ({
+	ranks: mapNonEmpty(nodes, rowsBound),
+	rows
+})
 
 /** A carrier's columns, in heading order. */
 export const carrierColumns = (carrier: WriteCarrier): ReadonlyArray<string> =>
 	carrier.heading.map((c) => c.column)
 
 /**
- * The PostgreSQL type a carrier column of a value of `t` is declared with: its session type (ir/physical.ts
- * sessionTypeRef), the value's base type, never an installation's domain, so no migration that drops or changes a
- * domain meets a live session's carrier, and no role needs USAGE on a domain to stand one up.
+ * The PostgreSQL type a carrier column of a value of `t` travels as: its session type (ir/physical.ts sessionTypeRef),
+ * the value's base type, never an installation's domain, so a carrier's text reads back whatever a migration does to a
+ * domain, and its readers read every value as a stored column's base holds it.
  */
 export type CarrierTyping = (t: ScalarType) => TypeRef
 
 /**
- * How a program declares its carriers, each of which its name digests: whose session tables they are (sql/naming.ts
- * CarrierScope) and the type of each column (CarrierTyping). Every carrier of a program, its own and every staged one
- * (write/program/staged.ts, slot-carriers.ts), is declared by it.
+ * How a program declares its carriers, each of which its name digests: the type of each column (CarrierTyping). Every
+ * carrier of a program, its own and every staged one (write/program/slot-carriers.ts), is declared by it.
  */
 export interface CarrierDeclaring {
-	readonly scope: CarrierScope
 	readonly typing: CarrierTyping
 }
 
@@ -170,10 +187,9 @@ export class CarrierSupply {
 		this.#declaring = declaring
 	}
 
-	/** A carrier of `heading`, of any width, keyed by the fields `key` names, or by none. */
-	next(heading: Heading, key: NonEmptyReadonlyArray<string> | undefined): WriteCarrier {
+	/** A carrier of `heading`, of any width, holding `rows`, bounded at the loosest of their ranks (`CarrierBound`). */
+	next(heading: Heading, rows: CarriedRows): WriteCarrier {
 		const ordinal = this.#all.length + 1
-		const at = `carrier ${ordinal}`
 		const columns = Object.freeze(
 			heading.map((c, i): CarrierColumn =>
 				Object.freeze({ name: c.name, type: c.type, column: `c${i + 1}` })
@@ -182,26 +198,14 @@ export class CarrierSupply {
 		const declaration: CarrierDeclaration = Object.freeze({
 			columns: Object.freeze(
 				columns.map((c) => carrierColumnDef(c.column, this.#declaring.typing(c.type)))
-			),
-			primaryKey:
-				key === undefined
-					? undefined
-					: Object.freeze(
-							mapNonEmpty(
-								key,
-								(field) =>
-									defined(
-										columns.find((c) => c.name === field),
-										`the key field ${field} in ${at}`
-									).column
-							)
-						)
+			)
 		})
 		const carrier: WriteCarrier = Object.freeze({
-			name: carrierName(this.#declaring.scope, ordinal, declaration),
+			name: carrierName(ordinal),
 			heading: columns,
-			fill: "insertSelect" as const,
-			declaration
+			declaration,
+			bound: loosestRank(rows.ranks) ?? "none",
+			rows: rows.rows
 		})
 		this.#all.push(carrier)
 		return carrier
@@ -222,150 +226,122 @@ export const carrierField = (carrier: WriteCarrier, field: string): CarrierColum
 	)
 
 /**
- * The rows of the carrier `carrier` as a statement reads them: through its reader (sql/naming.ts carrierReaderScan), a
- * staged carrier's among them (write/program/staged.ts).
+ * The rows of the carrier `carrier` as a statement reads them under `alias` (sql/carriers.ts carrierReading): its
+ * columns' settings read as arrays, unnested in lockstep. The one way a statement reads a carrier.
  */
-export const carrierRead = (carrier: CreateCarrier, alias: string): FromSource =>
-	carrierReaderScan(
-		carrier.name,
-		carrier.columns.map((c) => c.name),
-		alias
-	)
+export const carrierRead = (carrier: WriteCarrier, alias: string): FromSource =>
+	carrierReading(carrier.name, carrier.declaration.columns, alias)
 
-export const carrierScan = (carrier: WriteCarrier, alias: string): FromSource =>
-	carrierRead(carrierTable(carrier), alias)
+/** The names a carrier's fill reads its rows under: the alias of its source, and the name of each of its columns. */
+export interface StashNames {
+	readonly alias: string
+	readonly columns: ReadonlyArray<string>
+}
+
+/**
+ * The query that fills `carrier` with the rows `source` delivers, each column in the carrier's order, read under
+ * `names`: one row, the call of set_config of each column's setting, local to the transaction, to the text of the array
+ * of its values, each cast into the column's type, the empty array where no row is; of a carrier of no column, its
+ * count of rows. Its one aggregation reads every row once, so the arrays hold the rows in one order, index by index.
+ */
+export const carrierStash = (
+	carrier: WriteCarrier,
+	source: OperandSelect,
+	names: StashNames
+): Select => {
+	const from = derived(namedQuery(source, names.columns), names.alias, false)
+	const stated = (column: string | undefined, value: Expr): Target =>
+		target(
+			call("set_config", [
+				lit.text(carrierSetting(carrier.name, column), types.text),
+				cast(value, types.text),
+				lit.bool(true)
+			])
+		)
+	const columns = carrier.declaration.columns
+	const targets = isNonEmpty(columns)
+		? columns.map((c, i) =>
+				stated(
+					c.name,
+					firstNonNull([
+						call("array_agg", [
+							cast(
+								col(names.alias, defined(names.columns[i], "a carrier column's source")),
+								travelling(c)
+							)
+						]),
+						lit.text("{}", travellingArray(c))
+					])
+				)
+			)
+		: [stated(undefined, countStar())]
+	return provedSelect("oneRow", targets, [from], undefined)
+}
+
+/**
+ * The query that fills `carrier` with no row: each column's setting the empty array's text, a carrier of no column's
+ * count 0. The fill of a side a statement returns no row of.
+ */
+export const emptyStash = (carrier: WriteCarrier): Select => {
+	const stated = (column: string | undefined, value: string): Target =>
+		target(
+			call("set_config", [
+				lit.text(carrierSetting(carrier.name, column), types.text),
+				lit.text(value, types.text),
+				lit.bool(true)
+			])
+		)
+	const columns = carrier.declaration.columns
+	return provedSelect(
+		"oneRow",
+		isNonEmpty(columns) ? columns.map((c) => stated(c.name, "{}")) : [stated(undefined, "0")],
+		[],
+		undefined
+	)
+}
+
+/** The names a carrier's fill riding a statement reads its one row under: its alias, and a column per setting. */
+export interface RidingNames {
+	readonly stash: string
+	readonly stashed: ReadonlyArray<string>
+}
+
+/**
+ * A carrier's fill `stash` (`carrierStash`, `emptyStash`) riding a statement that delivers rows of its own
+ * (write/program/compile.ts ridingSingle, ridingFamily): its one row read under `names` past OFFSET 1, so it delivers no
+ * row, of no column, and the statement's arm that reads it evaluates it once, since an OFFSET reads every row it skips.
+ * An arm of a UNION ALL is read to its end, so the fill runs whatever rows the statement's other arms deliver, none
+ * among them.
+ */
+export const ridingStash = (stash: Select, names: RidingNames): Select => ({
+	...provedSelect(
+		"keyed",
+		[],
+		[derived(namedQuery(stash, names.stashed), names.stash, false)],
+		undefined
+	),
+	offset: lit.int(1, types.bigint)
+})
+
+/** The columns a carrier's fill delivers, one per setting it writes: one per column, or its count's of no column. */
+export const stashedWidth = (carrier: WriteCarrier): number =>
+	Math.max(carrier.declaration.columns.length, 1)
 
 /**
  * A carrier as a lowering reads the rows of a relation parameter its ChangeSet binds to a query (lower/conservative
- * BoundCarrier, ir/rel.ts InputSetInput `bound`): scanned as every carrier is (`carrierScan`), each field in its column.
+ * BoundCarrier, ir/rel.ts InputSetInput `bound`): read as every carrier is (`carrierRead`), each field in its column.
  */
 export const carrierRows = (carrier: WriteCarrier): BoundCarrier => ({
 	carrier: carrier.name,
-	scan: (alias) => carrierScan(carrier, alias),
+	scan: (alias) => carrierRead(carrier, alias),
 	column: (field) => carrierField(carrier, field).column
 })
-
-/**
- * A carrier's CREATE TEMPORARY TABLE, which the session's stand-up of the write sends (runtime/write/flight.ts
- * StandUp), refused as ResourceBound (tableColumns) for a heading wider than a table of PostgreSQL holds,
- * tableMaxColumns.
- */
-export const carrierTable = (carrier: WriteCarrier): CreateCarrier => {
-	if (carrier.heading.length > tableMaxColumns) {
-		throw new Refusal(
-			resourceBound(SourceLoc("write lowering", ["carriers", carrier.name]), {
-				kind: "tableColumns",
-				table: printTableName(carrier.name),
-				limit: tableMaxColumns,
-				needed: carrier.heading.length
-			})
-		)
-	}
-	return {
-		kind: "createCarrier",
-		name: carrier.name,
-		primaryKey: carrier.declaration.primaryKey,
-		columns: carrier.declaration.columns
-	}
-}
 
 /** A carrier column `column` of `type`: a builtin text one names pg_catalog.pg_c_utf8, like every stored column. */
 export const carrierColumnDef = (column: string, type: TypeRef): ColumnDef =>
 	type.kind === "builtin" && type.name === "text"
 		? { name: column, type, collation: cUtf8Collation, generated: undefined }
 		: { name: column, type, collation: undefined, generated: undefined }
-
-/**
- * A carrier's reader, the session function the session's stand-up makes beside the carrier, in pg_temp
- * (sql/naming.ts carrierReaderName): its rows' one SELECT, every column of the carrier, as RETURNS SETOF the carrier's
- * own row type, declaring the rows a call returns (sql/print.ts sessionReaderRows). Every statement reads the carrier through it
- * (`carrierRead`), so a statement's plan depends on the function, never on the table: a
- * TRUNCATE the emptying gives the carrier once it outgrows its page (sql/print.ts sessionTableEmptied), a new file of the table
- * and an invalidation of every plan over it, leaves every statement's plan standing for the next call, and only the
- * reader's own SELECT is planned again, as a judge's delta's reader does (physical/ddl/deltas.ts addReaders). Its owner
- * is the role that made the carrier, as its emptying's is.
- *
- *   CREATE OR REPLACE FUNCTION "pg_temp"."<carrier>_rows"() RETURNS SETOF "pg_temp"."<carrier>" ROWS 10 ... AS $$BEGIN
- *     RETURN QUERY SELECT r1.<column>, ... FROM pg_temp.<carrier> AS r1;
- *   END$$
- */
-export const carrierReader = (carrier: CreateCarrier): PlFunction => ({
-	kind: "createFunction",
-	language: "plpgsql",
-	name: objectName(temporarySchema, carrierReaderName(carrier.name)),
-	params: [],
-	returns: {
-		setOf: namedType(sessionTypes, carrier.name, []),
-		rows: { kind: "declared", rows: sessionReaderRows }
-	},
-	volatility: "VOLATILE",
-	parallel: "UNSAFE",
-	security: "DEFINER",
-	body: {
-		declare: [],
-		body: [
-			{
-				kind: "returnQuery",
-				query: simpleSelect(
-					carrier.columns.map((c) => ({ expr: col("r1", c.name), alias: undefined })),
-					[{ kind: "table", table: objectName(temporarySchema, carrier.name), alias: "r1" }],
-					undefined
-				)
-			}
-		]
-	}
-})
-
-/**
- * A carrier's stand-up (runtime/write/flight.ts StandUp): its table; its emptying, the session function of its own
- * name in pg_temp (sql/print.ts carrierEmptying); and its reader, the session function every statement reads it
- * through (sql/print.ts carrierReader); each made as the write's role by the session's stand-up of the write, once, so
- * each use empties it by a call PostgreSQL plans once in the session, and no statement's plan depends on the table.
- */
-export const carrierStandUp = (table: CreateCarrier): StandUp<EmittedText> => ({
-	kind: "carrier",
-	table: emitText(table, emptyNameMap).text,
-	emptying: emitText(carrierEmptying(table.name), emptyNameMap).text,
-	reader: emitText(carrierReader(table), emptyNameMap).text
-})
-
-/** A carrier's emptying before a use fills it (sql/ast.ts EmptyCarrier). */
-const emptyAst = (carrier: WriteCarrier): EmptyCarrier => ({
-	kind: "emptyCarrier",
-	name: carrier.name
-})
-
-/**
- * A carrier's emptying as a statement of its own, which no lowering builds or shares: a staged member slot's carrier's
- * (write/program/slot-carriers.ts), placed after the statements are built.
- */
-export const carrierEmptied = (carrier: WriteCarrier): WriteStatement<CarrierResult> => {
-	const ast = emptyAst(carrier)
-	return Object.freeze({
-		role: "carrier" as const,
-		ast,
-		sql: emitText(ast, emptyNameMap),
-		params: [],
-		result: Object.freeze({
-			kind: "carrier" as const,
-			carrier: carrier.name,
-			step: "empty" as const
-		}),
-		needs: always
-	})
-}
-
-/** A carrier's emptying at the start of its stratum (write/schedule/plan.ts `emptyCarrier`). */
-export const buildEmptyCarrier = (
-	w: WriteContext,
-	carrier: WriteCarrier
-): WriteStatement<CarrierResult> =>
-	buildStatement(w, { kind: "shared", memo: w.share.emptyings, key: [carrier] }, () => ({
-		ast: emptyAst(carrier),
-		role: "carrier",
-		result: { kind: "carrier", carrier: carrier.name, step: "empty" },
-		needs: always
-	}))
 
 /**
  * What fills a carrier: a described member's rows; or, for a carrier of a relation's facts (`relationCarrier`), the
@@ -412,7 +388,7 @@ const snapshotFacts = (
 ): FactsRead => {
 	const alias = w.cx.supply.relation({ kind: "internal", purpose: "carrier operand" })
 	return {
-		from: carrierScan(carrier, alias),
+		from: carrierRead(carrier, alias),
 		columns: mapNonEmpty(relation.heading, (f) => ({
 			target: target(col(alias, carrierField(carrier, f.name).column)),
 			type: f.type
@@ -512,37 +488,37 @@ const fillQuery = (w: WriteContext, carrier: WriteCarrier, source: CarrierSource
 	}
 }
 
+/**
+ * The statement filling `carrier` from `source` (`carrierStash`), a statement of its own in the write's flight, first
+ * among the statements that read it: its one row carries nothing to decode.
+ */
 export const buildFillCarrier = (
-	w: WriteContext,
+	w: StatementWriting<EmittedSql>,
 	carrier: WriteCarrier,
 	source: CarrierSource
-): WriteStatement<CarrierResult> => {
-	return buildStatement(w, ownBuild, () => {
-		const ast: Insert = {
-			kind: "insert",
-			table: carrier.name,
-			columns: carrierColumns(carrier),
-			source: { kind: "query", query: fillQuery(w, carrier, source) },
-			with: undefined,
-			alias: undefined,
-			onConflict: undefined,
-			returning: []
-		}
+): WriteStatement<CarrierResult> =>
+	buildStatement(w, ownBuild, (supply) => {
+		const origin = { kind: "internal", purpose: "carrier fill" } as const
+		const rows = fillQuery(w, carrier, source)
 		return {
-			ast,
+			ast: carrierStash(carrier, rows, {
+				alias: supply.relation(origin),
+				columns: carrier.heading.map(() => supply.column(origin))
+			}),
 			role: "carrier",
-			result: { kind: "carrier", carrier: carrier.name, step: "fill" },
+			result: { kind: "carrier", carrier: carrier.name },
 			needs: always
 		}
 	})
-}
 
 /** A carrier for the facts of a relation, its fields in heading order, the order a read-back's Delta node reads
- * position by position, keyed by the relation's primary key: what it holds is some of the relation's facts as they
- * stand before or after a change, a set by that key, as the write oracle's state comparison holds them
- * (test/support/oracle/write/realize.ts). */
+ * position by position: what it holds is some of the relation's facts as they stand before or after a change, a set by
+ * the relation's key, as the write oracle's state comparison holds them (test/support/oracle/write/realize.ts). */
 export const relationCarrier = (supply: CarrierSupply, relation: RelationInfo): WriteCarrier =>
 	supply.next(
 		relation.heading.map((f) => ({ name: f.name, type: f.type })),
-		mapNonEmpty(relation.primaryFields, (f) => f.name)
+		{
+			ranks: ["cross"],
+			rows: `${relation.name}'s facts`
+		}
 	)

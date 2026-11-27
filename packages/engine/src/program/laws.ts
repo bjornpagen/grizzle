@@ -4,7 +4,13 @@ import { generatedFieldLaws, lawDescription } from "#compiler/analysis/theory/de
 import type { CompileError } from "#compiler/core/errors.ts"
 import { captureLoc } from "#compiler/core/loc.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
-import { fieldPatternLaws, patternLawId, planTextDomains } from "#compiler/physical/ddl/domains.ts"
+import {
+	fieldPatternLaws,
+	fieldVariantLaws,
+	patternLawId,
+	planTextDomains,
+	variantLawId
+} from "#compiler/physical/ddl/domains.ts"
 import { sealLaws } from "#compiler/physical/ddl/seal.ts"
 import { parseBuiltSchema } from "#compiler/program/input.ts"
 import { builtLawModel, compiledSchema } from "#compiler/program/schema.ts"
@@ -39,7 +45,7 @@ export interface SchemaLaws {
 }
 
 /**
- * The law model of a schema built by schema(...) or schema.extend, every slice of it planned, the one its value holds
+ * The law model of a schema built by schema(...) or schema.extend, planned, the one its value holds
  * (program/schema.ts builtLawModel), whatever reads it: CompileError for any other value, a role's included, refused
  * at `operation`, the reader whose call it is, which labels the refusal alone; and the schema's own CompileError for a
  * schema that does not compile.
@@ -64,11 +70,11 @@ const schemaLaws = (schema: AnySchema, operation: string): SchemaLaws => {
 
 /**
  * The theory's laws in theory order, each described as an outcome describes it, each owned statement's beside it as
- * its normalization merged them (analysis/theory/laws.ts KeptLaw); then each stored field's pattern law and each
- * generated field's law, which no statement states; then each sealed unit's seal law (physical/ddl/seal.ts), its unit
- * statement's. Each with the identity a refusal names it by: a theory law's own, a pattern law's under the text domain
- * its pattern's key is planned as (planTextDomains, patternLawId), as the installation identifies it, a generated
- * field's and a seal's.
+ * its normalization merged them (analysis/theory/laws.ts KeptLaw); then each stored field's pattern law, variant law
+ * and generated field's law, which no statement states; then each sealed unit's seal law (physical/ddl/seal.ts), its
+ * unit statement's. Each with the identity a refusal names it by: a theory law's own, a pattern law's under the text domain
+ * its pattern's key is planned as (planTextDomains, patternLawId), as the installation identifies it, a variant law's
+ * under its variant's domain (variantLawId), a generated field's and a seal's.
  */
 const derivedLaws = (model: LawModel): SchemaLaws => {
 	const theory = model.theory.laws.map((law, position) => ({
@@ -88,6 +94,9 @@ const derivedLaws = (model: LawModel): SchemaLaws => {
 			)
 		})
 	)
+	const variants = fieldVariantLaws(model).map((v): IdentifiedLaw<OwnLaw> =>
+		Object.freeze({ law: namedLaw(v.law), id: variantLawId(v) })
+	)
 	const generated = generatedFieldLaws(
 		[...model.relations.values()].map((r) => r.relation),
 		model.owned.declared.generated
@@ -100,7 +109,7 @@ const derivedLaws = (model: LawModel): SchemaLaws => {
 	)
 	const seals = sealLaws(model.owned).map((s, i) => ({
 		placed: Object.freeze({
-			position: theory.length + patterns.length + generated.length + i,
+			position: theory.length + patterns.length + variants.length + generated.length + i,
 			law: namedLaw(s.described)
 		}),
 		id: s.id,
@@ -116,6 +125,7 @@ const derivedLaws = (model: LawModel): SchemaLaws => {
 		laws: Object.freeze([
 			...theory.map((t): IdentifiedLaw<OwnLaw> => Object.freeze({ law: t.placed.law, id: t.id })),
 			...patterns,
+			...variants,
 			...generated,
 			...seals.map((t): IdentifiedLaw<OwnLaw> => Object.freeze({ law: t.placed.law, id: t.id }))
 		]),
@@ -140,7 +150,8 @@ const derivedLaws = (model: LawModel): SchemaLaws => {
  * catalog entry (`entry`) included, the one its statements' author declares (law(...)) or the one grizzle derives
  * (runtime/law-entry.ts derivedEntry), so `sameLaw` holds of a law here and a law an outcome names exactly when they
  * are one law, and every law an outcome over the schema names is one of these; and `id`, the one a refusal's RefusedLaw names it by: a theory law's LawId, a
- * stored field's pattern law's LawId under the text domain its pattern is installed as, a generated field's
+ * stored field's pattern law's LawId under the text domain its pattern is installed as, a stored field's variant law's
+ * LawId under its variant's domain, a generated field's
  * GeneratedLawId, and a sealed unit's seal law's LawId. An application that names the laws it handles keys its names by these ids and reads a refusal's laws
  * by their ids, with no search and no table of ids of its own.
  *
@@ -148,9 +159,10 @@ const derivedLaws = (model: LawModel): SchemaLaws => {
  * theory's laws in theory order (each ordinary relation's primary key by relation name, then the statements' laws in
  * canonical statement order, then each contract's by contract name), each described as an outcome describes it
  * (analysis/theory/description.ts lawDescription); then each stored field's pattern law (physical/ddl/domains.ts
- * fieldPatternLaws); then each generated field's law (generatedFieldLaws); the last two by relation name and each
- * relation's fields in declared order; then each sealed unit's seal law, by unit name (physical/ddl/seal.ts sealLaws).
- * The installation reads its text domains' and generated columns' laws from those same fields, and its seal triggers'
+ * fieldPatternLaws); then each stored field's variant law (fieldVariantLaws); then each generated field's law
+ * (generatedFieldLaws); the last three by relation name and each relation's fields in declared order; then each sealed
+ * unit's seal law, by unit name (physical/ddl/seal.ts sealLaws). The installation reads its text, variant and arm
+ * fields' domains' and generated columns' laws from those same fields, and its seal triggers'
  * laws from the same units, so the two can never disagree. A law two statements state, such as a key that restates the primary
  * key, is listed once.
  *
@@ -162,7 +174,7 @@ export const lawsOf = (schema: AnySchema): ReadonlyArray<IdentifiedLaw<OwnLaw>> 
 
 /** What a statement given to lawsByStatement's lookup must be. */
 const aStatedStatement =
-	"a statement the schema states: one built by key, mutable, check, contained, mirrors, alternatives, ordered, counted, tree or fold, which a level of the schema states"
+	"a statement the schema states: one built by key, mutable, check, contained, mirrors, ordered, counted, tree or fold, which a level of the schema states"
 
 /** The canonical texts of the statements a statement value is owned as (schema/statements.ts statementTextsOf). */
 const ownedAs = (statement: unknown): ReadonlyArray<string> => {
@@ -189,7 +201,7 @@ const placedOf = (
  * lawsByStatement(schema): the laws each statement of a schema built by schema(...) or schema.extend states, compiled
  * once, as a lookup: `lawsByStatement(schema)(statement)` is the laws `statement` states, each one lawsOf(schema) lists,
  * in lawsOf's order, read from the same derivation: a key's, a check's, a containment's, a family's, a tree's and a
- * fold's one law, a mirrors' two containments, an alternatives law's containments, a sealed unit's seal law, and none
+ * fold's one law, a mirrors' two containments, a sealed unit's seal law, and none
  * for a mutable or an unsealed unit. A law two statements state is each one's, such as a span primary key's law and a
  * key over its fields.
  *

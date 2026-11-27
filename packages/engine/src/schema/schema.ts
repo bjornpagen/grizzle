@@ -24,6 +24,7 @@ import { functionDescOf } from "#compiler/schema/function.ts"
 import { declaredEntriesOf } from "#compiler/schema/law-entries.ts"
 import { isLevelOver, type Level, levelOf } from "#compiler/schema/level.ts"
 import {
+	type BuiltArguments,
 	type BuiltSchemaContent,
 	levelContent,
 	type SchemaContent
@@ -67,6 +68,13 @@ import type { Statement } from "#compiler/types/schema/statements.ts"
 export const schemaDescOf = (value: unknown): SchemaDesc | undefined => ownedDesc(value, "schema")
 
 /**
+ * The arguments a schema value's builder was called with, its name aside (levels.ts BuiltArguments), or undefined for
+ * a value no schema builder made.
+ */
+export const builtArgumentsOf = (value: unknown): BuiltArguments | undefined =>
+	ownedEntry(value, "schema")?.content.arguments
+
+/**
  * One declaration of a name a schema's build meets: a relation, closed relation, roster or derived relation value, a
  * level's list or a listed fragment holds it or a statement was built over it, and its meaning, its Description (a
  * derived relation's, its draft), whose location is where it was declared.
@@ -95,12 +103,13 @@ const definitionLevel = (value: unknown): Level | undefined => {
 	return entry?.kind === "query" ? levelOf(entry.content.schema) : undefined
 }
 
-const declaredTwice = (later: Declaration, earlier: Declaration): CompileError =>
-	CompileError.make({
+const declaredTwice: (later: Declaration, earlier: Declaration) => never = (later, earlier) => {
+	throw CompileError.make({
 		_tag: "DuplicateIdentity",
 		at: later.meaning.loc,
 		duplicate: { kind: "relation", name: later.meaning.name, earlier: earlier.meaning.loc }
 	})
+}
 
 /**
  * Whether `d` is the first declaration of its name in its level, `declared` the level's so far and `below` every
@@ -116,7 +125,7 @@ const declaresFirst = (
 ): boolean => {
 	const prior = below.get(d.meaning.name) ?? declared.get(d.meaning.name)
 	if (prior !== undefined && !sameContent(prior.meaning, d.meaning)) {
-		throw declaredTwice(d, prior)
+		declaredTwice(d, prior)
 	}
 	if (declared.has(d.meaning.name)) {
 		return false
@@ -144,7 +153,7 @@ const statementsDeclared = (
 				throw new CompileError(undeclaredRelation(s.desc.loc, d.meaning.name))
 			}
 			if (!sameContent(prior.meaning, d.meaning)) {
-				throw declaredTwice(d, prior)
+				declaredTwice(d, prior)
 			}
 		}
 	}
@@ -280,9 +289,8 @@ export interface LevelStatement {
 }
 
 /**
- * A mirrors(...) or alternatives(...) value is one statement of the list, which the schema expands into the statements
- * it is sugar for: a mirrors' two containments, an alternatives law's containment and its arms' mirrors, in roster
- * order. Each is read with the canonical form its value carries from its build.
+ * A mirrors(...) value is one statement of the list, which the schema expands into the two containments it is sugar
+ * for. Each is read with the canonical form its value carries from its build.
  */
 const statementList = (
 	statements: ReadonlyArray<unknown>,
@@ -290,10 +298,7 @@ const statementList = (
 ): ReadonlyArray<LevelStatement> =>
 	statements.flatMap((s, i): ReadonlyArray<LevelStatement> => {
 		if (isList(s)) {
-			throw malformed(
-				`${label} statement ${i}`,
-				"a statement; alternatives(...) is one statement, not a list"
-			)
+			throw malformed(`${label} statement ${i}`, "a statement, not a list")
 		}
 		const expansion = ownedEntry(s, "expansion")
 		if (expansion !== undefined) {
@@ -481,13 +486,15 @@ export const admitSchema = (
 }
 
 /**
- * A built schema's content: its level's, and the schema owned once, held by the value from its first read (levels.ts
- * BuiltSchemaContent), over the content of the levels below, each the content its own value carries.
+ * A built schema's content: its level's, the schema owned once, held by the value from its first read, and the
+ * arguments its builder was called with (levels.ts BuiltSchemaContent), over the content of the levels below, each the
+ * content its own value carries.
  */
-const builtContent = (admitted: AdmittedLevel): BuiltSchemaContent =>
+const builtContent = (admitted: AdmittedLevel, called: BuiltArguments): BuiltSchemaContent =>
 	Object.freeze({
 		...admitted.content,
-		owned: once(() => ownBuilt({ desc: admitted.desc, content: admitted.content }))
+		owned: once(() => ownBuilt({ desc: admitted.desc, content: admitted.content })),
+		arguments: Object.freeze(called)
 	})
 
 /**
@@ -525,7 +532,11 @@ const rootSchema = <
 			bases: []
 		},
 		desc: admitted.desc,
-		content: builtContent(admitted)
+		content: builtContent(admitted, {
+			kind: "root",
+			relations: Object.freeze([...relations]),
+			statements: Object.freeze([...statements])
+		})
 	})
 }
 
@@ -749,7 +760,12 @@ const extend = <
 			bases: [base]
 		},
 		desc: admitted.desc,
-		content: builtContent(admitted)
+		content: builtContent(admitted, {
+			kind: "extend",
+			base,
+			relations: Object.freeze([...relations]),
+			statements: Object.freeze([...statements])
+		})
 	})
 }
 

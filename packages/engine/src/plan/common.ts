@@ -114,6 +114,9 @@ export {
 } from "#compiler/core/phantom.ts"
 export { hasProperties, isList, isRecord } from "#compiler/core/record.ts"
 export * as Engine from "@bjornpagen/grizzle-text/base/result"
+export { contractFileOf } from "#compiler/program/contract.ts"
+export type { AnyContract, Contract, FieldBase } from "#compiler/types/fields/field.ts"
+export { contractText } from "#compiler/served/json.ts"
 export { rowEvaluatorOver } from "#compiler/program/evaluate.ts"
 export { codecTextOver, rowTextOver, type TextedField } from "#compiler/program/text.ts"
 export type { Isolation } from "#compiler/core/isolation.ts"
@@ -184,6 +187,7 @@ export {
 	namedLogin,
 	namedRole
 } from "#compiler/physical/ddl/names.ts"
+export { noServedTypes, servedTogether, type ServedTypes } from "#compiler/physical/ddl/domains.ts"
 export { unserved, type ParamSource } from "#compiler/physical/install/plan.ts"
 export { readGaps, servedLiveOf } from "#compiler/program/live.ts"
 export { servedSession } from "#compiler/program/served.ts"
@@ -199,11 +203,14 @@ export {
 	unmatchedOf
 } from "#compiler/program/schema.ts"
 export {
+	type BaseInput,
 	type BuiltSchema,
 	levelSchema,
 	parseBuiltSchema,
 	type ParsedRole,
+	parseRole,
 	parseSchemaInput,
+	roleOfDesc,
 	type SchemaInput
 } from "#compiler/program/input.ts"
 export { type SchemaContent, sameLevel } from "#compiler/schema/levels.ts"
@@ -242,6 +249,7 @@ export { differenceShown, escaped } from "#compiler/sql/escape.ts"
 export { looksLikeLiteralPack, printCommentTarget, printObjectName } from "#compiler/sql/print.ts"
 export type {
 	Carriers,
+	Facts,
 	Invariant,
 	OnlyParams,
 	ParamArg,
@@ -257,6 +265,7 @@ export type {
 	AdmittedRow,
 	CheckNameOf,
 	CheckVerdict,
+	ContractRefused,
 	DomainRefused,
 	EvaluatedRow,
 	GeneratedFieldOf,

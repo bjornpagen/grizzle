@@ -27,7 +27,7 @@ import { Array as Arr, Effect, Option, Result } from "effect"
 import { windowIntake } from "#adapter/page/execute.ts"
 import type { SentRuns } from "#adapter/reader/execution.ts"
 import { deliveredRows } from "#adapter/reader/run.ts"
-import { type Delivery, licenses, type Row, UnlawfulDelivery } from "#compiler/core/decoder.ts"
+import { licenses, type Row, UnlawfulDelivery } from "#compiler/core/decoder.ts"
 import { recordsReader } from "#compiler/runtime/read/record.ts"
 import { bindGroups, named, record } from "#compiler/schema/record.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -79,9 +79,7 @@ export const anAttachmentsDeliveryDeliversWhatItsProofAllowsAndIsADefectNamingTh
 			(_, c: Case<DeliveryFeature>) =>
 			({ reader, proved, n }) =>
 				Effect.sync(() => {
-					const stated: Delivery =
-						reader === "a selected arm" || reader === "an unselected arm" ? "option" : reader
-					if (!licenses(proved, stated)) {
+					if (!licenses(proved, reader)) {
 						c.note("a proof that does not license the reader")
 						return
 					}
@@ -122,10 +120,7 @@ export const anAttachmentsDeliveryDeliversWhatItsProofAllowsAndIsADefectNamingTh
 							return
 						case "one":
 							c.note("delivered")
-							assert.deepEqual(
-								read(row),
-								reader === "a selected arm" ? Option.some(want.child) : want.child
-							)
+							assert.deepEqual(read(row), want.child)
 							return
 					}
 				}),

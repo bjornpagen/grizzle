@@ -10,7 +10,7 @@ import { defect } from "#text/base/invariant.ts"
 export const entry = <T>(table: ArrayLike<T>, index: number): T => {
 	const found = table[index]
 	if (found === undefined) {
-		throw defect(`an automaton table entry at ${index} of ${table.length}`)
+		defect(`an automaton table entry at ${index} of ${table.length}`)
 	}
 	return found
 }
@@ -24,7 +24,7 @@ export const entry = <T>(table: ArrayLike<T>, index: number): T => {
 export const cell = (table: Int32Array, index: number): number => {
 	const found = table[index]
 	if (found === undefined) {
-		throw defect(`an automaton table entry at ${index} of ${table.length}`)
+		defect(`an automaton table entry at ${index} of ${table.length}`)
 	}
 	return found
 }

@@ -37,10 +37,11 @@ export interface OwnedFunction {
  * Whether a declared function's signature takes a field of this type: a value of a base type PostgreSQL passes as it
  * is, a closed id, passed as its code, which the call casts to its roster's domain where it reads the function's value,
  * a digest, passed as its bytea, which the call casts to the installation's digest domain where it reads the value, so
- * the domain's CHECK holds its 32 octets, or a contract or a refined text over one; never money, whose text is the
- * session's locale's, an exact value of any size, whose integers or scale only a stored column's CHECK holds and no
- * cast of a function's value checks, a computed numeric's bound, which no function's body is held to, bytes, a set, a
- * span, a vector or a search document.
+ * the domain's CHECK holds its 32 octets, or a contract or a refined text over one; or a variant, passed as its
+ * composite, which the call casts to the variant's domain where it reads the function's value, so the domain's CHECK
+ * holds its arm whole; never money, whose text is the session's locale's, an exact value of any size, whose integers or
+ * scale only a stored column's CHECK holds and no cast of a function's value checks, a computed numeric's bound, which
+ * no function's body is held to, bytes, a set, a span, a vector or a search document.
  */
 const signatureType = (t: FieldDesc): boolean => {
 	switch (t.kind) {
@@ -51,6 +52,7 @@ const signatureType = (t: FieldDesc): boolean => {
 		case "text":
 		case "closedId":
 		case "sha256":
+		case "variant":
 			return true
 		case "contract":
 			return signatureType(t.base)
@@ -75,11 +77,20 @@ const typesOf = (t: FunctionTypeDesc): ReadonlyArray<FieldDesc> =>
 const headingsOf = (t: FunctionTypeDesc): ReadonlyArray<HeadingDesc> =>
 	t.kind === "value" ? [] : [t.heading, ...t.heading.flatMap((f) => headingsOf(f.type))]
 
+/**
+ * Whether a signature's type is a closed id of a subset of its roster, through its contracts: a value of a subset comes
+ * from a value of that subset (ir/scalar.ts subsetWithin), and no function's body is one, since the call casts its
+ * value to the roster's domain alone, so a function's closed id is of its whole roster. A variant's arm field of a
+ * subset is its domain's, which the call casts the function's value to (physical/ddl/variants.ts).
+ */
+const subsetId = (t: FieldDesc): boolean =>
+	t.kind === "closedId" ? t.only !== undefined : t.kind === "contract" && subsetId(t.base)
+
 /** The refusal of a signature over a type no declared function takes (signatureType), as the types name it. */
 const signatureRefused = (loc: SourceLoc): CompileError =>
 	ruleRefused(
 		loc,
-		"a declared function takes and returns values of a base type, a closed id, a digest, a contract or a refined text over one: no serial, money, exact value, bytes, set, span or vector"
+		"a declared function takes and returns values of a base type, a closed id, a digest, a contract or a refined text over one, or a variant: no serial, money, exact value, bytes, set, span or vector"
 	)
 
 /**
@@ -173,7 +184,11 @@ const bodiesHeld = (
 				)
 			)
 		]
-		for (const { rowType } of fn.desc.body.named) {
+		for (const placeholder of fn.desc.body.named) {
+			if ("spelling" in placeholder) {
+				continue
+			}
+			const { rowType } = placeholder
 			if (!held.some((h) => sameContent(h, rowType))) {
 				return Result.err(
 					malformedDescription(
@@ -210,9 +225,16 @@ export const ownFunctions = (
 				["result", fn.returns]
 			]
 			for (const [at, t] of typed) {
+				const loc = labeledChildLoc(fn.loc, at, `function ${fn.name} ${at}`)
 				if (!typesOf(t).every(signatureType)) {
+					return Result.err(signatureRefused(loc))
+				}
+				if (typesOf(t).some(subsetId)) {
 					return Result.err(
-						signatureRefused(labeledChildLoc(fn.loc, at, `function ${fn.name} ${at}`))
+						ruleRefused(
+							loc,
+							"a declared function's closed id is of its whole roster: no function's body is a value of a subset"
+						)
 					)
 				}
 			}

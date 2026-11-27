@@ -213,7 +213,7 @@ export const aRelationOfGeneratedFieldsIsKeyedByExactlyTheClosureOfItsKeysAndIts
 			{
 				file: "packages/engine/src/analysis/schema.ts",
 				original:
-					"\t\treturn reads.some((r) => fields.some((x) => x.name === r && isFloat(x.type)))\n",
+					"\t\treturn reads.some((r) => fields.some((x) => x.name === r && !equalityIsIdentity(x.type)))\n",
 				replacement: "\t\treturn false\n",
 				why: "A generation reading a float is stamped (analysis/schema.ts generatedReadsOf): its reads become a key, though -0 and +0 are one key value it tells apart."
 			},

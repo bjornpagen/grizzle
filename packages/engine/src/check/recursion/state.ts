@@ -14,6 +14,7 @@ import {
 	numericTypmodOf,
 	sameScalarType,
 	type ScalarType,
+	subsumes,
 	typeLabel
 } from "#compiler/ir/scalar.ts"
 import { exactOf, finiteEnds, insideRange } from "#compiler/scalar/compute/bounds.ts"
@@ -21,6 +22,7 @@ import { intervalCastProof } from "#compiler/scalar/compute/lower.ts"
 import { binaryCoercion, castOf } from "#compiler/scalar/compute/registry.ts"
 import { compatible, isInteger } from "#compiler/scalar/compute/types.ts"
 import { boundsOfType } from "#compiler/scalar/compute/typing.ts"
+import type { PatternDfas } from "#compiler/scalar/regex/inclusion.ts"
 
 /**
  * The recursive state heading: the declared row, its hashing capability, and the exact conversions an arm's columns
@@ -104,7 +106,7 @@ type Conversion =
  * typmod, which an arm's numeric has exactly or is refused (anotherTypmod): what the arm's values may still lack is the
  * declared text refinement.
  */
-const conversion = (a: ScalarType, d: ScalarType): Conversion => {
+const conversion = (a: ScalarType, d: ScalarType, patterns: PatternDfas): Conversion => {
 	if (sameScalarType(a, d)) {
 		return { kind: "same" }
 	}
@@ -119,7 +121,7 @@ const conversion = (a: ScalarType, d: ScalarType): Conversion => {
 	if (dt !== undefined && (at?.precision !== dt.precision || at.scale !== dt.scale)) {
 		return { kind: "refused", conversion: "anotherTypmod" }
 	}
-	if (!guarantees(a, d)) {
+	if (!guarantees(a, d, patterns)) {
 		return { kind: "refused", conversion: "unprovedRefinement" }
 	}
 	return { kind: "cast" }
@@ -189,7 +191,9 @@ const counterNarrowing = (
 
 /**
  * A node over `arms` delivering exactly `state`: unchanged when every column already has its state type, otherwise a
- * projection casting the columns that convert exactly. `loc` names the arm, or the arms when they are several.
+ * projection casting the columns that convert exactly, a column whose state type subsumes its own read as it stands
+ * (ir/scalar.ts subsumes; ir/expr.ts builtExpr refuses the up-cast). `loc` names the arm, or the arms when they are
+ * several.
  */
 export const conform = (
 	cx: CheckServices,
@@ -219,7 +223,7 @@ export const conform = (
 	}))
 	let changed = false
 	for (const { target, column } of columns) {
-		const c = conversion(column.type, target.type)
+		const c = conversion(column.type, target.type, cx.patterns)
 		if (c.kind === "refused") {
 			failRecursion(loc, {
 				kind: "inexactConversion",
@@ -240,7 +244,7 @@ export const conform = (
 	}
 	const out = columns.map(({ target, column }) => {
 		const read = cx.builder.expr(storedColumn(node.id, column.name, column.type))
-		if (sameScalarType(column.type, target.type)) {
+		if (subsumes(target.type, column.type)) {
 			return { name: target.name, expr: read }
 		}
 		if (column.type.carrier !== "exactInteger") {

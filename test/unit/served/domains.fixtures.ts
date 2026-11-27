@@ -80,60 +80,72 @@ export const caseGen: Gen<TextDomainCase> = (source) => ({
 	read: source.draw(element(reads))
 })
 
-/** Any text: a document's list. */
-const Any = str.regex("^.*$", "su")
-
 /**
- * A word a carrying ChangeSet writes into Out, a code of the refinement or a token of a list: any text of at most 64
- * bytes, so a B-tree entry of Out's key holds it, where a text no byte bound proves is refused as a key (no code a
- * refinement admits passes 12 bytes, the byte-bounded pattern's bound, and no case writes a list).
+ * A word a carrying ChangeSet writes into Out, a code of the refinement or a token of a list, and a document's list:
+ * any text of at most 64 bytes, so a B-tree entry of Out's key holds it, where a text no byte bound proves is refused
+ * as a key (no code a refinement admits passes 12 bytes, the byte-bounded pattern's bound, and no case writes a list),
+ * and each token of a list, of grizzle's token pattern within those bytes, is a word. A carrying delete binds one
+ * variable to a token and to Out's value, which takes the type of the two that guarantees the other and is refused
+ * where neither does (check/checker.ts RuleCheck #settle, 31664c74c6), as a token of a list of no byte bound and a
+ * word are: a word holds whitespace, the token more than 64 bytes.
  */
 const Word = str.bytes(64, str.regex("^.*$", "su"))
 
+const countKey = Symbol("Count")
 /** A contract the functions' results carry: grizzle's exact integer of QTI's range, edullm's QtiInteger. */
-const Count = contract("Count", pg.numeric(613, 0))
+const Count = contract<typeof countKey>()("Count", pg.numeric(613, 0))
 
+const rankKey = Symbol("Rank")
 /** A contract only a query declares, the target of its checked cast. */
-const Rank = contract("Rank", pg.integer)
+const Rank = contract<typeof rankKey>()("Rank", pg.integer)
 
 /**
  * The case's login: Item(item), the items a function is called at; Doc(doc, list), lists of tokens; Out(item, value),
  * what a carrying ChangeSet writes, mutable inside the unit of its item, which its deletes need; Coded(item, code, count), a stored field of the refinement and one of the contract
  * where the case places them; and four functions whose results are of the refinement or the contract, `judge` returning
  * rows of (code, count), whose count no read finds but every read's cast checks, `judgeRow` one row of a field of such
- * rows, `judgeOne` a value of the refinement and `countOne` one of the contract, each body returning a member.
+ * rows, `judgeOne` a value of the refinement and `countOne` one of the contract, each body returning a member, each
+ * function whose result holds Count declared under Count's key, since its body makes Count's values.
  */
 const loginOf = (c: TextDomainCase) => {
 	const R = refinements[c.refinement]
 	const Item = relation("Item", { item: pg.integer }, ["item"])
-	const Doc = relation("Doc", { doc: pg.integer, list: Any }, ["doc"])
+	const Doc = relation("Doc", { doc: pg.integer, list: Word }, ["doc"])
 	const Out = relation("Out", { item: pg.integer, value: Word }, ["item", "value"])
 	const Coded = relation("Coded", { item: pg.integer, code: R, count: Count }, ["item"])
 	const Judged = rows({ code: R, count: Count })
 	/** Each body returns a member of the refinement, alpha or beta for the alternation and ab or cd for the others. */
 	const words = c.refinement === "an alternation"
-	const judge = fn("judge", {
-		calls: [],
-		args: { item: pg.integer },
-		returns: Judged,
-		volatility: "immutable",
-		nullInput: "called",
-		language: "sql",
-		body: words
-			? fn.body`SELECT CASE WHEN item % 2 = 0 THEN 'alpha' ELSE 'beta' END, item::numeric`
-			: fn.body`SELECT CASE WHEN item % 2 = 0 THEN 'ab' ELSE 'cd' END, item::numeric`
-	})
-	const judgeRow = fn("judgeRow", {
-		calls: [],
-		args: { item: pg.integer },
-		returns: row(rows({ codes: Judged })),
-		volatility: "immutable",
-		nullInput: "called",
-		language: "sql",
-		body: words
-			? fn.body`SELECT ARRAY[ROW(CASE WHEN item % 2 = 0 THEN 'alpha' ELSE 'beta' END, item::numeric)::${Judged}]`
-			: fn.body`SELECT ARRAY[ROW(CASE WHEN item % 2 = 0 THEN 'ab' ELSE 'cd' END, item::numeric)::${Judged}]`
-	})
+	const judge = fn(
+		"judge",
+		{
+			calls: [],
+			args: { item: pg.integer },
+			returns: Judged,
+			volatility: "immutable",
+			nullInput: "called",
+			language: "sql",
+			body: words
+				? fn.body`SELECT CASE WHEN item % 2 = 0 THEN 'alpha' ELSE 'beta' END, item::numeric`
+				: fn.body`SELECT CASE WHEN item % 2 = 0 THEN 'ab' ELSE 'cd' END, item::numeric`
+		},
+		{ Count: countKey }
+	)
+	const judgeRow = fn(
+		"judgeRow",
+		{
+			calls: [],
+			args: { item: pg.integer },
+			returns: row(rows({ codes: Judged })),
+			volatility: "immutable",
+			nullInput: "called",
+			language: "sql",
+			body: words
+				? fn.body`SELECT ARRAY[ROW(CASE WHEN item % 2 = 0 THEN 'alpha' ELSE 'beta' END, item::numeric)::${Judged}]`
+				: fn.body`SELECT ARRAY[ROW(CASE WHEN item % 2 = 0 THEN 'ab' ELSE 'cd' END, item::numeric)::${Judged}]`
+		},
+		{ Count: countKey }
+	)
 	const judgeOne = fn("judgeOne", {
 		calls: [],
 		args: { item: pg.integer },
@@ -145,15 +157,19 @@ const loginOf = (c: TextDomainCase) => {
 			? fn.body`SELECT CASE WHEN item % 2 = 0 THEN 'alpha' ELSE 'beta' END`
 			: fn.body`SELECT CASE WHEN item % 2 = 0 THEN 'ab' ELSE 'cd' END`
 	})
-	const countOne = fn("countOne", {
-		calls: [],
-		args: { item: pg.integer },
-		returns: Count,
-		volatility: "immutable",
-		nullInput: "called",
-		language: "sql",
-		body: fn.body`SELECT item::numeric`
-	})
+	const countOne = fn(
+		"countOne",
+		{
+			calls: [],
+			args: { item: pg.integer },
+			returns: Count,
+			volatility: "immutable",
+			nullInput: "called",
+			language: "sql",
+			body: fn.body`SELECT item::numeric`
+		},
+		{ Count: countKey }
+	)
 	const base = schema(
 		"TextDomains",
 		[
@@ -268,7 +284,7 @@ const loginOf = (c: TextDomainCase) => {
 				case "a query's own contract found":
 					return query(s).rule((r) => {
 						const { item: at } = v(Item, "item")
-						return r.match(Item, { item: at }).find({ rank: Type.cast(at, Rank) })
+						return r.match(Item, { item: at }).find({ rank: Type.cast(at, Rank, rankKey) })
 					})
 				case "a function's contract value found":
 					return query(s).rule((r) => {

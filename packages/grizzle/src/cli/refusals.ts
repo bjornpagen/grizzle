@@ -125,6 +125,10 @@ export const refusalText = {
 		problem: "a migration folder is named <YYYYMMDDHHMMSS>_<name>",
 		fix: "fix the file: rename the folder, or move it out of the migrations directory"
 	},
+	forkedChain: {
+		problem: "forked chain: two migrations share a timestamp, so both were drafted on one chain",
+		fix: "keep one of the two and the snapshot.json its line reached, delete the other, and run grizzle generate again for its change (--custom --name for a custom migration's)"
+	},
 	fileName: {
 		problem: "a migration file is named NN-<words>.sql, one per NN",
 		fix: "fix the file: rename it to NN-<words>.sql with an NN of its own"
@@ -213,7 +217,5 @@ export const cliStageFix: Readonly<Record<Exclude<CliStage, OwnFixStage>, string
 	snapshot: "restore snapshot.json, manifest.json and the migration folders from git",
 	format: formatRefusal.snapshot.fix,
 	codes: appendHandles,
-	generate: "fix the schema or workload it names, then run grizzle generate again",
-	upgrade:
-		"bring the database to the snapshot its committed folders reach with the grizzle that drafted them (grizzle migrate, then grizzle drift), from the source it was deployed from; an object the refusal names is one this grizzle's format changes in a way no rebase may draft, which only a migration of that grizzle's own can carry"
+	generate: "fix the schema or workload it names, then run grizzle generate again"
 }

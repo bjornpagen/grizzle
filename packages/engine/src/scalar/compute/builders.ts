@@ -2,7 +2,7 @@ import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { replaceMap } from "@bjornpagen/grizzle-text/text"
 import { nominal } from "#compiler/core/brand.ts"
-import { bitsColumn, codeColumn } from "#compiler/core/decoder.ts"
+import { bitsColumn, type Column, codeColumn } from "#compiler/core/decoder.ts"
 import {
 	CompileError,
 	malformedDescription,
@@ -91,6 +91,7 @@ import {
 	type TypingEnv,
 	typePredicate
 } from "#compiler/scalar/compute/typing.ts"
+import { admitMintKey } from "#compiler/scalar/contract.ts"
 import { literalDescFor } from "#compiler/scalar/literal.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { admitMatch, matchRefusalAt } from "#compiler/scalar/regex/admit.ts"
@@ -458,8 +459,8 @@ class Call {
 	}
 
 	/**
-	 * finish of an expression whose value is plain: a closed id's, a set's, a span's, a vector's, a search document's and
-	 * bytes' values are no plain value.
+	 * finish of an expression whose value is plain: a closed id's, a set's, a span's, a vector's, a search document's,
+	 * bytes' and a variant's values are no plain value.
 	 */
 	finishPlain(real: OpenExpr, ph: ExprDesc): PlainChecked {
 		const checked = this.finish(real, ph)
@@ -472,7 +473,8 @@ class Call {
 			carrier === "rangeDate" ||
 			carrier === "vector" ||
 			carrier === "tsvector" ||
-			carrier === "bytes"
+			carrier === "bytes" ||
+			carrier === "variant"
 		) {
 			return malformed(this.loc, `a value of a plain SQL type, not ${typeLabel(checked.type)}`)
 		}
@@ -664,11 +666,15 @@ const singleton = (id: unknown, extra: ReadonlyArray<unknown>): SetChecked => {
 	return { ...checked, roster: roster.closed }
 }
 
-/** Logic.and and Logic.or, total: of no predicate the constant true and false, of one that predicate. */
+/** Logic.and and Logic.or, over one list of predicates, total: of none the constant true and false, of one that
+ * predicate. */
 const boolean =
 	(kind: "and" | "or") =>
-	(ps: ReadonlyArray<unknown>): PredicateValue => {
+	(ps: unknown): PredicateValue => {
 		const call = new Call(spelling[kind])
+		if (!isList(ps)) {
+			return malformed(call.loc, `one list of predicates: ${spelling[kind]}([p, q])`)
+		}
 		const operands = ps.map((p, i) => call.predicate(p, `${kind}'s operand ${i + 1}`))
 		return call.finishPredicate(
 			connectiveExpr(
@@ -1209,10 +1215,21 @@ const base = (x: unknown): PlainChecked => {
 	return call.finishPlain({ kind: "base", arg: a.real }, { kind: "base", arg: a.ph })
 }
 
-const cast = (x: unknown, to: unknown): Checked => {
+/**
+ * A cast of `x` into `to`, a consumer's contract under its key, the one value `key` holds (scalar/contract.ts
+ * admitMintKey), since the cast makes the contract's values in the database; into any other type under none.
+ */
+const cast = (x: unknown, to: unknown, key: ReadonlyArray<unknown>): Checked => {
 	const call = new Call(spelling.cast)
 	const a = call.term(x, "cast's operand")
 	const field = call.field(to, "the cast's target")
+	admitMintKey(
+		field.scalar,
+		key,
+		call.loc,
+		"Type.cast(x, to): two arguments",
+		"Type.cast(x, C, key)"
+	)
 	return call.finish(
 		{ kind: "cast", to: field.desc, arg: a.real },
 		{ kind: "cast", to: field.desc, arg: a.ph }
@@ -1343,6 +1360,105 @@ const checks = Object.freeze({
 	dateOfEpochDay: unary("dateOfEpochDay")
 })
 
+/**
+ * A variant's tag (ir/desc.ts VariantOpDesc `tag`): a closed id of the variant's roster, carried by the column of a
+ * closed id of every handle of it, as closedId(roster) reads one.
+ */
+export const variantTag = <H>(subject: unknown, column: Column<H>): ScalarTerm<H, "code"> => {
+	const call = new Call("tag")
+	const x = call.term(subject, "tag's subject")
+	const checked = call.finish(
+		{ kind: "variant", op: { kind: "tag" }, args: [x.real] },
+		{ kind: "variant", op: { kind: "tag" }, args: [x.ph] }
+	)
+	return scalarTerm(checked.expr, checked.type, { column, sql: carrierSql.code })
+}
+
+/**
+ * A variant's identity image (ir/desc.ts VariantOpDesc `digest`, scalar/variant-digest.ts): a SHA-256 digest, carried
+ * as Crypto.sha256's result is, so `generated(sha256, V.digest(row.value))` is a field a key may be declared over.
+ */
+export const variantDigest = (subject: unknown): ScalarTerm<PlainHost["sha256"], "sha256"> => {
+	const call = new Call("digest")
+	const x = call.term(subject, "digest's subject")
+	const checked = call.finish(
+		{ kind: "variant", op: { kind: "digest" }, args: [x.real] },
+		{ kind: "variant", op: { kind: "digest" }, args: [x.ph] }
+	)
+	return plain(checked, "sha256")
+}
+
+/**
+ * One field of an arm of a variant's value (ir/desc.ts VariantOpDesc `field`), carried by the field's own descriptor's
+ * column, `field`: what a cases branch of that arm reads of its subject, which only the branch's arm's tag guards.
+ */
+export const armFieldTerm = (
+	subject: unknown,
+	handle: string,
+	name: string,
+	field: unknown
+): ScalarTerm => {
+	const call = new Call(`${handle}.${name}`)
+	const x = call.term(subject, "a field's subject")
+	const op = { kind: "field", handle, field: name } as const
+	const checked = call.finish(
+		{ kind: "variant", op, args: [x.real] },
+		{ kind: "variant", op, args: [x.ph] }
+	)
+	const described = call.field(field, `field ${name} of arm ${handle}`)
+	return scalarTerm(checked.expr, checked.type, described.carrier)
+}
+
+/**
+ * A value of the arm `handle` of the variant `variant`, its descriptor, made of `fields` (ir/desc.ts VariantOpDesc
+ * `make`): each of the arm's fields by name, a term of the field's type or a literal of it, in the arm's declared order,
+ * carried by the variant's own column. A field the arm lacks, or one it holds that `fields` does not state, is refused.
+ */
+export const variantMake = <V>(
+	variant: TermCarrier<V, "variant">,
+	handle: unknown,
+	fields: unknown
+): ScalarTerm<V, "variant"> => {
+	const call = new Call("make")
+	const described = call.field(variant, "make's variant")
+	const carried = baseOf(described.scalar)
+	if (carried.carrier !== "variant") {
+		return malformed(call.loc, "a variant's descriptor as make's variant")
+	}
+	const arm = carried.variant.arms.find((a) => a.handle === handle)
+	if (typeof handle !== "string" || arm === undefined) {
+		return malformed(
+			call.loc,
+			`a handle of an arm of variant ${carried.variant.name} as make's arm (${carried.variant.arms.map((a) => a.handle).join(", ")})`
+		)
+	}
+	const stated = hostRead(
+		() => malformedDescription(call.loc, "make's fields whose properties can be read"),
+		(): Result.Result<Readonly<Record<string, unknown>>, CompileError> =>
+			hasProperties(fields) &&
+			!isList(fields) &&
+			Object.keys(fields).length === arm.fields.length &&
+			arm.fields.every((f) => Object.hasOwn(fields, f.name))
+				? Result.ok(fields)
+				: Result.err(
+						malformedDescription(
+							call.loc,
+							`make's fields, exactly the arm ${handle}'s: ${arm.fields.map((f) => f.name).join(", ")}`
+						)
+					)
+	)
+	if (!stated.ok) {
+		throw stated.error
+	}
+	const operands = arm.fields.map((f) => call.operand(stated.value[f.name], f.type, "literal"))
+	const op = { kind: "make", variant: described.desc, handle } as const
+	const checked = call.finish(
+		{ kind: "variant", op, args: operands.map((o) => o.real) },
+		{ kind: "variant", op, args: operands.map((o) => o.ph) }
+	)
+	return scalarTerm(checked.expr, checked.type, { column: variant.column, sql: variant.sql })
+}
+
 /** The predicates, the same for a typed and a JavaScript caller, and's and or's operands as one list. */
 const predicates = Object.freeze({
 	not,
@@ -1408,8 +1524,11 @@ export const compute = Object.freeze({
 		carried(checks.literal(type, value), type),
 	base: <S extends PlainSql>(x: OfSql<S>): ScalarTerm<PlainHost[S], S> =>
 		plain(checks.base(x), x.sql),
-	cast: <T, S extends SqlTag>(x: unknown, to: TermCarrier<T, S>): ScalarTerm<T, S> =>
-		carried(checks.cast(x, to), to),
+	cast: <T, S extends SqlTag>(
+		x: unknown,
+		to: TermCarrier<T, S>,
+		...key: ReadonlyArray<unknown>
+	): ScalarTerm<T, S> => carried(checks.cast(x, to, key), to),
 	add: <S extends NumericSql>(a: OfSql<S>, b: unknown) =>
 		plain(checks.add(a, b), arithmeticSql[a.sql]),
 	sub: <S extends NumericSql>(a: OfSql<S>, b: unknown) =>
@@ -1550,15 +1669,13 @@ const fieldCarrier = (value: unknown): TermCarrier =>
  */
 export const computeCore = Object.freeze({
 	...predicates,
-	and: (...ps: ReadonlyArray<unknown>) => predicates.and(ps),
-	or: (...ps: ReadonlyArray<unknown>) => predicates.or(ps),
 	literal: (type: unknown, value: unknown): ScalarTerm => {
 		const checked = checks.literal(type, value)
 		return scalarTerm(checked.expr, checked.type, fieldCarrier(type))
 	},
 	base: (x: unknown) => plainBy(checks.base(x)),
-	cast: (x: unknown, to: unknown): ScalarTerm => {
-		const checked = checks.cast(x, to)
+	cast: (x: unknown, to: unknown, ...key: ReadonlyArray<unknown>): ScalarTerm => {
+		const checked = checks.cast(x, to, key)
 		return scalarTerm(checked.expr, checked.type, fieldCarrier(to))
 	},
 	add: (a: unknown, b: unknown) => plainBy(checks.add(a, b)),

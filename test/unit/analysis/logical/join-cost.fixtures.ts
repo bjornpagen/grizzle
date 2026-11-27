@@ -40,6 +40,8 @@ export const productOf = (k: number, keyed: "both keys" | "a key and a payload")
 				keys: keyed === "both keys" ? [["b"]] : [],
 				relationKind: "relation",
 				generated: [],
+				unit: [],
+				determined: [],
 				heading: [
 					{ name: "a", type: int4 },
 					{ name: "b", type: int4 }
@@ -89,6 +91,8 @@ export const classesOf = (k: number, s: number): ValidDag => {
 			keys,
 			relationKind: "relation",
 			generated: [],
+			unit: [],
+			determined: [],
 			heading: Arr.map(columns, (name) => ({ name, type: int4 })),
 			loc: undefined,
 			meta: conservativeMeta

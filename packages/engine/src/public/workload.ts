@@ -28,8 +28,9 @@ export const paged: PagedConstructor = runtime.pagedMember
 export const answered: AnsweredConstructor = runtime.answeredMember
 
 /**
- * clocked(program, binding): the workload member that serves a query, an ordered query or a ChangeSet with each
- * parameter `binding` names bound to the database's clock in its unit, read at the instant the call's transaction began
- * (program/workload/value.ts clockedMember).
+ * clocked(program, binding, keys): the workload member that serves a query, an ordered query or a ChangeSet with each
+ * parameter `binding` names bound to the database's clock in its unit, read at the instant the call's transaction began,
+ * a parameter of a consumer's contract under its key in `keys`, `{ now: millisKey }` (program/workload/value.ts
+ * clockedMember).
  */
 export const clocked: ClockedConstructor = runtime.clockedMember

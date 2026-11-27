@@ -33,6 +33,7 @@ import { DecimalText } from "#compiler/ir/decimal.ts"
 import {
 	type ComputeFn,
 	computeFns,
+	declaredNaming,
 	decodeDesc,
 	type DescKind,
 	descText,
@@ -394,22 +395,6 @@ const statements: ReadonlyArray<StatementDesc> = [
 		}
 	},
 	{
-		kind: "alternatives",
-		parent: { relation: "Task", terms: [{ kind: "field", field: "id" }], selection: everyFact },
-		discriminator: "kind",
-		roster: "Kind",
-		arms: [
-			{
-				handle: "Automatic",
-				arm: {
-					relation: "AutomaticTask",
-					terms: [{ kind: "field", field: "task" }],
-					selection: everyFact
-				}
-			}
-		]
-	},
-	{
 		kind: "contained",
 		left: {
 			relation: "Task",
@@ -495,9 +480,9 @@ const plan: RelationDesc = {
 
 /** One relation of every kind. */
 const relations: ReadonlyArray<RelationDesc> = [
-	{ kind: "relation", name: "Task", fields, primaryKey: ["id"] },
-	{ kind: "closed", name: "Kind", handles: ["Automatic", "Manual"] },
-	{ kind: "closed", name: "Tier", handles: ["Free", "Pro"] },
+	{ kind: "relation", name: "Task", naming: declaredNaming, fields, primaryKey: ["id"] },
+	{ kind: "closed", name: "Kind", naming: declaredNaming, handles: ["Automatic", "Manual"] },
+	{ kind: "closed", name: "Tier", naming: declaredNaming, handles: ["Free", "Pro"] },
 	plan,
 	{
 		kind: "closedRelation",
@@ -644,8 +629,8 @@ const castsAndSpans: ExprDesc = {
 /** One description of every kind, which together hold every stage, statement and expression kind. */
 const samples: ReadonlyArray<readonly [DescKind, unknown]> = [
 	["schema", schema],
-	["statement", statements[5]],
-	["statement", statements[8]],
+	["statement", statements[4]],
+	["statement", statements[7]],
 	["relation", plan],
 	["query", query],
 	["query", recursive],

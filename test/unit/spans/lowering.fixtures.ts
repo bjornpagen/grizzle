@@ -22,7 +22,8 @@ import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
 import { sentForms } from "#test/support/oracle/forms.ts"
 
-const Instant = contract("Instant", pg.bigint)
+const instantKey = Symbol("Instant")
+const Instant = contract<typeof instantKey>()("Instant", pg.bigint)
 
 export const Slot = relation(
 	"Slot",

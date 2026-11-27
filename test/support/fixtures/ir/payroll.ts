@@ -3,7 +3,6 @@ import { type GuardDesc, guardedExpr, type SchemaDesc } from "#compiler/ir/desc.
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import {
 	type AuthoredStatementDesc,
-	alternatives,
 	betweenExpr,
 	charLength,
 	check,
@@ -248,23 +247,30 @@ const payrollRelations = [
 	Request
 ] as const
 
-const alternativeStatements = alternatives(PayRun, "stage", Stage, {
-	paid: Payment,
-	voided: Voiding
-})
+/** A run's stage carries its payload: a paid run's payment, a voided run's voiding, each mirrored with its runs. */
+const stagePayloads = Object.freeze([
+	...mirrors(
+		on("Payment", ["run"]),
+		onWhere("PayRun", ["id"], eq(field("stage"), literal("paid")))
+	),
+	...mirrors(
+		on("Voiding", ["run"]),
+		onWhere("PayRun", ["id"], eq(field("stage"), literal("voided")))
+	)
+])
 
 /**
  * The laws, statement by statement.
  *
  * Its statements hold every law family of the first compiler: candidate keys; opt-ins to in-place change; a row check;
  * containments into keyed relations and into closed facts (a roster, and closed tuples); keyed equality, unconditional
- * and conditional outside alternatives; exhaustive alternatives with a partial arm map, where draft and approved runs
- * carry no payload; a selected target and selected sources; span coverage (mirrors, plain, selected target, selected
- * source); and the counting and summing laws, each by fin.md §6, as test/support/fixtures/api/payroll.ts states them: at
- * most one reissue per run and one remainder deposit per line, keys over a side; at least one approver per employer
- * and at most four deposits per line, counted families with a row check on the owner's count; the deposits' amounts
- * summing to the line's net and its approved shifts' hours within its timesheet's ceiling, sum folds with a row check
- * on the end; and a line's net within its gross, a row check.
+ * and conditional; a run's stage as a tagged header whose paid and voided runs each mirror their payload, where draft
+ * and approved runs carry none; a selected target and selected sources; span coverage (mirrors, plain, selected target,
+ * selected source); and the counting and summing laws, each by fin.md §6, as test/support/fixtures/api/payroll.ts
+ * states them: at most one reissue per run and one remainder deposit per line, keys over a side; at least one approver
+ * per employer and at most four deposits per line, counted families with a row check on the owner's count; the
+ * deposits' amounts summing to the line's net and its approved shifts' hours within its timesheet's ceiling, sum folds
+ * with a row check on the end; and a line's net within its gross, a row check.
  */
 const payrollStatements: ReadonlyArray<AuthoredStatementDesc> = [
 	key(on("Employer", ["ein"])),
@@ -301,7 +307,7 @@ const payrollStatements: ReadonlyArray<AuthoredStatementDesc> = [
 		onWhere("PayLine", ["id"], eq(field("offCycle"), literal(true))),
 		on("OffCycleReason", ["line"])
 	),
-	alternativeStatements,
+	...stagePayloads,
 	contained(
 		on("Reissue", ["replaces"]),
 		onWhere("PayRun", ["id"], eq(field("stage"), literal("voided")))

@@ -13,19 +13,15 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order } from "effect"
-import {
-	accumulated,
-	closedId,
-	drawn,
-	generated,
-	natural,
-	pg,
-	slot
-} from "#compiler/public/fields.ts"
+import { closedId, drawn, generated, natural, pg, slot } from "#compiler/public/fields.ts"
 import { closed as closedRelations, fin, relation } from "#compiler/public/schema.ts"
-import { admittedClosedId, closedBuilder as closed } from "#compiler/schema/relation.ts"
+import {
+	accumulatedField,
+	admittedClosedId,
+	closedBuilder as closed
+} from "#compiler/schema/relation.ts"
 import type { FieldBase, GeneratedField } from "#compiler/types/fields/field.ts"
-import { Id } from "#test/support/ids.ts"
+import { Id, idKey } from "#test/support/ids.ts"
 
 /** The type of a key's other field. */
 type CompanionType = "uuid" | "natural" | "integer" | "smallint" | "boolean" | "closedId"
@@ -108,6 +104,23 @@ const startOf = (c: CompanionType): unknown => {
 	}
 }
 
+/**
+ * The keys a field grizzle fills with a companion's values takes (scalar/contract.ts admitMintKey): Id's, the tests' id
+ * key, since Id is a consumer's contract; none for any other type, natural grizzle's own among them.
+ */
+const mintOf = (c: CompanionType): ReadonlyArray<symbol> => {
+	switch (c) {
+		case "uuid":
+			return [idKey]
+		case "natural":
+		case "integer":
+		case "smallint":
+		case "boolean":
+		case "closedId":
+			return []
+	}
+}
+
 /** The owner of a closed relation's slots over Kind, and its count of them. */
 const Owner = closed("Owner", ["owner"], "ordered", [])
 const Slots = closedRelations.relation(
@@ -127,7 +140,7 @@ export const fieldOf = (c: Companion): FieldBase | GeneratedField<FieldBase> => 
 		case "caller":
 			return declared
 		case "accumulated":
-			return accumulated(declared, startOf(c.type))
+			return accumulatedField(declared, startOf(c.type), mintOf(c.type))
 		case "generated":
 			return relation.generated("Companion", { id: Id, w: declared }, ["id"], (row) => ({
 				x: generated(declared, row.w)

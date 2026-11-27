@@ -15,10 +15,8 @@ import { chunked } from "#test/support/chunked.ts"
  * What a case commits beside the first draft's other file: a snapshot.json that records no format, or that records the
  * format before this grizzle's or the one after it; both files as a draft of format 3 left them (`formatThree`); a
  * manifest.json sealed under a domain that names no format (`manifest`); a record sealed again over an edit no draft
- * reads, so it reads but is not the record the schemas compile to; that edit under the draft's seal, a hand edit; the
- * record holding the database default a grizzle before e1eb4f524 installed, its first object, sealed again, as qti-pie's
- * pantry of 2026-11-22 committed it (`a former database default`); holding an object of a kind no grizzle this one
- * reads installed (`a removed kind`), advanceFunction, which 10a0cd919 removed, sealed again; both files as d76a61066
+ * reads, so it reads but is not the record the schemas compile to; that edit under the draft's seal, a hand edit; both
+ * files as d76a61066
  * drafted them, qti-pie's pantry among them, its format the number alone and each declared statistic recording no
  * dependencies, sealed under that format (`a d76a61066 draft`); or that record relabelled with this grizzle's format,
  * sealed as d76a61066 sealed it (`a d76a61066 record under this format`).
@@ -31,8 +29,6 @@ const commits = [
 	"a seal naming no format",
 	"a record not the compile's",
 	"a hand edit",
-	"a former database default",
-	"a removed kind",
 	"a d76a61066 draft",
 	"a d76a61066 record under this format"
 ] as const
@@ -118,50 +114,6 @@ export const editedManifest = (snapshot: string, record: string, sealed: boolean
 
 /** A JSON object's members. */
 type Members = { readonly [key: string]: Json }
-
-/**
- * The database default a grizzle before e1eb4f524 installed, as its manifest.json recorded it: the object of kind
- * `databaseDefault`, its one statement setting default_transaction_isolation SERIALIZABLE on the database.
- */
-const formerDefault: Members = {
-	after: [],
-	kind: "databaseDefault",
-	ident: "databaseDefault:default_transaction_isolation",
-	ddl: [
-		{
-			kind: "alterDatabaseDefault",
-			parameter: "default_transaction_isolation",
-			value: "serializable"
-		}
-	]
-}
-
-/** An object of kind advanceFunction, which 10a0cd919 removed and no grizzle this one reads installed. */
-const removedKind: Members = { after: [], kind: "advanceFunction", ident: "advance:s.f", ddl: [] }
-
-/** The record `record` with `object` its first object, sealed again over both files. */
-export const recordHolding = (
-	snapshot: string,
-	record: string,
-	object: "former" | "removed"
-): string => {
-	const members = recordOf(record)
-	const manifest = manifestOf(members)
-	const objects = trustedJson<ReadonlyArray<Json>>(
-		jsonText(defined(manifest["objects"], "the objects"))
-	)
-	const held = jsonText({
-		...members,
-		manifest: {
-			...manifest,
-			objects: [object === "former" ? formerDefault : removedKind, ...objects]
-		}
-	})
-	return jsonText({
-		...recordOf(held),
-		seal: succeeded(snapshotSeal(joinedContent(snapshot, held)), "the record's seal")
-	})
-}
 
 /** A manifest.json record with the language left out of each constant's header it records (snapshot/recorded.ts
  * RecordedConstant). */

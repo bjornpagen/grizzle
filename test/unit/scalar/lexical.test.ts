@@ -32,11 +32,12 @@
  */
 
 import { type DfaOutcome, minimalDfa } from "@bjornpagen/grizzle-text/regex/dfa"
-import { inclusion } from "@bjornpagen/grizzle-text/regex/inclusion"
+import { type Inclusion, inclusion } from "@bjornpagen/grizzle-text/regex/inclusion"
 import { regexDfaLimits } from "@bjornpagen/grizzle-text/regex/limits"
 import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
 import { buildNfa, type Nfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
+import { includedWithin } from "@bjornpagen/grizzle-text/regex/within"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
@@ -89,6 +90,22 @@ import { admittedPatternOver, walkGen } from "#test/unit/text/generators.ts"
 
 /** A pattern automaton's minimization at the text analysis's bounds, what an inclusion compares. */
 const minimal = (nfa: Nfa): DfaOutcome => minimalDfa(nfa, regexDfaLimits)
+
+/**
+ * Whether the inner automaton's language within `bytes` UTF-8 bytes (every member where they are unbounded) lies inside
+ * the outer's: the one inclusion judgment of texts (scalar/regex/inclusion.ts languageIncludes) restated over the two
+ * minimizations, its walk grizzle-text's own (regex/within.ts includedWithin), its verdict's kind.
+ */
+const includedInBytes = (inner: Nfa, bytes: number, outer: Nfa): Inclusion["kind"] => {
+	if (!Number.isFinite(bytes)) {
+		return inclusion([minimal(inner)], [minimal(outer)], regexDfaLimits).kind
+	}
+	const a = minimal(inner)
+	const b = minimal(outer)
+	return a.kind === "minimal" && b.kind === "minimal"
+		? includedWithin(a.dfa, bytes, b.dfa, regexDfaLimits).kind
+		: "bounded"
+}
 
 /**
  * Lexical forms each form's pattern and its scan agree on every candidate, and a member names XML Schema's value.
@@ -438,7 +455,7 @@ export const aDecimalsParseIsProvedExactlyWhenTheOperandsLanguageIsInsideDecimal
 						if (!analyzed.ok) {
 							return assert.fail(`${pattern}: an admitted pattern's text analyzes`)
 						}
-						const verdict = inclusion(
+						const language = inclusion(
 							[minimal(nfaOf(pattern))],
 							[minimal(nfaOf(decimalText.source))],
 							regexDfaLimits
@@ -452,6 +469,8 @@ export const aDecimalsParseIsProvedExactlyWhenTheOperandsLanguageIsInsideDecimal
 							patternBytes,
 							bound.kind === "bytes" ? bound.bytes : Number.POSITIVE_INFINITY
 						)
+						/** The judgment within the operand's bytes; the remedy reads the language alone (lexicalRemedy). */
+						const verdict = includedInBytes(nfaOf(pattern), bytes, nfaOf(decimalText.source))
 						const withinBytes =
 							bytes <= decimalTextMaxBytes ||
 							(verdict === "included" &&
@@ -476,7 +495,7 @@ export const aDecimalsParseIsProvedExactlyWhenTheOperandsLanguageIsInsideDecimal
 						assert.equal(reason.precondition, "lexical", label)
 						assert.deepEqual(
 							reason.guard.remedy,
-							verdict === "included"
+							language === "included"
 								? { kind: "octets", bytes: decimalTextMaxBytes }
 								: { kind: "matches", pattern: "decimalText" },
 							label

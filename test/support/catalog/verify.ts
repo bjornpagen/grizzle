@@ -28,6 +28,8 @@ export type InstalledFunction =
 			readonly kind: "declared"
 			readonly volatility: "i" | "s" | "v"
 			readonly strict: boolean
+			/** Its pinned search_path, pg_catalog first and pg_temp last (sql/print.ts declaredSearchPath). */
+			readonly path: ReadonlyArray<string>
 	  }
 	| { readonly kind: "refusal" }
 	| { readonly kind: "borrow" }
@@ -78,12 +80,18 @@ export interface StatedShape {
 }
 
 /**
- * What a trigger of the installation is: the isolation guard a guarded table carries, the immutability guard an
- * immutable relation's table carries (physical/ddl/immutable.ts), a rule over a query's deferred constraint trigger on a
- * table its query reads, or the set judge's capture of one event on such a table, a statement trigger with transition
- * tables (physical/ddl/rules.ts judged).
+ * What a trigger of the installation is: the isolation guard a guarded table carries, one of the two immutability
+ * guards an immutable relation's table carries (physical/ddl/immutable.ts), of its rows or of a TRUNCATE, a rule over a
+ * query's deferred constraint trigger on a table its query reads, or the set judge's capture of one event on such a
+ * table, a statement trigger with transition tables (physical/ddl/rules.ts judged).
  */
-const installedTriggers = ["isolation", "immutable", "rule", "capture"] as const
+const installedTriggers = [
+	"isolation",
+	"immutable rows",
+	"immutable truncate",
+	"rule",
+	"capture"
+] as const
 
 export type InstalledTrigger = (typeof installedTriggers)[number]
 
@@ -390,8 +398,14 @@ const unless = (holds: boolean, problem: ErasureProblem): ReadonlyArray<ErasureP
  */
 const guardTriggerType = 2 + 4 + 8 + 16 + 32
 
-/** pg_trigger.tgtype of the immutability guard: row level (1), BEFORE (2) and UPDATE (16). */
-const immutableTriggerType = 1 + 2 + 16
+/**
+ * pg_trigger.tgtype of each immutability guard: of the rows, row level (1), BEFORE (2), DELETE (8) and UPDATE (16); of
+ * a TRUNCATE, statement level, BEFORE (2) and TRUNCATE (32).
+ */
+const immutableTriggerTypes = {
+	"immutable rows": 1 + 2 + 8 + 16,
+	"immutable truncate": 2 + 32
+} as const
 
 /** pg_trigger.tgtype's row-level bit, which a rule's trigger sets. */
 const ruleTriggerLevel = 1
@@ -527,12 +541,18 @@ const volatilityNames = { i: "IMMUTABLE", s: "STABLE", v: "VOLATILE" } as const
 const plainIdentifier = regex("^[a-z_][a-z0-9_$]*$")
 
 /**
- * The search_path a declared function pins (physical/ddl/functions.ts): pg_catalog, its own schema, its level's, which
- * is the root's only for a function the root declares, pg_temp, as PostgreSQL stores it in pg_proc.proconfig, each
- * name quoted only where it must be.
+ * The search_path a declared function pins (physical/ddl/functions.ts, sql/print.ts declaredSearchPath): pg_catalog, its
+ * own schema, its level's, which is the root's only for a function the root declares, then the installation's where its
+ * body names a variant's types and its level is not the root's, pg_temp, as PostgreSQL stores it in pg_proc.proconfig,
+ * each name quoted only where it must be.
  */
-const declaredSearchPath = (schema: string): string =>
-	`search_path=pg_catalog, ${plainIdentifier.test(schema) ? schema : `"${Str.replaceAll('"', '""')(schema)}"`}, pg_temp`
+const searchPathConfig = (path: ReadonlyArray<string>): string =>
+	`search_path=${Arr.join(
+		Arr.map(path, (schema) =>
+			plainIdentifier.test(schema) ? schema : `"${Str.replaceAll('"', '""')(schema)}"`
+		),
+		", "
+	)}`
 
 /** Each login holds what admission and a Db transaction take as the login. */
 const loginLacks = (
@@ -789,7 +809,7 @@ const functionProblems = (j: Judging, f: Fn): ReadonlyArray<ErasureProblem> => {
 					owner: f.owner
 				}),
 				...unless(f.securityDefiner, { kind: "notSecurityDefiner", function: f.name }),
-				...unless(Arr.contains(f.config, declaredSearchPath(f.schema)), {
+				...unless(Arr.contains(f.config, searchPathConfig(expected.path)), {
 					kind: "searchPathUnfixed",
 					function: f.name
 				}),
@@ -1160,12 +1180,12 @@ const triggerProblems = (j: Judging, t: Trigger): ReadonlyArray<ErasureProblem> 
 			)
 		]
 	}
-	if (expected === "immutable") {
+	if (expected === "immutable rows" || expected === "immutable truncate") {
 		return [
 			...enabled,
 			...unless(
 				!t.constraint &&
-					t.type === immutableTriggerType &&
+					t.type === immutableTriggerTypes[expected] &&
 					j.expect.functions.get(t.function)?.kind === "immutableGuard",
 				{ kind: "malformedGuard", table: t.table }
 			)
@@ -1494,9 +1514,9 @@ const defaultAclProblems = (j: Judging): ReadonlyArray<ErasureProblem> => [
  * - the only triggers are the isolation guard and PostgreSQL's internal foreign-key triggers, enabled;
  * - every table the installation expects, the authored relations' and the migrations ledger, carries exactly one
  *   isolation guard trigger, BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE FOR EACH STATEMENT, running the isolation
- *   guard function, and the database defaults every transaction to SERIALIZABLE: README "Transactions and concurrency":
- *   "The first migration makes it the database's default" and "a write below it on a grizzle table is refused". A table it does not expect is drift
- *   in itself, reported once as such, never judged as a grizzle table;
+ *   guard function, so a write below SERIALIZABLE on a grizzle table is refused (README "Transactions and
+ *   concurrency"). A table it does not expect is drift in itself, reported once as such, never judged as a grizzle
+ *   table;
  * - the grant shape: PUBLIC holds nothing on any schema object; a login holds exactly USAGE on the schema, SELECT on the
  *   migrations ledger and EXECUTE on the snapshot guard, which Db.open's admission and every Db transaction take as the
  *   login, and MAINTAIN on each table it fences, which its fenced writes lock before their snapshot; the live

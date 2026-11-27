@@ -1,4 +1,9 @@
-import { recordsBuilder, recordsFactsOver, recordsQueryOver } from "#compiler/program/records.ts"
+import {
+	recordPathsOf,
+	recordsBuilder,
+	recordsFactsOver,
+	recordsQueryOver
+} from "#compiler/program/records.ts"
 import { derivedBuilder } from "#compiler/schema/relation.ts"
 import type {
 	CheckedDefinition,
@@ -30,13 +35,14 @@ import type {
 import type { RelationName } from "#compiler/types/schema/relation.ts"
 
 export {
-	alternatives,
 	check,
 	attested,
 	closed,
 	contained,
 	context,
 	counted,
+	type DerivedNamer,
+	derivedName,
 	fin,
 	fold,
 	fn,
@@ -61,12 +67,17 @@ export {
 	tree,
 	unit
 } from "#compiler/schema/api.ts"
-export { type NameFault, nameFaultText, parseDeclaredName } from "#compiler/core/identity.ts"
+export {
+	conversionOf,
+	type NameFault,
+	nameFaultText,
+	parseDeclaredName
+} from "#compiler/core/identity.ts"
 export { schemaNameOf, wholeSchemaNameOf } from "#compiler/program/names.ts"
+export type { DerivedNamingInput } from "#compiler/schema/relation.ts"
 export { login } from "#compiler/program/workload/login.ts"
 export {
 	insertableNamesOf,
-	scopedEntriesOf,
 	wholeEntriesOf,
 	wholeWritesOf,
 	writableNamesOf
@@ -74,6 +85,7 @@ export {
 export type { AnyDerived, Derived, NoParams } from "#compiler/types/derived/derived.ts"
 export type {
 	AnyRecords,
+	GeneratedRecords,
 	NoRecordNames,
 	OwnerFacts,
 	OwnerParams,
@@ -81,6 +93,7 @@ export type {
 	RecordFields,
 	RecordNames,
 	RecordOwner,
+	RecordPaths,
 	Records,
 	RecordsInsert,
 	RecordsQuery,
@@ -99,19 +112,16 @@ export type {
 } from "#compiler/types/schema/function.ts"
 export type { DeclaredLanguage, FunctionVolatility } from "#compiler/core/function.ts"
 export type {
-	Alternatives,
 	AnyFamily,
 	AnyFin,
 	AnyMonoid,
 	Check,
 	Containment,
 	Counted,
-	ExpansionOf,
 	Fin,
 	Fold,
 	Key,
 	KeyFieldsOf,
-	KeyRef,
 	KeyValues,
 	Mirrors,
 	Mutable,
@@ -147,7 +157,6 @@ export type {
 	AnyLogin,
 	AnyLoginRole,
 	AnyRole,
-	AnyScoped,
 	AnyWorld,
 	Context,
 	ContextField,
@@ -161,11 +170,6 @@ export type {
 	Role,
 	RoleOver,
 	RolesOf,
-	ScopableNameOf,
-	Scoped,
-	ScopedEntriesOf,
-	ScopedOrWhole,
-	ScopeOptions,
 	WholeEntries,
 	WholeEntriesOf,
 	WholeWritesOf,
@@ -200,10 +204,10 @@ export type {
 } from "#compiler/types/schema/schema.ts"
 
 /**
- * Public barrel: relation (and relation.generated), closed (and closed.relation), derived, schema, fragment, the
+ * Public barrel: relation (and relation.generated), closed (and closed.relation), derived, derivedName (a library's
+ * builders of relations and rosters whose names it derives, readable at any length, hashed where installed), schema, fragment, the
  * statement constructors, the worlds: context, role (with wholeEntriesOf, wholeWritesOf and writableNamesOf, a full
- * role's entries, its insert and write lists and the names they share out, and scopedEntriesOf, a role's entries holding
- * each relation of its owner scoped) and login, insertableNamesOf, the relations a ChangeSet over a schema inserts at its top level, and
+ * role's entries, its insert and write lists and the names they share out) and login, insertableNamesOf, the relations a ChangeSet over a schema inserts at its top level, and
  * schemaNameOf, the installed name of a schema's or a role's PostgreSQL schema, wholeSchemaNameOf, the installed name
  * of the schema of a schema's relations' whole views, and parseDeclaredName, the declared-name
  * rule every builder and ownership judge a name by (with its fault, NameFault, and nameFaultText, the fault as the rule
@@ -234,9 +238,10 @@ export const derived: DerivedConstructor = <const Name extends string, Q extends
  * query's own field, keyed by `ownerKey`, a nonempty list of the owner's field names, as relation's primary key; and
  * each attachment's, at any depth, keyed by its parent's key and, for an array, its place, held to its parent by the law
  * of its delivery, named as `names` states for its path (its attachment names from the root joined by `.`) or as records
- * derive it. The options are optional: left out, no name is stated. A derived name PostgreSQL would cut short is
- * refused as RecordNameTooLong, whose fix is a name stated for its path. Its `relations` and `rules` are what the level
- * lists; `row` is the root, `apart` the relations an insert states beside it.
+ * derive it. The options are optional: left out, no name is stated. A stated name is a declared name, refused past
+ * PostgreSQL's identifier; a derived name is the schema type's key at any length, its table and whole view hashed over
+ * the stem and its path. Its `relations` and `rules` are what the level lists; `row` is the root, `apart` the relations
+ * an insert states beside it.
  */
 export const records = <
 	const Stem extends string,
@@ -261,6 +266,13 @@ export const records = <
 	RecordLaws<Stem, Owner, readonly [...Key], Q, Names>,
 	RecordApart<Stem, Owner, readonly [...Key], Q, Names>
 > => recordsBuilder<Stem, Q, Owner, readonly [...Key], Names>(stem, query, owner, ownerKey, options)
+
+/**
+ * recordPaths(query): the path of each of the query's attachments at any depth, its attachment names from the root
+ * joined by `.`, each before those under it, exactly the members of RecordPaths<Q>, which records' `names` are keyed by
+ * (program/records.ts). A generator that names every relation records make states a name for each of them.
+ */
+export const recordPaths = (query: RecordedQuery): ReadonlyArray<string> => recordPathsOf(query)
 
 /**
  * recordsQuery(level, records): the rows the records `stored` hold at one value of their owner's key, each key field a parameter

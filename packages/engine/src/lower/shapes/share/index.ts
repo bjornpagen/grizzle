@@ -13,10 +13,11 @@ import type { RelDag, RelNode } from "#compiler/ir/rel.ts"
  * attachments, keyed on the fingerprint, never on a request option.
  *
  * - The share key of a sub-query is the semantic digest of the DAG it reaches (ir/dag.ts dagDigestWithin that root):
- *   allocation order, source locations and the proofs of its claimed keys do not enter it, the keys' columns and
- *   parameter names do, and so does every outer node a correlated child reads, so two attachments correlated to the
- *   same parent share, and imports with different parameter bindings never do. A call of a volatile function is its
- *   own evaluation, its label in its key (ir/dag-digest.ts callsVolatile), so two calls built alike never share.
+ *   allocation order, source locations and the claims an analysis made of it (its keys, cardinality and evidence
+ *   context) do not enter it, its parameter names do, and so does every outer node a correlated child reads, so two
+ *   attachments correlated to the same parent share, and imports with different parameter bindings never do. A call
+ *   of a volatile function is its own evaluation, its label in its key (ir/dag-digest.ts callsVolatile), so two calls
+ *   built alike never share.
  * - The fixed rule: an attachment with no attachment of its own is fed the rows of the first earlier attachment part
  *   under the same parent rows that has its parent key, correlation, delivered type, order and child heading and
  *   whose child has its share key (shapes/index.ts OptimizedDelivery #sameRows): the runtime reads that part's rows

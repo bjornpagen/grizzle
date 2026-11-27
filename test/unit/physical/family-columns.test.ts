@@ -10,7 +10,7 @@
  * at least one of them.
  *
  * - a role declared with a query entry over a tree's relation is refused, `writeUnwritable` at its first such entry with
- *   `keyHoldsFamily` naming `start`: a tree's relation is keyed by its root fields and its drawn start (fill.ts
+ *   `keyHoldsFamily` naming `start`, first by name whichever of the role's lists names it (ir/desc.ts writtenNames): a tree's relation is keyed by its root fields and its drawn start (fill.ts
  *   keyOfRelation), which no fact through an entry states (README "Writing through a role"); a role whose entries
  *   write no tree's relation is declared, and the installation's clerk writes exactly the drawn relations of no tree;
  * - every installed statement keeps the emission discipline (oracle/verify checkedStatements), a decoding query entry's
@@ -37,7 +37,7 @@
  */
 
 import { type Reached } from "@bjornpagen/testing/features"
-import { type Case, property as propertyOf } from "@bjornpagen/testing/property"
+import { type Case, property as propertyOf, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
 	familyCaseGen,
@@ -71,7 +71,16 @@ export const aFamilysColumnsAndReferencesKeepTheEmissionDisciplineAndDrawnLawCol
 			kind: "second-implementation",
 			name: "the law model's natives, and the emission audit"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/physical/family-columns.test.ts#aFamilysColumnsAndReferencesKeepTheEmissionDisciplineAndDrawnLawColumnsGeneratedFieldsAndForeignKeyActionsFollowTheirNativesWhateverRolesWriteThem:-:8.0.1.0.0.0.0.0.0.0.0.0.2.1.0.0.2.0.1.2.0.0.0.0.2.2.0.0"
+				),
+				reason:
+					"two trees' relations a clerk writes through query entries, R0 open in its write list and R1 closed in its insert list, each refused by the drawn start its key holds: the refusal names R0Entry, the least by name, where a check of the insert list first named R1Entry (main 38a1b476)",
+				since: "2026-11-26"
+			}
+		],
 		kills: [
 			{
 				file: "packages/engine/src/physical/ddl/tables.ts",
@@ -84,6 +93,12 @@ export const aFamilysColumnsAndReferencesKeepTheEmissionDisciplineAndDrawnLawCol
 				original: "\tif (drawnKey !== undefined) {",
 				replacement: '\tif (drawnKey !== undefined && drawnKey !== "start") {',
 				why: "A query entry whose key holds a tree's drawn start is admitted."
+			},
+			{
+				file: "packages/engine/src/ir/desc.ts",
+				original: "\t\t.toSorted((a, b) => compareCodePoints(a.name, b.name))",
+				replacement: "\t\t.toSorted(() => 0)",
+				why: "A role's writes checked list by list, its insert list before its write list: a clerk whose open tree's relation R0 and closed tree's relation R1 are both refused is refused at R1Entry, the entry its list puts first, not the least by name."
 			}
 		]
 	})

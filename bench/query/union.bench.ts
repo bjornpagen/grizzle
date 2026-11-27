@@ -275,7 +275,7 @@ export default defineGate({
 	} satisfies { readonly full: Options; readonly quick: Options },
 	run: ({ options }) =>
 		Effect.gen(function* () {
-			const fx = yield* installFixture(Unions, programs, {}, "benchunion", [])
+			const fx = yield* installFixture(Unions, programs, {}, "benchunion", () => [])
 			const tasks = options.accounts * options.tasksPerAccount
 			const kind = (handle: string) => fx.handle("Kind", handle)
 			yield* fill(fx, "Account", options.accounts, { id: "g::int8", region: "(g % 50)::int4" })

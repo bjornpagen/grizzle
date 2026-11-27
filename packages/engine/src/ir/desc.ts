@@ -1,7 +1,6 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
-	concatNonEmpty,
 	headNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
@@ -10,6 +9,7 @@ import {
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
+import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import type { WellFormedText } from "@bjornpagen/grizzle-text/utf8"
 import { allenMaskMax } from "#compiler/core/allen.ts"
 import { nominal } from "#compiler/core/brand.ts"
@@ -27,7 +27,6 @@ import {
 	withoutSourceLocs
 } from "#compiler/core/canonical.ts"
 import { clockUnits } from "#compiler/core/clock.ts"
-import { isSha256Text } from "#compiler/core/digest.ts"
 import { type CompileError, ruleRefused } from "#compiler/core/errors.ts"
 import { type IdentityDigest, IdentityDigests } from "#compiler/core/fingerprint.ts"
 import {
@@ -49,11 +48,12 @@ import type { CalendarDate } from "#compiler/ir/date.ts"
 import { decimalTag, isDecimalPayload } from "#compiler/ir/decimal.ts"
 import type { PatternValue } from "#compiler/ir/pattern.ts"
 import { type Fact, factNames, factsSorted } from "#compiler/ir/proof.ts"
-import { type DeltaSide, seriesArguments, type TextSplit } from "#compiler/ir/rel.ts"
+import { armArgument, type DeltaSide, seriesArguments, type TextSplit } from "#compiler/ir/rel.ts"
 import {
 	calendarDateShape,
 	patternValueShape,
 	patternsShape,
+	sha256TextShape,
 	textLanguageShape
 } from "#compiler/ir/scalar-shape.ts"
 import {
@@ -138,7 +138,10 @@ export type PgScalarName = (typeof pgScalarNames)[number]
  * the type integer and money arithmetic delivers (ir/scalar.ts ExactType) at numeric's own limit. A set over a roster
  * (bits) is bit(n), one bit per code the roster has minted, holes included. A pattern is a closed relation's text of
  * Text.matches patterns (str.pattern), each value a pattern of grizzle's grammar admitted once where the relation is
- * read, its ARE planned beside its dictionary.
+ * read, its ARE planned beside its dictionary. A variant is a typed sum (ir/scalar.ts VariantType): its declared name,
+ * the roster that tags it, and its arms, at least one, each of a live handle of the roster, in its handle order, the
+ * subset of the roster the variant holds, every handle or some, each a heading of fields (VariantArmDesc), resolved
+ * against the schema's rosters as a closed id's roster is.
  */
 export type FieldDesc =
 	| { readonly kind: "pg"; readonly type: PgScalarName }
@@ -186,17 +189,40 @@ export type FieldDesc =
 			/** The text search configuration the document is parsed under, its identity as a type (ir/search.ts). */
 			readonly configuration: TextSearchConfiguration
 	  }
+	| {
+			readonly kind: "variant"
+			readonly name: string
+			readonly roster: string
+			readonly arms: ReadonlyArray<VariantArmDesc>
+	  }
+
+/**
+ * One arm of a variant's Description: the handle that tags it, its fields, each by name, in declared order, and its
+ * check, a predicate over the variant's VALUE that reads that arm's fields alone (Variant.arm checks), which the
+ * variant's domain's CHECK holds under the arm's code; none for an arm the variant states no check of.
+ */
+export interface VariantArmDesc {
+	readonly handle: string
+	readonly fields: ReadonlyArray<{ readonly name: string; readonly desc: FieldDesc }>
+	readonly check: ExprDesc | undefined
+}
 
 /** A contract's descriptor, as a field declares it: its name, its base, its predicate and the facts it proves. */
 export type ContractFieldDesc = Extract<FieldDesc, { readonly kind: "contract" }>
 
-/** Visits every descriptor inside `desc`: itself, then a contract's base's and a span's endpoint's, depth first. */
+/** Visits every descriptor inside `desc`: itself, then a contract's base's, a span's endpoint's and each variant arm field's, depth first. */
 export const nestedFields = (desc: FieldDesc, visit: (d: FieldDesc) => void): void => {
 	visit(desc)
 	if (desc.kind === "contract") {
 		nestedFields(desc.base, visit)
 	} else if (desc.kind === "span") {
 		nestedFields(desc.endpoint, visit)
+	} else if (desc.kind === "variant") {
+		for (const arm of desc.arms) {
+			for (const field of arm.fields) {
+				nestedFields(field.desc, visit)
+			}
+		}
 	}
 }
 
@@ -455,6 +481,18 @@ export interface RetypeDesc<L = Located, R extends Refs = Spelled> {
 	readonly arg: ExprDesc<L, R>
 }
 
+/**
+ * A variant's operation (ir/scalar.ts VariantType): `tag`, its tag, a closed id of its roster (Variant.tag); `field`,
+ * one field of an arm, which a cases branch reads of its subject where the subject's tag is that arm (Variant.cases);
+ * `make`, a value of the arm `handle` of `variant` made of its fields, each argument one field in declared order
+ * (Variant.make); `digest`, its identity image, a SHA-256 digest (Variant.digest).
+ */
+export type VariantOpDesc =
+	| { readonly kind: "tag" }
+	| { readonly kind: "digest" }
+	| { readonly kind: "field"; readonly handle: string; readonly field: string }
+	| { readonly kind: "make"; readonly variant: FieldDesc; readonly handle: string }
+
 export type ExprDesc<L = Located, R extends Refs = Spelled> =
 	| ExprLeaf<R>
 	| {
@@ -478,6 +516,11 @@ export type ExprDesc<L = Located, R extends Refs = Spelled> =
 			readonly pred: ExprDesc<L, R>
 			readonly onTrue: ExprDesc<L, R>
 			readonly onFalse: ExprDesc<L, R>
+	  }
+	| {
+			readonly kind: "variant"
+			readonly op: VariantOpDesc
+			readonly args: ReadonlyArray<ExprDesc<L, R>>
 	  }
 	| {
 			readonly kind: "when"
@@ -672,6 +715,7 @@ export const exprChildren = <L, R extends Refs>(
 		case "literal":
 			return []
 		case "compute":
+		case "variant":
 		case "and":
 		case "or":
 		case "closedAt":
@@ -761,6 +805,8 @@ export const bindTerms = <L, R extends Refs>(
 				[seriesArguments.low, s.low],
 				[seriesArguments.high, s.high]
 			]
+		case "arm":
+			return [[armArgument, s.value]]
 		case "relation":
 		case "param":
 		case "paramOf":
@@ -817,6 +863,7 @@ export const mapExpr = <L, R extends Refs, S extends Refs>(
 		case "literal":
 			return m.leaf(e)
 		case "compute":
+		case "variant":
 		case "closedRow":
 			return { ...e, args: e.args.map(term) }
 		case "and":
@@ -900,6 +947,8 @@ export const mapBindTerms = <L, R extends Refs>(
 			return { ...s, args: mapRecord(s.args, f) }
 		case "series":
 			return { ...s, low: f(s.low), high: f(s.high) }
+		case "arm":
+			return { ...s, value: f(s.value) }
 		case "relation":
 		case "param":
 		case "paramOf":
@@ -1105,6 +1154,18 @@ export type SourceDesc<L = Located, R extends Refs = Spelled> =
 			readonly low: ExprDesc<L, R>
 			readonly high: ExprDesc<L, R>
 	  }
+	| {
+			/**
+			 * V.arm(value, handle): the fields of the arm `handle` of a value of the variant `variant`, one fact of the
+			 * arm's fields where the value's tag is that arm and none where it is another (ir/rel.ts CallFunction `arm`).
+			 * `value` is a term of the scope the match stands in, a variable, a parent variable, a parameter or a typed
+			 * constant, as a call's value argument is, so the fact is a function of the binding the match stands at.
+			 */
+			readonly kind: "arm"
+			readonly variant: FieldDesc
+			readonly handle: string
+			readonly value: ExprDesc<L, R>
+	  }
 	| { readonly kind: "interior"; readonly id: R["interior"] }
 	| { readonly kind: "self" }
 	| { readonly kind: "delta"; readonly side: DeltaSide; readonly relation: string }
@@ -1177,6 +1238,7 @@ export const contextFieldAdmits = (desc: FieldDesc): boolean => {
 		case "bits":
 		case "vector":
 		case "search":
+		case "variant":
 			return false
 	}
 }
@@ -1489,12 +1551,6 @@ export interface KeySlotDesc {
 	readonly fin: SlotsDesc
 }
 
-/** An alternatives arm: a roster handle and its arm relation's key side. */
-export interface ArmDesc {
-	readonly handle: string
-	readonly arm: SideDesc
-}
-
 /**
  * A schema's laws. A key is UNIQUE over one side's terms. A containment states that its left side's tuples are among
  * its right side's; mirrors is no statement of its own, but the two containments it is sugar for.
@@ -1510,7 +1566,6 @@ export interface ArmDesc {
  *   into each owner's end fields: the family by its slots, `step` over the member and `end` over the owner. Its step is
  *   read per member row, each member once by its key in the family, where a key's or a containment's side is a set of
  *   tuples: two members of one step value both step.
- * - alternatives(parent, discriminator, roster, arms) is its own statement, which expandAlternatives states.
  * - race(R) makes R's primary key first come, first held: an insertion at a key another row holds meets that row,
  *   never refused for differing from it (ir/law.ts Inserts).
  * - unit(name, heading) declares a unit: a key a family of rows sits under, each value of it one lock. It names no
@@ -1554,15 +1609,6 @@ export type StatementDesc<L = Located> = L &
 				readonly end: SideDesc
 		  }
 		| {
-				readonly kind: "alternatives"
-				/** The parent's key side, every fact of the parent relation. */
-				readonly parent: SideDesc
-				/** The parent's closed-id field over `roster` whose handle selects each fact's arm. */
-				readonly discriminator: string
-				readonly roster: string
-				readonly arms: NonEmptyReadonlyArray<ArmDesc>
-		  }
-		| {
 				readonly kind: "unit"
 				/** The unit's name, its lock's: a value of its key is one lock, which no other unit's value is. */
 				readonly name: string
@@ -1593,24 +1639,25 @@ export type UnitDesc<L = Located> = Extract<StatementDesc<L>, { readonly kind: "
 /** A series statement's Description. */
 export type SeriesDesc<L = Located> = Extract<StatementDesc<L>, { readonly kind: "series" }>
 
+/** The one term pair of a series statement's containment: each number's predecessor, met by a number. */
+export const seriesPair = (s: SeriesDesc): { readonly from: TermDesc; readonly to: TermDesc } => ({
+	from: { kind: "pred", field: s.field },
+	to: { kind: "field", field: s.field }
+})
+
 /**
  * The containment a series statement states: each number's predecessor is a number of the series, so its numbers run
- * from 0 with no gap. Pure: ownership and the theory call it.
+ * from 0 with no gap, its sides the terms of its one pair (seriesPair). Pure: ownership and the theory call it.
  */
-export const expandSeries = (s: SeriesDesc): ContainedDesc => ({
-	kind: "contained",
-	left: {
-		relation: s.relation,
-		terms: [{ kind: "pred", field: s.field }],
-		selection: { conjuncts: [] }
-	},
-	right: {
-		relation: s.relation,
-		terms: [{ kind: "field", field: s.field }],
-		selection: { conjuncts: [] }
-	},
-	loc: s.loc
-})
+export const expandSeries = (s: SeriesDesc): ContainedDesc => {
+	const pair = seriesPair(s)
+	return {
+		kind: "contained",
+		left: { relation: s.relation, terms: [pair.from], selection: { conjuncts: [] } },
+		right: { relation: s.relation, terms: [pair.to], selection: { conjuncts: [] } },
+		loc: s.loc
+	}
+}
 
 /** Whether two field types are one type: one canonical text (descText), a type's identity. */
 const sameFieldType = (a: FieldDesc, b: FieldDesc): boolean => {
@@ -1638,56 +1685,6 @@ export const leadsWithHeading = (
 
 /** A contained statement's Description. */
 export type ContainedDesc<L = Located> = Extract<StatementDesc<L>, { readonly kind: "contained" }>
-
-/** An alternatives statement's Description. */
-export type AlternativesDesc<L = Located> = Extract<
-	StatementDesc<L>,
-	{ readonly kind: "alternatives" }
->
-
-/** The parent side selected by its discriminator holding one of `handles`: `eq` for one, `in` for several. */
-const discriminated = (a: AlternativesDesc, handles: NonEmptyReadonlyArray<string>): SideDesc => {
-	const tag: ExprDesc = { kind: "field", field: a.discriminator }
-	const [only, ...rest] = handles
-	const predicate: ExprDesc =
-		rest.length === 0
-			? {
-					kind: "compare",
-					op: "eq",
-					left: tag,
-					right: { kind: "literal", value: only }
-				}
-			: { kind: "in", arg: tag, values: handles }
-	return { ...a.parent, selection: { conjuncts: [predicate] } }
-}
-
-/**
- * The containments an alternatives statement states: per arm relation, its key in the parent selected by the handles
- * it is the arm of (`in` for several, `eq` for one); per armed handle, the parent selected by that handle in its arm.
- * There is no head: the discriminator's roster domain types the discriminator. Arm relations are in the order their
- * first handle has in `arms`; the reverse containments follow, in `arms`' order. Pure: ownership and the theory call it.
- */
-export const expandAlternatives = (a: AlternativesDesc): NonEmptyReadonlyArray<ContainedDesc> => {
-	const byRelation = new Map<string, { readonly arm: SideDesc; readonly handles: Array<string> }>()
-	for (const { handle, arm } of a.arms) {
-		byRelation.getOrInsertComputed(arm.relation, () => ({ arm, handles: [] })).handles.push(handle)
-	}
-	const forward = [...byRelation.values()].flatMap(
-		({ arm, handles }): ReadonlyArray<ContainedDesc> => {
-			const [first, ...rest] = handles
-			return first === undefined
-				? []
-				: [{ kind: "contained", left: arm, right: discriminated(a, [first, ...rest]), loc: a.loc }]
-		}
-	)
-	const reverse = mapNonEmpty(a.arms, ({ handle, arm }): ContainedDesc => ({
-		kind: "contained",
-		left: discriminated(a, [handle]),
-		right: arm,
-		loc: a.loc
-	}))
-	return concatNonEmpty(forward, reverse)
-}
 
 /**
  * How a stored relation's field is written; only a caller's field is in an insert's head. The union is closed: a way of
@@ -1753,8 +1750,9 @@ export const fieldTypes = <L>(
  * A schema's relations. An ordinary relation stores the facts its callers write. A roster (closed) introduces its
  * handles: an ordered roster's in declared order, which is their codes' order and comparison order; an unordered one's,
  * which states `order`, a set in one canonical order (ir/scalar.ts Roster), whose codes follow no order. An ordered
- * roster states nothing beside its name and handles, whose order is its own, so its canonical form, and every
- * fingerprint over it, is its name and handles alone. A closed relation (closedRelation) relates existing values,
+ * roster states no order beside its name, its naming and its handles, whose order is its own, so its canonical form,
+ * and every fingerprint over it, is those alone. An ordinary relation and a roster state their naming (RelationNaming,
+ * RosterNaming), how the objects they install are named. A closed relation (closedRelation) relates existing values,
  * the closed ids of its key and its payload, by rows fixed when the schema compiles: its key is required, a set lists
  * every field, and no two rows share a key. A derived relation is a named query, its rows its definition's, which
  * PostgreSQL stores in a table the judge's upkeep keeps where it is stored.
@@ -1764,17 +1762,20 @@ export type RelationDesc<L = Located> = L &
 		| {
 				readonly kind: "relation"
 				readonly name: string
+				readonly naming: RelationNaming
 				readonly fields: Readonly<Record<string, FieldDecl<L>>>
 				readonly primaryKey: readonly [string, ...Array<string>]
 		  }
 		| {
 				readonly kind: "closed"
 				readonly name: string
+				readonly naming: RosterNaming
 				readonly handles: ReadonlyArray<string>
 		  }
 		| {
 				readonly kind: "closed"
 				readonly name: string
+				readonly naming: RosterNaming
 				readonly handles: ReadonlyArray<string>
 				readonly order: StatedRosterOrder
 		  }
@@ -1800,6 +1801,51 @@ export type RelationDesc<L = Located> = L &
 				readonly level: number
 		  }
 	)
+
+/**
+ * The naming of a relation or roster its author names: by its name, as written, each object it installs readable where
+ * its kind names one by its conversion, refused past PostgreSQL's identifier.
+ */
+export interface DeclaredNaming {
+	readonly kind: "declared"
+}
+
+/**
+ * How an ordinary relation's PostgreSQL objects are named at the naming door (core/identity.ts), read off its
+ * Description by every reader in one exhaustive dispatch:
+ * - declared (DeclaredNaming): relation(...), relation.generated(...), and a records relation whose name records'
+ *   `names` states;
+ * - derived: a relation whose name a library derives at `path` of `stem` (the package root's derivedName, and records'
+ *   own, program/records.ts, at their attachment names from the root of the records of `stem`, none for the root): its
+ *   name, any length, is the schema type's key and no identifier, refused for nothing but a collision in its schema's
+ *   namespace, and its table and whole view are hashed over that name, which the namespace keeps unique, their digest's
+ *   readable stem spelled from the stem and the path (identity.derivedTable, identity.derivedWholeView).
+ */
+export type RelationNaming =
+	| DeclaredNaming
+	| { readonly kind: "derived"; readonly stem: string; readonly path: ReadonlyArray<string> }
+
+/**
+ * How a roster's PostgreSQL objects are named, read off its Description in one exhaustive dispatch: declared
+ * (DeclaredNaming), its domain its name's conversion, readable; or derived, a roster whose name a library derives (the
+ * package root's derivedName(...).unordered), any length, its domain and whole view hashed over its name and spelled
+ * after it (identity.derivedRosterDomain, identity.derivedWholeView). Its constants and its sets' domain are hashed over
+ * its name either way.
+ */
+export type RosterNaming = DeclaredNaming | { readonly kind: "derived" }
+
+/** The naming of a relation or roster its author names (DeclaredNaming). */
+export const declaredNaming: DeclaredNaming = Object.freeze({ kind: "declared" })
+
+/** The naming of a roster a library derives (RosterNaming `derived`). */
+export const derivedRosterNaming: RosterNaming = Object.freeze({ kind: "derived" })
+
+/**
+ * The naming of a relation a library derives at `path` of `stem` (RelationNaming `derived`), frozen: the package root's
+ * derivedName's, and records' own at their attachment names from the root of their stem, none for the root.
+ */
+export const derivedNaming = (stem: string, path: ReadonlyArray<string>): RelationNaming =>
+	Object.freeze({ kind: "derived", stem, path: Object.freeze([...path]) })
 
 /** A closed relation's row: a value of each of its fields. */
 export type ClosedRow = Readonly<Record<string, LiteralDesc>>
@@ -1903,8 +1949,38 @@ export const valueHeading = (
  */
 export interface FunctionBodyDesc {
 	readonly text: string
-	readonly named: ReadonlyArray<{ readonly rowType: HeadingDesc; readonly text: string }>
+	readonly named: ReadonlyArray<BodyPlaceholderDesc>
 }
+
+/**
+ * A placeholder of a declared function's body and the text after it: a heading the body names by its row type's name,
+ * or a variant's spelling (VariantSpellingDesc).
+ */
+export type BodyPlaceholderDesc =
+	| { readonly rowType: HeadingDesc; readonly text: string }
+	| { readonly spelling: VariantSpellingDesc; readonly text: string }
+
+/**
+ * A variant's spelling in a declared function's body (fn.body), which the installation prints under its codes and its
+ * composite's layout (physical/ddl/functions.ts): `code`, the code of the arm `handle`, which `(v).tag` compares to;
+ * `attribute`, the attribute of the composite the arm's field `field`'s value is, which `(v).<attribute>` reads; `of`,
+ * a value of the arm `handle`, each of its fields the SQL text of its value the body gives, every other arm's absent,
+ * cast to the variant's domain, which judges it. Each names a handle and fields of the variant's own arms alone.
+ */
+export type VariantSpellingDesc =
+	| { readonly kind: "code"; readonly variant: FieldDesc; readonly handle: string }
+	| {
+			readonly kind: "attribute"
+			readonly variant: FieldDesc
+			readonly handle: string
+			readonly field: string
+	  }
+	| {
+			readonly kind: "of"
+			readonly variant: FieldDesc
+			readonly handle: string
+			readonly fields: ReadonlyArray<{ readonly name: string; readonly sql: string }>
+	  }
 
 /**
  * What every declared function's Description states (FunctionDesc): its name, the declared functions its body calls,
@@ -2003,15 +2079,13 @@ export type UnadmittedSchemaDesc = Located & {
 
 /**
  * Worlds. A role is relations defined over its base, a schema: each entry is a whole relation of the base under its
- * own name; a world relation, a query over the base installed as a view; or a scoped relation, a relation of the base
- * under its own name held by its owner's rows, its query the row predicate scopedEntriesOf built (schema/scope.ts),
- * which ownership parses as a scope. `insert` and `write` name the role relations it writes, each under its mode
+ * own name, or a world relation, a query over the base installed as a view. `insert` and `write` name the role
+ * relations it writes, each under its mode
  * (WriteMode). A login is one credential and one pool for roles over one base.
  */
 export type RoleEntryDesc<L = Located> =
 	| (L & { readonly kind: "whole"; readonly name: string })
 	| (L & { readonly kind: "world"; readonly name: string; readonly query: QueryDesc<L> })
-	| (L & { readonly kind: "scoped"; readonly name: string; readonly query: QueryDesc<L> })
 
 /**
  * How a role writes one role relation it names, each relation's own: `insert`, adding facts alone, on whose table it
@@ -2038,6 +2112,12 @@ export type RoleDesc<L = Located> = L & {
 	 * and the only contexts its query entries and its programs match.
 	 */
 	readonly contexts: ReadonlyArray<ContextDesc>
+	/**
+	 * The owners of the units its claims bind (schema/scope.ts), each a query over the base whose head is one unit's
+	 * heading: its world holds every member of each such unit at the keys its owner finds alone, which every read on the
+	 * role means.
+	 */
+	readonly scope: ReadonlyArray<QueryDesc<L>>
 } & RoleWriting
 
 /** A role relation a role writes, with its mode. */
@@ -2046,9 +2126,15 @@ export interface WrittenName {
 	readonly mode: WriteMode
 }
 
-/** Each role relation a role writes with its mode: the insert list's, then the write list's, each in its order. */
+/**
+ * Each role relation a role writes with its mode, in one canonical order: by name, in code point order, whichever list
+ * names it. Both role builders check a role's writes in this order (schema/world.ts role, schema/own.ts), so a refusal of
+ * one of several writes names the least of them by name, never the one whose list comes first.
+ */
 export const writtenNames = (writing: RoleWriting): ReadonlyArray<WrittenName> =>
-	writeModes.flatMap((mode) => writing[mode].map((name) => ({ name, mode })))
+	writeModes
+		.flatMap((mode) => writing[mode].map((name) => ({ name, mode })))
+		.toSorted((a, b) => compareCodePoints(a.name, b.name))
 
 export type LoginDesc<L = Located> = L & {
 	readonly name: string
@@ -2454,6 +2540,13 @@ class ParamWalk<P extends object, T> {
 				})
 			case "series":
 				return this.kept(s, { kind: "series", low: this.expr(s.low), high: this.expr(s.high) })
+			case "arm":
+				return this.kept(s, {
+					kind: "arm",
+					variant: s.variant,
+					handle: s.handle,
+					value: this.expr(s.value)
+				})
 			case "relation":
 			case "interior":
 			case "self":
@@ -2635,6 +2728,9 @@ class ParamReads<T> {
 				this.expr(s.low)
 				this.expr(s.high)
 				return
+			case "arm":
+				this.expr(s.value)
+				return
 			case "relation":
 			case "interior":
 			case "self":
@@ -2679,6 +2775,7 @@ class ParamReads<T> {
 			case "between":
 			case "pointIn":
 			case "call":
+			case "variant":
 				for (const child of exprChildren(e)) {
 					this.expr(child.term)
 				}
@@ -3055,9 +3152,7 @@ export const literalDescShape: S.Shape<LiteralDesc> = S.unionShape(
 	S.struct({ span: S.struct({ start: spanEndpointShape, end: spanEndpointShape }) }),
 	S.struct({ float: S.literalsShape(floatSpecialNames) }),
 	S.struct({ handles: S.uniqueStrings("a set's handles", S.nonEmptyString) }),
-	S.struct({
-		sha256: S.refine(S.string, isSha256Text, "a SHA-256 digest's one text, \\x and 64 hex digits")
-	}),
+	S.struct({ sha256: sha256TextShape }),
 	patternValueShape
 )
 
@@ -3158,7 +3253,7 @@ const computeCases: {
 	dateOfEpochDay: unscaledCompute
 }
 
-const guardDescShape: S.Shape<GuardDesc> = S.tagged("kind", {
+const guardDescShape: S.Shape<GuardDesc> = S.tagged<GuardDesc>()("kind", {
 	nonzero: S.struct({}),
 	nonnegative: S.struct({}),
 	positive: S.struct({}),
@@ -3177,7 +3272,7 @@ const exprCases = {
 		{ value: literalDescShape },
 		{ type: S.ref("a field descriptor", () => fieldDescShape) }
 	),
-	compute: S.tagged("fn", computeCases),
+	compute: S.tagged<Extract<ExprDesc, { readonly kind: "compute" }>>()("fn", computeCases),
 	cast: S.struct({
 		to: S.ref("a field descriptor", () => fieldDescShape),
 		arg: S.ref("an expression", () => exprDescShape)
@@ -3187,6 +3282,18 @@ const exprCases = {
 		pred: S.ref("an expression", () => exprDescShape),
 		onTrue: S.ref("an expression", () => exprDescShape),
 		onFalse: S.ref("an expression", () => exprDescShape)
+	}),
+	variant: S.struct({
+		op: S.tagged<VariantOpDesc>()("kind", {
+			tag: S.struct({}),
+			digest: S.struct({}),
+			field: S.struct({ handle: S.nonEmptyString, field: S.nonEmptyString }),
+			make: S.struct({
+				variant: S.ref("a field descriptor", () => fieldDescShape),
+				handle: S.nonEmptyString
+			})
+		}),
+		args: S.array(S.ref("an expression", () => exprDescShape))
 	}),
 	guarded: S.struct({ guard: guardDescShape, arg: S.ref("an expression", () => exprDescShape) }),
 	when: S.struct({
@@ -3252,6 +3359,14 @@ const exprCases = {
 } as const
 
 /**
+ * The kinds of a Description grizzle writes and no author does: a relational existence and a retyped term (ExprDesc
+ * `exists`, `retype`), and a navigation's step (SourceDesc `step`). A decode is the door of a caller's Description, so
+ * it decodes none of them: each decoder of an expression or a source decodes its union without them, named here, so an
+ * author's kind no case decodes is a compile error, never a Description refused as malformed.
+ */
+type EngineWritten = { readonly kind: "exists" | "retype" | "step" }
+
+/**
  * An expression as the decoder reads it, before it parses a connective or a parameter: an and or or of any number of
  * operands, and a guarded node's guard and arg, which exprOfRead parses into the expression each is.
  */
@@ -3283,7 +3398,7 @@ const exprDescShape: S.Shape<ExprDesc> = S.ref("an expression", () => exprDescBo
 
 /** The decoder exprDescShape refers to (S.ref). */
 const exprDescBody: S.Shape<ExprDesc> = S.normalized<ReadExpr, ExprDesc>(
-	S.tagged("kind", exprCases),
+	S.tagged<Exclude<ReadExpr, EngineWritten>>()("kind", exprCases),
 	exprOfRead
 )
 
@@ -3294,7 +3409,7 @@ const exprDescBody: S.Shape<ExprDesc> = S.normalized<ReadExpr, ExprDesc>(
 type ReadBound = ReadExpr | RelationTermDesc
 
 const bindTermDescShape: S.Shape<BindTermDesc> = S.normalized<ReadBound, BindTermDesc>(
-	S.tagged("kind", {
+	S.tagged<Exclude<ReadBound, EngineWritten>>()("kind", {
 		...exprCases,
 		relationParam: S.struct({ name }),
 		rows: S.ref("a query's rows", () => importDescShape)
@@ -3303,7 +3418,7 @@ const bindTermDescShape: S.Shape<BindTermDesc> = S.normalized<ReadBound, BindTer
 )
 
 /** The decoder fieldDescShape refers to (S.ref). */
-const fieldDescBody: S.Shape<FieldDesc> = S.tagged("kind", {
+const fieldDescBody: S.Shape<FieldDesc> = S.tagged<FieldDesc>()("kind", {
 	pg: S.struct({ type: S.literalsShape(pgScalarNames) }),
 	numeric: S.refine(
 		S.struct({ precision: S.integer, scale: S.integer }),
@@ -3360,7 +3475,30 @@ const fieldDescBody: S.Shape<FieldDesc> = S.tagged("kind", {
 			`1..${vectorMaxDimensions} dimensions`
 		)
 	}),
-	search: S.struct({ configuration: S.literalsShape(textSearchConfigurations) })
+	search: S.struct({ configuration: S.literalsShape(textSearchConfigurations) }),
+	variant: S.refine(
+		S.struct({
+			name,
+			roster: name,
+			arms: S.array(
+				S.structStated(
+					{
+						handle: S.nonEmptyString,
+						fields: S.array(S.struct({ name: S.nonEmptyString, desc: fieldDescShape }))
+					},
+					{ check: exprDescShape },
+					{}
+				)
+			)
+		}),
+		(v) =>
+			v.arms.every(
+				(arm) =>
+					new Set(arm.fields.map((f) => f.name)).size === arm.fields.length &&
+					arm.fields.every((f) => f.name !== "tag")
+			),
+		"a variant's arms, each field named once and never tag"
+	)
 })
 
 /** The decoder bindingsDescShape refers to (S.ref). */
@@ -3370,7 +3508,7 @@ const bindingsDescBody: S.Shape<BindingsDesc> = S.recordShape(exprDescShape, S.n
 const bindMapDescBody: S.Shape<BindMapDesc> = S.recordShape(bindTermDescShape, S.nonEmptyString)
 
 const headTermDescShape: S.Shape<HeadTermDesc> = S.normalized<ReadHead, HeadTermDesc>(
-	S.tagged("kind", {
+	S.tagged<Exclude<ReadHead, EngineWritten>>()("kind", {
 		...exprCases,
 		aggregate: S.unionShape(
 			S.struct({ fn: S.literalsShape(["count"]) }),
@@ -3397,7 +3535,7 @@ const contextFieldsCapability =
  * A context's source (ContextFactSource): a token's, with the nested claim object its fields are read from, or
  * attested.
  */
-const contextSourceShape: S.Shape<ContextFactSource> = S.tagged("kind", {
+const contextSourceShape: S.Shape<ContextFactSource> = S.tagged<ContextFactSource>()("kind", {
 	token: S.structStated({}, { claim: name }, {}),
 	attested: S.struct({})
 })
@@ -3428,7 +3566,7 @@ const importDescShape: S.Shape<{ readonly query: QueryDesc; readonly bind: BindM
 const sourceDescShape: S.Shape<SourceDesc> = S.ref("a source", () => sourceDescBody)
 
 /** The decoder sourceDescShape refers to (S.ref). */
-const sourceDescBody: S.Shape<SourceDesc> = S.tagged("kind", {
+const sourceDescBody: S.Shape<SourceDesc> = S.tagged<Exclude<SourceDesc, EngineWritten>>()("kind", {
 	relation: S.struct({ name }),
 	query: importDescShape,
 	param: S.struct({
@@ -3456,7 +3594,7 @@ const sourceDescBody: S.Shape<SourceDesc> = S.tagged("kind", {
 		field: name
 	}),
 	split: S.struct({
-		split: S.tagged("kind", {
+		split: S.tagged<TextSplit>()("kind", {
 			tokens: S.struct({}),
 			pieces: S.struct({ separator: S.nonEmptyString }),
 			rest: S.struct({}),
@@ -3473,6 +3611,11 @@ const sourceDescBody: S.Shape<SourceDesc> = S.tagged("kind", {
 		low: S.ref("an expression", () => exprDescShape),
 		high: S.ref("an expression", () => exprDescShape)
 	}),
+	arm: S.struct({
+		variant: S.ref("a field descriptor", () => fieldDescShape),
+		handle: S.nonEmptyString,
+		value: S.ref("an expression", () => exprDescShape)
+	}),
 	interior: S.struct({ id: name }),
 	self: S.struct({}),
 	delta: S.struct({ side: S.literalsShape(["added", "removed", "met"]), relation: name }),
@@ -3482,7 +3625,7 @@ const sourceDescBody: S.Shape<SourceDesc> = S.tagged("kind", {
 
 /** A call's argument: rows of a query and the bind map of its parameters, or a value's term itself. */
 const callArgDescShape: S.Shape<CallArgDesc> = S.unionShape(
-	S.tagged("kind", { rows: importDescShape }),
+	S.tagged<RowsDesc>()("kind", { rows: importDescShape }),
 	S.ref("an expression", () => exprDescShape)
 )
 
@@ -3524,7 +3667,7 @@ const orderDescShape: S.Shape<OrderDesc> = S.struct({
 	dir: S.literalsShape(directions)
 })
 
-const takeDescShape: S.Shape<TakeDesc> = S.tagged("kind", {
+const takeDescShape: S.Shape<TakeDesc> = S.tagged<TakeDesc>()("kind", {
 	literal: S.struct({ k: S.positiveInteger }),
 	param: S.struct({ name })
 })
@@ -3556,7 +3699,7 @@ const arms = S.nonEmptyArray(ruleDescShape)
 const queryStageShape: S.Shape<QueryStageDesc> = S.ref("a query stage", () => queryStageBody)
 
 /** The decoder queryStageShape refers to (S.ref). */
-const queryStageBody: S.Shape<QueryStageDesc> = S.tagged("kind", {
+const queryStageBody: S.Shape<QueryStageDesc> = S.tagged<QueryStageDesc>()("kind", {
 	rules: S.located(S.structWith({ arms }, loc)),
 	recursive: S.located(S.structWith({ recursive: recursiveDescShape }, loc)),
 	union: S.refine(
@@ -3605,7 +3748,7 @@ const unorderedQueryShape: S.Shape<QueryDesc> = S.refine(
 	"a Query, not an Ordered: only take makes an ordered query a set again"
 )
 
-const termDescShape: S.Shape<TermDesc> = S.tagged("kind", {
+const termDescShape: S.Shape<TermDesc> = S.tagged<TermDesc>()("kind", {
 	field: S.struct({ field: name }),
 	pred: S.struct({ field: name })
 })
@@ -3626,7 +3769,7 @@ const slotsDescShape: S.Shape<SlotsDesc> = S.struct({ owner: name, count: name }
 
 /**
  * A side over every fact of its relation, which no selection narrows: a family's or a tree's member, whose slots are
- * counted over every fact, and an alternatives statement's parent and arms, its relations' keys.
+ * counted over every fact.
  */
 const memberShape: S.Shape<SideDesc> = S.refine(
 	sideDescShape,
@@ -3634,7 +3777,7 @@ const memberShape: S.Shape<SideDesc> = S.refine(
 	"a member side over every fact of its relation, which no selection narrows"
 )
 
-const statementDescShape: S.Shape<StatementDesc> = S.tagged("kind", {
+const statementDescShape: S.Shape<StatementDesc> = S.tagged<StatementDesc>()("kind", {
 	key: S.located(S.structWith({ side: sideDescShape }, loc)),
 	mutable: S.located(S.structWith({ relation: name }, loc)),
 	race: S.located(S.structWith({ relation: name }, loc)),
@@ -3671,21 +3814,6 @@ const statementDescShape: S.Shape<StatementDesc> = S.tagged("kind", {
 			loc
 		)
 	),
-	alternatives: S.located(
-		S.structWith(
-			{
-				parent: memberShape,
-				discriminator: name,
-				roster: name,
-				arms: S.nonEmptyUniqueArray(
-					S.struct({ handle: name, arm: memberShape }),
-					(a) => a.handle,
-					"arm handles"
-				)
-			},
-			loc
-		)
-	),
 	unit: S.located(
 		S.structWith(
 			{
@@ -3703,14 +3831,17 @@ const statementDescShape: S.Shape<StatementDesc> = S.tagged("kind", {
 	series: S.located(S.structWith({ relation: name, field: name }, loc))
 })
 
-const writingShape: S.Shape<Writing> = S.tagged("kind", {
+const writingShape: S.Shape<Writing> = S.tagged<Writing>()("kind", {
 	caller: S.struct({}),
 	instant: S.struct({}),
 	generated: S.struct({ expr: exprDescShape }),
 	drawn: S.struct({}),
 	accumulated: S.struct({ start: literalDescShape }),
 	place: S.struct({
-		order: S.tagged("kind", { unordered: S.struct({}), by: S.struct({ by: S.string }) })
+		order: S.tagged<PlaceOrderDesc>()("kind", {
+			unordered: S.struct({}),
+			by: S.struct({ by: S.string })
+		})
 	})
 })
 
@@ -3742,8 +3873,8 @@ const keyWriting = (decl: FieldDecl | undefined): boolean => {
  * rows' values are coded by within the relation. A span and a vector have no finite code space a cell reads, a set
  * is no row's value, bytes have no literal, a search document is PostgreSQL's parse of a row's texts, never a literal,
  * an exact value of any size has no literal a constant spells (a closed row's integer is a bigint's or a
- * pg.numeric(p, 0)'s, its amount a money's), and an instant is the database's clock's, never a row's literal
- * (ir/instant.ts).
+ * pg.numeric(p, 0)'s, its amount a money's), a variant has no code space a cell reads, and an instant is the
+ * database's clock's, never a row's literal (ir/instant.ts).
  */
 const closedFieldAdmits = (desc: FieldDesc): boolean => {
 	switch (desc.kind) {
@@ -3764,6 +3895,7 @@ const closedFieldAdmits = (desc: FieldDesc): boolean => {
 		case "bits":
 		case "vector":
 		case "search":
+		case "variant":
 			return false
 	}
 }
@@ -3829,7 +3961,7 @@ export const recordAdmitted = (desc: WrittenClosedRelation): AdmittedClosedRelat
 
 /** What a closed relation's fields must be: at least one, each one a closed relation admits (closedFieldAdmits). */
 const closedFieldsCapability =
-	"a closed relation of at least one field, each a closed id or an open type that is no span, set, vector, bytes or exact value, and no field grizzle or PostgreSQL writes"
+	"a closed relation of at least one field, each a closed id or an open type that is no span, set, vector, bytes, exact value or variant, and no field grizzle or PostgreSQL writes"
 
 /** What a closed relation must be beside its fields' own rules: its key, its slots and its rows as one. */
 const closedRelationCapability =
@@ -3864,12 +3996,25 @@ const primaryKeyShape = S.nonEmptyUniqueStrings("primary key fields")
 const keyOverOwnFields =
 	"a primary key over the relation's own fields, each one its caller writes, its family draws or its row generates"
 
-const relationDescShape: S.Shape<RelationDesc> = S.tagged("kind", {
+/** A relation's naming (RelationNaming): declared, or derived at a path of a stem. */
+const relationNamingShape: S.Shape<RelationNaming> = S.tagged<RelationNaming>()("kind", {
+	declared: S.struct({}),
+	derived: S.struct({ stem: name, path: S.array(name) })
+})
+
+/** A roster's naming (RosterNaming): declared or derived. */
+const rosterNamingShape: S.Shape<RosterNaming> = S.tagged<RosterNaming>()("kind", {
+	declared: S.struct({}),
+	derived: S.struct({})
+})
+
+const relationDescShape: S.Shape<RelationDesc> = S.tagged<RelationDesc>()("kind", {
 	relation: S.located(
 		S.refine(
 			S.structWith(
 				{
 					name,
+					naming: relationNamingShape,
 					fields: S.refine(
 						S.recordShape(fieldDeclShape, name),
 						(f) => Object.keys(f).length > 0,
@@ -3885,7 +4030,7 @@ const relationDescShape: S.Shape<RelationDesc> = S.tagged("kind", {
 	),
 	closed: S.located(
 		S.structWith(
-			{ name, handles: S.nonEmptyUniqueStrings("handles") },
+			{ name, naming: rosterNamingShape, handles: S.nonEmptyUniqueStrings("handles") },
 			{ ...loc, order: S.literalsShape(statedRosterOrders) }
 		)
 	),
@@ -3958,7 +4103,7 @@ const schemaRelationShape: S.Shape<SchemaRelationDesc> = S.plain({
 })
 
 const functionTypeShape: S.Shape<FunctionTypeDesc> = S.ref("a function's type", () =>
-	S.tagged("kind", {
+	S.tagged<FunctionTypeDesc>()("kind", {
 		value: S.struct({ type: fieldDescShape }),
 		rows: S.struct({ heading: headingShape }),
 		row: S.struct({ heading: headingShape })
@@ -3979,7 +4124,30 @@ const bodyTextShape = S.refine(S.string, isValidText, "a body of storable text")
 /** A declared function's body: its text, and each row type it names with the text after it. */
 const functionBodyShape: S.Shape<FunctionBodyDesc> = S.struct({
 	text: bodyTextShape,
-	named: S.array(S.struct({ rowType: headingShape, text: bodyTextShape }))
+	named: S.array(
+		S.unionShape(
+			S.struct({ rowType: headingShape, text: bodyTextShape }),
+			S.struct({
+				spelling: S.tagged<VariantSpellingDesc>()("kind", {
+					code: S.struct({
+						variant: S.ref("a field descriptor", () => fieldDescShape),
+						handle: S.nonEmptyString
+					}),
+					attribute: S.struct({
+						variant: S.ref("a field descriptor", () => fieldDescShape),
+						handle: S.nonEmptyString,
+						field: S.nonEmptyString
+					}),
+					of: S.struct({
+						variant: S.ref("a field descriptor", () => fieldDescShape),
+						handle: S.nonEmptyString,
+						fields: S.array(S.struct({ name: S.nonEmptyString, sql: bodyTextShape }))
+					})
+				}),
+				text: bodyTextShape
+			})
+		)
+	)
 })
 
 /** A declared function's Description: its arguments named apart, and a body of storable text. */
@@ -4050,10 +4218,9 @@ export const decodeUnadmittedSchema = (
 ): Result.Result<UnadmittedSchemaDesc, CompileError> =>
 	S.decodeWith(unadmittedSchemaShape, value, "schema description")
 
-const roleEntryDescShape: S.Shape<RoleEntryDesc> = S.tagged("kind", {
+const roleEntryDescShape: S.Shape<RoleEntryDesc> = S.tagged<RoleEntryDesc>()("kind", {
 	whole: S.located(S.structWith({ name }, loc)),
-	world: S.located(S.structWith({ name, query: unorderedQueryShape }, loc)),
-	scoped: S.located(S.structWith({ name, query: unorderedQueryShape }, loc))
+	world: S.located(S.structWith({ name, query: unorderedQueryShape }, loc))
 })
 
 const roleRelations = S.nonEmptyUniqueArray(
@@ -4073,7 +4240,8 @@ const roleDescShape: S.Shape<RoleDesc> = S.located(
 			relations: roleRelations,
 			insert: roleInsert,
 			write: roleWrite,
-			contexts: roleContexts
+			contexts: roleContexts,
+			scope: S.array(unorderedQueryShape)
 		},
 		loc
 	)
@@ -4084,6 +4252,7 @@ type RoleParts = Located & {
 	readonly name: string
 	readonly relations: NonEmptyReadonlyArray<RoleEntryDesc>
 	readonly contexts: ReadonlyArray<ContextDesc>
+	readonly scope: ReadonlyArray<QueryDesc>
 } & RoleWriting
 
 /**
@@ -4094,16 +4263,16 @@ export type RoleInput = {
 	readonly name: string
 	readonly relations: ReadonlyArray<RoleEntryDesc>
 	readonly contexts: ReadonlyArray<ContextDesc>
+	readonly scope: ReadonlyArray<QueryDesc>
 	readonly loc: SourceLoc
 } & RoleWriting
 
 /** A role entry as a decode of its role reads what its caller wrote of it: its kind, its name and its location. */
 type RoleEntryPart = Located & { readonly kind: RoleEntryDesc["kind"]; readonly name: string }
 
-const roleEntryPartShape: S.Shape<RoleEntryPart> = S.tagged("kind", {
+const roleEntryPartShape: S.Shape<RoleEntryPart> = S.tagged<RoleEntryPart>()("kind", {
 	whole: S.located(S.structWith({ name }, loc)),
-	world: S.located(S.structWith({ name }, loc)),
-	scoped: S.located(S.structWith({ name }, loc))
+	world: S.located(S.structWith({ name }, loc))
 })
 
 /** A declared context as a decode of its role reads what its caller wrote of it: its name, each name once. */
@@ -4139,13 +4308,13 @@ const loginDescShape: S.Shape<LoginDesc> = S.located(
 )
 
 /** What a field-equality member equates a field to: a parameter by name and declared type, or a literal. */
-const equaledDescShape: S.Shape<EqualedDesc> = S.tagged("kind", {
+const equaledDescShape: S.Shape<EqualedDesc> = S.tagged<EqualedDesc>()("kind", {
 	param: S.struct({ name, type: fieldDescShape }),
 	literal: S.struct({ value: literalDescShape })
 })
 
 /** A write member's source: an array, a Stream, a query or a field-equality member. */
-const writeSourceShape = S.tagged("kind", {
+const writeSourceShape = S.tagged<MemberSourceDesc>()("kind", {
 	array: S.struct({ slot: name }),
 	stream: S.struct({ slot: name }),
 	query: S.struct({ query: unorderedQueryShape }),
@@ -4156,7 +4325,7 @@ const writeSourceShape = S.tagged("kind", {
 const writeMemberShape = S.structWith({ relation: name, member: writeSourceShape }, loc)
 
 /** An insert member's source: a write member's, or the computed fields of its stratum's host rows. */
-const insertSourceShape = S.tagged("kind", {
+const insertSourceShape = S.tagged<InsertSourceDesc>()("kind", {
 	array: S.struct({ slot: name }),
 	stream: S.struct({ slot: name }),
 	query: S.struct({ query: unorderedQueryShape }),
@@ -4165,7 +4334,7 @@ const insertSourceShape = S.tagged("kind", {
 })
 
 const memberDescShape: S.Shape<MemberDesc> = S.located(
-	S.tagged("op", {
+	S.tagged<MemberDesc>()("op", {
 		insert: S.structWith({ relation: name, member: insertSourceShape }, loc),
 		delete: writeMemberShape,
 		put: writeMemberShape
@@ -4203,7 +4372,7 @@ const changeSetDescShape: S.Shape<ChangeSetDesc> = S.audited(
 		boundRows: S.recordShape(
 			S.struct({
 				stratum: S.nonNegativeInteger,
-				rows: S.tagged("kind", { rows: importDescShape })
+				rows: S.tagged<RowsDesc>()("kind", { rows: importDescShape })
 			}),
 			name
 		)
@@ -4264,7 +4433,7 @@ const changeSetDescShape: S.Shape<ChangeSetDesc> = S.audited(
 	}
 )
 
-const clockedProgramShape: S.Shape<ClockedProgramDesc> = S.tagged("kind", {
+const clockedProgramShape: S.Shape<ClockedProgramDesc> = S.tagged<ClockedProgramDesc>()("kind", {
 	answered: S.struct({ query: queryDescShape }),
 	changeSet: S.struct({ changeSet: changeSetDescShape })
 })
@@ -4279,7 +4448,7 @@ const clockBindingShape: S.Shape<ClockBinding> = S.refine(
 const workloadDescShape: S.Shape<WorkloadDesc> = S.struct({
 	schema: name,
 	programs: S.recordShape(
-		S.tagged("kind", {
+		S.tagged<ProgramDesc>()("kind", {
 			query: S.struct({ query: queryDescShape }),
 			answered: S.struct({ query: queryDescShape }),
 			changeSet: S.struct({ changeSet: changeSetDescShape }),
@@ -4346,14 +4515,21 @@ const subjects: Readonly<Record<DescKind, string>> = {
 export const builtNode = <N extends Located>(node: N): N =>
 	Object.freeze({ ...node, loc: S.keptLoc(node.loc) })
 
+/** The closed id a field's descriptor is, through any depth of contracts, or nothing for any other field. */
+export const closedIdBase = (
+	desc: FieldDesc
+): (FieldDesc & { readonly kind: "closedId" }) | undefined =>
+	desc.kind === "closedId" ? desc : desc.kind === "contract" ? closedIdBase(desc.base) : undefined
+
 /**
- * An ordinary relation's Description over its declared name and its fields' declarations, each a registered
+ * An ordinary relation's Description over its name, its naming and its fields' declarations, each a registered
  * descriptor's decoded type and its writing: the relation's own parts, its fields' names and its caller's primary key,
  * held as a decode of the whole relation holds them, with its refusals at its paths (each field name a declared name, a
  * field at least, a primary key of distinct names of its own key-writing fields), and the declarations as they are.
  */
 export const relationOver = (
 	relationName: string,
+	naming: RelationNaming,
 	fields: Readonly<Record<string, FieldDecl>>,
 	primaryKey: unknown,
 	at: SourceLoc
@@ -4382,6 +4558,7 @@ export const relationOver = (
 			builtNode({
 				kind: "relation",
 				name: relationName,
+				naming,
 				fields: Object.freeze(
 					Object.fromEntries(
 						Object.entries(fields).map(([field, decl]) => [field, Object.freeze(decl)] as const)
@@ -4423,13 +4600,14 @@ const roleDescOver = (base: SchemaDesc, role: RoleParts): RoleDesc =>
 		insert: Object.freeze(role.insert),
 		write: Object.freeze(role.write),
 		contexts: Object.freeze(role.contexts),
+		scope: Object.freeze(role.scope),
 		loc: role.loc
 	})
 
 /**
  * A role's Description over its base, decoded already, from its own parts: what its caller wrote of them decoded as a
- * decode of the whole role decodes it there (roleWrittenShape), each query entry's query as its builder decoded it,
- * frozen with the rest.
+ * decode of the whole role decodes it there (roleWrittenShape), each query entry's query and each owner of its scope as
+ * its builder decoded it, frozen with the rest.
  */
 export const decodeRoleOver = (
 	base: SchemaDesc,
@@ -4439,9 +4617,12 @@ export const decodeRoleOver = (
 		S.decodeWith(
 			roleWrittenShape,
 			{
-				...role,
+				name: role.name,
 				relations: role.relations.map((e) => ({ kind: e.kind, name: e.name, loc: e.loc })),
-				contexts: role.contexts.map((c) => ({ name: c.name }))
+				insert: role.insert,
+				write: role.write,
+				contexts: role.contexts.map((c) => ({ name: c.name })),
+				loc: role.loc
 			},
 			subjects.role
 		),
@@ -4453,6 +4634,7 @@ export const decodeRoleOver = (
 				insert: written.insert,
 				write: written.write,
 				contexts: deepFreeze([...role.contexts]),
+				scope: deepFreeze([...role.scope]),
 				loc: written.loc
 			})
 		}

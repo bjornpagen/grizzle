@@ -43,7 +43,7 @@ const asBits = nominal<Array<number>, Bits>()
 const noWord = (): number => 0
 
 /** A set of `words` words, none of them holding a bit. */
-const emptyWords = (words: number): Bits => asBits(Array.from({ length: words }, noWord))
+export const emptyWords = (words: number): Bits => asBits(Array.from({ length: words }, noWord))
 
 /** The word of position `p`. */
 const wordOf = (p: number): number => Math.floor(p / wordBits)
@@ -184,14 +184,46 @@ export const subsetOf = (a: Bits, b: Bits): boolean => {
 	return true
 }
 
-/** Whether two sets of one node's attributes hold the same attributes. */
-export const sameBits = (a: Bits, b: Bits): boolean => {
-	for (let w = 0; w < a.length; w++) {
-		if (wordAt(a, w) !== wordAt(b, w)) {
+/**
+ * A level of a BitsSet: the level each word a held set has here leads to, its next word's, and the last word of each
+ * held set whose words before it lead here.
+ */
+interface WordLevel {
+	readonly next: Map<number, WordLevel>
+	readonly last: Set<number>
+}
+
+const wordLevel = (): WordLevel => ({ next: new Map(), last: new Set() })
+
+/**
+ * Sets of one node's attributes, each of the node's words (Attributes words), each held once: a trie over their words
+ * in order, so whether a set is held is one lookup a word, its own words read once, never a comparison with the sets
+ * held. Adding n sets of w words costs n·w lookups, where comparing each with every set before it read n²·w words.
+ * Exact: two sets are one where every word is, nothing hashed by the trie itself. A node of one word, as almost every
+ * node is, holds its sets in its root's last words alone.
+ */
+export class BitsSet {
+	readonly #root: WordLevel = wordLevel()
+
+	/** Holds `bits`, a set of the node's attributes: whether it was not already held. */
+	add(bits: Bits): boolean {
+		let level = this.#root
+		for (let w = 0; w < bits.length - 1; w++) {
+			const word = wordAt(bits, w)
+			let next = level.next.get(word)
+			if (next === undefined) {
+				next = wordLevel()
+				level.next.set(word, next)
+			}
+			level = next
+		}
+		const last = wordAt(bits, bits.length - 1)
+		if (level.last.has(last)) {
 			return false
 		}
+		level.last.add(last)
+		return true
 	}
-	return true
 }
 
 /** Whether a set holds no attribute. */
@@ -247,6 +279,21 @@ export const lowest = (bits: Bits): number | undefined => {
 		}
 	}
 	return undefined
+}
+
+/**
+ * A set's positions, ascending, written into `out` from index `at`, which has room for them: the index past the last
+ * written.
+ */
+export const positionsInto = (out: Int32Array, at: number, bits: Bits): number => {
+	let end = at
+	for (let w = 0; w < bits.length; w++) {
+		for (let word = wordAt(bits, w); word !== 0; word &= word - 1) {
+			out[end] = w * wordBits + lowestOf(word)
+			end++
+		}
+	}
+	return end
 }
 
 /** A set's positions, ascending, each pushed onto `out`, a list its holder owns. */

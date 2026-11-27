@@ -17,6 +17,11 @@
  *   set of candidates, which the record delivers by key), and the text arm's order; the record is one statement, and
  *   so is the hybrid served alone.
  *
+ * Box: a catalog of up to 2,400 lessons each case draws and loads into its own clone, or the seeded catalog of 2^16
+ * lessons, which PostgreSQL's planner reads through the HNSW index, loaded once per member by its template's build
+ * (hybrid.fixtures.ts seededCatalog, hybridSeededTemplate), where each large case loaded one of its own, its HNSW walk
+ * past the case deadline; and up to eight probes of it.
+ *
  * Oracle: PostgreSQL's reading of the stored rows under the route's filters with pgvector's own cosine_distance, in no
  * index's order, for the nearest arm's eligible universe; the reference fusion of the record's two arms on the host, in
  * IEEE doubles; and the served members' executed plans for the statement counts and the HNSW index's use.
@@ -27,7 +32,7 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
@@ -35,11 +40,13 @@ import {
 	analyzed,
 	armTake,
 	Catalog,
+	catalogOf,
 	eligible,
 	type HybridCase,
 	hybridCaseGen,
 	hybridFacts,
 	hybridInstall,
+	hybridSeededTemplate,
 	hybridTemplate,
 	referenceFusion,
 	servedByHnsw,
@@ -85,7 +92,10 @@ type HybridFeature =
  */
 export const aHybridSearchFusesItsArmsByReciprocalRankInOneStatementEachArmTheRoutesOwnCandidatesTheNearestFillingItsBoundBesideTheRoutesFilters =
 	property.explore(hybridCaseGen, {
-		needs: { fixture: Substrate.fresh(hybridTemplate) },
+		needs: {
+			drawn: Substrate.fresh(hybridTemplate),
+			seeded: Substrate.fresh(hybridSeededTemplate)
+		},
 		situations: [
 			"a route some lessons pass",
 			"a route no lesson passes",
@@ -95,164 +105,170 @@ export const aHybridSearchFusesItsArmsByReciprocalRankInOneStatementEachArmTheRo
 			"a nearest arm served by the HNSW index"
 		] satisfies ReadonlyArray<Reached<HybridFeature>>,
 		budget: { runs: 5, steered: 48 },
-		check:
-			({ fixture }, k: Case<HybridFeature>) =>
-			(c: HybridCase) =>
-				Effect.flatMap(fixture, (taken) =>
-					Effect.provideService(
-						Effect.gen(function* () {
-							const o = yield* openedIn(Catalog, hybridFacts(c), hybridInstall, taken)
-							yield* analyzed(o.installed)
-							const { session } = yield* Substrate
-							const reference = yield* session({ ...ownerSession(), label: "hybrid reference" })
-							return yield* Effect.gen(function* () {
-								const db = yield* Db.open(o.served.login.roles.app, {})
-								for (const probe of c.probes) {
-									const at = `${c.lessons} lessons of ${c.subjects} subjects and ${c.apps} apps at ${Formatter.format(probe)}`
-									const vector = vectorOf(probe.vector)
-									const input = {
-										params: {
-											"nearest.subject": probe.subject,
-											"nearest.grade": probe.grade,
-											"nearest.app": probe.app,
-											"nearest.intervention": probe.intervention,
-											"nearest.vector": vector,
-											"text.subject": probe.subject,
-											"text.grade": probe.grade,
-											"text.app": probe.app,
-											"text.intervention": probe.intervention,
-											"text.q": probe.q,
-											"hybrid.subject": probe.subject,
-											"hybrid.grade": probe.grade,
-											"hybrid.app": probe.app,
-											"hybrid.intervention": probe.intervention,
-											"hybrid.vector": vector,
-											"hybrid.q": probe.q,
-											"hybrid.take": probe.take
-										},
-										facts: {}
-									}
-									const [record, ...more] = yield* db.workload.step.once(input)
-									assert.equal(more.length, 0, `${at}: a record is one row`)
-									if (record === undefined) {
-										return assert.fail(`${at}: a record is one row, not none`)
-									}
-									const universe = yield* eligible(reference, o.installed, probe)
-									const distances = new Map(Arr.map(universe, (row) => [row[0], row[1]] as const))
-									/** The arm's candidates in the order its places count, nearest first, ties by lesson: a search answers a set, which the record delivers by key. */
-									const nearRows = Arr.sort(
-										record.nearest,
-										(a: (typeof record.nearest)[number], b: (typeof record.nearest)[number]) =>
-											a.distance !== b.distance
-												? a.distance < b.distance
-													? -1
-													: 1
-												: a.lesson < b.lesson
-													? -1
-													: a.lesson > b.lesson
-														? 1
-														: 0
-									)
-									assert.equal(
-										new Set(Arr.map(nearRows, (r) => r.lesson)).size,
-										nearRows.length,
-										`${at}: each candidate once`
-									)
-									for (const row of nearRows) {
-										assert.equal(
-											distances.get(`${row.lesson}`),
-											`${row.distance}`,
-											`${at}: lesson ${row.lesson} the route admits, at its exact distance`
-										)
-									}
-									assert.equal(
-										nearRows.length,
-										Math.min(armTake, universe.length),
-										`${at}: the nearest arm fills its bound up to the lessons the route admits, losing none to the filters`
-									)
-									k.note(
-										universe.length > 0 ? "a route some lessons pass" : "a route no lesson passes"
-									)
-									if (universe.length > armTake) {
-										k.note("a nearest arm filled beside the range filter")
-									}
-									const textRows = record.text
-									assert.equal(
-										new Set(Arr.map(textRows, (r) => r.lesson)).size,
-										textRows.length,
-										`${at}: each text candidate once`
-									)
-									for (const row of textRows) {
-										assert.ok(
-											distances.has(`${row.lesson}`),
-											`${at}: text candidate ${row.lesson} a lesson the route admits`
-										)
-									}
-									assert.deepEqual(
-										textRows,
-										Arr.sort(
-											textRows,
-											(a: (typeof textRows)[number], b: (typeof textRows)[number]) =>
-												a.rank !== b.rank
-													? a.rank > b.rank
-														? -1
-														: 1
-													: a.lesson < b.lesson
-														? -1
-														: a.lesson > b.lesson
-															? 1
-															: 0
-										),
-										`${at}: the best ranked first, ties by lesson`
-									)
-									const expected = referenceFusion([nearRows, textRows], probe.take)
-									const got: ReadonlyArray<{ readonly lesson: number; readonly score: number }> =
-										Arr.map(record.hybrid, (r) => ({ lesson: r.lesson, score: r.score }))
-									assert.deepEqual(
-										got,
-										expected,
-										`${at}: the hybrid is its arms' reciprocal rank fusion`
-									)
-									const both = new Set(Arr.map(textRows, (r) => r.lesson))
-									if (Arr.some(nearRows, (r) => both.has(r.lesson))) {
-										k.note("a lesson both arms hold")
-									}
-									if (
-										record.hybrid.length <
-										new Set([...Arr.map(nearRows, (r) => r.lesson), ...both]).size
-									) {
-										k.note("a take that cuts the fusion short")
-									}
-									const executed = yield* db.workload.step.explainAnalyze(input)
-									assert.equal(executed.length, 1, `${at}: the record is one statement`)
-									if (servedByHnsw(o.installed, executed)) {
-										k.note("a nearest arm served by the HNSW index")
-									}
-									const alone = yield* db.workload.hybrid.explainAnalyze({
-										params: {
-											subject: probe.subject,
-											grade: probe.grade,
-											app: probe.app,
-											intervention: probe.intervention,
-											vector,
-											q: probe.q,
-											take: probe.take
-										},
-										facts: {}
-									})
-									assert.equal(alone.length, 1, `${at}: the hybrid is one statement`)
+		check: (templates, k: Case<HybridFeature>) => (c: HybridCase) =>
+			Effect.flatMap(templates[c.population.kind], (taken) =>
+				Effect.provideService(
+					Effect.gen(function* () {
+						const o = yield* openedIn(Catalog, hybridFacts(c), hybridInstall, taken)
+						yield* analyzed(o.installed)
+						const { session } = yield* Substrate
+						const reference = yield* session({ ...ownerSession(), label: "hybrid reference" })
+						return yield* Effect.gen(function* () {
+							const db = yield* Db.open(o.served.login.roles.app, {})
+							const catalog = catalogOf(c.population)
+							for (const probe of c.probes) {
+								const at = `${catalog.lessons} lessons of ${catalog.subjects} subjects and ${catalog.apps} apps (${c.population.kind}) at ${Formatter.format(probe)}`
+								const vector = vectorOf(probe.vector)
+								const input = {
+									params: {
+										"nearest.subject": probe.subject,
+										"nearest.grade": probe.grade,
+										"nearest.app": probe.app,
+										"nearest.intervention": probe.intervention,
+										"nearest.vector": vector,
+										"text.subject": probe.subject,
+										"text.grade": probe.grade,
+										"text.app": probe.app,
+										"text.intervention": probe.intervention,
+										"text.q": probe.q,
+										"hybrid.subject": probe.subject,
+										"hybrid.grade": probe.grade,
+										"hybrid.app": probe.app,
+										"hybrid.intervention": probe.intervention,
+										"hybrid.vector": vector,
+										"hybrid.q": probe.q,
+										"hybrid.take": probe.take
+									},
+									facts: {}
 								}
-							}).pipe(Effect.scoped, withLayer(o.served.layer))
-						}).pipe(Effect.scoped),
-						Substrate,
-						taken.substrate
-					)
-				),
+								const [record, ...more] = yield* db.workload.step.once(input)
+								assert.equal(more.length, 0, `${at}: a record is one row`)
+								if (record === undefined) {
+									return assert.fail(`${at}: a record is one row, not none`)
+								}
+								const universe = yield* eligible(reference, o.installed, probe)
+								const distances = new Map(Arr.map(universe, (row) => [row[0], row[1]] as const))
+								/** The arm's candidates in the order its places count, nearest first, ties by lesson: a search answers a set, which the record delivers by key. */
+								const nearRows = Arr.sort(
+									record.nearest,
+									(a: (typeof record.nearest)[number], b: (typeof record.nearest)[number]) =>
+										a.distance !== b.distance
+											? a.distance < b.distance
+												? -1
+												: 1
+											: a.lesson < b.lesson
+												? -1
+												: a.lesson > b.lesson
+													? 1
+													: 0
+								)
+								assert.equal(
+									new Set(Arr.map(nearRows, (r) => r.lesson)).size,
+									nearRows.length,
+									`${at}: each candidate once`
+								)
+								for (const row of nearRows) {
+									assert.equal(
+										distances.get(`${row.lesson}`),
+										`${row.distance}`,
+										`${at}: lesson ${row.lesson} the route admits, at its exact distance`
+									)
+								}
+								assert.equal(
+									nearRows.length,
+									Math.min(armTake, universe.length),
+									`${at}: the nearest arm fills its bound up to the lessons the route admits, losing none to the filters`
+								)
+								k.note(
+									universe.length > 0 ? "a route some lessons pass" : "a route no lesson passes"
+								)
+								if (universe.length > armTake) {
+									k.note("a nearest arm filled beside the range filter")
+								}
+								const textRows = record.text
+								assert.equal(
+									new Set(Arr.map(textRows, (r) => r.lesson)).size,
+									textRows.length,
+									`${at}: each text candidate once`
+								)
+								for (const row of textRows) {
+									assert.ok(
+										distances.has(`${row.lesson}`),
+										`${at}: text candidate ${row.lesson} a lesson the route admits`
+									)
+								}
+								assert.deepEqual(
+									textRows,
+									Arr.sort(textRows, (a: (typeof textRows)[number], b: (typeof textRows)[number]) =>
+										a.rank !== b.rank
+											? a.rank > b.rank
+												? -1
+												: 1
+											: a.lesson < b.lesson
+												? -1
+												: a.lesson > b.lesson
+													? 1
+													: 0
+									),
+									`${at}: the best ranked first, ties by lesson`
+								)
+								const expected = referenceFusion([nearRows, textRows], probe.take)
+								const got: ReadonlyArray<{ readonly lesson: number; readonly score: number }> =
+									Arr.map(record.hybrid, (r) => ({ lesson: r.lesson, score: r.score }))
+								assert.deepEqual(
+									got,
+									expected,
+									`${at}: the hybrid is its arms' reciprocal rank fusion`
+								)
+								const both = new Set(Arr.map(textRows, (r) => r.lesson))
+								if (Arr.some(nearRows, (r) => both.has(r.lesson))) {
+									k.note("a lesson both arms hold")
+								}
+								if (
+									record.hybrid.length <
+									new Set([...Arr.map(nearRows, (r) => r.lesson), ...both]).size
+								) {
+									k.note("a take that cuts the fusion short")
+								}
+								const executed = yield* db.workload.step.explainAnalyze(input)
+								assert.equal(executed.length, 1, `${at}: the record is one statement`)
+								if (servedByHnsw(o.installed, executed)) {
+									k.note("a nearest arm served by the HNSW index")
+								}
+								const alone = yield* db.workload.hybrid.explainAnalyze({
+									params: {
+										subject: probe.subject,
+										grade: probe.grade,
+										app: probe.app,
+										intervention: probe.intervention,
+										vector,
+										q: probe.q,
+										take: probe.take
+									},
+									facts: {}
+								})
+								assert.equal(alone.length, 1, `${at}: the hybrid is one statement`)
+							}
+						}).pipe(Effect.scoped, withLayer(o.served.layer))
+					}).pipe(Effect.scoped),
+					Substrate,
+					taken.substrate
+				)
+			),
 		oracle: {
 			kind: "second-implementation",
 			name: "the route's lessons by PostgreSQL's reading of the stored rows and pgvector's cosine_distance, and the host's fusion of the record's arms"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/search/hybrid.test.ts#aHybridSearchFusesItsArmsByReciprocalRankInOneStatementEachArmTheRoutesOwnCandidatesTheNearestFillingItsBoundBesideTheRoutesFilters:-:2.vct81a.2.5.b.0.0.8.0.1.0.f.7.ukgp3k.3.a.9.b.0.0.0.0.0.1.4.44qei4.2.6.a.1.5.0.0.2.f.6cxwy3.2.7.6.0.1.4.0.1.2.5.tjls9a.3.5.5.5.0.0.9.0.0.1.a.e7vyxo.1.4.0.1.b.0.0.2.b.ww9kga.1.5.0.0.9.0.0.1.8.5kmw2c.3.3.4.a.0.0.2.0.0.0.8"
+				),
+				reason:
+					"the merged tree's red's eight probes over the seeded catalog: a case of 69,261 lessons of its own hung on their load, 53 s of its HNSW walk's backend CPU and 7 s of its own past the 60 s case deadline, before its first probe",
+				since: "2026-11-27"
+			}
+		],
 		kills: [
 			{
 				file: "packages/engine/src/check/approximate/policy.ts",

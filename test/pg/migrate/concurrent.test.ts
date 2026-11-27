@@ -1,7 +1,7 @@
 /**
  * Installations migrating into one database at once (DEFACL). Each is a schema of its own, but they write catalog rows
  * they share: the owner's global default privileges (one pg_default_acl row per owner and object kind), the vector
- * extension's schema's ACL, the database's own default and ACL. Every statement that writes one is the database lock's
+ * extension's schema's ACL, the database's ACL. Every statement that writes one is the database lock's
  * command and its own (packages/engine/src/sql/print.ts databaseWide); without the lock two of them at once fail with
  * XX000 (tuple concurrently updated), as installations did when test seats installed at once (2484d498), and a lock
  * printed into the same text as its statement fails every door that sends one command a message (42601, 2f3f4a14).
@@ -12,7 +12,7 @@
  * the real apply runner over its drafted folder (install-migrate.ts migrateFolders, as `grizzle migrate` and every
  * migrated or served test installation send it, a file split into its commands), or the harness's script door (one
  * transaction of filledSql over the fresh-install script, as installRealSchema and installationSql send it, one
- * command a message). Each is drafted as `grizzle generate` drafts it (draftVersion), under a name of its own and the
+ * command a message). Each is drafted as `grizzle generate` drafts it (generatedDraft), under a name of its own and the
  * case's one owner, and sent as an owner login of its own (ambientOwner), all of them at once into the file's database.
  *
  * The construction: before any is sent, a gate session opens a transaction and creates each installation's login role,

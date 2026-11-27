@@ -162,7 +162,7 @@ const assembleChunks = (
 	for (const row of rows) {
 		const into = byOrd.get(rowText(row, ordAt))
 		if (into === undefined) {
-			throw defect("a chunk of a delivered row whose chunk 0 the answer holds")
+			defect("a chunk of a delivered row whose chunk 0 the answer holds")
 		}
 		const offset = Number(rowText(row, chunkAt)) * chunkLength
 		for (const at of bytes) {

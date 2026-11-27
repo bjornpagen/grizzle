@@ -52,7 +52,7 @@ import {
 	twiceAndCopies,
 	twoClasses
 } from "#test/unit/lower/shapes/share-keys.fixtures.ts"
-import { present } from "#test/unit/lower/support.ts"
+import { placedPlain, present } from "#test/unit/lower/support.ts"
 
 type Planned = "carried" | "none carried" | "a copy" | "no copy"
 
@@ -67,11 +67,20 @@ export const theSharePlanningKeyedByBlocksCarriesWhatThePlanningKeyedByEachNodes
 			Effect.sync(() => {
 				const p = programOf(sketch)
 				const shares = succeeded(
-					planStatementShares(new ShareIndex(p.dag, new DagTemplates()), p.roots, noneHeld, {
-						kind: "never"
-					})
+					planStatementShares(
+						new ShareIndex(p.dag, new DagTemplates("derivation"), placedPlain),
+						p.roots,
+						noneHeld,
+						{
+							kind: "never"
+						}
+					)
 				)
-				const reference = referenceShares(new ShareIndex(p.dag, new DagTemplates()), p.dag, p.roots)
+				const reference = referenceShares(
+					new ShareIndex(p.dag, new DagTemplates("derivation"), placedPlain),
+					p.dag,
+					p.roots
+				)
 				const view = (
 					all: ReadonlyArray<{
 						readonly node: { readonly id: string }
@@ -122,13 +131,18 @@ export const theCarriedSharesDoNotDependOnTheOrderTheMembersStandIn = property.e
 						)
 					}))
 				const inOrder = succeeded(
-					planStatementShares(new ShareIndex(p.dag, new DagTemplates()), p.roots, noneHeld, {
-						kind: "never"
-					})
+					planStatementShares(
+						new ShareIndex(p.dag, new DagTemplates("derivation"), placedPlain),
+						p.roots,
+						noneHeld,
+						{
+							kind: "never"
+						}
+					)
 				)
 				const permuted = succeeded(
 					planStatementShares(
-						new ShareIndex(p.dag, new DagTemplates()),
+						new ShareIndex(p.dag, new DagTemplates("derivation"), placedPlain),
 						Arr.map(order, (i) => present(p.roots[i], "a statement")),
 						noneHeld,
 						{ kind: "never" }
@@ -182,10 +196,10 @@ export const aSealedNodeReadTwiceAndTwoBuiltAlikeAreOfOneKeyTheOneWayAKeyIsCoars
 		check: (_, c: Case<Coarsened>) => (same) =>
 			Effect.sync(() => {
 				const p = twiceAndCopies(same)
-				const index = new ShareIndex(p.dag, new DagTemplates())
+				const index = new ShareIndex(p.dag, new DagTemplates("derivation"), placedPlain)
 				assert.notEqual(
-					succeeded(shareKey(p.dag, p.twice, new DagTemplates())),
-					succeeded(shareKey(p.dag, p.copies, new DagTemplates())),
+					succeeded(shareKey(p.dag, p.twice, new DagTemplates("derivation"))),
+					succeeded(shareKey(p.dag, p.copies, new DagTemplates("derivation"))),
 					"one node read twice and two copies are of two whole-reach digests"
 				)
 				assert.equal(
@@ -225,7 +239,7 @@ export const anAttachmentsChildReadingBelowItsSealedParentNamesItsPlaceSoCopiesB
 		check: (_, c: Case<Attached>) => (same) =>
 			Effect.sync(() => {
 				const p = attachedBelowItsParent(same)
-				const index = new ShareIndex(p.dag, new DagTemplates())
+				const index = new ShareIndex(p.dag, new DagTemplates("derivation"), placedPlain)
 				const shares = succeeded(planStatementShares(index, p.roots, noneHeld, { kind: "never" }))
 				const [first, second] = p.copies
 				assert.equal(
@@ -266,10 +280,10 @@ export const twoFoldsOfOneRegionAreOfOneKeyExactlyWhenTheyReadByOneOccurrence = 
 				Effect.sync(() => {
 					const p = foldsByOccurrence(first, second)
 					const [a, b] = p.folds
-					const index = new ShareIndex(p.dag, new DagTemplates())
+					const index = new ShareIndex(p.dag, new DagTemplates("derivation"), placedPlain)
 					assert.equal(
-						succeeded(shareKey(p.dag, a, new DagTemplates())) ===
-							succeeded(shareKey(p.dag, b, new DagTemplates())),
+						succeeded(shareKey(p.dag, a, new DagTemplates("derivation"))) ===
+							succeeded(shareKey(p.dag, b, new DagTemplates("derivation"))),
 						first === second,
 						"the whole-reach digests"
 					)
@@ -310,7 +324,7 @@ export const keyingEveryNodeOfADagDigestsEachBlockOnceInUnitsLinearInItsDistinct
 				const dag = levels(depth)
 				const nodes = topoOrder(dag)
 				const edges = Arr.reduce(nodes, 0, (n, node) => n + edgesOf(node).length)
-				const index = new ShareIndex(dag, new DagTemplates())
+				const index = new ShareIndex(dag, new DagTemplates("derivation"), placedPlain)
 				for (const node of nodes) {
 					index.key(node)
 				}

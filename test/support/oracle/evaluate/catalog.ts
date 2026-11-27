@@ -123,7 +123,7 @@ const evaluationOf = (op: NativeOp): Evaluation => {
 		case "netWithin":
 		case "netStrictlyWithin":
 		case "netOverlaps":
-		case "canonicalZero":
+		case "canonical":
 		case "add":
 		case "sub":
 		case "mul":
@@ -563,6 +563,7 @@ export const compareCarried = (
 			return isString(a) && isString(b) ? ordered(a, b) : undefined
 		case "text":
 			return isString(a) && isString(b) ? compareCodePoints(a, b) : undefined
+		case "variant":
 		case "inet":
 		case "cidr":
 		case "sha256":
@@ -782,7 +783,7 @@ const catalogApply = (
 		}
 		case "minScale":
 			return isDecimal(a) ? liftEngine(Engine.map(N.minScaleOf(a), BigInt)) : mismatch(op)
-		case "canonicalZero":
+		case "canonical":
 			return isNumber(a) ? Result.succeed(a === 0 ? 0 : a) : mismatch(op)
 		case "least":
 		case "greatest": {
@@ -1167,6 +1168,8 @@ const evaluateOver = (root: ScalarExpr, env: EvalEnv, value: CatalogResult): Cat
 					catalogApply(op, values, types)
 				)
 			}
+			case "variant":
+				return unsupported(`the variant operation ${expr.op.kind}`)
 		}
 	}
 	return run(root)

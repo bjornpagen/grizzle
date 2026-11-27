@@ -1,29 +1,28 @@
 import { openApiText } from "@bjornpagen/grizzle-openapi/openapi"
 import type { TextChunks } from "@bjornpagen/grizzle-text/chunks"
-import { Array as Arr, Effect, Option, Record as Rec } from "effect"
+import { Array as Arr, Effect, Option } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
 import {
 	artifactsUnder,
-	type BuiltLogin,
 	type LayerRole,
 	loginChangesOver,
+	type LoginInput,
 	plannedLoginRoles,
-	workloadSlice
+	workloadReach
 } from "#adapter/served/login.ts"
 import { servedFileOf, type UncoveredProgram } from "#adapter/served/project.ts"
 import { lawsAbove } from "#adapter/witness/keylaw.ts"
 import {
 	type ChangeRefused,
-	loginRole,
 	programsOn,
 	type RoleChanges,
 	type ServableRole,
-	servableRoles
+	servableRoles,
+	variantsEntries
 } from "#compiler/plan/change.ts"
 import {
 	type ClockSource,
 	type CompileError,
-	Engine,
 	type InstalledArtifacts,
 	type InstalledSource,
 	type Isolation,
@@ -31,28 +30,32 @@ import {
 	type LoginDesc,
 	movedClock,
 	type OwnedLogin,
-	ownedEntry,
 	servedRecordsOf,
 	transactionClock
 } from "#compiler/plan/common.ts"
 import {
+	judgeSeeks,
 	loginFootprints,
 	type ProgramFootprints,
+	type SeekTargets,
+	seekProgram,
 	servedText,
 	type UnservedMember,
 	type WorkloadPlanRefused
 } from "#compiler/plan/migration.ts"
 import {
-	everySlice,
 	type ServedRecords,
 	type ServedSnapshot,
 	servedSnapshot,
 	type UncoveredRead
 } from "#compiler/plan/serve.ts"
 
-/** A login of a configured schema, as generate and check compile it: its value, and the login owned over its base. */
+/**
+ * A login of a configured schema, as generate and check compile it: the login read where it was given (login.ts
+ * LoginInput), from its value or its Description, and the login owned over its base.
+ */
 export interface ServedInput {
-	readonly login: BuiltLogin
+	readonly login: LoginInput
 	readonly owned: OwnedLogin
 }
 
@@ -78,7 +81,7 @@ export interface ServedRefusal {
 /**
  * A login's workload compiled: the login, the snapshot it compiled under, read over the login's base's level, every
  * role of it with its programs, in the login's order, its footprint, the declared names of the relations its programs
- * read and write (schema/reach.ts Slice names, its writes among them, login.ts workloadSlice), and each query program's
+ * read and write (schema/reach.ts footprintOf, login.ts workloadReach), and each query program's
  * footprint, by name, as the workload plan read it (program/workload/compile.ts WorkloadFootprints), which its served
  * read routes changes by on every role it runs on.
  */
@@ -118,15 +121,14 @@ export const planRefusal = (login: ServedInput, refused: WorkloadPlanRefused): S
 		return atLogin(refused.error)
 	}
 	return Option.match(
-		Arr.findFirst(login.login.roles, ({ value }) => {
-			const role = loginRole(value, login.owned)
-			const running = role.ok ? programsOn(role.value.input, [refused.workload]) : role
+		Arr.findFirst(login.login.roles, (role) => {
+			const running = programsOn(role, [refused.workload])
 			return running.ok && running.value.length > 0
 		}),
 		{
 			onNone: () => atLogin(refused.error),
 			onSome: (runs) => ({
-				place: { kind: "program", role: runs.name, program: refused.program },
+				place: { kind: "program", role: runs.desc.name, program: refused.program },
 				error: refused.error
 			})
 		}
@@ -151,8 +153,8 @@ export const atRole = (refused: ChangeRefused): ServedRefusal => ({
  * file yields it, read as DbLayer.make read it (deploy/snapshot/served.ts servedSnapshot) over the login's base's level,
  * the last of its own levels: its recorded codes and the laws of the levels above the login's base. Every role of the
  * login compiles over `artifacts`, its base's, compiled under those codes over every relation (program/schema.ts
- * baseArtifacts), every program of the login's workloads that runs on the role once: a program compiles over the whole
- * installation's artifacts exactly as over its slice's, so no law model is compiled for the login. Its ChangeSets are
+ * baseArtifacts), every program of the login's workloads that runs on the role once, so no law model is compiled for
+ * the login. Its ChangeSets are
  * the login's change compile's, `changes`, compiled once over the same artifacts at the level each role's writes run
  * at, its certificate's (program/workload/change.ts loginChanges, program/isolation/certification.ts), which its
  * served form records (login.ts LayerRole `isolation`). A role's refusals are cut to what its programs' writes can raise,
@@ -172,23 +174,18 @@ const compileServed = Effect.fn("compileServed")(function* (
 		fromEngine(servedSnapshot(snapshot, levelChain(login.login.base.desc).length - 1)),
 		atLogin
 	)
-	const layer = { slice: everySlice(login.owned.base), artifacts, over: () => Engine.ok(artifacts) }
 	const roles = yield* Effect.mapError(
-		plannedLoginRoles(login.login, changes, layer, lawsAbove(served), clock),
+		plannedLoginRoles(login.login, changes, artifacts, lawsAbove(served), clock),
 		atRole
 	)
-	const footprint = yield* Effect.mapError(workloadSlice(login.login, login.owned), atRole)
-	const base = ownedEntry(login.login.base.value, "schema")
+	const { footprint } = yield* Effect.mapError(workloadReach(login.login, login.owned), atRole)
 	return {
 		login: login.login.desc,
 		snapshot: served,
 		roles,
-		footprint: footprint.names,
+		footprint,
 		footprints,
-		records: servedRecordsOf(
-			base === undefined ? [] : Rec.values(base.value.relations),
-			footprint.names
-		)
+		records: servedRecordsOf(login.login.relations, footprint)
 	}
 })
 
@@ -242,12 +239,65 @@ export const servedEntry = (
 	snapshot: unknown,
 	artifacts: InstalledArtifacts,
 	changes: ReadonlyMap<string, ServableRole<Isolation, InstalledSource>>,
-	footprints: ProgramFootprints
+	footprints: ProgramFootprints,
+	seeks: SeekTargets
 ): Effect.Effect<ServedEntry, ServedRefusal> =>
 	Effect.flatMap(
 		compileServed(login, snapshot, artifacts, changes, footprints, transactionClock),
-		servedEntryOf
+		(compiled) => {
+			judgeServedSeeks(compiled, changes, seeks)
+			return servedEntryOf(compiled)
+		}
 	)
+
+/**
+ * Every read and write a login's served file sends held to the indexes of the installation it is drafted beside, `seeks`
+ * (engine physical/access/seeks.ts judgeSeeks): each statement of each read, key and page of every role's workload, both
+ * forms of a chosen one, read into its seek program here (engine sql/seeks.ts seekProgram), and each variant of each
+ * change member of every role, `changes`, by the program its compile read off its statements before the installation
+ * existed (engine write/program/served.ts ServableWrite `seeks`). A read or a write no index serves is an internal
+ * compiler error of generate's, never a scan found where the file is served.
+ */
+const judgeServedSeeks = (
+	compiled: CompiledServed,
+	changes: ReadonlyMap<string, ServableRole<Isolation, InstalledSource>>,
+	seeks: SeekTargets
+): void => {
+	for (const role of compiled.roles) {
+		for (const form of role.workload) {
+			if (form.kind === "change") {
+				continue
+			}
+			const templates =
+				form.kind === "paged"
+					? [form.form.bound.compiled.compiled.template, form.form.page.compiled.template]
+					: [form.form.bound.compiled.compiled.template]
+			judgeSeeks(
+				seekProgram(
+					Arr.flatMap(templates, (t) => {
+						const statement = t.run.statement
+						return statement.forms.kind === "chosen"
+							? [statement.ast, statement.forms.large.statement.ast]
+							: [statement.ast]
+					})
+				),
+				seeks,
+				`the read ${form.name} of role ${role.role.name} of login ${compiled.login.name}`
+			)
+		}
+	}
+	for (const [name, role] of changes) {
+		for (const [member, variants] of role.members) {
+			for (const entry of variantsEntries(variants)) {
+				judgeSeeks(
+					entry.compiled.seeks,
+					seeks,
+					`the write ${member} of role ${name} of login ${compiled.login.name}`
+				)
+			}
+		}
+	}
+}
 
 /**
  * The compile of `login` under `snapshot` alone, no installation compiled beside it: the installation's artifacts
@@ -269,12 +319,17 @@ export const snapshotCompiled = Effect.fn("snapshotCompiled")(function* (
 		atLogin
 	)
 	const base = login.owned.base
-	const { artifacts } = yield* Effect.mapError(
+	const reach = yield* Effect.mapError(workloadReach(login.login, login.owned), atRole)
+	const artifacts = yield* Effect.mapError(
 		fromEngine(
-			artifactsUnder(base, served.codes, served.derived, everySlice(base), {
-				kind: "recorded",
-				installed: served.derived.params
-			})
+			artifactsUnder(
+				base,
+				served.codes,
+				served.derived,
+				{ kind: "recorded", installed: served.derived.params },
+				{ kind: "analyzed" },
+				reach.served
+			)
 		),
 		atLogin
 	)

@@ -232,8 +232,8 @@ export const twoFactsAtMinusZeroAndPlusZeroOfAFloatKeyAreOneKeyAPutOfBothIsRefus
 		kills: [
 			{
 				file: "packages/engine/src/scalar/values/identity.ts",
-				original: "\t\t? floatText(0)\n\t\t: text",
-				replacement: "\t\t? text\n\t\t: text",
+				original: "\tfloat8: (text) => (text === floatText(-0) ? floatText(0) : text)",
+				replacement: "\tfloat8: (text) => text",
 				why: "A key text tells -0 from +0, so the host sends both and PostgreSQL's ON CONFLICT meets one row twice."
 			}
 		]

@@ -75,13 +75,7 @@ import {
 	unionArms,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
-import {
-	baseOf,
-	equalityIsIdentity,
-	floatCarrierOf,
-	type ScalarType,
-	typeLabel
-} from "#compiler/ir/scalar.ts"
+import { baseOf, equalityIsIdentity, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { chain } from "#compiler/logical/defined.ts"
 import { conjuncts, type Fixed, fixedEqual, readColumns } from "#compiler/logical/props.ts"
 import { carrierEquality, nativeOp } from "#compiler/scalar/compute/registry.ts"
@@ -416,6 +410,7 @@ const valueRep = (given: ScalarExpr, locals: ReadonlySet<NodeId>): ValueRep => {
 		case "cast":
 		case "domainCast":
 		case "cond":
+		case "variant":
 		case "closedAt":
 		case "closedRow":
 		case "closedHas":
@@ -633,7 +628,7 @@ const regionFacts = (node: NodeOf<"MatchRegion">, cx: RuleContext): Justificatio
 		bindings.filter((b) => b.var.id === v.id).length > 1 ||
 		node.equalities.some((e) => e.a.id === v.id || e.b.id === v.id) ||
 		node.correlated.some((c) => c.var.id === v.id)
-	if (node.vars.some((v) => floatCarrierOf(v.type) !== undefined && shared(v))) {
+	if (node.vars.some((v) => !equalityIsIdentity(v.type) && shared(v))) {
 		return undefined
 	}
 	const justs: Array<Justification> = []
@@ -757,10 +752,50 @@ const extendSame = (node: RelNode, input: PhysicalProps): FixedState => {
 	return { fds, fixed }
 }
 
+/** An equality a filter's conjunct states between two of its input's columns, under the comparison that justifies it. */
+interface ColumnEquality {
+	readonly x: string
+	readonly y: string
+	readonly just: Justification
+}
+
+/**
+ * The values a filter fixes its columns to, closed under the equalities its conjuncts state between columns: a column
+ * equated with one fixed to a value is fixed to that value too, through any chain of equalities, until no value is new.
+ * The closure is the conjunction's, never its order's: carried across each equality as its conjunct was read, a value a
+ * later conjunct fixed never crossed it (of a = 0, a_2 = a and a = $p, a_2 was fixed to 0 alone), so the conjuncts
+ * reversed fixed a column to other values (soundness.test.ts, rotating seed 0xbe8b74d0, case 213).
+ */
+const closeFixed = (
+	fixed: Map<string, FixedFacts>,
+	equalities: ReadonlyArray<ColumnEquality>
+): void => {
+	for (let grew = true; grew;) {
+		grew = false
+		for (const { x, y, just } of equalities) {
+			for (const [to, from] of [
+				[x, y],
+				[y, x]
+			] as const) {
+				for (const f of fixed.get(from) ?? []) {
+					if (
+						f.fixed.kind !== "expr" &&
+						!(fixed.get(to) ?? []).some((h) => fixedEqual(h.fixed, f.fixed))
+					) {
+						recordFact(fixed, to, { fixed: f.fixed, just: joinJustifications([f.just, just]) })
+						grew = true
+					}
+				}
+			}
+		}
+	}
+}
+
 /**
  * A filter keeps its input's keys and can fix key components: a column it equates to a value, or to a column fixed to
- * one, is fixed to what that value is, each value it names, an outer row's column too. A span held to contain a point
- * the input's columns, or values fixed per evaluation, give has that point known.
+ * one, is fixed to what that value is, each value it names, an outer row's column too, whatever order its conjuncts are
+ * written in (closeFixed). A span held to contain a point the input's columns, or values fixed per evaluation, give has
+ * that point known.
  */
 const filterProps = (node: NodeOf<"Filter">, cx: RuleContext): PhysicalProps => {
 	const input = cx.props(node.input)
@@ -768,6 +803,7 @@ const filterProps = (node: NodeOf<"Filter">, cx: RuleContext): PhysicalProps => 
 	const fds = s.fds
 	const inputId = node.input.id
 	const locals = new Set([inputId])
+	const equalities: Array<ColumnEquality> = []
 	const pin = (held: HeldPoint): void => {
 		const span = valueRep(held.span, locals)
 		if (span.kind !== "column") {
@@ -803,16 +839,7 @@ const filterProps = (node: NodeOf<"Filter">, cx: RuleContext): PhysicalProps => 
 		)
 		if (x.kind === "column" && y.kind === "column") {
 			fds.equate(x.column, y.column, eqJust)
-			for (const [to, from] of [
-				[x.column, y.column],
-				[y.column, x.column]
-			] as const) {
-				for (const f of s.fixed.get(from) ?? []) {
-					if (f.fixed.kind !== "expr") {
-						recordFact(s.fixed, to, { fixed: f.fixed, just: joinJustifications([f.just, eqJust]) })
-					}
-				}
-			}
+			equalities.push({ x: x.column, y: y.column, just: eqJust })
 		}
 		for (const [col, other] of [
 			[x, y],
@@ -830,6 +857,7 @@ const filterProps = (node: NodeOf<"Filter">, cx: RuleContext): PhysicalProps => 
 		}
 		equate(c)
 	}
+	closeFixed(s.fixed, equalities)
 	const empty = held.some(({ pred: c }) => isFalse(c))
 	return finish(node, cx, {
 		fds,
@@ -1041,9 +1069,9 @@ export const physicalPropsOf = (node: RelNode, cx: RuleContext): PhysicalProps =
 			/**
 			 * A parameter's facts are delivered as they are, so two that differ in a float's zero's sign alone are two rows
 			 * PostgreSQL's equality holds equal (logical/props.ts Distinctness): its whole heading identifies its rows only
-			 * where it holds no float.
+			 * where every column's equality is identity (ir/scalar.ts equalityIsIdentity).
 			 */
-			const apart = node.heading.some((c) => floatCarrierOf(c.type) !== undefined)
+			const apart = node.heading.some((c) => !equalityIsIdentity(c.type))
 			const facts = placeholderFacts(node)
 			if (!apart && facts !== undefined) {
 				fds.identify(columns, facts)
@@ -1289,11 +1317,11 @@ const closedProps = (node: NodeOf<"Closed">, cx: RuleContext): PhysicalProps => 
  * A Delta: one side of a relation's change, read in its write's transaction: inside the one statement that makes it
  * whole, from the rows its RETURNING returns, where the read-back rides that statement (write/readback/deltas.ts
  * deltaCte); after the last stratum, from the carrier that statement filled from those rows (write/readback/deltas.ts
- * carriedFill); and empty, for a side no statement makes. Each of the relation's keys is a key of it, since every row
+ * carriedStash); and empty, for a side no statement makes. Each of the relation's keys is a key of it, since every row
  * of delta.added(R) was a row of R once its statement wrote it and every row of delta.removed(R) one before, and every
  * key of a stored relation is non-deferrable (physical/ddl/tables.ts), so PostgreSQL checks it as each row is written,
  * before RETURNING returns the row, which is the row a carried side's carrier holds; the write oracle's
- * state-comparison carrier holds the primary key as its own constraint (write/carriers relationCarrier). A delta that
+ * state-comparison carrier holds a relation's facts, a set by its key (write/carriers relationCarrier). A delta that
  * came to hold one fact twice, or two facts at one key, refuses the write with 23505 before any read-back reads it.
  */
 const deltaProps = (node: NodeOf<"Delta">, cx: RuleContext): PhysicalProps => {

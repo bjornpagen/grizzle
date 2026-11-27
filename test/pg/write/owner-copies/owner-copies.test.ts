@@ -32,7 +32,7 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import type { AnyRelation } from "#compiler/types/schema/relation.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
-import { installMigrated } from "#test/support/install-migrate.ts"
+import { installFullWorld } from "#test/support/installed.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
@@ -107,12 +107,11 @@ export const everyRowOfACallInsertingACountedFamilysOwnersBesideItsMembersAField
 					Effect.gen(function* () {
 						k.noteAll(copyFeatures(c))
 						const declared = copyingOf(c, "Copies")
-						const done = yield* installMigrated(declared.schema, {
-							ambient: ordinarySession,
-							label: "copies",
-							logins: [fullWorld(declared.schema, { publish: declared.changeSet("call") }).server],
-							extensions: []
-						})
+						const done = yield* installFullWorld(
+							declared.schema,
+							{ publish: declared.changeSet("call") },
+							{ ambient: ordinarySession, label: "copies" }
+						)
 						const built = copyingOf(c, done.schema)
 						const world = fullWorld(built.schema, { publish: built.changeSet("call") })
 						const db = yield* openServedDb(done, world.server.roles.app, {})

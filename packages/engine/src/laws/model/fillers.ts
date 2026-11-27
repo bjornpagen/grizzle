@@ -89,7 +89,7 @@ export const fillersOf = (theory: Theory): ReadonlyMap<string, ReadonlyMap<strin
 	const law = (id: LawId): TheoryLaw => {
 		const found = byId.get(id)
 		if (found === undefined) {
-			throw defect(`the law ${id} a family names is a law of the theory`)
+			defect(`the law ${id} a family names is a law of the theory`)
 		}
 		return found
 	}
@@ -131,7 +131,7 @@ export const fillersOf = (theory: Theory): ReadonlyMap<string, ReadonlyMap<strin
 					!filled(source, from.field.name)
 				) {
 					if (pair.to.kind !== "field") {
-						throw defect(
+						defect(
 							`the axis pair that carries the accumulated field ${source}.${from.field.name} copies a field`
 						)
 					}

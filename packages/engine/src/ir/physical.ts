@@ -5,20 +5,29 @@ import { malformedDescription } from "#compiler/core/errors.ts"
 import { type RowTypeDigest, rowTypeDigest } from "#compiler/core/fingerprint.ts"
 import {
 	type DeclaredName,
+	type HeldName,
 	type Identity,
 	identifierOf,
 	identity,
 	type ParamPlace
 } from "#compiler/core/identity.ts"
-import type { ColumnIdent, DomainName, RelationIdent } from "#compiler/core/ids.ts"
+import type { ColumnIdent, DomainName, Identifier, RelationIdent } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { int8ExactDigits } from "#compiler/ir/carriers.ts"
-import { type Codebook, codecOf } from "#compiler/ir/codes.ts"
+import { type Codebook, codecOf, variantLayout } from "#compiler/ir/codes.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { ClosedTheoryRelation } from "#compiler/ir/law.ts"
 import type { InstalledSpellings } from "#compiler/ir/pattern.ts"
 import type { ClosedIndex, TextSplit } from "#compiler/ir/rel.ts"
-import { baseOf, regexOf, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
+import {
+	baseOf,
+	isFloatType,
+	regexOf,
+	type RegexRef,
+	type ScalarType,
+	type ArmField,
+	type VariantInfo
+} from "#compiler/ir/scalar.ts"
 import type {
 	Collation,
 	ColumnDefinition,
@@ -99,7 +108,7 @@ export interface PhysicalNames {
 	 * A roster's domain, by its declared name: the naming door's (core/identity.ts identity.rosterDomain), what a code
 	 * column, a code cast and a code parameter are typed by.
 	 */
-	readonly rosterDomain: (roster: DeclaredName) => {
+	readonly rosterDomain: (roster: HeldName) => {
 		readonly schema: TypeSchema
 		readonly name: DomainName
 	}
@@ -108,7 +117,7 @@ export interface PhysicalNames {
 	 * identity.bitsDomain) at the roster's width in the installation's codes, bit(width) admitting only live codes' bits,
 	 * what a set column, a set cast and a set parameter are typed by.
 	 */
-	readonly bitsDomain: (roster: DeclaredName) => {
+	readonly bitsDomain: (roster: HeldName) => {
 		readonly schema: TypeSchema
 		readonly name: DomainName
 	}
@@ -116,7 +125,7 @@ export interface PhysicalNames {
 	 * A roster's names constant, by its declared name (physical/ddl/constants.ts namesConstant): its handles in code
 	 * order as one name[], which a zone's closed id is read through as its IANA name (registry.ts zoneWall).
 	 */
-	readonly rosterNames: (roster: DeclaredName) => QualifiedFunctionRef
+	readonly rosterNames: (roster: HeldName) => QualifiedFunctionRef
 	/**
 	 * The domain of a contract, by its declared name: the naming door's (core/identity.ts identity.contractDomain), by
 	 * the digest of its physical definition, which contracts of one definition share.
@@ -150,6 +159,20 @@ export interface PhysicalNames {
 	 * digest column is typed by; a digest's cast and parameter are bytea, its length held at the door.
 	 */
 	readonly digestDomain: { readonly schema: TypeSchema; readonly name: DomainName }
+	/**
+	 * A variant's composite and its domain over it, by the variant's declared name: the naming door's (core/identity.ts
+	 * identity.variantRow, identity.variantDomain), in the installation's types schema, as a contract's domain is. A
+	 * variant column, cast and parameter are typed by the domain; a value set aside from its domain, a law column's or
+	 * a literal's, by the composite (baseTypeRef).
+	 */
+	readonly variantRow: (variant: DeclaredName) => {
+		readonly schema: TypeSchema
+		readonly name: Identifier<"variantRow">
+	}
+	readonly variantDomain: (variant: DeclaredName) => {
+		readonly schema: TypeSchema
+		readonly name: DomainName
+	}
 	/** The schema the vector extension lives in (`vector_ext` on the local cluster), the schema of its vector type. */
 	readonly vectorSchema: TypeSchema
 	/**
@@ -276,6 +299,52 @@ export const rowTypeOf = (
 	return { attributes, definition, named, type: namedType(schema, identifierOf(named), []) }
 }
 
+/** The attribute of a variant's composite its tag is (ir/scalar.ts VariantType), the first. */
+export const variantTagAttribute = "tag"
+
+/**
+ * The attributes of a variant's composite past its tag, in its layout's order (ir/codes.ts variantLayout): the arms in
+ * their tag's codes' order under the installation's codes, each arm's fields in declared order, each named by its arm's
+ * code and its field's name (core/identity.ts identity.variantAttribute), so a handle's rename renames no attribute.
+ */
+export const variantAttributes = (
+	variant: VariantInfo,
+	codes: Codebook
+): ReadonlyArray<{
+	readonly handle: string
+	readonly code: number
+	readonly fields: ReadonlyArray<{
+		readonly field: ArmField
+		readonly attribute: string
+		/** A float's attribute of whether it is -0 (ir/codes.ts FieldLayout `zero`); none for another field. */
+		readonly zero: string | undefined
+	}>
+}> =>
+	variantLayout(variant.arms, codecOf(codes, variant.roster).names, (f) => isFloatType(f.type)).map(
+		(arm) => ({
+			handle: arm.handle,
+			code: arm.code,
+			fields: arm.fields.map(({ field, zero }) => ({
+				field,
+				attribute: identifierOf(identity.variantAttribute(arm.code, field.name, "value")),
+				zero:
+					zero === undefined
+						? undefined
+						: identifierOf(identity.variantAttribute(arm.code, field.name, "zero"))
+			}))
+		})
+	)
+
+/**
+ * The type an attribute of a variant's composite holds a field of type `t` by: its session type (sessionTypeRef), with
+ * builtin text's fixed collation, never an installation's domain. PostgreSQL refuses to add or validate a constraint of
+ * a domain an attribute of a composite some column holds is typed by ("cannot alter type … because column … uses it"),
+ * which a roster's domain takes whenever its roster changes; so the composite holds bases, and the variant's domain's
+ * CHECK casts each present field to its own type (fieldColumnType), which judges it there (physical/ddl/variants.ts).
+ */
+export const variantAttributeType = (names: PhysicalNames, t: ScalarType): ColumnType =>
+	collated(sessionTypeRef(names, t))
+
 /** A name the owned schema cannot supply is a defect of the caller's input, refused as MalformedDescription.
  * A function declaration, so that control flow knows a call never returns. */
 export function missing(capability: string): never {
@@ -345,17 +414,20 @@ export const baseTypeRef = (names: PhysicalNames, t: ScalarType): TypeRef => {
 			return b.digits <= int8ExactDigits ? types.bigint : types.numeric
 		case "exactMoney":
 			return types.numeric
+		case "variant":
+			return qualifiedType(names.variantRow(b.variant.name))
 	}
 }
 
 /**
- * The type a session's own object holds a value of `t` by: a write's carrier, a staged one, a rule judge's delta. It is
- * the value's base type (baseTypeRef), but a set's: baseTypeRef reads a set as its roster's bits domain, and a session's
- * object holds it by the domain's own base, bit(n) of the roster's width, which a value of another length entering it
- * refuses (22026). So no session object names an installation's domain: PostgreSQL refuses to drop a domain a column of
- * another session's temporary table is typed by (2BP01) and to add a constraint to it ("cannot access temporary tables
- * of other sessions"), and refuses the table to a role without USAGE on the domain (42501); a value reaches its stored
- * column through the column's domain, which judges it there.
+ * The type a value of `t` is held by between the statements of one transaction: a write's carrier column, its array's
+ * element type (write/carriers), and a rule judge's delta, a temporary table of the session's. It is the value's base
+ * type (baseTypeRef), but a set's: baseTypeRef reads a set as its roster's bits domain, and these hold it by the
+ * domain's own base, bit(n) of the roster's width, which a value of another length entering it refuses (22026). So
+ * neither names an installation's domain: a cast into a domain judges its CHECK again at every reader, and PostgreSQL
+ * refuses to drop a domain a column of another session's temporary table is typed by (2BP01) and to add a constraint to
+ * it ("cannot access temporary tables of other sessions"); a value reaches its stored column through the column's
+ * domain, which judges it there.
  */
 export const sessionTypeRef = (names: PhysicalNames, t: ScalarType): TypeRef => {
 	const b = baseOf(t)
@@ -391,13 +463,16 @@ export const fieldColumnType = (names: PhysicalNames, t: ScalarType): ColumnType
 
 /**
  * The type a value of `t` is stored and cast as once its contract and text refinement are set aside: a closed id's
- * roster domain, its codes' range proof; a digest's domain, its length's; or the base type.
+ * roster domain, its codes' range proof; a digest's domain, its length's; a variant's domain, its arms'; or the base
+ * type.
  */
 const refinedBase = (names: PhysicalNames, t: ScalarType): TypeRef => {
 	const b = baseOf(t)
 	switch (b.carrier) {
 		case "code":
 			return qualifiedType(names.rosterDomain(b.roster.closed))
+		case "variant":
+			return qualifiedType(names.variantDomain(b.variant.name))
 		case "sha256":
 			return qualifiedType(names.digestDomain)
 		case "int2":

@@ -19,6 +19,7 @@ export type {
 	PlannedStrata,
 	RecordedLaw,
 	BrokenLaws,
+	DrawnBy,
 	RefusedLaw,
 	RefusingObject,
 	StatedLaw,
@@ -34,9 +35,8 @@ export {
 } from "#compiler/write/changeset/value.ts"
 export { outcomeKind, type RelationCounts } from "#compiler/runtime/write/net.ts"
 export { type BindFrame, inForce, type Transport } from "#compiler/runtime/write/transport.ts"
-export type { Unsendable } from "#compiler/runtime/write/staged.ts"
 export type { WriteFrontend } from "#compiler/write/frontend/compile.ts"
-export { entryKeyOf, fillContexts } from "#compiler/write/frontend/entry.ts"
+export { claimsKeyOf, entryKeyOf, fillContexts } from "#compiler/write/frontend/entry.ts"
 export {
 	type ChangeEntry,
 	type ChangeRefused,
@@ -50,7 +50,8 @@ export {
 	type ServableRole,
 	type ServableVariants,
 	servableRole,
-	servableRoles
+	servableRoles,
+	variantsEntries
 } from "#compiler/program/workload/change.ts"
 export { noPlannedFrontends } from "#compiler/program/workload/planned.ts"
 export { loginRole, programsOn } from "#compiler/program/workload/roles.ts"
@@ -72,11 +73,10 @@ export {
 	bindWrite,
 	type BoundWrite,
 	type Chunks,
-	type FamilyRowBound,
 	type GeneratedRejection
 } from "#compiler/runtime/write/bind.ts"
 export { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
-export type { ExecutionPart } from "#compiler/runtime/write/staged.ts"
+export type { ExecutionPart } from "#compiler/runtime/write/executions.ts"
 export type { ClosedRows } from "#compiler/ir/rel.ts"
 export { closedNamed, type ClosedTable } from "#compiler/runtime/write/fill.ts"
 export { closedTableOf } from "#compiler/analysis/schema.ts"
@@ -109,6 +109,7 @@ export {
 	hostJudgement,
 	type RefusedLaws,
 	type Refuser,
+	type StatedRows,
 	type StatementAt,
 	statementRelations
 } from "#compiler/runtime/write/witness.ts"

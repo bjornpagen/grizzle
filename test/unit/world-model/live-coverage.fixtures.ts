@@ -6,7 +6,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { compileServed } from "#adapter/public/compile.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
-import { draftSchema, servedFiles } from "#cli/generate.ts"
+import { draftSchema, eachServedFile } from "#cli/generate.ts"
 import { silentPhases } from "#compiler/core/phase.ts"
 import { emptySnapshot, writeRuntimeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { login } from "#compiler/program/workload/login.ts"
@@ -177,6 +177,7 @@ export const coveredWhereMigrated = (install: InstallSpec, c: Case<Feature>) =>
 		const config = yield* Effect.orDie(
 			resolveConfig(
 				defineConfig({
+					contracts: [],
 					schemas: [built.made.base],
 					logins,
 					migrations: "migrations",
@@ -197,7 +198,9 @@ export const coveredWhereMigrated = (install: InstallSpec, c: Case<Feature>) =>
 				silentPhases
 			)
 		)
-		const entries = yield* Effect.result(servedFiles(compiled, draft, draft.served, silentPhases))
+		const entries = yield* Effect.result(
+			eachServedFile(compiled, draft, draft.served, silentPhases, Effect.succeed)
+		)
 		if (entries._tag === "Failure") {
 			return assert.fail(
 				`generate serves every login of an installation migrated with its workloads: ${Formatter.format(entries.failure.reason)}\n${printed}`

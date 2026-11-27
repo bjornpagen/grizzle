@@ -1,32 +1,31 @@
 /** What the property of rule-concat-probe.test.ts reads: its schema and template, its space, and each case's run. */
 
 import { assert } from "@bjornpagen/testing/assert"
-import { type Gen, int } from "@bjornpagen/testing/gen"
+import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { planNodes } from "#bench/harness/explain.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { Text } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
+import { type Installed, seededTemplate } from "#test/support/install-migrate.ts"
 import {
 	judgedPlans,
 	judgedStatementsOf,
-	lookupSettings,
 	scannedRowsOf,
 	scannedTableOf,
 	standUpJudge
 } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
-import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
+import { storedSeed } from "#test/support/stored.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { countedAsVacuumed } from "#test/support/substrate/fill.ts"
+import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 
 /**
  * edullm's test-variable resolution in small (pantry's readings.ts, the qualified name `ITEMREF.VAR`): each reference
@@ -72,24 +71,42 @@ const concatSchema = schema.extend(
 	[contained(on(Var, "package", "scope", "variable"), on(Resolved, "package", "scope", "variable"))]
 )
 
-export const concatProbeTemplate = migratedTemplate({
-	declaredIn: import.meta,
-	name: "rule concat probe",
-	content: { schema: concatSchema.name, logins: [] },
-	versions: [{ schema: concatSchema, logins: [], declarations: noDeclarations }],
-	options: {
-		label: "rule_concat",
-		extensions: [],
-		compile: compileInstallation,
-		ambient: ordinarySession,
-		review: noPlaceholders
-	}
-})
+/** The packages stored: a few, each of thousands of references. */
+const packages = 3
 
-/** A case: the packages stored, each one's references, and the variables written. */
+/** Each package's references, a template's: a few thousand, and six thousand. */
+const referenceCounts = [3000, 6000] as const
+type References = (typeof referenceCounts)[number]
+
+/**
+ * The rows of `packages` packages of `references` references, reference i of each named `scope<i / 10>.var<i>`.
+ */
+const referenceRows = (installed: Installed, references: number): string => {
+	const names = namesOf(installed)
+	const r = (f: "package" | "path" | "start" | "identifier") => names.column(Ref, f)
+	return `INSERT INTO ${names.table(Ref)} (${r("package")}, ${r("path")}, ${r("start")}, ${r("identifier")}) SELECT 'package/' || p, 'document/' || (i % 7), i, 'scope' || (i / 10) || '.var' || i FROM generate_series(1, ${packages}) AS p(p), generate_series(0, ${references - 1}) AS i(i)`
+}
+
+/**
+ * concatSchema installed, and `packages` packages of `references` references each committed through the captures once
+ * per member, judged at their COMMIT (stored.ts storedSeed): the template a case of that many references writes beside.
+ */
+const concatProbeTemplate = (references: References): SubstrateTemplate<Installed> =>
+	seededTemplate({
+		declaredIn: import.meta,
+		name: `rule concat probe ${references}`,
+		schema: concatSchema,
+		options: { ambient: ordinarySession, extensions: [], label: "rule_concat" },
+		seed: storedSeed((installed) => [referenceRows(installed, references)])
+	})
+
+export const concatProbeTemplates: {
+	readonly [R in References as `${R}`]: SubstrateTemplate<Installed>
+} = { "3000": concatProbeTemplate(3000), "6000": concatProbeTemplate(6000) }
+
+/** A case: each package's references, its template's, and the variables written. */
 export interface Stored {
-	readonly packages: number
-	readonly references: number
+	readonly references: References
 	readonly written: number
 }
 
@@ -100,8 +117,7 @@ export interface Stored {
  * a loop whatever their number, so a probe that reads a package's references reads thousands of rows past it.
  */
 export const storedGen: Gen<Stored> = (s) => ({
-	packages: s.draw(int(2, 4)),
-	references: s.draw(int(3000, 9000)),
+	references: s.draw(element(referenceCounts)),
 	written: s.draw(int(5, 40))
 })
 
@@ -111,9 +127,10 @@ export type ConcatProbeFeature =
 	| "a variable no reference names refused"
 
 /**
- * One case in its one transaction, which the case's end rolls back: `packages` packages of `references` references,
- * reference i of each named `scope<i / 10>.var<i>`, loaded with the captures off, and counted as a VACUUM counts it
- * (fill.ts countedAsVacuumed), as autovacuum leaves a loaded table: an ANALYZE there, which samples a hundred rows of a
+ * One case in its one transaction over a clone of its template (concatProbeTemplates), which the case's end rolls back:
+ * the template's `packages` packages of `references` committed references, reference i of each named
+ * `scope<i / 10>.var<i>`, counted as a VACUUM counts them (fill.ts countedAsVacuumed), as autovacuum leaves a loaded
+ * table: an ANALYZE there, which samples a hundred rows of a
  * table of declared statistics, counted no live row over the pages earlier cases' rolled-back loads left dead, so
  * PostgreSQL priced every read of Ref at one row and probed it by its primary key's package alone; then, through the
  * captures, `written` variables of package 1, each a reference's scope and name, whose rows the deltas hold until the judge
@@ -137,18 +154,11 @@ export const runConcatProbe = (
 		const r = (f: "package" | "path" | "start" | "identifier") => names.column(Ref, f)
 		const s = (f: "package" | "scope" | "variable") => names.column(Var, f)
 		const pkg = (p: string) => `'package/' || (${p})`
-		const loaded = [
-			`ALTER TABLE ${ref} DISABLE TRIGGER USER`,
-			`INSERT INTO ${ref} (${r("package")}, ${r("path")}, ${r("start")}, ${r("identifier")}) SELECT ${pkg("p")}, 'document/' || (i % 7), i, 'scope' || (i / 10) || '.var' || i FROM generate_series(1, ${stored.packages}) AS p(p), generate_series(0, ${stored.references - 1}) AS i(i)`,
-			`ALTER TABLE ${ref} ENABLE TRIGGER USER`,
-			countedAsVacuumed(ref),
-			countedAsVacuumed(variable)
-		]
+		const loaded = [countedAsVacuumed(ref), countedAsVacuumed(variable)]
 		/** Written variable k is reference k·(references / written)'s, of package 1, spread over its references. */
 		const written = [
 			"SET CONSTRAINTS ALL DEFERRED",
-			`INSERT INTO ${variable} (${s("package")}, ${s("scope")}, ${s("variable")}) SELECT ${pkg("1")}, 'scope' || (k * ${Math.floor(stored.references / stored.written)} / 10), 'var' || (k * ${Math.floor(stored.references / stored.written)}) FROM generate_series(0, ${stored.written - 1}) AS k(k)`,
-			...lookupSettings
+			`INSERT INTO ${variable} (${s("package")}, ${s("scope")}, ${s("variable")}) SELECT ${pkg("1")}, 'scope' || (k * ${Math.floor(stored.references / stored.written)} / 10), 'var' || (k * ${Math.floor(stored.references / stored.written)}) FROM generate_series(0, ${stored.written - 1}) AS k(k)`
 		]
 		for (const sql of [...loaded, ...written]) {
 			yield* connection.query(sql, [])

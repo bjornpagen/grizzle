@@ -1,6 +1,6 @@
 /**
  * `grizzle generate`, `check` and `migrate` on PostgreSQL 19 over drawn configurations, in the cases the workflow model
- * (workflow.test.ts) does not draw: several declared schemas, the ledger fixture's alternatives and derived relation,
+ * (workflow.test.ts) does not draw: several declared schemas, the ledger fixture's plan arms and derived relation,
  * an Effect password, the bin itself, and a role that does not own the schema.
  *
  * A case is a configuration: one to three declared schemas, each the shop at version 1 with its full workload, without

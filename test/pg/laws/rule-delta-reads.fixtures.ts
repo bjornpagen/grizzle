@@ -7,12 +7,12 @@ import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "
 import { type PlanNode, planNodes } from "#bench/harness/explain.ts"
 import { temporarySchema } from "#compiler/core/temporary.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, type Rule, v } from "#compiler/public/query.ts"
 import { check, derived, relation, schema, unit } from "#compiler/public/schema.ts"
 import { objectName } from "#compiler/sql/build.ts"
-import { printTableName } from "#compiler/sql/print.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { pgCluster } from "#test/support/env.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
@@ -90,7 +90,7 @@ export const selectionTemplate = migratedTemplate({
 	declaredIn: import.meta,
 	name: "rule delta reads",
 	content: { schema: "delta_selection", logins: [] },
-	versions: [{ schema: Selection, logins: [], declarations: noDeclarations }],
+	versions: [{ schema: Selection, declarations: noDeclarations }],
 	options: {
 		label: "rule_delta_reads",
 		extensions: [],
@@ -140,7 +140,7 @@ const readerCounts = (statistics: RawSession, database: string, delta: string) =
 	Effect.map(
 		statistics.values(
 			"SELECT COALESCE(sum(s.calls), 0)::int8, COALESCE(sum(s.rows), 0)::int8 FROM public.pg_stat_statements AS s JOIN pg_catalog.pg_database AS d ON d.oid = s.dbid WHERE d.datname = $1::text AND NOT s.toplevel AND s.query LIKE 'SELECT \"r1\".%' AND pg_catalog.strpos(s.query, $2::text) > 0",
-			[database, `${printTableName(objectName(temporarySchema, delta))} AS "r1"`]
+			[database, `${printObjectName(objectName(temporarySchema, delta))} AS "r1"`]
 		),
 		(rows) => ({ calls: Number(rows[0]?.[0]), rows: Number(rows[0]?.[1]) })
 	)
@@ -291,7 +291,7 @@ export const runWrites = (
 			c.note("a breaking row of a kind no rule reads committed")
 		}
 		const [[fetched] = []] = yield* session.values(
-			`SELECT COALESCE(idx_tup_fetch, 0)::int8 FROM pg_catalog.pg_stat_xact_all_tables WHERE relid = pg_catalog.to_regclass(${quoteString(printTableName(objectName(temporarySchema, delta)))})`,
+			`SELECT COALESCE(idx_tup_fetch, 0)::int8 FROM pg_catalog.pg_stat_xact_all_tables WHERE relid = pg_catalog.to_regclass(${quoteString(printObjectName(objectName(temporarySchema, delta)))})`,
 			[]
 		)
 		yield* session.commit

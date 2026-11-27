@@ -8,9 +8,13 @@
  * shared attempt classifies it, and so a later share the host refuses as it binds it: the shares sent before it are rolled back, never
  * committed (adapter/wire/batch.ts runFramedFlights), and a refused call is its one transaction, its refusal judged on
  * the shared attempt and never sent again (adapter/apply/run.ts runWriteShares), counted by pg_stat_statements' calls
- * of the Db prologue's guard.
+ * of the Db prologue's guard. A share's statement PostgreSQL refuses by a CHECK it checks itself is judged on the host
+ * over that share's own rows, so its witness is the row that breaks the law: qti-pie's import of the drill's choice
+ * package, refused by AL3 at its Node statement, answered `unreported`, the host having judged every share's refusal
+ * over the rows of the call's empty bind (QP-PUBFACTS); here a document's tree node whose marks fall short of its need
+ * is refused by Enough, its witness that node's key.
  */
-import { property } from "@bjornpagen/testing/property"
+import { property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
 	runStreamed,
@@ -34,7 +38,8 @@ export const aCallDrawnInSharesAnswersWhatOneExecutionOfEveryFactAnswers = prope
 			"a stored fact repeated across shares",
 			"a pair refused across shares",
 			"a later share the host refuses",
-			"a COMMIT the deferred containment refuses"
+			"a COMMIT the deferred containment refuses",
+			"a node its marks fall short of"
 		] satisfies ReadonlyArray<StreamedFeature>,
 		check:
 			({ substrate }, c) =>
@@ -46,9 +51,18 @@ export const aCallDrawnInSharesAnswersWhatOneExecutionOfEveryFactAnswers = prope
 				),
 		oracle: {
 			kind: "universal",
-			name: "accepted with every distinct fact added and stored once and every area's members counted, or a pair across shares, or a share the host refuses, refused storing nothing"
+			name: "accepted with every distinct fact added and stored once and every area's members counted, or a pair across shares, a share the host refuses or a node its marks fall short of, refused storing nothing, the last witnessed by the node's key"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/write/streamed/streamed.test.ts#aCallDrawnInSharesAnswersWhatOneExecutionOfEveryFactAnswers:40.6:0.0.0.0.0.6"
+				),
+				reason:
+					"QP-PUBFACTS' AL3 refusal cut down: 6,000 wide facts, so the call is drawn in shares, and seven documents' one-node trees, the last's node one mark short of its need. Enough refused the share's Node statement, and the host judged it over the call's empty bind, so the refusal named no row, `first` and `unreported`, as AL3's of pantry's drill package did (lvc-pin3-draft at grizzle 8aea9fea)",
+				since: "2026-11-26"
+			}
+		],
 		kills: [
 			{
 				file: "packages/grizzle/src/adapter/apply/run.ts",
@@ -73,9 +87,15 @@ export const aCallDrawnInSharesAnswersWhatOneExecutionOfEveryFactAnswers = prope
 			},
 			{
 				file: "packages/grizzle/src/adapter/apply/run.ts",
-				original: "\t\t\t\t? Effect.succeed(diagnosedWitness(unmatched, answer.closing))\n",
+				original: "\t\t\t\t? Effect.succeed(unmatchedKeyOf(unmatched, answer.closing))\n",
 				replacement: "\t\t\t\t? Effect.succeed(unreproduced)\n",
 				why: "A shared call's COMMIT refusal is answered with no witness, as though another commit had changed the state, where its shares drawn again leave the node unmatched whose key is the witness."
+			},
+			{
+				file: "packages/grizzle/src/adapter/apply/run.ts",
+				original: "\t\t\t\t\t: flightFailure<R>(failure, share.sent, contextOf(share.stated))",
+				replacement: "\t\t\t\t\t: flightFailure<R>(failure, share.sent, unshared)",
+				why: "A share's refused statement is judged over the rows of the call's empty bind, as before QP-PUBFACTS' report: the host finds no row it states, and Enough's refusal of the short node is answered `unreported`, as AL3's of qti-pie's import was."
 			}
 		]
 	}

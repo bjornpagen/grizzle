@@ -30,7 +30,8 @@ import { silentPhases } from "#compiler/core/phase.ts"
 import { metaFileName } from "#compiler/deploy/render/folder.ts"
 import { splitStatements } from "#compiler/deploy/render/markers.ts"
 import { cellsOfLiteral } from "#compiler/ir/cells.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { installOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import type { PackConstant } from "#compiler/sql/ast.ts"
 import { printObjectName, printStatement } from "#compiler/sql/print.ts"
 import { defineConfig } from "#index.ts"
@@ -52,7 +53,6 @@ import {
 	type Feature,
 	foundOf,
 	grids,
-	now,
 	gridSchemaOf
 } from "#test/unit/cli/literal-pack.fixtures.ts"
 
@@ -78,6 +78,7 @@ export const grizzleCheckOverAClosedRelationsLiteralPassesADraftedLiteralAndRefu
 					const fs = yield* FileSystem.FileSystem
 					const gridSchema = gridSchemaOf(d)
 					const config = defineConfig({
+						contracts: [],
 						schemas: [gridSchema],
 						logins: [],
 						migrations: "migrations",
@@ -103,12 +104,7 @@ export const grizzleCheckOverAClosedRelationsLiteralPassesADraftedLiteralAndRefu
 					}
 					const cells = succeeded(cellsOfLiteral(packs.cells.text, 6n))
 					const ws = yield* workspace("literal-pack")
-					const drafted = yield* cliOver(
-						ws,
-						config,
-						["generate", configName, "--name", "init"],
-						now(0)
-					)
+					const drafted = yield* cliOver(ws, config, ["generate", configName, "--name", "init"])
 					assert.equal(drafted.code, 0, drafted.stderr)
 					const schemaDir = `migrations/${headNonEmpty(owned.levels).installation.identifier}`
 					const entries = yield* fs.readDirectory(`${ws}/${schemaDir}`)
@@ -132,7 +128,7 @@ export const grizzleCheckOverAClosedRelationsLiteralPassesADraftedLiteralAndRefu
 					const findings = Effect.map(Effect.orDie(check(resolved, ws, silentPhases)), (checks) =>
 						Arr.flatMap(checks, (x) => Arr.map(x.findings, foundOf))
 					)
-					const held = yield* cliOver(ws, config, ["check", configName], now(1))
+					const held = yield* cliOver(ws, config, ["check", configName])
 					assert.equal(held.code, 0, held.stderr)
 					const drafts = yield* findings
 					assert.deepEqual(drafts, [], "the drafted folder holds every literal")
@@ -156,7 +152,7 @@ export const grizzleCheckOverAClosedRelationsLiteralPassesADraftedLiteralAndRefu
 						const path = `${ws}/${folder}/${file.name}`
 						const tamper = Str.replace(`'${p.text}'::`, `'${edit.text}'::`)
 						yield* fs.writeFileString(path, tamper(file.text))
-						const tampered = yield* cliOver(ws, config, ["check", configName], now(2))
+						const tampered = yield* cliOver(ws, config, ["check", configName])
 						const found = yield* findings
 						yield* fs.writeFileString(path, file.text)
 						assert.equal(tampered.code, 1, `${edit.what}, ${edit.text} for ${p.text}, is refused`)

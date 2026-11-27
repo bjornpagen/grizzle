@@ -3,11 +3,8 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
-import {
-	compileInstallation,
-	type Installation,
-	installOptions
-} from "#compiler/physical/install/compile.ts"
+import { type Installation, installOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {

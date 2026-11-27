@@ -11,7 +11,7 @@ import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { sameScalarType, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
 import { Logic, Text } from "#compiler/public/compute.ts"
-import { closedId, contract, pg } from "#compiler/public/fields.ts"
+import { closedId, contract, mintOf, pg } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
@@ -28,6 +28,7 @@ import {
 	value
 } from "#test/support/fixtures/ir/desc.ts"
 import { Id } from "#test/support/ids.ts"
+import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { checking } from "#test/support/policy.ts"
 import { lit, match, ref, relationSource, rule, typedLit, vars } from "#test/unit/check/dsl.ts"
 
@@ -38,13 +39,22 @@ const SlugAgain = str.regex("^[a-z](?:[a-z0-9]|-)*$")
 
 const State = str.regex("^(?:draft|published)$")
 
+/** Upper-case codes, a language neither the slugs nor the state names hold a member of in common with. */
+const Code = str.regex("^[A-Z]+$")
+
 const Prose = str.regex("^.*$", "su")
 
-const Cents = contract("Cents", pg.bigint, (x) => Logic.ge(x, 0n))
+const centsKey = Symbol("Cents")
+const Cents = contract<typeof centsKey>()("Cents", pg.bigint, (x) => Logic.ge(x, 0n))
+const toCents = mintOf(centsKey)
 
-const Brand = contract("Brand", pg.bigint)
+const brandKey = Symbol("Brand")
+const Brand = contract<typeof brandKey>()("Brand", pg.bigint)
+const toBrand = mintOf(brandKey)
 
-const Handle = contract("Handle", Slug, (x) => Logic.le(Text.charLength(x), 20))
+const handleKey = Symbol("Handle")
+const Handle = contract<typeof handleKey>()("Handle", Slug, (x) => Logic.le(Text.charLength(x), 20))
+const toHandle = mintOf(handleKey)
 
 const Tier = closed.ordered("Tier", ["Free", "Pro"])
 
@@ -64,31 +74,31 @@ const TierPlan = closed.relation(
 		{
 			tier: "Free",
 			label: "free",
-			budget: Cents(100n),
-			rank: Brand(1n),
+			budget: toCents(100n),
+			rank: toBrand(1n),
 			note: "anything",
-			handle: Handle("free-tier")
+			handle: toHandle("free-tier")
 		},
 		{
 			tier: "Pro",
 			label: "pro",
-			budget: Cents(1000n),
-			rank: Brand(2n),
+			budget: toCents(1000n),
+			rank: toBrand(2n),
 			note: "Anything At All",
-			handle: Handle("pro-tier")
+			handle: toHandle("pro-tier")
 		}
 	]
 )
 
 const Article = relation(
 	"Article",
-	{ id: Id, slug: Slug, state: State, title: Prose, amount: Cents },
+	{ id: Id, slug: Slug, state: State, code: Code, title: Prose, amount: Cents },
 	["id"]
 )
 
 const Draft = relation(
 	"Draft",
-	{ id: Id, slug: SlugAgain, state: State, title: Prose, amount: pg.numeric(10, 2) },
+	{ id: Id, slug: SlugAgain, state: State, code: Code, title: Prose, amount: pg.numeric(10, 2) },
 	["id"]
 )
 
@@ -128,7 +138,7 @@ const payloadType = (name: string, field: string): ScalarType =>
  * name, or a plain bigint.
  */
 type Token =
-	| { readonly kind: "language"; readonly language: "slug" | "state" }
+	| { readonly kind: "language"; readonly language: "slug" | "state" | "code" }
 	| { readonly kind: "wildcard" }
 	| { readonly kind: "numeric"; readonly digits: number; readonly scale: number }
 	| {
@@ -199,6 +209,20 @@ export const deliverers: Arr.NonEmptyReadonlyArray<Deliverer> = [
 		{ kind: "language", language: "state" },
 		fieldType(Draft, "state")
 	),
+	deliverer(
+		"Article",
+		"code",
+		false,
+		{ kind: "language", language: "code" },
+		fieldType(Article, "code")
+	),
+	deliverer(
+		"Draft",
+		"code",
+		false,
+		{ kind: "language", language: "code" },
+		fieldType(Draft, "code")
+	),
 	deliverer("Article", "title", false, { kind: "wildcard" }, fieldType(Article, "title")),
 	deliverer("TierPlan", "note", true, { kind: "wildcard" }, payloadType("TierPlan", "note")),
 	deliverer(
@@ -255,16 +279,18 @@ export const deliverers: Arr.NonEmptyReadonlyArray<Deliverer> = [
 
 /**
  * What a union's column takes from two arms' types, by the documented rule: one type, the type itself; two languages,
- * the wildcard; two numeric typmods, numeric of no typmod whose bound holds both; anything else, no type: the arms are
- * incompatible.
+ * the one holding the other's (the slugs hold a state's draft and published), else the wildcard; two numeric typmods,
+ * numeric of no typmod whose bound holds both; anything else, no type: the arms are incompatible.
  */
 export const meet = (a: Token, b: Token): Token | undefined => {
 	switch (a.kind) {
 		case "language":
 			return b.kind === "language"
-				? a.language === b.language
+				? a.language === b.language || (a.language === "slug" && b.language === "state")
 					? a
-					: { kind: "wildcard" }
+					: b.language === "slug" && a.language === "state"
+						? b
+						: { kind: "wildcard" }
 				: b.kind === "wildcard"
 					? b
 					: undefined
@@ -284,6 +310,12 @@ export const meet = (a: Token, b: Token): Token | undefined => {
 			return b.kind === "bigint" ? a : undefined
 	}
 }
+
+/** The deliverers of an uncontracted text: the slugs spelled two ways, the state names, the codes and the wildcard. */
+export const textDeliverers: Arr.NonEmptyReadonlyArray<Deliverer> = nonEmptyList(
+	Arr.filter(deliverers, (d) => d.type.carrier === "text" && d.type.contract === undefined),
+	"the text deliverers"
+)
 
 export const isWildcard = (t: ScalarType): boolean => textOf(t) === "wildcard"
 
@@ -318,7 +350,8 @@ const carrierOf = (t: Token): "text" | "numeric" | "bigint" => {
 /**
  * Whether every value of `a` is a value of `b`, by the documented rule (check/refinement guarantees): one carrier and
  * one nominal identity, so a contract guarantees only itself and nothing else guarantees it; one numeric typmod; and
- * for text, `b` the wildcard or one language with `a`, never a containment between two languages.
+ * for text, `b` the wildcard or a language holding `a`'s: its own, or the slugs, which hold a state's draft and
+ * published.
  */
 export const guaranteed = (a: Token, b: Token): boolean => {
 	if (carrierOf(a) !== carrierOf(b)) {
@@ -334,7 +367,7 @@ export const guaranteed = (a: Token, b: Token): boolean => {
 		return true
 	}
 	return a.kind === "language" && b.kind === "language"
-		? a.language === b.language
+		? a.language === b.language || (a.language === "state" && b.language === "slug")
 		: a.kind === b.kind
 }
 
@@ -401,6 +434,7 @@ export const armOf = (d: Deliverer) =>
 export type UnionFeature =
 	| "one type"
 	| "one language spelled twice"
+	| "a language holding the other"
 	| "two languages"
 	| "two typmods"
 	| "incompatible"
@@ -411,7 +445,11 @@ export const featureOf = (a: Deliverer, b: Deliverer, met: Token | undefined): U
 		: sameScalarType(a.type, b.type)
 			? "one type"
 			: met.kind === "language"
-				? "one language spelled twice"
+				? a.token.kind === "language" &&
+					b.token.kind === "language" &&
+					a.token.language !== b.token.language
+					? "a language holding the other"
+					: "one language spelled twice"
 				: met.kind === "wildcard"
 					? "two languages"
 					: "two typmods"

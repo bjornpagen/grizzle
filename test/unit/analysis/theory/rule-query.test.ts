@@ -32,6 +32,8 @@
  * no fact of the arm meets, which the checker refuses. A selection over Read compares Read's amount, Amount's
  * numeric(4, 2), with the bare literal, which takes that type as written: an infinity, or one past its precision or
  * scale, is refused for it (scalar/compute/literal.ts oppositeLiteralProblem), never rounded or compared at another.
+ * A Decimal read by a variable Amount's match binds is refused at the semijoin's definition, the variable bound to
+ * Amount's numeric(4, 2) and the literal's computed numeric, neither guaranteeing the other (31664c74c6).
  *
  * A fourth box negates: a derived relation of Item whose definition negates Mark, a join of Mark and Note (a query),
  * their union (a query of two rules), the join derived on a level below, a query that aggregates or one that negates in
@@ -208,6 +210,18 @@ const outsideAmount: ReadonlySet<string> = new Set([
 	"past scale"
 ])
 
+/**
+ * Whether a case's definition binds one variable to Amount's numeric(4, 2) and to the column a Decimal head literal
+ * types, the computed numeric of the bound its analysis proves, neither of which guarantees the other's
+ * (check/refinement guarantees: a numeric only its own typmod, and a bound only the values within it, where every
+ * Decimal's bound, its own or its hull with 2.25, holds fewer than numeric(4, 2)'s two integer and two fraction
+ * digits): since 31664c74c6 a variable settles on the one of its columns' types that guarantees the others
+ * (check/checker.ts RuleCheck #settle), so the checker refuses the definition itself, naming both, as the schema's
+ * defect, never a rule's. A Decimal read by a variable Amount's match binds.
+ */
+const bindsAcrossNumerics = (c: { readonly literal: string; readonly read: string }): boolean =>
+	c.literal !== "text" && c.read === "variable"
+
 /** A rule over a query compiles whenever the builders admit it, a head literal read where a term of its column stands. */
 export const aRuleOverAQueryCompilesWheneverTheBuildersAdmitItAHeadLiteralReadWhereATermOfItsColumnStands =
 	property.exhaust(finite(tagCase), {
@@ -240,6 +254,16 @@ export const aRuleOverAQueryCompilesWheneverTheBuildersAdmitItAHeadLiteralReadWh
 				const compiled = compiledOf(
 					c.literal === "text" ? tagSchemaOf(c) : amountSchemaOf(c, decimalOf[c.literal])
 				)
+				if (bindsAcrossNumerics(c)) {
+					assert.ok(
+						!compiled.ok &&
+							compiled.error.reason._tag === "MalformedDescription" &&
+							Str.includes("numeric(4,2)")(compiled.error.message) &&
+							Str.includes("guarantees")(compiled.error.message),
+						`${Formatter.format(c)}: one variable bound to Amount's numeric(4,2) and the literal's computed numeric, neither guaranteeing the other, refused naming both: ${compiled.ok ? "compiled" : compiled.error.message}`
+					)
+					return
+				}
 				if (c.literal !== "text" && c.rule === "selection" && outsideAmount.has(c.literal)) {
 					assert.ok(
 						!compiled.ok &&
@@ -379,7 +403,7 @@ export const aRuleOverAQueryCompilesANegationAtATermAnInlinedDefinitionComputes 
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
 				original:
-					'\t\tsharing.kind === "perStatement" && interned.overSteps(read)\n\t\t\t? new Navigator(loc, columns, sharing, interned).filteredOverSteps(read, 0)\n\t\t\t: read\n',
+					'\t\tsharing.kind === "perStatement" && (interned.overSteps(read) || read.where.some(testsGroups))\n\t\t\t? new Navigator(loc, columns, sharing, interned).filteredOverSteps(read, 0)\n\t\t\t: read\n',
 				replacement: "\t\tread\n",
 				why: "A rule over steps keeps its filters as written, as before: the meeting part over two rows of a region of keys negates the target, whose negation binds the collapsed title, and the checker refuses it; the two-rule containment into Unmarked fails."
 			}

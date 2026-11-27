@@ -16,7 +16,28 @@ import { cell, entry } from "#text/regex/table.ts"
  * Its elements are the NFA's configurations: a state and the counters of the repetitions around it (nfa.ts CountOp),
  * each the copy of the state a chain of copies would hold, numbered as the construction first meets them
  * (Configurations), so a subset is a set of numbers and every walk of it reads a configuration's successors once.
+ * Every key the construction reads is an integer of a trie, never a text built of numbers: a configuration's number
+ * (Config), the class a prune keeps one configuration of (Configurations pruned), and a subset's number, by the trie of
+ * its configurations' numbers (SubsetNumbers).
  */
+
+declare const configBrand: unique symbol
+
+/** A configuration's number, minted where Configurations numbers a state under its counters, and nowhere else. */
+export type Config = number & { readonly [configBrand]: true }
+
+/** A number Configurations numbered, as the Config it is. Unchecked: each caller read it from Configurations' own tables. */
+const numbered: (n: number) => asserts n is Config = () => undefined
+
+/** The configuration a successor table holds at `i`, none where the edge's guard blocks it (-1). */
+export const successorAt = (successors: Int32Array, i: number): Config | undefined => {
+	const to = cell(successors, i)
+	if (to < 0) {
+		return undefined
+	}
+	numbered(to)
+	return to
+}
 
 /** A set's bounds in order, each interval's low then high: equal exactly for two sets of the same intervals. */
 const setBounds = (set: CharSet): ReadonlyArray<number> => set.flatMap(([lo, hi]) => [lo, hi])
@@ -106,12 +127,27 @@ export class Configurations {
 
 	/** Each state's counters of repetitions that count consuming iterations, by their places among its counters. */
 	readonly #consuming: ReadonlyArray<ReadonlyArray<number>>
+	/** Whether any repetition counts consuming iterations, so a prune can drop a configuration. */
+	readonly #prunes: boolean
+	/**
+	 * Each configuration's prune keys, once read: for each counter of its state's that counts consuming iterations, the
+	 * class a prune keeps one configuration of, then the iterations, in pairs (#pruneKeysOf).
+	 */
+	#pruneKeys: Array<Int32Array | undefined> = []
+	/** The prune classes by state, then counter, a trie of the counters' values with that counter's iterations dropped. */
+	#classes: Array<Array<CounterTrie | undefined> | undefined> = []
+	#classCount = 0
+	/** Each prune class's fewest iterations among the configurations of the prune under way, under its stamp. */
+	#fewest = new Int32Array(0)
+	#fewestStamp = new Int32Array(0)
+	#pruneStamp = 0
 
 	constructor(nfa: Nfa) {
 		this.nfa = nfa
 		this.#consuming = scopesOf(nfa).map(({ chain }) =>
 			chain.flatMap((r, depth) => (entry(nfa.repeats, r).consuming ? [depth] : []))
 		)
+		this.#prunes = nfa.repeats.some((r) => r.consuming)
 	}
 
 	/**
@@ -121,28 +157,85 @@ export class Configurations {
 	 * and the subset keeps its language, where its counters would otherwise hold one configuration for each count of
 	 * consuming iterations a match under way has read, as the restart of the search at each code point makes. Of
 	 * configurations that hold one another's futures the one of fewest iterations stays, so one stays at every state.
+	 * Two configurations are of one class where they share a state, a counter that counts consuming iterations, and every
+	 * counter's value but that one's iterations; the class is a number of a trie (#classOf), read once a configuration
+	 * (#pruneKeysOf), so a prune is two passes of integers over the configurations, in their order.
 	 */
-	pruned(configs: ReadonlyArray<number>): ReadonlyArray<number> {
-		if (this.nfa.repeats.every((r) => !r.consuming)) {
+	pruned(configs: ReadonlyArray<Config>): ReadonlyArray<Config> {
+		if (!this.#prunes) {
 			return configs
 		}
-		const keyed = configs.map((c) => {
-			const counters = this.counters(c)
-			return entry(this.#consuming, this.state(c)).map((depth) => {
-				const value = entry(counters, depth)
-				return {
-					key: `${this.state(c)}/${depth}/${counters.map((v, i) => (i === depth ? v % 2 : v)).join(",")}`,
-					iterations: Math.floor(value / 2)
-				}
-			})
-		})
-		const fewest = new Map<string, number>()
-		for (const { key, iterations } of keyed.flat()) {
-			fewest.set(key, Math.min(fewest.get(key) ?? iterations, iterations))
+		const keys = configs.map((c) => this.#pruneKeysOf(c))
+		if (this.#fewest.length < this.#classCount) {
+			const size = Math.max(this.#classCount, this.#fewest.length * 2)
+			this.#fewest = new Int32Array(size)
+			const stamps = new Int32Array(size)
+			stamps.set(this.#fewestStamp)
+			this.#fewestStamp = stamps
 		}
-		return configs.filter((_, i) =>
-			entry(keyed, i).every(({ key, iterations }) => fewest.get(key) === iterations)
-		)
+		this.#pruneStamp += 1
+		const stamp = this.#pruneStamp
+		for (const k of keys) {
+			for (let i = 0; i < k.length; i += 2) {
+				const cls = cell(k, i)
+				const iterations = cell(k, i + 1)
+				if (cell(this.#fewestStamp, cls) !== stamp || iterations < cell(this.#fewest, cls)) {
+					this.#fewestStamp[cls] = stamp
+					this.#fewest[cls] = iterations
+				}
+			}
+		}
+		return configs.filter((_, j) => {
+			const k = entry(keys, j)
+			for (let i = 0; i < k.length; i += 2) {
+				if (cell(this.#fewest, cell(k, i)) !== cell(k, i + 1)) {
+					return false
+				}
+			}
+			return true
+		})
+	}
+
+	/** A configuration's prune keys (#pruneKeys), read the first time a prune meets it. */
+	#pruneKeysOf(config: Config): Int32Array {
+		const known = this.#pruneKeys[config]
+		if (known !== undefined) {
+			return known
+		}
+		const state = this.state(config)
+		const counters = this.counters(config)
+		const depths = entry(this.#consuming, state)
+		const keys = new Int32Array(depths.length * 2)
+		for (const [i, depth] of depths.entries()) {
+			const value = entry(counters, depth)
+			keys[2 * i] = this.#classOf(state, depth, counters, value % 2)
+			keys[2 * i + 1] = Math.floor(value / 2)
+		}
+		this.#pruneKeys[config] = keys
+		return keys
+	}
+
+	/** The prune class of a state's configuration under `counters`, the counter at `depth` holding its flag alone. */
+	#classOf(state: number, depth: number, counters: ReadonlyArray<number>, flag: number): number {
+		const byDepth = this.#classes[state] ?? []
+		this.#classes[state] = byDepth
+		let node = byDepth[depth] ?? { number: -1, next: undefined }
+		byDepth[depth] = node
+		for (const [i, value] of counters.entries()) {
+			const key = i === depth ? flag : value
+			node.next ??= new Map()
+			let child = node.next.get(key)
+			if (child === undefined) {
+				child = { number: -1, next: undefined }
+				node.next.set(key, child)
+			}
+			node = child
+		}
+		if (node.number < 0) {
+			node.number = this.#classCount
+			this.#classCount += 1
+		}
+		return node.number
 	}
 
 	/** How many configurations are numbered. */
@@ -151,7 +244,7 @@ export class Configurations {
 	}
 
 	/** The number of the configuration of `state` under `counters`, numbered here where it is new. */
-	number(state: number, counters: ReadonlyArray<number>): number {
+	number(state: number, counters: ReadonlyArray<number>): Config {
 		let node = this.#numbers[state]
 		if (node === undefined) {
 			node = { number: -1, next: undefined }
@@ -166,32 +259,35 @@ export class Configurations {
 			}
 			node = child
 		}
-		if (node.number >= 0) {
-			return node.number
+		const known = node.number
+		if (known >= 0) {
+			numbered(known)
+			return known
 		}
 		const number = this.#states.length
 		node.number = number
 		this.#states.push(state)
 		this.#counters.push(counters)
 		this.#successors.push(undefined)
+		numbered(number)
 		return number
 	}
 
 	/** The configuration of a state outside every repetition: the start state's and the accept state's. */
-	plain(state: number): number {
+	plain(state: number): Config {
 		return this.number(state, noCounters)
 	}
 
-	state(config: number): number {
+	state(config: Config): number {
 		return entry(this.#states, config)
 	}
 
-	counters(config: number): ReadonlyArray<number> {
+	counters(config: Config): ReadonlyArray<number> {
 		return entry(this.#counters, config)
 	}
 
 	/** The configuration each edge of the configuration's state leads to, or -1 where the edge's guard blocks it. */
-	successors(config: number): Int32Array {
+	successors(config: Config): Int32Array {
 		const known = this.#successors[config]
 		if (known !== undefined) {
 			return known
@@ -211,11 +307,11 @@ export class Configurations {
 	 * The configurations reachable from `seeds` over ε edges and the assertions that hold at the position, each once, in
 	 * the order a depth-first walk takes them.
 	 */
-	closure(seeds: Iterable<number>, position: Position): Array<number> {
+	closure(seeds: Iterable<Config>, position: Position): Array<Config> {
 		const stamp = this.#stamp++
-		const out: Array<number> = []
-		const stack: Array<number> = []
-		const visit = (c: number): void => {
+		const out: Array<Config> = []
+		const stack: Array<Config> = []
+		const visit = (c: Config): void => {
 			if (c >= this.#mark.length) {
 				const grown = new Int32Array(Math.max(c + 1, this.#mark.length * 2)).fill(-1)
 				grown.set(this.#mark)
@@ -234,8 +330,8 @@ export class Configurations {
 			const edges = entry(this.nfa.edges, this.state(c))
 			const successors = this.successors(c)
 			for (const [i, e] of edges.entries()) {
-				const to = entry(successors, i)
-				if (to >= 0 && follows(e, position)) {
+				const to = successorAt(successors, i)
+				if (to !== undefined && follows(e, position)) {
 					visit(to)
 				}
 			}
@@ -249,6 +345,9 @@ export class Configurations {
 		this.#counters = []
 		this.#successors = []
 		this.#numbers = []
+		this.#pruneKeys = []
+		this.#classes = []
+		this.#classCount = 0
 	}
 }
 
@@ -259,15 +358,52 @@ export class Configurations {
  */
 export type Subset =
 	| { readonly kind: "done" }
-	| { readonly kind: "set"; readonly configs: ReadonlyArray<number>; readonly initial: boolean }
+	| { readonly kind: "set"; readonly configs: ReadonlyArray<Config>; readonly initial: boolean }
 
 const done: Subset = { kind: "done" }
 
-/** The key a subset is interned under: two subsets of one key are one state. */
-export const subsetKey = (subset: Subset): string =>
-	subset.kind === "done"
-		? "done"
-		: `${subset.initial ? "i" : "n"}${[...subset.configs].toSorted((a, b) => a - b).join(",")}`
+/** A subset's place in a reader's numbering (SubsetNumbers slot): its number, -1 before the reader numbers it. */
+export interface SubsetSlot {
+	number: number
+}
+
+/**
+ * The numbers a reader gives the subsets it keeps, its states: two subsets of the same configurations, both initial or
+ * neither, are one state. A subset's slot is found by its configurations' numbers in increasing order, a path of a trie
+ * whose roots are the initial subsets' and the rest's, the sink's apart, so no key is built of its numbers.
+ */
+export class SubsetNumbers {
+	#done: SubsetSlot = { number: -1 }
+	#roots: { readonly initial: CounterTrie; readonly later: CounterTrie } = SubsetNumbers.#fresh()
+
+	static #fresh(): { readonly initial: CounterTrie; readonly later: CounterTrie } {
+		return { initial: { number: -1, next: undefined }, later: { number: -1, next: undefined } }
+	}
+
+	/** The slot of `subset`, made where it is new, its number -1 until the reader numbers it. */
+	slot(subset: Subset): SubsetSlot {
+		if (subset.kind === "done") {
+			return this.#done
+		}
+		let node = subset.initial ? this.#roots.initial : this.#roots.later
+		for (const config of Int32Array.from(subset.configs).toSorted()) {
+			node.next ??= new Map()
+			let child = node.next.get(config)
+			if (child === undefined) {
+				child = { number: -1, next: undefined }
+				node.next.set(config, child)
+			}
+			node = child
+		}
+		return node
+	}
+
+	/** Forgets every subset's number, which a reader that renumbers its configurations reads anew. */
+	clear(): void {
+		this.#done = { number: -1 }
+		this.#roots = SubsetNumbers.#fresh()
+	}
+}
 
 /**
  * A subset the construction reached and the work it was charged, in configuration visits: a transition's, its source
@@ -298,7 +434,7 @@ export interface Targets {
  */
 interface Begun {
 	readonly initial: Step
-	readonly restartConfigs: ReadonlyArray<number>
+	readonly restartConfigs: ReadonlyArray<Config>
 	readonly restart: Subset
 }
 
@@ -357,7 +493,7 @@ export class SearchSubsets {
 	}
 
 	/** The subset `configs` reach: the sink once they hold the NFA's accepting state. */
-	#settle(configs: ReadonlyArray<number>, initial: boolean): Subset {
+	#settle(configs: ReadonlyArray<Config>, initial: boolean): Subset {
 		return configs.some((c) => this.#configs.state(c) === this.nfa.accept)
 			? done
 			: { kind: "set", configs, initial }
@@ -372,12 +508,12 @@ export class SearchSubsets {
 		if (from.kind === "done") {
 			return sinkStep
 		}
-		const targets: Array<number> = []
+		const targets: Array<Config> = []
 		for (const c of from.configs) {
 			const successors = this.#configs.successors(c)
 			for (const edge of entry(this.alphabet.setEdges, this.#configs.state(c))) {
-				const to = entry(successors, edge.edge)
-				if (to >= 0 && entry(entry(this.#holds, edge.set), atom) === 1) {
+				const to = successorAt(successors, edge.edge)
+				if (to !== undefined && entry(entry(this.#holds, edge.set), atom) === 1) {
 					targets.push(to)
 				}
 			}
@@ -410,15 +546,15 @@ export class SearchSubsets {
 		 */
 		const groupOf = new Int32Array(atomCount)
 		const parent: Array<number> = [-1]
-		const opener: Array<number> = [-1]
+		const opener: Array<Config | undefined> = [undefined]
 		const openedIn: Array<number> = [-1]
 		const openedAs: Array<number> = [-1]
 		let round = 0
 		for (const c of from.configs) {
 			const successors = this.#configs.successors(c)
 			for (const edge of entry(setEdges, this.#configs.state(c))) {
-				const to = cell(successors, edge.edge)
-				if (to >= 0) {
+				const to = successorAt(successors, edge.edge)
+				if (to !== undefined) {
 					for (const atom of entry(setAtoms, edge.set)) {
 						const group = cell(groupOf, atom)
 						if (openedIn[group] !== round) {
@@ -444,9 +580,12 @@ export class SearchSubsets {
 			if (known >= 0) {
 				stepOf[atom] = known
 			} else {
-				const targets: Array<number> = []
+				const targets: Array<Config> = []
 				for (let g = group; g > 0; g = entry(parent, g)) {
-					targets.push(entry(opener, g))
+					const to = entry(opener, g)
+					if (to !== undefined) {
+						targets.push(to)
+					}
 				}
 				stepOfGroup[group] = steps.length
 				stepOf[atom] = steps.length
@@ -460,7 +599,7 @@ export class SearchSubsets {
 	 * The Step out of the configurations `from` to the closure past a code point of `targets`, the start state among
 	 * them, where the search begins again; the restart closure where there is no target.
 	 */
-	#reach(from: ReadonlyArray<number>, targets: ReadonlyArray<number>): Step {
+	#reach(from: ReadonlyArray<Config>, targets: ReadonlyArray<Config>): Step {
 		if (targets.length === 0) {
 			const { restart, restartConfigs } = this.#begun
 			return { to: restart, work: from.length + restartConfigs.length }

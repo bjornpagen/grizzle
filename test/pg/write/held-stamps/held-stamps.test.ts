@@ -9,9 +9,14 @@
  * over the rule stopped at the fence and each key read every assignment again. metis's assign spent 377 ms of its 390
  * ms hold on that insert, the union read whole over 97,379 assignments in each of its three rules.
  *
- * The box, exhausted: the due assignments read through the open assignments or by negations of their own; each at
- * scale 1 and 16, 32 and 512 other users' assignments stored beside the call user's four. Each case installs the schema
- * twice, once a scale.
+ * metis's own form held nothing until a region's occurrence held at the outer row's key counted whatever its source:
+ * its dueOfCall reads its declared Open and Valid views as steps, each a region whose one occurrence is the view's rows
+ * held at the due assignment's key by constants, and only a stored relation's constants reached an occurrence, so the
+ * due assignments seeded no key set and the union was read whole (metis assign statement 5, 125k pages a call).
+ *
+ * The box, exhausted: the due assignments read through the open assignments, by negations of their own, or through
+ * metis's declared views; each at scale 1 and 16, 32 and 512 other users' assignments stored beside the call user's
+ * four. Each case installs the schema twice, once a scale.
  *
  * Property, per case: at each scale the call commits and AssignmentReadAloud holds the model's stamps
  * (held-stamps.fixtures.ts modelOf); and the rows the write reads in its transaction of the relations the union's rules
@@ -72,9 +77,9 @@ const runAt = (due: Due, scale: number) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const s = yield* Substrate
-			const fx = yield* installWrites(build("HeldStamps"), "heldstamps", {
+			const fx = yield* installWrites(build("HeldStamps").schema, "heldstamps", {
 				programs: {},
-				logins: []
+				logins: () => []
 			})
 			const S = build(fx.installed.declared)
 			const names = namesOf(fx.installed)
@@ -97,6 +102,7 @@ const runAt = (due: Due, scale: number) =>
 						]
 			const { assignments, held, tests, needs } = stateAt(scale)
 			yield* ownerTransaction(
+				fx,
 				Arr.flatten([
 					insert(
 						Assignment,
@@ -120,7 +126,7 @@ const runAt = (due: Due, scale: number) =>
 					)
 				])
 			)
-			const db = yield* openFull(fx, S)
+			const db = yield* openFull(fx, S.schema)
 			let read = -1
 			const observed = yield* observedChange(db, changeOf(S, due), attemptLabel, {
 				kind: "probe",
@@ -197,7 +203,7 @@ export const aDueAssignmentsStampReadsTheSameRowsOfEveryRelationHoweverManyOther
 			kind: "specification",
 			name: "the model's stamps, and PostgreSQL's counts of the rows the write reads, at scale 16 at most those at scale 1"
 		},
-		box: "the due assignments read through the open assignments or by negations of their own, at 32 and 512 other users' assignments",
+		box: "the due assignments read through the open assignments, by negations of their own or through metis's declared views, at 32 and 512 other users' assignments",
 		kept: [],
 		kills: [
 			{
@@ -209,10 +215,15 @@ export const aDueAssignmentsStampReadsTheSameRowsOfEveryRelationHoweverManyOther
 			},
 			{
 				file: "packages/engine/src/lower/shapes/share/keys.ts",
-				original:
-					'\t\t\tcase "Step":\n\t\t\t\tenter(at, at.input, equalities, true)\n\t\t\t\treturn\n',
-				replacement: '\t\t\tcase "Step":\n\t\t\t\treturn\n',
+				original: '\t\t\tcase "Step":\n\t\t\t\tdeliver(at, at.input, equalities, true)\n',
+				replacement: '\t\t\tcase "Step":\n\t\t\t\tdeliver(at, at.input, [], true)\n',
 				why: "A rule of the union read at a key is restricted over its first step, whose fence stops it: each key reads every assignment again, and the rows read grow with them."
+			},
+			{
+				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
+				original: "\t\t...o.constants.flatMap((c) => {\n",
+				replacement: '\t\t...(o.source.kind === "Base" ? o.constants : []).flatMap((c) => {\n',
+				why: "Only a stored relation's constants reach an occurrence, as before: metis's views, each a region whose one occurrence is the view's rows held at the due assignment's key, are reached by none, the due assignments seed no key set, and the union is read whole, its rows growing with the other users' assignments."
 			}
 		]
 	})

@@ -147,6 +147,9 @@ export const types = {
 	/** A transaction's 64-bit id, pg_current_xact_id()'s, which a sealed unit's founding table holds its founder by
 	 * (physical/ddl/seal.ts). */
 	xid8: builtinType("xid8"),
+	/** A row's tuple id, its ctid's type, at which a stored relation's upkeep deletes each row it finds stale
+	 * (physical/ddl/rules.ts upkeepBlock). */
+	tid: builtinType("tid"),
 	money: builtinType("money"),
 	int4range: builtinType("int4range"),
 	int8range: builtinType("int8range"),
@@ -220,7 +223,7 @@ export const columnDefinition = (name: string, type: TypeRef): ColumnDefinition 
 
 export const col = (table: string, column: string): Expr => ({ kind: "column", table, column })
 
-/** An unqualified column, inside DDL. */
+/** An unqualified column: inside DDL, or an output a set operation's ORDER BY names. */
 export const tableCol = (column: string): Expr => ({ kind: "column", table: undefined, column })
 
 /** The value placeholder `$<number>::<type>` of a slot no lowering allocates: a function's argument, the ledger's. */
@@ -721,7 +724,7 @@ export const withArms = (
 		} else if (isSetQuery(arm)) {
 			return arm
 		}
-		throw defect("a rebuilt UNION ALL arm that is a set, as the UNION ALL's proof requires")
+		defect("a rebuilt UNION ALL arm that is a set, as the UNION ALL's proof requires")
 	}
 	const [first, second, ...rest] = arms
 	return { ...like, arms: [set(first), set(second), ...rest.map(set)] }
@@ -735,7 +738,7 @@ export const setQueryOf = (query: OperandSelect, what: string): Select => {
 	if (isSetQuery(query)) {
 		return query
 	}
-	throw defect(`${what}, which keeps a set query a set`)
+	defect(`${what}, which keeps a set query a set`)
 }
 
 /** A body rebuilt from a set body, a set still (setQueryOf). */
@@ -743,7 +746,7 @@ export const setBodyOf = (body: OperandBody, what: string): SelectBody => {
 	if (isSetBody(body)) {
 		return body
 	}
-	throw defect(`${what}, which keeps a set body a set`)
+	defect(`${what}, which keeps a set body a set`)
 }
 
 /** A body as a set operation's arm: a set operation nests parenthesized, as the body of a query of its own. */
@@ -804,7 +807,7 @@ export const keyedSet = (
 	what: string
 ): SetCore => {
 	if (!fromReadsSets(from)) {
-		throw defect(`${what}, which reads sets`)
+		defect(`${what}, which reads sets`)
 	}
 	return provedCore("keyed", targets, from, where)
 }
@@ -931,3 +934,17 @@ export const whenFound = (
 	query: OperandSelect,
 	body: NonEmptyReadonlyArray<PlStatement>
 ): PlStatement => ({ kind: "whenFound", query, body })
+
+/**
+ * IF EXISTS (<query>) THEN <body> END IF: `body` run where `query` holds a row, the query read to its first row and no
+ * further, an EXISTS sublink being planned and run as a LIMIT 1 is (PostgreSQL 19, src/backend/optimizer/plan/subselect.c
+ * make_subplan at 215-216), so a test whose answer is whether a row stands reads one row of each relation it seeks at
+ * each of its keys, never every row that matches there: a probe's guard (physical/ddl/rules.ts probedBlocks,
+ * analysis/theory/query.ts probeGuard), whose rows are a learner's beside the content they read, all of a package's
+ * learners', where `whenFound`, which PostgreSQL plans and runs for every row, read every one of them (qti-pie's
+ * takeSitting under LEDGER-VALUECELL: member_place read by its package, about 11.6k pages warm at 1x and 15.6k at 10x).
+ */
+export const whenExists = (
+	query: OperandSelect,
+	body: NonEmptyReadonlyArray<PlStatement>
+): PlStatement => ({ kind: "if", branches: [{ condition: exists(query), body }], else: [] })

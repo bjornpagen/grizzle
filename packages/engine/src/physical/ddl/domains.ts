@@ -38,12 +38,14 @@ import {
 import { type ParamDecl, type PhysicalReason, paramColumns } from "#compiler/ir/products.ts"
 import { exprsOf, type HeadingColumn, type RelNode } from "#compiler/ir/rel.ts"
 import {
+	baseOf,
 	type ContractInfo,
 	type PlainType,
 	patternsText,
 	regexOf,
 	type RegexRef,
-	type ScalarType
+	type ScalarType,
+	type VariantInfo
 } from "#compiler/ir/scalar.ts"
 import { domainCheck, type LawModel } from "#compiler/laws/model/model.ts"
 import { type InstallBuilder, isVectorRef } from "#compiler/physical/ddl/context.ts"
@@ -52,7 +54,7 @@ import { calledLibrary } from "#compiler/physical/ddl/library.ts"
 import type { ContractSource, InstallNames } from "#compiler/physical/ddl/names.ts"
 import { enforcement, lawReasons, type Node } from "#compiler/physical/obligations/graph.ts"
 import { fieldEntry } from "#compiler/schema/declared-entries.ts"
-import type { Owned, OwnedRelation } from "#compiler/schema/own.ts"
+import { declareRelation, type Owned, type OwnedRelation } from "#compiler/schema/own.ts"
 import {
 	type Collation,
 	type CreateDomain,
@@ -78,12 +80,17 @@ export const structuralRegex = (t: ScalarType): RegexRef | undefined =>
 export interface UsedType {
 	readonly name: ObjectName
 	readonly identity: Identity<
-		"contractDomain" | "textDomain" | "rosterDomain" | "bitsDomain" | "digestDomain"
+		| "contractDomain"
+		| "textDomain"
+		| "rosterDomain"
+		| "bitsDomain"
+		| "digestDomain"
+		| "variantDomain"
 	>
 	readonly node: Node<"setup"> | undefined
 }
 
-/** The domains columns are typed by, by name, and whether one is a vector. */
+/** The domains columns are typed by, by name; and whether one is a vector. */
 export interface TypeUse {
 	readonly domains: Map<NameKey, UsedType>
 	vector: boolean
@@ -133,8 +140,15 @@ const restingDomains = (b: InstallBuilder, base: ScalarType, use: TypeUse): void
 	typeDomains(b, base, use)
 }
 
-/** The domain a value of `t`'s carrier is held by: a closed id's roster domain, a set's bits domain, a digest's domain;
- * and a vector's extension. */
+/**
+ * The domain a value of `t`'s carrier is held by: a closed id's roster domain, a set's bits domain, a digest's domain,
+ * a variant's domain with every domain an arm's field is held by, which its CHECK casts each present field to
+ * (physical/ddl/variants.ts judged); and a vector's extension. Never a variant's tag's roster domain: the CHECK reads the
+ * tag as the smallint its composite holds, against literal codes, and calls no constant of the roster, so a writer of a
+ * variant column whose roster no column of its own types reads nothing of the roster (PostgreSQL 19.0, 2026-11-26: such
+ * a writer's served insert of each arm is accepted with EXECUTE on the roster's live constant revoked), where it was
+ * granted EXECUTE on that constant, which the installed-catalog checker refused as excess.
+ */
 const carrierDomains = (b: InstallBuilder, t: PlainType, use: TypeUse): void => {
 	if (t.carrier === "code") {
 		const name = b.names.rosterDomain(t.roster.closed)
@@ -162,6 +176,19 @@ const carrierDomains = (b: InstallBuilder, t: PlainType, use: TypeUse): void => 
 	}
 	if (t.carrier === "vector") {
 		use.vector = true
+	}
+	if (t.carrier === "variant") {
+		const name = b.names.variantDomain(t.variant.name)
+		use.domains.set(nameKey(name), {
+			name,
+			identity: identity.variantDomain(t.variant.name),
+			node: b.typeNamed(name)
+		})
+		for (const arm of t.variant.arms) {
+			for (const f of arm.fields) {
+				typeDomains(b, f.type, use)
+			}
+		}
 	}
 }
 
@@ -236,6 +263,55 @@ export const patternLawId = (
 	p: Pick<FieldPatternLaw, "relation" | "field">
 ): Identifier<"patternLaw"> =>
 	identifierOf(identity.patternLaw(domain, p.relation.name, p.field.name))
+
+/** A stored field a variant types (no contract is over a variant), and its law: its relation, the field, the variant and
+ * the law, by the relation's and the field's names and the variant's. */
+export interface FieldVariantLaw {
+	readonly relation: TableRelation
+	readonly field: LawField
+	readonly variant: VariantInfo
+	readonly law: Extract<StatedLaw, { readonly kind: "variant" }>
+}
+
+/**
+ * The variant laws of a schema's law model: one per field of a stored relation a variant types, by relation name, each
+ * relation's fields in declared order. The installation lists the variant's domain's law at each such field's column,
+ * and each domain of an arm's field, a contract's or a text pattern's, the same law at that column
+ * (physical/install/plan.ts), and lawsOf lists their laws (program/laws.ts), so the two can never disagree.
+ */
+export const fieldVariantLaws = (model: LawModel): ReadonlyArray<FieldVariantLaw> =>
+	[...model.relations.values()].flatMap(({ relation }) =>
+		relation.fields.flatMap((field): ReadonlyArray<FieldVariantLaw> => {
+			const base = baseOf(field.type)
+			return base.carrier === "variant"
+				? [
+						Object.freeze({
+							relation,
+							field,
+							variant: base.variant,
+							law: Object.freeze({
+								kind: "variant",
+								relation: relation.name,
+								field: field.name,
+								variant: base.variant.name
+							} as const)
+						})
+					]
+				: []
+		})
+	)
+
+/**
+ * The identity of the variant law of `v`'s field, under the variant's domain: what a violation of that domain's CHECK,
+ * or of an arm's field's domain, on the field's column reports, what lawsOf gives the law and the one place it is
+ * minted.
+ */
+export const variantLawId = (
+	v: Pick<FieldVariantLaw, "relation" | "field" | "variant">
+): Identifier<"variantLaw"> =>
+	identifierOf(
+		identity.variantLaw(identity.variantDomain(v.variant.name), v.relation.name, v.field.name)
+	)
 
 /** A column outside the stored relations that the installation types by a text refinement: a derived relation's view
  * column, a role view's, or a context field a role reads. It is planned before any domain is installed, so its pattern
@@ -378,8 +454,15 @@ export interface ParamContract {
 /** The contracts a value of `t` is checked under, innermost first: each contract its base chain names, then its own. */
 const innerFirstContracts = (t: ScalarType): ReadonlyArray<ContractInfo> => {
 	const { contract } = t
-	return contract === undefined ? [] : [...innerFirstContracts(contract.base), contract]
+	if (contract !== undefined) {
+		return [...innerFirstContracts(contract.base), contract]
+	}
+	return t.carrier === "variant" ? armTypes(t).flatMap(innerFirstContracts) : []
 }
+
+/** The types of a variant's arms' fields, in order, which its composite's attributes are typed by. */
+const armTypes = (t: ScalarType): ReadonlyArray<ScalarType> =>
+	t.carrier === "variant" ? t.variant.arms.flatMap((arm) => arm.fields.map((f) => f.type)) : []
 
 /** The contracts a value of `t` is typed by (innerFirstContracts), each placed at `loc`. */
 export const typeContracts = (t: ScalarType, loc: SourceLoc): ReadonlyArray<ParamContract> =>
@@ -427,6 +510,15 @@ export const noServedTypes: ServedTypes = {
 	library: []
 }
 
+/** The types every one of `served` names, each kind in their order: what the programs of a plan serve together. */
+export const servedTogether = (served: ReadonlyArray<ServedTypes>): ServedTypes => ({
+	domains: served.flatMap((p) => p.domains),
+	contracts: served.flatMap((p) => p.contracts),
+	typed: served.flatMap((p) => p.typed),
+	texts: served.flatMap((p) => p.texts),
+	library: served.flatMap((p) => p.library)
+})
+
 /** The types the program `program`, its declared parameters `params` and the nodes `roots` its plan reads, names
  * (ServedTypes). */
 export const servedTypesOf = (
@@ -449,11 +541,12 @@ export const servedTypesOf = (
  * contract (structuralRegex), and none for any other value. A contract's value is its contract's domain's, which
  * carries its base's pattern in its own CHECK over `text` (ir/physical.ts domainBase), so a contract over a refined
  * text names no text domain; a value read at the base is a value of the base's own type, which the node or expression
- * holding it names. So the installation holds a text domain only where something types a value by it.
+ * holding it names; a variant's are its arms' fields', which its composite's attributes are typed by. So the
+ * installation holds a text domain only where something types a value by it.
  */
 export const typeRefinements = (t: ScalarType): ReadonlyArray<RegexRef> => {
 	const own = structuralRegex(t)
-	return own === undefined ? [] : [own]
+	return own === undefined ? armTypes(t).flatMap(typeRefinements) : [own]
 }
 
 /** The objects a checked DAG's values need of its installation whatever stored field declares them (dagObjects): the
@@ -766,8 +859,7 @@ export const planTextDomains = (
 /**
  * Each structural text domain an installation holds (planTextDomains), by its pattern language's key (RegexRef.key),
  * with the digest of its domain's definition, which names it (textDomainIdentity): the one set every compile over the
- * installation names a refined text's domain from, whatever relations its slice reads, which generate records in
- * snapshot.json (deploy/snapshot/types.ts SnapshotDerived) and a Db reads there.
+ * installation names a refined text's domain from, which generate records in snapshot.json (deploy/snapshot/types.ts SnapshotDerived) and a Db reads there.
  */
 export type TextDomainNames = ReadonlyMap<string, DomainDigest>
 
@@ -970,7 +1062,7 @@ export const outsideContracts = (
 		const planned = new Map<string, string>()
 		const types = DeclaredNamespace.of("relation, roster and contract")
 		for (const r of Object.values(owned.relations)) {
-			unwrap(types.declare(r.name, r.kind === "closed" ? "closed relation" : "relation", r.loc))
+			unwrap(declareRelation(types, r, r.kind === "closed" ? "closed relation" : "relation", r.loc))
 		}
 		for (const c of Object.values(owned.contracts)) {
 			unwrap(types.declare(c.name, "contract", c.loc))

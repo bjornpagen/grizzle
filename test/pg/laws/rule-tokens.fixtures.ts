@@ -7,19 +7,27 @@ import { regex } from "arkregex"
 import { Array as Arr, Data, Effect, Formatter, Option, String as Str } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, contained, derived, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { readsOf, rerunsOf } from "#test/pg/laws/rule-whole.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
+import {
+	type Installed,
+	migratedTemplate,
+	noPlaceholders,
+	seededTemplate
+} from "#test/support/install-migrate.ts"
 import { standUpJudge } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
+import { storedSeed } from "#test/support/stored.ts"
 import { refusalOf } from "#test/support/substrate.ts"
+import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 
 /**
  * edullm's pantry in small: each element's attributes, keyed by the element, an IDREFS one `listed`, its `lexical` a
@@ -76,7 +84,7 @@ export const tokensTemplate = migratedTemplate({
 	declaredIn: import.meta,
 	name: "rule tokens",
 	content: { schema: tokensSchema.name, logins: [] },
-	versions: [{ schema: tokensSchema, logins: [], declarations: noDeclarations }],
+	versions: [{ schema: tokensSchema, declarations: noDeclarations }],
 	options: {
 		label: "rule_tokens",
 		extensions: [],
@@ -363,16 +371,11 @@ export const runWritten = (
  * documents a transaction then writes, and four times as many.
  */
 export interface TokensLocality {
-	readonly stored: number
-	readonly more: number
 	readonly statistics: "none" | "analyzed"
 	readonly written: number
 }
 
-/** Thousands of stored documents beside the written one, each lawful: an IDREFS of three tokens and a plain attribute. */
 export const tokensLocalityGen: Gen<TokensLocality> = (s) => ({
-	stored: s.draw(int(2000, 3000)),
-	more: s.draw(int(2000, 3000)),
 	statistics: s.draw(element(["none", "analyzed"] as const)),
 	written: s.draw(int(30, 60))
 })
@@ -394,58 +397,73 @@ const documentsSql = (installed: Installed, from: number, to: number): ReadonlyA
 	]
 }
 
-/** The statements loading lawful documents `from` to `to` with the tables' captures off. */
-const loadedSql = (installed: Installed, from: number, to: number): ReadonlyArray<string> => {
-	const names = namesOf(installed)
-	const tables = [names.table(Attribute), names.table(Target)]
-	return [
-		...Arr.map(tables, (table) => `ALTER TABLE ${table} DISABLE TRIGGER USER`),
-		...documentsSql(installed, from, to),
-		...Arr.map(tables, (table) => `ALTER TABLE ${table} ENABLE TRIGGER USER`)
-	]
-}
+/**
+ * The documents stored beside the written one, a template's: thousands, then twice as many, each lawful, an IDREFS of
+ * three tokens and a plain attribute, documents 10 and up.
+ */
+const localitySizes = { stored: 2500, more: 5000 } as const
 
 /**
- * One locality case in its one transaction, which the case's end rolls back: `stored` lawful documents loaded with the
- * captures off, ANALYZE where the case draws it, and one document written whole through the captures. Each whole
- * rule's statement is explained over the deltas that hold its rows (test/support/judge.ts judgedPlans), before the
- * judge, which runs at the case's end, and again once `more` documents are loaded: each reads fewer rows than the
- * documents beside the written one, both times, the written document's tokens alone, never a token of another
- * document. Then `written` documents are written whole, and four times as many: every node a statement runs more than
- * once reads fewer rows a run than the documents written, one written unit's rows a run, so the judge's work grows with
- * the units written, never with their square. That is the work a publish's judge does for these rules: the tokens of
- * the documents it writes, once each.
+ * tokensSchema installed, and `documents` lawful documents, 10 to documents + 9, committed through the captures once
+ * per member, judged at their COMMIT (stored.ts storedSeed).
+ */
+const localityTemplate = (documents: number): SubstrateTemplate<Installed> =>
+	seededTemplate({
+		declaredIn: import.meta,
+		name: `rule tokens locality ${documents}`,
+		schema: tokensSchema,
+		options: { ambient: ordinarySession, extensions: [], label: "rule_tokens" },
+		seed: storedSeed((installed) => documentsSql(installed, 10, documents + 9))
+	})
+
+export const localityTemplates = {
+	stored: localityTemplate(localitySizes.stored),
+	more: localityTemplate(localitySizes.more)
+} as const
+
+/**
+ * One locality case over two clones, each in one transaction the case's end rolls back: on `stored`'s, beside its
+ * template's committed lawful documents (localityTemplates), ANALYZE where the case draws it, and one document written
+ * whole through the captures; each whole rule's statement is explained over the deltas that hold its rows
+ * (test/support/judge.ts judgedPlans), before the judge, which runs at the case's end; then the same on `more`'s,
+ * beside twice as many documents: each reads fewer rows than the documents beside the written one, both times, the
+ * written document's tokens alone, never a token of another document. Then, on `more`'s, `written` documents are
+ * written whole, and four times as many: every node a statement runs more than once reads fewer rows a run than the
+ * documents written, one written unit's rows a run, so the judge's work grows with the units written, never with their
+ * square. That is the work a publish's judge does for these rules: the tokens of the documents it writes, once each.
  */
 export const runTokensLocality = (
-	installed: Installed,
-	connection: PgConnection,
+	stored: { readonly installed: Installed; readonly connection: PgConnection },
+	more: { readonly installed: Installed; readonly connection: PgConnection },
 	locality: TokensLocality,
 	c: Case<TokensLocalityFeature>
 ) =>
 	Effect.gen(function* () {
-		yield* standUpJudge(connection, installed.installation)
-		const names = namesOf(installed)
-		const statistics =
-			locality.statistics === "analyzed"
-				? [`ANALYZE ${names.table(Attribute)}`, `ANALYZE ${names.table(Target)}`]
-				: []
-		for (const sql of [...loadedSql(installed, 10, 10 + locality.stored), ...statistics]) {
-			yield* connection.query(sql, [])
-		}
-		for (const sql of ["SET CONSTRAINTS ALL DEFERRED", ...documentsSql(installed, 0, 0)]) {
-			yield* connection.query(sql, [])
-		}
-		const first = yield* readsOf(installed, connection)
+		/** The judge's reads over document 0 written whole on one clone. */
+		const measured = (installed: Installed, connection: PgConnection) =>
+			Effect.gen(function* () {
+				yield* standUpJudge(connection, installed.installation)
+				const names = namesOf(installed)
+				for (const sql of [
+					...(locality.statistics === "analyzed"
+						? [`ANALYZE ${names.table(Attribute)}`, `ANALYZE ${names.table(Target)}`]
+						: []),
+					"SET CONSTRAINTS ALL DEFERRED",
+					...documentsSql(installed, 0, 0)
+				]) {
+					yield* connection.query(sql, [])
+				}
+				return yield* readsOf(installed, connection)
+			})
+		const first = yield* measured(stored.installed, stored.connection)
 		assert.ok(first.length > 0, "the judge holds a whole rule's statement")
-		const from = 11 + locality.stored
-		for (const sql of [...loadedSql(installed, from, from + locality.more), ...statistics]) {
-			yield* connection.query(sql, [])
-		}
-		const again = yield* readsOf(installed, connection)
+		yield* stored.connection.query("SET CONSTRAINTS ALL IMMEDIATE", [])
+		const again = yield* measured(more.installed, more.connection)
 		assert.ok(
-			Arr.every([...first, ...again], (rows) => rows < locality.stored),
-			`${Formatter.format(locality)}: each whole rule's statement reads the written document's tokens alone, fewer rows than the ${locality.stored} documents beside it, ${Formatter.format(first)} and then ${Formatter.format(again)} beside ${locality.more} more`
+			Arr.every([...first, ...again], (rows) => rows < localitySizes.stored),
+			`${Formatter.format(locality)}: each whole rule's statement reads the written document's tokens alone, fewer rows than the ${localitySizes.stored} documents beside it, ${Formatter.format(first)} and then ${Formatter.format(again)} beside ${localitySizes.more}`
 		)
+		const { installed, connection } = more
 		for (const [low, high] of [
 			[-locality.written, -1],
 			[-5 * locality.written, -locality.written - 1]

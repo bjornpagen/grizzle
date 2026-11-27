@@ -40,6 +40,7 @@ import type { RecursionRefusal } from "#compiler/core/causes.ts"
 import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
 import { type FieldDesc } from "#compiler/ir/desc.ts"
+import { subsumes } from "#compiler/ir/scalar.ts"
 import { placeOf, succeeded } from "#test/support/assert.ts"
 import { type AuthoredExprDesc as ExprDesc } from "#test/support/fixtures/ir/desc.ts"
 import { idDesc } from "#test/support/ids.ts"
@@ -294,18 +295,26 @@ export const theStateHeadingAdmitsAColumnOfTheDeclaredTypeCastsAnExactConversion
 								assert.deepEqual(base.heading, rec.heading)
 								const column = Option.getOrThrow(Arr.findFirst(base.out, (o) => o.name === "c"))
 								const kind = column.expr.kind
+								const declared = Option.getOrThrow(
+									Arr.findFirst(rec.heading, (h) => h.name === "c")
+								).type
+								const [read] = column.expr.kind === "cast" ? column.expr.args : [column.expr]
 								/**
 								 * The author's cast is a cast where it changes the type; a cast to the type the term has already
-								 * restates it.
+								 * restates it. A type the declared one subsumes stands as it is, with no node of its own (ir/scalar.ts
+								 * subsumes, bbfa4eca06: a refined text where the state declares text, a contract's value where it
+								 * declares its base), since the IR builds no cast up to a type that subsumes its operand's
+								 * (ir/expr.ts builtExpr).
 								 */
 								const casts =
-									spelled === "cast by the author"
+									(spelled === "cast by the author"
 										? a.identity !== d.identity || a.within !== d.within
-										: want.conversion === "cast"
+										: want.conversion === "cast") &&
+									!subsumes(declared, defined(read, "the column's read").type)
 								assert.equal(
 									kind === "cast",
 									casts,
-									"the column is cast exactly where its type changes"
+									"the column is cast exactly where its type changes to one that does not subsume it"
 								)
 							}
 						}
@@ -317,6 +326,12 @@ export const theStateHeadingAdmitsAColumnOfTheDeclaredTypeCastsAnExactConversion
 			box: "every declared type of nine against every delivered type of six, as delivered or cast by the author where the cast is total",
 			kept: [],
 			kills: [
+				{
+					file: "packages/engine/src/check/recursion/state.ts",
+					original: "\t\tif (subsumes(target.type, column.type)) {\n",
+					replacement: "\t\tif (sameScalarType(column.type, target.type)) {\n",
+					why: "A delivered column whose type the state's subsumes is cast up to it, a node the IR refuses as an up-cast (ir/expr.ts builtExpr): a vertex's refined label delivered into a state of wildcard text dies a defect; the state-heading search fails."
+				},
 				{
 					file: "packages/engine/src/check/recursion/state.ts",
 					original:

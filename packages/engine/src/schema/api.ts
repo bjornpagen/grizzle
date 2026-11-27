@@ -6,14 +6,16 @@ import type {
 import { bodyBuilder, fnBuilder, rowBuilder, rowsBuilder } from "#compiler/schema/function.ts"
 import { lawBuilder } from "#compiler/schema/law-entries.ts"
 import {
+	admitDerivedNaming,
 	closedBuilder,
 	closedRelation as closedRelationBuilder,
-	generatedRelation,
-	relationBuilder
+	type DerivedNamingInput,
+	namedClosedBuilder,
+	namedGeneratedRelation,
+	namedRelationBuilder
 } from "#compiler/schema/relation.ts"
 import { fragmentBuilder, schemaBuilder } from "#compiler/schema/schema.ts"
 import {
-	alternativesBuilder,
 	checkBuilder,
 	containedBuilder,
 	countedBuilder,
@@ -47,7 +49,6 @@ import type { AnyDerived, RuleReadDerived } from "#compiler/types/derived/derive
 import type {
 	FieldBase,
 	GeneratedField,
-	HandleOf,
 	NamedIds,
 	StoredOnlySql,
 	WritingTag
@@ -60,15 +61,16 @@ import type {
 	FunctionBody,
 	FunctionType,
 	HeadingCheck,
+	MintsOf,
 	Row as RowOf,
 	Rows as RowsOf,
-	SignatureCheck
+	SignatureCheck,
+	VariantSpelling
 } from "#compiler/types/schema/function.ts"
 import type {
 	AnyClosed,
 	AnyClosedRelation,
 	AnyRelation,
-	AnyRoster,
 	ClosedIdFieldOf,
 	ClosedRelation,
 	DistinctFields,
@@ -104,24 +106,24 @@ import type {
 	StatementsWithin
 } from "#compiler/types/schema/schema.ts"
 
-import type { MonoidName } from "#compiler/ir/desc.ts"
+import {
+	declaredNaming,
+	derivedRosterNaming,
+	type MonoidName,
+	type RelationNaming,
+	type RosterNaming
+} from "#compiler/ir/desc.ts"
 import type {
-	Alternatives,
 	AnyFamily,
 	AnyFin,
 	AnyMonoid,
 	AnySide,
-	ArmsApartFromParent,
-	ArmsCompatible,
-	ArmsOfRoster,
-	AtLeastOneArm,
 	Check,
 	Containment,
 	Counted,
 	CountedMember,
 	CountFieldIn,
 	FamilySlots,
-	DiscriminatorsOf,
 	DistinctTerms,
 	Fin,
 	FinShows,
@@ -129,7 +131,6 @@ import type {
 	FoldEnd,
 	FoldStep,
 	Key,
-	KeyRef,
 	MemberRelationOf,
 	Mirrors,
 	Monoid as MonoidOf,
@@ -141,7 +142,6 @@ import type {
 	OrderedMember,
 	OverSlots,
 	OwnerRelationOf,
-	KeyShows,
 	Pred,
 	Race,
 	RowScalars,
@@ -149,7 +149,6 @@ import type {
 	SelfFamily,
 	Series,
 	Showing,
-	ShowingKeyed,
 	ShowingKind,
 	Shows,
 	Side,
@@ -196,18 +195,26 @@ import type {
  * The third argument is the primary key: a required, nonempty list of the relation's own field names, each once, in
  * the order written. The value holds a frozen copy of it, `readonly [...PrimaryKey]`, which is PrimaryKey itself for
  * every key a call writes.
+ *
+ * Each of relation, relation.generated and closed.unordered is one view of its builder under a naming (ir/desc.ts
+ * RelationNaming, RosterNaming), the root's declared and derivedName's derived, so a derived name's builder types
+ * exactly as the root's does.
  */
-const ordinaryRelation = <
-	const Name extends string,
-	const Fields extends Record<string, FieldBase>,
-	const PrimaryKey extends readonly [KeyFieldOf<Fields>, ...KeyFieldOf<Fields>[]]
->(
-	name: RelationName<Name>,
-	fields: Fields & NamedIds<Fields>,
-	primaryKey: PrimaryKey & DistinctFields<PrimaryKey>,
-	...extra: ReadonlyArray<never>
-): Relation<Name, Fields, readonly [...PrimaryKey]> =>
-	relationBuilder<Name, Fields, PrimaryKey>(name, fields, primaryKey, extra)
+const ordinaryRelationNamed =
+	(naming: RelationNaming) =>
+	<
+		const Name extends string,
+		const Fields extends Record<string, FieldBase>,
+		const PrimaryKey extends readonly [KeyFieldOf<Fields>, ...KeyFieldOf<Fields>[]]
+	>(
+		name: RelationName<Name>,
+		fields: Fields & NamedIds<Fields>,
+		primaryKey: PrimaryKey & DistinctFields<PrimaryKey>,
+		...extra: ReadonlyArray<never>
+	): Relation<Name, Fields, readonly [...PrimaryKey]> =>
+		namedRelationBuilder<Name, Fields, PrimaryKey>(name, naming, fields, primaryKey, extra)
+
+const ordinaryRelation = ordinaryRelationNamed(declaredNaming)
 
 /** A relation's generated fields are named apart from its written ones: a field is written one way. */
 type GeneratedApart<Written, G> = [keyof Written & keyof G] extends [never]
@@ -247,24 +254,35 @@ type GeneratedKeyFieldOf<G> = KeyFieldOf<{
  * (check/generated.ts keyGeneratedRule) and which grizzle writes as its term's value, PostgreSQL proving it by a CHECK.
  * Its fields are both, and its facts hold both; its additions hold only the written.
  */
-const generated = <
-	const Name extends string,
-	const Written extends Record<string, FieldBase>,
-	const PrimaryKey extends readonly [
-		KeyFieldOf<Written> | GeneratedKeyFieldOf<G>,
-		...(KeyFieldOf<Written> | GeneratedKeyFieldOf<G>)[]
-	],
-	const G extends Record<string, GeneratedField<FieldBase>>
->(
-	name: RelationName<Name>,
-	written: Written & NamedIds<Written>,
-	primaryKey: PrimaryKey & DistinctFields<PrimaryKey>,
-	generate: (
-		row: GenerationRow<Relation<Name, Written, ReadonlyArray<keyof Written & string>>>
-	) => G & GeneratedApart<Written, G>,
-	...extra: ReadonlyArray<never>
-): Relation<Name, Simplify<Written & G>, readonly [...PrimaryKey]> =>
-	generatedRelation<Name, Written, PrimaryKey, G>(name, written, primaryKey, generate, extra)
+const generatedNamed =
+	(naming: RelationNaming) =>
+	<
+		const Name extends string,
+		const Written extends Record<string, FieldBase>,
+		const PrimaryKey extends readonly [
+			KeyFieldOf<Written> | GeneratedKeyFieldOf<G>,
+			...(KeyFieldOf<Written> | GeneratedKeyFieldOf<G>)[]
+		],
+		const G extends Record<string, GeneratedField<FieldBase>>
+	>(
+		name: RelationName<Name>,
+		written: Written & NamedIds<Written>,
+		primaryKey: PrimaryKey & DistinctFields<PrimaryKey>,
+		generate: (
+			row: GenerationRow<Relation<Name, Written, ReadonlyArray<keyof Written & string>>>
+		) => G & GeneratedApart<Written, G>,
+		...extra: ReadonlyArray<never>
+	): Relation<Name, Simplify<Written & G>, readonly [...PrimaryKey]> =>
+		namedGeneratedRelation<Name, Written, PrimaryKey, G>(
+			name,
+			naming,
+			written,
+			primaryKey,
+			generate,
+			extra
+		)
+
+const generated = generatedNamed(declaredNaming)
 
 export const relation: typeof ordinaryRelation & { readonly generated: typeof generated } =
 	Object.freeze(Object.assign(ordinaryRelation, { generated }))
@@ -291,7 +309,7 @@ type ClosedFieldsCheck<Fields> = [
 	}[keyof Fields]
 ] extends [never]
 	? unknown
-	: Refusal<"a closed relation's field is a closed id, or a value of a type that is no span, set, vector, bytes or exact value, and no field grizzle or PostgreSQL writes">
+	: Refusal<"a closed relation's field is a closed id, or a value of a type that is no span, set, vector, bytes, exact value or variant, and no field grizzle or PostgreSQL writes">
 
 /**
  * closed.ordered(name, handles): a roster whose order means something, the handles it introduces, each once, in
@@ -313,12 +331,16 @@ const orderedRoster = <const Name extends string, const Handles extends Readonly
  * refuses (types/compute/scalar.ts OrderedOperand), and its codes are history alone, so a declaration may list its handles in
  * any order. Its `handle(member)` is the typed constant of a member.
  */
-const unorderedRoster = <const Name extends string, const Handles extends ReadonlyArray<string>>(
-	name: RelationName<Name>,
-	handles: Handles & DistinctHandles<Handles>,
-	...extra: ReadonlyArray<never>
-): Roster<Name, readonly [...Handles], "unordered"> =>
-	closedBuilder<Name, Handles, "unordered">(name, handles, "unordered", extra)
+const unorderedRosterNamed =
+	(naming: RosterNaming) =>
+	<const Name extends string, const Handles extends ReadonlyArray<string>>(
+		name: RelationName<Name>,
+		handles: Handles & DistinctHandles<Handles>,
+		...extra: ReadonlyArray<never>
+	): Roster<Name, readonly [...Handles], "unordered"> =>
+		namedClosedBuilder<Name, Handles, "unordered">(name, naming, handles, "unordered", extra)
+
+const unorderedRoster = unorderedRosterNamed(declaredNaming)
 
 /**
  * closed.zones(name, zones): a roster of time zones, each handle a zone's IANA name in its Area/Location form, such as
@@ -377,6 +399,37 @@ export const closed: {
 	zones: zoneRoster,
 	relation: closedRelation
 })
+
+/**
+ * What derivedName(naming) builds with: relation, relation.generated and closed.unordered of the package root, each
+ * typed exactly as the root's, the name kept as its literal type, the schema type's key, under a derived naming.
+ */
+export interface DerivedNamer {
+	readonly relation: typeof ordinaryRelation
+	readonly generated: typeof generated
+	readonly unordered: typeof unorderedRoster
+}
+
+/**
+ * derivedName({ stem, path }): the builders of a library that derives its relations' and rosters' names, such as den's
+ * from a flow's names. Each name stays readable and of any length, the schema type's key, and is refused for nothing but
+ * its characters and a collision in its schema's namespace, where it meets every name that converts alike, a declared
+ * one's or a derived one's. What it installs is never named by its conversion: a relation's table and whole view, and a
+ * roster's domain and whole view, are hashed over the name, which the namespace keeps unique, each within PostgreSQL's
+ * identifier at any length, a relation's spelled after `stem` and `path` (core/identity.ts identity.derivedTable,
+ * identity.derivedWholeView, identity.derivedRosterDomain). A user's ordinary relation stays declared (relation(...)).
+ */
+export const derivedName = (
+	naming: DerivedNamingInput,
+	...extra: ReadonlyArray<never>
+): DerivedNamer => {
+	const admitted = admitDerivedNaming(naming, extra)
+	return Object.freeze({
+		relation: ordinaryRelationNamed(admitted),
+		generated: generatedNamed(admitted),
+		unordered: unorderedRosterNamed(derivedRosterNaming)
+	})
+}
 
 /**
  * schema(name, relations, statements). The relations are a list, each relation carrying its own name, which the value
@@ -511,7 +564,9 @@ export const row = <const Heading extends AnyRows>(
  * stated by every declaration, neither being a default; its body is PL/pgSQL or SQL text the application owns, written
  * fn.body`...`, installed byte for byte but for each heading it names, which installs as its row type's name. It
  * installs in its level's schema as SECURITY DEFINER under the installation's function owner, a role of no privilege on
- * any table, with its search_path pinned, so its body reads no table.
+ * any table, with its search_path pinned, so its body reads no table. A result that holds a value of a consumer's
+ * contract, at any depth, is one its body makes, so the declaration takes, after the definition, each such contract's
+ * key by the contract's name, `fn("grade", { …, returns: row(Single) }, { QtiInteger: qtiIntegerKey })` (MintsOf).
  */
 const declaredFunction = <
 	const Name extends string,
@@ -530,17 +585,20 @@ const declaredFunction = <
 		readonly language: DeclaredLanguage
 		readonly body: FunctionBody
 	},
-	...extra: ReadonlyArray<never>
+	...mints: MintsOf<Returns>
 ): DeclaredFunction<Name, Args, Returns, V, N> =>
-	fnBuilder<Name, Args, Returns, V, N>(name, definition, extra)
+	fnBuilder<Name, Args, Returns, V, N>(name, definition, mints)
 
 /**
  * fn.body`...`: a declared function's body, its PL/pgSQL or SQL text, each placeholder a heading rows() built, which
  * the body names by its row type's name, `__rows_<digest>`, the one its function's search_path resolves: a heading of
- * the function's own arguments or result, or of a function it calls.
+ * the function's own arguments or result, or of a function it calls; or a variant's spelling, `V.code(handle)`,
+ * `V.attribute(handle, field)` or `V.of(handle, { field: "<sql>" })` (public/fields.ts variant).
  */
-const body = (strings: TemplateStringsArray, ...rowTypes: ReadonlyArray<AnyRows>): FunctionBody =>
-	bodyBuilder(strings, rowTypes)
+const body = (
+	strings: TemplateStringsArray,
+	...placeholders: ReadonlyArray<AnyRows | VariantSpelling>
+): FunctionBody => bodyBuilder(strings, placeholders)
 
 export const fn: typeof declaredFunction & { readonly body: typeof body } = Object.freeze(
 	Object.assign(declaredFunction, { body })
@@ -694,7 +752,7 @@ export const select = <
 
 /**
  * contained(source, target): every tuple of the source side is one of the target side's. A target selected by
- * equalities that fix fields beyond its terms, `on(select(T, (t) => t.and(t.eq(t.kind, "x"), t.eq(t.root, t.id))),
+ * equalities that fix fields beyond its terms, `on(select(T, (t) => t.and([t.eq(t.kind, "x"), t.eq(t.root, t.id)])),
  * "id")`, meets the source's tuples there.
  */
 export const contained = <
@@ -725,26 +783,6 @@ export const mirrors = <
 		SideShows<NR, CR> &
 		SidesCompatible<SideHosts<CL, L["terms"]>, SideHosts<CR, R["terms"]>>
 ): Mirrors<L, R> => mirrorsBuilder<L, R>(left, right)
-
-export const alternatives = <
-	PK extends AnyRelation | Key<Side<AnyRelation, ReadonlyArray<string>>>,
-	PN extends string,
-	PC,
-	PF,
-	C extends AnyRoster,
-	const D extends DiscriminatorsOf<PC, C>,
-	const Arms extends Partial<{ readonly [H in HandleOf<C>]: KeyRef<AnyRelation> | AnyDerived }>
->(
-	parent: PK & (ShowingKeyed<PN, PC, PF> | KeyShows<PN, PC, PF>),
-	discriminator: D,
-	roster: C,
-	arms: Arms &
-		ArmsCompatible<SideHosts<PC, PF>, Arms> &
-		ArmsOfRoster<C, Arms> &
-		ArmsApartFromParent<PN, Arms> &
-		AtLeastOneArm<Arms>
-): Alternatives<PK, D, C, Arms> =>
-	alternativesBuilder<PK, D, C, Arms>(parent, discriminator, roster, arms)
 
 /**
  * fin(O, n): the slots of O's count n: over an ordinary O, its drawn count, a family's second argument; over a closed O,

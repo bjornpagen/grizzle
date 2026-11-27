@@ -742,9 +742,9 @@ export const dropCase = (c: DropCase, note: (feature: Feature) => void) =>
 				schemaName: { kind: "unique" },
 				first: (name) => {
 					state.schema = identifierOf(identity.schema(parsedSchemaName(name)))
-					return { schema: schemaOf(name, firstOf(c)), logins: [] }
+					return { described: schemaOf(name, firstOf(c)) }
 				},
-				later: [(name) => ({ schema: schemaOf(name, secondOf(c)), logins: [] })],
+				later: [(name) => ({ described: schemaOf(name, secondOf(c)) })],
 				apply: { kind: "values", value: reviewed },
 				declared: declaredOf(c),
 				observe: Option.some(observe)
@@ -752,7 +752,7 @@ export const dropCase = (c: DropCase, note: (feature: Feature) => void) =>
 			const fresh = yield* migrated({
 				label: "drops_fresh",
 				schemaName: { kind: "unique" },
-				first: (name) => ({ schema: schemaOf(name, secondOf(c)), logins: [] }),
+				first: (name) => ({ described: schemaOf(name, secondOf(c)) }),
 				later: [],
 				apply: { kind: "noPlaceholders" },
 				declared: () => noDeclarations,

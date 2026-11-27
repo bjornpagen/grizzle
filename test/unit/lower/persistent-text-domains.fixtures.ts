@@ -7,11 +7,8 @@ import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Gen } from "@bjornpagen/testing/gen"
 import { element } from "@bjornpagen/testing/gen"
 import type { CompileError } from "#compiler/core/errors.ts"
-import {
-	compileInstallation,
-	type Installation,
-	installOptions
-} from "#compiler/physical/install/compile.ts"
+import { type Installation, installOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { Text, Type, Xml } from "#compiler/public/compute.ts"
 import { generated } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"

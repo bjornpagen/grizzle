@@ -185,9 +185,55 @@ export const statedLocksBoundTheHeld = property.explore(renamedDrawGen, {
 			reason:
 				"step 3's publish comments R0's key and R1's foreign key after dropping Q0: each COMMENT keeps pg_description locked RowExclusive to the end, which the count left out, so the file held 25 locks past the 24 its meta stated (PIN 2 26760a21 and fd2316a2, rotating seed 0xa4d8eeef)",
 			since: "2026-11-25"
+		},
+		{
+			token: ReplayToken(
+				"test/pg/migrate/lock-demand.test.ts#statedLocksBoundTheHeld:-:0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.1.0.0.2.1.0.2.0.0.0.0.0.1.0.0.0.0.0.1.0.1.0.0.1.1.0.0.0.0.0.0.0.1.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0"
+			),
+			reason:
+				"step 2's publish swaps R0's key to a column of its own and points R1's foreign key at it: dropping the foreign key deletes the four triggers PostgreSQL made for it, two on R1 and two on R0, each locked to the end, which the count left out, so the file held 17 locks past the 16 its meta stated, its report naming seven dropped objects transient (main's merged base, REPLAYFIX at VALUECELL's slice A)",
+			since: "2026-11-26"
+		},
+		{
+			token: ReplayToken(
+				"test/pg/migrate/lock-demand.test.ts#statedLocksBoundTheHeld:-:0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.2.0.1.0.1.1.0.0.0.0.0.0.0.1.0.0.1.1.0.0.0.0.0.0.0.1.1.0.0.6bk.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0"
+			),
+			reason:
+				"step 3's structure drops R0's view, adds a column at a placeholder and lifts R0's guards around it: the guard bracket reads pg_trigger, pg_class, pg_namespace and pg_proc with their indexes, fourteen catalogs its count states, which the names probe read after BEGIN held already, so the file measured 21 locks held and its stated 43 read as past twice that (the merged base and after, rotating seed 0x8afa3e1b); and step 2's structure adds a column of a domain a CHECK holds, which rewrites R0, its transient table and its schema counted by none, a miss the TOAST relations stated for the dropped view hid, 47 held past 45 once they went",
+			since: "2026-11-26"
+		},
+		{
+			token: ReplayToken(
+				"test/pg/migrate/lock-demand.test.ts#statedLocksBoundTheHeld:-:0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.1.1.1.1.1.1.0.1.0.0.0.0.0.1.0.1.0.0.1.1.0.0.0.0.0.0.0.1.0.0.1.1.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.6.0.0.0.0.0.0.0.0.0.0"
+			),
+			reason:
+				"step 2 renames K0's column's domain aside and its publish drops it: the drop deletes the domain's CHECK, which the count, its catalog knowing the CHECK under the domain's old name alone, left out, so the file held 28 locks past the 27 its meta stated once the count stated no TOAST relation no comment or drop takes (LOCKS-P3, rotating seed 0x2a4cde25)",
+			since: "2026-11-26"
+		},
+		{
+			token: ReplayToken(
+				"test/pg/migrate/lock-demand.test.ts#statedLocksBoundTheHeld:-:0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.2.1.0.0.0.1.2.0.0.0.1.0.0.0.0.0.1.0.1.0.0.1.1.0.0.0.0.0.0.0.1.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0"
+			),
+			reason:
+				"step 2's validate checks R1's foreign key into R0: its query reads R0 beside R1, every index of each opened by the planner and kept, R0's key and its unique key among them, which the count left out of R0, so the file held 8 locks past the 7 its meta stated once the count came exact (LOCKS-P3, rotating seed 0x5aa006d1)",
+			since: "2026-11-26"
+		},
+		{
+			token: ReplayToken(
+				"test/pg/migrate/lock-demand.test.ts#statedLocksBoundTheHeld:-:0.0.0.0.1.1.1.1.1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.1.0.1.1.0.0.1.1.a.0.0.0.1.0.0.1.4.1.0.1.0.e.0.0.0.1.0.1.6.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0"
+			),
+			reason:
+				"step 3's indexes declares R1's dependency of b on d: its restore reads each column's number by a query over pg_attribute, pg_class and pg_namespace, the three kept locked with their seven indexes, which the count left out and the names probe read after BEGIN had hidden, so the file held 18 locks past the 11 its meta stated (LOCKS-P3, seed 88888)",
+			since: "2026-11-26"
 		}
 	],
 	kills: [
+		{
+			file: "packages/engine/src/deploy/locks/demand.ts",
+			original: "\t\t\tlocks.add(bracketReads[s.side])\n",
+			replacement: "",
+			why: "A guard bracket counts none of the catalogs its DO blocks read, pg_trigger, pg_class, pg_namespace and pg_proc with every index of each the planner opens, which its transaction holds to the end: a drafted folder whose data steps lift the closed relations' guards holds past the count its meta states."
+		},
 		{
 			file: "packages/engine/src/deploy/locks/demand.ts",
 			original:
@@ -198,9 +244,28 @@ export const statedLocksBoundTheHeld = property.explore(renamedDrawGen, {
 		},
 		{
 			file: "packages/engine/src/deploy/locks/demand.ts",
-			original: '\t\t: [catalog("pg_description"), ...toastedCatalog("pg_description")]\n',
-			replacement: '\t\t: [...toastedCatalog("pg_description")]\n',
+			original:
+				"\treturn [catalog(name), ...(row > toastTupleThresholdBytes ? toastedCatalog(name) : [])]\n",
+			replacement: "\treturn [...(row > toastTupleThresholdBytes ? toastedCatalog(name) : [])]\n",
 			why: "A COMMENT counts no pg_description, which CreateComments keeps locked RowExclusive to the transaction's end: a file of comments holds one lock past its count."
+		},
+		{
+			file: "packages/engine/src/deploy/locks/demand.ts",
+			original: "\t\t\tthis.dropped([notNullOf(table, column)])\n",
+			replacement: "",
+			why: "A table's drop counts none of its columns' NOT NULL constraints, each a pg_constraint row of its own since PostgreSQL 18, which the drop locks and deletes with it: a publish that drops Q0 holds one lock past its count for each of Q0's columns (the kept case of pg_description's comments)."
+		},
+		{
+			file: "packages/engine/src/deploy/locks/demand.ts",
+			original: "\t\t\t\t...(isNonEmpty(s.dependencies) ? dependencyReads : [])\n",
+			replacement: "",
+			why: "A declared dependency counts none of the catalogs its restore's query reads, pg_attribute, pg_class and pg_namespace with their indexes, which its transaction keeps: an indexes file that declares a dependency holds ten locks past its count (the kept case of step 3's indexes)."
+		},
+		{
+			file: "packages/engine/src/deploy/locks/demand.ts",
+			original: '\t\t\t...(kind === "foreignKey" ? foreignKeyTriggers(table, name) : [])\n',
+			replacement: "",
+			why: "A dropped foreign key counts none of the four triggers PostgreSQL made for it, which its drop locks and deletes with it: a publish that drops R1's foreign key to swap R0's key holds four locks past its count (the kept case)."
 		}
 	]
 })

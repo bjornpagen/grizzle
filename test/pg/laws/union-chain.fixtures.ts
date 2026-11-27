@@ -6,7 +6,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { baselineRuleChecks, lawChecks } from "#compiler/deploy/snapshot/violation.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
@@ -50,7 +50,7 @@ const templateOf = (key: ChainKey) => {
 		declaredIn: import.meta,
 		name: `union chain ${key}`,
 		content: { schema: value.name, logins: [] },
-		versions: [{ schema: value, logins: [], declarations: noDeclarations }],
+		versions: [{ schema: value, declarations: noDeclarations }],
 		options: {
 			label: `union_chain_${label}`,
 			extensions: [],

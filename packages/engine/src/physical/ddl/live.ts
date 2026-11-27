@@ -4,7 +4,13 @@ import { identifierOf, identity, liveSlotLead } from "#compiler/core/identity.ts
 import type { LivePlan, LiveTable } from "#compiler/live/notify.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
-import type { ObjectName, PublishedTable, Select } from "#compiler/sql/ast.ts"
+import { ownTableDeclaration } from "#compiler/physical/statistics/declared.ts"
+import {
+	liveSecretColumn,
+	type ObjectName,
+	type PublishedTable,
+	type Select
+} from "#compiler/sql/ast.ts"
 import {
 	and,
 	call,
@@ -45,7 +51,11 @@ import {
 
 const why = enforcement("the live source of the installation's live programs")
 
-/** The secret table, created in Structure in the root's schema, and the object that creates it. */
+/**
+ * The secret table, created in Structure in the root's schema, and the object that creates it; its declared
+ * statistics in Indexes, as every table grizzle installs declares its own (physical/statistics/declared.ts
+ * ownTableDeclaration): its one column, whose one row is its key.
+ */
 const addLiveSecret = (
 	b: InstallBuilder
 ): { readonly table: ObjectName; readonly node: Node<"structure"> } => {
@@ -69,21 +79,32 @@ const addLiveSecret = (
 		},
 		[b.schemaNode]
 	)
+	b.add(
+		{
+			kind: "statistics",
+			ident: b.qualified("statistics", named),
+			ddl: [ownTableDeclaration(table, [liveSecretColumn], [liveSecretColumn])],
+			reasons: [enforcement("the declared statistics of the live secret")],
+			phase: "indexes"
+		},
+		[node]
+	)
 	return { table, node }
 }
 
 /**
- * The columns of a footprint table's primary key, in key order, as its CREATE TABLE declares it, or a stored derived
- * relation's as its extension registered it (InstallBuilder storedPrimaryKey): what its REPLICA IDENTITY DEFAULT
+ * The columns of a footprint table's primary key, in key order, as its CREATE TABLE declares it, or a stored canonical
+ * relation's, named or anonymous (analysis/derived/canonical.ts), as its extension registered it (InstallBuilder
+ * storedPrimaryKey): what its REPLICA IDENTITY DEFAULT
  * holds, which a column list of the publication must cover, a span key's law column among them.
  */
 const keyColumns = (b: InstallBuilder, relation: string): NonEmptyReadonlyArray<string> => {
-	if (b.owned.relations[relation]?.kind === "derived") {
+	if (b.checked.canonicalNamed(relation) !== undefined) {
 		return mapNonEmpty(b.storedPrimaryKey(relation), (field) => b.names.column(relation, field))
 	}
 	const created = b.evaluatedOn(relation).find((s) => s.kind === "createTable")
 	if (created?.kind !== "createTable") {
-		throw defect(`the CREATE TABLE of the footprint table of ${relation}`)
+		defect(`the CREATE TABLE of the footprint table of ${relation}`)
 	}
 	return mapNonEmpty(created.primaryKey.columns, (c) => c.column)
 }
@@ -103,7 +124,7 @@ const identityOf = (b: InstallBuilder, table: LiveTable): "key" | "full" => {
 const footprintTable = (b: InstallBuilder, table: LiveTable): Node<"setup" | "structure"> => {
 	const node = b.readObject(table.relation)
 	if (node === undefined) {
-		throw defect(`the table of the footprint relation ${table.relation}`)
+		defect(`the table of the footprint relation ${table.relation}`)
 	}
 	return node
 }
@@ -225,23 +246,3 @@ export const dropLiveSlot = (stem: string): Select => {
 		])
 	)
 }
-
-/**
- * SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE database = current_database() AND
- * slot_name = <name>: the drop of the slot `name` a leader of format 7 or before made in the database, named by its
- * decoder login, which ends in the live source's stem (core/identity.ts identity.liveSource), where a leader of this
- * grizzle names its slot by the stem, `_` and the database (liveSlotOf), whose name ends in no stem. Nothing else drops
- * it and it holds its WAL while it stands, so `grizzle upgrade` drafts its drop where the database holds it
- * (deploy/diff/departed.ts Departure formerLiveSlot). PostgreSQL refuses it while a leader of that grizzle still streams
- * from it (55006), so the migration fails closed until those leaders stop, as dropLiveSlot does.
- */
-export const dropFormerLiveSlot = (name: string): Select =>
-	provedSelect(
-		"keyed",
-		[target(call("pg_drop_replication_slot", [col("s", "slot_name")]))],
-		[fromTable("pg_catalog", "pg_replication_slots", "s")],
-		and([
-			eq(col("s", "database"), call("current_database", [])),
-			eq(col("s", "slot_name"), lit.text(name, types.text))
-		])
-	)

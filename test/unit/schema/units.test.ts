@@ -172,9 +172,9 @@ export const aUnitHoldsExactlyTheRelationsWhoseKeyLeadsWithItsHeadingOneUnitARel
 			},
 			{
 				file: "packages/engine/src/ir/desc.ts",
-				original: 'terms: [{ kind: "pred", field: s.field }],',
-				replacement: 'terms: [{ kind: "field", field: s.field }],',
-				why: "The series' law states each number in the series rather than its predecessor (ir/desc.ts expandSeries), so a gap passes."
+				original: 'from: { kind: "pred", field: s.field },',
+				replacement: 'from: { kind: "field", field: s.field },',
+				why: "The series' law states each number in the series rather than its predecessor (ir/desc.ts seriesPair), so a gap passes."
 			},
 			{
 				file: "packages/engine/src/schema/statements.ts",

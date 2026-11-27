@@ -6,7 +6,8 @@
  *
  * - n statements each reading `pick` carry it once, its every copy read through the carrier, exactly when n is more
  *   than one; the highest shared sub-query is chosen, so `first`, which pick reads, is never carried beside it;
- * - a statement reading r copies of an unbounded union computes it once as a CTE exactly when r is more than one;
+ * - a statement reading r copies of an unbounded union, a closed relation or a step computes it once as a CTE exactly
+ *   when r is more than one;
  * - an attachment of a parent is fed the rows of the first earlier attachment part of that parent computing its
  *   sub-query, and every other is a part of its own, the parts in the order the program holds them;
  * - two calls of a volatile function, each drawing its own rows, are never one carrier or one CTE, where one call read
@@ -15,7 +16,8 @@
  * Oracle: each rule's statement as a checker (a specification): the share keys and copies the statements read, and
  * the part each attachment reads computed from the filters in program order.
  *
- * Features: carried and inline; shared and inline; fed and sent; volatile calls apart and read twice.
+ * Features: carried and inline; shared and inline, of a union, a closed relation and a step; fed and sent; volatile
+ * calls apart and read twice.
  */
 
 import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
@@ -48,9 +50,11 @@ import {
 	expectedAnswers,
 	Jobs,
 	program,
-	repeated
+	type Repeated,
+	repeated,
+	repeatedGen
 } from "#test/unit/lower/shapes/share-statements.fixtures.ts"
-import { present } from "#test/unit/lower/support.ts"
+import { placedPlain, present } from "#test/unit/lower/support.ts"
 
 /** Sub-queries carried across a stratum's statements carry pick once, every copy through the carrier, exactly when enough statements read it. */
 export const subQueriesCarriedAcrossAStratumsStatementsCarryPickOnceEveryCopyThroughTheCarrierExactlyWhenEnoughStatementsReadIt =
@@ -60,7 +64,7 @@ export const subQueriesCarriedAcrossAStratumsStatementsCarryPickOnceEveryCopyThr
 		check: (_, c: Case<"carried" | "inline">) => (statements) =>
 			Effect.sync(() => {
 				const p = program(statements)
-				const index = new ShareIndex(p.dag, new DagTemplates())
+				const index = new ShareIndex(p.dag, new DagTemplates("derivation"), placedPlain)
 				const shares = succeeded(planStatementShares(index, p.roots, noneHeld, { kind: "never" }))
 				if (statements < 2) {
 					assert.deepEqual(shares, [])
@@ -90,33 +94,45 @@ export const subQueriesCarriedAcrossAStratumsStatementsCarryPickOnceEveryCopyThr
 		]
 	})
 
-/** Sub-queries repeated inside one statement compute an unbounded sub-query once exactly when it is read more than once. */
-export const subQueriesRepeatedInsideOneStatementComputeAnUnboundedSubQueryOnceExactlyWhenItIsReadMoreThanOnce =
-	property.exhaust(finite(int(1, 4)), {
+/**
+ * Sub-queries repeated inside one statement compute an unbounded sub-query, a closed relation or a step once exactly
+ * when it is read more than once.
+ */
+export const subQueriesRepeatedInsideOneStatementComputeAnUnboundedSubQueryAClosedRelationOrAStepOnceExactlyWhenReadMoreThanOnce =
+	property.exhaust(finite(repeatedGen), {
 		needs: {},
-		situations: ["shared", "inline"] satisfies ReadonlyArray<Reached<"shared" | "inline">>,
-		check: (_, c: Case<"shared" | "inline">) => (reads) =>
-			Effect.gen(function* () {
-				const { built, copies } = repeated(reads)
-				const index = new ShareIndex(built.dag, new DagTemplates())
-				const ctes = statementCtes(index, built.dag.roots[0], () => false)
-				const expected =
-					reads > 1 ? [present(index.key(present(copies[0], "a copy")), "its key")] : []
-				yield* agree(
-					[
-						["the share keys the statement computes once", [...new Set(ctes.values())]],
-						["the copies' share key", expected]
-					],
-					set(structuralHash, exact)
-				)
-				unorderedEqual([...ctes.keys()], reads > 1 ? Arr.map(copies, (copy) => copy.id) : [])
-				c.note(reads > 1 ? "shared" : "inline")
-			}),
+		situations: [
+			"shared",
+			"inline",
+			"a union",
+			"a closed relation",
+			"a step"
+		] satisfies ReadonlyArray<Reached<Repeating>>,
+		check:
+			(_, c: Case<Repeating>) =>
+			([subject, reads]) =>
+				Effect.gen(function* () {
+					const { built, copies } = repeated(subject, reads)
+					const index = new ShareIndex(built.dag, new DagTemplates("derivation"), placedPlain)
+					const ctes = statementCtes(index, built.dag.roots[0], () => false)
+					const expected =
+						reads > 1 ? [present(index.cteKey(present(copies[0], "a copy")), "its key")] : []
+					yield* agree(
+						[
+							["the share keys the statement computes once", [...new Set(ctes.values())]],
+							["the copies' share key", expected]
+						],
+						set(structuralHash, exact)
+					)
+					unorderedEqual([...ctes.keys()], reads > 1 ? Arr.map(copies, (copy) => copy.id) : [])
+					c.note(reads > 1 ? "shared" : "inline")
+					c.note(repeating[subject])
+				}),
 		oracle: {
 			kind: "specification",
-			name: "the union computed once as a CTE exactly when it is read more than once"
+			name: "the repeated sub-query computed once as a CTE exactly when it is read more than once"
 		},
-		box: "one statement reading one to four copies of an unbounded union",
+		box: "one statement reading one to four copies of an unbounded union, a closed relation or a step",
 		kept: [],
 		kills: [
 			{
@@ -124,9 +140,44 @@ export const subQueriesRepeatedInsideOneStatementComputeAnUnboundedSubQueryOnceE
 				original: "\t\t\tif ((byKey.get(key) ?? 0) < 2) {",
 				replacement: "\t\t\tif ((byKey.get(key) ?? 0) < 4) {",
 				why: "A statement computes a sub-query once as a CTE only when it reads it more than three times; the CTE search fails."
+			},
+			{
+				file: "packages/engine/src/lower/shapes/share/statements.ts",
+				original: "\t\t\t(readWhole(node, this.#realization) && this.#isShareable(node)\n",
+				replacement: "\t\t\t(false && this.#isShareable(node)\n",
+				why: "A node every read computes whole has no key a statement computes it once by unless the CTE policy shares it by cost: each copy of the closed relation and of the step, a scan, is printed and computed at its read."
+			},
+			{
+				file: "packages/engine/src/lower/shapes/share/statements.ts",
+				original:
+					"\t\t\t\t(costly.get(node) === true || (index.readWhole(node) && !closedDerivation(node)))\n",
+				replacement: "\t\t\t\tcostly.get(node) === true\n",
+				why: "The statement computes once only a node with a costly stage: the step's copies, each a scan of the tasks behind its fence, are printed and computed at each read."
+			},
+			{
+				file: "packages/engine/src/lower/shapes/share/statements.ts",
+				original: '\t\t\t\t(node.kind === "Closed" && node.rows.length > 0) ||\n',
+				replacement: "",
+				why: "A closed relation's rows are no costly stage: each copy of it, a scan of its VALUES, is printed and planned at each read."
+			},
+			{
+				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
+				original: '\t\t(node.kind === "Step" ||\n',
+				replacement: "\t\t(false ||\n",
+				why: "A step is no node read whole: each copy of the step, a scan of the tasks, inlined at its read and computed apart at each."
 			}
 		]
 	})
+
+/** What a repeated sub-query's case reached: shared or inline, and which sub-query it repeated. */
+type Repeating = "shared" | "inline" | "a union" | "a closed relation" | "a step"
+
+/** Each repeated sub-query's feature. */
+const repeating: { readonly [R in Repeated]: Repeating } = {
+	union: "a union",
+	closed: "a closed relation",
+	step: "a step"
+}
 
 /** Attachment parts fed from an earlier one feed a later attachment from the first earlier part computing its sub-query, and place every other. */
 export const attachmentPartsFedFromAnEarlierOneFeedALaterAttachmentFromTheFirstEarlierPartComputingItsSubQueryAndPlaceEveryOther =
@@ -196,11 +247,20 @@ export const twoCallsOfAVolatileFunctionAreNeverOneCarrierOrOneCteWhereOneCallRe
 				Effect.sync(() => {
 					const p = drawnCalls(volatility, twice)
 					const shares = succeeded(
-						planStatementShares(new ShareIndex(p.dag, new DagTemplates()), p.roots, noneHeld, {
-							kind: "never"
-						})
+						planStatementShares(
+							new ShareIndex(p.dag, new DagTemplates("derivation"), placedPlain),
+							p.roots,
+							noneHeld,
+							{
+								kind: "never"
+							}
+						)
 					)
-					const ctes = statementCtes(new ShareIndex(p.dag, new DagTemplates()), p.root, () => false)
+					const ctes = statementCtes(
+						new ShareIndex(p.dag, new DagTemplates("derivation"), placedPlain),
+						p.root,
+						() => false
+					)
 					if (volatility === "volatile" && !twice) {
 						assert.deepEqual(
 							Arr.map(shares, (s) => s.key),
@@ -235,8 +295,8 @@ export const twoCallsOfAVolatileFunctionAreNeverOneCarrierOrOneCteWhereOneCallRe
 			{
 				file: "packages/engine/src/ir/dag-digest.ts",
 				original:
-					"\tcallsVolatile(node) ? { ...claimedNode(entry), evaluation: node.id } : claimedNode(entry)",
-				replacement: "\tclaimedNode(entry)",
+					"\tcallsVolatile(node) ? { ...nodeForms[form](entry), evaluation: node.id } : nodeForms[form](entry)",
+				replacement: "\tnodeForms[form](entry)",
 				why: "A volatile call is keyed by its shape, as every node is: two calls built alike share one key, so the statements carry them as one share and the statement computes them as one CTE, one evaluation where there are two."
 			}
 		]
@@ -295,7 +355,7 @@ const plannedByRounds = (
 			}
 		}
 		last = reached
-		const tied = decidingClasses(index, [...seen.keys()], readers)
+		const tied = decidingClasses(index, (n) => index.key(n), [...seen.keys()], readers)
 		const [first, ...rest] = tied
 		if (first === undefined) {
 			break
@@ -372,11 +432,11 @@ export const theCarriedSharesPlanningReadsAStatementAgainOnlyInARoundWhoseKeyItR
 			(reads) =>
 				Effect.sync(() => {
 					const p = chained(reads)
-					const counting = new CountingIndex(p.dag, new DagTemplates())
+					const counting = new CountingIndex(p.dag, new DagTemplates("derivation"), placedPlain)
 					const shares = succeeded(
 						planStatementShares(counting, p.roots, noneHeld, { kind: "never" })
 					)
-					const reference = new CountingIndex(p.dag, new DagTemplates())
+					const reference = new CountingIndex(p.dag, new DagTemplates("derivation"), placedPlain)
 					const byRounds = plannedByRounds(reference, p.roots)
 					const view = (all: ReadonlyArray<CarriedShare>) =>
 						Arr.map(all, (s) => ({

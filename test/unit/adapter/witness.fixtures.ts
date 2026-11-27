@@ -153,6 +153,7 @@ export const keyValueGen = (
 				return { text: String(codeOf(codec, handle)), value: handle }
 			}
 		}
+		case "variant":
 		case "numeric":
 		case "float4":
 		case "float8":
@@ -180,7 +181,6 @@ type OriginKind =
 	| "a write statement"
 	| "a single statement"
 	| "a family write"
-	| "a carrier's emptying"
 	| "a member's carrier fill"
 	| "a read-back step"
 	| "an entry's precheck"
@@ -283,7 +283,6 @@ const originGen: Gen<OriginSketch> = (source) => ({
 			"a write statement",
 			"a single statement",
 			"a family write",
-			"a carrier's emptying",
 			"a member's carrier fill",
 			"a read-back step",
 			"an entry's precheck",
@@ -549,23 +548,11 @@ export const originOf = (
 				},
 				[first]
 			)
-		case "a carrier's emptying":
-			return statement(
-				{
-					kind: "carrier",
-					carrier: "Carrier",
-					step: "empty",
-					stratum: undefined,
-					casts: { kind: "none" }
-				},
-				[]
-			)
 		case "a member's carrier fill":
 			return statement(
 				{
 					kind: "carrier",
 					carrier: "Carrier",
-					step: "fill",
 					stratum: firstStratum,
 					casts: { kind: "member", relation: first, stratum: firstStratum }
 				},

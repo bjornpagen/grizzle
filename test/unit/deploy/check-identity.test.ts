@@ -35,7 +35,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { violationCheck } from "#compiler/deploy/render/sql.ts"
+import { violationCheck } from "#compiler/physical/ddl/recheck.ts"
 import type { OperandSelect } from "#compiler/sql/ast.ts"
 import { sqlText, writeDoBlock } from "#compiler/sql/print.ts"
 import {
@@ -48,7 +48,7 @@ import {
 	shapeGen
 } from "#test/unit/deploy/check-identity.fixtures.ts"
 
-/** A check as the migration spells it: its violation query's DO block (deploy/render/sql.ts violationCheck). */
+/** A check as the migration spells it: its violation query's DO block (physical/ddl/recheck.ts violationCheck). */
 const checkText = (law: LawId, query: OperandSelect): string =>
 	sqlText(SourceLoc("check-identity", []), (out) => writeDoBlock(out, violationCheck(law, query)))
 

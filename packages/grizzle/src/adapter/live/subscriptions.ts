@@ -443,7 +443,7 @@ export const makeSubscriptions = (
 											return Effect.succeed({ kind: "ended", error: after.error })
 										case "opening":
 										case "provisional":
-											return Effect.die(
+											return Effect.sync(() =>
 												defect("a live read's run ended before its ready or its error")
 											)
 									}
@@ -464,7 +464,7 @@ export const makeSubscriptions = (
 				/** The value held, once the initial run reached it: what every turn runs from. */
 				const held = (value: KeyedList<Row> | undefined): Effect.Effect<KeyedList<Row>> =>
 					value === undefined
-						? Effect.die(defect("a live read's turn ran before its initial value"))
+						? Effect.sync(() => defect("a live read's turn ran before its initial value"))
 						: Effect.succeed(value)
 
 				/**
@@ -525,9 +525,11 @@ export const makeSubscriptions = (
 				const changes: Stream.Stream<E> = Stream.unwrap(
 					Effect.sync(() => {
 						if (handout.taken) {
-							return Stream.die(
-								defect(
-									"a live read's changes are taken once: a second consumer would take the first's wait"
+							return Stream.fromEffect(
+								Effect.sync(() =>
+									defect(
+										"a live read's changes are taken once: a second consumer would take the first's wait"
+									)
 								)
 							)
 						}

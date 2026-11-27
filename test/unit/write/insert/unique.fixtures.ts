@@ -9,7 +9,6 @@ import { pg, span } from "#compiler/public/fields.ts"
 import { key, on, relation, schema } from "#compiler/public/schema.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
-import { carrierScope } from "#compiler/sql/naming.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
@@ -45,8 +44,7 @@ const program = (changes: unknown): CompiledWrite =>
 			derived: artifacts.derived,
 			level: "serializable",
 			clock: noClock,
-			source: transactionClock,
-			carrierScope: carrierScope(undefined)
+			source: transactionClock
 		})
 	)
 

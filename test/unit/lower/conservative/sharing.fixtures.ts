@@ -11,7 +11,11 @@ import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
-import { auditStatementViolations, auditTextViolations } from "#test/support/oracle/verify/sql.ts"
+import {
+	auditStatementViolations,
+	auditTextViolations,
+	guardedTermsOf
+} from "#test/support/oracle/verify/sql.ts"
 import { Edge, plainRegion, Q, T } from "#test/unit/lower/conservative/fixtures.ts"
 
 export type Placement = "uncorrelated" | "correlated to a parent row" | "correlated to its region"
@@ -103,7 +107,7 @@ export const loweredSize = (query: LogicalQuery, at: string): number => {
 	)
 	return Arr.reduce(flight(program.roots), 0, (n, statement) => {
 		assert.deepEqual(auditStatementViolations(statement.ast), [], at)
-		assert.deepEqual(auditTextViolations(statement.sql.text), [], at)
+		assert.deepEqual(auditTextViolations(statement.sql.text, guardedTermsOf(statement.ast)), [], at)
 		return n + nodes(statement.ast)
 	})
 }

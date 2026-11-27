@@ -1,11 +1,12 @@
 import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { isOperandBinding } from "#compiler/lower/conservative/expr/total.ts"
 import {
-	builtinFunctions,
 	type CoreProjection,
 	type Expr,
 	type FromSource,
 	type OperandSelect,
+	type OverRows,
+	overRowsOf,
 	type Select,
 	type SelectCore,
 	type Target
@@ -13,22 +14,6 @@ import {
 import { col, derived } from "#compiler/sql/build.ts"
 import { namedQuery, type NameOrigin, type NameSupply } from "#compiler/sql/naming.ts"
 import { identityHooks, transformExpr, transformSelect } from "#compiler/sql/transform.ts"
-
-/** What a call over many rows is: an aggregate's, count(*) among them, or a window call. */
-type OverRows = "aggregate" | "window"
-
-/** Which call over many rows an expression is, or none: the one classification of the builtins' reach. */
-export const overRowsOf = (e: Expr): OverRows | undefined => {
-	if (e.kind !== "call") {
-		return undefined
-	}
-	if (e.over !== undefined) {
-		return "window"
-	}
-	return e.star || (e.fn.kind === "builtin" && builtinFunctions[e.fn.name].reach === "rows")
-		? "aggregate"
-		: undefined
-}
 
 /** Whether an expression holds a call over many rows of a kind in `kinds`, anywhere, inside a subquery of it too. */
 const holds = (e: Expr, kinds: ReadonlySet<OverRows>): boolean => {
@@ -172,6 +157,10 @@ class CoreBinder {
 				const array = at(e.array)
 				const index = at(e.index)
 				return array === e.array && index === e.index ? e : { ...e, array, index }
+			}
+			case "attribute": {
+				const record = at(e.record)
+				return record === e.record ? e : { ...e, record }
 			}
 			case "case": {
 				const branch = (x: Expr): Expr => this.expr(x, "branch")

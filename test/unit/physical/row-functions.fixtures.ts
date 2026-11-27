@@ -156,11 +156,11 @@ const leadSchemaOf = (c: LeadCase) => {
 					keyBuilder(
 						onBuilder(
 							selectBuilder(R, (r: Readonly<Record<string, unknown>>) =>
-								rowHelpers.and(
+								rowHelpers.and([
 									among(r),
 									rowHelpers.gt(rowHelpers.charLength(r["u"]), 0),
 									computeCore.matches(r["u"], pattern)
-								)
+								])
 							),
 							nonEmpty(["w"], "the key's term")
 						)
@@ -168,11 +168,11 @@ const leadSchemaOf = (c: LeadCase) => {
 				]
 			: [
 					checkBuilder("Led", R, (r: Readonly<Record<string, unknown>>) =>
-						rowHelpers.or(
+						rowHelpers.or([
 							rowHelpers.not(among(r)),
 							rowHelpers.gt(rowHelpers.charLength(r["t"]), 3),
 							computeCore.matches(r["t"], pattern)
-						)
+						])
 					)
 				],
 		[]

@@ -13,32 +13,37 @@ import { codeOf } from "#compiler/ir/codes.ts"
 import { ChangeSet, type Law, type Witness } from "#compiler/public/changeset.ts"
 import { Uuid } from "#compiler/public/fields.ts"
 import {
-	Club,
-	Clubs,
 	captainKey,
+	Club,
 	clubCodeLaw,
+	Clubs,
 	clubs,
 	Member,
 	memberCodeLaw,
 	memberKey,
 	positiveSeats,
-	Seats,
-	seatsLaw
+	seatsLaw,
+	toSeats
 } from "#test/pg/laws/outcomes/schemas.ts"
 import { fixtureTemplate, openedIn } from "#test/pg/reads/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { writeAnswerOf } from "#test/support/calls.ts"
-import { Id, type IdValue } from "#test/support/ids.ts"
+import { type IdValue, toId } from "#test/support/ids.ts"
 import { type Installed, type Generated } from "#test/support/install-migrate.ts"
 import { namesOf, parsedName } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { type PgErrorFields, pgErrorFields } from "#test/support/substrate/errors.ts"
 import { type RawSession } from "#test/support/substrate/session.ts"
-import { Substrate, worldSession, type SubstrateCase } from "#test/support/substrate/substrate.ts"
+import {
+	claimsOfNoFact,
+	Substrate,
+	type SubstrateCase,
+	worldSession
+} from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 const member = (n: number): IdValue =>
-	Id(`00000000-0000-4000-8000-${pipe((0x6000 + n).toString(16), Str.padStart(12, "0"))}`)
+	toId(`00000000-0000-4000-8000-${pipe((0x6000 + n).toString(16), Str.padStart(12, "0"))}`)
 
 /** One lawful club with two members, the first its captain. */
 const clubFacts = {
@@ -185,7 +190,7 @@ export type NativeCase =
  */
 const freshIdGen = (lead: "e" | "f"): Gen<IdValue> =>
 	map(uuid(4), (text) =>
-		Id(succeeded(Uuid.parse(`${lead}${Str.slice(1)(text)}`), "a version 4 uuid's text"))
+		toId(succeeded(Uuid.parse(`${lead}${Str.slice(1)(text)}`), "a version 4 uuid's text"))
 	)
 
 /**
@@ -292,7 +297,7 @@ export const nativeCase = (
 		return yield* Effect.gen(function* () {
 			const db = yield* Db.open(o.served.login.roles.app, {})
 			const writer = yield* s.session({
-				...worldSession(o.installed.world(o.app)),
+				...worldSession(o.installed.world(o.app), claimsOfNoFact),
 				label: "writer"
 			})
 			/**
@@ -368,7 +373,7 @@ export const nativeCase = (
 									params: {},
 									facts: {
 										insert: {
-											Club: [{ ...k.club, seats: Seats(10) }],
+											Club: [{ ...k.club, seats: toSeats(10) }],
 											Member: [captainOf(k.ids[0], k.emails[0]), captainOf(k.ids[1], k.emails[1])]
 										}
 									}
@@ -439,7 +444,7 @@ export const nativeCase = (
 							applied: writeAnswerOf(
 								db.workload.insertClub.once({
 									params: {},
-									facts: { insert: { Club: [{ ...k.club, seats: Seats(seatsValue) }] } }
+									facts: { insert: { Club: [{ ...k.club, seats: toSeats(seatsValue) }] } }
 								})
 							)
 						}

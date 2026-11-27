@@ -86,7 +86,12 @@ export const variantDirection = (variant: PageVariant): PageDirection => {
  * condition, while it applies the OR expansion as a filter over the index prefix, discarding every entry before the
  * boundary. A single key is the plain comparison. Mixed directions keep the
  * expansion: a row comparison compares every member with one operator, so it cannot express them, and no
- * arithmetic negation fakes a reversed key.
+ * arithmetic negation fakes a reversed key. Beside it stands the non-strict bound of the leading keys that share the
+ * first key's direction, `(k1, ..., kj) <= (c1, ..., cj)` descending (`>=` ascending; the first key's own comparison
+ * where it leads alone), which every row past the boundary meets: an index condition on the index's leading ordered
+ * columns, so a mixed-direction window reads the index from its boundary on, the rows that tie the boundary on those
+ * keys and then its size, where the expansion alone read every entry before the boundary and discarded it (metis's coach
+ * dashboard, AlphaTest's order: scored, graded and assigned descending, then the key ascending).
  *
  * Every comparison is at the operator its key's type resolves (ir/compare.ts typedCompare): over a vector the
  * extension's qualified operator, since a role's search_path never holds the extension schema. A row comparison
@@ -324,7 +329,7 @@ export const seekPredicate = (
 		return lit.bool(false)
 	}
 	const [first] = keys
-	const compare = (op: ">" | "<" | "=", k: SeekKey): Expr =>
+	const compare = (op: ">" | "<" | ">=" | "<=" | "=", k: SeekKey): Expr =>
 		typedCompare(op, k.type, k.column, k.boundary, names)
 	if (keys.length === 1) {
 		return compare(operator(first.direction, seek), first)
@@ -337,11 +342,32 @@ export const seekPredicate = (
 		)
 	}
 	const equal = (k: SeekKey): Expr => compare("=", k)
-	return or(
-		mapNonEmpty(keys, (k, j) =>
-			and(appendNonEmpty(keys.slice(0, j).map(equal), compare(operator(k.direction, seek), k)))
-		)
+	/**
+	 * The leading keys of the first key's direction at or past their boundary, together, which every row past the anchor
+	 * holds: the index range's start, one native row comparison where they are several of builtin operators, else the
+	 * first key's own comparison.
+	 */
+	const reach = operator(first.direction, seek) === ">" ? ">=" : "<="
+	const leading = keys.slice(
+		0,
+		keys.findIndex((k) => k.direction !== first.direction)
 	)
+	const reached =
+		isNonEmpty(leading) && leading.length > 1 && isRowSeek(leading, names)
+			? binary(
+					reach,
+					row(mapNonEmpty(leading, (k) => k.column)),
+					row(mapNonEmpty(leading, (k) => k.boundary))
+				)
+			: compare(reach, first)
+	return and([
+		reached,
+		or(
+			mapNonEmpty(keys, (k, j) =>
+				and(appendNonEmpty(keys.slice(0, j).map(equal), compare(operator(k.direction, seek), k)))
+			)
+		)
+	])
 }
 
 /** ORDER BY items with every direction reversed: last and before reverse every sort direction. */

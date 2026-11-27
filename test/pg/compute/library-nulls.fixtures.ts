@@ -8,7 +8,7 @@ import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { exprClosure, predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { LibraryFn } from "#compiler/ir/physical.ts"
 import { libraryCreate } from "#compiler/physical/ddl/library.ts"
-import { compiledExpr, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
+import { compiledExpr, sqlNull, noParamLeaf } from "#compiler/scalar/compute/evaluate.ts"
 import { libraryOf, nativeOp, nativeOps } from "#compiler/scalar/compute/registry.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { sameBytes } from "#compiler/scalar/values/bytes.ts"
@@ -220,7 +220,8 @@ export const hostValue = (call: LoweredCall, row: NullRow): LibraryValue => {
 			{
 				value: undefined,
 				column: (ref) => row.args[ref.name === "a" ? 0 : 1] ?? sqlNull,
-				closed: () => undefined
+				closed: () => undefined,
+				param: noParamLeaf
 			},
 			ProgramPatterns.of(tablePatterns(table))
 		),

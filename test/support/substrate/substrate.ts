@@ -13,6 +13,7 @@ import {
 	Array as Arr,
 	Cause,
 	Context,
+	Data,
 	Duration,
 	Effect,
 	Exit,
@@ -76,6 +77,7 @@ import {
 	uniqueSchemaName
 } from "#test/support/substrate/names.ts"
 import { type BackendCancel, openPsql, type PsqlWriter } from "#test/support/substrate/psql.ts"
+import { emptiedQuery, emptiedTables, madeFresh } from "#test/support/substrate/replace.ts"
 import {
 	type Credentials,
 	beginSerializable,
@@ -123,13 +125,35 @@ type SessionLogin =
 /**
  * A raw session's login and name. Every raw session verifies the cluster's CA certificate for the local host.
  */
+/**
+ * The claims a direct writer of a world role holds as it begins (sql/print.ts claimsDocument): none, the setting never
+ * set, which every read of a claim refuses (22P02, DETAIL c-), as a writer that forgot them meets; or a claims document,
+ * `{}` for one of no fact, set for the session.
+ */
+export type SessionClaims =
+	| { readonly kind: "none" }
+	| { readonly kind: "document"; readonly text: string }
+
+/** The claims document of no fact: a direct writer that reads no context's fact, or one that holds none. */
+export const claimsOfNoFact: SessionClaims = { kind: "document", text: "{}" }
+
+/** A world role a session takes on: its name, and the claims it holds as it begins (SessionClaims). */
+export interface TakenRole {
+	readonly name: string
+	readonly claims: SessionClaims
+}
+
+/** The statement that sets a session's claims to `text`, for the session (set_config's `false`). */
+const claimsStatement = (text: string): string =>
+	`SELECT pg_catalog.set_config('grizzle.claims', ${quoteString(text)}, false)`
+
 export interface ConnectOptions {
 	readonly as: SessionLogin
 	/**
-	 * The role the session takes on (SET ROLE) before its first statement, a world role of the login; none for the
-	 * login's own privileges.
+	 * The world role the session takes on (SET ROLE) before its first statement, with the claims it holds; none for
+	 * the login's own privileges.
 	 */
-	readonly role: Option.Option<string>
+	readonly role: Option.Option<TakenRole>
 	/** The session's name in reports and in the server's application_name. */
 	readonly label: string
 }
@@ -150,19 +174,19 @@ export const ownerSession = (): ConnectOptions => ({
 
 /**
  * A raw session in a world: logged in as the login that holds the role, which it takes on before the test's first
- * statement, labelled by the role.
+ * statement holding `claims`, labelled by the role.
  */
-export const worldSession = (world: SubstrateWorld): ConnectOptions => ({
+export const worldSession = (world: SubstrateWorld, claims: SessionClaims): ConnectOptions => ({
 	...roleSession(world.login),
-	role: Option.some(world.role),
+	role: Option.some({ name: world.role, claims }),
 	label: world.role
 })
 
 /** A psql writer's login, name and address. Every psql writer verifies the cluster's CA certificate. */
 export interface PsqlConnectOptions {
 	readonly as: Credentials
-	/** The role the writer takes on (SET ROLE) before its first statement; none for the login's own privileges. */
-	readonly role: Option.Option<string>
+	/** The world role the writer takes on (SET ROLE) before its first statement, with its claims; none for the login's. */
+	readonly role: Option.Option<TakenRole>
 	readonly label: string
 	/** The name libpq connects to and verifies the server certificate against. */
 	readonly host: string
@@ -183,11 +207,12 @@ export const rolePsql = (credentials: Credentials): PsqlConnectOptions => ({
 })
 
 /**
- * A psql writer in a world: logged in as the login that holds the role, which it takes on before its first statement.
+ * A psql writer in a world: logged in as the login that holds the role, which it takes on before its first statement
+ * holding `claims`.
  */
-export const worldPsql = (world: SubstrateWorld): PsqlConnectOptions => ({
+export const worldPsql = (world: SubstrateWorld, claims: SessionClaims): PsqlConnectOptions => ({
 	...rolePsql(world.login),
-	role: Option.some(world.role),
+	role: Option.some({ name: world.role, claims }),
 	label: world.role
 })
 
@@ -481,7 +506,6 @@ const psqlWriter = (
 				})
 			)
 			const writer = yield* openPsql({
-				member: cluster,
 				port: cluster.port,
 				database,
 				credentials: options.as,
@@ -509,7 +533,11 @@ const psqlWriter = (
 			started.backend = Option.some(writer.backend)
 			yield* cluster.budget.hold(writer.backend.pid)
 			if (Option.isSome(options.role)) {
-				yield* Effect.orDie(writer.run(`SET ROLE ${quoteIdent(options.role.value)}`))
+				yield* Effect.orDie(writer.run(`SET ROLE ${quoteIdent(options.role.value.name)}`))
+				const claims = options.role.value.claims
+				if (claims.kind === "document") {
+					yield* Effect.orDie(writer.run(claimsStatement(claims.text)))
+				}
 			}
 			return writer
 		})
@@ -730,7 +758,11 @@ const build = Effect.fnUntraced(function* (
 			})
 			yield* cluster.budget.hold(raw.pid)
 			if (Option.isSome(options.role)) {
-				yield* raw.query(`SET ROLE ${quoteIdent(options.role.value)}`, [])
+				yield* raw.query(`SET ROLE ${quoteIdent(options.role.value.name)}`, [])
+				const claims = options.role.value.claims
+				if (claims.kind === "document") {
+					yield* raw.query(claimsStatement(claims.text), [])
+				}
 			}
 			return raw
 		})
@@ -1194,8 +1226,10 @@ export interface RolledBack<T> {
 
 /**
  * The worker's own clone of a template with one owner connection to it, held across the worker's cases
- * (Substrate.rolledBack): the scope both live in, the connection, the budget it draws from, the clone's name, and the
- * statement that puts every sequence of the clone back as it was cloned, none when it has no sequence.
+ * (Substrate.rolledBack): the scope both live in, the connection, the budget it draws from, the clone's name, the
+ * statement that puts every sequence of the clone back as it was cloned, none when it has no sequence, the tables
+ * the clone gives each case fresh (`freshTablesQuery`), none when it has none, and the standing every case finds
+ * (`standingOf`), none when it has no relation.
  */
 interface HeldTransactions {
 	readonly scope: Scope.Closeable
@@ -1203,6 +1237,8 @@ interface HeldTransactions {
 	readonly cluster: BudgetedCluster
 	readonly database: string
 	readonly sequences: Option.Option<string>
+	readonly fresh: Option.Option<string>
+	readonly standing: Option.Option<string>
 }
 
 /**
@@ -1216,7 +1252,189 @@ const sequencesRestoreQuery = `SELECT pg_catalog.format('SELECT %s', pg_catalog.
 FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_sequence AS s ON s.seqrelid = c.oid
 WHERE c.relkind = 'S' AND c.relnamespace IN (SELECT oid FROM pg_catalog.pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema')`
 
-/** Clones the template into a scope of its own under `parent` and opens the owner connection to the clone there. */
+/**
+ * The tables of a database a case finds as the template holds them, empty, whatever the cases before it on the clone
+ * did, as a list for TRUNCATE; none when it has none: every table of no page, its template's rows none, but one a
+ * foreign key of a table of rows references, directly or through such tables, which a TRUNCATE could not empty without
+ * that table. A transaction's ROLLBACK keeps what a case did to a table's relations, as it keeps a sequence's value:
+ * its rows' pages and index entries, dead, the free space and visibility a VACUUM of them records, and the sizes
+ * autovacuum writes in place into pg_class, which the planner prices a table and its indexes by, so a plan its
+ * estimates choose would follow the cases before it on the worker, one a run read and the case's replay, on a clone of
+ * its own, did not.
+ */
+const freshTablesQuery = `WITH RECURSIVE tables AS (
+	SELECT c.oid FROM pg_catalog.pg_class AS c
+	WHERE c.relkind IN ('r', 'p') AND c.relnamespace IN (SELECT oid FROM pg_catalog.pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema')
+), held(oid) AS (
+	SELECT oid FROM tables WHERE pg_catalog.pg_relation_size(oid) > 0
+	UNION SELECT k.confrelid FROM pg_catalog.pg_constraint AS k JOIN held AS h ON k.conrelid = h.oid WHERE k.contype = 'f'
+)
+SELECT pg_catalog.string_agg(t.oid::text, ',' ORDER BY t.oid) FROM tables AS t WHERE t.oid NOT IN (SELECT oid FROM held)`
+
+/**
+ * The seeds of a reset of `fresh` (freshTablesQuery's oids), the tables replace.ts emptiedQuery closes under the foreign
+ * keys that reference them: `every` one, the clone's before its first case, or after a case those it `written`, which
+ * hold pages again. Each table a foreign key of which references one is of `fresh` too (a table a foreign key of a table
+ * of rows references holds rows itself, freshTablesQuery), so the list is every table the TRUNCATE empties, and the
+ * bracket around it lifts the guard of each closed one among them (replace.ts madeFresh).
+ */
+const freshSeeds = (fresh: string, which: "every" | "written"): string =>
+	`SELECT t FROM pg_catalog.unnest(${quoteString(`{${fresh}}`)}::pg_catalog.oid[]) AS t${which === "written" ? " WHERE pg_catalog.pg_relation_size(t) > 0" : ""}`
+
+/**
+ * The statement that keeps autovacuum out of every table `tables` yields, an SQL expression of a regclass[] (the one
+ * spelling, the seat's at clone and the write oracle's over its installation, oracle/write/run.ts): each table and its
+ * TOAST `autovacuum_enabled = false`, a storage parameter, so no VACUUM of autovacuum's writes a table's sizes into
+ * pg_class in place while a case runs, counting none of its rows in flight, and no case's plan follows when autovacuum
+ * happened to visit a table. A rolled-back case leaves its rows dead and counted (pg_stat n_dead_tup, n_ins_since_vacuum),
+ * past autovacuum's thresholds within a few cases; its ANALYZE an installation already keeps out of every table whose
+ * statistics it declares (sql/print.ts declareStatistics, autovacuum_analyze_threshold). probe-share's judge read 384
+ * rows at two shares against 192 at one under a 16-worker gate, its tables sized by files of every earlier case's dead
+ * rows, its replay on a fresh clone green.
+ */
+export const autovacuumOff = (tables: string): string =>
+	`DO $off$ DECLARE t pg_catalog.regclass; BEGIN FOREACH t IN ARRAY coalesce(${tables}, '{}'::pg_catalog.regclass[]) LOOP EXECUTE pg_catalog.format('ALTER TABLE %s SET (autovacuum_enabled = false, toast.autovacuum_enabled = false)', t); END LOOP; END $off$`
+
+/** Every table of a clone, its schemas none of PostgreSQL's own, as autovacuumOff reads them. */
+const cloneTables = `(SELECT pg_catalog.array_agg(c.oid::pg_catalog.regclass ORDER BY c.oid) FROM pg_catalog.pg_class AS c
+	WHERE c.relkind = 'r' AND c.relnamespace IN (SELECT oid FROM pg_catalog.pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema'))`
+
+/**
+ * What the planner reads of a clone's relations, its standing, as one text; none when it has no relation: each table,
+ * materialized view and index of its schemas, none of PostgreSQL's own, by oid, beside the table it belongs to, its
+ * sizes in pg_class (relpages, reltuples, relallvisible, relallfrozen) and its extent (pg_relation_size), the pages the
+ * planner counts in place of relpages (PostgreSQL 19 plancat.c estimate_rel_size, tableam.c
+ * table_block_relation_estimate_size, an index's pages in get_relation_info), each relation a row of a VALUES list
+ * (`movedQuery`, `sizesRestored`), so two standings are one exactly when their texts are. A transaction's ROLLBACK
+ * keeps both. An ANALYZE writes a table's and its indexes' sizes into pg_class in place (analyze.c do_analyze_rel,
+ * vacuum.c vac_update_relstats), its own rows in flight counted: a table of 2,000 rows and no statistics read 6,000 rows
+ * on 27 pages after a rolled-back case wrote 4,000 more and analyzed it. A case's rows, dead, extend a table that holds
+ * its template's rows and each of its indexes, which the planner prices at its density times every page: the same table
+ * stood at 45 pages after a second rolled-back case wrote 4,000 rows, analyzed by none (PostgreSQL 19, 2026-11-27).
+ * Either would carry a case's plan to the next case on the worker, which a run read and the case's replay, on a clone of
+ * its own, did not: rule-binding's whole judge read 2,325 rows of a document of 64 nodes in ACCESS3's full run, past its
+ * 14 nodes times the 134 rows written, and rule-whole's "1 key" judge read 31 documents a loop, its replays green.
+ */
+const standingQuery = `SELECT pg_catalog.string_agg(pg_catalog.format('(%s::pg_catalog.oid, %L::pg_catalog.text, %s::pg_catalog.int4, %s::pg_catalog.float4, %s::pg_catalog.int4, %s::pg_catalog.int4, %s::pg_catalog.int8)',
+		c.oid, coalesce(i.indrelid, c.oid)::pg_catalog.regclass::pg_catalog.text, c.relpages, c.reltuples, c.relallvisible, c.relallfrozen,
+		pg_catalog.pg_relation_size(c.oid)), ', ' ORDER BY c.oid)
+FROM pg_catalog.pg_class AS c LEFT JOIN pg_catalog.pg_index AS i ON i.indexrelid = c.oid
+WHERE c.relkind IN ('r', 'p', 'm', 'i', 'I') AND c.relnamespace IN (SELECT oid FROM pg_catalog.pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema')`
+
+/** A standing (standingQuery) as the rows of a VALUES list, its columns named. */
+const standingRows = (standing: string): string =>
+	`(VALUES ${standing}) AS s(rel, owner, relpages, reltuples, relallvisible, relallfrozen, bytes)`
+
+/**
+ * The tables whose relations' extents have moved from `standing` (standingQuery), each once, as a list for VACUUM; none
+ * when none has.
+ */
+const movedQuery = (standing: string): string =>
+	`SELECT pg_catalog.string_agg(DISTINCT s.owner, ', ') FROM ${standingRows(standing)} WHERE pg_catalog.pg_relation_size(s.rel) <> s.bytes`
+
+/**
+ * Every relation's sizes in pg_class put back as `standing` (standingQuery) holds them, where they differ
+ * (pg_restore_relation_stats): the count of the relations PostgreSQL refused, as text.
+ */
+const sizesRestored = (standing: string): string =>
+	`SELECT pg_catalog.count(*) FILTER (WHERE NOT pg_catalog.pg_restore_relation_stats('schemaname', n.nspname::pg_catalog.text, 'relname', c.relname::pg_catalog.text,
+		'relpages', s.relpages, 'reltuples', s.reltuples, 'relallvisible', s.relallvisible, 'relallfrozen', s.relallfrozen))::pg_catalog.text
+FROM ${standingRows(standing)} JOIN pg_catalog.pg_class AS c ON c.oid = s.rel JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
+WHERE (c.relpages, c.reltuples, c.relallvisible, c.relallfrozen) IS DISTINCT FROM (s.relpages, s.reltuples, s.relallvisible, s.relallfrozen)`
+
+/** Every table and materialized view of a clone that holds a page, as a list for VACUUM; none when none does. */
+const heldTablesQuery = `SELECT pg_catalog.string_agg(c.oid::pg_catalog.regclass::pg_catalog.text, ', ' ORDER BY c.oid) FROM pg_catalog.pg_class AS c
+WHERE c.relkind IN ('r', 'm') AND pg_catalog.pg_relation_size(c.oid) > 0
+	AND c.relnamespace IN (SELECT oid FROM pg_catalog.pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema')`
+
+/**
+ * `tables` rebuilt, each table, its indexes and its TOAST written again from its live rows in their order
+ * (VACUUM FULL, cluster.c copy_table_data, an index's sorted build), which leaves the same relations whatever was dead
+ * in them: the one way back to a table's extent, as VACUUM truncates its empty pages only past a sixteenth of its pages
+ * (vacuumlazy.c REL_TRUNCATE_FRACTION) and never an index's. An index whose build draws at random, pgvector's HNSW, is
+ * no such relation, and its clone could not be put back.
+ */
+const rebuilt = (tables: string): PgStatement => bare(`VACUUM (FULL) ${tables}`)
+
+/** The one text an answer of a query of one value holds, none when it holds none. */
+const valueText = (rows: ReadonlyArray<ReadonlyArray<unknown>>): Option.Option<string> =>
+	Option.filter(
+		Option.flatMap(Arr.head(rows), Arr.head),
+		(text): text is string => typeof text === "string"
+	)
+
+/** A clone whose relations a reset could not put back as its standing. */
+class StandingMoved extends Data.TaggedError("StandingMoved")<{ readonly message: string }> {}
+
+/**
+ * The clone of `held` put back as its standing (standingQuery) after a case: each table whose relations' extents moved
+ * rebuilt (`rebuilt`), and every relation's sizes in pg_class restored (`sizesRestored`), in one exchange, which reads
+ * the standing again; a standing that still differs fails, and its clone is replaced. One read when nothing moved.
+ */
+const standingKept = (
+	connection: PgConnection,
+	standing: string
+): Effect.Effect<void, SqlError | StandingMoved> =>
+	Effect.gen(function* () {
+		const now = yield* connection.queryValues(standingQuery, [])
+		if (Option.contains(valueText(now), standing)) {
+			return
+		}
+		const extents = yield* connection.queryValues(movedQuery(standing), [])
+		const moved = valueText(extents)
+		const answers = yield* connection.exchange(
+			Arr.appendAll(
+				Option.toArray(Option.map(moved, rebuilt)),
+				Arr.make(bare(sizesRestored(standing)), bare(standingQuery))
+			)
+		)
+		const answered = yield* Effect.forEach(answers, Effect.fromResult)
+		const again = valueText(Arr.lastNonEmpty(answered).rows)
+		if (!Option.contains(again, standing)) {
+			return yield* new StandingMoved({
+				message: `its relations stand otherwise than before its first case after the reset, ${Option.getOrElse(moved, () => "no table")} rebuilt`
+			})
+		}
+	})
+
+/**
+ * The standing a clone's cases find (standingQuery): every table that holds its template's rows rebuilt once (`rebuilt`),
+ * so its extent is the one a reset rebuilds it to, and every relation's sizes in pg_class then restored as the template
+ * holds them (`sizesRestored`); none when it has no relation.
+ */
+const standingOf = (
+	connection: PgConnection
+): Effect.Effect<Option.Option<string>, SqlError | StandingMoved> =>
+	Effect.gen(function* () {
+		const cloned = yield* connection.queryValues(standingQuery, [])
+		const template = valueText(cloned)
+		if (Option.isNone(template)) {
+			return Option.none()
+		}
+		const tables = yield* connection.queryValues(heldTablesQuery, [])
+		const held = valueText(tables)
+		const answers = yield* connection.exchange(
+			Arr.appendAll(
+				Option.toArray(Option.map(held, rebuilt)),
+				Arr.make(bare(sizesRestored(template.value)), bare(standingQuery))
+			)
+		)
+		const answered = yield* Effect.forEach(answers, Effect.fromResult)
+		const refused = Option.flatMap(Arr.get(answered, answered.length - 2), firstText)
+		if (!Option.contains(refused, "0")) {
+			return yield* new StandingMoved({
+				message: `PostgreSQL refused to restore ${Option.getOrElse(refused, () => "some")} relations' sizes as the template holds them`
+			})
+		}
+		return valueText(Arr.lastNonEmpty(answered).rows)
+	})
+
+/**
+ * Clones the template into a scope of its own under `parent` and opens the owner connection to the clone there, its
+ * tables kept from autovacuum (`autovacuumOff`), its fresh tables (`freshTablesQuery`) given relations of their own
+ * before its first case, as after each, and its standing (`standingOf`) read, which a reset after each case puts back
+ * (`standingKept`).
+ */
 const heldTransactions = (
 	opened: Opened<Database>,
 	budgets: Context.Service.Shape<typeof WorkerBudgets>,
@@ -1242,6 +1460,44 @@ const heldTransactions = (
 						connection.queryValues(sequencesRestoreQuery, []),
 						failed
 					)
+					const kept = yield* Effect.mapError(
+						connection.exchange([
+							{ sql: beginSerializable, params: [] },
+							{ sql: autovacuumOff(cloneTables), params: [] },
+							{ sql: "COMMIT", params: [] }
+						]),
+						failed
+					)
+					yield* Effect.mapError(Effect.forEach(kept, Effect.fromResult), failed)
+					const tables = yield* Effect.mapError(
+						connection.queryValues(freshTablesQuery, []),
+						failed
+					)
+					const fresh = Option.filter(
+						Option.flatMap(Arr.head(tables), Arr.head),
+						(text): text is string => typeof text === "string"
+					)
+					if (Option.isSome(fresh)) {
+						const every = yield* Effect.mapError(
+							connection.queryValues(emptiedQuery(freshSeeds(fresh.value, "every")), []),
+							failed
+						)
+						yield* Effect.mapError(
+							Option.match(emptiedTables(every), {
+								onNone: () => Effect.void,
+								onSome: (emptied) => madeFresh(connection, emptied)
+							}),
+							failed
+						)
+					}
+					const standing = yield* Effect.mapError(standingOf(connection), (error) =>
+						error instanceof StandingMoved
+							? NeedFailed.make({
+									need: "Substrate.rolledBack",
+									message: `${database.name}: ${error.message}`
+								})
+							: failed(error)
+					)
 					return {
 						scope,
 						connection,
@@ -1250,7 +1506,9 @@ const heldTransactions = (
 						sequences: Option.filter(
 							Option.flatMap(Arr.head(restore), Arr.head),
 							(text): text is string => typeof text === "string"
-						)
+						),
+						fresh,
+						standing
 					}
 				}),
 				scope
@@ -1328,8 +1586,11 @@ const firstText = (answer: RawAnswer): Option.Option<string> =>
 /**
  * After a case on a held connection, in one exchange: whether the case ended its transaction (the connection's
  * transaction began after `began`, the case's, transactionBegan), the transaction rolled back, every sequence put back,
- * and the session discarded (DISCARD ALL: settings, prepared statements, advisory locks, temporary tables, listens). A
- * case that ended its transaction, or after which the clone could not be reset, fails, and its clone is replaced.
+ * the session discarded (DISCARD ALL: settings, prepared statements, advisory locks, temporary tables, listens), and the
+ * fresh tables the case wrote (emptiedQuery), which a second exchange gives relations of their own (madeFresh) when it
+ * wrote one; then the clone's standing put back (standingKept), each relation's extent and sizes in pg_class as the
+ * clone's first case found them, whatever the case analyzed or left dead. A case that ended its transaction, or after
+ * which the clone could not be reset, fails, and its clone is replaced.
  */
 const endedTransaction = (
 	held: HeldTransactions,
@@ -1339,13 +1600,25 @@ const endedTransaction = (
 	Effect.gen(function* () {
 		const settled = yield* Effect.result(
 			Effect.gen(function* () {
+				const written = Option.map(held.fresh, (fresh) =>
+					bare(emptiedQuery(freshSeeds(fresh, "written")))
+				)
 				const answers = yield* held.connection.exchange([
 					caseEnd.began,
 					caseEnd.rolledBack,
 					...Option.toArray(Option.map(held.sequences, bare)),
-					caseEnd.discarded
+					caseEnd.discarded,
+					...Option.toArray(written)
 				])
 				const answered = yield* Effect.forEach(answers, Effect.fromResult)
+				yield* Option.match(
+					Option.flatMap(written, () => emptiedTables(Arr.lastNonEmpty(answered).rows)),
+					{ onNone: () => Effect.void, onSome: (emptied) => madeFresh(held.connection, emptied) }
+				)
+				yield* Option.match(held.standing, {
+					onNone: () => Effect.void,
+					onSome: (standing) => standingKept(held.connection, standing)
+				})
 				return Option.getOrUndefined(firstText(Arr.headNonEmpty(answered)))
 			})
 		)
@@ -1425,6 +1698,7 @@ const rolledBackCases = <T>(
 						role: pgCluster.owner,
 						database: held.database,
 						pid: connection.processId,
+						answer: connection.answer,
 						query: connection.query,
 						values: connection.queryValues,
 						pipeline: connection.pipeline
@@ -1475,8 +1749,8 @@ export class Substrate extends Context.Service<Substrate, SubstrateShape>()(
 		freshCases("Substrate.fresh", template)
 	/**
 	 * One case's owner transaction on the worker's own clone of `template` (RolledBack), held with its connection across
-	 * the worker's cases and rolled back when the case ends, its sequences put back and its session discarded: nothing the
-	 * case does outlives it. A case that ends its transaction anyway fails, and the clone is replaced. The default form:
+	 * the worker's cases and rolled back when the case ends, its sequences put back, its session discarded and every
+	 * relation's extent and sizes in pg_class put back (standingKept): nothing the case does outlives it. A case that ends its transaction anyway fails, and the clone is replaced. The default form:
 	 * a case commits only where it is about commits (Substrate.fresh).
 	 */
 	static readonly rolledBack = <T>(template: SubstrateTemplate<T>): TemplateNeed<RolledBack<T>> =>

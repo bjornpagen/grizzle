@@ -18,7 +18,7 @@ import {
 } from "#test/pg/write/deferral/owner-cycle.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
-import { installMigrated } from "#test/support/install-migrate.ts"
+import { installFullWorld } from "#test/support/installed.ts"
 import { lawIdOf, namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws, refusedEntries } from "#test/support/refused.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
@@ -41,12 +41,11 @@ export const aLawsKeyOnACycleWithAFamilysOwnerAxisIsDeferredSoEveryLawfulWriteOf
 					Effect.gen(function* () {
 						const built = buildOf(c.spec)
 						const declared = built.rename("Cycle")
-						const done = yield* installMigrated(declared, {
-							ambient: ordinarySession,
-							label: "cycle",
-							logins: [fullWorld(declared, {}).server],
-							extensions: []
-						})
+						const done = yield* installFullWorld(
+							declared,
+							{},
+							{ ambient: ordinarySession, label: "cycle" }
+						)
 						const value = built.rename(done.schema)
 						const names = namesOf(done)
 						const world = fullWorld(value, {})

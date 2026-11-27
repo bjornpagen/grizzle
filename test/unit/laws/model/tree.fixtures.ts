@@ -4,7 +4,8 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { boolean, type Gen, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, Record as Rec } from "effect"
 import type { LawModel } from "#compiler/laws/model/model.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { installOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
 	type AuthoredStatementDesc,

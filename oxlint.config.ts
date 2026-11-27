@@ -19,12 +19,14 @@ const { active, lintConfig } = standard(toolchain)
  */
 const DICTIONARY_MINTS = [
 	"test/types/schema/closed-subset.dictionary.ts",
+	"test/types/schema/variant-subset.dictionary.ts",
+	"test/pg/served/absent-claims.dictionary.ts",
 	"test/pg/lower-conservative/vocabulary.dictionary.ts",
 	"test/pg/scalar/registry.dictionary.ts",
 	"test/pg/oracle/mutants/invalid.dictionary.ts",
 	"test/types/api/anchor.dictionary.ts",
 	"test/types/api/config.dictionary.ts",
-	"test/types/api/contract-brand.dictionary.ts",
+	"test/types/api/contract-host.dictionary.ts",
 	"test/types/api/decoder.dictionary.ts",
 	"test/types/api/fields.dictionary.ts",
 	"test/types/api/handle.dictionary.ts",
@@ -50,6 +52,7 @@ const DICTIONARY_MINTS = [
 	"test/types/compute/finite.dictionary.ts",
 	"test/types/compute/casts.dictionary.ts",
 	"test/types/evidence/agreement.dictionary.ts",
+	"test/types/evidence/call-keys.dictionary.ts",
 	"test/types/evidence/closed-keys.dictionary.ts",
 	"test/types/evidence/explicit.dictionary.ts",
 	"test/types/evidence/generated-keys.dictionary.ts",
@@ -91,6 +94,7 @@ const DICTIONARY_MINTS = [
 	"test/types/skeleton/budget/invariance.dictionary.ts",
 	"test/types/text/regex.dictionary.ts",
 	"test/unit/bench/harness.dictionary.ts",
+	"test/unit/cli/draft-key.dictionary.ts",
 	"test/unit/cli/skill.dictionary.ts",
 	"test/unit/client/document.dictionary.ts",
 	"test/unit/compute/bits.dictionary.ts",
@@ -101,7 +105,9 @@ const DICTIONARY_MINTS = [
 	"test/unit/live/call-error.dictionary.ts",
 	"test/unit/live/values.dictionary.ts",
 	"test/pg/migrate/custom-guard.dictionary.ts",
+	"test/pg/migrate/data-step-recheck.dictionary.ts",
 	"test/unit/physical/membership.dictionary.ts",
+	"test/unit/program/describe.dictionary.ts",
 	"test/unit/scalar/descriptors.dictionary.ts",
 	"test/unit/scalar/registry.dictionary.ts",
 	"test/unit/schema/dynamic.dictionary.ts",
@@ -334,6 +340,26 @@ const RESTRICTIONS: ReadonlyArray<Restriction> = [
 	{
 		paths: ["test/", "bench/", "scripts/", "packages/pg/"],
 		restrictedImports: { paths: [SCHEMA_IMPORTS.path], patterns: [SCHEMA_IMPORTS.pattern] },
+		restrictedGlobals: [TEXT_DECODER],
+		restrictedProperties: []
+	},
+	{
+		/**
+		 * Reference props, the props oracle's second implementation: today's slice of the logical analysis, copied whole, so
+		 * it reads no module the props rewrite changes (logical/*) and holds the analysis to what it was, not to itself.
+		 */
+		paths: ["test/support/reference-props/"],
+		restrictedImports: {
+			paths: [SCHEMA_IMPORTS.path],
+			patterns: [
+				SCHEMA_IMPORTS.pattern,
+				{
+					group: ["#compiler/logical/*"],
+					message:
+						"Reference props reads no module of the logical analysis the props rewrite changes: copy today's version into test/support/reference-props, so the oracle is today's whole slice."
+				}
+			]
+		},
 		restrictedGlobals: [TEXT_DECODER],
 		restrictedProperties: []
 	},
@@ -763,6 +789,13 @@ export default defineConfig(
 				})
 			},
 			{
+				files: ["test/support/drift/hand-change.ts"],
+				rules: active({
+					/** The one constructor of an operator's hand change a drift test reports (pg_trigger tgenabled): it states ALTER TABLE ... DISABLE TRIGGER as the operator types it. */
+					"testing/no-trigger-switch": "off"
+				})
+			},
+			{
 				files: ["test/support/with-layer.ts"],
 				rules: active({
 					/** withLayer is the one Function.dual kept: 57 pipe uses call it data-last, and a dual's type is two call signatures. */
@@ -879,6 +912,15 @@ export default defineConfig(
 				rules: active({
 					/** The fixture mirrors README.md's code blocks line for line, and the README's app code is a reader's, written with the platform's regex literal. */
 					"devtools/no-raw-regexp": "off"
+				})
+			},
+			{
+				files: ["test/support/read-trace-probe.ts"],
+				rules: active({
+					/** The probe, loaded by `node --import` into draft-key's own child process, replaces the process's clock globals to record each read of them; that process's state is the probe's subject. */
+					"devtools/no-module-state": "off",
+					/** It wraps the clock to count its reads and decides no verdict by its values. */
+					"testing/no-wall-clock-verdict": "off"
 				})
 			},
 			{

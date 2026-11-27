@@ -396,9 +396,9 @@ const schemaOf = (c: ConstantCase) => {
 			case "endsWith":
 				return Logic.eq(Text.endsWith(termOf(p.a), termOf(p.b)), true)
 			case "and":
-				return Logic.and(constOf(p.args[0]), constOf(p.args[1]))
+				return Logic.and([constOf(p.args[0]), constOf(p.args[1])])
 			case "or":
-				return Logic.or(constOf(p.args[0]), constOf(p.args[1]))
+				return Logic.or([constOf(p.args[0]), constOf(p.args[1])])
 			case "not":
 				return Logic.not(constOf(p.arg))
 		}
@@ -412,9 +412,9 @@ const schemaOf = (c: ConstantCase) => {
 			case "alone":
 				return constant
 			case "or":
-				return Logic.or(Logic.eq(r.n, phi.mixed.at), constant)
+				return Logic.or([Logic.eq(r.n, phi.mixed.at), constant])
 			case "and":
-				return Logic.and(Logic.eq(r.n, phi.mixed.at), constant)
+				return Logic.and([Logic.eq(r.n, phi.mixed.at), constant])
 		}
 	}
 	const GenCond = relation.generated("GenCond", fields, ["id"], (r) => ({
@@ -507,6 +507,7 @@ const namesLaw = (law: Law, relation: string): boolean => {
 		case "fold":
 		case "contract":
 		case "pattern":
+		case "variant":
 		case "sealed":
 			return false
 	}

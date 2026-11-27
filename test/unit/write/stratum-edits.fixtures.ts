@@ -254,6 +254,7 @@ const readsOf = (program: CompiledWrite): ReadonlyArray<Read> =>
 			switch (param.kind) {
 				case "scalar":
 				case "relation":
+				case "admission":
 					return []
 				case "member":
 					return [

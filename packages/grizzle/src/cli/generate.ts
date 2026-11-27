@@ -1,21 +1,19 @@
 import { ChunkView, readJson, type TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import {
 	Array as Arr,
-	type DateTime,
 	Effect,
 	FileSystem,
 	Option,
-	Order,
 	Path,
 	type PlatformError,
-	Result
+	Result,
+	type Scope
 } from "effect"
 import { matchesFile } from "#adapter/boundary/files.ts"
 import { fromEngine } from "#adapter/engine.ts"
 import { atRole, type ServedEntry, servedEntry } from "#adapter/served/compile.ts"
-import { artifactsOver, artifactsUnder } from "#adapter/served/login.ts"
+import { artifactsOver, artifactsUnder, workloadReach } from "#adapter/served/login.ts"
 import type { GenerateMode } from "#cli/args.ts"
-import { nextTimestamp } from "#cli/clock.ts"
 import { committedSnapshot, continuedChain } from "#cli/committed.ts"
 import {
 	type CompiledSchema,
@@ -34,19 +32,25 @@ import {
 	TreeUnread
 } from "#cli/errors.ts"
 import {
+	commitFolder,
+	commitLoginFiles,
+	commitSnapshotFiles,
 	type LoginFileKind,
 	loginFileKinds,
 	loginFiles,
 	type LoginPaths,
-	type LoginText,
 	readSchemaTree,
+	type Staging,
+	stageFolder,
+	stageLoginFile,
+	stageSnapshotFiles,
+	stagingArea,
 	unsplitWithin,
-	writeFolder,
-	writeLoginFiles,
-	writeSnapshotFiles
+	visibleEntries
 } from "#cli/files.ts"
 import { phasedEffect } from "#cli/phases.ts"
 import { rosterRenames } from "#cli/renames.ts"
+import { nextTimestamp } from "#cli/timestamp.ts"
 import type { ServableRole } from "#compiler/plan/change.ts"
 import {
 	type Codebook,
@@ -55,7 +59,6 @@ import {
 	draftCodebook,
 	type PreviousRoster,
 	type RosterRenames,
-	type InstalledArtifacts,
 	type InstalledSource,
 	type Isolation,
 	namedLogin,
@@ -65,7 +68,11 @@ import {
 	rostersOf,
 	sameLevel,
 	transactionClock,
-	unrepresentableKeys
+	unrepresentableKeys,
+	type InstalledArtifacts,
+	type QueryDesc,
+	type SchemaContent,
+	servedTogether
 } from "#compiler/plan/common.ts"
 import {
 	type AbandonedSchema,
@@ -79,17 +86,21 @@ import {
 	findMarkers,
 	type FolderNaming,
 	generatedFileMaxBytes,
-	generateMigration,
-	type GenerateResult,
 	type Installation,
 	installationOver,
 	lossText,
 	type MigrationDraft,
 	type MigrationFolder,
+	planMigration,
+	type PlannedDraft,
 	type ProgramFootprints,
+	renderMigration,
+	type SeekTargets,
 	type ServedWorkloadPlan,
+	servedPrograms,
 	servedWorkload,
 	servedWorkloadExtension,
+	withProgramAccess,
 	type Spellings,
 	writeRuntimeSnapshot,
 	writeSnapshot
@@ -97,8 +108,6 @@ import {
 import {
 	type DeploySnapshot,
 	derivedHolds,
-	everySlice,
-	type InstallBasis,
 	installationsOf,
 	installBasis,
 	isEmptySnapshot,
@@ -107,7 +116,8 @@ import {
 	rosterFates,
 	snapshotFileName,
 	type SnapshotFiles,
-	spellingsOf
+	spellingsOf,
+	type InstallBasis
 } from "#compiler/plan/serve.ts"
 
 interface GenerateOptions {
@@ -116,7 +126,6 @@ interface GenerateOptions {
 	readonly schema: Option.Option<string>
 	/** The draft's declared renames and drops (renames.ts), each the one chosen schema's. */
 	readonly declared: Declarations
-	readonly now: DateTime.Utc
 	/** What the run's phases are reported to (`--phases`), or silentPhases. */
 	readonly phases: Phases
 }
@@ -156,7 +165,8 @@ type Written =
  * (committed.ts), compiles the schema with every installer extension a deployment needs, its derived relations, its logins' workloads' access paths and statistics and its logins' worlds, and hands the
  * installation, the previous snapshot, each workload program's access and the access requests, the name and the
  * timestamp to the pure generator (compiler/deploy/render/generate.ts). The generator diffs the snapshots and renders
- * the phased files and meta.json; this command supplies the clock (clock.ts) and writes the result (files.ts):
+ * the phased files and meta.json; this command supplies the timestamp, the committed chain's next (timestamp.ts), and
+ * writes the result (files.ts):
  *
  * - a schema whose target equals its previous snapshot drafts nothing and keeps its snapshot's files, unless the derived
  *   runtime facts snapshot.json records are not the ones the compile derives, or it records none (build.ts
@@ -171,13 +181,15 @@ type Written =
  * data steps, named `--name`; the snapshot's files do not change.
  *
  * Beside the snapshot, every other draft brings the schema's served and openapi directories to the snapshot it commits:
- * each login of the configuration over the schema has its workload compiled under that snapshot (servedFiles), and its
+ * each login of the configuration over the schema has its workload compiled under that snapshot (eachServedFile), and its
  * `served/<login>.json` and its OpenAPI document `openapi/<login>.json`, read off that served file, are written where
  * the directory does not hold that text, and the files of a login the configuration no longer lists are removed. A
  * custom folder changes no snapshot and compiles nothing, so it leaves them.
  *
- * Every selected schema drafts before anything is written, so a schema the compiler refuses writes no folder of any
- * schema, and a name the previous snapshot holds that the schema no longer does is refused unless the command line
+ * Every selected schema drafts before anything is put in place, each file staged as its text is made and held no longer
+ * (files.ts Staging), so a schema the compiler refuses leaves no file of any schema in place, and the heap holds a
+ * schema's compile and one file's text at a time, never every file's; a name the previous snapshot holds that the schema
+ * no longer does is refused unless the command line
  * declares it renamed or dropped (`--rename`, `--drop`). The report lists each written file, each marker a reviewer
  * must resolve (a placeholder to fill, a group of statements to confirm), and each loss of stored data a reviewer must
  * decide, before `grizzle check` and `grizzle migrate` accept the folder. A schema's first draft beside the migrations of schemas the configuration no longer lists, which a schema
@@ -211,7 +223,7 @@ type SchemaWritten = Written & {
 }
 
 /** The refusal of `step` of a schema's draft, which the compiler refused. */
-export const draftRefused =
+const draftRefused =
 	(schema: string, step: DraftRefused["step"]) =>
 	(error: CompileError): CliError =>
 		cliError(new DraftRefused({ schema, step, error }))
@@ -249,17 +261,17 @@ const selectSchemas = (
 }
 
 /**
- * What a draft does to a schema's directory of one kind of login file: each login's file whose text the directory does
- * not hold, written, and the file of each login the configuration no longer lists over the schema, removed, by its
- * declared name.
+ * What a draft does to a schema's directory of one kind of login file: the file of each login, by its declared name,
+ * whose text the directory does not hold, staged (files.ts stageLoginFile), and the file of each login the
+ * configuration no longer lists over the schema, removed.
  */
 interface LoginWrites {
-	readonly write: ReadonlyArray<LoginText>
+	readonly write: ReadonlyArray<string>
 	readonly remove: ReadonlyArray<string>
 }
 
 /** What a draft does to a schema's directories of login files, by kind (files.ts loginFiles). */
-export type ServedWrites = { readonly [K in LoginFileKind]: LoginWrites }
+type ServedWrites = { readonly [K in LoginFileKind]: LoginWrites }
 
 /** A custom folder leaves the login files as they are. */
 const noServedWrites: ServedWrites = {
@@ -267,22 +279,40 @@ const noServedWrites: ServedWrites = {
 	openapi: { write: [], remove: [] }
 }
 
-/** A schema's draft: nothing to write; snapshot.json written again, its derived facts the compile's, with no folder; an
- * empty custom folder; or a drafted folder and its new snapshot's files. Beside any of them but the custom folder, the
- * served files of the snapshot the schema's directory commits once the draft is written. */
-export type SchemaDraft = (
+/**
+ * A folder a draft staged (files.ts stageFolder): its name, its SQL files' names, each marker its files hold, and each
+ * loss and each file's locks its meta.json records, which the report states once the folder is put in place; its texts
+ * are written, and held no longer.
+ */
+interface StagedFolder {
+	readonly name: string
+	readonly files: ReadonlyArray<string>
+	readonly markers: ReadonlyArray<DraftMarker>
+	readonly losses: ReadonlyArray<DraftLoss>
+	readonly locks: ReadonlyArray<{ readonly file: string; readonly locks: number }>
+}
+
+/**
+ * A schema's draft, every file of it staged as its text was made (files.ts Staging): nothing to write; snapshot.json
+ * and manifest.json staged again, its derived facts the compile's, with no folder, manifest.json by the entries it is
+ * laid out in; an empty custom folder; or a drafted folder and its new snapshot's files. Beside any of them but the
+ * custom folder, the login files of the snapshot the schema's directory commits once the draft is put in place
+ * (commitDraft). It holds no text: a draft is held until every selected schema has drafted, and its texts are on disk.
+ */
+export type StagedDraft = (
 	| { readonly kind: "unchanged" }
-	| { readonly kind: "rederived"; readonly snapshotFiles: SnapshotFiles }
-	| { readonly kind: "custom"; readonly folder: MigrationFolder }
+	| { readonly kind: "rederived"; readonly manifest: ReadonlyArray<string> }
+	| { readonly kind: "custom"; readonly folder: StagedFolder }
 	| {
 			readonly kind: "drafted"
-			readonly folder: MigrationFolder
-			readonly snapshotFiles: SnapshotFiles
+			readonly folder: StagedFolder
+			readonly manifest: ReadonlyArray<string>
 	  }
 ) & {
 	readonly schema: ConfiguredSchema
-	/** The snapshot the schema's directory commits once the draft is written. */
-	readonly snapshot: DeploySnapshot
+	readonly staging: Staging
+	/** The fingerprint of the snapshot the schema's directory commits once the draft is put in place. */
+	readonly fingerprint: string
 	readonly served: ServedWrites
 	/** The certificate of every role of the schema's logins, which the served files record the levels of. */
 	readonly certification: ServedWorkloadPlan["certification"]
@@ -309,12 +339,29 @@ export interface PlannedLogin {
  */
 export type ServedBasis =
 	| { readonly kind: "noLogin" }
-	| {
+	| ({
 			readonly kind: "logins"
-			readonly logins: ReadonlyMap<string, PlannedLogin>
-			readonly certification: ServedWorkloadPlan["certification"]
-			readonly fences: ServedWorkloadPlan["fences"]
-	  }
+			/**
+			 * The stored tables of the installation drafted beside the served files, with the indexes it plans on them,
+			 * and the views its roles read through, which every read and write a served file sends is held to
+			 * (adapter/served/compile.ts servedEntry).
+			 */
+			readonly seeks: SeekTargets
+	  } & ServedLogins)
+
+/** Each login's plan, with the certification and the fences of the logins' workloads: planned before the installation. */
+interface ServedLogins {
+	readonly logins: ReadonlyMap<string, PlannedLogin>
+	readonly certification: ServedWorkloadPlan["certification"]
+	readonly fences: ServedWorkloadPlan["fences"]
+}
+
+/** The closed imports of a login's programs (engine schema/reach.ts servedImportsOf), with the content of the level its
+ * base is, which every login over the same level's artifacts admit. */
+interface ServedLevel {
+	readonly content: SchemaContent
+	readonly served: ReadonlySet<QueryDesc>
+}
 
 /**
  * The logins' workloads and their roles' write filters, planned under the configured schema's artifacts and the names
@@ -326,8 +373,8 @@ export type ServedBasis =
  * schema's for a login over its level, and for a login over a level below, that
  * level's, compiled from the basis's derived facts as a snapshot records them (deploy/snapshot/build.ts derivedFacts,
  * adapter/served/login.ts artifactsUnder), under the draft's codes `codes`, each casting the programs' parameters to
- * the types the workload's plan declares (WorkloadPhysical.params), which the installation drafted installs and its
- * snapshot records. The plan, with what each login's served file compiles over (ServedBasis): each role's change
+ * the types the workload's plan declares (WorkloadPhysical.params), its programs' and those each login states beside
+ * them (adapter/served/login.ts LoginInput `stated`), which the installation drafted installs and its snapshot records. The plan, with what each login's served file compiles over (ServedBasis): each role's change
  * members servable (program/workload/change.ts servableRole), its certification having read their compiled writes, and
  * the plan without them, so no compiled write's front end, analysis, schedule or placement, nor the plan's front ends,
  * outlives this compile into the installation's (installationUnder), where they were every compiled write's whole
@@ -339,11 +386,12 @@ export type ServedBasis =
 const plannedLogins = Effect.fn("plannedLogins")(function* (
 	schema: CompiledSchema,
 	basis: InstallBasis,
+	served: ReadonlyArray<ServedLevel>,
 	codes: Codebook,
 	phases: Phases
 ) {
-	const { configured, logins } = schema
-	const refusedAt = (step: DraftRefused["step"]) => draftRefused(configured.declared, step)
+	const { logins } = schema
+	const refusedAt = (step: DraftRefused["step"]) => draftRefused(schema.declared, step)
 	const configuredArtifacts = yield* Effect.mapError(
 		fromEngine(artifactsOver(basis, unserved)),
 		refusedAt("workload")
@@ -352,12 +400,12 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 		artifacts: configuredArtifacts,
 		roles: Arr.flatMap(logins, (l) => l.owned.roles)
 	}
-	const { plan: workload, frontends } = yield* Effect.mapError(
+	const { plan: programs, frontends } = yield* Effect.mapError(
 		fromEngine(
 			phased(phases, { name: "workload", of: [] }, () =>
 				planWorkload(
 					Arr.map(logins, (l) => ({ login: l.owned.name, workloads: l.login.workload })),
-					configured.built,
+					schema.schema,
 					options,
 					phases
 				)
@@ -365,6 +413,11 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 		),
 		(refused) => refusedAt("workload")(refused.error)
 	)
+	/** The plan's parameter types its programs', and each login's stated beside them (LoginInput `stated`). */
+	const workload = {
+		...programs,
+		params: servedTogether([programs.params, ...Arr.map(logins, (l) => l.login.stated)])
+	}
 	const derived = derivedFacts(basis.closed, basis.model, basis.textDomains, basis.library)
 	const params: InstalledSource = { kind: "planned", types: workload.params }
 	const servedArtifacts = yield* Effect.mapError(
@@ -375,14 +428,17 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 	 * The artifacts of each distinct level below the configured schema's a login stands on, built once from the first
 	 * such login's owned base and read by every login over the same level (sameLevel, the levels' content, never their
 	 * objects), where each login built its own, its law model and law-violation DAG among them, though logins share
-	 * levels (metis's measure-full at changes start: 21 logins' artifacts, 40 to 63 MB each, 807 MB, none shared).
+	 * levels (metis's measure-full at changes start: 21 logins' artifacts, 40 to 63 MB each, 807 MB, none shared). Each
+	 * reads every relation within the installation (engine analysis/schema.ts RealityReading `within`): the installation's
+	 * checked schema's info, holding, canonical relation, definition and analysis of it, by reference, where each level
+	 * analyzed its whole chain again (metis at PIN 2: nine levels, about 60 MB of analysis each, the shared base's).
 	 */
 	const below: Array<{
-		readonly content: typeof configured.built.content
+		readonly content: SchemaContent
 		readonly artifacts: InstalledArtifacts
 	}> = []
 	const artifactsOf = (l: (typeof logins)[number]): Effect.Effect<InstalledArtifacts, CliError> => {
-		if (sameLevel(l.login.base.content, configured.built.content)) {
+		if (sameLevel(l.login.base.content, schema.schema.content)) {
 			return Effect.succeed(servedArtifacts)
 		}
 		const known = Arr.findFirst(below, (b) => sameLevel(b.content, l.login.base.content))
@@ -390,18 +446,29 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 			? Effect.succeed(known.value.artifacts)
 			: Effect.mapBoth(
 					fromEngine(
-						artifactsUnder(l.owned.base, codes, derived, everySlice(l.owned.base), params)
+						artifactsUnder(
+							l.owned.base,
+							codes,
+							derived,
+							params,
+							{ kind: "within", installation: servedArtifacts.derived.schema },
+							new Set(
+								Arr.flatMap(served, (level) =>
+									sameLevel(level.content, l.login.base.content) ? [...level.served] : []
+								)
+							)
+						)
 					),
 					{
 						onFailure: refusedAt("workload"),
-						onSuccess: (layer) => {
-							below.push({ content: l.login.base.content, artifacts: layer.artifacts })
-							return layer.artifacts
+						onSuccess: (artifacts) => {
+							below.push({ content: l.login.base.content, artifacts })
+							return artifacts
 						}
 					}
 				)
 	}
-	const served = yield* Effect.forEach(logins, (l) =>
+	const loginsNamed = yield* Effect.forEach(logins, (l) =>
 		Effect.flatMap(artifactsOf(l), (artifacts) =>
 			Effect.mapBoth(fromEngine(namedLogin(l.owned, artifacts.names.levels)), {
 				onFailure: refusedAt("workload"),
@@ -414,7 +481,7 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 			phased(phases, { name: "changes", of: [] }, () =>
 				servedWorkload(
 					workload,
-					Arr.map(served, ({ login: l, named, artifacts }) => ({
+					Arr.map(loginsNamed, ({ login: l, named, artifacts }) => ({
 						name: l.owned.name,
 						roles: l.login.roles,
 						workload: l.login.workload,
@@ -433,22 +500,21 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 				? refusedAt("workload")(refused.error)
 				: cliError(
 						new ServedRefused({
-							schema: configured.declared,
+							schema: schema.declared,
 							login: refused.login,
 							...atRole(refused.refused)
 						})
 					)
 	)
-	const basisOf: ServedBasis = {
-		kind: "logins",
+	const basisOf: ServedLogins = {
 		certification: plan.certification,
 		fences: plan.fences,
 		logins: new Map(
-			Arr.map(served, ({ login: l, artifacts }) => {
+			Arr.map(loginsNamed, ({ login: l, artifacts }) => {
 				const roles = plan.changes.get(l.owned.name)
 				const footprints = plan.footprints.get(l.owned.name)
 				if (roles === undefined || footprints === undefined) {
-					throw defect(`the change compile of login ${l.owned.name}, a login of the plan`)
+					defect(`the change compile of login ${l.owned.name}, a login of the plan`)
 				}
 				return [
 					l.owned.name,
@@ -462,35 +528,25 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 		)
 	}
 	const { changes: _certified, ...installed } = plan
-	return { plan: installed, served: basisOf }
+	return { plan: { ...installed, programs: servedPrograms(plan.changes) }, served: basisOf }
 })
 
 /**
- * What the draft of a schema's change from `previous` is drafted from: its schema compiled with every installer
- * extension a deployment needs and its logins' workloads' access paths, with the schemas it abandons (abandonedSchemas)
- * and the renames and drops `declared` declares. Everything is compiled under the codes the draft gives the schema's
- * rosters, drafted from the codes `previous` records, each under the name of the roster it continues as
- * (deploy/snapshot/build.ts rosterFates), and the declared handle renames (ir/codes.ts draftCodebook), and the spellings
- * `previous` records of its pattern languages (spellingsOf), each language's history as a roster's codes are: a
- * roster's codes are its history, so a handle keeps its code, a renamed one its old one's, a removed one leaves a hole
- * and a new one takes the next, and an ordered roster declared out of its codes' order is RosterReordered
- * (installationUnder).
+ * The history a schema's draft from `previous` drafts its codes from (CodesFrom), under `declared`: each roster the
+ * snapshot holds, under the name of the roster it continues as (deploy/snapshot/build.ts rosterFates), the declared
+ * handle renames (cli/renames.ts rosterRenames), and the spellings `previous` records of its pattern languages
+ * (spellingsOf), each language's history as a roster's codes are: a roster's codes are its history, so a handle keeps
+ * its code, a renamed one its old one's, a removed one leaves a hole and a new one takes the next.
  */
-const draftInput = Effect.fn("draftInput")(function* (
+const codesFrom = (
 	schema: CompiledSchema,
 	previous: DeploySnapshot,
-	abandoned: ReadonlyArray<AbandonedSchema>,
-	declared: Declarations,
-	phases: Phases
-): Effect.fn.Return<{ readonly input: DraftInput; readonly served: ServedBasis }, CliError> {
+	declared: Declarations
+): Result.Result<CodesFrom, CliError> => {
 	const rosters = rostersOf(schema.owned)
-	const renames = yield* Effect.mapError(
-		Effect.fromResult(rosterRenames(declared, rosters)),
-		cliError
-	)
-	const compiled = yield* installationUnder(
-		schema,
-		{
+	return Result.mapBoth(rosterRenames(declared, rosters), {
+		onFailure: cliError,
+		onSuccess: (renames): CodesFrom => ({
 			previous: rosterFates(
 				previous,
 				declared,
@@ -498,9 +554,26 @@ const draftInput = Effect.fn("draftInput")(function* (
 			),
 			renames,
 			spellings: spellingsOf(previous)
-		},
-		phases
-	)
+		})
+	})
+}
+
+/**
+ * What the draft of a schema's change from `previous` is drafted from: its schema compiled with every installer
+ * extension a deployment needs and its logins' workloads' access paths, with the schemas it abandons (abandonedSchemas)
+ * and the renames and drops `declared` declares. Everything is compiled under the codes the draft gives the schema's
+ * rosters, drafted from `history` (CodesFrom: the codes `previous` records, codesFrom, wherever generate drafts), and
+ * an ordered roster declared out of its codes' order is RosterReordered (installationUnder).
+ */
+const draftInput = Effect.fn("draftInput")(function* (
+	schema: CompiledSchema,
+	previous: DeploySnapshot,
+	history: CodesFrom,
+	abandoned: ReadonlyArray<AbandonedSchema>,
+	declared: Declarations,
+	phases: Phases
+): Effect.fn.Return<{ readonly input: DraftInput; readonly served: ServedBasis }, CliError> {
+	const compiled = yield* installationUnder(schema, history, phases)
 	return {
 		input: {
 			previous,
@@ -516,7 +589,7 @@ const draftInput = Effect.fn("draftInput")(function* (
 /**
  * The history a schema's codes are drafted from (ir/codes.ts draftCodebook): each roster the previous installation
  * holds with what the draft makes of it, the declared handle renames, and the spelling the history holds of each
- * pattern language; a committed snapshot's, or the live database's (cli/upgrade.ts).
+ * pattern language: the committed snapshot's.
  */
 export interface CodesFrom {
 	readonly previous: ReadonlyArray<PreviousRoster>
@@ -530,7 +603,7 @@ export interface CodesFrom {
  * declared out of its codes' order is RosterReordered. The schema's basis is compiled once: the artifacts the workloads'
  * access paths are planned against and the installation the draft installs share one law model and one plan of the
  * closed constants (physical/install/plan.ts installBasis). Each login's ChangeSets are compiled once in the workload
- * plan (plannedLogins), and its other programs once the draft lays out its snapshot (servedFiles). The basis, the
+ * plan (plannedLogins), and its other programs once the draft lays out its snapshot (eachServedFile). The basis, the
  * logins' plan and the installation are phases reported to `phases` (`basis`, `installation`).
  */
 export const installationUnder = Effect.fn("installationUnder")(function* (
@@ -545,20 +618,28 @@ export const installationUnder = Effect.fn("installationUnder")(function* (
 	},
 	CliError
 > {
-	const { configured, owned, logins } = schema
+	const { owned, logins } = schema
 	const rosters = rostersOf(owned)
 	const drafted = draftCodebook(history.previous, history.renames, rosters, history.spellings)
 	if (!drafted.ok) {
 		const { roster, earlier, later } = drafted.error
-		return yield* cliError(
-			new RosterReordered({ schema: configured.declared, roster, earlier, later })
-		)
+		return yield* cliError(new RosterReordered({ schema: schema.declared, roster, earlier, later }))
 	}
 	const codes = drafted.value
-	const refusedAt = (step: DraftRefused["step"]) => draftRefused(configured.declared, step)
+	const refusedAt = (step: DraftRefused["step"]) => draftRefused(schema.declared, step)
+	/** The closed imports of each login's programs, with the level its base is (engine schema/reach.ts
+	 * servedImportsOf), which the installation stores where admission stores them. */
+	const served = yield* Effect.forEach(logins, (l) =>
+		Effect.mapBoth(workloadReach(l.login, l.owned), {
+			onFailure: (refused) => refusedAt("workload")(refused.error),
+			onSuccess: (reach): ServedLevel => ({ content: l.login.base.content, served: reach.served })
+		})
+	)
 	const basis = yield* Effect.mapError(
 		fromEngine(
-			phased(phases, { name: "basis", of: [] }, () => installBasis(owned, codes, everySlice(owned)))
+			phased(phases, { name: "basis", of: [] }, () =>
+				installBasis(owned, codes, new Set(Arr.flatMap(served, (level) => [...level.served])))
+			)
 		),
 		refusedAt("schema")
 	)
@@ -566,7 +647,7 @@ export const installationUnder = Effect.fn("installationUnder")(function* (
 	 * them, gives way to (engine core/canonical.ts metFirst). */
 	const unrepresentable = basis.model.unrepresentable
 	const planned = Arr.isReadonlyArrayNonEmpty(logins)
-		? yield* Effect.catch(plannedLogins(schema, basis, codes, phases), (refused) =>
+		? yield* Effect.catch(plannedLogins(schema, basis, served, codes, phases), (refused) =>
 				Arr.isReadonlyArrayNonEmpty(unrepresentable)
 					? Effect.fail(refusedAt("schema")(unrepresentableKeys(unrepresentable)))
 					: Effect.fail(refused)
@@ -592,19 +673,28 @@ export const installationUnder = Effect.fn("installationUnder")(function* (
 		workload:
 			planned === undefined
 				? noWorkload
-				: {
-						access: planned.plan.access,
-						accessPaths: planned.plan.requests,
-						live: planned.plan.live
-					},
-		served: planned === undefined ? { kind: "noLogin" } : planned.served
+				: ((indexed) => ({
+						access: indexed.access,
+						accessPaths: indexed.requests,
+						live: indexed.live
+					}))(
+						withProgramAccess(
+							planned.plan,
+							installation.programAccess,
+							installation.names.vectorSchema
+						)
+					),
+		served:
+			planned === undefined
+				? { kind: "noLogin" }
+				: { kind: "logins", seeks: installation.seeks, ...planned.served }
 	}
 })
 
 /**
  * The draft of a schema's change from `previous` under `declared`, its folder unnamed, as `grizzle check` compares it
- * with the committed snapshot (draftInput, then the pure generator's draftMigration), beside the installation it drafts
- * against, whose constants check holds the migrations' literal packs to. Nothing is written.
+ * with the committed snapshot (draftSchemaUnder, its codes drafted from those `previous` records, codesFrom), beside the
+ * installation it drafts against, whose constants check holds the migrations' literal packs to. Nothing is written.
  */
 export const draftSchema = Effect.fn("draftSchema")(function* (
 	schema: CompiledSchema,
@@ -616,10 +706,38 @@ export const draftSchema = Effect.fn("draftSchema")(function* (
 	MigrationDraft & { readonly installation: Installation; readonly served: ServedBasis },
 	CliError
 > {
-	const { input, served } = yield* draftInput(schema, previous, abandoned, declared, phases)
+	const history = yield* Effect.fromResult(codesFrom(schema, previous, declared))
+	return yield* draftSchemaUnder(schema, previous, history, abandoned, declared, phases)
+})
+
+/**
+ * The draft of a schema's change from `previous` under `declared`, its folder unnamed, its codes drafted from `history`
+ * (draftInput, then the pure generator's draftMigration), beside the installation it drafts against: draftSchema's, and
+ * a test's draft of an installation whose codes its case states, holes included, which no snapshot before it records
+ * (ir/codes.ts keptRosters). Nothing is written.
+ */
+export const draftSchemaUnder = Effect.fn("draftSchemaUnder")(function* (
+	schema: CompiledSchema,
+	previous: DeploySnapshot,
+	history: CodesFrom,
+	abandoned: ReadonlyArray<AbandonedSchema>,
+	declared: Declarations,
+	phases: Phases
+): Effect.fn.Return<
+	MigrationDraft & { readonly installation: Installation; readonly served: ServedBasis },
+	CliError
+> {
+	const { input, served } = yield* draftInput(
+		schema,
+		previous,
+		history,
+		abandoned,
+		declared,
+		phases
+	)
 	const draft = yield* Effect.mapError(
 		fromEngine(phased(phases, { name: "draft", of: [] }, () => draftMigration(input))),
-		draftRefused(schema.configured.declared, "draft")
+		draftRefused(schema.declared, "draft")
 	)
 	return { ...draft, installation: input.installation, served }
 })
@@ -631,7 +749,7 @@ export const draftSchema = Effect.fn("draftSchema")(function* (
 export const keptSchemaDraft = (
 	...args: Parameters<typeof draftSchema>
 ): Effect.Effect<
-	Drafted<MigrationDraft> & { readonly installation: Installation; readonly served: ServedBasis },
+	Drafted & { readonly installation: Installation; readonly served: ServedBasis },
 	CliError
 > =>
 	Effect.map(draftSchema(...args), (draft) => ({
@@ -641,19 +759,16 @@ export const keptSchemaDraft = (
 	}))
 
 /**
- * What the CLI keeps of a draft past the draft phase: what it changes, its folder, its snapshot and the derived facts
- * snapshot.json records, which the served files, check's findings and write read. The draft's plan (every step's
- * statement as its tree) and its decision record (every statement's tokens) are the draft's own, which nothing after it
- * reads, so they are left behind at the draft's end rather than held through the served files' compile and the write
- * (edullm's qti App at hub 5374a0575: the plan alone 217 MB of the 2.2 GB live as the served phase starts).
+ * What check keeps of a draft past the draft phase: what it changes, its folder, its snapshot and the derived facts
+ * snapshot.json records, which the served files and check's findings read. The draft's plan (every step's statement as
+ * its tree) and its decision record (every statement's tokens) are the draft's own, which nothing after it reads, so they
+ * are left behind at the draft's end rather than held through the served files' compile (edullm's qti App at hub
+ * 5374a0575: the plan alone 217 MB of the 2.2 GB live as the served phase starts).
  */
-type Drafted<D extends MigrationDraft | GenerateResult> = Pick<
-	D,
-	"change" | "folder" | "snapshot" | "derived"
->
+type Drafted = Pick<MigrationDraft, "change" | "folder" | "snapshot" | "derived">
 
-/** A draft as the CLI keeps it (`Drafted`). */
-export const keptOf = <D extends MigrationDraft | GenerateResult>(draft: D): Drafted<D> => ({
+/** A draft as check keeps it (`Drafted`). */
+export const keptOf = (draft: MigrationDraft): Drafted => ({
 	change: draft.change,
 	folder: draft.folder,
 	snapshot: draft.snapshot,
@@ -661,29 +776,38 @@ export const keptOf = <D extends MigrationDraft | GenerateResult>(draft: D): Dra
 })
 
 /**
- * The draft of a schema's change from `previous` as `grizzle generate` writes it, its folder named by `naming` and
- * `timestamp` (draftInput, then the pure generator's generateMigration). Nothing is written.
+ * A schema's change from `previous` planned as `grizzle generate` drafts it, its codes drafted from those `previous`
+ * records (codesFrom, draftInput, then the pure generator's planMigration, the `draft` phase), with what its logins'
+ * served files compile over: the installation is left behind at the plan's end, and nothing is written.
  */
-const generateSchema = Effect.fn("generateSchema")(function* (
+const plannedSchema = Effect.fn("plannedSchema")(function* (
 	schema: CompiledSchema,
 	previous: DeploySnapshot,
-	naming: FolderNaming,
-	timestamp: string,
 	abandoned: ReadonlyArray<AbandonedSchema>,
 	declared: Declarations,
 	phases: Phases
-): Effect.fn.Return<Drafted<GenerateResult> & { readonly served: ServedBasis }, CliError> {
-	const { input, served } = yield* draftInput(schema, previous, abandoned, declared, phases)
-	const generated = yield* Effect.mapError(
-		fromEngine(
-			phased(phases, { name: "draft", of: [] }, () =>
-				generateMigration({ ...input, naming, timestamp })
-			)
-		),
-		draftRefused(schema.configured.declared, "draft")
+): Effect.fn.Return<PlannedSchema, CliError> {
+	const history = yield* Effect.fromResult(codesFrom(schema, previous, declared))
+	const { input, served } = yield* draftInput(
+		schema,
+		previous,
+		history,
+		abandoned,
+		declared,
+		phases
 	)
-	return { ...keptOf(generated), served }
+	const planned = yield* Effect.mapError(
+		fromEngine(phased(phases, { name: "draft", of: [] }, () => planMigration(input))),
+		draftRefused(schema.declared, "draft")
+	)
+	return { planned, served }
 })
+
+/** A schema's draft planned (PlannedDraft), with what its logins' served files compile over (ServedBasis). */
+export interface PlannedSchema {
+	readonly planned: PlannedDraft
+	readonly served: ServedBasis
+}
 
 /** What a draft's snapshot files are written from: its snapshot and the derived runtime facts snapshot.json records. */
 type DraftSnapshot = Pick<MigrationDraft, "snapshot" | "derived">
@@ -695,310 +819,40 @@ export const snapshotFilesOf = (
 ): Effect.Effect<SnapshotFiles, CliError> =>
 	Effect.mapError(
 		fromEngine(writeSnapshot(draft.snapshot, draft.derived)),
-		draftRefused(schema.configured.declared, "draft")
+		draftRefused(schema.declared, "draft")
 	)
 
-/** A draft's snapshot files (snapshotFilesOf), refused where snapshot.json, which an application imports whole, is past
- * generatedFileMaxBytes (files.ts unsplitWithin); manifest.json is laid out in parts within it as it is written. */
-const importedSnapshotFiles = (
-	schema: ConfiguredSchema,
+/**
+ * Stages a draft's snapshot files (snapshotFilesOf, files.ts stageSnapshotFiles), refused where snapshot.json, which an
+ * application imports whole, is past generatedFileMaxBytes (files.ts unsplitWithin), manifest.json laid out in parts
+ * within it; returns the entries manifest.json is laid out in. Their texts are written, and held no longer.
+ */
+export const stagedSnapshotFiles = Effect.fn("stagedSnapshotFiles")(function* (
 	compiled: CompiledSchema,
+	staging: Staging,
 	draft: DraftSnapshot
-): Effect.Effect<SnapshotFiles, CliError> =>
-	Effect.tap(snapshotFilesOf(compiled, draft), (files) =>
-		unsplitWithin(
-			schema.declared,
-			[{ file: snapshotFileName, text: files.snapshot }],
-			generatedFileMaxBytes
-		)
-	)
-
-/**
- * Each login's served file, in configured order: its workload compiled under the snapshot.json text the draft lays out,
- * the draft's (adapter/served/compile.ts servedEntry), over the artifacts `served` holds for it, its ChangeSets as the
- * draft's workload plan compiled them (PlannedLogin): a login over the schema's own level over the installation's
- * artifacts, and one over a level below, whose ownership is its own (cli/config.ts compileSchema), over that level's,
- * as the snapshot records them. generate writes them beside the snapshot and check holds the committed ones to them,
- * so both compile every login once, from the one text. A login whose workload does not compile is ServedRefused, at
- * the login, its role or its program. The served files are a phase reported to `phases` (`served`), each login's a
- * phase inside it (`servedLogin`).
- */
-export const servedFiles = (
-	schema: CompiledSchema,
-	draft: DraftSnapshot,
-	served: ServedBasis,
-	phases: Phases
-): Effect.Effect<ReadonlyArray<ServedEntry>, CliError> =>
-	phasedEffect(phases, { name: "served", of: [] }, servedEntries(schema, draft, served, phases))
-
-/** Each login's served file (servedFiles), each a phase reported to `phases`. */
-const servedEntries = Effect.fn("servedFiles")(function* (
-	schema: CompiledSchema,
-	draft: DraftSnapshot,
-	served: ServedBasis,
-	phases: Phases
-): Effect.fn.Return<ReadonlyArray<ServedEntry>, CliError> {
-	if (served.kind === "noLogin") {
-		return []
-	}
-	const text = yield* Effect.mapError(
-		fromEngine(writeRuntimeSnapshot(draft.snapshot, draft.derived)),
-		draftRefused(schema.configured.declared, "draft")
-	)
-	const read = readJson(text)
-	if (!read.ok) {
-		throw defect(`the snapshot.json a draft lays out reads as JSON: ${read.error.expected}`)
-	}
-	const snapshot = read.value
-	return yield* Effect.forEach(schema.logins, (login) => {
-		const planned = served.logins.get(login.owned.name)
-		if (planned === undefined) {
-			throw defect(`the plan of login ${login.owned.name}, a login of the configuration`)
-		}
-		return Effect.mapError(
-			phasedEffect(
-				phases,
-				{ name: "servedLogin", of: [login.owned.name] },
-				servedEntry(login, snapshot, planned.artifacts, planned.roles, planned.footprints)
-			),
-			(refusal) =>
-				cliError(
-					new ServedRefused({
-						schema: schema.configured.declared,
-						login: login.login.desc.name,
-						place: refusal.place,
-						error: refusal.error
-					})
-				)
-		)
-	})
-})
-
-/** The text of a login's file of `kind` its compile gives: its served file's, or its OpenAPI document's. */
-export const loginText = (entry: ServedEntry, kind: LoginFileKind): TextChunks =>
-	kind === "served" ? entry.text : entry.openapi
-
-/**
- * What writing `served` does to directories holding the committed files `committed`, by kind and login (ServedWrites):
- * a login's file written where none is committed or the committed one's bytes part from its text, each committed file
- * read a block at a time and held to the text as it is read (files.ts matchesFile), never read whole.
- */
-export const servedWrites = (
-	schema: ConfiguredSchema,
-	served: ReadonlyArray<ServedEntry>,
-	committed: LoginPaths
-): Effect.Effect<ServedWrites, CliError, FileSystem.FileSystem> => {
-	const listed = new Set(Arr.map(served, (f) => f.login))
-	const writes = (
-		kind: LoginFileKind
-	): Effect.Effect<LoginWrites, PlatformError.PlatformError, FileSystem.FileSystem> =>
-		Effect.map(
-			Effect.forEach(served, (f) => {
-				const text = loginText(f, kind)
-				const path = committed[kind].get(f.login)
-				return path === undefined
-					? Effect.succeed([{ login: f.login, text }])
-					: Effect.map(matchesFile(path, text), (parting) =>
-							parting.kind === "same" ? [] : [{ login: f.login, text }]
-						)
-			}),
-			(written) => ({
-				write: Arr.flatten(written),
-				remove: Arr.filter(Arr.fromIterable(committed[kind].keys()), (login) => !listed.has(login))
-			})
-		)
-	return Effect.mapError(
-		Effect.all({ served: writes("served"), openapi: writes("openapi") }),
-		(cause) =>
-			cliError(new TreeUnread({ schema: schema.declared, directory: schema.directory, cause }))
-	)
-}
-
-/** One schema's draft, computed without writing anything. */
-const draftFor = Effect.fn("draftFor")(function* (
-	config: ResolvedConfig,
-	schema: ConfiguredSchema,
-	options: GenerateOptions
-): Effect.fn.Return<SchemaDraft, CliError, FileSystem.FileSystem | Path.Path> {
-	const tree = yield* readSchemaTree(schema.declared, schema.directory)
-	const committed = yield* committedSnapshot(schema, tree)
-	const previous = committed.snapshot
-	const chain = yield* continuedChain(schema, tree, previous)
-	const timestamp = nextTimestamp(options.now, chain.timestamps)
-	const mode = options.mode
-	if (mode.kind === "custom") {
-		const folder = yield* Effect.mapError(
-			fromEngine(customMigration({ snapshot: previous, name: mode.name, timestamp })),
-			draftRefused(schema.declared, "custom")
-		)
-		return {
-			schema,
-			folder,
-			snapshot: previous,
-			served: noServedWrites,
-			certification: [],
-			fences: [],
-			kind: "custom"
-		} satisfies SchemaDraft
-	}
-	const compiled = yield* Effect.fromResult(
-		phased(options.phases, { name: "build", of: [] }, () => compileSchema(schema))
-	)
-	const generated = yield* generateSchema(
-		compiled,
-		previous,
-		mode.naming,
-		timestamp,
-		isEmptySnapshot(previous) ? yield* abandonedSchemas(config) : [],
-		options.declared,
-		options.phases
-	)
-	const files = yield* servedFiles(compiled, generated, generated.served, options.phases)
+): Effect.fn.Return<ReadonlyArray<string>, CliError, FileSystem.FileSystem | Path.Path> {
+	const files = yield* snapshotFilesOf(compiled, draft)
 	yield* unsplitWithin(
-		schema.declared,
-		Arr.flatMap(loginFileKinds, (kind) =>
-			Arr.map(files, (f) => ({ file: loginFiles[kind].path(f.login), text: loginText(f, kind) }))
-		),
+		compiled.declared,
+		[{ file: snapshotFileName, text: files.snapshot }],
 		generatedFileMaxBytes
 	)
-	const served = yield* servedWrites(schema, files, tree.logins)
-	const certification = generated.served.kind === "logins" ? generated.served.certification : []
-	const fences = generated.served.kind === "logins" ? generated.served.fences : []
-	if (generated.change === "none") {
-		return committed.kind === "files" &&
-			(!derivedHolds(committed.derived, generated.derived) ||
-				!recordHolds(committed.snapshot, generated.snapshot))
-			? ({
-					schema,
-					snapshot: previous,
-					snapshotFiles: yield* importedSnapshotFiles(schema, compiled, generated),
-					served,
-					certification,
-					fences,
-					kind: "rederived"
-				} satisfies SchemaDraft)
-			: ({
-					schema,
-					snapshot: previous,
-					served,
-					certification,
-					fences,
-					kind: "unchanged"
-				} satisfies SchemaDraft)
-	}
-	return {
-		schema,
-		folder: generated.folder,
-		snapshot: generated.snapshot,
-		snapshotFiles: yield* importedSnapshotFiles(schema, compiled, generated),
-		served,
-		certification,
-		fences,
-		kind: "drafted"
-	} satisfies SchemaDraft
+	return yield* stageSnapshotFiles(compiled.declared, staging, files, generatedFileMaxBytes)
 })
 
 /**
- * The schemas a schema's first draft abandons: each directory of the migrations directory, holding a snapshot.json, of a
- * schema the configuration no longer lists. A schema renamed in code is a new PostgreSQL schema, which the draft
- * creates empty, and the old one is never migrated again; only the reviewer knows which was meant, so the draft starts
- * the schema under the loss of their rows, a decision the reviewer makes (diff/plan.ts Loss).
+ * Stages `folder` (files.ts stageFolder) and reads what the report states of it (StagedFolder): its SQL files' names,
+ * each marker they hold, and the losses and locks its meta.json records.
  */
-const abandonedSchemas = Effect.fn("abandonedSchemas")(
-	function* (
-		config: ResolvedConfig
-	): Effect.fn.Return<
-		ReadonlyArray<AbandonedSchema>,
-		PlatformError.PlatformError,
-		FileSystem.FileSystem | Path.Path
-	> {
-		const fs = yield* FileSystem.FileSystem
-		const path = yield* Path.Path
-		if (!(yield* fs.exists(config.migrations))) {
-			return []
-		}
-		const configured = new Set(Arr.map(config.schemas, (s) => s.ident))
-		const abandoned: Array<AbandonedSchema> = []
-		const entries = yield* fs.readDirectory(config.migrations)
-		for (const name of Arr.sort(entries, Order.String)) {
-			const directory = path.join(config.migrations, name)
-			const candidate = !configured.has(name) && (yield* fs.stat(directory)).type === "Directory"
-			if (candidate && (yield* fs.exists(path.join(directory, snapshotFileName)))) {
-				abandoned.push({ schema: name, directory: path.relative(config.directory, directory) })
-			}
-		}
-		return abandoned
-	},
-	(effect, config) =>
-		Effect.mapError(effect, (cause) =>
-			cliError(new MigrationsUnread({ directory: config.migrations, cause }))
-		)
-)
-
-/** Writes a draft: its folder whole, then its snapshot, then its served files and OpenAPI documents. */
-export const writeDraft = Effect.fn("writeDraft")(function* (
-	draft: SchemaDraft
-): Effect.fn.Return<SchemaGenerateReport, CliError, FileSystem.FileSystem | Path.Path> {
-	const { schema } = draft
-	const schemaWritten = yield* writeSchemaDraft(draft)
-	const files = yield* Effect.forEach(loginFileKinds, (kind) =>
-		writeLoginFiles(
-			schema.declared,
-			kind,
-			schema.directory,
-			draft.served[kind].write,
-			draft.served[kind].remove
-		)
-	)
-	const written = Arr.flatMap(files, (f) => f.written)
-	const removed = Arr.flatMap(files, (f) => f.removed)
-	return {
-		...schemaWritten,
-		schema: schema.declared,
-		ident: schema.ident,
-		fingerprint: draft.snapshot.fingerprint,
-		served: written,
-		unserved: removed,
-		certification: draft.certification,
-		fences: draft.fences
-	}
-})
-
-/** Writes a draft's folder whole, then its snapshot. */
-const writeSchemaDraft = Effect.fn("writeSchemaDraft")(function* (
-	draft: SchemaDraft
-): Effect.fn.Return<SchemaWritten, CliError, FileSystem.FileSystem | Path.Path> {
-	const { schema } = draft
-	if (draft.kind === "unchanged") {
-		const unchanged: SchemaWritten = {
-			kind: "unchanged",
-			files: [],
-			markers: [],
-			losses: [],
-			locks: []
-		}
-		return unchanged
-	}
-	if (draft.kind === "rederived") {
-		const rederived: SchemaWritten = {
-			kind: "rederived",
-			snapshotPaths: yield* writeSnapshotFiles(
-				schema.declared,
-				schema.directory,
-				draft.snapshotFiles,
-				generatedFileMaxBytes
-			),
-			files: [],
-			markers: [],
-			losses: [],
-			locks: []
-		}
-		return rederived
-	}
-	const folder = draft.folder
-	const written = {
-		folder: folder.name,
-		path: yield* writeFolder(schema.declared, schema.directory, folder, generatedFileMaxBytes),
+const stagedFolder = Effect.fn("stagedFolder")(function* (
+	schema: ConfiguredSchema,
+	staging: Staging,
+	folder: MigrationFolder
+): Effect.fn.Return<StagedFolder, CliError, FileSystem.FileSystem | Path.Path> {
+	yield* stageFolder(schema.declared, staging, folder, generatedFileMaxBytes)
+	const staged: StagedFolder = {
+		name: folder.name,
 		files: Arr.map(folder.files, (f) => f.name),
 		markers: Arr.flatMap(folder.files, (f) =>
 			Arr.map(findMarkers(new ChunkView(f.text)), (m) => ({
@@ -1020,6 +874,462 @@ const writeSchemaDraft = Effect.fn("writeSchemaDraft")(function* (
 				? Arr.map(folder.meta.files, (f) => ({ file: f.name, locks: f.locks }))
 				: []
 	}
+	return staged
+})
+
+/**
+ * A schema's draft as generate holds it once staged (stagedOver), but for its snapshot's files: its snapshot and derived
+ * facts, what it changes, with the folder it staged where it changes the schema (stagedFolder), its login files' writes,
+ * and its logins' certificates and fences. It holds no text, no plan and nothing the served files compiled over.
+ */
+interface DraftStaged extends DraftSnapshot {
+	readonly drafted:
+		| { readonly kind: "none" }
+		| { readonly kind: "schema"; readonly folder: StagedFolder }
+	readonly served: ServedWrites
+	readonly certification: ServedWorkloadPlan["certification"]
+	readonly fences: ServedWorkloadPlan["fences"]
+}
+
+/**
+ * A planned draft's folder rendered and named by `naming` and `timestamp` (the pure generator's renderMigration, the
+ * `render` phase) and staged (stagedFolder), its texts and its decision record dropped once written; none where the
+ * draft changes nothing, whose folder generate writes no file of.
+ */
+const renderedFolder = Effect.fn("renderedFolder")(function* (
+	schema: ConfiguredSchema,
+	staging: Staging,
+	planned: PlannedDraft,
+	naming: FolderNaming,
+	timestamp: string,
+	phases: Phases
+): Effect.fn.Return<DraftStaged["drafted"], CliError, FileSystem.FileSystem | Path.Path> {
+	if (planned.change === "none") {
+		return { kind: "none" }
+	}
+	const folder = yield* Effect.flatMap(
+		Effect.mapError(
+			fromEngine(
+				phased(phases, { name: "render", of: [] }, () =>
+					renderMigration(planned, naming, timestamp)
+				)
+			),
+			draftRefused(schema.declared, "draft")
+		),
+		(rendered) => stagedFolder(schema, staging, rendered.folder)
+	)
+	return { kind: "schema", folder }
+})
+
+/**
+ * A planned schema staged, each product made where its inputs first stand and dropped there: the served files compiled
+ * under the plan's snapshot and staged as each compiles (stagedServed), what they compile over (ServedBasis: each
+ * level's artifacts and each login's ChangeSets) held no longer than the last of them; then the folder rendered and
+ * staged (renderedFolder), the plan held no longer than it. A login's served file reads of the draft its snapshot alone,
+ * and of the snapshot's facts the plan decides its fingerprint alone (engine render/generate.ts PlannedDraft), so the
+ * served files need the plan's snapshot and not its folder, and the folder needs nothing they compile over: the
+ * rendering's own transient (every statement printed, every file's text, the decision record) never stands beside what
+ * the served files compile over, where the draft rendered the folder beside both (metis's installation at grizzle
+ * dfc9f60e: the served files' 515 MB of level artifacts and 70 MB of ChangeSets held through its whole draft).
+ */
+export const stagedOver =
+	(
+		configured: ConfiguredSchema,
+		compiled: CompiledSchema,
+		staging: Staging,
+		committed: LoginPaths,
+		naming: FolderNaming,
+		timestamp: string,
+		phases: Phases
+	) =>
+	(
+		schema: PlannedSchema
+	): Effect.Effect<DraftStaged, CliError, FileSystem.FileSystem | Path.Path> => {
+		const { planned, served } = schema
+		const certification = served.kind === "logins" ? served.certification : []
+		const fences = served.kind === "logins" ? served.fences : []
+		return Effect.zipWith(
+			stagedServed(configured, compiled, planned, served, staging, committed, phases),
+			renderedFolder(configured, staging, planned, naming, timestamp, phases),
+			(writes, drafted): DraftStaged => ({
+				snapshot: planned.snapshot,
+				derived: planned.derived,
+				drafted,
+				served: writes,
+				certification,
+				fences
+			})
+		)
+	}
+
+/**
+ * The JSON value of the snapshot.json text a draft lays out (writeRuntimeSnapshot), as an application's import of the
+ * file yields it: what every login's served file compiles under. The text is held no longer than its read.
+ */
+const runtimeSnapshotValue = (
+	schema: CompiledSchema,
+	draft: DraftSnapshot
+): Effect.Effect<unknown, CliError> =>
+	Effect.mapBoth(fromEngine(writeRuntimeSnapshot(draft.snapshot, draft.derived)), {
+		onFailure: draftRefused(schema.declared, "draft"),
+		onSuccess: (text) => {
+			const read = readJson(text)
+			if (!read.ok) {
+				defect(`the snapshot.json a draft lays out reads as JSON: ${read.error.expected}`)
+			}
+			return read.value
+		}
+	})
+
+/**
+ * Each login's served file, in configured order, handed to `sink` as it is compiled: its workload compiled under the
+ * snapshot.json text the draft lays out, the draft's (adapter/served/compile.ts servedEntry), over the artifacts
+ * `served` holds for it, its ChangeSets as the draft's workload plan compiled them (PlannedLogin): a login over the
+ * schema's own level over the installation's artifacts, and one over a level below, whose ownership is its own
+ * (cli/config.ts compileSchema), over that level's, as the snapshot records them. generate stages them beside the
+ * snapshot and check holds the committed ones to them, so both compile every login once, from the one text. A login
+ * whose workload does not compile is ServedRefused, at the login, its role or its program. The served files are a phase
+ * reported to `phases` (`served`), each login's compile a phase inside it (`servedLogin`).
+ *
+ * Only what `sink` returns is kept: a login's texts are the sink's to write or to compare, and none outlives its sink,
+ * where every login's were held until the last was compiled and then until the write (metis's installation from
+ * nothing at grizzle dfc9f60e: its 24 logins' served files and OpenAPI documents, 92 MB of text, held at once).
+ */
+export const eachServedFile = <A, E, R>(
+	schema: CompiledSchema,
+	draft: DraftSnapshot,
+	served: ServedBasis,
+	phases: Phases,
+	sink: (entry: ServedEntry) => Effect.Effect<A, E, R>
+): Effect.Effect<ReadonlyArray<A>, CliError | E, R> =>
+	phasedEffect(
+		phases,
+		{ name: "served", of: [] },
+		servedEntries(schema, draft, served, phases, sink)
+	)
+
+/** Each login's served file handed to `sink` (eachServedFile), each login's compile a phase reported to `phases`. */
+const servedEntries = Effect.fn("eachServedFile")(function* <A, E, R>(
+	schema: CompiledSchema,
+	draft: DraftSnapshot,
+	served: ServedBasis,
+	phases: Phases,
+	sink: (entry: ServedEntry) => Effect.Effect<A, E, R>
+): Effect.fn.Return<ReadonlyArray<A>, CliError | E, R> {
+	if (served.kind === "noLogin") {
+		return []
+	}
+	const snapshot = yield* runtimeSnapshotValue(schema, draft)
+	return yield* Effect.forEach(schema.logins, (login) => {
+		const planned = served.logins.get(login.owned.name)
+		if (planned === undefined) {
+			defect(`the plan of login ${login.owned.name}, a login of the configuration`)
+		}
+		const compiled = Effect.mapError(
+			phasedEffect(
+				phases,
+				{ name: "servedLogin", of: [login.owned.name] },
+				servedEntry(
+					login,
+					snapshot,
+					planned.artifacts,
+					planned.roles,
+					planned.footprints,
+					served.seeks
+				)
+			),
+			(refusal) =>
+				cliError(
+					new ServedRefused({
+						schema: schema.declared,
+						login: login.login.desc.name,
+						place: refusal.place,
+						error: refusal.error
+					})
+				)
+		)
+		return Effect.flatMap(compiled, sink)
+	})
+})
+
+/** The text of a login's file of `kind` its compile gives: its served file's, or its OpenAPI document's. */
+export const loginText = (entry: ServedEntry, kind: LoginFileKind): TextChunks =>
+	kind === "served" ? entry.text : entry.openapi
+
+/** What staging one login's files did (stageServed): the login, and whether its file of each kind was staged. */
+interface LoginStaged {
+	readonly login: string
+	readonly staged: { readonly [K in LoginFileKind]: boolean }
+}
+
+/**
+ * A sink of the served files (eachServedFile) staging each login's file of each kind (files.ts stageLoginFile) where
+ * `committed` holds none of it or the committed one's bytes part from its text, each committed file read a block at a
+ * time and held to the text as it is read (adapter/boundary/files.ts matchesFile), never read whole; the login's files,
+ * each imported whole by an application, are refused first where one is past generatedFileMaxBytes (files.ts
+ * unsplitWithin).
+ */
+const stageServed =
+	(schema: ConfiguredSchema, staging: Staging, committed: LoginPaths) =>
+	(entry: ServedEntry): Effect.Effect<LoginStaged, CliError, FileSystem.FileSystem | Path.Path> =>
+		Effect.gen(function* () {
+			yield* unsplitWithin(
+				schema.declared,
+				Arr.map(loginFileKinds, (kind) => ({
+					file: loginFiles[kind].path(entry.login),
+					text: loginText(entry, kind)
+				})),
+				generatedFileMaxBytes
+			)
+			const staged = Effect.fn("stagedLoginFile")(function* (kind: LoginFileKind) {
+				const text = loginText(entry, kind)
+				const path = committed[kind].get(entry.login)
+				const parting =
+					path === undefined
+						? { kind: "absent" as const }
+						: yield* Effect.mapError(matchesFile(path, text), (cause) =>
+								cliError(
+									new TreeUnread({ schema: schema.declared, directory: schema.directory, cause })
+								)
+							)
+				if (parting.kind === "same") {
+					return false
+				}
+				yield* stageLoginFile(schema.declared, kind, staging, entry.login, text)
+				return true
+			})
+			return {
+				login: entry.login,
+				staged: { served: yield* staged("served"), openapi: yield* staged("openapi") }
+			}
+		})
+
+/**
+ * Each login's served file and OpenAPI document of `served`, compiled under the draft (eachServedFile), staged where the
+ * directory holding the committed files `committed` does not hold its text (stageServed), and what that does to the
+ * directories, by kind (ServedWrites): the files staged, and the file of each login the configuration no longer lists,
+ * removed.
+ */
+export const stagedServed = Effect.fn("stagedServed")(function* (
+	configured: ConfiguredSchema,
+	compiled: CompiledSchema,
+	draft: DraftSnapshot,
+	served: ServedBasis,
+	staging: Staging,
+	committed: LoginPaths,
+	phases: Phases
+): Effect.fn.Return<ServedWrites, CliError, FileSystem.FileSystem | Path.Path> {
+	const staged = yield* eachServedFile(
+		compiled,
+		draft,
+		served,
+		phases,
+		stageServed(configured, staging, committed)
+	)
+	const listed = new Set(Arr.map(staged, (s) => s.login))
+	const writes = (kind: LoginFileKind): LoginWrites => ({
+		write: Arr.flatMap(staged, (s) => (s.staged[kind] ? [s.login] : [])),
+		remove: Arr.filter(Arr.fromIterable(committed[kind].keys()), (login) => !listed.has(login))
+	})
+	return { served: writes("served"), openapi: writes("openapi") }
+})
+
+/**
+ * What a schema's draft reads of its directory: what it commits (committed.ts committedSnapshot), the timestamp its
+ * next folder takes, the second after its chain's last (timestamp.ts), and the paths of its login files. The committed
+ * folders' texts are read to hold the chain to the snapshot and held no longer than that.
+ */
+const committedState = Effect.fn("committedState")(function* (schema: ConfiguredSchema) {
+	const tree = yield* readSchemaTree(schema.declared, schema.directory)
+	const committed = yield* committedSnapshot(schema, tree)
+	const chain = yield* continuedChain(schema, tree, committed.snapshot)
+	return { committed, timestamp: nextTimestamp(chain.timestamps), logins: tree.logins }
+})
+
+/**
+ * One schema's draft, every file of it staged as it is made in a staging area of the scope's (files.ts stagingArea),
+ * made once the schema's directory is read, so a directory the reading refuses is refused as it is (StagedDraft);
+ * nothing is put in place.
+ */
+const draftFor = Effect.fn("draftFor")(function* (
+	config: ResolvedConfig,
+	schema: ConfiguredSchema,
+	options: GenerateOptions
+): Effect.fn.Return<StagedDraft, CliError, FileSystem.FileSystem | Path.Path | Scope.Scope> {
+	const { committed, timestamp, logins } = yield* committedState(schema)
+	const staging = yield* stagingArea(schema.declared, schema.directory, config.migrations)
+	const previous = committed.snapshot
+	const mode = options.mode
+	if (mode.kind === "custom") {
+		const folder = yield* Effect.flatMap(
+			Effect.mapError(
+				fromEngine(customMigration({ snapshot: previous, name: mode.name, timestamp })),
+				draftRefused(schema.declared, "custom")
+			),
+			(made) => stagedFolder(schema, staging, made)
+		)
+		return {
+			schema,
+			staging,
+			folder,
+			fingerprint: previous.fingerprint,
+			served: noServedWrites,
+			certification: [],
+			fences: [],
+			kind: "custom"
+		} satisfies StagedDraft
+	}
+	const compiled = yield* Effect.fromResult(
+		phased(options.phases, { name: "build", of: [] }, () => compileSchema(schema))
+	)
+	const generated = yield* Effect.flatMap(
+		plannedSchema(
+			compiled,
+			previous,
+			isEmptySnapshot(previous) ? yield* abandonedSchemas(config) : [],
+			options.declared,
+			options.phases
+		),
+		stagedOver(schema, compiled, staging, logins, mode.naming, timestamp, options.phases)
+	)
+	const { served, certification, fences } = generated
+	if (generated.drafted.kind === "none") {
+		return committed.kind === "files" &&
+			(!derivedHolds(committed.derived, generated.derived) ||
+				!recordHolds(committed.snapshot, generated.snapshot))
+			? ({
+					schema,
+					staging,
+					fingerprint: previous.fingerprint,
+					manifest: yield* stagedSnapshotFiles(compiled, staging, generated),
+					served,
+					certification,
+					fences,
+					kind: "rederived"
+				} satisfies StagedDraft)
+			: ({
+					schema,
+					staging,
+					fingerprint: previous.fingerprint,
+					served,
+					certification,
+					fences,
+					kind: "unchanged"
+				} satisfies StagedDraft)
+	}
+	return {
+		schema,
+		staging,
+		folder: generated.drafted.folder,
+		fingerprint: generated.snapshot.fingerprint,
+		manifest: yield* stagedSnapshotFiles(compiled, staging, generated),
+		served,
+		certification,
+		fences,
+		kind: "drafted"
+	} satisfies StagedDraft
+})
+
+/**
+ * The schemas a schema's first draft abandons: each visible directory of the migrations directory (files.ts
+ * visibleEntries), holding a snapshot.json, of a schema the configuration no longer lists. A schema renamed in code is a new PostgreSQL schema, which the draft
+ * creates empty, and the old one is never migrated again; only the reviewer knows which was meant, so the draft starts
+ * the schema under the loss of their rows, a decision the reviewer makes (diff/plan.ts Loss).
+ */
+const abandonedSchemas = Effect.fn("abandonedSchemas")(
+	function* (
+		config: ResolvedConfig
+	): Effect.fn.Return<
+		ReadonlyArray<AbandonedSchema>,
+		PlatformError.PlatformError,
+		FileSystem.FileSystem | Path.Path
+	> {
+		const fs = yield* FileSystem.FileSystem
+		const path = yield* Path.Path
+		if (!(yield* fs.exists(config.migrations))) {
+			return []
+		}
+		const configured = new Set(Arr.map(config.schemas, (s) => s.ident))
+		const abandoned: Array<AbandonedSchema> = []
+		for (const name of yield* visibleEntries(fs, config.migrations)) {
+			const directory = path.join(config.migrations, name)
+			const candidate = !configured.has(name) && (yield* fs.stat(directory)).type === "Directory"
+			if (candidate && (yield* fs.exists(path.join(directory, snapshotFileName)))) {
+				abandoned.push({ schema: name, directory: path.relative(config.directory, directory) })
+			}
+		}
+		return abandoned
+	},
+	(effect, config) =>
+		Effect.mapError(effect, (cause) =>
+			cliError(new MigrationsUnread({ directory: config.migrations, cause }))
+		)
+)
+
+/** Puts a staged draft in place: its folder whole, then its snapshot, then its served files and OpenAPI documents. */
+export const commitDraft = Effect.fn("commitDraft")(function* (
+	draft: StagedDraft
+): Effect.fn.Return<SchemaGenerateReport, CliError, FileSystem.FileSystem | Path.Path> {
+	const { schema } = draft
+	const schemaWritten = yield* commitSchemaDraft(draft)
+	const files = yield* Effect.forEach(loginFileKinds, (kind) =>
+		commitLoginFiles(
+			schema.declared,
+			kind,
+			draft.staging,
+			draft.served[kind].write,
+			draft.served[kind].remove
+		)
+	)
+	const written = Arr.flatMap(files, (f) => f.written)
+	const removed = Arr.flatMap(files, (f) => f.removed)
+	return {
+		...schemaWritten,
+		schema: schema.declared,
+		ident: schema.ident,
+		fingerprint: draft.fingerprint,
+		served: written,
+		unserved: removed,
+		certification: draft.certification,
+		fences: draft.fences
+	}
+})
+
+/** Puts a staged draft's folder in place whole, then its snapshot. */
+const commitSchemaDraft = Effect.fn("commitSchemaDraft")(function* (
+	draft: StagedDraft
+): Effect.fn.Return<SchemaWritten, CliError, FileSystem.FileSystem | Path.Path> {
+	const { schema } = draft
+	if (draft.kind === "unchanged") {
+		const unchanged: SchemaWritten = {
+			kind: "unchanged",
+			files: [],
+			markers: [],
+			losses: [],
+			locks: []
+		}
+		return unchanged
+	}
+	if (draft.kind === "rederived") {
+		const rederived: SchemaWritten = {
+			kind: "rederived",
+			snapshotPaths: yield* commitSnapshotFiles(schema.declared, draft.staging, draft.manifest),
+			files: [],
+			markers: [],
+			losses: [],
+			locks: []
+		}
+		return rederived
+	}
+	const folder = draft.folder
+	const written = {
+		folder: folder.name,
+		path: yield* commitFolder(schema.declared, draft.staging, folder.name),
+		files: folder.files,
+		markers: folder.markers,
+		losses: folder.losses,
+		locks: folder.locks
+	}
 	if (draft.kind === "custom") {
 		const custom: SchemaWritten = { ...written, kind: "custom" }
 		return custom
@@ -1027,16 +1337,16 @@ const writeSchemaDraft = Effect.fn("writeSchemaDraft")(function* (
 	const drafted: SchemaWritten = {
 		...written,
 		kind: "drafted",
-		snapshotPaths: yield* writeSnapshotFiles(
-			schema.declared,
-			schema.directory,
-			draft.snapshotFiles,
-			generatedFileMaxBytes
-		)
+		snapshotPaths: yield* commitSnapshotFiles(schema.declared, draft.staging, draft.manifest)
 	}
 	return drafted
 })
 
+/**
+ * Every selected schema drafted, each in a staging area of its own (files.ts stagingArea), each file staged as its text
+ * is made, then every draft put in place, schema by schema, once every one has drafted: a schema the compiler refuses
+ * leaves no file of any schema in place, and the staging areas are removed as the command ends, whatever it did.
+ */
 export const generateMigrations = Effect.fn("generate")(function* (
 	config: ResolvedConfig,
 	options: GenerateOptions
@@ -1046,23 +1356,27 @@ export const generateMigrations = Effect.fn("generate")(function* (
 	FileSystem.FileSystem | Path.Path
 > {
 	const schemas = yield* Effect.fromResult(selectSchemas(config, options))
-	const drafts: Array<SchemaDraft> = []
-	for (const s of schemas) {
-		const draft = yield* phasedEffect(
-			options.phases,
-			{ name: "schema", of: [s.declared] },
-			draftFor(config, s, options)
-		)
-		drafts.push(draft)
-	}
-	const reports: Array<SchemaGenerateReport> = []
-	for (const d of drafts) {
-		const report = yield* phasedEffect(
-			options.phases,
-			{ name: "write", of: [d.schema.declared] },
-			writeDraft(d)
-		)
-		reports.push(report)
-	}
-	return reports
+	return yield* Effect.scoped(
+		Effect.gen(function* () {
+			const drafts: Array<StagedDraft> = []
+			for (const s of schemas) {
+				const draft = yield* phasedEffect(
+					options.phases,
+					{ name: "schema", of: [s.declared] },
+					draftFor(config, s, options)
+				)
+				drafts.push(draft)
+			}
+			const reports: Array<SchemaGenerateReport> = []
+			for (const d of drafts) {
+				const report = yield* phasedEffect(
+					options.phases,
+					{ name: "write", of: [d.schema.declared] },
+					commitDraft(d)
+				)
+				reports.push(report)
+			}
+			return reports
+		})
+	)
 })

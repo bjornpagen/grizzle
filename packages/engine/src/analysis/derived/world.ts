@@ -6,6 +6,7 @@ import {
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { analyzedDefinition, type DeclaredColumn } from "#compiler/analysis/derived/analyze.ts"
+import { viewDependencies } from "#compiler/analysis/derived/drawn.ts"
 import { type InheritedKey, inheritedKeys } from "#compiler/analysis/logical/derived.ts"
 import type { AdmittedQuery } from "#compiler/check/index.ts"
 import type { SchemaReading } from "#compiler/check/schema.ts"
@@ -94,7 +95,7 @@ export const analyzeWorld = (
 	}
 	const { checked, root, analyzed, heading, declared } = definition.value
 	const props = defined(analyzed.props.get(root), "a definition's root, kept")
-	const inherited = inheritedKeys(declared, props.keys, props.prove, () => true)
+	const inherited = inheritedKeys(root, declared, props.keys, props.prove, () => true)
 	/** A definition of one heading group is a set, so its whole heading is always a key. */
 	const keys = isNonEmpty(inherited) ? inherited : wholeHeadingKey(props.whole(), declared)
 	if (keys === undefined) {
@@ -134,7 +135,8 @@ export const analyzeWorld = (
 				context: k.proof.context,
 				members: classMembers(k.proof),
 				alternatives: viewAlternatives(k.proof)
-			}))
+			})),
+			determined: viewDependencies(base.owned, root)
 		}
 	})
 }

@@ -36,6 +36,13 @@ export const cost = costGate(servedRecords, {
 				"\t: [Need] extends [never]\n\t\t? never\n\t\t: HeldFields<Need, EntriesIn<HeadEntries<H>, Need>>",
 			replacement: "\t: HeldFields<Need, EntriesIn<HeadEntries<H>, Need>>",
 			why: "A key whose fields are inputs or fixed, which needs nothing, reads the head's entries anyway: each query's rule over P at a parameter reads its head's terms for a key it holds by the parameter, so a unit of flat records costs 10,584 instantiations against its bound of 10,483."
+		},
+		{
+			file: "packages/engine/src/types/schema/schema.ts",
+			original: "\t: true extends LevelMatch<LevelsOf<S>, IX>\n\t\t? true\n\t\t: false\n",
+			replacement:
+				"\t: true extends LevelMatch<LevelsOf<S>, IX>\n\t\t? true\n\t\t: [IX] extends [Invariant<EmptyLevel>]\n\t\t\t? true\n\t\t\t: false\n",
+			why: "The empty level is admitted in IsLevelOf's refusal branch, a level of every level, so every test of a level that is not one, a login's of each workload over a role, a role's of each records level it does not hold, tests the empty level too: a unit of flat records costs 10,190 instantiations against its exact bound of 10,136, under the 10,483 the bound held before it was exact (REPLAYFIX)."
 		}
 	]
 })

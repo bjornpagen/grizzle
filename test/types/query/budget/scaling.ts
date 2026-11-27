@@ -211,7 +211,7 @@ ${Arr.join(
 ])
 export const Reader = role(S, "reader", wholeEntriesOf(S))
 export const keyed = workload(Reader, { key: R0 })
-export const readAll = (db: DbOf<typeof Reader, typeof keyed.programs>) => db.workload.key.once({ params: { id: Id("00000000-0000-4000-8000-000000000001") }, facts: {} })
+export const readAll = (db: DbOf<typeof Reader, typeof keyed.programs>) => db.workload.key.once({ params: { id: toId("00000000-0000-4000-8000-000000000001") }, facts: {} })
 ${Arr.join(
 	Arr.map(indices(shape.rules), (q) => ruleBlock(q, shape.relations)),
 	""

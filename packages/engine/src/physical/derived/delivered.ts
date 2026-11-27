@@ -162,6 +162,7 @@ class Delivered {
 			case "lowerAscii":
 			case "nullif":
 			case "subscript":
+			case "attribute":
 				return undefined
 		}
 	}

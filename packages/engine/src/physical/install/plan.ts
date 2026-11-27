@@ -7,7 +7,7 @@ import {
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { closedTableOf, derivedAnalysis } from "#compiler/analysis/schema.ts"
-import type { CheckedSchema } from "#compiler/analysis/schema.ts"
+import type { CheckedSchema, RealityReading } from "#compiler/analysis/schema.ts"
 import { contractLaw, lawDescription } from "#compiler/analysis/theory/description.ts"
 import { contractLawIdentity } from "#compiler/analysis/theory/theory.ts"
 import { catchRefusal, metFirst, settled, unwrap } from "#compiler/core/canonical.ts"
@@ -24,7 +24,7 @@ import type { Identifier, LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import type { FunctionTypeDesc } from "#compiler/ir/desc.ts"
+import type { FunctionTypeDesc, QueryDesc } from "#compiler/ir/desc.ts"
 import { exprClosure } from "#compiler/ir/expr.ts"
 import type { ClosedTheoryRelation, TableRelation } from "#compiler/ir/law.ts"
 import { installedSpellings } from "#compiler/ir/pattern.ts"
@@ -35,7 +35,7 @@ import {
 	type ConstraintLaw,
 	type ConstraintLawOf,
 	type CycleSource,
-	compileLaws,
+	levelLaws,
 	conservativeLaws,
 	constraintLawMap,
 	type DomainUse,
@@ -55,6 +55,8 @@ import {
 	contractDigest,
 	type FieldPatternLaw,
 	fieldPatternLaws,
+	type FieldVariantLaw,
+	fieldVariantLaws,
 	type InstalledParams,
 	noServedTypes,
 	type OutsideContract,
@@ -64,6 +66,7 @@ import {
 	type ParamDomainUse,
 	type ServedTypes,
 	patternLawId,
+	variantLawId,
 	dagObjects,
 	type ParamContract,
 	planTextDomains,
@@ -103,19 +106,16 @@ import { recordedLaw } from "#compiler/runtime/law-entry.ts"
 import { constraintLawsOf } from "#compiler/runtime/write/laws.ts"
 import { type DeclaredEntries, derivedStatement } from "#compiler/schema/declared-entries.ts"
 import { installationsOf, type Owned } from "#compiler/schema/own.ts"
-import type { Slice } from "#compiler/schema/reach.ts"
 import type { AboveLaw, RecordedLaw } from "#compiler/types/changeset/changeset.ts"
 
 /**
- * What an installation's plan is compiled over (planInstallation): the owned schema's law model (compileLaws) for a
- * slice, which reads the schema alone, the installation's codes, each closed relation's constants as readers address
- * them under those codes (physical/ddl/constants.ts NamedClosed), and the text domains it holds (physical/ddl/domains.ts
- * TextDomainNames), which name a refined text's domain whatever the slice reads. A login's runtime compiles its law
- * model for its roles' writes alone (schema/reach.ts loginSlice) and reads the constants' and the text domains' names
- * from its snapshot, which recorded the installation's whole set when it was generated (planBasis); generate, check and
- * every installation compile it over every relation (everySlice), plan the foreign key cycles from every law, plan the
- * constants from the closed relations' rows and the text domains from every artifact of the model
- * (declaredTextDomains), to which a plan adds its worlds' and its served programs' (installBasis).
+ * What an installation's plan is compiled over (planInstallation): the owned schema's law model (compileLaws), which
+ * reads the schema alone, the installation's codes, each closed relation's constants as readers address them under
+ * those codes (physical/ddl/constants.ts NamedClosed), and the text domains it holds (physical/ddl/domains.ts
+ * TextDomainNames). A login's runtime reads the constants' and the text domains' names from its snapshot, which
+ * recorded the installation's whole set when it was generated (planBasis); generate, check and every installation plan
+ * the foreign key cycles from every law, the constants from the closed relations' rows and the text domains from every
+ * artifact of the model (declaredTextDomains), to which a plan adds its worlds' and its served programs' (installBasis).
  */
 export interface PlanBasis {
 	readonly owned: Owned
@@ -138,23 +138,24 @@ export interface InstallBasis extends PlanBasis {
 	readonly planned: ClosedPlan
 }
 
-/** The basis of the installations of `owned` under the installation's codes `codes`, for `slice`, its law model's
- * foreign key cycles planned from every law (laws/model/model.ts CycleSource). */
+/** The basis of the installations of `owned` under the installation's codes `codes`, its law model's foreign key cycles
+ * planned from every law (laws/model/model.ts CycleSource). */
 export const installBasis = (
 	owned: Owned,
 	codes: Codebook,
-	slice: Slice
+	served: ReadonlySet<QueryDesc>
 ): Result.Result<InstallBasis, CompileError> =>
-	Result.flatMap(compileLaws(owned, slice, { kind: "planned" }), (model) => basisOf(model, codes))
+	Result.flatMap(levelLaws(owned, served, { kind: "planned" }, { kind: "analyzed" }), (model) =>
+		basisOf(model, codes)
+	)
 
-/** The basis of the law oracle's conservative installation of `owned` (install/compile.ts conservativeInstallation):
+/** The basis of the law oracle's conservative installation of `owned` (program/install.ts conservativeInstallation):
  * installBasis's, over the law model that discharges every rule over a query by its triggers (conservativeLaws). */
 export const conservativeBasis = (
 	owned: Owned,
-	codes: Codebook,
-	slice: Slice
+	codes: Codebook
 ): Result.Result<InstallBasis, CompileError> =>
-	Result.flatMap(conservativeLaws(owned, slice), (model) => basisOf(model, codes))
+	Result.flatMap(conservativeLaws(owned), (model) => basisOf(model, codes))
 
 /** The closed relations of a law model's theory, in its order. */
 const closedRelationsOf = (model: LawModel): ReadonlyArray<ClosedTheoryRelation> =>
@@ -328,20 +329,22 @@ export const basisOf = (
 		})
 	)
 
-/** The plan's basis of an installation of `owned` under its codes `codes`, its law model for `slice` under `cycles`,
- * each closed relation's constants named as `closed` records them and its text domains as `textDomains` does: a Db's,
- * from its snapshot, which packs no cell and types no field its slice does not read. Its compile ends here, so every
- * unrepresentable key its model met is refused here, all at once (core/canonical.ts settled). */
+/** The plan's basis of an installation of `owned` under its codes `codes`, its law model under `cycles`, its checked
+ * schema read as `reading` says (analysis/schema.ts RealityReading: a level's within its installation, where generate
+ * holds the installation's), each closed relation's constants named as `closed` records them and its text domains as
+ * `textDomains` does: a Db's, from its snapshot, which packs no cell. Its compile ends here, so every unrepresentable
+ * key its model met is refused here, all at once (core/canonical.ts settled). */
 export const planBasis = (
 	owned: Owned,
 	codes: Codebook,
-	slice: Slice,
 	closed: ClosedNames,
 	textDomains: TextDomainNames,
 	library: ReadonlyArray<LibraryFn>,
-	cycles: CycleSource
+	cycles: CycleSource,
+	reading: RealityReading,
+	served: ReadonlySet<QueryDesc>
 ): Result.Result<PlanBasis, CompileError> =>
-	Result.flatMap(compileLaws(owned, slice, cycles), (model) =>
+	Result.flatMap(levelLaws(owned, served, cycles, reading), (model) =>
 		settled(model.unrepresentable, Result.ok({ owned, model, codes, closed, textDomains, library }))
 	)
 
@@ -377,7 +380,7 @@ export const freshPlanSettings = (owned: Owned): PlanSettings => ({
  * the context contracts, the logins' roles read against the schema and the span columns its DDL installs; and every
  * constraint the installation installs, unique index and domain constraint included, with the law a violation of it
  * reports, then the theory's laws described. A compilation reads the plan alone (program/schema.ts baseArtifacts); the
- * installation (physical/install/compile.ts installationOver) builds its objects from it.
+ * installation (program/install.ts installationOver) builds its objects from it.
  */
 export interface InstallPlan {
 	readonly owned: Owned
@@ -426,10 +429,50 @@ export interface InstallPlan {
 const canonicalUse = (a: DomainUse, b: DomainUse): number =>
 	compareStrings(a.table, b.table) || compareStrings(a.column, b.column)
 
+/** The use of a domain at the column of a stored field a variant types, with the field's variant law (fieldVariantLaws),
+ * identified by variantLawId: the variant's domain's, and each domain of a field of one of its arms. */
+const variantUse = (v: FieldVariantLaw): DomainUse =>
+	Object.freeze({
+		table: v.relation.ident,
+		column: v.field.column,
+		law: Object.freeze({ law: variantLawId(v), described: v.law })
+	})
+
+/** Whether a field of one of `v`'s variant's arms is typed by `holds`: a domain its domain's CHECK casts that field to. */
+const armTyped = (v: FieldVariantLaw, holds: (t: ScalarType) => boolean): boolean =>
+	v.variant.arms.some((arm) => arm.fields.some((f) => holds(f.type)))
+
+/**
+ * Each variant domain's constraint, with each stored field's column it types and that field's variant law
+ * (variantUse), in canonical use order, by variant name. A variant no stored field holds lists no constraint, as a
+ * text domain no stored field types lists none.
+ */
+const variantDomainConstraintLaws = (
+	fields: ReadonlyArray<FieldVariantLaw>
+): ReadonlyArray<ConstraintLaw> =>
+	[...Map.groupBy(fields, (v) => v.variant.name)]
+		.toSorted(([a], [b]) => compareStrings(a, b))
+		.flatMap(([name, held]): ReadonlyArray<ConstraintLaw> => {
+			if (!isNonEmpty(held)) {
+				return []
+			}
+			const named = identity.variantDomain(name)
+			return [
+				{
+					kind: "domainConstraint",
+					name: identifierOf(identity.domainCheck(named)),
+					owner: identifierOf(named),
+					uses: sortNonEmpty(mapNonEmpty(held, variantUse), canonicalUse)
+				}
+			]
+		})
+
 /**
  * Each structural text domain's constraint, with each stored field's column it types and that field's law
  * (fieldPatternLaws), described as its field spells its pattern and identified by patternLawId, which a violation on
- * that column reports, in canonical use order (table identifier, then column identifier). The
+ * that column reports, and each stored variant field's column whose variant has an arm's field of its pattern, with
+ * that field's variant law (variantUse), which the variant's domain's CHECK raises there by casting the arm's field to
+ * the text domain, in canonical use order (table identifier, then column identifier). The
  * law model plans no text domain, so the installation that names them lists them. A field's domain is the planned one
  * of its pattern's key (planTextDomains), which types its column: patterns of one membership share one, named by the
  * definition its CHECK spells, so a field whose pattern is spelled otherwise is that domain's too, and two keys of one
@@ -439,7 +482,8 @@ const canonicalUse = (a: DomainUse, b: DomainUse): number =>
  */
 const textDomainConstraintLaws = (
 	plans: ReadonlyArray<TextDomainPlan>,
-	fields: ReadonlyArray<FieldPatternLaw>
+	fields: ReadonlyArray<FieldPatternLaw>,
+	variants: ReadonlyArray<FieldVariantLaw>
 ): ReadonlyArray<ConstraintLaw> => {
 	const byDomain = new Map<
 		string,
@@ -459,6 +503,15 @@ const textDomainConstraintLaws = (
 						})
 					})
 				)
+			}
+		}
+		for (const v of variants) {
+			const use = variantUse(v)
+			if (
+				armTyped(v, (t) => structuralRegex(t)?.key === key) &&
+				!known.uses.some((u) => u.table === use.table && u.column === use.column)
+			) {
+				known.uses.push(use)
 			}
 		}
 		byDomain.set(domain.name, known)
@@ -498,7 +551,10 @@ const describedContract =
  * Each checked contract domain's constraint, of the contracts `checked` whose domains have a CHECK, a base contract's,
  * a context contract's and a served parameter's alike: each column of a stored relation the domain checks, down its
  * type's contract chain, with the law of the contract that column's chain names
- * it by, which a violation on that column reports, in canonical use order; or, for a domain no stored column types,
+ * it by, which a violation on that column reports, and each stored variant field's column whose variant has an arm's
+ * field the domain checks down that field's chain, with that field's variant law (variantUse), which the variant's
+ * domain's CHECK raises there by casting the arm's field to its type, in canonical use order; or, for a domain no stored
+ * column types,
  * the laws of every contract whose definition it holds, in contract name order, since contracts of one definition
  * share one domain.
  */
@@ -506,6 +562,7 @@ const contractConstraintLaws = (
 	names: InstallNames,
 	checked: ReadonlyArray<DeclaredName>,
 	relations: ReadonlyArray<TableRelation>,
+	variants: ReadonlyArray<FieldVariantLaw>,
 	declared: DeclaredEntries["contracts"]
 ): ReadonlyArray<ConstraintLaw> => {
 	const described = describedContract(declared)
@@ -526,19 +583,24 @@ const contractConstraintLaws = (
 		}
 	}
 	return [...byDomain.values()].map(({ named, contracts: sharing }): ConstraintLaw => {
-		const uses: ReadonlyArray<DomainUse> = relations
-			.flatMap((r) =>
+		const checks = (contract: DeclaredName): boolean =>
+			names.contractNamed(contract).identifier === named.identifier
+		const uses: ReadonlyArray<DomainUse> = [
+			...relations.flatMap((r) =>
 				r.fields.flatMap((f) =>
 					contractChain(f.type)
-						.filter((contract) => names.contractNamed(contract).identifier === named.identifier)
+						.filter(checks)
 						.map((contract): DomainUse => ({
 							table: r.ident,
 							column: f.column,
 							law: described(contract)
 						}))
 				)
+			),
+			...variants.flatMap((v) =>
+				armTyped(v, (t) => contractChain(t).some(checks)) ? [variantUse(v)] : []
 			)
-			.toSorted(canonicalUse)
+		].toSorted(canonicalUse)
 		const name = identifierOf(identity.domainCheck(named))
 		const owner = identifierOf(named)
 		return isNonEmpty(uses)
@@ -653,7 +715,7 @@ const distinctDomains = (uses: ReadonlyArray<ParamDomainUse>): ReadonlyArray<Par
 
 /**
  * The plan of the installation over a basis (installBasis, planBasis) under `settings`, which its caller admitted
- * (physical/install/compile.ts installationOver) or made fresh (freshPlanSettings), with the domains its own artifacts
+ * (program/install.ts installationOver) or made fresh (freshPlanSettings), with the domains its own artifacts
  * type a value by (artifactDomains), its worlds' and the types its served programs name from `params` (ParamSource):
  * planned from the programs, each contract outside the base admitted beside the context fields' (outsideContracts)
  * and held to its name's one definition once the names are read (paramContractsDefined); or recorded by a snapshot's
@@ -706,6 +768,7 @@ export const planInstallation = (
 		const recorded = params.kind === "recorded" ? params.installed.contracts : []
 		const names = installNames({
 			owned,
+			canonical: (relation) => checked.canonicalOf(relation),
 			levels: settings.levels,
 			vectorSchema: settings.vectorSchema,
 			textNamed:
@@ -744,11 +807,13 @@ export const planInstallation = (
 						}))
 					}
 		const stored = [...model.relations.values()].map((r) => r.relation)
+		const variants = fieldVariantLaws(model)
 		const spans = spanColumns(model)
 		const constraintLaws: ReadonlyArray<ConstraintLaw> = [
 			...model.constraints,
 			...sealConstraintLaws(owned),
-			...textDomainConstraintLaws(textPlans, fieldPatternLaws(model)),
+			...variantDomainConstraintLaws(variants),
+			...textDomainConstraintLaws(textPlans, fieldPatternLaws(model), variants),
 			...contractConstraintLaws(
 				names,
 				[
@@ -758,6 +823,7 @@ export const planInstallation = (
 					...recorded.flatMap((c) => (c.checked ? [c.name] : []))
 				],
 				stored,
+				variants,
 				model.owned.declared.contracts
 			),
 			...spanConstraintLaws(spans, model.owned.declared.contracts)

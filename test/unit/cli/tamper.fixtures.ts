@@ -6,7 +6,6 @@ import { type Need, NeedFailed } from "@bjornpagen/testing/property"
 import {
 	Array as Arr,
 	Cause,
-	DateTime,
 	Effect,
 	FileSystem,
 	Formatter,
@@ -57,6 +56,8 @@ export type Kind =
 	| "meta.json malformed"
 	| "meta.json of another schema"
 	| "meta.json source edited"
+	| "a fork, a custom folder first"
+	| "a fork, a draft second"
 	| "stray file"
 	| "manifest parts beside it"
 	| "a lone part of a migration file"
@@ -72,6 +73,8 @@ export const kinds: Arr.NonEmptyReadonlyArray<Kind> = [
 	"meta.json malformed",
 	"meta.json of another schema",
 	"meta.json source edited",
+	"a fork, a custom folder first",
+	"a fork, a draft second",
 	"stray file",
 	"manifest parts beside it",
 	"a lone part of a migration file"
@@ -97,29 +100,18 @@ export const casesGen: Gen<ReadonlyArray<Case>> = (source) =>
 		Arr.map(folderCounts, (folders) => ({ folders, kind, newest: source.draw(boolean) }))
 	)
 
-const at = (s: number) =>
-	DateTime.makeUnsafe({
-		year: 2026,
-		month: 10,
-		day: 14,
-		hour: 12,
-		minute: 0,
-		second: s,
-		millisecond: 0
-	})
-
 /** A directory under `base` holding `name`'s migrations after drafting each of `versions` in turn. */
 const drafted = (base: string, label: string, name: string, versions: ReadonlyArray<1 | 2>) =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const dir = `${base}/${label}`
 		yield* fs.makeDirectory(dir)
-		for (const [i, version] of versions.entries()) {
+		for (const version of versions) {
 			yield* writeConfig(dir, {
 				schemas: [{ name, fixture: "shop", version: version, workload: "none" }],
 				connection: unconnected
 			})
-			const generated = yield* cli(dir, ["generate", configName], at(i))
+			const generated = yield* cli(dir, ["generate", configName])
 			assert.equal(generated.code, 0, `${label} drafts version ${version}`)
 		}
 		return dir
@@ -169,6 +161,12 @@ type Named =
 	  }
 	| {
 			readonly tag: "ChainRefused"
+			readonly fault: Extract<BreakKind, "forked">
+			readonly folder: string
+			readonly previous: string
+	  }
+	| {
+			readonly tag: "ChainRefused"
 			readonly fault: Extract<BreakKind, "foreignMeta">
 			readonly folder: string
 			readonly schema: string
@@ -214,6 +212,13 @@ const brokenAt = (fault: ChainBreak): Named => {
 		case "brokenChain":
 		case "diverged":
 			return { tag: "ChainRefused", fault: fault.kind, folder: fault.folder }
+		case "forked":
+			return {
+				tag: "ChainRefused",
+				fault: fault.kind,
+				folder: fault.folder,
+				previous: fault.previous
+			}
 		case "foreignMeta":
 			return { tag: "ChainRefused", fault: fault.kind, folder: fault.folder, schema: fault.schema }
 		case "unreached":
@@ -265,6 +270,7 @@ const namedOf = (reason: CliError["reason"]): Named => {
 		case "SettingRefused":
 		case "SchemaEntryRefused":
 		case "LoginEntryRefused":
+		case "ContractEntryRefused":
 		case "ConnectionRefused":
 		case "ConnectionThrew":
 		case "ConnectionEnvironmentRefused":
@@ -275,12 +281,12 @@ const namedOf = (reason: CliError["reason"]): Named => {
 		case "ServedUnwritten":
 		case "FileTooLarge":
 		case "MigrationsUnread":
+		case "DraftInputUnread":
 		case "SnapshotUnreadable":
 		case "SnapshotFormat":
 		case "RosterReordered":
 		case "DraftRefused":
 		case "ServedRefused":
-		case "UpgradeRefused":
 			return { tag: "another reason", reason: reason._tag }
 	}
 }
@@ -317,8 +323,47 @@ const chainEnd: Finding = { kind: "chainEnd", where: `${schemaDir}/${snapshotFil
 const folderAt = (found: Option.Option<string>): string =>
 	Option.getOrThrowWith(found, () => new Error("a committed directory holds a drafted folder"))
 
-/** Tampers with the copied workspace `dir`, `other` the other schema's committed directory. */
-const tamper = (c: Case, dir: string, other: string) =>
+/** The committed directories a case copies (committedNeed): of one folder, of two, and of the other schema. */
+interface Committed {
+	readonly one: string
+	readonly two: string
+	readonly other: string
+}
+
+/**
+ * The folder a line of work forked from `committed` before `folder` drafts beside it, copied into the schema directory
+ * `into`, and its name: the custom migration `a` of the chain before it, the empty one's before the oldest folder, one's
+ * before the newest of two, which the command line drafts at that chain's next second, `folder`'s own, its source its
+ * target.
+ */
+const customFork = (
+	committed: Committed,
+	folders: ReadonlyArray<string>,
+	folder: string,
+	into: string
+) =>
+	Effect.scoped(
+		Effect.gen(function* () {
+			const fs = yield* FileSystem.FileSystem
+			const ws = yield* workspace("fork")
+			if (folder !== folderAt(Arr.head(folders))) {
+				yield* fs.copy(committed.one, ws, { overwrite: true })
+			}
+			yield* writeConfig(ws, {
+				schemas: [{ name: "TamperShop", fixture: "shop", version: 1, workload: "none" }],
+				connection: unconnected
+			})
+			const forked = yield* cli(ws, ["generate", configName, "--custom", "--name", "a"])
+			assert.equal(forked.code, 0, `the fork drafts: ${forked.stderr}`)
+			const entries = yield* fs.readDirectory(`${ws}/${schemaDir}`)
+			const fork = folderAt(Arr.last(migrationFolders(entries)))
+			yield* fs.copy(`${ws}/${schemaDir}/${fork}`, `${into}/${fork}`)
+			return fork
+		})
+	)
+
+/** Tampers with the copied workspace `dir`, `committed` the directories it and the other schema's are copies of. */
+const tamper = (c: Case, dir: string, committed: Committed) =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const schema = `${dir}/${schemaDir}`
@@ -333,7 +378,7 @@ const tamper = (c: Case, dir: string, other: string) =>
 		const newestMeta = `${schemaDir}/${newest}/${metaFileName}`
 		switch (c.kind) {
 			case "snapshot of another schema": {
-				const others = `${other}/migrations/${otherSchema}`
+				const others = `${committed.other}/migrations/${otherSchema}`
 				yield* fs.copyFile(`${others}/${snapshotFileName}`, snapshot)
 				yield* fs.copyFile(`${others}/${manifestFileName}`, manifest)
 				const tampered: Tampered = {
@@ -439,6 +484,25 @@ const tamper = (c: Case, dir: string, other: string) =>
 				}
 				return tampered
 			}
+			case "a fork, a custom folder first": {
+				const fork = yield* customFork(committed, folders, folder, schema)
+				const tampered: Tampered = {
+					stage: "snapshot",
+					named: { tag: "ChainRefused", fault: "forked", folder, previous: fork },
+					finding: { kind: "forkedChain", where: `${schemaDir}/${folder}` }
+				}
+				return tampered
+			}
+			case "a fork, a draft second": {
+				const second = `${Str.slice(0, 15)(folder)}zz`
+				yield* fs.copy(`${schema}/${folder}`, `${schema}/${second}`)
+				const tampered: Tampered = {
+					stage: "snapshot",
+					named: { tag: "ChainRefused", fault: "forked", folder: second, previous: folder },
+					finding: { kind: "forkedChain", where: `${schemaDir}/${second}` }
+				}
+				return tampered
+			}
 			case "stray file": {
 				yield* fs.writeFileString(`${schema}/notes.txt`, "review later\n")
 				const tampered: Tampered = {
@@ -475,21 +539,14 @@ const tamper = (c: Case, dir: string, other: string) =>
 		}
 	})
 
-/**
- * One tampering of a copy of the committed directory, generated and checked, its check run at the case's own clock's
- * next reading.
- */
-export const tampered = (
-	x: Case,
-	committed: { readonly one: string; readonly two: string; readonly other: string },
-	nextNow: () => DateTime.Utc
-) =>
+/** One tampering of a copy of the committed directory, generated and checked. */
+export const tampered = (x: Case, committed: Committed) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const fs = yield* FileSystem.FileSystem
 			const ws = yield* workspace("tampered")
 			yield* fs.copy(x.folders === 1 ? committed.one : committed.two, ws, { overwrite: true })
-			const expected = yield* tamper(x, ws, committed.other)
+			const expected = yield* tamper(x, ws, committed)
 			yield* writeConfig(ws, {
 				schemas: [
 					{
@@ -502,7 +559,7 @@ export const tampered = (
 				connection: unconnected
 			})
 			const before = yield* contents(ws)
-			const generated = yield* cli(ws, ["generate", configName], at(9))
+			const generated = yield* cli(ws, ["generate", configName])
 			const label = Formatter.format(x)
 			const report = generated.report
 			assert.ok(report.outcome === "refused", `${label}: generate ${report.outcome}`)
@@ -515,7 +572,7 @@ export const tampered = (
 			)
 			const after = yield* contents(ws)
 			assert.deepEqual(after, before, `${label}: generate wrote`)
-			const checked = yield* cli(ws, ["check", configName], nextNow())
+			const checked = yield* cli(ws, ["check", configName])
 			assert.equal(checked.code, 1, `${label}: check passes`)
 			const spec = yield* Effect.orDie(specConfig(ws))
 			const read = yield* resolvedConfig(defineConfig(spec), `${ws}/${configName}`)
@@ -626,12 +683,12 @@ const decidedDraft = (base: string) =>
 		const fs = yield* FileSystem.FileSystem
 		const dir = `${base}/decided`
 		yield* fs.makeDirectory(dir)
-		for (const [i, name] of ["TamperOther", "TamperShop"].entries()) {
+		for (const name of ["TamperOther", "TamperShop"]) {
 			yield* writeConfig(dir, {
 				schemas: [{ name, fixture: "shop", version: 1, workload: "none" }],
 				connection: unconnected
 			})
-			const generated = yield* cli(dir, ["generate", configName], at(i))
+			const generated = yield* cli(dir, ["generate", configName])
 			assert.equal(generated.code, 0, `${name} drafts`)
 		}
 		return dir
@@ -659,8 +716,7 @@ export const decidedNeed = {
  * of meta.json's readers, which all decode it through its seal (boundary/meta.ts readMeta): generate's committed tree,
  * refused at `snapshot` with ChainRefused `unreadableMeta` naming the folder; check, and migrate's reading before it
  * connects (check.ts checkFiles), each finding `unreadableMeta` at the folder's meta.json, and migrate itself refused
- * before connecting; upgrade's chain, refused as generate's is before it connects; and the lock report
- * (adapter/public/locks.ts migrationLocks), refused. The copy as drafted is read by every one of them first.
+ * before connecting; and the lock report (adapter/public/locks.ts migrationLocks), refused. The copy as drafted is read by every one of them first.
  */
 export const metaEdited = (edit: MetaEdit, e: MetaEditCase, decided: string) =>
 	Effect.scoped(
@@ -688,17 +744,15 @@ export const metaEdited = (edit: MetaEdit, e: MetaEditCase, decided: string) =>
 			const read = yield* resolvedConfig(defineConfig(spec), `${ws}/${configName}`)
 			const resolved = succeeded(read, "the configuration")
 			const unreadable: Named = { tag: "ChainRefused", fault: "unreadableMeta", folder }
-			for (const command of ["generate", "upgrade"] as const) {
-				const report = (yield* cli(ws, [command, configName], at(9))).report
-				assert.ok(report.outcome === "refused", `${edit}: ${command} ${report.outcome}`)
-				const refusal = report.refusal
-				assert.ok(refusal instanceof CliError, `${edit}: ${command} refused by ${refusal._tag}`)
-				assert.deepEqual(
-					{ stage: refusal.stage, named: namedOf(refusal.reason) },
-					{ stage: "snapshot", named: unreadable },
-					`${edit}: ${command}`
-				)
-			}
+			const generated = (yield* cli(ws, ["generate", configName])).report
+			assert.ok(generated.outcome === "refused", `${edit}: generate ${generated.outcome}`)
+			const refusal = generated.refusal
+			assert.ok(refusal instanceof CliError, `${edit}: generate refused by ${refusal._tag}`)
+			assert.deepEqual(
+				{ stage: refusal.stage, named: namedOf(refusal.reason) },
+				{ stage: "snapshot", named: unreadable },
+				`${edit}: generate`
+			)
 			const finding: Finding = { kind: "unreadableMeta", where: metaWhere }
 			const [checked] = yield* Effect.orDie(check(resolved, ws, silentPhases))
 			const [filed] = yield* checkFiles(resolved, ws)
@@ -712,7 +766,7 @@ export const metaEdited = (edit: MetaEdit, e: MetaEditCase, decided: string) =>
 					`${edit}: ${reader}`
 				)
 			}
-			const migrated = (yield* cli(ws, ["migrate", configName], at(10))).report
+			const migrated = (yield* cli(ws, ["migrate", configName])).report
 			assert.deepEqual(
 				{ outcome: migrated.outcome, code: migrated.code },
 				{ outcome: "ran", code: 1 },

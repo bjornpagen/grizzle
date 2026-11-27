@@ -34,6 +34,7 @@ import { and, binary, call, isIn, lit, lt, or, types } from "#compiler/sql/build
  */
 export const integerNumeric = Object.freeze({
 	holds: (type: ScalarType): boolean => integerTypmodOf(type) !== undefined,
+	generationProves: false,
 	named: identity.integerCheck,
 	predicate: (_: unknown, column: Expr): Expr =>
 		binary("<>", column, lit.decimal(nanParts, types.numeric)),
@@ -44,6 +45,14 @@ export const integerNumeric = Object.freeze({
 /** The scale of an exact field's type, which exactNumeric holds of alone. */
 const exactScale = (type: ScalarType): number =>
 	defined(exactScaleOf(type), "an exact field's type, which exactNumeric holds of")
+
+/**
+ * `scale(value) = <the type's scale>`: a value of an exact type, `type`, held to the values its host spells, at its one
+ * scale, never NaN or an infinity, whose scale is NULL: the one predicate a stored column's CHECK (exactNumeric) and a
+ * variant's domain over an arm's field of an exact type (physical/ddl/variants.ts) state it by, each where NULL refuses.
+ */
+export const exactPredicate = (value: Expr, type: ScalarType): Expr =>
+	binary("=", call("scale", [value]), lit.int(exactScale(type), types.integer))
 
 /**
  * An exact field's CHECK, a column CHECK (physical/ddl/column-checks.ts ColumnCheckKind).
@@ -62,9 +71,9 @@ const exactScale = (type: ScalarType): number =>
  */
 export const exactNumeric = Object.freeze({
 	holds: (type: ScalarType): boolean => exactScaleOf(type) !== undefined,
+	generationProves: false,
 	named: identity.exactCheck,
-	predicate: (_: unknown, column: Expr, type: ScalarType): Expr =>
-		binary("=", call("scale", [column]), lit.int(exactScale(type), types.integer)),
+	predicate: (_: unknown, column: Expr, type: ScalarType): Expr => exactPredicate(column, type),
 	reason: (relation: string, field: string, type: ScalarType): string =>
 		`the values its host spells of ${relation}.${field}: numeric at scale ${exactScale(type)}, never NaN or an infinity`
 })
@@ -125,6 +134,7 @@ const boundPredicate = (column: Expr, bound: NumericBound): Expr => {
  */
 export const boundedNumeric = Object.freeze({
 	holds: (type: ScalarType): boolean => narrowerBoundOf(type) !== undefined,
+	generationProves: false,
 	named: identity.boundCheck,
 	predicate: (_: unknown, column: Expr, type: ScalarType): Expr => {
 		const bound = narrowerBoundOf(type)

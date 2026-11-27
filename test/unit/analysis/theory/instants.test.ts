@@ -25,7 +25,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
-import type { StampSource } from "#compiler/ir/instant.ts"
+import type { ClockStamp } from "#compiler/ir/instant.ts"
 import { refused, succeeded } from "#test/support/assert.ts"
 import {
 	type InstantsFeature,
@@ -86,10 +86,10 @@ export const anInstantIsAClockOrAReferenceByTheContainmentsThatCarryItAClockOuts
 						),
 						`the role of ${relation}.at`
 					)
-					const stampOf = (s: StampSource | undefined): ModelStamp | undefined =>
+					const stampOf = (s: ClockStamp | undefined): ModelStamp | undefined =>
 						s === undefined
 							? undefined
-							: { clock: s.head.relation, child: Arr.map(s.child, (f) => f.name) }
+							: { clock: s.clock.relation, child: Arr.map(s.child, (f) => f.name) }
 					const got: ModelRole =
 						role.kind === "clock"
 							? { kind: role.kind, stamp: defined(stampOf(role.stamp), "a clock's stamp") }
@@ -129,7 +129,7 @@ export const anInstantIsAClockOrAReferenceByTheContainmentsThatCarryItAClockOuts
 				file: "packages/engine/src/analysis/theory/instants.ts",
 				original: "\t\t\td.from.selection.conjuncts.length > 0 ||\n",
 				replacement: "\t\t\tfalse ||\n",
-				why: "A containment over a selection of its source carries its instants, so alternatives' way back would make a parent's clock a reference: Q's selected containment makes Q.at a reference the model holds a clock, and the property fails."
+				why: "A containment over a selection of its source carries its instants, so an arm's mirrors' way back would make a parent's clock a reference: Q's selected containment makes Q.at a reference the model holds a clock, and the property fails."
 			},
 			{
 				file: "packages/engine/src/analysis/theory/instants.ts",
@@ -152,7 +152,7 @@ export const anInstantIsAClockOrAReferenceByTheContainmentsThatCarryItAClockOuts
 			{
 				file: "packages/engine/src/analysis/theory/instants.ts",
 				original:
-					"\t\t\tfirst !== undefined && rest.every((s) => s !== undefined && sameStamp(s, first))\n",
+					"\t\t\tfirst !== undefined && rest.every((s) => s !== undefined && sameClockStamp(s, first))\n",
 				replacement: "\t\t\tfirst !== undefined\n",
 				why: "A reference is stamped by its first containment's clock whatever its others reach, so X carried into a clock Q and into P is stamped by Q's where the model stamps it by none, and the property fails."
 			}

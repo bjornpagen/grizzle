@@ -2,10 +2,8 @@ import net from "node:net"
 import { Signer } from "@aws-sdk/rds-signer"
 import {
 	accumulated,
-	alternatives,
 	type AnyLogin,
 	type AnySchema,
-	arm,
 	attested,
 	ChangeSet,
 	check,
@@ -28,6 +26,7 @@ import {
 	Fn,
 	fold,
 	fragment,
+	generated,
 	type HeadOf,
 	type Inet,
 	type Infer,
@@ -36,6 +35,7 @@ import {
 	type KeysOf,
 	Logic,
 	login,
+	mintOf,
 	Monoid,
 	mutable,
 	natural,
@@ -58,7 +58,6 @@ import {
 	row,
 	rows,
 	schema,
-	scopedEntriesOf,
 	Search,
 	searchDocument,
 	select,
@@ -71,9 +70,10 @@ import {
 	Type,
 	unit,
 	v,
+	variant,
 	wholeEntriesOf,
-	workload,
-	wholeWritesOf
+	wholeWritesOf,
+	workload
 } from "@bjornpagen/grizzle"
 import {
 	Db,
@@ -86,7 +86,7 @@ import {
 	TokenRefused
 } from "@bjornpagen/grizzle/runtime"
 import { verifyToken } from "@clerk/backend"
-import { Array, Config, Effect, Layer, ManagedRuntime, type Option, Redacted, Schema } from "effect"
+import { Array, Config, Effect, Layer, ManagedRuntime, Redacted, Schema } from "effect"
 import pgDriver from "pg"
 
 type Equals<A, B> =
@@ -217,31 +217,47 @@ export const launchOrg = (
 	})
 
 /** README: "Hard in Drizzle, one declaration here", 1. Every organization sees only its own rows. */
-/** An API key, keyed by the SHA-256 of its secret: the table never holds a secret, and a key is one row everywhere. */
-export const ApiKey = relation("ApiKey", { digest: sha256, org: ClerkOrg, name: Title }, ["digest"])
-export const Keys = schema("Keys", [ApiKey], [])
+/** An organization's API key, keyed by the SHA-256 of its secret: the table never holds a secret. */
+export const ApiKey = relation("ApiKey", { org: ClerkOrg, digest: sha256, name: Title }, [
+	"org",
+	"digest"
+])
+export const Keys = schema(
+	"Keys",
+	[ApiKey],
+	[unit("Org", { org: ClerkOrg }), key(on(ApiKey, "digest"))]
+)
 
 /** The caller's organization: the `org` claim of their verified session token. */
 export const Tenant = context("Tenant", { org: ClerkOrg })
 
-/** The keys of the caller's organization. An insert takes `org` from the token. */
-export const orgKeys = query(Keys).rule((r) => {
-	const { digest, org, name } = v(ApiKey, "apiKey")
-	return r.match(ApiKey, { digest, org, name }).match(Tenant, { org }).find({ digest, name })
+/** The organization the caller's token names: the Org unit's key its claims bind. */
+export const tenant = query(Keys).rule((r) => {
+	const { org } = v(Tenant, "tenant")
+	return r.match(Tenant, { org }).find({ org })
 })
 
-export const KeyAdmin = role(
-	Keys,
-	"key_admin",
-	{ ApiKey: orgKeys },
-	{ insert: ["ApiKey"], contexts: [Tenant] }
-)
+export const KeyAdmin = role(Keys, "key_admin", wholeEntriesOf(Keys), {
+	insert: ["ApiKey"],
+	contexts: [Tenant],
+	scope: [tenant]
+})
 export const Dashboard = login(Keys, "dashboard", [KeyAdmin])
 
+/** The caller's organization's keys: no organization in it, the role's scope binds it. */
+export const orgKeys = query(Keys).rule((r) => {
+	const { digest, name } = v(ApiKey, "apiKey")
+	return r.match(ApiKey, { digest, name }).find({ digest, name })
+})
+
 /** README: "Hard in Drizzle, one declaration here", 2. Top three per group, with exact types. */
+/** The keys of this module's amounts and instants: whoever holds a key makes values of its contract. */
+const microsKey = Symbol("Micros")
+const millisKey = Symbol("Millis")
 /** Millionths of a dollar, never negative; and an instant, in milliseconds since the epoch. */
-const Micros = contract("Micros", pg.bigint, (m) => Logic.ge(m, 0n))
-const Millis = contract("Millis", pg.bigint)
+const Micros = contract<typeof microsKey>()("Micros", pg.bigint, (m) => Logic.ge(m, 0n))
+const Millis = contract<typeof millisKey>()("Millis", pg.bigint)
+const toMicros = mintOf(microsKey)
 /** The gateway's id of a request, and a workspace's slug: each the name its own system gives it. */
 const RequestId = str.regex("^req_[0-9A-Za-z]{1,64}$")
 const Workspace = str.regex("^ws_[0-9a-z]{1,32}$")
@@ -342,8 +358,9 @@ export const treeSpend = query(Resellers).rule((r) => {
 		.find({ account, spend: r.sum(amount) })
 })
 
+const minuteKey = Symbol("Minute")
 /** README: "Hard in Drizzle, one declaration here", 4. No double booking. */
-const Minute = contract("Minute", pg.bigint)
+const Minute = contract<typeof minuteKey>()("Minute", pg.bigint)
 
 /** A room is its name, unique in the building. */
 export const Room = relation("Room", { name: Title }, ["name"])
@@ -372,7 +389,7 @@ export const Grant = relation(
 		org: ClerkOrg,
 		amount: Micros,
 		debits: drawn(natural),
-		spent: accumulated(Micros, Micros(0n))
+		spent: accumulated(Micros, toMicros(0n), microsKey)
 	},
 	["id"]
 )
@@ -437,79 +454,49 @@ export const Books = schema(
 )
 
 /** README: "Hard in Drizzle, one declaration here", 7. States that carry their own data. */
-export const InvoiceState = closed.unordered("InvoiceState", ["open", "paid", "void"])
+export const InvoiceStatus = closed.unordered("InvoiceStatus", ["open", "paid", "void"])
 /** An invoice, by Stripe's id of it. */
 const StripeInvoice = str.regex("^in_[0-9A-Za-z]{1,64}$")
-export const Invoice = relation(
+/** An invoice's state: open, paid by a charge, or void for a reason. */
+export const InvoiceState = variant("InvoiceState", InvoiceStatus, {
+	open: {},
+	paid: { charge: StripeCharge },
+	void: { reason: Prose }
+})
+export const Invoice = relation.generated(
 	"Invoice",
-	{ id: StripeInvoice, org: ClerkOrg, state: closedId(InvoiceState) },
-	["id"]
+	{ id: StripeInvoice, org: ClerkOrg, state: InvoiceState },
+	["id"],
+	(i) => ({ status: generated(closedId(InvoiceStatus), InvoiceState.tag(i.state)) })
 )
-export const Payment = relation(
-	"Payment",
-	{ invoice: StripeInvoice, charge: str.regex("^ch_[0-9A-Za-z]{1,64}$") },
-	["invoice"]
-)
-export const Voiding = relation("Voiding", { invoice: StripeInvoice, reason: Prose }, ["invoice"])
 
 export const Invoices = schema(
 	"Invoices",
-	[InvoiceState, Invoice, Payment, Voiding],
-	[
-		alternatives(Invoice, "state", InvoiceState, { paid: Payment, void: Voiding }),
-		unit("Invoice", { id: StripeInvoice }),
-		mutable(Invoice)
-	]
+	[InvoiceStatus, Invoice],
+	[unit("Invoice", { id: StripeInvoice }), mutable(Invoice)]
 )
 
-/** An invoice, with its payment when it is paid and its voiding when it is void. */
-export const invoiceCard = query(Invoices)
-	.rule((r) => {
-		const { id, state } = v(Invoice, "invoice")
-		return r
-			.match(Invoice, { id, state })
-			.where(r.eq(id, r.param("id", StripeInvoice)))
-			.find({ id, state })
-	})
-	.attach(
-		"payment",
-		(i) =>
-			query(Invoices).rule((r) => {
-				const { charge } = v(Payment, "payment")
-				return r.match(Payment, { invoice: i.id, charge }).find({ charge })
-			}),
-		arm("state", "paid")
-	)
-	.attach(
-		"voiding",
-		(i) =>
-			query(Invoices).rule((r) => {
-				const { reason } = v(Voiding, "voiding")
-				return r.match(Voiding, { invoice: i.id, reason }).find({ reason })
-			}),
-		arm("state", "void")
-	)
+/** An invoice and its state, with what its state carries. */
+export const invoiceCard = query(Invoices).rule((r) => {
+	const { id, state } = v(Invoice, "invoice")
+	return r
+		.match(Invoice, { id, state })
+		.where(r.eq(id, r.param("id", StripeInvoice)))
+		.find({ id, state })
+})
 
-/** Pay an open invoice: its state and its payment change together, in one transaction. */
-export const pay = ChangeSet.empty(Invoices)
-	.put(
-		Invoice,
-		query(Invoices).rule((r) => {
-			const { org } = v(Invoice, "invoice")
-			return r
-				.match(Invoice, { id: r.param("invoice", StripeInvoice), org, state: "open" })
-				.find({ id: r.param("invoice", StripeInvoice), org, state: InvoiceState.handle("paid") })
+/** Pay an open invoice: its state becomes paid, holding the charge. */
+export const pay = ChangeSet.empty(Invoices).put(
+	Invoice,
+	query(Invoices).rule((r) => {
+		const { org } = v(Invoice, "invoice")
+		return r.match(Invoice, { id: r.param("invoice", StripeInvoice), org, status: "open" }).find({
+			id: r.param("invoice", StripeInvoice),
+			org,
+			state: InvoiceState.make("paid", { charge: r.param("charge", StripeCharge) })
 		})
-	)
-	.insert(
-		Payment,
-		query(Invoices).rule((r) =>
-			r.match(Invoice, { id: r.param("invoice", StripeInvoice), state: "open" }).find({
-				invoice: r.param("invoice", StripeInvoice),
-				charge: r.param("charge", Payment.fields.charge)
-			})
-		)
-	)
+	})
+)
 
 /** README: "Hard in Drizzle, one declaration here", 8. A usage page: cursors, a rollup and their indexes. */
 /** A workspace's calls, newest first. */
@@ -810,8 +797,43 @@ export const loadViews = (
 		})
 	)
 
+/** README: "Variants", QTI's values of one variable as one cell. */
+const Identifier = str.bytes(64, str.regex("^[A-Za-z_][A-Za-z0-9_.-]*$"))
+const Name = str.bytes(64, str.regex("^[A-Za-z_][A-Za-z0-9_.-]*$"))
+const baseTypes = ["boolean", "file", "float", "integer", "pair", "string"] as const
+const BaseType = closed.unordered("BaseType", baseTypes)
+const QtiValue = variant(
+	"QtiValue",
+	BaseType,
+	{
+		boolean: { value: pg.boolean },
+		float: { value: pg["double precision"] },
+		integer: { value: pg.integer },
+		pair: { least: Identifier, greatest: Identifier },
+		string: { value: Prose }
+	},
+	{ pair: (a) => a.le(a.least, a.greatest) }
+)
+const Single = relation.generated(
+	"Single",
+	{ variable: Name, value: QtiValue },
+	["variable"],
+	(r) => ({
+		baseType: generated(closedId(BaseType), QtiValue.tag(r.value))
+	})
+)
+const Multiple = relation.generated(
+	"Multiple",
+	{ variable: Name, value: QtiValue, count: natural },
+	["variable", "image"],
+	(r) => ({ image: generated(sha256, QtiValue.digest(r.value)) })
+)
+export const variantCells = [Single, Multiple] as const
+
+const centsKey = Symbol("Cents")
 /** README: "Rules", the box office. */
-const Cents = contract("Cents", pg.bigint, (c) => Logic.ge(c, 0n))
+const Cents = contract<typeof centsKey>()("Cents", pg.bigint, (c) => Logic.ge(c, 0n))
+const toCents = mintOf(centsKey)
 /** A show's production code, and a ticket's barcode, as the box office prints them. */
 const ShowCode = str.regex("^[A-Z0-9]{2,12}$")
 const Barcode = str.regex("^[0-9]{12}$")
@@ -919,7 +941,7 @@ export const ContentPackage = schema.extend(
 	[TypedHref],
 	[
 		check("ItemsInside", TypedHref, (t) =>
-			t.not(t.and(t.eq(t.type, "item"), t.eq(t.internal, false)))
+			t.not(t.and([t.eq(t.type, "item"), t.eq(t.internal, false)]))
 		),
 		contained(on(items, "path"), on(PackageFile, "path")),
 		contained(
@@ -934,7 +956,10 @@ const TestId = str.bytes(64, str.regex("^[0-9A-Za-z_-]{1,64}$"))
 const QuestionId = str.bytes(255, str.regex("^.{1,255}$", "u"))
 const Reason = str.bytes(255, str.regex("^.{1,255}$", "u"))
 /** An assignment's number, a sitting's key: a contract of its own, so no other number leads a key with it. */
-const AssignmentNo = contract("AssignmentNo", pg.bigint, (n) => Logic.ge(n, 0n))
+const assignmentNoKey = Symbol("AssignmentNo")
+const AssignmentNo = contract<typeof assignmentNoKey>()("AssignmentNo", pg.bigint, (n) =>
+	Logic.ge(n, 0n)
+)
 
 const Assigned = relation("Assigned", { number: AssignmentNo, test: TestId }, ["number"])
 const ClockOpened = relation(
@@ -995,47 +1020,78 @@ export const Flows = schema(
 export const finished = ChangeSet.empty(Flows).delete(FlowLease, [])
 
 /**
- * README: "Scoped entries": a level of the tables a sitting writes, each person a Clerk account signs in as, each
- * assignment rooted by its student, each test session by its child, each event of an assignment reached through its
- * number, and the tables a student writes.
+ * README: "The scope of a role": a level of a sitting's tables, every fact of a child's keyed leading with `child` under
+ * the Learner unit, each child a Clerk account signs in as, each assignment's status derived from its events, and the
+ * tables a student writes.
  */
-const PersonId = str.regex("^p_[a-z0-9]{1,24}$", "u")
-const Person = relation("Person", { person: PersonId }, ["person"])
-const ClerkAccount = relation("ClerkAccount", { clerk: ClerkUser, person: PersonId }, ["clerk"])
-const Assignment = relation("Assignment", { number: pg.bigint, student: PersonId }, ["number"])
-const TestSession = relation("TestSession", { child: PersonId, stage: natural }, ["child", "stage"])
-const SittingEvent = relation("SittingEvent", { number: pg.bigint, step: natural }, [
+const ChildId = str.regex("^c_[a-z0-9]{1,24}$", "u")
+const ClerkAccount = relation("ClerkAccount", { clerk: ClerkUser, child: ChildId }, ["clerk"])
+const Assignment = relation("Assignment", { child: ChildId, number: natural, test: Title }, [
+	"child",
+	"number"
+])
+const SittingEvent = relation("SittingEvent", { child: ChildId, number: natural, step: natural }, [
+	"child",
 	"number",
 	"step"
 ])
-const Sittings = schema(
+const SittingLevel = schema(
 	"Sittings",
-	[Person, ClerkAccount, Assignment, TestSession, SittingEvent],
+	[ClerkAccount, Assignment, SittingEvent],
 	[
-		contained(on(ClerkAccount, "person"), on(Person, "person")),
-		contained(on(Assignment, "student"), on(Person, "person")),
-		contained(on(TestSession, "child"), on(Person, "person")),
-		contained(on(SittingEvent, "number"), on(Assignment, "number"))
+		unit("Learner", { child: ChildId }),
+		contained(on(SittingEvent, "child", "number"), on(Assignment, "child", "number"))
 	]
+)
+const SittingStatus = closed.unordered("SittingStatus", ["assigned", "started"])
+const AssignmentStatus = derived(
+	"AssignmentStatus",
+	query(SittingLevel)
+		.rule((r) => {
+			const { child, number } = v(Assignment, "assignment")
+			return r
+				.match(Assignment, { child, number })
+				.where(r.not(SittingEvent, { child, number }))
+				.find({ child, number, status: SittingStatus.handle("assigned") })
+		})
+		.rule((r) => {
+			const { child, number } = v(SittingEvent, "event")
+			return r
+				.match(SittingEvent, { child, number })
+				.find({ child, number, status: SittingStatus.handle("started") })
+		})
+)
+const Sittings = schema.extend(
+	[SittingLevel],
+	"SittingViews",
+	[SittingStatus, AssignmentStatus],
+	[]
 )
 const studentInsertNames = ["SittingEvent"] as const
 
-/** The persons the signed-in Clerk user is: the owner, read from the token and the sign-in it names. */
-const persons = query(Sittings).rule((r) => {
+/** The children the signed-in Clerk user signs in as: the Learner unit's keys the token names. */
+const learners = query(Sittings).rule((r) => {
 	const { sub } = v(Session, "session")
-	const { person } = v(ClerkAccount, "account")
-	return r.match(Session, { sub }).match(ClerkAccount, { clerk: sub, person }).find({ person })
+	const { child } = v(ClerkAccount, "account")
+	return r.match(Session, { sub }).match(ClerkAccount, { clerk: sub, child }).find({ child })
 })
 
-/** Each assignment rooted by its student, each test session by its child. */
-const roots = { Assignment: "student", TestSession: "child" } as const
+export const Student = role(Sittings, "student", wholeEntriesOf(Sittings), {
+	contexts: [Session],
+	insert: studentInsertNames,
+	scope: [learners]
+})
 
-export const Student = role(
-	Sittings,
-	"student",
-	scopedEntriesOf(Sittings, { owner: persons, roots }),
-	{ contexts: [Session], insert: studentInsertNames }
-)
+/** A student's assignment by its number, with its status: no sign-in, no child, no guard. */
+export const myAssignment = query(Sittings).rule((r) => {
+	const { number, test } = v(Assignment, "assignment")
+	const { status } = v(AssignmentStatus, "status")
+	return r
+		.match(Assignment, { number, test })
+		.match(AssignmentStatus, { number, status })
+		.where(r.eq(number, r.param("number", natural)))
+		.find({ number, test, status })
+})
 
 /** README: "Queries". */
 /** Comments per author on published posts. */
@@ -1209,11 +1265,11 @@ export const searchUnits = query(Course)
 		return r
 			.match(Unit, { id, subject, grade, search })
 			.where(
-				r.and(
+				r.and([
 					Search.matches(search, q),
 					r.eq(subject, r.param("subject", Unit.fields.subject)),
 					r.le(grade, r.param("grade", Unit.fields.grade))
-				)
+				])
 			)
 			.find({ unit: id, rank: Search.rank(search, q) })
 	})
@@ -1228,10 +1284,10 @@ export const nearUnits = query(Course)
 		return r
 			.match(Unit, { id, subject, grade, embedding })
 			.where(
-				r.and(
+				r.and([
 					r.eq(subject, r.param("subject", Unit.fields.subject)),
 					r.le(grade, r.param("grade", Unit.fields.grade))
-				)
+				])
 			)
 			.find({
 				unit: id,
@@ -1254,10 +1310,10 @@ export const unitPlaces = query(Course)
 			.match(near, { unit: x.unit, distance: x.distance })
 			.match(near, { unit: y.unit, distance: y.distance })
 			.where(
-				r.or(
+				r.or([
 					r.lt(y.distance, x.distance),
-					r.and(r.eq(y.distance, x.distance), r.le(y.unit, x.unit))
-				)
+					r.and([r.eq(y.distance, x.distance), r.le(y.unit, x.unit)])
+				])
 			)
 			.find({ arm: "nearest", unit: x.unit, place: r.count() })
 	})
@@ -1272,7 +1328,7 @@ export const unitPlaces = query(Course)
 		return r
 			.match(text, { unit: x.unit, rank: x.rank })
 			.match(text, { unit: y.unit, rank: y.rank })
-			.where(r.or(r.gt(y.rank, x.rank), r.and(r.eq(y.rank, x.rank), r.le(y.unit, x.unit))))
+			.where(r.or([r.gt(y.rank, x.rank), r.and([r.eq(y.rank, x.rank), r.le(y.unit, x.unit)])]))
 			.find({ arm: "text", unit: x.unit, place: r.count() })
 	})
 
@@ -1309,7 +1365,9 @@ export const ranBefore = query(Usage).rule((r) => {
 		.find({ id, at })
 })
 
-export const UsageClock = workload(Usage, { ranBefore: clocked(ranBefore, { now: "millis" }) })
+export const UsageClock = workload(Usage, {
+	ranBefore: clocked(ranBefore, { now: "millis" }, { now: millisKey })
+})
 
 /** README: "Reading", time zones. */
 /** Each branch's zone and the minute of its local day it opens at. */
@@ -1339,7 +1397,7 @@ export const branchClock = query(Branches).rule((r) => {
 })
 
 export const BranchesClock = workload(Branches, {
-	branchClock: clocked(branchClock, { now: "millis" })
+	branchClock: clocked(branchClock, { now: "millis" }, { now: millisKey })
 })
 
 /** README: "Writes". */
@@ -1377,14 +1435,20 @@ export const purge = ChangeSet.empty(Blog)
 	)
 
 /** README: "A window a put extends". */
-const LearnerId = contract("LearnerId", pg.integer)
-const StageKey = contract("StageKey", pg.bigint)
+const learnerIdKey = Symbol("LearnerId")
+const stageKeyKey = Symbol("StageKey")
+const momentKey = Symbol("Moment")
+const readingKey = Symbol("Reading")
+const LearnerId = contract<typeof learnerIdKey>()("LearnerId", pg.integer)
+const StageKey = contract<typeof stageKeyKey>()("StageKey", pg.bigint)
 /**
  * Microseconds on the database's clock, a window's ends, up to 10000-01-01, after which no day a date holds begins; a
  * reading is one below the top, so it ends a window too.
  */
-const Moment = contract("Moment", pg.bigint, (t) => Num.within(t, 0n, 253_402_300_800_000_000n))
-const Reading = contract("Reading", pg.bigint, (t) =>
+const Moment = contract<typeof momentKey>()("Moment", pg.bigint, (t) =>
+	Num.within(t, 0n, 253_402_300_800_000_000n)
+)
+const Reading = contract<typeof readingKey>()("Reading", pg.bigint, (t) =>
 	Num.within(t, 0n, 253_402_300_800_000_000n - 1n)
 )
 
@@ -1405,8 +1469,8 @@ const near = query(Attendance)
 		r.find({
 			child: r.param("child", LearnerId),
 			stage: r.param("stage", StageKey),
-			start: Type.cast(Type.base(r.param("now", Reading)), Moment),
-			end: Type.cast(Num.add(Type.base(r.param("now", Reading)), 1n), Moment)
+			start: Type.cast(Type.base(r.param("now", Reading)), Moment, momentKey),
+			end: Type.cast(Num.add(Type.base(r.param("now", Reading)), 1n), Moment, momentKey)
 		})
 	)
 	.rule((r) => {
@@ -1513,7 +1577,8 @@ const lessonsOf = query(School).rule((r) => {
 	const { lesson, minutes } = v(Offered, "offered")
 	return r.match(Offered, { lesson, minutes }).find({ lesson, minutes })
 })
-const RunId = contract("RunId", pg.bigint)
+const runIdKey = Symbol("RunId")
+const RunId = contract<typeof runIdKey>()("RunId", pg.bigint)
 declare const lessons: ReadonlyArray<HeadOf<typeof lessonsOf>>
 declare const run: Infer<typeof RunId>
 declare const digestOf: (row: HeadOf<typeof lessonsOf>) => Sha256
@@ -1749,6 +1814,7 @@ export const finishWithFee = (
 export default defineConfig({
 	schemas: [Blog],
 	logins: [Web, EtlJob],
+	contracts: [],
 	migrations: "migrations",
 	rolePrefixBytes: 0,
 	connection: () => ({
@@ -1792,8 +1858,9 @@ export const Exam = schema.extend(
 export const Publisher = role(Exam, "publisher", wholeEntriesOf(Exam), { insert: ["Published"] })
 export const ExamLearner = role(Exam, "learner", wholeEntriesOf(Exam), { insert: ["Answer"] })
 
+const instantKey = Symbol("Instant")
 /** README: "Races". */
-export const Instant = contract("Instant", pg.bigint)
+export const Instant = contract<typeof instantKey>()("Instant", pg.bigint)
 /** A step, by its name in its flow, and a claimer, by its own name: its host and its process. */
 const StepName = str.regex("^[0-9A-Za-z:_-]{1,96}$")
 const Worker = str.regex("^[0-9a-z.-]{1,64}:[0-9]{1,10}$")
@@ -1906,8 +1973,12 @@ export type OrgPostsParams = Expect<
 const YesNo = str.regex("^(yes|no)$")
 export type YesNoHost = Expect<Equals<Infer<typeof YesNo>, "yes" | "no">>
 
-/** "A contract value is made with its constructor, Cents(500n)". */
-export const price: Infer<typeof Cents> = Cents(500n)
+/** "Only the key's mint makes one, `const toCents = mintOf(centsKey)`, then `toCents(500n)`". */
+export const price: Infer<typeof Cents> = toCents(500n)
+
+/** "a plain `bigint`, or another contract's value, is a type error there". */
+// @ts-expect-error -- refused: a plain bigint is no value of a contract, which only its key's mint makes
+export const unminted: Infer<typeof Cents> = 500n
 
 /** "natural is a count: the builtin contract natural over pg.bigint, unbranded". */
 export type PlaceAt = Expect<Equals<Fact<typeof Place>["at"], bigint>>
@@ -1990,40 +2061,40 @@ export const writePost = ChangeSet.empty(MemberBlog).insert(MemberPost, [post])
 
 /** "Its states have no order, so it is `closed.unordered`: ... an `orderBy` of states is a type error". */
 const invoiceStates = query(Invoices).rule((r) => {
-	const { id, state } = v(Invoice, "invoice")
-	return r.match(Invoice, { id, state }).find({ id, state })
+	const { id, status } = v(Invoice, "invoice")
+	return r.match(Invoice, { id, status }).find({ id, status })
 })
 export const statesInOrder = invoiceStates
 	// @ts-expect-error -- refusal: a closed id of a closed.unordered roster has no order: declare its roster closed.ordered to compare or order by its handles
-	.orderBy(["state", "asc"])
+	.orderBy(["status", "asc"])
 
 /** "no state comes before another, and a comparison ... of states is a type error": a rule's filter. */
 export const beforePaid = query(Invoices).rule((r) => {
-	const { id, state } = v(Invoice, "invoice")
+	const { id, status } = v(Invoice, "invoice")
 	return (
 		r
-			.match(Invoice, { id, state })
+			.match(Invoice, { id, status })
 			// @ts-expect-error -- refusal: a closed id of a closed.unordered roster has no order: declare its roster closed.ordered to compare or order by its handles
-			.where(r.lt(state, "paid"))
+			.where(r.lt(status, "paid"))
 			.find({ id })
 	)
 })
 
 /** "no state comes before another": so no invoice's state is the greatest of its organization's. */
 export const latestState = query(Invoices).rule((r) => {
-	const { id, org, state } = v(Invoice, "invoice")
+	const { id, org, status } = v(Invoice, "invoice")
 	return (
 		r
-			.match(Invoice, { id, org, state })
+			.match(Invoice, { id, org, status })
 			// @ts-expect-error -- refusal: a closed id of a closed.unordered roster has no order: declare its roster closed.ordered to compare or order by its handles
-			.find({ org, latest: r.max(state) })
+			.find({ org, latest: r.max(status) })
 	)
 })
 
 /** "a comparison ... of states is a type error": a row check's comparison of its own field. */
 export const stateCheck = check("PaidOrLater", Invoice, (i) =>
 	// @ts-expect-error -- refusal: a closed id of a closed.unordered roster has no order: declare its roster closed.ordered to compare or order by its handles
-	i.ge(i.state, "paid")
+	i.ge(i.status, "paid")
 )
 
 /** "A query over the schema is a type error on a role that does not hold every table whole". */
@@ -2077,24 +2148,13 @@ export type TreeSpendParams = Expect<
 export type InvoiceCardHead = Expect<
 	Equals<
 		HeadOf<typeof invoiceCard>,
-		| {
-				readonly id: string
-				readonly state: "open"
-				readonly payment: Option.None<{ readonly charge: string }>
-				readonly voiding: Option.None<{ readonly reason: string }>
-		  }
-		| {
-				readonly id: string
-				readonly state: "paid"
-				readonly payment: Option.Some<{ readonly charge: string }>
-				readonly voiding: Option.None<{ readonly reason: string }>
-		  }
-		| {
-				readonly id: string
-				readonly state: "void"
-				readonly payment: Option.None<{ readonly charge: string }>
-				readonly voiding: Option.Some<{ readonly reason: string }>
-		  }
+		{
+			readonly id: string
+			readonly state:
+				| { readonly tag: "open" }
+				| { readonly tag: "paid"; readonly charge: string }
+				| { readonly tag: "void"; readonly reason: string }
+		}
 	>
 >
 

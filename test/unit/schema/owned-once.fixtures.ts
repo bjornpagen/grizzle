@@ -52,13 +52,14 @@ const KEPT = [
 	"KeptL"
 ] as const
 
+const scoreKey = Symbol("Score")
 /**
  * A program of the shape, built fresh, so every Owned the readers give is this build's, and `count` records(...) over
  * each of its levels, each a query of Unit's key and its contract column, under the owner `at`: its schema values, root
  * first, and the role over the top one, if any.
  */
 const builtOf = (shape: Shape) => {
-	const Score = contract("Score", pg.integer)
+	const Score = contract<typeof scoreKey>()("Score", pg.integer)
 	const Unit = relation("Unit", { id: pg.integer, score: Score }, ["id"])
 	const Base = schema("OwnedBase", [Unit], [])
 	const Extra = relation("Extra", { id: pg.integer, score: Score }, ["id"])

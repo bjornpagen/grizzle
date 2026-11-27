@@ -1,19 +1,20 @@
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Logic, Num, Type } from "#compiler/public/compute.ts"
-import { closedId, contract, pg } from "#compiler/public/fields.ts"
+import { closedId, contract, mintOf, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
-	alternatives,
 	closed,
 	contained,
 	key as candidateKey,
 	login,
+	mirrors,
 	mutable,
 	on,
 	relation,
 	role,
 	type Schema,
 	schema,
+	select,
 	unit,
 	type Statement,
 	type StatementsByName,
@@ -27,9 +28,15 @@ export const QueueKind = closed.ordered("Kind", ["render", "transcode"])
 export const Resource = closed.ordered("Resource", ["gpu", "cpu"])
 export const Outcome = closed.ordered("Outcome", ["succeeded", "failed"])
 export const Reason = closed.ordered("Reason", ["malformed", "unsupported"])
-export const Digest = contract("Digest", str.regex("^[0-9a-f]{64}$"))
-export const Slot = contract("Slot", pg.integer, (x) => Logic.ge(x, 0))
-export const SeatNo = contract("SeatNo", pg.integer, (x) => Logic.ge(x, 0))
+const digestKey = Symbol("Digest")
+export const Digest = contract<typeof digestKey>()("Digest", str.regex("^[0-9a-f]{64}$"))
+export const toDigest = mintOf(digestKey)
+const slotKey = Symbol("Slot")
+export const Slot = contract<typeof slotKey>()("Slot", pg.integer, (x) => Logic.ge(x, 0))
+export const toSlot = mintOf(slotKey)
+const seatNoKey = Symbol("SeatNo")
+export const SeatNo = contract<typeof seatNoKey>()("SeatNo", pg.integer, (x) => Logic.ge(x, 0))
+export const toSeatNo = mintOf(seatNoKey)
 
 export const Standing = closed.ordered("Standing", ["wanted", "leased", "done", "denied"])
 
@@ -87,6 +94,13 @@ export const Seat = relation("Seat", { resource: closedId(Resource), seat: SeatN
  * An item's rows, keyed by it, sit in its unit, and those a claim or a settlement changes are open: Work, whose standing
  * and epoch move, Wanted, deleted at its claim, and Leased, put at its claim and deleted at its settlement.
  */
+/** The work of one standing: each standing's arm row is mirrored with it, so every item has exactly one standing's row. */
+const standing = (s: "wanted" | "leased" | "done" | "denied") =>
+	on(
+		select(QueueWork, (w) => w.eq(w.standing, s)),
+		"key"
+	)
+
 export const Queue = schema(
 	"Queue",
 	[Standing, QueueKind, Resource, Outcome, Reason, QueueWork, Wanted, Leased, Done, Denied, Seat],
@@ -95,12 +109,10 @@ export const Queue = schema(
 		mutable(QueueWork),
 		mutable(Wanted),
 		mutable(Leased),
-		alternatives(QueueWork, "standing", Standing, {
-			wanted: Wanted,
-			leased: Leased,
-			done: Done,
-			denied: Denied
-		}),
+		mirrors(on(Wanted, "key"), standing("wanted")),
+		mirrors(on(Leased, "key"), standing("leased")),
+		mirrors(on(Done, "key"), standing("done")),
+		mirrors(on(Denied, "key"), standing("denied")),
 		candidateKey(on(Leased, "resource", "seat")),
 		contained(on(Leased, "resource", "seat"), on(Seat, "resource", "seat"))
 	]

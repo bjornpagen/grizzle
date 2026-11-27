@@ -104,8 +104,8 @@ export const lawfulOf = (host: HostSchema, drawn: HostState): HostState => {
 
 /**
  * Fields of one relation that take their values from another relation's facts: a containment's source fields, each the
- * value of its target field; a coverage's scalars and its span, the target's span itself, which covers it; and an
- * alternatives arm's key, the key of a parent standing at the arm's handle. The target is drawn first where the
+ * value of its target field, among the target facts its selection holds of; and a coverage's scalars and its span, the
+ * target's span itself, which covers it. The target is drawn first where the
  * references allow, so a world reading one relation through another meets facts on both sides instead of the repair's
  * leftovers.
  */
@@ -117,12 +117,12 @@ interface Reference {
 	readonly where: Readonly<Record<string, HostValue>>
 }
 
-/** The references of a base's laws: every unselected containment and coverage, and every alternatives arm's. */
+/** The references of a base's laws: every containment out of an unselected source, and every unselected coverage. */
 const referencesOf = (base: BaseSpec): ReadonlyArray<readonly [string, Reference]> =>
 	Arr.flatMap(base.laws, (law): ReadonlyArray<readonly [string, Reference]> => {
 		switch (law.kind) {
 			case "contained":
-				return Record.isEmptyRecord(law.source.where) && Record.isEmptyRecord(law.target.where)
+				return Record.isEmptyRecord(law.source.where)
 					? [
 							[
 								law.source.relation,
@@ -130,7 +130,7 @@ const referencesOf = (base: BaseSpec): ReadonlyArray<readonly [string, Reference
 									fields: law.source.fields,
 									target: law.target.relation,
 									targetFields: law.target.fields,
-									where: {}
+									where: law.target.where
 								}
 							]
 						]
@@ -149,21 +149,6 @@ const referencesOf = (base: BaseSpec): ReadonlyArray<readonly [string, Reference
 							]
 						]
 					: []
-			case "alternatives": {
-				const keyOf = (name: string): ReadonlyArray<Arr.NonEmptyReadonlyArray<string>> =>
-					Arr.map(
-						Arr.filter(base.relations, (r) => r.name === name),
-						(r) => r.key
-					)
-				return Arr.flatMap(Record.toEntries(law.arms), ([handle, arm]) =>
-					Arr.flatMap(keyOf(arm), (fields) =>
-						Arr.map(keyOf(law.relation), (targetFields): readonly [string, Reference] => [
-							arm,
-							{ fields, target: law.relation, targetFields, where: { [law.tag]: handle } }
-						])
-					)
-				)
-			}
 			case "key":
 			case "spanKey":
 			case "check":
@@ -241,7 +226,7 @@ const draftGen =
 /**
  * The lawful realities of a base: each ordinary relation the host schema holds draws up to a few facts from the domain
  * pools (few subjects, few organizations, small integers, uuids as distinct tokens), seven times in eight taking each referenced field set from a fact of the relation it references (a
- * containment's or a coverage's target, an alternatives arm's parent standing at its handle, drawn first where no cycle
+ * containment's target, among the facts its selection holds of, or a coverage's target, drawn first where no cycle
  * forbids it, with a fact at least), one fact per primary key, and the whole repaired to lawful by the host law model.
  */
 export const realityGen = (base: BaseSpec, host: HostSchema): Gen<HostState> => {

@@ -58,6 +58,7 @@ const foreignKind = (e: ExprDesc): ForeignKind | undefined => {
 		case "not":
 		case "in":
 		case "cond":
+		case "variant":
 		case "when":
 		case "compare":
 		case "allen":

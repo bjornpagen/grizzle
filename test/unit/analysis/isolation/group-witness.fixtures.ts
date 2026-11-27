@@ -195,6 +195,7 @@ export const runCertified = (drawn: Drawn, c: Case<GroupWitnessFeature>) =>
 		})
 		const config = yield* resolveConfig(
 			defineConfig({
+				contracts: [],
 				schemas: [S],
 				logins: [app],
 				migrations: "migrations",

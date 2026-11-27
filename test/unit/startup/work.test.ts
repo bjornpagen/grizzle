@@ -119,9 +119,9 @@ export const startupWorkReadsASchemasContentOnceCompilesItOncePerCommandNothingF
 			{
 				file: "packages/engine/src/physical/install/plan.ts",
 				original:
-					'\tResult.flatMap(compileLaws(owned, slice, { kind: "planned" }), (model) => basisOf(model, codes))',
+					'\tResult.flatMap(levelLaws(owned, served, { kind: "planned" }, { kind: "analyzed" }), (model) =>\n',
 				replacement:
-					'\tResult.flatMap(\n\t\tResult.flatMap(compileLaws(owned, slice, { kind: "planned" }), () =>\n\t\t\tcompileLaws(owned, slice, { kind: "planned" })\n\t\t),\n\t\t(model) => basisOf(model, codes)\n\t)',
+					'\tResult.flatMap(\n\t\tResult.flatMap(levelLaws(owned, served, { kind: "planned" }, { kind: "analyzed" }), () =>\n\t\t\tlevelLaws(owned, served, { kind: "planned" }, { kind: "analyzed" })\n\t\t),\n\t\t(model) =>\n',
 				why: "The installation basis compiles its law model twice."
 			},
 			{
@@ -134,9 +134,9 @@ export const startupWorkReadsASchemasContentOnceCompilesItOncePerCommandNothingF
 			{
 				file: "packages/engine/src/schema/schema.ts",
 				original:
-					"\t\towned: once(() => ownBuilt({ desc: admitted.desc, content: admitted.content }))\n",
+					"\t\towned: once(() => ownBuilt({ desc: admitted.desc, content: admitted.content })),\n",
 				replacement:
-					"\t\towned: () => ownBuilt({ desc: admitted.desc, content: admitted.content })\n",
+					"\t\towned: () => ownBuilt({ desc: admitted.desc, content: admitted.content }),\n",
 				why: "A schema value holds no Owned, so check owns it again after generate; check's count of owns fails."
 			},
 			{

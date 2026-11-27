@@ -54,15 +54,19 @@ export const keyEvidence = (constraint: KeyConstraint): Grounds => ({
 })
 
 /**
- * What a containment proves existence with in the execution context (see the header): its law, the one premise, in the
- * context its discharge holds it in; nothing inside a transaction where it holds only at commit.
+ * What a containment proves existence with in the execution context (see the header): the laws it rests on, its own
+ * or those its draw rides on (ir/evidence.ts ExistenceConstraint), in the context it holds in; nothing inside a
+ * transaction where it holds only at commit.
  */
 export const containmentEvidence = (
 	constraint: ExistenceConstraint,
 	execution: TemplateContext
 ): Grounds | undefined =>
 	contextAdmits(execution, constraint.context)
-		? { premises: [{ kind: "law", law: constraint.law }], context: constraint.context }
+		? {
+				premises: constraint.laws.map((law): Premise => ({ kind: "law", law })),
+				context: constraint.context
+			}
 		: undefined
 
 /**

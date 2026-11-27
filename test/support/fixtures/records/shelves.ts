@@ -1,19 +1,20 @@
 /**
  * Shelves, the source of the records properties (test/types/schema/records.test.ts, test/pg/records/records.test.ts):
  * a shelf's books, each one row of Book, an array a query attaches; each book's blurb, of at most one (an option), its
- * spine, of exactly one (one), with its ink, of exactly one too, its paper or digital detail, the arm of its kind (alternatives over Book.kind), and its
- * chapters, an array, each with at most one remark. A book holds a column named `at`, the name an array's place takes
- * first, so a books attachment that heads it moves its place to `at2`.
+ * spine, of exactly one (one), with its ink, of exactly one too, its paper or digital detail, the arm of its kind (each
+ * mirrored with the books of that kind), and its chapters, an array, each with at most one remark. A book holds a
+ * column named `at`, the name an array's place takes first, so a books attachment that heads it moves its place to
+ * `at2`.
  */
 import { closedId, pg } from "#compiler/public/fields.ts"
 import {
-	alternatives,
 	closed,
 	contained,
 	mirrors,
 	on,
 	relation,
-	schema
+	schema,
+	select
 } from "#compiler/public/schema.ts"
 import { Id } from "#test/support/ids.ts"
 
@@ -45,7 +46,20 @@ export const shelvesNamed = <const N extends string>(name: N) =>
 		[Kind, Shelf, Book, Paper, Digital, Blurb, Spine, Ink, Chapter, Remark],
 		[
 			contained(on(Book, "shelf"), on(Shelf, "id")),
-			alternatives(Book, "kind", Kind, { Paper, Digital }),
+			mirrors(
+				on(Paper, "book"),
+				on(
+					select(Book, (b) => b.eq(b.kind, "Paper")),
+					"id"
+				)
+			),
+			mirrors(
+				on(Digital, "book"),
+				on(
+					select(Book, (b) => b.eq(b.kind, "Digital")),
+					"id"
+				)
+			),
 			contained(on(Blurb, "book"), on(Book, "id")),
 			mirrors(on(Spine, "book"), on(Book, "id")),
 			mirrors(on(Ink, "book"), on(Spine, "book")),

@@ -55,6 +55,17 @@ const typeText: { readonly [K in DrawnKind]: string } = {
 	plain: "pg.integer"
 }
 
+/** Each kind's drawn field as the program spells it: of its type, a contract's under its key (types/fields MintKey). */
+const drawnText: { readonly [K in DrawnKind]: string } = {
+	natural: "drawn(natural)",
+	int2: "drawn(Small, smallKey)",
+	int4: "drawn(Whole, wholeKey)",
+	int8: "drawn(Big, bigKey)",
+	numeric: "drawn(Exact, exactKey)",
+	text: "drawn(Named, namedKey)",
+	plain: "drawn(pg.integer)"
+}
+
 /** Whether grizzle draws a kind's values: natural, and a contract whose base is an integer. */
 const drawable = (kind: DrawnKind): boolean =>
 	kind === "natural" || kind === "int2" || kind === "int4" || kind === "int8"
@@ -88,7 +99,7 @@ const countedLines = (
 ): ReadonlyArray<string> => [
 	`// a counted family counted by ${c.count}`,
 	...directive(drawable(c.count) ? undefined : drawnTypes),
-	`export const Owner${at} = relation("Owner${at}", { id: pg.integer, n: drawn(${typeText[c.count]}) }, ["id"])`,
+	`export const Owner${at} = relation("Owner${at}", { id: pg.integer, n: ${drawnText[c.count]} }, ["id"])`,
 	`export const Member${at} = relation("Member${at}", { id: pg.integer, owner: pg.integer }, ["id"])`,
 	...(drawable(c.count)
 		? [
@@ -107,14 +118,13 @@ const orderedLines = (
 	at: number
 ): ReadonlyArray<string> => {
 	const index = typeText[c.index]
-	const count = typeText[c.count]
 	const declared = drawable(c.index) && drawable(c.count)
 	return [
 		`// an index of ${c.index} counted by ${c.count}`,
 		...directive(drawable(c.count) ? undefined : drawnTypes),
-		`export const Owner${at} = relation("Owner${at}", { id: pg.integer, n: drawn(${count}) }, ["id"])`,
+		`export const Owner${at} = relation("Owner${at}", { id: pg.integer, n: ${drawnText[c.count]} }, ["id"])`,
 		...directive(drawable(c.index) ? undefined : drawnTypes),
-		`export const Member${at} = relation("Member${at}", { id: pg.integer, at: drawn(${index}) }, ["id", "at"])`,
+		`export const Member${at} = relation("Member${at}", { id: pg.integer, at: ${drawnText[c.index]} }, ["id", "at"])`,
 		...(declared
 			? [
 					`export const Holder${at} = relation("Holder${at}", { holder: pg.integer, at: ${index} }, ["holder"])`,
@@ -135,11 +145,16 @@ const orderedLines = (
  * numeric and one over a text, which it does not.
  */
 const drawnTypesHeader = (): ReadonlyArray<string> => [
-	'export const Small = contract("Small", pg.smallint, (n) => Logic.ge(n, 0))',
-	'export const Whole = contract("Whole", pg.integer, (n) => Logic.and(Logic.ge(n, 0), Logic.le(n, 2147483647)))',
-	'export const Big = contract("Big", pg.bigint, (n) => Logic.ge(n, 0n))',
-	'export const Exact = contract("Exact", pg.numeric(9, 0), (n) => Logic.ge(n, 0n))',
-	'export const Named = contract("Named", str.regex("^[0-9]+$", "u"), (n) => Logic.ne(n, "0"))',
+	'export const smallKey = Symbol("Small")',
+	'export const Small = contract<typeof smallKey>()("Small", pg.smallint, (n) => Logic.ge(n, 0))',
+	'export const wholeKey = Symbol("Whole")',
+	'export const Whole = contract<typeof wholeKey>()("Whole", pg.integer, (n) => Logic.and([Logic.ge(n, 0), Logic.le(n, 2147483647)]))',
+	'export const bigKey = Symbol("Big")',
+	'export const Big = contract<typeof bigKey>()("Big", pg.bigint, (n) => Logic.ge(n, 0n))',
+	'export const exactKey = Symbol("Exact")',
+	'export const Exact = contract<typeof exactKey>()("Exact", pg.numeric(9, 0), (n) => Logic.ge(n, 0n))',
+	'export const namedKey = Symbol("Named")',
+	'export const Named = contract<typeof namedKey>()("Named", str.regex("^[0-9]+$", "u"), (n) => Logic.ne(n, "0"))',
 	""
 ]
 

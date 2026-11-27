@@ -12,6 +12,7 @@ import { checkQuery } from "#compiler/check/index.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { InferredExpr, InferredQuery, InferredRule } from "#compiler/ir/desc.ts"
+import { equalityIsIdentity } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput } from "#compiler/lower/conservative/types.ts"
 import { queryInput } from "#compiler/program/input.ts"
@@ -22,6 +23,7 @@ import { str } from "#compiler/public/text.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
+import { float8, valueClasses } from "#test/support/oracle/gen/domain.ts"
 import { answerEquivalence, answersReport, shapeOf } from "#test/support/oracle/public/answer.ts"
 import { buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
 import {
@@ -31,8 +33,13 @@ import {
 } from "#test/support/oracle/public/generate.ts"
 import { expectedFrom } from "#test/support/oracle/public/meaning.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
-import type { ProgramCase, ProgramRead } from "#test/support/oracle/public/program.ts"
+import {
+	fieldKinds,
+	type ProgramCase,
+	type ProgramRead
+} from "#test/support/oracle/public/program.ts"
 import { unobserved } from "#test/support/oracle/reference/evaluate.ts"
+import { pickOf } from "#test/support/pick.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 
 type QueryRead = Extract<ProgramRead, { readonly kind: "query" }>
@@ -42,6 +49,7 @@ export type Feature =
 	| "a navigated read inlining an imported query"
 	| "a navigated read keyed by a parameter"
 	| "a navigated read with a negation"
+	| "a navigated read joining a float variable through an inlined import"
 	| "a navigated read keeping a row beside a one-column negation of a relation that holds a fact"
 	| "a navigated read of three steps or more"
 
@@ -50,6 +58,7 @@ export const situations: Arr.NonEmptyReadonlyArray<Feature> = [
 	"a navigated read inlining an imported query",
 	"a navigated read keyed by a parameter",
 	"a navigated read with a negation",
+	"a navigated read joining a float variable through an inlined import",
 	"a navigated read keeping a row beside a one-column negation of a relation that holds a fact",
 	"a navigated read of three steps or more"
 ]
@@ -65,6 +74,58 @@ const stepsOf = (q: InferredQuery): number =>
 				)
 			)
 		: 0
+
+/**
+ * Whether a read's checked IR joins a float variable through an import where a stored relation holds -0: a region
+ * binding a variable whose equality is no identity at an import's column and at a stored relation's, a fact of which
+ * holds -0 there. Navigation inlines the import into one binding of the variable (analysis/theory/navigate.ts #inline),
+ * and the written rule's merge delivers the variable's canonical +0, so a navigated rule that bound it at the relation's
+ * read alone would deliver that -0.
+ */
+const joinsAFloatThroughAnImport = (
+	c: ProgramCase,
+	dag: Parameters<typeof topoOrder>[0]
+): boolean => {
+	const holdsNegativeZero = (relation: string, column: string): boolean => {
+		const at = Arr.findFirstIndex(
+			Arr.findFirst(c.schema.relations, (r) => r.name === relation).pipe(
+				Option.match({ onNone: () => [], onSome: (r) => r.fields })
+			),
+			(f) => f.name === column
+		)
+		return (
+			Option.isSome(at) &&
+			Arr.some(c.facts.get(relation) ?? [], (fact) => {
+				const value = fact[at.value]?.literal
+				return value?.kind === "floatSpecial" && value.value === "-0"
+			})
+		)
+	}
+	return Arr.some(
+		topoOrder(dag),
+		(n) =>
+			n.kind === "MatchRegion" &&
+			Arr.some(n.vars, (v) => {
+				const binders = Arr.filter(n.occurrences, (o) =>
+					Arr.some(o.bindings, (b) => b.var.id === v.id)
+				)
+				return (
+					!equalityIsIdentity(v.type) &&
+					Arr.some(binders, (o) => o.source.kind !== "Base") &&
+					Arr.some(binders, (o) => {
+						const source = o.source
+						return (
+							source.kind === "Base" &&
+							Arr.some(
+								o.bindings,
+								(b) => b.var.id === v.id && holdsNegativeZero(source.relation, b.column)
+							)
+						)
+					})
+				)
+			})
+	)
+}
 
 /**
  * One query read and its navigation, each checked and evaluated by the reference, which must agree. A navigation that
@@ -137,6 +198,13 @@ export const judged = (c: ProgramCase, read: QueryRead, note: (f: Feature) => vo
 	const shape = shapeOf(read.query)
 	const meant = expectedFrom(c, read, { dag: as.dag, root: as.dag.roots[0] }, unobserved)
 	const walked = expectedFrom(c, read, { dag: nav.dag, root: nav.dag.roots[0] }, unobserved)
+	if (
+		joinsAFloatThroughAnImport(c, as.dag) &&
+		Result.isSuccess(meant) &&
+		meant.success.length > 0
+	) {
+		note("a navigated read joining a float variable through an inlined import")
+	}
 	if (negatesHeld && Result.isSuccess(meant) && meant.success.length > 0) {
 		note(
 			"a navigated read keeping a row beside a one-column negation of a relation that holds a fact"
@@ -362,6 +430,44 @@ export const navigatedSketchGen =
 		}
 	}
 
+/** The pick of a double precision field among the drawn kinds (program.ts fieldKinds). */
+const float8Kind = pickOf(fieldKinds.indexOf("float8"), fieldKinds.length)
+
+/** The pick of -0 among a double precision field's values, every one a case draws where it is not dense. */
+const negativeZero = ((values) =>
+	pickOf(
+		Arr.findFirstIndex(values, (l) => l.kind === "floatSpecial" && l.value === "-0").pipe(
+			Option.getOrThrowWith(() => new Error("-0 among double precision's values"))
+		),
+		values.length
+	))(valueClasses(float8, true))
+
+/**
+ * A case sketch of navigatedSketchGen over an import and a join, never dense, every field of every relation but its
+ * first double precision and every fact holding -0 there: a float variable joined through an inlined import where a
+ * stored relation holds -0, whose written rule's merge delivers +0 (joinsAFloatThroughAnImport), which the plain
+ * population reached in none of 2,500 cases over five seeds.
+ */
+export const floatImportJoinSketchGen: Gen<CaseSketch> = (source) => {
+	const sketch = source.draw(navigatedSketchGen(["import", "bind join"]))
+	return {
+		...sketch,
+		swarm: Rec.fromEntries(
+			Arr.flatMap(Struct.keys(sketch.swarm), (feature) => {
+				const weight = sketch.swarm[feature]
+				return weight === undefined || feature === "dense" ? [] : [[feature, weight] as const]
+			})
+		),
+		relations: Arr.map(sketch.relations, (r) => ({
+			...r,
+			fields: Arr.map(r.fields, (f, i) => (i === 0 ? f : { ...f, kind: float8Kind })),
+			facts: Arr.map(r.facts, (fact) => ({
+				values: Arr.map(fact.values, (value, i) => (i === 0 ? value : { cls: negativeZero, sp: 0 }))
+			}))
+		}))
+	}
+}
+
 /**
  * A case sketch of navigatedSketchGen over dense values, every read's negation binding one column (its first pick
  * alone, where the drawn sketch picks two): a case whose navigated read keeps a row beside a one-column negation of a
@@ -471,18 +577,43 @@ export const negatedThroughSteps = (
 }
 
 /**
- * How an unread case reaches a rule navigation reads no part of (analysis/theory/navigate.ts RuleReads): it negates an
- * aggregating rule itself, or a union one rule of which negates it, as the ledger's limited attempts negate the
- * unlimited members, whose max-attempts in force negate the nearest scope that states one, a fold.
+ * How an unread case reaches a filter navigation reads no part of (analysis/theory/navigate.ts RuleReads, Navigator
+ * #readable): it negates an aggregating rule at its fold, the greatest value B holds or N0's greatest key for each list,
+ * each a fold of no successor, whose rule navigation reads no part of; or N0's greatest key at its folded field, a
+ * successor's fold, which navigation reads by one descent of N0's key since 1beed3dbb3 (successorFold) but at no step
+ * the filter's terms restrict, its fold over N0 whole, whose aggregate no filter's step equates; or a union one rule of
+ * which negates the greatest key, as the ledger's limited attempts negate the unlimited members, whose max-attempts in
+ * force negate the nearest scope that states one, a fold.
  */
-export type UnreadCase = "an aggregate" | "a union negating an aggregate"
+export type UnreadCase =
+	| "a value's fold"
+	| "an aggregate"
+	| "a successor's fold"
+	| "a union negating an aggregate"
 
 export const unreadCaseGen: Gen<UnreadCase> = element([
+	"a value's fold",
 	"an aggregate",
+	"a successor's fold",
 	"a union negating an aggregate"
 ] as const)
 
-/** The greatest key N0 holds: a fold, which navigation reads no part of. */
+/** The greatest value B holds: a fold of a column no key ends with, no successor, which navigation reads no part of. */
+const highest = query(Gates).rule((r) => {
+	const { k, v: value } = v(B, "highest")
+	return r.match(B, { k, v: value }).find({ k: r.max(value) })
+})
+
+/**
+ * The greatest key N0 holds for each list: a fold whose head reads N0's list beside it, so no successor
+ * (analysis/theory/successor.ts successorOf), which navigation reads no part of.
+ */
+const greatestOfList = query(Gates).rule((r) => {
+	const { k, list } = v(N0, "greatestOfList")
+	return r.match(N0, { k, list }).find({ list, k: r.max(k) })
+})
+
+/** The greatest key N0 holds: a successor's fold, read by one descent of N0's key (navigate.ts extremeOf). */
 const greatest = query(Gates).rule((r) => {
 	const { k } = v(N0, "greatest")
 	return r.match(N0, { k }).find({ k: r.max(k) })
@@ -510,7 +641,15 @@ export const unreadQueryOf = (c: UnreadCase): InferredQuery =>
 				return r
 					.match(A, { id: p, k })
 					.match(B, { k, v: value })
-					.where(c === "an aggregate" ? r.not(greatest, { k }) : r.not(ungreatest, { k }))
+					.where(
+						c === "a value's fold"
+							? r.not(highest, { k })
+							: c === "an aggregate"
+								? r.not(greatestOfList, { k })
+								: c === "a successor's fold"
+									? r.not(greatest, { k })
+									: r.not(ungreatest, { k })
+					)
 					.find({ k, v: value })
 			})
 		)

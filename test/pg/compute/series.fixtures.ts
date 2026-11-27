@@ -7,8 +7,9 @@ import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
 
+const smallKey = Symbol("Small")
 /** The contract a series' element is cast into: within [-20, 20]. */
-const Small = contract("Small", pg.bigint, (x) => Num.within(x, -20n, 20n))
+const Small = contract<typeof smallKey>()("Small", pg.bigint, (x) => Num.within(x, -20n, 20n))
 
 /** A relation holding a Small, so the installation installs its domain, which the element's cast is into. */
 const Held = relation("Held", { id: pg.integer, small: Small }, ["id"])
@@ -27,7 +28,7 @@ const elements = query(Series).rule((r) => {
 	const high = Logic.greatest(Logic.least(r.param("hi", pg.bigint), top), bottom)
 	const s = r.series(low, high)
 	const { at } = v(s, "element")
-	return r.match(s, { at }).find({ at, small: Type.cast(at, Small) })
+	return r.match(s, { at }).find({ at, small: Type.cast(at, Small, smallKey) })
 })
 
 /** How the module's fixture is installed: its label and the programs its login's workload holds. */

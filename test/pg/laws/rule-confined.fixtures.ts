@@ -1,12 +1,11 @@
 /** What the property of rule-confined.test.ts reads: its schema and template, its space, and each case's run. */
 
 import { assert } from "@bjornpagen/testing/assert"
-import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { planNodes } from "#bench/harness/explain.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -22,11 +21,12 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { wholeStatementsOf } from "#test/pg/laws/rule-whole.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
+import { type Installed, seededTemplate } from "#test/support/install-migrate.ts"
 import { judgedPlans, standUpJudge } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
-import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
+import { storedSeed } from "#test/support/stored.ts"
+import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Nodes of documents of packages, keyed by (pkg, doc, at), a document's name long, so its key's index is the larger;
@@ -98,48 +98,81 @@ const confinedSchema = schema.extend(
 	[contained(on(Placed, "pkg", "kind", "at"), on(Gap, "pack", "kind", "at"))]
 )
 
-export const confinedTemplate = migratedTemplate({
-	declaredIn: import.meta,
-	name: "rule confined",
-	content: { schema: confinedSchema.name, logins: [] },
-	versions: [{ schema: confinedSchema, logins: [], declarations: noDeclarations }],
-	options: {
-		label: "rule_confined",
-		extensions: [],
-		compile: compileInstallation,
-		ambient: ordinarySession,
-		review: noPlaceholders
-	}
-})
-
 /** The places of a document: as many as there are kinds, so a package's documents outnumber none of them. */
 const places = 60
 
-/** A case: the packages and the documents of each stored beside the written one, and the statistics. */
-export interface Stored {
-	readonly packages: number
-	readonly documents: number
-	readonly statistics: "none" | "analyzed"
-}
-
-/** Tens of packages of tens of documents, fewer documents a package than places, so PostgreSQL estimates one row at
- * (pkg, kind, at) where a package's every document stands. */
-export const storedGen: Gen<Stored> = (s) => ({
-	packages: s.draw(int(20, 40)),
-	documents: s.draw(int(20, 40)),
-	statistics: s.draw(element(["none", "analyzed"] as const))
-})
-
-export type ConfinedFeature = "measured with no statistics" | "measured analyzed"
+/**
+ * The stored packages and each one's documents, a template's: tens of packages of tens of documents, fewer documents a
+ * package than places, so PostgreSQL estimates one row at (pkg, kind, at) where a package's every document stands.
+ */
+const storedSizes = [20, 40] as const
+type StoredSize = (typeof storedSizes)[number]
 
 /** A document's name, long: `document/`, its number in six digits, then 240 x. */
 const docName = (d: string): string =>
 	`'document/' || lpad((${d})::text, 6, '0') || repeat('x', 240)`
 
+/** The columns of Node, Gap and Typed a load writes, in its order. */
+const columnsOf = (installed: Installed) => {
+	const names = namesOf(installed)
+	const listed = <F extends string>(fields: ReadonlyArray<F>, column: (f: F) => string) =>
+		Arr.join(Arr.map(fields, column), ", ")
+	return {
+		node: listed(["pkg", "doc", "at", "kind", "gov", "w"] as const, (f) => names.column(Node, f)),
+		gap: listed(["pack", "kind", "at"] as const, (f) => names.column(Gap, f)),
+		typed: listed(["pkg", "doc", "at", "kind", "gov"] as const, (f) => names.column(Typed, f))
+	}
+}
+
 /**
- * One case in its one transaction, which the case's end rolls back: `packages` packages of `documents` lawful documents
- * loaded with the captures off, ANALYZE where the case draws it, then document 0 of package 1 written whole through
- * the captures. Each whole rule's statement is explained over the deltas that hold its rows (test/support/judge.ts
+ * `size` packages of `size` lawful documents each, every document a node and a typed fact at every place, and each
+ * package's gaps at every place: rows committed beside the written document.
+ */
+const storedRows = (installed: Installed, size: StoredSize): ReadonlyArray<string> => {
+	const names = namesOf(installed)
+	const columns = columnsOf(installed)
+	const series = `generate_series(1, ${size}) AS p(p), generate_series(1, ${size}) AS d(d), generate_series(0, ${places - 1}) AS a(a)`
+	return [
+		`INSERT INTO ${names.table(Gap)} (${columns.gap}) SELECT p, a, a FROM generate_series(1, ${size}) AS p(p), generate_series(0, ${places - 1}) AS a(a)`,
+		`INSERT INTO ${names.table(Node)} (${columns.node}) SELECT p, ${docName("d")}, a, a, 0, 0 FROM ${series}`,
+		`INSERT INTO ${names.table(Typed)} (${columns.typed}) SELECT p, ${docName("d")}, a, a, 0 FROM ${series}`
+	]
+}
+
+/**
+ * confinedSchema installed, and its stored packages and documents committed through the captures once per member,
+ * judged at their COMMIT (stored.ts storedSeed): the template a case of that size writes beside.
+ */
+const confinedTemplate = (size: StoredSize): SubstrateTemplate<Installed> =>
+	seededTemplate({
+		declaredIn: import.meta,
+		name: `rule confined ${size}`,
+		schema: confinedSchema,
+		options: { ambient: ordinarySession, extensions: [], label: "rule_confined" },
+		seed: storedSeed((installed) => storedRows(installed, size))
+	})
+
+export const confinedTemplates: {
+	readonly [S in StoredSize as `${S}`]: SubstrateTemplate<Installed>
+} = { "20": confinedTemplate(20), "40": confinedTemplate(40) }
+
+/** A case: the packages and the documents of each stored beside the written one, its template's, and the statistics. */
+export interface Stored {
+	readonly size: StoredSize
+	readonly statistics: "none" | "analyzed"
+}
+
+export const storedGen: Gen<Stored> = (s) => ({
+	size: s.draw(element(storedSizes)),
+	statistics: s.draw(element(["none", "analyzed"] as const))
+})
+
+export type ConfinedFeature = "measured with no statistics" | "measured analyzed"
+
+/**
+ * One case in its one transaction over a clone of its size's template (confinedTemplates), which the case's end rolls
+ * back: beside the template's packages of lawful documents, ANALYZE where the case draws it, then document 0 of
+ * package 1 written whole through the captures. Each whole rule's statement is explained over the deltas that hold its rows (test/support/judge.ts
  * judgedPlans), and then the judge runs: every scan of a stored table reads, a loop, the
  * rows of one unit, one node, its output and what its filters removed together, never a node of another document,
  * which a read of Node through an index of (pkg, kind, at) reads, every document of the package at that place.
@@ -155,35 +188,15 @@ export const runConfined = (
 		const names = namesOf(installed)
 		const node = names.table(Node)
 		const typed = names.table(Typed)
-		const nodeColumns = Arr.join(
-			Arr.map(["pkg", "doc", "at", "kind", "gov", "w"] as const, (f) => names.column(Node, f)),
-			", "
-		)
-		const gap = names.table(Gap)
-		const gapColumns = Arr.join(
-			Arr.map(["pack", "kind", "at"] as const, (f) => names.column(Gap, f)),
-			", "
-		)
-		const typedColumns = Arr.join(
-			Arr.map(["pkg", "doc", "at", "kind", "gov"] as const, (f) => names.column(Typed, f)),
-			", "
-		)
-		const series = `generate_series(1, ${stored.packages}) AS p(p), generate_series(1, ${stored.documents}) AS d(d), generate_series(0, ${places - 1}) AS a(a)`
+		const columns = columnsOf(installed)
 		const written = `generate_series(0, ${places - 1}) AS a(a)`
 		const statistics =
 			stored.statistics === "analyzed" ? [`ANALYZE ${node}`, `ANALYZE ${typed}`] : []
 		for (const sql of [
-			`INSERT INTO ${gap} (${gapColumns}) SELECT p, a, a FROM generate_series(1, ${stored.packages}) AS p(p), ${written}`,
-			`ALTER TABLE ${node} DISABLE TRIGGER USER`,
-			`ALTER TABLE ${typed} DISABLE TRIGGER USER`,
-			`INSERT INTO ${node} (${nodeColumns}) SELECT p, ${docName("d")}, a, a, 0, 0 FROM ${series}`,
-			`INSERT INTO ${typed} (${typedColumns}) SELECT p, ${docName("d")}, a, a, 0 FROM ${series}`,
-			`ALTER TABLE ${node} ENABLE TRIGGER USER`,
-			`ALTER TABLE ${typed} ENABLE TRIGGER USER`,
 			...statistics,
 			"SET CONSTRAINTS ALL DEFERRED",
-			`INSERT INTO ${node} (${nodeColumns}) SELECT 1, ${docName("0")}, a, a, 0, 0 FROM ${written}`,
-			`INSERT INTO ${typed} (${typedColumns}) SELECT 1, ${docName("0")}, a, a, 0 FROM ${written}`
+			`INSERT INTO ${node} (${columns.node}) SELECT 1, ${docName("0")}, a, a, 0, 0 FROM ${written}`,
+			`INSERT INTO ${typed} (${columns.typed}) SELECT 1, ${docName("0")}, a, a, 0 FROM ${written}`
 		]) {
 			yield* connection.query(sql, [])
 		}
@@ -209,7 +222,7 @@ export const runConfined = (
 			assert.ok(scans.length > 0, "the whole rule's statement reads a stored table")
 			assert.ok(
 				Arr.every(read, (r) => r.rows <= 1),
-				`${Formatter.format(stored)}: each scan of a stored table reads one node a loop, its unit's, beside ${stored.documents} documents of its package at each place: ${Formatter.format(read)}`
+				`${Formatter.format(stored)}: each scan of a stored table reads one node a loop, its unit's, beside ${stored.size} documents of its package at each place: ${Formatter.format(read)}`
 			)
 		}
 		yield* connection.query("SET CONSTRAINTS ALL IMMEDIATE", [])

@@ -11,9 +11,16 @@ import type { Needs } from "#compiler/ir/needs.ts"
 import { needsOf } from "#compiler/logical/needs.ts"
 import { emptyEnv, extendEnv } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
-import { regionParts } from "#compiler/lower/conservative/match-region/index.ts"
+import { noRowSites, regionParts } from "#compiler/lower/conservative/match-region/index.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
-import type { Cte, Delete, Expr, FromItem, OperandSelect } from "#compiler/sql/ast.ts"
+import type {
+	Cte,
+	Delete,
+	Expr,
+	FromItem,
+	OperandSelect,
+	StatementText
+} from "#compiler/sql/ast.ts"
 import {
 	and,
 	binary,
@@ -55,7 +62,8 @@ import {
 	returnedColumn,
 	returnedRows,
 	rowType,
-	type WriteContext
+	type WriteContext,
+	type StatementWriting
 } from "#compiler/write/insert/statement.ts"
 
 interface DeleteSpec {
@@ -162,11 +170,11 @@ const deletion = (
 	}
 }
 
-const buildDelete = (
-	w: WriteContext,
+const buildDelete = <T extends StatementText>(
+	w: StatementWriting<T>,
 	spec: DeleteSpec,
 	mode: DeleteMode
-): ModifyingStatement<DeleteResult> => {
+): ModifyingStatement<DeleteResult, T> => {
 	const { relation, input } = spec
 	const at = `${mode.kind === "exact" ? "delete" : "put deletion"} ${relation.name}`
 	const all = keyFirst(relation)
@@ -182,7 +190,7 @@ const buildDelete = (
 		...rest.filter((f) => isCarried(f) || (f.writing.kind === "instant" && pk.includes(f)))
 	].filter((f) => f.writing.kind !== "keyGenerated")
 	if (!isNonEmpty(matched)) {
-		throw defect(`a deletion of ${relation.name} that matches no field`)
+		defect(`a deletion of ${relation.name} that matches no field`)
 	}
 	const compared: NonEmptyReadonlyArray<LawField> = matched
 	/** Its primary key's fields a fact states, which the target is reached at (`keys`). */
@@ -298,7 +306,7 @@ const collidingAtKey = (
 	const scalars = keys.filter((k) => k.field.name !== shape.span.name)
 	const span = keys.find((k) => k.field.name === shape.span.name)
 	if (!isNonEmpty(scalars) || span === undefined) {
-		throw defect(
+		defect(
 			`a span key of ${relation.name} without a scalar field before its span, or without its span`
 		)
 	}
@@ -391,16 +399,17 @@ const keyGeneratedLeading = (
  *
  * Every returned row is a fact the statement made absent; the outer SELECT returns its complete fact, which
  * delta.removed and the netting across strata need. */
-export const buildExactDelete = (
-	w: WriteContext,
+export const buildExactDelete = <T extends StatementText>(
+	w: StatementWriting<T>,
 	spec: ExactDeleteSpec
-): ModifyingStatement<DeleteResult> => buildDelete(w, spec, { kind: "exact", except: spec.except })
+): ModifyingStatement<DeleteResult, T> =>
+	buildDelete(w, spec, { kind: "exact", except: spec.except })
 
 /** A displacing deletion excepts nothing: the put's own facts are what it displaces occupants for. */
-export const buildDisplacingDelete = (
-	w: WriteContext,
+export const buildDisplacingDelete = <T extends StatementText>(
+	w: StatementWriting<T>,
 	spec: DisplacingDeleteSpec
-): ModifyingStatement<DeleteResult> =>
+): ModifyingStatement<DeleteResult, T> =>
 	buildDelete(w, spec, { kind: "displacing", differing: spec.differing })
 
 /** The anchored deletion: the DELETE's target plays the member's anchoring occurrence, so the relation is
@@ -419,10 +428,10 @@ export const buildDisplacingDelete = (
  * Each column the occurrence binds equals its variable's value: another occurrence's column for a shared
  * variable; for a variable the occurrence alone binds, the first target column bound to it, which the variable
  * then reads. */
-export const buildAnchoredDelete = (
-	w: WriteContext,
+export const buildAnchoredDelete = <T extends StatementText>(
+	w: StatementWriting<T>,
 	spec: AnchoredDeleteSpec
-): ModifyingStatement<DeleteResult> => {
+): ModifyingStatement<DeleteResult, T> => {
 	const { relation, anchor } = spec
 	return buildStatement(w, ownBuild, (supply: NameSupply) => {
 		const r3 = supply.relation(internal(`target ${relation.name}`))
@@ -444,7 +453,7 @@ export const buildAnchoredDelete = (
 			occurrences: others,
 			heading: region.heading.filter((c) => !alone.has(c.name))
 		}
-		const parts = regionParts(rest, w.cx, emptyEnv)
+		const parts = regionParts(rest, w.cx, emptyEnv, noRowSites)
 		/** The region's columns as the Filters and the constants read them: the rest's from its parts, and each variable
 		 * the occurrence alone binds from the stored column its first binding names. */
 		const columns = new Map<string, Expr>(parts.columns.map((c) => [c.column.name, c.value]))

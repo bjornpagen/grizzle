@@ -9,6 +9,7 @@ import {
 	KeyAnalysis,
 	type KeyRestriction,
 	Lookups,
+	noPagedReads,
 	whole
 } from "#compiler/lower/shapes/share/keys.ts"
 import { Fn } from "#compiler/public/compute.ts"
@@ -90,7 +91,8 @@ export const callKeysOf = (
 		nodes,
 		new Map(Arr.map(dag.roots, (r) => [r, whole] as const)),
 		() => new Map(),
-		new Lookups(() => false)
+		new Lookups(() => false),
+		noPagedReads
 	)
 	return Arr.flatMap(nodes, (node: RelNode) => {
 		if (node.kind !== "Call") {

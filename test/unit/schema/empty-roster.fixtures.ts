@@ -9,7 +9,8 @@ import type { CodecFault } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { installOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { closed, relation } from "#compiler/public/dynamic.ts"
 import { bits, closedId } from "#compiler/public/fields.ts"
 import { login, role, schema } from "#compiler/public/schema.ts"
@@ -89,7 +90,7 @@ export const compiledCase = (drawn: RosterCase): CompiledCase => {
 	})
 	const noHandle = queryOver(value).rule((r: RuleValue) => {
 		const g = varsOver(Graders, "g")
-		return r.match(Graders, g).where(r.or()).find(g)
+		return r.match(Graders, g).where(r.or([])).find(g)
 	})
 	succeeded(
 		compileTemplateOver(everyHandle, value, artifacts, testCompile),
@@ -97,7 +98,7 @@ export const compiledCase = (drawn: RosterCase): CompiledCase => {
 	)
 	succeeded(
 		compileTemplateOver(noHandle, value, artifacts, testCompile),
-		"the read of none of the roster's handles, `.where(r.or())`"
+		"the read of none of the roster's handles, `.where(r.or([]))`"
 	)
 	succeeded(
 		compileInstallation(owning(value), {

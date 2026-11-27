@@ -15,7 +15,7 @@ import {
 	lexicalValue
 } from "#compiler/scalar/lexical.ts"
 import { decimalDigitsOf } from "#compiler/scalar/lexical.ts"
-import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
+import { moneyFractionDigits, roundedUnits } from "#compiler/scalar/values/decimal.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import {
 	binary32MaxExponent,
@@ -269,7 +269,8 @@ export const floatNumericDigits: { readonly [C in FloatCarrier]: number } = {
  *   digits: numeric to money rounds amount * 10^moneyFractionDigits half away from zero, money to numeric is the
  *   amount exactly, and an exact
  *   integer or an exact amount into money is defined where it fits the count;
- * - an integer into an exact integer, and money into exact money, is the value itself;
+ * - an integer into an exact integer, and money into exact money, is the value itself, and so is a numeric into an
+ *   exact integer, defined where it is finite and has no fraction digits ("integral"), since nothing rounds into one;
  * - a text into a type with a lexical form is a parse, defined where the text is a member of the form ("lexical"),
  *   whose value is XML Schema's lexical mapping of it (scalar/lexical.ts lexicalValue), read at the cast's own target,
  *   a numeric's typmod included, since the form depends on it.
@@ -368,11 +369,27 @@ export const integerCast = (
 }
 
 /**
- * The cast of a numeric to `target`. Numeric to numeric is the length coercion, the value itself: the target's typmod
- * rounds it to its scale and refuses what overflows its precision.
+ * A numeric as an exact integer, the value itself: defined where it is finite ("finite") and has no fraction digits
+ * ("integral"), since nothing rounds into an exact integer; its digits are the cast's fits, which its bounds proved.
  */
-export const numericCast = (target: IntCarrier | "numeric" | FloatCarrier | "money"): HostCast => {
+const exactIntegerOf = (d: Decimal): CastResult => {
+	if (!d.isFinite()) {
+		return Result.err("finite")
+	}
+	return d.parts.minScale > 0 ? Result.err("integral") : Result.ok(roundedUnits(d, 0))
+}
+
+/**
+ * The cast of a numeric to `target`. Numeric to numeric is the length coercion, the value itself: the target's typmod
+ * rounds it to its scale and refuses what overflows its precision. Numeric to an exact integer is the value itself
+ * (exactIntegerOf).
+ */
+export const numericCast = (
+	target: IntCarrier | "numeric" | FloatCarrier | "money" | "exactInteger"
+): HostCast => {
 	switch (target) {
+		case "exactInteger":
+			return { from: "numeric", convert: exactIntegerOf }
 		case "int2":
 		case "int4":
 		case "int8": {

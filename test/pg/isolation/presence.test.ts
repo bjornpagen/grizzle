@@ -27,22 +27,23 @@
 
 import type { Reached } from "@bjornpagen/testing/features"
 import { steered } from "@bjornpagen/testing/gen"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import {
 	aimedPresenceRaces,
 	featuresOf,
+	generatedShape,
 	type PresenceFeature,
 	problemsOf,
-	runRace,
-	serializableShape
+	runRace
 } from "#test/pg/isolation/presence.fixtures.ts"
+import { servedLevel } from "#test/pg/isolation/support/race.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** Each child's windows are the 3 s stretches of its stored windows and its committed readings, whatever order its beacons commit in, and calls at different children never wait on each other. */
 export const eachChildsWindowsAreTheStretchesOfItsStoredWindowsAndItsCommittedReadingsWhateverOrderItsBeaconsCommitInAndCallsAtDifferentChildrenNeverWaitOnEachOther =
 	property.explore(steered(aimedPresenceRaces), {
-		needs: { serializable: Substrate.fresh(serializableShape) },
+		needs: { shape: Substrate.fresh(generatedShape) },
 		situations: [
 			"a reading that opened a window",
 			"a reading that extended a window",
@@ -53,19 +54,20 @@ export const eachChildsWindowsAreTheStretchesOfItsStoredWindowsAndItsCommittedRe
 			"a SERIALIZABLE call refused"
 		] satisfies ReadonlyArray<Reached<PresenceFeature>>,
 		check:
-			({ serializable }, c: Case<PresenceFeature>) =>
+			({ shape }, c: Case<PresenceFeature>) =>
 			(race) =>
 				Effect.gen(function* () {
-					const seat = yield* serializable
+					const seat = yield* shape
+					const level = servedLevel(seat.value, "learner")
 					const run = yield* Effect.provideService(
-						runRace(seat.value, race, "serializable"),
+						runRace(seat.value, race),
 						Substrate,
 						seat.substrate
 					)
-					for (const f of featuresOf(race, run, "serializable")) {
+					for (const f of featuresOf(race, run, level)) {
 						c.note(f)
 					}
-					const problems = [...run.problems, ...problemsOf(race, run, "serializable")]
+					const problems = [...run.problems, ...problemsOf(race, run, level)]
 					if (problems.length > 0) {
 						return yield* Effect.die(
 							new Error(`${Formatter.format(race)}\n${Arr.join(problems, "\n")}`)
@@ -76,7 +78,16 @@ export const eachChildsWindowsAreTheStretchesOfItsStoredWindowsAndItsCommittedRe
 			kind: "specification",
 			name: 'the 3 s stretches of each child\'s stored windows and committed readings (README "A window a put extends")'
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/isolation/presence.test.ts#eachChildsWindowsAreTheStretchesOfItsStoredWindowsAndItsCommittedReadingsWhateverOrderItsBeaconsCommitInAndCallsAtDifferentChildrenNeverWaitOnEachOther:7f.0:1.0.0"
+				),
+				reason:
+					"two beacons at child 0 between its recent and ahead windows, the second begun putting first, beside one at child 1 with no window: the beacon's clock carrier is one statement of a set_config per carried column, all named set_config, which the raw session read by column name refused, so each put's fiber died, and the race read a dead fiber as a call that sent nothing and rolled back, no reading ever committing",
+				since: "2026-11-27"
+			}
+		],
 		kills: [
 			{
 				file: "packages/engine/src/write/put/choose.ts",
@@ -89,6 +100,13 @@ export const eachChildsWindowsAreTheStretchesOfItsStoredWindowsAndItsCommittedRe
 				original: '\t\t\t"&&",\n\t\t\tcol(storedAt',
 				replacement: '\t\t\t"=",\n\t\t\tcol(storedAt',
 				why: "The displacing deletion matches an occupant at an equal span alone, as format 7's did, so an extended window displaces nothing it grows from and is refused on the key."
+			},
+			{
+				file: "packages/engine/src/write/schedule/plan.ts",
+				original: '\tprimaryKeyShape(action.info.relation).kind === "span"',
+				replacement:
+					'\tprimaryKeyShape(action.info.relation).kind === "span" && action.op === "insert"',
+				why: "A put of a span key is read as having a READ COMMITTED form, so generate compiles the beacon at READ COMMITTED, whose insert half meets the span key's exclusion constraint, which arbitrates by ON CONFLICT DO NOTHING alone and so has no form there: an internal compiler error (write/insert/protocol.ts arbitrationOf), and the shape never installs."
 			}
 		],
 		show: Formatter.format

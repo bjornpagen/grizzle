@@ -82,9 +82,37 @@ export const anAttachmentsParentKeySetDeduplicatesExactlyWhereItIsUnprovedOnGene
 				reason:
 					"the TEST_SEED=28094260 case with its nested attachment paired on the column that fixes the parent too",
 				since: "2026-11-11"
+			},
+			{
+				token: ReplayToken(
+					"test/unit/lower/dedup/key-sets.test.ts#anAttachmentsParentKeySetDeduplicatesExactlyWhereItIsUnprovedOnGeneratedProgramsTheirPagesIncluded:-:1.0.0.0.1.3.0.0.0.0.0.0.0.0.0.0.0.0.0.1.b.1.2.0.0.0.0.0.0.0.0.0.0.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.5.0.0.0.8.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.1.0.1.b.a.1.0.0.0.0.0.0.0.0.0.0.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.1.0.0.1.5.0.3.4.2.0.0.0.0.0.0.5.0.0.0.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.1.0.0.0.0.0.0.5.0.0.0.8.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.4.1.0.0.0.0.0.0.0.0.0.0.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.1.3.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.104c.1.0.1.0.0.0.0.0.0.0.0.0.0.0.0.8.0.0.0.3.0.0.0.0.1.2.0.1.0.0.1.3.1.0.1.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.2.0.1.1.0.1.0.0.1.0.1.0.0.1.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.1"
+				),
+				reason:
+					"a semi-join over a region the statement shares as a CTE of its own, whose correlated node the region holds (cte-policy sharedCorrelated): the semi-join opened the region's held CTEs around its own query, so the held CTE led the semi-join's query while its read stood in the region's CTE, out of its reach, which the printer refuses (BRAND-P3's run, rotating 0x2f1e3cf5, case 146). A region's held CTEs lead the query its own body is spelled in (lower/shapes holdingRegion)",
+				since: "2026-11-26"
+			},
+			{
+				token: ReplayToken(
+					"test/unit/lower/dedup/key-sets.test.ts#anAttachmentsParentKeySetDeduplicatesExactlyWhereItIsUnprovedOnGeneratedProgramsTheirPagesIncluded:-:1.0.0.1.0.2.0.0.0.0.0.0.1.2.0.0.0.0.0.1.0.0.0.0.0.0.a.b.0.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.4.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.1.9.5.2.0.0.0.0.0.0.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.5.0.0.0.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.2.0.0.0.0.0.0.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.4.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.0.5.0.0.0.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.0.0.1.5.3.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.b.2.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.0.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.a44.0.0.0.0.0.0.0.0.1.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.3.0.1.0.1.0.3.0.0.1.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.1.0"
+				),
+				reason:
+					"a take per parent correlated to the closed relation its region's chain leads with, bound at the column its correlation reads, read at the key set of the rows before it (lower/shapes/region chainKeySets): its correlation read the lead's row from the key set's derived table, which stands beside the lead, never LATERAL to it, so the printer refused the read of r82 out of its reach (rotating 0x9368d051, case 35). A key set's source is read in the scope of its key alone (keyScope), each row of the region its correlation reads at the key's column, and one whose correlation reads a column of no class its key holds is fenced, read per row",
+				since: "2026-11-26"
 			}
 		],
 		kills: [
+			{
+				file: "packages/engine/src/lower/shapes/region/index.ts",
+				original: "\t\t\t\t\tconst scope = step.key.scope(within, at)\n",
+				replacement: "\t\t\t\t\tconst scope = within\n",
+				why: "A key set's source read in the region's scope: the kept take's correlation reads the lead's row from the key set's derived table beside it, not LATERAL, which the printer refuses."
+			},
+			{
+				file: "packages/engine/src/lower/shapes/index.ts",
+				original: "\t\t\tconst region = holdingRegion(node, cx)\n",
+				replacement: "\t\t\tconst region = filteredRegion(node)\n",
+				why: "A semi-join over a region the statement shares as its own CTE opens that region's held CTEs around the semi-join's query: the kept case's held CTE leads the semi-join while the region's CTE reads it, out of its reach."
+			},
 			{
 				file: "packages/engine/src/lower/conservative/deliver.ts",
 				original:

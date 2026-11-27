@@ -11,6 +11,7 @@ import type { Stamped } from "#compiler/ir/instant.ts"
 import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { witnessFields } from "#compiler/laws/model/uniques.ts"
+import { namesOrUnit } from "#compiler/runtime/lower/tree.ts"
 import type {
 	Cte,
 	Expr,
@@ -20,6 +21,7 @@ import type {
 	OnConflict,
 	Select,
 	SetCore,
+	StatementText,
 	Target
 } from "#compiler/sql/ast.ts"
 import { namedBody, type NameSupply } from "#compiler/sql/naming.ts"
@@ -71,17 +73,19 @@ import {
 	type InsertResult,
 	type InsertVariant,
 	keyFirst,
+	keyOrderedSource,
+	type ModifyingStatement,
 	proposalOf,
 	requestedValue,
-	writtenFields,
-	type ModifyingStatement,
 	type ResultColumn,
-	type Returning,
 	returnedColumn,
 	returnedRows,
+	type Returning,
 	rowType,
 	startOf,
-	type WriteContext
+	type WriteContext,
+	type StatementWriting,
+	writtenFields
 } from "#compiler/write/insert/statement.ts"
 
 import {
@@ -251,7 +255,7 @@ const arbitrationOf = (
 	}
 	switch (shape.variant) {
 		case "spanKey":
-			throw defect(
+			defect(
 				`an insert of complete facts into ${relation.name}, whose primary key holds a span, that arbitrates no object but every one: write/schedule/plan.ts readCommittedLack refuses it at READ COMMITTED`
 			)
 		case "pureSet":
@@ -367,10 +371,10 @@ const arbitrationOf = (
  * A vector field compares through the extension's qualified operator, and a row comparison that holds one, such as the
  * verdict's comparison over a vector payload, is spelled column by column: PostgreSQL resolves each column
  * operator by name through the search_path, and no login's search_path holds the extension schema. */
-export const buildInsert = (
-	w: WriteContext,
+export const buildInsert = <T extends StatementText>(
+	w: StatementWriting<T>,
 	spec: InsertSpec
-): ModifyingStatement<InsertResult> => {
+): ModifyingStatement<InsertResult, T> => {
 	const { relation, input } = spec
 	const at = `insert ${relation.name}`
 	const shape = insertShape(relation, inputStated(input))
@@ -477,7 +481,7 @@ export const buildInsert = (
 			if (firstStamp === undefined) {
 				return isNonEmpty(generations)
 					? [...generated(r1, inputs)]
-					: [cte(r1, namedBody(read.select, inputs.columns))]
+					: [cte(r1, namedBody(read.select, namesOrUnit(inputs.columns)))]
 			}
 			const stamps: NonEmptyReadonlyArray<Stamped> = [firstStamp, ...moreStamps]
 			const out = { name: r1, fields, columns: inputs }
@@ -573,19 +577,21 @@ export const buildInsert = (
 		}
 		/** r1 already holds each value cast into its column's type (`into`), so the INSERT selects it as is; at `every`
 		 * it selects the proposed CTE's columns alone. */
-		const source: Select =
+		const source =
 			proposed === undefined
-				? {
-						...provedSelect(
+				? keyOrderedSource(
+						supply,
+						provedSelect(
 							"keyed",
 							[...fields.map((f) => target(inCol(f))), ...starts.map((s) => target(s.value))],
 							[cteRef(r1)],
 							conjunction(gates)
 						),
-						orderBy: pk.map((f) => asc(inCol(f)))
-					}
-				: {
-						...provedSelect(
+						mapNonEmpty(pk, (f) => asc(inCol(f)))
+					)
+				: keyOrderedSource(
+						supply,
+						provedSelect(
 							"keyed",
 							[...fields, ...starts.map((s) => s.field)].map((f) =>
 								target(col(proposed.name, proposed.columns.of(f)))
@@ -593,8 +599,8 @@ export const buildInsert = (
 							[cteRef(proposed.name)],
 							undefined
 						),
-						orderBy: pk.map((f) => asc(col(proposed.name, proposed.columns.of(f))))
-					}
+						mapNonEmpty(pk, (f) => asc(col(proposed.name, proposed.columns.of(f))))
+					)
 		/** How the INSERT meets its occupants (Arbitration): at `returned` its DO SELECT selects every one. */
 		const conflictOf = (): OnConflict | undefined => {
 			switch (arbitration.kind) {
@@ -625,7 +631,7 @@ export const buildInsert = (
 			table: w.names.relation(relation.name),
 			alias: r3,
 			columns: [...fields.map(column), ...starts.map((s) => column(s.field))],
-			source: { kind: "query", query: source },
+			source,
 			onConflict: conflictOf(),
 			returning: [
 				...all.map((f) => targetAs(col(r3, column(f)), retCol(f))),

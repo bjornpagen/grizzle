@@ -19,7 +19,7 @@ import {
 
 const numeric = (r: N.NumericResult): Decimal => {
 	if (!r.ok) {
-		throw referenceUnsupported(`a numeric aggregate that fails with ${r.error}`)
+		referenceUnsupported(`a numeric aggregate that fails with ${r.error}`)
 	}
 	return r.value
 }
@@ -175,6 +175,7 @@ const sum = (values: Arr.NonEmptyReadonlyArray<Value>, type: ScalarType): Value 
 			return Money.exact(
 				Arr.reduce<Value, bigint>(values, 0n, (acc, v) => acc + asMoney(v).minorUnits)
 			)
+		case "variant":
 		case "bool":
 		case "code":
 		case "bits":
@@ -190,7 +191,7 @@ const sum = (values: Arr.NonEmptyReadonlyArray<Value>, type: ScalarType): Value 
 		case "cidr":
 		case "vector":
 		case "tsvector":
-			throw referenceUnsupported(`sum over ${carrier}`)
+			referenceUnsupported(`sum over ${carrier}`)
 	}
 }
 
@@ -211,6 +212,7 @@ const avg = (values: Arr.NonEmptyReadonlyArray<Value>, type: ScalarType): Value 
 				values
 			)
 		}
+		case "variant":
 		case "bool":
 		case "code":
 		case "bits":
@@ -228,7 +230,7 @@ const avg = (values: Arr.NonEmptyReadonlyArray<Value>, type: ScalarType): Value 
 		case "cidr":
 		case "vector":
 		case "tsvector":
-			throw referenceUnsupported(`avg over ${carrier}`)
+			referenceUnsupported(`avg over ${carrier}`)
 	}
 }
 
@@ -296,13 +298,13 @@ export const aggregate = (
 	argType: ScalarType | undefined
 ): Value => {
 	if (!Arr.isReadonlyArrayNonEmpty(values)) {
-		throw referenceUnsupported("an aggregate over an empty group")
+		referenceUnsupported("an aggregate over an empty group")
 	}
 	if (fn === "count") {
 		return BigInt(values.length)
 	}
 	if (argType === undefined) {
-		throw referenceUnsupported(`${fn} without an argument`)
+		referenceUnsupported(`${fn} without an argument`)
 	}
 	const isBool = baseOf(argType).carrier === "bool"
 	switch (fn) {

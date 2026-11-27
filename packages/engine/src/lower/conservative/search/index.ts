@@ -100,7 +100,7 @@ export const lowerSearchOp = (
 		case "zoneLibrary":
 		case "epochDay":
 		case "dateOfEpochDay":
-		case "canonicalZero":
+		case "canonical":
 			return refuseAt(
 				"UnsupportedOperation",
 				at,

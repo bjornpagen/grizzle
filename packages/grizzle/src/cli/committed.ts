@@ -15,7 +15,12 @@ import {
 } from "#cli/errors.ts"
 import type { SchemaTree } from "#cli/files.ts"
 import type { CompileError } from "#compiler/plan/common.ts"
-import { folderParts, type ReadMeta, type TimestampParts } from "#compiler/plan/migration.ts"
+import {
+	folderParts,
+	type ReadMeta,
+	type TimestampParts,
+	timestampText
+} from "#compiler/plan/migration.ts"
 import { type DeploySnapshot, emptyFingerprint, emptySnapshot } from "#compiler/plan/serve.ts"
 
 /**
@@ -100,11 +105,43 @@ type FolderMeta =
 
 /**
  * Where a folder's name places it: by the second its `<YYYYMMDDHHMMSS>_<name>` names (`placed`, deploy/render/folder.ts
- * folderParts), or nowhere (`misnamed`), a name of no folder, a hand-made one whose digits name no second among them.
+ * folderParts); nowhere, as a fork (`forked`), where the folder named before it, `previous`, names that second too; or
+ * nowhere (`misnamed`), a name of no folder, a hand-made one whose digits name no second among them.
+ *
+ * A chain's seconds strictly increase: a new folder's is the second after its chain's last folder's (timestamp.ts
+ * nextTimestamp), so two folders of one second are two drafts on one chain, a fork, whose order only their names would
+ * decide, and whose links a custom migration first, its source its target, would let pass as one chain.
  */
 type FolderPlace =
 	| { readonly kind: "placed"; readonly timestamp: TimestampParts }
+	| { readonly kind: "forked"; readonly previous: string }
 	| { readonly kind: "misnamed" }
+
+/** The last folder before a folder whose name names a second: its name, and its second's timestamp. */
+interface NamedSecond {
+	readonly name: string
+	readonly second: string
+}
+
+/**
+ * Where the folder named `name` is placed (FolderPlace) after `before`, the last folder before it in folder order whose
+ * name names a second, and that last folder once it is read.
+ */
+const placeAfter = (
+	before: Option.Option<NamedSecond>,
+	name: string
+): readonly [Option.Option<NamedSecond>, FolderPlace] => {
+	const timestamp = folderParts(name)
+	if (timestamp === undefined) {
+		return [before, { kind: "misnamed" }]
+	}
+	const second = timestampText(timestamp)
+	const place: FolderPlace =
+		Option.isSome(before) && before.value.second === second
+			? { kind: "forked", previous: before.value.name }
+			: { kind: "placed", timestamp }
+	return [Option.some({ name, second }), place]
+}
 
 /** A committed folder, read once: where its name places it in chain order, and its meta.json, as the chain judges it. */
 interface ReadFolder<F extends FileText = FileText> {
@@ -123,11 +160,25 @@ interface FileText {
 /**
  * The committed chain as one walk reads it: every folder, read once, in folder order, and the fingerprint the link walk
  * reaches. The walk judges the links of the placed folders in timestamp order, from the empty snapshot, up to the first
- * whose meta.json is not this schema's link from the fingerprint it reached; a misnamed folder has no place in it.
+ * whose meta.json is not this schema's link from the fingerprint it reached; a misnamed or forked folder has no place in
+ * it.
  */
 interface CommittedChain<F extends FileText = FileText> {
 	readonly folders: ReadonlyArray<ReadFolder<F>>
 	readonly reached: string
+}
+
+/** The break a folder's name is to the chain, when it is one: a name of no folder, or a fork's. */
+const placeBreak = (folder: ReadFolder): ChainBreak | undefined => {
+	const p = folder.place
+	switch (p.kind) {
+		case "misnamed":
+			return { kind: "misnamed", folder: folder.name }
+		case "forked":
+			return { kind: "forked", folder: folder.name, previous: p.previous }
+		case "placed":
+			return undefined
+	}
 }
 
 /** The fault a folder's meta.json is to the chain, when it is one. */
@@ -168,14 +219,10 @@ export const committedChain = <F extends FileText>(
 	schema: ConfiguredSchema,
 	folders: ReadonlyArray<MetaFolder<F>>
 ): CommittedChain<F> => {
-	const read = Arr.map(folders, (f): ReadFolderInput<F> => {
-		const timestamp = folderParts(f.name)
-		return {
-			name: f.name,
-			place: timestamp === undefined ? { kind: "misnamed" } : { kind: "placed", timestamp },
-			meta: f.meta,
-			files: f.files
-		}
+	const [, read] = Arr.mapAccum(folders, Option.none<NamedSecond>(), (before, f) => {
+		const [after, place] = placeAfter(before, f.name)
+		const folder: ReadFolderInput<F> = { name: f.name, place, meta: f.meta, files: f.files }
+		return [after, folder] as const
 	})
 	const own = (meta: Result.Result<ReadMeta, CompileError>): ReadMeta | undefined =>
 		Result.isSuccess(meta) && meta.success.schema === schema.ident ? meta.success : undefined
@@ -215,7 +262,7 @@ export const committedChain = <F extends FileText>(
 }
 
 /** A schema's committed chain read whole (wholeChain): its folders' timestamps, its folders, and what its links reach. */
-export interface WholeChain {
+interface WholeChain {
 	readonly timestamps: ReadonlyArray<TimestampParts>
 	readonly folders: ReadonlyArray<CommittedFolder>
 	readonly reached: string
@@ -223,11 +270,10 @@ export interface WholeChain {
 
 /**
  * A schema's committed chain read whole, and the fingerprint its links reach, or the refusal of its first break: a
- * misnamed folder before any other fault. It reads each folder's meta.json alone, which records no format, so `grizzle
- * upgrade` reads it under any committed snapshot (cli/upgrade.ts); a draft holds the fingerprint it reaches to
- * snapshot.json's (continuedChain).
+ * folder's name, misnamed or a fork's, before any other fault. It reads each folder's meta.json alone; a draft holds the
+ * fingerprint it reaches to snapshot.json's (continuedChain).
  */
-export const wholeChain = Effect.fn("wholeChain")(function* (
+const wholeChain = Effect.fn("wholeChain")(function* (
 	schema: ConfiguredSchema,
 	tree: SchemaTree
 ): Effect.fn.Return<WholeChain, CliError> {
@@ -244,9 +290,9 @@ export const wholeChain = Effect.fn("wholeChain")(function* (
 		schema,
 		Arr.map(tree.folders, (f) => ({ name: f.name, meta: readMeta(f.metaText), files: f.files }))
 	)
-	const misnamed = Arr.findFirst(chain.folders, (f) => f.place.kind === "misnamed")
-	if (Option.isSome(misnamed)) {
-		return yield* breaks({ kind: "misnamed", folder: misnamed.value.name })
+	const named = Arr.findFirst(chain.folders, (f) => Option.fromUndefinedOr(placeBreak(f)))
+	if (Option.isSome(named)) {
+		return yield* breaks(named.value)
 	}
 	const fault = Arr.findFirst(chain.folders, (f) => Option.fromUndefinedOr(folderFault(f)))
 	if (Option.isSome(fault)) {
@@ -266,7 +312,7 @@ export const wholeChain = Effect.fn("wholeChain")(function* (
 
 /**
  * The chain a draft continues, whole and reaching snapshot.json's fingerprint, or the refusal of its first break: a
- * misnamed folder before any other fault (wholeChain).
+ * folder's name, misnamed or a fork's, before any other fault (wholeChain).
  */
 export const continuedChain = Effect.fn("continuedChain")(function* (
 	schema: ConfiguredSchema,

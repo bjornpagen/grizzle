@@ -58,7 +58,10 @@ import type { PgConnection } from "#test/support/pg.ts"
  *
  * Its twin is the same statement with every core that reads a derived table filtered by WHERE TRUE, which no fold reads
  * through (a pass-through projection has no WHERE) and which keeps every row: what the statement meant before the
- * fold, which PostgreSQL computes.
+ * fold, which PostgreSQL computes. The printer pulls the twin up as it pulls the statement up (sql/pull-up.ts,
+ * bcb057d552, lane PRINTONCE4): a guarded core's simple sub-query is flattened into it, its WHERE conjoined before the
+ * guard, so the twin is the statement pulled up and not folded, and each guard prints as TRUE after a WHERE of its own
+ * or after an AND.
  */
 export type Term =
 	| Readonly<{ kind: "column"; at: number }>
@@ -414,10 +417,20 @@ const tokensOf = (text: string): ReadonlyArray<Token> => {
 	return lexed.tokens
 }
 
+/**
+ * The key a token counts under: its own, but a WHERE and an AND under one, since a twin's guard prints after either, a
+ * WHERE of its own or an AND where the printer's pull-up conjoins it with the WHERE of a sub-query it flattens into the
+ * guarded core (see the header).
+ */
+const countedKey = (token: Token): string => {
+	const key = keyOf(token)
+	return key === "word WHERE" || key === "word AND" ? "word WHERE or AND" : key
+}
+
 const counts = (tokens: ReadonlyArray<Token>): Map<string, number> => {
 	const counted = new Map<string, number>()
 	for (const token of tokens) {
-		const key = keyOf(token)
+		const key = countedKey(token)
 		counted.set(key, (counted.get(key) ?? 0) + 1)
 	}
 	return counted
@@ -457,9 +470,9 @@ const scaffolding: ReadonlySet<string> = new Set([
 
 /**
  * What the folded text breaks of the fold's rules against its twin's: it adds no token beyond its scaffolding and a copy
- * of a name or a number its twin holds (a column or a literal read twice), its twin's guards set apart, one WHERE TRUE
- * for each core over a derived table (`guards`); it calls exactly what its twin calls; and it holds its twin's
- * placeholders in their order.
+ * of a name or a number its twin holds (a column or a literal read twice), its twin's guards set apart, one TRUE after a
+ * WHERE or an AND for each core over a derived table (`guards`); it calls exactly what its twin calls; and it holds its
+ * twin's placeholders in their order.
  */
 export const tokenViolations = (
 	folded: string,
@@ -469,7 +482,7 @@ export const tokenViolations = (
 	const a = tokensOf(folded)
 	const b = tokensOf(twin)
 	const had = counts(b)
-	for (const key of ["word WHERE", "word TRUE"]) {
+	for (const key of ["word WHERE or AND", "word TRUE"]) {
 		had.set(key, (had.get(key) ?? 0) - guards)
 	}
 	const added = Arr.flatMap([...counts(a)], ([key, n]) => {

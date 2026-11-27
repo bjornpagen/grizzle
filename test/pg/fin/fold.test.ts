@@ -46,7 +46,8 @@ import {
 	foldWriteOf,
 	hostFilled,
 	type Judging,
-	judgedFold
+	judgedFold,
+	nothingAround
 } from "#test/pg/fin/folds.ts"
 import { endedBy, endGen, refusedAtCommitBy, seatIn } from "#test/pg/fin/installed.ts"
 import { grizzleFold } from "#test/support/families/fold.ts"
@@ -130,7 +131,13 @@ export const foldsThroughGrizzlesLoweringCommitTheReferenceFoldAndRefuseEverySin
 									}
 								}
 								const end = c.draw(endGen)
-								const j = yield* judgedFold(grizzle, emptyFold, foldWriteOf(stored), [], end)
+								const j = yield* judgedFold(
+									grizzle,
+									emptyFold,
+									foldWriteOf(stored),
+									nothingAround,
+									end
+								)
 								c.note(`${SPEC.label} ${axis} ${j.verdict}`)
 								c.note(endedBy(j.end))
 								if (Option.exists(j.moment, (m) => m.kind === "commit")) {

@@ -3,7 +3,8 @@
 import { type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, String as Str } from "effect"
 import type { QueryDesc as QueryOf, SchemaDesc } from "#compiler/ir/desc.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { installOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
 	check,

@@ -753,8 +753,7 @@ const sessionHeldFix =
 
 /**
  * The fix of a drop PostgreSQL refused because what it drops is in use (55006): a replication slot a leader still
- * streams from, a live source's (physical/ddl/live.ts dropLiveSlot) or one a leader of format 7 or before made, which
- * `grizzle upgrade` drafts the drop of (dropFormerLiveSlot). grizzle ends no leader, so the operator stops it, a
+ * streams from, a live source's (physical/ddl/live.ts dropLiveSlot). grizzle ends no leader, so the operator stops it, a
  * one-time outage, and migrates again. Nothing for any other failure.
  */
 const inUseFix = (failure: StatementFailure): string =>

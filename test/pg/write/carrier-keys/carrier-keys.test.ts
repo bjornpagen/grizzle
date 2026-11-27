@@ -1,12 +1,12 @@
 /**
- * A write statement reaches every stored relation it joins to a carrier's rows by the key's index, on PostgreSQL 19,
- * the carrier never analyzed: each stored relation a write statement joins to rows it holds is restricted to those
- * rows' keys, `t.k = ANY (ARRAY(SELECT DISTINCT r.k FROM rows r))` per key field (write/probe.ts amongHeld), one
- * condition its index serves, so PostgreSQL reads it by that index however many rows it estimates the carrier at. A
- * carrier created in the transaction that fills it has never been analyzed, so PostgreSQL plans it from its heap alone:
- * a one-row carrier, under ten pages, as ten pages of narrow rows, about two thousand; against that guess a join of the
- * carrier to a stored relation by its key alone scans the relation whole, which under SERIALIZABLE takes a
- * relation-level SIRead lock and fails every concurrent writer of it with 40001. No write analyzes a carrier.
+ * A write statement reaches every stored relation it joins to a carrier's rows by the key's index, on PostgreSQL 19:
+ * each stored relation a write statement joins to rows it holds is restricted to those rows' keys,
+ * `t.k = ANY (ARRAY(SELECT DISTINCT r.k FROM rows r))` per key field (write/probe.ts amongHeld), one condition its index
+ * serves, so PostgreSQL reads it by that index however many rows it estimates the carrier at. A carrier's rows are the
+ * arrays in its transaction's settings (write/carriers/carriers.ts), which a session plans its statement over once, at
+ * the length its first call's arrays hold; against a later call's longer arrays a join of the carrier to a stored
+ * relation by its key alone could scan the relation whole, which under SERIALIZABLE takes a relation-level SIRead lock
+ * and fails every concurrent writer of it with 40001.
  *
  * The box, exhausted: each shape whose facts two or more statements of its program read, so the program carries them in
  * a carrier of its own (write/program/slot-carriers.ts) and every one of those statements joins it to a stored relation
@@ -14,7 +14,7 @@
  * family's removals and additions over its edited, refilled, moved and recounted members), at one key and at 4096, over
  * 8192 stored owners of two items each and 8192 facts of the candidate-keyed relation, on a fresh installation per
  * case. The write is applied once, its statements each under EXPLAIN (ANALYZE, BUFFERS, SETTINGS, FORMAT JSON) in its
- * place, its carriers created and filled as the call fills them, its transaction ended by ROLLBACK
+ * place, its carriers filled as the call fills them, its transaction ended by ROLLBACK
  * (bench/write/support/writes.ts explainedChange).
  *
  * Property, for each case: some statement reads a carrier, and no plan node reads a stored relation of the box but by a
@@ -35,7 +35,7 @@ import {
 } from "#test/pg/write/carrier-keys/carrier-keys.fixtures.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
-/** A write statement reaches every stored relation it joins to a never-analyzed carrier by the key's index. */
+/** A write statement reaches every stored relation it joins to a carrier by the key's index. */
 export const aWriteStatementReachesEveryStoredRelationItJoinsToANeverAnalyzedCarrierByTheKeysIndex =
 	property.exhaust(finite(sketchGen), {
 		needs: { substrate: Substrate.fresh(baseSubstrate) },

@@ -28,6 +28,7 @@ import {
 	Decimal,
 	drawn as drawnField,
 	generated,
+	mintOf,
 	natural,
 	pg
 } from "#compiler/public/fields.ts"
@@ -644,7 +645,9 @@ const handlesOf = (n: number, h: (code: number) => string): NonEmptyReadonlyArra
 	...upTo(n - 1, (code) => h(code + 1))
 ]
 
-const Units = contract("Units", pg.integer, (x) => Logic.le(x, 5))
+const unitsKey = Symbol("Units")
+const Units = contract<typeof unitsKey>()("Units", pg.integer, (x) => Logic.le(x, 5))
+const toUnits = mintOf(unitsKey)
 
 const Wild = str.regex("^.*$", "su")
 
@@ -739,7 +742,7 @@ const schemaOf = (c: AbsentCase) => {
 							n: payload.n,
 							d: Decimal.of(tenthsText(payload.d)),
 							t: payload.t,
-							u: Units(payload.u),
+							u: toUnits(payload.u),
 							p: payload.p
 						}
 					]
@@ -878,7 +881,7 @@ const schemaOf = (c: AbsentCase) => {
 				return p.ne ? r.ne(r.kind, kindOf(p.handle)) : r.eq(r.kind, kindOf(p.handle))
 			case "and":
 			case "or":
-				return r[p.kind](predicate(p.args[0], r), predicate(p.args[1], r))
+				return r[p.kind]([predicate(p.args[0], r), predicate(p.args[1], r)])
 			case "not":
 				return r.not(predicate(p.arg, r))
 		}
@@ -1170,6 +1173,7 @@ const namesLaw = (law: Law, relation: string): boolean => {
 		case "fold":
 		case "contract":
 		case "pattern":
+		case "variant":
 		case "sealed":
 			return false
 	}
@@ -1271,7 +1275,7 @@ export const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 			n: item.n,
 			d: Decimal.of(tenthsText(item.d)),
 			t: item.t,
-			u: Units(item.u),
+			u: toUnits(item.u),
 			p: item.p
 		})
 		const stored = yield* Effect.gen(function* () {

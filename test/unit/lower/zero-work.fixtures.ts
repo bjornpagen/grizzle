@@ -288,9 +288,20 @@ export const argumentCaseGen: Gen<ArgumentCase> = (source) => ({
 	form: source.draw(element(argumentForms))
 })
 
-const AboveZero = contract("AboveZero", pg["double precision"], (v) => Logic.gt(v, 0))
-const NeverZero = contract("NeverZero", pg["double precision"], (v) => Logic.ne(v, 0))
-const AtOrAboveZero = contract("AtOrAboveZero", pg["double precision"], (v) => Logic.ge(v, 0))
+const aboveZeroKey = Symbol("AboveZero")
+const AboveZero = contract<typeof aboveZeroKey>()("AboveZero", pg["double precision"], (v) =>
+	Logic.gt(v, 0)
+)
+const neverZeroKey = Symbol("NeverZero")
+const NeverZero = contract<typeof neverZeroKey>()("NeverZero", pg["double precision"], (v) =>
+	Logic.ne(v, 0)
+)
+const atOrAboveZeroKey = Symbol("AtOrAboveZero")
+const AtOrAboveZero = contract<typeof atOrAboveZeroKey>()(
+	"AtOrAboveZero",
+	pg["double precision"],
+	(v) => Logic.ge(v, 0)
+)
 
 const F = relation(
 	"F",

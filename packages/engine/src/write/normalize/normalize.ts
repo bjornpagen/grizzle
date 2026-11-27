@@ -11,17 +11,26 @@ import type {
 	HostChecks,
 	HostKey,
 	HostKeyField,
-	HostSpanKey
+	HostSpanKey,
+	KeyGeneration
 } from "#compiler/runtime/write/normalize.ts"
 import type { RecordedLaw } from "#compiler/types/changeset/changeset.ts"
 import { hostHeld, type RelationUniques } from "#compiler/write/insert/unique.ts"
 
-/** A key field of the relation's facts, by its name, with its type, and a key generation with the table of its
- * generation, which the host fills it by (runtime/write/normalize.ts HostKeyField). */
-const hostKeyField = (f: LawField): HostKeyField =>
-	f.writing.kind === "keyGenerated"
-		? { field: f.name, type: f.type, generation: predicateTable(f.writing.expr) }
-		: { field: f.name, type: f.type }
+/** A key field of the relation's facts, by its name, with its type (runtime/write/normalize.ts HostKeyField). */
+const hostKeyField = (f: LawField): HostKeyField => ({ field: f.name, type: f.type })
+
+/**
+ * Every key generation of a written relation's fields, with the table of its generation, which the host fills each
+ * stated fact by before any key is compared or any row sent (runtime/write/normalize.ts KeyGeneration): the relation's
+ * own, whichever of its keys the host checks.
+ */
+export const keyGenerations = (fields: ReadonlyArray<LawField>): ReadonlyArray<KeyGeneration> =>
+	fields.flatMap((f) =>
+		f.writing.kind === "keyGenerated"
+			? [{ field: f.name, type: f.type, generation: predicateTable(f.writing.expr) }]
+			: []
+	)
 
 /**
  * The fields at which the host holds a key of rows that leave out `stamped`, the fields their statement fills (ir/instant.ts
@@ -40,7 +49,7 @@ const heldAt = (
 		const stamp = stamped.find((s) => s.field.name === f.name)
 		if (stamp !== undefined) {
 			if (
-				stamp.stamp.kind === "head" &&
+				stamp.stamp.kind !== "call" &&
 				!stamp.stamp.child.every((c) => fields.some((g) => g.name === c.name))
 			) {
 				return undefined

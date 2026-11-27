@@ -28,7 +28,6 @@ import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { compileLaws } from "#compiler/laws/model/model.ts"
 import { keyTextBytes } from "#compiler/public/text.ts"
-import { everySlice } from "#compiler/schema/reach.ts"
 import { relationBuilder as relation } from "#compiler/schema/relation.ts"
 import {
 	btreeMaxItemSize,
@@ -327,7 +326,16 @@ export const keyTextBytesIsTheMostBytesATextHoldsAsItselfBesideItsFieldsInEveryI
 			kind: "second-implementation",
 			name: "PostgreSQL's datum sizes and alignments, restated"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/schema/representability.test.ts#keyTextBytesIsTheMostBytesATextHoldsAsItselfBesideItsFieldsInEveryIndexGrizzlePlansOverThemAndOneByteMoreIsRefusedWhereAnIndexsLayoutMeetsTheBound:fff.b:1.0.0"
+				),
+				reason:
+					"the ordered axis's text by a contract, its accumulated fields minted under the contract's key (97c8891645), red on the merged tree while the fixture minted under none",
+				since: "2026-11-27"
+			}
+		],
 		kills: [
 			{
 				file: "packages/engine/src/scalar/compute/typing.ts",
@@ -437,9 +445,7 @@ export const bTreeEntriesNbtreeHBTMaxItemSizeRefuseAKeyWhoseEntryInAnyOrderCanPa
 					for (const order of [declared, Arr.reverse(declared)]) {
 						if (admitted) {
 							succeeded(
-								Result.flatMap(keyedIn(order), (o) =>
-									compileLaws(o, everySlice(o), { kind: "planned" })
-								),
+								Result.flatMap(keyedIn(order), (o) => compileLaws(o, { kind: "planned" })),
 								"a key that fits in every order compiles in each"
 							)
 						} else {
@@ -673,7 +679,7 @@ export const giSTEntriesForSpanKeysGistCGistSplitBoundsAGiSTEntryByBtreeGistsTwo
 						assert.deepEqual(result, Result.err(`f${firstVector.value}`))
 						return
 					}
-					const keys = Arr.map(datums, (d) =>
+					const keys = Arr.map(drawnDatums, (d) =>
 						d.family === "vector" ? 0 : gistKeyBytes(d.family, d.bytes)
 					)
 					const bytes = gistTupleBytes(keys)

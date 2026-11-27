@@ -67,10 +67,9 @@ export const aRulesJudgeReadsItsRegionAsTheSetOfBindingsItsRowsGiveNeverOnceAgai
 			},
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
-				original:
-					'\treturn { source: { kind: "step", query: queryOf(rules, loc), bind: {} }, replaced }',
+				original: '\t\tsource: { kind: "step", query: queryOf([first, ...more], loc), bind: {} },',
 				replacement:
-					'\treturn { source: { kind: "query", query: queryOf(rules, loc), bind: {} }, replaced }',
+					'\t\tsource: { kind: "query", query: queryOf([first, ...more], loc), bind: {} },',
 				why: "A whole rule's region is an import, which the rewrites inline into the region that reads it, so the occurrence before the rule's step is the delta itself, a set by its own key with the unit once per row, and the step runs once per row: the whole box's work grows sixteen times for four times the rows."
 			}
 		]

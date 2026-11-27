@@ -29,19 +29,15 @@ import { Effect } from "effect"
 import {
 	type BindingFeature,
 	bindingGen,
-	probedBindingTemplate,
-	runBinding,
-	wholeBindingTemplate
+	bindingTemplates,
+	runBinding
 } from "#test/pg/laws/rule-binding.fixtures.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** A rule's judge reads each relation a join it reads holds by a lookup a row written, with statistics or none. */
 export const aRulesJudgeReadsEachRelationAJoinItReadsHoldsByALookupARowWrittenWithStatisticsOrNone =
 	property.exhaust(finite(bindingGen), {
-		needs: {
-			whole: Substrate.rolledBack(wholeBindingTemplate),
-			probed: Substrate.rolledBack(probedBindingTemplate)
-		},
+		needs: Substrate.oneOf(bindingTemplates, Substrate.rolledBack),
 		situations: [
 			"a probed rule's negated join",
 			"a whole rule's negated join",
@@ -49,13 +45,11 @@ export const aRulesJudgeReadsEachRelationAJoinItReadsHoldsByALookupARowWrittenWi
 			"planned with no statistics",
 			"planned analyzed"
 		] satisfies ReadonlyArray<Reached<BindingFeature>>,
-		check:
-			({ whole, probed }, c) =>
-			(drawn) =>
-				Effect.gen(function* () {
-					const { connection, value } = yield* drawn.judged === "probed" ? probed : whole
-					yield* runBinding(value, connection, drawn, c)
-				}),
+		check: (templates, c) => (drawn) =>
+			Effect.gen(function* () {
+				const { connection, value } = yield* templates[`${drawn.judged} ${drawn.nodes}`]
+				yield* runBinding(value, connection, drawn, c)
+			}),
 		oracle: {
 			kind: "universal",
 			name: "bound: every statement the judge runs touches at most its plan's nodes times the rows the transaction wrote, counted over all loops"
@@ -75,6 +69,18 @@ export const aRulesJudgeReadsEachRelationAJoinItReadsHoldsByALookupARowWrittenWi
 					"\t\t\tconst query = navigatedQuery(source.query, loc, columns, sharing, interned)",
 				replacement: "\t\t\tconst query = source.query",
 				why: "A whole rule's read per unit is read as written, its step's rule never navigated: Placed's Named and Node joined within a document, which PostgreSQL with no statistics reads as a product it filters after, 4,539 rows for 134 written, and Resolved's negation as the first kill reads it."
+			},
+			{
+				file: "test/support/substrate/substrate.ts",
+				original: "\t\t\t\tOption.toArray(Option.map(moved, rebuilt)),",
+				replacement: "\t\t\t\tOption.toArray(Option.none<PgStatement>()),",
+				why: "A case's rolled-back rows, dead, stay in Node, Ref and Named, which hold the template's stored documents, as before: each extends the tables and their indexes for every later case on the worker, whose plans the planner prices at their density times every page, so a case's plan follows the cases before it (rule-binding's whole judge read 2,325 rows of a document of 64 nodes in ACCESS3's full run, its replay green); the reset cannot put the clone's standing back, and the property fails."
+			},
+			{
+				file: "test/support/substrate/substrate.ts",
+				original: "\t\t\t\tArr.make(bare(sizesRestored(standing)), bare(standingQuery))",
+				replacement: "\t\t\t\tArr.make(bare(standingQuery))",
+				why: "A case's ANALYZE writes Node's, Ref's and Named's sizes into pg_class in place, its own rows counted, and the ROLLBACK keeps them, as before: every later case on the worker plans those tables at the sizes an earlier case analyzed, and the reset's rebuild leaves them at their counted sizes where the template has none; the reset cannot put the clone's standing back, and the property fails."
 			}
 		]
 	})

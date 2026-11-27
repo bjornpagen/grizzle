@@ -219,10 +219,10 @@ export const changedFills = property.explore(aimed(changeCaseGen, changeAims), {
 			why: "A re-pointed family's index is drawn again in member-key order."
 		},
 		{
-			file: "packages/engine/src/deploy/render/sql.ts",
+			file: "packages/engine/src/physical/ddl/recheck.ts",
 			original: '\t\t\t\t\t{ option: "CONSTRAINT", value: lit.text(law, types.text) }',
 			replacement: `\t\t\t\t\t{ option: "CONSTRAINT", value: lit.text(\`\${law}_elsewhere\`, types.text) }`,
-			why: "The violation check raises under `<law>_elsewhere` (render/sql.ts), so a broken regroup's refusal names no law of the family."
+			why: "The violation check raises under `<law>_elsewhere` (physical/ddl/recheck.ts violationCheck), so a broken regroup's refusal names no law of the family."
 		}
 	]
 })

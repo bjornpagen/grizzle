@@ -1,9 +1,9 @@
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
 import { unwrap } from "#compiler/core/canonical.ts"
 import { rooted, rowsDigestWithin, StatedFacts } from "#compiler/ir/dag.ts"
-import { noneWritten, servedQuery } from "#compiler/ir/derived.ts"
+import { servedQuery } from "#compiler/ir/derived.ts"
 import { makePassContext } from "#compiler/ir/pass.ts"
-import { derivedKeyConstraints, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
+import { derivedEvidence, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { conservativeInput } from "#compiler/lower/conservative/types.ts"
 import { sourcePrunePass } from "#compiler/lower/optimize/prune/index.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
@@ -26,7 +26,7 @@ export const definitionMeanings = (installation: Installation): ReadonlyMap<stri
 	const analysis = derivedAnalysis(installation.checked)
 	const catalog = evidenceCatalog({
 		laws: installation.laws,
-		views: derivedKeyConstraints(analysis)
+		views: derivedEvidence(analysis, installation.laws.existence)
 	})
 	/** The closed facts every definition's meaning reads, each read once for all of them (ir/dag.ts StatedFacts). */
 	const stated = new StatedFacts(installation.checked.closed)
@@ -34,7 +34,7 @@ export const definitionMeanings = (installation: Installation): ReadonlyMap<stri
 		analysis.order.map((a) => {
 			/** As its fill reads it: a lower level's stored relation by its table, a live one by its definition, whose
 			 * meaning is then its own (ir/derived.ts servedQuery). */
-			const served = servedQuery(a.query, installation.checked.rows(noneWritten))
+			const served = servedQuery(a.query, installation.checked.definitionRows())
 			const pruned = unwrap(
 				sourcePrunePass.run(
 					{ dag: rooted([served.dag.roots[0]]), params: [] },

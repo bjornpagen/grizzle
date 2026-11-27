@@ -961,6 +961,8 @@ class GraphQueryBuilder {
 			keys: Arr.map(relation.value.keys, (k) => nonEmptyList(k, "a candidate key")),
 			relationKind: "relation",
 			generated: [],
+			unit: [],
+			determined: [],
 			heading
 		})
 		return { node: id, heading }

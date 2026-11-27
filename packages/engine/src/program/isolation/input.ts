@@ -1,3 +1,4 @@
+import { isCanonicalName } from "#compiler/analysis/derived/canonical.ts"
 import type {
 	InsertsFact,
 	IsolationInput,
@@ -38,7 +39,7 @@ export type SourceMembers<Compiled> =
 	| { readonly kind: "none" }
 
 /**
- * What an installation's isolation facts are built from: its whole law model, over every relation (everySlice), every
+ * What an installation's isolation facts are built from: its law model, over every relation, every
  * role of every login over its base, and the function that gives each part of the facts, each its owner's:
  *
  * - `triggerLawsOver` (laws/model/model.ts): the laws a relation's rule-over-query triggers still discharge, each with
@@ -80,8 +81,8 @@ const byRelation = <V>(
 
 /**
  * The declared keys of each relation by its declared name, each by its columns' texts (ir/law.ts columnKey): its
- * primary key's native and each UNIQUE native, a law column by its identifier, so a key a law adds over law columns (an
- * alternatives arm's, a selected side's, a family's slot) is the key PostgreSQL enforces, which a check by those columns
+ * primary key's native and each UNIQUE native, a law column by its identifier, so a key a law adds over law columns (a
+ * selected side's, a family's slot) is the key PostgreSQL enforces, which a check by those columns
  * finds one row of at most and no read of fields alone binds whole. A span key (WITHOUT OVERLAPS) is no key a read by its
  * columns is a point read of.
  */
@@ -144,12 +145,20 @@ const insertsOf = (relation: OwnedRelation): InsertsFact =>
 		? { kind: "race", key: relation.desc.primaryKey }
 		: { kind: "repeatable" }
 
+/** What an insertion into a stored canonical relation's table meets, as into a derived relation's: its upkeep's rows. */
+const derivedInserts: InsertsFact = Object.freeze({ kind: "repeatable" })
+
 /**
- * The facts of every relation the model's owned schema states, at every level, stored, closed and derived alike, by its
- * declared name (analysis/isolation/facts.ts RelationFacts): the laws its rule-over-query triggers still discharge
- * (`triggerLawsOver`), its declared keys, its counted groups, its references, and what an insertion into it meets. The
- * relation half of isolationInput, which the borrow rules' installation reads too (program/isolation/borrows.ts
- * borrowInstallationOf).
+ * The facts of every relation the installation holds, by its name (analysis/isolation/facts.ts RelationFacts): each
+ * relation the model's owned schema states, at every level, stored, closed and derived alike, by its declared name, and
+ * each stored canonical relation of an import no declaration names (analysis/derived/canonical.ts), `__canonical_
+ * <digest>`, whose table a write's upkeep keeps, a rule's witness reads by its name and a role reads through its whole
+ * view (program/isolation/member-facts.ts extractNames), as a derived relation's: the laws its rule-over-query triggers
+ * still discharge (`triggerLawsOver`), its declared keys, its counted groups, its references, and what an insertion
+ * into it meets. The relation half of isolationInput, which the borrow rules' installation reads too
+ * (program/isolation/borrows.ts borrowInstallationOf). Before it stated the owned schema's alone, so every role whose
+ * writes kept, probed or read an anonymous stored canonical relation failed `facts` by it: edullm's pantry generate at
+ * qti-pie 3ab19845, by __canonical_6f6bf243b1e97b31 and __canonical_948062b0814e796f.
  */
 export const relationFacts = (
 	model: LawModel,
@@ -158,25 +167,31 @@ export const relationFacts = (
 	const keys = nativeKeys(model)
 	const counted = countedGroups(model)
 	const references = nativeReferences(model)
-	return new Map<string, RelationFacts>(
-		Object.entries(model.owned.relations).map(([name, relation]) => [
-			name,
-			{
-				triggerLaws: triggerLawsOver(model, name),
-				keys: keys.get(name) ?? [],
-				countedGroups: counted.get(name) ?? [],
-				references: references.get(name) ?? [],
-				inserts: insertsOf(relation)
-			}
-		])
-	)
+	const factsOf = (name: string, inserts: InsertsFact): readonly [string, RelationFacts] => [
+		name,
+		{
+			triggerLaws: triggerLawsOver(model, name),
+			keys: keys.get(name) ?? [],
+			countedGroups: counted.get(name) ?? [],
+			references: references.get(name) ?? [],
+			inserts
+		}
+	]
+	return new Map<string, RelationFacts>([
+		...Object.entries(model.owned.relations).map(([name, relation]) =>
+			factsOf(name, insertsOf(relation))
+		),
+		...model.checked.derived.flatMap((d) =>
+			isCanonicalName(d.name) ? [factsOf(d.name, derivedInserts)] : []
+		)
+	])
 }
 
 /**
  * The isolation facts of an installation (analysis/isolation/facts.ts IsolationInput), total by construction: one
- * RelationFacts for every relation its owned schema states, at every level, stored, closed and derived alike, by its
- * declared name, and one RoleFacts for
- * every role of `sources`, in their order, its privileges its grant plan's and its
+ * RelationFacts for every relation it holds (relationFacts), each its owned schema states, at every level, stored,
+ * closed and derived alike, by its declared name, and each stored canonical relation no declaration names, by its
+ * canonical name, and one RoleFacts for every role of `sources`, in their order, its privileges its grant plan's and its
  * members' facts the extractor's for each of its change members, in member order, every variant's: its writes served,
  * or unknown where it has no change member, so it writes by direct SQL alone, bounded by what its grants let it read
  * (RoleWrites).

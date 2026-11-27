@@ -16,6 +16,7 @@ import {
 } from "@bjornpagen/testing/gen"
 import { type Wild, wild, WILD_KINDS, type WildKind } from "@bjornpagen/testing/lsw"
 import { wildOf } from "@bjornpagen/testing/lsw"
+import { regex } from "arkregex"
 import { Array as Arr, String as Str } from "effect"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { trusted } from "#compiler/core/trusted.ts"
@@ -26,6 +27,9 @@ import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { Id } from "#test/support/ids.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 
+/** The label's pattern: the one field of Typed whose type refines its base, a text, by a pattern. */
+const labelPattern = "^[a-z]{0,8}$"
+
 export const Typed = relation(
 	"Typed",
 	{
@@ -33,7 +37,7 @@ export const Typed = relation(
 		n: pg.integer,
 		b: pg.bigint,
 		flag: pg.boolean,
-		label: str.regex("^[a-z]{0,8}$"),
+		label: str.regex(labelPattern),
 		during: span(pg.bigint)
 	},
 	["id"]
@@ -138,6 +142,21 @@ const refusedValues: { readonly [F in Field]: Gen<unknown> } = {
 	}
 }
 
+/**
+ * Whether a case binds the described member's label parameter to a text outside the label's pattern, which PostgreSQL
+ * refuses as it binds it, `paramRejected` at the parameter (README, "Contracts and patterns"): the encoder checks only
+ * the base type, so a value the text codec admits, a string with no NUL and no lone surrogate, is the pattern's to
+ * judge, and the pattern is restated here over the value passed. A fact of the array member outside the pattern is
+ * the label's law's, which answers the write.
+ */
+export const outsideLabelPattern = (c: EncodingCase, value: unknown): boolean =>
+	c.form === "parameter" &&
+	c.field === "label" &&
+	typeof value === "string" &&
+	!Str.includes("\u0000")(value) &&
+	value.isWellFormed() &&
+	!regex(labelPattern, "u").test(value)
+
 /** The fault the codecs' vocabulary names for each field's invalid class (scalar/values/fault.ts): the oracle. */
 export const classFault: { readonly [F in Field]: ValueFault } = {
 	id: "uuidSyntax",
@@ -169,6 +188,7 @@ export type EncodingFeature =
 	| `refused ${Field} as ${Form}`
 	| `wild ${WildKind} refused`
 	| "wild admitted"
+	| "wild outside the label's pattern refused at bind"
 
 /** The field and form pairs a case draws: every field of a call's fact, and every parameter. */
 export const plantedPairs: Arr.NonEmptyReadonlyArray<Pair> = [
@@ -297,6 +317,15 @@ const encodingCases: ReadonlyArray<{
 			value: { kind: "wild", wild: wildOf("lone-surrogate") }
 		},
 		reaches: ["wild lone-surrogate refused"]
+	},
+	{
+		why: "a text the codec admits outside the label's pattern, for its parameter",
+		value: {
+			field: "label",
+			form: "parameter",
+			value: { kind: "wild", wild: { kind: "anything", value: " " } }
+		},
+		reaches: ["wild outside the label's pattern refused at bind"]
 	}
 ]
 

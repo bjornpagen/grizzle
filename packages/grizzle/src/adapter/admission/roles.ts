@@ -35,8 +35,8 @@ import { textArrayParam, textParam } from "#compiler/plan/read.ts"
  */
 export const textArray = (values: Iterable<string>): ParamText => textArrayParam([...values])
 
-/** Where a stored setting applies: the database's own default, the role's own, or the role's in this database alone. */
-const settingScopes = ["database", "role", "roleInDatabase"] as const
+/** Where a role's stored setting applies: the role's own, or the role's in this database alone. */
+const settingScopes = ["role", "roleInDatabase"] as const
 export type SettingScope = (typeof settingScopes)[number]
 
 interface StoredSetting {
@@ -54,22 +54,23 @@ const settingTexts = C.fromFunction(
 	true
 )
 
-/** The stored settings `which` selects, one `name=value` per row with its scope. */
-const storedSettings = (which: C.CatalogExpr): CatalogQuery<StoredSetting> => ({
+/** The stored settings of the role $1, its own and its own in the current database, one `name=value` per row with its
+ * scope. */
+export const settingsQuery: CatalogQuery<StoredSetting> = {
 	sql: emitCatalog(
 		C.query(
 			[
 				C.caseWhen(
-					[
-						{ when: C.eq(settingRows.col("setrole"), noOid), result: C.text("database") },
-						{ when: C.eq(settingRows.col("setdatabase"), noOid), result: C.text("role") }
-					],
+					[{ when: C.eq(settingRows.col("setdatabase"), noOid), result: C.text("role") }],
 					C.text("roleInDatabase")
 				),
 				C.asText(settingTexts.col("setting"))
 			],
 			[C.crossJoin(settingRows.item, settingTexts.item)],
-			which
+			C.and([
+				C.eq(settingRows.col("setrole"), C.roleOid(C.param(1, "text"))),
+				C.inList(settingRows.col("setdatabase"), [noOid, C.currentDatabaseOid()])
+			])
 		)
 	),
 	what: "a setting's scope and its name=value",
@@ -87,26 +88,7 @@ const storedSettings = (which: C.CatalogExpr): CatalogQuery<StoredSetting> => ({
 				}
 			: undefined
 	}
-})
-
-const ofDatabase = C.and([
-	C.eq(settingRows.col("setrole"), noOid),
-	C.eq(settingRows.col("setdatabase"), C.currentDatabaseOid())
-])
-
-/** The stored settings of the current database. */
-export const databaseSettingsQuery: CatalogQuery<StoredSetting> = storedSettings(ofDatabase)
-
-/** The stored settings of the current database and of the role $1. */
-export const settingsQuery: CatalogQuery<StoredSetting> = storedSettings(
-	C.or([
-		ofDatabase,
-		C.and([
-			C.eq(settingRows.col("setrole"), C.roleOid(C.param(1, "text"))),
-			C.inList(settingRows.col("setdatabase"), [noOid, C.currentDatabaseOid()])
-		])
-	])
-)
+}
 
 /**
  * A stored setting against the expected ones of its scope: one the scope requires and lacks, one it holds and does
@@ -164,21 +146,6 @@ const scopeDifferences = (
 	}
 	return out
 }
-
-/**
- * Whether the database holds the default an installation of format 7 or before set: default_transaction_isolation
- * serializable, ALTER DATABASE ... SET's. grizzle sets no database default and judges none, every one of them the
- * database owner's; `grizzle upgrade` resets this one, the value grizzle itself set (adapter/admission/upgrade.ts
- * liveObjects), and leaves any other value of it, the owner's.
- */
-export const formerDefaultHeld = (stored: ReadonlyArray<StoredSetting>): boolean =>
-	Arr.some(
-		stored,
-		(s) =>
-			s.scope === "database" &&
-			s.parameter === "default_transaction_isolation" &&
-			s.value === "serializable"
-	)
 
 /**
  * The role's own defaults are exactly the snapshot's, and the role holds none in this database alone, which would take

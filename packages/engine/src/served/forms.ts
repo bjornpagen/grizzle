@@ -1,6 +1,6 @@
 import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
 import type { DecoderForm } from "#compiler/core/decoder.ts"
-import type { DeclaredName, ParamPlace } from "#compiler/core/identity.ts"
+import type { ParamPlace, HeldName } from "#compiler/core/identity.ts"
 import type {
 	ColumnIdent,
 	DomainName,
@@ -76,10 +76,10 @@ export type ServedFile = {
 	/** The installation's live change source, which the login's live reads are woken by (ServedLive). */
 	readonly live: ServedLive
 	/**
-	 * The codes of exactly the rosters the login's members read or write, by declared name: the codebook its codecs,
+	 * The codes of exactly the rosters the login's members read or write, by name: the codebook its codecs,
 	 * readers and classifier are rebuilt under, so the file is all a layer reads.
 	 */
-	readonly rosters: ReadonlyMap<DeclaredName, RosterCodes>
+	readonly rosters: ReadonlyMap<HeldName, RosterCodes>
 	/**
 	 * Every pattern the login's types read, each with its automaton as generate built it, over one table of the char sets
 	 * their edges step on (scalar/regex/matcher.ts ServedMatchers): what a layer judges every refined value by, so it
@@ -267,6 +267,16 @@ export interface ServedAbove {
 	readonly constraints: ConstraintLaws
 	readonly laws: ReadonlyMap<LawId, AboveLaw<RecordedLaw>>
 }
+
+/**
+ * The directory, beside the schemas' directories in the migrations directory, that holds the configuration's contracts'
+ * files (runtime/contract.ts ContractFile): its name holds a hyphen, which no schema's PostgreSQL identifier holds, so it is never a
+ * schema's directory.
+ */
+export const contractsDirectory = "contract-checks"
+
+/** The file of a contract's checker, within the migrations directory. */
+export const contractPath = (contract: string): string => `${contractsDirectory}/${contract}.json`
 
 /** The directory, beside snapshot.json, that holds a schema's served files. */
 export const servedDirectory = "served"
@@ -468,7 +478,7 @@ export interface ServedKeyLaws {
 	readonly theoryLaws: ReadonlyArray<DescribedLaw>
 	readonly tables: ReadonlyMap<StoredRelationName, RelationIdent>
 	readonly rosterDomains: ReadonlyArray<{
-		readonly roster: DeclaredName
+		readonly roster: HeldName
 		readonly code: DomainName
 		readonly bits: DomainName
 	}>

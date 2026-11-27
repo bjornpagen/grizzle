@@ -43,7 +43,7 @@ export const readme = boxAgreement(statedRefusals, {
 			file: "packages/engine/src/types/query/query.ts",
 			original: "\t\t\t\t: [DomainOf<Hc[K]>] extends [Unordered]\n\t\t\t\t\t? readonly [",
 			replacement: "\t\t\t\t: [DomainOf<Hc[K]>] extends [never]\n\t\t\t\t\t? readonly [",
-			why: "An order names a closed id of an unordered roster (types/query/query.ts OrderedKeys requires nothing of it), so the README's statesInOrder, an orderBy of InvoiceState, compiles: armed, its directive is unused, and disarmed, the refusal is missing."
+			why: "An order names a closed id of an unordered roster (types/query/query.ts OrderedKeys requires nothing of it), so the README's statesInOrder, an orderBy of InvoiceStatus, compiles: armed, its directive is unused, and disarmed, the refusal is missing."
 		},
 		{
 			file: "packages/engine/src/types/compute/compute.ts",

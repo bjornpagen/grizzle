@@ -34,7 +34,6 @@ import { identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
-import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { codebookOf } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
@@ -42,7 +41,8 @@ import { predicateTable } from "#compiler/ir/expr.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { Bits, bits, closedId, generated, pg } from "#compiler/public/fields.ts"
 import {
@@ -53,7 +53,11 @@ import {
 	relation,
 	schema
 } from "#compiler/public/schema.ts"
-import { type ClosedReadNode, compiledExpr } from "#compiler/scalar/compute/evaluate.ts"
+import {
+	type ClosedReadNode,
+	compiledExpr,
+	noParamLeaf
+} from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { HostValue } from "#compiler/scalar/values/identity.ts"
 import { ownLogin } from "#compiler/schema/own.ts"
@@ -73,17 +77,11 @@ import {
 	type RosterState,
 	sizeOf
 } from "#test/support/closed/generate.ts"
+import { asDataStep } from "#test/support/data-step.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
-import { type Version, workloadOf } from "#test/support/installed.ts"
+import { generatedDraft, noPlaceholders, type Version } from "#test/support/install-migrate.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
-import {
-	draftCodes,
-	draftedAt,
-	fromSnapshot,
-	generate,
-	noDeclarations,
-	type Previous
-} from "#test/support/migrate/kit.ts"
+import { fromSnapshot, noDeclarations, type Previous } from "#test/support/migrate/kit.ts"
 import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import { type CatalogResult, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
@@ -763,10 +761,10 @@ export const snapshotOf = (sys: System): DeploySnapshot => {
 }
 
 /**
- * A version's complete installation under the declared name `declared`, its logins' worlds among it, compiled as
- * `grizzle generate` compiles it (physical/complete.ts completeInstallOptions) with the codes drafted for it. It is
- * compiled directly, not through the oracle's planRealInstall, whose structural audit refuses the closed constants'
- * pack until RS narrows it (orchestrator, 2026-11-05).
+ * A version's installation under the declared name `declared`, its logins' worlds among it, compiled with the codes
+ * drafted for it (physical/complete.ts completeInstallOptions): what the test reads its physical names and its worlds'
+ * roles from, never what it installs, which `grizzle generate` drafts (draftNext). A name and a world's role are the
+ * schema's and the login's alone, whatever the served workload grants.
  */
 export const versionInstallation = (
 	version: Version,
@@ -784,7 +782,7 @@ export const versionInstallation = (
 				owned,
 				[identity.schema(parsedSchemaName(declared))],
 				logins,
-				workloadOf(version).extensions,
+				[],
 				codes
 			)
 		),
@@ -804,30 +802,27 @@ export const removedHandles = (before: Declaration, after: Declaration): Declara
 	)
 })
 
-/** The next draft from the system's snapshot to `built`, declaring `declared`, its codes drafted as the CLI drafts them. */
+/**
+ * The next draft from the system's snapshot to `built`, declaring `declared`, as `grizzle generate` drafts it
+ * (install-migrate.ts generatedDraft), its desk's served workload certified and planned, at its step's instant: the
+ * draft as generate wrote it, unreviewed, which the caller reviews, and the physical names of the installation it drafts.
+ */
 export const draftNext = (sys: System, built: Built, declared: Declarations) =>
-	Effect.sync(() => {
-		const previous = sys.previous
-		const codes = succeeded(
-			draftCodes(built.version.schema, previous, declared),
-			"a version keeps the roster's codes"
-		)
-		const workload = workloadOf(built.version)
-		const installation = versionInstallation(built.version, sys.m.declared, codes)
+	Effect.gen(function* () {
 		sys.drafts += 1
-		const drafted = generate({
-			previous,
-			installation,
-			name: `step_${sys.drafts}`,
-			timestamp: draftedAt(sys.drafts),
-			workload: workload.draft,
-			declared
-		})
-		if (!drafted.ok) {
-			return assert.fail(`the next migration drafts: ${drafted.error.message}`)
-		}
-		const g: GenerateResult = drafted.value
-		return { g, names: installation.names }
+		const drafted = yield* Effect.orDie(
+			generatedDraft(
+				{ schema: built.version.schema, logins: built.version.logins, declarations: declared },
+				{
+					installation: identity.schema(parsedSchemaName(sys.m.declared)),
+					previous: sys.previous,
+					step: sys.drafts
+				},
+				noPlaceholders
+			)
+		)
+		const installation = drafted.plan.installation
+		return { g: drafted.generated, names: installation.names, installation }
 	})
 
 /**
@@ -852,12 +847,13 @@ export const applyWith = (
  * A migration to `proposed`, the model a command proposes, declaring `declared`, drafted and applied, after which the
  * system holds `after`. Where w would read a key Weight does not hold for some rows, PostgreSQL refuses it first with
  * 23502 naming w's column; grizzle's runner applies a folder file by file, so the files before the refused one stay
- * applied and the ledger holds the folder unfinished. The data step then deletes those rows, as an operator's would,
- * and the same folder applied again resumes and completes: the model's `after` holds the other rows.
+ * applied and the ledger holds the folder unfinished. The data step then deletes those rows, as an operator's would, in
+ * a transaction of its own as a data step over R (data-step.ts asDataStep), the one way a closed relation's rows are
+ * removed, and the same folder applied again resumes and completes: the model's `after` holds the other rows.
  */
 const migrateTo = (sys: System, proposed: Model, after: Model, declared: Declarations) =>
 	Effect.gen(function* () {
-		const { g, names } = yield* draftNext(
+		const { g, names, installation } = yield* draftNext(
 			sys,
 			builtOf(sys.m.declared, proposed, liveOf(proposed.tier)),
 			declared
@@ -888,13 +884,16 @@ const migrateTo = (sys: System, proposed: Model, after: Model, declared: Declara
 				{ sqlstate: notNullViolation, column: names.column(relationName, "w") },
 				"the migration fails with 23502 naming w's column"
 			)
-			yield* sys.m.owner.query(
+			yield* sys.m.owner.begin
+			for (const sql of asDataStep(installation, [
 				`DELETE FROM ${tableOf(sys)} WHERE ${columnOf(sys, "id")} IN (${Arr.join(
 					Arr.map(absent, (row) => `${row.id}`),
 					", "
-				)})`,
-				[]
-			)
+				)})`
+			])) {
+				yield* sys.m.owner.query(sql, [])
+			}
+			yield* sys.m.owner.commit
 		}
 		yield* applyWith(sys, [folder], g.snapshot)
 		sys.folders.push(folder)
@@ -1153,7 +1152,12 @@ export const sameAsModel = (sys: System, model: Model) =>
 				const table = predicateTable(writing.expr)
 				const evaluated = succeeded(
 					compiledExpr(table)(
-						{ value: undefined, column: (ref) => host.get(ref.name), closed: closedRead },
+						{
+							value: undefined,
+							column: (ref) => host.get(ref.name),
+							closed: closedRead,
+							param: noParamLeaf
+						},
 						ProgramPatterns.of(tablePatterns(table))
 					),
 					`the host evaluates ${name} over row ${i}`

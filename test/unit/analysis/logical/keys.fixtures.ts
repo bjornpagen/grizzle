@@ -18,7 +18,7 @@ import { conservativeMeta, type RelNode, type ValidDag } from "#compiler/ir/rel.
 import { plainType } from "#compiler/scalar/native.ts"
 import { ownedFixture } from "#test/support/evidence.ts"
 import { Ir, SchemaModel } from "#test/support/fixtures/ir/build.ts"
-import { decodedSchema, f, relation } from "#test/support/fixtures/ir/desc.ts"
+import { decodedSchema, f, key, on, relation } from "#test/support/fixtures/ir/desc.ts"
 import { workModel } from "#test/support/fixtures/ir/work.ts"
 
 /**
@@ -317,4 +317,80 @@ export const readingProjection = (c: FactCase): ValidDag => {
 		...(c.n ? [["n", "n"] as const] : [])
 	]
 	return q.build(q.project(region, out, conservativeMeta)).dag
+}
+
+/**
+ * Doubly: Reading's x and n again, keyed by its id and by its n, so the one key proof of a node over it holds one of
+ * the two as its own key and the other as its alternative (ir/keys.ts KeyProof).
+ */
+const DoublyDesc: SchemaDesc = decodedSchema({
+	name: "Doubly",
+	relations: [
+		relation("Doubly", { id: f.uuid, x: f.pg("double precision"), n: f.integer }, ["id"])
+	],
+	statements: [key(on("Doubly", ["n"]))],
+	bases: []
+})
+
+const doublyModel = (): SchemaModel => new SchemaModel(ownedFixture(DoublyDesc), {})
+
+/** The keys of Doubly, either of which a case binds or copies. */
+const doublyKeys = ["id", "n"] as const
+export type DoublyKey = (typeof doublyKeys)[number]
+
+/**
+ * Where a case reads one of Doubly's keys: a region binding it and x, the other key unbound (`region`, readsOneFact),
+ * or a projection, to it and the sum of x, of a group by both keys of a region binding all three (`projection`,
+ * projectsOneRow), the sum a float no fact holds.
+ */
+const doublyReaders = ["region", "projection"] as const
+export type DoublyReader = (typeof doublyReaders)[number]
+
+/** One cell of the box: the key read, and the node that reads it. */
+export interface DoublyCase {
+	readonly key: DoublyKey
+	readonly reader: DoublyReader
+}
+
+export const doublyCaseGen: Gen<DoublyCase> = (source) => ({
+	key: source.draw(element(doublyKeys)),
+	reader: source.draw(element(doublyReaders))
+})
+
+/** The DAG a case reads (DoublyReader), its root the node whose claims the case judges. */
+export const doublyDag = (c: DoublyCase): ValidDag => {
+	const q = new Ir(doublyModel())
+	const doubly = q.base("Doubly")
+	switch (c.reader) {
+		case "region":
+			return q.build(
+				q.region(
+					[{ source: doubly, bind: { [c.key]: c.key, x: "x" }, constants: {} }],
+					conservativeMeta
+				)
+			).dag
+		case "projection": {
+			const region = q.region(
+				[{ source: doubly, bind: { id: "id", n: "n", x: "x" }, constants: {} }],
+				conservativeMeta
+			)
+			const grouped = q.group(
+				region,
+				["id", "n", "x"],
+				["id", "n"],
+				[{ name: "s", agg: "sum", arg: q.col(region, "x") }],
+				conservativeMeta
+			)
+			return q.build(
+				q.project(
+					grouped,
+					[
+						[c.key, c.key],
+						["s", "s"]
+					],
+					conservativeMeta
+				)
+			).dag
+		}
+	}
 }

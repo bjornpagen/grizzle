@@ -64,9 +64,9 @@ export const everyDomainAnInstallationCreatesIsNamedBySomethingAndNoRoleIsGrante
 		kills: [
 			{
 				file: "packages/engine/src/physical/ddl/domains.ts",
-				original: "\treturn own === undefined ? [] : [own]\n",
+				original: "\treturn own === undefined ? armTypes(t).flatMap(typeRefinements) : [own]\n",
 				replacement:
-					"\treturn [...(own === undefined ? [] : [own]), ...(t.contract === undefined ? [] : typeRefinements(t.contract.base))]\n",
+					"\treturn [...(own === undefined ? armTypes(t).flatMap(typeRefinements) : [own]), ...(t.contract === undefined ? [] : typeRefinements(t.contract.base))]\n",
 				why: "The installation holds the text domain of a contract's refined base again (eb07f21f5's collector, down each contract's chain), which nothing names: the contract's domain carries its pattern over `text`."
 			},
 			{

@@ -13,9 +13,9 @@ import {
 import { Array as Arr, Effect, Option } from "effect"
 import { AllenMask, fullAllenMask } from "#compiler/allen/mask.ts"
 import {
+	closedIdFieldBytes,
 	conversionOf,
 	type DeclaredName,
-	decodedColumnFits,
 	parseDeclaredName
 } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -208,7 +208,7 @@ export type SwarmFeature = (typeof swarmFeatures)[number]
 /**
  * The program forms the generator reaches beyond the language's plain rules, each named once: computed group keys,
  * contract params, typmod params, imports bound to outer vars, r.allen, r.pointIn and interiors; import, bind,
- * interior, named, compute head, between, in set, an in set of no value (a membership no row holds), r.and() and r.or()
+ * interior, named, compute head, between, in set, an in set of no value (a membership no row holds), r.and([]) and r.or([])
  * of no predicate (the constants true and false), relation param and recursive.
  *
  * A root rule matches an earlier query read of the case.
@@ -507,7 +507,7 @@ export const programFeatures = (root: Root): ReadonlyArray<ProgramFeature> => [
  * - the plain swarm, an eighth.
  * The spelling-directed population had half the cases before the form-directed one took a quarter; at three eighths
  * its drawn parents met two spellings of one key with children in at most five cases of a hundred, and some runs in
- * none, as the delivery-directed one met an arm's Some, so the planted case reaches both by construction.
+ * none, as the delivery-directed one met an arm child's Some, so the planted case reaches both by construction.
  */
 export type DrawnPopulation = "swarm" | "planted" | "delivered" | "spelled" | "forms"
 
@@ -1200,11 +1200,11 @@ export const plantedNameCount = plantedNames.length
  * - Drawn names. Relation, field, head and attachment names come from the identifier dictionary (kernel/dict.ts):
  *   aliases, digit boundaries, reserved words and names longer than an identifier holds, each scope holding names of
  *   distinct conversions, the production rule a name must pass.
- * - Stated deliveries. An attachment states a delivery its child is proved to keep (delivery.ts), drawn among those the
- *   proof licenses, the narrowest most often: an Option over a child whose one match fixes a key per parent, the one
- *   child over a reflexive aggregate of the parent's own relation, and the arm of a handle over a parent's handle
- *   field read from the fact its key names. The child forms build such children on purpose; a plain child states what
- *   its drawn shape happens to prove.
+ * - - Stated deliveries. An attachment states a delivery its child is proved to keep (delivery.ts), drawn among those
+ *   the proof licenses, the narrowest most often: an Option over a child whose one match fixes a key per parent, the
+ *   one child over a reflexive aggregate of the parent's own relation, and an Option over an arm child, its key bound
+ *   to the parent's and its handle field to one handle. The child forms build such children on purpose; a plain child
+ *   states what its drawn shape happens to prove.
  * - The builder's further forms, each behind a gate of its own: a root rule's later matches read an earlier read's
  *   query (its parameters bound to the rule's variables or to parameters of the read), an interior stage, a relation
  *   parameter or an acyclic closure; a rule filters by r.between, r.in, r.allen over span fields and r.pointIn; a
@@ -1214,11 +1214,11 @@ export const plantedNameCount = plantedNames.length
  * - Imports bound to the reader's variables. A read below the last may bind its first match's first key field to a
  *   parameter, so a later read can import it, and a later read may match such an import with its parameter bound to a
  *   variable its first match bound.
- * - A planted case (plantedCase). What the drawn populations reach too rarely to rely on, a case of the planted
- *   population reaches by construction: two parent rows whose key holds one value in two spellings, each with
- *   children, under a pipelined attachment, an arm read Some and None, a key get of a stored fact and of a key no fact
- *   holds, a get of a roster handle, a root take whose rows its descending key orders apart and ties, and an attached
- *   take that gives a parent two children its descending key orders apart.
+ * - - A planted case (plantedCase). What the drawn populations reach too rarely to rely on, a case of the planted
+ *   population reaches by construction: two parent rows whose key holds one value in two spellings, each with children,
+ *   under a pipelined attachment, an arm child read as an Option, Some and None, a key get of a stored fact and of a
+ *   key no fact holds, a get of a roster handle, a root take whose rows its descending key orders apart and ties, and
+ *   an attached take that gives a parent two children its descending key orders apart.
  * - Ties in a root take. A root take's stated order may leave out one column of its heading, so the rows its stated
  *   keys tie are ordered by the take's completion, by that column, ascending (program.ts takeOrder).
  *
@@ -1381,12 +1381,16 @@ class Names {
 	}
 
 	/**
-	 * A closed-id field's name: one whose decoded column `<field>_name` fits an identifier (core/identity.ts
-	 * decodedColumnFits), as ownership requires of every closed-id field a role view decodes, so the dictionary's longest
-	 * names fall back.
+	 * A closed-id field's name: one whose conversion fits closedIdFieldBytes, so its decoded column `<field>_name` fits an
+	 * identifier, as a relation's builder requires of every closed-id field (core/identity.ts admitClosedIdField), so the
+	 * dictionary's longest names fall back.
 	 */
 	drawClosedId(pick: number, fallback: string): string {
-		return this.#drawAdmitted(pick, fallback, decodedColumnFits)
+		return this.#drawAdmitted(
+			pick,
+			fallback,
+			(name) => Buffer.byteLength(conversionOf(name)) <= closedIdFieldBytes
+		)
 	}
 
 	#drawAdmitted(pick: number, fallback: string, admits: (name: DeclaredName) => boolean): string {
@@ -3769,7 +3773,6 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 	const heading = headingOf(rootRule.head)
 	const keyColumn = elementOf(heading, 0, "the root's key column")
 	const signedColumn = elementOf(heading, 2, "the root's signed column")
-	const handleOut = elementOf(heading, 3, "the root's handle column")
 	const armValue = mint(spelled)
 	const armChild = setQuery<ParentColumn>(
 		soleRule(
@@ -3789,9 +3792,9 @@ const plantedCase = (sketch: CaseSketch): ProgramCase => {
 	const armDelivery = Option.getOrThrowWith(
 		Arr.findFirst(
 			licensed(deliveryProof({ heading, arms: [rootRule] }, armChild)),
-			(d) => d.kind === "arm" && d.field.name === handleOut.name && d.handle === selected
+			(d) => d.kind === "option"
 		),
-		() => new Error("the planted arm is not licensed")
+		() => new Error("the planted arm, keyed by the root's key, is not licensed as an Option")
 	)
 	const arm: Attachment = {
 		name: rootNames.draw(pick("arm"), "attachment"),

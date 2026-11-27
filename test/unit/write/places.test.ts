@@ -306,7 +306,6 @@ export const aStampedNestingIsOneStatementWritingItsOwnerAndEveryMemberItsHeadSt
 							case "carrier":
 							case "readBack":
 							case "check":
-							case "admission":
 								return []
 						}
 					}),

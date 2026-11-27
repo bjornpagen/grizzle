@@ -53,7 +53,10 @@ export const aCallTakesItsLocksInTheOrderOfTheirIdsEachOnceAtTheStrongestModeItB
 			({ fresh }, c: Case<BorrowFeature>) =>
 			(race) =>
 				Effect.gen(function* () {
-					const { substrate, value: installed } = yield* fresh
+					const {
+						substrate,
+						value: { installed }
+					} = yield* fresh
 					const run = yield* Effect.provideService(runRace(installed, race), Substrate, substrate)
 					for (const f of run.features) {
 						c.note(f)
@@ -80,8 +83,8 @@ export const aCallTakesItsLocksInTheOrderOfTheirIdsEachOnceAtTheStrongestModeItB
 			{
 				file: "packages/engine/src/write/borrow/lock.ts",
 				original:
-					'\t\t\twhens: [{ when: eq(key.expr, lit.int(0, types.integer)), result: lit.text("0", types.text) }],',
-				replacement: '\t\t\twhens: [{ when: lit.bool(false), result: lit.text("0", types.text) }],',
+					"\treturn text(carrier === undefined ? key.expr : canonicalForm(key.expr, carrier))",
+				replacement: "\treturn text(key.expr)",
 				why: "A float key's image keeps its zero's sign: -0 and 0, one value, take two locks."
 			},
 			{

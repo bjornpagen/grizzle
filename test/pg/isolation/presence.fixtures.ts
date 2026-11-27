@@ -11,8 +11,7 @@ import {
 	type Steered,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, Exit, Fiber, Option, Order, Record as Rec } from "effect"
-import type { RoleCertificate } from "#compiler/core/certificate.ts"
+import { Array as Arr, Effect, Fiber, Option, Order, Record as Rec } from "effect"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Logic, Num, Range, Type } from "#compiler/public/compute.ts"
@@ -23,9 +22,10 @@ import { clocked, workload } from "#compiler/public/workload.ts"
 import {
 	callStandUps,
 	callStatements,
-	certifiedShapeTemplate,
-	type Certifier,
-	type InstalledShape
+	type InstalledShape,
+	servedLevel,
+	shapeTemplate,
+	writeBegin
 } from "#test/pg/isolation/support/race.ts"
 import { replaceMigrated } from "#test/support/install-migrate.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
@@ -36,10 +36,17 @@ import { lockWaitOf } from "#test/support/substrate/barrier.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 
-const LearnerId = contract("LearnerId", pg.integer)
+const learnerIdKey = Symbol("LearnerId")
+const LearnerId = contract<typeof learnerIdKey>()("LearnerId", pg.integer)
+const momentKey = Symbol("Moment")
 /** Microseconds on the database's clock, a window's ends; a reading is one below the top, so it ends a window too. */
-const Moment = contract("Moment", pg.bigint, (t) => Num.within(t, 0n, 2n ** 62n))
-const Reading = contract("Reading", pg.bigint, (t) => Num.within(t, 0n, 2n ** 62n - 1n))
+const Moment = contract<typeof momentKey>()("Moment", pg.bigint, (t) =>
+	Num.within(t, 0n, 2n ** 62n)
+)
+const readingKey = Symbol("Reading")
+const Reading = contract<typeof readingKey>()("Reading", pg.bigint, (t) =>
+	Num.within(t, 0n, 2n ** 62n - 1n)
+)
 
 /** A learner's presence in a stage: one window per stretch of readings no more than 3 s apart (README "A window a put
  * extends"). */
@@ -66,8 +73,8 @@ const presenceShape = (name: string) => {
 			r.find({
 				child: r.param("child", LearnerId),
 				stage: r.param("stage", natural),
-				start: Type.cast(Type.base(r.param("now", Reading)), Moment),
-				end: Type.cast(Num.add(Type.base(r.param("now", Reading)), 1n), Moment)
+				start: Type.cast(Type.base(r.param("now", Reading)), Moment, momentKey),
+				end: Type.cast(Num.add(Type.base(r.param("now", Reading)), 1n), Moment, momentKey)
 			})
 		)
 		.rule((r) => {
@@ -117,42 +124,19 @@ const presenceShape = (name: string) => {
 		schema: base,
 		roles: { learner },
 		login: login(base, "app", [learner], {
-			workload: [workload(learner, { beacon: clocked(beacon, { now: "micros" }) })]
+			workload: [
+				workload(learner, { beacon: clocked(beacon, { now: "micros" }, { now: readingKey }) })
+			]
 		})
 	}
 }
 
-/** The certificate a race at `level` states for the learner. */
-const certificateAt = (level: Isolation): RoleCertificate =>
-	level === "readCommitted"
-		? { level }
-		: {
-				level,
-				why: {
-					kind: "own",
-					reasons: [
-						{
-							condition: "form",
-							at: { kind: "member", member: "beacon", relation: "Presence" },
-							detail: "a put of a relation whose primary key holds a span runs SERIALIZABLE"
-						}
-					]
-				}
-			}
-
-const atLevel = (level: Isolation): Extract<Certifier, { readonly kind: "stated" }> => ({
-	kind: "stated",
-	roles: [{ login: "app", role: "learner", certificate: certificateAt(level) }]
-})
-
-/** The presence shape installed once per member with the learner SERIALIZABLE, the level its put runs at
- * (write/schedule/plan.ts readCommittedLack). */
-export const serializableShape = certifiedShapeTemplate(
-	import.meta,
-	"presence serializable",
-	presenceShape,
-	atLevel("serializable")
-)
+/**
+ * The presence shape installed once per member as `grizzle generate` drafts and serves it (race.ts shapeTemplate): the
+ * learner at the level generate certifies it at, SERIALIZABLE, the level its put runs at (write/schedule/plan.ts
+ * readCommittedLack).
+ */
+export const generatedShape = shapeTemplate(import.meta, "presence", presenceShape)
 
 /**
  * A stored window, by its ends in milliseconds from the race's instant, the database's clock read as it begins: a
@@ -301,9 +285,6 @@ const failureOf = (outcomes: ReadonlyArray<ScheduleOutcome>): string | undefined
 const clockSql = (fn: "transaction_timestamp" | "clock_timestamp"): string =>
 	`SELECT (pg_catalog.extract('epoch'::pg_catalog.text, pg_catalog.${fn}()) * 1000000::pg_catalog.numeric)::pg_catalog.int8::pg_catalog.text`
 
-const levelSql = (level: Isolation): string =>
-	`SET TRANSACTION ISOLATION LEVEL ${level === "readCommitted" ? "READ COMMITTED" : "SERIALIZABLE"}`
-
 /** The one text of an outcome's one row, none for any other outcome. */
 const onlyText = (o: ScheduleOutcome): string | undefined =>
 	o._tag === "Ok" ? (textOfValue(o.rows[0]?.[0]) ?? undefined) : undefined
@@ -340,8 +321,9 @@ const storedWindows = (race: PresenceRace, at: bigint): ReadonlyArray<Window> =>
 	)
 
 /**
- * Runs `race` over `s` at `level` (PresenceRace): the observer reads the database's clock, the race's instant, and
- * stores each child's windows at it; every session begins at `level` and reads its clock, its call's reading; each in
+ * Runs `race` over `s` (PresenceRace): the observer reads the database's clock, the race's instant, and stores each
+ * child's windows at it; every session begins as the learner's served writes do, at the level generate certifies it at
+ * (race.ts writeBegin), and reads its clock, its call's reading; each in
  * `starts`' order sends its call's statements on a fiber of its own, while every session before it holds its
  * transaction open, and a call at a child no open session before it beacons must finish without waiting on a lock (the
  * problem otherwise is that it waited on a call of another child), read by polling its backend's lock wait
@@ -349,9 +331,10 @@ const storedWindows = (race: PresenceRace, at: bigint): ReadonlyArray<Window> =>
  * put is through, committing where its call drew it and succeeded, a session still waiting taking its turn once the
  * one it waits on ended. The observer reads the windows last.
  */
-export const runRace = (s: InstalledShape, race: PresenceRace, level: Isolation) =>
+export const runRace = (s: InstalledShape, race: PresenceRace) =>
 	Effect.scoped(
 		Effect.gen(function* () {
+			const level = servedLevel(s, "learner")
 			const substrate = yield* Substrate
 			const env = yield* exploreEnv(substrate)
 			const instant = yield* env.observer.queryValues(clockSql("clock_timestamp"), [])
@@ -395,8 +378,7 @@ export const runRace = (s: InstalledShape, race: PresenceRace, level: Isolation)
 			)
 			const readings: Array<bigint> = []
 			for (const [i] of sessions.entries()) {
-				yield* actorOf(i).perform({ _tag: "Begin" })
-				yield* actorOf(i).perform({ _tag: "Sql", sql: levelSql(level) })
+				yield* actorOf(i).perform(writeBegin(s, "learner"))
 				const read = yield* actorOf(i).perform({
 					_tag: "Sql",
 					sql: clockSql("transaction_timestamp")
@@ -458,16 +440,9 @@ export const runRace = (s: InstalledShape, race: PresenceRace, level: Isolation)
 					continue
 				}
 				const through = ready.value
-				const exit = defined(
-					defined(fibers.get(through), `s${through}'s fiber`).pollUnsafe(),
-					"an ended fiber"
-				)
-				const own = Exit.isSuccess(exit) ? exit.value : []
+				const own = yield* Fiber.join(defined(fibers.get(through), `s${through}'s fiber`))
 				outcomes.set(through, own)
-				const commit =
-					Exit.isSuccess(exit) &&
-					failureOf(own) === undefined &&
-					callOf(race, through).ends === "commit"
+				const commit = failureOf(own) === undefined && callOf(race, through).ends === "commit"
 				const ended = yield* actorOf(through).perform(
 					commit ? { _tag: "Commit" } : { _tag: "Rollback" }
 				)

@@ -17,7 +17,7 @@ import {
 	string
 } from "@bjornpagen/testing/gen"
 import { bigint } from "@bjornpagen/testing/values"
-import { Array as Arr, String as Str } from "effect"
+import { Array as Arr, Option, String as Str } from "effect"
 import { DatabaseError } from "pg"
 import * as Execution from "#adapter/errors/execution.ts"
 import * as Failures from "#adapter/errors/failures.ts"
@@ -132,7 +132,6 @@ const constructors: {
 	SpanKeyChange: Failures.SpanKeyChange,
 	StaleSnapshot: Execution.StaleSnapshot,
 	StartupRefused: Failures.StartupRefused,
-	TemporaryRefused: Failures.TemporaryRefused,
 	TlsRefused: Failures.TlsRefused,
 	TokenMalformed: Runtime.TokenMalformed,
 	TokenRefused: Runtime.TokenRefused,
@@ -345,6 +344,69 @@ const refusedGen: Gen<Public.BrokenLaws> = (source) => {
 			{ kind: "above", own: "unjudged", above: [above, ...moreAbove] }
 		])
 	)
+}
+
+/** A text's code points, in order: what pg_c_utf8 orders a text by. */
+const codePoints = (text: string): ReadonlyArray<number> =>
+	Arr.map(Array.from(text), (c) =>
+		defined(Option.getOrUndefined(Str.codePointAt(0)(c)), "a character's code point")
+	)
+
+/** Two texts in code point order, lexicographically, a prefix first: the specification of the canonical text order. */
+const byCodePoints = (a: string, b: string): -1 | 0 | 1 => {
+	const [x, y] = [codePoints(a), codePoints(b)]
+	for (const [i, p] of x.entries()) {
+		const q = y[i]
+		if (q === undefined) {
+			return 1
+		}
+		if (p !== q) {
+			return p < q ? -1 : 1
+		}
+	}
+	return x.length < y.length ? -1 : 0
+}
+
+/** A list of a refusal's laws in canonical order: by identity, in code point order. */
+const canonicalList = <L extends { readonly id: string }>(
+	laws: Arr.NonEmptyReadonlyArray<L>
+): Arr.NonEmptyReadonlyArray<L> => Arr.sort(laws, (a: L, b: L) => byCodePoints(a.id, b.id))
+
+/**
+ * A refusal as every refusal leaves grizzle (Bjorn's canonical-order ruling), the specification: each of its lists by its
+ * laws' identities in code point order, whatever order it was assembled in.
+ */
+export const canonicalOf = (refused: Public.BrokenLaws): Public.BrokenLaws => {
+	switch (refused.kind) {
+		case "every":
+		case "first":
+			return { kind: refused.kind, laws: canonicalList(refused.laws) }
+		case "some": {
+			const [first, second, ...more] = canonicalList(refused.laws)
+			return { kind: "some", laws: [first, defined(second, "a second law"), ...more] }
+		}
+		case "above":
+			return refused.own === "every"
+				? {
+						kind: "above",
+						own: "every",
+						above: canonicalList(refused.above),
+						laws: canonicalList(refused.laws)
+					}
+				: { kind: "above", own: refused.own, above: canonicalList(refused.above) }
+	}
+}
+
+/** Whether a refusal holds a list of three laws or more that its assembly left out of canonical order. */
+export const outOfOrderOfThree = (refused: Public.BrokenLaws): boolean => {
+	const canonical = canonicalOf(refused)
+	const lists = (r: Public.BrokenLaws): ReadonlyArray<ReadonlyArray<{ readonly id: string }>> =>
+		r.kind === "above" ? (r.own === "every" ? [r.above, r.laws] : [r.above]) : [r.laws]
+	const drawn = lists(refused)
+	return Arr.some(lists(canonical), (list, i) => {
+		const was = defined(drawn[i], "the drawn list")
+		return list.length >= 3 && Arr.some(list, (law, j) => law.id !== was[j]?.id)
+	})
 }
 
 const witnessGen: Gen<Public.Witness> = oneOf<Public.Witness>([
@@ -606,6 +668,7 @@ export type Feature =
 	| "outcome no-change"
 	| "outcome invariant-rejected"
 	| "outcome outside-world"
+	| "outcome invariant-rejected of three laws or more out of canonical order"
 
 export const allFeatures: Arr.NonEmptyReadonlyArray<Feature> = [
 	"report",
@@ -627,7 +690,8 @@ export const allFeatures: Arr.NonEmptyReadonlyArray<Feature> = [
 	"outcome accepted",
 	"outcome no-change",
 	"outcome invariant-rejected",
-	"outcome outside-world"
+	"outcome outside-world",
+	"outcome invariant-rejected of three laws or more out of canonical order"
 ]
 
 /**

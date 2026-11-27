@@ -27,7 +27,7 @@ const readers = {
 		'relation.generated("T", { id: Id, n: pg.bigint }, ["id"], (r) => ({ g: generated(term, r.n) }))',
 		"TS2345"
 	],
-	"a contract's base": ['contract("C", term, (v) => Logic.gt(v, 0n))', "TS2345"],
+	"a contract's base": ['contract<typeof probeKey>()("C", term, (v) => Logic.gt(v, 0n))', "TS2345"],
 	"codecText's field": ["codecText(term)", "TS2345"],
 	"lexicalForm's type": ["lexicalForm(term)", "TS2741"],
 	"lexical's type": ["lexical(term)", "TS2741"]
@@ -51,7 +51,11 @@ export const fieldsBoxItems: Arr.NonEmptyReadonlyArray<Reader> = [
 const prelude = await Effect.runPromise(preludeAt("test/support/programs/fields.ts"))
 
 /** The term every cell passes where its reader takes a field: a bigint literal, of a type every reader admits. */
-const fieldsHeader: ReadonlyArray<string> = ["export const term = Type.literal(pg.bigint, 1n)", ""]
+const fieldsHeader: ReadonlyArray<string> = [
+	"export const term = Type.literal(pg.bigint, 1n)",
+	'export const probeKey = Symbol("Probe")',
+	""
+]
 
 /** The program over a batch's cells, its imports read through its prelude as `entry` reaches it. */
 export const fieldsProgram = (cells: Arr.NonEmptyReadonlyArray<Reader>, entry: Entry): Program => [

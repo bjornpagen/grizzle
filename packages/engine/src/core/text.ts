@@ -40,7 +40,7 @@ export const isValidText = (value: unknown): value is WellFormedText => validate
  */
 export const wellFormed = (text: string): WellFormedText => {
 	if (!isWellFormedText(text)) {
-		throw defect("a text grizzle holds is well-formed")
+		defect("a text grizzle holds is well-formed")
 	}
 	return text
 }

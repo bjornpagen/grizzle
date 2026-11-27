@@ -184,8 +184,8 @@ export const computeBuildersTypeAndRefuseOperandsByTheBuildersTypingRules = prop
 			},
 			{
 				file: "packages/engine/src/scalar/compute/typing.ts",
-				original: "\t\tif (!meets(against.nominal, term.nominal) && !refinedPair(against, term)) {",
-				replacement: "\t\tif (!meets(against.nominal, term.nominal)) {",
+				original: "\t\tif (!meets(against, term.nominal) && !refinedPair(against, term.nominal)) {",
+				replacement: "\t\tif (!meets(against, term.nominal)) {",
 				why: "An equality of two refinements of one base carrier, Cents and EpochDay, or Cents and a bigint, is refused as any comparison of two types is; the typing property fails."
 			},
 			{

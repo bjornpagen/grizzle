@@ -102,7 +102,7 @@ export const aRuleOverAQuerysWitnessesAreTheShapesItsArmsGiveItsViolationEveryOc
 					const name = nameOf(r)
 					const added = Arr.some(ws, (w) => w.rows.includes(name) || w.present.includes(name))
 					const withdrawn = Arr.some(ws, (w) => w.absent.includes(name))
-					const t = touches(rule, name)
+					const t = touches(rule, name, { kind: "none" })
 					assert.equal(
 						t !== undefined && (t.kind === "added" || t.kind === "both"),
 						added,
@@ -129,9 +129,9 @@ export const aRuleOverAQuerysWitnessesAreTheShapesItsArmsGiveItsViolationEveryOc
 			{
 				file: "packages/engine/src/analysis/theory/query.ts",
 				original:
-					'\t\t\t\t...storedAmong([\n\t\t\t\t\t...reads(breakingArms(rule), "positive"),\n\t\t\t\t\t...reads(targetArms(rule), "negative")\n\t\t\t\t]),',
-				replacement: '\t\t\t\t...storedAmong([...reads(targetArms(rule), "negative")]),',
-				why: "An INSERT that adds a breaking arm's facts read as breaking nothing (query.ts probedTouches): its matches' writes are never captured."
+					'\t\t...breaking.flatMap((a) => occurrencesOf(breaking, a, "positive", undefined, relation, memo)),\n',
+				replacement: "",
+				why: "A write that adds or removes a breaking arm's facts read as breaking nothing (query.ts ruleOccurrences, probedTouches): its matches' writes are never captured."
 			},
 			{
 				file: "packages/engine/src/analysis/theory/query.ts",

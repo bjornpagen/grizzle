@@ -96,8 +96,6 @@ export const runDeclared = (
 							type: types.bigint,
 							collation: undefined
 						})),
-						notNull: true,
-						primaryKey: undefined,
 						storage: "toasted"
 					},
 					...declaredStatisticsSteps(declared, temporarySchema)

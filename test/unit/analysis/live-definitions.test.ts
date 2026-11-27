@@ -1,103 +1,45 @@
 /**
- * A checked schema checks each import its derived definitions read once (analysis/schema.ts CheckedSchema, the one
- * session of its definitions' checks): over a chain of live derived relations, each reading the definition below it as
- * an import, the imports are checked once each, one for each definition that reads another, where a session of each
- * definition's own checked the whole chain below it again, a number of checks of the square of the chain's length.
+ * A checked schema's canonical relations cost their definitions' size, never their size by their depth
+ * (analysis/schema.ts CheckedSchema, analysis/derived/canonical.ts): over a chain of live derived relations, each
+ * reading the definition below it as an import, each query is checked once, in the one session of the definitions'
+ * checks, as its canonical form and as every import of it alike; each closed node is digested once, bottom-up, every
+ * form over it reading its digest (ir/dag.ts CanonicalDigests); and each node is annotated once, every definition's
+ * analysis reading the shared annotations of the imports below it (logical/annotate.ts SharedAnalyses). Where a
+ * session, a digest or an analysis of each definition's own walked the whole chain below it again, the work was the
+ * square of its length.
  *
- * The count is work, never time: V8's precise coverage counts the checker's import checks (kernel/calls.ts callCounts,
- * check/checker.ts #importChecked). The box is exhausted: chains of one to nine definitions.
+ * The counts are work, never time: V8's precise coverage counts the checker's import checks (check/checker.ts
+ * #importChecked), the digests' numberings (ir/dag-digest.ts ReachNumbering edge) and the analyses' annotations
+ * (logical/annotate.ts annotate), each against the chain's own nodes and edges. The box is exhausted: chains of one to
+ * nine definitions (live-definitions.fixtures.ts).
  *
  * Features: a chain of one definition, a chain of several.
  */
 
-import { assert, defined } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Record as Rec } from "effect"
+import { Array as Arr, Effect } from "effect"
 import { checkedSchema } from "#compiler/analysis/schema.ts"
+import { topoOrder } from "#compiler/ir/dag.ts"
+import { inputsOf } from "#compiler/ir/rel.ts"
 import { own } from "#compiler/schema/own.ts"
-import { everySlice } from "#compiler/schema/reach.ts"
 import { succeeded } from "#test/support/assert.ts"
-import {
-	decodedQuery,
-	decodedSchema,
-	f,
-	type QueryDesc,
-	relation,
-	type SchemaDesc
-} from "#test/support/fixtures/ir/desc.ts"
+import { decodedSchema } from "#test/support/fixtures/ir/desc.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
+import { chainOf } from "#test/unit/analysis/live-definitions.fixtures.ts"
 
 type ChainFeature = "a chain of one definition" | "a chain of several"
 
-/** The fields every relation of a chain holds, T's and each definition's head. */
-const fields = ["doc", "at", "b"] as const
-
 /**
- * A chain of `length` live derived relations over T: D1's definition finds every row of T, and each D(i + 1)'s every row
- * of D(i)'s definition, which it reads as an import, so D(i)'s check reads the chain of i - 1 imports below it. Each
- * reads T alone, so each stands at the first derived level, in the extension of T's schema.
+ * A checked schema's canonical relations cost their definitions' size, never their size by their depth: each query
+ * checked once, as its canonical form and as every import of it alike; each closed node digested once, numbered as its
+ * own form's root and once by each edge into it, read by its digest in every form over it (ir/dag.ts CanonicalDigests);
+ * and each node annotated once, every analysis over it reading the shared annotations of the imports below it.
  */
-const chainOf = (length: number): SchemaDesc => {
-	const vars = Arr.map(fields, (id) => ({ id, origin: undefined }))
-	const bindings = Rec.fromEntries(Arr.map(fields, (x) => [x, { kind: "var", var: x }] as const))
-	const definitionOver = (
-		source:
-			| { readonly kind: "relation"; readonly name: string }
-			| {
-					readonly kind: "query"
-					readonly query: QueryDesc
-					readonly bind: Readonly<Record<string, never>>
-			  }
-	): QueryDesc =>
-		decodedQuery({
-			kind: "rules",
-			arms: [
-				{
-					vars,
-					matches: [{ source, bindings }],
-					where: [],
-					head: bindings,
-					interiors: [],
-					attach: []
-				}
-			]
-		})
-	const definitions: Array<QueryDesc> = [definitionOver({ kind: "relation", name: "T" })]
-	for (let i = 1; i < length; i += 1) {
-		definitions.push(
-			definitionOver({
-				kind: "query",
-				query: defined(definitions[i - 1], "the definition below"),
-				bind: {}
-			})
-		)
-	}
-	return {
-		name: "chain_1",
-		relations: Arr.map(definitions, (query, i) => ({
-			kind: "derived" as const,
-			name: `D${i + 1}`,
-			level: 1,
-			query
-		})),
-		statements: [],
-		bases: [
-			{
-				name: "chain",
-				relations: [relation("T", { doc: f.natural, at: f.natural, b: f.natural }, ["doc", "at"])],
-				statements: [],
-				bases: []
-			}
-		]
-	}
-}
-
-/** A checked schema checks each import its live definitions read once, one for each definition that reads another. */
-export const aCheckedSchemaChecksEachImportItsLiveDefinitionsReadOnce = property.exhaust(
-	finite(int(1, 9)),
-	{
+export const aCheckedSchemaChecksDigestsAndAnalyzesEachQueryItsDefinitionsReadOnce =
+	property.exhaust(finite(int(1, 9)), {
 		needs: {},
 		box: "chains of one to nine live definitions, each reading the one below it",
 		situations: ["a chain of one definition", "a chain of several"] satisfies ReadonlyArray<
@@ -107,29 +49,58 @@ export const aCheckedSchemaChecksEachImportItsLiveDefinitionsReadOnce = property
 			Effect.gen(function* () {
 				k.note(length === 1 ? "a chain of one definition" : "a chain of several")
 				const owned = succeeded(own(decodedSchema(chainOf(length))), "the chain owns")
-				const [, counts] = yield* callCounts(
-					Effect.sync(() => succeeded(checkedSchema(owned, everySlice(owned)), "the chain checks")),
-					{ imports: { file: "packages/engine/src/check/checker.ts", name: "#importChecked" } }
+				const [checked, counts] = yield* callCounts(
+					Effect.sync(() => succeeded(checkedSchema(owned), "the chain checks")),
+					{
+						imports: { file: "packages/engine/src/check/checker.ts", name: "#importChecked" },
+						numbered: { file: "packages/engine/src/ir/dag-digest.ts", name: "edge" },
+						annotated: { file: "packages/engine/src/logical/annotate.ts", name: "annotate" }
+					}
 				)
+				const nodes = topoOrder(checked.canonicalOf(`D${length}`).definition.checked.dag)
+				const edges = Arr.reduce(nodes, 0, (n, node) => n + inputsOf(node).length)
 				assert.equal(
 					counts.imports,
-					length - 1,
-					`a chain of ${length} definitions checks each of its ${length - 1} imports once`
+					length,
+					`a chain of ${length} definitions checks each of its ${length} queries once, as its canonical form and as every import of it alike`
+				)
+				assert.equal(
+					counts.numbered,
+					nodes.length + edges,
+					`its ${nodes.length} nodes are each numbered once as their own form's root and once by each of their ${edges} edges`
+				)
+				assert.equal(
+					counts.annotated,
+					nodes.length,
+					`its ${nodes.length} nodes are each annotated once, whichever definitions' analyses read them`
 				)
 			}),
 		oracle: {
 			kind: "specification",
-			name: "one import check for each live definition that reads another (kernel/calls.ts callCounts)"
+			name: "one import check per definition, one numbering per closed node and per edge into it, one annotation per node (kernel/calls.ts callCounts)"
 		},
 		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/analysis/schema.ts",
-				original: "\t\t\tconst definition = unwrap(derivedDefinition(this, r, session))\n",
+				original:
+					"\t\t\t\tconst checked = unwrap(checkClosedImport(this, label, query, session))\n",
 				replacement:
-					"\t\t\tconst definition = unwrap(derivedDefinition(this, r, new CheckSession(this.patterns)))\n",
-				why: "Each definition is checked in a session of its own, which checks the whole chain of imports below it again: a chain of n definitions checks n(n - 1) / 2 imports, and the property fails from three."
+					"\t\t\t\tconst checked = unwrap(checkClosedImport(this, label, query, new CheckSession(this.patterns)))\n",
+				why: "Each query is checked in a session of its own, which checks the whole chain of imports below it again: a chain of n definitions checks its queries n(n + 1) / 2 times."
+			},
+			{
+				file: "packages/engine/src/ir/dag.ts",
+				original: "\t\t\t\treturn form?.ok === true ? form.value : undefined\n",
+				replacement: "\t\t\t\treturn undefined\n",
+				why: "Each form digested whole, the forms below it walked again, not read by their digests: a chain of n definitions numbers its nodes n deep, the work the square of its depth."
+			},
+			{
+				file: "packages/engine/src/analysis/schema.ts",
+				original:
+					"\t\t\tconst analyses = new SharedAnalyses(queryEvidence, session.closedRoots())\n",
+				replacement: "\t\t\tconst analyses = new SharedAnalyses(queryEvidence, () => false)\n",
+				why: "Each definition's analysis annotates every import below it again: a chain of n definitions annotates its nodes n deep."
 			}
 		]
-	}
-)
+	})

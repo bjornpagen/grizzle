@@ -354,6 +354,7 @@ const carrierValue = (type: ScalarType, host: unknown): Result.Result<Value, str
 		case "text":
 		case "code":
 			return typeof host === "string" ? Result.succeed(host) : wrong()
+		case "variant":
 		case "sha256":
 		case "bytes":
 		case "tsvector":
@@ -384,13 +385,11 @@ const carrierValue = (type: ScalarType, host: unknown): Result.Result<Value, str
 }
 
 /**
- * The children an attachment delivered in its stated delivery, read strictly from the row `row` holds it in, or the
- * difference that it is delivered otherwise: an array as is, an Option as its value or none, the one child as itself,
- * and an arm as Some exactly where the row's field holds the arm's handle and None elsewhere.
+ * The children an attachment delivered in its stated delivery, read strictly, or the difference that it is delivered
+ * otherwise: an array as is, an Option as its value or none, the one child as itself.
  */
 const children = (
 	delivery: StatedDelivery,
-	row: { readonly [key: string]: unknown },
 	delivered: unknown
 ): Result.Result<ReadonlyArray<unknown>, string> => {
 	const option = (): Result.Result<ReadonlyArray<unknown>, string> =>
@@ -408,15 +407,6 @@ const children = (
 			return isRecord(delivered) && !Option.isOption(delivered) && !Arr.isArray(delivered)
 				? Result.succeed([delivered])
 				: Result.fail("the one child delivered as no record")
-		case "arm": {
-			const selected = row[delivery.field.name] === delivery.handle
-			if (!Option.isOption(delivered) || Option.isSome(delivered) !== selected) {
-				return Result.fail(
-					`the arm of ${delivery.handle} over ${delivery.field.name} delivered ${Option.isOption(delivered) ? (Option.isSome(delivered) ? "Some" : "None") : "no Option"} where the row holds ${String(row[delivery.field.name])}`
-				)
-			}
-			return option()
-		}
 	}
 }
 
@@ -447,7 +437,7 @@ const fromPublic = (shape: Shape, row: unknown): Result.Result<Nested, string> =
 	}
 	const attachments: Array<ReadonlyArray<Nested>> = []
 	for (const a of shape.attachments) {
-		const delivered = children(a.delivery, row, row[a.name])
+		const delivered = children(a.delivery, row[a.name])
 		if (Result.isFailure(delivered)) {
 			return Result.fail(`${a.name}: ${delivered.failure}`)
 		}

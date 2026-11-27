@@ -131,6 +131,7 @@ export type ParamType = ColumnKind | "hull"
 /** The rule a refusal enforces, by the model's own names. */
 export type ParamRule =
 	| "a variable bound to fields of two families"
+	| "a variable bound to fields no one of whose kinds guarantees the other's"
 	| "declarations of two families"
 	| "a bound variable of another family"
 	| "a computed negation over an outer variable"
@@ -177,8 +178,18 @@ const commonType = (kinds: Arr.NonEmptyReadonlyArray<ParamType>): ParamType | un
 }
 
 /**
- * The model: a variable two matches bind meets its fields only within one family, its typmods and refinements apart
- * (MalformedDescription); the root's own uses are its bindings', comparisons', head's, negations', computed negation's, its bind
+ * Whether every value of kind `a` is a value of kind `b` (check/refinement guarantees): one kind, or a text of any
+ * language beside the wildcard. Two numeric typmods guarantee neither the other, and neither lower-case text, of no
+ * bound, nor a code of at most 32 characters and digits holds the other's language.
+ */
+const guaranteesKind = (a: ColumnKind, b: ColumnKind): boolean =>
+	a === b || (familyOf(a) === "text" && b === "prose")
+
+/**
+ * The model: a variable two matches bind meets its fields only within one family (MalformedDescription), and settles
+ * on the kind of the one that guarantees the other's, refused where neither does, two numeric typmods or two languages
+ * neither of which holds the other (MalformedDescription; 31664c74c6, check/checker.ts RuleCheck #settle, where any two
+ * typmods or refinements of one family met); the root's own uses are its bindings', comparisons', head's, negations', computed negation's, its bind
  * maps' parameter terms', and its take's, declared integer; an import binding one of its parameters to a root parameter
  * adds that parameter's uses in the import, at their own declarations, to the root parameter's; one bound to a root
  * variable is refused where the variable's field is of another family than its uses (MalformedDescription), and where
@@ -197,10 +208,16 @@ export const paramVerdict = (c: ParamCase): ParamVerdict => {
 	const rules: Array<{ readonly reason: CompileReasonTag; readonly rule: ParamRule }> = []
 	for (const j of c.joined) {
 		const kind = kindOf(relationAt(c.schema, j.relation), j.field)
-		if (familyOf(kind) !== familyOf(kindOf(root, j.to))) {
+		const rootKind = kindOf(root, j.to)
+		if (familyOf(kind) !== familyOf(rootKind)) {
 			rules.push({
 				reason: "MalformedDescription",
 				rule: "a variable bound to fields of two families"
+			})
+		} else if (!guaranteesKind(kind, rootKind) && !guaranteesKind(rootKind, kind)) {
+			rules.push({
+				reason: "MalformedDescription",
+				rule: "a variable bound to fields no one of whose kinds guarantees the other's"
 			})
 		}
 	}
@@ -622,7 +639,7 @@ export type ParamFeature =
 	| "a negated import"
 	| "one name in two scopes"
 	| "a parameter widened"
-	| "a variable joined across typmods or refinements"
+	| "a variable joined across refinements"
 	| "admitted"
 
 export const paramFeatures = (c: ParamCase, v: ParamVerdict): ReadonlyArray<ParamFeature> => {
@@ -684,7 +701,7 @@ export const paramFeatures = (c: ParamCase, v: ParamVerdict): ReadonlyArray<Para
 						kindOf(relationAt(c.schema, j.relation), j.field) !==
 						kindOf(relationAt(c.schema, c.relation), j.to)
 				),
-				"a variable joined across typmods or refinements"
+				"a variable joined across refinements"
 			)
 			when(v.widened, "a parameter widened")
 			break

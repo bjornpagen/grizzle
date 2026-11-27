@@ -1,4 +1,3 @@
-import { maxOf } from "@bjornpagen/grizzle-text/base/array"
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type {
@@ -66,7 +65,6 @@ import type {
 	SqlStatement,
 	StoredGeneration,
 	TableConstraint,
-	TableName,
 	Target,
 	TypeRef,
 	Update,
@@ -76,7 +74,6 @@ import type {
 } from "#compiler/sql/ast.ts"
 import { isSetBody, isSetQuery, isValuesTarget } from "#compiler/sql/ast.ts"
 import { type Assignments, mapValues } from "#compiler/sql/generation.ts"
-import type { CarrierName } from "#compiler/sql/naming.ts"
 
 /**
  * The catalog namespace an object name is looked up in: a relation's (tables, views, sequences and indexes share
@@ -120,7 +117,7 @@ const objectSpace = (
  * core, `select` every query,
  * `objectName` every schema object name (a CREATE INDEX's own name and a USING INDEX's index among them, relations of
  * their table's schema), `constraintName` every name a table's constraint takes, with the table its statement names
- * as it was, `carrier` every carrier a statement names, `typeRef` every type reference,
+ * as it was, `typeRef` every type reference,
  * `functionRef` every qualified function reference, and `extension` every CREATE EXTENSION. `replaceSource` sees a
  * FROM source before its children and may replace it whole. `joins` sees every join chain, rebuilt around its sources. A collation is always pg_catalog's pg_c_utf8 and is never rewritten. Every hook is stated: a pass
  * spreads identityHooks and states the hooks it changes.
@@ -135,7 +132,6 @@ export interface AstHooks {
 	readonly replaceSource: (source: FromSource) => FromSource | undefined
 	readonly objectName: (name: ObjectName, namespace: NameSpace) => ObjectName
 	readonly constraintName: (table: ObjectName, name: string) => string
-	readonly carrier: (name: CarrierName) => CarrierName
 	readonly typeRef: (type: TypeRef) => TypeRef
 	readonly functionRef: (fn: QualifiedFunctionRef) => QualifiedFunctionRef
 	readonly extension: (statement: CreateExtension) => CreateExtension
@@ -169,17 +165,12 @@ export const identityHooks: AstHooks = {
 	replaceSource: () => undefined,
 	objectName: same,
 	constraintName: (_table, name) => name,
-	carrier: same,
 	typeRef: same,
 	functionRef: same,
 	extension: same
 }
 
-/**
- * The database default names no schema object.
- *
- * A carrier is no schema object: its names are never rewritten.
- */
+/** The database default names no schema object. */
 export class Transform {
 	readonly #expr: (e: Expr, original: Expr) => Expr
 	readonly #fromSource: (source: FromSource, original: FromSource) => FromSource
@@ -189,7 +180,6 @@ export class Transform {
 	readonly #replaceSource: (source: FromSource) => FromSource | undefined
 	readonly #objectName: (name: ObjectName, namespace: NameSpace) => ObjectName
 	readonly #constraintName: (table: ObjectName, name: string) => string
-	readonly #carrier: (name: CarrierName) => CarrierName
 	readonly #typeRef: (type: TypeRef) => TypeRef
 	readonly #functionRef: (fn: QualifiedFunctionRef) => QualifiedFunctionRef
 	readonly #extension: (statement: CreateExtension) => CreateExtension
@@ -203,7 +193,6 @@ export class Transform {
 		this.#replaceSource = hooks.replaceSource
 		this.#objectName = hooks.objectName
 		this.#constraintName = hooks.constraintName
-		this.#carrier = hooks.carrier
 		this.#typeRef = hooks.typeRef
 		this.#functionRef = hooks.functionRef
 		this.#extension = hooks.extension
@@ -224,9 +213,8 @@ export class Transform {
 	/** A constraint's name, of the table `table` names as the statement had it, through the constraint hook. */
 	readonly constraintName = (table: ObjectName, name: string): string =>
 		this.#constraintName(table, name)
-	/** A stored table through the name hook, a carrier through the carrier hook. */
-	readonly table = (table: TableName): TableName =>
-		typeof table === "string" ? this.#carrier(table) : this.name(table, "relation")
+	/** A stored table through the name hook. */
+	readonly table = (table: ObjectName): ObjectName => this.name(table, "relation")
 	readonly type = (type: TypeRef): TypeRef => this.#typeRef(type)
 	/** A function's name through the name hook and its argument types through the type hook. */
 	readonly functionName = (fn: FunctionName): FunctionName => {
@@ -300,6 +288,10 @@ export class Transform {
 				const array = this.expr(e.array)
 				const index = this.expr(e.index)
 				return array === e.array && index === e.index ? e : { ...e, array, index }
+			}
+			case "attribute": {
+				const record = this.expr(e.record)
+				return record === e.record ? e : { ...e, record }
 			}
 			case "binary": {
 				const left = this.expr(e.left)
@@ -517,7 +509,8 @@ export class Transform {
 						})
 						return columns === source.columns ? item : { ...item, source: { ...source, columns } }
 					}
-					case "carried": {
+					case "carried":
+					case "setting": {
 						const columns = mapNonEmptyKept(source.columns, (c) => {
 							const definition = this.columnDefinition(c.definition)
 							const array = this.expr(c.array)
@@ -653,14 +646,14 @@ export class Transform {
 		} else if (isSetQuery(rebuilt)) {
 			return rebuilt
 		}
-		throw defect("a rewrite that keeps a UNION ALL arm a set")
+		defect("a rewrite that keeps a UNION ALL arm a set")
 	}
 
 	/** A set query rebuilt, a set still: a rewrite keeps a set's rows a set. */
 	setQuery(q: Select): Select {
 		const rebuilt = this.select(q)
 		if (!isSetQuery(rebuilt)) {
-			throw defect("a rewrite that keeps a set query a set")
+			defect("a rewrite that keeps a set query a set")
 		}
 		return rebuilt
 	}
@@ -1175,6 +1168,10 @@ export class Transform {
 				const body = mapNonEmptyKept(s.body, (b) => this.plStatement(b))
 				return query === s.query && body === s.body ? s : { ...s, query, body }
 			}
+			case "wholeReads": {
+				const body = mapNonEmptyKept(s.body, (b) => this.plStatement(b))
+				return body === s.body ? s : { ...s, body }
+			}
 			case "case": {
 				const operand = this.expr(s.operand)
 				const whens = mapNonEmptyKept(s.whens, (w) => {
@@ -1192,7 +1189,7 @@ export class Transform {
 	}
 
 	/** A PL/pgSQL statement's data-modifying statement, of the kind it was. */
-	modified(s: Insert | Update | Delete): Insert | Update | Delete {
+	modified(s: Insert | Update | Delete | Merge): Insert | Update | Delete | Merge {
 		switch (s.kind) {
 			case "insert":
 				return this.insert(s)
@@ -1200,6 +1197,8 @@ export class Transform {
 				return this.update(s)
 			case "delete":
 				return this.delete(s)
+			case "merge":
+				return this.merge(s)
 		}
 	}
 
@@ -1246,15 +1245,20 @@ export class Transform {
 		}
 	}
 
-	/** A declared function with its name, its parameters' types and its result's type rebuilt; its body is the
-	 * application's text, which no rename reaches, and its search_path its own schema's, which its name carries. */
+	/** A declared function with its name, its parameters' types, its result's type and the types its body names alone
+	 * rebuilt; its body is the application's text, which no rename reaches, and its search_path its own schema's, which
+	 * its name carries, and the schemas of the types it names alone. */
 	createDeclaredFunction(s: CreateDeclaredFunction): CreateDeclaredFunction {
 		const name = this.name(s.name, "function")
 		const params = mapList(s.params, (p) => this.functionParam(p))
 		const returns = this.declaredReturns(s.returns)
-		return name === s.name && params === s.params && returns === s.returns
+		const namedAlone = mapList(s.namedAlone, this.type)
+		return name === s.name &&
+			params === s.params &&
+			returns === s.returns &&
+			namedAlone === s.namedAlone
 			? s
-			: { ...s, name, params, returns }
+			: { ...s, name, params, returns, namedAlone }
 	}
 
 	/** A declared function's result: a type, or a set of a row type's values. */
@@ -1312,6 +1316,15 @@ export class Transform {
 				const table = this.name(s.table, "relation")
 				return table === s.table ? s : { ...s, table }
 			}
+			case "guardBracket":
+				switch (s.scope.kind) {
+					case "schemas":
+						return s
+					case "tables": {
+						const tables = mapNonEmptyKept(s.scope.tables, (t) => this.name(t, "relation"))
+						return tables === s.scope.tables ? s : { ...s, scope: { kind: "tables", tables } }
+					}
+				}
 			case "renameConstraint": {
 				const table = this.name(s.table, "relation")
 				const from = this.constraintName(s.table, s.from)
@@ -1368,6 +1381,11 @@ export class Transform {
 				const attributes = mapNonEmptyKept(s.attributes, (a) => this.columnDefinition(a))
 				return name === s.name && attributes === s.attributes ? s : { ...s, name, attributes }
 			}
+			case "alterRowType": {
+				const name = this.name(s.name, "type")
+				const add = this.columnDefinition(s.add)
+				return name === s.name && add === s.add ? s : { ...s, name, add }
+			}
 			case "adoptRole":
 			case "endHolders":
 				return s
@@ -1397,7 +1415,7 @@ export class Transform {
 				const fn = this.name(s.function, "function")
 				return table === s.table && fn === s.function ? s : { ...s, table, function: fn }
 			}
-			case "createUpdateGuardTrigger":
+			case "createImmutableGuardTrigger":
 			case "createConstraintTrigger":
 			case "createTransitionTrigger": {
 				const table = this.name(s.table, "relation")
@@ -1416,7 +1434,6 @@ export class Transform {
 				return table === s.table ? s : { ...s, table }
 			}
 			case "dropPublication":
-			case "resetDatabaseDefault":
 				return s
 			case "grant":
 			case "revoke": {
@@ -1511,13 +1528,6 @@ export class Transform {
 				const query = this.setQuery(s.query)
 				return table === s.table && query === s.query ? s : { ...s, table, query }
 			}
-			case "emptyCarrier":
-				return s
-			case "createCarrier": {
-				const columns = mapList(s.columns, (c) => this.columnDef(c))
-				return columns === s.columns ? s : { ...s, columns }
-			}
-			case "resetDatabaseDefault":
 			case "alterDefaultPrivileges":
 			case "alterDomain":
 			case "alterRole":
@@ -1531,10 +1541,11 @@ export class Transform {
 			case "createDeclaredFunction":
 			case "handOverFunction":
 			case "createRowType":
+			case "alterRowType":
 			case "adoptRole":
 			case "endHolders":
 			case "createGuardTrigger":
-			case "createUpdateGuardTrigger":
+			case "createImmutableGuardTrigger":
 			case "createConstraintTrigger":
 			case "createTransitionTrigger":
 			case "createPublication":
@@ -1553,6 +1564,7 @@ export class Transform {
 			case "dropIndex":
 			case "dropPolicy":
 			case "dropTrigger":
+			case "guardBracket":
 			case "grant":
 			case "grantColumns":
 			case "grantRole":
@@ -1660,36 +1672,59 @@ export const transformStatement = (s: SqlStatement, hooks: AstHooks): SqlStateme
 	new Transform(hooks).statement(s)
 
 /**
+ * The hooks that note each placeholder a walk meets by its number: a value's `$n`, and a relation input's array or
+ * count, a FROM source of arrays. Every hook returns the node it sees, so nothing is rebuilt. The one reading of where a
+ * statement's placeholders stand (statementParams, holdsPlaceholder).
+ */
+const placeholderHooks = (note: (n: number) => void): AstHooks => ({
+	...identityHooks,
+	expr: (e) => {
+		if (e.kind === "param") {
+			note(e.slot.number)
+		}
+		return e
+	},
+	fromSource: (source) => {
+		if (source.kind === "arrays") {
+			const arrays = source.source
+			if (arrays.kind === "count") {
+				note(arrays.count.number)
+			}
+			if (arrays.kind === "columns") {
+				for (const c of arrays.columns) {
+					note(c.array.number)
+				}
+			}
+		}
+		return source
+	}
+})
+
+/**
  * The parameters a statement binds: its highest placeholder, a value's `$n` or a relation input's array or count, 0 for
  * none, which is the count PostgreSQL gives the statement and a Bind message must supply. A function body's placeholders are its
  * arguments, which a CREATE FUNCTION binds none of and PostgreSQL allows 100 of, so they never raise the count past any
- * bound. Every hook returns the node it sees, so nothing is rebuilt.
+ * bound.
  */
 export const statementParams = (statement: SqlStatement): number => {
 	let highest = 0
-	new Transform({
-		...identityHooks,
-		expr: (e) => {
-			if (e.kind === "param") {
-				highest = Math.max(highest, e.slot.number)
-			}
-			return e
-		},
-		fromSource: (source) => {
-			if (source.kind === "arrays") {
-				const arrays = source.source
-				const numbers =
-					arrays.kind === "count"
-						? [arrays.count.number]
-						: arrays.kind === "columns"
-							? arrays.columns.map((c) => c.array.number)
-							: []
-				highest = maxOf(numbers, highest)
-			}
-			return source
-		}
-	}).statement(statement)
+	new Transform(
+		placeholderHooks((n) => {
+			highest = Math.max(highest, n)
+		})
+	).statement(statement)
 	return highest
+}
+
+/** Whether an expression holds a placeholder anywhere (placeholderHooks), inside a sub-query of it too. */
+export const holdsPlaceholder = (e: Expr): boolean => {
+	let holds = false
+	new Transform(
+		placeholderHooks(() => {
+			holds = true
+		})
+	).expr(e)
+	return holds
 }
 
 /** A list of statements, rebuilt statement by statement: the same list when no statement changed. */
@@ -1755,10 +1790,25 @@ const maybe = <A>(value: A | undefined, f: (a: A) => void): Step | undefined =>
 				f(value)
 			}
 
+/**
+ * Whether a walk enters the queries an expression holds (`enter`), or stays at the expression's own query level
+ * (`level`), as PostgreSQL's level of a Var or an Aggref counts it: a sub-link's query is a level of its own.
+ */
+type Reach = "enter" | "level"
+
 class Visit {
 	readonly #v: AstVisitor
-	constructor(v: AstVisitor) {
+	readonly #reach: Reach
+	constructor(v: AstVisitor, reach: Reach) {
 		this.#v = v
+		this.#reach = reach
+	}
+
+	/** A sub-link's query, entered unless the walk stays at its own level. */
+	#subquery(q: OperandSelect): void {
+		if (this.#reach === "enter") {
+			this.select(q)
+		}
 	}
 
 	select(s: OperandSelect): undefined {
@@ -2118,6 +2168,17 @@ class Visit {
 				])
 				return
 			}
+			case "attribute": {
+				inKeyOrder(keys, [
+					[
+						"record",
+						() => {
+							this.expr(e.record)
+						}
+					]
+				])
+				return
+			}
 			case "binary": {
 				inKeyOrder(keys, [
 					[
@@ -2206,7 +2267,7 @@ class Visit {
 					[
 						"query",
 						() => {
-							this.select(e.query)
+							this.#subquery(e.query)
 						}
 					]
 				])
@@ -2219,7 +2280,7 @@ class Visit {
 					[
 						"query",
 						() => {
-							this.select(e.query)
+							this.#subquery(e.query)
 						}
 					]
 				])
@@ -2555,7 +2616,7 @@ class Visit {
 
 /** Every expression, FROM item, WITH clause and set operation of a query, outermost first. */
 export const visitSelect = (query: OperandSelect, visitor: AstVisitor): undefined => {
-	new Visit(visitor).select(query)
+	new Visit(visitor, "enter").select(query)
 }
 
 /** Every expression, FROM item, WITH clause and set operation of a data-modifying statement, outermost first. */
@@ -2563,7 +2624,7 @@ export const visitDml = (
 	statement: Exclude<Dml, { readonly kind: "select" }>,
 	visitor: AstVisitor
 ): undefined => {
-	const visit = new Visit(visitor)
+	const visit = new Visit(visitor, "enter")
 	switch (statement.kind) {
 		case "insert":
 			return visit.insert(statement)
@@ -2578,5 +2639,14 @@ export const visitDml = (
 
 /** Every expression, FROM item, WITH clause and set operation of an expression, the queries it holds among them, outermost first. */
 export const visitExpr = (e: Expr, visitor: AstVisitor): undefined => {
-	new Visit(visitor).expr(e)
+	new Visit(visitor, "enter").expr(e)
+}
+
+/**
+ * Every expression of an expression at its own query level, outermost first: a sub-link's query is a level of its own,
+ * never entered, so a call over rows found is an aggregate or window call of this level, as PostgreSQL's hasAggs,
+ * hasWindowFuncs and hasTargetSRFs count them (sql/pull-up.ts simple).
+ */
+export const visitLevelExpr = (e: Expr, visit: (e: Expr) => void): undefined => {
+	new Visit({ ...inertVisitor, expr: visit }, "level").expr(e)
 }

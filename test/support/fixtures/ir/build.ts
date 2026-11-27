@@ -55,7 +55,13 @@ import {
 	type ValidDag,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
-import { baseOf, type Roster, type ScalarType, spanCarrierOf } from "#compiler/ir/scalar.ts"
+import {
+	baseOf,
+	type Roster,
+	type ScalarType,
+	spanCarrierOf,
+	subsumes
+} from "#compiler/ir/scalar.ts"
 import { type AggregateName, countOverload, unaryOverload } from "#compiler/scalar/aggregate.ts"
 import {
 	definedIdOf,
@@ -206,6 +212,7 @@ const literalOf = (value: LiteralDesc, type: ScalarType): TypedLiteral => {
 		case "exactMoney":
 		case "bytes":
 		case "sha256":
+		case "variant":
 			break
 	}
 	throw new Error(`fixture IR: no ${base.carrier} literal for ${typeof value}`)
@@ -446,8 +453,8 @@ export class Ir {
 		} as const
 		return this.b.node(
 			r.kind === "derived"
-				? { ...base, relationKind: "derived", view: [] }
-				: { ...base, relationKind: "relation", generated: [] }
+				? { ...base, relationKind: "derived", view: [], determined: [] }
+				: { ...base, relationKind: "relation", generated: [], unit: [], determined: [] }
 		)
 	}
 
@@ -593,10 +600,14 @@ export class Ir {
 	}
 
 	/**
-	 * A native cast to an unrefined type: Type.cast to a base type, and Type.base, which only drops the
-	 * contract.
+	 * A native cast to an unrefined type: Type.cast to a base type, and Type.base, which only drops the contract and so
+	 * reads the value as it stands, with no node of its own, as src builds it (ir/scalar.ts subsumes; ir/expr.ts
+	 * builtExpr refuses the up-cast).
 	 */
 	cast(arg: ScalarExpr, type: ScalarType): ScalarExpr {
+		if (subsumes(type, arg.type)) {
+			return arg
+		}
 		return this.#record({
 			kind: "cast",
 			cast: castOpOf(baseOf(arg.type).carrier, baseOf(type).carrier),

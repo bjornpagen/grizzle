@@ -18,7 +18,7 @@ import { identifierOf } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { wellFormed } from "#compiler/core/text.ts"
-import type { FieldDesc, SchemaDesc, SideDesc, StatementDesc } from "#compiler/ir/desc.ts"
+import type { FieldDesc, SchemaDesc, StatementDesc } from "#compiler/ir/desc.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"
 import type { ConstraintOwner } from "#compiler/ir/products.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
@@ -39,15 +39,14 @@ import type { Owned } from "#compiler/schema/own.ts"
 import type { Predicate } from "#compiler/types/core/phantom.ts"
 import type { RowScalars } from "#compiler/types/schema/statements.ts"
 import {
-	alternativesBox,
-	compositeAlternatives,
+	compositeTaggedArms,
 	type Family,
 	queueFamily,
 	spanCoverage,
+	taggedArmsBox,
 	timekeepingFamily
 } from "#test/support/laws/boxes.ts"
 import { lawBox } from "#test/support/laws/generated.ts"
-import { argumentsOf } from "#test/support/list.ts"
 import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"
 import { rawContract } from "#test/unit/schema/support.ts"
 
@@ -57,42 +56,31 @@ export const levelStatements = (desc: SchemaDesc): ReadonlyArray<StatementDesc> 
 	...(desc.bases[0] === undefined ? [] : levelStatements(desc.bases[0]))
 ]
 
-type Alternatives = Extract<StatementDesc, { readonly kind: "alternatives" }>
-
-/** The alternatives statements among a schema's statements. */
-export const alternativesStatements = (
-	statements: ReadonlyArray<StatementDesc>
-): ReadonlyArray<Alternatives> =>
-	Arr.flatMap(statements, (s) => (s.kind === "alternatives" ? [s] : []))
+type Contained = Extract<StatementDesc, { readonly kind: "contained" }>
 
 /**
- * The handles an expansion's selected parent side fixes its discriminator to: one by `eq`, several, an arm relation's,
- * by `in`.
+ * The containments among a schema's statements whose source or target side is selected, a mirrors' among them: each a
+ * foreign key or the rule judge's, but one into a closed relation, a CHECK.
  */
-export const handlesOf = (side: SideDesc): Arr.NonEmptyReadonlyArray<string> => {
-	const [predicate, ...more] = side.selection.conjuncts
-	if (more.length === 0 && predicate?.kind === "in" && predicate.arg.kind === "field") {
-		const handles = Arr.flatMap(predicate.values, (v) => (typeof v === "string" ? [v] : []))
-		if (Arr.isReadonlyArrayNonEmpty(handles) && handles.length === predicate.values.length) {
-			return handles
-		}
-	}
-	if (
-		more.length > 0 ||
-		predicate?.kind !== "compare" ||
-		predicate.op !== "eq" ||
-		predicate.left.kind !== "field" ||
-		predicate.right.kind !== "literal" ||
-		typeof predicate.right.value !== "string"
-	) {
-		return assert.fail(`${side.relation}'s side selects no handle of its discriminator`)
-	}
-	return [predicate.right.value]
-}
+export const selectedContainments = (
+	statements: ReadonlyArray<StatementDesc>
+): ReadonlyArray<Contained> =>
+	Arr.flatMap(statements, (s) =>
+		s.kind === "contained" &&
+		(s.left.selection.conjuncts.length > 0 || s.right.selection.conjuncts.length > 0)
+			? [s]
+			: []
+	)
 
 /**
- * The foreign keys from an alternatives arm into its parent, among the law model's natives: into the parent's key and
- * discriminator through the arm's constant law column where the arm relation is one handle's, or into its key alone.
+ * The native kinds a containment's own reference takes: a FOREIGN KEY, or a PERIOD FOREIGN KEY where it covers a span
+ * (laws/model/plan.ts, fin.md §7), as the coverage of a rota's spans by a selected visit's does.
+ */
+export const referenceKinds = ["ForeignKey", "PeriodForeignKey"] as const
+
+/**
+ * The references from a relation into another, among the law model's natives (`referenceKinds`): into a selected
+ * target's key and the field its selection fixes, through the source's constant law column, or into its key alone.
  */
 export const foreignKeysInto = (
 	model: LawModel,
@@ -101,7 +89,7 @@ export const foreignKeysInto = (
 ): ReadonlyArray<{ readonly owner: ConstraintOwner; readonly ident: ConstraintName }> =>
 	Arr.flatMap(model.natives, (n) =>
 		n.namespace === "constraint" &&
-		n.object.kind === "ForeignKey" &&
+		(n.object.kind === "ForeignKey" || n.object.kind === "PeriodForeignKey") &&
 		n.object.relation.name === arm &&
 		n.object.target.name === parent
 			? [{ owner: { kind: "table", name: n.owner } as const, ident: identifierOf(n.named) }]
@@ -131,7 +119,11 @@ export const declaredColumn = (
 	return found ?? assert.fail(`no owned field is installed as ${table}.${column}`)
 }
 
-type CrossCheck = "named native" | "alternatives expansion" | "checked contract" | "text domain"
+type CrossCheck =
+	| "named native"
+	| "a containment over a selected side"
+	| "checked contract"
+	| "text domain"
 
 /**
  * A row check's predicate shape over two leaves (t <> '' and t IN ('ca')): a connective over an optional leaf and a
@@ -183,11 +175,7 @@ const predicateOf = (shape: Shape, r: RowScalars<typeof Item>): Predicate => {
 	if (shape.kind === "leaf") {
 		return shape.leaf === "ne" ? r.ne(r.t, "") : r.in(r.t, ["ca"])
 	}
-	const [first, ...rest] = shape.args
-	return r[shape.kind](
-		predicateOf(first, r),
-		...argumentsOf(Arr.map(rest, (arg) => predicateOf(arg, r)))
-	)
+	return r[shape.kind](Arr.map(shape.args, (arg) => predicateOf(arg, r)))
 }
 export const checkOf = (shape: Shape): Statement => check("H", Item, (r) => predicateOf(shape, r))
 
@@ -205,11 +193,11 @@ const spaceOf = <P>(family: Family<P>): Space => ({
 		family.schema(defined(family.variants[variant], `${family.label} ${variant}`))("Naming")
 })
 
-/** The law families (test/support/laws), whose boxes span keys over selected sides, checks, alternatives and spans. */
+/** The law families (test/support/laws), whose boxes span keys over selected sides, checks, tagged arms and spans. */
 const spaces: Arr.NonEmptyReadonlyArray<Space> = [
 	spaceOf(lawBox),
-	spaceOf(alternativesBox),
-	spaceOf(compositeAlternatives),
+	spaceOf(taggedArmsBox),
+	spaceOf(compositeTaggedArms),
 	spaceOf(spanCoverage),
 	spaceOf(queueFamily),
 	spaceOf(timekeepingFamily)

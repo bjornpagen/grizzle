@@ -18,7 +18,7 @@ import {
 import { Array as Arr, Formatter } from "effect"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
-import { compiledExpr, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
+import { compiledExpr, sqlNull, noParamLeaf } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { HostValue } from "#compiler/scalar/values/identity.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -62,7 +62,12 @@ export const values = (
 	const host = succeeded(
 		Engine.mapError(
 			compiledExpr(table)(
-				{ value: undefined, column: (ref) => row.get(ref.name), closed: () => undefined },
+				{
+					value: undefined,
+					column: (ref) => row.get(ref.name),
+					closed: () => undefined,
+					param: noParamLeaf
+				},
 				ProgramPatterns.of(tablePatterns(table))
 			),
 			(stop) => new Error(Formatter.format(stop))

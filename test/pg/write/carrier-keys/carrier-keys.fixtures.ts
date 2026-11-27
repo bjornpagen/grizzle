@@ -3,7 +3,7 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, Option, String as Str } from "effect"
+import { Array as Arr, Effect, Option } from "effect"
 import { planNodes, type PlanNode } from "#bench/harness/explain.ts"
 import {
 	attemptLabel,
@@ -25,6 +25,7 @@ import {
 	schema,
 	unit
 } from "#compiler/public/schema.ts"
+import { carrierReads } from "#test/support/carrier-reads.ts"
 
 const Owner = relation("Owner", { id: pg.integer, v: pg.bigint, n: drawn(natural) }, ["id"])
 
@@ -180,7 +181,7 @@ const keyed = (n: PlanNode): boolean =>
 		))
 
 /** What a case's write planned: every scan of a stored relation of the box that reads no key, each named by its
- * statement, node and relation, and the carriers its statements read. */
+ * statement, node and relation, and how many of its statements read a carrier (test/support/carrier-reads.ts). */
 interface Planned {
 	readonly unkeyed: ReadonlyArray<string>
 	readonly carriers: number
@@ -188,15 +189,15 @@ interface Planned {
 
 /**
  * A case's write on a fresh installation holding the stored state: its statements each run under EXPLAIN ANALYZE in its
- * place, its carriers created and filled as the call fills them and never analyzed (bench/write/support/writes.ts
- * explainedChange), and every scan of a box relation that reads no key.
+ * place, its carriers filled as the call fills them (bench/write/support/writes.ts explainedChange), and every scan of
+ * a box relation that reads no key.
  */
 export const plannedOf = (sketch: Sketch) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const fx = yield* installWrites(build("CarrierKeys"), "carrierkeys", {
 				programs: {},
-				logins: []
+				logins: () => []
 			})
 			const s = build(fx.installed.declared)
 			const db = yield* openFull(fx, s)
@@ -223,12 +224,8 @@ export const plannedOf = (sketch: Sketch) =>
 					})
 				)
 			)
-			const carriers = Arr.filter(
-				Arr.flatMap(plans, (p) =>
-					Arr.flatMap([...planNodes(p.plan)], (n) => Option.toArray(n.relation))
-				),
-				Str.startsWith("__carrier_")
-			).length
+			const written = yield* observedChange(db, writeOf(s, sketch), attemptLabel, { kind: "none" })
+			const carriers = Arr.filter(written.statements, (st) => carrierReads(st.ast).size > 0).length
 			return { unkeyed, carriers } satisfies Planned
 		})
 	)

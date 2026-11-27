@@ -56,7 +56,8 @@ const kindRoster: { readonly [K in ExprDesc["kind"]]: K } = {
 	closedAt: "closedAt",
 	closedRow: "closedRow",
 	closedHas: "closedHas",
-	call: "call"
+	call: "call",
+	variant: "variant"
 }
 
 export const exprKinds = Rec.values(kindRoster)
@@ -242,7 +243,13 @@ const node =
 			map(some, (args) => ({ kind: "closedRow", relation: "C", args })),
 			map(nonEmpty, (args) => ({ kind: "closedHas", relation: "C", args })),
 			map(record(inner), (args) => ({ kind: "call", function: "f", args })),
-			map(inner, (arg) => ({ kind: "retype", to: integer, arg }))
+			map(inner, (arg) => ({ kind: "retype", to: integer, arg })),
+			map(inner, (arg) => ({ kind: "variant", op: { kind: "tag" }, args: [arg] })),
+			map(inner, (arg) => ({
+				kind: "variant",
+				op: { kind: "field", handle: "a", field: "b" },
+				args: [arg]
+			}))
 		])
 	}
 
@@ -256,14 +263,16 @@ const exprsHolding = (imported: Imported, depth: number): Gen<InferredExpr> =>
 /** Expressions at most three levels deep, of every kind, a leaf first so a failure shrinks toward one. */
 export const exprs: Gen<InferredExpr> = exprsHolding(asGenerated, 3)
 
-/** A value's members that hold no expression of its scope: a cast's type, a literal's, a guard, an in's values. */
+/** A value's members that hold no expression of its scope: a cast's type, a literal's, a guard, an in's values, a
+ * variant's operation. */
 const termless: ReadonlySet<string> = new Set([
 	"to",
 	"type",
 	"guard",
 	"values",
 	"heading",
-	"context"
+	"context",
+	"op"
 ])
 
 /** A node the oracle reached: whether it stands in the walked expression's own scope, and whether through a bind map. */

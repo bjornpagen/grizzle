@@ -26,8 +26,7 @@ import {
 	unit
 } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { installedTemplate } from "#test/support/install-migrate.ts"
-import { fullWorld } from "#test/support/worlds.ts"
+import { fullWorldTemplate } from "#test/support/installed.ts"
 
 /**
  * Deleting a group whole, and replacing it in one ChangeSet, against a pure model of the relations as sets.
@@ -1333,14 +1332,11 @@ export const notesOf = (w: Write, before: Model, note: (feature: Feature) => voi
 const declared = worldOf("Whole")
 
 /** Whole installed once per member with its full world's login (install-migrate.ts installedTemplate). */
-export const wholeTemplate = installedTemplate({
+export const wholeTemplate = fullWorldTemplate({
 	declaredIn: import.meta,
 	name: "whole",
-	schema: declared,
-	options: {
-		ambient: ordinarySession,
-		label: "whole",
-		logins: [fullWorld(declared, {}).server],
-		extensions: []
-	}
+	fixture: declared,
+	programs: {},
+	label: "whole",
+	ambient: ordinarySession
 })

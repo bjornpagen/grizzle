@@ -60,7 +60,7 @@ ${Arr.join(Arr.map(indices(logins), loginOf), "")}export const LOGINS = [${Arr.j
 			", "
 		)}] as const satisfies ReadonlyArray<AnyLogin>
 declare const connection: MigrationConnectionConfig
-export const config = defineConfig({ schemas: [Top], logins: LOGINS, migrations: "migrations", rolePrefixBytes: 0, connection: () => connection })
+export const config = defineConfig({ contracts: [], schemas: [Top], logins: LOGINS, migrations: "migrations", rolePrefixBytes: 0, connection: () => connection })
 export const names = Arr.map(LOGINS, (login: AnyLogin) => roleNameOf(login, {}))
 `
 	)
@@ -96,13 +96,24 @@ export const loginListName = (dimension: (typeof loginListsItems)[number]): stri
  * @environment cassowary, Ubuntu 26.04 arm64, load 200 to 270 from other sessions; Node 26.13.1, TypeScript 7.1.0-beta
  *   (tsgo)
  * @workload lists of 8, 16 and 24 logins, each program checked alone
- * @result per added login: 1,709 instantiations with the cut, 2,237 with each role's programs read in the login's type
- * @decision the bound is the cut's own cost, exactly: a change that makes a login cost more is refused here, and a
- *   change that lowers it lowers the bound
+ * @result per added login: 1,709 instantiations with the cut, 2,237 with each role's programs read in the login's type;
+ *   at REPLAYFIX's exact-bound car (2026-11-26, over ousxtqsu on train C's 1170fa12 and its empty-level car), every type
+ *   budget run with each program's count logged, width 8, load in the hundreds: 1,710 a login (84,981, 98,661 and
+ *   112,341 instantiations at 8, 16 and 24 logins), one more than the 1,709 its parent b6236fb3 and train C's
+ *   empty-level car measured.
+ * @decision the bound is the count at the tree it was last measured at, exactly, the counts being a function of the
+ *   tree: a change that makes a login cost more fails here and moves the bound in its own commit, its cost stated, and
+ *   a change that lowers it lowers the bound. 1,710 is 1,709 and one: a login's workload over a role reads the role's
+ *   queries at QueryOver of each of its levels, which admits a query over the empty level beside one over that level
+ *   (types/query/query.ts), one instantiation each, the cheapest form of the empty level as the level below every root
+ *   that keeps a query over it a query over every level: as a member of every level's levels (LevelsOf) a login cost
+ *   1,736; as the least phantom every program carries, 1,709 a login but 30 more a flat served unit and 90 a nested one
+ *   (served-records.ts), paid by every query instantiated; with the empty level in IsLevelOf's refusal branch beside
+ *   it, 1,728
  * @revalidate a TypeScript 7 or tsgo upgrade; another machine; any change to a login's, a role's or a workload's type
  *   (types/schema/world.ts, types/db/workload.ts) that moves a login's cost, which states its cost here
  */
-const addedAtMost = 1709
+const addedAtMost = 1710
 
 /**
  * The cost of the list, measured: its programs typecheck with no diagnostic, their instantiations grow no faster than

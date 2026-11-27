@@ -1,19 +1,17 @@
 import { defined, nonEmpty } from "@bjornpagen/testing/assert"
-import { Array as Arr, Effect, Option, String as Str } from "effect"
+import { Array as Arr, Effect, Option, Record as Rec, type Scope, String as Str } from "effect"
 import type { SchemaApplyReport } from "#adapter/migrate/apply.ts"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
 import type { FolderTexts } from "#adapter/migrate/input.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
+import { trusted } from "#compiler/core/trusted.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
-import { type DraftWorkload, noWorkload } from "#compiler/deploy/snapshot/build.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
-import type { InstallExtension } from "#compiler/physical/install/extension.ts"
-import { parseSchemaInput } from "#compiler/program/input.ts"
-import { compileWorkload } from "#compiler/program/workload/compile.ts"
+import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import {
 	type AnyClosed,
-	type AnyLogin,
 	type AnyRelation,
 	type AnySchema,
 	type Declared,
@@ -23,26 +21,28 @@ import {
 	type StatementsReadBack,
 	type StatementsWithin
 } from "#compiler/public/schema.ts"
-import { ownLogin } from "#compiler/schema/own.ts"
-import { schemaBuilder as builtSchema } from "#compiler/schema/schema.ts"
-import { loginDescOf } from "#compiler/schema/world.ts"
+import { builtArgumentsOf, schemaBuilder as builtSchema } from "#compiler/schema/schema.ts"
 import { apply, noFurther, openMigrator } from "#test/pg/migrate/support.ts"
-import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
-import { succeeded } from "#test/support/assert.ts"
+import { type AmbientSession, ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { templateNeedBudget } from "#test/support/budgets.ts"
-import { deployedWorkloadOver, inputArtifacts, testCompile } from "#test/support/compile.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import {
-	type DraftedVersion,
-	draftedHistory,
+	draftVersion,
+	type Generated,
+	generatedDraft,
+	generatedTemplate,
 	type Installed,
 	installedOf,
+	installGenerated,
 	loginCredentials,
 	type Review,
-	templateInstalledOf
+	templateInstalledOf,
+	type Version
 } from "#test/support/install-migrate.ts"
 import { standUpSnapshot } from "#test/support/judge.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { fromEmpty, fromSnapshot, type Previous } from "#test/support/migrate/kit.ts"
+import type { RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import {
@@ -52,18 +52,18 @@ import {
 	Substrate,
 	type SubstrateTemplate
 } from "#test/support/substrate/substrate.ts"
+import { fullWorld } from "#test/support/worlds.ts"
 
 /**
- * One version of a migrated schema: its schema value, or its descriptor where a test draws the schema's shape, built
- * under the allocated name, and the logins over it whose worlds its migration installs.
+ * A version of a schema's descriptor, where a test draws the schema's shape, built under the allocated name: it serves
+ * no login, a description being no schema value a login is over.
  */
-export interface Version<S extends AnySchema | SchemaDesc = AnySchema> {
-	readonly schema: S
-	readonly logins: ReadonlyArray<AnyLogin>
+interface DescribedVersion {
+	readonly described: SchemaDesc
 }
 
 /** A version of either form, as a history migrates it. */
-type AnyVersion = Version<AnySchema | SchemaDesc>
+type AnyVersion = Version | DescribedVersion
 
 /**
  * A schema migrated through a history of versions: the installation its last version reached (Installed, its folders
@@ -79,42 +79,129 @@ interface Migrated extends Installed {
 }
 
 /**
- * Rebuilds `fixture` under `name` from its own relations and statements: a schema value whose statements name only its
- * relations and read back from their names as themselves, as schema(...) checked when it was built.
+ * A schema value `rebuild` rebuilds: one whose statements name only its relations and read back from their names as
+ * themselves, as schema(...) checked when it was built.
+ */
+export type Rebuildable<
+	N extends string,
+	R extends Record<string, AnyRelation | AnyClosed>,
+	St extends ReadonlyArray<Statement>
+> = Schema<N, R, StatementsByName<St, R>> & {
+	readonly statements: St &
+		StatementsWithin<St, R> &
+		StatementsReadBack<St, Declared<ReadonlyArray<R[keyof R]>>>
+}
+
+/**
+ * A Rebuildable rebuilt under a name known only at run time: its relations, functions and statements, under that name.
+ */
+export type Rebuilt<
+	R extends Record<string, AnyRelation | AnyClosed>,
+	St extends ReadonlyArray<Statement>
+> = Schema<
+	string,
+	Declared<ReadonlyArray<R[keyof R]>>,
+	StatementsByName<St, Declared<ReadonlyArray<R[keyof R]>>>
+>
+
+/**
+ * `fixture` built again under the allocated name `name` from the arguments each of its levels' builders was called
+ * with (schema.ts builtArgumentsOf), every relation, closed and derived relation, fragment and function of each list its
+ * own again: its root by schema(...) under `name`, and each level above it by schema.extend over the one rebuilt below
+ * it under `<name>_<depth>`, as the migrate path allocates a level's name (compile.ts allocatedLevels). The one rebuild
+ * of a schema value under an allocated name: an installation's identity, and the cluster-wide role names minted from
+ * it, are its root's declared name (cli/config.ts), so a fixture installs under its allocation as a value whose root
+ * is of that name alone. A level's derived relations and statements written over the fixture's own levels hold over
+ * the rebuilt ones, a level being its content, not its name (levels.ts isLevelOf).
+ */
+export const renamed = (fixture: AnySchema, name: string): AnySchema =>
+	renamedLevel(fixture, name).value
+
+/** `fixture` rebuilt under `name` (renamed), with its depth above its root. */
+const renamedLevel = (
+	fixture: AnySchema,
+	name: string
+): { readonly value: AnySchema; readonly depth: number } => {
+	const called = defined(builtArgumentsOf(fixture), `the arguments of the schema ${fixture.name}`)
+	if (called.kind === "root") {
+		return { value: builtSchema(name, called.relations, called.statements, []), depth: 0 }
+	}
+	const below = renamedLevel(called.base, name)
+	const depth = below.depth + 1
+	return {
+		value: builtSchema.extend(
+			[below.value],
+			`${name}_${String(depth)}`,
+			called.relations,
+			called.statements,
+			[]
+		),
+		depth
+	}
+}
+
+/**
+ * `fixture`, a root, rebuilt under `name` (renamed), typed by its own relations and statements, which the rebuilt
+ * value holds as the fixture does.
  */
 export const rebuild = <
 	const N extends string,
 	R extends Record<string, AnyRelation | AnyClosed>,
 	const St extends ReadonlyArray<Statement>
 >(
-	fixture: Schema<N, R, StatementsByName<St, R>> & {
-		readonly statements: St &
-			StatementsWithin<St, R> &
-			StatementsReadBack<St, Declared<ReadonlyArray<R[keyof R]>>>
-	},
+	fixture: Rebuildable<N, R, St>,
 	name: string
-): Schema<
-	string,
-	Declared<ReadonlyArray<R[keyof R]>>,
-	StatementsByName<St, Declared<ReadonlyArray<R[keyof R]>>>
-> =>
-	builtSchema<string, ReadonlyArray<R[keyof R]>, St>(
-		name,
-		listed(fixture.relations),
-		fixture.statements,
-		[]
+): Rebuilt<R, St> => trusted<Rebuilt<R, St>>(renamed(fixture, name))
+
+/**
+ * `fixture` rebuilt under the allocated name `name` (renamed) with its full world's login, whose workload holds
+ * `programs` (worlds.ts fullWorld): the version of an installation a test serves programs of, or only installs with a
+ * login, as `grizzle generate` drafts it (install-migrate.ts generatedDraft).
+ */
+export const fullVersion = (
+	fixture: AnySchema,
+	programs: Readonly<Record<string, unknown>>,
+	name: string
+): Version => {
+	const schema = renamed(fixture, name)
+	return { schema, logins: [fullWorld(schema, programs).server] }
+}
+
+/**
+ * `fixture` installed under a unique schema name in the scope as `grizzle generate` drafts and serves it
+ * (install-migrate.ts installGenerated), with its full world's login, whose workload holds `programs` (fullVersion).
+ */
+export const installFullWorld = (
+	fixture: AnySchema,
+	programs: Readonly<Record<string, unknown>>,
+	options: { readonly label: string; readonly ambient: AmbientSession }
+): Effect.Effect<Installed, CompileError | SqlError, Substrate | Scope.Scope> =>
+	Effect.map(
+		installGenerated((name) => fullVersion(fixture, programs, name), options),
+		(generated) => generated.installed
 	)
 
-/** A schema's relations as the list it was built from: its record's members, in the record's order. */
-const listed = <R extends Record<string, AnyRelation | AnyClosed>>(
-	relations: R
-): ReadonlyArray<R[keyof R]> => {
-	const out: Array<R[keyof R]> = []
-	for (const name in relations) {
-		out.push(relations[name])
-	}
-	return out
-}
+/**
+ * installFullWorld's installation as a template (install-migrate.ts generatedTemplate): `fixture` with its full world's
+ * login, whose workload holds `programs`, drafted and served as `grizzle generate` drafts it once per member, each
+ * case's Generated the installation in its clone. Its content is the label and the programs' names, which tell it from
+ * another template of its declaring module; the module's import closure covers the fixture and the programs' code.
+ */
+export const fullWorldTemplate = (spec: {
+	readonly declaredIn: ImportMeta
+	readonly name: string
+	readonly fixture: AnySchema
+	readonly programs: Readonly<Record<string, unknown>>
+	readonly label: string
+	readonly ambient: AmbientSession
+}): SubstrateTemplate<Generated> =>
+	generatedTemplate({
+		declaredIn: spec.declaredIn,
+		name: spec.name,
+		content: { label: spec.label, programs: Arr.sort(Rec.keys(spec.programs), Str.Order) },
+		build: (name) => fullVersion(spec.fixture, spec.programs, name),
+		ambient: spec.ambient
+	})
 
 /**
  * The declared name a fixture is rebuilt under: a unique one, or a word PostgreSQL reserves (one installation of it at
@@ -159,44 +246,6 @@ type Observe = (version: number, owner: RawSession) => Effect.Effect<void, SqlEr
 export const noObservation: Option.Option<Observe> = Option.none()
 
 /** The placeholder value of a migration whose options say it has none: a placeholder is a defect of the test. */
-/**
- * What a version's logins' workloads add, planned as `grizzle generate` plans them with their roles' write filters
- * (cli/generate.ts draftInput): the installer extension of the plan, compiled against the schema the installation
- * installs (compile.ts deployedWorkloadOver), with the plan's live plan, and the draft's workload, with the same live
- * plan, so the installation publishes what its logins' served files read and the snapshot's live source serves them.
- * A version without a login plans nothing.
- */
-export const workloadOf = (
-	version: AnyVersion
-): { readonly extensions: ReadonlyArray<InstallExtension>; readonly draft: DraftWorkload } => {
-	if (version.logins.length === 0) {
-		return { extensions: [], draft: noWorkload }
-	}
-	const owned = Arr.map(version.logins, (l) =>
-		succeeded(ownLogin(defined(loginDescOf(l), `login ${l.name}, built by login(...)`)))
-	)
-	const input = succeeded(parseSchemaInput(version.schema))
-	const plan = succeeded(
-		compileWorkload(
-			Arr.map(version.logins, (l) => ({ login: l.name, workloads: l.workload })),
-			input,
-			{
-				artifacts: succeeded(inputArtifacts(input, testCompile)),
-				roles: Arr.flatMap(owned, (l) => l.roles)
-			}
-		)
-	)
-	return {
-		extensions: [
-			deployedWorkloadOver(
-				Arr.map(version.logins, (l) => ({ login: l.name, workloads: l.workload })),
-				plan.live
-			)
-		],
-		draft: { access: plan.access, accessPaths: plan.requests, live: plan.live }
-	}
-}
-
 /**
  * A reserved word as the declared name: whatever an earlier installation of it left is dropped before and after, its
  * roles' schemas and its roles with it.
@@ -278,7 +327,7 @@ export const migrated = (options: MigrateOptions) =>
 				onSome: (observe) => observe(i, session)
 			})
 		}
-		const { plan, snapshot } = Arr.lastNonEmpty(steps)
+		const { plan, snapshot, served } = Arr.lastNonEmpty(steps)
 		const history = Arr.map(steps, (step) => step.folder)
 		const installed = yield* installedOf({
 			plan,
@@ -286,8 +335,8 @@ export const migrated = (options: MigrateOptions) =>
 			folders: history,
 			snapshot,
 			ambientOwner: ownerLogin,
-			files: new Map(),
-			credentials: yield* loginCredentials(plan, new Map(), new Map())
+			files: served,
+			credentials: yield* loginCredentials(plan, served, new Map())
 		})
 		const quoted = quoteIdent(installed.schema)
 		const result: Migrated = {
@@ -303,34 +352,65 @@ export const migrated = (options: MigrateOptions) =>
 type MigratedDraft = Pick<MigrateOptions, "label" | "first" | "later" | "apply" | "declared">
 
 /**
- * Every version of `options` drafted under `name` by the one drafting of a history (install-migrate.ts
- * draftedHistory), each from the snapshot the one before reached, with its logins' workloads planned as a deployment
- * plans them (workloadOf), its declarations, and its folder reviewed as the caller says: what migrated applies in turn.
- * A version the compile refuses is the test's defect.
+ * One version of a migration as migrated applies it: its plan, its reviewed folder, the snapshot it reaches, and each
+ * login's served file of it, by declared name.
+ */
+interface MigratedStep {
+	readonly plan: RealInstallPlan
+	readonly folder: FolderTexts
+	readonly snapshot: DeploySnapshot
+	readonly served: ReadonlyMap<string, unknown>
+}
+
+/**
+ * Every version of `options` drafted under `name`, each from the snapshot the one before reached, with its
+ * declarations and its folder reviewed as the caller says: what migrated applies in turn. A version of a schema value
+ * is drafted and served as `grizzle generate` drafts it (install-migrate.ts generatedDraft), its logins' served
+ * workload certified and planned, so its installation grants each role what its served programs reach, EXECUTE on the
+ * declared functions they call among it, and installs the guards and fences its certificates state, as a production
+ * install does; a version of a description serves no login (DescribedVersion) and is drafted from it alone
+ * (install-migrate.ts draftVersion). A version the compile refuses is the test's defect.
  */
 const migratedHistory = (
 	options: MigratedDraft,
 	name: string
-): Effect.Effect<Arr.NonEmptyReadonlyArray<DraftedVersion>> => {
-	const versions: Arr.NonEmptyReadonlyArray<AnyVersion> = [
-		options.first(name),
-		...Arr.map(options.later, (f) => f(name))
-	]
-	return Effect.orDie(
-		draftedHistory(
-			Arr.map(versions, (v, i) => ({
-				version: { schema: v.schema, logins: v.logins, declarations: options.declared(i) },
-				workload: workloadOf(v)
-			})),
-			{ extensions: [], compile: compileInstallation, review: options.apply },
-			name
-		)
+): Effect.Effect<Arr.NonEmptyReadonlyArray<MigratedStep>> =>
+	Effect.orDie(
+		Effect.gen(function* () {
+			const versions: Arr.NonEmptyReadonlyArray<AnyVersion> = [
+				options.first(name),
+				...Arr.map(options.later, (f) => f(name))
+			]
+			const installation = identity.schema(parsedSchemaName(name))
+			const steps: Array<MigratedStep> = []
+			let previous: Previous = fromEmpty
+			for (const [step, v] of versions.entries()) {
+				const at = { installation, previous, step }
+				const drafted: MigratedStep =
+					"described" in v
+						? {
+								...(yield* draftVersion(
+									{ schema: v.described, declarations: options.declared(step) },
+									at,
+									{ extensions: [], compile: compileInstallation, review: options.apply }
+								)),
+								served: new Map()
+							}
+						: yield* generatedDraft(
+								{ schema: v.schema, logins: v.logins, declarations: options.declared(step) },
+								at,
+								options.apply
+							)
+				steps.push(drafted)
+				previous = fromSnapshot(drafted.snapshot)
+			}
+			return nonEmpty(steps, "a history has its first version")
+		})
 	)
-}
 
 /** The folders of `steps` through the one at `at`: what a migration has applied once that version's migration ran. */
 const foldersThrough = (
-	steps: Arr.NonEmptyReadonlyArray<DraftedVersion>,
+	steps: Arr.NonEmptyReadonlyArray<MigratedStep>,
 	at: number
 ): Arr.NonEmptyReadonlyArray<FolderTexts> =>
 	nonEmpty(
@@ -371,7 +451,8 @@ export const migratedOnceTemplate = (spec: {
 						noFurther
 					)
 				}
-				yield* loginCredentials(Arr.lastNonEmpty(steps).plan, new Map(), new Map())
+				const last = Arr.lastNonEmpty(steps)
+				yield* loginCredentials(last.plan, last.served, new Map())
 			}),
 		bind: ({ names, steps }, binding) => {
 			const last = Arr.lastNonEmpty(steps)
@@ -383,7 +464,7 @@ export const migratedOnceTemplate = (spec: {
 					snapshot: last.snapshot
 				},
 				ordinarySession,
-				new Map(),
+				last.served,
 				binding
 			)
 		}

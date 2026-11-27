@@ -82,7 +82,7 @@ export const isAdmittedBytes = (value: unknown): value is AdmittedBytes =>
  */
 export const digestOf = (value: unknown): string => {
 	if (!(value instanceof BytesDigest)) {
-		throw defect("a bytes column's value, its digest")
+		defect("a bytes column's value, its digest")
 	}
 	return value.digest
 }

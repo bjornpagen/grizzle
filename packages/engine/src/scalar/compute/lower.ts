@@ -5,7 +5,6 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import type { Inclusion } from "@bjornpagen/grizzle-text/regex/inclusion"
 import { regexDfaMaxStates, regexDfaMaxWork } from "@bjornpagen/grizzle-text/regex/limits"
 import { catchRefusal, int4Max, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import { clockReadingRange } from "#compiler/core/clock.ts"
@@ -107,6 +106,7 @@ import {
 	type TapeEntry,
 	type TermTyping,
 	textBytes,
+	type LeafRead,
 	type Typed,
 	type TypedArgs,
 	type TypedNode,
@@ -120,6 +120,7 @@ import {
 	unprovedFact,
 	withinGuards
 } from "#compiler/scalar/compute/typing.ts"
+import { castSpelling } from "#compiler/scalar/contract.ts"
 import { binary64MaxExponent, decimalTextMaxBytes } from "#compiler/scalar/lexical.ts"
 import {
 	formOctets,
@@ -128,7 +129,13 @@ import {
 	parseTargetOf
 } from "#compiler/scalar/lexical.ts"
 import { type MatchAdmission, matchValueAt } from "#compiler/scalar/regex/admit.ts"
-import { bytesWithin, formIncludes, patternIncludes } from "#compiler/scalar/regex/inclusion.ts"
+import {
+	type BoundedLanguage,
+	formIncludes,
+	languageIncludes,
+	languageOf,
+	patternIncludes
+} from "#compiler/scalar/regex/inclusion.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { numericMaxIntegerDigits, numericMaxPrecision } from "#compiler/scalar/values/fault.ts"
 
@@ -214,8 +221,8 @@ interface LowerCommon<R extends Refs> {
 	 * `record`, or a contract predicate's table.
 	 */
 	readonly emit: (spec: ExprSpec) => ScalarExpr
-	/** The node a leaf reference records at each use. */
-	readonly leaf: (desc: LeafDesc<R>, loc: SourceLoc) => Result.Result<ExprSpec, CompileError>
+	/** The node a leaf reference records at each use (typing.ts LeafRead). */
+	readonly leaf: (desc: LeafDesc<R>, loc: SourceLoc) => Result.Result<LeafRead, CompileError>
 	readonly params: LowerParams<R>
 	/** The ScalarType of a descriptor's Description, for Type.literal and Type.cast (the descriptor registry). */
 	readonly fieldType: (desc: FieldDesc, loc: SourceLoc) => Result.Result<ScalarType, CompileError>
@@ -268,48 +275,20 @@ const typingEnvOf = <R extends Refs>(env: LowerEnv<R>): TypingEnv<R> => ({
 type LanguagePremise = Extract<OperandPremise, { readonly kind: "language" }>
 
 /**
- * The premise that every value of a refinement's language lies within `octets` UTF-8 bytes, a target's byte bound, with
- * the most bytes such a value takes: its own bound where the target has none or the bound lies within it, else the
- * longest member of its language within its bound (scalar/regex/inclusion.ts bytesWithin), which a language whose
- * characters fill the bound no closer holds below it. Undefined where a value takes more, the refinement bounds no
- * bytes, or the walk would pass the analysis's bounds, which a guard of the operand's bytes decides.
- */
-const premiseWithin = (
-	regex: RegexRef,
-	octets: number | undefined,
-	patterns: PatternAutomata
-): LanguagePremise | undefined => {
-	const premise = (bytes: number | undefined): LanguagePremise => ({
-		kind: "language",
-		operand: 0,
-		patterns: regex.patterns,
-		bytes
-	})
-	const bound = regex.check.bounds?.bytes
-	if (octets === undefined || (bound !== undefined && bound <= octets)) {
-		return premise(bound)
-	}
-	if (bound === undefined) {
-		return undefined
-	}
-	const longest = bytesWithin(regex.patterns, bound, patterns)
-	return longest.kind === "within" && longest.bytes <= octets ? premise(longest.bytes) : undefined
-}
-
-/**
- * The premise that every value of `a` is a member of a language, the one `includes` compares a pattern's with, within
- * `octets` UTF-8 bytes where the target bounds them: a's refinement, its type's, a Text.matches guard's or a
- * translation's image (the nominal type), whose language is included in it (scalar/regex/inclusion.ts), with the most
- * bytes a value of it takes (premiseWithin). Undefined where a has no refinement, its language holds a value the other
- * does not, or a value of more bytes. Where comparing the two automata passes the text analysis's bounds nothing is
- * decided, which is ResourceBound naming them, since no guard is missing: a smaller pattern or a match guard decides
- * it.
+ * The premise that every value of `a` is a value of the language `outer`, a cast's target's refinement within its byte
+ * bound or a parse's lexical form within its: a's refinement, its type's, a Text.matches guard's or a translation's
+ * image (the nominal type), its language within its proved bytes (scalar/regex/inclusion.ts languageOf) included in
+ * the outer one, every value within the outer bound (languageIncludes, the one inclusion judgment of texts, which the
+ * tests' proof kernel decides again from the premise), the premise stating a's language and those bytes. Undefined
+ * where a has no refinement, or its language holds a value the outer does not. Where comparing the two automata passes
+ * the text analysis's bounds nothing is decided, which is ResourceBound naming them, since no guard is missing: a
+ * smaller pattern or a match guard decides it. A LearnerId of 69 bytes casts into a Timeback user of 255 characters by
+ * proof, though `^.+$` lies inside `^.{1,255}$` only within its bound.
  */
 const languagePremise = (
 	a: Typed,
-	outer: string,
-	includes: (inner: RegexRef) => Inclusion,
-	octets: number | undefined,
+	outerText: string,
+	outer: BoundedLanguage,
 	patterns: PatternAutomata,
 	at: SourceLoc
 ): LanguagePremise | undefined => {
@@ -317,10 +296,10 @@ const languagePremise = (
 	if (regex === undefined) {
 		return undefined
 	}
-	const verdict = includes(regex)
-	switch (verdict.kind) {
+	const inner = languageOf(regex)
+	switch (languageIncludes(inner, outer, patterns)) {
 		case "included":
-			return premiseWithin(regex, octets, patterns)
+			return { kind: "language", operand: 0, patterns: inner.patterns, bytes: inner.octets }
 		case "refuted":
 			return undefined
 		case "bounded":
@@ -331,7 +310,7 @@ const languagePremise = (
 					bound: {
 						kind: "regexInclusion",
 						inner: patternsText(regex.patterns),
-						outer,
+						outer: outerText,
 						states: regexDfaMaxStates,
 						work: regexDfaMaxWork
 					}
@@ -342,10 +321,11 @@ const languagePremise = (
 
 /**
  * What proves a parse's operand a member of its lexical form, the target `form` (scalar/lexical.ts parseTargetOf):
- * a text literal by its own value, checked as the host parses it; any other text by its refinement whose language is
- * included in the form's pattern (languagePremise, scalar/lexical.ts formIncludes) and whose bytes lie within the
- * form's byte bound where it has one (formOctets). Undefined where neither proves it: a parse into a type of no form, a
- * text of no refinement, one whose language holds a value the form's pattern does not, or one of more bytes.
+ * a text literal by its own value, checked as the host parses it; any other text by its refinement whose language
+ * within its bytes is included in the form's pattern within the form's byte bound where it has one (languagePremise,
+ * the one inclusion judgment of texts, over formSource and formOctets). Undefined where neither proves it: a parse into
+ * a type of no form, a text of no refinement, one whose language holds a value the form's pattern does not, or one of
+ * more bytes.
  */
 const lexicalPremise = (
 	a: Typed,
@@ -365,8 +345,7 @@ const lexicalPremise = (
 	return languagePremise(
 		a,
 		`/${formSource(form)}/u`,
-		(regex) => formIncludes(regex.patterns, form, patterns),
-		formOctets(form),
+		{ patterns: [{ source: formSource(form), flags: "u" }], octets: formOctets(form) },
 		patterns,
 		at
 	)
@@ -442,6 +421,8 @@ const guardTest = (
 		case "bucketDomain":
 		case "clock":
 			return { kind: "within" }
+		case "integral":
+			return { kind: "integral" }
 		case "powerDomain":
 			return { kind: "positive" }
 		case "contract":
@@ -493,8 +474,8 @@ const factTests: { readonly [F in Fact]: GuardTest } = {
 
 /**
  * Whether a node's values have every fact its type states (factsOfType): a column, a parameter, the contract's VALUE, a
- * literal and a cast into the type do; an operation's result, a conditional's and a closed read's have their SQL type's
- * alone (settle).
+ * literal, a cast into the type and a variant's operation, whose arm field is its attribute's, typed by the field's own
+ * type, do; an operation's result, a conditional's and a closed read's have their SQL type's alone (settle).
  */
 const hasTypeFacts = (node: TypedNode): boolean => {
 	switch (
@@ -506,6 +487,7 @@ const hasTypeFacts = (node: TypedNode): boolean => {
 		case "literal":
 		case "cast":
 		case "domainCast":
+		case "variant":
 			return true
 		case "op":
 		case "cond":
@@ -590,6 +572,11 @@ const guardOf = (
 			return {
 				remedy,
 				text: `Logic.when(Num.within(Text.octetLength(${operand}), 0, ${remedy.bytes}), () => ${operation}, <your value>)`
+			}
+		case "integral":
+			return {
+				remedy,
+				text: `a value whose type has no fraction digits (an integer, numeric(p, 0) or an exact integer), or the text ${operand} was parsed from cast into the target itself, Logic.when(Text.matches(<text>, lexicalForm(<target>)), (t) => Type.cast(t, <target>), <your value>): no guard bounds ${operand}'s fraction digits, and nothing rounds into the target`
 			}
 		case "typed":
 			return {
@@ -758,13 +745,7 @@ class Lowering<R extends Refs> {
 			refinementOf(to) === undefined ? { kind: "contract" } : { kind: "language" }
 		return [
 			checked === undefined || !this.checkedAgainst(value, to, checked, at)
-				? this.prove(
-						precondition,
-						[value],
-						to,
-						at,
-						`Type.cast(${nodeText(value.node)}, ${typeLabel(to)})`
-					)
+				? this.prove(precondition, [value], to, at, castSpelling(nodeText(value.node), to))
 				: {
 						precondition,
 						premises: [{ kind: "checked", operand: 0, by: checked }]
@@ -858,6 +839,15 @@ class Lowering<R extends Refs> {
 						: factPremise(precondition.operand, precondition.kind, a.facts)
 				return p === undefined ? refuse(precondition.operand) : { precondition, premises: [p] }
 			}
+			case "integral": {
+				const a = args[precondition.operand]
+				return a?.bounds === undefined || a.bounds.scale > 0
+					? refuse(precondition.operand)
+					: {
+							precondition,
+							premises: [{ kind: "scale", operand: precondition.operand, scale: a.bounds.scale }]
+						}
+			}
 			case "fits": {
 				const a = args[0]
 				const interval = a?.bounds === undefined ? undefined : intervalPremise(0, a.bounds)
@@ -875,8 +865,7 @@ class Lowering<R extends Refs> {
 						: languagePremise(
 								a,
 								patternsText(refinement.patterns),
-								(regex) => patternIncludes(regex.patterns, refinement.patterns, this.env.patterns),
-								octetsOf(refinement.check),
+								languageOf(refinement),
 								this.env.patterns,
 								at
 							)
@@ -1052,7 +1041,8 @@ export const withinClock = (interval: IntervalPremise): boolean =>
 	!interval.nan && insideRange(interval.low, interval.high, clockRange[0], clockRange[1])
 
 /**
- * The range a value must lie in to fit `target`, a narrower integer, money or a typmod, once a cast rounds it; or a
+ * The range a value must lie in to fit `target`, a narrower integer, money, a typmod or an exact integer's digits
+ * (|x| < 10^digits), once a cast rounds it, a cast into an exact integer rounding nothing (its `integral`); or a
  * date, the epoch days of the dates grizzle holds (ir/date.ts epochDayRange), the one integer a date is made of
  * (Time.dateOfEpochDay).
  */
@@ -1075,7 +1065,10 @@ export const fitRange = (target: ScalarType): readonly [Exact, Exact] | undefine
 			const limit = minus(tenTo(typmod.precision - typmod.scale), exactOf(1n, typmod.scale))
 			return [negExact(limit), limit]
 		}
-		case "exactInteger":
+		case "exactInteger": {
+			const limit = minus(tenTo(t.digits), exactOf(1n, 0))
+			return [negExact(limit), limit]
+		}
 		case "exactMoney":
 		case "float4":
 		case "float8":
@@ -1093,6 +1086,7 @@ export const fitRange = (target: ScalarType): readonly [Exact, Exact] | undefine
 		case "rangeDate":
 		case "vector":
 		case "tsvector":
+		case "variant":
 			return undefined
 	}
 }
@@ -1304,7 +1298,7 @@ const computedCastProof = (
 	const interval = arg.bounds === undefined ? undefined : intervalPremise(0, arg.bounds)
 	const proof = interval === undefined ? undefined : intervalCastProof(preconditions, interval, to)
 	if (proof === undefined) {
-		throw defect(
+		defect(
 			`a cast the lowering writes into ${typeLabel(to)}, over a value whose own interval proves it`
 		)
 	}
@@ -1332,6 +1326,7 @@ export const intervalCastProof = (
 					: undefined
 			case "fits":
 				return fitsTarget(to, interval) ? { precondition, premises: [interval] } : undefined
+			case "integral":
 			case "contract":
 			case "language":
 			case "powerDomain":

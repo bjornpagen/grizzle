@@ -16,7 +16,7 @@ import { integerRanges, MoneyText } from "#compiler/ir/carriers.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
 import type { MonoidName } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
-import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, naturalName, type ScalarType } from "#compiler/ir/scalar.ts"
 
 /** The associative operations a plane accumulates by, each total over the carriers its monoid admits: an exact sum, a
  * set's union, the greater of two values, and text's concatenation. */
@@ -161,7 +161,7 @@ export const combine = <E>(
 /** Whether a type is natural: the builtin contract over bigint whose values are never below zero. */
 const isNatural = (t: ScalarType): boolean => {
 	const { contract } = t
-	return contract?.name === "natural" && baseOf(t).carrier === "int8"
+	return contract?.name === naturalName && baseOf(t).carrier === "int8"
 }
 
 /**
@@ -200,6 +200,7 @@ const summable = (t: ScalarType): boolean => {
 		case "tsvector":
 		case "exactInteger":
 		case "exactMoney":
+		case "variant":
 			return false
 	}
 }
@@ -216,7 +217,7 @@ const emptyText: TypedLiteral = Object.freeze({ kind: "text", value: "" })
 /** A literal of a parsed payload: a payload the module spells itself always parses, so a miss is a defect. */
 const parsed = <A>(value: A | undefined, what: string): A => {
 	if (value === undefined) {
-		throw defect(`${what} is a canonical payload`)
+		defect(`${what} is a canonical payload`)
 	}
 	return value
 }
@@ -251,7 +252,8 @@ const zeroOf = (t: ScalarType): TypedLiteral => {
 		case "tsvector":
 		case "exactInteger":
 		case "exactMoney":
-			throw defect(`sum admits ${base.carrier}`)
+		case "variant":
+			defect(`sum admits ${base.carrier}`)
 	}
 }
 
@@ -298,6 +300,7 @@ const leastOf = (t: ScalarType): TypedLiteral | undefined => {
 		case "tsvector":
 		case "exactInteger":
 		case "exactMoney":
+		case "variant":
 			return undefined
 	}
 }

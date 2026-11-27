@@ -2,6 +2,26 @@ import { defineRunner } from "@bjornpagen/testing/runner"
 import { grizzleCluster } from "#test/support/runner.ts"
 
 /**
+ * The CPU a whole run of grizzle's properties may spend, metered: its processes' (the runner, its workers and their
+ * reaped children) and its sessions' PostgreSQL backends' (the runner's report.metered). A run past it fails, naming
+ * what it spent: a regression to find, never a number to raise. Set from PIN 3's final gate, replaced before landing.
+ *
+ * @limitKind provisional
+ * @owner grizzle's runner config (test.config.ts)
+ * @unit milliseconds of metered CPU
+ * @scope one whole run of the repository's properties (`toolchain-test run`), at its gate's width
+ * @guards without a bound, a suite that grows, or a toolchain change that makes every clone dearer, passes every gate
+ *   while it spends hours more (the toolchain's run budget, METIS-DBOPT's da451061)
+ * @measure twice report.metered of PIN 3's final gate, a whole run with a fresh verdict cache, its run report the
+ *   @evidence, with the run's interval, machine, load and width
+ * @origin twice the largest whole run on record, 33,234,066 ms of its processes' CPU with no backend counted
+ *   (STAMPRC-chk8, 1,994 properties, ~/.cache/toolchain-test/runs/2219874524-4083661.json): set from PIN 3's final
+ *   gate, replaced before landing
+ * @recorded 2026-11-27
+ */
+const runBudgetMillis = 66_468_133
+
+/**
  * The modules that run on workers at about a sixth of Node's default stack (the runner's SMALL_STACK), on that stack
  * alone. They are the engine's generative suites of the SQL printer and audit, the lowerings, the migration drafter, the
  * write compiler and the text refinements, and the canonical serializer's and the shapes', which read values nested to
@@ -49,6 +69,7 @@ const smallStackModules: ReadonlyArray<string> = [
  * alone, its grizzle tier on the same cluster.
  */
 export default defineRunner({
+	budget: { kind: "cpu", millis: runBudgetMillis },
 	include: ["test/**/*.test.ts", "packages/cli-generator/test/**/*.test.ts"],
 	smallStack: smallStackModules,
 	conditions: [],

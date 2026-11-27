@@ -304,7 +304,7 @@ export const stratumRefill = (
 			continue
 		}
 		if (change.op !== "put" || !isNonEmpty(hops)) {
-			throw defect(
+			defect(
 				`a ${change.op} of ${change.relation.name}, a plain relation, reaching a family's value: only its put changes a stored row, along an owner axis of a family it owns`
 			)
 		}

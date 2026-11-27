@@ -1,6 +1,6 @@
 import type { LawId } from "#compiler/core/ids.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { closedId, contract, pg } from "#compiler/public/fields.ts"
+import { closedId, contract, mintOf, pg } from "#compiler/public/fields.ts"
 import {
 	check,
 	closed,
@@ -16,7 +16,9 @@ import { Id } from "#test/support/ids.ts"
 import { installationNamesOf, installationOf } from "#test/support/kernel/naming.ts"
 
 const Region = closed.ordered("Region", ["North", "South"])
-export const Seats = contract("Seats", pg.integer, (x) => Logic.le(x, 500))
+const seatsKey = Symbol("Seats")
+const Seats = contract<typeof seatsKey>()("Seats", pg.integer, (x) => Logic.le(x, 500))
+export const toSeats = mintOf(seatsKey)
 const code = str.regex("^.{1,20}$", "su")
 export const Club = relation(
 	"Club",

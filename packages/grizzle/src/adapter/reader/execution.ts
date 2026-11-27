@@ -186,7 +186,7 @@ export interface ExecutionInputs {
 const declaredInput = <V>(inputs: ReadonlyMap<ParamId, V>, param: ParamId): V => {
 	const input = inputs.get(param)
 	if (input === undefined) {
-		throw defect(`the declared parameter ${param} has an admitted input`)
+		defect(`the declared parameter ${param} has an admitted input`)
 	}
 	return input
 }

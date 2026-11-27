@@ -8,7 +8,7 @@ import { array, boolean, element, type Gen, weighted } from "@bjornpagen/testing
 import type { Case } from "@bjornpagen/testing/property"
 import { doubleOrSpecial } from "@bjornpagen/testing/values"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { floatBits, Num } from "#compiler/public/compute.ts"
 import { generated, pg } from "#compiler/public/fields.ts"
 import { check, contained, key, on, relation, schema } from "#compiler/public/schema.ts"
@@ -55,7 +55,7 @@ export const bagTemplate = migratedTemplate({
 	declaredIn: import.meta,
 	name: "float bits",
 	content: { schema: bagSchema.name, logins: [] },
-	versions: [{ schema: bagSchema, logins: [], declarations: noDeclarations }],
+	versions: [{ schema: bagSchema, declarations: noDeclarations }],
 	options: {
 		label: "float_bits",
 		extensions: [],

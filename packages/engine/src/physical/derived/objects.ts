@@ -16,11 +16,10 @@ import {
 	identity
 } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { noneWritten } from "#compiler/ir/derived.ts"
 import type { Premise } from "#compiler/ir/evidence.ts"
 import { fieldNames, type StoredDerivedRelation } from "#compiler/ir/law.ts"
 import { fieldColumnType } from "#compiler/ir/physical.ts"
-import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
+import { evidenceCatalog, noViewEvidence } from "#compiler/laws/model/catalog.ts"
 import { storedKeyPremise } from "#compiler/logical/props.ts"
 import type { InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
 import { columnDomains, emptyUse, usedNodes } from "#compiler/physical/ddl/domains.ts"
@@ -98,7 +97,7 @@ const premiseLaws = (
 const storedOf = (b: InstallBuilder, name: string): StoredDerivedRelation => {
 	const r = b.model.theory.relations[name]
 	if (r?.kind !== "stored") {
-		throw defect(`the stored derived relation ${name}, a relation of the theory`)
+		defect(`the stored derived relation ${name}, a relation of the theory`)
 	}
 	return r
 }
@@ -115,6 +114,7 @@ const viewObjects = (
 	lowerKeys: ReadonlyArray<CatalogKey>
 ): ReadonlyArray<CatalogKey> => {
 	const name = a.name
+	b.name(b.names.relationNamed(name))
 	const view = b.names.relation(name)
 	const columns = mapNonEmpty(a.heading, (c) => b.name(identity.column(c.name)))
 	/** Each field an index or statistics object on the view may name. */
@@ -127,13 +127,14 @@ const viewObjects = (
 	 * lower levels' inherited keys, the definition's only views. The definition's transaction evidence context admits
 	 * only the containments that hold at every statement: a deferred foreign key or a residual law proves nothing in
 	 * it. */
-	const catalog = evidenceCatalog({ laws: b.model, views: lowerKeys })
+	const catalog = evidenceCatalog({ laws: b.model, views: { ...noViewEvidence, keys: lowerKeys } })
 	const lowered = unwrap(
 		lowerDefinition(name, a.query, {
 			names: b.names,
 			catalog,
-			/** Its upkeep runs in level order at COMMIT, so a lower level's table is current when it reads it. */
-			rows: b.checked.rows(noneWritten)
+			/** Its upkeep runs in level order at COMMIT, so a lower level's table is current when it reads it, and it reads
+			 * no canonical relation in place of its form (analysis/schema.ts CheckedSchema definitionRows). */
+			rows: b.checked.definitionRows()
 		})
 	)
 	const create: CreateStoredTable = {
@@ -149,9 +150,9 @@ const viewObjects = (
 	const secondary = storedSecondaryKeys(a.keys, primary)
 	const keyFields = stored.primaryKey
 	/** The name the primary key is minted by at the naming door, whose index PostgreSQL names after it: a proven key's,
-	 * the one name every evidence catalog gives that key's index (`derivedKeyConstraints`, its `index`), or the
+	 * the one name every evidence catalog gives that key's index (laws/model/catalog.ts derivedEvidence, its `index`), or the
 	 * superkey's. */
-	const primaryName = b.name(identity.derivedKey(name, primary.named))
+	const primaryName = b.name(identity.derivedKey(name, a.ident, primary.named))
 	const primaryKey: PrimaryKey = {
 		kind: "primaryKey",
 		name: primaryName,
@@ -227,9 +228,9 @@ const viewObjects = (
 		}
 	]
 	for (const k of secondary) {
-		/** The one name every evidence catalog gives the view's key (`derivedKeyConstraints`), which
+		/** The one name every evidence catalog gives the view's key (laws/model/catalog.ts derivedEvidence), which
 		 * the derived analysis names. */
-		const named = identity.derivedKey(name, k.fields)
+		const named = identity.derivedKey(name, a.ident, k.fields)
 		const index = b.name(named)
 		const statement: CreateIndex = {
 			kind: "createIndex",
@@ -307,7 +308,7 @@ const viewObjects = (
 		b.name(n.named)
 		const indexed = mapNonEmpty(o.columns, (c) => {
 			if (c.kind !== "field") {
-				throw defect(
+				defect(
 					`a key over the stored relation ${name} over its fields (laws/model/plan.ts storedKey)`
 				)
 			}

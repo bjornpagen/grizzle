@@ -35,11 +35,19 @@ export const aJudgedReadsLookupsAndSuffixSeeksAreReadOffOneWalkOfItsDag = proper
 			Effect.gen(function* () {
 				const roots = q.query.dag.roots
 				const [, access] = yield* callCounts(
-					Effect.sync(() => extractAccess(roots, { pageable: [] })),
+					Effect.sync(() =>
+						extractAccess(roots, { pageable: [], keyOrders: () => [], worlds: () => undefined })
+					),
 					{ visits }
 				)
 				const [reads, judged] = yield* callCounts(
-					Effect.sync(() => extractJudgedReads(roots, { pageable: [] })),
+					Effect.sync(() =>
+						extractJudgedReads(roots, {
+							pageable: [],
+							keyOrders: () => [],
+							worlds: () => undefined
+						})
+					),
 					{ visits }
 				)
 				assert.equal(

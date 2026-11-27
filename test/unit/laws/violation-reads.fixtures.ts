@@ -18,10 +18,10 @@ import {
 } from "#compiler/public/schema.ts"
 import type {
 	FromSource,
+	ObjectName,
 	OperandBody,
 	OperandSelect,
-	SelectCore,
-	TableName
+	SelectCore
 } from "#compiler/sql/ast.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import type { Relation } from "#compiler/types/schema/relation.ts"
@@ -129,7 +129,7 @@ export const schemaOf = (c: Case): AnySchema => {
 }
 
 /** A table's name as one text: a stored table's schema and name, or a carrier's name. */
-export const tableKey = (t: TableName): string =>
+export const tableKey = (t: ObjectName): string =>
 	typeof t === "string" ? t : `${t.schema}.${t.name}`
 
 /** The sources of a core's FROM, in order, a join chain's each in its place. */
@@ -652,7 +652,7 @@ export const unitSchemaOf = (c: UnitCase): AnySchema => {
 					[
 						contained(
 							on(
-								select(Known, (k) => k.and(k.eq(k.base, 7), k.ne(k.kind, 3))),
+								select(Known, (k) => k.and([k.eq(k.base, 7), k.ne(k.kind, 3)])),
 								"doc",
 								"at"
 							),
@@ -673,7 +673,7 @@ export const unitSchemaOf = (c: UnitCase): AnySchema => {
 						[
 							contained(
 								on(
-									select(Known, (k) => k.and(k.eq(k.base, 7), k.ne(k.kind, 3))),
+									select(Known, (k) => k.and([k.eq(k.base, 7), k.ne(k.kind, 3)])),
 									"doc",
 									"at"
 								),

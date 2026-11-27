@@ -38,8 +38,9 @@ import { genParamDecls, normalQuery } from "#test/support/oracle/gen/query.ts"
 import type { GenParam } from "#test/support/oracle/gen/query.ts"
 import { schemaCodes, schemaDesc } from "#test/support/oracle/gen/schema.ts"
 import type { GenContainment, GenSchema } from "#test/support/oracle/gen/schema.ts"
+import { oraclePlanUnder } from "#test/support/oracle/install/drafted.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
-import { oraclePlanUnder, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
+import type { RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import {
 	factSet,
 	inputText,

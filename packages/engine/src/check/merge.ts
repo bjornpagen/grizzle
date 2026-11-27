@@ -17,22 +17,25 @@ import {
 	type RelNode,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
-import { isFloat, typeLabel } from "#compiler/ir/scalar.ts"
+import { equalityIsIdentity, typeLabel } from "#compiler/ir/scalar.ts"
 import type { LogicalAnalysis } from "#compiler/logical/annotate.ts"
 import { fixedColumns, identifiesFacts, readColumns } from "#compiler/logical/props.ts"
-import { canonicalZeroSpec } from "#compiler/scalar/compute/registry.ts"
+import { canonicalSpec } from "#compiler/scalar/compute/registry.ts"
 
 /**
- * A float's two zeros are one value under PostgreSQL's equality, and every relational operation compares by it: a set,
+ * A float's two zeros are one value under PostgreSQL's equality, a float's the one carrier whose equality is no
+ * identity (ir/scalar.ts equalityIsIdentity), and every relational operation compares by it: a set,
  * a key, a join, a group. So an operation that takes one value for several equal ones, a set's member for each class of
  * equal rows, a group's key, a union's row, a recursion's state, may take either zero, and PostgreSQL's choice is its
  * plan's: a hash keeps the first row it meets, a sort the first of a run its unstable quicksort leaves, a parallel plan
  * the first a worker hands it. grizzle's own lowerings choose apart too: the conservative one deduplicates at every
  * node, the optimized one once, where its first consumer reads repeats, and a rewrite may read a join variable from
- * another of its fields.
+ * another of its fields. A navigation keeps each binding (analysis/theory/navigate.ts #chain): a step that reads a float
+ * variable an earlier step bound delivers it again, bound to it, so a navigated rule's variables are of two equal values
+ * where the written rule's are.
  *
  * So wherever an operation may take one float for several equal ones, the float it delivers is the canonical zero, +0,
- * row by row (scalar/compute/registry.ts canonicalZero, `x + 0`: IEEE 754's -0 + +0 is +0, and JavaScript's Set and Map
+ * row by row (scalar/compute/registry.ts canonical, `x + 0`: IEEE 754's -0 + +0 is +0, and JavaScript's Set and Map
  * hold +0 for -0): what deduplicates then meets one value for every class, and every plan and both lowerings deliver
  * it, wherever they deduplicate. Every scalar operation gives equal results of equal operands, a quotient by zero
  * included (scalar/compute/evaluate.ts quotient), so a value computed from a merged one differs between plans in a
@@ -112,7 +115,7 @@ export const regionMatches = (
 			constants: o.constants.map((c) => c.column)
 		})),
 		joined: region.vars
-			.filter((v) => isFloat(v.type) && (binders.get(v) ?? 0) >= 2)
+			.filter((v) => !equalityIsIdentity(v.type) && (binders.get(v) ?? 0) >= 2)
 			.map((v) => v.name)
 	}
 }
@@ -212,7 +215,7 @@ export const groupedZeroed = (
 		input.some((h) => h.name === c.name) && pickFree(region, groupKeys, keyedBy, c.name)
 	return (c, delivered) =>
 		delivered !== "correlation" &&
-		isFloat(c.type) &&
+		!equalityIsIdentity(c.type) &&
 		(region.joined.length > 0 || (delivered === "key" && !oneFact(c)))
 }
 
@@ -229,9 +232,10 @@ const copiedColumns = (
 		return value.kind === "column" && value.column.node === input.id ? [value.column.name] : []
 	})
 
-/** Whether a projection delivers a float, which a stated merge may need to canonicalize. */
-export const deliversFloat = (projection: NodeOf<"ProjectSet">): boolean =>
-	projection.out.some((o) => isFloat(o.expr.type))
+/** Whether a projection delivers a value of a type whose equality is no identity (ir/scalar.ts equalityIsIdentity), which a
+ * stated merge may need to canonicalize. */
+export const deliversNonIdentity = (projection: NodeOf<"ProjectSet">): boolean =>
+	projection.out.some((o) => !equalityIsIdentity(o.expr.type))
 
 /**
  * The outputs of a stated merge's projection that take the canonical zero, under the checked DAG's logical analysis:
@@ -239,7 +243,7 @@ export const deliversFloat = (projection: NodeOf<"ProjectSet">): boolean =>
  */
 const canonicalOuts = (analysis: LogicalAnalysis, merge: StatedMerge): ReadonlySet<string> => {
 	const p = merge.projection
-	const floats = p.out.filter((o) => isFloat(o.expr.type))
+	const floats = p.out.filter((o) => !equalityIsIdentity(o.expr.type))
 	const rule = merge.rule
 	switch (rule.kind) {
 		case "always":
@@ -283,11 +287,12 @@ export const mergeReads = (merge: StatedMerge): ReadonlyArray<RelNode> => {
 	}
 }
 
-/** The canonical zero of a float term, of its type (scalar/compute/registry.ts canonicalZeroSpec), built by `b`. */
-const canonicalZeroOf = (b: DagBuilder, expr: ScalarExpr): ScalarExpr => {
-	const spec = canonicalZeroSpec(expr)
+/** The canonical form of a term of a non-identity equality type, of its type (scalar/compute/registry.ts canonicalSpec),
+ * built by `b`. */
+const canonicalOf = (b: DagBuilder, expr: ScalarExpr): ScalarExpr => {
+	const spec = canonicalSpec(expr)
 	if (spec === undefined) {
-		throw defect(`a canonical zero of ${typeLabel(expr.type)}`)
+		defect(`a canonical form of ${typeLabel(expr.type)}`)
 	}
 	return b.expr(spec)
 }
@@ -314,7 +319,7 @@ export const canonicalMerges = (
 		}
 		const p = merge.projection
 		const out = p.out.map((o) =>
-			canonical.has(o.name) ? { name: o.name, expr: canonicalZeroOf(b, o.expr) } : o
+			canonical.has(o.name) ? { name: o.name, expr: canonicalOf(b, o.expr) } : o
 		)
 		merged.set(
 			node,

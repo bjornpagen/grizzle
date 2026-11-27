@@ -1,9 +1,9 @@
 /** What the properties of derived.test.ts read: its spaces, models and helpers. */
 
 import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
-import { boolean, constant, type Gen, oneOf, subarray } from "@bjornpagen/testing/gen"
+import { element, type Gen } from "@bjornpagen/testing/gen"
 import { type Need, NeedFailed } from "@bjornpagen/testing/property"
-import { Array as Arr, Cause, DateTime, Effect, FileSystem, Order, Record as Rec } from "effect"
+import { Array as Arr, Cause, Effect, FileSystem, Order, Record as Rec } from "effect"
 import type { Json } from "#compiler/core/canonical.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
@@ -19,43 +19,45 @@ import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 
 /**
- * How a case makes the draft's derived facts stale: the `derived` member removed whole; or kept with the recorded
- * members `dropped` left out and, at `foreign`, the closed facts holding a fact of a relation the schema does not
- * declare. A kept `derived` drops a member or holds the foreign fact, so every staling is stale.
+ * How a case makes the draft's derived facts stale: the `derived` member removed whole (`removed`); the recorded members
+ * `left` left out of it, one alone or every one (`leftOut`); or every member kept and the closed facts holding a fact of
+ * a relation the schema does not declare (`foreign`). Every staling is stale.
+ *
+ * Each member's absence is decided apart from every other's: DbLayer.make's parse reads each member on its own and refuses
+ * the first it lacks (deploy/snapshot/served.ts servedDerived), and `grizzle check` holds the record to the compile's by
+ * canonical equality (deploy/snapshot/build.ts derivedHolds), equal exactly where every member is. So each member left out
+ * alone reaches its own reading, and a subset of members reaches none another subset does not: the space is linear in the
+ * members, where every subset of them doubled it with each member the format added (6,144 cases at twelve). The one
+ * dependency is the foreign fact's on the closed facts it is planted among, so it is drawn where every member is kept.
  */
 export type Staling =
-	| { readonly derived: "removed" }
-	| { readonly derived: "kept"; readonly dropped: ReadonlyArray<string>; readonly foreign: boolean }
+	| { readonly kind: "removed" }
+	| { readonly kind: "leftOut"; readonly left: Arr.NonEmptyReadonlyArray<string> }
+	| { readonly kind: "foreign" }
 
 /** The member of `derived` that holds the closed facts, which a foreign fact is planted among. */
 const closedMember = "closed"
 
 /**
- * Every staling of facts that record `members`: the whole member removed, or each subset of them left out, the foreign
- * fact drawn where the closed facts are kept, and held where nothing is left out.
+ * Every staling of facts that record `members` (Staling): the whole member removed, each member left out alone, every
+ * member left out, and the foreign fact beside every member.
  */
-const stalings = (members: ReadonlyArray<string>): Gen<Staling> =>
-	oneOf<Staling>([
-		constant({ derived: "removed" }),
-		(source) => {
-			const dropped = subarray(members)(source)
-			const foreign = Arr.contains(dropped, closedMember)
-				? false
-				: dropped.length === 0 || boolean(source)
-			return { derived: "kept", dropped, foreign }
-		}
+const stalings = (members: Arr.NonEmptyReadonlyArray<string>): Gen<Staling> =>
+	element<Staling>([
+		{ kind: "removed" },
+		{ kind: "foreign" },
+		...Arr.map(members, (member): Staling => ({ kind: "leftOut", left: [member] })),
+		{ kind: "leftOut", left: members }
 	])
 
 /** What a staling leaves of the facts the layer reads: whether it records every one of them. */
-export const recordsEvery = (staling: Staling): boolean =>
-	staling.derived === "kept" && staling.dropped.length === 0
+export const recordsEvery = (staling: Staling): boolean => staling.kind === "foreign"
 
 /** What a staling does, as the search counts it. */
 export type Situation =
 	| "the derived member removed"
 	| "a member left out"
 	| "every member left out"
-	| "a foreign fact"
 	| "a foreign fact beside every member"
 
 /** The situations a staling of facts that record `members` reaches. */
@@ -63,21 +65,16 @@ export const situationsOf = (
 	staling: Staling,
 	members: ReadonlyArray<string>
 ): ReadonlyArray<Situation> => {
-	if (staling.derived === "removed") {
-		return ["the derived member removed"]
-	}
-	const left: ReadonlyArray<Situation> =
-		staling.dropped.length === 0
-			? []
-			: staling.dropped.length === members.length
+	switch (staling.kind) {
+		case "removed":
+			return ["the derived member removed"]
+		case "leftOut":
+			return staling.left.length === members.length
 				? ["a member left out", "every member left out"]
 				: ["a member left out"]
-	const foreign: ReadonlyArray<Situation> = !staling.foreign
-		? []
-		: staling.dropped.length === 0
-			? ["a foreign fact", "a foreign fact beside every member"]
-			: ["a foreign fact"]
-	return [...left, ...foreign]
+		case "foreign":
+			return ["a foreign fact beside every member"]
+	}
 }
 
 const shop = Object.freeze(shopV1("DerivedShop", "none"))
@@ -85,6 +82,7 @@ const ident = identifierOf(identity.schema(parsedSchemaName("DerivedShop")))
 export const schemaDir = `migrations/${ident}`
 
 export const config = defineConfig({
+	contracts: [],
 	schemas: [shop.schema],
 	logins: [shop.server],
 	migrations: "migrations",
@@ -92,34 +90,30 @@ export const config = defineConfig({
 	connection: () => offlineOwner
 })
 
-export const at = (second: number) =>
-	DateTime.makeUnsafe({
-		year: 2026,
-		month: 11,
-		day: 9,
-		hour: 12,
-		minute: 0,
-		second,
-		millisecond: 0
-	})
-
 /** The derived facts snapshot.json records, by member, the closed facts by relation. */
 type RecordedFacts = { readonly [member: string]: { readonly [key: string]: Json } }
 
 /** snapshot.json's text with its derived facts made stale by `staling`. */
 export const staled = (text: string, staling: Staling): string => {
 	const { derived: _recorded, ...rest } = trustedJson<{ readonly [key: string]: Json }>(text)
-	if (staling.derived === "removed") {
-		return jsonText(rest)
-	}
 	const { derived } = trustedJson<{ readonly derived: RecordedFacts }>(text)
-	const kept = Rec.filter(derived, (_, member) => !Arr.contains(staling.dropped, member))
-	return jsonText({
-		...rest,
-		derived: staling.foreign
-			? { ...kept, [closedMember]: { ...kept[closedMember], Stale: { function: "stale" } } }
-			: kept
-	})
+	switch (staling.kind) {
+		case "removed":
+			return jsonText(rest)
+		case "leftOut":
+			return jsonText({
+				...rest,
+				derived: Rec.filter(derived, (_, member) => !Arr.contains(staling.left, member))
+			})
+		case "foreign":
+			return jsonText({
+				...rest,
+				derived: {
+					...derived,
+					[closedMember]: { ...derived[closedMember], Stale: { function: "stale" } }
+				}
+			})
+	}
 }
 
 /**
@@ -136,11 +130,16 @@ const derivedMembers: { readonly [K in keyof SnapshotDerived]: K } = {
 	tables: "tables",
 	live: "live",
 	params: "params",
-	liveDerived: "liveDerived"
+	liveDerived: "liveDerived",
+	proved: "proved",
+	planned: "planned"
 }
 
 /** The members the first draft's derived facts record. */
-export const members: ReadonlyArray<string> = Rec.values(derivedMembers)
+export const members: Arr.NonEmptyReadonlyArray<string> = [
+	derivedMembers.closed,
+	...Rec.values(Rec.remove(derivedMembers, "closed"))
+]
 
 /** Every staling of the first draft's derived facts. */
 export const stalingGen: Gen<Staling> = stalings(members)
@@ -153,7 +152,7 @@ export const baseNeed = {
 	open: Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const base = yield* workspace("derived-base")
-		const drafted = yield* cliOver(base, config, ["generate", configName, "--name", "init"], at(0))
+		const drafted = yield* cliOver(base, config, ["generate", configName, "--name", "init"])
 		assert.equal(drafted.code, 0, drafted.stderr)
 		const snapshot = yield* fs.readFileString(`${base}/${schemaDir}/${snapshotFileName}`)
 		const manifest = yield* fs.readFileString(`${base}/${schemaDir}/${manifestFileName}`)

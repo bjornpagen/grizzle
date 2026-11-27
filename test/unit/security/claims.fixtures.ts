@@ -9,7 +9,6 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import { parseSchemaInput } from "#compiler/program/input.ts"
 import { schemaArtifacts } from "#compiler/program/schema.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
-import { everySlice } from "#compiler/schema/reach.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { ownInput } from "#test/support/policy.ts"
 import { buildInstall } from "#test/support/worlds/execute/build.ts"
@@ -42,7 +41,7 @@ export const memberContexts: ReadonlyArray<TypedContext> = (() => {
 	}
 	const world = artifacts.value.world
 	const contexts = world.kind === "role" ? Rec.values(world.role.contexts) : []
-	const checked = checkedSchema(artifacts.value.owned, everySlice(artifacts.value.owned))
+	const checked = checkedSchema(artifacts.value.owned)
 	if (!checked.ok) {
 		throw new Error(`the member role's schema did not check: ${checked.error.message}`)
 	}

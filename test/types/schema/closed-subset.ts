@@ -15,7 +15,8 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
  * addition at it is admitted, at any other refused, and a query's column of the field is the subset's handles. The
  * field's domain and language are the roster's, so it meets the whole roster's field in an equality and a containment,
  * a parameter of the whole roster's closed id, and every handle of the roster in an equality and a set. A selection by
- * a handle outside the subset stays refused: no row of the source delivers it.
+ * a handle outside the subset stays refused: no row of the source delivers it. A declared function's result of the
+ * whole roster is a type, and one of the subset is refused: no function's body is a value of a subset.
  */
 
 /** The roster's handles, in its order. */
@@ -105,6 +106,9 @@ const closedSubsetHeader = (): ReadonlyArray<string> => [
 		"\t\t.find({ n: held.n })",
 		"})"
 	]),
+	'export const wholeResult = fn("wholeResult", { calls: [], args: { n: pg.integer }, returns: closedId(Mark), volatility: "immutable", nullInput: "called", language: "sql", body: fn.body`SELECT 0::int2` })',
+	"// @ts-expect-error -- refusal: a declared function's closed id is of its whole roster: no function's body is a value of a subset",
+	`export const subsetResult = fn("subsetResult", { calls: [], args: { n: pg.integer }, returns: closedId(Mark, ${subsetText("Only")}), volatility: "immutable", nullInput: "called", language: "sql", body: fn.body\`SELECT 0::int2\` })`,
 	"export type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
 	"export type Expect<T extends true> = T",
 	""

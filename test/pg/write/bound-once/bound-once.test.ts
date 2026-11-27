@@ -28,9 +28,14 @@
  * stratum), so the second part reads the target before the first stratum's marks; and each reader reading its own copy
  * of every binding, so a later stratum and a read-back evaluate it again over the state they run in.
  *
- * Features: each way of marking, logging, reading and binding; a later part's binding that reads the earlier part's
- * writes; a binding read after the first stratum whose re-evaluation reads another target; the read-back carried past
- * its part's later binding.
+ * And `target` over the items alone, which no stratum of the call writes, every state of the call reading one target:
+ * such a binding is a part of every reader's query, carried in no carrier, where a binding over the unmarked items is
+ * carried exactly where a reader reads a state after the marks (bound-once.fixtures.ts carriedBindings; write/frontend/
+ * compile.ts `agrees`): metis's assign's target test, a read of the catalog the assign never writes (edullm Q14).
+ *
+ * Features: each way of marking, logging, reading and binding; each target; a later part's binding that reads the
+ * earlier part's writes; a binding read after the first stratum whose re-evaluation reads another target; the
+ * read-back carried past its part's later binding; a binding read where the call writes none of what it reads.
  */
 import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
@@ -43,6 +48,7 @@ import { openedIn } from "#test/pg/reads/support.ts"
 import {
 	boundStrata,
 	callFactsOf,
+	carriedBindings,
 	carriedPastBinding,
 	changeOf,
 	Item,
@@ -62,6 +68,7 @@ import {
 	skipModelOf,
 	type SkipSituation,
 	skipSituations,
+	twoParts as twoPartsOf,
 	unskippedTarget
 } from "#test/pg/write/bound-once/bound-once.fixtures.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -88,6 +95,10 @@ export const aRelationParameterBoundToAQueryIsReadOnceBeforeThePartItIsBoundOnBy
 						k.note(c.logged)
 						k.note(c.read)
 						k.note(c.bound)
+						k.note(c.over)
+						if (c.over === "the items" && (twoPartsOf(c) || c.read !== "no read-back")) {
+							k.note("a binding read where the call writes none of what it reads")
+						}
 						if (laterPartSees(c)) {
 							k.note("a later part's binding, after the earlier part's writes")
 						}
@@ -135,9 +146,16 @@ export const aRelationParameterBoundToAQueryIsReadOnceBeforeThePartItIsBoundOnBy
 									if (loaded.kind !== "change") {
 										return yield* Effect.die(new Error("the ChangeSet loads as a change"))
 									}
+									const variant = variantOf(ctx, loaded.variants)
+									assert.equal(
+										Arr.filter(variant.entry.program.statements, (s) => s.step.kind === "carrier")
+											.length,
+										carriedBindings(c),
+										"the program fills a carrier of target exactly where a reader reads a state the call changed on what target reads"
+									)
 									const applied = yield* changeApplication(
 										ctx,
-										variantOf(ctx, loaded.variants)
+										variant
 									)({ params: {}, facts: callFactsOf(c) })
 									return { kind: "applied" as const, applied }
 								})
@@ -196,6 +214,21 @@ export const aRelationParameterBoundToAQueryIsReadOnceBeforeThePartItIsBoundOnBy
 				original: "bound.filter((b) => b.input.stratum === s)",
 				replacement: "bound.filter(() => s === 0)",
 				why: "Every carried binding is filled before the first stratum: the second part's binding its read-back carries holds the target before the first stratum's marks."
+			},
+			{
+				file: "packages/engine/src/write/frontend/compile.ts",
+				original:
+					"\t\t\treaderStates(name).every((state) => agrees(name, stateBefore(stratum), state)) ? [] : [name]",
+				replacement:
+					"\t\t\treaderStates(name).every((state) => state === stateBefore(stratum)) ? [] : [name]",
+				why: "A binding is a part of its readers' queries only where each reads the very state it is evaluated in, as format 8 asked: a binding over the items, which no stratum writes, is carried past the marks, a statement and a carrier the call needs none of."
+			},
+			{
+				file: "packages/engine/src/write/frontend/compile.ts",
+				original:
+					"\t\t\t.every((written) => ![...footprint].some((relation) => written.has(relation)))",
+				replacement: "\t\t\t.every(() => true)",
+				why: "Every binding is read the same in every state, whatever the strata between write: the second part's log and the read-back read the unmarked items again after the marks, another target than the binding's."
 			},
 			{
 				file: "packages/engine/src/write/frontend/compile.ts",

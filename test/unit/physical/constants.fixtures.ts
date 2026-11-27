@@ -16,7 +16,8 @@ import {
 } from "#compiler/ir/desc.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { libraryIdentity } from "#compiler/physical/ddl/library.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { fullRoleDesc, type Owned, ownLogin } from "#compiler/schema/own.ts"
 import type { Expr, LiteralValue, SqlStatement } from "#compiler/sql/ast.ts"
@@ -122,6 +123,7 @@ export const installationOf = (owned: Owned, codes: Codebook): Installation => {
 			insert: [],
 			write: [],
 			contexts: [],
+			scope: [],
 			loc
 		})
 	)
@@ -133,6 +135,7 @@ export const installationOf = (owned: Owned, codes: Codebook): Installation => {
 			insert: ["Tags"],
 			write: [],
 			contexts: [],
+			scope: [],
 			loc
 		})
 	)
@@ -343,6 +346,7 @@ const literalValue = (literal: LiteralValue): HostValue => {
 			return { kind: "bits", value: textOfHex(literal.hex) }
 		case "bool":
 			return { kind: "bool", value: literal.value }
+		case "null":
 		case "decimal":
 		case "float":
 		case "floatSpecial":
@@ -455,6 +459,7 @@ const evaluate = (e: Expr, value: HostValue, constants: Constants, schema: strin
 		case "excluded":
 		case "returning":
 		case "param":
+		case "attribute":
 		case "collate":
 		case "negate":
 		case "or":

@@ -9,10 +9,10 @@ import {
 	String as Str
 } from "effect"
 import type { FolderTexts } from "#adapter/migrate/input.ts"
-import { formatTimestamp } from "#cli/clock.ts"
 import { type LoginFileKind, loginFileKinds, loginFiles } from "#cli/files.ts"
 import type { refusalText } from "#cli/refusals.ts"
 import { rosterRenames } from "#cli/renames.ts"
+import { formatTimestamp } from "#cli/timestamp.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { AbandonedSchema, Declarations } from "#compiler/deploy/diff/plan.ts"
 import { type MigrationName, parseMigrationName } from "#compiler/deploy/render/folder.ts"
@@ -42,9 +42,10 @@ import type { SchemaDesc } from "#compiler/ir/desc.ts"
 import { noSpellings } from "#compiler/ir/pattern.ts"
 import type { Roster } from "#compiler/ir/scalar.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
 import { manifestFileName, snapshotFileName, spellingsOf } from "#compiler/plan/serve.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import type { AnySchema } from "#compiler/public/schema.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
@@ -149,13 +150,15 @@ export const draftCodes = (
 		)
 	})
 
-/** 2026-10-13T00:00:00Z, the epoch of the tests' one clock (draftedAt). */
+/** 2026-10-13T00:00:00Z, the second the harnesses' histories start at (draftedAt). */
 const epoch = 1_791_849_600_000
 /**
- * The CLI's clock, stood in for, at a history's `ordinal`-th folder: that many seconds after the epoch, formatted as the
- * CLI formats it, so a history's folder names sort in drafting order. It is every harness's one clock: an installed
- * history drafts its folder of step k, from 0, at ordinal k (test/support/install-migrate.ts draftVersion), so a fixture
- * that drafts past an installed history's folders, at an ordinal past theirs, sorts after them by construction.
+ * The timestamp of a history's `ordinal`-th folder: that many seconds after the harnesses' start, formatted as the CLI
+ * formats a timestamp, so a history's folder names sort in drafting order, each a second after the one before, as the
+ * CLI names a chain's folders (cli/timestamp.ts nextTimestamp). It is every harness's one stand-in for the CLI's
+ * timestamps: an installed history drafts its folder of step k, from 0, at ordinal k (test/support/install-migrate.ts
+ * draftVersion), so a fixture that drafts past an installed history's folders, at an ordinal past theirs, sorts after
+ * them by construction.
  */
 export const draftedAt = (ordinal: number): string =>
 	formatTimestamp(DateTime.makeUnsafe(epoch + ordinal * 1000))

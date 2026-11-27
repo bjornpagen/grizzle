@@ -83,13 +83,11 @@ import { outputText } from "#test/support/wire.ts"
  * decoder bound to the layouts of either artifact's program (adapter/reader/run.ts readProgram, schema/record.ts
  * bindGroups), as a compiled handle (db.compile) binds it before any SQL:
  *
- * - A stated delivery the facts break is refused at bind. Every attachment is restated in turn as an array, an Option,
- *   the one child, and an arm of each handle over each handle column of its parent. Where the reference's children of
- *   some parent under the case's facts break the delivery's count (at most one for an Option and an arm, exactly one
- *   for the one child), the binding is CompileError MalformedDescription at that delivered field: the analysis, which
- *   is sound, cannot have proved it. Where the program language proves the delivery (delivery.ts) it binds. Anything
- *   else may bind or be refused, but only so. An arm's Some and None by the handle are the type level's to prove (an
- *   alternatives law); at bind it needs at most one child.
+ * - A stated delivery the facts break is refused at bind. Every attachment is restated in turn as an array, an Option
+ *   and the one child. Where the reference's children of some parent under the case's facts break the delivery's count
+ *   (at most one for an Option, exactly one for the one child), the binding is CompileError MalformedDescription at
+ *   that delivered field: the analysis, which is sound, cannot have proved it. Where the program language proves the
+ *   delivery (delivery.ts) it binds. Anything else may bind or be refused, but only so.
  * - A layout without one of its keys is refused at bind: every program's layouts, with one of the record's columns or
  *   attachments removed from one of them, bind to nothing, CompileError MalformedDescription at a delivered field.
  * - A query rebuilt from its Description (queryFromDescription) has no decoder of its own: it compiles, and its rows
@@ -392,47 +390,28 @@ const childCounts = (
 }
 
 /**
- * Every delivery an attachment may be restated as: the array, an Option, the one child, and an arm of each handle over
- * each handle column of its parent.
+ * Every delivery an attachment may be restated as: the array, an Option and the one child.
  */
-const deliveriesOf = (
-	c: ProgramCase,
-	parent: ProgramQuery<ParentColumn>
-): ReadonlyArray<StatedDelivery> => [
+const deliveries: ReadonlyArray<StatedDelivery> = [
 	{ kind: "array" },
 	{ kind: "option" },
-	{ kind: "one" },
-	...Arr.flatMap(parent.heading, (field) =>
-		field.type.carrier === "code"
-			? Arr.map(c.schema.roster.handles, (handle): StatedDelivery => ({
-					kind: "arm",
-					field,
-					handle
-				}))
-			: []
-	)
+	{ kind: "one" }
 ]
 
 /**
- * Whether the children per parent break a delivery's count at bind: more than one under an Option or an arm, other
- * than one under the one child.
+ * Whether the children per parent break a delivery's count at bind: more than one under an Option, other than one under
+ * the one child.
  */
 const breaks = (delivery: StatedDelivery, counts: ReadonlyArray<number>): boolean => {
 	switch (delivery.kind) {
 		case "array":
 			return false
 		case "option":
-		case "arm":
 			return Arr.some(counts, (n) => n > 1)
 		case "one":
 			return Arr.some(counts, (n) => n !== 1)
 	}
 }
-
-const sameDelivery = (a: StatedDelivery, b: StatedDelivery): boolean =>
-	a.kind === "arm" && b.kind === "arm"
-		? a.field.name === b.field.name && a.handle === b.handle
-		: a.kind === b.kind
 
 /**
  * One query read: every attachment restated as every delivery, bound against what the facts and the proof say. A
@@ -455,12 +434,12 @@ const restatedReads = (
 	for (const { path, parent, attachment } of attachedOf(read.query, [])) {
 		const counts = childCounts(expected.success, path)
 		const proved = licensed(deliveryProof(parent, attachment.child))
-		for (const delivery of deliveriesOf(c, parent)) {
+		for (const delivery of deliveries) {
 			const root: Root = restated(read.query, path, delivery)
 			const query = buildRoot(built, value, root)
 			const what = `${attachment.name} stated ${delivery.kind}`
 			const refused = binds(c, query, program, what)
-			const provable = Arr.some(proved, (d) => sameDelivery(d, delivery))
+			const provable = Arr.some(proved, (d) => d.kind === delivery.kind)
 			if (breaks(delivery, counts)) {
 				assert.ok(!provable, `the language proves ${what}, which the facts break\n${printCase(c)}`)
 				assert.deepEqual(

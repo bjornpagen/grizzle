@@ -33,7 +33,7 @@ export const loginList = costGate(loginLists, {
 			file: "packages/engine/src/types/schema/schema.ts",
 			original: "type LevelsBelow<B> = [B] extends [never] ? never : LevelsOf<B>\n",
 			replacement: "type LevelsBelow<B> = [B] extends [never] ? EmptyLevel : LevelsOf<B>\n",
-			why: "The empty level is a member of every level's levels (LevelsOf) where its phantom alone made it the base case (LevelPhantom), so each reader distributing over a role's levels, a workload's programs and a login's workloads, reads one level more for every role and login: a login costs 1,736 instantiations against its bound of 1,709, as rlxvqonm's EmptyLevel below the root did at 40efdaff with the rest of its cost (REPLAYFIX)."
+			why: "The empty level is a member of every level's levels (LevelsOf), where the reader of queries alone admitted it (types/query/query.ts QueryOver), so each reader distributing over a role's levels, a workload's programs and a login's workloads, reads one level more for every role and login: a login costs 1,737 instantiations against its bound of 1,710, as rlxvqonm's EmptyLevel below the root did at 40efdaff with the rest of its cost (REPLAYFIX)."
 		}
 	]
 })

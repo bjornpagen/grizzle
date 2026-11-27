@@ -13,25 +13,28 @@ import { query, v } from "#compiler/public/query.ts"
 import { fragment, login, relation, role, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { readOnce, writeOnce } from "#test/support/calls.ts"
-import { noPlaceholders } from "#test/support/install-migrate.ts"
-import { migrated, noObservation, type Version } from "#test/support/installed.ts"
+import { noPlaceholders, type Version } from "#test/support/install-migrate.ts"
+import { migrated, noObservation } from "#test/support/installed.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * What a case does with den's shape of a read of no relation: serves the read itself on the role, commits its rows
- * through the role's ChangeSet and reads them back, or builds a read of the base's relation over a level of the base
- * that declares no relation of its own for the role.
+ * through the role's ChangeSet and reads them back, commits den's census of them, a rule over the role matching the
+ * read bound by its own parameters, and reads them back, or builds a read of the base's relation over a level of the
+ * base that declares no relation of its own for the role.
  */
 export type Call =
 	| "the read of no relation"
 	| "the commit of its rows"
+	| "the census of its rows"
 	| "a read over a level declaring nothing of its own, refused"
 
 export const calls: Gen<Call> = element<Call>([
 	"the read of no relation",
 	"the commit of its rows",
+	"the census of its rows",
 	"a read over a level declaring nothing of its own, refused"
 ])
 
@@ -42,8 +45,9 @@ export type EmptyLevelFeature = `${Call} by a role holding nothing of the base`
  * Thin, a level over it declaring no relation of its own; App over Thin, a fragment of Hour(at, bell), as den's
  * fragment of a flow's facts; the role `den` holding Hour alone, nothing of the base, and inserting it; `hourOf`, a
  * read over schema.empty of its two parameters, as a schedule's input derived from its key; and the login `desk` of
- * den serving hourOf itself, `record`, the insert of hourOf's rows into Hour, and `hours`, the read of Hour. `thinWant`
- * reads Want over Thin.
+ * den serving hourOf itself, `record`, the insert of hourOf's rows into Hour, `census`, den's request of a root derived
+ * from its key, the insert into Hour of the rows a rule over den finds where it matches hourOf bound by the request's
+ * own parameters and Hour holds no such row yet, and `hours`, the read of Hour. `thinWant` reads Want over Thin.
  */
 const builtOf = (name: string) => {
 	const Name = str.regex("^[a-z]{1,8}$")
@@ -57,6 +61,17 @@ const builtOf = (name: string) => {
 		r.find({ at: r.param("at", pg.bigint), bell: r.param("bell", Name) })
 	)
 	const record = ChangeSet.empty(den).insert(Hour, hourOf)
+	const census = ChangeSet.empty(den).insert(
+		Hour,
+		query(den).rule((r) => {
+			const derived = hourOf.bind({
+				at: r.param("hourAt", pg.bigint),
+				bell: r.param("hourBell", Name)
+			})
+			const { at, bell } = v(derived, "derived")
+			return r.match(derived, { at, bell }).where(r.not(Hour, { at, bell })).find({ at, bell })
+		})
+	)
 	const hours = query(den).rule((r) => {
 		const { at, bell } = v(Hour, "hour")
 		return r.match(Hour, { at, bell }).find({ at, bell })
@@ -66,10 +81,10 @@ const builtOf = (name: string) => {
 		return r.match(Want, { batch, size }).find({ batch, size })
 	})
 	const desk = login(app, "desk", [den], {
-		workload: [workload(den, { derive: hourOf, record, hours })]
+		workload: [workload(den, { derive: hourOf, record, census, hours })]
 	})
 	const version: Version = { schema: app, logins: [desk] }
-	return { version, desk, den, thinWant, programs: { derive: hourOf, record, hours } }
+	return { version, desk, den, thinWant, programs: { derive: hourOf, record, census, hours } }
 }
 
 /** A schedule's key: the instant its cron matched, and its member, the bell that chimes it. */
@@ -78,9 +93,9 @@ const key = { at: 3_600_000_000n, bell: "noon" } as const
 /**
  * A case: installs the app through its migration; asserts the den role holds SELECT on no relation of the base's level
  * (Want is there, held by none); then, as the case says, calls the read of no relation through the served Db of den,
- * which answers the key's row; commits its rows by `record` and reads Hour back, which holds the key's row; or builds
- * a workload over den of the read of Want over Thin, refused, since Thin is no level den holds: it declares nothing,
- * but holds the base's Want below it.
+ * which answers the key's row; commits its rows by `record`, or by den's `census`, its key the request's parameters,
+ * and reads Hour back, which holds the key's row; or builds a workload over den of the read of Want over Thin, refused,
+ * since Thin is no level den holds: it declares nothing, but holds the base's Want below it.
  * Oracle: PostgreSQL's privileges and acceptance of every served statement, and the level rule's refusal.
  */
 export const emptyLevelCase = (call: Call, c: Case<EmptyLevelFeature>) =>
@@ -124,13 +139,16 @@ export const emptyLevelCase = (call: Call, c: Case<EmptyLevelFeature>) =>
 		} else {
 			const db = yield* openServedDb(m, at.desk.roles.den, {})
 			const served = yield* db.serve(at.programs)
+			const committed = (write: "record" | "census", params: Readonly<Record<string, unknown>>) =>
+				Effect.flatMap(writeOnce(member(served, write))({ params, facts: {} }), () =>
+					readOnce(member(served, "hours"))({ params: {}, facts: {} })
+				)
 			const answered =
 				call === "the read of no relation"
 					? yield* readOnce(member(served, "derive"))({ params: key, facts: {} })
-					: yield* Effect.flatMap(
-							writeOnce(member(served, "record"))({ params: key, facts: {} }),
-							() => readOnce(member(served, "hours"))({ params: {}, facts: {} })
-						)
+					: call === "the commit of its rows"
+						? yield* committed("record", key)
+						: yield* committed("census", { hourAt: key.at, hourBell: key.bell })
 			assert.deepEqual(
 				Arr.map(answered, (row) => ({ ...row })),
 				[key],

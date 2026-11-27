@@ -3,7 +3,7 @@
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { InstantRule } from "#compiler/core/causes.ts"
 import { instant, pg } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
+import { param, query, v } from "#compiler/public/query.ts"
 import { contained, mutable, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 
@@ -133,6 +133,15 @@ const refusedAt = (relation: string, field: string, rule: WriteRule): Verdict =>
 
 const cases: readonly [InstantCase, ...ReadonlyArray<InstantCase>] = [
 	{ name: "an insert of host rows", changeSet: () => empty.insert(SignIn, []), verdict: compiled },
+	{
+		name: "an insert of host rows whose every caller field the call computes, its stamped input of no field the unit relation, one public column",
+		changeSet: () =>
+			empty.insertAllComputed(
+				{ SignIn: [] },
+				{ user: param("user", pg.integer), method: param("method", pg.integer) }
+			),
+		verdict: compiled
+	},
 	{
 		name: "an insert leaving its clock out",
 		changeSet: () => empty.insert(SignIn, fresh),

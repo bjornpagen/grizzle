@@ -6,8 +6,11 @@
  *   and characters outside XML's Char; single- and multi-character escapes; category and block escapes, positive and
  *   negative; the wildcard; character classes, negative and with a subtraction; groups nested two deep; every
  *   quantifier), the reader's language, matched by the IR's automaton (match.ts Matcher), holds exactly the drawn
- *   words the pattern's meaning holds. Oracle: a second implementation, each construct's meaning spelled from Appendix
- *   F's definitions as an ECMAScript expression under the `v` flag, anchored at both ends and over XML's Char.
+ *   words the pattern's meaning holds. Oracle: a second implementation, each construct's meaning built from Appendix
+ *   F's definitions, each class an ECMAScript class under the `v` flag over XML's Char tested on one code point, and
+ *   the regular operators a tree matched by partial derivatives against the whole word (xsd.fixtures.ts
+ *   oracleMatcher), in time linear in the word: one backtracking ECMAScript expression of the whole pattern ran away
+ *   on nested repetitions of alternations that admit the empty word.
  * - Names: `\i` and `\c` are XML 1.0 Second Edition's initial name characters and name characters, 34,516 and 35,122
  *   code points (the counts its Appendix B's tables give, as xmllint reads an xs:NCName), and not the Fifth Edition's:
  *   U+0132 is no name character of the Second Edition. Oracle: the specification's counts and its letters.
@@ -26,7 +29,7 @@ import { nameChar, nameStart } from "@bjornpagen/grizzle-text/regex/xml"
 import { xsdPattern } from "@bjornpagen/grizzle-text/regex/xsd"
 import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect, Formatter, String as Str } from "effect"
 import { Xml } from "#compiler/public/compute.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -41,6 +44,8 @@ import {
 	initialName,
 	type NameFeature,
 	nameCharacter,
+	oracleMatcher,
+	oracleText,
 	patternGen,
 	pool,
 	type RefusalFeature,
@@ -105,9 +110,9 @@ export const xsdPatternReadsEveryDrawnPatternAsAppendixFDefinesItsLanguage = pro
 										)
 									)
 								)
-					const oracle = compiledPattern(pattern.oracle, "v")
+					const oracle = oracleMatcher(pattern.oracle)
 					for (const word of words) {
-						const expected = oracle.test(word)
+						const expected = oracle(word)
 						if (expected) {
 							c.note("a word the pattern holds")
 						}
@@ -124,16 +129,32 @@ export const xsdPatternReadsEveryDrawnPatternAsAppendixFDefinesItsLanguage = pro
 						assert.equal(
 							matcher.matches(word),
 							expected,
-							`${Formatter.format(pattern.xsd)} over ${Formatter.format(word)} (oracle ${pattern.oracle})`
+							`${Formatter.format(pattern.xsd)} over ${Formatter.format(word)} (oracle ${oracleText(pattern.oracle)})`
 						)
 					}
 				}),
 		oracle: {
 			kind: "second-implementation",
-			name: "each construct's meaning by Appendix F's definitions, an ECMAScript `v`-flag expression over XML's Char"
+			name: "each construct's meaning by Appendix F's definitions, each class an ECMAScript `v`-flag class over XML's Char tested on one code point, the regular operators matched by partial derivatives"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/text/xsd.test.ts#xsdPatternReadsEveryDrawnPatternAsAppendixFDefinesItsLanguage:-:3.2.1.3.1.1.3.3.4.3.2.8.0.0.2.8.1.1.2.1.3.3.0.0.0.2.0.6.2.1.2.5.5.0.2.4.1.0.6.0.1.1.0.3.0.0.1.9.0.0.3.1.1.3.0.2.4.2.2.6.4.6.1.1.2.1.2.2.a.1.3.0.g.6.0.2.3.0.e.6.2.0.1.1.2.2.0.6.2.0.0.0.5.2.1.2.0.1.0.1.6.1.0.3.1.2.2.1.3.1.0.8.6.0.1.2.2.3.6.0.2.1.5.0.0.6.2.1.1.3.3.4.2.0.4.0.c.0.0.6.0.2.4.3.4.b.3.3.3.3.0.1.2.0.7.4.a.0.2.4.1.3.1.1.0.2.3.1.4.2.0.0.1.4.2.2.3.1.2.1.0.2.3.4.2.4.b.4.7.1.1.1.4.6.0.1.0.3.2.0.b.2.4.3.1.1.2.2.0.6.3.3.b.3.0.0.3.0.5.4.3.0.4.3.3.4.3.3.1.0.1.1.1.2.3.1.2.2.0.5.2.1.2.0.3.0.3.3.2.1.1.2.1.6.0.3.0.1.6.0.1.0.4.1.1.2.1.1.2.3.1.3.4.0.4.2.0.9.3.e.d.m.4.f.3.c.d.6.l.p.p.d.a.o.0.0.4.b.k.c.c.3.g.p.l.5.5.3.d.8.9.2.6.i"
+				),
+				reason:
+					"a pattern of repetitions nested over alternations that admit the empty word, `((…|…|)+|(…)|){2,}`, whose ECMAScript spelling V8's backtracking engine read past the property's deadline on the word of five code points 😀\\uFFFD\\uFFFD\\r \\uFFF0; the oracle's partial derivatives read it in linear time",
+				since: "2026-11-26"
+			}
+		],
 		kills: [
+			{
+				file: "test/unit/text/xsd.fixtures.ts",
+				original: "\tconst root = compiled(oracle, { n: 0 })\n",
+				replacement:
+					'\tconst backtracking = compiledPattern(oracleText(oracle), "v")\n\treturn (word) => backtracking.test(word)\n\tconst root = compiled(oracle, { n: 0 })\n',
+				why: "The oracle matches by one backtracking ECMAScript expression of the whole pattern again: the kept case's nested repetitions of alternations that admit the empty word hold the worker past its deadline."
+			},
 			{
 				file: "packages/engine/src/scalar/compute/builders.ts",
 				original: "\tconst admission = admitMatch(printSource(read.value, (set) => set))",

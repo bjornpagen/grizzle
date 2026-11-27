@@ -17,11 +17,8 @@ import { regex } from "arkregex"
 import { Array as Arr, Record, String as Str } from "effect"
 import type { SchemaDesc as DecodedSchemaDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import type { PhysicalKind } from "#compiler/ir/products.ts"
-import {
-	compileInstallation,
-	type Installation,
-	installOptions
-} from "#compiler/physical/install/compile.ts"
+import { type Installation, installOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { type OwnedLogin, ownLogin } from "#compiler/schema/own.ts"
 import { succeeded } from "#test/support/assert.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"

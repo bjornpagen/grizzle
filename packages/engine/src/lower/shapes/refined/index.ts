@@ -151,6 +151,7 @@ const refineFused = (cx: LowerContext, tracer: Tracer, t: Target, outer: Scope):
 			case "lowerAscii":
 			case "nullif":
 			case "subscript":
+			case "attribute":
 				return e
 		}
 	}

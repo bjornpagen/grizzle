@@ -19,7 +19,7 @@ import { doubleOrSpecial, floatOrSpecial } from "@bjornpagen/testing/values"
 import { Effect, Formatter } from "effect"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { predicateTable } from "#compiler/ir/expr.ts"
-import { compiledExpr } from "#compiler/scalar/compute/evaluate.ts"
+import { compiledExpr, noParamLeaf } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { evaluate } from "#test/support/oracle/evaluate/catalog.ts"
@@ -75,7 +75,12 @@ export const computeFloatBitsOnTheHostIsTheReferencesReadingOfAFloatsEncodingOne
 						const host = succeeded(
 							Engine.mapError(
 								compiledExpr(table)(
-									{ value: undefined, column: () => v, closed: () => undefined },
+									{
+										value: undefined,
+										column: () => v,
+										closed: () => undefined,
+										param: noParamLeaf
+									},
 									ProgramPatterns.of(tablePatterns(table))
 								),
 								(stop) => new Error(Formatter.format(stop))

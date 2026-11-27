@@ -23,7 +23,7 @@ export {
 	Xml
 } from "#compiler/public/compute.ts"
 export { Bits, Money, pg } from "#compiler/public/fields.ts"
-export type { CalendarDate, Decimal, Uuid } from "#compiler/public/fields.ts"
+export type { CalendarDate, Decimal, DomainOf, Uuid } from "#compiler/public/fields.ts"
 export { query, v } from "#compiler/public/query.ts"
 export type { ParamsOf, ParamType } from "#compiler/public/query.ts"
 export type { ArraysOf, ReadsOf, WritesOf } from "#compiler/types/changeset/changeset.ts"
@@ -55,8 +55,9 @@ export {
 	Task,
 	TaskCount,
 	Ticket,
+	toCents,
 	Twin,
 	Work,
 	Writer
 } from "#test/support/agreement/changeset-schema.ts"
-export { Id } from "#test/support/ids.ts"
+export { Id, toId } from "#test/support/ids.ts"

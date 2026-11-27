@@ -4,7 +4,7 @@
  */
 export type { Brand } from "effect"
 export { pg, uuid } from "#compiler/public/fields.ts"
-export type { Uuid } from "#compiler/public/fields.ts"
+export type { Marked, Uuid } from "#compiler/public/fields.ts"
 export { query, v } from "#compiler/public/query.ts"
 export type {
 	Evidence,
@@ -17,3 +17,4 @@ export type { WorkloadHandles } from "#adapter/types/db.ts"
 export type { CallError, InputOf, KeyedList } from "#compiler/live/index.ts"
 export { Edge, Graph, Node, Reader } from "#test/support/agreement/recursion-schema.ts"
 export { Id } from "#test/support/ids.ts"
+export type { IdKey } from "#test/support/ids.ts"

@@ -31,7 +31,7 @@ export const runsOf = (spec: string): CharSet => {
 		const next = points[i + 1]
 		const hi = points[i + 2]
 		if (lo === undefined) {
-			throw defect("a code point of a run's spelling")
+			defect("a code point of a run's spelling")
 		}
 		if (next === hyphen && hi !== undefined) {
 			runs.push([lo, hi])
@@ -147,7 +147,7 @@ const sameLength = (b: RegexBuilder, from: string, to: string): RegexNode => {
  */
 export const digitRange = (from: string, to: string): RegexNode => {
 	if (from.length !== to.length || from > to) {
-		throw defect("two digit strings of one length, the first at most the second")
+		defect("two digit strings of one length, the first at most the second")
 	}
 	return sameLength(new RegexBuilder(), from, to)
 }
@@ -162,7 +162,7 @@ export const digitRange = (from: string, to: string): RegexNode => {
  */
 export const naturals = (lo: bigint, hi: bigint | "unbounded"): RegexNode => {
 	if (lo < 0n) {
-		throw defect("a natural as the least of an interval of naturals")
+		defect("a natural as the least of an interval of naturals")
 	}
 	if (hi !== "unbounded" && hi < lo) {
 		return never

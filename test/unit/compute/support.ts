@@ -171,6 +171,8 @@ const columnOf = (desc: FieldDesc): Column<unknown> => {
 			return spanColumn(columnOf(desc.endpoint))
 		case "contract":
 			return columnOf(desc.base)
+		case "variant":
+			throw new Error("no compute case declares a variant")
 	}
 }
 
@@ -212,6 +214,8 @@ export const testPg = {
 	 * declaration states one, so it is an operand with no Description, never a field.
 	 */
 	computedNumeric: { sql: "numeric", column: plainColumns.numeric, scalar: anyNumeric },
+	/** An exact integer at numeric's own limit, a field's (scalar/exact.ts exactInteger). */
+	exactInteger: field({ kind: "exact", carrier: "exactInteger" }, "exact integer"),
 	uuid: field({ kind: "uuid" }, "uuid"),
 	inet: field({ kind: "pg", type: "inet" }, "inet"),
 	cidr: field({ kind: "pg", type: "cidr" }, "cidr"),
@@ -417,6 +421,7 @@ const withLiterals = (e: ExprDesc, vars: Readonly<Record<string, LeafBinding>>):
 		case "closedAt":
 		case "closedHas":
 			return { ...e, args: mapNonEmpty(e.args, go) }
+		case "variant":
 		case "closedRow":
 			return { ...e, args: Arr.map(e.args, go) }
 		case "call":
@@ -735,6 +740,8 @@ export const sqlOf = (root: ScalarExpr, options: RenderOptions): Expr => {
 				}
 				return rendered
 			}
+			case "variant":
+				throw new Error(`the compute suites render no variant operation: ${e.op.kind}`)
 			case "closedAt":
 			case "closedRow":
 			case "closedHas":

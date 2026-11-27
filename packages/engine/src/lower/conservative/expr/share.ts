@@ -18,7 +18,12 @@ import {
 } from "#compiler/ir/expr.ts"
 import type { ClosedTheoryRelation } from "#compiler/ir/law.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
-import { compiledExpr, type EvalLeaves, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
+import {
+	compiledExpr,
+	type EvalLeaves,
+	noParamLeaf,
+	sqlNull
+} from "#compiler/scalar/compute/evaluate.ts"
 import { literalOfHost } from "#compiler/scalar/compute/literal.ts"
 import { connectiveOps, definedIdOf, overloadOf } from "#compiler/scalar/compute/registry.ts"
 import { plainType } from "#compiler/scalar/native.ts"
@@ -79,6 +84,8 @@ export interface ShareScope {
 	 * where the site refuses to print it.
 	 */
 	readonly size: (expr: ScalarExpr) => number | undefined
+	/** The texts its interning reads, made once for the statement it lowers (FieldTexts). */
+	readonly texts: FieldTexts
 }
 
 /**
@@ -93,9 +100,7 @@ const closedReadValues = (
 	const field = relation?.heading.find((f) => f.name === read.field)
 	const values = field === undefined ? undefined : relation?.values[field.position]
 	if (values === undefined) {
-		throw defect(
-			`a closed relation ${read.relation} of the site's names with a field ${read.field}`
-		)
+		defect(`a closed relation ${read.relation} of the site's names with a field ${read.field}`)
 	}
 	return values
 }
@@ -151,36 +156,25 @@ const constantArms = {
 }
 
 /**
- * One expression per structure: each expression rebuilt over its arguments' representatives, and the first of every
- * structurally equal set its representative, so a subterm read twice is one object however its author built it.
- * The structure of an expression is its own fields, every field but its arguments, its label and what builtExpr
- * derives, and its arguments' representatives.
+ * The canonical texts of the values expressions' own fields hold, and of each expression's own fields, made once for a
+ * statement: a type, an operator's proof or a literal is one frozen value its expressions share, a name one string many
+ * hold, and an expression's own fields are its own, whichever rewrite of the statement interns it. One store serves
+ * every rewrite of one statement's lowering (conservative/context.ts LowerContext fieldTexts).
  */
-class Interned {
-	readonly #byKey = new Map<string, ScalarExpr>()
-	/** Each representative's own fields but its volatility (`#fieldsText`). */
-	readonly #fieldsOf = new Map<ScalarExpr, string>()
-	readonly #numberOf = new Map<ScalarExpr, number>()
-	readonly #representative = new Map<ScalarExpr, ScalarExpr>()
+export class FieldTexts {
+	readonly #objects = new Map<object, string>()
+	readonly #strings = new Map<string, string>()
+	readonly #fields = new Map<ScalarExpr, string>()
 
-	/**
-	 * The canonical text of each value an expression's own field holds, by the value: a type, an operator's proof or a
-	 * literal is one frozen value the rewrite's expressions share, so its text is made once a rewrite.
-	 */
-	readonly #texts = new Map<object, string>()
-
-	/** The canonical text of one field's value, an object's made once (`#texts`). */
+	/** The canonical text of one field's value, an object's or a string's made once. */
 	#text(value: unknown): string {
+		if (typeof value === "string") {
+			return this.#strings.getOrInsertComputed(value, canonicalTextOf)
+		}
 		if (typeof value !== "object" || value === null) {
 			return canonicalTextOf(value)
 		}
-		const known = this.#texts.get(value)
-		if (known !== undefined) {
-			return known
-		}
-		const text = canonicalTextOf(value)
-		this.#texts.set(value, text)
-		return text
+		return this.#objects.getOrInsertComputed(value, canonicalTextOf)
 	}
 
 	/**
@@ -188,20 +182,41 @@ class Interned {
 	 * derived ones, each by its name in code-unit order. Its volatility, which builtExpr joins from its own and its
 	 * arguments', stands beside it in its structure.
 	 */
-	#fieldsText(e: ScalarExpr): string {
-		const {
-			args: _args,
-			id: _id,
-			deps: _deps,
-			pgType: _pgType,
-			volatility: _volatility,
-			...own
-		} = e
-		const fields: ReadonlyArray<readonly [string, unknown]> = Object.entries(own)
-		return fields
-			.toSorted(([a], [b]) => compareStrings(a, b))
-			.map(([key, value]) => `${key}=${this.#text(value)}`)
-			.join(";")
+	fieldsText(e: ScalarExpr): string {
+		return this.#fields.getOrInsertComputed(e, () => {
+			const {
+				args: _args,
+				id: _id,
+				deps: _deps,
+				pgType: _pgType,
+				volatility: _volatility,
+				...own
+			} = e
+			const fields: ReadonlyArray<readonly [string, unknown]> = Object.entries(own)
+			return fields
+				.toSorted(([a], [b]) => compareStrings(a, b))
+				.map(([key, value]) => `${key}=${this.#text(value)}`)
+				.join(";")
+		})
+	}
+}
+
+/**
+ * One expression per structure: each expression rebuilt over its arguments' representatives, and the first of every
+ * structurally equal set its representative, so a subterm read twice is one object however its author built it.
+ * The structure of an expression is its own fields, every field but its arguments, its label and what builtExpr
+ * derives, and its arguments' representatives.
+ */
+class Interned {
+	readonly #byKey = new Map<string, ScalarExpr>()
+	/** Each representative's own fields but its volatility (FieldTexts fieldsText). */
+	readonly #fieldsOf = new Map<ScalarExpr, string>()
+	readonly #numberOf = new Map<ScalarExpr, number>()
+	readonly #representative = new Map<ScalarExpr, ScalarExpr>()
+	readonly #texts: FieldTexts
+
+	constructor(texts: FieldTexts) {
+		this.#texts = texts
 	}
 
 	/** The representative of `e`. */
@@ -222,7 +237,7 @@ class Interned {
 	#made(e: ScalarExpr): ScalarExpr {
 		const args = e.args.map((a) => this.of(a))
 		const same = args.every((a, i) => a === e.args[i])
-		const fields = this.#fieldsText(e)
+		const fields = this.#texts.fieldsText(e)
 		const key = `${fields};volatility=${e.volatility}(${args.map((a) => this.number(a)).join(",")})`
 		const held = this.#byKey.get(key)
 		if (held !== undefined) {
@@ -266,7 +281,7 @@ class Interned {
 
 /** The rewrite of one expression in one scope (sharedExpr). */
 class Sharing {
-	readonly #interned = new Interned()
+	readonly #interned: Interned
 	readonly #anticipated = new Map<ScalarExpr, Map<ScalarExpr, boolean>>()
 	readonly #raises = new Map<ScalarExpr, boolean>()
 	readonly #plannedRaise = new Map<ScalarExpr, boolean>()
@@ -282,6 +297,7 @@ class Sharing {
 
 	constructor(scope: ShareScope) {
 		this.#scope = scope
+		this.#interned = new Interned(scope.texts)
 	}
 
 	/**
@@ -327,12 +343,12 @@ class Sharing {
 		let step = operands.next()
 		for (const a of args) {
 			if (step.done === true) {
-				throw defect(`an expression of ${e.kind} over as many arguments as it has operands`)
+				defect(`an expression of ${e.kind} over as many arguments as it has operands`)
 			}
 			step = operands.next(a)
 		}
 		if (step.done !== true) {
-			throw defect(`an expression of ${e.kind} over an argument per operand`)
+			defect(`an expression of ${e.kind} over an argument per operand`)
 		}
 		return this.#built(step.value, e)
 	}
@@ -393,7 +409,7 @@ class Sharing {
 	#stops(form: ScalarExpr): boolean {
 		const table = predicateTable(form)
 		const value = compiledExpr(table)(
-			{ value: undefined, column: () => undefined, closed: this.#scope.host },
+			{ value: undefined, column: () => undefined, closed: this.#scope.host, param: noParamLeaf },
 			ProgramPatterns.of(tablePatterns(table))
 		)
 		return !value.ok && value.error.kind === "undefined"
@@ -486,6 +502,7 @@ class Sharing {
 				case "closedRow":
 				case "closedHas":
 				case "call":
+				case "variant":
 					return undefined
 			}
 		})()
@@ -518,7 +535,8 @@ class Sharing {
 	/**
 	 * Whether `e` is never NULL wherever `facts` hold: a closed payload read only at a key a fact holds the relation
 	 * at, a conjunction's later operand where its earlier ones hold, a conditional's THEN arm where its condition holds
-	 * (a NULL condition takes the ELSE arm), and every other expression where its arguments are never NULL, a
+	 * (a NULL condition takes the ELSE arm), a variant's arm's field where its subject is never NULL, since only the
+	 * branch of its arm reads it (scalar/compute/typing.ts), and every other expression where its arguments are never NULL, a
 	 * declared function's call called on NULL input always (its NULL is refused), a strict one's as every strict
 	 * operation's.
 	 */
@@ -537,6 +555,8 @@ class Sharing {
 					return true
 				case "call":
 					return e.nonNull === "returned" || e.args.every((a) => this.#nonNullAt(a, facts))
+				case "variant":
+					return e.args.every((a) => this.#nonNullAt(a, facts))
 				case "closedAt":
 					return (
 						e.args.every((a) => this.#nonNullAt(a, facts)) &&
@@ -589,7 +609,7 @@ class Sharing {
 		}
 		const table = predicateTable(form)
 		const value = compiledExpr(table)(
-			{ value: undefined, column: () => undefined, closed: this.#scope.host },
+			{ value: undefined, column: () => undefined, closed: this.#scope.host, param: noParamLeaf },
 			ProgramPatterns.of(tablePatterns(table))
 		)
 		return !value.ok || value.value === sqlNull

@@ -88,7 +88,7 @@ export default defineGate({
 		Effect.gen(function* () {
 			const fx = yield* installWrites(build("Normal"), "benchnormal", {
 				programs: {},
-				logins: []
+				logins: () => []
 			})
 			const S = build(fx.installed.declared)
 			const itemKey = namesOf(fx.installed).primaryKeyLaw(Item)

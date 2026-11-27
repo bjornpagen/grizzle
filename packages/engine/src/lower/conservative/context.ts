@@ -1,3 +1,4 @@
+import { postorder } from "@bjornpagen/grizzle-text/base/graph"
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	extendNonEmpty,
@@ -40,6 +41,7 @@ import { regexOf, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import { EvaluationKeys } from "#compiler/lower/conservative/call/keys.ts"
 import { DagIndex } from "#compiler/lower/conservative/dag-index.ts"
+import { FieldTexts } from "#compiler/lower/conservative/expr/share.ts"
 import type {
 	ArrayPart,
 	ArraySlot,
@@ -55,7 +57,7 @@ import type {
 	ScalarParamSlot
 } from "#compiler/lower/conservative/types.ts"
 import { columnType, namedColumn } from "#compiler/runtime/lower/columns.ts"
-import { unitColumn } from "#compiler/runtime/lower/tree.ts"
+import { namesOrUnit } from "#compiler/runtime/lower/tree.ts"
 import {
 	type ArrayCheck,
 	type ArraysSource,
@@ -78,6 +80,7 @@ import {
 	baseCheck,
 	col,
 	columnDefinition,
+	core,
 	conjunction,
 	cteRead,
 	type DefinedCte,
@@ -105,6 +108,7 @@ import {
 	NameSupply,
 	type NameSupplyStart
 } from "#compiler/sql/naming.ts"
+import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 
 /** The SQL expressions of one node's columns, by heading name. */
 export type ColumnMap = ReadonlyMap<string, Expr>
@@ -120,9 +124,45 @@ export type ColumnMap = ReadonlyMap<string, Expr>
 export interface Env {
 	readonly columns: ReadonlyMap<NodeId, ColumnMap>
 	readonly restricted: ReadonlyMap<RelNode, ColumnEqualities>
+	/**
+	 * The restricted nodes a row site's root reads at several reads, each held once (`heldEnv`): a CTE of the table the
+	 * root's query leads its WITH with, defined at its first read, which every read of it reads (`restrictedRead`).
+	 */
+	readonly held: ReadonlyMap<RelNode, Held>
 }
 
-export const emptyEnv: Env = { columns: new Map(), restricted: new Map() }
+/**
+ * A node a row site's root holds once (Env `held`): the table its CTE stands in, and the relations in scope where the
+ * root's WITH stands (`inScope`), the only ones a restriction its body takes may read (`restrictedEnv`).
+ */
+interface Held {
+	readonly table: CteTable<RelNode>
+	readonly inScope: ReadonlySet<string>
+}
+
+/** The relations an expression reads through its column references, at any depth. */
+const relationsRead = (e: Expr): ReadonlySet<string> => {
+	const out = new Set<string>()
+	visitSelect(operandSelect(core([target(e)], [], undefined)), {
+		...inertVisitor,
+		expr: (x) => {
+			if (x.kind === "column" && x.table !== undefined) {
+				out.add(x.table)
+			}
+		}
+	})
+	return out
+}
+
+/** The relations a scope's columns are read from: those in scope where it stands. */
+const relationsInScope = (env: Env): ReadonlySet<string> =>
+	new Set(
+		[...env.columns.values()].flatMap((columns) =>
+			[...columns.values()].flatMap((e) => [...relationsRead(e)])
+		)
+	)
+
+export const emptyEnv: Env = { columns: new Map(), restricted: new Map(), held: new Map() }
 
 /**
  * Whether a node restricted in a scope (`restrictedEnv`) restricts its own rows inside: a union, each arm at the values
@@ -138,13 +178,35 @@ export const restrictsInside = (node: RelNode): boolean =>
  * restriction of its own (`restrictedEnv`), which its lowering places inside it (`restrictsInside`), so a fold over it
  * or a union of it restricts nothing again.
  */
-export const heldIn = (env: Env, node: RelNode): boolean =>
-	restrictsInside(node) && (env.restricted.get(node)?.length ?? 0) > 0
+/**
+ * Whether a root holds a restriction of its rows at `equalities` itself (`restrictsInside`): a union and a region at
+ * any, a fold only where each is one of its grouping keys, a value of an aggregate no restriction below its grouping
+ * reaches (lower/shapes/aggregate keyedGroup), which a fold's reader then keeps where the fold delivers it.
+ */
+export const holdsInside = (node: RelNode, equalities: ColumnEqualities): boolean =>
+	restrictsInside(node) &&
+	(node.kind !== "Group" || equalities.every((e) => node.keys.includes(e.column)))
+
+/**
+ * Whether `node`'s rows reach a reader in `env` already at every value of `restriction`, the reader's: the node holds
+ * a restriction of its own (`restrictedEnv`) at each of those columns, which its lowering places inside it
+ * (`restrictsInside`), so a fold over it or a union of it restricts nothing again. A fold holds its grouping keys alone
+ * (share/keys.ts restrictionWalk), so a reader restricted at a value of its aggregate keeps that value itself.
+ */
+export const heldIn = (env: Env, node: RelNode, restriction: ColumnEqualities): boolean => {
+	const held = env.restricted.get(node) ?? []
+	return (
+		restrictsInside(node) &&
+		held.length > 0 &&
+		restriction.every((e) => held.some((h) => h.column === e.column))
+	)
+}
 
 /** A scope of `entries` alone, no node restricted in it. */
 export const envOf = (entries: Iterable<readonly [NodeId, ColumnMap]>): Env => ({
 	columns: new Map(entries),
-	restricted: new Map()
+	restricted: new Map(),
+	held: new Map()
 })
 
 /** `env` with `entries` in scope too, each node it restricts restricted still. */
@@ -153,19 +215,94 @@ export const extendEnv = (env: Env, entries: Iterable<readonly [NodeId, ColumnMa
 	for (const [id, map] of entries) {
 		columns.set(id, map)
 	}
-	return { columns, restricted: env.restricted }
+	return { columns, restricted: env.restricted, held: env.held }
 }
 
 /**
  * `env` with each node of `restricted` read at its equalities' values alone, beside those it restricts: wherever the
  * node is lowered in the scope, it is lowered where it is read (lower/shapes dispatchIn), never as a CTE or a carrier,
  * its rows those at the values (LowerContext `lower`), so a restriction a fence would stop at its edge stands inside it
- * (lower/shapes/share/keyed.ts restrictionWalk); a node of no equalities only passes the values on to nodes under it.
+ * (lower/shapes/share/keyed.ts restrictionWalk); a node of no equalities only passes the values on to nodes under it. A
+ * node an enclosing row site held once (`heldEnv`) is held no longer where this scope restricts it again, at values
+ * the enclosing root's query, where its CTE stands, does not see, and so is one a node under it is restricted at
+ * values that read a relation not in scope where the root's WITH stands (Held `inScope`), its CTE's body, defined at its
+ * first read, lowered under that restriction otherwise (a chain step's row site restricting the nodes under a held source
+ * at the values of the steps before it, rows of the root's own FROM: qti-pie's ItemRefSection, its structure nodes held
+ * at the test and read by two fenced steps at each item ref's values, 42P01); a node under it restricted at values of
+ * what is in scope there, the unit's channels a judge's row carries, leaves it held. No scope restricts a held node
+ * again at the values it is held at: the restriction walk gives each node under a row site the one restriction it is
+ * derived at, the site's own walk (share/keys.ts rowReading), so a chain of unions' lowest level is held once by the
+ * row site that reads it, never restricted again by the rules above it.
  */
+/** The ids of a node's subtree through data inputs, itself included, once a node (its subtree is immutable). */
+const subtrees = new WeakMap<RelNode, ReadonlySet<NodeId>>()
+const subtreeOf = (node: RelNode): ReadonlySet<NodeId> => {
+	const known = subtrees.get(node)
+	if (known !== undefined) {
+		return known
+	}
+	const ids = new Set(postorder<RelNode>([node], inputsOf).map((n) => n.id))
+	subtrees.set(node, ids)
+	return ids
+}
+
 export const restrictedEnv = (env: Env, restricted: ReadonlyMap<RelNode, ColumnEqualities>): Env =>
 	restricted.size === 0
 		? env
-		: { columns: env.columns, restricted: new Map([...env.restricted, ...restricted]) }
+		: {
+				columns: env.columns,
+				restricted: new Map([...env.restricted, ...restricted]),
+				held: new Map(
+					[...env.held].filter(([node, held]) =>
+						[...restricted].every(
+							([under, now]) =>
+								under !== node &&
+								(!subtreeOf(node).has(under.id) ||
+									now.every((e) => [...relationsRead(e.value)].every((r) => held.inScope.has(r))))
+						)
+					)
+				)
+			}
+
+/**
+ * `env` with each node of `held`, a restricted node a row site's root reads at several reads (share/keys.ts
+ * restrictionWalk), held once in the table it maps to, the root's query's WITH (`restrictedRead`); a node an enclosing
+ * root holds already, at the same values (`restrictedEnv`), keeps that one CTE.
+ */
+export const heldEnv = (env: Env, held: ReadonlyMap<RelNode, CteTable<RelNode>>): Env => {
+	if (held.size === 0) {
+		return env
+	}
+	const inScope = relationsInScope(env)
+	return {
+		columns: env.columns,
+		restricted: env.restricted,
+		held: new Map([
+			...[...held].map(([node, table]) => [node, { table, inScope }] as const),
+			...env.held
+		])
+	}
+}
+
+/**
+ * A read of a node a restriction reaches in `env`, lowered by `lower`: where a row site's root holds it (`heldEnv`), a
+ * read of its one MATERIALIZED CTE in the root's query, defined at its first read, its rows kept at the restriction
+ * inside it (LowerContext keptAt), so the root derives it once for each of its evaluations, never once for each read;
+ * where none does, lowered where it is read.
+ */
+export const restrictedRead = (
+	cx: LowerContext,
+	node: RelNode,
+	env: Env,
+	lower: (cx: LowerContext, env: Env) => OperandSelect
+): OperandSelect => {
+	const held = env.held.get(node)
+	return held === undefined
+		? lower(cx, env)
+		: cteAtFirstUse(cx, node, held.table, node, "MATERIALIZED", () =>
+				cx.keptAt(node, lower(cx, env), env)
+			)
+}
 
 /**
  * One output column of a derived table or a CTE: the heading name it carries, paired at allocation with the fresh SQL
@@ -526,6 +663,8 @@ interface Shared {
 	scopes: Fold<RelNode, NodeScope> | undefined
 	/** The templates its keys read (`templatesOf`). */
 	readonly templates: DagTemplates
+	/** The texts its expressions' interning reads (expr/share.ts FieldTexts). */
+	readonly fieldTexts: FieldTexts
 	/** The evaluation keys of the DAG's reads of fields of calls (call/keys.ts), made at the first key read. */
 	evaluationKeys: EvaluationKeys | undefined
 	/** What the lowering asks of the DAG about a node beside the node (dag-index.ts DagIndex), made at the first question. */
@@ -656,7 +795,23 @@ interface Scope {
 	readonly holding: EvaluationHolding
 	/** How a node placed as a source carries columns beside its heading (Carrying). */
 	readonly carrying: Carrying
+	/**
+	 * Where the statement computes a node once and reads it there (`computedAt`): the columns of its key analysis's key set
+	 * (a share it holds at keys, a carrier's or a CTE's, or a union or a fold it lowers in place at its key set), none for
+	 * a share it holds of every row, undefined for a node it computes nowhere once (share/statements.ts, keyed.ts,
+	 * lower/optimize/pipeline.ts).
+	 */
+	readonly once: (node: RelNode) => ComputedAt
 }
+
+/**
+ * Where a statement computes a node once (Scope `once`): the columns of its key set, none where it computes it whole,
+ * undefined where it computes it nowhere once.
+ */
+export type ComputedAt = ReadonlyArray<string> | undefined
+
+/** No node computed once: a lowering whose statement shares nothing. */
+const noneOnce = (_node: RelNode): ComputedAt => undefined
 
 /** Each write DAG's fact spine (factSpine), made once: a DAG is immutable. */
 const factSpines = new WeakMap<ValidDag, ReadonlySet<RelNode>>()
@@ -740,7 +895,7 @@ const templatesOf = (subject: ConservativeOptions["subject"]): DagTemplates => {
 		case "ruleRegion":
 		case "violationProbe":
 		case "membership":
-			return new DagTemplates()
+			return new DagTemplates("derivation")
 	}
 }
 
@@ -791,6 +946,7 @@ export class LowerContext {
 			free: new Map(),
 			scopes: undefined,
 			templates: templatesOf(options.subject),
+			fieldTexts: new FieldTexts(),
 			evaluationKeys: undefined,
 			index: undefined,
 			indexVisits: 0
@@ -802,7 +958,8 @@ export class LowerContext {
 			sharing: undefined,
 			evaluations: undefined,
 			holding,
-			carrying
+			carrying,
+			once: noneOnce
 		}
 	}
 
@@ -875,7 +1032,8 @@ export class LowerContext {
 			sharing: undefined,
 			evaluations: undefined,
 			holding: this.#scope.holding,
-			carrying: this.#scope.carrying
+			carrying: this.#scope.carrying,
+			once: this.#scope.once
 		})
 	}
 
@@ -885,6 +1043,21 @@ export class LowerContext {
 		return this.withDispatch((n, cx, env) =>
 			n === node ? lower(node, cx, env) : dispatch(n, cx, env)
 		)
+	}
+
+	/**
+	 * Where the statement computes `node` once and reads it there (Scope `once`): the columns of its key set (a share it
+	 * holds at keys, or a union or a fold in place at its key set), read there wherever the statement reads it, never
+	 * derived again at a reader's values; none, whole (a share of every row), which a reader binding it at values derives
+	 * again there unless it is computed apart (lower/shapes/region heldChain); or undefined, nowhere once.
+	 */
+	computedAt(node: RelNode): ComputedAt {
+		return this.#scope.once(node)
+	}
+
+	/** The scope whose statement computes the nodes `once` names once, at the key sets it gives (computedAt). */
+	withComputedAt(once: (node: RelNode) => ComputedAt): LowerContext {
+		return this.#within({ ...this.#scope, once })
 	}
 
 	/** The innermost share frame the query being lowered is inside, undefined outside every frame. */
@@ -919,6 +1092,11 @@ export class LowerContext {
 	/** The templates the lowering's keys and digests read (`templatesOf`). */
 	get templates(): DagTemplates {
 		return this.#shared.templates
+	}
+
+	/** The texts every expression of the statement is interned by (expr/share.ts FieldTexts). */
+	get fieldTexts(): FieldTexts {
+		return this.#shared.fieldTexts
 	}
 
 	/** The evaluation key of `read`, a read of a field of a call (call/keys.ts EvaluationKeys). */
@@ -1158,7 +1336,15 @@ export class LowerContext {
 	 * restricts it to where it does (`restrictedEnv`), its rows read apart and kept at them.
 	 */
 	lower(node: RelNode, env: Env): OperandSelect {
-		const query = this.#scope.dispatch(node, this, env)
+		return this.keptAt(node, this.#scope.dispatch(node, this, env), env)
+	}
+
+	/**
+	 * `query`, `node`'s rows, kept at the values `env` restricts it to where its lowering holds none of them itself
+	 * (`restrictsInside`): read apart and filtered; as it is where `env` restricts it to none. A node held once
+	 * (`restrictedRead`) is kept so inside its CTE too, which its every read reads, whatever dispatch reads it.
+	 */
+	keptAt(node: RelNode, query: OperandSelect, env: Env): OperandSelect {
 		const restriction = env.restricted.get(node)
 		if (restriction === undefined || restriction.length === 0 || restrictsInside(node)) {
 			return query
@@ -1438,9 +1624,9 @@ export const physicalTypeRef = (names: PhysicalNames, t: ScalarType): TypeRef =>
 	return regex === undefined ? physicalBaseType(names, t) : qualifiedType(names.textDomain(regex))
 }
 
-/** The output names of a heading: its columns, or the unit marker. */
+/** The output names of a heading: its columns, or the unit marker (runtime/lower/tree.ts namesOrUnit). */
 export const outputNames = (heading: Heading): NonEmptyReadonlyArray<string> =>
-	isNonEmpty(heading) ? mapNonEmpty(heading, (c) => c.name) : [unitColumn]
+	namesOrUnit(heading.map((c) => c.name))
 
 /**
  * The targets that read `heading` from a column map over a heading with its columns, in heading order; the unit marker
@@ -1460,7 +1646,7 @@ export type ColumnEqualities = ReadonlyArray<{ readonly column: string; readonly
 export const noRestriction: ColumnEqualities = []
 
 /** An attachment's correlation over its parent's columns read through `parent`: each pair one equality. */
-export const correlatedColumns = (attach: NodeOf<"Attach">, parent: ColumnMap): ColumnEqualities =>
+const correlatedColumns = (attach: NodeOf<"Attach">, parent: ColumnMap): ColumnEqualities =>
 	attach.correlation.map((c) => ({ column: c.child, value: columnIn(parent, c.parent) }))
 
 /** The equalities over columns of `heading`, each column read through `source`. */

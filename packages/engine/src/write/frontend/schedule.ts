@@ -573,7 +573,7 @@ const orderFamilyWrites = <V extends { readonly follows: Set<V> }>(
 /** A placed write's action, which an action vertex holds. */
 const actionOf = <A>(write: Write<A>): A => {
 	if (write.kind !== "action") {
-		throw defect("an action vertex holds an action")
+		defect("an action vertex holds an action")
 	}
 	return write.action
 }
@@ -645,7 +645,7 @@ const cycleAmong = <A>(
 		const from: Vertex = at
 		at = remaining.find((v) => from.follows.has(v) && !placed.has(v))
 	}
-	throw defect("every remaining action follows an unplaced one, so the walk back meets one again")
+	defect("every remaining action follows an unplaced one, so the walk back meets one again")
 }
 
 /** Whether two family statements of a stratum are one: their kind and their member. */

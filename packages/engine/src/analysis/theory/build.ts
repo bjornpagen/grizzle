@@ -34,11 +34,11 @@ import {
 	type VarDecl
 } from "#compiler/ir/rel.ts"
 import {
+	baseOf,
 	type NumericBound,
 	type ScalarType,
 	type SpanCarrier,
-	baseOf,
-	sameScalarType
+	subsumes
 } from "#compiler/ir/scalar.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import {
@@ -146,7 +146,7 @@ interface GroupAggregate {
 const scannedFacts = (input: RelNode, columns: ReadonlyArray<string>): FoldInput => {
 	const region = input.kind === "Filter" ? input.input : input
 	if (region.kind !== "MatchRegion") {
-		throw defect(`a violation fold over a scan of facts, not over ${region.kind}`)
+		defect(`a violation fold over a scan of facts, not over ${region.kind}`)
 	}
 	return {
 		columns,
@@ -154,7 +154,7 @@ const scannedFacts = (input: RelNode, columns: ReadonlyArray<string>): FoldInput
 			const key =
 				o.source.kind === "Base" ? o.source.primaryKey : o.source.heading.map((c) => c.name)
 			if (!key.every((f) => o.bindings.some((b) => b.column === f))) {
-				throw defect(`a violation fold whose scan binds its facts' key (${key.join(", ")})`)
+				defect(`a violation fold whose scan binds its facts' key (${key.join(", ")})`)
 			}
 			return { occurrence: o.id, key }
 		})
@@ -290,9 +290,12 @@ export class ViolationBuilder {
 		return this.op(fn, [only, ...more])
 	}
 
-	/** An identity-preserving cast to `type` when the expression's type is not already it. */
+	/**
+	 * `e` read at `type`: `e` itself where `type` subsumes its type (ir/scalar.ts subsumes), a domain's value standing as
+	 * its base's, so a law's anti-join compares the stored column bare; an identity-preserving cast otherwise.
+	 */
 	as(e: ScalarExpr, type: ScalarType): ScalarExpr {
-		if (sameScalarType(e.type, type)) {
+		if (subsumes(type, e.type)) {
 			return e
 		}
 		return this.expr({
@@ -384,7 +387,7 @@ export class ViolationBuilder {
 	 */
 	source(r: TheoryRelation): RelNode {
 		if (r.kind === "stored") {
-			const { heading, keys } = r.read
+			const { heading, keys, determined } = r.read
 			return this.node({
 				kind: "Base",
 				relation: r.name,
@@ -393,6 +396,7 @@ export class ViolationBuilder {
 				keys: [],
 				relationKind: "derived",
 				view: keys,
+				determined,
 				heading,
 				loc: undefined,
 				meta: conservativeMeta
@@ -416,6 +420,8 @@ export class ViolationBuilder {
 			keys: r.keys,
 			relationKind: "relation",
 			generated: r.generated,
+			unit: r.unit,
+			determined: r.determined,
 			heading: headingColumns(r.fields),
 			loc: undefined,
 			meta: conservativeMeta

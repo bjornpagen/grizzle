@@ -92,7 +92,7 @@ export const aDropOfSomethingInUseIsToldToStopItsLeaderAndMigrateAgainAndNoOther
 					original:
 						'\tfailure._tag === "ServerError" && failure.sqlstate === sqlstates.objectInUse',
 					replacement: "\tfalse",
-					why: "A drop of a slot a leader still streams from is told nothing beside the server's 55006, so the operator of an upgrade that drops a former leader's slot is never told to stop that leader."
+					why: "A drop of a slot a leader still streams from is told nothing beside the server's 55006, so the operator of a migration that removes the live source is never told to stop its leaders."
 				}
 			]
 		}

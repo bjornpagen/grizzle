@@ -38,8 +38,8 @@ export const theShareKeyIsEqualForTwoCopiesAtAnyAllocationExactlyWhenTheyReadThe
 						const b = tasksOf(q, second)
 						const built = q.build(q.union([a, b], []))
 						const same =
-							succeeded(shareKey(built.dag, a, new DagTemplates())) ===
-							succeeded(shareKey(built.dag, b, new DagTemplates()))
+							succeeded(shareKey(built.dag, a, new DagTemplates("derivation"))) ===
+							succeeded(shareKey(built.dag, b, new DagTemplates("derivation")))
 						assert.equal(same, first === second)
 						c.note(same ? "shared" : "apart")
 					}),

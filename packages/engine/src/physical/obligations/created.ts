@@ -94,8 +94,10 @@ const createdIdents = (s: SqlStatement): ReadonlyArray<string> => {
 			return [qualifiedIdent("function", s.function.schema, s.function.name)]
 		case "createRowType":
 			return [qualifiedIdent("type", s.name.schema, s.name.name)]
+		case "alterRowType":
+			return []
 		case "createGuardTrigger":
-		case "createUpdateGuardTrigger":
+		case "createImmutableGuardTrigger":
 		case "createConstraintTrigger":
 		case "createTransitionTrigger":
 			return trigger(s)
@@ -121,7 +123,7 @@ const createdIdents = (s: SqlStatement): ReadonlyArray<string> => {
 		case "endHolders":
 		case "createPublication":
 		case "dropPublication":
-		case "resetDatabaseDefault":
+		case "guardBracket":
 		case "createRole":
 		case "alterRole":
 		case "grantRole":
@@ -133,8 +135,6 @@ const createdIdents = (s: SqlStatement): ReadonlyArray<string> => {
 		case "createExtension":
 		case "lockTable":
 		case "comment":
-		case "createCarrier":
-		case "emptyCarrier":
 		case "beginRead":
 		case "beginWrite":
 		case "commit":
@@ -190,7 +190,7 @@ export const assertCreatesOwned = (
 		for (const s of o.ddl) {
 			for (const created of createdIdents(s)) {
 				if (created !== o.ident && !relationsOf(created).includes(o.ident)) {
-					throw defect(
+					defect(
 						`the manifest object ${o.ident} creates ${created}, which is neither it nor within it: one manifest object is one catalog object, so the drift check owns every fact it describes`
 					)
 				}
@@ -269,8 +269,6 @@ const droppedObject = (
 			return [qualifiedIdent("statistics", s.name.schema, s.name.name)]
 		case "TYPE":
 			return [qualifiedIdent("type", s.name.schema, s.name.name)]
-		case "FUNCTION":
-			return [qualifiedIdent("function", s.name.schema, s.name.name)]
 		case "ROLE":
 		case "SCHEMA":
 			return []
@@ -307,7 +305,7 @@ export const assertFolderCreatesHeld = (
 	}
 	for (const created of standing) {
 		if (!held.has(created)) {
-			throw defect(
+			defect(
 				`the drafted folder leaves standing ${created}, which no object of the target's manifest is: every object a folder leaves standing is one the snapshot records, so the drift check owns it`
 			)
 		}

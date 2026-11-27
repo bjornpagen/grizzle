@@ -505,7 +505,7 @@ const securitySchemes = (file: ServedFile): ReadonlyArray<readonly [string, Json
 const canonicalText = (json: Json): WellFormedText => {
 	const text = writeCanonicalJson(json)
 	if (!text.ok) {
-		throw defect(`a document's value with a canonical text: ${text.error.message}`)
+		defect(`a document's value with a canonical text: ${text.error.message}`)
 	}
 	return text.value
 }
@@ -645,7 +645,7 @@ const wireSharing: SharingFormat = {
 			return { frame: "[", slots: node }
 		}
 		if (Object.hasOwn(node, referenceKey)) {
-			throw defect(`a wire record holding no member ${referenceKey}`)
+			defect(`a wire record holding no member ${referenceKey}`)
 		}
 		const keys = Object.keys(node).toSorted(compareStrings)
 		return {
@@ -677,7 +677,7 @@ const componentsByName = (
 	const out = new Map<string, Json>()
 	for (const [name, schema] of components) {
 		if (out.has(name)) {
-			throw defect(`one component named ${name}`)
+			defect(`one component named ${name}`)
 		}
 		out.set(name, schema)
 	}

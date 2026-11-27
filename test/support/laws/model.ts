@@ -93,7 +93,7 @@ export const everyFact: HostSelection = { kind: "every" }
 
 /**
  * The selection of the facts whose every listed field holds one of its values, the first value of each the one a drawn
- * fact takes: select(R, (r) => r.and(r.in(r.f, values), ...)).
+ * fact takes: select(R, (r) => r.and([r.in(r.f, values), ...])).
  */
 export const fieldsIn = (
 	values: Readonly<Record<string, Arr.NonEmptyReadonlyArray<HostValue>>>
@@ -106,7 +106,7 @@ export const fieldsIn = (
 	pinned: Rec.map(values, (admitted) => admitted[0])
 })
 
-/** The selection of the facts whose fields hold these values: select(R, (r) => r.and(r.eq(r.f, v), ...)). */
+/** The selection of the facts whose fields hold these values: select(R, (r) => r.and([r.eq(r.f, v), ...])). */
 export const fieldsEqual = (values: Readonly<Record<string, HostValue>>): HostSelection =>
 	fieldsIn(Rec.map(values, (v): Arr.NonEmptyReadonlyArray<HostValue> => [v]))
 
@@ -160,8 +160,8 @@ export type HostLaw =
 	| {
 			/**
 			 * A native foreign key, from the source's columns or its selected side's law columns: its violation names no
-			 * fact. Both directions of alternatives are containments (fin.md §7): an arm's key in its parent selected by
-			 * its handles, and the parent selected by a handle in that handle's arm.
+			 * fact. Both directions of a tagged header's arm are containments (fin.md §7): an arm's key in its parent
+			 * selected by its handles, and the parent selected by a handle in that handle's arm.
 			 */
 			readonly kind: "contained"
 			readonly law: LawId
@@ -724,9 +724,8 @@ const byLaw = (found: ReadonlyArray<Violation>): ReadonlyArray<Violation> => {
  *   fields whose spans overlap are a violation (spans are half-open, so adjacent spans do not overlap);
  * - `check`: a row check, immediate; a fact the predicate refuses is a violation, reported natively without a key;
  * - `contained`: every source fact, among those its selector admits, has a target fact, among those the target's
- *   selector admits, equal on the paired fields (contained, either half of mirrors, and both directions of
- *   alternatives: each arm in its parent selected by its handles, and the parent selected by each armed handle in that
- *   handle's arm);
+ *   selector admits, equal on the paired fields (contained, and either half of mirrors: a tagged header's arm in its
+ *   parent selected by its handles, and the parent selected by each armed handle in that handle's arm);
  * - `covered`: every source fact its selector admits has its span covered by the union of the spans of the target
  *   facts its selector admits that equal it on the paired scalar fields, fragments included (a span coverage law, a
  *   PERIOD foreign key).

@@ -195,6 +195,9 @@ const specDesc = (spec: TypeSpec): FieldDesc => {
  * computed numeric is declared with it.
  */
 export const wideNumericTypmod = { precision: 161, scale: 40 } as const
+
+/** The typmod of the public generator's fixed field (oracle/public/build.ts descriptor), numeric(5,2). */
+export const fixedTypmod = { precision: 5, scale: 2 } as const
 const wideNumericSpec: TypeSpec = { carrier: "numericTypmod", ...wideNumericTypmod }
 
 /**
@@ -334,6 +337,11 @@ const carrierDraws: { readonly [C in StorageCarrier]: CarrierDraw } = {
 		kind: "undrawn",
 		reason:
 			"an inet's values, order and containment are judged against PostgreSQL's own by test/pg/net, on its own installation"
+	},
+	variant: {
+		kind: "undrawn",
+		reason:
+			"a variant's identity, order, codec and arms are judged against its own reference model by test/pg/fields/variant, on its own installation"
 	},
 	cidr: {
 		kind: "undrawn",
@@ -890,7 +898,8 @@ export const twinSpellings: { readonly [C in Carrier]: TwinSpellings } = {
 				: []
 	},
 	exactInteger: canonicalOnly,
-	exactMoney: canonicalOnly
+	exactMoney: canonicalOnly,
+	variant: canonicalOnly
 }
 
 /** The twin spellings of a value of `type`: the input texts beside its canonical one that store it differently. */

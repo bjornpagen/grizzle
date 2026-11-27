@@ -43,11 +43,26 @@ export const compute = agreement(computeAimed, {
 				"test/types/compute/compute.test.ts#compute:-:0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.1.3.0.0.0.0"
 			),
 			reason:
-				"a cast of Cell's id into its own type, Type.cast(cell.id, Cell.fields.id), the id the tests' Id contract over uuid since 74d2ff677: the program names the contract's host type through Cell.fields.id, where the case died drawing it, no field of Cell named as the Id contract's (NEGZERO2's replay at main)",
+				"a cast of Cell's id into its own type, Type.cast(cell.id, Cell.fields.id, idKey), the id the tests' Id contract over uuid since 74d2ff677: the program names the contract's host type through Cell.fields.id, where the case died drawing it, no field of Cell named as the Id contract's (NEGZERO2's replay at main)",
 			since: "2026-11-20"
+		},
+		{
+			token: ReplayToken(
+				"test/types/compute/compute.test.ts#compute:-:0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.7.0.0.2f"
+			),
+			reason:
+				"rotating seed 0xc529d80d, case 126, shrunk: a read of Time.wall, a member the catalogue gained after the agreement listed its namespaces by hand",
+			since: "2026-11-24"
 		}
 	],
 	kills: [
+		{
+			file: "test/support/agreement/compute.ts",
+			original: '\t...Rec.filter(computeApi, (exported) => typeof exported === "object"),\n',
+			replacement:
+				'\t...Rec.filter(computeApi, (exported) => typeof exported === "object" && exported !== computeApi.Time),\n',
+			why: "The agreement's catalogue lacks a namespace the public compute module exports, Time, as its hand-written list did: a read of Time.wall, which the types admit, is expected refused; the kept read fails."
+		},
 		{
 			file: "test/support/agreement/compute.ts",
 			original: '\t[idName]: "id",\n',

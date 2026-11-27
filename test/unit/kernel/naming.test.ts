@@ -1,11 +1,10 @@
-import { assert, defined } from "@bjornpagen/testing/assert"
+import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order, Record as Rec } from "effect"
 import { maxIdentifierBytes, conversionOf, identifierOf } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { expandAlternatives } from "#compiler/ir/desc.ts"
 import { type ConstraintOwner, lawsOfConstraint } from "#compiler/ir/products.ts"
 import { constraintLawMap } from "#compiler/laws/model/model.ts"
 import { schema } from "#compiler/public/schema.ts"
@@ -17,18 +16,18 @@ import {
 	lawNamesOf
 } from "#test/support/kernel/naming.ts"
 import {
-	alternativesStatements,
 	bytesOf,
 	checkOf,
 	declaredColumn,
 	foreignKeysInto,
-	handlesOf,
 	hashedName,
 	judged,
 	Item,
 	levelStatements,
 	type NamingFeature,
 	namingCaseGen,
+	referenceKinds,
+	selectedContainments,
 	type ShapeFeature,
 	shapeFeatures,
 	shapeGen,
@@ -36,7 +35,7 @@ import {
 } from "#test/unit/kernel/naming.fixtures.ts"
 
 /**
- * Production names from src agree with src's records at every named native, key, alternatives expansion, checked
+ * Production names from src agree with src's records at every named native, key, selected side's containment, checked
  * contract and text domain, each named by the door's rule.
  *
  * Budget: its suite's count before the conversion (unit/kernel/naming: 40 independent cases and 32 steered, Vitest at
@@ -49,7 +48,7 @@ export const productionNamesFromSrcAgreeWithSrcsRecordsAtEveryNamedNativeKeyAlte
 		needs: {},
 		situations: [
 			"named native",
-			"alternatives expansion",
+			"a containment over a selected side",
 			"checked contract",
 			"text domain",
 			"a key statement",
@@ -140,53 +139,47 @@ export const productionNamesFromSrcAgreeWithSrcsRecordsAtEveryNamedNativeKeyAlte
 					)
 					assert.ok(reporting.length > 0, `a constraint reports the key's law ${law}`)
 				}
-				for (const statement of alternativesStatements(levelStatements(L.model.owned.desc))) {
-					k.note("alternatives expansion")
-					const laws = L.alternativesOfDesc([statement])
-					const expansion = expandAlternatives(statement)
-					const all = [...new Set(Rec.values(laws.arms)), ...Rec.values(laws.reverse)]
-					assert.equal(new Set(all).size, all.length, "arm and reverse laws are distinct")
-					for (const forward of Arr.filter(
-						expansion,
-						(s) => s.right.selection.conjuncts.length > 0
-					)) {
-						const parent = forward.right.relation
-						const fks = foreignKeysInto(L.model, forward.left.relation, parent)
-						for (const handle of handlesOf(forward.right)) {
-							const arm = defined(laws.arms[handle], `${handle}'s arm law`)
-							assert.ok(
-								Arr.some(fks, (fk) => Arr.contains(L.lawsOfConstraint(fk.owner, fk.ident), arm)) !==
-									judged(L.model, arm),
-								`${handle}'s arm is contained in its parents one way: through a foreign key into them, or by the rule judge`
-							)
-						}
+				for (const statement of selectedContainments(levelStatements(L.model.owned.desc))) {
+					if (L.model.owned.relations[statement.right.relation]?.kind === "closed") {
+						continue
 					}
-					for (const reverse of Arr.filter(
-						expansion,
-						(s) => s.left.selection.conjuncts.length > 0
-					)) {
-						const handle = Arr.headNonEmpty(handlesOf(reverse.left))
-						const law = defined(laws.reverse[handle], `${handle}'s reverse law`)
-						assert.ok(theory.has(law), `${handle}'s reverse is a law of the theory`)
-						if (judged(L.model, law)) {
-							assert.deepEqual(
-								L.constraintsOf(law, "ForeignKey"),
-								[],
-								`${handle}'s reverse, held by the rule judge, installs no foreign key`
-							)
-							continue
-						}
+					k.note("a containment over a selected side")
+					const law = L.lawOfDesc(statement)
+					assert.ok(
+						theory.has(law),
+						`${law}, a selected side's containment, is a law of the theory`
+					)
+					if (statement.right.selection.conjuncts.length > 0) {
+						const fks = foreignKeysInto(L.model, statement.left.relation, statement.right.relation)
 						assert.ok(
+							Arr.some(fks, (fk) => Arr.contains(L.lawsOfConstraint(fk.owner, fk.ident), law)) !==
+								judged(L.model, law),
+							`${law} is held one way: through a foreign key into its selected target, or by the rule judge`
+						)
+						continue
+					}
+					const references = Arr.flatMap(referenceKinds, (kind) => L.constraintsOf(law, kind))
+					if (judged(L.model, law)) {
+						assert.deepEqual(
+							references,
+							[],
+							`${law}, held by the rule judge, installs no foreign key`
+						)
+						continue
+					}
+					const [reference, ...more] = references
+					assert.ok(
+						reference !== undefined &&
+							more.length === 0 &&
 							Arr.contains(
 								L.lawsOfConstraint(
-									{ kind: "table", name: N.tableIdent({ name: reverse.left.relation }) },
-									L.constraintOf(law, "ForeignKey")
+									{ kind: "table", name: N.tableIdent({ name: statement.left.relation }) },
+									reference
 								),
 								law
 							),
-							`${handle}'s reverse is its own native foreign key`
-						)
-					}
+						`${law}, out of a selected source, is its own native foreign key, a PERIOD one where it covers a span`
+					)
 				}
 				for (const contractName of Rec.keys(N.model.owned.contracts)) {
 					const contract = N.contract(contractName)

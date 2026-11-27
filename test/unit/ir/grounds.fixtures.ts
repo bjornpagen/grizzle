@@ -23,6 +23,7 @@ import {
 	keyAlternative,
 	keyFactor,
 	keyMember,
+	pairedKeeps,
 	producedFact,
 	projectionCloses,
 	rightKeeps,
@@ -48,7 +49,7 @@ export type StepRecipe =
 	  }
 	| { readonly rule: "kept" | "projection" | "grouped" | "intersected"; readonly input: number }
 	| { readonly rule: "agreed"; readonly arms: readonly [number, ...Array<number>] }
-	| { readonly rule: "semiJoinPair"; readonly right: number }
+	| { readonly rule: "paired"; readonly input: number }
 	| { readonly rule: "closedValue" }
 	| { readonly rule: "unionKey" | "produced"; readonly proof: number }
 
@@ -100,7 +101,7 @@ export const recipes: Gen<ReadonlyArray<ItemRecipe>> = (source) => {
 					? { rule: s.draw(element(kinds)), input: s.draw(any) }
 					: choice === 1
 						? { rule: "agreed", arms: [s.draw(any), ...s.draw(array(any, { min: 0, max: 1 }))] }
-						: { rule: "semiJoinPair", right: s.draw(any) }
+						: { rule: "paired", input: s.draw(any) }
 			}
 			const [proof, ...more] = proofs
 			if (proof !== undefined && choice === 3) {
@@ -169,8 +170,8 @@ export const built = (
 					derivation(step.arms[0]),
 					...Arr.map(step.arms.slice(1), derivation)
 				])
-			case "semiJoinPair":
-				return fixedColumn("a", { kind: "semiJoinPair", index: 0, right: derivation(step.right) })
+			case "paired":
+				return pairedKeeps(["a"], ["b"], derivation(step.input))
 			case "closedValue":
 				return fixedColumn("a", { kind: "closedValue" })
 			case "unionKey":
@@ -238,14 +239,12 @@ export const walkedGrounds = (proof: KeyProof): OracleGrounds => {
 				if (rule.witness.kind === "closedValue") {
 					contexts.push("queryLocal")
 				}
-				if (rule.witness.kind === "semiJoinPair") {
-					ofImplication(rule.witness.right)
-				}
 				return
 			case "projection":
 			case "grouped":
 			case "kept":
 			case "intersected":
+			case "paired":
 				ofImplication(rule.input)
 				return
 			case "agreed":
@@ -324,15 +323,11 @@ export const derivationHoldsPremise = (at: Implication): boolean => {
 						return true
 					}
 					break
-				case "fixed":
-					if (rule.witness.kind === "semiJoinPair") {
-						pending.push(rule.witness.right)
-					}
-					break
 				case "projection":
 				case "grouped":
 				case "kept":
 				case "intersected":
+				case "paired":
 					pending.push(rule.input)
 					break
 				case "agreed":
@@ -346,6 +341,7 @@ export const derivationHoldsPremise = (at: Implication): boolean => {
 				case "unionKey":
 					pending.push(rule.proof)
 					break
+				case "fixed":
 				case "equal":
 				case "match":
 				case "separated":

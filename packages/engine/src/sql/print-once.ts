@@ -10,10 +10,18 @@ import {
 	type FromItem,
 	type FromSource,
 	type OperandSelect,
+	type PlBlock,
 	type PlFunction,
 	type SqlStatement,
 	type With
 } from "#compiler/sql/ast.ts"
+import {
+	assertBlockPulledUp,
+	assertPulledUp,
+	pulledUpBlock,
+	pulledUpStatement
+} from "#compiler/sql/pull-up.ts"
+import { assertScoped } from "#compiler/sql/scope.ts"
 import {
 	type AstHooks,
 	identityHooks,
@@ -180,43 +188,61 @@ const queryPrintedOnce = (query: OperandSelect): OperandSelect => {
 
 /**
  * The statement as it is printed (the module header): every CTE PostgreSQL would inline printed in place, its
- * sub-queries' first, then its own WITH's, a data-modifying statement's among them. Held to assertPrintedOnce. A
- * PL/pgSQL function is its printed form (printedFunction), made once.
+ * sub-queries' first, then its own WITH's, a data-modifying statement's among them, and then every simple sub-query of
+ * a FROM list flattened into its reader, as PostgreSQL pulls it up (sql/pull-up.ts), an inlined CTE among them. The
+ * statement as the lowering built it is held to the scope every name it reads is bound in (sql/scope.ts assertScoped),
+ * since scope is the lowering's meaning and an escape a flatten happened to remove is still the lowering's defect,
+ * visible the day its sub-query is not flattenable; the printed statement to assertPrintedOnce and assertPulledUp,
+ * inlining and the flatten keeping every name in its scope. A PL/pgSQL function is its printed form (printedFunction),
+ * made once.
  */
 export const printedOnce = (statement: SqlStatement): SqlStatement => {
 	if (statement.kind === "createFunction" && statement.language === "plpgsql") {
 		return printedFunction(statement)
 	}
+	const known = printedStatements.get(statement)
+	if (known !== undefined) {
+		return known
+	}
+	assertScoped(statement)
 	const nested = transformStatement(statement, { ...identityHooks, select: queryPrintedOnce })
-	const printed = isDmlWithWith(nested) ? dmlPrintedOnce(nested) : nested
+	const printed = pulledUpStatement(isDmlWithWith(nested) ? dmlPrintedOnce(nested) : nested)
 	assertPrintedOnce(printed)
+	assertPulledUp(printed)
+	printedStatements.set(statement, printed)
 	return printed
 }
+
+/**
+ * Each statement's printed form (printedOnce), by the statement it prints, made once: the installation holds each
+ * statement it installs to its indexes in its printed form (physical/access/seeks.ts), and prints it from the same.
+ */
+const printedStatements = new WeakMap<SqlStatement, SqlStatement>()
 
 /** Each PL/pgSQL function's printed form (printedFunction), by the function it prints and by itself. */
 const printedFunctions = new WeakMap<PlFunction, PlFunction>()
 
 /**
- * A PL/pgSQL function as it is printed: every query of its body printed once (queryPrintedOnce), made once per
- * function, a printed function its own form. The one form its text is printed from, so its CREATE FUNCTION's body and
- * the source its snapshot records the digest of (sql/print.ts functionSource) are one print of one body, never a print
- * of the body as it was lowered beside the printed one's.
+ * A PL/pgSQL function as it is printed: its body printed as every block is (printedBlock), made once per function, a
+ * printed function its own form. The one form its text is printed from, so its CREATE FUNCTION's body and the source
+ * its snapshot records the digest of (sql/print.ts functionSource) are one print of one body, never a print of the
+ * body as it was lowered beside the printed one's.
  */
 export const printedFunction = (fn: PlFunction): PlFunction => {
 	const known = printedFunctions.get(fn)
 	if (known !== undefined) {
 		return known
 	}
-	const body = new Transform({ ...identityHooks, select: queryPrintedOnce }).plBlock(fn.body)
+	assertScoped(fn)
+	const body = printedBlock(fn.body)
 	const printed: PlFunction = body === fn.body ? fn : { ...fn, body }
-	assertPrintedOnce(printed)
 	printedFunctions.set(fn, printed)
 	printedFunctions.set(printed, printed)
 	return printed
 }
 
 /** Every sub-expression of `e` at its own level, `e` first, never entering a sub-link's query. */
-export const ownLevel = (e: SubqueryExpr, f: (x: SubqueryExpr) => void): void => {
+const ownLevel = (e: SubqueryExpr, f: (x: SubqueryExpr) => void): void => {
 	f(e)
 	for (const c of childrenOf(e)) {
 		ownLevel(c, f)
@@ -292,6 +318,8 @@ const childrenOf = (e: SubqueryExpr): ReadonlyArray<SubqueryExpr> => {
 			return [e.expr, e.absent]
 		case "subscript":
 			return [e.array, e.index]
+		case "attribute":
+			return [e.record]
 	}
 }
 
@@ -312,7 +340,7 @@ const setReturningFunctions: ReadonlySet<string> = new Set([
  * VOLATILE one: any of them keeps its query from being pulled up (is_simple_subquery: hasAggs, hasWindowFuncs,
  * hasTargetSRFs, contain_volatile_functions over the targets).
  */
-export const fencingTarget = (e: SubqueryExpr): boolean => {
+const fencingTarget = (e: SubqueryExpr): boolean => {
 	let fenced = false
 	ownLevel(e, (x) => {
 		if (x.kind === "call") {
@@ -333,7 +361,7 @@ export const fencingTarget = (e: SubqueryExpr): boolean => {
  * core, no WITH, DISTINCT, grouping, HAVING, order, bound or set operation, and no target that folds, windows, returns
  * rows or calls a VOLATILE function. Its scans then join their reader's, and its targets are their expressions there.
  */
-export const pulledUp = (q: OperandSelect): q is OperandSelect & { readonly body: SelectCore } =>
+const pulledUp = (q: OperandSelect): q is OperandSelect & { readonly body: SelectCore } =>
 	q.with === undefined &&
 	q.orderBy.length === 0 &&
 	q.limit === undefined &&
@@ -360,7 +388,7 @@ const plainTarget = (e: SubqueryExpr): boolean =>
  * bound, a DISTINCT over a join or a filter, any query a fence keeps apart. Where it stands (a FROM, a CTE's body, a
  * sub-link) is its site's to say, never its form's.
  */
-export const subqueryForm = (q: OperandSelect): "read" | "pulled" | "derivation" => {
+const subqueryForm = (q: OperandSelect): "read" | "pulled" | "derivation" => {
 	const body = q.body
 	if (
 		q.with === undefined &&
@@ -397,9 +425,20 @@ export const subqueryForm = (q: OperandSelect): "read" | "pulled" | "derivation"
 	return pulledUp(q) ? "pulled" : "derivation"
 }
 
-/** A query as it is printed where it stands inside a statement (printedOnce): each CTE PostgreSQL would inline printed in place. */
-export const printedQueryOnce = (query: OperandSelect): OperandSelect =>
-	transformQuery(query, { ...identityHooks, select: queryPrintedOnce })
+/**
+ * A PL/pgSQL block as it is printed, a function's body (printedFunction) or a DO statement's (sql/print.ts
+ * writeDoBlock), a migration's violation and zone checks among them: every query of it printed once
+ * (queryPrintedOnce), then pulled up (sql/pull-up.ts pulledUpBlock), held to both invariants. The one route every
+ * block is printed by, so no block's query is printed past either.
+ */
+export const printedBlock = (block: PlBlock): PlBlock => {
+	const printed = pulledUpBlock(
+		new Transform({ ...identityHooks, select: queryPrintedOnce }).plBlock(block)
+	)
+	assertBlockPrintedOnce(printed)
+	assertBlockPulledUp(printed)
+	return printed
+}
 
 /** A data-modifying statement whose own WITH holds no CTE printed in place: each printed at its reference. */
 const dmlPrintedOnce = (
@@ -457,23 +496,33 @@ export const inPlaceSites = (query: OperandSelect): ReadonlyMap<string, Referenc
  * every such CTE in place (printedOnce), never a property of the lowering's input.
  */
 export const assertPrintedOnce = (statement: SqlStatement): void => {
-	const refuse = (holder: Holder, w: With): void => {
-		for (const cte of inPlaceCtes(holder, w).values()) {
-			throw defect(
-				`print once: the CTE ${cte.name} is read once, is not MATERIALIZED, writes nothing and calls no VOLATILE function, so PostgreSQL would inline it by a walk of the whole statement; the printer prints it in place (sql/print-once.ts)`
-			)
-		}
-	}
-	transformStatement(statement, {
-		...identityHooks,
-		select: (query) => {
-			if (query.with !== undefined) {
-				refuse(query, query.with)
-			}
-			return query
-		}
-	})
+	transformStatement(statement, refusingHooks)
 	if (isDmlWithWith(statement)) {
-		refuse(statement, statement.with)
+		refuseInlinable(statement, statement.with)
+	}
+}
+
+/** assertPrintedOnce of a PL/pgSQL block, a function's body or a DO statement's (printedBlock). */
+const assertBlockPrintedOnce = (block: PlBlock): void => {
+	new Transform(refusingHooks).plBlock(block)
+}
+
+/** A refusal of `holder`'s WITH `w`, where it holds a CTE PostgreSQL would inline (the module header). */
+const refuseInlinable = (holder: Holder, w: With): void => {
+	for (const cte of inPlaceCtes(holder, w).values()) {
+		defect(
+			`print once: the CTE ${cte.name} is read once, is not MATERIALIZED, writes nothing and calls no VOLATILE function, so PostgreSQL would inline it by a walk of the whole statement; the printer prints it in place (sql/print-once.ts)`
+		)
+	}
+}
+
+/** The hooks that refuse each query whose own WITH holds a CTE PostgreSQL would inline (refuseInlinable). */
+const refusingHooks: AstHooks = {
+	...identityHooks,
+	select: (query) => {
+		if (query.with !== undefined) {
+			refuseInlinable(query, query.with)
+		}
+		return query
 	}
 }

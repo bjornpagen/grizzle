@@ -71,8 +71,8 @@ export const aStoredUnionTypesItsColumnsAsTheLiveOneDoesItsUpkeepReadingEachBare
 			{
 				file: "packages/engine/src/analysis/theory/theory.ts",
 				original:
-					"\t\t\t\t\t\t\t\ttypedHeads(definition, this.#columns(r.name, definition, r.desc.loc)),\n",
-				replacement: "\t\t\t\t\t\t\t\tdefinition,\n",
+					"\t\t\t\tconst typed = typedHeads(\n\t\t\t\t\tdefinition,\n\t\t\t\t\tthis.#columns(c.subject.name, definition, c.subject.loc)\n\t\t\t\t)\n",
+				replacement: "\t\t\t\tconst typed = definition\n",
 				why: "The upkeep reads the definition as its author wrote it: each rule of the union read apart types its bare literal at its JavaScript default, a bigint beside a natural, and the step it stands in delivers the column by a bare literal, the checker's internal invariant."
 			}
 		]

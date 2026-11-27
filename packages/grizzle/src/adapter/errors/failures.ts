@@ -2,7 +2,7 @@ import * as Arr from "effect/Array"
 import * as Data from "effect/Data"
 import type { RefusedVariable } from "#adapter/connection/environment.ts"
 import type { CredentialError } from "#adapter/errors/credential.ts"
-import type { FamilyRowBound, Law, BrokenLaws, Unsendable, Witness } from "#compiler/plan/change.ts"
+import type { Law, BrokenLaws, Witness } from "#compiler/plan/change.ts"
 import type {
 	ColumnIdent,
 	ConstraintName,
@@ -19,8 +19,7 @@ import {
 	type ParamPlace,
 	paramPlaceText,
 	type RolePrefixFault,
-	rolePrefixFaultText,
-	sqlstates
+	rolePrefixFaultText
 } from "#compiler/plan/runtime.ts"
 
 /**
@@ -715,13 +714,14 @@ export class ParamRejected extends Data.TaggedError("ParamRejected")<{
  *
  * - message: the Bind message of the flight's statement at `statement` would be `bytes` long, as its length word
  *   counts it, past the longest message PostgreSQL reads, `limit` (messageMaxBytes), past which the
- *   backend ends the connection instead of answering;
+ *   backend ends the connection instead of answering. A family statement, which no execution cuts (its counts and ends
+ *   are drawn over every row it holds), meets it as every statement does: the largest real call, pantry's QTI publish
+ *   at 161.8 MB, is about 6 times under it; a real call that approaches it is answered by cutting the family statement
+ *   by owner group, never by carrying its rows between statements;
  * - literal: the array of the relation input `input`'s column `column` would be longer than any placeholder carries,
  *   so none can carry it (ir/products.ts LiteralBound): a text array longer than the longest string the host builds,
  *   `limit` UTF-16 code units (maxStringLength), or a bytes column's binary array longer than the longest
  *   message PostgreSQL reads, `limit` bytes (messageMaxBytes);
- * - familyRow: one row a nested write inserts, a `member` row of the family `owner.count`, is past one of those bounds
- *   alone, so no insert of its relation can carry it however its rows are cut (runtime/write/staged.ts Unsendable);
  * - flight: the flight's messages, every byte pg writes for it in its one corked write, would be `bytes` long, past the
  *   most one write over TLS carries, `limit` (flightMaxBytes), past which the write fails whole and the
  *   connection with it, its end unsent;
@@ -748,13 +748,6 @@ export type InputBound =
 			readonly input: string
 			readonly column: string
 			readonly limit: number
-	  }
-	| {
-			readonly kind: "familyRow"
-			readonly owner: string
-			readonly count: string
-			readonly member: string
-			readonly row: Unsendable
 	  }
 	| {
 			readonly kind: "flight"
@@ -789,14 +782,6 @@ export class InputTooLarge extends Data.TaggedError("InputTooLarge")<{
 				return bound.form === "text"
 					? `the array of column ${bound.column} of input ${bound.input} would be longer than ${bound.limit} UTF-16 code units, the longest string the host builds; split the input across calls`
 					: `the binary array of column ${bound.column} of input ${bound.input} would be longer than ${bound.limit} bytes, the longest message PostgreSQL reads; split the input across calls`
-			case "familyRow": {
-				const row = bound.row
-				const past =
-					row.kind === "literal"
-						? `its column ${row.column} would be an array longer than ${row.limit} UTF-16 code units, the longest string the host builds`
-						: `its insert statement would send a Bind message of ${row.bytes} bytes, past PostgreSQL's limit of ${row.limit}`
-				return `a ${bound.member} row of the family ${bound.owner}.${bound.count} fits no insert statement even alone: ${past}; shorten the row's values`
-			}
 			case "flight":
 				return `the flight would write ${bound.bytes} bytes, past the ${bound.limit} one write over TLS carries; split the input across calls`
 			case "parse":
@@ -806,46 +791,6 @@ export class InputTooLarge extends Data.TaggedError("InputTooLarge")<{
 		}
 	}
 }
-
-/**
- * A write creates a temporary table, and the role holds no `privilege` on the database: PostgreSQL refused the CREATE
- * TEMPORARY TABLE (42501) of a carrier of the write's own (write/carriers) or of one its nested rows past one Bind
- * message travel through (write/program/staged.ts), and nothing committed. `error` is the server's report. `grizzle
- * migrate` grants the privilege on the database to every role whose served workload creates a carrier
- * (physical/ddl/roles.ts addWorlds), and `grizzle drift` reports it missing, so the grant was revoked after the
- * migration.
- */
-export class TemporaryRefused extends Data.TaggedError("TemporaryRefused")<{
-	readonly privilege: "TEMPORARY"
-	readonly error: ServerError
-}> {
-	override get message(): string {
-		return `the write's stand-up creates a temporary table, and the role holds no ${this.privilege} privilege on the database, which grizzle migrate grants it and grizzle drift reports missing`
-	}
-}
-
-/**
- * The refusal of a session's CREATE of a carrier's table (adapter apply/stand-up.ts), for the role's want of the
- * TEMPORARY privilege on the database (42501, naming no table: the privilege is the database's), as TemporaryRefused;
- * none for any other refusal. The one reading of it, every stand-up's.
- */
-export const temporaryRefusal = (error: ServerError): TemporaryRefused | undefined =>
-	error.sqlstate === sqlstates.insufficientPrivilege && error.table === undefined
-		? new TemporaryRefused({ privilege: "TEMPORARY", error })
-		: undefined
-
-/** A nested write's row no insert of its relation can carry (runtime/write/staged.ts NestedRowBound), as the family
- * names it. */
-export const familyRowBound = ({ family, row }: FamilyRowBound): InputTooLarge =>
-	new InputTooLarge({
-		bound: {
-			kind: "familyRow",
-			owner: family.owner,
-			count: family.count,
-			member: family.member,
-			row
-		}
-	})
 
 /** The bound of a member no statement can carry, as the engine reports it from its values' lengths. */
 export const messageBound = (bound: MessageBound): InputTooLarge =>

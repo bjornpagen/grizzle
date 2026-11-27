@@ -19,13 +19,13 @@ import { runIdentity, sourceIdentity, writeRunRecord } from "#bench/cold/identit
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { accumulated, Bits, bits, closedId, date, drawn, natural } from "#compiler/public/fields.ts"
 import {
-	alternatives,
 	check,
 	closed,
 	contained,
 	fin,
 	insertableNamesOf,
 	key,
+	mirrors,
 	on,
 	ordered,
 	relation,
@@ -36,8 +36,8 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { InitializedCluster } from "#test/support/cluster.ts"
-import { Id } from "#test/support/ids.ts"
-import { installMigrated } from "#test/support/install-migrate.ts"
+import { Id, idKey, toId } from "#test/support/ids.ts"
+import { installFullWorld } from "#test/support/installed.ts"
 import { applicationOf, member, openServedDb } from "#test/support/served-db.ts"
 import { sweep } from "#test/support/substrate/shared.ts"
 import { dropRole, Substrate } from "#test/support/substrate/substrate.ts"
@@ -106,7 +106,7 @@ const Outline = relation(
 		at: drawn(natural),
 		children: drawn(natural),
 		standard: Id,
-		parentStandard: accumulated(Id, Id("00000000-0000-0000-0000-000000000000"))
+		parentStandard: accumulated(Id, toId("00000000-0000-0000-0000-000000000000"), idKey)
 	},
 	["framework", "start"]
 )
@@ -123,13 +123,16 @@ const build = (name: string) =>
 		name,
 		[Grade, StandardKind, Standard, StandardChild, Framework, Item, Outline, CrosswalkHub],
 		[
-			alternatives(Standard, "kind", StandardKind, { framework: Framework, item: Item }),
+			mirrors(on(Framework, "id"), on(frameworks, "id")),
+			mirrors(on(Item, "id"), on(items, "id")),
 			ordered(on(StandardChild, "parent", "at"), fin(Standard, "children")),
 			key(on(StandardChild, "parent", "child")),
 			contained(on(StandardChild, "child"), on(items, "id")),
 			tree(on(Outline, "parent", "at"), fin(Outline, "children"), { root: ["framework"] }),
 			contained(on(Outline, "framework"), on(frameworks, "id")),
-			check("OutlineRoot", Outline, (o) => o.or(o.gt(o.start, 0n), o.eq(o.standard, o.framework))),
+			check("OutlineRoot", Outline, (o) =>
+				o.or([o.gt(o.start, 0n), o.eq(o.standard, o.framework)])
+			),
 			contained(on(Outline, "standard", "children"), on(Standard, "id", "children")),
 			contained(
 				on(outlineMembers, "framework", "parent", "parentStandard"),
@@ -316,12 +319,7 @@ const bench = (scale: Scale) =>
 		const s = yield* Substrate
 		const fs = yield* FileSystem.FileSystem
 		const declared = build("Bulk")
-		const done = yield* installMigrated(declared, {
-			ambient: ordinarySession,
-			label: "bulk",
-			logins: [fullWorld(declared, {}).server],
-			extensions: []
-		})
+		const done = yield* installFullWorld(declared, {}, { ambient: ordinarySession, label: "bulk" })
 		const world = build(done.declared)
 		const served = fullWorld(world, {})
 		const login = done.as(served.server).role

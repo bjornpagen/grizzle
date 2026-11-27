@@ -12,7 +12,11 @@
  *
  * - **equivalence**: a schedule of direct SQL transactions at SERIALIZABLE over two documents, each a unit, run on both
  *   judges of a drawn shape in lockstep: inserts and deletes of single rows, a document written whole and one dropped whole, with the
- *   judge run inside a transaction that then writes on. At each judge and at each transaction's end each judge refuses
+ *   judge run inside a transaction that then writes on. A transaction that deletes a row is the whole judge's data
+ *   step, its relations closed, inside the bracket a migration's runner sends (data-step.ts dataStepOf), judged at its
+ *   end alone by the bracket's checks, the judge and the re-check, which refuses a step that breaks a rule under 23000
+ *   and the rule's law, the judge reading none of a closed relation's removed rows; on the probed judge, its relations
+ *   mutable, a served write. At each judge and at each transaction's end each judge refuses
  *   exactly when its rules' whole checks, their violation queries lowered by the oracle baseline, find the state
  *   broken, naming a rule they find broken; each rule's check over every row, the judge of the transaction that
  *   writes every row, which the migration that adds the rule runs (deploy/snapshot/violation.ts lawChecks), finds a
@@ -35,10 +39,11 @@
  *   judge holds a SIRead lock on all of Node, Expr or an index of theirs, and both commit, each judge read per unit
  *   of its region.
  */
-import { property } from "@bjornpagen/testing/property"
-import { Effect } from "effect"
+import { family, type Kill, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Record as Rec } from "effect"
 import {
 	commuteGen,
+	commuteTemplates,
 	judgeTemplates,
 	localityGen,
 	narrowedGen,
@@ -46,6 +51,8 @@ import {
 	runEquivalence,
 	runLocality,
 	runNarrowed,
+	shapeKeys,
+	storedTemplates,
 	wholeFeatures,
 	wholeSpace
 } from "#test/pg/laws/rule-whole.fixtures.ts"
@@ -91,18 +98,6 @@ export const aUnitLocalRuleIsJudgedWholeOverTheUnitsATransactionWroteAsItsWholeC
 				why: "A rule's check over every row reads none of the rows the transaction that writes every row adds, so it finds nothing in a state its whole check finds broken, and a migration installs a rule the stored rows break."
 			},
 			{
-				file: "packages/engine/src/analysis/theory/unit.ts",
-				original: '\t\t\treturn ["removed"]',
-				replacement: "\t\t\treturn []",
-				why: "The region holds no unit a delete removed rows of, so an expression's delete under its member, or a child's under a node of kind 2, is never judged, and a transaction that breaks Rooted or Fanout commits."
-			},
-			{
-				file: "packages/engine/src/analysis/theory/unit.ts",
-				original: '\tp === "positive" ? "negative" : p === "negative" ? "positive" : "both"',
-				replacement: "\tp",
-				why: "A relation a negation reads keeps its polarity, so a containment's target is read on its side of news alone and its delete captures nothing: an expression removed under its member is never judged."
-			},
-			{
 				file: "packages/engine/src/laws/model/plan.ts",
 				original: "\t\t\t\t\t\treturn judgedPlan(law, discharge.rule)",
 				replacement: "\t\t\t\t\t\treturn done([])",
@@ -136,43 +131,65 @@ export const aUnitLocalRuleIsJudgedWholeOverTheUnitsATransactionWroteAsItsWholeC
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
  */
+/** The kills of the locality, each family member's: any shape's judge reads the units written alone. */
+const localityKills: ReadonlyArray<Kill> = [
+	{
+		file: "packages/engine/src/analysis/theory/unit.ts",
+		original:
+			'\t\t\trestriction.kind === "region" ? unitStep(walkedText, unit, restriction.region) : walkedText,',
+		replacement: "\t\t\twalkedText,",
+		why: "No rule of a whole rule's violation query matches the region of the units a transaction wrote, so the judge reads every unit stored, and a write of one document reads every document."
+	},
+	{
+		file: "packages/engine/src/analysis/theory/unit.ts",
+		original: "\tconst restrict = w.restrict",
+		replacement: "\tconst restrict: Restriction = deciding",
+		why: "A recursion is read whole rather than per unit, its seeds and steps at no channel, so Reached's walk reads every document's nodes for a write of one."
+	},
+	{
+		file: "packages/engine/src/analysis/theory/unit.ts",
+		original:
+			'\t\t\t? ruleBody(r, at, aggregates, {\n\t\t\t\t\t...w,\n\t\t\t\t\trestrict: { kind: "bound", region: restriction.region }\n\t\t\t\t})',
+		replacement: "\t\t\t? ruleBody(r, at, aggregates, w)",
+		why: "A rule read per unit binds no unit for the rules its imports and negations read, so each matches the region again inside the step, once per written unit, or beside it, Rooted's two sides each over a region of its own: a node run once per unit reads every written unit's rows at each run, and the statement's work grows with the square of the units written."
+	}
+]
+
 export const aWholeRulesStatementReadsTheUnitsATransactionWroteAloneBesideAnyNumberOfStoredUnits =
-	property.explore(localityGen, {
-		needs: Substrate.oneOf(judgeTemplates, Substrate.rolledBack),
-		situations: ["measured with no statistics", "measured analyzed"],
-		check: (judges, c) => (drawn) =>
-			Effect.gen(function* () {
-				const { connection, value } = yield* judges[`whole ${drawn.shape}`]
-				yield* runLocality(value, connection, drawn, c)
-			}),
-		oracle: {
-			kind: "universal",
-			name: "bound: a whole rule's statement reads fewer rows than the documents stored beside the written one, however many stand beside it, and each node it runs more than once reads fewer rows a run than the documents written"
-		},
-		kept: [],
-		kills: [
-			{
-				file: "packages/engine/src/analysis/theory/unit.ts",
-				original:
-					'\t\t\trestriction.kind === "region" ? unitStep(walkedText, unit, restriction.region) : walkedText,',
-				replacement: "\t\t\twalkedText,",
-				why: "No rule of a whole rule's violation query matches the region of the units a transaction wrote, so the judge reads every unit stored, and a write of one document reads every document."
-			},
-			{
-				file: "packages/engine/src/analysis/theory/unit.ts",
-				original: "\tconst restrict = w.restrict",
-				replacement: "\tconst restrict: Restriction = deciding",
-				why: "A recursion is read whole rather than per unit, its seeds and steps at no channel, so Reached's walk reads every document's nodes for a write of one."
-			},
-			{
-				file: "packages/engine/src/analysis/theory/unit.ts",
-				original:
-					'\t\t\t? ruleBody(r, at, aggregates, {\n\t\t\t\t\t...w,\n\t\t\t\t\trestrict: { kind: "bound", region: restriction.region }\n\t\t\t\t})',
-				replacement: "\t\t\t? ruleBody(r, at, aggregates, w)",
-				why: "A rule read per unit binds no unit for the rules its imports and negations read, so each matches the region again inside the step, once per written unit, or beside it, Rooted's two sides each over a region of its own: a node run once per unit reads every written unit's rows at each run, and the statement's work grows with the square of the units written."
-			}
-		]
-	})
+	family(
+		Rec.fromEntries(
+			Arr.map(shapeKeys, (shape) => {
+				const templates = storedTemplates(shape)
+				return [
+					shape,
+					property.explore(localityGen(shape), {
+						needs: {
+							stored: Substrate.rolledBack(templates.stored),
+							more: Substrate.rolledBack(templates.more)
+						},
+						situations: ["measured with no statistics", "measured analyzed"],
+						check: (needs, c) => (drawn) =>
+							Effect.gen(function* () {
+								const stored = yield* needs.stored
+								const more = yield* needs.more
+								yield* runLocality(
+									{ installed: stored.value, connection: stored.connection },
+									{ installed: more.value, connection: more.connection },
+									drawn,
+									c
+								)
+							}),
+						oracle: {
+							kind: "universal",
+							name: "bound: a whole rule's statement reads fewer rows than the documents stored beside the written one, however many stand beside it, and each node it runs more than once reads fewer rows a run than the documents written"
+						},
+						kept: [],
+						kills: localityKills
+					})
+				] as const
+			})
+		)
+	)
 
 /**
  * Two transactions each writing a unit of its own beside thousands stored both commit at SERIALIZABLE, and neither's
@@ -188,11 +205,11 @@ export const aWholeRulesStatementReadsTheUnitsATransactionWroteAloneBesideAnyNum
  */
 export const twoTransactionsEachWritingAUnitOfItsOwnBothCommitAndNeithersJudgeLocksARelationTheOtherWrites =
 	property.explore(commuteGen, {
-		needs: Substrate.oneOf(judgeTemplates, Substrate.fresh),
+		needs: Substrate.oneOf(commuteTemplates, Substrate.fresh),
 		situations: ["two units written at once, both committed"],
-		check: (judges, c) => (drawn) =>
+		check: (templates, c) => (drawn) =>
 			Effect.gen(function* () {
-				const w = yield* judges[`whole ${drawn.shape}`]
+				const w = yield* templates[drawn.shape]
 				const first = yield* w.substrate.session({ ...ownerSession(), label: "first unit" })
 				yield* standUpJudge(first, w.value.installation)
 				const second = yield* w.substrate.session({ ...ownerSession(), label: "second unit" })
@@ -238,8 +255,9 @@ export const aWholeRuleOverAContainedRelationsJoinReadsItOncePerRowItGainedNever
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
-				original: "\t\tconst at = proofs.get(place)",
-				replacement: "\t\tconst at: NonEmptyReadonlyArray<string> | undefined = undefined",
+				original:
+					'\t\t\tif (side === "removed" ? closed || withdrawn.has(place) : proofs.has(place)) {',
+				replacement: '\t\t\tif (side === "removed" ? closed || withdrawn.has(place) : false) {',
 				why: "Marks's region reads every node a transaction wrote, so its statement reads Tag once per node, three a document, where it read it once per tag."
 			},
 			{

@@ -12,8 +12,6 @@ import {
 	type Steered
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
-import type { RoleCertificate } from "#compiler/core/certificate.ts"
-import type { Isolation } from "#compiler/core/isolation.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import { query } from "#compiler/public/query.ts"
@@ -35,9 +33,9 @@ import {
 	type CallInput,
 	callStandUps,
 	callStatements,
-	certifiedShapeTemplate,
-	type Certifier,
-	type InstalledShape
+	type InstalledShape,
+	shapeTemplate,
+	writeBegin
 } from "#test/pg/isolation/support/race.ts"
 import { Id } from "#test/support/ids.ts"
 import { replaceMigrated } from "#test/support/install-migrate.ts"
@@ -60,8 +58,12 @@ const Line = relation("Line", { invoice: Id, n: pg.integer, amount: pg.integer }
 
 const invoiceLines = counted(on(Line, "invoice"), fin(Invoice, "lines"))
 
-/** The import shape under the name `name`: the role `importer`, with its members `doc` and `post`. */
-const importShape = (name: string) => {
+/**
+ * The import shape under the name `name`: the role `importer`, with its member `doc` and, where it `posts`, `post`.
+ * Generate certifies an importer that posts SERIALIZABLE, by its post's reads of Invoice and Line, and one that only
+ * inserts Docs READ COMMITTED.
+ */
+const importShape = (posts: boolean) => (name: string) => {
 	const relations = { Doc, Invoice, Line } as const
 	const base = schema(name, Rec.values(relations), [
 		key(on(Doc, "slug")),
@@ -85,33 +87,11 @@ const importShape = (name: string) => {
 	return {
 		schema: base,
 		roles: { importer },
-		login: login(base, "app", [importer], { workload: [workload(importer, { doc, post })] })
+		login: login(base, "app", [importer], {
+			workload: [posts ? workload(importer, { doc, post }) : workload(importer, { doc })]
+		})
 	}
 }
-
-/** The certificate a race at `level` states for the importer. */
-const certificateAt = (level: Isolation): RoleCertificate =>
-	level === "readCommitted"
-		? { level }
-		: {
-				level,
-				why: {
-					kind: "own",
-					reasons: [
-						{
-							condition: "facts",
-							at: { kind: "role" },
-							detail: "the race runs the importer SERIALIZABLE"
-						}
-					]
-				}
-			}
-
-/** Every role of the shape at `level`: the certificates an installation holds for a race at that level. */
-const atLevel = (level: Isolation): Extract<Certifier, { readonly kind: "stated" }> => ({
-	kind: "stated",
-	roles: [{ login: "app", role: "importer", certificate: certificateAt(level) }]
-})
 
 /** A uuid of the races' pool. */
 const uuidOf = (n: number): string => `00000000-0000-4000-8000-${Str.padStart(12, "0")(String(n))}`
@@ -233,9 +213,6 @@ FROM pg_catalog.pg_locks AS l JOIN pg_catalog.pg_class AS c ON c.oid = l.relatio
 WHERE l.mode = 'SIReadLock' AND l.pid = ANY ($1::int4[])
 ORDER BY 2, 1`
 
-const levelSql = (level: Isolation): string =>
-	`SET TRANSACTION ISOLATION LEVEL ${level === "readCommitted" ? "READ COMMITTED" : "SERIALIZABLE"}`
-
 /** What one call showed: each statement's SQLSTATE where it failed, then its COMMIT's, none where all succeeded. */
 const failureOf = (outcomes: ReadonlyArray<ScheduleOutcome>): string | undefined => {
 	for (const o of outcomes) {
@@ -250,11 +227,12 @@ const failureOf = (outcomes: ReadonlyArray<ScheduleOutcome>): string | undefined
 }
 
 /**
- * Runs a race of disjoint keys over `s`: every session begins at `level`, each sends its call's statements one at a time
- * in turn with the others', so every transaction is open across every other's statements, the SIRead locks are read
- * while all are open, and each commits in turn. Each call's failure, and the locks.
+ * Runs a race of disjoint keys over `s`: every session begins as the importer's served writes do, at the level generate
+ * certifies it at (race.ts writeBegin), and sends its call's statements one at a time in turn with the others', so every
+ * transaction is open across every other's statements, the SIRead locks are read while all are open, and each commits
+ * in turn. Each call's failure, and the locks.
  */
-export const runDisjoint = (s: InstalledShape, race: DisjointRace, level: Isolation) =>
+export const runDisjoint = (s: InstalledShape, race: DisjointRace) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const substrate = yield* Substrate
@@ -288,9 +266,8 @@ export const runDisjoint = (s: InstalledShape, race: DisjointRace, level: Isolat
 				}
 			}
 			for (const [i] of sessions.entries()) {
-				const begun = yield* actorOf(i).perform({ _tag: "Begin" })
-				const leveled = yield* actorOf(i).perform({ _tag: "Sql", sql: levelSql(level) })
-				defined(outcomes[i], "a session's outcomes").push(begun, leveled)
+				const begun = yield* actorOf(i).perform(writeBegin(s, "importer"))
+				defined(outcomes[i], "a session's outcomes").push(begun)
 			}
 			const longest = Arr.reduce(sent, 0, (most, statements) => Math.max(most, statements.length))
 			for (let step = 0; step < longest; step++) {
@@ -327,18 +304,14 @@ export type DisjointFeature =
 	| "a CHECK refused"
 	| "a 40001 under an Invoice race"
 
-/** The import shape installed once per member with every role READ COMMITTED (race.ts certifiedShapeTemplate). */
-export const readCommittedShape = certifiedShapeTemplate(
-	import.meta,
-	"arbiter read committed",
-	importShape,
-	atLevel("readCommitted")
-)
+/**
+ * The import shape installed once per member as `grizzle generate` drafts and serves it (race.ts shapeTemplate): the
+ * importer at the level generate certifies it at, SERIALIZABLE.
+ */
+export const importTemplate = shapeTemplate(import.meta, "arbiter", importShape(true))
 
-/** The import shape installed once per member with every role SERIALIZABLE (race.ts certifiedShapeTemplate). */
-export const serializableShape = certifiedShapeTemplate(
-	import.meta,
-	"arbiter serializable",
-	importShape,
-	atLevel("serializable")
-)
+/**
+ * The import shape's Docs alone installed once per member as `grizzle generate` drafts and serves it: the importer at
+ * the level generate certifies its Doc inserts at, READ COMMITTED.
+ */
+export const docTemplate = shapeTemplate(import.meta, "arbiter docs", importShape(false))

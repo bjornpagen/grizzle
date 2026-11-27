@@ -8,12 +8,16 @@
  * parameterized by its outer row's), and a join's equalities over the side the join probes, the inner side of a nested
  * loop, a hash or a merge join, an anti or a semi join's subquery (the side a Right anti or semi join hashes is the
  * other), to a column of a relation outside that side. What it binds is what its index condition fixes of those. Every
- * condition is read as EXPLAIN (VERBOSE) prints it, each column qualified by its relation's alias.
+ * condition is read as EXPLAIN (VERBOSE) prints it, each column qualified by its relation's alias. A SubPlan or an
+ * InitPlan a scan's conditions run, a NOT EXISTS PostgreSQL keeps correlated, is a plan of its own whose scans are read
+ * as every other's, their bindings their own conditions' equalities to the outer row's columns.
  */
 
 import { regex } from "arkregex"
 import { Array as Arr, Option, String as Str } from "effect"
-import type { EstimatedNode } from "#bench/harness/explain.ts"
+import { type EstimatedNode, plansApart } from "#bench/harness/explain.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
+import { type CopyIndex, readsOneRowByKey } from "#test/pg/physical/copies.ts"
 
 /** The index of the parenthesis that closes the one at `at`, string literals and quoted names skipped, or -1. */
 const closing = (s: string, at: number): number => {
@@ -114,15 +118,23 @@ const refsOf = (side: string): ReadonlyArray<ColumnRef> =>
 	})
 
 /**
+ * An equality PostgreSQL prints by its operator's schema, `OPERATOR(<schema>.=)`, as it prints every operator its
+ * search path does not find: the vector extension's, whose B-tree class a key over a vector holds, so a probe of the
+ * key reads `(x."Bool" OPERATOR(ext.=) $1)` in its index condition.
+ */
+const qualifiedEquality = regex(' OPERATOR\\((?:"(?:[^"]|"")+"|[a-z_][a-z0-9_]*)\\.=\\) ', "g")
+
+/**
  * The columns of `alias` a condition's equalities fix, each beside the aliases its other side reads: an equality of a
- * side naming that one column alone, and of another side naming no column of `alias`.
+ * side naming that one column alone, and of another side naming no column of `alias`, an equality by an operator of a
+ * schema the search path holds or by one it names (`qualifiedEquality`).
  */
 const equatedIn = (
 	condition: string,
 	alias: string
 ): ReadonlyArray<{ readonly column: string; readonly others: ReadonlySet<string> }> =>
 	Arr.flatMap(conjunctsOf(condition), (c) => {
-		const sides = splitTop(c, " = ")
+		const sides = splitTop(Str.replaceAll(qualifiedEquality, " = ")(c), " = ")
 		if (sides.length !== 2) {
 			return []
 		}
@@ -230,7 +242,8 @@ export const scanBindings = (plan: EstimatedNode): ReadonlyArray<ScanBinding> =>
 					bound: new Set(
 						Arr.flatMap(indexConditions, (c) => Arr.map(equatedIn(c, alias), (e) => e.column))
 					)
-				}
+				},
+				...Arr.flatMap(node.children, (sub) => (plansApart(sub) ? visit(sub, []) : []))
 			]
 		}
 		const probed = probedChild(node)
@@ -246,4 +259,126 @@ export const scanBindings = (plan: EstimatedNode): ReadonlyArray<ScanBinding> =>
 		})
 	}
 	return visit(plan, [])
+}
+
+/** What a scan reads its relation through: the indexes it scans, or the table itself. */
+export const readText = (scan: ScanBinding): string =>
+	scan.nodeType === "Seq Scan" ? "a Seq Scan" : Arr.join(scan.indexes, " and ")
+
+/** The leading run of an index's key columns `columns` holds. */
+const covered = (index: CopyIndex, columns: ReadonlySet<string>): number =>
+	Option.getOrElse(
+		Arr.findFirstIndex(index.columns, (c) => !columns.has(c)),
+		() => index.columns.length
+	)
+
+/**
+ * What a scan's read selects, as the law holds it across states: the columns its index condition binds by equality in
+ * the leading run of each index it reads, the rows of that run and no others, by whichever index binds it (PostgreSQL
+ * breaks a tie between two indexes binding one run by their pages, which a rolled-back load or a VACUUM moves, as it
+ * does in production), and the index it read through, reported, never judged. A scan of the table binds no run.
+ */
+export interface Read {
+	readonly run: string
+	readonly through: string
+}
+
+/** The read of `scan` over `indexes` (Read). */
+export const readOf = (indexes: ReadonlyArray<CopyIndex>, scan: ScanBinding): Read => {
+	const used = Arr.filter(indexes, (i) => scan.indexes.includes(i.name))
+	const run: ReadonlyArray<string> = Arr.flatMap(used, (i) =>
+		i.columns.slice(0, covered(i, scan.bound))
+	)
+	return {
+		run: scan.nodeType === "Seq Scan" ? "" : Arr.join(Arr.sort(Arr.dedupe(run), Str.Order), ", "),
+		through: readText(scan)
+	}
+}
+
+/** Whether `index` is a key's whose every column `columns` holds. */
+export const keyIn = (index: CopyIndex, columns: ReadonlySet<string>): boolean =>
+	index.unique && index.columns.length > 0 && Arr.every(index.columns, (c) => columns.has(c))
+
+/**
+ * The law's judgment of one scan (see plan-shape.test.ts): a scan whose binding holds a key reads at most one row by a
+ * key, the leading run of its index's columns that its index condition binds by equality holding a key's every column
+ * (copies.ts readsOneRowByKey); any other binds by its index condition as long a run of its binding as any B-tree of the
+ * relation does, none if none binds any, and never scans the table where one does: a member's binding of no column the
+ * schema scopes its rows by, which spans its units, too, its index's lead an anchor the declaration pairs with the
+ * unit's (physical/statistics/declared.ts spanningLeads), so a missed index is a red, never a scan.
+ */
+export const judged = (
+	indexes: ReadonlyArray<CopyIndex>,
+	label: string,
+	scan: ScanBinding
+): Option.Option<string> => {
+	const used = Arr.filter(indexes, (i) => scan.indexes.includes(i.name))
+	if (Arr.some(indexes, (i) => keyIn(i, scan.binding))) {
+		return Arr.some(used, (i) => readsOneRowByKey(indexes, i, scan.bound))
+			? Option.none()
+			: Option.some(
+					`${label} binds a key and reads ${readText(scan)}, binding (${Arr.join([...scan.bound], ", ")}), no run of whose index holds a key`
+				)
+	}
+	const best = Arr.reduce(
+		Arr.filter(indexes, (i) => i.method === "btree"),
+		0,
+		(most, i) => Math.max(most, covered(i, scan.binding))
+	)
+	const reached = Arr.reduce(used, 0, (most, i) => Math.max(most, covered(i, scan.bound)))
+	return best === 0 || reached >= best
+		? Option.none()
+		: Option.some(
+				`${label} reads ${readText(scan)}, binding ${reached} of its columns where an index of the relation binds ${best}`
+			)
+}
+
+/**
+ * The coordinates the delta of each side of a judged containment asks the judge to read the other side at, by the
+ * side's table, schema-qualified and quoted: the unit's fields and the side's paired fields. A judge that reads a side by
+ * fewer of them reads every row of the unit they leave, where its delta names the rows a write changed.
+ */
+export type Asked = ReadonlyMap<string, ReadonlyArray<string>>
+
+/**
+ * The law over one statement of a rule judge, `name`, by its plan (plan-shape.test.ts): each scan of a table `indexes`
+ * holds, a scan a SubPlan of another's conditions runs among them (`scanBindings`), judged as `judged` judges a scan,
+ * and each scan of a side of the judged containment binding every coordinate its delta asks for (`Asked`); with what
+ * each scan reads, by the statement and the scan's alias.
+ */
+export const judgeScans = (
+	plan: EstimatedNode,
+	indexes: ReadonlyMap<string, ReadonlyArray<CopyIndex>>,
+	asked: Asked,
+	name: string
+): {
+	readonly reads: ReadonlyArray<readonly [read: string, scan: Read]>
+	readonly problems: ReadonlyArray<string>
+} => {
+	const judgedScans = Arr.flatMap(scanBindings(plan), (scan) => {
+		const table = `${quoteIdent(scan.schema)}.${quoteIdent(scan.relation)}`
+		const of = indexes.get(table)
+		if (of === undefined) {
+			return []
+		}
+		const read = `${name}'s scan of ${scan.relation} as ${scan.alias}`
+		const coordinates = asked.get(table) ?? []
+		return [
+			{
+				read: [read, readOf(of, scan)] as const,
+				problems: [
+					...Option.toArray(judged(of, read, scan)),
+					...(Arr.every(coordinates, (c) => scan.binding.has(c))
+						? []
+						: [
+								`${read} binds (${Arr.join([...scan.binding], ", ")}), where its delta asks for (${Arr.join(coordinates, ", ")}): it reads the unit, not the rows a write changed`
+							])
+				]
+			}
+		]
+	})
+	return {
+		reads: Arr.map(judgedScans, (j) => j.read),
+		problems: Arr.flatMap(judgedScans, (j) => j.problems)
+	}
 }

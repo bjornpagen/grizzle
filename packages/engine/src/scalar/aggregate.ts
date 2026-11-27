@@ -281,6 +281,8 @@ const catalogName = (t: ScalarType): string => {
 			return "vector"
 		case "tsvector":
 			return "tsvector"
+		case "variant":
+			return "record"
 	}
 }
 

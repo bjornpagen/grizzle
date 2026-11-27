@@ -87,8 +87,8 @@ const caseBlock = (c: EntryOwnerCase, index: number): ReadonlyArray<string> => {
 	const name = roleName(c.holds, c.filter)
 	const fact =
 		c.fact === "stated"
-			? `{ id: Id("00000000-0000-4000-8000-000000000001"), label: "a" }`
-			: `{ id: Id("00000000-0000-4000-8000-000000000001"), label: "a", items: 0n }`
+			? `{ id: toId("00000000-0000-4000-8000-000000000001"), label: "a" }`
+			: `{ id: toId("00000000-0000-4000-8000-000000000001"), label: "a", items: 0n }`
 	return Str.split(
 		`// ${c.op} of ${c.fact} through ${entry}
 export const write${index} = ChangeSet.empty(${name}).${c.op}(

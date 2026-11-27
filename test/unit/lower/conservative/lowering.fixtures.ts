@@ -25,8 +25,10 @@ import {
 } from "#compiler/lower/conservative/types.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import type { OperandSelect, Select } from "#compiler/sql/ast.ts"
+import { types } from "#compiler/sql/build.ts"
 import { freshNames } from "#compiler/sql/naming.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
+import { carrierColumnDef } from "#compiler/write/carriers/carriers.ts"
 import { breachGuard } from "#compiler/write/refusal.ts"
 import { closed, decodedSchema, f, relation } from "#test/support/fixtures/ir/desc.ts"
 import {
@@ -86,7 +88,12 @@ export const optionsFor = (
 					deltas: () => ({
 						kind: "carrier",
 						carrier: unitCarrierName(1),
-						table: ["c1", "c2", "c3", "c4"],
+						table: [
+							carrierColumnDef("c1", types.uuid),
+							carrierColumnDef("c2", types.uuid),
+							carrierColumnDef("c3", types.smallint),
+							carrierColumnDef("c4", types.bigint)
+						],
 						columns: [
 							{ field: "id", column: "c1" },
 							{ field: "account", column: "c2" },
@@ -96,8 +103,9 @@ export const optionsFor = (
 					}),
 					breach: breachGuard("Ledger"),
 					start: freshNames,
-					templates: new DagTemplates(),
-					bound: () => undefined
+					templates: new DagTemplates("derivation"),
+					bound: () => undefined,
+					admission: "write"
 				}
 })
 

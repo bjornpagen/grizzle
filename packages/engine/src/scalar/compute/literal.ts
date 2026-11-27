@@ -208,7 +208,7 @@ export const literalAt: {
 export const admittedLiteral = (value: LiteralDesc, t: ScalarType): TypedLiteral => {
 	const literal = literalOf(value, t)
 	if (!literal.ok) {
-		throw defect(`an admitted cell is a value of its field's type: ${literal.error}`)
+		defect(`an admitted cell is a value of its field's type: ${literal.error}`)
 	}
 	return literal.value
 }
@@ -383,6 +383,10 @@ const literalOf = (value: LiteralDesc, t: ScalarType): Result.Result<TypedLitera
 			return Result.err(
 				"a literal of an exact value's family: opposite an exact integer a bigint literal, opposite exact money a Money"
 			)
+		case "variant":
+			return Result.err(
+				"a variant's value made of its arm's fields, V.make(tag, { …fields }), its one spelling, never a literal"
+			)
 	}
 }
 
@@ -395,7 +399,7 @@ const spanHost = (
 	literal: Extract<TypedLiteral, { readonly kind: "span" }>
 ): Span<number> | Span<bigint> | Span<CalendarDate> => {
 	if (carrier !== "range4" && carrier !== "range8" && carrier !== "rangeDate") {
-		throw defect(`a span literal is a value of a span type, not of ${carrier}`)
+		defect(`a span literal is a value of a span type, not of ${carrier}`)
 	}
 	switch (carrier) {
 		case "range4":
@@ -431,7 +435,7 @@ export const integerHostOf = (carrier: Carrier, value: bigint): number | bigint 
 const integerOfLiteral = (d: Decimal): bigint => {
 	const x = integerOfDecimal(d)
 	if (x === undefined) {
-		throw defect("a literal of numeric(p, 0) is an integer")
+		defect("a literal of numeric(p, 0) is an integer")
 	}
 	return x
 }
@@ -531,13 +535,15 @@ export const literalOfHost = (value: HostValue, type: ScalarType): TypedLiteral 
 		case "vector": {
 			const text = Vector.canonical(hostOf("vector", value))
 			if (!text.ok) {
-				throw defect(`a constant of ${typeLabel(type)} is a vector of finite components`)
+				defect(`a constant of ${typeLabel(type)} is a vector of finite components`)
 			}
 			return { kind: "vector", value: text.value }
 		}
 		case "bytes":
-			throw defect(`a constant of ${typeLabel(type)}: a bytes value has no literal`)
+			defect(`a constant of ${typeLabel(type)}: a bytes value has no literal`)
 		case "tsvector":
-			throw defect(`a constant of ${typeLabel(type)}: a search document has no literal`)
+			defect(`a constant of ${typeLabel(type)}: a search document has no literal`)
+		case "variant":
+			defect(`a constant of ${typeLabel(type)}: a variant has no literal, only its make`)
 	}
 }

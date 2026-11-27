@@ -249,7 +249,7 @@ export const buildOf = (spec: Spec): Built => {
 			? containedBuilder(onBuilder(M, ["o", "x"]), onBuilder(owners, ["id", "x"]))
 			: undefined
 	const checked = spec.checked
-		? check("OneOrNone", O, (o) => o.or(o.eq(o.n, 1n), o.eq(o.x, 0n)))
+		? check("OneOrNone", O, (o) => o.or([o.eq(o.n, 1n), o.eq(o.x, 0n)]))
 		: undefined
 	const statements: ReadonlyArray<Statement> = [
 		family,

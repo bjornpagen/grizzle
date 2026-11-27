@@ -49,7 +49,7 @@ export const intervalBox: FiniteSpace<IntervalCase> = finite((source) => {
 /** A bigint contract within [low, high], whose predicate's atoms are its bounds (typing.ts boundsOfType). */
 const within = (name: string, low: number, high: number): TestField =>
 	testContract(name, testPg.bigint, (x) =>
-		computeCore.and(computeCore.ge(x, BigInt(low)), computeCore.le(x, BigInt(high)))
+		computeCore.and([computeCore.ge(x, BigInt(low)), computeCore.le(x, BigInt(high))])
 	)
 
 /** The operation's term over the variables x and y. */

@@ -492,7 +492,7 @@ export const evidenceAndItsValidityContextLawSpecializationStatesWhichContainmen
 						const intoClosed = (k: (typeof t.evidence.containments)[number]) =>
 							t.relations[k.to.relation]?.kind === "closed"
 						for (const k of t.evidence.containments) {
-							if (k.statement !== "contained" || intoClosed(k)) {
+							if (intoClosed(k)) {
 								continue
 							}
 							assert.equal(

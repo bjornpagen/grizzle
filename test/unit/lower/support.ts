@@ -1,3 +1,4 @@
+import type { Realization } from "#compiler/analysis/physical/props.ts"
 import type { NodeOf, RelKind, RelNode } from "#compiler/ir/rel.ts"
 
 /**
@@ -25,3 +26,9 @@ export const nodeOfKind = <K extends RelKind>(node: RelNode, kind: K): NodeOf<K>
 	}
 	return node
 }
+
+/**
+ * The realization of a DAG a share planning is tested on without a placement (lower/optimize/dedup): no node behind a
+ * DISTINCT, so the planning reads none of them as read whole at each read (cte-policy readWhole) for it.
+ */
+export const placedPlain = (): Realization => "plain"

@@ -188,39 +188,135 @@ const lateralReaderCase = (): QueryCase => {
 			]
 		],
 		(q, base) => {
-			const first = base(r0)
-			const inner = q.regionWith([{ source: base(r0), bind: { a: "a" }, constants: {} }], {
-				...plainRegion,
-				correlated: [{ name: "at", type: int4, expr: q.col(first, "a") }]
-			})
-			const read = q.region([
-				{ source: first, bind: { a: "a" }, constants: {} },
-				{ source: inner, bind: { at: "at" }, constants: {} }
-			])
-			const beside = q.regionWith([{ source: base(r0), bind: { a: "b" }, constants: {} }], {
-				...plainRegion,
-				correlated: [{ name: "at", type: int4, expr: q.col(read, "a") }]
-			})
-			const tested = q.region([
-				{ source: read, bind: { a: "a" }, constants: {} },
-				{ source: beside, bind: { b: "b" }, constants: {} }
-			])
+			const tested = lateralReader(q, () => base(r0))
 			const all = q.region([{ source: base(r0), bind: { a: "a" }, constants: {} }])
 			return q.semi(all, tested, [["a", "a"]])
 		}
 	)
 }
 
+/**
+ * lateralReaderCase's tested region over R0 (`r0`): the region matching R0 and, at its a, a region over R0 correlated to
+ * that R0's a, beside a third region correlated to the first's a.
+ */
+const lateralReader = (q: Q, r0: () => RelNode): RelNode => {
+	const first = r0()
+	const inner = q.regionWith([{ source: r0(), bind: { a: "a" }, constants: {} }], {
+		...plainRegion,
+		correlated: [{ name: "at", type: int4, expr: q.col(first, "a") }]
+	})
+	const read = q.region([
+		{ source: first, bind: { a: "a" }, constants: {} },
+		{ source: inner, bind: { at: "at" }, constants: {} }
+	])
+	const beside = q.regionWith([{ source: r0(), bind: { a: "b" }, constants: {} }], {
+		...plainRegion,
+		correlated: [{ name: "at", type: int4, expr: q.col(read, "a") }]
+	})
+	return q.region([
+		{ source: read, bind: { a: "a" }, constants: {} },
+		{ source: beside, bind: { b: "b" }, constants: {} }
+	])
+}
+
+/**
+ * lateralReaderCase's tested region read twice by one region beside R0, so the statement shares it as a CTE of its own,
+ * whose body every read of the first region, held as a CTE, stands in: its holder is the first region on its chain of
+ * dominators (cte-policy holderOf), inside that CTE's body. Since the rewrites read lateralReaderCase's tested region once,
+ * inline under its semi-join, that case holds no CTE either way; here the outermost holder, the root region, held the
+ * first region's CTE in the root's query while its reads stood in the shared CTE's body, out of its reach ("select reads
+ * the CTE ... where no WITH in reach binds it"). R0 holds a = 1 and a = 2: 16 rows.
+ */
+const sharedLateralReaderCase = (): QueryCase => {
+	const r0 = keyed("R0", ["k", "a"])
+	return keptCase(
+		[
+			[
+				r0,
+				[
+					[1, 1],
+					[2, 2]
+				]
+			]
+		],
+		(q, base) => {
+			const tested = lateralReader(q, () => base(r0))
+			return q.region([
+				{ source: base(r0), bind: { a: "a" }, constants: {} },
+				{ source: tested, bind: { a: "a", b: "b" }, constants: {} },
+				{ source: tested, bind: { a: "a2", b: "b2" }, constants: {} }
+			])
+		}
+	)
+}
+
+/**
+ * A region's chain led by a closed relation K0 (p0, p1), its second step a take of one row per p0 of K1 (p0, p1),
+ * correlated to the lead's p1 and bound at p0 to the lead's p0: a source the chain reads at the key set of the rows
+ * before it (lower/shapes/region heldChain), whose correlation reads a column of the lead no class of its key, p0's,
+ * holds. Its rows are each lead row's own, at its p1, never one key's, so the chain reads it per row, fenced (atKeySet);
+ * read at its key set, its correlation would read the lead's p1 where only the key is in scope, and the optimized
+ * lowering refuse the query ("a column ... of a node in scope"). Each lead row (a, b) keeps the first K1 row at p0 = b
+ * where its p0 is a: (1, 1) takes (1, 1), (2, 2) takes (2, 1), and (2, 1) takes (1, 1), whose p0 is no 2. Its schema
+ * holds an empty R0 (k), which the query never reads: an installation has a relation.
+ */
+const unheldCorrelationCase = (): QueryCase =>
+	keptCase([[keyed("R0", ["k"]), []]], (q) => {
+		const heading = [
+			{ name: "p0", type: int4 },
+			{ name: "p1", type: int4 }
+		]
+		const lead = q.closed(
+			"K0",
+			heading,
+			factsOf([
+				[1, 1],
+				[2, 1],
+				[2, 2]
+			])
+		)
+		const pool = q.closed(
+			"K1",
+			heading,
+			factsOf([
+				[1, 1],
+				[1, 3],
+				[2, 1],
+				[2, 5]
+			])
+		)
+		const taken = q.take(
+			pool,
+			{
+				keys: [
+					{ column: "p0", dir: "asc" },
+					{ column: "p1", dir: "asc" }
+				]
+			},
+			{ kind: "literal", k: 1n },
+			[{ column: "p0", expr: q.col(lead, "p1") }],
+			conservativeMeta
+		)
+		return q.region([
+			{ source: lead, bind: { p0: "p0", p1: "p1" }, constants: {} },
+			{ source: taken, bind: { p0: "p0", p1: "taken" }, constants: {} }
+		])
+	})
+
 /** An integer stored in its canonical spelling. */
 const storedInt = (value: number): SpelledValue =>
 	canonicallySpelled(literalOfValue(BigInt(value), int4))
 
 /**
- * The per-evaluation population's escaped counterexamples, each a red it caught, kept by value since no population
- * draws a hand-built query (toolchain-test keep reaches none), recorded beside the population (gen.ts recorded): the two
+ * The per-evaluation population's escaped counterexamples, each a red it caught or a shape a kill needs that it never
+ * draws, kept by value since no population draws a hand-built query (toolchain-test keep reaches none), recorded beside
+ * the population (gen.ts recorded): the two
  * lateral constants' regions, the semi-join of a group with itself, page/generated-optimized's counterexample at
- * TEST_SEED=28094260, the fold attached on two pairs that name one key of it (TEST_SEED=1951254937, case 107), and a
- * region another reads laterally under a semi-join (lateralReaderCase).
+ * TEST_SEED=28094260, the fold attached on two pairs that name one key of it (TEST_SEED=1951254937, case 107), a
+ * region another reads laterally under a semi-join (lateralReaderCase), and a chain's take correlated to a column of
+ * the lead its key set holds no class of (unheldCorrelationCase), which the key-sets population reaches never: the kept
+ * case of the fallback that reads such a source per row; and lateralReaderCase's tested region shared as a statement CTE
+ * (sharedLateralReaderCase), the kept case of a first region held in the first holder.
  */
 const escapedCounterexamples: Arr.NonEmptyReadonlyArray<QueryCase> = [
 	lateralConstantCase((s0) => ({ source: s0, bind: { a: "a" }, constants: {} })),
@@ -235,7 +331,9 @@ const escapedCounterexamples: Arr.NonEmptyReadonlyArray<QueryCase> = [
 			[storedInt(2), storedInt(2)]
 		]
 	),
-	lateralReaderCase()
+	lateralReaderCase(),
+	unheldCorrelationCase(),
+	sharedLateralReaderCase()
 ]
 
 /**

@@ -82,7 +82,7 @@ const widened = (program: CompiledWrite): CompiledWrite => {
 		fill,
 		evaluation: {
 			closed: [...frontend.schema.closed.keys()],
-			patterns: evaluationOf(frontend, fill).patterns
+			patterns: evaluationOf(frontend, fill, program.binding.computed).patterns
 		}
 	}
 	return { ...program, binding }

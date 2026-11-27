@@ -84,6 +84,7 @@ const spaceOf = (t: ScalarType): Space | undefined => {
 		case "rangeDate":
 		case "vector":
 		case "tsvector":
+		case "variant":
 			return undefined
 	}
 }
@@ -274,7 +275,7 @@ const exactIn = (
 		case "netWithin":
 		case "netStrictlyWithin":
 		case "netOverlaps":
-		case "canonicalZero":
+		case "canonical":
 			return undefined
 	}
 }

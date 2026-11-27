@@ -34,6 +34,7 @@ import { hasProperties } from "#compiler/core/record.ts"
 import type { ExprDesc, FieldDesc, LiteralDesc, PgScalarName } from "#compiler/ir/desc.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
 import {
+	baseOf,
 	capsOf,
 	type Carrier,
 	type ExactValueCarrier,
@@ -159,8 +160,16 @@ export const registryBuild = (t: ScalarType): ScalarType =>
 const envRoster = (env: ScalarEnv, name: string): Roster =>
 	defined(env.roster(parsedName(name)), name)
 
-/** The roster the registry resolves `t`'s closedId by: its own, or none. */
+/** The rosters the registry resolves `t` by: a closed id's, or a variant's tag's and its arms' fields'; none for another. */
 const rostersOf = (t: ScalarType): Readonly<Record<string, ReadonlyArray<string>>> => {
+	const base = baseOf(t)
+	if (base.carrier === "variant") {
+		return Arr.reduce(
+			Arr.flatMap(base.variant.arms, (arm) => Arr.map(arm.fields, (f) => rostersOf(f.type))),
+			{ [base.variant.roster.closed]: base.variant.roster.handles },
+			(held: Readonly<Record<string, ReadonlyArray<string>>>, more) => ({ ...held, ...more })
+		)
+	}
 	const roster = rosterOf(t)
 	return roster === undefined ? {} : { [roster.closed]: roster.handles }
 }
@@ -453,6 +462,32 @@ export const describes = (t: ScalarType, desc: FieldDesc, env: ScalarEnv, at: st
 			describes(c.base, desc.base, env, `${at} base`)
 			return
 		}
+		case "variant": {
+			const base = baseOf(t)
+			if (base.carrier !== "variant") {
+				return assert.fail(`${at}: a variant`)
+			}
+			assert.equal<string>(base.variant.name, desc.name, at)
+			assert.equal<string>(base.variant.roster.closed, desc.roster, at)
+			assert.deepEqual<ReadonlyArray<string>>(
+				Arr.map(base.variant.arms, (a) => a.handle),
+				Arr.map(desc.arms, (a) => a.handle),
+				at
+			)
+			for (const [i, arm] of desc.arms.entries()) {
+				const held = defined(base.variant.arms[i], `${at} arm ${arm.handle}`)
+				assert.deepEqual<ReadonlyArray<string>>(
+					Arr.map(held.fields, (f) => f.name),
+					Arr.map(arm.fields, (f) => f.name),
+					`${at} arm ${arm.handle}`
+				)
+				for (const [j, f] of arm.fields.entries()) {
+					const field = defined(held.fields[j], `${at} ${arm.handle}.${f.name}`)
+					describes(field.type, f.desc, env, `${at} ${arm.handle}.${f.name}`)
+				}
+			}
+			return
+		}
 	}
 }
 
@@ -529,6 +564,8 @@ export const contentOf = (desc: FieldDesc, env: ScalarEnv): Content => {
 				base: contentOf(desc.base, env),
 				predicate: env.kind === "schema" && desc.predicate !== undefined
 			}
+		case "variant":
+			throw new Error("no registry case declares a variant")
 	}
 }
 

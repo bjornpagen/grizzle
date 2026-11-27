@@ -39,6 +39,13 @@ export type Read = "no read-back" | "the target alone" | "the target's marked it
 /** Where `target` is bound: once on the whole ChangeSet, or by each sequenced part that reads it, on its own. */
 export type Bound = "on the whole" | "on each part"
 
+/**
+ * What `target`'s query reads: the items no mark holds, Item and Mark, which the call's marks change; or the items
+ * alone, which no stratum of the call writes, so every state of the call reads one target (write/frontend/compile.ts
+ * `agrees`).
+ */
+export type Over = "the unmarked items" | "the items"
+
 export interface OnceCase {
 	readonly items: ReadonlyArray<number>
 	readonly marks: ReadonlyArray<number>
@@ -48,6 +55,7 @@ export interface OnceCase {
 	readonly logged: Logged
 	readonly read: Read
 	readonly bound: Bound
+	readonly over: Over
 }
 
 /**
@@ -67,8 +75,9 @@ export const onceGen: Gen<OnceCase> = (source) => {
 		element(["no read-back", "the target alone", "the target's marked items"] as const)
 	)
 	const bound = source.draw(element(["on the whole", "on each part"] as const))
+	const over = source.draw(element(["the unmarked items", "the items"] as const))
 	const unread = logged === "nowhere" && read === "no read-back"
-	return { items, marks, marked: unread ? "the target" : marked, drawn, logged, read, bound }
+	return { items, marks, marked: unread ? "the target" : marked, drawn, logged, read, bound, over }
 }
 
 export const situations = [
@@ -82,6 +91,9 @@ export const situations = [
 	"the target's marked items",
 	"on the whole",
 	"on each part",
+	"the unmarked items",
+	"the items",
+	"a binding read where the call writes none of what it reads",
 	"a later part's binding, after the earlier part's writes",
 	"a binding read after the first stratum, its re-evaluation another target",
 	"a read-back carried past its part's later binding"
@@ -89,11 +101,12 @@ export const situations = [
 
 export type Situation = (typeof situations)[number]
 
-/** The query `target` is bound to: the items no mark holds, which the call's marks take out of it. */
-const targetOf = (): QueryValue =>
+/** The query `target` is bound to: the items no mark holds, which the call's marks take out of it, or the items. */
+const targetOf = (over: Over): QueryValue =>
 	queryOver(Once).rule((r: RuleValue) => {
 		const { id } = varsOver(Item, "item")
-		return r.match(Item, { id }).where(r.not(Mark, { id })).find({ id })
+		const items = r.match(Item, { id })
+		return (over === "the items" ? items : items.where(r.not(Mark, { id }))).find({ id })
 	})
 
 /** The facts of the relation parameter `target`, of Item's heading. */
@@ -115,7 +128,7 @@ const markedTarget =
 		})
 
 /** Whether the case has a second part, sequenced after the first: its log of the target. */
-const twoParts = (c: OnceCase): boolean => c.logged === "in a second stratum"
+export const twoParts = (c: OnceCase): boolean => c.logged === "in a second stratum"
 
 /** Whether the first part reads `target`: its mark of the target, its log, or the read-back it declares as the last. */
 const firstReads = (c: OnceCase): boolean =>
@@ -139,14 +152,14 @@ export const changeOf = (c: OnceCase): ChangeSetValue => {
 			? change
 			: change.read("picked", c.read === "the target alone" ? () => fromTarget() : markedTarget())
 	const part = (change: ChangeSetValue, reads: boolean): ChangeSetValue =>
-		c.bound === "on each part" && reads ? change.bind({ target: targetOf() }) : change
+		c.bound === "on each part" && reads ? change.bind({ target: targetOf(c.over) }) : change
 	const whole = twoParts(c)
 		? ChangeSet.sequence(
 				part(logged, firstReads(c)),
 				part(reading(ChangeSet.empty(Once).insert(Log, fromTarget())), true)
 			)
 		: part(reading(logged), firstReads(c))
-	return c.bound === "on the whole" ? whole.bind({ target: targetOf() }) : whole
+	return c.bound === "on the whole" ? whole.bind({ target: targetOf(c.over) }) : whole
 }
 
 /** The facts a call of the case's served ChangeSet gives its array member, the drawn ids' marks: a served change's
@@ -175,9 +188,9 @@ export const carriedPastBinding = (c: OnceCase): boolean =>
 const sorted = (values: Iterable<number>): ReadonlyArray<number> =>
 	Arr.sort([...new Set(values)], Order.Number)
 
-/** The target before the change, T0, the items no stored mark holds. */
+/** The target before the change, T0, the items no stored mark holds, or every item. */
 const targetBefore = (c: OnceCase): ReadonlyArray<number> =>
-	Arr.filter(c.items, (id) => !c.marks.includes(id))
+	c.over === "the items" ? c.items : Arr.filter(c.items, (id) => !c.marks.includes(id))
 
 /** Mark after the first stratum: the stored marks and the target's items or the drawn ids. */
 const marksAfter = (c: OnceCase): ReadonlyArray<number> =>
@@ -186,7 +199,7 @@ const marksAfter = (c: OnceCase): ReadonlyArray<number> =>
 /** The second part's target: on each part, its own binding, evaluated after the first stratum, T1, the items no mark
  * holds then; on the whole, the one binding before the change, T0. */
 const laterTarget = (c: OnceCase): ReadonlyArray<number> =>
-	c.bound === "on each part" && twoParts(c)
+	c.bound === "on each part" && twoParts(c) && c.over === "the unmarked items"
 		? Arr.filter(c.items, (id) => !marksAfter(c).includes(id))
 		: targetBefore(c)
 
@@ -222,7 +235,25 @@ export const modelOf = (c: OnceCase): Model => {
 /** Whether the first stratum takes an item out of the target before the change, so a reader after it that evaluated
  * the target again would read another than the binding's. */
 const firstTakes = (c: OnceCase): boolean =>
-	Arr.some(targetBefore(c), (id) => marksAfter(c).includes(id))
+	c.over === "the unmarked items" && Arr.some(targetBefore(c), (id) => marksAfter(c).includes(id))
+
+/**
+ * The bindings of `target` the call carries, filled first among their stratum's statements (write/schedule/plan.ts
+ * step `bound`): a binding over the items is read the same in every state of the call, so it is a part of every
+ * reader's query; one over the unmarked items is carried where a reader reads a state after the first stratum's
+ * marks: on the whole, where the second part or a read-back reads it; on each part, the first part's where the
+ * read-back of the one part reads it after the marks, and never the second part's, whose readers, its log and the
+ * read-back, read the state after the marks, which only the log's insert into Log follows.
+ */
+export const carriedBindings = (c: OnceCase): number => {
+	if (c.over === "the items") {
+		return 0
+	}
+	if (c.bound === "on the whole") {
+		return twoParts(c) || c.read !== "no read-back" ? 1 : 0
+	}
+	return firstReads(c) && !twoParts(c) && c.read !== "no read-back" ? 1 : 0
+}
 
 /** Whether the second part's own binding reads the first stratum's writes: on each part, a target the first stratum
  * changed. */

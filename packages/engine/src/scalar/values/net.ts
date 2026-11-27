@@ -695,7 +695,7 @@ export const netOverlaps = (a: NetValue, b: NetValue): boolean =>
 export const netValueOf = (text: string, carrier: NetCarrier): NetValue => {
 	const parsed = parseNet(text, carrier)
 	if (!parsed.ok) {
-		throw defect(`a ${carrier} text PostgreSQL or an admission wrote, unread: ${parsed.error}`)
+		defect(`a ${carrier} text PostgreSQL or an admission wrote, unread: ${parsed.error}`)
 	}
 	return parsed.value
 }

@@ -1,19 +1,47 @@
 import { Logic, Type } from "#compiler/public/compute.ts"
-import { bits, closedId, contract, Decimal, date, pg, span } from "#compiler/public/fields.ts"
+import {
+	bits,
+	closedId,
+	contract,
+	date,
+	Decimal,
+	mintOf,
+	pg,
+	span
+} from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { Id } from "#test/support/ids.ts"
+import { Id, idKey } from "#test/support/ids.ts"
 
 export const Tone = closed.ordered("Tone", ["low", "high"])
 const Shade = closed.ordered("Shade", ["low", "dark"])
 /** Tone's handles in a roster whose order means nothing: a closed id of it has no order, which no ordered operation reads. */
 export const Hue = closed.unordered("Hue", ["low", "high"])
-const Cents = contract("Cents", pg.bigint, (x) => Logic.ge(x, 0n), { proves: ["nonnegative"] })
-const EpochDay = contract("EpochDay", pg.bigint)
-const Rate = contract("Rate", pg.numeric(7, 6), (x) => Logic.between(x, 0n, 1n))
-const Divisor = contract("Divisor", pg.integer, (x) => Logic.ne(x, 0), { proves: ["nonzero"] })
-const Body = contract("Body", str.regex("^.*$", "su"))
+export const centsKey = Symbol("Cents")
+const Cents = contract<typeof centsKey>()("Cents", pg.bigint, (x) => Logic.ge(x, 0n), {
+	proves: ["nonnegative"]
+})
+export const epochDayKey = Symbol("EpochDay")
+const EpochDay = contract<typeof epochDayKey>()("EpochDay", pg.bigint)
+export const rateKey = Symbol("Rate")
+const Rate = contract<typeof rateKey>()("Rate", pg.numeric(7, 6), (x) => Logic.between(x, 0n, 1n))
+export const divisorKey = Symbol("Divisor")
+const Divisor = contract<typeof divisorKey>()("Divisor", pg.integer, (x) => Logic.ne(x, 0), {
+	proves: ["nonzero"]
+})
+export const bodyKey = Symbol("Body")
+const Body = contract<typeof bodyKey>()("Body", str.regex("^.*$", "su"))
+
+/**
+ * The mints of Cell's contracts' values, which a program's typed constant and a conditional's literal arm of a contract
+ * take (test/support/agreement/compute.ts); each contract's key above is what a cast into it takes.
+ */
+export const toCents = mintOf(centsKey)
+export const toEpochDay = mintOf(epochDayKey)
+export const toRate = mintOf(rateKey)
+export const toDivisor = mintOf(divisorKey)
+export const toBody = mintOf(bodyKey)
 
 /**
  * The relation the scalar type/engine agreement draws its cases over (test/support/agreement/compute.ts), over a Rate
@@ -58,6 +86,19 @@ const cellOver = (rate: typeof Rate) =>
 		["id"]
 	)
 
+/**
+ * The key a cast into each of Cell's contract fields takes, by the field: its id's the tests' Id's, and each of the
+ * catalogue's (types/fields MintKey).
+ */
+export const cellKeys: Readonly<Record<string, symbol>> = {
+	id: idKey,
+	cents: centsKey,
+	epoch: epochDayKey,
+	rate: rateKey,
+	divisor: divisorKey,
+	body: bodyKey
+}
+
 /** Cell over Rate, the relation the population's programs read. */
 export const Cell = cellOver(Rate)
 
@@ -85,8 +126,8 @@ export const Tuning = closed.relation(
 			int: 2,
 			big: 1_000_000_000_000n,
 			dec: Decimal.of("12.50"),
-			cents: Cents(0n),
-			divisor: Divisor(3)
+			cents: toCents(0n),
+			divisor: toDivisor(3)
 		},
 		{
 			tone: "high",
@@ -94,8 +135,8 @@ export const Tuning = closed.relation(
 			int: -3,
 			big: -5n,
 			dec: Decimal.of("-99999999.99"),
-			cents: Cents(42n),
-			divisor: Divisor(-2)
+			cents: toCents(42n),
+			divisor: toDivisor(-2)
 		}
 	]
 )
@@ -135,7 +176,7 @@ export const Heads = headsOver(Cells, Cell)
  * declared facts already. Where the engine refuses a case for a contract's predicate (ContractLiteral), the population
  * judges it over this schema too: a refusal here is one the types decide, and any other is theirs to state.
  */
-const RateAsTyped = contract("Rate", pg.numeric(7, 6))
+const RateAsTyped = contract<typeof rateKey>()("Rate", pg.numeric(7, 6))
 const CellAsTyped = cellOver(RateAsTyped)
 const CellsAsTyped = schema("Cells", [Tone, Shade, Hue, CellAsTyped], [])
 

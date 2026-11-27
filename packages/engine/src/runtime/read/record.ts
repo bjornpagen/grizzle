@@ -1,5 +1,5 @@
 import { maxOf } from "@bjornpagen/grizzle-text/base/array"
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
@@ -22,10 +22,12 @@ import {
 	rowText,
 	UnlawfulDelivery
 } from "#compiler/core/decoder.ts"
+import { sha256FromText } from "#compiler/core/digest.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
-import { converterOf } from "#compiler/scalar/values/convert.ts"
+import { variantLayout } from "#compiler/ir/codes.ts"
+import { converterOf, recordAttributeTexts } from "#compiler/scalar/values/convert.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 
@@ -96,14 +98,15 @@ const constantOf = (
 				return value
 			}
 		}
-		throw defect("a cell of head literals' column converts to one of them")
+		defect("a cell of head literals' column converts to one of them")
 	}
 }
 
 /**
  * A text cell's conversion under its column: its conversion, the head literal it converts to, the text itself for a
- * refined text, the handle the installation's names give a closed id's code, and a fresh set of the handles a bit
- * string's 1 bits name, position i code i. A bytes column has no text conversion: its cell is its value (`fieldReader`).
+ * refined text, the handle the installation's names give a closed id's code, a fresh set of the handles a bit
+ * string's 1 bits name, position i code i, and a variant's tag and arm (variantConversion). A bytes column has no text
+ * conversion: its cell is its value (`fieldReader`).
  */
 const cellConversion = (
 	column: Exclude<ColumnForm, { readonly kind: "bytes" }>,
@@ -133,6 +136,63 @@ const cellConversion = (
 				return members
 			}
 		}
+		case "variant":
+			return variantConversion(column, names)
+	}
+}
+
+/**
+ * The conversion of one attribute of a variant's composite under its field's column, as record_out writes it: the
+ * column's own conversion, but a digest's, which record_out writes as byteaout's hex (core/digest.ts sha256FromText),
+ * never as the wire text its own column's delivery sends. No arm holds bytes (scalar/registry.ts isArmFieldType).
+ */
+const attributeConversion = (
+	column: ColumnForm,
+	names: CodeNames
+): ((text: OutputText) => unknown) => {
+	if (column.kind === "bytes") {
+		defect("no variant arm holds bytes")
+	}
+	if (column.kind === "convert" && column.conversion.carrier === "sha256") {
+		return (text) => sha256FromText(text)
+	}
+	return cellConversion(column, names)
+}
+
+/** Whether an arm field's column is a float's, which the variant's layout gives a zero-sign attribute after its value. */
+const floatForm = (form: ColumnForm): boolean =>
+	form.kind === "convert" &&
+	(form.conversion.carrier === "float4" || form.conversion.carrier === "float8")
+
+/**
+ * A variant's cell under its column (core/decoder.ts ColumnForm variant): record_out of its composite, its tag's code
+ * read as the handle the installation's names give it, and each field of that arm read from its attribute in the
+ * variant's layout under those names (ir/codes.ts variantLayout), by its own column, into a frozen record of the tag
+ * and the arm's fields.
+ */
+const variantConversion = (
+	column: Extract<ColumnForm, { readonly kind: "variant" }>,
+	names: CodeNames
+): ((text: OutputText) => unknown) => {
+	const handles = names(column.roster)
+	const arms = new Map(
+		variantLayout(column.arms, handles, ([, form]) => floatForm(form)).map((arm) => [
+			arm.handle,
+			arm.fields.map(({ field: [name, form], at }) => ({
+				name,
+				at,
+				convert: attributeConversion(form, names)
+			}))
+		])
+	)
+	return (text) => {
+		const attributes = recordAttributeTexts(text)
+		const tag = defined(handles[Number(attributes[0])], "a variant's tag names a live handle")
+		const value: Record<string, unknown> = { tag }
+		for (const field of defined(arms.get(tag), "a variant's arm")) {
+			value[field.name] = field.convert(defined(attributes[field.at], "a tagged arm's attribute"))
+		}
+		return Object.freeze({ ...value, tag })
 	}
 }
 
@@ -151,10 +211,9 @@ const atMostOne = <A>(key: string, children: ReadonlyArray<A>): ReadonlyArray<A>
 
 /**
  * The child a row holds under the attachment `key`, which a law proves it holds exactly once: one the analysis proves
- * delivers exactly one (a containment into the child's key, enforced at commit), or an alternatives arm's on a row whose
- * handle selects the arm (the alternatives family law). The one site of the fact that the database holds the laws its
- * proofs rest on, so the row has its child and no other (atMostOne): no child, or a second, is a defect naming the
- * attachment.
+ * delivers exactly one (a containment into the child's key, enforced at commit). The one site of the fact that the
+ * database holds the laws its proofs rest on, so the row has its child and no other (atMostOne): no child, or a second,
+ * is a defect naming the attachment.
  */
 const provenChild = <A>(key: string, children: ReadonlyArray<A>): A => {
 	const [child] = atMostOne(key, children)
@@ -187,25 +246,6 @@ const delivered = (
 const childrenAt = <A>(row: Row, slot: number, read: (row: Row) => A): ReadonlyArray<A> =>
 	rowSlot(row.children, slot).map(read)
 
-/** The children of one row under an alternatives arm's attachment, which the analysis licenses as "option". */
-const optionChildren = (
-	child: DecoderForm,
-	layout: Layout,
-	key: string,
-	context: BindContext
-): ((row: Row) => ReadonlyArray<Readonly<Record<string, unknown>>>) => {
-	const at = attachmentAt(layout, key)
-	if (!licenses(at.proved, "option")) {
-		refuseLayout(
-			key,
-			`an alternatives arm the analysis proves at most one child of; it proves ${at.proved}`
-		)
-	}
-	const read = groupsReader(child, at.layouts, context)
-	const { slot } = at
-	return (row) => childrenAt(row, slot, read)
-}
-
 /** A field's reader under `key` in `layout`. */
 const fieldReader = (
 	field: FieldForm,
@@ -235,20 +275,6 @@ const fieldReader = (
 			const deliver = delivered(key, field.delivery, context.options)
 			const { slot } = at
 			return (row) => deliver(Object.freeze(childrenAt(row, slot, read)))
-		}
-		case "some": {
-			const children = optionChildren(field.child, layout, key, context)
-			return (row) => context.options.some(provenChild(key, children(row)))
-		}
-		case "none": {
-			const children = optionChildren(field.child, layout, key, context)
-			return (row) => {
-				const held = children(row)
-				if (isNonEmpty(held)) {
-					throw new UnlawfulDelivery({ attachment: key, law: "none", children: held.length })
-				}
-				return context.options.none
-			}
 		}
 	}
 }
@@ -284,8 +310,7 @@ const fillOf =
 /**
  * A decoder form bound to one layout, flattened into the writes that fill one record of a row, in order: a record's
  * fields, each read by its own reader; a merge's first record's writes, then its second's; the writes of a union's arm
- * that owns the largest heading the layout delivers; an alternatives arm's parent's writes, then its own field, Some of
- * the child where the field the parent wrote holds the arm's handle, None elsewhere; and a refused decoder's refusal.
+ * that owns the largest heading the layout delivers; and a refused decoder's refusal.
  * Every write lands in the one record, so no row builds a record per part or copies one into another.
  */
 const fillsOf = (form: DecoderForm, layout: Layout, context: BindContext): ReadonlyArray<Fill> => {
@@ -309,15 +334,6 @@ const fillsOf = (form: DecoderForm, layout: Layout, context: BindContext): Reado
 			return larger(inFirst, inSecond)
 				? fillsOf(form.first, layout, context)
 				: fillsOf(form.second, layout, context)
-		}
-		case "arm": {
-			const { name, field, handle, child } = form
-			const some = fieldReader({ kind: "some", child }, name, layout, context)
-			const none = fieldReader({ kind: "none", child }, name, layout, context)
-			const arm: Fill = (record, row) => {
-				record[name] = record[field] === handle ? some(row) : none(row)
-			}
-			return [...fillsOf(form.parent, layout, context), arm]
 		}
 		case "refused":
 			return refuseLayout(

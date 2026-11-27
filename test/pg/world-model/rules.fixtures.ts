@@ -9,15 +9,16 @@ import type { InstallSpec, WorldFeature } from "#test/support/worlds/model/types
 
 /**
  * Every law family README "Rules" lists meets a write through a world, over the rooms base (model/bases/rooms.ts): a
- * primary and a candidate key, a no-overlap key, a row check, a contract's domain CHECK, a containment, a coverage and
- * an alternatives law, each refusing a Db's ChangeSet through a query entry of a partial role (the booker's own
- * bookings, events and talks, the keeper's rooms, big rooms' openings and talk rooms), and through whole entries; and
- * every write through an entry over a mutable relation keyed WITHOUT OVERLAPS and over a pure set, mutable and
- * immutable, inserts, deletes and puts what the worlds model says. The model judges each outcome: the refusal's law, its
- * witness (the keys the writer submitted, and those of relations its role holds whole, at most: a key's, a row check's
- * and a domain's at a stated fact the host judges, none of a containment's, a coverage's or an alternatives law's),
- * and the state every accepted write leaves, read back as the owner. Reads walk a world's span fields, and chain which rooms adjoin which by a recursive query. Beside the model, a shown
- * witness carries only what the writer submitted or holds whole (drive/acting.ts witnessesShowTheirOwn).
+ * primary and a candidate key, a no-overlap key, a row check, a contract's domain CHECK, a containment, a selected one
+ * between the talks and the events of kind Talk, and a coverage, each refusing a Db's ChangeSet through a query entry
+ * of a partial role (the booker's own bookings, events and talks, the keeper's rooms, big rooms' openings and talk
+ * rooms), and through whole entries; and every write through an entry over a mutable relation keyed WITHOUT OVERLAPS
+ * and over a pure set, mutable and immutable, inserts, deletes and puts what the worlds model says. The model judges
+ * each outcome: the refusal's law, its witness (the keys the writer submitted, and those of relations its role holds
+ * whole, at most: a key's, a row check's and a domain's at a stated fact the host judges, none of a containment's or a
+ * coverage's), and the state every accepted write leaves, read back as the owner. Reads walk a world's span fields, and
+ * chain which rooms adjoin which by a recursive query. Beside the model, a shown witness carries only what the writer
+ * submitted or holds whole (drive/acting.ts witnessesShowTheirOwn).
  */
 export const focus: Focus = [
 	"open-db",
@@ -52,7 +53,6 @@ export const required: Situations<WorldFeature> = [
 	"law:domain:entry:shown",
 	"law:contained:entry:withheld",
 	"law:covered:entry:withheld",
-	"law:alternatives:entry:withheld",
 	"law:key:whole:shown",
 	"law:span-key:whole:shown",
 	"write:span-key:mutable:entry:insert",

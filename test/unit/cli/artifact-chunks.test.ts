@@ -7,7 +7,7 @@
  *
  * Property, per case: the served-levels box (test/unit/cli/served-levels.fixtures.ts: Reports over Work, a login over each
  * level running a drawn set of ChangeSets) drafted from the empty snapshot as generate drafts it (cli/generate.ts
- * draftSchema, snapshotFilesOf, servedFiles). Its artifacts: meta.json and every NN-*.sql of the folder, snapshot.json,
+ * draftSchema, snapshotFilesOf, eachServedFile). Its artifacts: meta.json and every NN-*.sql of the folder, snapshot.json,
  * manifest.json, each login's served file and its OpenAPI document. For each: every chunk nonempty, well-formed and
  * within the bound; a JSON artifact's text is the string writer's of its own value (a served file and a document: the
  * canonical JSON and a newline; a tab-laid file: its lines joined by line feeds, textOf's), and readJson of its chunks
@@ -34,7 +34,7 @@ import { type Gen, int } from "@bjornpagen/testing/gen"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, String as Str } from "effect"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
-import { draftSchema, servedFiles, snapshotFilesOf } from "#cli/generate.ts"
+import { draftSchema, eachServedFile, snapshotFilesOf } from "#cli/generate.ts"
 import { type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
 import { chunkedTextOf, textOf } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -170,6 +170,7 @@ export const generatesArtifactsReadAsTheirChunksAreReadAsTheirWholeTexts = prope
 				})
 				const config = yield* resolveConfig(
 					defineConfig({
+						contracts: [],
 						schemas: [Reports],
 						logins: [below, above],
 						migrations: "migrations",
@@ -188,7 +189,13 @@ export const generatesArtifactsReadAsTheirChunksAreReadAsTheirWholeTexts = prope
 					silentPhases
 				)
 				const files = yield* snapshotFilesOf(compiled, draft)
-				const served = yield* servedFiles(compiled, draft, draft.served, silentPhases)
+				const served = yield* eachServedFile(
+					compiled,
+					draft,
+					draft.served,
+					silentPhases,
+					Effect.succeed
+				)
 				const json: ReadonlyArray<readonly [string, TextChunks, Layout]> = [
 					["meta.json", draft.folder.metaText, "lines"],
 					["snapshot.json", files.snapshot, "lines"],

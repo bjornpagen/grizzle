@@ -49,8 +49,7 @@ export const access = agreement(accessCases, {
 		},
 		{
 			file: "packages/engine/src/schema/world.ts",
-			original:
-				"\t\tconst contextBreak = entryContextBreak(contexts, queryUses(e.query).contexts)\n",
+			original: "\t\tconst contextBreak = entryContextBreak(contexts, queryUses(query).contexts)\n",
 			replacement: "\t\tconst contextBreak = entryContextBreak(contexts, new Map())\n",
 			why: "role(...) admits a query entry matching a context the role does not declare, which its type refuses: the stray role builds."
 		},

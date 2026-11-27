@@ -16,6 +16,11 @@ import {
 	visitDeclaredFields
 } from "#compiler/schema/own.ts"
 import type { RoleLevel } from "#compiler/schema/world.ts"
+import type { AnyDerived } from "#compiler/types/derived/derived.ts"
+import type { AnyFunction } from "#compiler/types/schema/function.ts"
+import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
+import type { AnyFragment, AnySchema } from "#compiler/types/schema/schema.ts"
+import type { Statement } from "#compiler/types/schema/statements.ts"
 
 /**
  * Schema levels: a schema is itself, every schema its extends chain reaches, and the empty level below its root
@@ -76,7 +81,29 @@ export interface SchemaContent {
  */
 export interface BuiltSchemaContent extends SchemaContent {
 	readonly owned: () => Result.Result<Owned, CompileError>
+	readonly arguments: BuiltArguments
 }
+
+/**
+ * The arguments a built schema's builder was called with, its name aside, each as given and in order: a root's list
+ * and statements (schema(...)), or a level's base, list and statements (schema.extend). The value's record of relations
+ * and the level's description keep no fragment and no function value of the list; these keep every declaration, so
+ * the level is built again from them under another name whole, as a test installs a fixture under an allocated name.
+ */
+export type BuiltArguments =
+	| {
+			readonly kind: "root"
+			readonly relations: ReadonlyArray<AnyRelation | AnyClosed | AnyFragment | AnyFunction>
+			readonly statements: ReadonlyArray<Statement>
+	  }
+	| {
+			readonly kind: "extend"
+			readonly base: AnySchema
+			readonly relations: ReadonlyArray<
+				AnyRelation | AnyClosed | AnyDerived | AnyFragment | AnyFunction
+			>
+			readonly statements: ReadonlyArray<Statement>
+	  }
 
 /** A relation a level declares: its name and its description, a derived relation's as the level holds it. */
 export interface LevelRelation {

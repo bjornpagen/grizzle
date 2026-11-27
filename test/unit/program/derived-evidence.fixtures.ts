@@ -66,12 +66,13 @@ const DocWords = derived(
 	})
 )
 
-/** The lines themselves, keyed by their document and place, in the document's unit. */
+/** The lines of two words or more, keyed by their document and place, in the document's unit: a selection of the lines,
+ * so no copy of them (analysis/derived/storage.ts copiedRelation), stored. */
 const LongLines = derived(
 	"LongLines",
 	query(Docs).rule((r) => {
 		const { doc, at, words } = v(Line, "line")
-		return r.match(Line, { doc, at, words }).find({ doc, at, words })
+		return r.match(Line, { doc, at, words }).where(r.ge(words, 2)).find({ doc, at, words })
 	})
 )
 

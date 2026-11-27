@@ -75,17 +75,17 @@ export const cardId = (n: number): IdValue => uid(6, n)
 const [first, second] = calendarOf(2)
 const month = defined(first, "the calendar's first month")
 export const nextMonth = defined(second, "the calendar's second month")
-const monthNo = P.MonthNo(month.month)
+const monthNo = P.toMonthNo(month.month)
 /** A micro-dollar a token, per million tokens. */
 export const flatRate = 1_000_000n
 
-export const instants = (s: SpanV) => ({ start: P.Instant(s.start), end: P.Instant(s.end) })
+export const instants = (s: SpanV) => ({ start: P.toInstant(s.start), end: P.toInstant(s.end) })
 
 /** The workspace's cap for a calendar month, and for the race's month. */
 export const limitIn = (of: typeof month, cap: bigint): Addition<typeof P.WorkspaceLimit> => ({
 	workspace: ids.workspace,
-	month: P.MonthNo(of.month),
-	cap: P.Micros(cap)
+	month: P.toMonthNo(of.month),
+	cap: P.toMicros(cap)
 })
 export const limitOf = (cap: bigint): Addition<typeof P.WorkspaceLimit> => limitIn(month, cap)
 
@@ -103,8 +103,8 @@ const cardOf = (id: IdValue, during: SpanV): Fact<typeof P.RateCard> => ({
 
 const flatTier = (card: IdValue, rate: bigint): Fact<typeof P.RateTier> => ({
 	card,
-	tier: { start: P.Tokens(0n), end: P.Tokens(TOKENS_MAX) },
-	rate: P.Rate(rate)
+	tier: { start: P.toTokens(0n), end: P.toTokens(TOKENS_MAX) },
+	rate: P.toRate(rate)
 })
 
 /** The platform every race starts from, with the workspace's cap for the month. */
@@ -128,7 +128,7 @@ export const withNextMonth = (facts: PlatformFacts, cap: bigint): PlatformFacts 
 	...facts,
 	Month: [
 		...facts.Month,
-		{ month: P.MonthNo(nextMonth.month), during: instants(nextMonth.during) }
+		{ month: P.toMonthNo(nextMonth.month), during: instants(nextMonth.during) }
 	],
 	WorkspaceLimit: [...facts.WorkspaceLimit, limitIn(nextMonth, cap)]
 })
@@ -154,7 +154,7 @@ export const recordOf = (
 ): P.UsageRecord => {
 	const uncapped = viewOf({
 		...facts,
-		WorkspaceLimit: Arr.map(facts.WorkspaceLimit, (l) => ({ ...l, cap: P.Micros(TOKENS_MAX) }))
+		WorkspaceLimit: Arr.map(facts.WorkspaceLimit, (l) => ({ ...l, cap: P.toMicros(TOKENS_MAX) }))
 	})
 	const settled = settleRequests(uncapped, [q], { left, spent: new Map() })
 	const [record] = settled.records
@@ -241,7 +241,7 @@ export const quotedUsageWrite = (priced: P.UsageRecord, tokens: bigint, label: s
 							params: {
 								model: ids.model,
 								now: instants(pricedAt(window)),
-								usage: [{ kind: "input", tokens: P.Tokens(tokens) }]
+								usage: [{ kind: "input", tokens: P.toTokens(tokens) }]
 							},
 							facts: {}
 						})
@@ -253,14 +253,14 @@ export const quotedUsageWrite = (priced: P.UsageRecord, tokens: bigint, label: s
 							model: ids.model,
 							priced: instants(pricedAt(window)),
 							tokens: row.tokens,
-							amount: P.Micros(row.amount),
-							credited: P.Micros(0n)
+							amount: P.toMicros(row.amount),
+							credited: P.toMicros(0n)
 						}))
 						const total = Arr.reduce(charges, 0n, (sum: bigint, c) => sum + c.amount)
 						const record: P.UsageRecord = {
 							...priced,
 							charges,
-							total: { ...priced.total, amount: P.Micros(total) }
+							total: { ...priced.total, amount: P.toMicros(total) }
 						}
 						return { apply: recordCall(record), ops: usageOps(record) }
 					}
@@ -390,7 +390,7 @@ const invoiceOf = (amount: bigint, state: InvoiceState): Addition<typeof P.Invoi
 	id: ids.invoice,
 	org: ids.org,
 	period: instants(month.during),
-	amount: P.Micros(amount),
+	amount: P.toMicros(amount),
 	state
 })
 const payment: Fact<typeof P.Payment> = { invoice: ids.invoice, charge: ids.charge }
@@ -406,17 +406,19 @@ export const invoiced = (
 ): PlatformFacts => ({
 	...facts,
 	Invoice: [invoiceOf(amount, state)],
-	InvoiceLine: [{ id: ids.line, invoice: ids.invoice, source: "usage", amount: P.Micros(amount) }],
-	UsageLine: [{ line: ids.line, model: ids.model, kind: "input", tokens: P.Tokens(amount) }],
+	InvoiceLine: [
+		{ id: ids.line, invoice: ids.invoice, source: "usage", amount: P.toMicros(amount) }
+	],
+	UsageLine: [{ line: ids.line, model: ids.model, kind: "input", tokens: P.toTokens(amount) }],
 	Payment: state === "paid" ? [payment] : []
 })
 
 export const refundOf = (n: number, amount: bigint): Fact<typeof P.Refund> => ({
 	id: refundId(n),
 	invoice: ids.invoice,
-	amount: P.Micros(amount),
+	amount: P.toMicros(amount),
 	reason: "requested",
-	at: P.Instant(month.during.start + 86_400n)
+	at: P.toInstant(month.during.start + 86_400n)
 })
 
 /** A refund: the fixture's refund, an insertion. */
@@ -439,7 +441,7 @@ export const refundWrite = (r: Fact<typeof P.Refund>, label: string): Write => {
 	}
 }
 
-const settledAt = P.Instant(month.during.start + 2n * 86_400n)
+const settledAt = P.toInstant(month.during.start + 2n * 86_400n)
 
 /** The invoice as the state holds it, when it is in `state`. */
 const invoiceIn = (s: State, state: InvoiceState): Option.Option<PlatformRow> =>
@@ -532,7 +534,7 @@ export const voidWrite = (amount: bigint): Write =>
  */
 export const revokeWrite = (at: bigint, active: SpanV): Write => {
 	const revoked: Fact<typeof P.ApiKey> = { id: ids.key, workspace: ids.workspace, state: "revoked" }
-	const revocation: Fact<typeof P.Revocation> = { key: ids.key, at: P.Instant(at) }
+	const revocation: Fact<typeof P.Revocation> = { key: ids.key, at: P.toInstant(at) }
 	const cut = active.start < at ? [activeOf(platformSpan(active.start, at))] : []
 	const spans = [deleteOp("ApiKeyActive", [activeOf(active)]), insertOp("ApiKeyActive", cut)]
 	return {
@@ -545,9 +547,9 @@ export const revokeWrite = (at: bigint, active: SpanV): Write => {
 						db.workload.revokeKey.once({
 							params: {
 								key: ids.key,
-								at: P.Instant(at)
+								at: P.toInstant(at)
 							},
-							facts: P.revokeFacts(ids.key, P.Instant(at), instants(active))
+							facts: P.revokeFacts(ids.key, P.toInstant(at), instants(active))
 						})
 					),
 					answerOf

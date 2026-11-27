@@ -7,7 +7,7 @@ import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { closedId, contract, drawn, natural, pg } from "#compiler/public/fields.ts"
+import { closedId, contract, drawn, mintOf, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	closed,
@@ -28,22 +28,32 @@ import { fixtureTemplate } from "#test/pg/reads/support.ts"
 const Series = closed.unordered("DrawnSeries", ["test"])
 const Issue = closed.unordered("DrawnIssue", ["held", "unused"])
 
+const smallKey = Symbol("DrawnSmall")
 /** A count from 0 to 3 over each integer width, which a family of four members passes. */
-export const Small = contract("DrawnSmall", pg.smallint, (n) =>
-	Logic.and(Logic.ge(n, 0), Logic.le(n, 3))
+const Small = contract<typeof smallKey>()("DrawnSmall", pg.smallint, (n) =>
+	Logic.and([Logic.ge(n, 0), Logic.le(n, 3)])
 )
-export const Whole = contract("DrawnWhole", pg.integer, (n) =>
-	Logic.and(Logic.ge(n, 0), Logic.le(n, 3))
+export const toSmall = mintOf(smallKey)
+const wholeKey = Symbol("DrawnWhole")
+const Whole = contract<typeof wholeKey>()("DrawnWhole", pg.integer, (n) =>
+	Logic.and([Logic.ge(n, 0), Logic.le(n, 3)])
 )
-export const Big = contract("DrawnBig", pg.bigint, (n) =>
-	Logic.and(Logic.ge(n, 0n), Logic.le(n, 3n))
+export const toWhole = mintOf(wholeKey)
+const bigKey = Symbol("DrawnBig")
+const Big = contract<typeof bigKey>()("DrawnBig", pg.bigint, (n) =>
+	Logic.and([Logic.ge(n, 0n), Logic.le(n, 3n)])
 )
+export const toBig = mintOf(bigKey)
+const wideKey = Symbol("DrawnWide")
 /** metis's test number: every int4 from 0, its bound its carrier's. */
-export const Wide = contract("DrawnWide", pg.integer, (n) =>
-	Logic.and(Logic.ge(n, 0), Logic.le(n, 2147483647))
+const Wide = contract<typeof wideKey>()("DrawnWide", pg.integer, (n) =>
+	Logic.and([Logic.ge(n, 0), Logic.le(n, 2147483647)])
 )
+export const toWide = mintOf(wideKey)
+const tallKey = Symbol("DrawnTall")
 /** A count over int2 bounded by its carrier alone, 32767, which no CHECK states. */
-export const Tall = contract("DrawnTall", pg.smallint, (n) => Logic.ge(n, 0))
+const Tall = contract<typeof tallKey>()("DrawnTall", pg.smallint, (n) => Logic.ge(n, 0))
+export const toTall = mintOf(tallKey)
 
 /**
  * Each drawn type's series: an owner counting its issued numbers, `issued`, the numbers an ordered family indexes by
@@ -62,73 +72,83 @@ const NaturalIssued = relation(
 )
 const NaturalNumber = relation("NaturalNumber", { test: pg.integer, number: natural }, ["test"])
 const naturalHeld = select(NaturalIssued, (i) =>
-	i.and(i.eq(i.series, "test"), i.eq(i.issue, "held"))
+	i.and([i.eq(i.series, "test"), i.eq(i.issue, "held")])
 )
 
-const SmallSeries = relation("SmallSeries", { series: closedId(Series), issued: drawn(Small) }, [
-	"series"
-])
+const SmallSeries = relation(
+	"SmallSeries",
+	{ series: closedId(Series), issued: drawn(Small, smallKey) },
+	["series"]
+)
 const SmallIssued = relation(
 	"SmallIssued",
-	{ series: closedId(Series), number: drawn(Small), issue: closedId(Issue) },
+	{ series: closedId(Series), number: drawn(Small, smallKey), issue: closedId(Issue) },
 	["series", "number"]
 )
 const SmallNumber = relation("SmallNumber", { test: pg.integer, number: Small }, ["test"])
-const smallHeld = select(SmallIssued, (i) => i.and(i.eq(i.series, "test"), i.eq(i.issue, "held")))
+const smallHeld = select(SmallIssued, (i) => i.and([i.eq(i.series, "test"), i.eq(i.issue, "held")]))
 
-const WholeSeries = relation("WholeSeries", { series: closedId(Series), issued: drawn(Whole) }, [
-	"series"
-])
+const WholeSeries = relation(
+	"WholeSeries",
+	{ series: closedId(Series), issued: drawn(Whole, wholeKey) },
+	["series"]
+)
 const WholeIssued = relation(
 	"WholeIssued",
-	{ series: closedId(Series), number: drawn(Whole), issue: closedId(Issue) },
+	{ series: closedId(Series), number: drawn(Whole, wholeKey), issue: closedId(Issue) },
 	["series", "number"]
 )
 const WholeNumber = relation("WholeNumber", { test: pg.integer, number: Whole }, ["test"])
-const wholeHeld = select(WholeIssued, (i) => i.and(i.eq(i.series, "test"), i.eq(i.issue, "held")))
+const wholeHeld = select(WholeIssued, (i) => i.and([i.eq(i.series, "test"), i.eq(i.issue, "held")]))
 
-const BigSeries = relation("BigSeries", { series: closedId(Series), issued: drawn(Big) }, [
+const BigSeries = relation("BigSeries", { series: closedId(Series), issued: drawn(Big, bigKey) }, [
 	"series"
 ])
 const BigIssued = relation(
 	"BigIssued",
-	{ series: closedId(Series), number: drawn(Big), issue: closedId(Issue) },
+	{ series: closedId(Series), number: drawn(Big, bigKey), issue: closedId(Issue) },
 	["series", "number"]
 )
 const BigNumber = relation("BigNumber", { test: pg.integer, number: Big }, ["test"])
-const bigHeld = select(BigIssued, (i) => i.and(i.eq(i.series, "test"), i.eq(i.issue, "held")))
+const bigHeld = select(BigIssued, (i) => i.and([i.eq(i.series, "test"), i.eq(i.issue, "held")]))
 
-const WideSeries = relation("WideSeries", { series: closedId(Series), issued: drawn(Wide) }, [
-	"series"
-])
+const WideSeries = relation(
+	"WideSeries",
+	{ series: closedId(Series), issued: drawn(Wide, wideKey) },
+	["series"]
+)
 const WideIssued = relation(
 	"WideIssued",
-	{ series: closedId(Series), number: drawn(Wide), issue: closedId(Issue) },
+	{ series: closedId(Series), number: drawn(Wide, wideKey), issue: closedId(Issue) },
 	["series", "number"]
 )
 const WideNumber = relation("WideNumber", { test: pg.integer, number: Wide }, ["test"])
-const wideHeld = select(WideIssued, (i) => i.and(i.eq(i.series, "test"), i.eq(i.issue, "held")))
+const wideHeld = select(WideIssued, (i) => i.and([i.eq(i.series, "test"), i.eq(i.issue, "held")]))
 
-const TallSeries = relation("TallSeries", { series: closedId(Series), issued: drawn(Tall) }, [
-	"series"
-])
+const TallSeries = relation(
+	"TallSeries",
+	{ series: closedId(Series), issued: drawn(Tall, tallKey) },
+	["series"]
+)
 const TallIssued = relation(
 	"TallIssued",
-	{ series: closedId(Series), number: drawn(Tall), issue: closedId(Issue) },
+	{ series: closedId(Series), number: drawn(Tall, tallKey), issue: closedId(Issue) },
 	["series", "number"]
 )
 const TallNumber = relation("TallNumber", { test: pg.integer, number: Tall }, ["test"])
-const tallHeld = select(TallIssued, (i) => i.and(i.eq(i.series, "test"), i.eq(i.issue, "held")))
+const tallHeld = select(TallIssued, (i) => i.and([i.eq(i.series, "test"), i.eq(i.issue, "held")]))
 
 /**
  * A family over the carrier-bounded contract whose members a put moves between groups: each member keyed by its own
  * id, its group `g` its caller's, so a put that changes `g` re-places it, and the family's statement draws the group it
  * joins in SQL, past the members stored there.
  */
-const MoveOwner = relation("MoveOwner", { g: pg.integer, n: drawn(Tall) }, ["g"])
-const MoveMember = relation("MoveMember", { id: pg.integer, g: pg.integer, at: drawn(Tall) }, [
-	"id"
-])
+const MoveOwner = relation("MoveOwner", { g: pg.integer, n: drawn(Tall, tallKey) }, ["g"])
+const MoveMember = relation(
+	"MoveMember",
+	{ id: pg.integer, g: pg.integer, at: drawn(Tall, tallKey) },
+	["id"]
+)
 
 export const Drawn = schema(
 	"drawn_types",

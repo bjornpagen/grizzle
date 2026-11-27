@@ -1,14 +1,19 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { containmentEvidence } from "#compiler/analysis/physical/evidence.ts"
 import type { JustifiedKey } from "#compiler/analysis/physical/fds.ts"
 import { keyAmong } from "#compiler/analysis/physical/props.ts"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
+import type { OccurrenceId } from "#compiler/core/ids.ts"
 import {
 	type EvidenceContext,
 	type ExistenceConstraint,
+	type Grounds,
 	type Premise,
-	strongest
+	strongest,
+	type TemplateContext
 } from "#compiler/ir/evidence.ts"
 import type { OpId, ScalarExpr } from "#compiler/ir/expr.ts"
 import type {
@@ -20,7 +25,7 @@ import type {
 	RootedDag,
 	VarDecl
 } from "#compiler/ir/rel.ts"
-import { baseOf } from "#compiler/ir/scalar.ts"
+import { baseOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import { DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
 import {
 	type CellPhysical,
@@ -34,6 +39,7 @@ import { carrierEquality } from "#compiler/scalar/compute/registry.ts"
 
 const eliminationRule = "R03.elimination"
 const keyJoinRule = "R03.keyJoin"
+const containedEqualityRule = "R03.containedEquality"
 
 type Region = KindOver<"MatchRegion", EditRefs>
 type Occurrence = OccurrenceOver<Cell, ScalarExpr, VarDecl>
@@ -60,6 +66,46 @@ interface EliminationWay {
 	readonly containment: ExistenceConstraint
 }
 
+/**
+ * Whether occurrence `o` binds each of a containment's target fields to the variable occurrence `t` binds the matching
+ * source field to, `same` telling two variables one: every binding `o` makes at a target field, and at least one at
+ * each. Each row of `t` then meets `o`'s rows at the containment's fields alone, which exactlyOne proves one row.
+ */
+export const boundThrough = <V>(
+	containment: ExistenceConstraint,
+	o: { readonly bindings: ReadonlyArray<{ readonly column: string; readonly var: V }> },
+	t: { readonly bindings: ReadonlyArray<{ readonly column: string; readonly var: V }> },
+	same: (a: V, b: V) => boolean
+): boolean =>
+	containment.from.fields.length === containment.to.fields.length &&
+	containment.to.fields.every((field, i) => {
+		const at = o.bindings.filter((b) => b.column === field)
+		return (
+			at.length > 0 &&
+			at.every((b) =>
+				t.bindings.some((x) => x.column === containment.from.fields[i] && same(x.var, b.var))
+			)
+		)
+	})
+
+/**
+ * The proof that each row of a containment's source meets exactly one row of its target at the containment's fields: a
+ * key of the target among them (`key`, at most one) and the containment's evidence in the context (at least one).
+ * R03.elimination removes an occurrence so met that nothing else reads; a page's window driver reads one per driver row
+ * (lower/shapes/page/driver.ts).
+ */
+export const exactlyOne = <K>(
+	containment: ExistenceConstraint,
+	key: K | undefined,
+	context: TemplateContext
+): { readonly key: K; readonly existence: Grounds } | undefined => {
+	if (key === undefined) {
+		return undefined
+	}
+	const existence = containmentEvidence(containment, context)
+	return existence === undefined ? undefined : { key, existence }
+}
+
 /** Each way `o`, scanning `s`, may be removed through `t`, scanning `tb` (EliminationWay), in the catalog's order. */
 const waysVia = (
 	cx: RewriteCx,
@@ -68,24 +114,14 @@ const waysVia = (
 	t: Occurrence,
 	tb: Base
 ): ReadonlyArray<EliminationWay> =>
-	cx.catalog.containments.flatMap((c) => {
-		if (
-			c.from.relation !== tb.relation ||
-			c.to.relation !== s.relation ||
-			c.from.fields.length !== c.to.fields.length
-		) {
-			return []
-		}
-		const matched = o.bindings.every((b) => {
-			const i = c.to.fields.indexOf(b.column)
-			return (
-				i >= 0 && t.bindings.some((x) => x.column === c.from.fields[i] && x.var.id === b.var.id)
-			)
-		})
-		return !matched || !c.to.fields.every((f) => o.bindings.some((b) => b.column === f))
+	cx.catalog.containments.flatMap((c) =>
+		c.from.relation !== tb.relation ||
+		c.to.relation !== s.relation ||
+		!boundThrough(c, o, t, (a, b) => a.id === b.id) ||
+		!o.bindings.every((b) => c.to.fields.includes(b.column))
 			? []
 			: [{ occurrence: o, via: t, containment: c }]
-	})
+	)
 
 /**
  * Each way a stored occurrence of a region may be removed through another stored occurrence of it, as the cells and
@@ -128,22 +164,21 @@ const eliminationProof = (
 	physical: CellPhysical,
 	way: EliminationWay
 ): Elimination | undefined => {
-	const key = keyAmong(physical.props(way.occurrence.source), way.containment.to.fields)
-	if (key === undefined) {
-		return undefined
-	}
-	const exists = containmentEvidence(way.containment, cx.ctx.evidenceContext)
-	if (exists === undefined) {
-		return undefined
-	}
-	return {
-		occurrence: way.occurrence,
-		via: way.via,
-		containment: way.containment,
-		key,
-		existence: exists.premises,
-		existenceContext: exists.context
-	}
+	const one = exactlyOne(
+		way.containment,
+		keyAmong(physical.props(way.occurrence.source), way.containment.to.fields),
+		cx.ctx.evidenceContext
+	)
+	return one === undefined
+		? undefined
+		: {
+				occurrence: way.occurrence,
+				via: way.via,
+				containment: way.containment,
+				key: one.key,
+				existence: one.existence.premises,
+				existenceContext: one.existence.context
+			}
 }
 
 /** The first way of `ways` its proof holds for (eliminationProof), in their order, with its proof. */
@@ -381,12 +416,257 @@ const eliminateRule: Rule = {
 	}
 }
 
+/**
+ * The equalities a containment and a key owe a region (R03.containedEquality): occurrences `from` of R and `to` of S, a
+ * containment R(c) -> S(d) admitted in the context, and a key of S among the fields d_j that `to` binds to the variable
+ * `from` binds at c_j (`matched`). Each row of the region pairs a fact of R with the one fact of S its c names, so c_i =
+ * d_i at every other pair: each pair where neither binds the two to one variable and neither side fixes its field is owed
+ * (`owed`).
+ */
+interface ContainedEquality {
+	readonly from: Occurrence
+	readonly to: Occurrence
+	readonly matched: ReadonlyArray<VarDecl>
+	readonly key: JustifiedKey
+	readonly existence: Grounds
+	readonly owed: NonEmptyReadonlyArray<OwedEquality>
+}
+
+/** A field of an occurrence, and the variable it binds the field to, none where it binds none. */
+interface FieldSide {
+	readonly occurrence: OccurrenceId
+	readonly column: string
+	readonly var: VarDecl | undefined
+}
+
+/**
+ * An equality a containment owes (ContainedEquality `owed`): two fields, one of `from` and its pair of `to`, at most one
+ * bound to a variable, neither fixed.
+ */
+interface OwedEquality {
+	readonly from: FieldSide
+	readonly to: FieldSide
+}
+
+/** The variable `o` binds `column` to, its first binding of it; none where it binds none. */
+const boundAt = (o: Occurrence, column: string): VarDecl | undefined =>
+	o.bindings.find((b) => b.column === column)?.var
+
+/** Whether `o` fixes `column` to a constant. */
+const fixedAt = (o: Occurrence, column: string): boolean =>
+	o.constants.some((c) => c.column === column)
+
+/** The equalities containment `c` owes `from` and `to` at the pairs `matched` leaves (ContainedEquality `owed`). */
+const owedBy = (
+	c: ExistenceConstraint,
+	from: Occurrence,
+	to: Occurrence,
+	matched: ReadonlySet<number>
+): ReadonlyArray<OwedEquality> =>
+	c.from.fields.flatMap((field, i) => {
+		const target = defined(c.to.fields[i], "a containment pairs its fields one for one")
+		const atFrom = boundAt(from, field)
+		const atTo = boundAt(to, target)
+		return matched.has(i) ||
+			fixedAt(from, field) ||
+			fixedAt(to, target) ||
+			(atFrom !== undefined && atTo !== undefined)
+			? []
+			: [
+					{
+						from: { occurrence: from.id, column: field, var: atFrom },
+						to: { occurrence: to.id, column: target, var: atTo }
+					}
+				]
+	})
+
+/**
+ * The first equality a containment and a key owe `region` (ContainedEquality), in occurrence order, then the other
+ * occurrence's, then the catalog's: occurrences of two relations read by their tables, a containment of the first's in
+ * the second's the catalog states,
+ * the pairs both bind to one variable holding a key of the second under `physical`, the containment admitted in the
+ * context, and an equality owed.
+ */
+const containedEqualityOf = (
+	cx: RewriteCx,
+	physical: CellPhysical,
+	region: Region
+): ContainedEquality | undefined => {
+	for (const from of region.occurrences) {
+		const r = from.source.current
+		if (r.kind !== "Base") {
+			continue
+		}
+		for (const to of region.occurrences) {
+			const s = to.source.current
+			if (to.id === from.id || s.kind !== "Base") {
+				continue
+			}
+			for (const c of cx.catalog.containments) {
+				if (
+					c.from.relation !== r.relation ||
+					c.to.relation !== s.relation ||
+					c.from.fields.length !== c.to.fields.length
+				) {
+					continue
+				}
+				const pairs = c.from.fields.flatMap((field, i) => {
+					const v = boundAt(from, field)
+					const target = defined(c.to.fields[i], "a containment pairs its fields one for one")
+					return v !== undefined &&
+						to.bindings.some((b) => b.column === target && b.var.id === v.id)
+						? [{ i, target, v }]
+						: []
+				})
+				const owed = owedBy(c, from, to, new Set(pairs.map((p) => p.i)))
+				if (!isNonEmpty(owed)) {
+					continue
+				}
+				const one = exactlyOne(
+					c,
+					keyAmong(
+						physical.props(to.source),
+						pairs.map((p) => p.target)
+					),
+					cx.ctx.evidenceContext
+				)
+				if (one !== undefined) {
+					return {
+						from,
+						to,
+						matched: pairs.map((p) => p.v),
+						key: one.key,
+						existence: one.existence,
+						owed
+					}
+				}
+			}
+		}
+	}
+	return undefined
+}
+
+/**
+ * `region` with the equalities `owed` (ContainedEquality) bound: a free field to the variable its pair binds, two free
+ * fields to one fresh variable. A field is bound to the variable where it is of the variable's type, else to a fresh
+ * variable of its own type the region equates with it (one variable has one type, as the checker's hidden variables do:
+ * check/checker.ts RuleCheck `#equated`).
+ */
+const withOwed = (
+	ed: DagEditor,
+	region: Region,
+	owed: NonEmptyReadonlyArray<OwedEquality>
+): Region => {
+	const vars: Array<VarDecl> = [...region.vars]
+	const equalities: Array<Region["equalities"][number]> = [...region.equalities]
+	const added = new Map<OccurrenceId, Array<{ readonly column: string; readonly var: VarDecl }>>()
+	const typeAt = (side: FieldSide): ScalarType => {
+		const o = defined(
+			region.occurrences.find((x) => x.id === side.occurrence),
+			"an owed field's occurrence is the region's"
+		)
+		return defined(
+			o.source.current.heading.find((col) => col.name === side.column),
+			"a containment's field is a column of its relation"
+		).type
+	}
+	const fresh = (column: string, type: ScalarType): VarDecl => {
+		const taken = new Set(vars.map((v) => v.name))
+		let name = `__${column}`
+		for (let n = 1; taken.has(name); n++) {
+			name = `__${column}${String(n)}`
+		}
+		const v: VarDecl = { id: ed.freshVar(), name, type }
+		vars.push(v)
+		return v
+	}
+	const bind = (side: FieldSide, v: VarDecl): void => {
+		const type = typeAt(side)
+		const at = sameScalarType(type, v.type) ? v : fresh(side.column, type)
+		if (at !== v) {
+			equalities.push({ a: v, b: at })
+		}
+		added.getOrInsertComputed(side.occurrence, () => []).push({ column: side.column, var: at })
+	}
+	for (const e of owed) {
+		if (e.from.var !== undefined) {
+			bind(e.to, e.from.var)
+		} else if (e.to.var !== undefined) {
+			bind(e.from, e.to.var)
+		} else {
+			const v = fresh(e.from.column, typeAt(e.from))
+			bind(e.from, v)
+			bind(e.to, v)
+		}
+	}
+	const occurrences = region.occurrences.map((o) => {
+		const more = added.get(o.id)
+		return more === undefined ? o : { ...o, bindings: [...o.bindings, ...more] }
+	})
+	return { ...region, vars, equalities, occurrences }
+}
+
+/**
+ * The containment-equality rule (R03.containedEquality): an occurrence of a relation R read by its table, whose fields c
+ * the catalog states contained in a relation S's fields d, and an occurrence of S that binds the fields of a physical
+ * key of S among d to the variables the first binds at their pairs, read one fact of S per row, the fact R's c names, so
+ * c_i = d_i at every other pair of the containment: the region binds the side that leaves its field free to the other's
+ * variable, or both to one fresh variable where both leave it free (`withOwed`). Its set and multiplicity are unchanged:
+ * it states an equality every row of it already holds. A seek of either occurrence then binds the column from the
+ * other's row: den's scope reads, a step at its scope joined on the step to a value family keyed by the root, the step
+ * and its own fields, each family's facts contained at the root and the step in the step's, bind the root from the
+ * step's row, the family's own primary key prefix serving the read, where the step alone asked an index over it, a
+ * B-tree insert on every value of the family. The certificate carries the key's premises and the containment's law, in
+ * the context both hold in: none inside a transaction where the containment holds only at commit, where the current
+ * transaction may have broken it.
+ */
+const containedEquality: Rule = {
+	name: containedEqualityRule,
+	/** The region's set is unchanged, so its metadata stands. */
+	at: (cell, cx) => {
+		const node = cell.current
+		if (node.kind !== "MatchRegion" || node.occurrences.length < 2) {
+			return false
+		}
+		return overPhysical(({ physical }) => {
+			const e = containedEqualityOf(cx, physical, node)
+			if (e === undefined) {
+				return false
+			}
+			cx.certify({
+				rule: containedEqualityRule,
+				inputs: [e.from.source.id, e.to.source.id, cell.id],
+				outputs: [cell.id],
+				premises: [...e.key.just.premises, ...e.existence.premises],
+				context: strongest([e.key.just.context, e.existence.context]),
+				preservedHeading: node.heading.map((c) => c.name),
+				equality: e.matched.map((v) => carrierEquality(baseOf(v.type).carrier)),
+				coercion: e.key.just.coercions,
+				params: undefined
+			})
+			cx.editor.set(cell, withOwed(cx.editor, node, e.owed))
+			return true
+		})
+	}
+}
+
+/**
+ * The pass's potential: each region's occurrences, and each occurrence's columns it neither binds nor fixes, which an
+ * elimination and a key join lower by an occurrence and its free columns, and a containment's equality by the columns
+ * it binds.
+ */
 const eliminationPotential: Potential = (cx) => {
 	let count = 0
 	for (const cell of cx.cells.order) {
 		const node = cell.current
 		if (node.kind === "MatchRegion") {
-			count += node.occurrences.length
+			for (const o of node.occurrences) {
+				const held = new Set([
+					...o.bindings.map((b) => b.column),
+					...o.constants.map((c) => c.column)
+				])
+				count += 1 + o.source.current.heading.filter((col) => !held.has(col.name)).length
+			}
 		}
 	}
 	return count
@@ -426,10 +706,15 @@ const eliminationPotential: Potential = (cx) => {
  * the relation whatever PostgreSQL's own self-join elimination would allow, and the access extraction, which reads the
  * same fold of the checked DAG (`keyJoinNormalDag`), plans one probe binding what both occurrences bind.
  *
- * Potential: the number of occurrences in the reachable regions, which each elimination and each fold lowers by one.
+ * Its containment-equality rule (R03.containedEquality) states in a region the equalities a containment and a key make
+ * true of every row of it, binding a field one occurrence leaves free to the variable the other binds at its pair, so a
+ * seek binds it and an occurrence of the containment's target that binds every field of it becomes one the elimination
+ * removes.
+ *
+ * Potential: the occurrences in the reachable regions and the columns each neither binds nor fixes (eliminationPotential).
  */
 export const eliminatePass = rewritePass({
 	name: "eliminate",
-	rules: [keyJoinFold, eliminateRule],
+	rules: [containedEquality, keyJoinFold, eliminateRule],
 	potential: () => eliminationPotential
 })

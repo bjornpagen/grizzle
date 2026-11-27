@@ -43,9 +43,7 @@ import {
 
 /**
  * A field of a delivered record: a scalar column; head literals' column, whose values its schema enumerates, each in
- * its scalar's spelling; an attachment, its child records delivered as an array, an Option or the one child; an
- * alternatives arm, Some of its child on a row whose `field` holds `handle` and None elsewhere; or an alternatives arm
- * of a union's arm that always selects it (`some`) or never does (`none`).
+ * its scalar's spelling; or an attachment, its child records delivered as an array, an Option or the one child.
  */
 export type WireField<L> =
 	| { readonly kind: "scalar"; readonly scalar: L }
@@ -55,13 +53,6 @@ export type WireField<L> =
 			readonly values: NonEmptyReadonlyArray<Json>
 	  }
 	| { readonly kind: "attachment"; readonly delivery: Delivery; readonly child: WireRecord<L> }
-	| {
-			readonly kind: "arm"
-			readonly field: string
-			readonly handle: string
-			readonly child: WireRecord<L>
-	  }
-	| { readonly kind: "some" | "none"; readonly child: WireRecord<L> }
 
 /** A field of one scalar column: its scalar, or head literals' column. */
 export type WireColumn<L> = Extract<WireField<L>, { readonly kind: "scalar" | "constant" }>
@@ -188,16 +179,6 @@ export const mapField = <L, M>(field: WireField<L>, f: (leaf: L) => M): WireFiel
 			return { kind: "constant", scalar: f(field.scalar), values: field.values }
 		case "attachment":
 			return { kind: "attachment", delivery: field.delivery, child: mapRecord(field.child, f) }
-		case "arm":
-			return {
-				kind: "arm",
-				field: field.field,
-				handle: field.handle,
-				child: mapRecord(field.child, f)
-			}
-		case "some":
-		case "none":
-			return { kind: field.kind, child: mapRecord(field.child, f) }
 	}
 }
 
@@ -332,46 +313,12 @@ const fieldSchema = <L>(field: WireField<L>, leaf: (l: L) => WireSchema): WireSc
 					return child
 			}
 		}
-		case "arm":
-			return { anyOf: [recordSchema(field.child, leaf), nullSchema] }
-		case "some":
-			return recordSchema(field.child, leaf)
-		case "none":
-			return nullSchema
 	}
 }
 
-/**
- * The JSON Schema of a heading's records: an object of exactly its fields, and each alternatives arm's correlation, its
- * child where the row's field holds the arm's handle and null elsewhere, one of the two.
- */
-const headingSchema = <L>(heading: WireHeading<L>, leaf: (l: L) => WireSchema): WireSchema => {
-	const object = closedObject(heading.map((named) => [named.name, fieldSchema(named.field, leaf)]))
-	const arms = heading.flatMap((named): ReadonlyArray<WireSchema> => {
-		const field = named.field
-		return field.kind === "arm"
-			? [
-					{
-						oneOf: [
-							{
-								properties: {
-									[field.field]: { const: field.handle },
-									[named.name]: recordSchema(field.child, leaf)
-								}
-							},
-							{
-								properties: {
-									[field.field]: { not: { const: field.handle } },
-									[named.name]: nullSchema
-								}
-							}
-						]
-					}
-				]
-			: []
-	})
-	return arms.length === 0 ? object : { ...object, allOf: [...arms] }
-}
+/** The JSON Schema of a heading's records: an object of exactly its fields. */
+const headingSchema = <L>(heading: WireHeading<L>, leaf: (l: L) => WireSchema): WireSchema =>
+	closedObject(heading.map((named) => [named.name, fieldSchema(named.field, leaf)]))
 
 /** The JSON Schema of a record's values: its one heading's, or one of its headings'. */
 const recordSchema = <L>(record: WireRecord<L>, leaf: (l: L) => WireSchema): WireSchema => {
@@ -615,22 +562,44 @@ const outcomeSchema = <L>(outcome: WireOutcome<L>, leaf: (l: L) => WireSchema): 
 	}
 }
 
-/** The JSON Schema of a refusal's witness: a key of one of the role's relations, or none reported or reproduced. */
-const witnessSchema = <L>(witness: RoleWitness<L>, leaf: (l: L) => WireSchema): WireSchema =>
-	oneOfSchemas([
+/**
+ * The JSON Schema of a refusal's witness: a key of one of the role's relations, a key of one whose fields the database
+ * draws besides, each by what draws it (types/changeset DrawnBy), or none reported or reproduced.
+ */
+const witnessSchema = <L>(witness: RoleWitness<L>, leaf: (l: L) => WireSchema): WireSchema => {
+	const valuesOf = (w: RoleWitness<L>[number]): WireSchema =>
+		withGaps(
+			{
+				type: "object",
+				properties: Object.fromEntries(
+					w.fields.map((named) => [named.name, fieldSchema(named.field, leaf)])
+				),
+				additionalProperties: false
+			},
+			["witnessKey"]
+		)
+	return oneOfSchemas([
 		closedObject([["kind", { const: "unreported" }]]),
 		closedObject([["kind", { const: "unreproduced" }]]),
 		...witness.map((w) =>
 			closedObject([
 				["kind", { const: "key" }],
 				["relation", { const: w.relation }],
+				["values", valuesOf(w)]
+			])
+		),
+		...witness.map((w) =>
+			closedObject([
+				["kind", { const: "drawn" }],
+				["relation", { const: w.relation }],
+				["values", valuesOf(w)],
 				[
-					"values",
+					"drawn",
 					withGaps(
 						{
 							type: "object",
 							properties: Object.fromEntries(
-								w.fields.map((named) => [named.name, fieldSchema(named.field, leaf)])
+								w.fields.map((named) => [named.name, { enum: ["clock", "place", "call"] }])
 							),
 							additionalProperties: false
 						},
@@ -640,6 +609,7 @@ const witnessSchema = <L>(witness: RoleWitness<L>, leaf: (l: L) => WireSchema): 
 			])
 		)
 	])
+}
 
 /**
  * The JSON Schema of a refusal's laws (types/changeset BrokenLaws): how grizzle decided them, and each law with its
@@ -674,7 +644,7 @@ type PayloadSchemas = { readonly [S in Exclude<Slot, "error">]: WireSchema }
 /** The schema of a payload member's slot: none is a CallError, which no CallError's payload holds. */
 const payloadSlot = (slot: Slot, schemas: PayloadSchemas): WireSchema => {
 	if (slot === "error") {
-		throw defect("a CallError's payload holds no CallError")
+		defect("a CallError's payload holds no CallError")
 	}
 	return schemas[slot]
 }

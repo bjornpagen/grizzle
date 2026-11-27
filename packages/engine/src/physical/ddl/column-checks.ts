@@ -1,5 +1,6 @@
 import type { Identity } from "#compiler/core/identity.ts"
 import { compareStrings } from "#compiler/core/order.ts"
+import { generationOf } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { closedSubset } from "#compiler/physical/closed/storage.ts"
 import { dateRange } from "#compiler/physical/date/storage.ts"
@@ -24,6 +25,12 @@ type ColumnCheckIdentity = Identity<
  */
 interface ColumnCheckKind {
 	readonly holds: (type: ScalarType) => boolean
+	/**
+	 * Whether a field PostgreSQL generates, or a key generation its row CHECK holds equal to its generation, is a value
+	 * the CHECK admits wherever the analysis admitted its generation (analysis/schema.ts generatedTypeRule): such a
+	 * column carries none, since a check the compile proves emits nothing.
+	 */
+	readonly generationProves: boolean
 	readonly named: (relation: string, field: string) => ColumnCheckIdentity
 	readonly predicate: (b: InstallBuilder, column: Expr, type: ScalarType) => Expr
 	readonly reason: (relation: string, field: string, type: ScalarType) => string
@@ -59,7 +66,7 @@ const kinds: ReadonlyArray<ColumnCheckKind> = [
  * declared inline beside the row's other CHECKs, and PostgreSQL enforces it on every write, grizzle's or a direct SQL
  * writer's. It is the field type's own, not a law of the schema: it has no law id and no witness, and grizzle's own
  * writes meet the codec's host boundary first, which admits only the values the host type spells, so it refuses only a
- * direct writer.
+ * direct writer. A field whose generation proves its kind's CHECK carries none (ColumnCheckKind generationProves).
  */
 export const columnChecks = (b: InstallBuilder): ReadonlyArray<ColumnCheck> => {
 	const relations = Object.entries(b.model.theory.relations).toSorted(([x], [y]) =>
@@ -69,7 +76,9 @@ export const columnChecks = (b: InstallBuilder): ReadonlyArray<ColumnCheck> => {
 		relations.flatMap(([name, r]) =>
 			r.kind === "relation"
 				? r.fields
-						.filter((c) => kind.holds(c.type))
+						.filter(
+							(c) => kind.holds(c.type) && !(kind.generationProves && generationOf(c) !== undefined)
+						)
 						.map((c): ColumnCheck => {
 							const named = kind.named(name, c.name)
 							return {

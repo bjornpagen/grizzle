@@ -62,7 +62,7 @@ import {
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { readOnce, writeOnce } from "#test/support/calls.ts"
-import { installGenerated, installMigrated } from "#test/support/install-migrate.ts"
+import { installGenerated } from "#test/support/install-migrate.ts"
 import { dateText, daysOfDate } from "#test/support/oracle/reference/calendar.ts"
 import { wallMillis, type Zone, zoneOf } from "#test/support/oracle/reference/tzif.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
@@ -242,14 +242,14 @@ export const aZoneRostersMigrationReadsEachHandleAsATimeZoneOneTheServersTzdataL
 							const roster: Arr.NonEmptyReadonlyArray<string> = c.unknown
 								? [c.zone, noZone]
 								: [c.zone]
-							const declared = wallWorld("Zoned", roster)
 							const installed = yield* Effect.exit(
-								installMigrated(declared.s, {
-									ambient: ordinarySession,
-									label: "zoned",
-									logins: [declared.world.server],
-									extensions: []
-								})
+								installGenerated(
+									(name) => {
+										const w = wallWorld(name, roster)
+										return { schema: w.s, logins: [w.world.server] }
+									},
+									{ ambient: ordinarySession, label: "zoned" }
+								)
 							)
 							if (c.unknown) {
 								k.note("a roster naming no zone is refused")
@@ -330,13 +330,13 @@ export const timeEpochDayAndDateOfEpochDayOnPostgreSQL19AndTheHostAreHinnantsDay
 				Effect.provideServiceEffect(
 					Effect.scoped(
 						Effect.gen(function* () {
-							const declared = daysSchema("Days")
-							const done = yield* installMigrated(declared.s, {
-								ambient: ordinarySession,
-								label: "days",
-								logins: [declared.world.server],
-								extensions: []
-							})
+							const { installed: done } = yield* installGenerated(
+								(name) => {
+									const days = daysSchema(name)
+									return { schema: days.s, logins: [days.world.server] }
+								},
+								{ ambient: ordinarySession, label: "days" }
+							)
 							const built = daysSchema(done.schema)
 							const evaluate = succeeded(rowEvaluator(built.s), "the days schema compiles")
 							const db = yield* openServedDb(done, built.world.server.roles.app, {})

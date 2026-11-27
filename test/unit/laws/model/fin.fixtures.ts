@@ -6,7 +6,8 @@ import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import type { AxisKind } from "#compiler/ir/family.ts"
 import type { NativeColumn } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { installOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
 	type AuthoredStatementDesc,

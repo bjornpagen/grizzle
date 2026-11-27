@@ -1,10 +1,12 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { CanonicalRelation } from "#compiler/analysis/derived/canonical.ts"
 import { catchCompileError, Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, type UninstalledType } from "#compiler/core/errors.ts"
 import type { DomainDigest } from "#compiler/core/fingerprint.ts"
 import {
 	type DeclaredName,
+	type HeldName,
 	type Fitted,
 	type Identity,
 	identifierOf,
@@ -18,6 +20,7 @@ import {
 import type { ConstraintName, RelationIdent } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
+import type { HeadName } from "#compiler/ir/instant.ts"
 import type { ClosedTheoryRelation, DomainCheck } from "#compiler/ir/law.ts"
 import type { InstalledSpellings } from "#compiler/ir/pattern.ts"
 import {
@@ -38,7 +41,8 @@ import {
 	type OwnedRelation,
 	type OwnedRole,
 	type OwnedWorldEntry,
-	rostersOf
+	rostersOf,
+	wholeViewOf
 } from "#compiler/schema/own.ts"
 import type { FunctionName, ObjectName, TypeRef, TypeSchema } from "#compiler/sql/ast.ts"
 import type { ClosedConstant } from "#compiler/sql/constants.ts"
@@ -65,17 +69,26 @@ export interface InstallNames extends PhysicalNames {
 	readonly levels: NonEmptyReadonlyArray<Identity<"schema">>
 	/** The identity of the PostgreSQL schema of the level that declares a relation, a roster among them. */
 	readonly levelOf: (relation: string) => Identity<"schema">
-	/** The head table of a clock or a place, by its relation and field, in the relation's level's schema
+	/** The table of a head, by its name (ir/instant.ts HeadName), in the schema its identities place it in
+	 * (headIdentities, physical/ddl/stamps.ts). */
+	readonly head: (head: HeadName) => ObjectName
+	/** The stamp function of a head, by its name, beside its table, which takes its keys' arrays
 	 * (physical/ddl/stamps.ts). */
-	readonly head: (relation: string, field: string) => ObjectName
-	/** The stamp function of a clock or a place, by its relation and field, in the relation's level's schema, which
-	 * takes its children's key arrays (physical/ddl/stamps.ts). */
-	readonly stamp: (relation: string, field: string) => ObjectName
+	readonly stamp: (head: HeadName) => ObjectName
 	/** The primary key constraint of a stored relation, which an insert into a span primary key names as its
 	 * arbiter. */
 	readonly primaryKey: (relation: string) => ConstraintName
 	/** The identity a relation's table, roster domain or stored table is named by. */
 	readonly relationNamed: (relation: string) => Identity<"table" | "rosterDomain" | "view">
+	/**
+	 * The whole view of an anonymous canonical relation's stored table (analysis/derived/canonical.ts), which no role
+	 * names: named by its form's digest (core/identity.ts canonicalWholeView) in the schema of whole views of the level
+	 * its table installs in, which every role that reads it (analysis/schema.ts CheckedSchema serves) reads it through,
+	 * as a whole entry's relation is read (RoleViewName `whole`).
+	 */
+	readonly canonicalWholeView: (
+		relation: string
+	) => Extract<RoleViewName, { readonly kind: "whole" }>
 	/**
 	 * The identity of a contract's domain, by the contract's declared name: the digest of the domain's physical definition,
 	 * so contracts of one definition share one domain. Its CHECK is `identity.domainCheck` of it.
@@ -85,9 +98,9 @@ export interface InstallNames extends PhysicalNames {
 	 * installs it, and otherwise UninstalledDomain (NamesInput `textNamed`). */
 	readonly textNamed: (regex: RegexRef) => Identity<"textDomain">
 	/** The identity of a roster's domain, which ownership minted with the roster. */
-	readonly rosterNamed: (roster: DeclaredName) => Identity<"rosterDomain">
+	readonly rosterNamed: (roster: HeldName) => Identity<"rosterDomain">
 	/** The identity of the domain of sets over a roster, at the roster's width in the installation's codes. */
-	readonly bitsNamed: (roster: DeclaredName) => Identity<"bitsDomain">
+	readonly bitsNamed: (roster: HeldName) => Identity<"bitsDomain">
 }
 
 /**
@@ -146,6 +159,9 @@ export const selectionKeysOf = (
 
 interface NamesInput {
 	readonly owned: Owned
+	/** The canonical relation each derived relation's name, or an anonymous canonical relation's, names, whose table holds
+	 * its rows where one does (analysis/schema.ts CheckedSchema canonicalOf). */
+	readonly canonical: (relation: string) => CanonicalRelation
 	/** Each level's PostgreSQL schema, root first, index for index with Owned.levels. */
 	readonly levels: NonEmptyReadonlyArray<Identity<"schema">>
 	readonly vectorSchema: string
@@ -244,7 +260,7 @@ const nameRole = (
 				`the whole views' schema of ${level.display}, which role ${role.name} reads ${relation.name} through`,
 				at
 			),
-			name: identity.wholeView(relation.name)
+			name: wholeViewOf(relation)
 		}
 	}
 	for (const [relation, e] of Object.entries(role.relations)) {
@@ -349,7 +365,9 @@ export const worldNames = (named: NamedRole, names: InstallNames): WorldNames =>
 		view: (relation) => {
 			const view =
 				named.views.get(relation) ??
-				missing(`physical: no view of relation ${relation} in role ${role.name}`)
+				(Object.hasOwn(role.base.relations, relation)
+					? missing(`physical: no view of relation ${relation} in role ${role.name}`)
+					: names.canonicalWholeView(relation))
 			return { schema: identifierOf(view.schema), name: identifierOf(view.name) }
 		},
 		filterFunction: (entry, args) => ({
@@ -378,7 +396,10 @@ export const worldNames = (named: NamedRole, names: InstallNames): WorldNames =>
 /** What a role reads its relations through: every relation of it is its view (`world`, the role's names, worldNames), a
  * whole entry's, and a stored derived relation's it reads in full (schema/own.ts OwnedRole `wholeDerived`), its
  * relation's whole view, whose columns are its table's (or its stored table's), and a query
- * entry's its own in the role's schema, whose columns are its definition's head fields, each a field's column; domains, constants and the vector extension stay the base's. A view
+ * entry's its own in the role's schema, whose columns are its definition's head fields, each a field's column; an
+ * anonymous canonical relation's table the role reads (analysis/schema.ts CheckedSchema serves, schema/own.ts
+ * roleSeesWhole) its whole view (InstallNames canonicalWholeView, worldNames); domains, constants and the vector
+ * extension stay the base's. A view
  * holds its heading's columns and no law column (physical/ddl/roles.ts wholeView, worldView), so it holds no selection
  * key a read could probe. Each member is stated here, none carried from the installation's names, so none of what a
  * table holds is read off a view. */
@@ -393,7 +414,11 @@ export const roleReadNames = (
 		if (e?.kind === "world") {
 			return identifierOf(viewColumn(field))
 		}
-		if (e === undefined && !role.wholeDerived.includes(relation)) {
+		if (
+			e === undefined &&
+			!role.wholeDerived.includes(relation) &&
+			Object.hasOwn(role.base.relations, relation)
+		) {
 			missing(`physical: no relation ${relation} in role ${role.name}`)
 		}
 		return names.column(relation, field)
@@ -403,6 +428,8 @@ export const roleReadNames = (
 	bitsDomain: names.bitsDomain,
 	rosterNames: names.rosterNames,
 	digestDomain: names.digestDomain,
+	variantRow: names.variantRow,
+	variantDomain: names.variantDomain,
 	contractDomain: names.contractDomain,
 	textDomain: names.textDomain,
 	paramDomain: names.paramDomain,
@@ -427,23 +454,75 @@ const relationOf = (owned: Owned, relation: string) => {
 	return r
 }
 
-/** A relation the installation installs an object of its own for, by name: a table, a roster's domain or a view. */
+/**
+ * What a relation's name reads in the installation (`installedOf`): an owned relation, or the canonical relation a
+ * derived relation's name or an anonymous canonical relation's names (analysis/derived/canonical.ts).
+ */
+type Installable =
+	| {
+			readonly kind: "owned"
+			readonly relation: Exclude<OwnedRelation, { readonly kind: "derived" }>
+	  }
+	| { readonly kind: "canonical"; readonly relation: CanonicalRelation }
+
+/** What `relation` names in the installation (Installable). */
+const installableOf = (
+	owned: Owned,
+	canonical: NamesInput["canonical"],
+	relation: string
+): Installable => {
+	const r = owned.relations[relation]
+	return r === undefined || r.kind === "derived"
+		? { kind: "canonical", relation: canonical(relation) }
+		: { kind: "owned", relation: r }
+}
+
+/**
+ * A relation the installation installs an object of its own for, by name: a table, a roster's domain, or a canonical
+ * relation's table, named by its form (core/identity.ts view), whichever name reads it.
+ */
 const installedOf = (
 	owned: Owned,
+	canonical: NamesInput["canonical"],
 	relation: string
 ): {
 	readonly named: Identity<"table" | "rosterDomain" | "view">
 	readonly ident: RelationIdent
 } => {
-	const r = relationOf(owned, relation)
+	const at = installableOf(owned, canonical, relation)
+	if (at.kind === "canonical") {
+		const named = identity.view(at.relation.digest)
+		return { named, ident: identifierOf(named) }
+	}
+	const r = at.relation
 	switch (r.kind) {
 		case "closedRelation":
 			return missing(`physical: the closed relation ${relation} installs no relation of its own`)
-		case "derived":
 		case "relation":
 		case "closed":
 			return r
 	}
+}
+
+/**
+ * The level of the schema `relation` installs in: an owned relation's own; a canonical relation's, the level of the
+ * derived relation it names where it names one, otherwise the highest of the relations its definition reads, the lowest
+ * level whose schema holds all of them.
+ */
+const installedLevel = (
+	owned: Owned,
+	canonical: NamesInput["canonical"],
+	relation: string
+): number => {
+	const at = installableOf(owned, canonical, relation)
+	if (at.kind === "owned") {
+		return at.relation.level
+	}
+	const subject = at.relation.subject
+	return (
+		owned.relations[subject.name]?.level ??
+		subject.reads.reduce((most, r) => Math.max(most, owned.relations[r]?.level ?? 0), 0)
+	)
 }
 
 /** A roster the owned schema declares, by name, with its domain's identity, which ownership minted. */
@@ -504,6 +583,40 @@ const levelCodes = (codes: Codebook, owned: Owned): Codebook => {
 	})
 }
 
+/**
+ * The identities a head's objects are named by (physical/ddl/stamps.ts), by its name (ir/instant.ts HeadName): its
+ * table's, its table's primary key's and its stamp function's, and the relation whose level's schema they stand in. A
+ * unit's scope is named by its unit, in the root's schema, as a sealed unit's founding is (physical/ddl/seal.ts), since
+ * every level over the unit stamps it alike; a place, and a clock no unit holds, by its relation and field, in that
+ * relation's level's schema.
+ */
+export const headIdentities = (
+	named: HeadName
+): {
+	readonly table: Identity<"head" | "unitHead">
+	readonly key: Identity<"headKey" | "unitHeadKey">
+	readonly stamp: Identity<"stamp" | "unitStamp">
+	/** The relation whose level's schema holds its objects, none for a unit's head, which the root's schema holds. */
+	readonly relation: string | undefined
+} => {
+	switch (named.kind) {
+		case "field":
+			return {
+				table: identity.head(named.relation, named.field),
+				key: identity.headKey(named.relation, named.field),
+				stamp: identity.stamp(named.relation, named.field),
+				relation: named.relation
+			}
+		case "unit":
+			return {
+				table: identity.unitHead(named.unit),
+				key: identity.unitHeadKey(named.unit),
+				stamp: identity.unitStamp(named.unit),
+				relation: undefined
+			}
+	}
+}
+
 export const installNames = (input: NamesInput): InstallNames => {
 	const { owned, levels } = input
 	const codes = levelCodes(input.codes, owned)
@@ -511,8 +624,11 @@ export const installNames = (input: NamesInput): InstallNames => {
 	const schema = identifierOf(installation)
 	const types = installationTypes(installation)
 	const levelOf = (relation: string): Identity<"schema"> =>
-		levels[relationOf(owned, relation).level] ??
+		levels[installedLevel(owned, input.canonical, relation)] ??
 		missing(`physical: no installed level for ${relation}`)
+	/** The schema a head's objects stand in (headIdentities): its relation's level's, or the root's. */
+	const headSchema = (relation: string | undefined): string =>
+		identifierOf(relation === undefined ? installation : levelOf(relation))
 	/**
 	 * Each contract's domain, minted once from its definition's digest: an inner contract's is read while an outer one's
 	 * is spelled.
@@ -534,8 +650,7 @@ export const installNames = (input: NamesInput): InstallNames => {
 		return named
 	}
 	const { textNamed } = input
-	const rosterNamed = (roster: DeclaredName): Identity<"rosterDomain"> =>
-		rosterOf(owned, roster).named
+	const rosterNamed = (roster: HeldName): Identity<"rosterDomain"> => rosterOf(owned, roster).named
 	/** Each roster's bits domain at its width in the codes, minted once as the names are built. */
 	const bits = new Map(
 		Array.from(
@@ -543,7 +658,7 @@ export const installNames = (input: NamesInput): InstallNames => {
 			([roster, codec]) => [roster, identity.bitsDomain(roster, codec.width)] as const
 		)
 	)
-	const bitsNamed = (roster: DeclaredName): Identity<"bitsDomain"> =>
+	const bitsNamed = (roster: HeldName): Identity<"bitsDomain"> =>
 		bits.get(roster) ?? missing(`physical: no codes for roster ${roster}`)
 	const library: ReadonlySet<LibraryFn> = new Set(input.library)
 	const names: InstallNames = {
@@ -570,14 +685,14 @@ export const installNames = (input: NamesInput): InstallNames => {
 		},
 		relation: (relation) => ({
 			schema: identifierOf(levelOf(relation)),
-			name: installedOf(owned, relation).ident
+			name: installedOf(owned, input.canonical, relation).ident
 		}),
 		column: (relation, field) => {
-			const r = relationOf(owned, relation)
-			if (r.kind === "derived") {
+			const at = installableOf(owned, input.canonical, relation)
+			if (at.kind === "canonical") {
 				return identifierOf(viewColumn(field))
 			}
-			const f = r.fields[field]
+			const f = at.relation.fields[field]
 			if (f === undefined) {
 				missing(`physical: no field ${relation}.${field}`)
 			}
@@ -588,6 +703,11 @@ export const installNames = (input: NamesInput): InstallNames => {
 			name: identifierOf(rosterNamed(roster))
 		}),
 		digestDomain: { schema: types, name: identifierOf(identity.digestDomain()) },
+		variantRow: (variant) => ({ schema: types, name: identifierOf(identity.variantRow(variant)) }),
+		variantDomain: (variant) => ({
+			schema: types,
+			name: identifierOf(identity.variantDomain(variant))
+		}),
 		bitsDomain: (roster) => ({
 			schema: installationTypes(levelOf(roster)),
 			name: identifierOf(bitsNamed(roster))
@@ -623,14 +743,14 @@ export const installNames = (input: NamesInput): InstallNames => {
 		}),
 		rosterNamed,
 		bitsNamed,
-		head: (relation, field) => ({
-			schema: identifierOf(levelOf(relation)),
-			name: identifierOf(identity.head(relation, field))
-		}),
-		stamp: (relation, field) => ({
-			schema: identifierOf(levelOf(relation)),
-			name: identifierOf(identity.stamp(relation, field))
-		}),
+		head: (head) => {
+			const named = headIdentities(head)
+			return { schema: headSchema(named.relation), name: identifierOf(named.table) }
+		},
+		stamp: (head) => {
+			const named = headIdentities(head)
+			return { schema: headSchema(named.relation), name: identifierOf(named.stamp) }
+		},
 		primaryKey: (relation) => {
 			const key = relationOf(owned, relation).keys.find((k) => k.primary)
 			if (key === undefined) {
@@ -638,7 +758,19 @@ export const installNames = (input: NamesInput): InstallNames => {
 			}
 			return key.constraint
 		},
-		relationNamed: (relation) => installedOf(owned, relation).named
+		relationNamed: (relation) => installedOf(owned, input.canonical, relation).named,
+		canonicalWholeView: (relation) => {
+			const level = levelOf(relation)
+			return {
+				kind: "whole",
+				schema: wholeSchemaIdentity(
+					level,
+					`the whole views' schema of ${level.display}, which a role reads ${relation} through`,
+					SourceLoc(`stored canonical relation ${relation}`, [])
+				),
+				name: identity.canonicalWholeView(input.canonical(relation).digest)
+			}
+		}
 	}
 	return names
 }

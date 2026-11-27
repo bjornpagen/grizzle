@@ -17,7 +17,7 @@ import { allenTable } from "#compiler/allen/table.generated.ts"
 export const allenFormula = (mask: AllenMask): AllenFormula => {
 	const formula = allenTable[mask]
 	if (formula === undefined) {
-		throw defect(`an Allen table entry for mask ${mask}`)
+		defect(`an Allen table entry for mask ${mask}`)
 	}
 	return formula
 }

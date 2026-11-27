@@ -20,8 +20,9 @@ import { noWorkload, writeRuntimeSnapshot } from "#compiler/deploy/snapshot/buil
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { SchemaDesc } from "#compiler/ir/desc.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
-import type { AnyLogin } from "#compiler/public/schema.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
+import type { AnyLogin, AnySchema } from "#compiler/public/schema.ts"
 import { ownLogin } from "#compiler/schema/own.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
@@ -46,8 +47,8 @@ import * as queueApi from "#test/support/fixtures/api/queue.ts"
 import * as searchApi from "#test/support/fixtures/api/search.ts"
 import * as spansApi from "#test/support/fixtures/api/spans.ts"
 import * as workApi from "#test/support/fixtures/api/work.ts"
-import { installMigrated, runsInstallScript } from "#test/support/install-migrate.ts"
-import { rebuild } from "#test/support/installed.ts"
+import { installGenerated, runsInstallScript } from "#test/support/install-migrate.ts"
+import { rebuild, renamed as renamedSchema } from "#test/support/installed.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { decodersIn, servedSourcedLayer } from "#test/support/live-layer.ts"
 import {
@@ -66,9 +67,10 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { testVerify, tokenOf } from "#test/support/worlds.ts"
 
-/** One version of a history: a schema or an extension, every level renamed with it, and the logins of its worlds over
- * the version declared under a name (none for a fixture that declares no worlds). */
+/** One version of a history: a schema or an extension, its value and its description, every level renamed with it,
+ * and the logins of its worlds over the version declared under a name (none for a fixture that declares no worlds). */
 interface Version {
+	readonly fixture: AnySchema
 	readonly desc: SchemaDesc
 	readonly logins: (name: string) => ReadonlyArray<AnyLogin>
 }
@@ -82,9 +84,10 @@ const descOf = (fixture: unknown): SchemaDesc => {
 }
 
 const versionOf = (
-	fixture: unknown,
+	fixture: AnySchema,
 	logins: (name: string) => ReadonlyArray<AnyLogin>
 ): Version => ({
+	fixture,
 	desc: descOf(fixture),
 	logins
 })
@@ -319,12 +322,13 @@ export const migrates = (h: History) =>
 					fresh,
 					`${history.label}: the migrated history against a fresh install`
 				)
-				const installed = yield* installMigrated(last.desc, {
-					ambient: ordinarySession,
-					label: `${history.label}_installer`,
-					logins: last.logins(last.desc.name),
-					extensions: []
-				})
+				const { installed } = yield* installGenerated(
+					(installer) => ({
+						schema: renamedSchema(last.fixture, installer),
+						logins: last.logins(installer)
+					}),
+					{ ambient: ordinarySession, label: `${history.label}_installer` }
+				)
 				assert.ok(
 					runsInstallScript(installed.folders, installed.installation, substrate.database),
 					`${history.label}: the installer's migration runs the fresh-install script`

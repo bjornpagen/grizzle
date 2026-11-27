@@ -64,6 +64,10 @@ import {
 	clockedGen,
 	clockedNotes,
 	judgeClocked,
+	type JoinedFeature,
+	joinedGen,
+	joinedNotes,
+	judgeJoined,
 	storedKeyFates
 } from "#test/unit/deploy/backfill.fixtures.ts"
 
@@ -233,6 +237,38 @@ export const aPlaceAMigrationAddsToStoredRowsNumbersEachGroupByItsByFromZeroAndE
 				original: "\t\t\tif (by === undefined || ran.has(nameKey(by.derivation.table))) {\n",
 				replacement: "\t\t\tif (by === undefined) {\n",
 				why: "A later UPDATE draws again every column an earlier one wrote that it reads, so the values' UPDATE derives the sessions' places and the attempts' carried n a second time, as follow-up 5's ledger draft does once per attempt sidecar."
+			}
+		]
+	})
+
+/** A clock a migration adds to stored rows of a unit whose head already counts on another clock of it leaves the unit's head at each key at the greatest instant the unit holds there, its new clock's rows' and its other clocks' alike. */
+export const aClockThatJoinsAUnitsScopeOverStoredRowsLeavesTheUnitsHeadAtTheGreatestInstantTheUnitHoldsAtEachKey =
+	property.explore(joinedGen, {
+		needs: {},
+		budget: { runs: 50, steered: 50 },
+		situations: [
+			"a clock joining its unit's head over stored rows",
+			"a visit past the migration's instant",
+			"a user of visits alone",
+			"over no row"
+		] satisfies ReadonlyArray<Reached<JoinedFeature>>,
+		check: (_, c: Case<JoinedFeature>) => (joined) =>
+			Effect.sync(() => {
+				c.noteAll(joinedNotes(joined))
+				judgeJoined(joined)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the unit's head at each user at the greatest instant of its visits and its sign-ins, each sign-in at the model's instant, and the target's fresh catalog, run against the catalog model of PostgreSQL executing the drafted migration"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/deploy/diff/diff.ts",
+				original:
+					"\t\t\t\t} else if (!sameRecord(before, o) || this.headJoined(before, o, v.create.table)) {\n",
+				replacement: "\t\t\t\t} else if (!sameRecord(before, o)) {\n",
+				why: "A unit's head a migration keeps stands where its stamps left it when a clock joins it over stored rows: the sign-ins' instants, the migration's, stand above it, so a later stamp of the unit could fall below them."
 			}
 		]
 	})

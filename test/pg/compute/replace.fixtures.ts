@@ -9,7 +9,7 @@ import { Array as Arr, Formatter, String as Str } from "effect"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { textBoundsOf } from "#compiler/ir/scalar.ts"
-import { compiledExpr } from "#compiler/scalar/compute/evaluate.ts"
+import { compiledExpr, noParamLeaf } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { evaluate } from "#test/support/oracle/evaluate/catalog.ts"
@@ -140,7 +140,12 @@ export const hostReplace = (term: ScalarExpr, c: ReplaceCase): string => {
 	const table = predicateTable(term)
 	const value = succeeded(
 		compiledExpr(table)(
-			{ value: undefined, column: (ref) => columnOf(c, ref.name), closed: () => undefined },
+			{
+				value: undefined,
+				column: (ref) => columnOf(c, ref.name),
+				closed: () => undefined,
+				param: noParamLeaf
+			},
 			ProgramPatterns.of(tablePatterns(table))
 		),
 		"the host evaluates replace"

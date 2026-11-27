@@ -12,6 +12,7 @@ import { builtinType } from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { printStatement, printType } from "#compiler/sql/print.ts"
+import type { ScopeEscape } from "#compiler/sql/scope.ts"
 import {
 	identityHooks,
 	statementParams,
@@ -25,6 +26,7 @@ import {
 	auditStatementDetailed,
 	auditStatementViolations,
 	auditTextViolations,
+	guardedTermsOf,
 	meetsStoredRow
 } from "#test/support/oracle/verify/sql.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
@@ -39,6 +41,7 @@ import {
 } from "#test/unit/sql/audit/live.ts"
 import {
 	type AuditRule,
+	type BreakRule,
 	type FaithfulRewrite,
 	faithfulRewrites,
 	leadingWords,
@@ -54,6 +57,20 @@ import {
 /** The rules of the violations, each once, sorted and joined: what a break must report exactly. */
 export const ruleSet = (violations: ReadonlyArray<{ readonly rule: AuditRule }>): string =>
 	Arr.join(Arr.sort([...new Set(Arr.map(violations, (v) => v.rule))], Order.String), ", ")
+
+/** The escapes' kinds, each once as the break that plants it names it, sorted and joined: what a scope break must plant. */
+export const scopeRuleSet = (escapes: ReadonlyArray<ScopeEscape>): string =>
+	Arr.join(Arr.sort([...new Set(Arr.map(escapes, (e) => `scope ${e.kind}`))], Order.String), ", ")
+
+/** Whether the printer refuses a statement: its scope check's internal compiler error (sql/scope.ts), thrown. */
+export const printerRefuses = (statement: SqlStatement): boolean => {
+	try {
+		printStatement(statement)
+		return false
+	} catch {
+		return true
+	}
+}
 
 /** A printed statement cut to 1200 characters, as a failure quotes it. */
 export const clip = (text: string): string =>
@@ -111,7 +128,10 @@ export const universal = (t: Twinned): void => {
 		clip(text)
 	)
 	assert.deepEqual(
-		Arr.map(auditTextViolations(text), (v) => `${v.rule} at ${v.where}: ${v.detail}`),
+		Arr.map(
+			auditTextViolations(text, guardedTermsOf(s)),
+			(v) => `${v.rule} at ${v.where}: ${v.detail}`
+		),
 		[],
 		clip(text)
 	)
@@ -305,6 +325,8 @@ export type AuditLiveFeature =
 	| "float literal special"
 	| "float literal negative zero"
 	| "old under IS TRUE in an INSERT's RETURNING"
+	| "a carrier read"
+	| "a carrier filled"
 
 /** What the audit-live suite notes of a draw: its own features, and each statement's kind, shape and float literals. */
 export const auditLiveFeatures = (live: Live): ReadonlyArray<AuditLiveFeature> => [
@@ -369,7 +391,7 @@ export const writesWhere = (
 /** What a break case reached: each break, each rule, and each rule beside the kind of statement it broke. */
 export type BreakFeature =
 	| `break ${StatementBreakName}`
-	| `rule ${AuditRule}`
+	| `rule ${BreakRule}`
 	| `statement ${SqlStatement["kind"]}`
 
 /** What a faithful rewrite case reached: each rewrite. */
@@ -443,8 +465,8 @@ export const writtenSituations: Situations<AuditLiveFeature> = [
 	"source written",
 	"a member deleted under a mutable owner",
 	"statement select",
-	"statement insert",
-	"statement emptyCarrier",
+	"a carrier read",
+	"a carrier filled",
 	"cte insert",
 	"cte delete",
 	"from arrays",

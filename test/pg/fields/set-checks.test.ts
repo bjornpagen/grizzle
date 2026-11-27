@@ -5,10 +5,12 @@
  *
  * The box: every set over a roster of three handles, written as one row of R, whose checks hold its flags apart from
  * {a}, within {a, b}, and within one side, {a, b} or {b, c}, so a and c together break all three. The model restates
- * the checks over plain Sets: a row is accepted exactly when its flags hold every one; otherwise the write is refused naming `every` check the flags break, each once, in the schema's canonical order
- * of its laws, whichever CHECK PostgreSQL tried first, its witness the row's key. A query reads an accepted row back
- * through the same algebra against set values, whether its flags miss b and their union with {c}, which the model
- * computes over plain Sets.
+ * the checks over plain Sets: a row is accepted exactly when its flags hold every one; otherwise the write is refused
+ * naming `every` check the flags break, each once, in the one canonical order every refusal leaves the database in,
+ * by the laws' identities in code point order (Bjorn's canonical-order ruling, 2cf8b4bf1a, adapter/witness/classify.ts
+ * canonicalRefusal, where a refusal had named them in the theory's order of laws), whichever CHECK PostgreSQL tried
+ * first, its witness the row's key. A query reads an accepted row back through the same algebra against set values,
+ * whether its flags miss b and their union with {c}, which the model computes over plain Sets.
  *
  * Features: a row accepted, and a row breaking each check alone and with others.
  */
@@ -31,6 +33,7 @@ import {
 import { openedIn } from "#test/pg/reads/support.ts"
 import { writeAnswerOf, rowsOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { byCodePoints } from "#test/support/key-order.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -63,9 +66,12 @@ export const aRowCheckOverASetAndASetValueHoldsARowExactlyWhenItsFlagsAreDisjoin
 							)
 							const held = new Set(flags)
 							const broken = Arr.filter(restated, (r) => !r.holds(held))
-							const brokenLaws = new Set(Arr.map(broken, (r) => names.lawOf(r.statement)))
-							const named = Arr.flatMap(names.model.theory.laws, (law) =>
-								brokenLaws.has(law.id) ? [names.described(law.id)] : []
+							const named = Arr.map(
+								Arr.sort(
+									Arr.dedupe(Arr.map(broken, (r) => names.lawOf(r.statement))),
+									byCodePoints
+								),
+								names.described
 							)
 							if (!Arr.isReadonlyArrayNonEmpty(named)) {
 								assert.equal(outcome.kind, "accepted", `${Formatter.format(flags)} is accepted`)
@@ -127,10 +133,12 @@ export const aRowCheckOverASetAndASetValueHoldsARowExactlyWhenItsFlagsAreDisjoin
 				why: "A refusal names only the CHECK PostgreSQL reported, as one did before a refused CHECK named every law its row breaks (runtime/write/witness.ts brokenLaws)."
 			},
 			{
-				file: "packages/engine/src/runtime/write/witness.ts",
-				original: "\t\tsortNonEmpty(once, (a, b) => order(a.law.law) - order(b.law.law)),",
-				replacement: "\t\tsortNonEmpty(once, (a, b) => order(b.law.law) - order(a.law.law)),",
-				why: "A refusal names the broken checks against the canonical order of the schema's laws (runtime/write/witness.ts brokenLaws)."
+				file: "packages/grizzle/src/adapter/witness/classify.ts",
+				original:
+					"): Arr.NonEmptyReadonlyArray<L> => Arr.sort(laws, (a: L, b: L) => compareCodePoints(a.id, b.id))",
+				replacement:
+					"): Arr.NonEmptyReadonlyArray<L> => Arr.sort(laws, (a: L, b: L) => compareCodePoints(b.id, a.id))",
+				why: "A refusal names the broken checks against the canonical order, by their identities in code point order (adapter/witness/classify.ts canonicalRefusal), so a row breaking two or three names them out of it."
 			}
 		]
 	})

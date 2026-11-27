@@ -1,5 +1,5 @@
 import type { DbConnection } from "#adapter/types/layer.ts"
-import type { AnyLogin, AnySchema } from "#compiler/plan/common.ts"
+import type { AnyContract, AnyLogin, AnySchema } from "#compiler/plan/common.ts"
 
 /**
  * Where the migration identity connects: exactly a DbLayer's connection (its driver, transport, database and password;
@@ -21,7 +21,8 @@ export type MigrationConnectionConfig = DbConnection & { readonly role: string }
  *
  *     import { defineConfig } from "@bjornpagen/grizzle"
  *     export default defineConfig({
- *         schemas: [Blog], logins: [Web, EtlJob], migrations: "migrations", rolePrefixBytes: 0, connection
+ *         schemas: [Blog], logins: [Web, EtlJob], contracts: [], migrations: "migrations", rolePrefixBytes: 0,
+ *         connection
  *     })
  *
  * The connection is the application's to build, from whatever its deploy provides, when a command that connects asks
@@ -39,6 +40,13 @@ export interface GrizzleConfig {
 	 * and their workloads plan the schemas' access paths.
 	 */
 	readonly logins: ReadonlyArray<AnyLogin>
+	/**
+	 * The consumers' contracts a running application parses values of at a boundary, by their values, so a misspelt one
+	 * is a type error: generate compiles each into its checker file, `<migrations>/contract-checks/<name>.json`, which
+	 * @bjornpagen/grizzle/runtime's contractParser reads with no compiler loaded, and check holds each current. Empty
+	 * where the application parses none.
+	 */
+	readonly contracts: ReadonlyArray<AnyContract>
 	/** The migrations directory: absolute, or relative to the configuration file's directory. */
 	readonly migrations: string
 	/**

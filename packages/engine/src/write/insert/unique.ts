@@ -285,18 +285,6 @@ export const entryUniques = (u: RelationUniques): RelationUniques =>
 				: u.every
 	})
 
-/**
- * The probes of a scoped entry's write over a relation of uniques `u` (schema/scope.ts): each probe of `u` but those of
- * an object whose compared fields decide whether a row is the owner's (`determines`, scope.ts determines), which meets
- * no row outside the owner's rows from a row inside them, so it is met as a whole write meets it, by the statement
- * itself.
- */
-export const scopedProbes = (
-	u: RelationUniques,
-	determines: (fields: ReadonlyArray<string>) => boolean
-): ReadonlyArray<OutsideProbe> =>
-	u.probes.filter((p) => !determines(p.object.equal.map((f) => f.name)))
-
 /** The facts a probed statement requests: complete facts, every field key first, each probed only where its arbiter key
  * is free in the snapshot (an occupied one is the arbiter's to settle, a repeat or its conflict witness, and is never
  * inserted into another index), told apart by their primary key; or the facts of an INSERT with no arbiter, each probed

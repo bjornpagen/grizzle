@@ -10,7 +10,8 @@ import {
 import { ParamRejected, type ServerError } from "#adapter/errors/failures.ts"
 import type { ApplyOutcome, ApplyOutcomeConstructor } from "#adapter/types/db.ts"
 import {
-	rosterDomainDefect,
+	canonicalRefusal,
+	rosterDomainBreak,
 	type ViolationClassifier,
 	type WrittenAt
 } from "#adapter/witness/classify.ts"
@@ -88,7 +89,7 @@ export type Classified =
 	  }
 	| { readonly kind: "outside"; readonly relation: string }
 	| { readonly kind: "failed"; readonly error: ApplyError }
-	| { readonly kind: "defect"; readonly defect: Error }
+	| { readonly kind: "defect"; readonly what: string }
 
 /**
  * Where in a write's flight the server raised what is classified, by its statement's index in it: the write statement
@@ -99,8 +100,8 @@ export type FailureOrigin =
 			readonly kind: "statement"
 			readonly index: number
 			readonly step: WriteStep
-			/** Which execution of its step it is: 0 for a step sent once, else its place among its staged form's
-			 * executions (runtime/write/staged.ts executionsOf). */
+			/** Which execution of its step it is: 0 for a step sent once, else its place among its batched executions
+			 * (runtime/write/bind.ts batchedExecutions). */
 			readonly chunk: number
 	  }
 	| { readonly kind: "readBack"; readonly index: number }
@@ -170,7 +171,6 @@ const statementAt = (origin: FailureOrigin): StatementAt => {
 				? { kind: "write", stratum: step.casts.stratum, relations: [step.casts.relation] }
 				: unstated
 		case "readBack":
-		case "admission":
 			return unstated
 	}
 }
@@ -190,7 +190,7 @@ const stepText = (step: WriteStep): string => {
 				", "
 			)}`
 		case "carrier":
-			return `the ${step.step} of carrier ${step.carrier}`
+			return `the fill of carrier ${step.carrier}`
 		case "readBack":
 			return `read-back ${step.name}`
 		case "check":
@@ -200,8 +200,6 @@ const stepText = (step: WriteStep): string => {
 				Arr.dedupe(Arr.map(step.parts, (p) => p.relation)),
 				", "
 			)}`
-		case "admission":
-			return "the admission of the write's parameters"
 	}
 }
 
@@ -273,7 +271,7 @@ export const classifyServerError = (failure: ServerError, context: ClassifyConte
 				error: new TransientFailure({ reason: transientReason(violation.reason), error: failure })
 			}
 		case "defect":
-			return { kind: "defect", defect: rosterDomainDefect(violation, originText(context.origin)) }
+			return { kind: "defect", what: rosterDomainBreak(violation, originText(context.origin)) }
 		case "param":
 			return {
 				kind: "failed",
@@ -306,6 +304,6 @@ export const applyOutcome: ApplyOutcomeConstructor = {
 			? Object.freeze({ kind: "accepted", counts: publicCounts(counts), reads })
 			: Object.freeze({ kind: "no-change", reads }),
 	invariantRejected: (refused, witness) =>
-		Object.freeze({ kind: "invariant-rejected", refused, witness }),
+		Object.freeze({ kind: "invariant-rejected", refused: canonicalRefusal(refused), witness }),
 	outsideWorld: (relation) => Object.freeze({ kind: "outside-world", relation })
 }

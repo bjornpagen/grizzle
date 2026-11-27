@@ -23,9 +23,10 @@
 export const fileNameMaxBytes = 255
 
 /**
- * A migration folder's timestamp, the UTC second it is drafted at, which the CLI reads off its clock (cli/clock.ts)
- * since the compiler reads none: its fields in the order it writes them, each with its width in digits, YYYYMMDDHHMMSS,
- * a four-digit year and two digits for each of the month, the day, the hour, the minute and the second.
+ * A migration folder's timestamp, a UTC second, which the CLI gives a new folder from its schema's committed chain (the
+ * second after the chain's last folder's, the Unix epoch for its first: cli/timestamp.ts), never from a clock: its fields
+ * in the order it writes them, each with its width in digits, YYYYMMDDHHMMSS, a four-digit year and two digits for each
+ * of the month, the day, the hour, the minute and the second.
  *
  * @formatConstant the digits of each field of a migration folder's timestamp
  */

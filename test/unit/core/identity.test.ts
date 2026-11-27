@@ -36,6 +36,8 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import {
 	censusOf,
+	type ContentKey,
+	contentCensus,
 	type Identity,
 	identity,
 	parseNameCharacters,
@@ -229,7 +231,7 @@ export const theNamingDoorRefusesTwoDeclaredNamesOfOneNamespaceThatConvertAlikeA
 		]
 	})
 
-/** The naming door admits distinct hashed identities, and refuses two distinct identities of one identifier as DigestCollision. Its budget is its suite's before it was a property (test/unit/core/identity.test.ts at 4ca3036a): 200 runs and 50 steered cases. */
+/** The naming door admits distinct hashed identities, and refuses two distinct identities of one identifier as DigestCollision, and a table's content-addressed keys alike (contentCensus). Its budget is its suite's before it was a property (test/unit/core/identity.test.ts at 4ca3036a): 200 runs and 50 steered cases. */
 export const theNamingDoorAdmitsDistinctHashedIdentitiesAndRefusesTwoDistinctIdentitiesOfOneIdentifierAsDigestCollision =
 	property.explore(censusGen, {
 		needs: {},
@@ -243,10 +245,17 @@ export const theNamingDoorAdmitsDistinctHashedIdentitiesAndRefusesTwoDistinctIde
 				Effect.sync(() => {
 					const minted = Arr.map(Arr.dedupe(fields), (field) => identity.normCheck("Item", field))
 					const original = defined(minted[at % minted.length], "a minted identity")
+					/** Each identity as a content-addressed key of one table holds it: its identifier its content's key. */
+					const keyed = (i: Identity<IdentityKind>): ContentKey => ({
+						key: i.identifier,
+						canonical: i.canonical,
+						display: i.display
+					})
 					if (!twin) {
 						c.note("admitted")
 						const census = succeeded(censusOf(minted))
 						assert.equal(census.hashed.size, minted.length)
+						succeeded(contentCensus(Arr.map(minted, keyed)))
 						return
 					}
 					c.note("a digest collision")
@@ -264,6 +273,17 @@ export const theNamingDoorAdmitsDistinctHashedIdentitiesAndRefusesTwoDistinctIde
 						[reason.display, reason.otherDisplay],
 						[original.display, forged.display]
 					)
+					const content = refused(
+						contentCensus(Arr.map([...minted, forged], keyed)),
+						"DigestCollision"
+					).reason
+					if (content._tag !== "DigestCollision") {
+						return assert.fail(`a DigestCollision of content keys, not ${content._tag}`)
+					}
+					assert.deepEqual(
+						[content.identifier, content.display, content.otherDisplay],
+						[original.identifier, original.display, forged.display]
+					)
 				}),
 		oracle: {
 			kind: "specification",
@@ -276,6 +296,14 @@ export const theNamingDoorAdmitsDistinctHashedIdentitiesAndRefusesTwoDistinctIde
 				original: "\t\tseen.set(i.identifier, i)\n",
 				replacement: "",
 				why: "the census never records an identity it has seen, so it never finds a digest collision; the census property fails."
+			},
+			{
+				file: "packages/engine/src/core/identity.ts",
+				original:
+					"\tconst collision = firstCollision(keys.map((k) => ({ ...k, identifier: k.key })))\n",
+				replacement:
+					"\tconst collision = firstCollision(keys.map((k) => ({ ...k, identifier: k.canonical })))\n",
+				why: "A table's content keys are told apart by their contents, never by their keys: two contents of one key, a planned reach's digest among them, pass its census."
 			}
 		]
 	})

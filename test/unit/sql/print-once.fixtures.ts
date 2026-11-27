@@ -44,7 +44,8 @@ export interface StatementShape {
 	readonly recursive: boolean
 }
 
-const cteGen: Gen<CteShape> = (source) => ({
+/** One CTE of a drawn statement: its kind, its body's references and whether the CTE after it reads it. */
+export const cteGen: Gen<CteShape> = (source) => ({
 	kind: source.draw(element(["plain", "materialized", "notMaterialized", "volatile"] as const)),
 	bodyReads: source.draw(int(0, 2)),
 	readByNext: source.draw(boolean)
@@ -85,9 +86,9 @@ export const inPlace = (shape: StatementShape, i: number): boolean => {
 
 /**
  * The statement of `shape`, each reference to a CTE read through `read`: CTE i reads CTE i - 1 once where that one is
- * `readByNext`, and a table otherwise; the body reads each CTE as many times as its `bodyReads`, every reference under
- * an alias of its own, named by its place, so both constructions name every alias alike, and a table where it reads
- * none.
+ * `readByNext`, and a table otherwise; the body reads a table, whose column it delivers, and each CTE as many times as
+ * its `bodyReads`, every reference under an alias of its own, named by its place, so both constructions name every
+ * alias alike.
  */
 const built = (
 	shape: StatementShape,
@@ -125,11 +126,7 @@ const built = (
 		Array.from({ length: c.bodyReads }, (_, k) => read(i, `r${300 + 3 * i + k}`, query))
 	)
 	const [first, ...rest] = ctes
-	const body = distinctCore(
-		[target(col("r0", "x"))],
-		from.length > 0 ? from : [table("s", "t", "r0")],
-		undefined
-	)
+	const body = distinctCore([target(col("r0", "x"))], [table("s", "t", "r0"), ...from], undefined)
 	return {
 		...select(body),
 		with: first === undefined ? undefined : { recursive: shape.recursive, ctes: [first, ...rest] }

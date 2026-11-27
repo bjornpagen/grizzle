@@ -13,21 +13,22 @@ import {
 	type GeneratedRule,
 	generatedRuleText,
 	type InstantRule,
-	type PlaceRule,
 	instantRuleText,
-	placeRuleText,
 	type KeyFault,
 	keyFaultText,
 	type LoginRule,
 	loginRuleText,
+	type PlaceRule,
+	placeRuleText,
 	type RecursionRefusal,
-	type RoleRule,
 	recursionRefusalText,
+	type RoleRule,
 	roleRuleText,
 	type ScopeRule,
 	scopeRuleText,
 	type StaleCause,
 	staleDerivedReadText,
+	type UncheckedDelta,
 	unfillableText,
 	type UnitLocality,
 	type UnwritableCause,
@@ -100,11 +101,13 @@ type Path = ReadonlyArray<string | number>
 /**
  * What grizzle reads back that it wrote, a MalformedArtifact's source: the snapshot (deploy/snapshot, the shell's
  * snapshot.json), the admission manifest, a migration folder's files and meta.json, the migrations ledger's rows, a
- * login's served file (served/json.ts servedFile), and the canonical or fingerprinted value a digest is taken over.
+ * login's served file (served/json.ts servedFile), a contract's checker file (served/json.ts contractFile), and the
+ * canonical or fingerprinted value a digest is taken over.
  */
 export type Artifact =
 	| "snapshot"
 	| "served"
+	| "contract"
 	| "manifest"
 	| "folder"
 	| "meta"
@@ -167,7 +170,7 @@ const regexSpaceText = (measure: RegexSpaceMeasure): string => {
  * - `stringLengthAtLeast`: a text grizzle builds piece by piece, refused at the piece where it passes V8's longest
  *   string, `limit`, so its whole length, which no writer measures, is at least `atLeast` UTF-16 code units (a canonical
  *   text encode builds, core/canonical.ts boundCanonicalText; never one a digest only hashes);
- * - `tableColumns`: the table or view `table` (a write program's carrier among them), of `needed`
+ * - `tableColumns`: the table or view `table`, of `needed`
  *   columns, past PostgreSQL's `limit` (tableMaxColumns);
  * - `selectList`: a select list of `needed` entries, past PostgreSQL's `limit` (selectMaxEntries);
  * - `statementBytes`: a statement `needed` UTF-8 bytes long, past PostgreSQL's longest protocol message, `limit`
@@ -222,6 +225,11 @@ export type CompileBound =
 			readonly states: number
 			readonly work: number
 	  }
+	| {
+			readonly kind: "carrierRows"
+			readonly rows: string
+			readonly bound: "prefix" | "cross" | "none"
+	  }
 
 const boundText = (bound: CompileBound): string => {
 	switch (bound.kind) {
@@ -245,6 +253,8 @@ const boundText = (bound: CompileBound): string => {
 			return `the key space of ${bound.constant} in at most ${bound.limit} cells, what a bigint index counts (needed ${bound.needed}); key it by fewer closed ids, or split it into closed relations of their own`
 		case "payloadCodes":
 			return `the payload of ${bound.constant} in at most ${bound.limit} codes, what one bigint payload code holds (needed ${bound.needed}); split its payload fields into closed relations of their own`
+		case "carrierRows":
+			return `the rows of ${bound.rows} carried between a write's statements, bounded by no key or unit the call fixes (${bound.bound === "none" ? "no value bounds them" : bound.bound === "cross" ? "a stored relation read whole" : "a key prefix short of a unit"}): a carrier holds its rows whole in its transaction's settings, at most 1 GB a column (MaxAllocSize), so these grow with the store; read them at a key or a unit the call fixes`
 		case "regexInclusion":
 			return `a decision whether every value of ${bound.inner} is a member of ${bound.outer}, which comparing their automata cannot reach within grizzle's text analysis bounds of ${bound.states} DFA states and ${bound.work} NFA-state visits; write the operand's pattern with fewer counted repetitions, or guard the cast with Logic.when(Text.matches(x, <the target's pattern>), (x) => Type.cast(x, <target>), <your value>)`
 	}
@@ -252,7 +262,8 @@ const boundText = (bound: CompileBound): string => {
 
 /**
  * What a partial operation needs of its operands beyond their types (scalar/compute/registry.ts Precondition, by
- * kind): a nonzero divisor, a nonnegative radicand, a finite operand, a value that fits its target, a contract that
+ * kind): a nonzero divisor, a nonnegative radicand, a finite operand, an operand of no fraction digits, a value that
+ * fits its target, a contract that
  * holds, a text inside a refinement's language, power's base's sign and its result's range, width_bucket's domain, a
  * parse's lexical form, a regex function's subject within the bytes PostgreSQL's regex engine reads, an instant within
  * PostgreSQL's timestamptz range.
@@ -261,6 +272,7 @@ export type PreconditionKind =
 	| "nonzero"
 	| "nonnegative"
 	| "finite"
+	| "integral"
 	| "fits"
 	| "contract"
 	| "language"
@@ -276,7 +288,9 @@ export type PreconditionKind =
  * number, Num.nonzero, Num.nonnegative, Num.positive, Num.isFinite, or Num.within between the bounds
  * the operation is defined within; over a text, Text.matches against the target's pattern, its lexical form, the
  * decimal text of a double (doubleText) or a decimal text (decimalText), or a bound on its UTF-8 bytes at the target's
- * str.bytes bound or a form's, Num.within(Text.octetLength(x), 0, bytes), where octetLength stands;
+ * str.bytes bound or a form's, Num.within(Text.octetLength(x), 0, bytes), where octetLength stands; for an operand's
+ * fraction digits, which no guard bounds, a value whose type has none, an integer's, numeric(p, 0)'s or a parse into
+ * the integer target itself (`integral`);
  * and, where no scalar test proves the precondition of the operand's type (a contract's predicate over a text, a
  * boolean, a uuid or a date), none: a value of the target's own type, a parameter its binding checks or a literal its
  * admission judges.
@@ -295,6 +309,7 @@ export type GuardTest =
 			readonly pattern: "target" | "lexicalForm" | "doubleText" | "decimalText"
 	  }
 	| { readonly kind: "octets"; readonly bytes: number }
+	| { readonly kind: "integral" }
 	| { readonly kind: "typed" }
 	| { readonly kind: "proves"; readonly contract: string }
 
@@ -319,6 +334,8 @@ const preconditionText = (kind: PreconditionKind, operand: string): string => {
 			return `${operand} is never negative`
 		case "finite":
 			return `${operand} is never NaN or an infinity`
+		case "integral":
+			return `${operand} has no fraction digits, so no cast rounds it`
 		case "fits":
 			return `${operand} fits its target`
 		case "contract":
@@ -345,10 +362,8 @@ const preconditionText = (kind: PreconditionKind, operand: string): string => {
  * hold (`base` naming the base); a write of a relation outside its insert and write lists; an UPDATE or DELETE of
  * `relation` its grants do not hold, where the role only inserts: `relation` is under its insert list, or owns a family
  * whose open member is, whose recount the program makes (`insert`); a match of `context`, which the role does not declare,
- * so its Db's claims hold no fact of it; a program over the role's base, which is one only for a role holding every
- * relation of it whole or scoped; or a program over the base that reads `relation`, which the role holds scoped, other
- * than row by row (`crossOwner`, program/slice.ts): its `read` decides by rows of `relation` it cannot show are all of
- * the owner's, so it would mean something else over the owner's rows than over every row.
+ * so its Db's claims hold no fact of it; or a program over the role's base, which is one only for a role holding every
+ * relation of it whole.
  */
 export type RoleAccess =
 	| { readonly kind: "read"; readonly relation: string; readonly base: string }
@@ -360,22 +375,6 @@ export type RoleAccess =
 	  }
 	| { readonly kind: "context"; readonly context: string; readonly declared: ReadonlyArray<string> }
 	| { readonly kind: "wholeBase"; readonly base: string }
-	| { readonly kind: "crossOwner"; readonly relation: string; readonly read: CrossOwnerRead }
-
-/**
- * How a program over the base reads a scoped relation across owners (program/slice.ts): a negation, or a test of
- * existence anywhere but among its rule's filters, at rows no positive match of the rule shows are the owner's
- * (`negation`); an aggregate whose group may hold rows of several owners (`aggregate`); a take or an approximate search
- * over rows of several owners (`take`); a declared function's rows argument over rows of several owners (`call`).
- */
-export type CrossOwnerRead = "negation" | "aggregate" | "take" | "call"
-
-const crossOwnerText: { readonly [R in CrossOwnerRead]: string } = {
-	negation: "decides by the absence of rows no positive match of its rule shows are the owner's",
-	aggregate: "aggregates over a group whose rows may be several owners'",
-	take: "takes from rows that may be several owners'",
-	call: "passes a declared function rows that may be several owners'"
-}
 
 const accessText = (role: string, access: RoleAccess): string => {
 	switch (access.kind) {
@@ -388,29 +387,22 @@ const accessText = (role: string, access: RoleAccess): string => {
 		case "context":
 			return `a context role ${role} declares, whose facts its Db's claims hold (${access.declared.length === 0 ? "it declares none" : access.declared.join(", ")}); ${access.context} is none of them`
 		case "wholeBase":
-			return `a program over a level of role ${role}; its base ${access.base} is one only for a role holding every relation of it whole or scoped, and ${role} does not`
-		case "crossOwner":
-			return `a program over role ${role}'s base that reads ${access.relation}, which ${role} holds scoped, row by row; it ${crossOwnerText[access.read]}`
+			return `a program over a level of role ${role}; its base ${access.base} is one only for a role holding every relation of it whole, and ${role} does not`
 	}
 }
 
 /**
  * A name declared twice differently, a DuplicateIdentity's, with where the earlier declaration is: a relation, a
- * declared function, a contract, a context matched with another descriptor, an alternatives(...) statement repeated by its manual
- * expansion `statement`, or a scope name two calls to v give in one rule, which no type tells apart.
+ * declared function, a contract, a variant, a context matched with another descriptor, or a scope name two calls to v
+ * give in one rule, which no type tells apart.
  */
 export type Duplicate =
 	| { readonly kind: "relation"; readonly name: string; readonly earlier: SourceLoc }
 	| { readonly kind: "function"; readonly name: string; readonly earlier: SourceLoc }
 	| { readonly kind: "scope"; readonly name: string; readonly earlier: SourceLoc }
 	| { readonly kind: "contract"; readonly name: string; readonly earlier: SourceLoc }
+	| { readonly kind: "variant"; readonly name: string; readonly earlier: SourceLoc }
 	| { readonly kind: "context"; readonly name: string; readonly earlier: SourceLoc }
-	| {
-			readonly kind: "alternatives"
-			readonly statement: string
-			readonly relation: string
-			readonly earlier: SourceLoc
-	  }
 
 const duplicateText = (duplicate: Duplicate): string => {
 	switch (duplicate.kind) {
@@ -422,10 +414,10 @@ const duplicateText = (duplicate: Duplicate): string => {
 			return `one scope per name in a rule; scope ${JSON.stringify(duplicate.name)} is also minted at ${formatLoc(duplicate.earlier)}, so give each v call of the rule its own name`
 		case "contract":
 			return `one descriptor per contract name; contract ${duplicate.name} is also declared differently at ${formatLoc(duplicate.earlier)}`
+		case "variant":
+			return `one declaration per variant name; variant ${duplicate.name} is also declared differently at ${formatLoc(duplicate.earlier)}`
 		case "context":
 			return `one descriptor per context name; context ${duplicate.name} is also matched differently at ${formatLoc(duplicate.earlier)}`
-		case "alternatives":
-			return `either alternatives(...) or its manual expansion, not both; ${duplicate.statement} repeats the alternatives over ${duplicate.relation} declared at ${formatLoc(duplicate.earlier)}`
 	}
 }
 
@@ -485,11 +477,9 @@ const keyRefusalText = (key: KeyRefusal): string => keyFaultText(key.subject, ke
  *   a declared name's conversion, refused where the name is written (admitDeclaredName) and where it is declared, or a
  *   login's or role's PostgreSQL role, `<schema>__<name>` (fitted), under the installation's role prefix where it
  *   has one (roleInSpace).
- * - `RecordNameTooLong`: the relation the records of the stem `records` derive for the relation at `path` (the
- *   attachment names from the root, none for the root itself), `name`, whose identifier, `identifier`, takes `bytes`
- *   bytes, past PostgreSQL's `limit` (core/identity.ts maxIdentifierBytes), which PostgreSQL would cut short
- *   (program/records.ts). Its fix is the author's: a name stated for the attachment at its path in records' names, or
- *   a shorter stem for the root, `${stem}Row`; grizzle never cuts or hashes the name.
+ * - `DecodedColumnTooLong`: a closed-id field `field` of the relation `relation`, whose conversion, `conversion`, takes
+ *   `bytes` bytes, past `limit`, PostgreSQL's maxIdentifierBytes less `_name`: its decoded column, `<field>_name`, which
+ *   each role view shows beside the code, would pass PostgreSQL's identifier. Refused where the relation is built.
  * - `DigestCollision`: two distinct objects, `display` and `otherDisplay`, whose hashed names share the stem and the
  *   digest of `identifier` (core/identity.ts digestChars): two of one installation (censusOf), or a migration's
  *   temporary and an object standing while it runs or another temporary (TemporaryCensus); renaming a declaration
@@ -516,7 +506,7 @@ const keyRefusalText = (key: KeyRefusal): string => keyFaultText(key.subject, ke
  *   there what it means over the fragment, so only the fragment states how its relations are written, and a schema that
  *   lists it may add over them only what refuses: a containment, a row check, a rule over a query.
  * - `RoleRefused`, `LoginRefused`, `ContextRefused`: a role, a login or a context breaks the rule `rule`.
- * - `ScopeRefused`: scoped entries over `schema` break the rule `rule` (ScopeRule).
+ * - `ScopeRefused`: the scope of role `role` breaks the rule `rule` (ScopeRule).
  * - `GeneratedRefused`: generated field `field` of `relation` breaks the rule `rule`.
  * - `UnfillableField`: the column `field` of `relation`, which grizzle fills by the law `law`, reads the column
  *   `source` along the `axis` of `family`, which its row fills only after it, for `later` (FilledLater), so no write
@@ -639,12 +629,11 @@ export type CompileReason =
 			readonly limit: number
 	  }
 	| {
-			readonly _tag: "RecordNameTooLong"
+			readonly _tag: "DecodedColumnTooLong"
 			readonly at: SourceLoc
-			readonly records: string
-			readonly path: ReadonlyArray<string>
-			readonly name: string
-			readonly identifier: string
+			readonly relation: string
+			readonly field: string
+			readonly conversion: string
 			readonly bytes: number
 			readonly limit: number
 	  }
@@ -715,7 +704,7 @@ export type CompileReason =
 	| {
 			readonly _tag: "ScopeRefused"
 			readonly at: SourceLoc
-			readonly schema: string
+			readonly role: string
 			readonly rule: ScopeRule
 	  }
 	| {
@@ -1002,24 +991,6 @@ export const prose = (tag: ProseTag, at: SourceLoc, text: string): CompileReason
 export const noReadCommittedFormText = (relation: string): string =>
 	`an insert into ${relation}, whose primary key holds a span, has no READ COMMITTED form: its exclusion constraint arbitrates by ON CONFLICT DO NOTHING alone, so no statement tells a requested fact it met from one it made, and it runs SERIALIZABLE`
 
-/**
- * A RecordNameTooLong's sentence: the relation, its name's identifier and bytes past the bound, and its fix, a name
- * stated at the attachment's path in records' options, or a shorter stem for the root.
- */
-const recordNameTooLongText = (
-	reason: Extract<CompileReason, { readonly _tag: "RecordNameTooLong" }>
-): string => {
-	const key = reason.path.join(".")
-	const [relation, fix] =
-		reason.path.length === 0
-			? [`the root of records ${reason.records}`, `a shorter stem than ${reason.records}`]
-			: [
-					`the relation of records ${reason.records}' attachment ${key}`,
-					`state its name in records' options, { names: { ${JSON.stringify(key)}: <a name whose identifier fits ${reason.limit} bytes> } }`
-				]
-	return `a records relation name whose identifier fits PostgreSQL's ${reason.limit} bytes; ${relation}, ${reason.name}, has the identifier ${reason.identifier}, which takes ${reason.bytes}: ${fix}`
-}
-
 /** The sentence a reason states after its tag and location. */
 export const compileReasonText = (reason: CompileReason): string => {
 	switch (reason._tag) {
@@ -1061,8 +1032,8 @@ export const compileReasonText = (reason: CompileReason): string => {
 			return `${reason.what} names that convert apart; ${reason.declaration} and ${reason.otherDeclaration} both convert to ${reason.identifier}`
 		case "IdentifierTooLong":
 			return `a name whose identifier fits PostgreSQL's ${reason.limit} bytes; the ${reason.declaration}'s identifier ${reason.identifier} takes ${reason.bytes}`
-		case "RecordNameTooLong":
-			return recordNameTooLongText(reason)
+		case "DecodedColumnTooLong":
+			return `a closed-id field whose decoded column ${reason.conversion}_name fits PostgreSQL's identifier, its field's conversion within ${reason.limit} bytes; ${reason.relation}.${reason.field}'s conversion ${reason.conversion} takes ${reason.bytes}`
 		case "DigestCollision":
 			return `distinct hashed names for distinct objects; ${reason.display} and ${reason.otherDisplay} are both ${reason.identifier}: rename a declaration either is built from`
 		case "ResourceBound":
@@ -1088,7 +1059,7 @@ export const compileReasonText = (reason: CompileReason): string => {
 		case "ContextRefused":
 			return `context ${reason.context}: ${claimRuleText(reason.rule)}`
 		case "ScopeRefused":
-			return `scoped entries of ${reason.schema}: ${scopeRuleText(reason.rule)}`
+			return `the scope of role ${reason.role}: ${scopeRuleText(reason.rule)}`
 		case "UnfillableField":
 			return unfillableText(reason)
 		case "InstantRefused":
@@ -1190,10 +1161,15 @@ const compileErrorMessage = (reason: CompileReason): string => {
  *   storedUnit met): a fact of it may join rows of several units, which two writers may write at once, each blind to the
  *   other's, so no upkeep at one written unit could keep it exact;
  * - `unboundedUpkeep`: its upkeep at a written unit would re-derive its whole declared unit (`unit`), a delta of one row
- *   reading every row of the unit: its unit's key (`fields`) is no wider than the declared unit's, and that unit is not
- *   sealed, so no write is known to write the whole unit (analysis/theory/frozen.ts foundedAt);
+ *   reading every row of the unit: its unit's key (`fields`) is no wider than the declared unit's, that unit is not
+ *   sealed, so no write is known to write the whole unit (analysis/theory/frozen.ts foundedAt), and its delta form bounds
+ *   no upkeep, checked or monotone over closed relations, which would read what a served write gains and withdraws by
+ *   keys whatever the unit (`delta`, why not, core/causes.ts UncheckedDelta);
  * - `unrepresentable`: its table could not hold its rows: derived analysis refused its heading or its keys
- *   (`refusal`), a refusal its definition's reading never meets.
+ *   (`refusal`), a refusal its definition's reading never meets;
+ * - `copy`: its rows are one relation's own (`relation`), projected onto a key of it, no condition stated, so a table of
+ *   them would be a second copy of that relation's, which no reader reads more cheaply than the relation's key index,
+ *   and its upkeep would cost every write of the relation for no reader's gain.
  */
 export type LiveReason =
 	| { readonly kind: "notUnitLocal"; readonly lacks: UnitLocality }
@@ -1201,8 +1177,15 @@ export type LiveReason =
 			readonly kind: "unboundedUpkeep"
 			readonly unit: string
 			readonly fields: NonEmptyReadonlyArray<string>
+			readonly delta: UncheckedDelta
+	  }
+	| {
+			readonly kind: "recursion"
+			readonly unit: string
+			readonly fields: NonEmptyReadonlyArray<string>
 	  }
 	| { readonly kind: "unrepresentable"; readonly refusal: CompileError }
+	| { readonly kind: "copy"; readonly relation: string }
 
 export class CompileError extends Error {
 	readonly _tag = "CompileError" as const
@@ -1380,6 +1363,8 @@ export const valueFaultWords = [
 	"vectorNorm",
 	"searchDocumentForm",
 	"searchDocumentSize",
+	"variantType",
+	"variantTag",
 	"factShape"
 ] as const
 export type ValueFault = (typeof valueFaultWords)[number]

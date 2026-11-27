@@ -397,7 +397,7 @@ const addSpanChecks = (b: InstallBuilder, constraints: ReadonlyArray<SpanConstra
  *
  * Every name is minted at the naming door from the CHECK's identity (identity.spanCheck). The CHECKs are their
  * own physical objects in Structure, after their table. Every installation adds them before any caller extension runs
- * (physical/install/compile.ts installationOver), so no installation path can leave them out. */
+ * (program/install.ts installationOver), so no installation path can leave them out. */
 export const addSpanStorage = (b: InstallBuilder, columns: ReadonlyArray<SpanColumn>): void => {
 	addSpanChecks(
 		b,

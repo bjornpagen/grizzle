@@ -11,8 +11,11 @@ import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonemp
  * columns `columns`; a pair of anchors a declared dependency ties is an anchor of its own here, its exponent the
  * pair's (declared.ts):
  * - a key binds at most one row: Σ x_c ≥ y_a;
- * - a set apart, which holds no key, binds two rows or more: Σ x_c ≤ y_a − 1 (an anchor that is no key alone is a set
- *   apart with no other column, y_a ≥ 1; one that is a key alone a key with none, y_a = 0).
+ * - a set apart, which holds no key, binds 2^l rows or more, l ≥ 1 its `least`: Σ x_c ≤ y_a − l (an anchor that is no
+ *   key alone is a set apart with no other column, y_a ≥ 1; one that is a key alone a key with none, y_a = 0). A set
+ *   apart binds two rows or more, l = 1; and an anchor of a pair each of whose anchors binds more rows than the pair (a
+ *   unit's anchor and a column a binding spanning its units leads an index with, declared.ts) binds four rows or more
+ *   over the columns of each set apart over the pair, l = 2, twice that set's, so y_a ≥ y_pair + 1.
  * The unknowns are integers, y_a ≥ 0 and 1 ≤ x_c ≤ cap_c: PostgreSQL rounds a declared absolute number of distinct
  * values to an integer (selfuncs.c get_variable_numdistinct, clamp_row_est), every column at least halves the rows it
  * binds, and none is declared more values than its type holds, a column of few values' 2^cap_c at most its handles (a
@@ -31,7 +34,7 @@ import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonemp
  * system is an integer program over sums of columns, a threshold realization of bounded weights, and a search of its
  * box, each column from 1 to the largest exponent, is exponential in its columns, as e2abf18f2's was. So the exponents
  * are what a raise reaches, each step polynomial and the steps bounded:
- * - every column starts at 1, and each anchor's exponent is 1 more than its largest set apart's sum, or 0;
+ * - every column starts at 1, and each anchor's exponent is its largest set apart's sum and least, or 0;
  * - a key whose sum falls short of its anchor's exponent, against its largest set apart `S`, raises one of its columns
  *   `S` does not hold by the shortfall, of those whose caps leave room for it (`raiser`): the last whose raise leaves
  *   every other key meeting its anchor's exponent and the largest exponent where it stands, else the last that leaves
@@ -44,8 +47,9 @@ import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonemp
  *   keys where it holds no cycle; past that many rounds and one more the raise is ended.
  * What the raise cannot meet is refused in one of two ways:
  * - a crossing, which holds no solution at all, by its proof: a key held whole by a set apart over its anchor
- *   (Σ_K x ≤ Σ_S x ≤ y − 1 < y ≤ Σ_K x); or the key and set apart pairs of the raise's last round, where their
- *   differences 1_K − 1_S sum to no positive column: then no x > 0 meets them all (Gordan's alternative);
+ *   (Σ_K x ≤ Σ_S x ≤ y − l < y ≤ Σ_K x); or the key and set apart pairs of the raise's last round, where their
+ *   differences 1_K − 1_S sum to no positive column: then no x > 0 meets them all (Gordan's alternative, each pair
+ *   asking (1_K − 1_S) · x ≥ l ≥ 1);
  * - otherwise an unsettled raise: grizzle's raise found no exponents within its rounds, which the system may hold all the
  *   same, so it is a limitation of grizzle's, refused as one.
  * The work is at most keys + 1 rounds, each raising every key at most once for each set apart over its anchor and once
@@ -54,12 +58,16 @@ import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonemp
  * metis's, edullm's and den's 621 tables the raise declares what e2abf18f2's exact search did, table for table.
  */
 
-/** One bound of a system, over an anchor and other columns by their positions (see the module's doc). */
-export interface Bound {
-	readonly kind: "key" | "apart"
-	readonly anchor: number
-	readonly columns: ReadonlyArray<number>
-}
+/** One bound of a system, over an anchor and other columns by their positions (see the module's doc): a key's, or a set
+ * apart's, which binds 2^`least` rows or more. */
+export type Bound =
+	| { readonly kind: "key"; readonly anchor: number; readonly columns: ReadonlyArray<number> }
+	| {
+			readonly kind: "apart"
+			readonly anchor: number
+			readonly columns: ReadonlyArray<number>
+			readonly least: number
+	  }
 
 /** A system of bounds over `anchors` anchors and `columns` other columns, each by its position, and each column's cap,
  * the largest exponent its type holds (Infinity for a column of many values). */
@@ -96,22 +104,24 @@ export type Exponents =
 			readonly raises: number
 	  }
 
-/** Two bounds are one where they hold one kind, one anchor and one set of columns. */
+/** Two bounds are one where they hold one kind, one anchor and one set of columns, and a set apart one least. */
 const boundKey = (b: Bound): string =>
-	`${b.kind}\u0000${b.anchor}\u0000${[...new Set(b.columns)].toSorted((x, y) => x - y).join(",")}`
+	`${b.kind === "key" ? "key" : `apart ${b.least}`}\u0000${b.anchor}\u0000${[...new Set(b.columns)].toSorted((x, y) => x - y).join(",")}`
 
-/** A bound of the system, by its position, with its set of columns. */
+/** A bound of the system, by its position, with its set of columns and the exponent of the fewest rows it binds: a set
+ * apart's `least`, a key's 0. */
 interface Placed {
 	readonly at: number
 	readonly bound: Bound
 	readonly columns: ReadonlySet<number>
+	readonly least: number
 }
 
 /** The positions of `placed`, ascending, as a refusal names them. */
 const positions = (placed: ReadonlyArray<Placed>): NonEmptyReadonlyArray<number> => {
 	const [first, ...rest] = [...new Set(placed.map((p) => p.at))].toSorted((x, y) => x - y)
 	if (first === undefined) {
-		throw defect("a refusal names a bound")
+		defect("a refusal names a bound")
 	}
 	return [first, ...rest]
 }
@@ -125,12 +135,13 @@ const sumOf = (columns: ReadonlySet<number>, x: ReadonlyArray<number>): number =
 	return s
 }
 
-/** The set apart over an anchor of the largest sum under `x`, the first of them; none where the anchor holds none. */
+/** The set apart over an anchor of the largest sum and least under `x`, the first of them; none where the anchor holds
+ * none. */
 const largest = (aparts: ReadonlyArray<Placed>, x: ReadonlyArray<number>): Placed | undefined => {
 	let top: Placed | undefined
 	let most = -1
 	for (const p of aparts) {
-		const s = sumOf(p.columns, x)
+		const s = p.least + sumOf(p.columns, x)
 		if (s > most) {
 			top = p
 			most = s
@@ -139,14 +150,14 @@ const largest = (aparts: ReadonlyArray<Placed>, x: ReadonlyArray<number>): Place
 	return top
 }
 
-/** Each anchor's exponent under `x`: 1 more than its largest set apart's sum, or 0. */
+/** Each anchor's exponent under `x`: its largest set apart's sum and least, or 0. */
 const floors = (
 	aparts: ReadonlyArray<ReadonlyArray<Placed>>,
 	x: ReadonlyArray<number>
 ): ReadonlyArray<number> =>
 	aparts.map((overA) => {
 		const top = largest(overA, x)
-		return top === undefined ? 0 : 1 + sumOf(top.columns, x)
+		return top === undefined ? 0 : top.least + sumOf(top.columns, x)
 	})
 
 /**
@@ -239,7 +250,12 @@ export const exponentsOf = (system: ExponentSystem): Exponents => {
 		.toSorted((x, y) => x - y)
 		.map((at) => {
 			const bound = defined(system.bounds[at], "a bound")
-			return { at, bound, columns: new Set(bound.columns) }
+			return {
+				at,
+				bound,
+				columns: new Set(bound.columns),
+				least: bound.kind === "apart" ? bound.least : 0
+			}
 		})
 	const overAnchor = (kind: Bound["kind"]): ReadonlyArray<ReadonlyArray<Placed>> =>
 		Array.from({ length: system.anchors }, (_, a) =>
@@ -262,7 +278,8 @@ export const exponentsOf = (system: ExponentSystem): Exponents => {
 			for (const k of overA) {
 				for (;;) {
 					const top = largest(apartsOfA, x)
-					const shortfall = top === undefined ? 0 : 1 + sumOf(top.columns, x) - sumOf(k.columns, x)
+					const shortfall =
+						top === undefined ? 0 : top.least + sumOf(top.columns, x) - sumOf(k.columns, x)
 					if (top === undefined || shortfall <= 0) {
 						break
 					}

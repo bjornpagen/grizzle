@@ -92,7 +92,7 @@ export const aBareLiteralOppositeAColumnTakesTheColumnsTypeAsWrittenCompiledWher
 			{
 				file: "packages/engine/src/scalar/compute/typing.ts",
 				original:
-					'\t\t\tif (role === "compare") {\n\t\t\t\tthis.asWritten(desc.value, against.nominal, at)\n\t\t\t}\n',
+					'\t\t\tif (role === "compare") {\n\t\t\t\tthis.asWritten(desc.value, against, at)\n\t\t\t}\n',
 				replacement: "",
 				why: "A predicate's bare operand is held to no type: a read's x = 1.25 compiles, comparing exactly a value x never holds."
 			}

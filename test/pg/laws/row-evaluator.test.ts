@@ -75,10 +75,10 @@ export const theHostEvaluatesARowAsPostgreSQLDoesItsDomainsRefusalItsGeneratedVa
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/program/evaluate.ts",
-				original: "\tfor (const field of refined) {",
-				replacement: "\tfor (const field of refined.slice(1)) {",
-				why: "admit skips a refined field: a row its first refined field's domain refuses is admitted, where PostgreSQL's CHECK refuses it."
+				file: "packages/engine/src/runtime/write/witness.ts",
+				original: "\tfor (const field of judged) {",
+				replacement: "\tfor (const field of judged.slice(1)) {",
+				why: "admit skips a judged field: a row its first judged field's domain refuses is admitted, where PostgreSQL's CHECK refuses it."
 			},
 			{
 				file: "packages/engine/src/program/evaluate.ts",
@@ -101,8 +101,8 @@ export const theHostEvaluatesARowAsPostgreSQLDoesItsDomainsRefusalItsGeneratedVa
 			},
 			{
 				file: "packages/engine/src/program/evaluate.ts",
-				original: "fields.filter((f) => judgedGeneration(f) === undefined && isRefined(f.type))",
-				replacement: "fields.filter((f) => judgedGeneration(f) !== undefined && isRefined(f.type))",
+				original: "fields.filter((f) => judgedGeneration(f) === undefined && isJudged(f.type))",
+				replacement: "fields.filter((f) => judgedGeneration(f) !== undefined && isJudged(f.type))",
 				why: "A caller's field is never held to its domain, so a row PostgreSQL's domain refuses is evaluated as if admitted."
 			},
 			{

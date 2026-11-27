@@ -6,7 +6,8 @@ import type { KeyFault } from "#compiler/core/causes.ts"
 import { defaultOpclass } from "#compiler/ir/law.ts"
 import type { IndexRequest } from "#compiler/ir/products.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { compileInstallation, type InstallOptions } from "#compiler/physical/install/compile.ts"
+import type { InstallOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { accumulated, Bits, bits, drawn, natural, pg } from "#compiler/public/fields.ts"
 import {
 	closed,

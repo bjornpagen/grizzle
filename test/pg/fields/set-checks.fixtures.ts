@@ -19,10 +19,10 @@ const otherSide: ReadonlyArray<Handle> = ["b", "c"]
 const apart = check("Apart", R, (r) => r.eq(Bits.disjoint(r.flags, Bits.of(Flag, apartFrom)), true))
 const within = check("Within", R, (r) => r.eq(Bits.subset(r.flags, Bits.of(Flag, withinOf)), true))
 const split = check("Split", R, (r) =>
-	r.or(
+	r.or([
 		r.eq(Bits.subset(r.flags, Bits.of(Flag, withinOf)), true),
 		r.eq(Bits.subset(r.flags, Bits.of(Flag, otherSide)), true)
-	)
+	])
 )
 export const Sets = schema("SetChecks", [Flag, R], [apart, within, split])
 

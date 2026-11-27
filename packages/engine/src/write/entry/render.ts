@@ -8,6 +8,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { noClock } from "#compiler/ir/clock.ts"
 import { typedEq } from "#compiler/ir/compare.ts"
 import { servedQuery } from "#compiler/ir/derived.ts"
+import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
@@ -20,7 +21,7 @@ import {
 	LowerContext
 } from "#compiler/lower/conservative/context.ts"
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
-import { lowerOptimized, optimizedInput } from "#compiler/lower/optimize/pipeline.ts"
+import { lowerComposed, optimizedInput } from "#compiler/lower/optimize/pipeline.ts"
 import type { Expr, ObjectName, OperandBody, OperandSelect, SetOperand } from "#compiler/sql/ast.ts"
 import {
 	and,
@@ -104,7 +105,9 @@ const unaliased = (query: OperandSelect): OperandSelect => ({
  * deduplicates only where a node observes repeats, so a stored relation the filter joins is a plain FROM item
  * PostgreSQL flattens into one join with the row, read at the values the row fixes, by an index on them, rather than
  * scanned and deduplicated whole on every call. The program is the small form of its one statement: every form delivers
- * the same rows, and the filter is asked of one row. The membership is EXISTS over it: true or false, never NULL, so
+ * the same rows, and the filter is asked of one row. It is lowered composed (lower/optimize/pipeline.ts lowerComposed),
+ * never printed apart: its row is the caller's, named by the statement that asks the membership, which alone binds it.
+ * The membership is EXISTS over it: true or false, never NULL, so
  * `NOT membership` refuses exactly the rows outside the entry. An entry whose filter is none holds every row: its
  * membership is TRUE.
  *
@@ -116,12 +119,26 @@ export const renderMembership = (
 	options: MembershipOptions
 ): Result.Result<Expr, CompileError> => {
 	const filter = entry.filter
-	if (filter.kind === "none") {
-		return Result.ok(lit.bool(true))
-	}
-	const query = checkQuery(options.schema, filter.query, {
+	return filter.kind === "none"
+		? Result.ok(lit.bool(true))
+		: renderFilter(filter.query, filter.fields, `write ${entry.entry}`, options)
+}
+
+/**
+ * A membership query over the row the caller names, `query`, reading the row's `fields`, as SQL at that row: EXISTS over
+ * its lowering (see `renderMembership`), labelled `label` where it is refused. A writable entry's filter is one; a
+ * member's claims filter is another (schema/scope.ts claimsFilter), which a claims-held write's precheck asks of each fact it
+ * states.
+ */
+export const renderFilter = (
+	filterQuery: QueryDesc,
+	fields: ReadonlyArray<LawField>,
+	label: string,
+	options: MembershipOptions
+): Result.Result<Expr, CompileError> => {
+	const query = checkQuery(options.schema, filterQuery, {
 		read: "membership",
-		label: `write ${entry.entry}`,
+		label,
 		clock: noClock,
 		session: CheckSession.own()
 	})
@@ -137,10 +154,8 @@ export const renderMembership = (
 	if (!annotated.ok) {
 		return annotated
 	}
-	const read = new Map(
-		filter.fields.map((field, position) => [field.name, { field, position }] as const)
-	)
-	const program = lowerOptimized(annotated.value, {
+	const read = new Map(fields.map((field, position) => [field.name, { field, position }] as const))
+	const program = lowerComposed(annotated.value, {
 		names: options.names,
 		subject: {
 			kind: "membership",
@@ -155,7 +170,7 @@ export const renderMembership = (
 	if (!program.ok) {
 		return program
 	}
-	const loc = SourceLoc(`write ${entry.entry}`, ["filter"])
+	const loc = SourceLoc(label, ["filter"])
 	const parts = program.value.parts
 	if (
 		parts.kind !== "one" ||

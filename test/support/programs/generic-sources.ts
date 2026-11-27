@@ -4,7 +4,6 @@
  */
 export { query, v } from "#compiler/public/query.ts"
 export {
-	alternatives,
 	check,
 	contained,
 	counted,
@@ -20,7 +19,6 @@ export {
 } from "#compiler/public/schema.ts"
 export {
 	A,
-	Arm,
 	B,
 	Folded,
 	IA,

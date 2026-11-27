@@ -46,6 +46,7 @@ import {
 	type EqualWitness,
 	type FixedWitness,
 	type Implication,
+	type KeyBasis,
 	type KeyProof,
 	keyIn,
 	type Rule,
@@ -55,6 +56,7 @@ import {
 import type { NativeProof, OperationProof } from "#compiler/ir/proof.ts"
 import {
 	type AggregateFn,
+	type CallFunction,
 	type CompletedOrder,
 	type DagTable,
 	exprsOf,
@@ -85,6 +87,7 @@ import {
 	type TableRefs,
 	type TakeBound,
 	type TerminationCert,
+	type TextSplit,
 	type ValidDag,
 	type VarDecl,
 	type WindowFn,
@@ -92,14 +95,21 @@ import {
 	windowFns
 } from "#compiler/ir/rel.ts"
 import {
+	calledFunctionFields,
 	calledFunctionShape,
 	literalShape,
 	scalarTypeShape,
 	tableExprShape
 } from "#compiler/ir/scalar-shape.ts"
-import { baseOf, isRefined, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
+import {
+	baseOf,
+	isRefined,
+	type ScalarType,
+	sameScalarType,
+	subsumes
+} from "#compiler/ir/scalar.ts"
 import * as S from "#compiler/ir/shape.ts"
-import { meets } from "#compiler/scalar/compute/types.ts"
+import { compatible, meets } from "#compiler/scalar/compute/types.ts"
 import { definedness } from "#test/support/compute.ts"
 import { toTable } from "#test/support/dag.ts"
 import { nativeProofHolds, operationProofHolds, proofCovers } from "#test/support/oracle/proof.ts"
@@ -183,7 +193,7 @@ export type DagRule =
 	| "a data input or argument names an entry of the table, through no cycle"
 	| "a termination premise names a node"
 	| "an occurrence reads columns of its source at their types"
-	| "equated variables have one base type"
+	| "equated variables are of compatible types"
 	| "a relation parameter or a context has a column"
 	| "a call's rows are its result's heading, of a column"
 	| "a call's rows argument delivers its heading's fields"
@@ -281,7 +291,7 @@ const namesOf = (
  * The defect a DAG grizzle built raises at its first problem: grizzle's own compiler assembled it, so a rule it breaks
  * is a bug in grizzle, never a refusal of anyone's input. It names the rule and where the DAG breaks it.
  */
-const broken = (p: Pick<DagProblem, "path" | "message">): Error =>
+const broken: (p: Pick<DagProblem, "path" | "message">) => never = (p) =>
 	defect(
 		`a DAG grizzle built breaks a rule at ${formatLoc(SourceLoc("relational DAG", p.path))}: ${p.message}`
 	)
@@ -786,8 +796,9 @@ class Checker {
 	/**
 	 * A semi-join's right side reads no column of its left (dag.ts nodeScopes binds the left for it, as it does an
 	 * anti-join's, whose negation reads the rule's variables): the right side is one relation per evaluation of the
-	 * semi-join, so a column it fixes is fixed there, and a left column paired with it is too (logical/props.ts, the
-	 * key kernel's semiJoinPair). Read per left row, the right side's fixed column would hold one value per left row.
+	 * semi-join, so its dependencies hold there, and the left columns paired with their columns keep them (logical/props.ts
+	 * pairedDependencies, the key kernel's paired rule). Read per left row, the right side's fixed column would hold one
+	 * value per left row.
 	 * The engine's node types hold it (ir/rel.ts SemiJoinRight: a semi-join's right side is only what semiJoinRight
 	 * minted, reading the right side's subtree); this rule re-reads it over the outside form, where a node is its label
 	 * and holds no brand.
@@ -1100,6 +1111,7 @@ class Checker {
 							"a closed read only in a side's predicate or a generated field's expression, never in a query DAG"
 					}
 				]
+			case "variant":
 			case "closedHas":
 			case "call":
 				return []
@@ -1349,9 +1361,7 @@ class Checker {
 						const t = this.exprType(o.expr)
 						const col = heading[i]
 						return (
-							col !== undefined &&
-							col.name === o.name &&
-							(t === undefined || sameScalarType(t, col.type))
+							col !== undefined && col.name === o.name && (t === undefined || subsumes(col.type, t))
 						)
 					})
 				const named =
@@ -1363,7 +1373,7 @@ class Checker {
 							? "a heading column has the type its kind defines"
 							: "a heading is the one its kind defines",
 						[...path, "heading"],
-						`the projected heading (${Arr.join(names, ", ")}) at the output types`
+						`the projected heading (${Arr.join(names, ", ")}) at types that subsume the output types (ir/scalar.ts subsumes: a term read bare where its nominal type subsumes its own, bbfa4eca06)`
 					)
 				}
 				return
@@ -1580,11 +1590,18 @@ class Checker {
 		for (const [i, e] of node.equalities.entries()) {
 			const a = vars.get(e.a)
 			const b = vars.get(e.b)
-			if (a !== undefined && b !== undefined && !sameScalarType(baseOf(a.type), baseOf(b.type))) {
+			/**
+			 * Whether the two are of one carrier, contract identity, roster, vector dimension count and span endpoint
+			 * (types.ts compatible), so one operator compares them; their refinements and typmods may differ: the checker
+			 * binds a variable's column of another refinement to a hidden variable of that column's type and equates the
+			 * two (check/checker.ts RuleCheck `#equated`), whose values lie in both.
+			 */
+			const comparable = a === undefined || b === undefined || compatible(a.type, b.type)
+			if (!comparable) {
 				this.report(
-					"equated variables have one base type",
+					"equated variables are of compatible types",
 					[...path, "equalities", i],
-					"equated variables of one base type"
+					"equated variables of compatible types"
 				)
 			}
 		}
@@ -2197,7 +2214,9 @@ const headingColumnShape: S.Shape<HeadingColumn> = S.struct({
 })
 
 /** What fills an InputSet, by its kind. */
-const inputSetInputShape: S.Shape<InputSetInput> = S.tagged("kind", {
+const inputSetInputShape: S.Shape<InputSetInput> = S.tagged<InputSetInput>()("kind", {
+	row: S.struct({}),
+	bound: S.struct({ param: paramIdShape }),
 	declared: S.struct({ param: paramIdShape }),
 	member: S.struct({ slot: paramIdShape, relation: S.nonEmptyString })
 })
@@ -2231,7 +2250,7 @@ const premiseObjectShape: S.Shape<ConstraintName> = S.branded(
 	S.nonEmptyString
 )
 
-const premiseShape: S.Shape<Premise> = S.tagged("kind", {
+const premiseShape: S.Shape<Premise> = S.tagged<Premise>()("kind", {
 	constraint: S.struct({
 		constraint: premiseObjectShape,
 		constraintKind: S.literalsShape(constraintKinds)
@@ -2272,7 +2291,7 @@ const keyProofBody: S.Shape<KeyProof> = S.struct({
 			alternatives: S.array(S.struct({ columns: keySetShape, determines: implicationShape }))
 		})
 	),
-	basis: S.tagged("kind", {
+	basis: S.tagged<KeyBasis>()("kind", {
 		rows: S.struct({ implication: implicationShape }),
 		union: S.struct({
 			arms: S.nonEmptyArray(keyProofShape),
@@ -2299,15 +2318,14 @@ const viewKeyShape: S.Shape<ViewKey> = S.struct({
 	)
 })
 
-const fixedWitnessShape: S.Shape<FixedWitness> = S.tagged("kind", {
+const fixedWitnessShape: S.Shape<FixedWitness> = S.tagged<FixedWitness>()("kind", {
 	conjunct: S.struct({ expr: exprIdShape }),
 	closedValue: S.struct({}),
 	takeCorrelation: S.struct({ index: S.nonNegativeInteger }),
-	semiJoinPair: S.struct({ index: S.nonNegativeInteger, right: implicationShape }),
 	attachCorrelation: S.struct({ attach: nodeIdShape, index: S.nonNegativeInteger })
 })
 
-const equalWitnessShape: S.Shape<EqualWitness> = S.tagged("kind", {
+const equalWitnessShape: S.Shape<EqualWitness> = S.tagged<EqualWitness>()("kind", {
 	conjunct: S.struct({ expr: exprIdShape }),
 	regionEquality: S.struct({ index: S.nonNegativeInteger }),
 	sharedColumn: S.struct({ occurrence: occurrenceIdShape, column: S.nonEmptyString }),
@@ -2322,7 +2340,7 @@ const equalWitnessShape: S.Shape<EqualWitness> = S.tagged("kind", {
 	})
 })
 
-const atMostOneWitnessShape: S.Shape<AtMostOneWitness> = S.tagged("kind", {
+const atMostOneWitnessShape: S.Shape<AtMostOneWitness> = S.tagged<AtMostOneWitness>()("kind", {
 	context: S.struct({}),
 	row: S.struct({}),
 	singleFact: S.struct({}),
@@ -2332,17 +2350,19 @@ const atMostOneWitnessShape: S.Shape<AtMostOneWitness> = S.tagged("kind", {
 	falseConjunct: S.struct({ expr: exprIdShape })
 })
 
-const ruleShape: S.Shape<Rule> = S.tagged("rule", {
+const ruleShape: S.Shape<Rule> = S.tagged<Rule>()("rule", {
 	declared: S.struct({ premises: S.array(premiseShape), context: evidenceContextShape }),
 	fixed: S.struct({ witness: fixedWitnessShape }),
 	equal: S.struct({ witness: equalWitnessShape }),
 	correlated: S.struct({ index: S.nonNegativeInteger }),
 	match: S.struct({ occurrence: occurrenceIdShape, source: implicationShape }),
+	generated: S.struct({}),
 	projection: S.struct({ input: implicationShape }),
 	group: S.struct({}),
 	grouped: S.struct({ input: implicationShape }),
 	kept: S.struct({ input: implicationShape }),
 	intersected: S.struct({ input: implicationShape }),
+	paired: S.struct({ input: implicationShape }),
 	atMostOne: S.struct({ witness: atMostOneWitnessShape }),
 	distinct: S.struct({}),
 	produced: S.struct({ input: keyProofShape }),
@@ -2392,7 +2412,7 @@ const orderShape: S.Shape<CompletedOrder> = S.struct({
 	)
 })
 
-const takeBoundShape: S.Shape<TakeBound> = S.tagged("kind", {
+const takeBoundShape: S.Shape<TakeBound> = S.tagged<TakeBound>()("kind", {
 	literal: S.struct({ k: S.refine(S.bigint, (k) => k > 0n, "a positive bound") }),
 	param: S.struct({ param: paramIdShape })
 })
@@ -2487,24 +2507,31 @@ const baseFields = {
 	keys: S.array(S.nonEmptyUniqueStrings("key columns"))
 } as const
 
-const tableNodeShape: S.Shape<TableNode> = S.tagged("kind", {
-	Base: S.tagged("relationKind", {
+/** A Base's dependencies (ir/rel.ts Base determined): each its determining fields and the fields they determine. */
+const determinedShape = S.array(
+	S.struct({ by: S.array(S.nonEmptyString), fields: S.array(S.nonEmptyString) })
+)
+
+const tableNodeShape: S.Shape<TableNode> = S.tagged<TableNode>()("kind", {
+	Base: S.tagged<TableOf<"Base">>()("relationKind", {
 		relation: S.structStated(
 			{
 				...common,
 				...baseFields,
-				generated: S.array(S.struct({ field: S.nonEmptyString, reads: S.array(S.nonEmptyString) }))
+				generated: S.array(S.struct({ field: S.nonEmptyString, reads: S.array(S.nonEmptyString) })),
+				unit: S.array(S.nonEmptyString),
+				determined: determinedShape
 			},
 			commonStated,
 			{}
 		),
 		derived: S.structStated(
-			{ ...common, ...baseFields, view: S.array(viewKeyShape) },
+			{ ...common, ...baseFields, view: S.array(viewKeyShape), determined: determinedShape },
 			commonStated,
 			{}
 		),
 		world: S.structStated(
-			{ ...common, ...baseFields, view: S.array(viewKeyShape) },
+			{ ...common, ...baseFields, view: S.array(viewKeyShape), determined: determinedShape },
 			commonStated,
 			{}
 		)
@@ -2600,7 +2627,7 @@ const tableNodeShape: S.Shape<TableNode> = S.tagged("kind", {
 			bound: foldInputShape,
 			keys: keySetShape,
 			aggs: S.array(
-				S.tagged("fn", {
+				S.tagged<TableOf<"Group">["aggs"][number]>()("fn", {
 					count: aggregateCase(S.empty(exprIdShape)),
 					sum: aggregateCase(S.single(exprIdShape)),
 					avg: aggregateCase(S.single(exprIdShape)),
@@ -2614,7 +2641,7 @@ const tableNodeShape: S.Shape<TableNode> = S.tagged("kind", {
 		commonStated,
 		{}
 	),
-	Produce: S.tagged("producer", {
+	Produce: S.tagged<TableOf<"Produce">>()("producer", {
 		spanPack: S.structStated(
 			{ ...common, input: nodeIdShape, args: S.single(exprIdShape), ...produced },
 			commonStated,
@@ -2656,7 +2683,7 @@ const tableNodeShape: S.Shape<TableNode> = S.tagged("kind", {
 		{}
 	),
 	Step: S.structStated({ ...common, input: nodeIdShape }, commonStated, {}),
-	Attach: S.tagged("delivered", {
+	Attach: S.tagged<TableOf<"Attach">>()("delivered", {
 		option: unorderedAttach,
 		one: unorderedAttach,
 		array: S.structStated({ ...common, ...attachFields, order: orderShape }, commonStated, {})
@@ -2699,10 +2726,15 @@ const tableNodeShape: S.Shape<TableNode> = S.tagged("kind", {
 	Call: S.structStated(
 		{
 			...common,
-			function: S.tagged("kind", {
+			function: S.tagged<CallFunction>()("kind", {
 				declared: calledFunctionShape,
+				field: S.struct({
+					...calledFunctionFields,
+					field: S.nonEmptyString,
+					row: S.nonEmptyArray(S.nonEmptyString)
+				}),
 				split: S.struct({
-					split: S.tagged("kind", {
+					split: S.tagged<TextSplit>()("kind", {
 						tokens: S.struct({}),
 						pieces: S.struct({ separator: S.nonEmptyString }),
 						rest: S.struct({}),
@@ -2710,10 +2742,12 @@ const tableNodeShape: S.Shape<TableNode> = S.tagged("kind", {
 						resolvedWithin: S.struct({}),
 						splitLast: S.struct({ separator: S.nonEmptyString })
 					})
-				})
+				}),
+				series: S.struct({}),
+				arm: S.struct({ handle: S.nonEmptyString })
 			}),
 			args: S.array(
-				S.tagged("kind", {
+				S.tagged<TableOf<"Call">["args"][number]>()("kind", {
 					value: S.struct({ name: S.nonEmptyString, expr: exprIdShape, type: scalarTypeShape }),
 					rows: S.struct({
 						name: S.nonEmptyString,
@@ -2756,7 +2790,7 @@ export const dagProblems = (table: DagTable): ReadonlyArray<DagProblem> => {
 const conformed = (table: DagTable): DagTable => {
 	const decoded = S.decodeWith(dagTableShape, table, "relational DAG")
 	if (!decoded.ok) {
-		throw defect(`a value this package built has its shape: ${decoded.error.message}`)
+		defect(`a value this package built has its shape: ${decoded.error.message}`)
 	}
 	return decoded.value
 }
@@ -2811,7 +2845,7 @@ export const validateTable = (table: DagTable): DagTable => {
 	const owned = conformed(table)
 	const [problem] = dagProblems(owned)
 	if (problem !== undefined) {
-		throw broken(problem)
+		broken(problem)
 	}
 	return owned
 }
@@ -2901,7 +2935,7 @@ const nativeProblems = (
 export const validateDag = <D extends RelDag>(dag: D): D => {
 	const table = toTable(dag)
 	if (!table.ok) {
-		throw broken({ path: ["nodes"], message: compileReasonText(table.error.reason) })
+		broken({ path: ["nodes"], message: compileReasonText(table.error.reason) })
 	}
 	validateTable(table.value)
 	return dag

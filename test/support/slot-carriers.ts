@@ -13,9 +13,7 @@ export const slotCarriers = (artifact: WriteArtifact): ReadonlyMap<string, Membe
 	new Map(
 		Arr.flatMap(artifact.statements, (s): ReadonlyArray<readonly [string, MemberParamSlot]> => {
 			const [first] = s.spec.paramSlots
-			return s.step.kind === "carrier" && s.step.step === "fill" && first?.kind === "member"
-				? [[s.step.carrier, first]]
-				: []
+			return s.step.kind === "carrier" && first?.kind === "member" ? [[s.step.carrier, first]] : []
 		})
 	)
 

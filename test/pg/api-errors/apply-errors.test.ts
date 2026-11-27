@@ -11,7 +11,10 @@
  *   call's fact of an array member, or a scalar parameter of a described member. The oracle is the codecs' fault
  *   vocabulary (scalar/values/fault.ts), each class's one fault: a value of a class is refused with that fault, a
  *   parameter's with the parameter as its slot, with no frontend message sent and nothing stored; a wild value the
- *   codec admits is answered, never a defect (drawn as an arm of its own too, since a wild draw rarely lands on one).
+ *   codec admits is answered, never a defect (drawn as an arm of its own too, since a wild draw rarely lands on one),
+ *   but for a text outside the label's pattern bound as its parameter: the encoder checks only the base type, and
+ *   PostgreSQL refuses it as it binds it, the CallError `paramRejected` naming the parameter, with nothing stored
+ *   (README, "Contracts and patterns"; outsideLabelPattern restates the pattern over the value passed).
  * - No scalar operation in a described member raises on a value: every one is total or stands with its proof, and a
  *   narrowing into a column without one is refused at compilation (PartialOperation, test/unit/compute/totality.test.ts),
  *   so a member's computed value is never an ExecutionFailure.
@@ -29,8 +32,8 @@
  * are infrastructure faults out of the suite's scope. A read-back's rows are converted, not validated (the public-boundary
  * differential reads each read-back as strictly as a read, test/pg/oracle/public/run.ts).
  *
- * Features: every field's invalid class in every form, a wild value admitted, and wild nulls, proxies and lone
- * surrogates refused.
+ * Features: every field's invalid class in every form, a wild value admitted, wild nulls, proxies and lone surrogates
+ * refused, and a wild text outside the label's pattern refused at bind.
  */
 
 import { assert, assertVariant } from "@bjornpagen/testing/assert"
@@ -53,6 +56,7 @@ import {
 	Fixture,
 	live,
 	liveParams,
+	outsideLabelPattern,
 	plantedPairs,
 	programs,
 	seedFacts,
@@ -79,7 +83,8 @@ export const applyErrorThroughThePublicAPIAValueItsCodecRefusesIsRefusedAsInputN
 			"wild admitted",
 			"wild null refused",
 			"wild proxy refused",
-			"wild lone-surrogate refused"
+			"wild lone-surrogate refused",
+			"wild outside the label's pattern refused at bind"
 		] satisfies ReadonlyArray<Reached<EncodingFeature>>,
 		check:
 			({ fixture }, cx: Case<EncodingFeature>) =>
@@ -123,12 +128,26 @@ export const applyErrorThroughThePublicAPIAValueItsCodecRefusesIsRefusedAsInputN
 												)
 											})
 								)
+								const outside = outsideLabelPattern(c, value)
 								if (Result.isSuccess(outcome)) {
 									assert.ok(c.value.kind === "wild", `a ${c.field} of its invalid class is refused`)
+									assert.ok(!outside, "a label parameter outside its pattern is refused at bind")
 									cx.note("wild admitted")
 									return
 								}
 								const error = outcome.failure
+								if (outside) {
+									assertVariant(error, "kind", "paramRejected", error.message)
+									assert.deepEqual(
+										error.param,
+										{ kind: "scalar", name: "label" },
+										"the refusal names the label parameter"
+									)
+									const kept = yield* tableState(o.installed, Typed)
+									assert.deepEqual(kept, [], "nothing is stored")
+									cx.note("wild outside the label's pattern refused at bind")
+									return
+								}
 								assert.equal(error.kind, "input", error.message)
 								assert.equal(tap.since(mark).frontend.length, 0, "no statement before the refusal")
 								const state = yield* tableState(o.installed, Typed)
@@ -167,9 +186,23 @@ export const applyErrorThroughThePublicAPIAValueItsCodecRefusesIsRefusedAsInputN
 				reason:
 					"f1bf91a2f's gate (TEST_SEED=2219874524, floor case 25): a call's fact whose id is a refusing proxy, which the shares' valueBytes read by instanceof before the codec, so its getPrototypeOf trap escaped as a WildTouched defect where the codec refuses it with its fault and slot (9e905ec1a)",
 				since: "2026-11-22"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/api-errors/apply-errors.test.ts#applyErrorThroughThePublicAPIAValueItsCodecRefusesIsRefusedAsInputNamingItsFaultAndSlotBeforeAnySQLOneItAdmitsIsAnswered:-:1.9.d.0.3.1.0"
+				),
+				reason:
+					'main at 38a1b476: the label parameter bound to " ", a wild text its codec admits outside its pattern, which PostgreSQL refuses as it binds it, paramRejected at the parameter (README, "Contracts and patterns"), where the oracle held every value the codec admits answered',
+				since: "2026-11-26"
 			}
 		],
 		kills: [
+			{
+				file: "packages/grizzle/src/adapter/live/call-error.ts",
+				original: '\tServerError: "failed",\n\tParamRejected: "paramRejected",\n',
+				replacement: '\tServerError: "failed",\n\tParamRejected: "input",\n',
+				why: "A write's parameter PostgreSQL refused outside its pattern as it bound it is read as the host's refusal of its input, `input` with no place, where it is `paramRejected` naming the parameter: a host cannot tell which field the database refused."
+			},
 			{
 				file: "packages/engine/src/runtime/write/read-call.ts",
 				original: "\t\t\t\tconst given = members.get(member.name)\n",

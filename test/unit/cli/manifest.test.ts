@@ -15,10 +15,7 @@ import { formatOf } from "#compiler/core/format.ts"
  * names no format, one edited by hand under its seal, and a record of another shape relabelled with this grizzle's
  * format, sealed under this format's number, read as no snapshot, check's unreadableSnapshot finding alone, which generate
  * refuses at the stage snapshot; a sealed record that is not the one the schemas compile to is check's manifestRecord
- * finding, which generate writes back as the record, drafting no folder and leaving snapshot.json as it was; and a
- * record of this format holding an object of a kind this grizzle does not install, the database default a grizzle
- * before e1eb4f524 installed or an advanceFunction, reads as no snapshot, as a hand edit does (deploy/snapshot/build.ts
- * recordedSnapshot): a kind's removal is a change of the format, so no record of this one holds it.
+ * finding, which generate writes back as the record, drafting no folder and leaving snapshot.json as it was.
  *
  * A case takes the committed directory of one schema's first draft (derived.fixtures.ts baseNeed) and commits one file
  * beside the other: snapshot.json of no format, of the format before this grizzle's or after it; both files as a draft
@@ -26,8 +23,7 @@ import { formatOf } from "#compiler/core/format.ts"
  * check refuses before anything reads its record; both files as d76a61066 drafted them, qti-pie's pantry among them,
  * its declared statistics recording no dependencies, sealed under this format's number, snapshot.json recording the number
  * alone or this grizzle's format; manifest.json sealed under the earlier domain `manifest`; the record with an edge
- * left out, an edit no draft reads, sealed again; that edit under the draft's seal; or the record with a former
- * database default or an advanceFunction object its first, sealed again.
+ * left out, an edit no draft reads, sealed again; or that edit under the draft's seal.
  *
  * Oracle: the first draft's own snapshot.json and manifest.json, and the format each commit records.
  *
@@ -38,7 +34,7 @@ import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/ty
 import { cliOver, configName, resolvedConfig, workspace } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { chunked } from "#test/support/chunked.ts"
-import { at, baseNeed, config, schemaDir } from "#test/unit/cli/derived.fixtures.ts"
+import { baseNeed, config, schemaDir } from "#test/unit/cli/derived.fixtures.ts"
 import {
 	type Commit,
 	commitSpace,
@@ -47,14 +43,13 @@ import {
 	editedManifest,
 	formatCommits,
 	formatThree,
-	formatted,
-	recordHolding
+	formatted
 } from "#test/unit/cli/manifest.fixtures.ts"
 
 /** A snapshot.json of another format is check's format finding, carrying the formats, which generate and names refuse at the stage format writing nothing; a seal naming no format and a hand edit read as no snapshot; and a record not the compile's is check's finding, which generate writes back drafting no folder. */
 export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEditReadsAsNoSnapshotAndARecordNotTheCompilesIsWrittenBack =
 	property.exhaust(commitSpace, {
-		box: "snapshot.json of no format, of the format before this grizzle's and of the one after it, a draft of format 3, manifest.json under the earlier seal's domain, a record sealed again over an edit, that edit under the draft's seal, a record holding a former database default or an object of a removed kind, each sealed again, and d76a61066's draft, of this format's number and relabelled with this grizzle's format",
+		box: "snapshot.json of no format, of the format before this grizzle's and of the one after it, a draft of format 3, manifest.json under the earlier seal's domain, a record sealed again over an edit, that edit under the draft's seal, and d76a61066's draft, of this format's number and relabelled with this grizzle's format",
 		needs: { baseNeed },
 		situations: [
 			"format none",
@@ -64,8 +59,6 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEd
 			"a seal naming no format",
 			"a record not the compile's",
 			"a hand edit",
-			"a former database default",
-			"a removed kind",
 			"a d76a61066 draft",
 			"a d76a61066 record under this format"
 		] satisfies ReadonlyArray<Reached<Commit>>,
@@ -95,10 +88,6 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEd
 								return { snapshot, manifest: editedManifest(snapshot, manifest, true) }
 							case "a hand edit":
 								return { snapshot, manifest: editedManifest(snapshot, manifest, false) }
-							case "a former database default":
-								return { snapshot, manifest: recordHolding(snapshot, manifest, "former") }
-							case "a removed kind":
-								return { snapshot, manifest: recordHolding(snapshot, manifest, "removed") }
 							case "a d76a61066 draft":
 								return d76a61066Draft(snapshot, manifest, false)
 							case "a d76a61066 record under this format":
@@ -133,7 +122,7 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEd
 							`check finds ${commit} as the format it records, against this grizzle's`
 						)
 						for (const command of ["generate", "names"] as const) {
-							const refused = yield* cliOver(ws, config, [command, configName], at(2))
+							const refused = yield* cliOver(ws, config, [command, configName])
 							assert.equal(refused.code, 1, refused.stdout)
 							assert.ok(
 								Str.includes("refused at stage format")(refused.stderr),
@@ -149,7 +138,7 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEd
 					if (commit !== "a record not the compile's") {
 						assert.ok(converted._tag === "Failure", `${commit} reads as no snapshot`)
 						assert.deepEqual(kinds, ["unreadableSnapshot"], Formatter.format(commit))
-						const refused = yield* cliOver(ws, config, ["generate", configName], at(2))
+						const refused = yield* cliOver(ws, config, ["generate", configName])
 						assert.equal(refused.code, 1, refused.stdout)
 						assert.ok(
 							Str.includes("refused at stage snapshot")(refused.stderr),
@@ -163,7 +152,7 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEd
 					}
 					succeeded(converted, "the resealed record reads")
 					assert.deepEqual(kinds, ["manifestRecord"], Formatter.format(commit))
-					const regenerated = yield* cliOver(ws, config, ["generate", configName], at(2))
+					const regenerated = yield* cliOver(ws, config, ["generate", configName])
 					assert.equal(regenerated.code, 0, regenerated.stderr)
 					const after = yield* fs.readDirectory(`${ws}/${schemaDir}`)
 					assert.deepEqual(Arr.sort(after, Order.String), entries, "generate drafts no folder")
@@ -171,7 +160,7 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEd
 					assert.equal(rewritten, manifest, "manifest.json is the draft's again")
 					const standing = yield* fs.readFileString(snapshotFile)
 					assert.equal(standing, snapshot, "snapshot.json stands")
-					const passed = yield* cliOver(ws, config, ["check", configName], at(3))
+					const passed = yield* cliOver(ws, config, ["check", configName])
 					assert.equal(passed.code, 0, passed.stderr)
 				}),
 		oracle: {
@@ -180,12 +169,6 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEd
 		},
 		kept: [],
 		kills: [
-			{
-				file: "packages/engine/src/deploy/snapshot/build.ts",
-				original: "\t\tif (!isInstalledKind(o.kind)) {",
-				replacement: "\t\tif (false) {",
-				why: "A record holding an object of a kind this grizzle does not install is read as its snapshot, so a reader that switches on the kind meets undefined, as check over qti-pie's pantry met its database default (TypeError: Cannot read properties of undefined (reading 'kind'))."
-			},
 			{
 				file: "packages/engine/src/core/format.ts",
 				original: "\trecorded === formatOf[file]",

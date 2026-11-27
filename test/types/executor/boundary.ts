@@ -5,9 +5,8 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
 /**
  * The executor's boundary: a program that runs is compiled over a plan an installation stands behind, ParamSource
  * `planned` or `recorded` (program/schema.ts InstalledSource), and never over an `unserved` one, which names a pattern
- * parameter's own domain where no installation installs it. The types hold it: a role's, a slice's and a layer's
- * artifacts are InstalledArtifacts (adapter/served/role.ts RoleContext, SliceArtifacts; adapter/served/login.ts
- * LayerArtifacts), runtimeEntry takes the servable form of a ChangeEntry compiled over them (program/workload/change.ts
+ * parameter's own domain where no installation installs it. The types hold it: a role's artifacts and a login's are
+ * InstalledArtifacts (adapter/served/role.ts RoleContext; adapter/served/login.ts loginRoles), runtimeEntry takes the servable form of a ChangeEntry compiled over them (program/workload/change.ts
  * servableEntry, ServableEntry), and runWrite's input, a WriteEntry, is minted by
  * that door or by a served file's load (adapter/apply/compile.ts installedEntry, adapter/served/load.ts loadedEntry)
  * alone; and a bench gate's compiled query, which the gate runner runs, holds InstalledArtifacts
@@ -15,7 +14,7 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
  *
  * The box, exhausted and printed as one program the type batch checks disarmed: every source a harness has handed
  * baseArtifacts (a planned source, a recorded one, `unserved` written out, the `unserved` constant, and a source of any
- * kind), by every door a compiled program passes on its way to a run (a role's artifacts, a slice's, a layer's, a bench
+ * kind), by every door a compiled program passes on its way to a run (a role's artifacts, a login's, a bench
  * gate's compiled query's, and runWrite over runtimeEntry over servableEntry over compileParsed over the artifacts, as a
  * role's compile of a ChangeSet passes it, adapter/served/forms.ts writeEntry); and an entry's parts
  * passed to runWrite, unminted and minted by loadedEntry.
@@ -59,19 +58,14 @@ const doors: Arr.NonEmptyReadonlyArray<Door> = [
 			`export const role${i}: RoleContext = { ...role, artifacts: ${artifactsOver(source)} }`
 	},
 	{
-		name: "a slice's artifacts",
-		probe: (source, i) =>
-			`export const slice${i}: SliceArtifacts = { ...slice, artifacts: ${artifactsOver(source)} }`
-	},
-	{
 		name: "a bench gate's compiled query",
 		probe: (source, i) =>
 			`export const bench${i}: Compiled = { ...benchCompiled, artifacts: ${artifactsOver(source)} }`
 	},
 	{
-		name: "a layer's artifacts",
+		name: "a login's artifacts",
 		probe: (source, i) =>
-			`export const layer${i} = layerOver(layerSlice, () => baseArtifacts(basis, ${source}))`
+			`export const login${i} = loginRoles(loginArgs[0], loginArgs[1], ${artifactsOver(source)}, loginArgs[3])`
 	},
 	{
 		name: "runWrite over runtimeEntry",
@@ -139,8 +133,7 @@ const boundaryHeader: ReadonlyArray<string> = [
 	"export declare const recordedParams: InstalledParams",
 	"export declare const anySource: ParamSource",
 	"export declare const role: RoleContext",
-	"export declare const slice: SliceArtifacts",
-	"export declare const layerSlice: Slice",
+	"export declare const loginArgs: Parameters<typeof loginRoles>",
 	"export declare const benchCompiled: Compiled",
 	"type Tail<T extends ReadonlyArray<unknown>> = T extends readonly [unknown, ...infer R] ? R : never",
 	"export declare const parsedRest: Tail<Parameters<typeof compileParsed>>",

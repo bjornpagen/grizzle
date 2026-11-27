@@ -81,7 +81,8 @@ import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Every request a generated workload plans is served, and every index it creates is needed, each case installing its
- * workload on its own substrate (Substrate.fresh).
+ * workload on its own substrate (Substrate.fresh); and every column's statistics stay as declared through two VACUUM
+ * ANALYZEs around a change of the load's rows, no other column holding any.
  *
  * Its pre-conversion budget: runs 10, coverage cases 10 (test/pg/physical/serving.test.ts at fa10bca50).
  */
@@ -103,11 +104,19 @@ export const everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIs
 				),
 		oracle: {
 			kind: "postgresql",
-			name: "PostgreSQL's serving judge: every planned request's probe runs through an index the installation planned, and every created index is needed"
+			name: "PostgreSQL's serving judge: every planned request's probe runs through an index the installation planned, and every created index is needed; and pg_stats after two VACUUM ANALYZEs, the rows changed between them, against the manifest's declared statistics"
 		},
 		budget: { runs: 10, steered: 10 },
 		show: Formatter.format,
 		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/physical/serving.test.ts#everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIsNeeded:-:0.3.1.0.0.1.0.0.1.0.1.0.1.0.0.1.0.0.1.0.1.0.1.0.1.0.1.0.1.0.1.2.1.0.1.0.1.0.1.0.0.1.0.0.1.2.1.2.0.1.0.1.0.1.0.1.2.1.2.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.0.b8k.0.0.0.2.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.1.11xc.guu.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.0.0.0.0.1.0.0"
+				),
+				reason:
+					"Rel0x0 keyed by a numeric(5,2) field, filled past 99,999 rows in a filled state, where the load's key, its series over 100, passed 999.99 and the fill failed 22003 before any plan was read (rotating seed 0xaf91f91d at NOSETTINGS): each fixed value is now drawn within the column's precision (serving.fixtures.ts fixedValues)",
+				since: "2026-11-26"
+			},
 			{
 				token: ReplayToken(
 					"test/pg/physical/serving.test.ts#everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIsNeeded:-:1.0.0.0.0.0.0.2.0.0.2.2.2.1.0.0.1.1.0.0.0.0.0.0.0.3.0.2.2.2.2.2.0.0.1.0.1.0.0.0.0.1.0.0.2.0.0.0.0.0.0.1.0.0.1.0.1.2.1.1.0.0.0.0.0.0.1.0.1.1.0.0.2.2.2.2.2.0.0.3.2.3.2.0.0.0.0.1.0.0"
@@ -175,17 +184,23 @@ export const everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIs
 		],
 		kills: [
 			{
-				file: "packages/engine/src/physical/statistics/exponents.ts",
-				original: '\t\t\treturn { kind: "exponents", anchors, columns: x, carried, raises }',
-				replacement:
-					'\t\t\treturn carried.length > 0 ? { kind: "crossing", bounds: [carried[0] ?? 0], raises } : { kind: "exponents", anchors, columns: x, carried, raises }',
-				why: "A key its columns' types cannot bring to one row refused, as e637d8a3d refused Rel0x0's workload asking Bool for 2^2 values: the kept case does not install."
-			},
-			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
 				original: "\t\t\tdirected: isNonEmpty(order) ? order : undefined",
 				replacement: "\t\t\tdirected: keys",
 				why: "An ordered request's fixed keys directed as its order, as before: two seeks that differ only in a fixed key's direction are apart, and each takes an index of its own on the same columns, one of which PostgreSQL does not need."
+			},
+			{
+				file: "packages/engine/src/physical/ddl/live.ts",
+				original:
+					"\t\t\tddl: [ownTableDeclaration(table, [liveSecretColumn], [liveSecretColumn])],",
+				replacement: "\t\t\tddl: [],",
+				why: "The live secret, a table grizzle installs, declared no statistics, as before: its one column holds its statistics target's default and no declared number of distinct values, which an ANALYZE would sample (the first kept case, under the install `grizzle generate` drafts, CONSUMERFIX's 528f3e7d)."
+			},
+			{
+				file: "packages/engine/src/sql/print.ts",
+				original: "...statement.columns.map((c) => `ALTER COLUMN ",
+				replacement: "...statement.columns.slice(1).map((c) => `ALTER COLUMN ",
+				why: "Each table's first column left at its default statistics target: an ANALYZE samples it, so its statistics follow whatever population the table holds when it runs, where its declaration held them; the property fails, the column's target the default and, after two ANALYZEs around a change of rows, its statistics sampled."
 			}
 		]
 	})
@@ -311,7 +326,38 @@ export const everyDrawnRequestIsServedAndEveryIndexTheEngineCreatesForThemIsNeed
 				reason:
 					"an equality lookup and a range on Rota's worker alone, which Rota's GiST index holds after its shade, a closed id of 8 handles, unbound, so that its scan descends once per value of shade, and a B-tree serves both",
 				since: "2026-11-10"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/physical/serving.test.ts#everyDrawnRequestIsServedAndEveryIndexTheEngineCreatesForThemIsNeeded:-:0.1.0.2.0.0.0.0"
+				),
+				reason:
+					"a key lookup on Shift's standby alone, a boolean, which the declaration prices at half the table: PostgreSQL reads it by a Seq Scan, beside the B-tree on standby the engine created for it, an index no plan reads, red once serving judged under no planner setting (NOSETTINGS's fb774b0e, CONSUMERFIX's 528f3e7d at floor seed 0x1a46e90e, case 2); a workload's equality read of booleans and closed ids alone asks for no index since INDEX-P3's 4b9c45acc",
+				since: "2026-11-27"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/physical/serving.test.ts#everyDrawnRequestIsServedAndEveryIndexTheEngineCreatesForThemIsNeeded:-:0.1.1.2.0.0.0"
+				),
+				reason:
+					"a law's reverse reference on Shift's standby alone, a boolean: the engine created a B-tree on standby for it, which PostgreSQL reads by a Seq Scan of half the table (INDEX-P4's draws at 79fd60c3, steered 108.3); a law's probe of columns of few values alone asks for no index, as a workload's read does",
+				since: "2026-11-27"
 			}
 		],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/physical/indexes/engine.ts",
+				original: '\t\t\t\t\tkeys.every((k) => columns.holds(k.column) === "few") &&',
+				replacement:
+					'\t\t\t\t\tr.role === "lawMaintenance" &&\n\t\t\t\t\tkeys.every((k) => columns.holds(k.column) === "few") &&',
+				why: "A workload's read of a boolean alone asks for an index as any read does: the engine creates a B-tree on Shift's standby, which PostgreSQL never reads, a Seq Scan of half the table its plan by the declaration (the last kept case)."
+			},
+			{
+				file: "packages/engine/src/physical/indexes/engine.ts",
+				original: '\t\t\t\t\tkeys.every((k) => columns.holds(k.column) === "few") &&',
+				replacement:
+					'\t\t\t\t\tr.role === "access" &&\n\t\t\t\t\tkeys.every((k) => columns.holds(k.column) === "few") &&',
+				why: "A law's probe of columns of few values alone asks for an index as before: the engine creates a B-tree on Shift's standby for a law's reverse reference, which PostgreSQL reads by a Seq Scan of half the table beside it; the second kept case fails, an index no plan reads."
+			}
+		]
 	})

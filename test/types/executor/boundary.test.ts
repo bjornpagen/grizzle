@@ -1,6 +1,6 @@
 /**
  * The executor's boundary (test/types/executor/boundary.ts): over every source a harness has handed baseArtifacts by
- * every door a compiled program passes on its way to a run (a role's, a slice's, a layer's and a bench gate's compiled
+ * every door a compiled program passes on its way to a run (a role's, a login's and a bench gate's compiled
  * query's artifacts, and runWrite over runtimeEntry), a probe compiles exactly when an installation stands behind its
  * source, ParamSource `planned` or `recorded`, and is refused for `unserved` written out, the `unserved` constant and a
  * source of any kind; and runWrite takes an entry exactly when a door minted it. Each probe and each entry is a cell of

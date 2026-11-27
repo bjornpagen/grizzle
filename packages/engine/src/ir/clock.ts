@@ -12,7 +12,7 @@ export type ClockBinding = Readonly<Record<string, ClockUnit>>
 /** The binding of a member that binds no parameter to the clock. */
 export const noClock: ClockBinding = Object.freeze({})
 
-/** An int8 type: bigint, or a contract over it, natural among them: the only type a clock reading binds. */
+/** An int8 type: bigint, or a contract over it, natural among them: the only type a clock reading binds (check/clock.ts). */
 export type Int8Type = Extract<ScalarType, { readonly carrier: "int8" }>
 
 /** Whether a type is an int8's, bigint or a contract over it. */

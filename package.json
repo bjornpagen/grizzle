@@ -31,6 +31,7 @@
 		"check": "toolchain-turbo run typecheck workspace-gate oxlint format dead-code architecture dedupe load runtime-gate benchmark --filter=./packages/* --filter=// --continue=dependencies-successful",
 		"release": "scripts/release.sh",
 		"kills": "scripts/kills.sh",
+		"intake": "scripts/intake.sh",
 		"typecheck": "toolchain-typecheck -p tsconfig.json",
 		"workspace-gate": "workspace-gate",
 		"oxlint": "toolchain-oxlint-root",

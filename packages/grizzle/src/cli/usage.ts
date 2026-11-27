@@ -23,15 +23,14 @@ export const helpText = `Usage:
       draft the next migration from the schemas' changes
   grizzle generate <config> --custom --name <name> [--schema <schema>] [--phases]
       an empty migration for data steps
+  grizzle draft-key <config> [generate's options]
+      the key of the draft generate makes with these options: the SHA-256 of every input it reads
   grizzle check <config> [--phases]
       generated, resolved and untampered? (offline)
   grizzle migrate <config>
       apply pending migrations, then check the database against the snapshot as drift does
   grizzle drift <config>
       does the database match the snapshot? (applies nothing; migrate ends with this check)
-  grizzle upgrade <config>
-      rebase the live installation onto this grizzle's format: its snapshot again, or an
-      upgrade migration (applies nothing)
   grizzle names <config>
       each hashed object's PostgreSQL name and what it is
   grizzle roles <config>
@@ -40,10 +39,10 @@ export const helpText = `Usage:
       drop the installation's schemas, with every row they hold, and its roles
 
 <config> is the configuration file, whose default export is defineConfig({ ... }): an absolute path, or
-one relative to the directory grizzle runs in. migrate, drift, upgrade, roles and uninstall connect with
-the configuration's connection only.
+one relative to the directory grizzle runs in. migrate, drift, roles and uninstall connect with the
+configuration's connection only.
 
-Options of generate, as --flag value or --flag=value, anywhere after the command:
+Options of generate and draft-key, as --flag value or --flag=value, anywhere after the command:
   --custom          an empty folder for data steps, named by --name
   --name <name>     the folder's name: lowercase words joined by _ or -, at most ${maxMigrationNameLength} characters;
                     without it a drafted folder is named after its change

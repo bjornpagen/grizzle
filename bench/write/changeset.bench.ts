@@ -245,7 +245,7 @@ export default defineGate({
 			const s = yield* Substrate
 			const ledger = yield* installWrites(build("Ledger"), "benchcs", {
 				programs: {},
-				logins: []
+				logins: () => []
 			})
 			const Ledger = build(ledger.installed.declared)
 			const seed = <F>(fx: Fixture<F>) =>

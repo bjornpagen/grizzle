@@ -16,7 +16,7 @@ import {
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { unitBuilder } from "#compiler/schema/statements.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import { Id } from "#test/support/ids.ts"
+import { Id, toId } from "#test/support/ids.ts"
 import { argumentsOf } from "#test/support/list.ts"
 
 /** The choice-th item, modulo the items there are; a choice with nothing to choose from is a defect of the generator.
@@ -176,11 +176,32 @@ const aggregated = (a: Aggregate): { readonly key: AggregateKey; readonly kind: 
 	}
 }
 
+/**
+ * The type of an aggregate's column (GenColumn `type`), `of` its argument's type: a sum's or a mean's computed numeric
+ * that aggregate over `of`, whose bounds `of` decides; a float's sum or mean, min and max, `of` itself, each a value
+ * of its argument's type; a count, a natural's.
+ */
+const typed = (a: Aggregate, kind: Kind, of: string): string => {
+	switch (a.fn) {
+		case "sum":
+		case "mean":
+			return kind === "num" ? `${a.fn}(${of})` : of
+		case "cond":
+			return "sum(cond)"
+		case "min":
+		case "max":
+			return of
+		case "count":
+			return "nat"
+	}
+}
+
 /** The column a definition's conditional count is, `sum(cond(flag, 1, 0))`. */
 const condColumn = "p"
 
 const Color = closed("Color", ["red", "green", "blue"], "ordered", [])
-const Cents = contract("Cents", pg.bigint, (x) => Logic.ge(x, 0n))
+const centsKey = Symbol("Cents")
+const Cents = contract<typeof centsKey>()("Cents", pg.bigint, (x) => Logic.ge(x, 0n))
 const Word = str.regex("^[a-z]{0,4}$")
 
 const descriptor = (k: BaseKind): FieldBase => {
@@ -209,9 +230,9 @@ const descriptor = (k: BaseKind): FieldBase => {
 }
 
 const uuids = [
-	Id("00000000-0000-4000-8000-000000000001"),
-	Id("00000000-0000-4000-8000-000000000002"),
-	Id("00000000-0000-4000-8000-00000000000a")
+	toId("00000000-0000-4000-8000-000000000001"),
+	toId("00000000-0000-4000-8000-000000000002"),
+	toId("00000000-0000-4000-8000-00000000000a")
 ] as const
 const words = ["", "ab", "zz"] as const
 const colors = ["red", "green", "blue"] as const
@@ -560,9 +581,15 @@ export const caseSketchGen: Gen<CaseSketch> = weighted([
 	[2, unitLocalSketchGen]
 ])
 
+/**
+ * A column of a source: its name, its kind, and its type, the computation that types it written out (`typed`): a base
+ * column's kind, a computed numeric's aggregate over its argument's type, since two computed numerics of one kind type
+ * apart by their bounds (a sum's numeric of 38 integer digits and a mean's of 1000 fraction digits).
+ */
 export interface GenColumn {
 	readonly name: string
 	readonly kind: Kind
+	readonly type: string
 }
 
 /** A matchable source: a base relation, the roster, or a derived relation of a lower level. */
@@ -620,8 +647,14 @@ const levelNames = (level: number, count: number, naming: number): ReadonlyArray
 	return Arr.map(pick(permutations, naming), (l) => `L${level}${l}`)
 }
 
+/**
+ * A variable a rule binds: its kind, and its type (GenColumn `type`), at which it is shared: a variable is bound to
+ * columns of one type alone, as the checker types a variable by the one of its columns' types that guarantees the
+ * others and refuses columns no one of whose types guarantees the others (check/checker.ts RuleCheck #settle).
+ */
 interface Variable {
 	readonly kind: Kind
+	readonly type: string
 	readonly term: unknown
 }
 
@@ -677,21 +710,21 @@ const runRule = (
 					bindings[c.name] = literalOf(c.kind, b.n + shift)
 					continue
 				}
-				const same = Arr.filter(vars, (x) => x.kind === c.kind)
+				const same = Arr.filter(vars, (x) => x.type === c.type)
 				const shared = b.how === 1 ? same[b.share] : undefined
 				cond = cond || c.name === condColumn
 				if (shared !== undefined) {
 					bindings[c.name] = shared.term
 				} else {
 					bindings[c.name] = minted[c.name]
-					vars.push({ kind: c.kind, term: minted[c.name] })
+					vars.push({ kind: c.kind, type: c.type, term: minted[c.name] })
 				}
 			}
 			if (Rec.keys(bindings).length === 0) {
 				const c = pick(source.columns, 0)
 				cond = cond || c.name === condColumn
 				bindings[c.name] = minted[c.name]
-				vars.push({ kind: c.kind, term: minted[c.name] })
+				vars.push({ kind: c.kind, type: c.type, term: minted[c.name] })
 			}
 			rule = rule.match(source.value, bindings)
 		}
@@ -746,16 +779,19 @@ const runRule = (
 	const head: Record<string, unknown> = {}
 	const columns: Array<GenColumn> = []
 	const aggregates: Array<AggregateKey> = []
-	/** An aggregate column of the head: its term, and its kind and key, both its aggregate's (`aggregated`). */
-	const add = (name: string, term: unknown, a: Aggregate): void => {
+	/**
+	 * An aggregate column of the head: its term, its kind and key, both its aggregate's (`aggregated`), and its type over
+	 * the type of the variable it reads, `of` (`typed`).
+	 */
+	const add = (name: string, term: unknown, a: Aggregate, of: string): void => {
 		const { key, kind } = aggregated(a)
 		head[name] = term
-		columns.push({ name, kind })
+		columns.push({ name, kind, type: typed(a, kind, of) })
 		aggregates.push(key)
 	}
 	for (const [i, x] of chosen.entries()) {
 		head[`c${i}`] = x.term
-		columns.push({ name: `c${i}`, kind: x.kind })
+		columns.push({ name: `c${i}`, kind: x.kind, type: x.type })
 	}
 	/** A plain head with nothing to find falls back to a count alone: an aggregate column of a union or a take would be
 	 * part of its whole-heading key, and a few computed numerics there outgrow its B-tree entry (UnrepresentableKey). */
@@ -764,35 +800,40 @@ const runRule = (
 		for (const [i, a] of (countOnly ? [] : sketch.aggs).entries()) {
 			const fn = pick(["sum", "mean", "min", "max"] as const, a.fn)
 			if (fn === "sum" || fn === "mean") {
-				const takes = Arr.flatMap(vars, (x): ReadonlyArray<{ term: unknown; of: SummedKind }> =>
-					isSummed(x.kind) ? [{ term: x.term, of: x.kind }] : []
+				const takes = Arr.flatMap(
+					vars,
+					(x): ReadonlyArray<{ term: unknown; of: SummedKind; type: string }> =>
+						isSummed(x.kind) ? [{ term: x.term, of: x.kind, type: x.type }] : []
 				)
 				const x = takes[a.variable % Math.max(takes.length, 1)]
 				if (x === undefined) {
 					continue
 				}
-				add(`a${i}`, r[fn](x.term), { fn, of: x.of })
+				add(`a${i}`, r[fn](x.term), { fn, of: x.of }, x.type)
 				continue
 			}
-			const takes = Arr.flatMap(vars, (x): ReadonlyArray<{ term: unknown; of: ExtremalKind }> =>
-				isExtremal(x.kind) ? [{ term: x.term, of: x.kind }] : []
+			const takes = Arr.flatMap(
+				vars,
+				(x): ReadonlyArray<{ term: unknown; of: ExtremalKind; type: string }> =>
+					isExtremal(x.kind) ? [{ term: x.term, of: x.kind, type: x.type }] : []
 			)
 			const x = takes[a.variable % Math.max(takes.length, 1)]
 			if (x === undefined) {
 				continue
 			}
-			add(`a${i}`, r[fn](x.term), { fn, of: x.of })
+			add(`a${i}`, r[fn](x.term), { fn, of: x.of }, x.type)
 		}
 		const flag = Arr.findFirst(vars, (x) => x.kind === "bool")
 		if (sketch.cond && Option.isSome(flag) && !countOnly) {
 			add(
 				condColumn,
 				r.sum(computeCore.cond(flag.value.term, computeCore.literal(pg.integer, 1), 0)),
-				{ fn: "cond" }
+				{ fn: "cond" },
+				"cond"
 			)
 		}
 		if (sketch.count || aggregates.length === 0) {
-			add("n", r.count(), { fn: "count" })
+			add("n", r.count(), { fn: "count" }, "nat")
 		}
 	}
 	return {
@@ -859,10 +900,10 @@ export interface BuildOptions {
 
 export const buildSchema = (sketch: CaseSketch, options: BuildOptions): GenSchema => {
 	const base: Array<GenBase> = Arr.map(sketch.relations, (r, i) => {
-		const columns = Arr.map(r.fields, (f, j) => ({
-			name: `f${j}`,
-			kind: pick(baseKinds, f.kind)
-		}))
+		const columns = Arr.map(r.fields, (f, j) => {
+			const kind = pick(baseKinds, f.kind)
+			return { name: `f${j}`, kind, type: kind }
+		})
 		const key = Arr.map(columns.slice(0, 1 + (r.key % columns.length)), (c) => c.name)
 		const value = relation(
 			`R${i}`,
@@ -875,7 +916,7 @@ export const buildSchema = (sketch: CaseSketch, options: BuildOptions): GenSchem
 	/** The roster is matchable as a relation of its handles. */
 	const roster: GenStored = {
 		name: "Color",
-		columns: [{ name: "id", kind: "color" }],
+		columns: [{ name: "id", kind: "color", type: "color" }],
 		value: Color
 	}
 	const stored: ReadonlyArray<GenStored> = [...base, roster]

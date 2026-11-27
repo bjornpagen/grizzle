@@ -110,7 +110,7 @@ const readWindow = (session: Session) =>
 				answer === undefined || Result.isFailure(answer) ? [] : answer.success.rows
 			const window = row === undefined || rest.length > 0 ? undefined : reapWindowRow(row)
 			return window === undefined
-				? Effect.die(
+				? Effect.sync(() =>
 						defect("a session's server answered the read of its reap window with no window")
 					)
 				: Effect.succeed(window)
@@ -286,10 +286,10 @@ export interface SessionPool {
  * proc_exit_prepare; src/backend/libpq/pqcomm.c 287 socket_close, which leaves the socket open until the process dies
  * so that a client "can be sure the backend has exited"). So once the end returns, no backend of the pool's idle
  * sessions counts against the database: a DROP DATABASE after it finds none, where it found a backend still dropping
- * its session's temporary relations, the rule judge's deltas, its sentinel and the write's carriers
- * (physical/ddl/rules.ts addStandUps, sql/ast.ts CreateCarrier), each a table with its TOAST table and index, its row
- * types and its NOT NULL constraints: 150 tables, 642 objects, 1.8 s for one session of pantry's export suite and 6
- * to 13 s on its whole project (edullm P5, 2026-11-21), where DROP DATABASE waits 5 s. The wait has no deadline of
+ * its session's temporary relations, the rule judge's deltas and its sentinel (physical/ddl/rules.ts addStandUps),
+ * each a table with its TOAST table and index and its row types: 150 tables, 642 objects, the write's carriers then
+ * among them, 1.8 s for one session of pantry's export suite and 6 to 13 s on its whole project (edullm P5,
+ * 2026-11-21), where DROP DATABASE waits 5 s. The wait has no deadline of
  * grizzle's: interrupting the release, or the fiber whose scope it closes, your own timeout among the ways, ends it and
  * destroys every connection still open (closedAll), as the end of a session leased then is destroyed at once.
  */
@@ -569,7 +569,7 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 							return yield* Effect.interrupt
 						} else if (session.state() === "open") {
 							yield* untaken(asked, client)
-							return yield* Effect.die(
+							return yield* Effect.sync(() =>
 								defect(
 									"a pooled session's server answered the read of its reap window with no window"
 								)

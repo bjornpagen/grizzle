@@ -1,4 +1,4 @@
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	extendNonEmpty,
 	isNonEmpty,
@@ -243,6 +243,22 @@ export interface PlacedOccurrence {
 }
 
 /**
+ * How a region reads an occurrence at the values other occurrences' rows bind, a row site (lower/shapes/region
+ * keyedChain): the occurrences it reads those values from, which the region places before it, and its source read at
+ * their columns, `columnsOf` each placed occurrence's, in the region's scope `scope`. Every occurrence no site names is
+ * read in the region's scope as it stands.
+ */
+export interface RowSite {
+	readonly after: ReadonlyArray<Occurrence>
+	readonly read: (columnsOf: (o: Occurrence) => ColumnMap, scope: Env) => InputSource
+}
+
+/** The row sites of a region, by occurrence: none in a region read as it stands. */
+export type RowSites = ReadonlyMap<Occurrence, RowSite>
+
+export const noRowSites: RowSites = new Map()
+
+/**
  * A region lowered to its parts: the targets over its variables, its occurrences' derived tables in placement order
  * (each correlated one after what it reads), its FROM list, those tables in that order and before the first of the
  * occurrences that read one the evaluation of a call it hosts (regionEvaluations), and the conditions over them. The
@@ -255,7 +271,19 @@ interface RegionParts {
 	readonly columns: ReadonlyArray<{ readonly column: HeadingColumn; readonly value: Expr }>
 	readonly occurrences: ReadonlyArray<PlacedOccurrence>
 	readonly from: ReadonlyArray<FromSource>
+	/** The region's conditions with each variable's bindings equated in placement order (conditionsIn). */
 	readonly conditions: ReadonlyArray<Expr>
+	/**
+	 * The region's conditions with each variable's bindings equated in the order `aliases` reads the occurrences: each
+	 * binding after the first in that order compared with the first, every equality between two variables and every
+	 * correlation of a bound one stated at the first binding of each in that order, the constants as placed. A lowering
+	 * that fixes the order its occurrences are read in (a keyed chain, a JOIN chain) states them in that order, so each
+	 * step's terms bind every variable an earlier step bound, where comparing each binding with the one placement put
+	 * first left a variable the chain bound early unequated until the step that read that binding, last in the chain: three
+	 * derivations a sitting read at a member's package and test, their member's place equated only to the member's own
+	 * read after them, joined as a product of 34 rows each per item.
+	 */
+	readonly conditionsIn: (aliases: ReadonlyArray<string>) => ReadonlyArray<Expr>
 }
 
 /**
@@ -316,7 +344,7 @@ const regionEvaluations = (
  * does not say which of them it reads, and is refused as MalformedDescription.
  */
 const lowerMatchRegion: NodeLowerer<"MatchRegion"> = (node, cx, env) => {
-	const parts = regionParts(node, cx, env)
+	const parts = regionParts(node, cx, env, noRowSites)
 	return bindsEveryColumn(node)
 		? wholeSelect(cx, node, parts.from, parts.targets, parts.conditions)
 		: select(cx.setOf(node, parts.targets, parts.from, conjunction(parts.conditions)))
@@ -341,25 +369,54 @@ const bindsEveryColumn = (node: Region): boolean => {
 /**
  * Constants fix source columns; they are evaluated with the whole region in scope. Every variable a binding, an
  * equality or a correlation names is one the region declares, and every column a binding or a constant names is one of
- * its source's heading (valid DAG).
+ * its source's heading (valid DAG). A row site (`sites`) is placed once every occurrence it reads values from is, and
+ * read as its site reads it, LATERAL.
  */
-export const regionParts = (node: Region, cx: LowerContext, env: Env): RegionParts => {
+export const regionParts = (
+	node: Region,
+	cx: LowerContext,
+	env: Env,
+	sites: RowSites
+): RegionParts => {
 	const at = nodeLabel(node)
 	const local = localNodes(node)
 	const varOf = new Map(node.vars.map((v) => [v.name, v]))
 	/** Every comparison of a variable is at its type: a vector compares through the extension's qualified operator. */
 	const equal = (v: VarDecl, a: Expr, b: Expr): Expr => cx.equal(v.type, a, b)
 	const value = new Map<VarDecl, Expr>()
+	/** The constants' conditions, as placed: no order of the occurrences moves them. */
 	const where: Array<Expr> = []
-	/** A variable's first value is its value; every later one is compared with it. */
-	const bindValue = (v: VarDecl, e: Expr): void => {
-		const prior = value.get(v)
-		if (prior === undefined) {
+	/** The variables whose value is a stored relation's column (`bindValue`). */
+	const rowValued = new Set<VarDecl>()
+	/**
+	 * A variable's first value in placement is its value, the one every read of it in scope reads; but the first column
+	 * of a stored relation bound to it takes over from a value no stored relation holds, a carrier's or a computed set's,
+	 * the row source the region joins (`row`): every read of the variable placed after it reads the row's column, so a
+	 * probe of the variable, an existence test's at its pairs among them, states it against the row it joins as it states
+	 * the row's other columns, and PostgreSQL parameterizes the probe's key path by the row alone, as it does any other
+	 * index's. metis's submit probed processed_attempt's key at its unit from the carrier and its coordinates from the row
+	 * of the table it joins (x.doc = c.doc AND x.f0 = s.f0 AND x.f1 = s.f1), which PostgreSQL inside the anti join derives
+	 * no x.doc = s.doc from, so the key's path needed both and lost, at ten loops, to a spanning index of the coordinates
+	 * parameterized by the row alone.
+	 */
+	const bindValue = (v: VarDecl, e: Expr, row: boolean): void => {
+		if (!value.has(v) || (row && !rowValued.has(v))) {
 			value.set(v, e)
-		} else {
-			where.push(equal(v, prior, e))
+		}
+		if (row) {
+			rowValued.add(v)
 		}
 	}
+	/** Each placed occurrence's bindings, by its alias, in placement order: what conditionsIn equates in an order. */
+	const placedBindings: Array<{
+		readonly alias: string
+		readonly bindings: ReadonlyArray<{ readonly v: VarDecl; readonly e: Expr }>
+	}> = []
+	/** Each equality of two variables both bound when it settled, and each correlation of a bound variable. */
+	const equated: Array<readonly [VarDecl, VarDecl]> = []
+	/** Each variable no occurrence binds that an equality gave its partner's value: its value is its partner's. */
+	const partner = new Map<VarDecl, VarDecl>()
+	const correlatedBound: Array<{ readonly v: VarDecl; readonly e: Expr }> = []
 	const from: Array<PlacedOccurrence> = []
 	const items: Array<FromSource> = []
 	const shared = sharedSources(node)
@@ -373,6 +430,8 @@ export const regionParts = (node: Region, cx: LowerContext, env: Env): RegionPar
 	 * scope a correlated source's outer references resolve in.
 	 */
 	const placedSources = new Map<NodeId, ColumnMap>()
+	/** Each placed occurrence's columns, which a row site placed after it reads its values from. */
+	const placedOf = new Map<Occurrence, ColumnMap>()
 
 	const regionColumns = (): ColumnMap => {
 		const map = new Map<string, Expr>()
@@ -405,7 +464,8 @@ export const regionParts = (node: Region, cx: LowerContext, env: Env): RegionPar
 				return v !== undefined && value.has(v)
 			})
 			const sourcesReady = [...needs.sources].every((s) => placedSources.has(s))
-			return varsReady && sourcesReady
+			const siteReady = (sites.get(o)?.after ?? []).every((a) => placedOf.has(a))
+			return varsReady && sourcesReady && siteReady
 		})
 		if (ready === undefined) {
 			return refuse(
@@ -419,12 +479,15 @@ export const regionParts = (node: Region, cx: LowerContext, env: Env): RegionPar
 		const needs = occurrenceNeeds(cx, node, o, shared)
 		const key = evaluating.get(o)
 		const correlated = needs.vars.size > 0 || needs.sources.size > 0 || key !== undefined
+		const site = sites.get(o)
 		const read =
-			key === undefined || o.source.kind !== "Call"
-				? cx.sourceAs(o.source, scope(), correlated)
-				: cx
-						.withEvaluations(placedEvaluation(cx, o.source, key, scope(), evaluated, items))
-						.sourceAs(o.source, scope(), correlated)
+			site !== undefined
+				? site.read((a) => defined(placedOf.get(a), "a row site's value read after it"), scope())
+				: key === undefined || o.source.kind !== "Call"
+					? cx.sourceAs(o.source, scope(), correlated)
+					: cx
+							.withEvaluations(placedEvaluation(cx, o.source, key, scope(), evaluated, items))
+							.sourceAs(o.source, scope(), correlated)
 		const probe = shared.has(o.source.id)
 			? undefined
 			: withLawColumns(cx, o, read, probeKeys(cx, o))
@@ -433,12 +496,15 @@ export const regionParts = (node: Region, cx: LowerContext, env: Env): RegionPar
 			probes.set(o, probe.probed)
 		}
 		from.push({ occurrence: o, item: source.item, alias: source.alias, map: source.map })
+		placedOf.set(o, source.map)
 		items.push(source.item)
 		if (!shared.has(o.source.id)) {
 			placedSources.set(o.source.id, source.map)
 		}
-		for (const b of o.bindings) {
-			bindValue(b.var, columnIn(source.map, b.column))
+		const bindings = o.bindings.map((b) => ({ v: b.var, e: columnIn(source.map, b.column) }))
+		placedBindings.push({ alias: source.alias, bindings })
+		for (const b of bindings) {
+			bindValue(b.v, b.e, o.source.kind === "Base")
 		}
 	}
 
@@ -468,12 +534,14 @@ export const regionParts = (node: Region, cx: LowerContext, env: Env): RegionPar
 			const b = value.get(e.b)
 			if (a !== undefined && b !== undefined) {
 				if (e.a !== e.b) {
-					where.push(equal(e.a, a, b))
+					equated.push([e.a, e.b])
 				}
 			} else if (a !== undefined) {
 				value.set(e.b, a)
+				partner.set(e.b, e.a)
 			} else if (b !== undefined) {
 				value.set(e.a, b)
+				partner.set(e.a, e.b)
 			} else {
 				unsettled.push(e)
 			}
@@ -492,7 +560,52 @@ export const regionParts = (node: Region, cx: LowerContext, env: Env): RegionPar
 	}
 
 	for (const c of deferred) {
-		bindValue(c.var, lowerExpr(cx, c.expr, scope()))
+		const e = lowerExpr(cx, c.expr, scope())
+		if (value.has(c.var)) {
+			correlatedBound.push({ v: c.var, e })
+		} else {
+			value.set(c.var, e)
+		}
+	}
+
+	/**
+	 * The conditions with each variable's bindings equated in the order `aliases` reads the occurrences (RegionParts
+	 * conditionsIn): the bindings first, each compared with its variable's first binding in that order, then the
+	 * constants, then each equality of two variables and each correlation of a bound one at the first binding of each.
+	 * Placement order, the default, states them as each occurrence is placed.
+	 */
+	const conditionsIn = (aliases: ReadonlyArray<string>): ReadonlyArray<Expr> => {
+		const rank = new Map(aliases.map((alias, i) => [alias, i] as const))
+		const ordered = placedBindings.toSorted(
+			(a, b) => (rank.get(a.alias) ?? aliases.length) - (rank.get(b.alias) ?? aliases.length)
+		)
+		const first = new Map<VarDecl, Expr>()
+		const terms: Array<Expr> = []
+		for (const p of ordered) {
+			for (const b of p.bindings) {
+				const prior = first.get(b.v)
+				if (prior === undefined) {
+					first.set(b.v, b.e)
+				} else {
+					terms.push(equal(b.v, prior, b.e))
+				}
+			}
+		}
+		const firstOf = (v: VarDecl): Expr => {
+			const p = partner.get(v)
+			return (
+				first.get(v) ??
+				(p === undefined
+					? defined(value.get(v), "a value of every variable an equality or a correlation settled")
+					: firstOf(p))
+			)
+		}
+		return [
+			...terms,
+			...where,
+			...equated.map(([a, b]) => equal(a, firstOf(a), firstOf(b))),
+			...correlatedBound.map((c) => equal(c.v, firstOf(c.v), c.e))
+		]
 	}
 
 	const columns = node.heading.map((column) => {
@@ -508,7 +621,14 @@ export const regionParts = (node: Region, cx: LowerContext, env: Env): RegionPar
 		return { column, value: e }
 	})
 	const targets = isNonEmpty(columns) ? mapNonEmpty(columns, (c) => target(c.value)) : unitTargets
-	return { targets, columns, occurrences: from, from: items, conditions: where }
+	return {
+		targets,
+		columns,
+		occurrences: from,
+		from: items,
+		conditions: conditionsIn(placedBindings.map((p) => p.alias)),
+		conditionsIn
+	}
 }
 
 /**
@@ -545,7 +665,7 @@ const placeEvaluation = (
 		cx.supply.column(origin)
 	)
 	if (first === undefined) {
-		throw defect("a call's row, of at least one field")
+		defect("a call's row, of at least one field")
 	}
 	items.push(derived(namedQuery(query, [first, ...rest]), alias, true))
 	return mapNonEmpty([first, ...rest], (c) => col(alias, c))

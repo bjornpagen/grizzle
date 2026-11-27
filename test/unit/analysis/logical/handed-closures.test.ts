@@ -21,7 +21,7 @@ import { property } from "@bjornpagen/testing/property"
 import { Effect, String as Str } from "effect"
 import { analyzeLogical, everyNode } from "#compiler/logical/annotate.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { chainGen, chainQuery } from "#test/unit/analysis/logical/fixed-names.fixtures.ts"
+import { chainDag, chainGen } from "#test/unit/analysis/logical/fixed-names.fixtures.ts"
 
 /** The analysis's `of` is made outside run's scope: it reads the revisions and the fold's reader, never `fold` or `scopes`. */
 export const anAnalysissOfIsMadeOutsideRunsScopeReadingTheRevisionsAndTheFoldsReaderNeverFoldOrScopes =
@@ -32,7 +32,7 @@ export const anAnalysissOfIsMadeOutsideRunsScopeReadingTheRevisionsAndTheFoldsRe
 			Effect.sync(() => {
 				const analysis = succeeded(
 					analyzeLogical(
-						chainQuery(chain).dag,
+						chainDag(chain),
 						{ context: "transaction", containments: [], keyedViews: false },
 						everyNode
 					)

@@ -52,8 +52,8 @@ export const keysOverARetypedFieldAndKeySwapsAddARetypedKeyAgainInTheConversions
 		kills: [
 			{
 				file: "packages/engine/src/core/identity.ts",
-				original: `\t\tmint("swap", [of], ["next", ...nameSegments(of)], \`the next \${of}\`, hashed),`,
-				replacement: `\t\tmint("swap", [of], ["next", ...nameSegments(of)], \`the next \${of}\`, readable(of)),`,
+				original: `\t\tmint("swap", [of], ["next", ...nameSegments(of)], \`the next \${of}\`, hashed)`,
+				replacement: `\t\tmint("swap", [of], ["next", ...nameSegments(of)], \`the next \${of}\`, readable(of))`,
 				why: "A swap name is minted as the name of the key it swaps, a standing name; the property that no swap name is a registered name fails."
 			}
 		]

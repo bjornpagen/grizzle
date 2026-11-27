@@ -15,8 +15,9 @@
  *   certificate;
  * - `installation`: the installation drafted (installationOver), inside it `installPlan`, its plan, `judge`, the checks
  *   of its rules over queries, and `indexes`, its index plan;
- * - `draft`: the migration drafted from the previous snapshot, with the snapshot's files;
+ * - `draft`: the migration planned from the previous snapshot, with the new snapshot; check renders its folder inside it;
  * - `served`: the logins' served files laid out under the draft's snapshot, inside it `servedLogin`, each login's;
+ * - `render`: generate's folder of the draft rendered, once the served files are written;
  * - `write`: one schema's folder, snapshot and served files written.
  */
 export const phaseNames = [
@@ -38,6 +39,7 @@ export const phaseNames = [
 	"draft",
 	"served",
 	"servedLogin",
+	"render",
 	"write"
 ] as const
 export type PhaseName = (typeof phaseNames)[number]

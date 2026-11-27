@@ -11,7 +11,7 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { login, relation, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { compiledServedFile } from "#test/support/compiled-served.ts"
-import { Id } from "#test/support/ids.ts"
+import { Id, toId } from "#test/support/ids.ts"
 import { memoryEndpoint, memoryTransport, tlsMaterial } from "#test/support/memory-tls.ts"
 import { clusterPool } from "#test/support/pg.ts"
 
@@ -123,8 +123,8 @@ export const shelveInput = {
 		insert: {
 			Item: [
 				{
-					id: Id("00000000-0000-4000-8000-000000000001"),
-					owner: Id("00000000-0000-4000-8000-000000000002")
+					id: toId("00000000-0000-4000-8000-000000000001"),
+					owner: toId("00000000-0000-4000-8000-000000000002")
 				}
 			]
 		}

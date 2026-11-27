@@ -12,15 +12,11 @@ import {
 	type SchemaDesc as EngineSchemaDesc
 } from "#compiler/ir/desc.ts"
 import { fieldColumnType, domainBase } from "#compiler/ir/physical.ts"
-import type { ParamDecl } from "#compiler/ir/products.ts"
 import { baseOf, type ContractInfo, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import {
-	compileInstallation,
-	type Installation,
-	type InstallOptions
-} from "#compiler/physical/install/compile.ts"
+import type { Installation, InstallOptions } from "#compiler/physical/install/compile.ts"
 import type { InstallExtension } from "#compiler/physical/install/extension.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import {
 	fullRoleDesc,
@@ -33,13 +29,7 @@ import {
 } from "#compiler/schema/own.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import type { AnyLogin } from "#compiler/types/schema/world.ts"
-import {
-	allocatedDesc,
-	declaredParams,
-	draftedSql,
-	type FixtureSchema,
-	filledSql
-} from "#test/support/compile.ts"
+import { allocatedDesc, draftedSql, type FixtureSchema, filledSql } from "#test/support/compile.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { foreignKeyColumns, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
@@ -70,8 +60,6 @@ interface RealPlanOptions {
 	 * identifier.
 	 */
 	readonly installation: Identity<"schema">
-	/** The logins installed with it, each a login value or a LoginDesc over the schema as declared; [] for none. */
-	readonly logins: ReadonlyArray<LoginSource>
 	/**
 	 * The installer extensions besides the residual laws' and the derived relations', which every installation carries
 	 * (physical/complete.ts completeInstallOptions): a workload's index requests; [] for none.
@@ -83,14 +71,14 @@ interface RealPlanOptions {
 	 */
 	readonly codes: Codebook
 	/**
-	 * The installation's compile (physical/install/compile.ts): compileInstallation, which `grizzle generate` composes,
+	 * The installation's compile (program/install.ts): compileInstallation, which `grizzle generate` composes,
 	 * or conservativeInstallation, the same installation with every rule over a query discharged by triggers, a
 	 * lowering's oracle.
 	 */
 	readonly compile: InstallCompile
 }
 
-/** A compile of an owned schema's installation under its options (physical/install/compile.ts). */
+/** A compile of an owned schema's installation under its options (program/install.ts). */
 export type InstallCompile = (
 	owned: Owned,
 	options: InstallOptions
@@ -132,7 +120,7 @@ export const oracleLogin = (desc: SchemaDesc): LoginDesc => {
 }
 
 /** A login an installation carries: a login value login(...) built, or a LoginDesc a typed door made (oracleLogin). */
-export type LoginSource = AnyLogin | LoginDesc
+type LoginSource = AnyLogin | LoginDesc
 
 /**
  * A login value or a LoginDesc, owned with its base and its roles' read through `as`; a value login(...) did not build
@@ -208,6 +196,8 @@ const valueKind = (t: ScalarType, codes: Codebook): ValueKind => {
 		case "exactInteger":
 		case "exactMoney":
 			return { kind: "exact", carrier: b.carrier }
+		case "variant":
+			return { kind: "variant", type: t, codes }
 	}
 }
 
@@ -228,10 +218,7 @@ const build = (input: FixtureSchema, options: RealPlanOptions): RealInstallPlan 
 		completeInstallOptions(
 			declared,
 			installationsOf(declared),
-			Arr.map(
-				options.logins,
-				ownedLogin((d) => allocatedDesc(d, allocated))
-			),
+			[],
 			options.extensions,
 			options.codes
 		)
@@ -496,7 +483,11 @@ const contractInfo = (installation: Installation, contract: string): Option.Opti
 			})
 	)
 
-/** The plan of `input` on the real installer, or the first refusal. */
+/**
+ * The plan of `input` on the real installer, or the first refusal: its worlds the compiled installation's, none of
+ * a compile of `input` alone, and a login's only where `compile` gives an installation generate drafted with its
+ * logins (install-migrate.ts generatedDrafting, generate-draft.ts describedPlan).
+ */
 export const planRealInstall = (
 	input: FixtureSchema,
 	options: RealPlanOptions
@@ -511,42 +502,6 @@ export const planRealInstall = (
 	}
 }
 
-/**
- * The plan of a generated schema on the real installer under `installation`, with the one login a
- * generated schema runs as (oracleLogin), its rosters numbered by `codes`: the codes its case states, which every
- * literal and parameter of the case is encoded by. It installs the types the case's query casts its declared parameters
- * `params` to (test/support/compile.ts declaredParams), each pattern parameter's own domain and each contract outside
- * the base, which the plan's names name and no others (physical/install/plan.ts ParamSource `planned`), so a program
- * lowered over its names casts a parameter only to a type the installation installs; nothing else of a workload, so
- * the catalog is the bare migration's otherwise.
- */
-export const oraclePlanUnder = (
-	desc: SchemaDesc,
-	installation: Identity<"schema">,
-	codes: Codebook,
-	params: ReadonlyArray<ParamDecl>
-): Result.Result<RealInstallPlan, CompileError> =>
-	planRealInstall(desc, {
-		installation,
-		logins: [oracleLogin(desc)],
-		extensions: [declaredParams("the case's query", params)],
-		codes,
-		compile: compileInstallation
-	})
-
-/**
- * The plan of a generated schema as oraclePlanUnder plans it, as a fresh installation numbers its rosters
- * (firstCodebook): what every oracle suite installs whose case states no codes of its own.
- */
-export const oraclePlan = (
-	desc: SchemaDesc,
-	installation: Identity<"schema">,
-	params: ReadonlyArray<ParamDecl>
-): Result.Result<RealInstallPlan, CompileError> =>
-	Result.flatMap(ownedInput(desc), (owned) =>
-		oraclePlanUnder(desc, installation, firstCodebook(rostersOf(owned)), params)
-	)
-
 interface InstalledRealSchema {
 	readonly plan: RealInstallPlan
 	/** Login credentials of each login, by declared login name. */
@@ -554,11 +509,10 @@ interface InstalledRealSchema {
 }
 
 /**
- * The options of installRealSchema:
- * the logins installed with the schema, the extensions, and the label of the allocated schema name, each stated.
+ * The options of installRealSchema: the extensions and the label of the allocated schema name, each stated. It installs
+ * no login: an installation with logins is drafted as `grizzle generate` drafts it (install-migrate.ts generatedDraft).
  */
-export interface RealInstallOptions {
-	readonly logins: ReadonlyArray<LoginSource>
+interface RealInstallOptions {
 	readonly extensions: ReadonlyArray<InstallExtension>
 	readonly label: string
 }
@@ -592,9 +546,10 @@ const installRealPlan = (
  *   triggers and the derived relations' views included, composed as `grizzle generate` composes it
  *   (physical/complete.ts completeInstallOptions).
  *
- * The worlds an installation carries are the logins the caller gives, each a login value or a LoginDesc over the schema
- * as declared (oracleLogin(desc) is the one full role a generated schema runs as); the plan names each login's role and
- * each role's theory role and schema by the installation's own names.
+ * The worlds an installation carries are those of the installation `compile` gives: none of a schema compiled alone, and
+ * a login's where generate drafted it with its logins (install-migrate.ts generatedDrafting, generate-draft.ts
+ * describedPlan, the oracle's among them, oracle/install/drafted.ts oraclePlanUnder); the plan names each login's role
+ * and each role's theory role and schema by the installation's own names.
  *
  * installRealSchema installs such a plan under a unique schema of the substrate's database and enables login for every
  * login role; test/support/install-migrate.ts is the general entry point.
@@ -618,7 +573,6 @@ export const installRealSchema = (
 		const plan = yield* fromEngine(
 			planRealInstall(input, {
 				installation: identity.schema(parsedSchemaName(schema)),
-				logins: options.logins,
 				extensions: options.extensions,
 				codes: firstCodebook(rostersOf(owned)),
 				compile: compileInstallation

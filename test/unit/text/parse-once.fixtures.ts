@@ -17,7 +17,7 @@ import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { selectBuilder } from "#compiler/schema/statements.ts"
 import { regexField, str } from "#compiler/text/field.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import { Id } from "#test/support/ids.ts"
+import { Id, toId } from "#test/support/ids.ts"
 
 /** A pattern a text field may declare, the pattern its relation's generated field matches, and a member a row holds. */
 interface Pattern {
@@ -230,7 +230,7 @@ export const evaluatorCaseOf = (c: ParseCase, selections: number) => {
 			match,
 			member: patternAt(c, fields[0]).member,
 			row: {
-				id: Id("018f0000-0000-7000-8000-000000000000"),
+				id: toId("018f0000-0000-7000-8000-000000000000"),
 				...Rec.fromEntries(Arr.map(fields, (t, i) => [`t${i}`, patternAt(c, t).member] as const))
 			},
 			selections: Arr.map(indices(selections), () =>

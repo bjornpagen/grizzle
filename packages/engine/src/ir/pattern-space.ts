@@ -297,7 +297,7 @@ export const colorsOf = (ir: LiveNode): Colors => {
 		spanned: (node) => {
 			const position = positions.get(node)
 			if (position === undefined) {
-				throw defect("a set node of the pattern's IR, which colorsOf partitioned")
+				defect("a set node of the pattern's IR, which colorsOf partitioned")
 			}
 			return entry(partition.setAtoms, position).length
 		}

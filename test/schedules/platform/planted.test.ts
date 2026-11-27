@@ -7,7 +7,10 @@
  * only on an open relation, mutable inside a unit, and TRUNCATE to no one, so which refusal comes first is a total
  * table of who writes, what statement, and whether the relation is open:
  *
- * - the schema's owner holds every privilege on its tables: every statement is refused by the guard, 25000;
+ * - the schema's owner holds every privilege on its tables: every statement is refused by the guard, 25000, but a
+ *   TRUNCATE of a closed relation, which its immutability guard of a TRUNCATE refuses first, 42501: PostgreSQL fires a
+ *   table's BEFORE TRUNCATE statement triggers in name order, `__immutable_truncate` before `__isolation`
+ *   (physical/ddl/immutable.ts);
  * - a world role (the races' `direct`, taken on through its login) is refused by privilege, 42501, for a TRUNCATE, and
  *   for an UPDATE, a DELETE, a DELETE that matches no row and a MERGE that updates or deletes when the relation is
  *   closed; every other statement it is granted (an INSERT, and an UPDATE, a DELETE or a MERGE of an open relation) is

@@ -9,7 +9,6 @@ import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import type { LawId } from "#compiler/core/ids.ts"
 import type { Lines } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
@@ -31,15 +30,15 @@ import {
 	noTransactionMarker,
 	placeholderMarker
 } from "#compiler/deploy/render/markers.ts"
+import { violationCheck } from "#compiler/physical/ddl/recheck.ts"
 import type {
 	AlterTableAction,
 	ColumnDef,
 	ObjectName,
-	OperandSelect,
 	PlBlock,
 	SqlStatement
 } from "#compiler/sql/ast.ts"
-import { binary, call, cast, core, lit, tableCol, types, whenFound } from "#compiler/sql/build.ts"
+import { binary, call, cast, core, lit, tableCol, types } from "#compiler/sql/build.ts"
 import type { GenerationAnchor } from "#compiler/sql/generation.ts"
 import {
 	commandsOf,
@@ -219,27 +218,6 @@ const spellAlteration = (
 			)
 		: alteration
 }
-
-/**
- * A law's violation check, the DO block a migration runs it by: its violation query read whole, SQLSTATE 23000 raised
- * under the law's identity when it finds a row (sql/build.ts whenFound), as the law function itself raises, so a
- * violating file rolls back with the law's identity.
- */
-export const violationCheck = (law: LawId, query: OperandSelect): PlBlock => ({
-	declare: [],
-	body: [
-		whenFound(query, [
-			{
-				kind: "raise",
-				message: `law ${law} is violated by existing rows`,
-				using: [
-					{ option: "ERRCODE", value: lit.text("integrity_constraint_violation", types.text) },
-					{ option: "CONSTRAINT", value: lit.text(law, types.text) }
-				]
-			}
-		])
-	]
-})
 
 /**
  * A zone roster's check, the DO block a migration runs it by: one PERFORM that reads each of its handles as a time zone,

@@ -4,7 +4,8 @@ import { Array as Arr, Option, Record as Rec } from "effect"
 import { encode, withoutSourceLocs } from "#compiler/core/canonical.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { lawModel } from "#compiler/program/laws.ts"
 import { Logic } from "#compiler/public/compute.ts"
 import { accumulated, contract, drawn, natural, pg } from "#compiler/public/fields.ts"
@@ -127,6 +128,7 @@ const declaredAs = <S extends object>(at: Option.Option<number>, declaration: S)
 		onSome: (i) => lawBuilder(catalogAt(i), declaration)
 	})
 
+const contractKey = Symbol("contract")
 /**
  * The relations the case's Catalogued declarations are made at (Catalogued), with the entries it declares: Catalogued,
  * keyed by its id, two fields `a` and `b` of one refined text type, a field `n` of a contract, a field `m` of natural, a
@@ -143,7 +145,7 @@ const cataloguedOf = (
 	const text = declaredAs(c.text, regexField(cataloguedPattern.source, [cataloguedPattern.flags]))
 	const units = declaredAs(
 		c.contract,
-		contract(cataloguedContract, pg.bigint, (u) => Logic.ge(u, 0n))
+		contract<typeof contractKey>()(cataloguedContract, pg.bigint, (u) => Logic.ge(u, 0n))
 	)
 	const count = declaredAs(c.natural, natural)
 	const joined = declaredAs(

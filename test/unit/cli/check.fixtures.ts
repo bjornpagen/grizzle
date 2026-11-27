@@ -4,16 +4,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { boolean, constant, type Gen, weighted } from "@bjornpagen/testing/gen"
 import { type Need, NeedFailed } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
-import {
-	Array as Arr,
-	Cause,
-	DateTime,
-	Effect,
-	FileSystem,
-	Option,
-	Order,
-	String as Str
-} from "effect"
+import { Array as Arr, Cause, Effect, FileSystem, Option, Order, String as Str } from "effect"
 import { decodeMeta } from "#adapter/boundary/meta.ts"
 import type { refusalText } from "#cli/refusals.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
@@ -86,9 +77,11 @@ const ident = identifierOf(identity.schema(parsedSchemaName("ChkAll")))
 
 const schemaDir = `migrations/${ident}`
 
-const init = "20261012120000_init"
+/** The first folder the command line drafts, at the epoch, the second of a chain of none (cli/timestamp.ts). */
+const init = "19700101000000_init"
 
-const seed = "20261012120001_seed"
+/** The custom folder it drafts after init, a second later. */
+const seed = "19700101000001_seed"
 
 /** The files of init the faults edit, by name, as its draft numbers them: its Setup, Structure and Publish files. */
 interface Layout {
@@ -220,23 +213,13 @@ const lineSuffix = regex(":[0-9]+$")
 export const entryOf = (where: string): string => Str.replace(lineSuffix, "")(where)
 
 export const config = defineConfig({
+	contracts: [],
 	schemas: [shop.schema],
 	logins: [shop.server],
 	migrations: "migrations",
 	rolePrefixBytes: 0,
 	connection: () => offlineOwner
 })
-
-export const at = (second: number) =>
-	DateTime.makeUnsafe({
-		year: 2026,
-		month: 10,
-		day: 12,
-		hour: 12,
-		minute: 0,
-		second,
-		millisecond: 0
-	})
 
 export const notesOf = (p: Planted, found: ReadonlyArray<Finding>): ReadonlyArray<CheckFeature> => [
 	...Arr.dedupe(Arr.map(found, (f) => f.kind)),
@@ -257,14 +240,15 @@ export const fsNeed = {
 	open: Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const base = yield* workspace("check-base")
-		const drafted = yield* cliOver(base, config, ["generate", configName, "--name", "init"], at(0))
+		const drafted = yield* cliOver(base, config, ["generate", configName, "--name", "init"])
 		assert.equal(drafted.code, 0, drafted.stderr)
-		const custom = yield* cliOver(
-			base,
-			config,
-			["generate", configName, "--custom", "--name", "seed"],
-			at(1)
-		)
+		const custom = yield* cliOver(base, config, [
+			"generate",
+			configName,
+			"--custom",
+			"--name",
+			"seed"
+		])
 		assert.equal(custom.code, 0, custom.stderr)
 		const committed = yield* fs.readDirectory(`${base}/${schemaDir}`)
 		assert.deepEqual(

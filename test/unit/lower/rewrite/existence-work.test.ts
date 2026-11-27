@@ -155,9 +155,10 @@ export const theExistencePassReadsEachOccurrenceOnceAndWalksOnlyTheExpressionsTh
 			kills: [
 				{
 					file: "packages/engine/src/lower/optimize/existence/index.ts",
-					original: "\tconst binds = region.occurrences.map((x) => unreadBindings(cell, x))\n",
+					original:
+						"\tconst binds = region.occurrences.map((x) => unreadBindings(cell, region, x, classOf))\n",
 					replacement:
-						"\tconst binds = region.occurrences.map((x) => (region.occurrences.forEach((y) => unreadBindings(cell, y)), unreadBindings(cell, x)))\n",
+						"\tconst binds = region.occurrences.map((x) => (region.occurrences.forEach((y) => unreadBindings(cell, region, y, classOf)), unreadBindings(cell, region, x, classOf)))\n",
 					why: "Each occurrence gathers every occurrence's bindings again, as each gathered every other's at f1bf91a2f: the reads grow with the square of the width, and the property fails."
 				},
 				{

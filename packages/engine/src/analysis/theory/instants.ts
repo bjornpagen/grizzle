@@ -9,6 +9,10 @@
  * - Every other instant field is a clock: it stands in its relation's primary key after at least one field, its child
  *   the key's fields before it, or it is refused as InstantRefused: `clockOutsideKey`, since no child would order it,
  *   or `childless`, first in its key, which would order its whole relation as one child that every writer meets.
+ * - A clock's scope (ir/instant.ts ClockScope) is the unit its relation sits under (schema/own.ts UnitMember), whose
+ *   heading leads its primary key and so its child, since a unit's field is a caller's and no instant; or, where no unit
+ *   holds its relation, its own child. Every clock of one unit shares the unit's one head, keyed by the unit's heading
+ *   as the first of those clocks by relation name holds it.
  *
  * A reference's stamp is the one clock its containments reach, each carrying it into an instant field that is that clock
  * or a reference stamped by it, at the child each carries its row to: every child field of the target's stamp paired,
@@ -23,6 +27,7 @@
  * group's and the field's, else it is refused as `byUnknown`, `byItself` or `byUnkeyed`, naming the key the group and
  * the field would be. An unordered place states no order, so it has no such rule.
  */
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
 	isNonEmpty,
@@ -37,14 +42,16 @@ import type { LawId, StoredRelationName } from "#compiler/core/ids.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import {
 	type Clock,
+	type ClockHead,
+	type ClockStamp,
 	type InstantRole,
 	type Instants,
 	type PlaceHead,
 	type PlaceOrder,
-	sameStamp,
-	type StampSource
+	sameClockStamp
 } from "#compiler/ir/instant.ts"
 import type { LawField, RelationInfo, TheoryRelation } from "#compiler/ir/law.ts"
+import type { UnitMember } from "#compiler/schema/own.ts"
 
 /**
  * A containment that carries an instant field into another relation's: its law, the target's relation and instant
@@ -112,19 +119,52 @@ const carriersOf = (
 }
 
 /**
- * The roles of `relations`' instant fields, from the containments among `laws` (see the module's header), or the first
- * clock outside its relation's primary key or first in it, by relation name in code points and then field in declared
- * order, refused there.
+ * The roles of `relations`' instant fields, from the containments among `laws` and the unit each relation sits under,
+ * `units`, by relation name (see the module's header), or the first clock outside its relation's primary key or first
+ * in it, by relation name in code points and then field in declared order, refused there.
  */
 export const instantRoles = (
 	relations: Readonly<Record<string, TheoryRelation>>,
-	laws: ReadonlyArray<TheoryLaw>
+	laws: ReadonlyArray<TheoryLaw>,
+	units: ReadonlyMap<string, UnitMember>
 ): Result.Result<Instants, CompileError> => {
 	const carriers = carriersOf(laws)
 	const ordinary = Object.values(relations)
 		.flatMap((r): ReadonlyArray<RelationInfo> => (r.kind === "relation" ? [r] : []))
 		.toSorted((a, b) => compareStrings(a.name, b.name))
-	/** Each clock, by its field (instantKey), with its child. */
+	/** Each unit's head, by the unit's name, as the first of its clocks by relation name keys it. */
+	const unitHeads = new Map<string, ClockHead>()
+	/** The head of the clock `field` of `r` at the child `child`: its unit's, where a unit holds `r`, else its child's. */
+	const headOf = (
+		r: RelationInfo,
+		field: LawField,
+		child: NonEmptyReadonlyArray<LawField>
+	): ClockHead => {
+		const member = units.get(r.name)
+		if (member === undefined) {
+			return {
+				kind: "clock",
+				scope: { kind: "child", relation: r.name, field: field.name },
+				key: child,
+				type: field.type
+			}
+		}
+		return unitHeads.getOrInsertComputed(member.unit, () => ({
+			kind: "clock",
+			scope: { kind: "unit", unit: member.unit },
+			key: mapNonEmpty(member.fields, (name, at) => {
+				const held = child[at]
+				if (held?.name !== name) {
+					defect(
+						`the unit ${member.unit}'s field ${name} leads the child of ${r.name}.${field.name}`
+					)
+				}
+				return held
+			}),
+			type: field.type
+		}))
+	}
+	/** Each clock, by its field (instantKey), with its child and its scope's head. */
 	const clocks = new Map<string, Clock>()
 	for (const r of ordinary) {
 		for (const field of r.fields) {
@@ -144,11 +184,17 @@ export const instantRoles = (
 					})
 				)
 			}
-			clocks.set(instantKey(r.name, field.name), { kind: "clock", relation: r.name, field, child })
+			clocks.set(instantKey(r.name, field.name), {
+				kind: "clock",
+				relation: r.name,
+				field,
+				child,
+				head: headOf(r, field, child)
+			})
 		}
 	}
 	/** Each reference's stamp once resolved, none where it has none. */
-	const stamps = new Map<string, StampSource | undefined>()
+	const stamps = new Map<string, ClockStamp | undefined>()
 	/**
 	 * The stamp of `relation`'s instant field `field`: a clock's own, or a reference's through its carriers; none for a
 	 * reference met again while its own stamp is resolved, a cycle no clock ends.
@@ -157,11 +203,11 @@ export const instantRoles = (
 		relation: StoredRelationName,
 		field: string,
 		resolving: ReadonlySet<string>
-	): StampSource | undefined => {
+	): ClockStamp | undefined => {
 		const key = instantKey(relation, field)
 		const clock = clocks.get(key)
 		if (clock !== undefined) {
-			return { head: clock, child: clock.child }
+			return { clock, child: clock.child }
 		}
 		if (stamps.has(key)) {
 			return stamps.get(key)
@@ -171,7 +217,7 @@ export const instantRoles = (
 			return undefined
 		}
 		const within = new Set([...resolving, key])
-		const through = carried.map((c): StampSource | undefined => {
+		const through = carried.map((c): ClockStamp | undefined => {
 			const target = stampOf(c.target, c.field, within)
 			if (target === undefined) {
 				return undefined
@@ -181,12 +227,12 @@ export const instantRoles = (
 				return paired === undefined ? [] : [paired]
 			})
 			return isNonEmpty(child) && child.length === target.child.length
-				? { head: target.head, child }
+				? { clock: target.clock, child }
 				: undefined
 		})
 		const [first, ...rest] = through
 		const stamp =
-			first !== undefined && rest.every((s) => s !== undefined && sameStamp(s, first))
+			first !== undefined && rest.every((s) => s !== undefined && sameClockStamp(s, first))
 				? first
 				: undefined
 		stamps.set(key, stamp)
@@ -203,7 +249,7 @@ export const instantRoles = (
 			const clock = clocks.get(key)
 			const carried = carriers.get(key)
 			if (clock !== undefined) {
-				own.set(field.name, { kind: "clock", stamp: { head: clock, child: clock.child } })
+				own.set(field.name, { kind: "clock", stamp: { clock, child: clock.child } })
 			} else if (carried !== undefined) {
 				own.set(field.name, {
 					kind: "reference",

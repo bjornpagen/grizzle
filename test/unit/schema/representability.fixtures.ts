@@ -17,8 +17,9 @@ import { Array as Arr, Option, Order, pipe, Record as Rec, String as Str } from 
 import { settled } from "#compiler/core/canonical.ts"
 import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { type ExprDesc, type FieldDesc, fieldTypes } from "#compiler/ir/desc.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { installOptions } from "#compiler/physical/install/compile.ts"
 import { parseSchemaInput } from "#compiler/program/input.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { natural } from "#compiler/public/fields.ts"
 import { str } from "#compiler/public/text.ts"
 import {
@@ -1158,11 +1159,21 @@ export type BudgetFeature =
 	| "text between"
 	| "a text beside it"
 
-/** A text bounded at `bytes`, over the wildcard: by a contract over its octet_length, or by str.bytes. */
-const keyText = (bytes: number, spelling: Spelling): FieldBase =>
+/** The key of KeyText, the fixture's own contract, which a mint of its values takes (keyText). */
+const keyTextKey = Symbol("KeyText")
+
+/**
+ * A text bounded at `bytes`, over the wildcard, and the keys a field grizzle fills with its values takes
+ * (scalar/contract.ts admitMintKey): by a contract over its octet_length, KeyText, a consumer's, accumulated under its
+ * key, or by str.bytes, under none.
+ */
+const keyText = (
+	bytes: number,
+	spelling: Spelling
+): { readonly field: FieldBase; readonly mint: ReadonlyArray<symbol> } =>
 	spelling === "a contract"
-		? rawContract("KeyText", wildcard, octetLengthAtMost(bytes))
-		: str.bytes(bytes, wildcard)
+		? { field: rawContract("KeyText", wildcard, octetLengthAtMost(bytes)), mint: [keyTextKey] }
+		: { field: str.bytes(bytes, wildcard), mint: [] }
 
 /** The installation of a schema value: every index its law model plans, each entry proved or refused. */
 export const installed = (value: unknown) =>
@@ -1176,7 +1187,7 @@ const orderedAxis = (bytes: number, spelling: Spelling) => {
 	const text = keyText(bytes, spelling)
 	const Doc = relation(
 		"Doc",
-		{ id: Id, n: drawnField(natural, []), text: accumulatedField(text, "", []) },
+		{ id: Id, n: drawnField(natural, []), text: accumulatedField(text.field, "", text.mint) },
 		["id"],
 		[]
 	)
@@ -1185,9 +1196,9 @@ const orderedAxis = (bytes: number, spelling: Spelling) => {
 		{
 			doc: Id,
 			at: drawnField(natural, []),
-			piece: text,
-			before: accumulatedField(text, "", []),
-			after: accumulatedField(text, "", [])
+			piece: text.field,
+			before: accumulatedField(text.field, "", text.mint),
+			after: accumulatedField(text.field, "", text.mint)
 		},
 		["doc", "at"],
 		[]
@@ -1221,10 +1232,10 @@ const treeAxis = (bytes: number, spelling: Spelling) => {
 			children: drawnField(natural, []),
 			start: drawnField(natural, []),
 			end: drawnField(natural, []),
-			piece: text,
-			before: accumulatedField(text, "", []),
-			after: accumulatedField(text, "", []),
-			total: accumulatedField(text, "", [])
+			piece: text.field,
+			before: accumulatedField(text.field, "", text.mint),
+			after: accumulatedField(text.field, "", text.mint),
+			total: accumulatedField(text.field, "", text.mint)
 		},
 		["doc", "start"],
 		[]
@@ -1269,7 +1280,7 @@ const keyArm = (s: Extract<BudgetCase, { readonly arm: KeyArm }>): Arm => {
 		companions: s.companions,
 		schemaAt: (bytes) => {
 			const named = Arr.map(descriptors, (d, i): readonly [string, FieldBase] => [`c${i}`, d])
-			const text: readonly [string, FieldBase] = ["t", keyText(bytes, s.spelling)]
+			const text: readonly [string, FieldBase] = ["t", keyText(bytes, s.spelling).field]
 			const fields = [...Arr.take(named, s.position), text, ...Arr.drop(named, s.position)]
 			const names = Arr.map(fields, ([n]) => n)
 			if (!selected) {

@@ -1,16 +1,11 @@
 import type { Content } from "@bjornpagen/testing/resources"
-import { Array as Arr, Effect, type Option, Record as Rec, type Scope } from "effect"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { Array as Arr, Effect, type Option, type Scope } from "effect"
 import type { AmbientSession } from "#test/support/ambient.ts"
 import {
-	appliedHistory,
-	draftedHistory,
+	appliedGenerated,
 	type Installed,
-	noPlaceholders,
-	noVersionWorkload,
-	templateInstalled
+	templateGenerated
 } from "#test/support/install-migrate.ts"
-import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import {
 	installTemplate,
@@ -18,8 +13,8 @@ import {
 	type SubstrateCase,
 	type SubstrateTemplate
 } from "#test/support/substrate/substrate.ts"
-import { baseBuild } from "#test/support/worlds/execute/build.ts"
 import {
+	draftedWorld,
 	type RacingWorld,
 	realizeInstalled,
 	type WorldPlan,
@@ -39,11 +34,12 @@ export interface TemplateWorld {
 
 /**
  * A fixed installation's world as a template (substrate.ts installTemplate), the per-case realization (execute/index.ts
- * realizeWith) split where it touches the database: `plan` drafts the installation's first migration under the
- * template's names (install-migrate.ts draftedHistory) and plans the world under them (worldPlanOf), pure, in the
- * build and once in every worker; `install` applies that migration once per member as installMigrated applies it, as
+ * realizeWith) split where it touches the database: `plan` builds the installation under the template's names
+ * (build.ts buildInstall), drafts its first migration with its logins as `grizzle generate` drafts it
+ * (install-migrate.ts generatedDraft) and plans the world under them (worldPlanOf), pure, in the build and once in
+ * every worker; `install` applies that migration once per member as installGenerated applies it (appliedGenerated), as
  * the template's owner login under `ambient`, every login and the decoder login of the served files given the
- * password the template derives; and a case binds its clone's installation (templateInstalled) beside the plan, so
+ * password the template derives; and a case binds its clone's installation (templateGenerated) beside the plan, so
  * what it realizes per case is its layers and sessions alone (realizeInstalled). Its identity is the declaring module's
  * import closure, `name` and the ambient session: `install` is a value of that module's closure.
  */
@@ -54,13 +50,6 @@ export const worldTemplate = (spec: {
 	readonly ambient: AmbientSession
 	readonly budget: number
 }): SubstrateTemplate<TemplateWorld> => {
-	const options = {
-		label: "worlds",
-		extensions: [],
-		ambient: spec.ambient,
-		compile: compileInstallation,
-		review: noPlaceholders
-	}
 	const content: Content = {
 		worlds: spec.name,
 		path: spec.ambient.path.kind,
@@ -73,33 +62,22 @@ export const worldTemplate = (spec: {
 		budget: spec.budget,
 		plan: (names) =>
 			Effect.gen(function* () {
-				const declared = yield* baseBuild(spec.install)
-				const history = yield* draftedHistory(
-					[
-						{
-							version: {
-								schema: declared.base,
-								logins: Rec.values(declared.logins),
-								declarations: noDeclarations
-							},
-							workload: noVersionWorkload
-						}
-					],
-					options,
-					names.schema
-				)
-				const last = Arr.lastNonEmpty(history)
+				const drafted = yield* draftedWorld(spec.install, names.schema)
 				const world = yield* worldPlanOf(spec.install, {
 					declared: names.schema,
-					plan: last.plan,
-					snapshot: last.snapshot
+					plan: drafted.plan,
+					snapshot: drafted.snapshot
 				})
-				return { names, history, world }
+				return { names, drafted, world }
 			}),
-		install: ({ names, history, world }) =>
-			Effect.asVoid(appliedHistory(history, names.schema, options, world.first.files)),
-		bind: ({ names, history, world }, binding) => ({
-			installed: templateInstalled(names, history, spec.ambient, world.first.files, binding),
+		install: ({ names, drafted }) =>
+			Effect.asVoid(
+				appliedGenerated([drafted], names.schema, spec.ambient, (fresh) =>
+					Effect.map(Effect.orDie(draftedWorld(spec.install, fresh)), (again) => again.plan)
+				)
+			),
+		bind: ({ names, drafted, world }, binding) => ({
+			installed: templateGenerated(names, [drafted], spec.ambient, binding).installed,
 			plan: world
 		})
 	})

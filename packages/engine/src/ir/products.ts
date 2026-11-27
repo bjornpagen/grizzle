@@ -301,16 +301,11 @@ export const filledRowsKey = (
  * A relation input's placeholders in one statement, one per array (ArrayTexts), each carry an encoder over the columns
  * they share and their `part`, the position of their array among the input's arrays: a binder writes each
  * placeholder's array by its own encoder at its part (runtime/write/bind.ts), the input's facts encoded once in all.
+ * A write statement's admission's placeholder (lower/conservative/types.ts AdmissionParamSlot) is the declared
+ * parameter's placeholder it admits, which every execution of the statement binds whole.
  */
 export type ParamSlot =
-	| { readonly kind: "scalar"; readonly param: ParamId; readonly encode: Encoder }
-	| {
-			readonly kind: "relation"
-			readonly param: ParamId
-			readonly part: number
-			/** Over the parameter's input, normalized once per execution: every statement encodes one set. */
-			readonly encode: RelationEncoder
-	  }
+	| DeclaredSlot
 	| {
 			readonly kind: "member"
 			readonly slot: ParamId
@@ -326,9 +321,22 @@ export type ParamSlot =
 			readonly rows: FilledRows
 			readonly part: number
 	  }
+	| { readonly kind: "admission"; readonly admits: DeclaredSlot }
 	| { readonly kind: "page"; readonly fill: PageFill }
 
-/** A placeholder of a write's statement: a declared parameter or a member slot, never a page fill. */
+/** A declared parameter's placeholder with its encoder: a scalar's text codec, or a relation's array encoder. */
+export type DeclaredSlot =
+	| { readonly kind: "scalar"; readonly param: ParamId; readonly encode: Encoder }
+	| {
+			readonly kind: "relation"
+			readonly param: ParamId
+			readonly part: number
+			/** Over the parameter's input, normalized once per execution: every statement encodes one set. */
+			readonly encode: RelationEncoder
+	  }
+
+/** A placeholder of a write's statement: a declared parameter, a member slot, nested rows or the admission's, never a
+ * page fill. */
 export type WriteSlot = Exclude<ParamSlot, { readonly kind: "page" }>
 
 /**
@@ -360,7 +368,6 @@ export interface ProgramArtifacts<S = ParamSlot> {
 export interface CarrierDecl {
 	readonly name: CarrierName
 	readonly heading: Heading
-	readonly fill: "insertSelect"
 }
 
 /**

@@ -5,7 +5,12 @@ import { nominal } from "#compiler/core/brand.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"
 import { sha256Octets } from "#compiler/core/digest.ts"
 import type { EntryRole } from "#compiler/core/identity.ts"
-import { blockSize, itemIdBytes, pageHeaderBytes } from "#compiler/core/page.ts"
+import {
+	blockSize,
+	heapTupleHeaderBytes,
+	itemIdBytes,
+	pageHeaderBytes
+} from "#compiler/core/page.ts"
 import { int2Max } from "#compiler/ir/carriers.ts"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import type { ExactValueCarrier, NumericBound, TextLanguage } from "#compiler/ir/scalar.ts"
@@ -460,6 +465,7 @@ export const isFixedWidth = (bound: DatumBound): boolean => {
 		case "text":
 		case "range":
 		case "vector":
+		case "record":
 			return false
 	}
 }
@@ -482,12 +488,13 @@ type Family =
 	| "text"
 	| "range"
 	| "vector"
+	| "record"
 
 /**
- * The families a GiST class serves, the scalars a span key may hold: every family but vector, inet's under core's
- * inet_ops (GistInetKey), every other's under btree_gist's class.
+ * The families a GiST class serves, the scalars a span key may hold: every family but vector and a variant's record,
+ * inet's under core's inet_ops (GistInetKey), every other's under btree_gist's class.
  */
-type GistFamily = Exclude<Family, "vector">
+type GistFamily = Exclude<Family, "vector" | "record">
 interface GistDatum extends DatumBound {
 	readonly family: GistFamily
 }
@@ -600,6 +607,7 @@ export const lengthBound = (measure: LengthMeasure, predicate: ExprDesc): number
 		case "base":
 		case "retype":
 		case "cond":
+		case "variant":
 		case "when":
 		case "or":
 		case "not":
@@ -678,6 +686,7 @@ const integerFamily = (desc: FieldDesc): "int4" | "int8" | undefined => {
 		case "bits":
 		case "vector":
 		case "search":
+		case "variant":
 			return undefined
 	}
 }
@@ -780,6 +789,8 @@ export const datumBound = (desc: FieldDesc): DatumBound | undefined => {
 					: fixed(rangeBytes(typlens.int8), 8, "range")
 		case "vector":
 			return fixed(vectorHeaderBytes + typlens.float4 * desc.dimensions, 4, "vector")
+		case "variant":
+			return variantDatum(desc)
 		case "bytes":
 		case "pattern":
 		case "search":
@@ -789,6 +800,34 @@ export const datumBound = (desc: FieldDesc): DatumBound | undefined => {
 	}
 	const bytes = textByteBound(desc)
 	return Number.isFinite(bytes) ? fixed(varlenaHeaderBytes + bytes, 4, "text") : undefined
+}
+
+/**
+ * The largest datum of a variant's composite (ir/scalar.ts VariantType), as heap_form_tuple lays one out and an index
+ * entry holds it: its tuple header, SizeofHeapTupleHeader, whose first word is the datum's varlena length, and its null
+ * bitmap, a bit per attribute, since every value leaves every other arm's attributes NULL, MAXALIGNed, which is t_hoff;
+ * then its tag's code, a smallint, and its arm's attributes, each at its worst alignment padding and its longest, the
+ * other arms' NULL attributes taking none, at the widest arm; aligned as a record is, `d`. Undefined where an arm's
+ * field has no bound, a text of no byte bound, which no key entry holds.
+ */
+const variantDatum = (
+	desc: Extract<FieldDesc, { readonly kind: "variant" }>
+): DatumBound | undefined => {
+	const attributes = 1 + desc.arms.reduce((n, arm) => n + arm.fields.length, 0)
+	const header = alignUp(heapTupleHeaderBytes + Math.ceil(attributes / bitsPerByte), maxAlign)
+	let widest = 0
+	for (const arm of desc.arms) {
+		let data = typlens.int2
+		for (const field of arm.fields) {
+			const datum = datumBound(field.desc)
+			if (datum === undefined) {
+				return undefined
+			}
+			data += datum.align - 1 + datum.bytes
+		}
+		widest = Math.max(widest, data)
+	}
+	return fixed(header + widest, maxAlign, "record")
 }
 
 /**
@@ -880,7 +919,7 @@ export const gistEntryBytes = (
 ): Result.Result<number, string> => {
 	const keys: Array<GistDatum> = []
 	for (const { field, datum } of fields) {
-		if (datum.family === "vector") {
+		if (datum.family === "vector" || datum.family === "record") {
 			return Result.err(field)
 		}
 		keys.push({ bytes: datum.bytes, align: datum.align, family: datum.family })

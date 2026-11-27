@@ -4,9 +4,10 @@
  * meant. Over drawn stacks of projections and aggregates over VALUES rows, read by the statement's rows, under its
  * ORDER BY, parenthesized under an ORDER BY of its output names, through a CTE and as an IN's subquery,
  * the folded statement answers exactly its twin's names and rows, its twin being the same statement with every core
- * over a derived table guarded by WHERE TRUE, which no fold reads through; and its text adds no token its twin lacks
- * beyond a copy of a column or a literal read twice, calls what its twin calls and holds its twin's placeholders in
- * their order.
+ * over a derived table guarded by WHERE TRUE, which no fold reads through, and pulled up as the statement is
+ * (sql/pull-up.ts, bcb057d552), each guard conjoined with the WHERE of a sub-query flattened into its core; and its
+ * text adds no token its twin lacks beyond a copy of a column or a literal read twice, calls what its twin calls and
+ * holds its twin's placeholders in their order.
  *
  * Oracle: PostgreSQL, on the twin.
  *
@@ -17,7 +18,7 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
 	answered,
@@ -72,7 +73,16 @@ export const aFoldedStatementAnswersItsUnfoldedTwinsNamesAndRowsAndItsTextAddsNo
 			kind: "postgresql",
 			name: "the statement's twin, every core over a derived table guarded by WHERE TRUE, which no fold reads through"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/sql/fold.test.ts#aFoldedStatementAnswersItsUnfoldedTwinsNamesAndRowsAndItsTextAddsNoTokenDropsNoCallAndKeepsItsPlaceholders:3ff.0:1.0.0.0.1.0.1.0.1.0.0.0.1.0"
+				),
+				reason:
+					"a filtered level read by the statement's rows, its twin's guard conjoined by the printer's pull-up with the level's WHERE (bcb057d552), one WHERE and one AND where the token rule set two WHEREs apart, red on the merged tree",
+				since: "2026-11-27"
+			}
+		],
 		kills: [
 			{
 				file: "packages/engine/src/sql/print.ts",

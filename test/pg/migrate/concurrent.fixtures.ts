@@ -5,7 +5,6 @@ import { constant, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Cause, Effect, Exit, Fiber, Formatter } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
 import type { Aim } from "#test/pg/migrate/support.ts"
@@ -13,15 +12,15 @@ import { type AmbientOwner, ambientOwner, ordinarySession } from "#test/support/
 import { checkInstallation } from "#test/support/catalog/installed.ts"
 import { filledSql } from "#test/support/compile.ts"
 import {
-	type DraftedVersion,
-	draftVersion,
 	expectFreshCatalog,
+	type GeneratedDraft,
+	type GeneratedVersion,
+	generatedDraft,
 	installedOf,
 	installedSchemas,
 	loginCredentials,
 	migrateFolders,
-	noPlaceholders,
-	noVersionWorkload
+	noPlaceholders
 } from "#test/support/install-migrate.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
@@ -56,23 +55,18 @@ const Note = relation("Note", { id: pg.integer, done: pg.boolean }, ["id"])
 
 const Embedding = relation("Embedding", { id: pg.integer, at: pg.vector(3) }, ["id"])
 
-const plainSchema = schema("concurrent_plain", [Note], [])
-
-const vectorSchema = schema("concurrent_vector", [Embedding], [])
-
-/** Each shape's schema and its one login, `server`, whose role `reader` reads the whole schema. */
-const shapes = {
-	plain: {
-		schema: plainSchema,
-		login: login(plainSchema, "server", [role(plainSchema, "reader", wholeEntriesOf(plainSchema))])
-	},
-	vector: {
-		schema: vectorSchema,
-		login: login(vectorSchema, "server", [
-			role(vectorSchema, "reader", wholeEntriesOf(vectorSchema))
-		])
+/**
+ * Each shape's schema under the allocated name `name` and its one login, `server`, whose role `reader` reads the whole
+ * schema: the version `grizzle generate` drafts.
+ */
+const shapeAt = (shape: Shape, name: string): GeneratedVersion => {
+	const base = schema(name, [shape === "plain" ? Note : Embedding], [])
+	return {
+		schema: base,
+		logins: [login(base, "server", [role(base, "reader", wholeEntriesOf(base))])],
+		declarations: noDeclarations
 	}
-} as const
+}
 
 const drawnGen: Gen<Drawn> = (source) => ({
 	shape: source.draw(element<Shape>(["plain", "vector"])),
@@ -119,30 +113,26 @@ export const aims: ReadonlyArray<Aim<ConcurrentCase, Feature>> = [
 interface Prepared {
 	readonly drawn: Drawn
 	readonly declared: string
-	readonly version: DraftedVersion
+	readonly version: GeneratedDraft
 	readonly owner: AmbientOwner
 	/** The login role its publish statements create, which the gate creates first. */
 	readonly gated: string
 }
+
+/** `shape` under `name` drafted as `grizzle generate` drafts its first migration (install-migrate.ts generatedDraft). */
+const draftedAt = (shape: Shape, name: string) =>
+	generatedDraft(
+		shapeAt(shape, name),
+		{ installation: identity.schema(parsedSchemaName(name)), previous: fromEmpty, step: 0 },
+		noPlaceholders
+	)
 
 /** `d` drafted as `grizzle generate` drafts its first migration, under a name of its own, with an owner login of its own. */
 const prepared = (d: Drawn) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const declared = yield* substrate.schema({ create: false, label: "concurrent" })
-		const shape = shapes[d.shape]
-		const version = yield* draftVersion(
-			{
-				version: { schema: shape.schema, logins: [shape.login], declarations: noDeclarations },
-				workload: noVersionWorkload
-			},
-			{
-				installation: identity.schema(parsedSchemaName(declared)),
-				previous: fromEmpty,
-				step: 0
-			},
-			{ extensions: [], compile: compileInstallation, review: noPlaceholders }
-		)
+		const version = yield* draftedAt(d.shape, declared)
 		const owner = yield* ambientOwner(ordinarySession, installedSchemas(version.plan.installation))
 		const gated = defined(
 			version.plan.logins["server"],
@@ -236,10 +226,8 @@ export const walk = (c: ConcurrentCase, note: (feature: Feature) => void) =>
 		}
 		for (const p of installations) {
 			if (p.drawn.door === "runner") {
-				yield* expectFreshCatalog(
-					p.version.plan.installation,
-					[p.version.folder],
-					p.version.planned
+				yield* expectFreshCatalog(p.version.plan.installation, [p.version.folder], (fresh) =>
+					Effect.map(draftedAt(p.drawn.shape, fresh), (again) => again.plan)
 				)
 			}
 			const installed = yield* installedOf({
@@ -248,8 +236,8 @@ export const walk = (c: ConcurrentCase, note: (feature: Feature) => void) =>
 				folders: [p.version.folder],
 				snapshot: p.version.snapshot,
 				ambientOwner: p.owner,
-				files: new Map(),
-				credentials: yield* loginCredentials(p.version.plan, new Map(), new Map())
+				files: p.version.served,
+				credentials: yield* loginCredentials(p.version.plan, p.version.served, new Map())
 			})
 			yield* checkInstallation(installed)
 		}

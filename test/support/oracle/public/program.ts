@@ -18,12 +18,13 @@ import type { Perturbation } from "#test/support/oracle/perturb.ts"
 
 /**
  * The storage carriers the general draw declares a field of: every one but a set's, whose only comparison is equality
- * and whose algebra is the closed laws' (W3), and a search document's, PostgreSQL's parse of its row's texts, neither of
- * which the public reference models.
+ * and whose algebra is the closed laws' (W3), a search document's, PostgreSQL's parse of its row's texts, and a
+ * variant's, whose identity, order and arms test/pg/fields/variant holds to its own reference model, none of which the
+ * public reference models.
  */
 type DrawnCarrier = Exclude<
 	StorageCarrier,
-	"bits" | "bytes" | "sha256" | "date" | "rangeDate" | "tsvector" | "inet" | "cidr"
+	"bits" | "bytes" | "sha256" | "date" | "rangeDate" | "tsvector" | "inet" | "cidr" | "variant"
 >
 
 /**
@@ -330,8 +331,8 @@ export interface PointIn {
 }
 
 /**
- * r.and(...) or r.or(...) over comparisons: every one holds, or at least one does. Of no comparison, r.and() is the
- * constant true, which holds of every row, and r.or() the constant false, which holds of none.
+ * r.and([...]) or r.or([...]) over comparisons: every one holds, or at least one does. Of no comparison, r.and([]) is
+ * the constant true, which holds of every row, and r.or([]) the constant false, which holds of none.
  */
 export interface Connective {
 	readonly kind: "and" | "or"
@@ -460,7 +461,7 @@ export interface Rule<P> {
 
 /**
  * Whether a rule filters its bindings by anything but its matches: a comparison, a range, a set, an Allen atom, a
- * point membership or a connective, even r.and(), which holds of every row. The delivery proofs read it where they read
+ * point membership or a connective, even r.and([]), which holds of every row. The delivery proofs read it where they read
  * "no comparison".
  */
 export const hasFilter = <P>(rule: Rule<P>): boolean =>
@@ -518,15 +519,13 @@ export interface ProgramQuery<P> {
 
 /**
  * How an attachment states its children are delivered, attach's third argument: every child as an array, at most one
- * as an Option, exactly one as the child itself, or the arm of one handle, Some of the child in the parent rows whose
- * `field` holds `handle` and None in the others. An attachment states only a delivery the language proves of its child
- * (delivery.ts).
+ * as an Option, or exactly one as the child itself. An attachment states only a delivery the language proves of its
+ * child (delivery.ts).
  */
 export type StatedDelivery =
 	| { readonly kind: "array" }
 	| { readonly kind: "option" }
 	| { readonly kind: "one" }
-	| { readonly kind: "arm"; readonly field: Column; readonly handle: string }
 
 /**
  * An attachment: its child binds at least one parent column in a match, since the language refuses an attachment

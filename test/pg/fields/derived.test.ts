@@ -87,10 +87,11 @@ import { type Declaration, holesOf } from "#test/support/closed/generate.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { draftCodes, fromEmpty, fromSnapshot, noDeclarations } from "#test/support/migrate/kit.ts"
 import {
+	baseSubstrate,
+	claimsOfNoFact,
 	ownerSession,
 	Substrate,
-	worldSession,
-	baseSubstrate
+	worldSession
 } from "#test/support/substrate/substrate.ts"
 
 /** Generated fields on PostgreSQL 19 every generated column holds what the host evaluator computes from its row, PostgreSQL refuses a writer's value for one and an absent key, and a changed expression migrates in place. */
@@ -196,7 +197,7 @@ export const generatedFieldsOnPostgreSQL19EveryGeneratedColumnHoldsWhatTheHostEv
 							)
 							const deskLogin = yield* substrate.login(desk.role)
 							const writer = yield* substrate.session({
-								...worldSession({ login: deskLogin, role: writerRole.role }),
+								...worldSession({ login: deskLogin, role: writerRole.role }, claimsOfNoFact),
 								label: "writer"
 							})
 							const sys: System = { ...installing, writer }

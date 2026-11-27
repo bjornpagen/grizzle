@@ -1271,7 +1271,7 @@ export const connectReplication = (
 		() => {
 			const client = held.client
 			if (client === undefined) {
-				return Effect.die(defect("connectOne hands its client to attach before it returns"))
+				return Effect.sync(() => defect("connectOne hands its client to attach before it returns"))
 			}
 			const write = copyWriterOf(client)
 			return write === undefined

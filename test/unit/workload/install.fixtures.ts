@@ -15,11 +15,8 @@ import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
 import type { PhysicalReason } from "#compiler/ir/products.ts"
 import { type WorkloadPhysical, withWorkload } from "#compiler/physical/access/extension.ts"
-import {
-	compileInstallation,
-	type Installation,
-	installOptions
-} from "#compiler/physical/install/compile.ts"
+import { type Installation, installOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"

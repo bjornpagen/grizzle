@@ -15,7 +15,7 @@ import { floatText } from "#compiler/scalar/values/float.ts"
 import type { CarrierSpec } from "#compiler/scalar/values/identity.ts"
 import type { ParamValue } from "#compiler/types/core/phantom.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import { Id, type IdValue } from "#test/support/ids.ts"
+import { Id, type IdValue, toId } from "#test/support/ids.ts"
 import { toastLengths, toastPair, toastText } from "#test/support/oracle/gen/toast.ts"
 
 /** The exact decimals, one kind per typmod. */
@@ -80,7 +80,7 @@ const rosterCodes: RosterCodec = (() => {
 })()
 
 const uuidOf = (n: number): IdValue =>
-	Id(`00000000-0000-4000-8000-${pipe((0x7700 + n).toString(16), Str.padStart(12, "0"))}`)
+	toId(`00000000-0000-4000-8000-${pipe((0x7700 + n).toString(16), Str.padStart(12, "0"))}`)
 
 const decimal = (text: string): Decimal => Decimal.of(text)
 

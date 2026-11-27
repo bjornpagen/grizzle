@@ -1,8 +1,8 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Fence } from "#compiler/analysis/isolation/certify.ts"
-import { checkedRoleOver, type CheckedSchema } from "#compiler/analysis/schema.ts"
-import { checkQuery } from "#compiler/check/index.ts"
+import { checkedRoleOver, type CheckedSchema, type RoleWorld } from "#compiler/analysis/schema.ts"
+import { type AdmittedQuery, checkQuery } from "#compiler/check/index.ts"
 import { CheckSession } from "#compiler/check/session.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { RoleIsolation } from "#compiler/core/certificate.ts"
@@ -29,28 +29,49 @@ import type {
 	ProgramAccess,
 	WorkloadAccess
 } from "#compiler/ir/products.ts"
-import type { RelNode, Rooted, RootedDag } from "#compiler/ir/rel.ts"
+import {
+	mergeOrder,
+	type NodeOf,
+	type RelNode,
+	type Rooted,
+	type RootedDag
+} from "#compiler/ir/rel.ts"
+import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
+import type { LawModel } from "#compiler/laws/model/model.ts"
 import type { LivePlan } from "#compiler/live/notify.ts"
 import {
 	analyzeLogical,
 	checkerEvidence,
 	type LogicalAnalysis,
+	queryEvidence,
 	withLogicalMeta
 } from "#compiler/logical/annotate.ts"
 import {
 	type Footprint,
 	footprintOf,
 	type RouteFacts,
+	type Routes,
 	routeFacts
 } from "#compiler/logical/routes.ts"
 import { keyJoinNormalDag } from "#compiler/lower/optimize/eliminate/index.ts"
+import { optimizedInput, rewrittenQuery } from "#compiler/lower/optimize/pipeline.ts"
 import { allenNormalDag } from "#compiler/lower/optimize/simplify/allen.ts"
+import { asItStands, type PageWindow, windowDriver } from "#compiler/lower/shapes/page/driver.ts"
 import { type WorkloadPhysical, workloadRequests } from "#compiler/physical/access/extension.ts"
-import { extractAccess } from "#compiler/physical/access/extract.ts"
+import {
+	declaredKeys,
+	extractAccess,
+	keyOrdersOf,
+	noWorlds,
+	type PagedRoot,
+	type WorldView,
+	type WorldViews
+} from "#compiler/physical/access/extract.ts"
 import { uniquePaths } from "#compiler/physical/access/paths.ts"
-import { type ServedTypes, servedTypesOf } from "#compiler/physical/ddl/domains.ts"
+import { leakyEquality } from "#compiler/physical/access/seeks.ts"
+import { type ServedTypes, servedTogether, servedTypesOf } from "#compiler/physical/ddl/domains.ts"
 import { namedRole, worldNames } from "#compiler/physical/ddl/names.ts"
-import type { RoleCall, RoleCarriers } from "#compiler/physical/install/extension.ts"
+import type { RoleCall, RoleCarriers, ServedProgram } from "#compiler/physical/install/extension.ts"
 import type { ParamSource } from "#compiler/physical/install/plan.ts"
 
 import type { SchemaInput } from "#compiler/program/input.ts"
@@ -62,7 +83,8 @@ import {
 	type ReadCommittedRole,
 	readCommittedChanges,
 	type ServableRole,
-	type ServableVariants
+	type ServableVariants,
+	variantsEntries
 } from "#compiler/program/workload/change.ts"
 import { type PlannedFrontend, PlannedFrontends } from "#compiler/program/workload/planned.ts"
 import { loginRole, programsOn } from "#compiler/program/workload/roles.ts"
@@ -70,6 +92,7 @@ import { workloadState } from "#compiler/program/workload/value.ts"
 import { inlineWorlds } from "#compiler/program/workload/world.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
 import { ownBuiltRole, type OwnedRole } from "#compiler/schema/own.ts"
+import type { SeekProgram } from "#compiler/sql/seeks.ts"
 import { compileChangeSet, type WriteFrontend } from "#compiler/write/frontend/compile.ts"
 import { primaryKeyShape } from "#compiler/write/frontend/targets.ts"
 import type { ServableWrite } from "#compiler/write/program/served.ts"
@@ -128,8 +151,8 @@ interface ProgramIr {
 	readonly roots: ReadonlyArray<RelNode>
 	/** The parameters it declares, whose patterns the installation gives a pattern domain each. */
 	readonly params: ReadonlyArray<ParamDecl>
-	/** The roots a page may read: an Ordered query's ordered result. */
-	readonly pageable: ReadonlyArray<RelNode>
+	/** The roots a page may read, an Ordered query's ordered result, each with how its windows read its rows. */
+	readonly pageable: ReadonlyArray<PagedRoot>
 	/** The write targets of a ChangeSet: each written relation's primary key. */
 	readonly targets: ReadonlyArray<AccessPath>
 }
@@ -180,23 +203,36 @@ const programPlan = (
 		case "query":
 		case "answered": {
 			const { kind, query } = program
-			return Result.map(queryRead(query, reads, clock), (read): Planned => {
-				const ir = rowsIr(read, isOrderedQuery(query))
-				const planned = { served: servedTypesOf(name, read.params, ir.roots), access: irAccess(ir) }
-				switch (kind) {
-					case "query":
-						return {
-							kind: "read",
-							plan: {
-								kind,
-								...planned,
-								footprint: footprintOf(read.dag, read.facts, read.params)
+			return Result.flatMap(queryRead(query, reads, clock), (read) =>
+				Result.flatMap(accessRead(query, read, reads, clock), (accessed) =>
+					Result.map(
+						loweredIr(accessed, reads.artifacts, isOrderedQuery(query)),
+						(lowered): Planned => {
+							const ir = rowsIr(read, isOrderedQuery(query), reads.artifacts)
+							const planned = {
+								served: servedTypesOf(name, read.params, ir.roots),
+								access: irAccess(lowered, reads.artifacts.laws, reads.worlds)
+							}
+							switch (kind) {
+								case "query":
+									return {
+										kind: "read",
+										plan: {
+											kind,
+											...planned,
+											footprint: installedFootprint(
+												reads.artifacts.laws.checked,
+												footprintOf(read.dag, read.facts, read.params)
+											)
+										}
+									}
+								case "answered":
+									return { kind: "read", plan: { kind, ...planned } }
 							}
 						}
-					case "answered":
-						return { kind: "read", plan: { kind, ...planned } }
-				}
-			})
+					)
+				)
+			)
 		}
 		case "changeSet": {
 			const world = reads.world
@@ -212,7 +248,7 @@ const programPlan = (
 					plan: {
 						kind: "changeSet",
 						served: servedTypesOf(name, ir.params, ir.roots),
-						access: irAccess(ir)
+						access: changeSetAccess(ir, reads)
 					},
 					frontend,
 					clock
@@ -259,6 +295,8 @@ const queryRead = (
 interface WorkloadReads {
 	readonly world: ArtifactsWorld
 	readonly artifacts: SchemaArtifacts
+	/** The role's world relations as the barrier views they are installed as, which a program's access reads beneath. */
+	readonly worlds: WorldViews
 }
 
 const workloadReads = (
@@ -268,13 +306,69 @@ const workloadReads = (
 	schema.kind === "role"
 		? Result.flatMap(ownBuiltRole(schema.desc, artifacts.owned), (role) =>
 				Result.flatMap(namedRole(role, artifacts.names.levels), (named) =>
-					Result.map(checkedRoleOver(role, artifacts.derived.schema), (checked): WorkloadReads => ({
-						world: { kind: "role", role, checked, names: worldNames(named, artifacts.names) },
-						artifacts
-					}))
+					Result.flatMap(checkedRoleOver(role, artifacts.derived.schema), (checked) =>
+						Result.map(worldViewsOf(checked, artifacts), (worlds): WorkloadReads => ({
+							world: { kind: "role", role, checked, names: worldNames(named, artifacts.names) },
+							artifacts,
+							worlds
+						}))
+					)
 				)
 			)
-		: Result.ok<WorkloadReads>({ world: { kind: "reality" }, artifacts })
+		: Result.ok<WorkloadReads>({ world: { kind: "reality" }, artifacts, worlds: noWorlds })
+
+/**
+ * Each world relation of the role `checked` as the security barrier view the installation creates of it
+ * (physical/access/extract.ts WorldView): its definition as its view's lowering rewrites it, read as rows the way the
+ * view reads them, in the transaction context (physical/ddl/roles.ts worldView, physical/derived/definition.ts
+ * lowerDefinition), and its heading's columns of a leaky equality, which no reader's qual passes the barrier on.
+ */
+const worldViewsOf = (
+	checked: CheckedSchema<RoleWorld>,
+	artifacts: SchemaArtifacts
+): Result.Result<WorldViews, CompileError> => {
+	const rows = checked.world.base.rows(checked.writable)
+	const views = new Map<string, WorldView>()
+	for (const e of checked.entries) {
+		if (e.kind !== "world") {
+			continue
+		}
+		const rewritten = Result.flatMap(
+			optimizedInput(servedQuery(e.analysis.query, rows), queryEvidence),
+			(input) =>
+				rewrittenQuery(input, {
+					names: artifacts.names,
+					subject: { kind: "derivedDefinition" },
+					catalog: evidenceCatalog(artifacts),
+					context: "transaction"
+				})
+		)
+		if (!rewritten.ok) {
+			return rewritten
+		}
+		const [root] = rewritten.value.dag.roots
+		views.set(e.name, {
+			root,
+			leaky: new Set(root.heading.flatMap((c) => (leakyEquality(c.type) ? [c.name] : [])))
+		})
+	}
+	return Result.ok((relation) => views.get(relation))
+}
+
+/**
+ * The read a program over a role's access is read off: its query over the role's own checked schema, every world
+ * relation a world Base the extraction reads beneath its barrier, as the login's served statement reads the role's
+ * views; over reality, the read itself.
+ */
+const accessRead = (
+	query: QueryDesc,
+	read: AnalyzedQuery,
+	reads: WorkloadReads,
+	clock: ClockBinding
+): Result.Result<AnalyzedQuery, CompileError> =>
+	reads.world.kind === "role"
+		? analyzedQuery(query, reads.world.checked, "rows", "query", clock)
+		: Result.ok(read)
 
 /**
  * A query's IR over its checked schema, the query read as `reading` names: as rows, or as a write filter's membership,
@@ -284,10 +378,11 @@ const checkedQueryIr = (
 	query: QueryDesc,
 	read: CheckedSchema,
 	reading: "rows" | "membership",
-	label: string
+	label: string,
+	artifacts: SchemaArtifacts
 ): Result.Result<ProgramIr, CompileError> =>
 	Result.map(analyzedQuery(query, read, reading, label, noClock), (analyzed) =>
-		rowsIr(analyzed, isOrderedQuery(query))
+		rowsIr(analyzed, isOrderedQuery(query), artifacts)
 	)
 
 /**
@@ -295,18 +390,47 @@ const checkedQueryIr = (
  * by which a join partner of at most one row, such as a context or a membership's row, binds every probe of the
  * occurrences it joins (physical/access/extract.ts), pageable where an ordered query's root is its ordered result.
  */
-const rowsIr = (analyzed: AnalyzedQuery, ordered: boolean): ProgramIr => {
+const rowsIr = (
+	analyzed: AnalyzedQuery,
+	ordered: boolean,
+	artifacts: SchemaArtifacts
+): ProgramIr => {
 	const root = withLogicalMeta(analyzed.dag, analyzed.analysis, (node) => node, new Set()).roots[0]
 	return {
 		roots: [root],
 		params: analyzed.params,
-		pageable: ordered && root.kind === "OrderedResult" ? [root] : [],
+		pageable:
+			ordered && root.kind === "OrderedResult"
+				? [{ root, window: servedWindow(root, artifacts) }]
+				: [],
 		targets: []
 	}
 }
 
+/**
+ * How a served page's windows read its rows (lower/shapes/page/driver.ts), as its access is extracted: driven where its
+ * root meets the rule in the snapshot context a served read runs in, on the schema's containments, declared and drawn,
+ * and its relations' declared keys, the order its pages compare by its ordered result's own.
+ */
+const servedWindow = (root: NodeOf<"OrderedResult">, artifacts: SchemaArtifacts): PageWindow => {
+	const driver = windowDriver(root, mergeOrder(root.orders, root.input.heading), {
+		context: "snapshot",
+		containments: evidenceCatalog(artifacts).containments,
+		unitOf: (relation) => artifacts.owned.unitOf.get(relation)?.fields ?? [],
+		keyAmong: (base, fields) => {
+			const key = declaredKeys(base).find((k) => k.every((f) => fields.includes(f)))
+			return key === undefined
+				? undefined
+				: { columns: key, grounds: { premises: [], context: "immediate" } }
+		}
+	})
+	return driver === undefined ? asItStands : { kind: "driven", driver }
+}
+
 /** A query's checked DAG in the normal forms its access is extracted from, with its logical analysis and parameters. */
 export interface AnalyzedQuery {
+	/** The query as its lowering reads it (ir/derived.ts servedQuery), checked, before its normal forms. */
+	readonly served: AdmittedQuery
 	readonly dag: RootedDag
 	readonly analysis: LogicalAnalysis<Rooted>
 	/** What its footprint reads of each node's logical properties (logical/routes.ts RouteFacts), the rest dropped. */
@@ -347,6 +471,7 @@ const analyzedQuery = (
 							}
 						}),
 						(analysis): AnalyzedQuery => ({
+							served: checked,
 							dag,
 							analysis,
 							facts,
@@ -400,9 +525,121 @@ const changeSetIr = (
 	)
 }
 
-/** The access paths of a program's checked IR. */
-const irAccess = (ir: ProgramIr): ProgramAccess => {
-	const extraction = extractAccess(ir.roots, { pageable: ir.pageable })
+/**
+ * A read's IR as its optimized lowering lowers it (lower/optimize/pipeline.ts rewrittenQuery), what its access is read
+ * off: the served query annotated under the query's evidence (optimizedInput), rewritten in the snapshot context a served
+ * read runs in, so every decision the access reads (a driven semi-join, a region's chain, a row site) is the one its
+ * statement is printed from, over the same nodes; pageable where an ordered query's root is its ordered result.
+ */
+const loweredIr = (
+	read: AnalyzedQuery,
+	artifacts: SchemaArtifacts,
+	ordered: boolean
+): Result.Result<ProgramIr, CompileError> =>
+	Result.flatMap(optimizedInput(read.served, queryEvidence), (input) =>
+		Result.map(
+			rewrittenQuery(input, {
+				names: artifacts.reads,
+				subject: { kind: "query" },
+				catalog: evidenceCatalog(artifacts),
+				context: "snapshot"
+			}),
+			(rewritten): ProgramIr => {
+				const [root] = rewritten.dag.roots
+				return {
+					roots: rewritten.dag.roots,
+					params: read.params,
+					pageable:
+						ordered && root.kind === "OrderedResult"
+							? [{ root, window: servedWindow(root, artifacts) }]
+							: [],
+					targets: []
+				}
+			}
+		)
+	)
+
+/**
+ * The access paths a ChangeSet's IR gives that its statements' seeks do not: a join's key, a range, a prefix search, a
+ * take's or a page's seek, a span predicate, an approximate retrieval, a text search, a network containment, each of
+ * which its statements order, span or match by. A lookup by equalities alone is its served write's program's to ask, the
+ * one source the missed-index check reads too (physical/access/seeks.ts seekPaths, physical/install/compile.ts
+ * programAccess), never its IR's, whose lowering lands a filter's constant, a step's bound column or a computed value on
+ * a seek the IR does not show.
+ */
+const changeSetAccess = (ir: ProgramIr, reads: WorkloadReads): ProgramAccess => ({
+	paths: irAccess(ir, reads.artifacts.laws, reads.worlds).paths.filter(
+		(p) => p.use !== "equality lookup" && p.use !== "key lookup" && p.use !== "write target"
+	)
+})
+
+/**
+ * `plan` with each served ChangeSet's paths its served write's seeks ask (physical/install/compile.ts Installation
+ * `programAccess`) recorded beside the paths its IR gives (`changeSetAccess`): its programs' access, its paths and its
+ * requests, what the snapshot records and `grizzle check` compares.
+ */
+export const withProgramAccess = (
+	plan: WorkloadPlan,
+	programs: ReadonlyArray<{
+		readonly login: string
+		readonly program: string
+		readonly paths: ReadonlyArray<AccessPath>
+	}>,
+	vectorSchema: string
+): WorkloadPlan => {
+	const access: Record<string, Readonly<Record<string, ProgramAccess>>> = { ...plan.access }
+	for (const p of programs) {
+		const own = Object.hasOwn(access, p.login) ? access[p.login] : undefined
+		const before = own !== undefined && Object.hasOwn(own, p.program) ? own[p.program] : undefined
+		access[p.login] = {
+			...own,
+			[p.program]: { paths: uniquePaths([...(before?.paths ?? []), ...p.paths]) }
+		}
+	}
+	const paths = uniquePaths([...plan.paths, ...programs.flatMap((p) => p.paths)])
+	return {
+		...plan,
+		access,
+		paths,
+		requests: workloadRequests({ schema: plan.schema, paths, params: plan.params }, vectorSchema)
+	}
+}
+
+/**
+ * Each login's served ChangeSets as the installation indexes them (physical/install/extension.ts ServedProgram), by the
+ * login's name and the program's, in that order: the seek program of each compile of it its served file sends, every
+ * role's and every variant's (write/program/served.ts ServableWrite `seeks`).
+ */
+export const servedPrograms = (
+	changes: ServedWorkloadPlan["changes"]
+): ReadonlyArray<ServedProgram> =>
+	[...changes]
+		.toSorted(([a], [b]) => compareStrings(a, b))
+		.flatMap(([login, roles]) => {
+			const byProgram = new Map<string, Array<SeekProgram>>()
+			for (const role of roles.values()) {
+				for (const [program, variants] of role.members) {
+					appendAll(
+						byProgram.getOrInsertComputed(program, () => []),
+						variantsEntries(variants).map((entry) => entry.compiled.seeks)
+					)
+				}
+			}
+			return [...byProgram]
+				.toSorted(([a], [b]) => compareStrings(a, b))
+				.map(([program, seeks]): ServedProgram => ({ login, program, seeks }))
+		})
+
+/**
+ * The access paths of a program's IR, each key read in its index's order as the law model `laws` installs it, and each
+ * world relation it reads beneath its barrier view (`worlds`).
+ */
+const irAccess = (ir: ProgramIr, laws: LawModel, worlds: WorldViews): ProgramAccess => {
+	const extraction = extractAccess(ir.roots, {
+		pageable: ir.pageable,
+		keyOrders: keyOrdersOf(laws.theory.relations),
+		worlds
+	})
 	return { paths: uniquePaths([...extraction.paths, ...ir.targets]) }
 }
 
@@ -549,6 +786,26 @@ const workloadPlans = (
 }
 
 /**
+ * `footprint` over the relations it reads as they are installed (analysis/schema.ts CheckedSchema installedAs): each
+ * alias of one definition's table under its canonical relation, the one table a change reaches every reader of it
+ * through, whichever alias it reads, a field routing where every alias's read fixes it to one parameter.
+ */
+const installedFootprint = (checked: CheckedSchema, footprint: Footprint): Footprint => {
+	const tables = new Map<string, Routes>()
+	for (const [relation, routes] of footprint.tables) {
+		const installed = checked.installedAs(relation)
+		const held = tables.get(installed)
+		tables.set(
+			installed,
+			held === undefined
+				? routes
+				: new Map([...held].filter(([field, param]) => routes.get(field) === param))
+		)
+	}
+	return { tables: new Map([...tables].toSorted(([a], [b]) => compareStrings(a, b))) }
+}
+
+/**
  * The footprint of a program's query, read as its plan reads it (programPlan, logical/routes.ts footprintOf): a query's
  * or a clocked query's, under its clock binding; none for an answered read or a ChangeSet, which no live read routes.
  */
@@ -560,7 +817,10 @@ const programFootprint = (
 	switch (program.kind) {
 		case "query":
 			return Result.map(queryRead(program.query, reads, clock), (read) => [
-				footprintOf(read.dag, read.facts, read.params)
+				installedFootprint(
+					reads.artifacts.laws.checked,
+					footprintOf(read.dag, read.facts, read.params)
+				)
 			])
 		case "answered":
 		case "changeSet":
@@ -628,12 +888,13 @@ const filterAccess = (
 			e.writable.filter.query,
 			artifacts.derived.schema,
 			"membership",
-			label
+			label,
+			artifacts
 		)
 		if (!ir.ok) {
 			return ir
 		}
-		out.push(irAccess(ir.value))
+		out.push(irAccess(ir.value, artifacts.laws, noWorlds))
 	}
 	return Result.ok(out)
 }
@@ -775,13 +1036,7 @@ const workloadPlanned = (
 	const physical: WorkloadPhysical = {
 		schema: artifacts.fingerprint,
 		paths,
-		params: {
-			domains: served.flatMap((p) => p.domains),
-			contracts: served.flatMap((p) => p.contracts),
-			typed: served.flatMap((p) => p.typed),
-			texts: served.flatMap((p) => p.texts),
-			library: served.flatMap((p) => p.library)
-		}
+		params: servedTogether(served)
 	}
 	return Result.ok({
 		...physical,
@@ -804,15 +1059,15 @@ export interface ServedLogin<S extends ParamSource = ParamSource> extends Change
  * login's served file compiles over (change.ts readCommittedChanges), in the form its certificate's level serves, by the
  * login's name, then the role's name in it: what each login's served file projects; and the certificate of each of
  * those roles (program/isolation/certification.ts), the level its writes begin at, which the installation's guards
- * follow (physical/install/compile.ts installationOver); the roles whose served ChangeSets create a carrier; and the
+ * follow (program/install.ts installationOver); the roles whose served ChangeSets fill a carrier; and the
  * fences the certification states
  * (analysis/isolation/certify.ts Fence), each with the roles certified READ COMMITTED that rely on it.
  */
 export interface ServedWorkloadPlan<S extends ParamSource = ParamSource> extends WorkloadPlan {
 	readonly changes: ReadonlyMap<string, ReadonlyMap<string, ServableRole<Isolation, S>>>
 	readonly certification: ReadonlyArray<RoleIsolation>
-	/** The roles whose served ChangeSets create a carrier (servedCarriers), which the installation grants TEMPORARY on the
-	 * database. */
+	/** The roles whose served ChangeSets fill a carrier (servedCarriers), each with its carriers' columns, which the
+	 * installation grants EXECUTE on what the CHECKs of those columns' domains call. */
 	readonly carriers: ReadonlyArray<RoleCarriers>
 	/** The roles whose served programs reach a declared function, each with the function (servedCalls), which the
 	 * installation grants EXECUTE on the function. */
@@ -828,19 +1083,16 @@ const variantWrites = (variants: ServableVariants): ReadonlyArray<ServableWrite>
 
 /**
  * The roles of `served`, each login's ChangeSets in the forms their certificates serve them by role, any of whose served
- * ChangeSets stand a carrier up (runtime/write/flight.ts StandUp, ServableWrite `carriers`), with the type of
- * each column of every program carrier they create, in login then role order: the roles a write may refuse for want of
- * TEMPORARY on the database (adapter TemporaryRefused).
+ * ChangeSets fill a carrier (ServableWrite `carried`), with the field of each column of every program carrier they
+ * fill, in login then role order, whose domains' CHECKs the fills call.
  */
 const servedCarriers = (
 	served: ReadonlyMap<string, ReadonlyMap<string, ServableRole>>
 ): ReadonlyArray<RoleCarriers> =>
 	[...served].flatMap(([login, roles]) =>
 		[...roles].flatMap(([role, changes]): ReadonlyArray<RoleCarriers> => {
-			const writes = [...changes.members.values()].flatMap(variantWrites)
-			return writes.some((w) => w.carriers.creates)
-				? [{ login, role, columns: writes.flatMap((w) => w.carriers.columns) }]
-				: []
+			const columns = [...changes.members.values()].flatMap(variantWrites).flatMap((w) => w.carried)
+			return columns.length > 0 ? [{ login, role, columns }] : []
 		})
 	)
 
@@ -878,21 +1130,17 @@ const servedCalls = (
 ): Result.Result<ReadonlyArray<RoleCall>, ServedWorkloadRefused> => {
 	const out: Array<RoleCall> = []
 	for (const login of logins) {
-		for (const { name, value } of login.roles) {
-			const parsed = loginRole(value, login.named.owned)
-			if (!parsed.ok) {
-				return Result.err({ kind: "workload", error: parsed.error })
-			}
-			const running = programsOn(parsed.value.input, login.workload)
+		for (const role of login.roles) {
+			const running = programsOn(role, login.workload)
 			if (!running.ok) {
 				return Result.err({ kind: "workload", error: running.error })
 			}
 			const functions = callsThrough(
 				running.value.map((p) => p.desc),
-				definitionsOf(parsed.value.owned)
+				definitionsOf(loginRole(role, login.named.owned))
 			)
 			for (const fn of [...functions].toSorted(compareStrings)) {
-				out.push({ login: login.name, role: name, function: fn })
+				out.push({ login: login.name, role: role.desc.name, function: fn })
 			}
 		}
 	}

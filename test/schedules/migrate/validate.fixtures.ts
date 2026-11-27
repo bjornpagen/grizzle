@@ -15,7 +15,8 @@ import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { type ConstraintLaws, lawsOfConstraint } from "#compiler/ir/products.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { guardBracketTexts } from "#compiler/physical/ddl/immutable.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { Logic } from "#compiler/public/compute.ts"
 import { closedId, contract, pg } from "#compiler/public/fields.ts"
 import {
@@ -35,7 +36,7 @@ import { openMigrator, type TextTarget, writtenTexts } from "#test/pg/migrate/su
 import { keyGen } from "#test/schedules/write/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { installMigrated as install } from "#test/support/install-migrate.ts"
+import { installFullWorld } from "#test/support/installed.ts"
 import {
 	type ColumnTextDomain,
 	installationNamesOf,
@@ -50,6 +51,7 @@ import {
 	generate,
 	noDeclarations
 } from "#test/support/migrate/kit.ts"
+import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { owning } from "#test/support/policy.ts"
 import type { Interleaving } from "#test/support/schedules/interleave.ts"
 import {
@@ -65,6 +67,7 @@ import { fullWorld } from "#test/support/worlds.ts"
 
 const label = str.regex("^[a-z]{0,8}$")
 
+const rateKey = Symbol("Rate")
 /**
  * The domains a version changes: an assignment's rate, a contract whose predicate the tightened version tightens from
  * 1000 to 100, a domain of its own by its definition, and a desk's code, a text pattern it narrows from seven letters to
@@ -72,7 +75,9 @@ const label = str.regex("^[a-z]{0,8}$")
  * each version's pattern a domain of its own.
  */
 const domains = (tightened: boolean) => {
-	const Rate = contract("Rate", pg.integer, (v) => Logic.le(v, tightened ? 100 : 1000))
+	const Rate = contract<typeof rateKey>()("Rate", pg.integer, (v) =>
+		Logic.le(v, tightened ? 100 : 1000)
+	)
 	const code = tightened ? str.regex("^[a-z]{0,3}$") : str.regex("^[a-z]{0,7}$")
 	const Worker = relation("Worker", { id: pg.integer, name: label }, ["id"])
 	const Assignment = relation(
@@ -238,12 +243,7 @@ export const prepare = (
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const declared = v1("Staff")
-		const done = yield* install(declared, {
-			ambient: ordinarySession,
-			label: "real",
-			logins: [fullWorld(declared, {}).server],
-			extensions: []
-		})
+		const done = yield* installFullWorld(declared, {}, { ambient: ordinarySession, label: "real" })
 		const names = namesOf(done)
 		for (const statement of seed(names)) {
 			yield* s.admin.query(statement, [])
@@ -269,6 +269,15 @@ export const prepare = (
 		const target: TextTarget = { snapshot: g.snapshot, folders: [...done.folders, drafted] }
 		const migrator = yield* openMigrator(s, s.owner)
 		const owner = (statement: string) => s.admin.query(statement, [])
+		/**
+		 * A person's data step between a refused migration's attempts, as the owner: `statement` in a transaction of its
+		 * own inside the one bracket of the closed relations' removals over the installation's schema
+		 * (physical/ddl/immutable.ts guardBracketTexts), whose guards refuse its DELETE anywhere else.
+		 */
+		const dataStep = (statement: string) => {
+			const bracket = guardBracketTexts({ kind: "schemas", schemas: [names.schema] })
+			return transaction(s.admin, [bracket.before, statement, bracket.after])
+		}
 		/**
 		 * Every table's rows as text, sorted, as the owner: each row's declared fields, which a refusal must leave as they
 		 * were, and none of the columns a law adds, such as a selected side's generated term, which a file before the
@@ -314,7 +323,20 @@ export const prepare = (
 		const writer = done.world(fullWorld(declared, {}).app)
 		/** The names of the version the migration installs, under the installed schema. */
 		const nextNames = installationNamesOf(installation)
-		return { s, done, names, nextNames, g, drafted, target, migrator, owner, contents, writer }
+		return {
+			s,
+			done,
+			names,
+			nextNames,
+			g,
+			drafted,
+			target,
+			migrator,
+			owner,
+			dataStep,
+			contents,
+			writer
+		}
 	})
 
 /** The columns of each relation, listed for a positional VALUES. */
@@ -335,8 +357,9 @@ export const deskColumns = (names: Names) =>
 /**
  * A person's change of one field of one stored row, the reviewer's data step between a refused migration's attempts:
  * the row deleted and inserted again with the field's new value, in one statement, as an immutable relation's rows
- * change, whose guard refuses an UPDATE outside a migration's bracketed data steps (README, Migrations). `columns` is
- * the relation's every stored field, `key` its key column's value, `set` the field and its value's SQL.
+ * change, whose guards refuse its UPDATE and its DELETE outside a data step, run inside the bracket of their removals
+ * (prepare's dataStep). `columns` is the relation's every stored field, `key` its key column's value, `set` the field and
+ * its value's SQL.
  */
 export const rewrittenRow = (
 	table: string,

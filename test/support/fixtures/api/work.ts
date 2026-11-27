@@ -1,23 +1,24 @@
 import { closedId } from "#compiler/public/fields.ts"
-import { arm, query, v } from "#compiler/public/query.ts"
+import { query, v } from "#compiler/public/query.ts"
 import {
-	alternatives,
 	closed,
 	contained,
 	derived,
 	login,
+	mirrors,
 	mutable,
 	on,
 	relation,
 	role,
 	type Schema,
 	schema,
+	select,
 	type StatementsByName,
 	unit,
 	wholeEntriesOf
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { Cents } from "#test/support/fixtures/api/contracts.ts"
+import { Cents, toCents } from "#test/support/fixtures/api/contracts.ts"
 import { Id } from "#test/support/ids.ts"
 
 export const Kind = closed.ordered("Kind", ["Automatic", "Manual"])
@@ -47,7 +48,20 @@ export const Work = schema(
 	[
 		contained(on(Task, "account"), on(Account, "id")),
 		contained(on(TaskNote, "task"), on(Task, "id")),
-		alternatives(Task, "kind", Kind, { Automatic: AutomaticTask, Manual: ManualTask }),
+		mirrors(
+			on(AutomaticTask, "task"),
+			on(
+				select(Task, (t) => t.eq(t.kind, "Automatic")),
+				"id"
+			)
+		),
+		mirrors(
+			on(ManualTask, "task"),
+			on(
+				select(Task, (t) => t.eq(t.kind, "Manual")),
+				"id"
+			)
+		),
 		unit("Entity", { id: Id }),
 		unit("Task", { task: Id }),
 		mutable(Task),
@@ -147,7 +161,7 @@ export const workReads = <const N extends string>(installed: WorkNamed<N>) => {
 					const { budget } = v(AutomaticTask, "automaticTask")
 					return r.match(AutomaticTask, { task: t.id, budget }).find({ budget })
 				}),
-			arm("kind", "Automatic")
+			"option"
 		)
 	return {
 		automaticTasksFor,
@@ -320,8 +334,8 @@ const TierBudget = closed.relation(
 	{ tier: closedId(Tier), budget: Cents },
 	["tier"],
 	[
-		{ tier: "Free", budget: Cents(100n) },
-		{ tier: "Pro", budget: Cents(1000n) }
+		{ tier: "Free", budget: toCents(100n) },
+		{ tier: "Pro", budget: toCents(1000n) }
 	]
 )
 const Subscription = relation("Subscription", { account: Id, tier: closedId(Tier) }, ["account"])

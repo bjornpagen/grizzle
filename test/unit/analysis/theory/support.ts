@@ -19,7 +19,6 @@ import { type TheoryViolations, theoryViolations } from "#compiler/laws/model/vi
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { own } from "#compiler/schema/own.ts"
-import { everySlice } from "#compiler/schema/reach.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { decodedSchema, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { canonicallySpelled } from "#test/support/oracle/gen/domain.ts"
@@ -61,7 +60,7 @@ export interface TestTheory extends Theory {
 /** The theory of a schema description with its laws' violation queries, or its first refusal. */
 export const theoryResult = (desc: SchemaDesc): Result.Result<TestTheory, CompileError> =>
 	Result.flatMap(
-		Result.flatMap(own(decodedSchema(desc)), (owned) => checkedSchema(owned, everySlice(owned))),
+		Result.flatMap(own(decodedSchema(desc)), (owned) => checkedSchema(owned)),
 		(checked) =>
 			Result.flatMap(buildTheory(checked), (t) =>
 				Result.map(theoryViolations(checked, t), (violations) =>

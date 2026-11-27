@@ -6,7 +6,7 @@ import { Array as Arr, Formatter, String as Str } from "effect"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { predicateTable } from "#compiler/ir/expr.ts"
 import { libraryCreate } from "#compiler/physical/ddl/library.ts"
-import { compiledExpr } from "#compiler/scalar/compute/evaluate.ts"
+import { compiledExpr, noParamLeaf } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -158,7 +158,7 @@ export const hostVerdict = (text: string): boolean => {
 	const table = predicateTable(term.expr)
 	const value = succeeded(
 		compiledExpr(table)(
-			{ value: undefined, column: () => text, closed: () => undefined },
+			{ value: undefined, column: () => text, closed: () => undefined, param: noParamLeaf },
 			ProgramPatterns.of(tablePatterns(table))
 		),
 		"the host evaluates isXsdPattern"

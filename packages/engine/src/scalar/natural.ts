@@ -5,7 +5,7 @@ import type { Refused } from "#compiler/core/refusals.ts"
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import { descText, type ExprDesc, type FieldDesc, type TermDesc } from "#compiler/ir/desc.ts"
 import { isInstantDesc } from "#compiler/ir/instant.ts"
-import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, naturalName, type ScalarType } from "#compiler/ir/scalar.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { integerHostOf } from "#compiler/scalar/compute/literal.ts"
 import { contractParts } from "#compiler/scalar/contract.ts"
@@ -16,7 +16,7 @@ import { defineField, describeFieldOrThrow } from "#compiler/scalar/registry.ts"
  * natural's admission: the contract `natural` over pg.bigint, whose values are never below zero, which it declares it
  * proves, admitted by the one path every contract is.
  */
-const parts = contractParts("natural", pgDescriptors.bigint, [
+const parts = contractParts(naturalName, pgDescriptors.bigint, [
 	(v: unknown) => computeCore.ge(v, 0n),
 	{ proves: ["nonnegative"] }
 ])
@@ -109,6 +109,7 @@ const isIntegerDesc = (desc: FieldDesc): boolean => {
 		case "bits":
 		case "vector":
 		case "search":
+		case "variant":
 			return false
 	}
 }

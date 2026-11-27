@@ -1,6 +1,7 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { Option } from "effect"
+import { nominal } from "#compiler/core/brand.ts"
 import { builtMark, type Phantom } from "#compiler/core/phantom.ts"
 import type { Cell, OutputText } from "#compiler/core/wire.ts"
 
@@ -72,7 +73,7 @@ interface BitsColumn<out A> extends Phantom<{ readonly host: A }> {
  * uuid's, whose every cell is uuid_out's canonical spelling and A its language (scalar/values/uuid.ts Uuid). A
  * overapproximates the texts PostgreSQL writes. It is a phantom of the descriptor's own pattern, and the brand keeps a
  * plain object from claiming it: textColumn, whose callers are str.regex (text/field.ts) and the uuid descriptor
- * (scalar/uuid.ts), and brandColumn are its only builders.
+ * (scalar/uuid.ts), and hostColumn are its only builders.
  */
 interface TextColumn<out A> extends Phantom<{ readonly host: A }> {
 	readonly kind: "text"
@@ -100,6 +101,25 @@ interface BytesColumn<out A> extends Phantom<{ readonly host: A }> {
 	readonly kind: "bytes"
 }
 
+/** One arm of a variant's column: its handle and its fields' columns, each by name, in declared order. */
+export interface VariantArmColumn {
+	readonly handle: string
+	readonly fields: ReadonlyArray<readonly [string, Column<unknown>]>
+}
+
+/**
+ * A variant's column (ir/scalar.ts VariantType): the cell is record_out's text of its composite, its first attribute
+ * its tag's code, read as the handle the installation's names give it as a closed id's is, and each field of that arm
+ * read from its attribute by the field's own column, a digest's as byteaout's hex record_out writes; read without a
+ * check, under the record assembly's one claim, into a frozen record of its tag and its arm's fields. A is the
+ * variant's host type, a phantom of its builder's.
+ */
+interface VariantColumn<out A> extends Phantom<{ readonly host: A }> {
+	readonly kind: "variant"
+	readonly roster: string
+	readonly arms: ReadonlyArray<VariantArmColumn>
+}
+
 /**
  * A delivered column: data, its host type A a phantom of its builder's. What reads a cell under it is the decoder's
  * interpreter's (schema/record.ts), from its data alone.
@@ -111,6 +131,7 @@ export type Column<A> =
 	| TextColumn<A>
 	| ConstantColumn<A>
 	| BytesColumn<A>
+	| VariantColumn<A>
 
 /** What carries a column: a field descriptor, a term, an aggregate, a producer, a parameter, a head literal. */
 export interface Columned<out A> {
@@ -135,6 +156,12 @@ export const bytesColumn: Column<Uint8Array<ArrayBuffer>> = Object.freeze({
 	kind: "bytes"
 })
 
+/** A variant's column over its tag's roster `roster` and its arms' columns, whose values are A. */
+export const variantColumn = <A>(
+	roster: string,
+	arms: ReadonlyArray<VariantArmColumn>
+): Column<A> => Object.freeze({ ...builtMark, kind: "variant", roster, arms: Object.freeze(arms) })
+
 /** A text column over the language A its cells are in: a refined text's pattern's (str.regex), or uuid_out's. */
 export const textColumn = <A extends string>(): Column<A> =>
 	Object.freeze({ ...builtMark, kind: "text" })
@@ -143,29 +170,35 @@ const constants = <A>(values: NonEmptyReadonlyArray<A>, conversion: CellConversi
 	Object.freeze({ kind: "constant", values, conversion })
 
 /**
- * A contract's column over its base's: the brand, which has no runtime form (core/brand.ts nominal is the identity),
- * applied to every value the base's column holds, the handles of a closed base and the literals of head literals
- * included; a conversion and a refined text stay their base's. No contract is over a set or bytes, so either is a
- * defect here.
+ * A column over its base's that delivers a host type H of the base's values A: a contract's, whose host type its
+ * consumer declares (public/fields.ts contract), and an instant's (scalar/instant.ts). It is the one place grizzle
+ * claims a host type over a base's column without a check: grizzle trusts its own database, whose every stored value of
+ * the contract its domain admitted, and a host value of H passed its consumer's own mint before any write took it. H
+ * has no runtime form, so every value the base's column holds, the handles of a closed base and the literals of head
+ * literals included, is the claim's own value; a conversion and a refined text stay their base's. No contract is over a
+ * set, bytes or a variant, so any of them is a defect here.
  */
-export const brandColumn = <A, B>(base: Column<A>, brand: (value: A) => B): Column<B> => {
+export const hostColumn = <A, H extends A>(base: Column<A>): Column<H> => {
+	const claim = nominal<A, H>()
 	switch (base.kind) {
 		case "convert":
 			return convertColumn(base.conversion)
 		case "code":
 			return codeColumn(
 				base.roster,
-				base.handles.map((handle) => brand(handle))
+				base.handles.map((handle) => claim(handle))
 			)
 		case "bits":
-			throw defect("no contract is over a set over a roster")
+			defect("no contract is over a set over a roster")
 		case "bytes":
-			throw defect("no contract is over bytes")
+			defect("no contract is over bytes")
+		case "variant":
+			defect("no contract is over a variant")
 		case "text":
 			return Object.freeze({ ...builtMark, kind: "text" })
 		case "constant":
 			return constants(
-				mapNonEmpty(base.values, (value) => brand(value)),
+				mapNonEmpty(base.values, (value) => claim(value)),
 				base.conversion
 			)
 	}
@@ -202,9 +235,11 @@ export const unionColumn = <A, B>(a: Column<A>, b: Column<B>): Column<A | B> => 
 			case "code":
 				return codeColumn<A | B>(b.roster, [...a.values, ...b.handles])
 			case "bits":
-				throw defect("a set's column meets only a set's column of its roster")
+				defect("a set's column meets only a set's column of its roster")
 			case "bytes":
-				throw defect("a bytes column meets only a bytes column")
+				defect("a bytes column meets only a bytes column")
+			case "variant":
+				defect("a variant's column meets only a variant's column of its roster")
 			case "text":
 				return claimedText()
 		}
@@ -214,21 +249,27 @@ export const unionColumn = <A, B>(a: Column<A>, b: Column<B>): Column<A | B> => 
 	}
 	if (a.kind === "bytes" || b.kind === "bytes") {
 		if (a.kind !== "bytes" || b.kind !== "bytes") {
-			throw defect("a bytes column meets only a bytes column")
+			defect("a bytes column meets only a bytes column")
 		}
 		return Object.freeze({ ...builtMark, kind: "bytes" })
 	}
 	if (a.kind === "code" || b.kind === "code") {
 		if (a.kind !== "code" || b.kind !== "code" || a.roster !== b.roster) {
-			throw defect("a closed id's column meets only a closed id's column of its roster")
+			defect("a closed id's column meets only a closed id's column of its roster")
 		}
 		return codeColumn<A | B>(a.roster, [...a.handles, ...b.handles])
 	}
 	if (a.kind === "bits" || b.kind === "bits") {
 		if (a.kind !== "bits" || b.kind !== "bits" || a.roster !== b.roster) {
-			throw defect("a set's column meets only a set's column of its roster")
+			defect("a set's column meets only a set's column of its roster")
 		}
 		return bitsColumn<A | B>(a.roster)
+	}
+	if (a.kind === "variant" || b.kind === "variant") {
+		if (a.kind !== "variant" || b.kind !== "variant" || a.roster !== b.roster) {
+			defect("a variant's column meets only a variant's column of its roster")
+		}
+		return variantColumn<A | B>(a.roster, a.arms)
 	}
 	if (a.kind === "convert") {
 		return convertColumn(a.conversion)
@@ -287,16 +328,14 @@ export interface BindContext {
 
 /**
  * What a row's law allows it to hold under an attachment: at most one child (an Option, or the one child before its
- * count is read), exactly one (the one child, an alternatives arm its handle selects), or none (an alternatives arm its
- * handle does not select).
+ * count is read), or exactly one (the one child).
  */
-export type ChildLaw = "atMostOne" | "exactlyOne" | "none"
+export type ChildLaw = "atMostOne" | "exactlyOne"
 
 /** How a defect states a child law. */
 const childLawText: { readonly [L in ChildLaw]: string } = {
 	atMostOne: "at most one child",
-	exactlyOne: "exactly one child",
-	none: "no child"
+	exactlyOne: "exactly one child"
 }
 
 /**
@@ -371,6 +410,14 @@ export type ColumnForm =
 			readonly conversion: CellConversion
 	  }
 	| { readonly kind: "bytes" }
+	| {
+			readonly kind: "variant"
+			readonly roster: string
+			readonly arms: ReadonlyArray<{
+				readonly handle: string
+				readonly fields: ReadonlyArray<readonly [string, ColumnForm]>
+			}>
+	  }
 
 /** The form of a column, as a decoder holds it (ColumnForm). */
 export const columnForm = (column: Column<unknown>): ColumnForm => {
@@ -391,49 +438,49 @@ export const columnForm = (column: Column<unknown>): ColumnForm => {
 			})
 		case "bytes":
 			return Object.freeze({ kind: "bytes" })
+		case "variant":
+			return Object.freeze({
+				kind: "variant",
+				roster: column.roster,
+				arms: Object.freeze(
+					column.arms.map((arm) =>
+						Object.freeze({
+							handle: arm.handle,
+							fields: Object.freeze(
+								arm.fields.map(([name, field]) => Object.freeze([name, columnForm(field)] as const))
+							)
+						})
+					)
+				)
+			})
 	}
 }
 
 /**
- * A record field as a decoder holds it: a column, read from the cell under its key; an attachment, delivering its
- * child's records from the rows under its slot as stated; or an alternatives arm's attachment on a row whose handle
- * selects the arm (its one child, as Some) or another (None).
+ * A record field as a decoder holds it: a column, read from the cell under its key; or an attachment, delivering its
+ * child's records from the rows under its slot as stated.
  */
 export type FieldForm =
 	| { readonly kind: "column"; readonly column: ColumnForm }
 	| { readonly kind: "attachment"; readonly child: DecoderForm; readonly delivery: Delivery }
-	| { readonly kind: "some"; readonly child: DecoderForm }
-	| { readonly kind: "none"; readonly child: DecoderForm }
 
-/** A field that reads itself, no column: an attachment's, or an alternatives arm's. */
-export type AttachedForm = Exclude<FieldForm, { readonly kind: "column" }>
+/** A field that reads itself, no column: an attachment's. */
+export type AttachedForm = Extract<FieldForm, { readonly kind: "attachment" }>
 
 /**
  * A decoder of delivered records, as data: a record of fields, in key order; two decoders' records as one, each row
  * both records' fields; a union of two decoders' records, a layout binding the arm that owns the largest heading it
- * delivers; a parent's records with the alternatives arm of `handle` under `name`, Some of the child where the parent's
- * `field` holds `handle` and None elsewhere; or the decoder of a query whose rows no builder can decode, which refuses
- * every layout. Its interpreter is runtime/read/record.ts recordsReader, which schema/record.ts bindGroups types, and
- * which a served file's decoder runs through as one a builder made.
+ * delivers; or the decoder of a query whose rows no builder can decode, which refuses every layout. Its interpreter is
+ * runtime/read/record.ts recordsReader, which schema/record.ts bindGroups types, and which a served file's decoder runs
+ * through as one a builder made.
  */
 export type DecoderForm =
 	| { readonly kind: "record"; readonly fields: ReadonlyArray<readonly [string, FieldForm]> }
 	| { readonly kind: "merge"; readonly first: DecoderForm; readonly second: DecoderForm }
 	| { readonly kind: "oneOf"; readonly first: DecoderForm; readonly second: DecoderForm }
-	| {
-			readonly kind: "arm"
-			readonly parent: DecoderForm
-			readonly name: string
-			readonly child: DecoderForm
-			readonly field: string
-			readonly handle: string
-	  }
 	| { readonly kind: "refused" }
 
-/**
- * A record field that is no column, its delivered value A a phantom of its builder's: an attachment's or an
- * alternatives arm's, as data (AttachedForm).
- */
+/** A record field that is no column, its delivered value A a phantom of its builder's: an attachment's (AttachedForm). */
 export interface RecordField<out A> extends Phantom<{ readonly host: A }> {
 	readonly form: AttachedForm
 }
@@ -464,17 +511,14 @@ export interface RowDecoder<out A> extends Phantom<{ readonly host: A }> {
 	readonly form: DecoderForm
 }
 
-/** A field of one heading of a decoder form: a record's own field, or an alternatives arm's attachment (`arm`). */
-export type FormField = FieldForm | { readonly kind: "arm"; readonly child: DecoderForm }
-
 /**
  * The headings a decoder form may deliver, each its fields under their keys in the order its record fills them
  * (runtime/read/record.ts fillsOf): a record's own; every pairing of a merge's, the first's fields then the second's;
- * both arms' of a union; an arm's parent's each with the arm's attachment; and none of a refused decoder's.
+ * both arms' of a union; and none of a refused decoder's.
  */
 export const formFields = (
 	form: DecoderForm
-): ReadonlyArray<ReadonlyArray<readonly [string, FormField]>> => {
+): ReadonlyArray<ReadonlyArray<readonly [string, FieldForm]>> => {
 	switch (form.kind) {
 		case "record":
 			return [form.fields]
@@ -484,10 +528,6 @@ export const formFields = (
 		}
 		case "oneOf":
 			return [...formFields(form.first), ...formFields(form.second)]
-		case "arm": {
-			const arm = [form.name, Object.freeze({ kind: "arm", child: form.child })] as const
-			return formFields(form.parent).map((x) => [...x, arm])
-		}
 		case "refused":
 			return []
 	}
@@ -530,18 +570,6 @@ export const merge = <A, B>(a: RowDecoder<A>, b: RowDecoder<B>): RowDecoder<A & 
 export const oneOf = <A, B>(a: RowDecoder<A>, b: RowDecoder<B>): RowDecoder<A | B> =>
 	decoderOf(Object.freeze({ kind: "oneOf", first: a.form, second: b.form }))
 
-/** An alternatives arm's attachment on a row whose handle selects the arm: its one child, as Some. */
-export const someChild = <A>(child: RowDecoder<A>): RecordField<Option.Some<A>> =>
-	Object.freeze({ ...builtMark, form: Object.freeze({ kind: "some", child: child.form }) })
-
-/**
- * An alternatives arm's attachment on a row whose handle selects another arm: None. The layout must deliver the arm's
- * attachment, as for a selected arm. The alternatives family law holds the row's children under it empty, so a child
- * there is a state the law excludes: a defect naming the attachment, never a child dropped silently.
- */
-export const noChild = <A>(child: RowDecoder<A>): RecordField<Option.None<A>> =>
-	Object.freeze({ ...builtMark, form: Object.freeze({ kind: "none", child: child.form }) })
-
 /**
  * The member at a position of a positional row from PostgreSQL: a text of a delivered row or of a written statement's
  * answer row, a delivered row's children under an attachment slot, or its heading group's reader. The one site of the
@@ -553,7 +581,7 @@ export const noChild = <A>(child: RowDecoder<A>): RecordField<Option.None<A>> =>
 export const rowSlot = <A>(members: ReadonlyArray<A>, position: number): A => {
 	const member = members[position]
 	if (member === undefined) {
-		throw defect(`a positional row holds its layout's member ${position}`)
+		defect(`a positional row holds its layout's member ${position}`)
 	}
 	return member
 }
@@ -569,7 +597,7 @@ export const rowCell = (cells: ReadonlyArray<Cell>, position: number): Cell =>
  */
 export const outputTextOf = (cell: Cell): OutputText => {
 	if (typeof cell !== "string") {
-		throw defect("a text column's cell is its output text")
+		defect("a text column's cell is its output text")
 	}
 	return cell
 }
@@ -580,7 +608,7 @@ export const outputTextOf = (cell: Cell): OutputText => {
  */
 export const bytesValueOf = (cell: Cell): Uint8Array<ArrayBuffer> => {
 	if (typeof cell === "string") {
-		throw defect("a bytes column's cell is its assembled value")
+		defect("a bytes column's cell is its assembled value")
 	}
 	return cell
 }

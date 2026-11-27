@@ -13,8 +13,8 @@
  * - a keyless refusal by the domain's laws, where a stored value lies outside its column's domain, as the adapter
  *   classifies the server's check violation by the domain it names: the law of each column the domain types in the
  *   refused relation, `every` where one and `some` where several;
- * - a parameter passed outside its field refused by PostgreSQL as the flight's admission binds it, ExecutionFailure
- *   with reason ParamRejected naming the parameter;
+ * - a parameter passed outside its field refused by PostgreSQL as the admission the first statement a call sends
+ *   carries binds it, ExecutionFailure with reason ParamRejected naming the parameter;
  * - an applied outcome where a described member reads a numeric of another typmod into its field, the value its fact
  *   holds the cast's, rounded to the field's scale (domain.ts castValue), never the source's, which the exact parse of
  *   a fact (scalar/values/identity.ts parseValue) refuses at the field's typmod.
@@ -26,8 +26,8 @@
  * - a witness carrying a key where the law's violation is native and keyless;
  * - a refusal where the change applies, and an applied outcome where the domain or the bind refuses, or where a
  *   stratum's writes the keys order in a cycle, which the compile refuses (expect.ts unorderableStrata);
- * - a law's refusal where a parameter lies outside its field: the admission, the flight's first statement, refuses it
- *   before any statement that reaches state, so no law of any stratum answers first;
+ * - a law's refusal where a parameter lies outside its field: the admission, which the first statement a call sends
+ *   carries, refuses it as that statement is bound, before any statement runs, so no law of any stratum answers first;
  * - a domain's refusal naming, decided, one of the several laws of the columns it types in the refused relation;
  * - a domain's check violation left an operational failure, unclassified.
  *

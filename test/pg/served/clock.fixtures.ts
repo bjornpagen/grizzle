@@ -33,14 +33,21 @@ import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
  *   refuses is `refused`.
  */
 
+const instantKey = Symbol("Instant")
 /** An instant, and the instants on either side of 2100-01-01 in milliseconds since the epoch. */
-const Instant = contract("Instant", pg.bigint)
+const Instant = contract<typeof instantKey>()("Instant", pg.bigint)
 
 const year2100 = 4_102_444_800_000n
 
-const Before2100 = contract("Before2100", pg.bigint, (x) => Logic.le(x, year2100))
+const before2100Key = Symbol("Before2100")
+const Before2100 = contract<typeof before2100Key>()("Before2100", pg.bigint, (x) =>
+	Logic.le(x, year2100)
+)
 
-const After2100 = contract("After2100", pg.bigint, (x) => Logic.ge(x, year2100))
+const after2100Key = Symbol("After2100")
+const After2100 = contract<typeof after2100Key>()("After2100", pg.bigint, (x) =>
+	Logic.ge(x, year2100)
+)
 
 const Wanted = relation("Wanted", { key: pg.integer, due: Instant }, ["key"])
 

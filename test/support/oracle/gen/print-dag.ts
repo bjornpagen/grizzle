@@ -176,6 +176,8 @@ class ExprPrinter {
 				return `${expr.relation}.has(${Arr.join(args, ", ")})`
 			case "call":
 				return `${expr.function.name}(${Arr.join(args, ", ")})`
+			case "variant":
+				return `variant.${expr.op.kind}(${Arr.join(args, ", ")})`
 		}
 	}
 }
@@ -200,6 +202,8 @@ const calledName = (called: CallFunction): string => {
 			}
 		case "series":
 			return "series"
+		case "arm":
+			return `arm ${called.handle}`
 	}
 }
 

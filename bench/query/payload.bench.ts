@@ -143,7 +143,7 @@ export default defineGate({
 	} satisfies { readonly full: Options; readonly quick: Options },
 	run: ({ options }) =>
 		Effect.gen(function* () {
-			const fx = yield* installFixture(Payload, {}, {}, "benchpayload", [])
+			const fx = yield* installFixture(Payload, {}, {}, "benchpayload", () => [])
 			yield* fill(fx, "Doc", options.docs, {
 				id: "g::int8",
 				rank: "((pg_catalog.hashint8(g) & 2147483647) % 1000)::int4",

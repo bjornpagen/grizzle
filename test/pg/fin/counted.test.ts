@@ -15,12 +15,12 @@
  *   whenever the slot freed is not the last.
  *
  * - **The relations' standing** (folds.ts Standing): over a mutable owner and member every order above is sent as it
- *   is; over the immutable default, the one every consumer gets, the swap is refused at its count by the owner's
- *   guard (42501), its count and end fields the guard holds fixed as the schema decides (ir/law.ts RelationInfo
- *   `inPlace`), and the family rewritten whole, every member deleted, the owner inserted again with the kept count
- *   and end and the kept members at their slots (test/support/families/counted.ts rewrittenWhole), commits to the
- *   reference fold: the owner cannot be inserted again alone, its members' copy of its count a foreign key ON UPDATE
- *   CASCADE that is not deferrable.
+ *   is; over the immutable default, the one every consumer gets, the swap is refused at its delete by the member's
+ *   guard (42501), a closed relation's rows never removed but in a data step, and the family rewritten whole, every
+ *   member deleted, the owner inserted again with the kept count and end and the kept members at their slots
+ *   (test/support/families/counted.ts rewrittenWhole), a data step inside the one bracket of the closed relations'
+ *   removals (physical/ddl/immutable.ts guardBracketTexts), commits to the reference fold: the owner cannot be
+ *   inserted again alone, its members' copy of its count a foreign key ON UPDATE CASCADE that is not deferrable.
  *
  * The space (counted.fixtures.ts sketchGen): owner 0 with a counted family of one to four members over the five step
  * values of each counted fold seat (folds.ts), one member's removal, sent, over mutable relations, in the prescribed
@@ -36,6 +36,7 @@ import { type Case, family, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
+import { guardBracketTexts } from "#compiler/physical/ddl/immutable.ts"
 import {
 	byMember,
 	Disagreed,
@@ -44,6 +45,7 @@ import {
 	hostFilled,
 	judgedFold,
 	type Judging,
+	nothingAround,
 	sentOver
 } from "#test/pg/fin/folds.ts"
 import { endedBy, endGen, refusedAtCommitBy, seatIn } from "#test/pg/fin/installed.ts"
@@ -189,45 +191,58 @@ export const countedSwapWithLast = family(
 											if (sketch.standing === "immutable") {
 												const end = c.draw(endGen)
 												if (sketch.sending === "prescribed") {
-													/** The swap over the immutable default: refused by the owner's guard at its count, 42501. */
-													const countAt = Arr.findFirstIndex(
+													/** The swap over the immutable default: refused by the member's guard at its delete, 42501, a
+													 * closed relation's rows removed by a data step alone. */
+													const deleteAt = Arr.findFirstIndex(
 														change.statements,
-														(s) => s.kind === "count"
+														(s) => s.kind === "delete"
 													)
 													const { sent: guarded, unseen } = yield* sentOver(
 														f,
 														before,
 														change.statements,
-														[],
+														nothingAround,
 														end
 													)
 													if (
-														!seats.countGuarded ||
 														guarded.kind !== "refused" ||
 														guarded.fields.code !== sqlstates.insufficientPrivilege ||
+														!Option.contains(
+															guarded.fields.table,
+															f.seat.installed.installation.names.relation("Member").name
+														) ||
 														guarded.moment.kind !== "statement" ||
 														!Option.exists(
-															countAt,
+															deleteAt,
 															(at) =>
 																guarded.moment.kind === "statement" &&
 																guarded.moment.index === unseen.length + at
 														)
 													) {
 														return yield* new Disagreed({
-															message: `${l}: the swap over the immutable default was not refused at its count by the owner's guard (42501): ${Formatter.format(guarded)}`
+															message: `${l}: the swap over the immutable default was not refused at its delete by the member's guard (42501): ${Formatter.format(guarded)}`
 														})
 													}
 													c.note(`${l} immutable ${position} prescribed refused immutable guard`)
 													c.note(endedBy(end))
 													return
 												}
-												/** The family rewritten whole: committed, to the reference fold of what swap-with-last leaves. */
+												/** The family rewritten whole, a data step over Owner and Member, inside the one bracket of
+												 * their removals (physical/ddl/immutable.ts guardBracketTexts): committed, to the reference fold
+												 * of what swap-with-last leaves. */
 												const whole = rewrittenWhole(spec.monoid, before, 0, sketch.at)
+												const bracket = guardBracketTexts({
+													kind: "tables",
+													tables: [
+														f.seat.installed.installation.names.relation("Owner"),
+														f.seat.installed.installation.names.relation("Member")
+													]
+												})
 												const rewritten = yield* judgedFold(
 													grizzle,
 													before,
 													whole.statements,
-													[],
+													{ prefix: [bracket.before], suffix: [bracket.after] },
 													end
 												)
 												if (rewritten.verdict !== "committed") {
@@ -244,7 +259,9 @@ export const countedSwapWithLast = family(
 												judging,
 												before,
 												sent(change.statements, sketch.sending),
-												sketch.sending === "closure immediate" ? setImmediate : [],
+												sketch.sending === "closure immediate"
+													? { prefix: setImmediate, suffix: [] }
+													: nothingAround,
 												c.draw(endGen)
 											)
 											c.note(`${l} ${position} ${sketch.sending} ${j.verdict}`)
@@ -272,9 +289,9 @@ export const countedSwapWithLast = family(
 					kills: [
 						{
 							file: "packages/engine/src/physical/ddl/immutable.ts",
-							original: "\t\tif (relation.mutable || !isNonEmpty(fixed)) {",
-							replacement: "\t\tif (relation.mutable || isNonEmpty(fixed)) {",
-							why: "No immutable relation carries a guard, as before e51534fba: the swap's count over the immutable default commits where its owner's guard refuses it."
+							original: "\t\tif (relation.mutable) {",
+							replacement: "\t\tif (relation.mutable || true) {",
+							why: "No immutable relation carries a guard, as before e51534fba: the swap's delete over the immutable default commits where the member's guard refuses it."
 						}
 					]
 				})

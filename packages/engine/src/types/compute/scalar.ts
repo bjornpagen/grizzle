@@ -23,9 +23,15 @@ import type {
 	Term,
 	TermBase,
 	TypeOfTerm,
+	Unmarked,
 	Unordered
 } from "#compiler/types/core/phantom.ts"
-import type { InstantDomain, LiteralOf, NotStoredOnly } from "#compiler/types/fields/field.ts"
+import type {
+	InstantDomain,
+	LiteralOf,
+	NotStoredOnly,
+	ValueLiteralOf
+} from "#compiler/types/fields/field.ts"
 
 /**
  * What may stand opposite a term of host type T and SQL type S: a term that meets T and S (Meets, the one relation, a
@@ -39,6 +45,16 @@ import type { InstantDomain, LiteralOf, NotStoredOnly } from "#compiler/types/fi
 export type Operand<T, S extends SqlTag, L = T> =
 	| Meets<T, S>
 	| ([T] extends [InstantDomain] ? never : LiteralOf<L>)
+
+/**
+ * What may stand where it becomes a value of a term's type, of host type T, SQL type S and language L: a conditional's
+ * other arm and a variant arm's field. A term that meets T and S (Meets), as opposite a term, or a literal that becomes a
+ * value of L (ValueLiteralOf): a contract's host value, which its consumer's mint alone makes, and any other type's
+ * literal as a comparison takes it; never a value of an instant, which no caller states.
+ */
+export type ValueOperand<T, S extends SqlTag, L = T> =
+	| Meets<T, S>
+	| ([T] extends [InstantDomain] ? never : ValueLiteralOf<L>)
 
 /**
  * What an equality admits opposite a first operand A beside what every comparison does (Operand): a term of A's base
@@ -127,10 +143,14 @@ type TextFacts<V extends string> = { readonly finite: true } & ([
 
 /**
  * Whether TypeScript sees a JavaScript value's facts: a number or bigint literal type, or a string literal type spelling
- * an exact decimal (DecimalSign), unbranded. A wider type (number, bigint, string, a Decimal, a Money, a contract's
- * branded value) has a value TypeScript cannot see.
+ * an exact decimal (DecimalSign), unbranded, read under a contract's host marks (Unmarked), so a value its consumer's
+ * mint made of a literal, `toCents(0n)`, is that literal's. A wider type (number, bigint, string, a Decimal, a Money)
+ * has a value TypeScript cannot see.
  */
-type Seen<V> = [V] extends [number | bigint]
+type Seen<V> = SeenValue<Unmarked<V>>
+
+/** Seen of a value its marks are read off. */
+type SeenValue<V> = [V] extends [number | bigint]
 	? number extends V
 		? false
 		: bigint extends V
@@ -146,10 +166,16 @@ type Seen<V> = [V] extends [number | bigint]
 			: false
 		: false
 
-/** The facts a value TypeScript sees proves: a number's or a bigint's (LiteralFacts), or a decimal text's (TextFacts). */
-type SeenFacts<V> = [V] extends [string]
-	? TextFacts<V & string>
-	: LiteralFacts<V & (number | bigint)>
+/**
+ * The facts a value TypeScript sees proves, under its marks (Unmarked): a number's or a bigint's (LiteralFacts), or a
+ * decimal text's (TextFacts).
+ */
+type SeenFacts<V> =
+	Unmarked<V> extends infer U
+		? [U] extends [string]
+			? TextFacts<U & string>
+			: LiteralFacts<U & (number | bigint)>
+		: never
 
 /**
  * Whether a JavaScript value V has the fact K: read off its literal type where TypeScript sees it (SeenFacts), and
@@ -166,13 +192,15 @@ type ValueProves<V, K extends keyof Facts> = [V] extends [never]
 /** Whether a JavaScript value TypeScript sees is negative: a literal type whose every value is below zero. */
 type Negative<V> =
 	Seen<V> extends true
-		? [V] extends [string]
-			? [Exclude<DecimalSign<V & string>, "negative">] extends [never]
-				? true
-				: false
-			: [Exclude<`${V & (number | bigint)}`, `-${string}`>] extends [never]
-				? true
-				: false
+		? Unmarked<V> extends infer U
+			? [U] extends [string]
+				? [Exclude<DecimalSign<U & string>, "negative">] extends [never]
+					? true
+					: false
+				: [Exclude<`${U & (number | bigint)}`, `-${string}`>] extends [never]
+					? true
+					: false
+			: false
 		: false
 
 /**

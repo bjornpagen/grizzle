@@ -16,9 +16,11 @@ import type { StratumAt } from "#compiler/ir/stratum.ts"
 import type { StatementRole, StatementRoots, StatementTree } from "#compiler/runtime/lower/tree.ts"
 import type {
 	ArrayCheck,
+	ColumnDef,
 	ColumnDefinition,
 	Cte,
 	EmittedSql,
+	StatementText,
 	Expr,
 	FromItem,
 	FromSource,
@@ -39,10 +41,11 @@ export interface DeltaColumn {
  * The relation a Delta node reads, each field of its relation's delta heading with the column that holds it, so a Delta
  * node reads the fields it delivers, whichever of them pruning leaves it (lower/optimize/prune). In a read-back: a CTE
  * of the statement the read-back rides, over the rows that statement's RETURNING returns (write/readback/deltas.ts
- * deltaCte); a carrier, read through its reader, every column of its table in `table`'s order: the one the statement
- * making the side whole fills from its RETURNING for a read-back after the last stratum (write/readback/deltas.ts
- * carriedFill), or the write oracle's conservative realization's, filled by comparing the states before and after the
- * change (test/support/oracle/write/realize.ts); or the empty relation, a side of a delta no statement makes. In a rule
+ * deltaCte); a carrier, read as every carrier is (sql/carriers.ts carrierReading): the one the
+ * statement making the side whole fills from its RETURNING for a read-back after the last stratum
+ * (write/readback/deltas.ts carriedStash), or the write oracle's conservative realization's, filled by comparing the
+ * states before and after the change (test/support/oracle/write/realize.ts); or the empty relation, a side of a delta no
+ * statement makes. In a rule
  * probe over its region: a CTE named by the session's delta of the relation's side, a table of pg_temp that the
  * relation's rule captures fill, which the judge reads each read of through the reader of the selection the statement
  * reads it under (physical/ddl/deltas.ts headed); or, in a rule's check over every row,
@@ -54,7 +57,8 @@ export type DeltaRelation =
 	| {
 			readonly kind: "carrier"
 			readonly carrier: CarrierName
-			readonly table: ReadonlyArray<string>
+			/** The carrier's columns, each typed as it travels (sql/carriers.ts carrierReading). */
+			readonly table: ReadonlyArray<ColumnDef>
 			readonly columns: ReadonlyArray<DeltaColumn>
 	  }
 	| {
@@ -109,7 +113,18 @@ export interface ReadBackLowering {
 	readonly start: NameSupplyStart
 	/** The templates of its write's compile, which its keys and digests read (WriteLowering `templates`). */
 	readonly templates: DagTemplates
+	readonly admission: ReadBackAdmission
 }
+
+/**
+ * Which statement admits the caller parameters of a read-back's write (lower/conservative/admission.ts): one before it
+ * in its write's flight, a statement of the write's own its call may send first (write/program/admission.ts
+ * admittedFlight) or the read-back that leads a ChangeSet of reads alone, so the read-back admits none (`write`); or the
+ * read-back itself, the first statement of the flight of a ChangeSet of reads alone, which holds no statement of its own,
+ * so it admits each checked parameter it holds no placeholder of, as a query's statement does (`own`), and its Bind,
+ * the call's first, refuses a value outside its type before any statement runs.
+ */
+export type ReadBackAdmission = "write" | "own"
 
 /**
  * What lowering a write program's members adds to lowering a query: the store of the templates every key and digest of
@@ -125,9 +140,9 @@ interface WriteLowering {
 
 /**
  * Where an InputSet of a relation parameter its ChangeSet binds to a query (ir/rel.ts InputSetInput `bound`) reads its
- * rows: the write program's carrier its call fills once before the first stratum of the part that bound it, scanned
- * under an alias by the
- * carrier's own reading (write/carriers carrierScan), and the carrier's column of each field of the parameter's heading.
+ * rows: the write program's carrier its call fills once before the first stratum of the part that bound it, read under
+ * an alias by the carrier's own reading (write/carriers carrierRead), and the carrier's column of each field of the
+ * parameter's heading.
  */
 export interface BoundCarrier {
 	/** The carrier's name, which a read-back's kept lowering keys its surroundings by. */
@@ -240,11 +255,14 @@ export interface SlotColumn {
 
 /**
  * A placeholder as a served file holds it: each column of a relation input a SlotColumn, all its encoder reads
- * (runtime/lower/slots.ts), its definition left to the compile that allocated it.
+ * (runtime/lower/slots.ts), its definition left to the compile that allocated it, an admission's as the placeholder it
+ * admits.
  */
 export type ServedSlot<S> = S extends { readonly columns: ReadonlyArray<RelationColumn> }
 	? Omit<S, "columns"> & { readonly columns: ReadonlyArray<SlotColumn> }
-	: S
+	: S extends { readonly admits: infer A }
+		? Omit<S, "admits"> & { readonly admits: ServedSlot<A> }
+		: S
 
 /** A declared scalar parameter's placeholder, cast to `sqlType`: the base type for a comparison, the domain for a write or an emitted refined value. */
 export interface ScalarParamSlot extends ValuePlaceholder {
@@ -313,15 +331,42 @@ export interface PageParamSlot<F extends PageFill = PageFill> extends ValuePlace
 /** A declared parameter's placeholder, which every lowering allocates: every placeholder of a query's statement. */
 export type DeclaredParamSlot = ScalarParamSlot | RelationParamSlot
 
-/** A placeholder only its own lowering allocates: a write statement's member slot or nested rows, a page statement's
- * fill. */
-export type OwnParamSlot = MemberParamSlot | NestedRowsParamSlot | PageParamSlot
+/** What a declared parameter's placeholder carries, its number aside: a scalar's value, or one array of a relation
+ * parameter's. */
+export type DeclaredValue =
+	| Omit<ScalarParamSlot, keyof ValuePlaceholder>
+	| Omit<RelationParamSlot, keyof ValuePlaceholder>
+
+/**
+ * A placeholder of a write statement's admission (write/program/admission.ts): `admits`, what the declared parameter's
+ * placeholder there carries, a checked scalar's value or one array of a relation parameter's refined columns, which the
+ * unreferenced entry leading the statement binds through its type. Nothing reads it, so it reads no fact of the call and
+ * makes no row: every execution of the statement binds it whole, whichever share of the call's facts the execution
+ * carries (runtime/write/bind.ts batchedExecutions), and its Bind admits the whole parameter again.
+ */
+export interface AdmissionParamSlot extends ValuePlaceholder {
+	readonly kind: "admission"
+	readonly admits: DeclaredValue
+}
+
+/** A placeholder only its own lowering allocates: a write statement's member slot, nested rows or admission, a page
+ * statement's fill. */
+export type OwnParamSlot =
+	| MemberParamSlot
+	| NestedRowsParamSlot
+	| AdmissionParamSlot
+	| PageParamSlot
 
 /** A placeholder of a relation input's arrays: a relation parameter's, a write's member slot's or its nested rows'. */
 export type ArraySlot = RelationParamSlot | MemberParamSlot | NestedRowsParamSlot
 
-/** The placeholders of a write statement: its declared parameters', its member slots' and its nested rows'. */
-export type WriteParamSlot = DeclaredParamSlot | MemberParamSlot | NestedRowsParamSlot
+/** The placeholders of a write statement: its declared parameters', its member slots', its nested rows' and its
+ * admission's. */
+export type WriteParamSlot =
+	| DeclaredParamSlot
+	| MemberParamSlot
+	| NestedRowsParamSlot
+	| AdmissionParamSlot
 
 /** The placeholders of a page statement: its declared parameters' and the page request's fills, each one of `F`. */
 export type PageStatementSlot<F extends PageFill = PageFill> = DeclaredParamSlot | PageParamSlot<F>
@@ -329,12 +374,18 @@ export type PageStatementSlot<F extends PageFill = PageFill> = DeclaredParamSlot
 /** What fills one placeholder $n of a statement of any lowering. */
 export type ConservativeParamSlot = DeclaredParamSlot | OwnParamSlot
 
-/** A lowered statement whose placeholders are of `Slot`: a query's declared parameters', a write's or a page's own besides. */
-export interface ConservativeStatement<Slot extends ConservativeParamSlot = DeclaredParamSlot> {
+/**
+ * A lowered statement whose placeholders are of `Slot`: a query's declared parameters', a write's or a page's own
+ * besides; its text `T`, its print, or none where another statement composes it.
+ */
+export interface ConservativeStatement<
+	Slot extends ConservativeParamSlot = DeclaredParamSlot,
+	T extends StatementText = EmittedSql
+> {
 	readonly role: StatementRole
-	/** The AST, for post-processing; `sql` is its emission. */
+	/** The AST, for post-processing; `sql` is its emission, where it is printed. */
 	readonly ast: Select
-	readonly sql: EmittedSql
+	readonly sql: T
 	/** Its slots in number order: params[n - 1] is the slot of number n, which each placeholder $n of `ast` holds. */
 	readonly params: ReadonlyArray<Slot>
 	/**

@@ -827,7 +827,7 @@ const rowsKeys = (
 		}
 		const param = bound.get(name)
 		if (param?.kind !== "rows") {
-			throw defect(`a private parameter bound to rows, not ${name}`)
+			defect(`a private parameter bound to rows, not ${name}`)
 		}
 		const spelled = new Map(
 			[...rowsParamNames(param.rows)].flatMap((p): ReadonlyArray<readonly [string, string]> => {

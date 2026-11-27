@@ -8,6 +8,7 @@ import { floatLiteral } from "#compiler/ir/carriers.ts"
 import type { Certificate, CertificateRule } from "#compiler/ir/certificate.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
+import { queryEvidence, SharedAnalyses } from "#compiler/logical/annotate.ts"
 import {
 	carriesNothing,
 	evaluatedAsItStands,
@@ -83,7 +84,11 @@ export const lab: GenSchema = {
 /**
  * The catalog rewrites over the lab, in a snapshot read under its own catalog, the parent-set policy decided per take.
  */
-export const labOptions: CatalogOptions = { catalog: genCatalog(lab), parents: "auto" }
+export const labOptions = (): CatalogOptions => ({
+	catalog: genCatalog(lab),
+	parents: "auto",
+	analyses: new SharedAnalyses(queryEvidence, () => true)
+})
 
 const i = (value: number): TypedLiteral => ({ kind: "int", value: BigInt(value) })
 const d = (value: number): TypedLiteral => floatLiteral(value)

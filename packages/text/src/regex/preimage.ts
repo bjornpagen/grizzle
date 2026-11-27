@@ -233,7 +233,7 @@ const mergeSafe = (node: LiveNode): boolean => {
 	const of = (o: Occurrence): Glushkov => {
 		const known = sets.get(o)
 		if (known === undefined) {
-			throw defect("an occurrence's Glushkov sets, which postorder tables before its parent's")
+			defect("an occurrence's Glushkov sets, which postorder tables before its parent's")
 		}
 		return known
 	}
@@ -273,7 +273,7 @@ const mergeSafe = (node: LiveNode): boolean => {
 			case "repeat": {
 				const [body] = children
 				if (body === undefined) {
-					throw defect("a repetition's body")
+					defect("a repetition's body")
 				}
 				sets.set(o, {
 					first: body.first,
@@ -343,7 +343,7 @@ const spacesToRuns = (node: LiveNode): RegexNode => {
 	const of = (p: Placed): RegexNode => {
 		const known = written.get(p)
 		if (known === undefined) {
-			throw defect("a placement's runs, which postorder writes before its parent's")
+			defect("a placement's runs, which postorder writes before its parent's")
 		}
 		return known
 	}
@@ -372,7 +372,7 @@ const spacesToRuns = (node: LiveNode): RegexNode => {
 			case "repeat": {
 				const [body] = children
 				if (body === undefined) {
-					throw defect("a repetition's body")
+					defect("a repetition's body")
 				}
 				written.set(p, builder.repeat(body, n.min, n.max))
 				break

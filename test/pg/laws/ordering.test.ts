@@ -8,7 +8,8 @@
  * The schema (ordering.fixtures.ts orderingOf): each bound inclusive (a visit may start at the start and end at the
  * end), the visits immutable, so the judge reads each sitting a transaction wrote whole. Each case is a history of
  * direct SQL transactions at SERIALIZABLE over two sittings: starts and ends inserted and deleted, visits inserted and
- * deleted.
+ * deleted, a transaction that deletes one a data step (data-step.ts asDataStep), the one way a closed relation loses
+ * a fact, which its judge judges at its COMMIT as it judges every other.
  *
  * - **The host judges alike:** mid-transaction, each row of each join the tables hold is evaluated by the host
  *   (rowEvaluator, the one evaluation grizzle judges a refused write's rows by), and the rows and verdicts are exactly

@@ -8,7 +8,6 @@ import { closedId, Decimal, Money, pg, span } from "#compiler/public/fields.ts"
 import {
 	type AnyRelation,
 	type AnySchema,
-	alternatives,
 	check,
 	closed,
 	contained,
@@ -261,7 +260,12 @@ const levelTwoParents = on(
 const childParent = on(ChildI2, "parent")
 const childParentI2Key = key(childParent)
 const mirrorsI2 = mirrors(levelTwoParents, childParent)
-const runStages = alternatives(Run, "stage", Stage, { paid: Paid })
+/** The paid runs, mirrored with their child: a paid run has its child, and a child's run is paid. */
+const paidRuns = on(
+	select(Run, (r) => r.eq(r.stage, "paid")),
+	"id"
+)
+const paidArm = mirrors(on(Paid, "parent"), paidRuns)
 
 const selectedContainment =
 	(law: (laws: LawNames) => LawId, selector: Selection): HostLaws =>
@@ -393,9 +397,9 @@ const containmentPoints: Arr.NonEmptyReadonlyArray<Point> = [
 		]
 	},
 	{
-		name: "alternatives over an int8 key, one handle of three armed",
-		traits: ["family alternatives", "key int8"],
-		statements: [runStages],
+		name: "a tagged arm over an int8 key, one handle of three armed",
+		traits: ["family tagged arm", "key int8"],
+		statements: [paidArm],
 		values: { Parent: Run, Child: Paid },
 		relations: [
 			rel(
@@ -416,29 +420,22 @@ const containmentPoints: Arr.NonEmptyReadonlyArray<Point> = [
 				["parent"]
 			)
 		],
-		laws: (laws) => {
-			const stage = laws.alternativesOf(runStages)
-			const paid = stage.arms["paid"]
-			if (paid === undefined) {
-				throw new Error("the paid arm has no law")
+		laws: (laws) => [
+			keyLaw(laws, Run, ["id"]),
+			keyLaw(laws, Paid, ["parent"]),
+			{
+				kind: "contained",
+				law: laws.mirrorsOf(paidArm).forward,
+				source: { relation: "Child", fields: ["parent"], selection: everyFact },
+				target: { relation: "Parent", fields: ["id"], selection: fieldsEqual({ stage: "paid" }) }
+			},
+			{
+				kind: "contained",
+				law: laws.mirrorsOf(paidArm).reverse,
+				source: { relation: "Parent", fields: ["id"], selection: fieldsEqual({ stage: "paid" }) },
+				target: { relation: "Child", fields: ["parent"], selection: everyFact }
 			}
-			return [
-				keyLaw(laws, Run, ["id"]),
-				keyLaw(laws, Paid, ["parent"]),
-				{
-					kind: "contained",
-					law: paid,
-					source: { relation: "Child", fields: ["parent"], selection: everyFact },
-					target: { relation: "Parent", fields: ["id"], selection: fieldsEqual({ stage: "paid" }) }
-				},
-				{
-					kind: "contained",
-					law: defined(stage.reverse["paid"], "the paid handle's reverse law"),
-					source: { relation: "Parent", fields: ["id"], selection: fieldsEqual({ stage: "paid" }) },
-					target: { relation: "Child", fields: ["parent"], selection: everyFact }
-				}
-			]
-		}
+		]
 	}
 ]
 
@@ -731,7 +728,7 @@ const boxOf = (
  *   cut to fit, and its law's identity must name its constraint;
  * - mirrors over an int2 key and an int2 selector, the child's `parent` a candidate key: its two containments, each a
  *   native foreign key;
- * - alternatives over an int8 key with one handle armed of three: the arm in its parent selected by the handle, and the
+ * - a tagged arm over an int8 key, one handle armed of three: the arm in its parent selected by the handle, and the
  *   parent selected by the handle in its arm, each a native foreign key;
  * - span coverage `contained(on([select(]Visit[)], "site", "during"), on([select(]Rota[)], "site", "during"))` over an
  *   int2 or int8 site: a selected source, a PERIOD foreign key from its range law column that never judges a source

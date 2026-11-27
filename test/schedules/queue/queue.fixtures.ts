@@ -11,10 +11,11 @@ import type { ServedRefusal } from "#adapter/public/compile.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import type { WriteOutcome } from "#compiler/live/index.ts"
 import { writeAnswerOf, type WriteAnswer } from "#test/support/calls.ts"
-import { Instant } from "#test/support/fixtures/api/contracts.ts"
+import { toInstant } from "#test/support/fixtures/api/contracts.ts"
 import * as Q from "#test/support/fixtures/api/queue.ts"
 import { kA, kB, kG, queueFacts } from "#test/support/fixtures/golden/queue.ts"
 import { replaceMigrated } from "#test/support/install-migrate.ts"
+import { rebuild } from "#test/support/installed.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { openFixture } from "#test/support/open-fixture.ts"
 import type { SqlError } from "#test/support/pg.ts"
@@ -35,7 +36,7 @@ import { beginSerializableAction } from "#test/support/schedules/types.ts"
 import type { PsqlProcessError, TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-const digest = (hex: string) => Q.Digest(Str.repeat(64)(hex))
+const digest = (hex: string) => Q.toDigest(Str.repeat(64)(hex))
 
 /**
  * When the claims run, and how long a lease lasts: after kG's due time (120), the last of the wanted items due before
@@ -158,10 +159,13 @@ export const runRace = (
 > =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
-		const f = yield* openFixture(Q.Queue, [Q.queueWorlds(Q.Queue).server], {
-			facts: queueFacts,
-			after: []
-		})
+		const f = yield* openFixture(
+			(name) => {
+				const named = rebuild(Q.Queue, name)
+				return { schema: named, logins: [Q.queueWorlds(named).server] }
+			},
+			{ facts: queueFacts, after: [] }
+		)
 		const queue = f.rebuilt(Q.Queue)
 		const worlds = Q.queueWorlds(queue)
 		const served = yield* f.served(worlds.server)
@@ -254,12 +258,12 @@ export const runRace = (
 												db.workload.claim.once({
 													params: {
 														kind: "render" as const,
-														slot: Q.Slot(0),
+														slot: Q.toSlot(0),
 														resource: "gpu" as const,
 														from: digest(write.from),
-														fromSeat: Q.SeatNo(write.fromSeat),
-														now: Instant(race.time.now),
-														expires: Instant(race.time.now + race.time.lease)
+														fromSeat: Q.toSeatNo(write.fromSeat),
+														now: toInstant(race.time.now),
+														expires: toInstant(race.time.now + race.time.lease)
 													},
 													facts: {}
 												})
@@ -267,7 +271,7 @@ export const runRace = (
 										: writeAnswerOf(
 												db.workload.settle.once({
 													params: {
-														key: Q.Digest(kB),
+														key: Q.toDigest(kB),
 														epoch: 1n,
 														outcome: "succeeded"
 													},

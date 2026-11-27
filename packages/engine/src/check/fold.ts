@@ -6,7 +6,6 @@ import {
 	type RuleBreach,
 	proseBreach,
 	compileReasonText,
-	malformedDescription,
 	namedBreach
 } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -18,6 +17,7 @@ import { enteredType, entersColumn, type ScalarType, typeLabel } from "#compiler
 import { exprEmitter, lowerPredicate } from "#compiler/scalar/compute/lower.ts"
 import { noClosedRelations, noParams } from "#compiler/scalar/compute/typing.ts"
 import type { PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
+import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
 
 /**
  * A fold's typing: what `fold(family, Monoid.m, step, end)` names, resolved to its fields.
@@ -153,7 +153,9 @@ const one: ExprDesc = { kind: "literal", value: 1n }
  * own. The comparison widens both sides into exact arithmetic where the combine computes
  * there (count's and sum's `+`), so nothing narrows; the combine applies the scalar operations (ir/monoid.ts CombineFn),
  * each of which a check admits only where the host evaluates it, as it must to fill the after. It reads `patterns`,
- * its compile's table.
+ * its compile's table, and types a descriptor the typing derives as the registry does outside any schema (bareEnv): a
+ * concatenation of a contract's bounded text, whose base the operand reads, is a text within the bytes its parts take
+ * together (scalar/compute/typing.ts textWithinBytes), which the equation is judged at.
  */
 export const combineRule = (
 	monoid: MonoidSpec,
@@ -178,8 +180,7 @@ export const combineRule = (
 				emit: exprEmitter(`fold ${monoid.name}`),
 				leaf: () => Result.ok({ kind: "value", args: [], type: carrier, nonNull: "storage" }),
 				params: noParams,
-				fieldType: () =>
-					Result.err(malformedDescription(loc, "no descriptor: a combine reads its planes alone")),
+				fieldType: (desc, at) => scalarTypeOf(desc, bareEnv, at),
 				closed: noClosedRelations("a fold's combine reads its planes and its step alone"),
 				patterns
 			}

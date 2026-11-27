@@ -26,7 +26,6 @@ import { Text } from "#compiler/public/compute.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { everySlice } from "#compiler/schema/reach.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
 import { ownedInput } from "#test/support/policy.ts"
@@ -94,7 +93,7 @@ export const theCheckedSchemasOverOneClosedRelationAdmitEachPatternItsRowsHoldOn
 					const [, counts] = yield* callCounts(
 						Effect.sync(() => {
 							for (const _ of indices(times)) {
-								succeeded(checkedSchema(owned, everySlice(owned)), "the schema checks")
+								succeeded(checkedSchema(owned), "the schema checks")
 							}
 						}),
 						admissionSites

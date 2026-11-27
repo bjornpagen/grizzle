@@ -13,8 +13,10 @@
  *
  * - a read that binds k reads one row by T's key, its text rechecked on it: it installs, and no index is created on T;
  * - otherwise, where T declares h, the read binds h wherever it binds t (check/checker.ts RuleCheck `#stateDigests`,
- *   a join by one variable split into a filter's equality by `#splitDigestedJoins`, a negation's correlation by
- *   `#relational`, each query between them carrying h beside t), and the one index created on T holds h and never t,
+ *   a join by one variable split into a region equality by `#splitDigestedJoins`, a negation's correlation by
+ *   `#relational`, each query between them carrying h beside t, and a joined match whose text the digest equality reads
+ *   staying a join operand, never the semi-join's existence test, lower/optimize/existence joinedAbove), and the one
+ *   index created on T holds h and never t,
  *   which its comment names as filtered beside it;
  * - where T declares no digest, the installation is refused as UnrepresentableKey (KeyFault `undigestedText`) naming t
  *   and no digest.
@@ -146,9 +148,37 @@ export const aLookupThatBindsATextOfNoByteBoundByEqualitySeeksByItsDeclaredDiges
 				reason:
 					"pantry's Head (lom.ts): a lesson's package no package of the lesson claims, r.not(lessonClaims, { catalog, earlier, entry }), its catalog and entry correlated with the lesson's, texts lessonClaims delivers from Node.stringValue without stringValueDigest",
 				since: "2026-11-24"
+			},
+			{
+				token: ReplayToken(
+					"test/unit/physical/digest-seeks.test.ts#aLookupThatBindsATextOfNoByteBoundByEqualitySeeksByItsDeclaredDigestAndOneThatBindsNoDigestOfItIsRefused:-:5.0"
+				),
+				reason:
+					"S's text equated to T's by a where, T declaring h: since 83df0e6352 R02 counts the class's binders, so S became an existence test and the digest equality h = sha256(u) was read at T's own text, h = sha256(t), seeking by no digest: refused undigestedText on the merged tree (floor stream 0x126db407, case 4)",
+				since: "2026-11-27"
+			},
+			{
+				token: ReplayToken(
+					"test/unit/physical/digest-seeks.test.ts#aLookupThatBindsATextOfNoByteBoundByEqualitySeeksByItsDeclaredDigestAndOneThatBindsNoDigestOfItIsRefused:-:6.0"
+				),
+				reason:
+					"S's text and T's one variable, split into a region equality (#splitDigestedJoins): the same semi-join, its digest equality read at T's own text, refused undigestedText on the merged tree",
+				since: "2026-11-27"
 			}
 		],
 		kills: [
+			{
+				file: "packages/engine/src/lower/optimize/existence/index.ts",
+				original: "\t\t\t(o) => !cx.cells.lateral(o.source) && !joinedAbove(cx, cell, node, o)\n",
+				replacement: "\t\t\t(o) => !cx.cells.lateral(o.source)\n",
+				why: "A match whose text a digest equality joins to T's is an existence test again: the semi-join takes S out of the region and the equality reads T's own text, h = sha256(t), so the read binds t by S's row alone, seeks by no digest and is refused undigestedText, though T declares h (the joined text and the shared variable)."
+			},
+			{
+				file: "packages/engine/src/physical/access/extract.ts",
+				original: "\t\t\t\t\t\trestrictedByValues(n.right)\n",
+				replacement: "\t\t\t\t\t\tfalse\n",
+				why: "A semi-join whose right side a parameter's row of S restricts leaves its left side's pair unfixed: T, read where that row holds its text, asks no path, so a read of a text of no byte bound and no digest installs, T scanned whole at every call."
+			},
 			{
 				file: "packages/engine/src/check/checker.ts",
 				original: "\t\tthis.#filters = [...this.#filters, ...owed]",
@@ -164,8 +194,8 @@ export const aLookupThatBindsATextOfNoByteBoundByEqualitySeeksByItsDeclaredDiges
 			},
 			{
 				file: "packages/engine/src/check/checker.ts",
-				original: "\t\tthis.#filters = [...this.#filters, ...this.#splitDigestedJoins(loc)]",
-				replacement: "\t\tthis.#filters = [...this.#filters]",
+				original: "\t\tthis.#splitDigestedJoins()\n",
+				replacement: "",
 				why: "A join by one variable on a digested text states no digest: the variable's column is the one value at either match, so `h = sha256(x)` cannot be read from the other match, and the read binds t alone and is refused though T declares h."
 			},
 			{
@@ -194,6 +224,12 @@ export const aLookupThatBindsATextOfNoByteBoundByEqualitySeeksByItsDeclaredDiges
 				original: '\t\t\tw.desc.fn !== "sha256" ||',
 				replacement: '\t\t\t(w.desc.fn !== "sha256" && w.desc.fn !== "lowerAscii") ||',
 				why: "A generation of the text that is no digest, T's l = Text.lowerAscii(t), recognized as its digest: the read equates l with the value's SHA-256, a text with a digest, and seeks by no digest, where T declares h."
+			},
+			{
+				file: "packages/engine/src/physical/ddl/context.ts",
+				original: "\t\t\t\tdigests: textDigestsOf(stored.fields),",
+				replacement: "\t\t\t\tdigests: new Map(),",
+				why: "A stored relation's index target declares no digest (physical/ddl/context.ts BuiltTarget `digests`), as a lookup read its relation's digests off a model that held no laws of it did: a read that binds T's text by equality and seeks by h, its declared digest, is refused as undigested."
 			},
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",

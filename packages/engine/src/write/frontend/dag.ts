@@ -39,7 +39,7 @@ import {
 	type SpecRefs,
 	type ValidDag
 } from "#compiler/ir/rel.ts"
-import { isRefined, sameScalarType } from "#compiler/ir/scalar.ts"
+import { isRefined, sameScalarType, subsumes } from "#compiler/ir/scalar.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
 import { binaryCoercion } from "#compiler/scalar/compute/registry.ts"
 
@@ -105,6 +105,11 @@ export class QueryMerger {
 	get dag(): LabelledDag {
 		return this.#dag
 	}
+
+	/** The label of each closed import of the queries merged so far, one node of the merged DAG each (`#imports`). */
+	get imports(): ReadonlySet<NodeId> {
+		return new Set(Array.from(this.#imports.values(), (node) => node.id))
+	}
 }
 
 /** The glue the frontend builds over the merged queries, under fresh labels past every label they hold (its tops). */
@@ -158,7 +163,7 @@ export class GlueBuilder {
 		const out = heading.map((c) => {
 			const type = columnType(delivered, c.name)
 			const column = this.#expression(storedColumn(arm.id, c.name, type))
-			if (sameScalarType(type, c.type)) {
+			if (subsumes(c.type, type)) {
 				return { name: c.name, expr: column }
 			}
 			const cast = this.#expression(

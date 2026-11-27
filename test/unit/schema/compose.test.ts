@@ -299,7 +299,7 @@ export const composingRelationsIntoASchemaRefusesTwoDeclarationsOfOneNameDifferi
 				{
 					file: "packages/engine/src/schema/schema.ts",
 					original:
-						"\tif (prior !== undefined && !sameContent(prior.meaning, d.meaning)) {\n\t\tthrow declaredTwice(d, prior)",
+						"\tif (prior !== undefined && !sameContent(prior.meaning, d.meaning)) {\n\t\tdeclaredTwice(d, prior)",
 					replacement:
 						"\tif (prior !== undefined && !sameContent(prior.meaning, d.meaning)) {\n\t\tdeclared.delete(d.meaning.name)",
 					why: "A later declaration of a name replaces the earlier (schema/schema.ts declaresFirst)."

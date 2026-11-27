@@ -17,19 +17,23 @@
  * Features: each placement shape paired with its outcome; a search admitted and refused by its purpose and score.
  */
 
-import { assert } from "@bjornpagen/testing/assert"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect } from "effect"
+import { Array as Arr, Effect, Record as Rec, String as Str } from "effect"
+import { catchCompileError } from "#compiler/core/canonical.ts"
 import { refused, succeeded } from "#test/support/assert.ts"
-import { programAsts } from "#test/support/compile.ts"
+import { compileTemplate, programAsts, testCompile } from "#test/support/compile.ts"
 import { candidates } from "#test/support/fixtures/api/search.ts"
 import {
 	checked,
 	checkedResult,
 	literalScore,
 	lowered,
+	type NarrowedSearch,
+	narrowedSearches,
 	placed,
 	type PlacementFeature,
 	placements,
@@ -170,6 +174,60 @@ export const refusalsInTheLoweringLowersASearchOnlyInAQueryAndOnlyWhileItRanksBy
 						"\tconst misuse = approximateMisuse(cx.dag, { derivedDefinition: facts.derivedDefinition })",
 					replacement: "\tconst misuse = approximateMisuse(cx.dag, { derivedDefinition: false })",
 					why: "The lowering admits a search in a derived relation's definition; the lowering-refusal search fails."
+				}
+			]
+		}
+	)
+
+/**
+ * A search whose rule's existential witness the semi-join rewrite takes out of its region (lower/optimize/existence
+ * R02.semiJoin) lowers to its search: the trace of the DAG the rewrites leave passes the projection that restores the
+ * region's heading, which demand narrows and constant propagation fixes (check/approximate/trace.ts toRegion), where it
+ * stopped at the projection and refused a search the checker had admitted. The box is the agreement's three shrunk
+ * counterexamples (vector.fixtures.ts narrowedSearches), the third's projection holding a column under its class's other
+ * name and then a parameter: each compiles, its plan holds the semi-join and its search's certificate, and its
+ * statement runs one search.
+ */
+export const aSearchWhoseExistentialWitnessTheSemiJoinRewriteTakesOutLowersToItsSearch =
+	property.exhaust(
+		finite((source) =>
+			source.draw(element<NarrowedSearch>(nonEmpty(Rec.keys(narrowedSearches), "a shape")))
+		),
+		{
+			needs: {},
+			situations: [],
+			check: () => (shape: NarrowedSearch) =>
+				Effect.sync(() => {
+					const template = succeeded(
+						Result.flatMap(
+							catchCompileError(() => narrowedSearches[shape]()),
+							(q) => compileTemplate(q, undefined, testCompile)
+						),
+						`${shape}: compiles`
+					)
+					const rules = Arr.map(template.certificates, (c) => c.rule)
+					assert.ok(Arr.contains(rules, "R02.semiJoin"), `${shape}: an existence test`)
+					assert.ok(
+						Arr.some(rules, Str.startsWith("approximateNearest.")),
+						`${shape}: its search's certificate`
+					)
+					assert.equal(
+						Arr.reduce(programAsts(template.run), 0, (n, ast) => n + searchesIn(ast)),
+						1
+					)
+				}),
+			oracle: {
+				kind: "specification",
+				name: "a search the checker admits lowers to one search on the DAG the rewrites leave"
+			},
+			box: "the agreement's three shrunk searches whose existential witness the semi-join rewrite takes out: an interior stage equated to the item, a second Slot match beside a tag equated to the first Slot's item, and an item pinned by its key beside an interior stage equated to its fixed n",
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/check/approximate/trace.ts",
+					original: '\t\t\tcase "ProjectSet":\n\t\t\t\tnode = node.input\n\t\t\t\tbreak\n',
+					replacement: '\t\t\tcase "ProjectSet":\n\t\t\t\treturn Result.err(node.kind)\n',
+					why: "The trace stops at the semi-join rewrite's restoring projection, as before: every kept search, admitted by the checker, is refused by the lowering (UnsupportedOperation, the ranked vector from a projection)."
 				}
 			]
 		}

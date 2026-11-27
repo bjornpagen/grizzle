@@ -5,7 +5,7 @@
  *
  * Each case draws a schema of every law kind as lawsOf's property draws it (laws.fixtures.ts caseGen: a family core of
  * ordered and counted families, trees and folds, beside tables with keys, selected keys, checks, containments,
- * mirrors, coverages, contracts, text patterns, generated fields and an alternatives law, on one level or two), and
+ * mirrors, coverages, contracts, text patterns, generated fields and a tagged header's arms, on one level or two), and
  * at each of its statements a catalog entry or none, drawn from entries whose texts JSON escapes: quotes, a reverse
  * solidus, controls and astral characters.
  *
@@ -237,6 +237,7 @@ export const everyLawCarriesTheCatalogEntryItsDeclarationStatesToEveryPlaceThatN
 							case "family":
 							case "tree":
 							case "fold":
+							case "variant":
 							case "sealed":
 								break
 						}

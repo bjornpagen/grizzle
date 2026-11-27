@@ -2,6 +2,7 @@
 
 import { Formatter } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { int8ExactDigits } from "#compiler/ir/carriers.ts"
 import { datePartSlices, dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
 import { parseDoubleForm } from "#compiler/lower/conservative/expr/parse-double.ts"
 import { toFloat } from "#compiler/scalar/compute/cast.ts"
@@ -38,6 +39,8 @@ const targetType = (
 			return types.boolean
 		case "decimalText":
 			return types.numeric
+		case "exactInteger":
+			return target.digits <= int8ExactDigits ? types.bigint : types.numeric
 	}
 }
 
@@ -56,6 +59,7 @@ const parsedOf = (target: LexicalTarget, t: Expr): Expr => {
 		case "doubleText":
 			return parseDoubleForm(t)
 		case "integer":
+		case "exactInteger":
 		case "decimal":
 		case "double":
 		case "boolean":
@@ -76,6 +80,7 @@ export const areOf = (target: LexicalTarget): string =>
 export const agrees = (target: LexicalTarget, text: string, value: unknown): boolean => {
 	switch (target.kind) {
 		case "integer":
+		case "exactInteger":
 			return typeof value === "bigint" && BigInt(text) === value
 		case "decimal":
 		case "decimalText":

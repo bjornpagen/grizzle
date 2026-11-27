@@ -28,6 +28,7 @@ import {
 import {
 	fixedNames,
 	type Props,
+	type PropsScratch,
 	type PropsView,
 	type Provenance,
 	provenanceOf,
@@ -39,20 +40,20 @@ import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 /**
  * A containment as the attachment rule reads it, theory/theory.ts ContainmentEvidence without its law: every `from`
  * projection, selection applied, has a matching `to` fact, in `context`. A span coverage law (`coverage`) proves
- * coverage, not scalar existence. `statement` is what states it: a `contained` statement, an alternatives
- * statement's expansion (desc.ts expandAlternatives); attach reads only declared containments.
+ * coverage, not scalar existence.
  */
 export interface ContainmentFact {
 	readonly from: EvidenceSide
 	readonly to: EvidenceSide
 	readonly coverage: boolean
-	readonly statement: "contained" | "alternatives"
 	readonly context: EvidenceContext
 }
 
 interface AttachEnv {
 	readonly context: TemplateContext
 	readonly containments: ReadonlyArray<ContainmentFact>
+	/** Where the analysis's searches work (logical/props.ts PropsScratch): the child is revised in it. */
+	readonly scratch: PropsScratch
 }
 
 interface Delivery {
@@ -275,9 +276,7 @@ const mappedExactly = (
  * A second pair onto the same source column constrains the child by another parent column too: the child is
  * empty unless both parent columns agree, which no containment proves.
  *
- * Only a declared `contained` types a bare child, each of a mirrors' two among them: an alternatives arm proves the
- * same existence, but the API states bare delivery from containments alone, and the delivered shape is the one
- * the public type promises.
+ * Only a declared containment types a bare child, each of a mirrors' two among them.
  *
  * The fields are a key's, so distinct; the correlation covers exactly them.
  */
@@ -301,9 +300,6 @@ const containmentOne = (
 		parentOf.set(c, pair.parent)
 	}
 	for (const fact of env.containments) {
-		if (fact.statement !== "contained") {
-			continue
-		}
 		if (fact.coverage || fact.to.relation !== scan.relation || fact.to.selection.length > 0) {
 			continue
 		}
@@ -528,10 +524,7 @@ const rowsNode = (node: RelNode): RelNode => (node.kind === "Attach" ? rowsNode(
  *     key's relation with no further predicate, its correlated columns are exactly a declared key of it, and the
  *     parent's correlated columns were read from one fact of the containment's source relation, the fields in order,
  *     satisfying the source's selection; the containment must be valid in the reading context, so a
- *     deferred law is used only under committed-snapshot evidence. An alternatives arm proves the same
- *     existence, but the public type states bare delivery from containments alone, and the
- *     delivered shape is the one the type promises: its arms are Some or None by the handle,
- *     an Option here;
+ *     deferred law is used only under committed-snapshot evidence;
  *   - a reflexive self-match: the child is an aggregate over one scan of the relation the parent's fact was read from,
  *     whose filter the parent's own fact satisfies, so its group is never empty;
  * - ReadonlyArray<Child> otherwise.
@@ -542,7 +535,7 @@ export const delivery = (
 	env: AttachEnv
 ): Delivery => {
 	const childNode = rowsNode(attach.child)
-	const relative = relativeProps(reading.child, attach)
+	const relative = relativeProps(reading.child, attach, env.scratch)
 	if (relative.card === "many") {
 		return { delivered: "array", relative }
 	}

@@ -1,5 +1,4 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
@@ -7,6 +6,7 @@ import type { Heading } from "#compiler/ir/rel.ts"
 import type {
 	DeclaredParamSlot,
 	ProgramDelivery,
+	ReadBackAdmission,
 	WriteParamSlot
 } from "#compiler/lower/conservative/types.ts"
 import type { TaggedPart } from "#compiler/lower/parts.ts"
@@ -20,7 +20,6 @@ import type { SpecifiedArtifact } from "#compiler/lower/template.ts"
 import { oneForm, type StatementForms } from "#compiler/runtime/lower/forms.ts"
 import type { StatementRoots } from "#compiler/runtime/lower/tree.ts"
 import type { AddedTag, RemovedTag } from "#compiler/runtime/write/net.ts"
-import type { Staged } from "#compiler/runtime/write/staged.ts"
 import {
 	byStratum,
 	type CarrierCasts,
@@ -32,12 +31,11 @@ import {
 } from "#compiler/runtime/write/steps.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
-import type { EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
+import type { EmittedText, SqlStatement, UnprintedSql } from "#compiler/sql/ast.ts"
 import type { NameMap } from "#compiler/sql/naming.ts"
-import type { CarrierDeclaring, WriteCarrier } from "#compiler/write/carriers/carriers.ts"
+import type { WriteCarrier } from "#compiler/write/carriers/carriers.ts"
 import type { WriteStatement } from "#compiler/write/insert/statement.ts"
 import type { SingleStatement, UnitShape } from "#compiler/write/program/single.ts"
-import { carriersOf, nestedColumnOf, stagedOf } from "#compiler/write/program/staged.ts"
 import type { PutStatement } from "#compiler/write/put/statement.ts"
 
 /** The tags of the facts a write statement's rows make present and absent, by its result: an insert's
@@ -64,7 +62,7 @@ const changeTags = (
 export const castsNothing: CarrierCasts = Object.freeze({ kind: "none" })
 
 /** The write steps of a statement: a write step itself, a single statement's and a family write's parts' steps; no other
- * step writes facts, and the admission's none. */
+ * step writes facts. */
 const writesOf = (step: WriteStep): ReadonlyArray<RowsStep> => {
 	switch (step.kind) {
 		case "write":
@@ -76,7 +74,6 @@ const writesOf = (step: WriteStep): ReadonlyArray<RowsStep> => {
 		case "carrier":
 		case "readBack":
 		case "check":
-		case "admission":
 			return []
 	}
 }
@@ -123,7 +120,7 @@ export type ReadBackCarried =
  */
 export interface RiddenArtifact {
 	readonly delivery: ProgramDelivery
-	readonly parts: StatementParts
+	readonly parts: StatementParts<DeclaredParamSlot, UnprintedSql>
 	readonly roots: StatementRoots<DeliveredPart>
 }
 
@@ -169,9 +166,8 @@ export interface SentForm {
  * than the choice's threshold (runsLargeForm). */
 export type ArtifactForms = StatementForms<RelationChoice, SentForm>
 
-/** One statement of an artifact: its position, its step, its spec and its AST, which `spec.sql` prints, its forms, and
- * its staged form, which sends its nested rows through carriers where they are past one Bind message
- * (write/program/staged.ts). */
+/** One statement of an artifact: its position, its step, its spec and its AST, which `spec.sql` prints, and its
+ * forms. */
 export interface ArtifactStatement {
 	readonly index: number
 	readonly step: WriteStep
@@ -180,7 +176,6 @@ export interface ArtifactStatement {
 	/** How its own form's text, `spec.sql`, is sent. */
 	readonly text: FormText
 	readonly forms: ArtifactForms
-	readonly staged: Staged
 }
 
 /** One artifact of a WriteProgram: its statements as the runtime binds, runs and converts them, and what each statement's
@@ -195,7 +190,7 @@ export interface ArtifactStatement {
  *   (`WriteResult`, `PutResult`), the change its rows are for the netting of deltas and
  *   counts, what its rows need of the call's inputs, where they hold no such fact the runtime sending none of it,
  *   and the unique violations (23505, 23P01) at this statement that are aborts rather than key laws;
- * - a carrier statement empties or fills a session's carriers, and returns no rows the outcome reads;
+ * - a carrier statement fills a carrier, and returns no rows the outcome reads;
  * - a read-back statement belongs to one read-back, delivered as a query's statements are.
  *
  * Every write statement's text already casts its outer columns to text; a read-back statement's text is
@@ -231,7 +226,8 @@ export type PlacedRun = FormedStatement<RelationChoice>
 
 /** A statement placed in an artifact being built: the write program's own, with its step, its forms and the read-backs
  * riding it; or a read-back's, with its read-back and the statement its program lowered there, which determine its step
- * and its forms. Each holds its spec, its AST, and the generated names its text holds. */
+ * and its forms, and which statement admits its write's caller parameters as it was lowered (ReadBackAdmission). Each
+ * holds its spec, its AST, and the generated names its text holds. */
 export type PlacedStatement = {
 	readonly ast: SqlStatement
 	readonly names: NameMap
@@ -249,6 +245,7 @@ export type PlacedStatement = {
 			readonly of: ReadBackOf
 			readonly spec: StatementSpec<DeclaredParamSlot>
 			readonly run: PlacedRun
+			readonly admission: ReadBackAdmission
 	  }
 )
 
@@ -280,27 +277,16 @@ const placedForms = (placed: PlacedStatement): ArtifactForms => {
  * name map are the placed statements' (WriteArtifact), each read-back's statements those that name it, in order. */
 export const settledArtifact = (
 	placed: ReadonlyArray<PlacedStatement>,
-	carriers: ReadonlyArray<WriteCarrier>,
-	declaring: CarrierDeclaring
+	carriers: ReadonlyArray<WriteCarrier>
 ): WriteArtifact => {
-	/** The carrier the next staged form names first: after the program's own, and every earlier statement's. */
-	let carrier = carriers.length + 1
 	const settled = placed.map((p, index) => {
-		const forms = placedForms(p)
-		const text = p.kind === "own" ? p.text : wholeText
-		const staged = stagedOf(p.ast, p.spec.paramSlots.map(nestedColumnOf), carrier, declaring)
-		if (staged.kind === "carriers" && (forms.kind === "chosen" || text.kind === "parted")) {
-			throw defect("a statement that reads nested rows has one form, sent whole")
-		}
-		carrier += carriersOf(staged)
 		const statement: ArtifactStatement = Object.freeze({
 			index,
 			step: placedStep(p),
 			spec: p.spec,
 			ast: p.ast,
-			text,
-			forms,
-			staged
+			text: p.kind === "own" ? p.text : wholeText,
+			forms: placedForms(p)
 		})
 		return { placed: p, statement }
 	})
@@ -375,7 +361,7 @@ export const settledArtifact = (
 }
 
 /** The columns a write statement's rows hold: a write's returned facts, which the outcome converts by the statement's
- * result; none for a carrier's creation, fill or analysis, the admission, or a query entry's check. */
+ * result; none for a carrier's fill or a query entry's check. */
 export const resultHeading = (result: (WriteStatement | PutStatement)["result"]): Heading => {
 	switch (result.kind) {
 		case "insert":
@@ -384,7 +370,6 @@ export const resultHeading = (result: (WriteStatement | PutStatement)["result"])
 		case "update":
 		case "merge":
 			return result.columns
-		case "admission":
 		case "carrier":
 		case "entryCheck":
 			return []

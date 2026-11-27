@@ -7,7 +7,7 @@ import type { DeclaredLanguage } from "#compiler/core/function.ts"
 import type { IndexMethod } from "#compiler/core/identity.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import type { Assignments } from "#compiler/sql/generation.ts"
-import type { CarrierName, NameMap } from "#compiler/sql/naming.ts"
+import type { NameMap } from "#compiler/sql/naming.ts"
 
 /** A schema object's name, always schema-qualified: every object grizzle installs or names lives in a named schema. */
 export interface ObjectName {
@@ -38,12 +38,6 @@ export const nameKey = (name: ObjectName): NameKey =>
 /** The key of the column `column` of the relation whose key is `table` (StoredColumnKey). */
 export const storedColumnKey = (table: NameKey, column: string): StoredColumnKey =>
 	mintStoredColumnKey(`${table}\u0000${column}`)
-
-/**
- * A table a data-modifying statement or a FROM item names: a stored relation by its qualified name, or a write
- * program's transaction-scoped carrier, which prints qualified by pg_temp, the session's own temporary schema.
- */
-export type TableName = ObjectName | CarrierName
 
 /** A function as GRANT, REVOKE and DROP name it: its name and its argument types, none for a law function. */
 export interface FunctionName extends ObjectName {
@@ -92,7 +86,8 @@ export const builtinTypeNames = [
 	"char",
 	"interval",
 	"pg_dependencies",
-	"xid8"
+	"xid8",
+	"tid"
 ] as const
 export type BuiltinTypeName = (typeof builtinTypeNames)[number]
 
@@ -155,6 +150,7 @@ export const catalogSpelling: { readonly [T in CatalogTypeName]: CatalogSpelling
 	tsvector: "qualified",
 	regconfig: "qualified",
 	xid8: "qualified",
+	tid: "qualified",
 	oid: "qualified",
 	char: "qualified",
 	regclass: "qualified",
@@ -247,6 +243,14 @@ export type LiteralValue =
 	| { readonly kind: "floatSpecial"; readonly value: FloatSpecialName }
 	| { readonly kind: "text"; readonly value: string }
 	| { readonly kind: "bits"; readonly hex: string }
+	| {
+			/**
+			 * NULL of its type: an attribute of a variant's composite outside the arm its tag names (ir/scalar.ts
+			 * VariantType), which a value made of an arm's fields leaves absent (lower/conservative/expr/variant.ts). No term
+			 * of the language is NULL, so no other site prints one.
+			 */
+			readonly kind: "null"
+	  }
 
 const binaryOperators = [
 	"=",
@@ -281,7 +285,8 @@ export type BinaryOperator = (typeof binaryOperators)[number]
 /**
  * PostgreSQL builtin functions grizzle emits, printed qualified by pg_catalog. the scalar catalogue, the text functions
  * a double's parse reads its text by (lower/conservative/expr/parse-double.ts), the aggregates, window and ordered-set
- * functions of the compile-target catalog, a float's identity image (float8send, ops.ts floatBitsForm), the exact value of a double's bits (float8send and
+ * functions of the compile-target catalog, a float's identity image (float8send, ops.ts floatBitsForm), a variant's
+ * (boolsend, int2send, int4send, int8send, lower/conservative/expr/variant.ts variantDigest), the exact value of a double's bits (float8send and
  * get_byte, build.ts exactNumericOfDouble), the span functions, the attachment transport, a bytes value's chunks
  * (lower/delivery.ts), the runtime probes, the rule judge's reads of its session tables in the catalog
  * (physical/ddl/rules.ts judged), the database default's
@@ -290,7 +295,9 @@ export type BinaryOperator = (typeof binaryOperators)[number]
  * search's parse, weighting, query parse and ranks (lower/conservative/search), and a stamp function's reading of its own
  * transaction's id (physical/ddl/stamps.ts); a relation input's arrays are a FROM
  * item of their own. Extension functions (pgvector) are qualified by their extension's schema instead. Each with where
- * its call computes (`reach`): over its row's values, or over many rows, as an aggregate or a window function does; and
+ * its call computes (`reach`): over its row's values; over many rows, as an aggregate or a window function does; or a
+ * set of rows from its row's values, as a set-returning function does, which a query's target list calling it makes no
+ * simple sub-query PostgreSQL pulls up (sql/pull-up.ts); and
  * its volatility as pg_proc declares it (a name whose overloads differ, the least stable of them that grizzle calls, never
  * VOLATILE), which decides, as PostgreSQL's contain_volatile_functions does, whether a query reading it may be printed in
  * place of the CTE that names it (sql/print-once.ts).
@@ -316,6 +323,7 @@ export const builtinFunctions = {
 	percentile_cont: { reach: "rows", volatility: "IMMUTABLE" },
 	mode: { reach: "rows", volatility: "IMMUTABLE" },
 	abs: { reach: "row", volatility: "IMMUTABLE" },
+	num_nulls: { reach: "row", volatility: "IMMUTABLE" },
 	sign: { reach: "row", volatility: "IMMUTABLE" },
 	gcd: { reach: "row", volatility: "IMMUTABLE" },
 	lcm: { reach: "row", volatility: "IMMUTABLE" },
@@ -325,6 +333,11 @@ export const builtinFunctions = {
 	trim_scale: { reach: "row", volatility: "IMMUTABLE" },
 	scale: { reach: "row", volatility: "IMMUTABLE" },
 	float8send: { reach: "row", volatility: "IMMUTABLE" },
+	float4send: { reach: "row", volatility: "IMMUTABLE" },
+	boolsend: { reach: "row", volatility: "IMMUTABLE" },
+	int2send: { reach: "row", volatility: "IMMUTABLE" },
+	int4send: { reach: "row", volatility: "IMMUTABLE" },
+	int8send: { reach: "row", volatility: "IMMUTABLE" },
 	get_byte: { reach: "row", volatility: "IMMUTABLE" },
 	width_bucket: { reach: "row", volatility: "IMMUTABLE" },
 	round: { reach: "row", volatility: "IMMUTABLE" },
@@ -344,7 +357,7 @@ export const builtinFunctions = {
 	ltrim: { reach: "row", volatility: "IMMUTABLE" },
 	rtrim: { reach: "row", volatility: "IMMUTABLE" },
 	split_part: { reach: "row", volatility: "IMMUTABLE" },
-	string_to_table: { reach: "row", volatility: "IMMUTABLE" },
+	string_to_table: { reach: "set", volatility: "IMMUTABLE" },
 	reverse: { reach: "row", volatility: "IMMUTABLE" },
 	replace: { reach: "row", volatility: "IMMUTABLE" },
 	left: { reach: "row", volatility: "IMMUTABLE" },
@@ -359,7 +372,7 @@ export const builtinFunctions = {
 	int8range: { reach: "row", volatility: "IMMUTABLE" },
 	daterange: { reach: "row", volatility: "IMMUTABLE" },
 	range_minus_multi: { reach: "row", volatility: "IMMUTABLE" },
-	unnest: { reach: "row", volatility: "IMMUTABLE" },
+	unnest: { reach: "set", volatility: "IMMUTABLE" },
 	string_to_array: { reach: "row", volatility: "IMMUTABLE" },
 	regexp_split_to_table: { reach: "row", volatility: "IMMUTABLE" },
 	ascii: { reach: "row", volatility: "IMMUTABLE" },
@@ -379,12 +392,12 @@ export const builtinFunctions = {
 	get_bit: { reach: "row", volatility: "IMMUTABLE" },
 	bit_or: { reach: "rows", volatility: "IMMUTABLE" },
 	string_agg: { reach: "rows", volatility: "IMMUTABLE" },
-	generate_subscripts: { reach: "row", volatility: "IMMUTABLE" },
+	generate_subscripts: { reach: "set", volatility: "IMMUTABLE" },
 	make_date: { reach: "row", volatility: "IMMUTABLE" },
 	encode: { reach: "row", volatility: "IMMUTABLE" },
 	decode: { reach: "row", volatility: "IMMUTABLE" },
 	convert_to: { reach: "row", volatility: "STABLE" },
-	generate_series: { reach: "row", volatility: "STABLE" },
+	generate_series: { reach: "set", volatility: "STABLE" },
 	num_nonnulls: { reach: "row", volatility: "IMMUTABLE" },
 	sha256: { reach: "row", volatility: "IMMUTABLE" },
 	to_regclass: { reach: "row", volatility: "STABLE" },
@@ -405,11 +418,34 @@ export const builtinFunctions = {
 	xid: { reach: "row", volatility: "IMMUTABLE" }
 } as const satisfies {
 	readonly [name: string]: {
-		readonly reach: "row" | "rows"
+		readonly reach: "row" | "rows" | "set"
 		readonly volatility: DeclaredVolatility
 	}
 }
 export type BuiltinFunctionName = keyof typeof builtinFunctions
+
+/** What a call over many rows is: an aggregate's, count(*) among them, or a window call. */
+export type OverRows = "aggregate" | "window"
+
+/** Which call over many rows an expression is, or none: the one classification of the builtins' reach. */
+export const overRowsOf = (e: Expr): OverRows | undefined => {
+	if (e.kind !== "call") {
+		return undefined
+	}
+	if (e.over !== undefined) {
+		return "window"
+	}
+	return e.star || (e.fn.kind === "builtin" && builtinFunctions[e.fn.name].reach === "rows")
+		? "aggregate"
+		: undefined
+}
+
+/** Whether an expression is a call of a set-returning function, whose rows its one row's values make (`reach` set). */
+export const returnsSet = (e: Expr): boolean =>
+	e.kind === "call" &&
+	!e.star &&
+	e.fn.kind === "builtin" &&
+	builtinFunctions[e.fn.name].reach === "set"
 
 /**
  * A function of a named schema, qualified by it and quoted: an extension's, or one of the installation's constants, a
@@ -651,6 +687,15 @@ export type Expr =
 			readonly array: Expr
 			readonly index: Expr
 	  }
+	| {
+			/**
+			 * (record).attribute: an attribute of a composite value, a variant's tag or one of its arms' fields
+			 * (ir/scalar.ts VariantType), NULL where the record is or the attribute is absent.
+			 */
+			readonly kind: "attribute"
+			readonly record: Expr
+			readonly attribute: string
+	  }
 
 /**
  * A relation as a regclass value, by its name: it prints as the quoted qualified name in a string literal cast to
@@ -724,7 +769,9 @@ export interface CarriedColumn {
  * each array a value placeholder its caller binds (`columns`), or, for an input of no column, which PostgreSQL holds as
  * rows of no column, the count of its facts; or the rows a row of the statement carries (`carried`), each array a
  * column of that row, an expression over a row in scope where the arrays are read (lower/shapes/share/keyed.ts
- * KeyedLowering carried: a sub-query's rows at each row of what drives it, its one evaluation there).
+ * KeyedLowering carried: a sub-query's rows at each row of what drives it, its one evaluation there); or a write
+ * carrier's rows (`setting`), each array a transaction-local setting's text cast to its column's array type
+ * (sql/carriers.ts carrierReading), read as one function scan PostgreSQL evaluates once a statement.
  */
 export type ArraysSource =
 	| {
@@ -736,6 +783,7 @@ export type ArraysSource =
 	  }
 	| { readonly kind: "count"; readonly count: ValuePlaceholder }
 	| { readonly kind: "carried"; readonly columns: NonEmptyReadonlyArray<CarriedColumn> }
+	| { readonly kind: "setting"; readonly columns: NonEmptyReadonlyArray<CarriedColumn> }
 
 /**
  * One column of a probed table bound to a value of the row that drives the probe, a column of a source before it, and
@@ -792,7 +840,7 @@ export type ProbeBy =
  * the row an arbitration met. A join chain joins sources only, so its length is never a depth.
  */
 export type FromSource =
-	| { readonly kind: "table"; readonly table: TableName; readonly alias: string }
+	| { readonly kind: "table"; readonly table: ObjectName; readonly alias: string }
 	| {
 			/**
 			 * The stored rows of a table that one driving row reaches by a key or a group (ProbeBy), read once per driving
@@ -1124,18 +1172,21 @@ export type SelectBody = SetCore | SetSetOperation | Select
 /** Any query body: one whose rows may repeat stands only as an operand (OperandSelect). */
 export type OperandBody = SelectCore | SetOperation | OperandSelect
 
+/** The name a target delivers its column under: its alias, a bare column's own name, or none for any other. */
+export const targetColumnName = (target: Target): string | undefined =>
+	target.alias ?? (target.expr.kind === "column" ? target.expr.column : undefined)
+
 /**
  * The column names a query body's output carries, position by position, as PostgreSQL derives them: a target's alias,
  * or for an unaliased column reference the column's own name; undefined for any other unaliased target. A set
- * operation's names are its left arm's, as PostgreSQL takes them. The kernel's audit holds a set operation's ORDER BY
- * and its arms' names to these, so the rename below reads the same names.
+ * operation's names are its left arm's, as PostgreSQL takes them. The printer's scope check (sql/scope.ts) holds a set
+ * operation's ORDER BY and every reader of a CTE or a derived table to these, and the kernel's audit a set operation's
+ * arms' names, so the rename to a public heading (sql/naming.ts) reads the same names.
  */
 export const bodyPositionNames = (body: OperandBody): ReadonlyArray<string | undefined> => {
 	switch (body.kind) {
 		case "core":
-			return body.targets.map(
-				(target) => target.alias ?? (target.expr.kind === "column" ? target.expr.column : undefined)
-			)
+			return body.targets.map(targetColumnName)
 		case "setOp":
 			return bodyPositionNames(body.arms[0])
 		case "select":
@@ -1149,7 +1200,14 @@ export const bodyPositionNames = (body: OperandBody): ReadonlyArray<string | und
  * name (namedQuery), so an unnamed output is a defect.
  */
 export const selectColumns = (select: OperandSelect): ReadonlyArray<string> =>
-	isUnitRead(select) ? [] : bodyPositionNames(select.body).map((name) => name ?? unnamed())
+	selectNames(select).map((name) => name ?? unnamed())
+
+/**
+ * The names PostgreSQL gives the columns of a derived table or a query CTE over `select`, undefined at an output it
+ * names by no rule grizzle states: none over a unit read, else its output names (bodyPositionNames).
+ */
+export const selectNames = (select: OperandSelect): ReadonlyArray<string | undefined> =>
+	isUnitRead(select) ? [] : bodyPositionNames(select.body)
 
 /**
  * Whether a query reads the unit relation: one core of no target or of the unit marker alone (`true`, build.ts
@@ -1176,17 +1234,22 @@ const isUnitRead = (select: OperandSelect): boolean => {
  * The columns of a CTE: its query's (selectColumns), or a data-modifying statement's RETURNING targets', each by its
  * alias or its column's own name.
  */
-export const cteColumns = (cte: Cte): ReadonlyArray<string> => {
+export const cteColumns = (cte: Cte): ReadonlyArray<string> =>
+	cteNames(cte).map((name) => name ?? unnamed())
+
+/**
+ * The names PostgreSQL gives a CTE's columns: its query's (selectNames), or a data-modifying statement's RETURNING
+ * targets', each by its alias or its column's own name, undefined at any other.
+ */
+export const cteNames = (cte: Cte): ReadonlyArray<string | undefined> => {
 	const body = cte.query
 	return body.kind === "select"
-		? selectColumns(body)
-		: body.returning.map(
-				(t) => t.alias ?? (t.expr.kind === "column" ? t.expr.column : undefined) ?? unnamed()
-			)
+		? selectNames(body)
+		: body.returning.map((t) => t.alias ?? (t.expr.kind === "column" ? t.expr.column : undefined))
 }
 
 const unnamed = (): never => {
-	throw defect("a derived table's or a CTE's query naming every output it delivers")
+	defect("a derived table's or a CTE's query naming every output it delivers")
 }
 
 /**
@@ -1320,7 +1383,7 @@ export const isValuesTarget = (t: InsertTarget): t is ValuesTarget => t.source.k
 export type Insert = {
 	readonly kind: "insert"
 	readonly with: With | undefined
-	readonly table: TableName
+	readonly table: ObjectName
 	readonly alias: string | undefined
 	readonly onConflict: OnConflict | undefined
 	readonly returning: ReadonlyArray<Target>
@@ -1341,7 +1404,7 @@ export interface Update {
 export interface Delete {
 	readonly kind: "delete"
 	readonly with: With | undefined
-	readonly table: TableName
+	readonly table: ObjectName
 	readonly alias: string
 	readonly using: ReadonlyArray<FromItem>
 	readonly where: Expr | undefined
@@ -1504,39 +1567,6 @@ export const tableConstraints = (t: CreateTable): NonEmptyReadonlyArray<TableCon
 	t.primaryKey,
 	...t.secondary
 ]
-
-/**
- * A write program's carrier, a session table of pg_temp, the session's own temporary schema, by which it prints
- * qualified: CREATE TEMPORARY TABLE pg_temp.<name> (...) ON COMMIT PRESERVE ROWS, made once in a session by the
- * session's stand-up of the write (runtime/write/flight.ts StandUp), never by a write's own transaction, so no
- * transaction of a write makes or drops a relation, and no plan it makes meets a catalog change of its own session at
- * the next call. Its one constraint is its primary key, if it has one. Its emptying (`EmptyCarrier`) is a session
- * function made beside it (sql/print.ts carrierEmptying).
- */
-export interface CreateCarrier {
-	readonly kind: "createCarrier"
-	readonly name: CarrierName
-	/** Of any width: PostgreSQL holds a table of no column, the carrier of the unit relation. */
-	readonly columns: ReadonlyArray<ColumnDef>
-	/**
-	 * Its key's columns, in key order, or none. Printed `PRIMARY KEY (...) DEFERRABLE INITIALLY IMMEDIATE`, which
-	 * PostgreSQL checks at the end of each statement rather than at each row: one statement's sibling data-modifying
-	 * CTEs may delete a carrier's fact and insert another at its key, in an order PostgreSQL leaves unspecified, and the
-	 * carrier must be a set by its key wherever a later statement reads it.
-	 */
-	readonly primaryKey: NonEmptyReadonlyArray<string> | undefined
-}
-
-/**
- * SELECT pg_temp.<name>(): a write program's carrier emptied before a use fills it, by the session function of the
- * carrier's own name the session's stand-up made beside it (sql/print.ts carrierEmptying), whose body empties it as
- * every session table is emptied (sql/print.ts sessionTableEmptied). A PL/pgSQL function plans its statements once a
- * session, where a DO block of the same body planned them at every call. It reads and writes the carrier alone.
- */
-export interface EmptyCarrier {
-	readonly kind: "emptyCarrier"
-	readonly name: CarrierName
-}
 
 export type AlterTableAction =
 	| { readonly kind: "addColumn"; readonly column: ColumnDef }
@@ -1755,6 +1785,17 @@ export type AlterDomainAction =
 	| { readonly kind: "validateConstraint"; readonly name: string }
 	| { readonly kind: "dropConstraint"; readonly name: string }
 
+/**
+ * ALTER TYPE <schema>.<name> ADD ATTRIBUTE <attribute> <type> [COLLATE pg_catalog.pg_c_utf8]: a variant's composite
+ * grown in place by an attribute appended after every other (deploy/diff/diff.ts rowTypeGrown), which rewrites no
+ * stored value: each reads the new attribute NULL.
+ */
+export interface AlterRowType {
+	readonly kind: "alterRowType"
+	readonly name: ObjectName
+	readonly add: ColumnDefinition
+}
+
 export interface AlterDomain {
 	readonly kind: "alterDomain"
 	readonly name: ObjectName
@@ -1847,14 +1888,8 @@ export interface DropPolicy {
  */
 export type DropObject =
 	| {
-			/**
-			 * A function among them by its name alone, which PostgreSQL drops where it is the only function of its name in
-			 * its schema, as grizzle installs every function (physical/obligations/graph.ts names a function by its name):
-			 * the drop of an installed function whose signature no record states, one `grizzle upgrade` finds departed
-			 * (deploy/diff/departed.ts). A function whose record states it is dropped by its signature (DropFunction).
-			 */
 			readonly kind: "drop"
-			readonly object: "TABLE" | "VIEW" | "DOMAIN" | "STATISTICS" | "TYPE" | "FUNCTION"
+			readonly object: "TABLE" | "VIEW" | "DOMAIN" | "STATISTICS" | "TYPE"
 			readonly name: ObjectName
 			readonly ifExists: boolean
 	  }
@@ -1896,15 +1931,46 @@ export interface CreateGuardTrigger {
 }
 
 /**
- * CREATE TRIGGER <name> BEFORE UPDATE ON <table> FOR EACH ROW EXECUTE FUNCTION <function>(): an immutable relation's
- * immutability guard (physical/ddl/immutable.ts), which PostgreSQL fires for every row an UPDATE of the table finds,
- * whoever runs it, the table's owner and a foreign key's ON UPDATE CASCADE among them.
+ * One of an immutable relation's immutability guards (physical/ddl/immutable.ts), whoever writes the table, its owner
+ * and a foreign key's ON UPDATE CASCADE among them, by what it fires on (`on`): `rows`, CREATE TRIGGER <name> BEFORE
+ * UPDATE OR DELETE ON <table> FOR EACH ROW EXECUTE FUNCTION <function>(), for every row an UPDATE or a DELETE of the
+ * table finds; `truncate`, CREATE TRIGGER <name> BEFORE TRUNCATE ON <table> FOR EACH STATEMENT EXECUTE FUNCTION
+ * <function>(), once a TRUNCATE, which PostgreSQL fires at statement level alone.
  */
-export interface CreateUpdateGuardTrigger {
-	readonly kind: "createUpdateGuardTrigger"
+export interface CreateImmutableGuardTrigger {
+	readonly kind: "createImmutableGuardTrigger"
 	readonly name: string
 	readonly table: ObjectName
 	readonly function: ObjectName
+	readonly on: GuardFiring
+}
+
+/** What an immutability guard fires on (CreateImmutableGuardTrigger): a table's rows, or a TRUNCATE of it. */
+export type GuardFiring = "rows" | "truncate"
+
+/**
+ * Where a guard bracket (GuardBracket) finds the guards it lifts: on the tables `tables`, or on every table of the
+ * schemas `schemas`.
+ */
+export type GuardScope =
+	| { readonly kind: "tables"; readonly tables: NonEmptyReadonlyArray<ObjectName> }
+	| { readonly kind: "schemas"; readonly schemas: NonEmptyReadonlyArray<string> }
+
+/**
+ * One side of the bracket that lifts the immutability guards in `scope` around an action in one transaction, a
+ * migration's data step or a test's reset of a closed relation (physical/ddl/immutable.ts guardBracket), each a DO block
+ * over the catalog (sql/catalog.ts guardBracketBlock) that names no installation's object but the tables or schemas of
+ * its scope. `unguard` finds every trigger in scope named as a guard of `guards` names it, records each as its table's
+ * oid, its function's oid and its name in the transaction's own setting grizzle.guards, and drops it. `reguard` creates
+ * each guard the setting records again, by its name, firing as `guards` states it, on its table, calling its function,
+ * where both still stand. The scope and the guards are the same on both sides; `reguard` reads only the setting, and
+ * the scope is what a lock count reads (deploy/locks/demand.ts).
+ */
+export interface GuardBracket {
+	readonly kind: "guardBracket"
+	readonly side: "unguard" | "reguard"
+	readonly scope: GuardScope
+	readonly guards: NonEmptyReadonlyArray<{ readonly name: string; readonly on: GuardFiring }>
 }
 
 /**
@@ -1990,29 +2056,8 @@ export interface CreateLiveSecret {
 	readonly table: ObjectName
 }
 
-/**
- * The reset of the current database's default of a configuration parameter, whatever the database is named, printed as
- * a DO block (sql/catalog.ts DoBlock, built by sql/catalog.ts databaseResetBlock) after the database lock (sql/print.ts
- * databaseWide), since every installation in the database writes the same pg_db_role_setting row:
- *
- *   SELECT "pg_catalog"."pg_advisory_xact_lock"(<key>::bigint);
- *   DO $$
- *   BEGIN
- *     EXECUTE "pg_catalog"."format"('ALTER DATABASE %I RESET <parameter>'::"pg_catalog"."text",
- *       "pg_catalog"."current_database"());
- *   END
- *   $$
- *
- * ALTER DATABASE names its database and an installation's statements name none, so the block reads its name; PostgreSQL
- * reads `ALTER DATABASE CURRENT_DATABASE` as a database of that name. grizzle sets no database default: an installation
- * of format 7 or before set default_transaction_isolation to serializable, which `grizzle upgrade` resets where a live
- * database still holds it (deploy/diff/departed.ts Departure `databaseDefault`), so every session grizzle does not open
- * starts at the server's default (physical/ddl/isolation.ts).
- */
-export interface ResetDatabaseDefault {
-	readonly kind: "resetDatabaseDefault"
-	readonly parameter: "default_transaction_isolation"
-}
+/** The live secret table's one column (CreateLiveSecret), which its one row holds the key in. */
+export const liveSecretColumn = "secret"
 
 /**
  * The role-level settings of one text value Publish stores for a login, each one a grizzle guarantee rests on:
@@ -2315,6 +2360,17 @@ export type PlStatement =
 			readonly body: NonEmptyReadonlyArray<PlStatement>
 	  }
 	| {
+			/**
+			 * Statements that read what they read whole, once, at no binding: a data step's re-check (physical/ddl/recheck.ts),
+			 * each stored relation's refill from its whole definition and each rule's check over every row, which a migration
+			 * runs once, so PostgreSQL plans each read a scan joined by a hash or a merge, never a seek per row a touched key
+			 * bounds. The missed-index check judges keyed reads, bounded by the keys a write touches, and none of these
+			 * (sql/seeks.ts `keyedReads`), as it judges no fill. Printed as its statements, in their order.
+			 */
+			readonly kind: "wholeReads"
+			readonly body: NonEmptyReadonlyArray<PlStatement>
+	  }
+	| {
 			/** An exhaustive CASE: no ELSE, so a value no WHEN lists raises CASE_NOT_FOUND. */
 			readonly kind: "case"
 			readonly operand: Expr
@@ -2327,14 +2383,15 @@ export type PlStatement =
 	| { readonly kind: "return"; readonly value: Expr }
 	| {
 			/** A data-modifying statement run for its effect alone: a rule capture's rows into its delta and its arming of
-			 * the judge, and the judge's disarming. */
+			 * the judge, the judge's disarming, and a data step's re-check's refill of a stored table
+			 * (physical/ddl/recheck.ts). */
 			readonly kind: "modify"
-			readonly statement: Insert | Update | Delete
+			readonly statement: Insert | Update | Delete | Merge
 	  }
 	| {
 			/**
 			 * RETURN QUERY <query>: the query's rows appended to a set-returning function's result, in its order, each
-			 * as often as the query delivers it: a stamp function returns its children's heads (physical/ddl/stamps.ts);
+			 * as often as the query delivers it: a stamp function returns its keys' heads (physical/ddl/stamps.ts);
 			 * a rule judge's delta reader returns
 			 * the delta's rows as they stand, which every statement that reads them takes as a Delta node's DISTINCT of
 			 * the fields it delivers (physical/ddl/deltas.ts addReaders).
@@ -2344,24 +2401,18 @@ export type PlStatement =
 	  }
 	| {
 			/**
-			 * CREATE TEMPORARY TABLE pg_temp.<name> (<columns>[, PRIMARY KEY (<key>) DEFERRABLE INITIALLY IMMEDIATE]) ON
-			 * COMMIT PRESERVE ROWS: a table of the session's own temporary schema, made once in a session and kept by every
+			 * CREATE TEMPORARY TABLE pg_temp.<name> (<columns>) ON COMMIT PRESERVE ROWS: a table of the session's own temporary schema, made once in a session and kept by every
 			 * COMMIT, owned by the role that runs the statement, so no COMMIT truncates or drops it (tablecmds.c
 			 * PreCommit_on_commit_actions truncates every ON COMMIT DELETE ROWS table of a session at each COMMIT of a
 			 * transaction that touched any temporary relation, each truncation an ACCESS EXCLUSIVE lock and an invalidation
 			 * every backend reads; a table dropped at COMMIT is made again by the next transaction, whose catalog rows
 			 * overflow the shared invalidation queue and reset every cache of the session, its cached plans among them): a
 			 * rule judge's delta or sentinel (physical/ddl/rules.ts addStandUps), its columns nullable, its owner the
-			 * stand-up's definer, or a write program's carrier (sql/ast.ts CreateCarrier), every column NOT NULL and its key
-			 * its own. A table of no column is the sentinel's, or the unit relation's carrier.
+			 * stand-up's definer. A table of no column is the sentinel's.
 			 */
 			readonly kind: "createSessionTable"
 			readonly name: string
 			readonly columns: ReadonlyArray<ColumnDefinition>
-			/** Whether every column is NOT NULL: a carrier's, whose every value is a fact's field. */
-			readonly notNull: boolean
-			/** The table's key, in key order, or none: a carrier's (CreateCarrier primaryKey). */
-			readonly primaryKey: NonEmptyReadonlyArray<string> | undefined
 			/** How it stores its values (SessionTableStorage). */
 			readonly storage: SessionTableStorage
 	  }
@@ -2379,7 +2430,7 @@ export type PlStatement =
 	  }
 	| {
 			/**
-			 * TRUNCATE pg_temp.<name>: a session table, a rule judge's delta or a write's carrier, that has outgrown the
+			 * TRUNCATE pg_temp.<name>: a session table, a rule judge's delta, that has outgrown the
 			 * pages its emptying keeps given a new file, the old one given back (sql/print.ts sessionTableEmptied, which
 			 * empties one that has not by DELETE, keeping its file).
 			 */
@@ -2610,8 +2661,9 @@ export const declaredBody = nominal<string, DeclaredBody>()
  * application declares (physical/ddl/functions.ts). Its owner is the installation's function owner, a role of no
  * privilege on any table, so a body that reads a table fails as it runs; its path names pg_catalog first, so no name
  * of the level's shadows a builtin, then its own schema, the one its name names, so the body names the declared
- * functions and row types of its level unqualified, and pg_temp last, so no session's temporary object shadows one.
- * Its parameters and result are base types and row types alone.
+ * functions and row types of its level unqualified, then the schema of each type its body names alone outside its own
+ * (`namedAlone`), and pg_temp last, so no session's temporary object shadows one. Its parameters and result are base
+ * types and row types alone.
  */
 export interface CreateDeclaredFunction {
 	readonly kind: "createDeclaredFunction"
@@ -2621,6 +2673,14 @@ export interface CreateDeclaredFunction {
 	readonly language: DeclaredLanguage
 	readonly volatility: DeclaredVolatility
 	readonly nullInput: DeclaredNullInput
+	/**
+	 * Every type its body names alone, by its name without its schema, in the order the body first names it: each heading's
+	 * row type, of its own schema, and each variant's composite and domain a variant's spelling names, of the
+	 * installation's types schema (physical/ddl/functions.ts spellingText), whatever level declares the function. Its
+	 * search_path finds each of them: after its own schema, the schema of each of these its own is not (sql/print.ts
+	 * declaredSearchPath).
+	 */
+	readonly namedAlone: ReadonlyArray<TypeRef>
 	readonly body: DeclaredBody
 }
 
@@ -2650,8 +2710,7 @@ export interface AdoptRole {
 /**
  * The end of every session that holds a temporary object of one of `roles`, by stem, which a migration sends right
  * before the role's DROP ROLE (sql/print.ts writeEndHolders, the one text of it, which uninstall's sends too: sql/catalog.ts
- * UninstallStatement). A write's carrier, or any object a transaction under the role makes in its session's temporary
- * schema, is the role's, and stands until its session ends; PostgreSQL refuses DROP ROLE (2BP01) while one stands. Such a
+ * UninstallStatement). Any object a transaction under the role makes in its session's temporary schema is the role's, and stands until its session ends; PostgreSQL refuses DROP ROLE (2BP01) while one stands. Such a
  * session belongs to the installation that is ending, so the drop ends it.
  */
 export interface EndHolders {
@@ -2744,19 +2803,20 @@ export type Ddl =
 	| CreateDeclaredFunction
 	| HandOverFunction
 	| CreateRowType
+	| AlterRowType
 	| AdoptRole
 	| EndHolders
 	| PackConstant
 	| CreateConstant
 	| StubConstant
 	| CreateGuardTrigger
-	| CreateUpdateGuardTrigger
+	| CreateImmutableGuardTrigger
 	| CreateConstraintTrigger
 	| CreateTransitionTrigger
 	| CreatePublication
 	| DropPublication
 	| CreateLiveSecret
-	| ResetDatabaseDefault
+	| GuardBracket
 	| CreateRole
 	| AlterRole
 	| GrantRole
@@ -2770,13 +2830,7 @@ export type Ddl =
 	| LockTable
 	| Comment
 
-export type SqlStatement =
-	| Dml
-	| Ddl
-	| CreateCarrier
-	| EmptyCarrier
-	| TransactionControl
-	| FillStored
+export type SqlStatement = Dml | Ddl | TransactionControl | FillStored
 
 /** SQL text printed from a statement's AST: emit (sql/emit.ts) spells it, and nothing else. */
 export type EmittedText = string & { readonly [emittedTextBrand]: true }
@@ -2787,3 +2841,15 @@ export interface EmittedSql {
 	readonly text: EmittedText
 	readonly nameMap: NameMap
 }
+
+/**
+ * What a statement another statement composes makes of its text, which nothing prints (sql/emit.ts unprintedText): its
+ * generated-name map alone, so the statement that composes it names past its names. Its names may be bound by that
+ * statement alone, so a print of it apart would read names nothing binds (sql/scope.ts).
+ */
+export interface UnprintedSql {
+	readonly nameMap: NameMap
+}
+
+/** What a statement's text is made: its print (EmittedSql), or none, composed into another statement (UnprintedSql). */
+export type StatementText = EmittedSql | UnprintedSql

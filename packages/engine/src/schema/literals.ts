@@ -37,7 +37,7 @@ export const literalsField = (
 		case "text": {
 			const texts = values.map((value) => {
 				if (typeof value !== "string") {
-					throw defect("a text literal is a string")
+					defect("a text literal is a string")
 				}
 				return value
 			})

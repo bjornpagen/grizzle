@@ -110,7 +110,7 @@ const targetsWith = <C extends DeliveredColumn>(
 	columns: ReadonlyArray<C>
 ): ReadonlyArray<{ readonly target: Target; readonly column: C }> => {
 	if (core.targets.length !== columns.length) {
-		throw defect("a delivered query's targets are its columns")
+		defect("a delivered query's targets are its columns")
 	}
 	return columns.map((column, at) => ({
 		target: defined(core.targets[at], "a delivered query's target of each of its columns"),

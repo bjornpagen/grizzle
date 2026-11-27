@@ -77,10 +77,18 @@ export const aProgramOverEachRuntimeEntryLoadsModulesOfTheRuntimeZonesAloneNoCom
 		kills: [
 			{
 				file: "packages/engine/src/plan/runtime.ts",
-				original: 'export { servedFile } from "#compiler/served/json.ts"\n',
+				original: 'export { contractFile, servedFile } from "#compiler/served/json.ts"\n',
 				replacement:
-					'export { servedFile } from "#compiler/served/json.ts"\nexport { compiledSchema } from "#compiler/program/schema.ts"\n',
+					'export { contractFile, servedFile } from "#compiler/served/json.ts"\nexport { compiledSchema } from "#compiler/program/schema.ts"\n',
 				why: "The runtime facade re-exports the schema's compile: every process that serves a login loads the law model, the checker and the lowering beneath it."
+			},
+			{
+				file: "packages/engine/src/plan/runtime.ts",
+				original:
+					'export { type ContractParser, contractParserOver } from "#compiler/runtime/contract.ts"\n',
+				replacement:
+					'export { type ContractParser, contractParserOver } from "#compiler/runtime/contract.ts"\nexport { contractFileOf } from "#compiler/program/contract.ts"\n',
+				why: "The runtime's contract parser comes with the contract's compile beside it: every process that parses a contract's values at a boundary loads the checker, the schema's reading of a field and the predicate's lowering, where it reads the checker file generate compiled."
 			},
 			{
 				file: ".fallowrc.json",

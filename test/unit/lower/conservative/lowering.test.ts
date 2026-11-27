@@ -38,7 +38,11 @@ import { printStatement } from "#compiler/sql/print.ts"
 import { refused, succeeded } from "#test/support/assert.ts"
 import { featureCount, has, shapeOf } from "#test/support/kernel/shape.ts"
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
-import { auditStatementViolations, auditTextViolations } from "#test/support/oracle/verify/sql.ts"
+import {
+	auditStatementViolations,
+	auditTextViolations,
+	guardedTermsOf
+} from "#test/support/oracle/verify/sql.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {
 	Account,
@@ -104,7 +108,11 @@ export const theKindTableLowersEveryNodeOfTheEveryKindFixtureAuditedUnlessItRead
 						}
 						for (const statement of flight(succeeded(r, key).roots)) {
 							assert.deepEqual(auditStatementViolations(statement.ast), [], key)
-							assert.deepEqual(auditTextViolations(statement.sql.text), [], key)
+							assert.deepEqual(
+								auditTextViolations(statement.sql.text, guardedTermsOf(statement.ast)),
+								[],
+								key
+							)
 							assert.equal(printStatement(statement.ast), statement.sql.text, key)
 						}
 					}),

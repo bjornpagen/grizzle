@@ -183,16 +183,21 @@ const predicateOperand = (value: unknown, label: string): OpenExpr => {
 	return expr
 }
 
-/** A row check's and and or, total: of no predicate the constant true and false, of one that predicate. */
+/** A row check's and and or, over one list of predicates, total: of none the constant true and false, of one that
+ * predicate. */
 const connective =
 	(kind: "and" | "or") =>
-	(...ps: ReadonlyArray<unknown>): PredicateValue =>
-		predicateValue(
+	(ps: unknown): PredicateValue => {
+		if (!isList(ps)) {
+			throw malformed(kind, `one list of predicates: ${kind}([p, q])`)
+		}
+		return predicateValue(
 			connectiveExpr(
 				kind,
 				ps.map((p) => predicateOperand(p, kind))
 			)
 		)
+	}
 
 const isTextDesc = (desc: FieldDesc): boolean =>
 	desc.kind === "text" || (desc.kind === "contract" && isTextDesc(desc.base))
@@ -406,6 +411,10 @@ const rowExpr = (expr: OpenExpr): ExprDesc | ForeignInput => {
 			const args = rowExprs(expr.args)
 			return args instanceof ForeignInput ? args : Object.freeze({ ...expr, args })
 		}
+		case "variant": {
+			const args = rowExprs(expr.args)
+			return args instanceof ForeignInput ? args : Object.freeze({ ...expr, args })
+		}
 		case "cast":
 		case "guarded":
 		case "base":
@@ -536,6 +545,7 @@ const rowForeign: { readonly [K in ExprDesc["kind"]]: string | undefined } = {
 	retype: undefined,
 	guarded: undefined,
 	cond: undefined,
+	variant: undefined,
 	when: undefined,
 	compare: undefined,
 	between: undefined,

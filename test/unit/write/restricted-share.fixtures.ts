@@ -1,7 +1,7 @@
 /** What restricted-share.test.ts reads: its schema, its box and the statements of a case's write. */
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
-import { Array as Arr, String as Str } from "effect"
+import { Array as Arr, Effect, String as Str } from "effect"
 import { Fn } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, type Rule, v } from "#compiler/public/query.ts"
@@ -10,6 +10,7 @@ import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { everyCallCount } from "#test/support/kernel/calls.ts"
 import { checking } from "#test/support/policy.ts"
 import { descOf } from "#test/unit/write/changeset/fixtures.ts"
 
@@ -114,7 +115,7 @@ const argumentAlone = (j: number) =>
 	})
 
 /** No rows of (k, v): an argument that reads nothing. */
-const none = query(Restricted).rule((r) => r.where(r.or()).find({ k: 0n, v: 0n }))
+const none = query(Restricted).rule((r) => r.where(r.or([])).find({ k: 0n, v: 0n }))
 
 /** A member writing the call's first field, its first `reading` arguments reading the labels, for its sessions. */
 const callMember = (box: Box) =>
@@ -173,6 +174,32 @@ export const statementsOf = (box: Box): ReadonlyArray<string> =>
 			"the case's write compiles"
 		).artifact.statements,
 		(s) => s.spec.sql
+	)
+
+/**
+ * The case's write compiled, counted: the statements it sends; the statements it prints (sql/emit.ts emitText, the
+ * printer's one door); and the statements its single statement composes as parts, which nothing prints
+ * (unprintedText), every call of the module counted (kernel/calls.ts everyCallCount).
+ */
+export const printsOf = (box: Box) =>
+	Effect.map(
+		everyCallCount(
+			Effect.sync(() => statementsOf(box)),
+			(file) => file === "packages/engine/src/sql/emit.ts"
+		),
+		([statements, counts]) => {
+			const callsOf = (name: string): number =>
+				Arr.reduce(
+					Arr.filter([...counts], ([key]) => Str.endsWith(` ${name}`)(key)),
+					0,
+					(n, [, k]) => n + k
+				)
+			return {
+				sent: statements.length,
+				prints: callsOf("emitText"),
+				composed: callsOf("unprintedText")
+			}
+		}
 	)
 
 /** How many times `sql` scans `table` of the schema. */

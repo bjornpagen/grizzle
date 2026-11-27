@@ -13,10 +13,13 @@ import { fullWorld } from "#test/support/worlds.ts"
 
 /**
  * A login reading a stored derived relation: the base holds Item(doc, at, n), keyed by the document then the place, in
- * the unit of its document, and Kept a level above it, each item's value at its place, a definition local to Document
- * that reads one row of Item at each of its keys, so the installation stores it in a table of its own, which grizzle
- * keeps equal to its definition at every COMMIT (analysis/derived/storage.ts), and a read of it reads that table. The
- * login's one program, `kept`, reads Kept's places and values of document `doc`.
+ * the unit of its document, and Kept a level above it, each item's value of at least 0 at its place, a definition
+ * local to Document that reads one row of Item at each of its keys, so the installation stores it in a table of its
+ * own, which grizzle keeps equal to its definition at every COMMIT (analysis/derived/storage.ts), and a read of it reads
+ * that table. Its selection makes it no copy of Item: a relation of one relation's own rows projected onto a key of it,
+ * under no condition, is live, its reason `copy` (storage.ts copiedRelation, 4b89fcc399, lane STOREDERIVE4), read
+ * through Item's own key index, and a read of it names no table of its own. The login's one program, `kept`, reads
+ * Kept's places and values of document `doc`.
  */
 
 const Item = relation("Item", { doc: pg.integer, at: pg.integer, n: pg.integer }, ["doc", "at"])
@@ -30,7 +33,7 @@ const levelsOf = (name: string) => {
 		"Kept",
 		query(base).rule((r) => {
 			const { doc, at, n } = v(Item, "item")
-			return r.match(Item, { doc, at, n }).find({ doc, at, v: n })
+			return r.match(Item, { doc, at, n }).where(r.ge(n, 0)).find({ doc, at, v: n })
 		})
 	)
 	return { top: schema.extend([base], `${name}_t`, [Kept], []), Kept }

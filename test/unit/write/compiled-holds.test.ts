@@ -227,9 +227,9 @@ export const aWritesCompileHoldsOneAnalysisAtATimeWhenItsRestatementsAnalysisSta
 				{
 					file: "packages/engine/src/write/frontend/compile.ts",
 					original:
-						'\tconst analyzed = (structure: ValidDag): LogicalAnalysis =>\n\t\tunwrap(\n\t\t\tanalyzeLogical(\n\t\t\t\tstructure,\n\t\t\t\t{\n\t\t\t\t\tcontext: "transaction",\n\t\t\t\t\tcontainments: immediateEvidence(laws.theory.evidence).containments,\n\t\t\t\t\t/** A derived or world relation a member or read-back matches is keyed by its definition\'s keys. */\n\t\t\t\t\tkeyedViews: true\n\t\t\t\t},\n\t\t\t\tkeptNodes([])\n\t\t\t)\n\t\t)\n',
+						"\tconst analyzed = (structure: ValidDag): LogicalAnalysis =>\n\t\tunwrap(analyzeLogical(structure, transactionEvidence(laws), keptNodes([])))\n",
 					replacement:
-						'\tconst made: Array<LogicalAnalysis> = []\n\tconst analyzed = (structure: ValidDag): LogicalAnalysis => {\n\t\tconst analysis = unwrap(\n\t\t\tanalyzeLogical(\n\t\t\t\tstructure,\n\t\t\t\t{\n\t\t\t\t\tcontext: "transaction",\n\t\t\t\t\tcontainments: immediateEvidence(laws.theory.evidence).containments,\n\t\t\t\t\t/** A derived or world relation a member or read-back matches is keyed by its definition\'s keys. */\n\t\t\t\t\tkeyedViews: true\n\t\t\t\t},\n\t\t\t\tkeptNodes([])\n\t\t\t)\n\t\t)\n\t\tmade.push(analysis)\n\t\treturn analysis\n\t}\n',
+						"\tconst made: Array<LogicalAnalysis> = []\n\tconst analyzed = (structure: ValidDag): LogicalAnalysis => {\n\t\tconst analysis = unwrap(analyzeLogical(structure, transactionEvidence(laws), keptNodes([])))\n\t\tmade.push(analysis)\n\t\treturn analysis\n\t}\n",
 					why: "The compile's scope holds every analysis it makes, so the first is alive while the restatement analyzes the DAG again: two analyses alive at once, the folds alive at the second outnumbering those at the first."
 				}
 			]

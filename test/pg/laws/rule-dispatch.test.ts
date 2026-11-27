@@ -22,13 +22,14 @@
  * it reads until its transaction ends, and nothing else of the transaction reads a stored table, so the tables the
  * transaction holds it on are exactly those of the statements over the deltas that hold a row, the rules' and the
  * upkeeps' alike: an inserted document's upkeep reads Part, since whether the document has a part decides whether it
- * is documented; and the session holds no delta its stand-up did not make.
+ * is documented, and never Documented's table, which only the re-derivation of the documents a removal touches seeks;
+ * and the session holds no delta its stand-up did not make.
  *
  * Features: a statement over two deltas run by one of them alone, a statement run by a side of olds alone, a delta a
  * statement that ran read whose transaction wrote no row of it, a delta an earlier transaction wrote that holds no row
  * in a later one (a session's steady state), and a transaction whose writes run no statement.
  */
-import { property } from "@bjornpagen/testing/property"
+import { property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
 	type DispatchFeature,
@@ -69,22 +70,31 @@ export const theRuleJudgeRunsExactlyTheRulesOverTheRelationsATransactionWrote = 
 			kind: "specification",
 			name: "a statement of the judge, a rule's or an upkeep's, runs exactly where a delta it reads holds a row: the stored tables the transaction holds ACCESS SHARE on are those of the statements over its written deltas, and the session holds no delta its stand-up did not make"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/laws/rule-dispatch.test.ts#theRuleJudgeRunsExactlyTheRulesOverTheRelationsATransactionWrote:1f.0:1.1.0"
+				),
+				reason:
+					"a document inserted alone: Documented's upkeep, a monotone delta form, ran its removal's DELETE and INSERT at the units of Doc's and Part's empty sides of olds beside its gain, in one call, the DELETE's seek holding ACCESS SHARE on Documented's table to COMMIT (the merged tree's red at b69e328a6)",
+				since: "2026-11-26"
+			}
+		],
 		kills: [
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
 				original:
-					"\t\t\t\tbranches: [{ condition: anyRowed(j.reads), body: [performed(blockOf(j), [])] }],",
+					"\t\t\t\t\tbranches: [{ condition: anyRowed(call.reads), body: [performed(functionOf(call), [])] }],",
 				replacement:
-					"\t\t\t\tbranches: [{ condition: lit.bool(true), body: [performed(blockOf(j), [])] }],",
+					"\t\t\t\t\tbranches: [{ condition: lit.bool(true), body: [performed(functionOf(call), [])] }],",
 				why: "Every rule's block of a part runs whatever the transaction wrote, as before the dispatch: a write of a package's parts runs the probes over the documents' deltas the session never stood up, which PostgreSQL refuses (42P01), or, once they stand, over deltas holding no row, each statement read and its tables locked."
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
 				original:
-					"\t\t\t\tbranches: [{ condition: anyRowed(j.reads), body: [performed(blockOf(j), [])] }],",
+					"\t\t\t\t\tbranches: [{ condition: anyRowed(call.reads), body: [performed(functionOf(call), [])] }],",
 				replacement:
-					"\t\t\t\tbranches: [{ condition: anyRowed([headNonEmpty(j.reads)]), body: [performed(blockOf(j), [])] }],",
+					"\t\t\t\t\tbranches: [{ condition: anyRowed([headNonEmpty(call.reads)]), body: [performed(functionOf(call), [])] }],",
 				why: "A rule's block runs on its first delta alone, so a whole containment a transaction wrote only the target of, a document or a visit deleted, is never judged, and its tables are never read."
 			},
 			{
@@ -95,9 +105,18 @@ export const theRuleJudgeRunsExactlyTheRulesOverTheRelationsATransactionWrote = 
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: "\t\t\tconst stood = [...own, ...own.flatMap((d) => besides.get(d.name) ?? [])]",
-				replacement: "\t\t\tconst stood = [...own]",
-				why: "A table's stand-up makes its own deltas and not the deltas the judge reads beside them, as the parts stood those up only where a block ran: a session that wrote a learner's answers never stood the visits' delta up, so the capture of its write, which requires every delta a block over its own may read, refuses it (55Z03)."
+				original:
+					"\t\t\tfor (const [name, e] of beside.get(delta.name) ?? []) {\n\t\t\t\treach.set(name, e)\n\t\t\t}\n",
+				replacement: "",
+				why: "A table's stand-up makes its own deltas and not the deltas the judge reads beside them, as the parts stood those up only where a block ran, nor the closure of any stored relation they reach: a document's write stands Doc's deltas up and not Part's, which Documented's upkeep reads beside them, and its marker vouches for Doc's alone, so the upkeep's reader of Part's delta finds no table (42P01)."
+			},
+			{
+				file: "packages/engine/src/physical/ddl/rules.ts",
+				original:
+					"\t\t\t\t\tbranches: [{ condition: anyRowed(call.reads), body: [performed(functionOf(call), [])] }],",
+				replacement:
+					"\t\t\t\t\tbranches: [{ condition: anyRowed(readsOf(j)), body: [performed(functionOf(call), [])] }],",
+				why: "Each call of a block runs where any delta of the block holds a row, as an upkeep's one call of a delta form's removal and gain ran before each part ran on its own deltas: an inserted document runs Documented's removal, its DELETE and INSERT at the units of Doc's and Part's empty sides of olds, planned and run over nothing, the DELETE's seek of Documented's table holding ACCESS SHARE to COMMIT, and its readers locking those sides (the merged tree's red, `{ transactions: [[\"insert Doc\"]] }`)."
 			}
 		]
 	}

@@ -5,14 +5,13 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen, map } from "@bjornpagen/testing/gen"
-import { Array as Arr, DateTime, Effect } from "effect"
+import { Array as Arr, Effect } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { instant, natural, place } from "#compiler/public/fields.ts"
 import { query } from "#compiler/public/query.ts"
 import { key, login, on, relation, role, schema, unit } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { defineConfig } from "#index.ts"
-import { at } from "#test/pg/cli/drift.fixtures.ts"
 import { cliOver, configName, connectionOf, ownerOn, workspace } from "#test/pg/cli/support.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -80,7 +79,7 @@ export interface VersionRun {
 
 /**
  * Runs each version of `history` in turn through the command line over one workspace and one database: generate, then
- * migrate, drift and migrate again, each version's folder drafted a minute after the one before.
+ * migrate, drift and migrate again.
  */
 export const runHistory = (history: ReadonlyArray<HeadsVersion>) =>
 	Effect.gen(function* () {
@@ -88,9 +87,10 @@ export const runHistory = (history: ReadonlyArray<HeadsVersion>) =>
 		const name = yield* substrate.schema({ create: false, label: "heads" })
 		const ws = yield* workspace("heads")
 		const out: Array<VersionRun> = []
-		for (const [i, version] of history.entries()) {
+		for (const version of history) {
 			const s = headsSchema(name, version)
 			const config = defineConfig({
+				contracts: [],
 				schemas: [s.schema],
 				logins: [s.login],
 				migrations: "migrations",
@@ -98,10 +98,9 @@ export const runHistory = (history: ReadonlyArray<HeadsVersion>) =>
 				connection: () =>
 					connectionOf(substrate.cluster, ownerOn(substrate.cluster, substrate.database))
 			})
-			const now = DateTime.add(at, { minutes: i })
 			const runs: Array<VersionRun["runs"][number]> = []
 			for (const command of ["generate", "migrate", "drift", "migrate"]) {
-				const ran = yield* cliOver(ws, config, [command, configName], now)
+				const ran = yield* cliOver(ws, config, [command, configName])
 				runs.push({ command, code: ran.code, printed: `${ran.stdout}${ran.stderr}` })
 			}
 			out.push({ version, runs })

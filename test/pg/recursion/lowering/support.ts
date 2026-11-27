@@ -17,8 +17,8 @@ import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { type GenParam, genParamDecls } from "#test/support/oracle/gen/query.ts"
 import { schemaCodes, schemaDesc } from "#test/support/oracle/gen/schema.ts"
+import { oraclePlanUnder } from "#test/support/oracle/install/drafted.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
-import { oraclePlanUnder } from "#test/support/oracle/install/real.ts"
 import {
 	aliasOrigins,
 	identityVisitor,

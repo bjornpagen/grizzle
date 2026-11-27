@@ -229,7 +229,7 @@ export const costOf = (situation: Situation, tree: TreeShape, rows: number) =>
 		Effect.gen(function* () {
 			const fx = yield* installWrites(build("ReplaceCost"), "replacecost", {
 				programs: {},
-				logins: []
+				logins: () => []
 			})
 			const S: Schema = build(fx.installed.declared)
 			const substrate = yield* Substrate

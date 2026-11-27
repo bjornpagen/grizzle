@@ -14,7 +14,6 @@ import {
 	meetType,
 	metColumn,
 	refuse,
-	refuseNamed,
 	type SelfJoin,
 	type ViolationBuilder
 } from "#compiler/analysis/theory/build.ts"
@@ -54,6 +53,7 @@ import {
 	liveArms,
 	type LiveReading,
 	type QueryRule,
+	refuseAggregatesAcrossUnits,
 	type RuleLaw,
 	type RuleSide,
 	ruleReads,
@@ -80,7 +80,6 @@ import {
 	type ExprDesc,
 	everyFact,
 	exprChildren,
-	expandAlternatives,
 	expandSeries,
 	type FieldDesc,
 	type InferredExpr,
@@ -88,6 +87,7 @@ import {
 	type MonoidName,
 	type QueryDesc,
 	type SelectionDesc,
+	seriesPair,
 	type TermDesc,
 	termText
 } from "#compiler/ir/desc.ts"
@@ -406,7 +406,6 @@ export interface ContractUse {
  * - a containment: a source tuple with no matching target tuple, a pred term compared in numeric; one whose sides pair
  *   a span field is a coverage law: a source fact a point of whose span no target fact of its scalar group covers, evaluated
  *   against the maximal covered segments;
- * - an alternatives statement: its expansion's containments (desc.ts expandAlternatives), each a containment law;
  * - a family: a member with no owner, and, ordered, two members at one slot, a slot at or past its owner's
  *   count, a slot above zero with no member below it, or a count above zero with no member at its last slot; counted,
  *   an owner whose count is not its number of members; each arm naming the owner;
@@ -634,20 +633,6 @@ const scopeOver = (relation: string, conjuncts: ReadonlyArray<ExprDesc>): SideSc
 	relation,
 	selection: { conjuncts }
 })
-
-/** The two sides of a containment paired term by term: sides of one width. */
-const pairedTerms = (
-	left: { readonly relation: string; readonly terms: NonEmptyReadonlyArray<TermDesc> },
-	right: { readonly relation: string; readonly terms: NonEmptyReadonlyArray<TermDesc> },
-	loc: SourceLoc
-): NonEmptyReadonlyArray<ContainmentPair> =>
-	mapNonEmpty(left.terms, (from, j) => {
-		const to = right.terms[j]
-		if (to === undefined || right.terms.length !== left.terms.length) {
-			return refuseNamed(loc, "the arm's key does not match the parent key")
-		}
-		return { from, to }
-	})
 
 /** A field as a field term. */
 const termOf = (f: LawField): TermDesc => ({ kind: "field", field: f.name })
@@ -1078,7 +1063,7 @@ export class LawSides {
 								return base.carrier === "bits" ? base.roster.handles : undefined
 							})()
 				if (x === undefined || roster === undefined || !isNonEmpty(roster)) {
-					throw defect(`foldRule admits ${fold.monoid} over a set's carrier`)
+					defect(`foldRule admits ${fold.monoid} over a set's carrier`)
 				}
 				return {
 					kind: "handles",
@@ -1089,7 +1074,7 @@ export class LawSides {
 				}
 			}
 			case "string_agg":
-				throw defect("foldRule admits a concat fold only with its (before, after) pair named")
+				defect("foldRule admits a concat fold only with its (before, after) pair named")
 		}
 	}
 }
@@ -1258,10 +1243,7 @@ export class Normalizer {
 		}
 	}
 
-	/**
-	 * One statement's laws. An alternatives statement's are its containments (desc.ts expandAlternatives),
-	 * each a containment law of source `alternatives`, so a restated one is one law with both statements.
-	 */
+	/** One statement's laws. */
 	statement(s: OwnedStatement, index: number): void {
 		const loc = s.loc
 		const sources = [{ index, loc }]
@@ -1347,17 +1329,6 @@ export class Normalizer {
 					loc
 				)
 				return
-			case "alternatives":
-				for (const c of expandAlternatives(s)) {
-					this.containment(
-						scopeOf(c.left),
-						scopeOf(c.right),
-						pairedTerms(c.left, c.right, loc),
-						{ statement: index, kind: "alternatives" },
-						loc
-					)
-				}
-				return
 			case "family":
 				this.#family(s, index)
 				return
@@ -1372,7 +1343,7 @@ export class Normalizer {
 				this.containment(
 					scopeOf(c.left),
 					scopeOf(c.right),
-					pairedTerms(c.left, c.right, loc),
+					[seriesPair(s)],
 					{ statement: index, kind: "series" },
 					loc
 				)
@@ -1441,14 +1412,22 @@ export class Normalizer {
 			})
 		}
 		return Result.map(
-			catchRefusal(() =>
-				liveArms(declared.relation, definition, {
+			catchRefusal(() => {
+				const arms = liveArms(declared.relation, definition, {
 					definition: this.env.definition,
 					columnType: this.env.columnType,
 					live: this.env.live,
 					loc
 				})
-			),
+				refuseAggregatesAcrossUnits(
+					declared.relation,
+					declared.terms,
+					arms,
+					(relation) => this.env.regionFacts.members.get(relation)?.fields ?? [],
+					loc
+				)
+				return arms
+			}),
 			(arms) => ({
 				...declared,
 				arms: derivedSideArms(arms, declared.terms, declared.selection, loc)
@@ -1719,7 +1698,7 @@ export class Normalizer {
 	#resolvedFamily(id: FamilyId): Family {
 		const family = this.#resolved?.get(familyKey(id))
 		if (family === undefined) {
-			throw defect("a family law's violation is written after the theory resolves its families")
+			defect("a family law's violation is written after the theory resolves its families")
 		}
 		return family
 	}
@@ -1765,7 +1744,7 @@ export class Normalizer {
 		const entry = this.#entry(s.slots, loc)
 		const f = entry.shape
 		if (!isTree(f)) {
-			throw defect("a tree statement's family is a tree")
+			defect("a tree statement's family is a tree")
 		}
 		const t = f.shape
 		this.#keep(
@@ -1780,7 +1759,7 @@ export class Normalizer {
 					detail: () => {
 						const resolved = this.#resolvedFamily(f.id)
 						if (resolved.shape.kind !== "tree") {
-							throw defect("a tree's resolved family keeps its tree members")
+							defect("a tree's resolved family keeps its tree members")
 						}
 						return { kind: "tree", family: { ...resolved, shape: resolved.shape } }
 					}
@@ -1972,12 +1951,11 @@ export class Normalizer {
 	}
 
 	/**
-	 * Refuses a drawn or accumulated field of a relation of `filled` no statement names, or two do: called once every
-	 * statement is normalized, over the relations whose every family, tree and fold the normalized statements hold
-	 * (analysis/closure.ts Closure.filled).
+	 * Refuses a drawn or accumulated field of a relation no statement names, or two do: called once every statement of
+	 * the schema is normalized, over every relation.
 	 */
-	finish(filled: ReadonlySet<string>): void {
-		this.#namings.refuseMisnamed([...this.env.relations.values()].filter((r) => filled.has(r.name)))
+	finish(): void {
+		this.#namings.refuseMisnamed([...this.env.relations.values()])
 	}
 
 	/**
@@ -2128,7 +2106,7 @@ export const lawViolation = (
 			const f = familyOf(families, d.family)
 			const s = statements[law.source.statement]
 			if (s?.kind !== "fold") {
-				throw defect("a fold law's source is its fold statement")
+				defect("a fold law's source is its fold statement")
 			}
 			return b.union(
 				foldArms(b, env, familyWitness(f), f, sides.foldSides(f, foldEntry(s, f, law.id), loc), loc)
@@ -2464,7 +2442,10 @@ const contractViolation = (
 				`${use.relation}.${use.field.name} of the contract ${name}`
 			)
 		}
-		/** The stored value at the contract's base type, over the node that supplies the row. */
+		/**
+		 * The stored value at the contract's base type, over the node that supplies the row: the stored column bare,
+		 * which its base subsumes (ir/scalar.ts subsumes), the predicate reading it at the base (typing.ts LeafRead).
+		 */
 		const valueOver = (node: RelNode) => {
 			const column = b.col(node, use.field)
 			return b.as(use.at === "column" ? column : b.op(use.at, [column]), info.base)
@@ -2475,7 +2456,7 @@ const contractViolation = (
 				? b.bool(true)
 				: lowerTotal(b, env, predicate, childLoc(loc, "predicate"), (desc, at) =>
 						desc.kind === "value"
-							? Result.ok(value)
+							? Result.ok({ kind: "subsumed", spec: value, type: info.base })
 							: refuse(
 									"MalformedDescription",
 									at,
@@ -2782,7 +2763,7 @@ const witnessed = (
 		witness.map((w, j) => {
 			const column = node.heading[j]
 			if (column === undefined) {
-				throw defect("a family law's arm leads with its witness columns")
+				defect("a family law's arm leads with its witness columns")
 			}
 			return [w.name, b.as(b.col(node, column), w.type)] as const
 		})
@@ -2954,7 +2935,7 @@ const aggregateArms = (
 	const ownerRows = sideRows(b, env, owner, owner.terms, loc)
 	const endValue = ownerRows.values[groupFields.length]
 	if (endValue === undefined) {
-		throw defect("an aggregate's owner side holds its key, then its end")
+		defect("an aggregate's owner side holds its key, then its end")
 	}
 	const end: HeadingColumn = { name: "end#", type: endValue.type }
 	const owners = b.project(ownerRows.rows, [
@@ -2999,7 +2980,7 @@ const pastCount = (
 	const index = members.values[width]
 	const count = owners.values[width]
 	if (index === undefined || count === undefined) {
-		throw defect("a family's slot sides end with its index and its count")
+		defect("a family's slot sides end with its index and its count")
 	}
 	const met = members.values
 		.slice(0, width)
@@ -3168,7 +3149,7 @@ const foldArms = (
 					: [...held, ...twoMembers(b, env, h.members, twos, witness, loc)]
 			})
 			if (!isNonEmpty(arms)) {
-				throw defect("a set's roster holds a handle")
+				defect("a set's roster holds a handle")
 			}
 			return arms
 		}

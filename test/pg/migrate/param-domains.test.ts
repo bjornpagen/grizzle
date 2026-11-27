@@ -37,7 +37,8 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 import { canonicalEquals } from "#compiler/core/canonical.ts"
-import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
+import { identity } from "#compiler/core/identity.ts"
+import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import {
 	bodyOf,
@@ -47,31 +48,52 @@ import {
 	type Feature,
 	isParamDomain,
 	ofParam,
-	required,
-	servedParams
+	required
 } from "#test/pg/migrate/param-domains.fixtures.ts"
 import {
 	apply,
 	checkedAdmission,
-	kept,
+	keeping,
 	noFurther,
 	openMigrator,
-	reviewedSource,
 	sameCatalog
 } from "#test/pg/migrate/support.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { atName } from "#test/support/kernel/naming.ts"
+import { generatedDraft } from "#test/support/install-migrate.ts"
+import { fullVersion } from "#test/support/installed.ts"
+import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
-	asDrafted,
-	compile,
-	draftedAt,
 	fromEmpty,
 	fromSnapshot,
-	generate,
-	noDeclarations
+	noDeclarations,
+	type Previous
 } from "#test/support/migrate/kit.ts"
-import { firstStored, versionOf } from "#test/support/migrate/param-domains.ts"
+import {
+	firstStored,
+	passedOver,
+	type Stored,
+	versionOf
+} from "#test/support/migrate/param-domains.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
+
+/**
+ * The version storing `stored` under the allocated name `name` with its full world's login, whose workload holds the
+ * passed program, drafted `step` of its history from `previous` as `grizzle generate` drafts it (install-migrate.ts
+ * generatedDraft), every placeholder kept at '0'.
+ */
+const draftedVersion = (
+	stored: Stored,
+	name: string,
+	previous: Previous,
+	step: number,
+	declarations: Declarations
+) => {
+	const value = versionOf(stored)
+	return generatedDraft(
+		{ ...fullVersion(value, { passed: passedOver(value) }, name), declarations },
+		{ installation: identity.schema(parsedSchemaName(name)), previous, step },
+		{ kind: "values", value: keeping("'0'").value }
+	)
+}
 
 /** Parameters' pattern domains as the stored fields that share their patterns come and go the first version migrates to every target: no domain refused or altered, every parameter domain over its text domain, the catalog a fresh install's. */
 export const paramDomains = property.exhaust(finite(caseGen), {
@@ -84,44 +106,18 @@ export const paramDomains = property.exhaust(finite(caseGen), {
 				Effect.gen(function* () {
 					const substrate = yield* Substrate
 					const allocated = yield* substrate.schema({ create: false, label: "param_domains" })
-					const over = (value: ReturnType<typeof versionOf>) =>
-						compile(value, {
-							...asDrafted,
-							schema: atName(allocated),
-							extensions: [servedParams(value)]
-						})
-					const first = succeeded(
-						generate({
-							previous: fromEmpty,
-							installation: over(versionOf(firstStored)),
-							name: "first",
-							timestamp: draftedAt(1),
-							workload: noWorkload,
-							declared: noDeclarations
-						}),
-						"the first version drafts from nothing"
-					)
+					const first = yield* draftedVersion(firstStored, allocated, fromEmpty, 1, noDeclarations)
 					const m = yield* openMigrator(substrate, substrate.owner)
-					yield* apply(
-						m,
-						{ snapshot: first.snapshot, folders: [reviewedSource(first, kept)] },
-						noFurther
+					yield* apply(m, { snapshot: first.snapshot, folders: [first.folder] }, noFurther)
+					const second = yield* draftedVersion(
+						t,
+						allocated,
+						fromSnapshot(first.snapshot),
+						2,
+						declaredFor(t)
 					)
-					const value = versionOf(t)
-					const declared = declaredFor(t)
-					const installation = over(value)
-					const g = succeeded(
-						generate({
-							previous: fromSnapshot(first.snapshot),
-							installation,
-							name: "second",
-							timestamp: draftedAt(2),
-							workload: noWorkload,
-							declared
-						}),
-						"the target drafts from the first version"
-					)
-					const statements = Arr.flatMap(g.plan.steps, (s) =>
+					const installation = second.plan.installation
+					const statements = Arr.flatMap(second.generated.plan.steps, (s) =>
 						s.draft.kind === "statement" ? [s.draft.statement] : []
 					)
 					assert.deepEqual(
@@ -193,34 +189,19 @@ export const paramDomains = property.exhaust(finite(caseGen), {
 					yield* apply(
 						m,
 						{
-							snapshot: g.snapshot,
-							folders: [reviewedSource(first, kept), reviewedSource(g, kept)]
+							snapshot: second.snapshot,
+							folders: [first.folder, second.folder]
 						},
 						checkedAdmission(installation, substrate.admin)
 					)
 					const fresh = yield* substrate.schema({ create: false, label: "param_domains_fresh" })
-					const freshInstallation = compile(value, {
-						...asDrafted,
-						schema: atName(fresh),
-						extensions: [servedParams(value)]
-					})
-					const freshDraft = succeeded(
-						generate({
-							previous: fromEmpty,
-							installation: freshInstallation,
-							name: "fresh",
-							timestamp: draftedAt(1),
-							workload: noWorkload,
-							declared: noDeclarations
-						}),
-						"a fresh install of the target drafts"
-					)
+					const freshDraft = yield* draftedVersion(t, fresh, fromEmpty, 1, noDeclarations)
 					yield* apply(
 						m,
-						{ snapshot: freshDraft.snapshot, folders: [reviewedSource(freshDraft, kept)] },
+						{ snapshot: freshDraft.snapshot, folders: [freshDraft.folder] },
 						noFurther
 					)
-					yield* sameCatalog(installation, freshInstallation, "the target")
+					yield* sameCatalog(installation, freshDraft.plan.installation, "the target")
 				}).pipe(Effect.scoped),
 				Substrate,
 				Effect.map(caseSubstrate, (taken) => taken.substrate)

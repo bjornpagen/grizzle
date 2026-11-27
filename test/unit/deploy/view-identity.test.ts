@@ -1,12 +1,14 @@
 /**
- * A stored derived relation is identified by what it means, never by its SQL (physical/derived/meaning.ts
- * definitionMeanings, deploy/diff/diff.ts viewDropsOf), and the migration that creates its table fills it (diff.ts
- * view, structure.stored). Its meaning is the digest of what its pruned definition's DAG asks of the rows it reads, a
- * stored relation it names read through its definition, so a migration that changes a definition, or one a definition
- * reads, creates exactly those tables again, and one that changes only how grizzle lowers them creates none: the table
- * its earlier lowering installed stands, and the target's snapshot records it as installed
- * (deploy/snapshot/build.ts withInstalledViews). Each migration that creates a stored table fills it in Structure, after
- * every row it reads is written, bottom-up.
+ * A stored derived relation's table is named by its canonical form (analysis/derived/canonical.ts, core/identity.ts
+ * view), the rows form of its definition, which claims no key (ir/dag-digest.ts rowsNode), so a key added to T leaves
+ * every table over it its name; a table of one name is identified by what it means, never by its SQL
+ * (physical/derived/meaning.ts definitionMeanings, deploy/diff/diff.ts viewDropsOf), and the migration that creates its
+ * table fills it (diff.ts view, structure.stored). Its meaning is the digest of what its pruned definition's DAG asks
+ * of the rows it reads, a stored relation it names read through its definition, so a migration that changes a
+ * definition, or one a definition reads, creates exactly those tables again, and one that changes only how grizzle
+ * lowers them creates none: the table its earlier lowering installed stands, and the target's snapshot records it as
+ * installed (deploy/snapshot/build.ts withInstalledViews). Each migration that creates a stored table fills it in
+ * Structure, after every row it reads is written, bottom-up.
  *
  * The schema: T's facts by document and place, in a unit of the document; Ones and Twos, T's facts of `a` one and of
  * `a` two, at level 1; Fives, Ones' facts of `b` five, at level 2.
@@ -15,9 +17,9 @@
  * it, which changes nothing, Ones' lowering alone, Ones' installed definition to one calling a function the target no
  * longer holds, T's key of `b`, or Ones', Twos' or Fives' definition, creates again and fills exactly the tables whose
  * meaning or primary key the change changes or whose installed definition reads what is gone, and those above them (a
- * key added changes no primary key: each is the narrowest proven key holding its table's unit), in
- * install order, a fill in structure.stored; a change of nothing but a lowering drafts no step, and every table it keeps
- * is recorded as installed.
+ * key added changes no primary key: each is the narrowest proven key holding its table's unit), in install order, a
+ * fill in structure.stored; a change of nothing but a lowering drafts no step, and every table it keeps is recorded as
+ * installed.
  *
  * Oracle: a specification read off the schema, each stored relation reading its own definition. The box, exhausted:
  * every change.
@@ -31,6 +33,7 @@ import { Array as Arr, Effect } from "effect"
 import {
 	type Change,
 	changeGen,
+	inInstallOrder,
 	viewDrafts,
 	recordedViews,
 	recreatedBy,
@@ -66,14 +69,15 @@ const featureOf = (change: Change): Feature => {
 
 /** A draft creates exactly `expected` again, in install order, and fills each in structure.stored, in that order. */
 const createsAndFills = (draft: ViewDraft, expected: ReadonlyArray<View>, which: string): void => {
+	const ordered = inInstallOrder(draft.identities, expected)
 	assert.deepEqual(
 		Arr.map(draft.created, (s) => s.view),
-		[...expected],
+		[...ordered],
 		`${which} creates exactly these stored tables, in install order`
 	)
 	assert.deepEqual(
 		draft.filled,
-		Arr.map(expected, (view) => ({ view, slot: "structure.stored" as const })),
+		Arr.map(ordered, (view) => ({ view, slot: "structure.stored" as const })),
 		`${which} fills each stored table it creates, bottom-up, in structure.stored`
 	)
 }
@@ -118,6 +122,12 @@ export const aChangeOfAViewsMeaningCreatesExactlyThatViewAgainAndPopulatesIt = p
 		kept: [],
 		kills: [
 			{
+				file: "packages/engine/src/ir/dag.ts",
+				original: "\tconst digested = digestedBase(node)\n",
+				replacement: "\tconst digested = node\n",
+				why: "A stored table's meaning reads the dependencies the checker stamps on the Bases it reads, which a key gives them: T's key of `b`, carried into Ones' dependencies, changes Fives' meaning, so the draft creates Fives again."
+			},
+			{
 				file: "packages/engine/src/deploy/diff/diff.ts",
 				original: "\t\t\t\twas.get(ran.create.name.name) !== now.get(v.create.name.name) ||",
 				replacement: "\t\t\t\t!sameRecord(before, o) ||",
@@ -153,6 +163,13 @@ export const aChangeOfAViewsMeaningCreatesExactlyThatViewAgainAndPopulatesIt = p
 					'\t\treturn { kind: "superkey", fields, named: [first, ...rest], of: narrowest }\n',
 				replacement: '\t\treturn { kind: "superkey", fields, named: fields, of: narrowest }\n',
 				why: "A superkey is named by its fields in its key's order, the unit first: once T's key of b leaves Fives one fact at most, its proven keys single fields, its (doc, at) superkey takes another name than the proven (at, doc) it stood for, and a key added creates Fives again."
+			},
+			{
+				file: "packages/engine/src/ir/dag-digest.ts",
+				original:
+					"\t\tconst { primaryKey: _primaryKey, keys: _keys, ...rows } = digestedBase(node)\n",
+				replacement: "\t\tconst rows = digestedBase(node)\n",
+				why: "A canonical form holds the keys of the relations it reads, so T's key of b names Ones', Twos' and Fives' tables anew and a key added creates and fills every stored table over T again, where it re-indexes them."
 			},
 			{
 				file: "packages/engine/src/deploy/render/generate.ts",

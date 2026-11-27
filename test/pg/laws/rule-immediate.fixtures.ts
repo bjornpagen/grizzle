@@ -6,13 +6,17 @@ import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import {
+	bracketOf,
+	lawNamed,
+	type Op,
 	type ShapeKey,
 	shapeKeys,
 	statementsOf,
 	tablesOf
 } from "#test/pg/laws/rule-whole.fixtures.ts"
+import { refusedByRecheck } from "#test/support/data-step.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
-import { refusalOf } from "#test/support/substrate.ts"
+import { firstRefusalOf, refusalOf } from "#test/support/substrate.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 
 const modes = ["deferred", "immediate"] as const
@@ -22,7 +26,9 @@ type Mode = (typeof modes)[number]
  * The one statement a case's transaction writes, over document 1 stored whole and lawful before it
  * (rule-whole.fixtures.ts statementsOf `unit` at type 1): document 2 written whole and lawful; document 2 written whole
  * at type 0, which One type, a key, refuses; or the expression at document 1's start 1 deleted, a node of kind 1, which
- * Expressed, a containment, refuses.
+ * Expressed, a containment, refuses, Expr closed, so a data step's delete, inside the bracket a migration's runner
+ * sends (rule-whole.fixtures.ts bracketOf), whose re-check refuses it under Expressed's law, the judge reading none of
+ * a closed relation's removed rows.
  */
 const writes = ["lawful insert", "breaking insert", "breaking delete"] as const
 type Write = (typeof writes)[number]
@@ -43,18 +49,11 @@ export const immediateGen: Gen<Immediate> = (s) => ({
 export type ImmediateFeature =
 	| "a lawful write committed"
 	| "a breaking insert refused at COMMIT"
-	| "a breaking delete refused at COMMIT"
 	| "a breaking insert refused at its statement"
-	| "a breaking delete refused at its statement"
+	| "a breaking delete refused by its bracket's re-check, deferred"
+	| "a breaking delete refused by its bracket's re-check, immediate"
 
 class Unjudged extends Data.TaggedError("Unjudged")<{ readonly message: string }> {}
-
-/** The SQLSTATE a case's breaking write is refused by: One type's, a key's; Expressed's, a containment's. */
-const refusedBy = {
-	"lawful insert": undefined,
-	"breaking insert": sqlstates.uniqueViolation,
-	"breaking delete": sqlstates.foreignKeyViolation
-} as const satisfies Record<Write, string | undefined>
 
 /** A write of several statements as one: each before the last a data-modifying CTE of it, so every capture runs once. */
 const oneStatement = (statements: ReadonlyArray<string>): string => {
@@ -89,8 +88,9 @@ const sessionRows = (session: RawSession) =>
  * Stores document 1 whole and lawful, then runs the case's transaction: in immediate mode, SET CONSTRAINTS ALL
  * IMMEDIATE first, its one write refused at that statement where it breaks a rule, by that rule's SQLSTATE, and run
  * where it breaks none, then COMMIT; in deferred mode, its write, then COMMIT, refused where the write breaks a rule.
- * After each, every session table holds no row: the judge reads each delta's rows once, in the transaction that wrote
- * them, and deletes them, a refused transaction's going with its rollback.
+ * The delete is a data step's, inside its bracket in either mode, refused by the bracket's re-check under Expressed's
+ * law, never at its statement or at COMMIT. After each, every session table holds no row: the judge reads each delta's
+ * rows once, in the transaction that wrote them, and deletes them, a refused transaction's going with its rollback.
  */
 export const runImmediate = (
 	installed: Installed,
@@ -115,53 +115,73 @@ export const runImmediate = (
 		yield* session.query(oneStatement(statementsOf(tables, { kind: "unit", doc: 1, type: 1 })), [])
 		yield* session.commit
 		yield* empty("storing document 1")
-		const write = oneStatement(
+		const op: Exclude<Op, { readonly kind: "judge" }> =
 			k.write === "breaking delete"
-				? statementsOf(tables, { kind: "unexpr", doc: 1, start: 1 })
-				: statementsOf(tables, {
-						kind: "unit",
-						doc: 2,
-						type: k.write === "breaking insert" ? 0 : 1
-					})
-		)
-		const expected = refusedBy[k.write]
+				? { kind: "unexpr", doc: 1, start: 1 }
+				: { kind: "unit", doc: 2, type: k.write === "breaking insert" ? 0 : 1 }
+		const write = oneStatement(statementsOf(tables, op))
+		/** The delete of document 1's expression removes a closed relation's row: a data step's, inside its bracket. */
+		const bracket = bracketOf("whole", installed, [op])
 		yield* session.begin
 		if (k.mode === "immediate") {
 			yield* session.query("SET CONSTRAINTS ALL IMMEDIATE", [])
 		}
+		for (const sql of Option.match(bracket, { onNone: () => [], onSome: (b) => b.before })) {
+			yield* session.query(sql, [])
+		}
 		const atStatement = yield* refusalOf(session.query(write, []))
-		if (Option.isSome(atStatement)) {
+		const atBracket = Option.isSome(atStatement)
+			? Option.none()
+			: yield* firstRefusalOf(
+					Option.match(bracket, { onNone: () => [], onSome: (b) => b.after }),
+					(sql) => session.query(sql, [])
+				)
+		const before = Option.orElse(atStatement, () => atBracket)
+		if (Option.isSome(before)) {
 			yield* session.rollback
 		}
-		const atCommit = Option.isSome(atStatement) ? Option.none() : yield* refusalOf(session.commit)
-		const refused = Option.orElse(atStatement, () => atCommit)
-		if (expected === undefined) {
-			if (Option.isSome(refused)) {
-				return yield* new Unjudged({
-					message: `a lawful write was refused under ${refused.value.code}: ${refused.value.message}, ${where}`
-				})
+		const atCommit = Option.isSome(before) ? Option.none() : yield* refusalOf(session.commit)
+		/** Each moment's refusal, as the case met it, for its failures' messages. */
+		const met = Formatter.format({ atStatement, atBracket, atCommit })
+		switch (k.write) {
+			case "lawful insert": {
+				const refused = Option.orElse(before, () => atCommit)
+				if (Option.isSome(refused)) {
+					return yield* new Unjudged({
+						message: `a lawful write was refused under ${refused.value.code}: ${refused.value.message}, ${where}`
+					})
+				}
+				c.note("a lawful write committed")
+				break
 			}
-			c.note("a lawful write committed")
-		} else {
-			const at = k.mode === "immediate" ? atStatement : atCommit
-			if (Option.isNone(at) || at.value.code !== expected) {
-				return yield* new Unjudged({
-					message: `a breaking write ${Option.match(at, {
-						onNone: () =>
-							k.mode === "immediate" ? "ran past its statement unjudged" : "committed",
-						onSome: (e) => `was refused under ${e.code}: ${e.message}`
-					})}, where it is refused by ${expected} ${k.mode === "immediate" ? "at its statement" : "at COMMIT"}, ${where}`
-				})
-			}
-			c.note(
-				k.mode === "immediate"
-					? k.write === "breaking insert"
+			case "breaking insert": {
+				const at = k.mode === "immediate" ? atStatement : atCommit
+				if (Option.isNone(at) || at.value.code !== sqlstates.uniqueViolation) {
+					return yield* new Unjudged({
+						message: `a breaking insert was not refused by ${sqlstates.uniqueViolation} ${k.mode === "immediate" ? "at its statement" : "at COMMIT"}: ${met}, ${where}`
+					})
+				}
+				c.note(
+					k.mode === "immediate"
 						? "a breaking insert refused at its statement"
-						: "a breaking delete refused at its statement"
-					: k.write === "breaking insert"
-						? "a breaking insert refused at COMMIT"
-						: "a breaking delete refused at COMMIT"
-			)
+						: "a breaking insert refused at COMMIT"
+				)
+				break
+			}
+			case "breaking delete": {
+				const law = lawNamed(installed.installation, "Expressed")
+				if (Option.isNone(atBracket) || !refusedByRecheck(atBracket.value, law)) {
+					return yield* new Unjudged({
+						message: `a breaking delete was not refused by its bracket's re-check under Expressed's law ${law}: ${met}, ${where}`
+					})
+				}
+				c.note(
+					k.mode === "immediate"
+						? "a breaking delete refused by its bracket's re-check, immediate"
+						: "a breaking delete refused by its bracket's re-check, deferred"
+				)
+				break
+			}
 		}
 		yield* empty("the case's transaction")
 	})

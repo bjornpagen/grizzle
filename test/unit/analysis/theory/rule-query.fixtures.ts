@@ -8,7 +8,7 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { TableConstraintLaw } from "#compiler/laws/model/model.ts"
 import { theoryViolations } from "#compiler/laws/model/violations.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import { type Law, sameLaw } from "#compiler/public/changeset.ts"
 import { Text } from "#compiler/public/compute.ts"
@@ -34,7 +34,7 @@ import { ownedInput } from "#test/support/policy.ts"
 /**
  * A schema's artifacts with its laws' violation queries written, each rule over a query's checked against the checked
  * schema (laws/model/violations.ts theoryViolations), as generate writes them into the snapshot, and its installation
- * compiled as generate drafts it (physical/install/compile.ts compileInstallation over the complete install options),
+ * compiled as generate drafts it (program/install.ts compileInstallation over the complete install options),
  * every probe of each rule over a query among it (analysis/theory/query.ts probe, each navigated and checked as a
  * query over its region).
  */
@@ -637,9 +637,9 @@ export const negationSchemaOf = (c: NegationCase) => {
 					case "alone":
 						return items.where(negation)
 					case "conjunction":
-						return items.where(r.and(r.ne(kind, 0), negation))
+						return items.where(r.and([r.ne(kind, 0), negation]))
 					case "nested conjunction":
-						return items.where(r.and(r.ne(kind, 0), r.and(negation, r.ne(id, 0))))
+						return items.where(r.and([r.ne(kind, 0), r.and([negation, r.ne(id, 0)])]))
 				}
 			})()
 			return filtered.find({ id })

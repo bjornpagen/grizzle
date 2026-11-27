@@ -246,7 +246,7 @@ export const openedWith = <R extends AnyRole, P>(
 				Arr.map(held.role.members, (m) => m.name)
 			)
 		) {
-			return yield* Effect.die(
+			return yield* Effect.sync(() =>
 				defect(`the workload handles of role ${held.role.name}: one per program of its layer`)
 			)
 		}

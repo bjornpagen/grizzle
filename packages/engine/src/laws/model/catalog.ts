@@ -1,7 +1,8 @@
+import { viewContainments } from "#compiler/analysis/derived/drawn.ts"
 import { type CatalogKey, theoryCatalog } from "#compiler/analysis/physical/evidence.ts"
 import type { DerivedAnalysis } from "#compiler/analysis/schema.ts"
 import type { EvidencedTheory } from "#compiler/analysis/theory/theory.ts"
-import type { EvidenceCatalog, ExistenceConstraint } from "#compiler/ir/evidence.ts"
+import { type EvidenceCatalog, type ExistenceConstraint, strongest } from "#compiler/ir/evidence.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 
 /**
@@ -23,18 +24,42 @@ export const existenceConstraints = (
 					{
 						from: { relation: c.from.relation, fields: c.from.fields },
 						to: { relation: c.to.relation, fields: c.to.fields },
-						law: c.law,
+						laws: [c.law],
 						context: c.context
 					}
 				]
 	)
 
-/** Every derived relation's inherited keys, the first its primary one, each with the unique index its view is installed
- * with: the keys an evidence catalog resolves a view's key to (evidenceCatalog), so every
- * compilation that reads a view relies on exactly the indexes the installation creates. A view's unique index compares
- * its spans as values. */
-export const derivedKeyConstraints = (analysis: DerivedAnalysis): ReadonlyArray<CatalogKey> =>
-	analysis.order.flatMap((a) =>
+/**
+ * What the derived relations of a schema prove: each one's inherited keys, the first its primary one, each with the
+ * unique index its view is installed with, and the containments its definition draws (analysis/derived/drawn.ts
+ * viewContainments). An evidence catalog resolves a view's key to its index and reads its containments beside the
+ * declared ones (evidenceCatalog).
+ */
+export interface ViewEvidence {
+	readonly keys: ReadonlyArray<CatalogKey>
+	readonly containments: ReadonlyArray<ExistenceConstraint>
+}
+
+/** No derived relation's evidence: a catalog over the base relations alone. */
+export const noViewEvidence: ViewEvidence = { keys: [], containments: [] }
+
+/**
+ * The evidence of a schema's derived relations (ViewEvidence), their containments grounded on `existence`, the
+ * declared containments' (LawModel.existence):
+ *
+ * - each inherited key with its unique index, so every compilation that reads a view relies on exactly the indexes the
+ *   installation creates; a view's unique index compares its spans as values;
+ * - each containment a definition draws, the view's columns in the target's fields, resting on the laws of the declared
+ *   containments its draw rides on, in the strongest of their contexts and committed snapshot, where the view's table
+ *   holds its definition's rows: every committed state's. A draw riding on a containment no existence evidence states
+ *   (a coverage or a selected side) proves nothing and is dropped.
+ */
+export const derivedEvidence = (
+	analysis: DerivedAnalysis,
+	existence: ReadonlyArray<ExistenceConstraint>
+): ViewEvidence => ({
+	keys: analysis.order.flatMap((a) =>
 		a.keys.map((k): CatalogKey => ({
 			relation: a.name,
 			fields: k.fields,
@@ -42,13 +67,34 @@ export const derivedKeyConstraints = (analysis: DerivedAnalysis): ReadonlyArray<
 			kind: "uniqueIndex",
 			constraint: k.index
 		}))
+	),
+	containments: analysis.order.flatMap((a) =>
+		viewContainments(analysis.schema.owned, a.query.dag.roots[0]).flatMap(
+			(c): ReadonlyArray<ExistenceConstraint> => {
+				const hops = c.through.map((h) =>
+					existence.filter((e) => e.from.relation === h.relation && e.to.relation === h.target)
+				)
+				if (hops.some((h) => h.length === 0)) {
+					return []
+				}
+				const rides = hops.flat()
+				return [
+					{
+						from: { relation: a.name, fields: c.pairs.map((p) => p.left) },
+						to: { relation: c.target, fields: c.pairs.map((p) => p.right) },
+						laws: rides.flatMap((e) => e.laws),
+						context: strongest(["committedSnapshot", ...rides.map((e) => e.context)])
+					}
+				]
+			}
+		)
 	)
+})
 
-/** What a catalog is built from: the schema's law model, and its derived relations' inherited keys with their views'
- * unique indexes. */
+/** What a catalog is built from: the schema's law model, and its derived relations' evidence (derivedEvidence). */
 export interface CatalogSchema {
 	readonly laws: LawModel
-	readonly views: ReadonlyArray<CatalogKey>
+	readonly views: ViewEvidence
 }
 
 /** The catalog of a schema.
@@ -58,13 +104,16 @@ export interface CatalogSchema {
  * the constraints and indexes the installation creates.
  *
  * Every key a rewrite may rely on resolves to the constraint ownership derived for it, a derived relation's inherited
- * key to the unique index its view is installed with (derivedKeyConstraints), and every containment to the native
+ * key to the unique index its view is installed with (derivedEvidence), and every containment to the native
  * object the law model specialized it into (LawModel.existence, existenceConstraints). The kind follows the object: an
  * immediate foreign key, a deferred one, a PERIOD foreign key, a roster's domain, or a table CHECK reading a closed
  * side's constant (ClosedCheck). The evidence admission (`admit`) then decides, per execution context, which of them
  * may prove anything. */
 export const evidenceCatalog = (schema: CatalogSchema): EvidenceCatalog =>
 	theoryCatalog(
-		{ keys: [...schema.laws.theory.evidence.keys, ...schema.views] },
-		{ containments: schema.laws.existence, relations: schema.laws.theory.relations }
+		{ keys: [...schema.laws.theory.evidence.keys, ...schema.views.keys] },
+		{
+			containments: [...schema.laws.existence, ...schema.views.containments],
+			relations: schema.laws.theory.relations
+		}
 	)

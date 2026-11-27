@@ -223,6 +223,7 @@ const contextOf = (source: SourceDesc): ContextDesc | undefined => {
 		case "paramOf":
 		case "call":
 		case "callField":
+		case "arm":
 		case "split":
 		case "series":
 		case "interior":
@@ -270,24 +271,13 @@ const suppliers = (
 	})
 
 /**
- * How a writable entry's writes meet its target's keys: `probed`, a query entry's, whose precheck probes every key of T
- * at its submitted values, so no key holds a field T's family draws (`keyHoldsFamily`); `scoped`, a scoped entry's
- * (schema/scope.ts), written as T whole, its families drawn as a whole entry's, whose precheck probes only the keys whose
- * fields do not decide whether a row is the owner's (`determines`, scope.ts), so only those hold no field T's family
- * draws.
- */
-export type EntryKeys =
-	| { readonly kind: "probed" }
-	| { readonly kind: "scoped"; readonly determines: (fields: ReadonlyArray<string>) => boolean }
-
-/**
  * The writable entry of `entry`, a query entry over the base `base` listed in its role's `write`, or why it is none;
- * its keys met as `keys` states (EntryKeys).
+ * its precheck probes every key of its target at its submitted values, so no key holds a field the target's family
+ * draws (`keyHoldsFamily`).
  */
 export const writableEntry = (
 	base: SchemaDesc,
-	entry: EntryDefinition,
-	keys: EntryKeys
+	entry: EntryDefinition
 ): Result.Result<WritableEntry<string, string>, WritabilityRefused> => {
 	const name = EntryName(entry.name)
 	const stage = unnamed(entry.query.stage)
@@ -342,9 +332,7 @@ export const writableEntry = (
 	 */
 	const declaredKeys = keysOfRelation(base, target)
 	const keyed = new Set(declaredKeys.flat())
-	const probedKeys =
-		keys.kind === "probed" ? declaredKeys : declaredKeys.filter((k) => !keys.determines(k))
-	const drawnKey = [...new Set(probedKeys.flat())]
+	const drawnKey = [...new Set(declaredKeys.flat())]
 		.toSorted(compareStrings)
 		.find((field) => family(target, field))
 	if (drawnKey !== undefined) {

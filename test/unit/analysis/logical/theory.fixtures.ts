@@ -66,21 +66,6 @@ const lawOf = (t: Theory, shape: string, relation: string) =>
 		)
 	).id
 
-/** The containment an alternatives statement expands to from `from` into `to`: an arm's, or a handle's reverse. */
-const alternativeOf = (t: Theory, from: string, to: string) =>
-	Option.getOrThrowWith(
-		Arr.findFirst(
-			t.laws,
-			(l) =>
-				l.shape === "contained" &&
-				l.source.kind === "alternatives" &&
-				l.detail.kind === "containment" &&
-				l.detail.from.relation === from &&
-				l.detail.to.relation === to
-		),
-		() => new Error(`the alternatives expand to a containment from ${from} into ${to}`)
-	).id
-
 /**
  * The violations of every law, each law's rows sorted, as a map compared whole: the laws a state violates, each with
  * exactly its witnesses.
@@ -128,6 +113,8 @@ export const carrierOf = (desc: FieldDesc): string => {
 			return `vector(${desc.dimensions})`
 		case "search":
 			return `search document under ${desc.configuration}`
+		case "variant":
+			return `variant ${desc.name}`
 	}
 }
 
@@ -151,6 +138,7 @@ export const sided = (sketch: DeclaredSketch, side: string): DeclaredSketch => {
 				return { ...desc, roster: `R${side}` }
 			case "span":
 				return { ...desc, endpoint: rename(desc.endpoint, depth + 1) }
+			case "variant":
 			case "pg":
 			case "numeric":
 			case "exact":
@@ -222,6 +210,7 @@ export const pairedGen = (a: DeclaredSketch): Gen<readonly [Pairing, DeclaredSke
 					case "closedId":
 					case "bits":
 						return ["another roster", sided(a, "b")]
+					case "variant":
 					case "pg":
 					case "exact":
 					case "computedNumeric":
@@ -262,7 +251,7 @@ const containedOf = (from: string, to: string) =>
 /**
  * Work's laws, each read from the statement that declares it, as a function from facts to its witnesses: a primary
  * key's values two distinct facts share; a containment's source values its target lacks, over each side's selection;
- * the alternatives' arms into their handle's tasks and each handle's tasks into its arm; Cents' values below zero.
+ * each kind's arm into its kind's tasks and each kind's tasks into its arm, its mirrors; Cents' values below zero.
  */
 type Facts = Readonly<Record<string, ReadonlyArray<Readonly<Record<string, unknown>>>>>
 
@@ -345,7 +334,7 @@ export const model: ReadonlyArray<
 	],
 	[
 		"the Automatic arm",
-		alternativeOf(t, "AutomaticTask", "Task"),
+		containedOf("AutomaticTask", "Task"),
 		lacking(
 			{ relation: "AutomaticTask", field: "task" },
 			{ relation: "Task", field: "id" },
@@ -355,7 +344,7 @@ export const model: ReadonlyArray<
 	],
 	[
 		"the Manual arm",
-		alternativeOf(t, "ManualTask", "Task"),
+		containedOf("ManualTask", "Task"),
 		lacking(
 			{ relation: "ManualTask", field: "task" },
 			{ relation: "Task", field: "id" },
@@ -365,7 +354,7 @@ export const model: ReadonlyArray<
 	],
 	[
 		"Automatic's reverse",
-		alternativeOf(t, "Task", "AutomaticTask"),
+		containedOf("Task", "AutomaticTask"),
 		lacking(
 			{ relation: "Task", field: "id" },
 			{ relation: "AutomaticTask", field: "task" },
@@ -375,7 +364,7 @@ export const model: ReadonlyArray<
 	],
 	[
 		"Manual's reverse",
-		alternativeOf(t, "Task", "ManualTask"),
+		containedOf("Task", "ManualTask"),
 		lacking(
 			{ relation: "Task", field: "id" },
 			{ relation: "ManualTask", field: "task" },

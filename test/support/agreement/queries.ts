@@ -2319,7 +2319,7 @@ const nearestOf = (d: Drawing, rule: RuleSpec): Nearest => {
 /** A calendar date a literal of index `value` names, in January 2026. */
 const dateOf = (value: number): string => `2026-01-${pipe(String(value + 1), Str.padStart(2, "0"))}`
 
-/** The text of the uuid of index `value`, which the program writes as the tests' Id, `Id("…")`. */
+/** The text of the uuid of index `value`, which the program writes as the tests' Id, `toId("…")`. */
 const uuidOf = (value: number): string =>
 	`00000000-0000-4000-8000-${pipe(String(value), Str.padStart(12, "0"))}`
 
@@ -2354,7 +2354,7 @@ const stageOwnerText = (owner: StageOwner): string => {
 		case "param":
 			return ` owner: r.param(${jsonText(owner.name)}, Item.fields.owner),`
 		case "literal":
-			return ` owner: Id(${jsonText(uuidOf(owner.value))}),`
+			return ` owner: toId(${jsonText(uuidOf(owner.value))}),`
 		case "free":
 			return ""
 	}
@@ -2390,13 +2390,13 @@ class Rendering {
 					case "date":
 						return jsonText(dateOf(t.value))
 					case "uuid":
-						return `Id(${jsonText(uuidOf(t.value))})`
+						return `toId(${jsonText(uuidOf(t.value))})`
 					case "code":
 						return jsonText(toneOf(t.value))
 				}
 			case "constant":
 				if (t.of === "cents") {
-					return `Type.literal(Cents, ${t.value}n)`
+					return `Type.literal(Cents, toCents(${t.value}n))`
 				}
 				return `Type.literal(pg.integer, ${t.value})`
 			case "handle":
@@ -2424,7 +2424,7 @@ class Rendering {
 				return `${p.via === "rule" ? `r.${p.op}` : spelling[p.op]}(${this.term(p.a)}, ${this.term(p.b)})`
 			case "and":
 			case "or":
-				return `${p.via === "rule" ? `r.${p.kind}` : spelling[p.kind]}(${this.pred(p.ps[0])}, ${this.pred(p.ps[1])})`
+				return `${p.via === "rule" ? `r.${p.kind}` : spelling[p.kind]}([${this.pred(p.ps[0])}, ${this.pred(p.ps[1])}])`
 		}
 	}
 
@@ -2985,11 +2985,11 @@ const builtArm =
 				const [x, y] = [pred(p.ps[0]), pred(p.ps[1])]
 				return p.via === "rule"
 					? p.kind === "and"
-						? r.and(x, y)
-						: r.or(x, y)
+						? r.and([x, y])
+						: r.or([x, y])
 					: p.kind === "and"
-						? computeCore.and(x, y)
-						: computeCore.or(x, y)
+						? computeCore.and([x, y])
+						: computeCore.or([x, y])
 			}
 			const a = term(p.a)
 			const b = term(p.b)
@@ -3632,13 +3632,14 @@ const keyValues: { readonly [K in KeyTarget]: unknown } = {
 const keyValueText = (type: ScalarType): string => {
 	switch (type.carrier) {
 		case "uuid":
-			return `Id(${jsonText(uuidOf(1))})`
+			return `toId(${jsonText(uuidOf(1))})`
 		case "int4":
 			return "1"
 		case "code":
 			return jsonText(Arr.getUnsafe(defined(rosterOf(type), "a closed id's roster").handles, 0))
 		case "range4":
 			return "{ start: 0, end: 1 }"
+		case "variant":
 		case "int2":
 		case "int8":
 		case "numeric":
@@ -3914,7 +3915,7 @@ const caseOf = ({ spec, reached }: Drawn): AgreementCase => {
 		if (Arr.some(verdict.proved.keys[0], (k) => k.length < heading)) {
 			notes.add("a key below the heading")
 		}
-		if (Str.includes("Brand.Brand")(verdict.proved.head)) {
+		if (Str.includes("Marked<")(verdict.proved.head)) {
 			notes.add("a contract in the head")
 		}
 		const page = verdict.proved.page

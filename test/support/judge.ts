@@ -3,24 +3,35 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import {
+	explainServerStatement,
+	type MalformedPlan,
 	type PlanNode,
 	parsePlan,
 	planNodes,
 	rowsGenerated,
-	rowsRead
+	rowsRead,
+	scannedRows
 } from "#bench/harness/explain.ts"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
+import type { BenchSession } from "#bench/harness/session.ts"
+import { identifierOf, identity, upkeepParts } from "#compiler/core/identity.ts"
 import { temporarySchema } from "#compiler/core/temporary.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { standUpsOf } from "#compiler/deploy/diff/diff.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import type { OperandSelect, PlStatement } from "#compiler/sql/ast.ts"
-import { simpleSelect } from "#compiler/sql/build.ts"
-import { printExpr, printStatement, printTableName } from "#compiler/sql/print.ts"
+import type {
+	OperandSelect,
+	PlBlock,
+	PlDeclaration,
+	PlStatement,
+	Select
+} from "#compiler/sql/ast.ts"
+import { lit } from "#compiler/sql/build.ts"
+import { printExpr, printObjectName, printStatement } from "#compiler/sql/print.ts"
 import { identityHooks, Transform } from "#compiler/sql/transform.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { standUpCallsOf } from "#test/support/kernel/naming.ts"
+import type { SqlError } from "#test/support/pg.ts"
 import type { CaseSession, RawSession } from "#test/support/substrate/session.ts"
 
 /**
@@ -110,6 +121,8 @@ const sessionInserts = (body: ReadonlyArray<PlStatement>): ReadonlyArray<Capture
 			case "truncateSessionTable":
 			case "whenFound":
 				return []
+			case "wholeReads":
+				return sessionInserts(s.body)
 		}
 	})
 
@@ -186,54 +199,148 @@ export const judgedStatementsOf = (installation: Installation): ReadonlyArray<Ju
 /** A statement a PL/pgSQL body runs for its effect (sql/ast.ts PlStatement `modify`). */
 type Modified = Extract<PlStatement, { readonly kind: "modify" }>["statement"]
 
+/** The block of the judge's block function `named` (physical/ddl/rules.ts JudgedCall), none where none is installed. */
+const blocksOf = (installation: Installation, named: string): ReadonlyArray<PlBlock> =>
+	Arr.flatMap(installation.statements, (s): ReadonlyArray<PlBlock> =>
+		s.kind === "createFunction" && s.language === "plpgsql" && s.name.name === named ? [s.body] : []
+	)
+
+/** The statements a PL/pgSQL body runs for their effect, in its order. */
+const modifiedIn = (body: ReadonlyArray<PlStatement>): ReadonlyArray<Modified> =>
+	Arr.flatMap(body, (b): ReadonlyArray<Modified> => (b.kind === "modify" ? [b.statement] : []))
+
 /**
- * The statements of the upkeep of stored relation `relation` (physical/ddl/rules.ts upkeepBlock), in its body's order:
- * the DELETE of its rows its definition no longer holds at the written units, then the INSERT of those it gained.
+ * The bodies of stored relation `relation`'s upkeep blocks (physical/ddl/rules.ts upkeepBlock, identity.storedUpkeep),
+ * each block's in its function's order, the blocks in their parts' (upkeepParts): a unit form's one, or a delta form's
+ * removal of the facts a write withdraws, then its insert of the facts it gains.
+ */
+export const upkeepBodyOf = (
+	installation: Installation,
+	relation: string
+): ReadonlyArray<PlStatement> =>
+	Arr.flatMap(upkeepBlocksOf(installation, relation), (block) => block.body)
+
+/** The blocks of stored relation `relation`'s upkeep (`upkeepBodyOf`), in their parts' order. */
+const upkeepBlocksOf = (installation: Installation, relation: string): ReadonlyArray<PlBlock> =>
+	Arr.flatMap(upkeepParts, (part) =>
+		blocksOf(installation, identifierOf(identity.storedUpkeep(relation, part)))
+	)
+
+/**
+ * A statement an upkeep's block runs (physical/ddl/rules.ts upkeepBlock): a write it runs once, its INSERT, or the loop
+ * of its removal, which runs its body's writes, each DELETE of one row by its tuple id, once for each row its query
+ * returns, `variable`, declared in the block, holding the row's value.
+ */
+export type UpkeepRun =
+	| Modified
+	| {
+			readonly kind: "loop"
+			readonly query: Select
+			readonly variable: PlDeclaration
+			readonly body: ReadonlyArray<Modified>
+	  }
+
+/**
+ * The statements of the upkeep of stored relation `relation` (`upkeepBlocksOf`), in its blocks' order: each removal of
+ * its rows its definition no longer holds, before the INSERT of its block, a unit form's of those it derives at the
+ * written units, a delta form's of those it gained.
  */
 const upkeepStatementsOf = (
 	installation: Installation,
 	relation: string
-): ReadonlyArray<Modified> => {
-	const upkeep = identifierOf(identity.storedUpkeep(relation))
-	return Arr.flatMap(installation.statements, (s): ReadonlyArray<Modified> =>
-		s.kind === "createFunction" && s.language === "plpgsql" && s.name.name === upkeep
-			? Arr.flatMap(s.body.body, (b): ReadonlyArray<Modified> =>
-					b.kind === "modify" ? [b.statement] : []
-				)
-			: []
+): ReadonlyArray<UpkeepRun> =>
+	Arr.flatMap(upkeepBlocksOf(installation, relation), (block) =>
+		Arr.flatMap(block.body, (s): ReadonlyArray<UpkeepRun> => {
+			if (s.kind === "modify") {
+				return [s.statement]
+			}
+			if (s.kind !== "forQuery") {
+				return []
+			}
+			const variable = Arr.findFirst(block.declare, (d) => d.name === s.variable)
+			assert.ok(
+				Option.isSome(variable),
+				`an upkeep's loop variable ${s.variable}, declared in its block`
+			)
+			return [{ kind: "loop", query: s.query, variable: variable.value, body: modifiedIn(s.body) }]
+		})
 	)
-}
 
 /**
  * The reads of each statement of the upkeep of stored relation `relation` (`upkeepStatementsOf`), each as the query of
- * the rows it reads: a DELETE's, its target and its USING under its WHERE, below its WITH, as PostgreSQL reads a DELETE
- * USING as their join; an INSERT's, the query its rows come from.
+ * the rows it reads: a loop's, its query, whose rows its DELETEs read the table at by their ids alone; an INSERT's, the
+ * query its rows come from.
  */
 export const upkeepReadsOf = (
 	installation: Installation,
 	relation: string
 ): ReadonlyArray<OperandSelect> =>
 	Arr.flatMap(upkeepStatementsOf(installation, relation), (m): ReadonlyArray<OperandSelect> => {
-		if (m.kind === "delete") {
-			return [
-				{
-					...simpleSelect(
-						[],
-						[{ kind: "table", table: m.table, alias: m.alias }, ...m.using],
-						m.where
-					),
-					with: m.with
-				}
-			]
+		if (m.kind === "loop") {
+			return [m.query]
 		}
 		return m.kind === "insert" && m.source.kind === "query" ? [m.source.query] : []
 	})
 
+/** One EXPLAIN ANALYZE of `sql`, its plan. */
+const explained = <E>(
+	values: (sql: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, E>,
+	sql: string
+): Effect.Effect<PlanNode, E> =>
+	Effect.map(
+		values(`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${sql}`),
+		(rows) => succeeded(parsePlan(rows[0]?.[0]), "one EXPLAIN plan").plan
+	)
+
+/**
+ * Each plan PostgreSQL runs `run` by, explained with ANALYZE in its order, as the judge's PL/pgSQL runs it: a write's
+ * one; a loop's query's, then each write of its body once for each row its query returns, the loop's variable read as
+ * the row's value cast to its declared type. The query's rows are the ones the loop reads, its snapshot taken before any
+ * DELETE of its body runs, as PL/pgSQL's FOR over a query reads them.
+ */
+export const explainedRun = <E>(
+	values: (sql: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, E>,
+	run: UpkeepRun
+): Effect.Effect<ReadonlyArray<PlanNode>, E> =>
+	Effect.gen(function* () {
+		if (run.kind !== "loop") {
+			return [yield* explained(values, printStatement(run))]
+		}
+		const text = printStatement(run.query)
+		const read = yield* explained(values, text)
+		const rows = yield* values(text)
+		const each = yield* Effect.forEach(rows, (row) => {
+			const at = new Transform({
+				...identityHooks,
+				expr: (e) =>
+					e.kind === "plVar" && e.name === run.variable.name
+						? lit.text(String(row[0]), run.variable.type)
+						: e
+			})
+			return Effect.forEach(run.body, (m) => explained(values, printStatement(modified(at, m))))
+		})
+		return [read, ...Arr.flatten(each)]
+	})
+
 /**
  * Each statement of the upkeep of stored relation `relation` (`upkeepStatementsOf`) explained (EXPLAIN ANALYZE) over
- * the transaction's deltas as the judge would run it, in its body's order, the DELETE's effect before the INSERT, all
- * under a savepoint the explanation rolls back to, so the upkeep's table and the deltas stand as the captures left them:
- * explained before anything runs the judge, SET CONSTRAINTS ALL IMMEDIATE or COMMIT, which empties the deltas.
+ * the transaction's deltas as the judge would run it (`explainedRun`), in its body's order, the removal's effect before
+ * the INSERT, its writes standing after: what a case whose transaction rolls back whole explains itself, before
+ * anything runs the judge, SET CONSTRAINTS ALL IMMEDIATE or COMMIT, which empties the deltas.
+ */
+export const upkeepRuns = <E>(
+	values: (sql: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, E>,
+	installation: Installation,
+	relation: string
+): Effect.Effect<ReadonlyArray<PlanNode>, E> =>
+	Effect.map(
+		Effect.forEach(upkeepStatementsOf(installation, relation), (m) => explainedRun(values, m)),
+		Arr.flatten
+	)
+
+/**
+ * The upkeep's statements explained (`upkeepRuns`) under a savepoint the explanation rolls back to, so the upkeep's
+ * table and the deltas stand as the captures left them.
  */
 export const upkeepPlans = <E>(
 	query: (sql: string) => Effect.Effect<unknown, E>,
@@ -243,14 +350,7 @@ export const upkeepPlans = <E>(
 ): Effect.Effect<ReadonlyArray<PlanNode>, E> =>
 	Effect.gen(function* () {
 		yield* query("SAVEPOINT upkeep_explained")
-		const plans = yield* Effect.forEach(upkeepStatementsOf(installation, relation), (m) =>
-			Effect.map(
-				values(
-					`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${printStatement(m)}`
-				),
-				(explained) => succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan
-			)
-		)
+		const plans = yield* upkeepRuns(values, installation, relation)
 		yield* query("ROLLBACK TO SAVEPOINT upkeep_explained")
 		return plans
 	})
@@ -306,7 +406,7 @@ const tablesReadBy = (
 					if (source.table.schema === temporarySchema) {
 						deltas.push(source.table.name)
 					} else {
-						stored.push(printTableName(source.table))
+						stored.push(printObjectName(source.table))
 					}
 				}
 				if (source.kind === "function" && source.call.fn.kind === "qualified") {
@@ -356,18 +456,17 @@ export interface RuleStatement {
 	readonly stored: ReadonlySet<string>
 }
 
-/** A data-modifying statement of PL/pgSQL's: an upkeep's DELETE or INSERT. */
 /**
- * A statement of a stored relation's upkeep (physical/ddl/rules.ts upkeepBlock), `relation` the stored relation whose
- * table it writes: its DELETE of the rows the relation's definition no longer derives at the units the transaction
- * wrote, or its INSERT of those it newly derives there, with the tables it reads, and `writes`, the deltas its stored
- * table's capture writes where a rule or an upkeep reads the relation (`capturedDeltasOf`), which the upkeep's writes
- * fill inside the judge, before every statement over them runs.
+ * A statement of a stored relation's upkeep (physical/ddl/rules.ts upkeepBlock, `UpkeepRun`), `relation` the stored
+ * relation whose table it writes: its loop deleting the rows the relation's definition no longer derives at the units
+ * the transaction wrote, or its INSERT of those it newly derives there, with the tables it reads, and `writes`, the
+ * deltas its stored table's capture writes where a rule or an upkeep reads the relation (`capturedDeltasOf`), which the
+ * upkeep's writes fill inside the judge, before every statement over them runs.
  */
 export interface UpkeepStatement {
 	readonly kind: "upkeep"
 	readonly relation: string
-	readonly statement: Modified
+	readonly statement: UpkeepRun
 	readonly deltas: ReadonlySet<string>
 	readonly stored: ReadonlySet<string>
 	readonly writes: ReadonlySet<string>
@@ -389,6 +488,8 @@ const modified = (transform: Transform, statement: Modified): Modified => {
 			return transform.update(statement)
 		case "delete":
 			return transform.delete(statement)
+		case "merge":
+			return transform.merge(statement)
 	}
 }
 
@@ -426,7 +527,13 @@ const upkeepJudgeStatementsOf = (
 		)
 		const writes = new Set(Arr.map(capturedDeltasOf(installation, upkeep.relation), (d) => d.name))
 		return Arr.map(statements, (statement): UpkeepStatement => {
-			const read = tablesReadBy((t) => modified(t, statement), readers)
+			const read = tablesReadBy(
+				(t) =>
+					statement.kind === "loop"
+						? [t.setQuery(statement.query), ...Arr.map(statement.body, (m) => modified(t, m))]
+						: modified(t, statement),
+				readers
+			)
 			return {
 				kind: "upkeep",
 				relation: upkeep.relation,
@@ -460,15 +567,18 @@ export const judgedDeltaReadsOf = (installation: Installation): ReadonlyArray<Ru
 	ruleStatementsOf(installation, readersOf(installation))
 
 /**
- * A statement of the judge as the SQL PostgreSQL plans for it: a rule's test as its PERFORM's SELECT (`plannedQueryOf`),
- * an upkeep's write as itself.
+ * Each plan PostgreSQL runs a statement of the judge by, explained with ANALYZE: a rule's test as its PERFORM's SELECT
+ * (`plannedQueryOf`), an upkeep's statement as the judge runs it (`explainedRun`).
  */
-const plannedOf = (statement: JudgeStatement): string => {
+const plansOf = <E>(
+	values: (sql: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, E>,
+	statement: JudgeStatement
+): Effect.Effect<ReadonlyArray<PlanNode>, E> => {
 	switch (statement.kind) {
 		case "rule":
-			return plannedQueryOf(statement.statement)
+			return Effect.map(explained(values, plannedQueryOf(statement.statement)), (plan) => [plan])
 		case "upkeep":
-			return printStatement(statement.statement)
+			return explainedRun(values, statement.statement)
 	}
 }
 
@@ -488,7 +598,11 @@ export interface JudgedPlan {
 	readonly plan: PlanNode
 }
 
-/** A statement of the judge explained as the judge runs it (`judgeRun`): the statement and its plan. */
+/**
+ * A statement of the judge explained as the judge runs it (`judgeRun`): the statement and a plan PostgreSQL ran it by,
+ * one of a write or a rule's test, and of an upkeep's loop one of its query and one of each run of its body
+ * (`explainedRun`).
+ */
 export interface JudgePlan<S extends JudgeStatement> {
 	readonly statement: S
 	readonly plan: PlanNode
@@ -570,13 +684,9 @@ export const judgeRun = <S extends JudgeStatement, E>(
 			if (!Arr.some([...statement.deltas], (d) => holding.has(d))) {
 				continue
 			}
-			const explained = yield* values(
-				`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${plannedOf(statement)}`
-			)
-			plans.push({
-				statement,
-				plan: succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan
-			})
+			for (const plan of yield* plansOf(values, statement)) {
+				plans.push({ statement, plan })
+			}
 			const filled = yield* holdingOf(filledBy(statement))
 			for (const d of filled) {
 				holding.add(d)
@@ -635,35 +745,76 @@ export const scannedTableOf = (n: PlanNode): Option.Option<string> =>
 		: Option.none()
 
 /**
- * The planner settings a case explains a judged statement's probes under: the hash and merge joins and the
- * materialization of a nested loop's inner side off, so PostgreSQL reads every join by a nested loop that runs its inner
- * side again for each outer row, which it plans as a lookup at that row's values where an index serves one
- * (test/support/oracle/perturb.ts plannerSettings). At a case's few hundred rows PostgreSQL would read a negation's
- * inner side whole, every row once, hashed or materialized, which says nothing of a lookup; at edullm's scale, analyzed,
- * it plans the lookup itself: on PostgreSQL 19rc2 over 100,000 identifiers of 50 packages, analyzed, the ledger's probe
- * is a nested loop anti join reading one row a loop through the image's index, with every setting at its default. So a
- * property of the lookups is over analyzed tables, as autovacuum leaves a stored one.
+ * A statement's plan as every session grizzle opens runs it, the plan a bound over it reads: PREPAREd, then run by
+ * EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) EXECUTE at `params`, each a parameter's text, under the
+ * generic plans every session plans under (physical/ddl/roles.ts genericPlans, bench/harness/explain.ts
+ * explainServerStatement), one plan for every value of them. EXPLAIN of the statement with its parameters bound plans
+ * it at their values, a plan no session of grizzle runs: page-keys' window at a position most of its rows in read its
+ * driver's table whole so, where the generic plan reads the driver's index in order.
  */
-export const lookupSettings = [
-	"SET LOCAL enable_hashjoin = off",
-	"SET LOCAL enable_mergejoin = off",
-	"SET LOCAL enable_material = off"
-] as const
+export const planAsRun = (
+	values: BenchSession["values"],
+	sql: string,
+	params: ReadonlyArray<string>
+): Effect.Effect<PlanNode, SqlError | MalformedPlan> =>
+	Effect.map(
+		explainServerStatement({ values }, sql, params, "generic", {
+			serialize: { kind: "off" },
+			wal: false,
+			verbose: false
+		}),
+		(explained) => explained.plan
+	)
 
 /**
- * The planner settings a case explains the judge's statements under to measure their locality: PostgreSQL's plans once
- * every table is large beside one key's rows, no sequential, bitmap or index-only scan and no hash or merge join, the
- * plans a table of a few rows makes cheapest and an index-only scan's reads follow the visibility map, so a statement
- * that can read a key's rows by index does, and one that cannot reads every row all the same. Each a plain SET, which
- * the case's transaction rolls back. The settings are the test's, never grizzle's output, which carries none.
+ * What an index probe of one row costs PostgreSQL at least, the index's leaf page and the table's page, each a random
+ * page (costsize.c cost_index over genericcostestimate): twice random_page_cost, as the session reads it. A table
+ * PostgreSQL reads whole for no more than that is a page or two, a read that costs what one probe of it would.
  */
-export const largeTables = [
-	"SET enable_seqscan = off",
-	"SET enable_bitmapscan = off",
-	"SET enable_hashjoin = off",
-	"SET enable_mergejoin = off",
-	"SET enable_indexonlyscan = off"
-] as const
+export const probeCostOf = <E>(
+	values: (sql: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, E>
+): Effect.Effect<number, E> =>
+	Effect.map(
+		values("SELECT pg_catalog.current_setting('random_page_cost')::pg_catalog.float8"),
+		(rows) => 2 * Number(rows[0]?.[0])
+	)
+
+/** Whether `n` reads a table whole for no more than one probe costs (`probeCostOf`): a sequential scan of a page or two. */
+const probeSized = (n: PlanNode, probeCost: number): boolean =>
+	n.nodeType === "Seq Scan" && n.totalCost <= probeCost
+
+/**
+ * A plan's keyed work: its work as its scans read it (`scannedWork`), but the rows of each sequential scan of a table
+ * no larger than one probe (`probeSized`), which PostgreSQL reads whole where a lookup of a key in it would cost as
+ * much, a page or two whatever the key. With no planner setting, PostgreSQL scans a table of a few rows and looks a key
+ * up in a larger one, so a bound over a write's keyed work holds at every size, small tables among them, and a read of
+ * a table larger than a probe by anything but its key shows as the rows it reads (`wideScans`).
+ */
+export const keyedWork = (plan: PlanNode, probeCost: number): number =>
+	scannedWork(plan) -
+	Arr.reduce(Arr.fromIterable(planNodes(plan)), 0, (sum, n) =>
+		probeSized(n, probeCost) ? sum + scannedRows(n) : sum
+	)
+
+/** The tables `plan` reads whole by a sequential scan that costs more than one probe (`probeCostOf`): each a read of a
+ * table where a lookup of its key would serve, by its relation's name, once a scan. */
+export const wideScans = (plan: PlanNode, probeCost: number): ReadonlyArray<string> =>
+	Arr.flatMap(Arr.fromIterable(planNodes(plan)), (n) =>
+		n.nodeType === "Seq Scan" && n.totalCost > probeCost ? Option.toArray(n.relation) : []
+	)
+
+/**
+ * A read's keyed work: its keyed work (`keyedWork`) and every row each scan of a CTE reads over all of its loops, its
+ * output and what its filter removed, where a CTE read at a correlated row's value is scanned whole for each such row.
+ * The one measure of a read's work a lowering's bound holds with no planner setting, beside tables larger than a probe.
+ */
+export const keyedReadWork = (plan: PlanNode, probeCost: number): number =>
+	keyedWork(plan, probeCost) +
+	Arr.reduce(
+		Arr.filter(Arr.fromIterable(planNodes(plan)), (n) => n.nodeType === "CTE Scan"),
+		0,
+		(sum, n) => sum + scannedRows(n)
+	)
 
 /**
  * A plan's work as its scans read it: every row each scan of a stored relation reads (rowsRead) and each read of a

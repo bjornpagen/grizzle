@@ -445,7 +445,7 @@ export const applicationOf =
 	(input: unknown): Effect.Effect<ApplyOutcome<unknown>, ApplyError> =>
 		loaded.kind === "change"
 			? changeApplication(ctx, variantOf(ctx, loaded.variants))(input)
-			: Effect.die(defect(`a write of the ${loaded.kind} member ${loaded.name}`))
+			: Effect.sync(() => defect(`a write of the ${loaded.kind} member ${loaded.name}`))
 
 /** The member under `name` of those `load` or `serve` gave: a name it did not give is a defect of the test. */
 export const member = <M>(served: ReadonlyMap<string, M>, name: string): M =>

@@ -23,6 +23,7 @@ export const kinds: Arr.NonEmptyReadonlyArray<PreconditionKind> = [
 	"nonzero",
 	"nonnegative",
 	"finite",
+	"integral",
 	"fits",
 	"contract",
 	"language",
@@ -51,15 +52,33 @@ interface Plant {
 const zeroOf = (f: TestOperand): LiteralDesc =>
 	f.scalar.carrier === "int8" ? 0n : f.scalar.carrier === "numeric" ? Decimal.of("0") : 0
 
-const Positive = testContract("Positive", testPg.integer, (x) => computeCore.gt(x, 0))
+/** A consumer's contract and the key its module holds, which a cast into it takes (scalar/contract.ts admitMintKey). */
+interface Keyed {
+	readonly contract: TestField
+	readonly key: symbol
+}
 
-const Fraction = testContract("Fraction", testPg.numericOf(5, 2), (x) =>
-	computeCore.lt(x, Decimal.of("1"))
-)
+const Positive: Keyed = {
+	contract: testContract("Positive", testPg.integer, (x) => computeCore.gt(x, 0)),
+	key: Symbol("Positive")
+}
 
-const Named = testContract("Named", testPg.text, (x) => computeCore.ne(x, ""))
+const Fraction: Keyed = {
+	contract: testContract("Fraction", testPg.numericOf(5, 2), (x) =>
+		computeCore.lt(x, Decimal.of("1"))
+	),
+	key: Symbol("Fraction")
+}
 
-const Truth = testContract("Truth", testPg.boolean, (x) => computeCore.eq(x, true))
+const Named: Keyed = {
+	contract: testContract("Named", testPg.text, (x) => computeCore.ne(x, "")),
+	key: Symbol("Named")
+}
+
+const Truth: Keyed = {
+	contract: testContract("Truth", testPg.boolean, (x) => computeCore.eq(x, true)),
+	key: Symbol("Truth")
+}
 
 const lower = testPg.regex("^[a-z]+$", "u")
 
@@ -96,26 +115,31 @@ const fits = (operand: TestOperand, target: TestField): Plant => ({
 	}
 })
 
-/** A contract cast over a number, guarded by computeCore.within at `inside`, a value its predicate holds of. */
-const numberContract = (operand: TestField, target: TestField, inside: LiteralDesc): Plant => ({
+/** A contract cast over a number under the contract's key, guarded by computeCore.within at `inside`, a value its
+ * predicate holds of. */
+const numberContract = (operand: TestField, target: Keyed, inside: LiteralDesc): Plant => ({
 	operand,
-	faulty: (x) => computeCore.cast(x, target),
+	faulty: (x) => computeCore.cast(x, target.contract, target.key),
 	mended: {
 		kind: "guarded",
 		term: (x) =>
 			computeCore.when(
 				computeCore.within(x, inside, inside),
-				(y: ScalarTerm) => computeCore.cast(y, target),
+				(y: ScalarTerm) => computeCore.cast(y, target.contract, target.key),
 				inside
 			)
 	}
 })
 
-/** A contract cast over a type no scalar test bounds, mended by a parameter of the contract's own type. */
-const typedContract = (operand: TestField, target: TestField): Plant => ({
+/** A contract cast under the contract's key over a type no scalar test bounds, mended by a parameter of the contract's
+ * own type. */
+const typedContract = (operand: TestField, target: Keyed): Plant => ({
 	operand,
-	faulty: (x) => computeCore.cast(x, target),
-	mended: { kind: "typed", term: () => computeCore.cast(param("p", target), target) }
+	faulty: (x) => computeCore.cast(x, target.contract, target.key),
+	mended: {
+		kind: "typed",
+		term: () => computeCore.cast(param("p", target.contract), target.contract, target.key)
+	}
 })
 
 /** A square root of the operand, guarded by computeCore.nonnegative. */
@@ -201,6 +225,18 @@ export const plants: { readonly [K in PreconditionKind]: Arr.NonEmptyReadonlyArr
 	],
 	nonnegative: [sqrt(testPg.numeric)],
 	finite: [minScale(testPg.numeric), minScale(testPg.computedNumeric)],
+	integral: [
+		{
+			operand: testPg.numeric,
+			faulty: (x) =>
+				computeCore.when(
+					computeCore.isFinite(x),
+					(y: ScalarTerm) => computeCore.cast(y, testPg.exactInteger),
+					0n
+				),
+			mended: { kind: "beyond one guard" }
+		}
+	],
 	fits: [
 		fits(testPg.integer, testPg.smallint),
 		fits(testPg.bigint, testPg.integer),
@@ -291,6 +327,7 @@ const modeOf: { readonly [K in PreconditionKind]: "query" | "check" } = {
 	nonzero: "query",
 	nonnegative: "query",
 	finite: "query",
+	integral: "query",
 	fits: "query",
 	contract: "query",
 	language: "query",
@@ -302,7 +339,10 @@ const modeOf: { readonly [K in PreconditionKind]: "query" | "check" } = {
 	clock: "query"
 }
 
-/** The tests the scalar catalogue writes over a value of a carrier: a number's facts and bounds, a text's patterns, or none. */
+/**
+ * The remedies a refusal names over a value of a carrier: the tests the scalar catalogue writes, a number's facts and
+ * bounds, a text's patterns, or none, and a number's fraction digits, which no test bounds, a value of a type of none.
+ */
 export const writable = (carrier: Carrier): ReadonlyArray<GuardTest["kind"]> => {
 	switch (carrier) {
 		case "int2":
@@ -314,12 +354,13 @@ export const writable = (carrier: Carrier): ReadonlyArray<GuardTest["kind"]> => 
 		case "money":
 		case "exactInteger":
 		case "exactMoney":
-			return ["nonzero", "nonnegative", "positive", "isFinite", "within"]
+			return ["nonzero", "nonnegative", "positive", "isFinite", "within", "integral"]
 		case "text":
 			return ["matches", "octets", "typed"]
 		case "sha256":
 		case "bytes":
 			return []
+		case "variant":
 		case "bool":
 		case "uuid":
 		case "date":

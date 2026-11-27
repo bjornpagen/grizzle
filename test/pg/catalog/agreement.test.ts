@@ -126,14 +126,14 @@ export const everyCompositionOfTheCatalogAgreesWithItsNativeRewriteWhichAppliesE
 			{
 				file: "packages/engine/src/lower/shapes/catalog/percentile.ts",
 				original:
-					"\t\t\t\texpr: canonicalZeroOver(cx.ed, colExpr(cx.ed, osa, column, type), read.canonical)\n",
+					"\t\t\t\texpr: canonicalOver(cx.ed, colExpr(cx.ed, osa, column, type), read.canonical)\n",
 				replacement: "\t\t\t\texpr: colExpr(cx.ed, osa, column, type)\n",
 				why: "R29's PERCENTILE_DISC delivers the zero it selects as it is: a student's scores whose selected value is -0 deliver -0 natively, where the composition's merged head delivers +0."
 			},
 			{
 				file: "packages/engine/src/lower/shapes/catalog/percentile.ts",
 				original:
-					"\t\t\texpr: canonicalZeroOver(cx.ed, colExpr(cx.ed, out, outName, type), read.canonical)\n",
+					"\t\t\texpr: canonicalOver(cx.ed, colExpr(cx.ed, out, outName, type), read.canonical)\n",
 				replacement: "\t\t\texpr: colExpr(cx.ed, out, outName, type)\n",
 				why: "R30's PERCENTILE_CONT at a whole position returns the value there as it is, -0 for a group whose value there is -0, where the composition's merged head delivers +0."
 			}

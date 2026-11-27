@@ -16,8 +16,10 @@ export type OperandIndex = 0 | 1 | 2 | 3
  * - `nonnegative`: the operand is never below zero (numeric sqrt's radicand, power's base);
  * - `finite`: the operand is never NaN or an infinity (min_scale, numeric or a float cast to an integer or money,
  *   width_bucket's operands);
- * - `fits`: a cast's value other than NaN fits its target, a narrower carrier or a numeric typmod, once the cast
- *   rounds it; NaN passes a typmod, and a cast that NaN would fail into an integer or money also requires `finite`;
+ * - `integral`: the operand has no fraction digits (numeric into an exact integer, which no cast rounds into);
+ * - `fits`: a cast's value other than NaN fits its target, a narrower carrier, a numeric typmod or an exact integer's
+ *   digits, once the cast rounds it; NaN passes a typmod, and a cast that NaN would fail into an integer, an exact
+ *   integer or money also requires `finite`;
  * - `contract`: the value satisfies the contract a domain cast enters;
  * - `language`: the text a domain cast enters a regex-refined text with lies in the refinement's language;
  * - `powerDomain`: power's base is never below zero, and never zero or its exponent never below zero, the facts a
@@ -34,7 +36,8 @@ export type OperandIndex = 0 | 1 | 2 | 3
  *
  * nonzero, nonnegative and finite are facts a term's TypeScript type states (Facts), exactly, and powerDomain rests on
  * them; fits, contract, powerRange, bucketDomain and clock rest on numeric bounds no TypeScript type can state, which
- * the lowering's bound domain proves (scalar/compute/bounds.ts); language and lexical rest on the operand's text
+ * the lowering's bound domain proves (scalar/compute/bounds.ts), and integral on the scale those bounds hold of the
+ * operand (Bounds `scale`), a numeric(p, 0)'s or an integer's 0; language and lexical rest on the operand's text
  * refinement, whose language the lowering proves included in the target's pattern or form (scalar/regex/inclusion.ts);
  * bounded rests on the operand's byte bound, its type's or a guard's.
  */
@@ -42,6 +45,7 @@ export type Precondition =
 	| { readonly kind: "nonzero"; readonly operand: OperandIndex }
 	| { readonly kind: "nonnegative"; readonly operand: OperandIndex }
 	| { readonly kind: "finite"; readonly operand: OperandIndex }
+	| { readonly kind: "integral"; readonly operand: OperandIndex }
 	| { readonly kind: "fits" }
 	| { readonly kind: "contract" }
 	| { readonly kind: "language" }
@@ -137,6 +141,16 @@ export type OperandPremise =
 			readonly kind: "octets"
 			readonly operand: OperandIndex
 			readonly bytes: number
+	  }
+	| {
+			/**
+			 * An operand whose every value has at most `scale` fraction digits, as its bounds hold (scalar/compute/bounds.ts
+			 * Bounds `scale`): a numeric(p, s)'s s, an integer's 0. An integral precondition rests on it at a scale of 0 or
+			 * below.
+			 */
+			readonly kind: "scale"
+			readonly operand: OperandIndex
+			readonly scale: number
 	  }
 
 /** The proof of one precondition: the precondition and the premises it rests on. */

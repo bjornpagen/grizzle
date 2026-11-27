@@ -136,7 +136,7 @@ export const aServedWriteOfAStoredRelationsHolderStandsTheJudgeUpAndKeepsTheStor
 		kills: [
 			{
 				file: "packages/engine/src/laws/model/model.ts",
-				original: "\t\t\t...upkeeps.flatMap((u) => u.reads.map((r) => r.relation))\n",
+				original: "\t\t\t...upkeeps.flatMap((u) => u.sides.map((r) => r.relation))\n",
 				replacement: "",
 				why: "A stored relation's holders left out of the relations the judge captures: a served write of Doc stands nothing up, and its capture refuses it (55Z03, a write of a table the rule judge holds in a session that has not stood up its tables)."
 			}

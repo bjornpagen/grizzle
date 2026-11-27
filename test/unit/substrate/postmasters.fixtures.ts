@@ -1,7 +1,7 @@
 /** What the properties of postmasters.test.ts read: its spaces, models and helpers. */
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
-import { Data, Effect, FileSystem, PlatformError, String as Str } from "effect"
+import { Data, Effect, FileSystem, Option, PlatformError, Stream, String as Str } from "effect"
 import { ChildProcess } from "effect/process"
 import { postmastersOf } from "#pg/postmasters.ts"
 
@@ -120,9 +120,15 @@ const deleted = " (deleted)"
 
 /**
  * A case's process and its verdict: under `root`, the case's own directory, a copy of this Node binary, a program that
- * runs until it is killed, and a tree and another tree whose bin/postgres are hard links of it; the process running
- * the chosen one in its data directory until the case ends, the lock file written once its pid is known, and the
- * binary replaced when the case asks.
+ * names its pid on its first line and runs until it is killed, and a tree and another tree whose bin/postgres are hard
+ * links of it; the process running the chosen one in its data directory until the case ends, the lock file written
+ * once its pid is known, and the binary replaced when the case asks.
+ *
+ * The pid is the one the process names, never the pid of the child the case starts: the testing library runs a child
+ * it cannot record under strace(1) (runner/observe.ts), so the child it starts is strace, and the process running the
+ * binary is strace's. A lock file naming the child's pid names strace, a process of no tree, and the scan rightly lists
+ * nothing (toolchain 54e53afb, df3af15, where every case of a postmaster listed failed so). The pid on its first line is
+ * also read after the binary is executed, so a binary replaced is replaced under a process that runs it.
  */
 export const caseOf = (root: string, s: Sketch) =>
 	Effect.gen(function* () {
@@ -140,14 +146,18 @@ export const caseOf = (root: string, s: Sketch) =>
 		yield* fs.link(binary, `${tree}/bin/postgres`)
 		yield* fs.link(binary, `${other}/bin/postgres`)
 		const executable = `${s.binary === "another tree's" ? other : tree}/bin/postgres`
-		const child = yield* ChildProcess.make(executable, ["-e", "setInterval(() => {}, 2 ** 30)"], {
-			cwd: data,
-			stdin: "ignore",
-			stdout: "ignore",
-			stderr: "ignore",
-			killSignal: "SIGKILL"
-		})
-		const pid = Number(child.pid)
+		const child = yield* ChildProcess.make(
+			executable,
+			["-e", "process.stdout.write(process.pid + '\\n'); setInterval(() => {}, 2 ** 30)"],
+			{
+				cwd: data,
+				stdin: "ignore",
+				stderr: "ignore",
+				killSignal: "SIGKILL"
+			}
+		)
+		const named = yield* Stream.runHead(Stream.splitLines(Stream.decodeText(child.stdout)))
+		const pid = Number(Option.getOrThrow(named))
 		const holder = s.lock === "naming another process" ? process.pid : pid
 		if (s.lock !== "absent") {
 			yield* fs.writeFileString(

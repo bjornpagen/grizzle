@@ -1,7 +1,9 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { CheckedEntry } from "#compiler/analysis/schema.ts"
 import { admitQuery } from "#compiler/check/index.ts"
 import { everyProperty, unwrap } from "#compiler/core/canonical.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
 import { ownedDigest } from "#compiler/core/fingerprint.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { DagTemplates } from "#compiler/ir/dag-digest.ts"
@@ -12,11 +14,26 @@ import type { Delivered, DeltaSide, RelNode } from "#compiler/ir/rel.ts"
 import type { ReadBack } from "#compiler/ir/write.ts"
 import { type CatalogSchema, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
-import type { BoundCarrierOf, DeltaRelation } from "#compiler/lower/conservative/types.ts"
-import { lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
+import type {
+	BoundCarrierOf,
+	DeclaredParamSlot,
+	DeltaRelation,
+	ReadBackAdmission,
+	ReadBackLowering
+} from "#compiler/lower/conservative/types.ts"
+import {
+	annotatedInput,
+	type LowerComposedOptions,
+	lowerComposed,
+	lowerOptimized,
+	type OptimizedInput,
+	type OptimizedProgram
+} from "#compiler/lower/optimize/pipeline.ts"
 import type { OptimizedDeliveryProgram, RelationChoice } from "#compiler/lower/shapes/index.ts"
+import type { EmittedSql, StatementText, UnprintedSql } from "#compiler/sql/ast.ts"
 import type { NameSupplyStart } from "#compiler/sql/naming.ts"
-import { type CarrierColumn, carrierColumns } from "#compiler/write/carriers/carriers.ts"
+import type { CarrierColumn } from "#compiler/write/carriers/carriers.ts"
+import { transactionEvidence } from "#compiler/write/frontend/compile.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import { type DeltaHeld, deltaTarget } from "#compiler/write/readback/deltas.ts"
 import { breachGuard } from "#compiler/write/refusal.ts"
@@ -79,7 +96,7 @@ export const deltaSourceIn = (
 			return {
 				kind: "carrier",
 				carrier: held.carrier.name,
-				table: carrierColumns(held.carrier),
+				table: held.carrier.declaration.columns,
 				columns
 			}
 	}
@@ -114,7 +131,7 @@ export const deltaSourceIn = (
  * the write's one flight, so each statement delivering an attachment bare or as an option checks that type itself and
  * raises a breach through the installation's refusal function (`breachGuard`), which aborts the write.
  *
- * A compile lowers each distinct read-back once (`lowered`): two ChangeSets of one role whose read-backs are one query
+ * A compile lowers each distinct read-back once (Making `kept`): two ChangeSets of one role whose read-backs are one query
  * over one delta source at one numbering (a learner's answerTestItem and skipTestItem, nine read-backs alike, the
  * largest of 14,277 nodes) take the program the first lowered, where each lowered it again (qti's write compile at hub
  * 2c1aa525b: 68 s of skipTestItem's SERIALIZABLE compile in one read-back). What a caller reads of a read-back's
@@ -123,14 +140,15 @@ export const deltaSourceIn = (
  * diagnostics only and no statement prints (sql/naming.ts NameOrigin), and its delivered attachments' Attach nodes',
  * of which a delivery reads the name, the correlation and the judged type alone (served/read.ts servedAttach), so
  * every statement and delivery is the one a fresh lowering makes. */
-export const lowerReadBack = (
+const loweredOnce = <T extends StatementText>(
+	making: Making<T>,
 	read: ReadBack,
 	deltas: DeltasOf,
-	start: NameSupplyStart,
+	at: ReadBackAt,
 	options: ReadBackOptions
-): OptimizedDeliveryProgram<RelationChoice> => {
-	const alike = keptOf(options.reads, options.schema.laws).getOrInsertComputed(
-		surroundings(read, deltas, start, options),
+): ReadBackProgram<T> => {
+	const alike = keptOf(making.kept, options.reads, options.schema.laws).getOrInsertComputed(
+		surroundings(read, deltas, at, options),
 		() => []
 	)
 	const query = new QueryDigest(read.node)
@@ -138,10 +156,79 @@ export const lowerReadBack = (
 	if (found !== undefined) {
 		return found.program
 	}
-	const program = loweredAfresh(read, deltas, start, options)
+	const program = loweredAfresh(making, read, deltas, at, options)
 	alike.push({ query, program })
 	return program
 }
+
+/** A read-back's delivery program, each statement's text `T`: its print, or none where it rides (UnprintedSql). */
+export type ReadBackProgram<T extends StatementText> = OptimizedDeliveryProgram<
+	RelationChoice,
+	DeclaredParamSlot,
+	T
+>
+
+/**
+ * How a read-back's statement is made (`lowerReadBack`): printed, a statement of its own pipelined after its write's
+ * (lowerOptimized); or composed, riding the write statement that makes its deltas, whose CTEs it reads and which
+ * alone binds them, so it is never printed apart (lowerComposed). Each keeps its own programs (`lowered`).
+ */
+interface Making<T extends StatementText> {
+	readonly kept: Lowered<T>
+	readonly lower: (
+		input: OptimizedInput,
+		options: LowerComposedOptions & { readonly subject: ReadBackLowering }
+	) => Result.Result<OptimizedProgram<T>, CompileError>
+}
+
+/** No program kept yet (`Lowered`). */
+const noneKept = <T extends StatementText>(): Lowered<T> => new WeakMap()
+
+/** A read-back placed as a statement of its own, printed (`Making`). */
+const placed: Making<EmittedSql> = Object.freeze({
+	kept: noneKept<EmittedSql>(),
+	lower: lowerOptimized
+})
+
+/** A read-back riding its write's statement, never printed apart (`Making`). */
+const riding: Making<UnprintedSql> = Object.freeze({
+	kept: noneKept<UnprintedSql>(),
+	lower: lowerComposed
+})
+
+/**
+ * Where a read-back's lowering stands in its write's flight: where its names start (ReadBackLowering `start`), and
+ * which statement admits its write's caller parameters (ReadBackAdmission).
+ */
+interface ReadBackAt {
+	readonly start: NameSupplyStart
+	readonly admission: ReadBackAdmission
+}
+
+/**
+ * The delivery program of a read-back placed as a statement of its own (`loweredOnce`), printed: the first statement of
+ * its write's flight admits the write's caller parameters itself, one after a statement of the write's own admits none.
+ */
+export const lowerReadBack = (
+	read: ReadBack,
+	deltas: DeltasOf,
+	start: NameSupplyStart,
+	admission: ReadBackAdmission,
+	options: ReadBackOptions
+): ReadBackProgram<EmittedSql> => loweredOnce(placed, read, deltas, { start, admission }, options)
+
+/**
+ * The delivery program of a read-back riding the write statement that makes its deltas (`loweredOnce`), composed into
+ * it and never printed apart: it reads that statement's CTEs, which that statement alone binds, and its admission,
+ * a statement of the write's own, admits its write's parameters.
+ */
+export const lowerRidingReadBack = (
+	read: ReadBack,
+	deltas: DeltasOf,
+	start: NameSupplyStart,
+	options: ReadBackOptions
+): ReadBackProgram<UnprintedSql> =>
+	loweredOnce(riding, read, deltas, { start, admission: "write" }, options)
 
 /**
  * Each read-back's delivery program lowered, by the names it reads under and the law model its evidence comes from,
@@ -150,16 +237,23 @@ export const lowerReadBack = (
  * read under the names one pass over the role reads under (program/schema.ts roleArtifacts, one per pass) over its law
  * model, meet here, and the programs go with the names they read under.
  */
-const lowered = new WeakMap<PhysicalNames, WeakMap<LawModel, Map<string, Array<Kept>>>>()
+type Lowered<T extends StatementText> = WeakMap<
+	PhysicalNames,
+	WeakMap<LawModel, Map<string, Array<Kept<T>>>>
+>
 
-/** A read-back's delivery program, kept beside its query's digest (`lowered`). */
-interface Kept {
+/** A read-back's delivery program, kept beside its query's digest (`Lowered`). */
+interface Kept<T extends StatementText> {
 	readonly query: QueryDigest
-	readonly program: OptimizedDeliveryProgram<RelationChoice>
+	readonly program: ReadBackProgram<T>
 }
 
-/** The programs kept for read-backs read under `reads` over `laws` (`lowered`), by their surroundings. */
-const keptOf = (reads: PhysicalNames, laws: LawModel): Map<string, Array<Kept>> =>
+/** The programs `lowered` keeps for read-backs read under `reads` over `laws`, by their surroundings. */
+const keptOf = <T extends StatementText>(
+	lowered: Lowered<T>,
+	reads: PhysicalNames,
+	laws: LawModel
+): Map<string, Array<Kept<T>>> =>
 	lowered.getOrInsertComputed(reads, () => new WeakMap()).getOrInsertComputed(laws, () => new Map())
 
 /**
@@ -224,15 +318,16 @@ const deltaSource = (
  * model (`lowered`), digested: in its nodes' topological order, which is the structure the query's digest numbers
  * (ir/dag.ts topoOrder), each node's kind, the delta source each Delta node reads, its relation and side as `deltas`
  * gives it, and each Attach's judged type, which its delivered attachment carries (runtime/lower/tree.ts AttachedTree)
- * and a delivery reads (served/read.ts servedAttach); its parameters' declarations; where its names start; the schema
- * of the refusal function a breach raises through; and its catalog's views. Its context is the transaction's for every
+ * and a delivery reads (served/read.ts servedAttach); its parameters' declarations; where its names start and which
+ * statement admits its parameters (ReadBackAt); the schema of the refusal function a breach raises through; and its
+ * catalog's views. Its context is the transaction's for every
  * read-back. Two read-backs of one query have one surroundings where the rest is one, and two of other kinds in that
  * order are of two queries, told apart here with no digest of either.
  */
 const surroundings = (
 	read: ReadBack,
 	deltas: DeltasOf,
-	start: NameSupplyStart,
+	at: ReadBackAt,
 	options: ReadBackOptions
 ): string =>
 	ownedDigest(
@@ -248,8 +343,9 @@ const surroundings = (
 							: [n.kind]
 			),
 			options.params,
-			start.relationStart,
-			start.columnStart,
+			at.start.relationStart,
+			at.start.columnStart,
+			at.admission,
 			options.names.schema,
 			options.schema.views
 		],
@@ -258,29 +354,33 @@ const surroundings = (
 
 /** A read-back's delivery program, lowered afresh (lowerReadBack): its statement, parts and delivery, which its readers
  * read, never the rewritten query, the placement plan or the certificates the lowering made beside them. */
-const loweredAfresh = (
+const loweredAfresh = <T extends StatementText>(
+	making: Making<T>,
 	read: ReadBack,
 	deltas: DeltasOf,
-	start: NameSupplyStart,
+	at: ReadBackAt,
 	options: ReadBackOptions
-): OptimizedDeliveryProgram<RelationChoice> => {
+): ReadBackProgram<T> => {
 	const admitted = unwrap(
 		admitQuery(
 			{ dag: rooted([read.node]), params: options.params },
 			SourceLoc(`read ${read.name}`, [])
 		)
 	)
+	/** The read-back as the optimized lowering takes it, annotated under its write's evidence (transactionEvidence). */
+	const input = unwrap(annotatedInput(admitted, transactionEvidence(options.schema.laws)))
 	const program = unwrap(
-		lowerOptimized(admitted, {
+		making.lower(input, {
 			names: options.reads,
 			/** Its conservative artifact is realized with its write, which the write oracle compares. */
 			subject: {
 				kind: "readBack",
 				deltas,
 				breach: breachGuard(options.names.schema),
-				start,
+				start: at.start,
 				templates: options.templates,
-				bound: options.bound
+				bound: options.bound,
+				admission: at.admission
 			},
 			/** A read-back runs in its write's transaction and records no constraint premise. */
 			catalog: evidenceCatalog(options.schema),

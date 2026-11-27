@@ -1,23 +1,39 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-import type { Brand } from "effect"
-import { nominal } from "#compiler/core/brand.ts"
-import { bitsColumn, brandColumn, type Columned, codeColumn } from "#compiler/core/decoder.ts"
+import { hostMintOf, type Marked } from "#compiler/core/brand.ts"
+import {
+	bitsColumn,
+	type Column,
+	type Columned,
+	codeColumn,
+	hostColumn
+} from "#compiler/core/decoder.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { armRows } from "#compiler/query/build/call.ts"
 import { bytesDescriptor } from "#compiler/scalar/bytes.ts"
-import { compute, searchDocumentTerm } from "#compiler/scalar/compute/builders.ts"
-import { callerContractParts } from "#compiler/scalar/contract.ts"
+import {
+	compute,
+	searchDocumentTerm,
+	variantMake,
+	variantDigest,
+	variantTag
+} from "#compiler/scalar/compute/builders.ts"
+import { admitContractCall, callerContractParts } from "#compiler/scalar/contract.ts"
 import { dateDescriptor } from "#compiler/scalar/date.ts"
 import { exactIntegerDescriptor, exactMoneyDescriptor } from "#compiler/scalar/exact.ts"
 import { instantDescriptor } from "#compiler/scalar/instant.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { bareEnv, carrierSql, defineField } from "#compiler/scalar/registry.ts"
+import type { Described } from "#compiler/scalar/registry.ts"
 import { searchDescriptor } from "#compiler/scalar/search.ts"
 import { sha256Descriptor } from "#compiler/scalar/sha256.ts"
 import { spanColumn, spanParts } from "#compiler/scalar/span.ts"
 import { uuidDescriptor } from "#compiler/scalar/uuid.ts"
 import type { Sha256 } from "#compiler/scalar/values/sha256.ts"
 import type { Uuid } from "#compiler/scalar/values/uuid.ts"
+import { variantSpellings } from "#compiler/schema/function.ts"
+import { armSource, casesTerm } from "#compiler/schema/record.ts"
 import {
 	accumulatedField,
 	bitsOf,
@@ -28,6 +44,14 @@ import {
 	placeDescriptor,
 	slotField
 } from "#compiler/schema/relation.ts"
+import {
+	armChecks,
+	readArms,
+	variantCases,
+	variantDesc,
+	variantField,
+	variantLoc
+} from "#compiler/schema/variant.ts"
 import type { BitsApi } from "#compiler/types/compute/compute.ts"
 import type { Scalar } from "#compiler/types/compute/scalar.ts"
 import type {
@@ -40,15 +64,19 @@ import type {
 } from "#compiler/types/core/phantom.ts"
 import type {
 	AccumulatedConstructor,
+	ArmsAdmitted,
 	BitsConstructor,
 	ClosedIdConstructor,
-	ContractBase,
 	ContractConstructor,
+	VariantConstructor,
 	DrawnConstructor,
 	GeneratedConstructor,
+	MintOfConstructor,
 	NotInstantBase,
+	KeyApart,
 	OneContractName,
 	Pg,
+	UniqueKey,
 	SpanConstructor
 } from "#compiler/types/fields/constructors.ts"
 
@@ -72,13 +100,19 @@ import type {
 	HandleOf,
 	Infer,
 	InstantField,
+	MintKey,
 	SpanEndpointLike,
 	NaturalField,
 	NoWriting,
 	PlaceDescriptor,
 	SpanField,
 	SpanWidthOf,
-	SubsetHandles
+	SubsetHandles,
+	ArmChecks,
+	ArmHandles,
+	VariantArms,
+	VariantField,
+	VariantValueOf
 } from "#compiler/types/fields/field.ts"
 import type {
 	AnyClosedRelation,
@@ -104,10 +138,19 @@ export { Uuid } from "#compiler/scalar/values/uuid.ts"
 export { Cidr, Inet } from "#compiler/scalar/values/net.ts"
 /** pgvector's carrier, a branded Float32Array. */
 export { Vector } from "#compiler/scalar/values/vector.ts"
+/** A contract's host type, its base's host type under its consumer's key, which only mintOf(key) makes. */
+export type { HostMint, Marked } from "#compiler/core/brand.ts"
+/**
+ * The identity a term of a descriptor's type meets, its domain: a contract's, its base's under its name, apart from its
+ * host type, so a function over a contract's term types it `Term<DomainOf<typeof Cents>, unknown, InputOrigin, "bigint">`.
+ */
+export type { DomainOf } from "#compiler/types/core/phantom.ts"
+
 /** A SHA-256 digest, its 32 bytes, and its digests of bytes and of a text (Sha256.ofBytes, Sha256.ofText). */
 export { Sha256 } from "#compiler/scalar/values/sha256.ts"
 export type {
 	AccumulatedField,
+	AnyContract,
 	BitsField,
 	BytesField,
 	CalendarDate,
@@ -130,6 +173,9 @@ export type {
 	IntegerLike,
 	SpanEndpointLike,
 	LiteralOf,
+	MintKey,
+	OwnKeyOf,
+	MintKeys,
 	NaturalDomain,
 	NaturalField,
 	NumericBoundField,
@@ -145,6 +191,9 @@ export type {
 	StoredInstantField,
 	SubsetHandles,
 	TextField,
+	VariantArms,
+	VariantField,
+	VariantValueOf,
 	WritingTag
 } from "#compiler/types/fields/field.ts"
 export type { VectorField } from "#compiler/types/vector/vector.ts"
@@ -171,10 +220,11 @@ export type {
  *
  * The runtime descriptors carry their literal SQL names, their members and their columns (scalar/registry.ts
  * defineField), so each binding has its public type by construction: a descriptor's host type is its column's. A
- * contract is an unchecked brand constructor (core/brand.ts nominal, to Effect's type-level brand) with the contract's
- * members and Description defined onto it: it brands without checking, and the database validates on write; its column
- * is its base's, branded by that same constructor. A JavaScript caller can pass anything, an empty name or a fourth argument included, which the
- * admission cores refuse.
+ * contract is a descriptor with the contract's members and Description, whose host type its consumer declares, its
+ * base's host type under the consumer's key (core/brand.ts Marked): it makes no value, its consumer's mint does
+ * (mintOf), the database validates every write, and its column is its base's, read as the host type (core/decoder.ts
+ * hostColumn). A JavaScript caller can pass anything, an empty name, a value to the first call or a fourth argument
+ * included, which the admission cores refuse.
  */
 export const uuid: Field<Uuid, "uuid"> = uuidDescriptor
 
@@ -211,36 +261,44 @@ export const exactMoney: ExactMoneyField = exactMoneyDescriptor
 
 export const pg: Pg = pgDescriptors
 
-export const contract: ContractConstructor = <
-	const Name extends string,
-	B extends FieldBase,
-	Pr extends Predicate<never> = Predicate,
-	const Proved extends ReadonlyArray<keyof Facts> = readonly []
->(
-	name: Name,
-	base: B &
-		NoWriting &
-		NotInstantBase<B> &
-		ContractBase<NoInfer<Name>, B> &
-		OneContractName<NoInfer<Name>>,
-	predicate:
-		| ((
-				v: Scalar<DomainOf<B>, unknown, ContractValueOrigin, B["sql"], Infer<B>>
-		  ) => Pr & Parameterless<Pr>)
-		| undefined,
-	declared: { readonly proves: Proved } | undefined,
-	...extra: ReadonlyArray<never>
-): Contract<Name, B, Proved> => {
-	const parts = callerContractParts(name, base, [predicate, declared, ...extra])
-	type Unbranded = Brand.Brand.Unbranded<Infer<B> & Brand.Brand<Name>>
-	const brand = nominal<Unbranded, Unbranded & Infer<B> & Brand.Brand<Name>>()
-	const column = brandColumn(base.column, brand)
-	const members =
-		parts.predicate === undefined
-			? { name, base, column }
-			: { name, base, predicate: parts.predicate, column }
-	return defineField(brand, base.sql, parts.desc, members, parts.loc, parts.env)
+export const contract: ContractConstructor = <K extends symbol>(...first: ReadonlyArray<never>) => {
+	admitContractCall(first)
+	return <
+		const Name extends string,
+		B extends FieldBase,
+		Pr extends Predicate<never> = Predicate,
+		const Proved extends ReadonlyArray<keyof Facts> = readonly []
+	>(
+		name: Name,
+		base: B &
+			NoWriting &
+			NotInstantBase<B> &
+			UniqueKey<K> &
+			KeyApart<K, B> &
+			OneContractName<NoInfer<Name>>,
+		predicate:
+			| ((
+					v: Scalar<DomainOf<B>, unknown, ContractValueOrigin, B["sql"], Infer<B>>
+			  ) => Pr & Parameterless<Pr>)
+			| undefined,
+		declared: { readonly proves: Proved } | undefined,
+		...extra: ReadonlyArray<never>
+	): Contract<Name, B, K, Proved> => {
+		const parts = callerContractParts(name, base, [predicate, declared, ...extra])
+		const column: Column<Marked<Infer<B>, K>> = hostColumn(base.column)
+		const members =
+			parts.predicate === undefined
+				? { name, base, column }
+				: { name, base, predicate: parts.predicate, column }
+		return defineField({}, base.sql, parts.desc, members, parts.loc, parts.env)
+	}
 }
+
+/**
+ * mintOf(key): the mint of the host types under a key of its caller's module (core/brand.ts hostMintOf), the one
+ * unchecked conversion a consumer makes into a contract's host type.
+ */
+export const mintOf: MintOfConstructor = hostMintOf
 
 /** A span over the endpoint the admission core admitted, its column converting endpoints with the endpoint's own. */
 export const span: SpanConstructor = <E extends SpanEndpointLike>(
@@ -301,6 +359,78 @@ export const closedId: ClosedIdConstructor = <
 		parts.loc,
 		parts.env
 	)
+}
+
+/**
+ * variant(name, roster, arms, checks?): a typed sum, one arm per handle of the subset of `roster`'s handles its arms
+ * name, every handle or some, each a record of typed fields; a field of it holds one arm's handle under `tag` and that
+ * arm's fields (schema/variant.ts). The roster is a closed relation's, read as closedId reads one, so its codes, which
+ * are history, tag the arms, and its tag is a closed id of the arms' handles, as closedId(roster, { only }) is of its
+ * subset's: its column delivers those, and the variant's domain's CHECK refuses the code of any other handle. `checks`
+ * states at most one predicate per arm with a field, over that arm's fields alone, part of the variant's own type: the
+ * variant's domain's CHECK holds it under the arm's code, so every relation holding the variant holds it
+ * (schema/variant.ts armChecks).
+ */
+export const variant: VariantConstructor = <
+	const Name extends string,
+	C extends AnyRoster,
+	const Arms extends VariantArms<C>
+>(
+	name: Name,
+	roster: C & { readonly handles: ReadonlyArray<HandleOf<C>> },
+	arms: Arms & ArmsAdmitted<C, Arms>,
+	checks: ArmChecks<Name, Arms> | undefined
+): VariantField<Name, C, Arms> => {
+	const loc = variantLoc(name)
+	const closedParts = closedIdOf(roster, [])
+	const stated: Arms = arms
+	const unchecked = { name, roster: closedParts, arms: readArms(arms, closedParts, loc), loc }
+	const parts = { ...unchecked, arms: armChecks(unchecked, arms, checks) }
+	const named = new Set<string>(parts.arms.map((arm) => arm.handle))
+	/** Whether the variant holds `handle`: an arm names it (schema/variant.ts readArms). */
+	const holds = (handle: HandleOf<C>): handle is ArmHandles<C, Arms> => named.has(handle)
+	const tagColumn = codeColumn<ArmHandles<C, Arms>>(
+		closedParts.roster.closed,
+		roster.handles.filter(holds)
+	)
+	const cases = variantCases(parts, arms, tagColumn)
+	const spellings = variantSpellings(parts)
+	/** The descriptor make names as its type, made below: a make runs only once the descriptor is made. */
+	const self: { descriptor: VariantField<Name, C, Arms> | undefined } = { descriptor: undefined }
+	const terms: Pick<
+		VariantField<Name, C, Arms>,
+		"tag" | "digest" | "make" | "cases" | "code" | "attribute" | "of" | "arm"
+	> = {
+		arm: (value, handle) => {
+			const arm = defined(
+				parts.arms.find((a) => a.handle === handle),
+				`an arm ${handle} of variant ${name}`
+			)
+			const carriers: { readonly [field: string]: Described } = Object.freeze(
+				Object.fromEntries(arm.fields)
+			)
+			return armSource(
+				armRows(variantDesc(parts), arm.handle, arm.fields, carriers, value, `variant ${name}.arm`)
+			)
+		},
+		code: (handle) => spellings.code(handle),
+		attribute: (handle, field) => spellings.attribute(handle, field),
+		of: (handle, fields) => spellings.of(handle, fields),
+		tag: (value) => variantTag(value, tagColumn),
+		digest: (value) => variantDigest(value),
+		make: (handle, fields) =>
+			variantMake(defined(self.descriptor, "a variant's descriptor, made"), handle, fields),
+		cases: (value, handlers) => casesTerm(cases(value, handlers))
+	}
+	const descriptor = variantField<
+		VariantValueOf<Arms>,
+		{ name: Name; roster: C; arms: Arms } & Pick<
+			VariantField<Name, C, Arms>,
+			"tag" | "digest" | "make" | "cases" | "code" | "attribute" | "of" | "arm"
+		>
+	>(parts, { name, roster, arms: stated, ...terms })
+	self.descriptor = descriptor
+	return descriptor
 }
 
 /** A set over the roster the admission core admitted, its column a bit string read as the set of its codes' handles. */
@@ -378,7 +508,8 @@ export const searchDocument: SearchDocumentConstructor = <const C extends TextSe
 
 /**
  * instant: microseconds since the Unix epoch on the database's clock, written only by the database: an insert stamps
- * its relation's clock per child, and a reference holds a stored instant a containment carries it to
+ * its relation's clock from its scope's head, its unit's or its child's, and a reference holds a stored instant a
+ * containment carries it to
  * (scalar/instant.ts, analysis/theory/instants.ts). Installed as natural's domain. A read delivers its values as
  * Instant, which `instant.stored`, a field of its type its caller writes, stores as it is, the database drawing
  * nothing (schema/relation.ts clockInstant).
@@ -387,12 +518,12 @@ export const instant: InstantField = clockInstant(instantDescriptor)
 
 /**
  * drawn(type): a value of `type`, natural or a contract over an integer, grizzle draws from the nested arrays its caller
- * writes (schema/relation.ts drawnField).
+ * writes (schema/relation.ts drawnField); a consumer's contract under its key, drawn(C, key).
  */
 export const drawn: DrawnConstructor = <const F extends FieldBase>(
 	type: F & DrawnType<F>,
-	...extra: ReadonlyArray<never>
-): DrawnField<F> => drawnField<F>(type, extra)
+	...key: MintKey<F>
+): DrawnField<F> => drawnField<F>(type, key)
 
 /**
  * place: a row's place in its group, its primary key's fields before it, a natural the insert that adds the row stamps
@@ -419,10 +550,10 @@ export const slot = <
 
 /**
  * accumulated(type, start): a field grizzle fills on the host, `start` at its axis's base (schema/relation.ts
- * accumulatedField).
+ * accumulatedField); a consumer's contract under its key, accumulated(C, start, key).
  */
 export const accumulated: AccumulatedConstructor = <const F extends FieldBase>(
 	type: F,
 	start: Infer<F>,
-	...extra: ReadonlyArray<never>
-): AccumulatedField<F> => accumulatedField<F>(type, start, extra)
+	...key: MintKey<F>
+): AccumulatedField<F> => accumulatedField<F>(type, start, key)

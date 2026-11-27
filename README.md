@@ -181,10 +181,26 @@ it knows only at run time, declares them through `@bjornpagen/grizzle/dynamic`: 
 `closed.ordered`, `closed.unordered` and `closed.relation` take any string as a name, and their values' types say what
 that loses. Each is an `AnyRelation`, `AnyRoster` or `AnyClosedRelation`, which states no name, fields or key, so a
 schema that lists one holds its relations under any name and no typed statement or query reads its fields; the run
-time checks its name, fields, key and rows, as it checks a JavaScript caller's. It is the door for a generated schema,
-not a way around the checked API: a relation whose name a literal states is declared through the package root. Each
-`Post` row is a fact: this post exists, in this organization at this slug, by this author, with this title, body and
-status. Three things follow:
+time checks its name, fields, key and rows, as it checks a JavaScript caller's. Its `records(stem, query, owner,
+ownerKey, { names })` is the root's `records` (Records of a query) for such a schema: any string as the stem, `names` a
+record read at run time of relation names by attachment path (`{}` states none), and its value a `GeneratedRecords`,
+each relation one of any name and each law a statement. It is the door for a generated schema,
+not a way around the checked API: a relation whose name a literal states is declared through the package root.
+
+A library that derives the names of the relations and rosters it declares, as den derives `EssayItemInputValue` from
+a flow's names, builds them with `derivedName({ stem, path })`, from the package root for literal names or from
+`@bjornpagen/grizzle/dynamic` for names read at run time: its `relation`, `generated` and `unordered` type exactly as
+`relation`, `relation.generated` and `closed.unordered` do. Each name stays readable and of any length, the key the
+schema's types hold the relation under, and is refused for nothing but its characters and a collision: it meets every
+name of its schema that converts alike, declared or derived, as `IdentifierCollision`. What it installs is never named
+by its conversion: a relation's table and whole view and a roster's domain and whole view are hashed over the name,
+which the schema keeps unique, `__<stem>_<digest>` within PostgreSQL's 63 bytes, a relation's spelled after `stem` and
+`path`; a roster's constants are hashed as every roster's are. A user's ordinary relation stays declared.
+`installedIdentifiersOf(schema)` from `@bjornpagen/grizzle/compile` lists every PostgreSQL identifier the schema's
+installation names an object by, with what each spells out, so such a library's test holds every one to 63 bytes.
+
+Each `Post` row is a fact: this post exists, in this organization at this slug, by this author, with this title, body
+and status. Three things follow:
 
 - **Every field is required.** There are no nullable columns. A post that has never been viewed has no `PostViews` row,
   and one that has been viewed has exactly one: a value that may be missing is a fact that may be missing.
@@ -205,9 +221,10 @@ A field's type is the set of values it admits, and PostgreSQL checks it on every
 - **Text always carries a pattern.** `ClerkOrg` admits `org_` followed by 1 to 64 ASCII letters or digits, so no writer stores
   `"acme"` as an organization. Its TypeScript type is the pattern's language: `string` here, and `"yes" | "no"` for
   `^(yes|no)$`.
-- **A uuid is some system's id, by name.** `contract("ClerkUserId", uuid)` holds a `Uuid`, a uuid's hyphenated
-  spelling as a type, branded as that system's: `Uuid.parse` reads one from a plain string, and `ClerkUserId(id)`
-  brands it. A bare `uuid` field says no system and is refused ([Identity: natural keys](#identity-natural-keys)).
+- **A uuid is some system's id, by name.** `contract<typeof clerkUserKey>()("ClerkUserId", uuid)` holds a `Uuid`, a
+  uuid's hyphenated spelling as a type, under that system's key: `Uuid.parse` reads one from a plain string, and the
+  key's mint, `mintOf(clerkUserKey)`, marks it. A bare `uuid` field says no system and is refused
+  ([Identity: natural keys](#identity-natural-keys)).
 - **Integers keep their width.** `pg.bigint` is a `bigint` in TypeScript, never a `number` that rounds past 2^53.
 - **`closedId(Status)`** holds one of `Status`'s handles: `"Draft" | "Published"` in TypeScript, a smallint code in
   PostgreSQL.
@@ -286,9 +303,9 @@ key names the same row in every database that holds it, a replica, a restore and
   32 bytes as they are (`Sha256`): equal bytes are one row, whoever stores them.
 - **A published thing is its name and version.** A package is `(name, version)`, a QTI item its QTI identifier.
 - **An outside system's id is that system's, by name.** A bare `uuid` field is a type error,
-  `say whose id this is: contract("ClerkUserId", uuid)`, and from JavaScript a `CompileError` with the same text:
-  `contract("ClerkUserId", uuid)` is a Clerk user's id, its own type, so a Clerk user is never written where a Stripe
-  customer belongs.
+  `say whose id this is: contract<typeof key>()("ClerkUserId", uuid)`, and from JavaScript a `CompileError` with the
+  same text: `contract<typeof clerkUserKey>()("ClerkUserId", uuid)` is a Clerk user's id, its own type, so a Clerk user
+  is never written where a Stripe customer belongs.
 - **Its time is an instant on the database's clock, never bits inside an id.** When a row was written is a field of its
   own that the database writes, and a fact that happens again later is keyed by its child and that instant. A UUIDv7's
   leading bits are its writer's clock, which another host's disagrees with, and its random bits answer uniqueness, not
@@ -327,7 +344,11 @@ A closed id may hold some of its roster's handles: `closedId(Status, { only: ["D
 leaves at least one; a subset of every handle is `closedId(Status)`. Its TypeScript type is the subset's names, and its
 column is the roster's domain with a CHECK of the subset's codes, so a direct writer stores no other handle either. It
 meets a closed id of the same roster, whatever that one's subset, in an equality, a join and a containment, but a value
-enters its column only from a closed id whose handles it holds.
+enters its column only from a closed id whose handles it holds. A term's subset is a proof of the handles it can be: a
+field's of its column's CHECK, a variant's tag of its arms (README "Variants"), a literal branch of a conditional of its
+own handle, so `Logic.cond(p, x, "Draft")` holds x's handles and `Draft`, and an operation of its operands'. A cast never
+narrows one: a value of a subset comes from a value of that subset. So a field PostgreSQL generates of a subset, whose
+generation is admitted only within it, carries no CHECK: the compile proves what the CHECK would judge.
 
 Every roster states whether its order means something. `closed.ordered` is a roster whose declared order is its
 comparison order, so its closed ids compare, range and sort by it. `closed.unordered` is one whose order means nothing,
@@ -561,71 +582,65 @@ SELECT set_config('app.org_id', $1, true);
 
 Nothing ties the policy's condition to the TypeScript that relies on it, and a query sent outside that transaction, or by the role that owns the table, never meets the policy.
 
-**The reframe.** "This organization's keys" is not a filter you add to queries. It is a relation: the keys whose `org` is the caller's. What a role may see is itself a query, so write it once and make it the table the dashboard calls `ApiKey`. Three declarations say it:
+**The reframe.** "This organization's keys" is not a filter you add to queries. It is the world the caller's session lives in: every fact of the caller's organization. Say once what an organization's facts are and what binds the caller's, and every query the role runs means its evaluation over that world. Four declarations say it:
 
+- **A `unit`** is a key that groups facts: every table whose primary key leads with its fields is a member. `Org` groups an organization's facts, `ApiKey` keyed `(org, digest)` among them, and its `digest` stays a key of its own, so a key is one row everywhere.
 - **A `context`** is a claim of the caller's verified session token, which a query reads as a table of at most one row. `Tenant` holds the token's `org`.
-- **A `role`** is what one kind of user sees, laid out as tables. Each entry is a table of the schema, whole, or a query over it, `insert` lists the entries the role only adds to, `write` the open ones it changes, and `contexts` the contexts it declares: the claims its `Db` holds, and the only contexts its entries and programs match. `KeyAdmin`'s `ApiKey` is the query `orgKeys`: the keys whose `org` matches `Tenant`'s.
+- **A `role`** is what one kind of user sees, laid out as tables. Each entry is a table of the schema, whole, or a query over it, `insert` lists the entries the role only adds to, `write` the open ones it changes, `contexts` the contexts it declares, the claims its `Db` holds, and `scope` the units its claims bind, each by a query whose head is the unit's key: `tenant`, the `org` of `Tenant`.
 - **A `login`** is one PostgreSQL user, with its password and its own connection pool, that can act as the roles it lists.
 
 **The declaration.**
 
 ```ts
-import { context, login, role, sha256 } from "@bjornpagen/grizzle"
+import { context, key, login, role, sha256, wholeEntriesOf } from "@bjornpagen/grizzle"
 
-/** An API key, keyed by the SHA-256 of its secret: the table never holds a secret, and a key is one row everywhere. */
-export const ApiKey = relation("ApiKey", { digest: sha256, org: ClerkOrg, name: Title }, ["digest"])
-export const Keys = schema("Keys", [ApiKey], [])
+/** An organization's API key, keyed by the SHA-256 of its secret: the table never holds a secret. */
+export const ApiKey = relation("ApiKey", { org: ClerkOrg, digest: sha256, name: Title }, [
+	"org",
+	"digest"
+])
+export const Keys = schema(
+	"Keys",
+	[ApiKey],
+	[unit("Org", { org: ClerkOrg }), key(on(ApiKey, "digest"))]
+)
 
 /** The caller's organization: the `org` claim of their verified session token. */
 export const Tenant = context("Tenant", { org: ClerkOrg })
 
-/** The keys of the caller's organization. An insert takes `org` from the token. */
-export const orgKeys = query(Keys).rule((r) => {
-	const { digest, org, name } = v(ApiKey, "apiKey")
-	return r.match(ApiKey, { digest, org, name }).match(Tenant, { org }).find({ digest, name })
+/** The organization the caller's token names: the Org unit's key its claims bind. */
+export const tenant = query(Keys).rule((r) => {
+	const { org } = v(Tenant, "tenant")
+	return r.match(Tenant, { org }).find({ org })
 })
 
-export const KeyAdmin = role(
-	Keys,
-	"key_admin",
-	{ ApiKey: orgKeys },
-	{ insert: ["ApiKey"], contexts: [Tenant] }
-)
+export const KeyAdmin = role(Keys, "key_admin", wholeEntriesOf(Keys), {
+	insert: ["ApiKey"],
+	contexts: [Tenant],
+	scope: [tenant]
+})
 export const Dashboard = login(Keys, "dashboard", [KeyAdmin])
+
+/** The caller's organization's keys: no organization in it, the role's scope binds it. */
+export const orgKeys = query(Keys).rule((r) => {
+	const { digest, name } = v(ApiKey, "apiKey")
+	return r.match(ApiKey, { digest, name }).find({ digest, name })
+})
 ```
 
-**What you get.** The dashboard's queries and writes are written over `KeyAdmin`, where `ApiKey` already means "this organization's keys", with rows `{ digest: Sha256; name: string }`, the digest its 32 bytes. There is no `where` to forget and no `org` to pass. `orgKeys` fixes `org` to the claim, so inserting `{ digest, name }` stores the caller's organization.
+**What you get.** The dashboard's queries and writes are written over `Keys` itself, and on `KeyAdmin` every one of them means its evaluation over the caller's organization: `orgKeys` returns its keys, with rows `{ digest: Sha256; name: string }`, the digest its 32 bytes, though no `org` is bound in it. There is no `where` to forget, and no query can leave the organization out: a count, a negation, a take, a join and every derived table read the caller's rows alone, each read of `ApiKey` an index probe at the caller's `org`.
 
-Another organization's keys don't exist for this role: an insert at a `digest` one already holds is `refused` on the primary key, its witness the `digest` you submitted, never the other row. `ApiKey` is closed, its facts inserted and never changed or deleted, so the role names it under `insert` and holds SELECT and INSERT on its table and nothing more; naming it under `write` is `RoleRefused` (`writeClosed`). Opening a `Db` of `key_admin` through the dashboard's served login doesn't compile without a token, and opening runs your `verify` function on it once.
+A write is held to the same world. An insert states its `org`, and a key of another organization's is `outsideWorld` before any statement runs. Another organization's keys don't exist for this role: an insert at a `digest` one already holds is `refused` on the digest's key, its witness the `digest` you submitted, never the other row. `ApiKey` is closed, its facts inserted and never changed or deleted, so the role names it under `insert` and holds SELECT and INSERT on its table and nothing more; naming it under `write` is `RoleRefused` (`writeClosed`). Opening a `Db` of `key_admin` through the dashboard's served login doesn't compile without a token, and opening runs your `verify` function on it once.
 
-grizzle installs `KeyAdmin` as a PostgreSQL role that reads through a view in its own schema and writes the table under row-level security. The rule lives in PostgreSQL, so psql meets it too. `roleNameOf(Dashboard, {})` is the login's PostgreSQL role in an installation without a role prefix, here `keys__dashboard`; `roleNameOf(KeyAdmin, {})` and `schemaNameOf(KeyAdmin)` are the role and its schema of views, both `keys__key_admin`:
-
-```sql
--- psql, logged in as roleNameOf(Dashboard, {})
-SET ROLE keys__key_admin;
-BEGIN;
-SELECT set_config('grizzle.claims', '{"Tenant":{"org":"org_2abc"}}', true);
-SELECT digest, name FROM keys__key_admin.api_key;                                                -- org_2abc's keys only
-INSERT INTO keys.api_key (digest, org, name) VALUES (sha256('k'), 'org_9xyz', 'x');                -- 42501
-```
-
-What `grizzle generate` installs for it, abridged; each `…` is generated SQL that reads the token's claims:
+grizzle installs `KeyAdmin` as a PostgreSQL role that holds `ApiKey` whole: a scope binds what the role's programs mean, not what a SQL session as the role reads. The login is the trust boundary. It holds no table privilege of its own and can only switch to its roles, and whoever holds its password can act as any of them with any claims, so no policy on the claims would hold them: give each trust domain its own login ([Security model](#security-model)). `roleNameOf(Dashboard, {})` is the login's PostgreSQL role in an installation without a role prefix, here `keys__dashboard`, and `roleNameOf(KeyAdmin, {})` the role's, `keys__key_admin`. What `grizzle generate` installs for the role, abridged:
 
 ```sql
 CREATE ROLE :"keys__key_admin" NOLOGIN;
-CREATE SCHEMA "keys__key_admin";
-CREATE VIEW "keys__key_admin"."api_key" ("digest", "name") WITH (security_barrier) AS …;
-CREATE POLICY "keys__key_admin" ON "keys"."api_key" AS PERMISSIVE FOR ALL TO :"keys__key_admin"
-  USING (…)
-  WITH CHECK (…);
-ALTER TABLE "keys"."api_key" ENABLE ROW LEVEL SECURITY;
-GRANT SELECT ("digest", "org", "name") ON TABLE "keys"."api_key" TO :"keys__key_admin";
-GRANT INSERT ("digest", "org", "name") ON TABLE "keys"."api_key" TO :"keys__key_admin";
+GRANT :"keys__key_admin" TO :"keys__dashboard" WITH INHERIT FALSE, SET TRUE;
+GRANT SELECT, INSERT ON TABLE "keys"."api_key" TO :"keys__key_admin";
 ```
 
-A role is a cluster's, not a database's, so the SQL names it by a variable, psql's `:"keys__key_admin"`, which `grizzle migrate` fills with the role of the installation it migrates: `keys__key_admin` itself, or `a__keys__key_admin` in an installation whose connection gives `rolePrefix: "a"`. The schema of views is the database's and keeps its name in every installation ([Migrations](#migrations)).
-
-The view is a security-barrier view, so its filter runs before anything that could fail on a row outside it. The login holds no table privilege of its own: it can only switch to its roles. That makes the login the trust boundary. Whoever holds its password can act as any of its roles with any claims, so give each trust domain its own login ([Security model](#security-model)). The [example](#example) builds roles, logins and Clerk tokens in full.
+A role is a cluster's, not a database's, so the SQL names it by a variable, psql's `:"keys__key_admin"`, which `grizzle migrate` fills with the role of the installation it migrates: `keys__key_admin` itself, or `a__keys__key_admin` in an installation whose connection gives `rolePrefix: "a"`. A query entry, a role's table that is a query over the schema, says what a role sees of a table where that is no unit's facts, such as the posts a member may read; the [example](#example) builds them, with roles, logins and Clerk tokens in full.
 
 ### 2. Top three per group, with exact types
 
@@ -659,16 +674,20 @@ The row type is yours to write, and nothing checks it against the query. It is e
 
 **The reframe.** A query is a set expression, and its result type follows from it. "Each workspace's spend" is a rule with an aggregate. "Its three costliest models" is a second query nested in each row, ordered and cut to three. "Not refunded" is a negation: the calls for which no `Refund` row exists, since a refund is a fact in a table of its own, not a nullable column on the call. grizzle reads the expression instead of sending a string, so the row type follows from it: a `count` is a `natural`, the bigint PostgreSQL counts in, never below zero, and a `sum` of a bigint a numeric, and the type says so.
 
-The amounts are contracts. **A `contract`** is a named type over a base type, with an optional check, installed as a PostgreSQL domain that every writer meets. `Micros` is a bigint that is never negative. `Millis` adds no check, but is a type of its own, so an instant is never compared with an amount. `Micros(0n)` makes a value of one: it brands the value without checking it, and the database checks it on every write.
+The amounts are contracts. **A `contract`** is a named type over a base type, with an optional check, installed as a PostgreSQL domain that every writer meets. `Micros` is a bigint that is never negative. `Millis` adds no check, but is a type of its own, so an instant is never compared with an amount. A contract's values are the module's that holds its key: `mintOf(microsKey)` makes them, `toMicros(0n)`, without checking them, and the database checks every write. Where the database or grizzle makes them, a cast, a field grizzle fills, a clock reading or a declared function's result, the declaration takes the key too: `accumulated(Micros, toMicros(0n), microsKey)`.
 
 **The declaration.**
 
 ```ts
-import { contract, Logic } from "@bjornpagen/grizzle"
+import { contract, Logic, mintOf } from "@bjornpagen/grizzle"
 
+/** The keys of this module's amounts and instants: whoever holds a key makes values of its contract. */
+const microsKey = Symbol("Micros")
+const millisKey = Symbol("Millis")
 /** Millionths of a dollar, never negative; and an instant, in milliseconds since the epoch. */
-const Micros = contract("Micros", pg.bigint, (m) => Logic.ge(m, 0n))
-const Millis = contract("Millis", pg.bigint)
+const Micros = contract<typeof microsKey>()("Micros", pg.bigint, (m) => Logic.ge(m, 0n))
+const Millis = contract<typeof millisKey>()("Millis", pg.bigint)
+const toMicros = mintOf(microsKey)
 /** The gateway's id of a request, and a workspace's slug: each the name its own system gives it. */
 const RequestId = str.regex("^req_[0-9A-Za-z]{1,64}$")
 const Workspace = str.regex("^ws_[0-9a-z]{1,32}$")
@@ -836,7 +855,8 @@ A violation reaches the app as an error whose constraint name you match on. With
 ```ts
 import { span } from "@bjornpagen/grizzle"
 
-const Minute = contract("Minute", pg.bigint)
+const minuteKey = Symbol("Minute")
+const Minute = contract<typeof minuteKey>()("Minute", pg.bigint)
 
 /** A room is its name, unique in the building. */
 export const Room = relation("Room", { name: Title }, ["name"])
@@ -894,7 +914,7 @@ That is several round trips, and it holds only while every writer takes the same
 
 The declaration introduces families, rules over rows the caller writes:
 
-- **`drawn(natural)` and `accumulated(type, start)`** are fields grizzle writes, never the caller: a count, and a value accumulated from members, starting at `start`.
+- **`drawn(natural)` and `accumulated(type, start)`** are fields grizzle writes, never the caller: a count, and a value accumulated from members, starting at `start`. grizzle makes their values, so a consumer's contract's takes its key after the arguments, `accumulated(Micros, toMicros(0n), microsKey)`.
 - **`counted(on(Debit, "grant"), fin(Grant, "debits"))`** says each grant's members are the debits that name it, and `debits` counts them. `fin(Grant, "debits")` is the slots of that count.
 - **`fold(family, Monoid.sum, step, end)`** combines each member's step value, a debit's `amount`, into its owner's end, the grant's `spent`, by a monoid: here an exact sum.
 - **`unit("Grant", { id: StripePayment })` and `mutable(Grant)`** open the grant: its count and total change after it is inserted, under its unit's borrow. A relation is closed by default: its facts are inserted, never changed or deleted.
@@ -931,7 +951,7 @@ export const Grant = relation(
 		org: ClerkOrg,
 		amount: Micros,
 		debits: drawn(natural),
-		spent: accumulated(Micros, Micros(0n))
+		spent: accumulated(Micros, toMicros(0n), microsKey)
 	},
 	["id"]
 )
@@ -1111,125 +1131,91 @@ CREATE TABLE invoice (
 
 Drizzle can declare those CHECKs with `check()`, in `` sql`…` ``, but the row type stays `{ state: "open" | "paid" | "void"; paidChargeId: string | null; voidReason: string | null }` in every state, so every reader narrows by hand. Moving the payment to a table of its own fixes the row type, but "a paid invoice has exactly one payment" then spans two tables: a deferred trigger, or STORED generated columns and deferred composite foreign keys like the ones below, written and kept in step by hand.
 
-**The reframe.** A nullable column says "this value exists in some states". Relationally, that is a fact that exists in some states: a payment is a row about an invoice, present exactly when the invoice is paid. Give each state's data a table of its own, and the rule says which row exists: an invoice whose state is `paid` has one `Payment` row, one whose state is `void` has one `Voiding` row, and no other invoice has either. The state itself is a closed relation, a fixed roster of handles the database stores as data. Its states have no order, so it is `closed.unordered`: no state comes before another, and a comparison or an `orderBy` of states is a type error.
+**The reframe.** A nullable column says "this value exists in some states". A state that carries data is one value of a sum: each state is an arm, and each arm holds exactly its own fields. Declare the state as a `variant` over a closed roster of its handles: the invoice holds one `state` value, which is `open`, `paid` by a charge, or `void` for a reason, and no other combination can be stated, in TypeScript or in the database. The roster is a closed relation, a fixed list of handles the database stores as data. Its states have no order, so it is `closed.unordered`: no state comes before another, and a comparison or an `orderBy` of states is a type error.
 
 **The declaration.**
 
 ```ts
-import { alternatives, arm } from "@bjornpagen/grizzle"
+import { variant } from "@bjornpagen/grizzle"
 
-export const InvoiceState = closed.unordered("InvoiceState", ["open", "paid", "void"])
+export const InvoiceStatus = closed.unordered("InvoiceStatus", ["open", "paid", "void"])
 /** An invoice, by Stripe's id of it. */
 const StripeInvoice = str.regex("^in_[0-9A-Za-z]{1,64}$")
-export const Invoice = relation(
+/** An invoice's state: open, paid by a charge, or void for a reason. */
+export const InvoiceState = variant("InvoiceState", InvoiceStatus, {
+	open: {},
+	paid: { charge: StripeCharge },
+	void: { reason: Prose }
+})
+export const Invoice = relation.generated(
 	"Invoice",
-	{ id: StripeInvoice, org: ClerkOrg, state: closedId(InvoiceState) },
-	["id"]
+	{ id: StripeInvoice, org: ClerkOrg, state: InvoiceState },
+	["id"],
+	(i) => ({ status: generated(closedId(InvoiceStatus), InvoiceState.tag(i.state)) })
 )
-export const Payment = relation(
-	"Payment",
-	{ invoice: StripeInvoice, charge: str.regex("^ch_[0-9A-Za-z]{1,64}$") },
-	["invoice"]
-)
-export const Voiding = relation("Voiding", { invoice: StripeInvoice, reason: Prose }, ["invoice"])
 
 export const Invoices = schema(
 	"Invoices",
-	[InvoiceState, Invoice, Payment, Voiding],
-	[
-		alternatives(Invoice, "state", InvoiceState, { paid: Payment, void: Voiding }),
-		unit("Invoice", { id: StripeInvoice }),
-		mutable(Invoice)
-	]
+	[InvoiceStatus, Invoice],
+	[unit("Invoice", { id: StripeInvoice }), mutable(Invoice)]
 )
 
-/** An invoice, with its payment when it is paid and its voiding when it is void. */
-export const invoiceCard = query(Invoices)
-	.rule((r) => {
-		const { id, state } = v(Invoice, "invoice")
-		return r
-			.match(Invoice, { id, state })
-			.where(r.eq(id, r.param("id", StripeInvoice)))
-			.find({ id, state })
-	})
-	.attach(
-		"payment",
-		(i) =>
-			query(Invoices).rule((r) => {
-				const { charge } = v(Payment, "payment")
-				return r.match(Payment, { invoice: i.id, charge }).find({ charge })
-			}),
-		arm("state", "paid")
-	)
-	.attach(
-		"voiding",
-		(i) =>
-			query(Invoices).rule((r) => {
-				const { reason } = v(Voiding, "voiding")
-				return r.match(Voiding, { invoice: i.id, reason }).find({ reason })
-			}),
-		arm("state", "void")
-	)
+/** An invoice and its state, with what its state carries. */
+export const invoiceCard = query(Invoices).rule((r) => {
+	const { id, state } = v(Invoice, "invoice")
+	return r
+		.match(Invoice, { id, state })
+		.where(r.eq(id, r.param("id", StripeInvoice)))
+		.find({ id, state })
+})
 
-/** Pay an open invoice: its state and its payment change together, in one transaction. */
-export const pay = ChangeSet.empty(Invoices)
-	.put(
-		Invoice,
-		query(Invoices).rule((r) => {
-			const { org } = v(Invoice, "invoice")
-			return r
-				.match(Invoice, { id: r.param("invoice", StripeInvoice), org, state: "open" })
-				.find({ id: r.param("invoice", StripeInvoice), org, state: InvoiceState.handle("paid") })
+/** Pay an open invoice: its state becomes paid, holding the charge. */
+export const pay = ChangeSet.empty(Invoices).put(
+	Invoice,
+	query(Invoices).rule((r) => {
+		const { org } = v(Invoice, "invoice")
+		return r.match(Invoice, { id: r.param("invoice", StripeInvoice), org, status: "open" }).find({
+			id: r.param("invoice", StripeInvoice),
+			org,
+			state: InvoiceState.make("paid", { charge: r.param("charge", StripeCharge) })
 		})
-	)
-	.insert(
-		Payment,
-		query(Invoices).rule((r) =>
-			r.match(Invoice, { id: r.param("invoice", StripeInvoice), state: "open" }).find({
-				invoice: r.param("invoice", StripeInvoice),
-				charge: r.param("charge", Payment.fields.charge)
-			})
-		)
-	)
+	})
+)
 ```
 
-**What you get.** `alternatives(Invoice, "state", InvoiceState, { paid: Payment, void: Voiding })` says each invoice has exactly the detail row its `state` names, and the types follow. `invoiceCard` attaches each detail with `arm("state", "paid")`, a delivery that holds a row exactly in that arm, so its row is a union on `state`, in which `payment` is an `Option.Some` exactly when the invoice is paid:
+**What you get.** `state` is one value of exactly one arm, and the types follow: `invoiceCard`'s row is
 
 ```text
-  | { readonly id: string; readonly state: "open"; readonly payment: Option.None<{ readonly charge: string }>; readonly voiding: Option.None<{ readonly reason: string }> }
-  | { readonly id: string; readonly state: "paid"; readonly payment: Option.Some<{ readonly charge: string }>; readonly voiding: Option.None<{ readonly reason: string }> }
-  | { readonly id: string; readonly state: "void"; readonly payment: Option.None<{ readonly charge: string }>; readonly voiding: Option.Some<{ readonly reason: string }> }
+{
+  readonly id: string
+  readonly state:
+    | { readonly tag: "open" }
+    | { readonly tag: "paid"; readonly charge: string }
+    | { readonly tag: "void"; readonly reason: string }
+}
 ```
 
-`pay` takes `{ invoice: string; charge: string }`. Its rows are queries, and a query in a ChangeSet reads the state before the change, in the same transaction: that is how a write depends on a read, with no interactive transaction. `pay` reads the invoice and, if it was open, marks it paid and inserts its payment, together. On an invoice that isn't open both parts are empty, so a webhook delivered twice answers `unchanged` the second time. `InvoiceState.handle("paid")` is the roster's handle as a typed constant.
+so a reader narrows on `state.tag` and finds a paid invoice's charge right there, and a write states a paid state with its charge or not at all. `status` is the state's tag, generated from it: an ordinary closed id of `InvoiceStatus`, which a key, a filter or a law reads like any field, as `pay` does.
 
-A paid invoice without its payment, or a payment of an invoice that isn't paid, is refused at commit, whoever writes it, as `refused` on one of the containments `alternatives` stands for. In PostgreSQL, abridged from `grizzle generate`, `state` is a smallint code under the roster's domain, which admits only a live handle's code, and both directions are foreign keys over STORED generated columns, deferred to commit. A payment can point only at a paid invoice, and a paid invoice, its id kept only where its state is `paid` (code 1), must have its payment:
+`pay` takes `{ invoice: string; charge: string }`. Its row is a query, and a query in a ChangeSet reads the state before the change, in the same transaction: that is how a write depends on a read, with no interactive transaction. `pay` reads the invoice and, if it was open, makes its state `paid` with the charge. On an invoice that isn't open its row is empty, so a webhook delivered twice answers `unchanged` the second time. `InvoiceState.make("paid", { charge })` is a value of one arm, made of terms.
+
+A paid state without its charge, or a charge on an open invoice, is no value of `InvoiceState`: no write states it, and a direct writer's is refused by the state's domain, whoever writes it. In PostgreSQL, abridged from `grizzle generate`, the state is a composite of its tag, the arm's code, and every arm's fields, under a domain whose one CHECK holds the tagged arm's fields present, each judged by its own type, and every other arm's absent:
 
 ```sql
-CREATE FUNCTION "invoices"."__invoice_state_names_yhl4rhbevp"() RETURNS "pg_catalog"."name"[]
-LANGUAGE sql IMMUTABLE PARALLEL SAFE
-RETURN '{"open","paid","void"}'::"pg_catalog"."name"[];
+CREATE TYPE "invoices"."__invoice_state_row_cxey5gq3u5" AS ("tag" smallint, "__a1_charge_wbdzyzby2v" "pg_catalog"."text" COLLATE "pg_catalog"."pg_c_utf8", "__a2_reason_ekhrddl4yb" "pg_catalog"."text" COLLATE "pg_catalog"."pg_c_utf8");
 
-CREATE DOMAIN "invoices"."invoice_state" AS smallint CONSTRAINT "check" CHECK (VALUE IS NULL OR (("invoices"."__invoice_state_names_yhl4rhbevp"())[VALUE + 1] <> ''::"pg_catalog"."name") IS TRUE);
-
-CREATE DOMAIN "invoices"."__text_7ddtmraqex" AS "pg_catalog"."text" COLLATE "pg_catalog"."pg_c_utf8" CONSTRAINT "check" CHECK (VALUE IS NULL OR (VALUE ~ '\Ain\_[0-9A-Za-z]{1,64}\Z'::"pg_catalog"."text") IS TRUE);
+CREATE DOMAIN "invoices"."invoice_state" AS "invoices"."__invoice_state_row_cxey5gq3u5" CONSTRAINT "check" CHECK (VALUE IS NULL OR (CASE (VALUE)."tag" WHEN 0::smallint THEN "pg_catalog"."num_nonnulls"((VALUE)."__a1_charge_wbdzyzby2v", (VALUE)."__a2_reason_ekhrddl4yb") = 0 WHEN 1::smallint THEN "pg_catalog"."num_nulls"((VALUE)."__a1_charge_wbdzyzby2v"::"invoices"."__text_exry3v3i7a") = 0 AND "pg_catalog"."num_nonnulls"((VALUE)."__a2_reason_ekhrddl4yb") = 0 WHEN 2::smallint THEN "pg_catalog"."num_nulls"((VALUE)."__a2_reason_ekhrddl4yb") = 0 AND "pg_catalog"."num_nonnulls"((VALUE)."__a1_charge_wbdzyzby2v") = 0 ELSE false END) IS TRUE);
 
 CREATE TABLE "invoices"."invoice" (
   "id" "invoices"."__text_7ddtmraqex" NOT NULL,
   "org" "invoices"."__text_t2hbrv4zer" NOT NULL,
   "state" "invoices"."invoice_state" NOT NULL,
-  CONSTRAINT "__invoice_pk_6v4xjquwn3" PRIMARY KEY ("id"),
-  CONSTRAINT "__invoice_key_id_state_yoqqcdf5vz" UNIQUE NULLS DISTINCT ("id", "state")
+  "status" "invoices"."invoice_status" GENERATED ALWAYS AS (("state")."tag") STORED NOT NULL,
+  CONSTRAINT "__invoice_pk_6v4xjquwn3" PRIMARY KEY ("id")
 );
-
-ALTER TABLE "invoices"."invoice" ADD COLUMN "__id_jua3zt56f7" "invoices"."__text_7ddtmraqex" GENERATED ALWAYS AS (CASE WHEN "state" = 1::smallint THEN "id" END) STORED;
-
-ALTER TABLE "invoices"."payment" ADD COLUMN "__tag_state_paid_czelpy2jmx" smallint GENERATED ALWAYS AS (1::smallint) STORED NOT NULL;
-
-ALTER TABLE "invoices"."invoice" ADD CONSTRAINT "__invoice_fk_id_ccexml2ehq" FOREIGN KEY ("__id_jua3zt56f7") REFERENCES "invoices"."payment" ("invoice") MATCH SIMPLE DEFERRABLE INITIALLY DEFERRED;
-
-ALTER TABLE "invoices"."payment" ADD CONSTRAINT "__payment_fk_invoice_tag_state_paid_oj2dydnqrc" FOREIGN KEY ("invoice", "__tag_state_paid_czelpy2jmx") REFERENCES "invoices"."invoice" ("id", "state") MATCH SIMPLE DEFERRABLE INITIALLY DEFERRED;
 ```
+
+A state whose data is a relation of its own, one other tables refer to, is a sum of relations, not of values: keep the tag a field of its header, and mirror each arm relation with the header's rows of its tag, `mirrors(on(Payment, "invoice"), on(select(Invoice, (i) => i.eq(i.status, "paid")), "id"))`, so each paid invoice has exactly one payment and each payment's invoice is paid ([Variants](#variants)).
 
 ### 8. A usage page: windows, a rollup and their indexes
 
@@ -1333,7 +1319,7 @@ export const spendOn = (db: AnalystDb, workspace: string, model: string) =>
 
 **What you get.**
 
-- **Windows.** `once` answers a `KeyedList` of rows, `{ id, model, at, cost }` with `at` and `cost` the branded `bigint`s of their contracts, in the query's order. Ties are broken by `id`, the row's key, which grizzle adds to the order, so `(at, id)` is each row's key: an entry's `key` is the anchor of the window after it, `{ kind: "after", key }`, and `{ kind: "end" }` and `{ kind: "before", key }` read backward. `{ kind: "at", position: 100 }` is the window after the order's first 100 calls, for a client that asks for page 3 of 50: its statement skips those 100 calls, so a key is the anchor to scroll by ([Reading](#reading)). A window is one statement of `size` rows: there are no cursors and no flags, and the window after the last row holding none is the end. `watch` keeps a window live: its rows change as writes change them.
+- **Windows.** `once` answers a `KeyedList` of rows, `{ id, model, at, cost }` with `at` and `cost` the `bigint`s of their contracts' host types, in the query's order. Ties are broken by `id`, the row's key, which grizzle adds to the order, so `(at, id)` is each row's key: an entry's `key` is the anchor of the window after it, `{ kind: "after", key }`, and `{ kind: "end" }` and `{ kind: "before", key }` read backward. `{ kind: "at", position: 100 }` is the window after the order's first 100 calls, for a client that asks for page 3 of 50: its statement skips those 100 calls, so a key is the anchor to scroll by ([Reading](#reading)). A window is one statement of `size` rows: there are no cursors and no flags, and the window after the last row holding none is the end. `watch` keeps a window live: its rows change as writes change them.
 - **The rollup.** `ModelSpend`'s key, `(workspace, model)`, follows from its query, so `modelSpend` returns at most one row: `spendOn` gives a set of at most one `{ calls: bigint; spend: Decimal }`. It is always current: it is the calls as they stand, read as one range of the index below, and no job keeps it.
 - **The indexes.** `grizzle generate` derives one from the workload's `callLog` and one from `modelSpend`, whose read of `ModelSpend` reads `Call` at one workspace and one model:
 
@@ -1354,7 +1340,7 @@ For porting an app, each Drizzle construct and what takes its place:
 | Drizzle                                                | grizzle                                                                                         |
 | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
 | `pgTable("post", { ... })`                             | `relation("Post", { ... }, ["org", "slug"])`; the third argument is the primary key            |
-| `uuid("id").defaultRandom()`                           | the fields that identify the fact, or `contract("ClerkUserId", uuid)` for another system's id   |
+| `uuid("id").defaultRandom()`                           | the fields that identify the fact, or `contract<typeof key>()("ClerkUserId", uuid)` for another system's id |
 | `.notNull()`                                           | every column; a value that may be missing is a row in a table of its own                        |
 | `text()`, `varchar()`                                  | `str.regex(pattern)`: text always carries a pattern                                             |
 | `integer()`, `bigint({ mode: "bigint" })`, `numeric()` | `pg.integer` (`number`), `pg.bigint` (`bigint`), `pg.numeric(p, s)` (an exact `Decimal`; a `bigint` at scale 0), `pg.numeric` (no typmod, a `Decimal`) |
@@ -1389,7 +1375,7 @@ The whole map, from what you declare to what PostgreSQL enforces for every write
 | You write | PostgreSQL gets |
 | --- | --- |
 | `relation(...)` | a table, every column NOT NULL, with its primary key, and a statement trigger that refuses any write below SERIALIZABLE, unless every writer of it is certified READ COMMITTED |
-| `str.regex(...)`, `contract(...)` | a domain whose CHECK every writer's value meets, one domain for each distinct definition |
+| `str.regex(...)`, `contract<typeof key>()(...)` | a domain whose CHECK every writer's value meets, one domain for each distinct definition |
 | `closed.ordered(...)`, `closed.unordered(...)` | a smallint domain that admits only live handles' codes, checked against an IMMUTABLE function returning the roster's names as `name[]`; for a `bits(...)` field over the roster, a `bit(n)` domain that admits only live handles, n its codes rounded up to whole bytes |
 | `closed.relation(...)` | no table: content-addressed IMMUTABLE constants for each closed relation or side a rule or query reads, and a table CHECK for each rule that reads one from an open row ([Closed relations](#closed-relations)) |
 | a rule: `contained`, `key`, `check`, ... | a foreign key, unique key, no-overlap key or CHECK, over STORED generated columns where a side selects rows or reads `pred` |
@@ -1439,7 +1425,7 @@ Then depend on it from your package, beside its peers:
 }
 ```
 
-Import it as `@bjornpagen/grizzle`, `@bjornpagen/grizzle/runtime`, `@bjornpagen/grizzle/compile`, `@bjornpagen/grizzle/dynamic`, `@bjornpagen/grizzle/client`, `@bjornpagen/grizzle/http` and `@bjornpagen/grizzle/locks`. `@bjornpagen/grizzle` is the authoring entry: the builders a schema, its logins and its workloads are written with, `defineConfig` and `CredentialError`, and nothing that compiles or runs them, so a schema module or a `grizzle.config.ts` loads no compiler. A running application imports `@bjornpagen/grizzle/runtime` (`served`, `DbLayer`, `LiveSource`, `Db`, every runtime error, `roleNameOf`); a test that reads a schema's compile on the host imports `@bjornpagen/grizzle/compile` (`compileServed`, `indexesOf`, `lawsOf`, `lawsByStatement`, `constraintNamesOf`, `rowEvaluator`, `insertPreview`, `factsDecoder`, `codecText`, `rowText`). `pnpm exec grizzle` runs the command line from `src/cli/bin.ts`, which turns on Node's compile cache before it loads the rest. To upgrade, move the submodule to a newer commit and run `pnpm install`.
+Import it as `@bjornpagen/grizzle`, `@bjornpagen/grizzle/runtime`, `@bjornpagen/grizzle/compile`, `@bjornpagen/grizzle/dynamic`, `@bjornpagen/grizzle/client`, `@bjornpagen/grizzle/http` and `@bjornpagen/grizzle/locks`. `@bjornpagen/grizzle` is the authoring entry: the builders a schema, its logins and its workloads are written with, `defineConfig` and `CredentialError`, and nothing that compiles or runs them, so a schema module or a `grizzle.config.ts` loads no compiler. A running application imports `@bjornpagen/grizzle/runtime` (`served`, `DbLayer`, `LiveSource`, `Db`, every runtime error, `roleNameOf`); a test that reads a schema's compile on the host imports `@bjornpagen/grizzle/compile` (`compileServed`, `plannedQueriesOf`, `indexesOf`, `lawsOf`, `lawsByStatement`, `constraintNamesOf`, `installedIdentifiersOf`, `rowEvaluator`, `insertPreview`, `factsDecoder`, `codecText`, `rowText`). `pnpm exec grizzle` runs the command line from `src/cli/bin.ts`, which turns on Node's compile cache before it loads the rest. To upgrade, move the submodule to a newer commit and run `pnpm install`.
 
 The agent guide is `vendor/grizzle/packages/grizzle/skills/grizzle/SKILL.md`: copy it to where your agent reads skills, and again after upgrading grizzle.
 
@@ -1452,13 +1438,36 @@ In full:
 - **A refusal beside a TypeScript error.** A grizzle refusal reported beside a TypeScript error at its source, such as TS2552 or TS2304 (a name no module declares), is that error's cascade: the unresolved name reads as `any`, and a check downstream of it can no longer read what it states. Fix the first TypeScript error.
 - **Hardened Node.** grizzle runs under `--disable-proto=delete` and `--disable-sigusr1`: it never touches `Object.prototype.__proto__`, the `grizzle` command starts with both flags, and every test runs under both.
 - **The database.** UTF8 with the builtin `C.UTF-8` locale, on a server host that has the `C.UTF-8` operating-system locale. `btree_gist` must be available; a migration creates it when a no-overlap key or a coverage rule needs it. pgvector 0.8.7 is needed only for vector fields; it is not a trusted extension, so a superuser creates `vector` first where the migration role cannot.
-- **A migration role that owns the database.** It owns the schema and the database, and has CREATEROLE to create the PostgreSQL roles of your logins and roles. It needs no superuser. Any other role fails the first migration with 42501, because only the database's owner may set its default isolation level. It also holds `pg_signal_backend` (`GRANT pg_signal_backend TO <migration role>`, which a superuser gives, or a role holding it WITH ADMIN): a migration that drops a role first ends the sessions holding that role's temporary tables ([Deploying](#deploying)), and PostgreSQL lets a role end a session only where it holds the privileges of the session's login or pg_signal_backend's. Without it, such a migration fails with 42501 ("permission denied to terminate process") and rolls back, as it fails with 2BP01 when nothing ends them.
+- **A migration role that owns the database.** It owns the schema and the database, and has CREATEROLE to create the PostgreSQL roles of your logins and roles. It needs no superuser. A role without CREATE on the database fails the first migration with 42501 ("permission denied for database") at its first statement, the CREATE SCHEMA of the installed schema: the database's owner holds CREATE on it, and another role only where it is granted. A migration that creates `btree_gist`, a trusted extension, needs it too. It also holds `pg_signal_backend` (`GRANT pg_signal_backend TO <migration role>`, which a superuser gives, or a role holding it WITH ADMIN): a migration that drops a role first ends the sessions holding that role's temporary tables ([Deploying](#deploying)), and PostgreSQL lets a role end a session only where it holds the privileges of the session's login or pg_signal_backend's. Without it, such a migration fails with 42501 ("permission denied to terminate process") and rolls back, as it fails with 2BP01 when nothing ends them.
 - **A password for each login role**, which you set, or, for RDS IAM authentication, membership in `rds_iam`, and one for the installation's decoder login where a login serves a read: the role a reading login's served file names, `roleNameOf(WebServed.decoder, connection)` ([Connecting](#connecting)). Each connection authenticates with exactly the password its configuration names: node-postgres never reads `PGPASSWORD` or `~/.pgpass` for one.
 - **TLS with verify-full**, the only mode. Plaintext is refused.
 - **A direct connection.** PgBouncer is not supported.
 - **`max_pred_locks_per_transaction = 2048`**, recommended: a server-start setting, about 115 MB of shared memory at 200 connections. SERIALIZABLE writes and reads take predicate locks.
 
 ## Upgrading
+
+### A contract's values are its consumer's
+
+`contract(name, base, …)` is gone, with no alias, and no contract is callable: a contract's values come from its
+consumer's key ([Tables and types](#tables-and-types)). A caller makes each change below; the SQL is byte-identical,
+since only the types and the host's spelling of a value change.
+
+- `const X = contract("X", base, …)` → `const xKey = Symbol("X")` beside `const X = contract<typeof xKey>()("X", base, …)`,
+  one key per contract, held by the module that declares it.
+- `X(value)` → `toX(value)` beside `const toX = mintOf(xKey)`, in the module that holds the key, which exports the mint
+  only to the modules that make values; an initial value and a closed relation's row are minted alike.
+- Every place the database or grizzle makes a value of X takes the key too: `Type.cast(x, X)` → `Type.cast(x, X, xKey)`,
+  `drawn(X)` → `drawn(X, xKey)`, `accumulated(X, start)` → `accumulated(X, toX(0n), xKey)`, a clock bound to a
+  parameter of X, `clocked(program, { now: "millis" })` → `clocked(program, { now: "millis" }, { now: xKey })`, and a
+  declared function whose result holds X, `fn(name, definition)` → `fn(name, definition, { X: xKey })`. A contract over
+  another takes every key of its chain, its own first, `Type.cast(x, Outer, outerKey, centsKey)`, and is declared under a
+  key apart from its base's. A contract named `natural` is refused, as one named `instant` is.
+- A value's type, `base & Brand.Brand<"X">`, is `Marked<base, typeof xKey>`, still `Infer<typeof X>`: a value
+  `Schema.brand("X")` decodes is no value of it, so decode the base and mint it.
+- A typed constant of a contract and a conditional's other arm beside a contract's term take a minted value,
+  `Type.literal(X, toX(5n))`; a value compared with a contract's term stays the base's.
+- A function over a contract's term types it by the contract's domain and its values apart,
+  `Term<DomainOf<typeof X>, unknown, InputOrigin, Sql, Infer<typeof X>>`, since the two are no longer one type.
 
 ### Compute became the scalar namespaces
 
@@ -1771,9 +1780,9 @@ A live source decodes the WAL, which PostgreSQL 19 does at its default `wal_leve
 
 grizzle sets no `max_slot_wal_keep_size`, since how much WAL the slot may hold while no leader runs is the operator's policy, and a slot the server invalidates fails closed: the next leader fans out `:invalidated` with the WAL position it read, which ends every live read registered over a slot that stood at or before that position, and none over the slot it then makes.
 
-The decoder login, the publication and the slot are named by the name grizzle derives for the installation's live source, and the snapshot records it. A newer grizzle may derive another one (e1c1fc23 shortened `__live_<segments>_<digest>` to `__live_<digest>`): the next `grizzle generate` then drafts the decoder login's rename in place (`ALTER ROLE ... RENAME TO`, which keeps its password and its replication right) and replaces the publication, dropping the slot of the old name. Stop the old version's leaders before you migrate: PostgreSQL refuses to drop a slot a leader streams from, and the migration fails closed until they stop. `grizzle roles` and `grizzle uninstall` read the decoder login by the name its level's schema derives.
+The decoder login, the publication and the slot are named by the name grizzle derives for the installation's live source, and the snapshot records it. `grizzle roles` and `grizzle uninstall` read the decoder login by the name its level's schema derives.
 
-grizzle states no number of its own, and there is no isolation level, statement timeout or retry policy to set. A call waits for a session as long as you let it: the wait has no deadline, and interrupting the Effect, your own timeout among the ways, ends it, leaving nothing behind. Closing the layer's scope ends its pool: a session in use is destroyed at once, and each idle one is sent a Terminate and waited for until its server closes the connection, which PostgreSQL does only once the backend has exited, its session's temporary tables dropped (the rule judge's deltas and the write's carriers, seconds for a session that wrote many tables). So once the release returns no backend of the pool remains, and the database can be dropped at once; `grizzle migrate`'s own session ends the same way, so a database it migrated can be dropped as soon as it returns. That wait has no deadline either: interrupting the release ends it and destroys every connection still open.
+grizzle states no number of its own, and there is no isolation level, statement timeout or retry policy to set. A call waits for a session as long as you let it: the wait has no deadline, and interrupting the Effect, your own timeout among the ways, ends it, leaving nothing behind. Closing the layer's scope ends its pool: a session in use is destroyed at once, and each idle one is sent a Terminate and waited for until its server closes the connection, which PostgreSQL does only once the backend has exited, its session's temporary tables dropped (the rule judge's deltas, seconds for a session that wrote many tables). So once the release returns no backend of the pool remains, and the database can be dropped at once; `grizzle migrate`'s own session ends the same way, so a database it migrated can be dropped as soon as it returns. That wait has no deadline either: interrupting the release ends it and destroys every connection still open.
 
 ### The route handler
 
@@ -1928,7 +1937,9 @@ schema.
   `-- grizzle: no-transaction` file has no transaction to do that in, so it cannot write a guarded table. Every data
   step also stands up the rule judge's session tables first ([Rules over queries](#rules-over-queries)): a draft's by
   the previous version's stand-ups, a custom migration's file, a no-transaction one's too, by every stand-up the
-  database holds as it runs, so a step's write of a table a rule over a query reads is judged at its COMMIT.
+  database holds as it runs, so a step's write of a table a rule over a query reads is judged at its COMMIT; and a step
+  that lifts the guards re-checks every rule and stored relation over an immutable relation before it commits
+  ([Migrations](#migrations)).
   An open relation is `mutable(Post)` inside a unit whose heading its key leads with ([Units](#units)): its writers hold
   UPDATE and DELETE, and its rows change in place and are deleted under the unit's exclusive borrow. A family's owner
   whose family changes after it is inserted is open too ([Families](#families)).
@@ -1942,7 +1953,7 @@ schema.
 
 | Field                                              | PostgreSQL                                                          | TypeScript                                                             |
 | -------------------------------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `contract("ClerkUserId", uuid)`                    | uuid, behind the contract's domain; a bare `uuid` column is refused | `Uuid & Brand.Brand<"ClerkUserId">`; `Uuid.parse` reads a string      |
+| `contract<typeof key>()("ClerkUserId", uuid)`      | uuid, behind the contract's domain; a bare `uuid` column is refused | `Marked<Uuid, typeof key>`, made by `mintOf(key)`; `Uuid.parse` reads a string |
 | `sha256`                                           | bytea, behind the digest domain that checks 32 bytes                | `Sha256`, a SHA-256 digest's 32 bytes, `Sha256.ofBytes` or `ofText`    |
 | `pg.smallint`, `pg.integer`                        | smallint, integer                                                   | `number`                                                               |
 | `pg.bigint`                                        | bigint                                                              | `bigint`                                                               |
@@ -1967,7 +1978,7 @@ schema.
 | `closedId(X)`, for `X = closed.ordered("X", [...])` or `closed.unordered("X", [...])` | smallint, behind the roster's domain | the union of its names |
 | `closedId(X, { only: [...] })`, `closedId(X, { except: [...] })` | smallint, behind the roster's domain and a CHECK of the subset's codes | the union of the subset's names |
 | `bits(X)`, a set of `X`'s handles                  | bit(n), behind a domain that holds only live handles                | `Bits<typeof X>`, a `ReadonlySet` of its names; `Bits.of(X, [...])`    |
-| `contract(name, base, check?)`                     | a domain with that CHECK                                            | the base type and Effect's `Brand.Brand<name>`                         |
+| `contract<typeof key>()(name, base, check?)`       | a domain with that CHECK                                            | the base type under the key, `Marked<base, typeof key>`                |
 | `span(T, width?)`, T integer, bigint or date       | int4range, int8range or daterange                                   | `{ start, end }`, start included, end excluded                         |
 | `pg.vector(n)`                                     | pgvector's vector(n)                                                | `Vector`, a Float32Array                                               |
 | `searchDocument(configuration, [w, text], ...)`, generated | tsvector, a STORED generated column                            | `SearchDocument`, the text PostgreSQL prints for it                    |
@@ -1989,16 +2000,47 @@ Each type has one name, the one PostgreSQL prints for it: `pg.integer`, never `i
   PostgreSQL's to check ([Errors and outcomes](#errors-and-outcomes)).
 
 - **Network types.** `pg.inet` is an address with its network's mask, `pg.cidr` a network, IPv4 and IPv6 alike, PostgreSQL's own. A value is any text PostgreSQL's inet_in or cidr_in reads, and its host value the one text inet_out or cidr_out prints of it, so `"1.2.3.4/32"` is the inet `"1.2.3.4"`, `"10/8"` the cidr `"10.0.0.0/8"`, and a cidr with a bit set right of its mask, `"10.1.2.3/8"`, is an `EncodingFailure` (`cidrHostBits`), as PostgreSQL refuses it. grizzle reads every text as PostgreSQL 19 does, quirks included, so a value means one thing on the host and in the database: `Inet.parse(text)` and `Cidr.parse(text)` read a text, such as a request's address from an edge's header, into the value, a `Result`. Both compare, order (IPv4 before IPv6, then network_cmp's order), hash, stand in a key or an index, and are a context's field; an inet has `min` and `max`, and a cidr none, since PostgreSQL has neither. Their containment is `Net`'s ([Scalar terms](#scalar-terms)).
-- **Contracts.** `Cents(500n)` brands a value without checking it; the database checks it on every write. A fourth
-  argument, `{ proves: [...] }`, declares facts the check implies ([Queries](#queries)).
-- **A contract's brand is Effect's.** Its values are its base's type and `Brand.Brand<name>` of `effect/Brand`, which the
-  engine imports as a type alone, so `Schema.brand(name)` over a schema of the base's type is the same type: a value an
-  Effect Schema decodes is written into the contract's field, and a value read from the field or minted by the contract
-  is the schema's, with no cast. So a domain's vocabulary module, a browser's included, declares its schemas and loads
-  no compiler. Each schema is over its base's own type: a uuid's is `Uuid`,
-  `${string}-${string}-${string}-${string}-${string}`, which `Schema.TemplateLiteral` spells and `Schema.String` does
-  not; a `Decimal`'s or a `Money`'s, whose constructor is private, is `Schema.declare` of `instanceof`, the class
-  imported from `@bjornpagen/grizzle/client`, which loads no Node module and no compiler.
+- **A contract's values are its consumer's.** Its host type is its base's under a key the declaring module holds:
+  `const centsKey = Symbol("Cents")`, then `contract<typeof centsKey>()("Cents", pg.bigint, (c) => Logic.ge(c, 0n))`,
+  whose values are `Marked<bigint, typeof centsKey>`. Only the key's mint makes one, `const toCents = mintOf(centsKey)`,
+  then `toCents(500n)`, without checking it; the contract makes none. Where the key lives, and whether it is exported,
+  decides who makes values: a module that grades keeps its key, exports its grading function and its type,
+  `Marked<Decimal, typeof gradedKey>`, and a write of a grade takes nothing else. A key is a unique symbol, one per
+  contract: a key of type `symbol` is a type error, and `mintOf` refuses a registered one, which `Symbol.for` gives any
+  module by its name.
+- **A contract's checked mint parses a value from outside, with no compiler loaded.** A configuration that names the
+  contract, `contracts: [Cents]`, has `grizzle generate` compile it into its checker file,
+  `migrations/contract-checks/Cents.json`: its type as a schema's compile types it, its predicate a table the host
+  evaluates, the automata of its patterns and the digest of its description, a served file's artifact kind, which
+  `grizzle check` holds current. `contractParser(centsFile, Cents, centsKey)` (`@bjornpagen/grizzle/runtime`), over the
+  file as an import of it yields (`import centsFile from "./migrations/contract-checks/Cents.json" with { type: "json"
+  }`), reads a value of the base as PostgreSQL does before it stores it: a value of no value of the base's type is
+  `ValueRefused` by the codec's fault (a bigint past int8), one outside the contract's predicate or its base's
+  refinements `DomainRefused`, each at the contract, and any other value is minted under the key, `Marked<bigint, typeof
+  centsKey>`; over a file compiled from another description of the contract every value is `CheckerDrifted`. Its
+  `contract` is the contract, which a consumer that stores what it parses types its column by. It takes the contract's
+  own key, so only the key's holder builds it, in a module of its own beside the mint (a schema module importing the
+  file would load it while generate writes it), where a boundary decodes the contract's values, a request's or a step
+  input's. A test builds one over `contractCheck(Cents)` (`@bjornpagen/grizzle/compile`), the same file's value.
+- **Where a contract's value comes from.** A fact's field, a parameter's argument, a closed relation's row, a typed
+  constant (`Type.literal(Cents, toCents(5n))`), a conditional's other arm and a variant arm's field are values of the
+  host type: a plain `bigint`, or another contract's value, is a type error there. A value compared with a contract's
+  term, in a filter, a comparison or a selection, is its base's, `r.ge(cents, 0n)`, since a comparison makes no value.
+- **The database makes a contract's values under its key.** Every place a value of a contract is made from values of
+  other types takes the key after its own arguments, as `mintOf` takes it on the host: a cast,
+  `Type.cast(Num.add(a, b), Cents, centsKey)`; a field grizzle fills, `drawn(TestNumber, testNumberKey)` and
+  `accumulated(Cents, toCents(0n), centsKey)`; a clock bound to a parameter of the contract, `clocked(program,
+  { now: "millis" }, { now: millisKey })`, by the parameter's name; and a declared function whose result holds one at
+  any depth, `fn("grade", { …, returns: row(Single) }, { QtiInteger: qtiIntegerKey })`, by the contract's name. A
+  contract over another takes every key of its chain, its own first, `Type.cast(x, Outer, outerKey, centsKey)`, as the
+  host makes its value only through each mint, `toOuter(toCents(0n))`, so it is declared under a key apart from its
+  base's. A generated field, a derived relation's field, `r.min` and `r.max` carry values the contract already holds
+  and take none, and `r.sum` and `r.mean` deliver its base. A module that does not hold the key makes no value of the
+  contract: not on the host, not in a query, not in a stored computation. From JavaScript, a missing key, an extra one
+  or a value that is no symbol is `MalformedDescription`, and a registered symbol `Refused`.
+  A read delivers the host type, the one conversion grizzle makes unchecked, since it trusts its own database, and the
+  database checks the base type and the predicate on every write. A fourth argument, `{ proves: [...] }`, declares facts
+  the check implies ([Queries](#queries)).
 - **`natural`** is the builtin contract over `pg.bigint`, unbranded: a count, the type of every `r.count()`, and the one
   type a rule's `pred` reads ([Rules](#rules)). Every schema holds it, since every query over it may count, so its
   domain is installed whether or not a field is natural. A count meets a natural field, parameter or literal and is
@@ -2140,10 +2182,10 @@ Every field has one writer. An insert or a put takes exactly the fields its call
   `relation.generated(name, written, primaryKey, (r) => ({ f: generated(type, term) }))`, or a search document PostgreSQL
   parses from the row's texts, `searchDocument(configuration, [weight, text], ...)` ([Full text search](#full-text-search)).
 - **grizzle, drawn:** `drawn(natural)`, a family's count or index, and a tree's `start` and `end`
-  ([Families](#families)); or `drawn(c)`, c a contract over `pg.smallint`, `pg.integer` or `pg.bigint`, whose column
-  is c's and whose CHECK bounds every value grizzle draws into it.
+  ([Families](#families)); or `drawn(c, key)`, c a contract over `pg.smallint`, `pg.integer` or `pg.bigint` under its
+  key, whose column is c's and whose CHECK bounds every value grizzle draws into it.
 - **grizzle, accumulated:** `accumulated(type, start)`, a fold's end or accumulator, or a copy along a family's axis,
-  `start` its value where the axis begins.
+  `start` its value where the axis begins; a contract's under its key, `accumulated(c, start, key)`.
 - **The database's clock:** `instant`, stamped by the insert that adds its row where it is its relation's clock, or a
   stored instant where it is a reference ([Instants](#instants)). The same type its caller writes is `instant.stored`.
 
@@ -2200,6 +2242,104 @@ reads, the axis it reads it along, and why that column is filled later. A cycle 
 the column that reads it. A write is refused with it too where the host would read a column the write's statement
 stamps (`stamped`): a member's place carried from its owner's, or a generated field over one ([Places](#places)).
 
+### Variants
+
+`variant(name, roster, arms, checks?)` is a typed sum: a value is one arm, each arm named by a handle of a closed
+roster and a record of typed fields. One field holds one value, its host value a TypeScript tagged union, `{ tag:
+"integer", value: 3 }`: the arm's handle under `tag`, then that arm's fields.
+
+```ts
+import { closedId, generated, pg, sha256, variant } from "@bjornpagen/grizzle"
+
+const baseTypes = ["boolean", "file", "float", "integer", "pair", "string"] as const
+const BaseType = closed.unordered("BaseType", baseTypes)
+const QtiValue = variant(
+	"QtiValue",
+	BaseType,
+	{
+		boolean: { value: pg.boolean },
+		float: { value: pg["double precision"] },
+		integer: { value: pg.integer },
+		pair: { least: Identifier, greatest: Identifier },
+		string: { value: Prose }
+	},
+	{ pair: (a) => a.le(a.least, a.greatest) }
+)
+const Single = relation.generated(
+	"Single",
+	{ variable: Name, value: QtiValue },
+	["variable"],
+	(r) => ({
+		baseType: generated(closedId(BaseType), QtiValue.tag(r.value))
+	})
+)
+const Multiple = relation.generated(
+	"Multiple",
+	{ variable: Name, value: QtiValue, count: natural },
+	["variable", "image"],
+	(r) => ({ image: generated(sha256, QtiValue.digest(r.value)) })
+)
+```
+
+- **The arms name the subset it holds.** A variant holds the handles its arms name, every handle of its roster or
+  some, as `closedId(roster, { only })` holds its subset: `QtiValue` names no arm `file`, a handle the roster keeps for
+  the relations that declare one, so no value of it is a file. A handle no arm names is no value of the variant: its
+  host type has no arm for it, a write of it is refused before any SQL, and its domain's CHECK refuses its code from a
+  direct writer, 23514. A variant over the whole roster is the one whose arms name every handle; there is no other
+  form. A variant holds at least one arm.
+- **One column, judged whole.** A variant field is one column, typed by the variant's domain over its composite: the
+  tag, the arm's code, then every arm's fields at their base types. The domain's one CHECK holds the tagged arm's
+  fields present, each judged by its own type (a contract's, a pattern's, a roster's domain, a closed id subset's codes),
+  the arm's check, and every other arm's fields absent. A value of no arm, a field under another arm's tag, or a pair out of order is refused
+  wherever it is written: by a write, a cast, a parameter or direct SQL. A write's refusal names the field's one rule,
+  `{ kind: "variant", relation, field, variant }`, whichever domain PostgreSQL reports, the variant's or an arm's
+  field's contract's or pattern's: grizzle judges the stated row on the host by the same domain to name the field.
+- **The tag is an ordinary field.** `V.tag(value)` is a closed id of the roster holding the handles the arms name, as
+  a closed id of that subset is, so `generated(closedId(R), V.tag(r.value))` stores it, and so does a field of the
+  subset, `generated(closedId(R, { only }), V.tag(r.value))`. A key, a reference and a law name it like any field, so
+  a containment can hold each value of a declared type: `on(Single, "variable", "baseType")` into the declarations'
+  `(identifier, baseType)`.
+- **One equality, its identity.** Two values are equal exactly when they are of one arm and each field is one value:
+  a text by its bytes, a float by its bits, -0 apart from 0, every NaN one. A key, a reference, `=`, DISTINCT, GROUP
+  BY and a join all read it. Order is the tag's code, then the arm's fields in declared order.
+- **A digest for a key no B-tree holds.** `V.digest(value)` is a SHA-256 of that identity, the arm's handle's digest
+  then each field's fixed-width image. It is a term like any other: a generated field a key is declared over, as
+  `Multiple` does where an arm holds unbounded text, a query's join or a check.
+- **Case analysis is exhaustive.** `V.cases(value, { boolean: (a) => …, float: (a) => …, … })` takes a handler for
+  every arm, each given its arm's fields as terms, and is one term. `V.make("pair", { least, greatest })` is a value of
+  one arm. `r.match(V.arm(value, "string"), { value: text })` is a source, one row of an arm's fields where the value
+  holds that arm and none where it holds another, so a rule reads an arm's fields as columns. Its key is its value: an
+  arm of a cell a key fixes is at most one row, to the types as to the engine, so an attachment reading it is an
+  Option. A derived relation of that one match is the relation of an arm, which a law may name.
+- **Arm checks are the type's.** `checks` states at most one predicate per arm, over that arm's fields alone, with
+  the row-check helpers. It is printed into the domain's CHECK under the arm's code, so every relation holding the
+  variant holds it, with no check of its own.
+- **Functions take variants.** A declared function's argument, result or rows heading may hold a variant. Its body
+  reads one with `${V.code(handle)}`, the arm's code `(v).tag` holds, and `${V.attribute(handle, field)}`, the
+  attribute a field is. It builds one with `${V.of(handle, { field: "<sql>" })}`, which writes each field at its own
+  attribute and casts the value to the domain. Each handle and field name is type-checked. A function at any level,
+  a library level every application composes among them, names a variant of any level its schema extends: each
+  installation prints the body under its own codes, as it stores the variant's columns.
+- **A sum of relations is no variant.** A variant's arms are values of one column. Where an arm's data is a relation
+  of its own, one other relations refer to by its key, the sum is of relations: keep the tag a field of the header, and
+  mirror each arm relation with the header's rows of its handle or handles, `mirrors(on(Arm, ...key),
+  on(select(Header, (h) => h.eq(h.tag, "arm")), ...key))`, or `h.in(h.tag, ["a", "b"])` for an arm two handles share,
+  one statement per arm relation. Its two containments state exactly one arm row per header of those handles and none
+  of another, since the header's tag holds one value per key. A query attaches an arm plainly at the
+  header's key, delivered as `"option"`: the arm's key, the header's, proves at most one row.
+- **Arms grow by migration.** An arm appended to the roster takes the next code. Its fields come after every installed
+  attribute, and the migration adds them in place, `ALTER TYPE … ADD ATTRIBUTE`, rewriting no stored value. A handle
+  renamed keeps its code and its arm's attributes. A handle removed from a roster an arm's field holds is validated
+  through the variant's domain, so a stored value holding it refuses the migration, 23514.
+- **The subset widens and narrows by migration.** The composite lays the arms' fields out in their codes' order. An
+  arm taken into the subset at a handle past every arm's code adds its fields after every installed attribute, in
+  place, as an appended arm does; an arm of no field, taken in or left out at any handle, holds no attribute, so only
+  the domain's CHECK changes. The migration replaces that CHECK and validates it against the stored values, so a stored
+  value of an arm left out refuses the migration, 23514. An arm with fields left out of the subset, or taken in below
+  the code of an arm the variant holds, would rewrite every stored value, as would a field removed or added to an arm
+  other than the one of the greatest code: any such change to a variant's arms is refused when drafted, a custom
+  migration.
+
 ### Closed relations
 
 `closed.relation(name, fields, key, rows)` is a relation whose rows are fixed when the schema compiles, such as a
@@ -2231,7 +2371,7 @@ delivers or binds:
 - **`Allowed.has(kind, flag)`**: a predicate, true where a row holds the key and false where none does.
 
 Each is NULL where a key value is NULL. `has` states what holds at an absent key:
-`Logic.or(Logic.not(Allowed.has(kind, flag)), Logic.ge(Allowed.at("weight", kind, flag), 1))` holds of every
+`Logic.or([Logic.not(Allowed.has(kind, flag)), Logic.ge(Allowed.at("weight", kind, flag), 1)])` holds of every
 pair `Allowed` lacks, and `Logic.cond(Allowed.has(kind, flag), Allowed.at("weight", kind, flag), 0)` is the weight,
 0 where there is none. NULL follows SQL's three-valued logic: a row check, over a table or a derived relation, refuses a
 row its condition leaves unknown, and holds where another arm of an `or` holds; a selection keeps only the rows its
@@ -2267,7 +2407,8 @@ Rules are declared in a schema's list, beside its tables. A box office:
 ```ts
 import { check, contract, counted, drawn, fin, key, Logic, mutable, natural, span, unit } from "@bjornpagen/grizzle"
 
-const Cents = contract("Cents", pg.bigint, (c) => Logic.ge(c, 0n))
+const centsKey = Symbol("Cents")
+const Cents = contract<typeof centsKey>()("Cents", pg.bigint, (c) => Logic.ge(c, 0n))
 /** A show's production code, and a ticket's barcode, as the box office prints them. */
 const ShowCode = str.regex("^[A-Z0-9]{2,12}$")
 const Barcode = str.regex("^[0-9]{12}$")
@@ -2314,7 +2455,6 @@ key, so two runs on one stage never share a night.
 | Foreign key    | `contained(on(Ticket, "show"), on(Show, "id"))`                           | every ticket's `show` is a show's `id`                                        |
 | Both ways      | `mirrors(on(A, "x"), on(B, "y"))`                                         | `contained(a, b)` and `contained(b, a)`, the two rules it stands for          |
 | Coverage       | `contained` between two `span` fields                                     | the target's spans cover each source span                                     |
-| One of several | `alternatives(Task, "kind", Kind, { Automatic, Manual })`                 | each row has exactly one detail row, in the table its `kind` names            |
 | Row check      | `check("SomeSeats", Show, (s) => s.ge(s.seats, 1n))`                         | the condition holds on every row                                              |
 | Counted family | `counted(on(Ticket, "show"), fin(Show, "tickets"))`                       | each show's `tickets` is the number of tickets that name it                   |
 | Ordered family | `ordered(on(Line, "order", "at"), fin(Order, "n"))`                       | each order's lines hold `at` exactly 0 … n − 1                                |
@@ -2338,7 +2478,7 @@ A rule pairs its sides' terms in order. A side is `on(source, ...terms)`.
   is not. A containment's target holds a key of its table whose selection's conditions are all the target's, its terms
   among the target's terms, or among its terms and the fields the target fixes. A target's selection fixes a field
   beyond its terms by one condition, outside the key's selection, that equates the field to a value or to one of the
-  target's terms: `contained(on(A, "id"), on(select(B, (b) => b.and(b.eq(b.kind, "x"), b.eq(b.root, b.id))), "id"))`
+  target's terms: `contained(on(A, "id"), on(select(B, (b) => b.and([b.eq(b.kind, "x"), b.eq(b.root, b.id)])), "id"))`
   holds where every A's id is a B of kind `"x"` that is its own root, and B's primary key `id` keys the target. A
   target no key holds is refused when the schema compiles.
 - **Generic helpers.** A rule may be written in a helper generic over the tables it reads,
@@ -2395,11 +2535,9 @@ no trigger and no function for it.
   then its fixed fields, which add no column to the target. The UNIQUE it references is the key the target holds, or
   one over more columns, which that key implies. The key implies a UNIQUE over the target's terms under its selection
   too, which needs no constant, and grizzle references whichever adds fewer indexes and columns to the schema: the
-  target's own terms where a containment out of the same selection reads them, as each `alternatives` arm's way back
+  target's own terms where a containment out of the same selection reads them, as each arm's mirrors' way back
   does, so one index serves both, or where the shared UNIQUE costs a constant or a column more; the shared one where
   several targets fix a field to different values, or where both cost the same.
-- **`alternatives`** is its containments: one from each arm into its parent at its handle, and one from the parent's
-  rows of each handle into its arm, a selected side.
 - **Coverage.** A coverage's target needs a no-overlap key over its span, or the schema is refused: coalesce the spans,
   or key them.
 
@@ -2466,7 +2604,7 @@ export const ContentPackage = schema.extend(
 	[TypedHref],
 	[
 		check("ItemsInside", TypedHref, (t) =>
-			t.not(t.and(t.eq(t.type, "item"), t.eq(t.internal, false)))
+			t.not(t.and([t.eq(t.type, "item"), t.eq(t.internal, false)]))
 		),
 		contained(on(items, "path"), on(PackageFile, "path")),
 		contained(
@@ -2484,15 +2622,23 @@ and no write keeps one in step: `derived(name, query)` stores nothing, and a que
 definition too.
 
 - **What a side's query may be.** Matches, `where` conditions and the head's fields: joins, selections, projections
-  and semijoins, a union of such rules, and negations. `r.not(Q, …)`, alone or inside `r.and(...)`, negates a table, a
+  and semijoins, a union of such rules, and negations. `r.not(Q, …)`, alone or inside `r.and([...])`, negates a table, a
   query of such rules or a derived relation whose query is one, which may negate in turn, so a rule can read "the rows
   of R with no S", "the rows of R that no join of S and U names" and "the sittings no ending and no standing
   invalidation names", an invalidation standing where no reinstatement names it. A negation of a union negates each of
-  its rules. An aggregate (`r.count()`, `r.min(x)` and the others), a recursion and a text's tokens, pieces, rest, decoded path, target within a base and split at its last separator
-  (`r.tokens`, `r.split`, `r.rest`, `r.decodedPath`, `r.resolvedWithin`, `r.splitLast`, [Text](#text)) are read by a unit-local rule, below, and refused in any other: an
-  aggregate and a split as
-  `UnsupportedLawFamily` naming what the query does,
-  and a rule over a recursion as `Refused`, naming the unit-locality it lacks. `orderBy(...).take(k)`, `attach` or an
+  its rules. An aggregate (`r.count()`, `r.min(x)` and the others) is read by a unit-local rule, below, and by a rule
+  its probes judge where the law reads it inside one unit: its terms hold the unit fields of every relation the
+  aggregate's body matches, so a probe folds again only groups whose rows one unit holds. Any other is refused
+  (`UnsupportedLawFamily`), naming the relation whose unit is left free and the remedy: where the groups span units, as
+  a count of every learner's attempts at an item does, group within a unit, adding the unit's fields to the grouping;
+  where the groups lie inside one unit and the law's terms leave it free, as a key at the item alone over each learner's
+  count of an item does, bind the unit's fields in the law. Its probe would fold every group at its terms again at each
+  write, work that grows with the units. A query that reads it is untouched, and so is a law over a derived relation
+  that aggregates nothing at terms that leave its unit free, a chain of keyed reads from its terms. A recursion and a
+  text's tokens, pieces, rest, decoded path, target within a base and split at its last separator (`r.tokens`,
+  `r.split`, `r.rest`, `r.decodedPath`, `r.resolvedWithin`, `r.splitLast`, [Text](#text)) are read by a unit-local
+  rule, below, and refused in any other: a split as `UnsupportedLawFamily` naming what the query does, and a rule over
+  a recursion as `Refused`, naming the unit-locality it lacks. `orderBy(...).take(k)`, `attach` or an
   approximate search, in the query or in a query it negates, are refused the same way (`Refused` over a derived
   relation, its refusal the type error's words), and a type error where the query does it itself. A family and a fold
   read tables only. Every value a rule reads is immutable: a stable function's call (`Fn.call`,
@@ -2587,6 +2733,40 @@ definition too.
   upkeep left it there included: the judge keeps every stored relation first, then judges the rules. A key or a check
   over a stored relation refuses there, at its table's UNIQUE or CHECK, and a served write refused so is
   `invariant-rejected` naming the law, as a write of the relation's holders changes the relation by its COMMIT.
+- **A check the schema proves emits nothing.** Before a probe of the rows a write adds to a relation R is built, each
+  occurrence of R in each arm of the rule, at any depth (a definition's rules, a fold's body, a negated query's arms),
+  is put to the schema's containments, stated or composed, its keys and its closed relations. Where a stored relation
+  S matched beside it is contained in R, `S(F) ⊆ R(G)`, and the arm binds each field of G it pins to the variable S
+  binds at its pair in F, a row R gains opens no fact there that the rule's other probes do not judge: beside a row of
+  S the transaction added, S's own probe reads the fact; beside one that stood, R held a row at G before the
+  transaction. Where every field the occurrence reads of R is among G, that row gives the same fact, which held then.
+  Where only a key of R is among G, R must be closed: no served write removes a row of a closed relation, so the row
+  that stood at the key stands, and a row a served write adds is of a new key, whose children stand only where the
+  same write creates them. A mutable R is covered at no key, a row it gains there one that may replace the row that
+  stood. So the probe of a new sitting's rows beside its children, which pin it, is no block, no statement and no
+  plan; an insert of a relation no other probe reads is captured by no rule; and the rows a write removes of a closed
+  relation, which no served write does, are captured by no rule and read by no judge or upkeep: a migration's data
+  step, which lifts the guards, re-checks every rule and stored relation over an immutable relation after it
+  ([Migrations](#migrations)). Two more losses are proved empty. A containment's target that reads its own source at
+  a key, `Assignment ⊆ AssignmentStatus` where the status of an assignment with no event reads the assignment itself,
+  loses no fact by a row the source loses: the fact it withdraws needed that very row, so no rule reads the rows the
+  source loses there. And a target's arm that negates a row of an immutable relation R, an open candidate session
+  being one with no end, loses nothing to a row R gains where a sibling arm reads the same matches, conditions and
+  negations, R at exactly the negation's fields, and R's instants only as no earlier than an instant of the arm's
+  rows on the same clock at the same key (the ended session's arm, `response.at <= end.at`): every writer stamps a
+  new row of R at its unit's clock, after every row it reads there, so the sibling regains every fact the arm loses,
+  and no probe reads the rows R gains for it ([Instants](#instants)). A sibling that reads R at another field too, the
+  end's kind, regains nothing, and its rule reads them. Each match is covered
+  by one sibling, assigned in its arm's order so that no chain of covers reaches back to it: a chain of containments
+  keeps its last link's probe and a cycle one link's; a containment no schema states proves nothing, however a
+  procedure keeps it. The decision is the compiler's, made when the schema compiles, never a skip at run time, and
+  snapshot.json records it under `derived.proved`: each rule by its law, each relation a cover spares, each cover by
+  its sibling, its containment's pairs and what it pins (`read`, every field read; `fresh`, a key of a closed
+  relation), or a sibling arm's regain (`clock`, the negation's fields and the instants it reads), and the sides of
+  the relation a block still reads. On edullm's bar, a start's probes of qti-pie's
+  "Suspended in time" over its new sitting, candidate session and item sessions read about 450 pages each and planned
+  for up to 750 ms in a fresh session, all of it for rows no pause could stand beside; the rule holds none of them, and
+  its probe of the pause a later write adds judges it.
 - **What PostgreSQL gets.** A rule that reads only tables is a constraint, as above. A rule that reads a query is
   judged once per transaction, over the rows it wrote: a unit-local rule over the units of those rows, any other over
   the rows themselves. On each table the query reads, an AFTER statement trigger for
@@ -2614,7 +2794,10 @@ definition too.
   a learner's answers never run or plan the rules of a content package. Each rule's
   statement over a side is a function of its own, which its part calls where a table it reads holds a row, so a
   session compiles the statements its writes run alone: a learner's save compiles its five, never the other seventy of
-  the learner's part. After `SET
+  the learner's part. A stored relation's upkeep stands so too: a unit form's statements in one function, a delta form's
+  removal of the facts a write withdraws and its insert of those it gains in one each, the removal first, each called
+  where a table its own statements read holds a row, so a write that only adds rows never plans or runs the removal,
+  nor locks the stored table it seeks. After `SET
   CONSTRAINTS ALL IMMEDIATE` the judge runs at the end of each statement. The functions are SECURITY DEFINER on a
   pinned `search_path`, no role may run them but a table's stand-up, which each role that writes the table may, and a
   temporary table another role made under the judge's names is refused.
@@ -2658,8 +2841,9 @@ definition too.
 A family is a rule over rows the caller writes: each owner's members, counted by a drawn field of the owner.
 `fin(O, "n")`, a family's second argument, is the slots of O's drawn count `n`, never a side or a table.
 
-A family's count and an ordered family's index are of one type: `drawn(natural)`, or `drawn(c)` for c a contract over
-an integer, `contract("TestNumber", pg.integer, (n) => Logic.and(Logic.ge(n, 0), Logic.le(n, 2147483647)))`, which
+A family's count and an ordered family's index are of one type: `drawn(natural)`, or `drawn(c, key)` for c a contract
+over an integer under its key, `drawn(TestNumber, testNumberKey)` of
+`contract<typeof testNumberKey>()("TestNumber", pg.integer, (n) => Logic.and([Logic.ge(n, 0), Logic.le(n, 2147483647)]))`, which
 stores them in c's column, an int4 here, so a field of c elsewhere is contained in the indexes and they in it. An index
 and a count of two types are refused when the schema compiles (`an ordered family's index is of its count's type`), and
 `drawn` of any other type is a type error. A count past c's bound is `refused` on c's contract: past its CHECK by the
@@ -2745,7 +2929,10 @@ copies and fold planes, and the write inserts the members as drawn. Every other 
 owner, which only the database holds, so the family's statement draws it in SQL, by a window over the group in slot
 order, past its stored members. Whether a group holds a stored member is a fact of the database, so the statement
 decides it as it runs: an exact repeat of a stored owner beside an append to its group is drawn in SQL past the stored
-members, as any append to a stored group is, and under a closed owner refused by the family's count, as before.
+members, as any append to a stored group is, and under a closed owner refused by the family's count, as before. Where
+the closed owner restated holds the very count the host drew, the new member meets a stored member at its family's
+slot, and the member's insert, which takes every row it meets as data rather than an error, refuses it on that
+family's rule in its own statement, witnessed by the member's key, in the call's one round trip.
 A fresh group's members are walked in their key's order, each key field by the host's order of its values, which is
 PostgreSQL's `ORDER BY` of them (test/pg/values/order.test.ts holds the two equal for every type), so a member's hidden
 index is the one the window gives it, and a migration that draws a family over stored rows draws the same values again.
@@ -2836,7 +3023,9 @@ index is the one the window gives it, and a migration that draws a family over s
   or a delete of a closed owner are type errors, and from JavaScript refused when the ChangeSet compiles; a delete of an
   open owner removes its family whole, every member open too. An insert of such a member in a
   stratum that inserts no such owner is a type error where a workload declares the ChangeSet, since a later insert or
-  a union may still add the owner.
+  a union may still add the owner. One that names a stored closed owner in a stratum that inserts others of its
+  relation, or restates it, is `refused` `every` on the family's rule alone, the owner standing and every containment
+  into it holding, witnessed by the member's key.
 - **A ChangeSet writes family members in one stratum**: writing them in a second is a type error at the call that
   makes it, and from JavaScript `UnsupportedOperation` when the ChangeSet compiles.
 
@@ -2851,7 +3040,10 @@ among a schema's statements declares one:
 
 ```ts
 /** An assignment's number, a sitting's key: a contract of its own, so no other number leads a key with it. */
-const AssignmentNo = contract("AssignmentNo", pg.bigint, (n) => Logic.ge(n, 0n))
+const assignmentNoKey = Symbol("AssignmentNo")
+const AssignmentNo = contract<typeof assignmentNoKey>()("AssignmentNo", pg.bigint, (n) =>
+	Logic.ge(n, 0n)
+)
 
 const Assigned = relation("Assigned", { number: AssignmentNo, test: TestId }, ["number"])
 const ClockOpened = relation(
@@ -2902,10 +3094,12 @@ export const Assignments = schema(
   many members it touches, all of them in one statement sorted by lock, so two calls never wait on each other in a
   cycle.
 - **A lock is no row.** A unit's key is locked as a PostgreSQL advisory transaction lock, its id a digest of the
-  unit's name and the key's values, the one spelling every lock grizzle takes shares, the stamps of
-  [Instants](#instants) among them. Nothing is stored: a unit adds no table, column or migration step, and two keys
-  whose ids collide only share a lock, a coarser one, never a wrong one. The id's top byte is the unit's rank, its place
-  in the one order generate gives every unit and series, and the 56 bits below it the first of the SHA-256 of the
+  unit's name and the key's values, the one spelling every lock grizzle takes shares, a call's borrows, its judge's at
+  COMMIT and a series' alike. Nothing is stored for it: the lock adds no table, column or migration step, and two keys
+  whose ids collide only share a lock, a coarser one, never a wrong one. A unit whose relations hold a clock holds one
+  table, its clocks' head, one row a key, which the writes that already hold the key stamp from
+  ([Instants](#instants)). The id's top byte is the unit's rank, its place in the one order generate gives every unit
+  and series, and the 56 bits below it the first of the SHA-256 of the
   unit's name and the key's values, each written after its length, so no two lists of them spell one text, and each
   value as its type's equality reads it: 1.0 and 1.00 are one key, as -0 and 0 are. Every schema installs one function
   that takes them, `__borrow`, which every role executes: handed a call's locks in the order of their ids, each with
@@ -2943,7 +3137,7 @@ export const Numbers = schema(
   wrap other work in.
 - **Its numbers' type.** `R`'s primary key is its one field, `natural` or a contract over an integer, exactly the types
   `drawn` takes ([Families](#families)): a test's number kept in an int4,
-  `contract("TestNumber", pg.integer, (n) => Logic.and(Logic.ge(n, 0), Logic.le(n, 2147483646)))`, keys its series as
+  `contract<typeof testNumberKey>()("TestNumber", pg.integer, (n) => Logic.and([Logic.ge(n, 0), Logic.le(n, 2147483646)]))`, keys its series as
   itself, and a number past its bound is refused by the contract's own CHECK. Any other key, a second field or a type
   of no integer carrier, is refused where `series(R)` is stated.
 - `R` is immutable: its numbers only grow by appends.
@@ -3004,17 +3198,18 @@ Three declarations, all in the [example](#example):
   boolean, the integer types, contracts over them, and closed ids, whose claim is a handle's name. An absent claim
   object is no row, and a payload that is not an object has none; a context read from the top level refuses such a
   payload at stage `token`. No rule reads a context, and no ChangeSet writes one.
-- **`role(schema, name, entries, { insert?, write?, contexts? })`**: what one kind of user sees. An
-  entry is a table of the schema, whole, a scoped entry of one ([Scoped entries](#scoped-entries)), or a query over it.
+- **`role(schema, name, entries, { insert?, write?, contexts?, scope? })`**: what one kind of user sees. An
+  entry is a table of the schema, whole, or a query over it.
   Each entry the role writes is listed under the mode it writes that table by, each table once across the two lists (a
   name listed twice is a type error): `insert` the entries it only adds to, where it holds INSERT and SELECT and no
   UPDATE or DELETE, and `write` the open ones it changes, each over a table declared `mutable` inside a unit, where it
-  holds UPDATE and DELETE as well. A closed table under `write` is a type error for a whole or scoped entry and
+  holds UPDATE and DELETE as well. A closed table under `write` is a type error for a whole entry and
   `RoleRefused` (`writeClosed`) for any. So one role puts an open table and inserts into closed ones in one commit,
   holding UPDATE and DELETE on the open table alone. A ChangeSet of it that deletes from or puts an entry of its
   `insert` list, or adds an open member of its `insert` list to a mutable owner's family, which updates the owner's
   count, is `OutsideRole` (`insert`) when it compiles, naming the table and the operation. `contexts` lists the contexts it
-  declares ([Contexts of a role](#contexts-of-a-role)). A role is no schema: `role`, `login`, `schema.extend`,
+  declares ([Contexts of a role](#contexts-of-a-role)), and `scope` the units its claims bind
+  ([The scope of a role](#the-scope-of-a-role)). A role is no schema: `role`, `login`, `schema.extend`,
   `wholeEntriesOf`, `wholeWritesOf`, `writableNamesOf`, `lawsOf` and `lawsByStatement` take a schema, and a role
   passed to one is a type error.
 - **`login(schema, name, roles, { workload? })`**: one PostgreSQL user and one pool for some roles of one schema,
@@ -3046,8 +3241,8 @@ Roles:
   whole, such as `role(Blog, "staff", wholeEntriesOf(Blog))`, also runs every query and ChangeSet over the schema
   itself, such as `postPage`. So does a role over a higher level for each level below it whose every table, and every
   table below it, it holds whole: a role over `Ledger` holding `wholeEntriesOf(Qti)` runs every query over `Qti`
-  ([Levels](#levels)). A table held by a scoped entry counts as held: a role holding every table whole or scoped runs the
-  schema's programs too, each over its owner's rows ([Scoped entries](#scoped-entries)).
+  ([Levels](#levels)). A role with a scope runs them over its world, each member of a unit its claims bind at the keys
+  they name alone ([The scope of a role](#the-scope-of-a-role)).
 - **`Refused`**, when you build the role, is a whole entry under another name than its table's, or not the schema's
   own, a whole entry of a live derived table, or a query entry over a role or over any schema but the role's and those
   it extends: the rules the type errors name, in their words.
@@ -3120,73 +3315,69 @@ declares, and nothing else makes a context available:
   none; a member naming a context no served role attests, a fact of other fields, or a value its field refuses is
   `AttestationRefused`, at stage `schema`.
 
-### Scoped entries
+### The scope of a role
 
-`scopedEntriesOf(S, { owner, roots })` holds each table of one owner by its owner's rows. Its result is
-`wholeEntriesOf(S)` with every such table held as a scoped entry. A scoped entry holds its table under the table's own
-name and whole heading, so a role holding them holds every table of `S` and runs `S`'s queries and ChangeSets, such as
-qti-pie's `sittingProgramsOf`, unchanged. No program binds an ownership guard: PostgreSQL holds each one to the
-owner's rows. Below, `Sittings` is a level of the tables a sitting writes, `ClerkAccount` among them, and `Session` the
-context of the token's claims above.
+A role's `scope` lists the units its claims bind, each by its owner: a query over the schema whose head is the unit's
+heading, by name and type, the keys the session's claims name. The role's world holds every member of each such unit at
+those keys alone, and every read on the role means its evaluation over that world: a program over the schema, every
+import, negation, aggregate and take in it, every derived table it reads, live or stored, and every query entry's view.
+Below, `Sittings` is a level of a sitting's tables, every fact of a child's keyed leading with `child` under
+`unit("Learner", { child: LearnerId })`, `ClerkAccount` among its tables, and `Session` the context of the token's claims
+above.
 
 ```ts
-/** The persons the signed-in Clerk user is: the owner, read from the token and the sign-in it names. */
-const persons = query(Sittings).rule((r) => {
+/** The children the signed-in Clerk user signs in as: the Learner unit's keys the token names. */
+const learners = query(Sittings).rule((r) => {
 	const { sub } = v(Session, "session")
-	const { person } = v(ClerkAccount, "account")
-	return r.match(Session, { sub }).match(ClerkAccount, { clerk: sub, person }).find({ person })
+	const { child } = v(ClerkAccount, "account")
+	return r.match(Session, { sub }).match(ClerkAccount, { clerk: sub, child }).find({ child })
 })
 
-/** Each assignment rooted by its student, each test session by its child. */
-const roots = { Assignment: "student", TestSession: "child" } as const
+export const Student = role(Sittings, "student", wholeEntriesOf(Sittings), {
+	contexts: [Session],
+	insert: studentInsertNames,
+	scope: [learners]
+})
 
-export const Student = role(
-	Sittings,
-	"student",
-	scopedEntriesOf(Sittings, { owner: persons, roots }),
-	{ contexts: [Session], insert: studentInsertNames }
-)
+/** A student's assignment by its number, with its status: no sign-in, no child, no guard. */
+export const myAssignment = query(Sittings).rule((r) => {
+	const { number, test } = v(Assignment, "assignment")
+	const { status } = v(AssignmentStatus, "status")
+	return r
+		.match(Assignment, { number, test })
+		.match(AssignmentStatus, { number, status })
+		.where(r.eq(number, r.param("number", natural)))
+		.find({ number, test, status })
+})
 ```
 
-- **The owner** is a query over a level of `S` with one field. It reads the role's contexts, and rows of ordinary tables
-  whose key the contexts fix (`ClerkAccount`, keyed by `clerk`), and nothing else: no negation, aggregate, import or
-  interior. Each of its rows is the session's own. Any other owner is `ScopeRefused` (`owner`).
-- **A root** is stated, never inferred: `Assignment: "student"` holds the assignments whose `student` the owner holds.
-  A root names an ordinary or stored derived table of `S` and one of its fields; anything else is `ScopeRefused`
-  (`rootRelation`, `rootField`), and a name outside `S` or a field outside the table is a type error.
-- **A reached table** is every other ordinary or stored derived table whose fields reach a scoped table's key
-  along declared containments, each step a `contained` into a key, unselected on both sides. `SittingEvent`, with
-  `contained(on(SittingEvent, "number"), on(Assignment, "number"))`, holds the events of the owner's assignments. A chain
-  is held in its shortest form: `EventAt`, contained in `SittingEvent`'s key `(number, step)`, reaches `Assignment` by
-  its own `number`, so a stratum may write both `SittingEvent` and `EventAt`; and a table reaching a root's key that
-  holds the root's field is a root itself, by its own field. A table whose reaches hold different rows, such as
-  `Message(from, to)` with both fields contained in a root's key, is `ScopeRefused` (`ambiguous`): state it a root, or
-  keep it whole. Every other table is whole: a table that should be scoped but declares no containment needs one, or a
-  root.
-- **Spread beside entries of your own**, an entry under a table's name holds that table as you state it, whole or by a
-  query of your own, and the role holds `S` only while every table is whole or scoped.
+- **The owner** reads the role's contexts, and tables at a prefix of one of their keys that literals, the contexts and
+  the tables before it bind, each a table the role holds whole: `ClerkAccount` at its key `clerk`, the sign-in's one
+  child; a coach's grants, `CoachOf` keyed `(coach, child)` at `coach`, every child granted. Its head is exactly one
+  unit's heading, each field bound at the unit's type, and a role binds each unit by one owner, whose rules are every
+  way it binds it. No negation, aggregate, import or interior. Any other owner is `ScopeRefused`, naming the rule
+  (`owner`, `unit`, `unitType`, `twice`); an owner matching a context the role does not declare, or reading a table it
+  does not hold whole, is `OutsideRole`.
+- **The members are the unit's.** Every table whose primary key leads with the unit's heading, as the unit's own lock
+  holds it ([Units](#units)), and every stored derived table the unit holds, unit-local by its admission, so its rows at
+  a key are its definition's over the world's. A table keyed otherwise, such as `Grade(number)`, is no member: every
+  role reads it whole. A table the schema adds later keyed by `child` joins the world as it joins the lock; none can be
+  left out.
+- **A read is the world's.** `myAssignment` reads `Assignment` and `AssignmentStatus`, a live derived table over the
+  student's events, at the student's child: the child is bound nowhere in it, and its every read of a member is a probe
+  at the child, inside each derivation too. A count of every `SittingEvent` counts the student's own; a take of the latest
+  assignment takes theirs; a negation decides by their rows. A session whose claims name no child reads no member's row.
+- **A write is held to the world.** A fact of a member a write states outside the units its claims bind is
+  `outsideWorld`, judged before the statement that writes it, and the write stores nothing: an insert's, a put's and a
+  delete's, a unit's delete and a family member's among them, whole or through a query entry. A unit's delete from a
+  query reads the query once, for its judgment and its delete alike. A write whose every fact stems from the world's
+  rows, an insert from a query whose child a member's row gives, states none outside it, and no statement checks it. Laws hold over every row: a key a row outside the world already holds is `refused` on that key, with the
+  key you submitted as its witness.
 
-What PostgreSQL holds the role to:
-
-- **A read** of a scoped table reads its security-barrier view, which holds the owner's rows alone.
-- **A write** of a scoped table its `write` names is a write of the table itself, families, sequences and their drawn
-  values as a whole entry's, behind one row policy on the table, `FOR ALL TO` the role, whose `USING` and `WITH CHECK` are
-  both the entry's predicate: a function of the row, the claims and the rows its reach reads, run as the installation's
-  owner, a reached table's an `EXISTS` on its target's key. A row outside the owner's rows is `outsideWorld` before any
-  write, and the policy refuses it where a direct SQL writer writes it (42501). A delete or put of a row outside the
-  owner's rows meets no row.
-- **Laws hold over the whole table.** Keys, containments, families and rules are judged by the installation's owner over
-  every row, never the owner's rows alone: a key a row outside the owner's rows already holds is `refused` on that key.
-- **A program over `S` runs on the role only where it means, over the owner's rows, what it means over every row kept
-  to the owner's.** A positive match reads the owner's rows, which is that meaning. A negation, an aggregate, a take, an
-  approximate search and a declared function's rows argument also decide by the rows they do not show, so each must be
-  pinned: every row it decides by provably the owner's, or none of them. `not(TestSession, { child, stage })` beside a
-  match of `SittingTest` that binds `child`, both rooted by `child`, is pinned; so is `not(EventAt, { number, step })`
-  beside `SittingEvent` at that `number`, a count grouped by `number` over `SittingEvent`, and a take whose rows a
-  parameter fixes, such as `SittingEvent` at the number a call passes. `count()` over every `SittingEvent`, or a negation
-  at a person no match of its rule holds, is `OutsideRole` (`crossOwner`, with the scoped `relation` and the `read`:
-  `negation`, `aggregate`, `take` or `call`) for that role, naming the program, when `grizzle generate` compiles it. A
-  program over the role itself reads its own entries and is never judged so.
+What a scope is not: a PostgreSQL view or policy. The role holds every table whole, so a direct SQL session as the role
+reads every row; a scope binds what the role's programs mean. The login is the boundary
+([Security model](#security-model)): whoever holds its password can open any of its roles with any claims, so no
+policy on the claims could hold them.
 
 ### Writing through a role
 
@@ -3200,6 +3391,9 @@ reason.
 - **An insert fills the fixed columns.** A row the query could never return (a filter it fails, an absent claim) is
   the error `outsideWorld`.
 - **A delete of a row outside the entry does nothing**: for this role, that row does not exist.
+- **An entry over a member of a unit the role's scope binds is held to the world too**, as a whole write is
+  ([The scope of a role](#the-scope-of-a-role)): a fact it states outside the units the claims bind is `outsideWorld`,
+  under the entry's name, a delete's among them.
 - **An entry over a family's owner writes the owner as a write of the table does.** No row states its counts and ends,
   and a put updates the entry's own columns in place and leaves the family as it is. Its filter may read no field its
   family draws (a count, an end, an index, a tree's start), and no key of the table may hold one, else the role is
@@ -3277,13 +3471,13 @@ Rows are typed from the query: `commentsPerAuthor` gives `{ author: string; comm
 | To | Write |
 | --- | --- |
 | join | one variable in two matches |
-| filter | `r.eq`, `r.ne`, `r.lt`, `r.le`, `r.gt`, `r.ge`, `r.between`, `r.in`, `r.and`, `r.or`; an empty `r.in` list or `r.or()` matches no row, `r.and()` every row |
+| filter | `r.eq`, `r.ne`, `r.lt`, `r.le`, `r.gt`, `r.ge`, `r.between`, `r.in`, `r.and`, `r.or`; an empty `r.in` list or `r.or([])` matches no row, `r.and([])` every row |
 | exclude | `r.not(Table, { ... })`: no matching row exists |
 | take a parameter | `r.param("name", type)`: a term of that type |
 | pass a row list | `r.relation("name", fields)`: a parameter that is a list of rows, matched like a table; `Q.bind({ name: rows })` binds it to a query's rows, of a level above among them ([Levels](#levels)) |
 | aggregate | `r.count()`, `r.sum(x)`, `r.mean(x)`, `r.min(x)`, `r.max(x)`, grouped by the other columns of `find`; a min or max is one of its values, at its type, contract included |
 | combine | a second `.rule(...)`, the union of both rules' rows. Rules of different columns need a constant that tells them apart; a rule with an attachment shares its columns with no other. A take or attachment over a union of several headings is no rule of a further union, takes once and is never paged |
-| nest | `.attach(name, (parent) => child, delivery)`, delivery `"array"`, `"option"`, `"one"` or `arm(field, name)` |
+| nest | `.attach(name, (parent) => child, delivery)`, delivery `"array"`, `"option"` or `"one"` |
 | read several queries at once | `query(S).reads({ name: query, ... })`: one row holding each query's rows under its name, in one statement ([Nearest rows](#nearest-rows)) |
 | order and limit | `.orderBy(["title", "asc"])`, then `.take(10)`, `.take("batch")` for an integer parameter, or a `paged(query)` member's windows |
 | recurse | `query(S).recursive(...)` |
@@ -3298,10 +3492,10 @@ Rows are typed from the query: `commentsPerAuthor` gives `{ author: string; comm
 
 - **A query returns a set.** Identical rows are one row.
 - **An aggregate folds keyed rows.** It reads each matched row once, by its key: every match in its rule binds a whole key of its source by a variable, a parent's variable or a constant, as `commentsPerAuthor` binds the comment's whole key, or the query is refused with `FoldOverProjection`, naming the match and the key to bind. To aggregate distinct values, match a query of them, a set keyed by its columns.
-- **grizzle knows each result's keys**, from primary keys, equalities and constants, and keeps a key through `find` while the chosen columns still determine the row. `r.allen(a, ALLEN.equals, b)` is an equality, as is its converse; a mask written with `|` is a plain number to TypeScript, so the types read it as stating nothing. An `"option"` or `"one"` nested result takes only a query proved to return at most one row, and a window is ordered by a key. A delivery the schema does not prove is a type error. A child query built by a function takes the parent's field as `Term<T, unknown, InputOrigin, Sql>`, not as a type parameter: an equality over a type parameter says what it fixes only at the call, so inside the function the keys that prove its `"option"` delivery are lost. A child over an equality with the parent's field, built by a function or written inline, proves `"option"` and never `"one"`: `"one"` needs the child matched inline on the parent's own fields, as postPage matches `post.org` and `post.slug` in `r.match(Comment, { org: post.org, post: post.slug, author, at, body })`, where the schema proves every parent has its child.
+- **grizzle knows each result's keys**, from primary keys, equalities and constants, and keeps a key through `find` while the chosen columns still determine the row. `r.allen(a, ALLEN.equals, b)` is an equality, as is its converse; a mask written with `|` is a plain number to TypeScript, so the types read it as stating nothing. An `"option"` or `"one"` nested result takes only a query proved to return at most one row, and a window is ordered by a key. A delivery the schema does not prove is a type error. A child query built by a function takes the parent's field as `Term<T, unknown, InputOrigin, Sql, V>`, T the field's domain, `DomainOf<typeof field>`, and V its values, `Infer<typeof field>`, not as a type parameter: an equality over a type parameter says what it fixes only at the call, so inside the function the keys that prove its `"option"` delivery are lost. A child over an equality with the parent's field, built by a function or written inline, proves `"option"` and never `"one"`: `"one"` needs the child matched inline on the parent's own fields, as postPage matches `post.org` and `post.slug` in `r.match(Comment, { org: post.org, post: post.slug, author, at, body })`, where the schema proves every parent has its child.
 - **`.orderBy(...).take(k)` is a set again** to whatever composes with it: a match, a further rule, a derived relation or a role's query entry. `take(1)` returns at most one row. A query or nested `"array"` that ends in a take arrives in the take's order, ties broken by the query's key; a final `orderBy` after the take orders it anew.
 - **Variables belong to their columns.** Two variables made from one column of a table the rule matches once are refused, and the error shows the rewrite: make the variable where it is bound, or match the table again.
-- **A JavaScript value takes the type of what it meets:** its column, the term it is compared with, the field a write puts it in, or the type the query's other rules give its field. Meeting nothing, a string is text, a safe integer an integer, a bigint a bigint, a `Decimal` a numeric, a `Money` money and a boolean a boolean; any other value is refused. It never stands first in a comparison, and a list such as `r.in`'s holds only JavaScript values. Opposite a term, at a column, for a parameter or in a fact, it is a value of its type: in a pattern's language, a uuid's hyphenated spelling, a roster's names, so `"abc"` at a uuid column is a type error, and so is a plain `string` until `Uuid.parse` reads it and its contract brands it.
+- **A JavaScript value takes the type of what it meets:** its column, the term it is compared with, the field a write puts it in, or the type the query's other rules give its field. Meeting nothing, a string is text, a safe integer an integer, a bigint a bigint, a `Decimal` a numeric, a `Money` money and a boolean a boolean; any other value is refused. It never stands first in a comparison, and a list such as `r.in`'s holds only JavaScript values. Opposite a term, at a column, for a parameter or in a fact, it is a value of its type: in a pattern's language, a uuid's hyphenated spelling, a roster's names, so `"abc"` at a uuid column is a type error, and so is a plain `string` until `Uuid.parse` reads it. Where it becomes a contract's value, a parameter's, a fact's, a typed constant's or a conditional's arm's, it is one its key's mint made; compared with a contract's term, it is a value of the base.
 - **A typed term states its type** and stands wherever such a term does. `Status.handle("Published")` is a member of the `Status` roster, and `Type.literal(F, x)` is `x` at the type of any other descriptor `F`. A head keeps a handle's member, so `find({ status: Status.handle("Published") })` delivers `status: "Published"`; `Type.literal` delivers F's type.
 - **Terms that meet have one type:** one SQL type, one contract and one roster. A text term never meets a uuid column, and two rosters of the same members never meet. Texts of any two patterns meet: a pattern is no part of a text's type. The rules of one query deliver each field they share at one type. An equality is the one comparison that also meets two refinements of one base carrier, one SQL type once contracts are stripped, roster and all: `r.eq(n, b)` of a `natural` and a `pg.bigint`, or of two contracts over one base, compares them under the base's equality, as a containment's sides and a negation's binding meet. Where it holds its value is both sides', so it lies in both contracts, and grizzle's own rewrites may read either side for the other at the other's type with no check and no cast. `r.ne` and the orderings meet as any comparison does: their operands are of one type, `Type.base` of a contract where one is.
 - **A value is only its value**, the same under every plan. A `Decimal` has no display scale: `1`, `1.0` and `1.00` are one value, delivered as `1`, and a `pg.numeric(10, 2)` field holds at most two places, refusing a value of more rather than rounding it, and delivers `12.5`, not `12.50`. `new Intl.NumberFormat(undefined, { minimumFractionDigits: 2 }).format(d.toString())` prints it at the field's scale, exactly. A float keeps its zero's sign: `-0` is a value of its own, stored, computed and delivered as `-0`, equal to `0` under `=`, `DISTINCT` and a key's equality and apart from it as a fact's identity. Wherever an operation may take one float of several equal ones, a set's member, a group's key, a union's row, a recursion's state, a join variable's value, the merged zero is `+0`, so no plan picks one. A write stores the facts it states: a parameter relation's facts and a ChangeSet member's rows are sets of facts by their identity, `-0` and `0` two of them, so a `-0` a write states is stored as `-0` wherever it reads the relation, and two facts at one key that differ only in a zero's sign are refused as two facts. A read of a parameter relation delivers each of its facts, so `-0` and `0` at otherwise equal fields are two rows; a read's own merges, a projection that drops a field, a union or a group's key, take `+0` as every merge does. `min` and `max` of floats order `-0` below `0`, and a float sum or mean whose exact value is zero is `-0` exactly when every value it sums is; any other float that rounds to zero, a product, quotient, conversion or mean too small for its type, is the zero of its sign. A vector's components have one zero, `0`. A numeric quotient, power, square root or mean is PostgreSQL's for the values alone, as if no operand had trailing zeros: `Num.div(x, 3n)` is the same number whatever scale `x` was stored at.
@@ -3335,9 +3529,9 @@ PostgreSQL's scalar operators, functions and casts are typed builders of terms, 
 
 - **Exact.** Integer arithmetic delivers `bigint`, an *exact integer*, and money arithmetic exact `Money`; neither overflows.
 - **Floats are IEEE 754, but for a quotient by zero:** `sqrt(-1.0)` is NaN, and `x / 0.0` is the infinity of `x`'s sign, NaN where `x` is zero or NaN, whichever zero divides, so `1 / -0.0` is `Infinity`, where IEEE 754 gives `-Infinity`. `-0.0` equals `0.0`, and equal operands give equal results under every plan, which may read a divisor from either of two equal fields.
-- **A partial operation needs its precondition proved:** division or remainder by a value that may be zero, a numeric square root of one that may be negative, a power, `widthBucket` and `minScale` of values that may be infinite, and a cast that narrows. The proof is a literal's own type, as in `Num.div(x, 7n)`; a contract that declares it, `contract("Divisor", pg.bigint, (v) => Logic.ne(v, 0n), { proves: ["nonzero"] })`; or a guard, `Logic.when(Num.nonzero(b), (b) => Num.div(a, b), 0n)`, whose function receives `b` proved nonzero and whose last argument is the value where the guard does not hold. Only the function's parameter is proved, as TypeScript narrows a callback's parameter and never a term the callback captures: `(_) => Num.div(a, b)` reads `b` with its own facts, and is refused. An unproved divisor is a type error that names the guard to write.
+- **A partial operation needs its precondition proved:** division or remainder by a value that may be zero, a numeric square root of one that may be negative, a power, `widthBucket` and `minScale` of values that may be infinite, and a cast that narrows. The proof is a literal's own type, as in `Num.div(x, 7n)`; a contract that declares it, `contract<typeof divisorKey>()("Divisor", pg.bigint, (v) => Logic.ne(v, 0n), { proves: ["nonzero"] })`; or a guard, `Logic.when(Num.nonzero(b), (b) => Num.div(a, b), 0n)`, whose function receives `b` proved nonzero and whose last argument is the value where the guard does not hold. Only the function's parameter is proved, as TypeScript narrows a callback's parameter and never a term the callback captures: `(_) => Num.div(a, b)` reads `b` with its own facts, and is refused. An unproved divisor is a type error that names the guard to write.
 - **Guards** are `Num.nonzero`, `Num.nonnegative`, `Num.positive`, `Num.isFinite` and `Num.within(x, low, high)`, each a predicate too. A guard's subject is any term, a parameter included: over `d = r.param("d", pg.bigint)`, `Logic.when(Num.nonzero(d), (d) => Num.div(x, d), 0n)` delivers `0n` where `d` is bound to zero, under every plan.
-- **A contract's facts are exactly the ones its `proves` declares.** Compilation proves each from the predicate and refuses one the predicate does not imply. A fact the predicate implies but `proves` leaves out is no fact of its values: `Num.minScale(rate)` over `contract("Rate", pg.numeric(7, 6), (x) => Logic.between(x, 0n, 1n))` is refused, naming `{ proves: ["finite"] }` to add. A parameter of a contract has its declared facts, its binding checking every value, so `Num.div(x, Type.base(r.param("d", Divisor)))` needs no guard.
+- **A contract's facts are exactly the ones its `proves` declares.** Compilation proves each from the predicate and refuses one the predicate does not imply. A fact the predicate implies but `proves` leaves out is no fact of its values: `Num.minScale(rate)` over `contract<typeof rateKey>()("Rate", pg.numeric(7, 6), (x) => Logic.between(x, 0n, 1n))` is refused, naming `{ proves: ["finite"] }` to add. A parameter of a contract has its declared facts, its binding checking every value, so `Num.div(x, Type.base(r.param("d", Divisor)))` needs no guard.
 - **Magnitudes are proved by `Num.within`.** A narrowing's range or a power's is proved from `Num.within`'s bounds, or refused as `PartialOperation`: narrow an exact integer into an integer field with `Logic.when(Num.within(x, 0n, 1000000n), (x) => Type.cast(x, pg.integer), 0)`.
 - **Exact and plain values share no type.** An exact value binds at a plain integer or money column, but a ChangeSet member stores one into a plain field only through that cast: a head that writes `Num.add(balance, amount)` into a `pg.bigint` field is a type error. An `exactInteger` or `exactMoney` field holds it as it is ([Tables and types](#tables-and-types)). Where PostgreSQL would widen the plain value implicitly, `Logic.cond`, `Logic.when`, `Logic.least` and `Logic.greatest` refuse an exact value beside a plain one of its family, in either order, naming the cast of the exact one into the plain one's type. A bare literal takes its term's type, an exact one's included, and is refused where it has more digits than that type holds.
 - **A member writes each field at the field's own type,** as a generated field's term and an accumulator's step do: only a text's pattern and byte bound are left to the field's domain, which refuses a value outside them. A computed numeric, the value of `r.sum`, `r.mean` or a numeric operation, enters a `pg.numeric(p, s)` field only through `Type.cast` under a guard that proves it fits, and a numeric of another precision or scale, or a span of another width, only through `Type.cast`, since a typmod rounds and a sum can pass the field's precision. Compilation refuses any other head as `DescribedHeadingMismatch`.
@@ -3362,10 +3556,10 @@ PostgreSQL's scalar operators, functions and casts are typed builders of terms, 
   `Logic.eq(Text.contains(Text.lowerAscii(name), Text.lowerAscii(term)), true)`, and like `Text.lowerAscii` it folds
   no letter past ASCII, so `É` and `é` stay apart.
 - **`Xml.pattern(source)`** is a `Text.pattern` written in XML Schema 1.0's dialect, a pattern facet (Part 2, Appendix F), anchored at both ends as XML Schema reads every facet, its escapes XML Schema's own: `\s` the four XML spaces, `\i` and `\c` XML 1.0 Second Edition's name characters, `\p{IsBasicLatin}` a block of XML Schema's table. A repetition count may be any whole number, as Appendix F sets none: PostgreSQL's RE_DUP_MAX of 255 binds only the ARE grizzle prints, which spells `x{300}` as `x{255}x{45}`, and the host counts a repetition, never copying its body, so a count costs it no state. A facet past PostgreSQL's regex compile space is refused where it is written, as `Text.pattern` refuses one, before it is printed.
-- **`Xml.isPattern(x)`** is whether `x` is an XML Schema 1.0 pattern, a string of Appendix F's `regExp` production, the language of QTI 3.0.1's `pattern-mask`, as `Xml.pattern` reads one: groups and class subtractions nested to any depth and counts of any size, refused at `(?`, a back-reference, an unclosed `[` or `(`, a `{` that opens no count, a count whose greatest is below its least, a range whose end is below its start, and a category or block escape the tables do not name. PostgreSQL judges it by the installation's own IMMUTABLE STRICT function, NULL over a NULL text as every operation is, the reader's moves as a table that a recursive query reads once over the text's characters, with no state budget and no bound on a count, so it is defined on every text and stands in checks, contract predicates, generated fields and queries alike: `contract("PatternMask", Prose, (v) => Xml.isPattern(v))` is a text type of patterns.
+- **`Xml.isPattern(x)`** is whether `x` is an XML Schema 1.0 pattern, a string of Appendix F's `regExp` production, the language of QTI 3.0.1's `pattern-mask`, as `Xml.pattern` reads one: groups and class subtractions nested to any depth and counts of any size, refused at `(?`, a back-reference, an unclosed `[` or `(`, a `{` that opens no count, a count whose greatest is below its least, a range whose end is below its start, and a category or block escape the tables do not name. PostgreSQL judges it by the installation's own IMMUTABLE STRICT function, NULL over a NULL text as every operation is, the reader's moves as a table that a recursive query reads once over the text's characters, with no state budget and no bound on a count, so it is defined on every text and stands in checks, contract predicates, generated fields and queries alike: `contract<typeof patternMaskKey>()("PatternMask", Prose, (v) => Xml.isPattern(v))` is a text type of patterns.
 - **A byte bound is a guard.** `Logic.when(Num.within(Text.octetLength(x), 0, 64), () => Type.cast(x, Name), "")`, with `Name` a `str.bytes(64, pattern)` whose pattern holds x's, reads `x` inside the branch as at most 64 UTF-8 bytes of its own pattern, so a text of no byte bound casts into `Name`. `octetLength` is total, so the guard stands everywhere, a query included, and it proves the bytes every operation that reads them needs: a query's `Text.matches` and `Text.translate`, and `Text.utf16Length`.
-- **`Text.utf16Length(x)`** is `x`'s UTF-16 code units, JavaScript's `x.length`: its code points, and its supplementary ones once more, `char_length(x) + regexp_count(x, '[\U00010000-\U0010FFFF]')`. A length an Effect Schema's `isMaxLength` states of a string is this one, where `Text.charLength` counts code points. Like `charLength`, it stands in checks, contract predicates and generated fields, never in a query. `regexp_count` widens its text to four bytes for every byte, so `x` is bounded within 268,435,454 bytes by its type or by a byte guard, or the operation is refused when it compiles as `PartialOperation` (`bounded`), and no law that reads it fails on a long text. A UTF-16 unit is at most three UTF-8 bytes, so a bound reads no regex past them: `contract("Name", Prose, (v) => Logic.when(Num.within(Text.octetLength(v), 0, 765), () => Text.utf16Length(v), 256).le(255))` holds a text of at most 255 units, as `Schema.String.check(Schema.isMaxLength(255))` does, since a text of more than 765 bytes has more than 255.
-- **`Text.concat(a, b)`** is `a || b`, text of no pattern, of at most the bytes of the two together where each is bounded: a term by its type's byte bound, a string by its own bytes. It stands in checks, contract predicates, generated fields and folds; in a query wherever its operands' types bound its bytes within the most one varlena holds (`bytesMaxLength`), a query's head among them, so `find({ module: Text.concat(path, ".js") })` over a `str.bytes`-bounded `path` is text within its bytes and 3 more, since it allocates its result, which PostgreSQL refuses past 1 GB, and a read never fails on a value; and over texts of any length as a side of `Logic.eq` or `Logic.ne`, which is decided as an equality of the other side with the concatenation built under its bytes' guard: `octet_length(t) = Σ octet_length(pi) AND t = CASE WHEN Σ octet_length(pi) > bytesMaxLength THEN '' ELSE p1 || … || pn END`, which never allocates past the most bytes one varlena holds and is NULL exactly where `t = a || b` would be. So a rule that joins a stored text to a concatenation of the other side's columns reads that text by its key, never every row its other columns find. A concatenation nested in that side is read through as its parts, in order, so `Logic.eq(t, Text.concat(Text.concat(Text.concat(lead, target), params), trail))` builds the four in order, in a query as in a check. Its first operand is a term, as every operation's is, so a leading literal is a typed constant: `Text.concat(Type.literal(Prose, "item-"), id)`.
+- **`Text.utf16Length(x)`** is `x`'s UTF-16 code units, JavaScript's `x.length`: its code points, and its supplementary ones once more, `char_length(x) + regexp_count(x, '[\U00010000-\U0010FFFF]')`. A length an Effect Schema's `isMaxLength` states of a string is this one, where `Text.charLength` counts code points. Like `charLength`, it stands in checks, contract predicates and generated fields, never in a query. `regexp_count` widens its text to four bytes for every byte, so `x` is bounded within 268,435,454 bytes by its type or by a byte guard, or the operation is refused when it compiles as `PartialOperation` (`bounded`), and no law that reads it fails on a long text. A UTF-16 unit is at most three UTF-8 bytes, so a bound reads no regex past them: `contract<typeof nameKey>()("Name", Prose, (v) => Logic.when(Num.within(Text.octetLength(v), 0, 765), () => Text.utf16Length(v), 256).le(255))` holds a text of at most 255 units, as `Schema.String.check(Schema.isMaxLength(255))` does, since a text of more than 765 bytes has more than 255.
+- **`Text.concat(a, b)`** is `a || b`, text of no pattern, of at most the bytes of the two together where each is bounded: a term by its type's byte bound, a string or a typed constant (`Type.literal`) by its own bytes. It stands in checks, contract predicates, generated fields and folds; in a query wherever its operands' types bound its bytes within the most one varlena holds (`bytesMaxLength`), a query's head among them, so `find({ module: Text.concat(path, ".js") })` over a `str.bytes`-bounded `path` is text within its bytes and 3 more, since it allocates its result, which PostgreSQL refuses past 1 GB, and a read never fails on a value; and over texts of any length as a side of `Logic.eq` or `Logic.ne`, which is decided as an equality of the other side with the concatenation built under its bytes' guard: `octet_length(t) = Σ octet_length(pi) AND t = CASE WHEN Σ octet_length(pi) > bytesMaxLength THEN '' ELSE p1 || … || pn END`, which never allocates past the most bytes one varlena holds and is NULL exactly where `t = a || b` would be. So a rule that joins a stored text to a concatenation of the other side's columns reads that text by its key, never every row its other columns find. A literal on the other side is a value opposite the concatenation, as in a comparison with its term, so one of more bytes than the parts take together is refused at compile (`ContractLiteral`), in an equation as in an IN list. A concatenation nested in that side is read through as its parts, in order, so `Logic.eq(t, Text.concat(Text.concat(Text.concat(lead, target), params), trail))` builds the four in order, in a query as in a check. Its first operand is a term, as every operation's is, so a leading literal is a typed constant: `Text.concat(Type.literal(Prose, "item-"), id)`.
 - **`Text.translate(x, from, to)`** is PostgreSQL's `translate`, by characters: each character of `x` that `from` holds becomes the character of `to` at its position, so `Text.translate(title, "\t\n\r", "   ")` reads a title in `xs:normalizedString`'s value space. `from` and `to` are strings of one length, `from` holding each character once, or the call is refused where it is written.
 - **`Text.lowerAscii(x)`** is `translate` from `A` to `Z` onto `a` to `z`. It lowers no other letter, so it is one IMMUTABLE map whatever the collation. PostgreSQL computes it as `lower(x COLLATE "C") COLLATE pg_c_utf8` wherever it stands, a query, a check and a generated field alike: lower folds byte by byte under the C collation and allocates `x`'s own length, so it folds any text, and its result is collated as every stored text is, so an equation of it with a key is served by the key's index.
 - **`Text.replaceWhitespace(x)`** is XML Schema's whiteSpace replace, `Text.translate(x, "\t\n\r", "   ")`.
@@ -3555,11 +3749,11 @@ export const searchUnits = query(Course)
 		return r
 			.match(Unit, { id, subject, grade, search })
 			.where(
-				r.and(
+				r.and([
 					Search.matches(search, q),
 					r.eq(subject, r.param("subject", Unit.fields.subject)),
 					r.le(grade, r.param("grade", Unit.fields.grade))
-				)
+				])
 			)
 			.find({ unit: id, rank: Search.rank(search, q) })
 	})
@@ -3587,10 +3781,10 @@ export const nearUnits = query(Course)
 		return r
 			.match(Unit, { id, subject, grade, embedding })
 			.where(
-				r.and(
+				r.and([
 					r.eq(subject, r.param("subject", Unit.fields.subject)),
 					r.le(grade, r.param("grade", Unit.fields.grade))
-				)
+				])
 			)
 			.find({
 				unit: id,
@@ -3613,10 +3807,10 @@ export const unitPlaces = query(Course)
 			.match(near, { unit: x.unit, distance: x.distance })
 			.match(near, { unit: y.unit, distance: y.distance })
 			.where(
-				r.or(
+				r.or([
 					r.lt(y.distance, x.distance),
-					r.and(r.eq(y.distance, x.distance), r.le(y.unit, x.unit))
-				)
+					r.and([r.eq(y.distance, x.distance), r.le(y.unit, x.unit)])
+				])
 			)
 			.find({ arm: "nearest", unit: x.unit, place: r.count() })
 	})
@@ -3631,7 +3825,7 @@ export const unitPlaces = query(Course)
 		return r
 			.match(text, { unit: x.unit, rank: x.rank })
 			.match(text, { unit: y.unit, rank: y.rank })
-			.where(r.or(r.gt(y.rank, x.rank), r.and(r.eq(y.rank, x.rank), r.le(y.unit, x.unit))))
+			.where(r.or([r.gt(y.rank, x.rank), r.and([r.eq(y.rank, x.rank), r.le(y.unit, x.unit)])]))
 			.find({ arm: "text", unit: x.unit, place: r.count() })
 	})
 
@@ -3673,7 +3867,7 @@ A Db runs its login's served workload and nothing else: every call is a member, 
 - **`watch(input)`** is a `Stream` of the member's events: `reset`, then an `upsert` of each row as PostgreSQL delivers it, then `ready` once the read's transaction has committed, then, live, an `upsert` or a `remove` of each row whose change alters the answer. An upsert before `ready` is provisional: an `error` before it voids the rows it delivered. `once` is `watch` folded until `ready`.
 - **Windows.** A member `paged(orderedQuery)` reads a window: `window: { anchor, size }`, its anchor `{ kind: "start" }`, `{ kind: "after", key }`, `{ kind: "end" }`, `{ kind: "before", key }` or `{ kind: "at", position }`. A key is a row's `RowKey`, the values of the query's completed order, which the row's entry in a value carries. A position is the count of rows of that order before the window, 0 for its first row, any safe integer of at least 0: page `n` of size `m`, counting pages from 1, is `window: { anchor: { kind: "at", position: (n - 1) * m }, size: m }`. A window is one statement of at most `size` rows, and a window that holds no rows is past the end. A size is any safe integer of at least 1, with no default and no largest.
 - **A key or a position.** A keyset window seeks past its key in the order, through the index the order is read by, so it costs its size's rows wherever it lies. A positioned window is PostgreSQL's own `OFFSET` over the same order: its statement reads and discards every row before its position, so its cost grows with its position, and the window at position 1,000,000 reads a million rows to deliver its own. The order is total, so a position names exactly one window of one snapshot, but each call is its own snapshot: a row written or deleted before a position between two calls moves every row after it, so pages read by position across calls can repeat a row or skip one. A positioned window's entries carry their keys as every window's do, so `{ kind: "after", key }` at its last entry continues it by keyset. Keyset anchors are the scalable and stable way through an order, and position anchors exist for an API whose callers name pages by number.
-- **`explain(input)`** returns PostgreSQL's plan of each statement the member sends for that input, in the order it sends them, as data: one `{ statement, plan }` per statement, `statement` the name it is prepared under on every session (`grizzle_…`, as `pg_prepared_statements` and `pg_stat_statements` show it). Each is planned by `EXPLAIN (FORMAT JSON, VERBOSE)` over the statement's served text with the call's values, which runs nothing, in one transaction of the Db's role that is rolled back, so explaining a ChangeSet member writes nothing: its session stands the write up first, as its apply's does (a session's first call of a write makes its carriers and its rule tables once), each carrier is emptied as its apply empties it, and every statement after it is planned against it. The plan is the one PostgreSQL makes for those values, which a session uses for a statement's first executions; a session that has run it many times may switch to a generic plan. A plan node holds its node type, its estimated startup and total cost, rows and width, its children, and `on`, what it reads, named by the login's served file and never parsed back from PostgreSQL's names: `{ kind: "relation", relation }` for a table, a stored derived relation's among them, read whole or written; `{ kind: "index", relation, index: { name } }` for one read through an index; `{ kind: "carrier" }` for the ChangeSet's own temporary carrier, read whole through the session function every statement reads it by (so a statement's plan outlives the carrier's emptying), since it holds no index; and `{ kind: "none" }` for a join, a sort or any node that reads no relation. A key member takes its key's values as its params, and a paged member explains its window's statement. A plan that reads a table or index the served file does not name is refused as unreadable. A served file names each index alone, so no running process loads what an index is: `indexesOf(snapshot)`, from `@bjornpagen/grizzle/compile`, takes the JSON value of the snapshot.json the file was generated beside and returns a `Result` of a map that holds, under each relation and then each index name, `{ columns, reasons }`. `columns` are the index's key columns in key order, each `{ kind: "field", field }`, a field of the relation by its declared name, or `{ kind: "law", holds, laws }`, a column a law adds, by the field whose values it holds and the laws it is added for, and each with its `direction`, `"asc"` or `"desc"` in a B-tree and `"none"` in an index that orders nothing; so a test holds a plan's index to "leads with `document`, then `start`" in field names. `reasons` are why the installation holds it: each law it serves by its identity, the `id` a refusal names that law by; the workload's access; or a derived relation's key.
+- **`explain(input)`** returns PostgreSQL's plan of each statement the member sends for that input, in the order it sends them, as data: one `{ statement, plan }` per statement, `statement` the name it is prepared under on every session (`grizzle_…`, as `pg_prepared_statements` and `pg_stat_statements` show it). Each is planned by `EXPLAIN (FORMAT JSON, VERBOSE)` over the statement's served text with the call's values, which runs nothing, in one transaction of the Db's role that is rolled back, so explaining a ChangeSet member writes nothing: its session stands the write up first, as its apply's does (a session's first call of a write makes its rule tables once), and each statement that fills a carrier runs, unplanned, before the statements after it are planned, so a ChangeSet member's plans are those of every statement it sends but its carriers' fills. The plan is the one PostgreSQL makes for those values, which a session uses for a statement's first executions; a session that has run it many times may switch to a generic plan. A plan node holds its node type, its estimated startup and total cost, rows and width, its children, and `on`, what it reads, named by the login's served file and never parsed back from PostgreSQL's names: `{ kind: "relation", relation }` for a table, a stored derived relation's among them, read whole or written; `{ kind: "index", relation, index: { name } }` for one read through an index; and `{ kind: "none" }` for a join, a sort or any node that reads no relation, the ChangeSet's own carriers among them, whose rows are arrays its transaction's settings hold. A key member takes its key's values as its params, and a paged member explains its window's statement. A plan that reads a table or index the served file does not name is refused as unreadable. A served file names each index alone, so no running process loads what an index is: `indexesOf(snapshot)`, from `@bjornpagen/grizzle/compile`, takes the JSON value of the snapshot.json the file was generated beside and returns a `Result` of a map that holds, under each relation and then each index name, `{ columns, reasons }`. `columns` are the index's key columns in key order, each `{ kind: "field", field }`, a field of the relation by its declared name, or `{ kind: "law", holds, laws }`, a column a law adds, by the field whose values it holds and the laws it is added for, and each with its `direction`, `"asc"` or `"desc"` in a B-tree and `"none"` in an index that orders nothing; so a test holds a plan's index to "leads with `document`, then `start`" in field names. `reasons` are why the installation holds it: each law it serves by its identity, the `id` a refusal names that law by; the workload's access; or a derived relation's key.
 - **`explainAnalyze(input)`**, on a read member, runs its statement under `EXPLAIN (ANALYZE, FORMAT JSON, VERBOSE)` in the read's own transaction, rolled back, and returns each node's actual time to its first and last row, rows and loops, and the shared buffers it hit and read, beside its estimates, with the statement's planning and execution times. A ChangeSet member has none.
 
 ```text
@@ -3689,15 +3883,43 @@ yield* db.workload.postPage.explain({ params: { org, slug }, facts: {} })   // a
 - **A member's calls** are exactly what its program allows: a read's `once`, `watch`, `explain` and `explainAnalyze`; an answered read's, a clocked one's among them, `once`, `explain` and `explainAnalyze`; a ChangeSet's `once`, `watch` and `explain`. A ChangeSet member with array members, facts its `insert`, `insertAll`, `delete` or `put` was given as an array, takes them as its input's `facts`: under each such member's op, `insert` (an `insertAll`'s members are inserts), `put` or `delete`, and then under its relation's name, the rows that member takes, typed and checked as its own (an owner's insert's with their families nested), as in `once({ params: {}, facts: { put: { Blob: stated }, delete: { Blob: removed } } })`. An op or relation left out, a row that is no fact of its relation and a name that is no array member's op or relation are type errors, and two array members of one op and one relation in two strata are refused where the strata meet: merge them into one. Every other member's facts are `{}`.
 - **No other program runs.** A Db holds only the members its served file holds, each prepared under the name generate gave its text. A program built at run time runs once a workload names it and generate serves it, so put every program your application runs in a workload.
 - **A session's first call of a write stands the write up.** Before a session's first call of a ChangeSet member, one
-  transaction of its own, framed as the call is, makes in the session what the write's statements read and write: each
-  carrier of its own, with the session function that empties it, and, for each table it writes that a rule over a query
-  reads, the rule judge's temporary tables, by the table's stand-up ([Rules over queries](#rules-over-queries)). The
-  session remembers what it stood up, so each is made once a session, whichever member needs it first, and a call's own
-  transaction makes no relation: the plans a brand-new backend's first call makes serve its second.
+  transaction of its own, framed as the call is, makes in the session, for each table the write writes that a rule over
+  a query reads, the rule judge's temporary tables, by the table's stand-up ([Rules over queries](#rules-over-queries)).
+  The session remembers what it stood up, so each is made once a session, whichever member needs it first, and a call's
+  own transaction makes no relation: the plans a brand-new backend's first call makes serve its second.
+- **No served statement names an object of its session.** Rows one statement of a write makes and a later one reads,
+  which no later statement could make again since the statements between changed what they read (a relation
+  parameter's evaluation another state reads, a member or a sub-query two statements of a stratum read, a delta side a
+  read-back after the last stratum reads, a member slot two statements read), travel in the transaction's own settings:
+  the statement that makes them writes each column's array by `set_config(..., true)`, and each later statement reads
+  them as `ROWS FROM (unnest(current_setting(...)::text[]), ...)`, each element cast back to its type, one function scan PostgreSQL evaluates once a
+  statement however often a plan rescans it, over PostgreSQL's own text of the typed array, as every parameter travels. So
+  every statement's text is its program's alone and one statement in every session, one `queryid` in
+  `pg_stat_statements`, planned once a session; no session creates, empties or truncates anything to run a write, and no
+  role needs `TEMPORARY`. A column's array is one setting's value, so one carrier is bounded as a parameter is, by
+  PostgreSQL's longest text.
+- **A call's planned queries are bounded.** `plannedQueriesOf(login, snapshot, workloads)`, from
+  `@bjornpagen/grizzle/compile`, compiles `login` under `snapshot` as `compileServed` does and returns, under each role
+  and then each member of its workload, the most `pg_stat_statements` entries one call of the member makes, a session's
+  first call with its stand-ups included: `{ kind: "bounded", queries, by }`, `by` the same entries by the user each runs
+  as (`login`, the login's own; `role`, the role it enters; `owner`, the installation's, every function and trigger of
+  grizzle's) and whether it runs at the top level, as `pg_stat_statements` keys them. A test that measures a call by
+  `pg_stat_statements` (track `all`, track_planning on), resetting it before the call, sets `pg_stat_statements.max` to
+  its largest member's bound and loses no entry. The bound counts every statement the call sends, by the user it runs as,
+  and every query PostgreSQL plans behind them, which `snapshot.json` records of the installation (`derived.planned`):
+  each SPI query and expression of every PL/pgSQL body the call reaches, a trigger's for the event that fires it (the
+  rule judge's captures, its parts, the upkeeps of stored relations, the stand-ups and the closures they make), a row
+  function's, the queries of each foreign key's NO ACTION check and ON UPDATE CASCADE of a referenced row the call
+  removes or re-keys, and a PERIOD key's check of a row it writes (a plain key's probes its index and plans none), and
+  one RAISE's options, since the first RAISE a call meets ends it. Two queries PostgreSQL jumbles into one query id are counted once where their identities say so: a literal's value
+  is no part of one, a relation read by its alias alone is none of its name. It is an upper bound: it counts every branch
+  a call may take, a refusal's, a judge's TRUNCATE of a delta past the pages its emptying keeps and the forms a single
+  statement's batched executions may send among them. A member whose call reaches a declared function, whose body
+  grizzle never reads, has no bound (`{ kind: "declared", functions }`).
 
 ### The database's clock
 
-A lease, a timer or a due instant judged by the caller's clock is judged differently by two hosts whose clocks disagree. `clocked(program, binding)` serves a query, an ordered query or a ChangeSet with each parameter its binding names bound to the database's clock: the instant the call's transaction began, `transaction_timestamp()`, counted since the Unix epoch and floored, in `"micros"`, PostgreSQL's own resolution, or `"millis"`, JavaScript's and Effect's. The program is unchanged: it declares the parameter, a `bigint` or a contract over one, and a test serves the same program unclocked with a `now` of its own. A reading lies in PostgreSQL's timestamptz range, 4714-11-24 BC to 294277-01-01, in its unit, beside its declared type's bounds, and the scalar typing reads that range: a due instant `Type.cast(Num.add(Type.base(now), Type.base(delay)), Due)`, its `delay` a contract whose predicate bounds it, `contract("Delay", pg.bigint, (d) => Logic.and(Logic.ge(d, 0n), Logic.le(d, 10n ** 12n)))`, casts with no guard wherever the reading's range plus the delay's bounds fit `Due`: in millis, whose range ends near 9.2 × 10^15, it fits a bigint; in micros, whose range reaches past bigint's top, it asks a guard.
+A lease, a timer or a due instant judged by the caller's clock is judged differently by two hosts whose clocks disagree. `clocked(program, binding)` serves a query, an ordered query or a ChangeSet with each parameter its binding names bound to the database's clock: the instant the call's transaction began, `transaction_timestamp()`, counted since the Unix epoch and floored, in `"micros"`, PostgreSQL's own resolution, or `"millis"`, JavaScript's and Effect's. The program is unchanged: it declares the parameter, a `bigint`, `natural` or a consumer's contract over one, and a test serves the same program unclocked with a `now` of its own. A contract's reading is a value of it the clock makes, so the member takes the contract's key after its binding, by the parameter's name: `clocked(ranBefore, { now: "millis" }, { now: millisKey })`. A reading lies in PostgreSQL's timestamptz range, 4714-11-24 BC to 294277-01-01, in its unit, beside its declared type's bounds, and the scalar typing reads that range: a due instant `Type.cast(Num.add(Type.base(now), Type.base(delay)), Due, dueKey)`, its `delay` a contract whose predicate bounds it, `contract<typeof delayKey>()("Delay", pg.bigint, (d) => Logic.and([Logic.ge(d, 0n), Logic.le(d, 10n ** 12n)]))`, casts with no guard wherever the reading's range plus the delay's bounds fit `Due`: in millis, whose range ends near 9.2 × 10^15, it fits a bigint; in micros, whose range reaches past bigint's top, it asks a guard.
 
 ```ts
 /** The calls that ran at or before the database's instant. */
@@ -3709,7 +3931,9 @@ export const ranBefore = query(Usage).rule((r) => {
 		.find({ id, at })
 })
 
-export const UsageClock = workload(Usage, { ranBefore: clocked(ranBefore, { now: "millis" }) })
+export const UsageClock = workload(Usage, {
+	ranBefore: clocked(ranBefore, { now: "millis" }, { now: millisKey })
+})
 ```
 
 `db.workload.ranBefore.once({ params: {}, facts: {} })` takes no `now`: the database reads it.
@@ -3718,11 +3942,11 @@ export const UsageClock = workload(Usage, { ranBefore: clocked(ranBefore, { now:
 - **A reading is an observation, not an order.** Calls that do not overlap read non-decreasing instants, unless the server's wall clock steps back, as an NTP step or a failover to another host can. Overlapping calls read in neither their commit order nor the serial order their isolation proves, so a stamp is no cursor over what is visible: a read at an instant can miss a row stamped before it that commits after the read's snapshot. Keys fence a write; the clock decides only when work is due.
 - **Never live.** Time passing is no change, so a clocked read is an answered one ([Reading](#reading)) with its clock: answered at its call's instant alone, its handle holds `once`, `explain` and `explainAnalyze`, and no `watch`, and over HTTP its answer is `reset`, its upserts, `ready`, then `end`. It needs no live source. To wake at an instant, watch a read of the due instants that reads no clock, and read the clocked one when an instant passes. A clocked ChangeSet is a ChangeSet member like any other, whose `watch` is its outcome, then the end.
 - **The reading is the parameter's value.** It stands wherever the parameter does, cast to the parameter's type, so a contract judges it as it judges a caller's value, `refused` on the contract. The member's input holds the program's other parameters alone. A law, a check, a contract, a generated field, a derived relation and a role's entry read no parameter, so none reads the clock: a law judged against the clock would turn false with no write. PostgreSQL accepts `now()` in a table's or a domain's CHECK and judges it only at write; grizzle emits none.
-- **What a binding binds.** A binding names at least one parameter of the program whose values are `bigint`s, each with its unit; any other name is a type error, a take's or a page's bound is refused, and a paged member and a key are never clocked. A micros reading past the year 294,247 on the server's clock is out of bigint's range, and refuses the call.
+- **What a binding binds.** A binding names at least one parameter of the program whose values are `bigint`s, `bigint`, `natural` or one consumer's contract over either, each with its unit; any other name is a type error, a contract over another consumer's contract among them, whose values one key would not make, a take's or a page's bound is refused, and a paged member and a key are never clocked. A micros reading past the year 294,247 on the server's clock is out of bigint's range, and refuses the call.
 - **A host row's deadline is computed from the reading.** An insert's computed fields (`insertAllComputed`,
   [Writes](#writes)) read the reading as any parameter, so the rows a caller states, an owner's with its members nested among them, take a lease's
   end or a due instant from the call's own clock in the statement that writes them, never from the host's.
-- **A reading is a value, never an instant.** Its parameter is a `bigint` or a contract over one, never `instant`, which no parameter is: a deadline, a lease's end or a due instant is a reading and some arithmetic, while when a row was written is the insert's to stamp, ordered per child as no reading is ([Instants](#instants)).
+- **A reading is a value, never an instant.** Its parameter is a `bigint`, `natural` or a contract over one, never `instant`, which no parameter is: a deadline, a lease's end or a due instant is a reading and some arithmetic, while when a row was written is the insert's to stamp, ordered within its scope as no reading is ([Instants](#instants)).
 - **A test states the clock; it never sleeps.** `compileServedMoved(login, snapshot, workloads)` (`@bjornpagen/grizzle/compile`) compiles a login's served file as `compileServed` does, but every clocked read and every ChangeSet of it declares the clock's instant and reads every instant of the database's clock as it, its clocked parameters' and its inserts' stamps alike: the Unix epoch plus the instant's microseconds as an interval, exact to the microsecond, PostgreSQL refusing an instant its timestamptz cannot hold. Serve that file with its login's `DbLayer` and open its roles with `Db.openMoved(role, options, instant)`: each call of a clocked read or a ChangeSet reads `instant`, an `Effect<bigint>` of microseconds since the Unix epoch (a millisecond is `1000n`; an instant stamps nothing before 1970, never below zero), once, and every statement of the call reads exactly that instant, whatever the database's own clock reads, so a stamp is the instant the test stated. A suite on Effect's `TestClock` passes `Effect.map(Clock.currentTimeMillis, (at) => BigInt(at) * 1000n)`, so a lease lapses when its clock travels past it; one that wants the database's own time moved reads that instant once and states it moved. A production file, whose programs declare no instant, is no moved Db's, and a moved file is no production Db's: a call that states no instant is refused as its parameters. `grizzle generate` never compiles a moved file, and the files it writes are the same with or without this facility.
 
 ### Time zones
@@ -3803,7 +4027,7 @@ export const branchClock = query(Branches).rule((r) => {
 })
 
 export const BranchesClock = workload(Branches, {
-	branchClock: clocked(branchClock, { now: "millis" })
+	branchClock: clocked(branchClock, { now: "millis" }, { now: millisKey })
 })
 ```
 
@@ -3839,9 +4063,11 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   `mine` holds once `decide` has written its decision. ChangeSet.union keeps each part's binding where it was. Contrast
   a member's own query, which reads the state before *its* stratum, and a read-back's, which reads the tables after the
   change: a bound parameter reads the state before its part, and no stratum or read-back reads it again. Where every
-  reader reads that state already, the members of its part's first writing stratum or, a part that writes nothing
-  after the last, the read-backs, its query is a part of theirs, as an import's is; otherwise it is filled into a
-  carrier first among that stratum's statements, every reader reading the carrier. The two realize one meaning, as a
+  reader reads a state that agrees with that one on every relation the parameter's query reads, through derived
+  definitions and a role's entries (no stratum between writes one), its query is a part of theirs, as an import's is:
+  metis's assign binds its target test to a read of the catalog, which no stratum of the assign writes, so each
+  statement reads the catalog itself, keyed by the call's test; otherwise it is filled into a carrier first among that
+  stratum's statements, every reader reading the carrier. The two realize one meaning, as a
   CTE inlined or held does one query; a read-back over such a parameter reads no table the change writes, so it rides
   the statement making the delta it reads, unless that statement comes before the part that bound it, where its rows
   are not yet read: then it runs after the change, over its delta carried there (below, "Where a read-back runs").
@@ -3883,8 +4109,8 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   fields, at least one, to terms over the call's parameters, its clock reading and literals, each a caller-written
   field of every relation the record names, written at its field's own type as a query member's head is, a relation
   that lacks one refused at its key: `ChangeSet.empty(Den).insertAllComputed({ Claim: [] }, { until:
-  Type.cast(Num.add(Type.base(param("now", DenInstant)), Type.base(param("budget", Budget))), DenInstant) })`, served
-  `clocked(…, { now: "millis" })`, whose rows `{ step, holds: [{ resource }] }` leave `until` out (the row type omits
+  Type.cast(Num.add(Type.base(param("now", DenInstant)), Type.base(param("budget", Budget))), DenInstant,
+  denInstantKey) })`, served `clocked(…, { now: "millis" }, { now: denInstantKey })`, whose rows `{ step, holds: [{ resource }] }` leave `until` out (the row type omits
   every computed field), and edullm's pantry inserts every relation of a package computing `package` from its one
   parameter. The call evaluates the record once for each relation, one value of each field for every row of it the
   stratum's host rows insert, in the statement that writes them: a plain insert's own, or a nested insert's family statement, where every member field
@@ -3989,14 +4215,20 @@ records a reading: its row is the window over the reading and every window of th
 earliest start to the latest end, which displaces each window it grows from.
 
 ```ts
-const LearnerId = contract("LearnerId", pg.integer)
-const StageKey = contract("StageKey", pg.bigint)
+const learnerIdKey = Symbol("LearnerId")
+const stageKeyKey = Symbol("StageKey")
+const momentKey = Symbol("Moment")
+const readingKey = Symbol("Reading")
+const LearnerId = contract<typeof learnerIdKey>()("LearnerId", pg.integer)
+const StageKey = contract<typeof stageKeyKey>()("StageKey", pg.bigint)
 /**
  * Microseconds on the database's clock, a window's ends, up to 10000-01-01, after which no day a date holds begins; a
  * reading is one below the top, so it ends a window too.
  */
-const Moment = contract("Moment", pg.bigint, (t) => Num.within(t, 0n, 253_402_300_800_000_000n))
-const Reading = contract("Reading", pg.bigint, (t) =>
+const Moment = contract<typeof momentKey>()("Moment", pg.bigint, (t) =>
+	Num.within(t, 0n, 253_402_300_800_000_000n)
+)
+const Reading = contract<typeof readingKey>()("Reading", pg.bigint, (t) =>
 	Num.within(t, 0n, 253_402_300_800_000_000n - 1n)
 )
 
@@ -4017,8 +4249,8 @@ const near = query(Attendance)
 		r.find({
 			child: r.param("child", LearnerId),
 			stage: r.param("stage", StageKey),
-			start: Type.cast(Type.base(r.param("now", Reading)), Moment),
-			end: Type.cast(Num.add(Type.base(r.param("now", Reading)), 1n), Moment)
+			start: Type.cast(Type.base(r.param("now", Reading)), Moment, momentKey),
+			end: Type.cast(Num.add(Type.base(r.param("now", Reading)), 1n), Moment, momentKey)
 		})
 	)
 	.rule((r) => {
@@ -4065,7 +4297,7 @@ export const beacon = ChangeSet.empty(Attendance).put(
 ```
 
 `Presence` is `mutable` in its learner's unit, the one exception to insert-only rows, and the beacon is served
-`clocked(beacon, { now: "micros" })`: its reading is `Reading`'s, one below `Moment`'s top, so `now + 1` casts into
+`clocked(beacon, { now: "micros" }, { now: readingKey })`: its reading is `Reading`'s, one below `Moment`'s top, so `now + 1` casts into
 `Moment` unguarded. A reading within 3 s of the sitting's latest window extends it, and any other opens a new one. A
 call reads the clock as its transaction begins, so a slower call may read an instant before the latest window began:
 its reading falls inside the windows it lies within 3 s of, or joins them, so no reading is lost and no two windows
@@ -4128,6 +4360,11 @@ a host's clock or a value a caller passes. Every instant field is a clock or a r
   outside its primary key is refused when the schema compiles (`InstantRefused`, `clockOutsideKey`), since no child
   would order it, and so is one first in its key (`childless`), whose relation would be one child every write of it
   waits on.
+- Every clock is ordered in a **scope**, the writes one lock serializes: the [unit](#units) its relation sits under,
+  every clock of every relation of the unit alike, or, for a clock no unit holds, its own child. A scope's key is the
+  unit's heading or the child, and each value of it has one **head**, the last instant ever stamped in the scope there.
+  `SignIn` below sits in no unit, so its scope is its child, `user`; under `unit("User", { user: UserId })`, every clock
+  of a relation keyed `(user, …)` would stamp from `User`'s one head at each user.
 
 ```ts
 /** A user's sign-in at an instant, and the visit it opened, at the same instant. */
@@ -4172,53 +4409,74 @@ export const signIn = ChangeSet.empty(Auth)
   `bigint`. An instant meets only instants; `Type.base(at)` reads one as the `bigint` it is. A put and a delete state
   every instant of their rows this way, from a query, and a put of a relation with a clock is refused, since it would
   state the clock.
-- **One instant per child per call.** Every row a call stamps at one child of one clock holds one instant, so rows of
-  one child in one call that share the rest of a key need a field of their own in it, a place or a name, or they meet
-  at the key. A call stamps a clock in one statement: its stratum's, which holds its every insert and those of the
-  references it stamps, a table's inserts one write of all their sources, however many queries, arrays and Streams
-  state them. A ChangeSet that would stamp it in two strata, or in a stratum of several statements, such as one that
-  inserts a table beside a put or a delete of it, whose removals run first, is refused when it compiles
-  (`stampedApart`); a later stratum reads the stamped rows back as stored instants.
-- **A stamped row is new.** Its instant is above every instant its child held, so an insertion that stamps a clock
-  meets no stored row at the primary key: `delta.met` holds none of its rows ([Rows an insertion
+- **One instant per scope key per call.** Every row a call stamps at one key of one scope holds one instant, whichever
+  clock and child of the scope it is a row of, so rows of one child in one call that share the rest of a key need a
+  field of their own in it, a place or a name, or they meet at the key. A call stamps a clock in one statement: its
+  stratum's, which holds its every insert and those of the references it stamps, a table's inserts one write of all
+  their sources, however many queries, arrays and Streams state them. A ChangeSet that would stamp it in two strata, or
+  in a stratum of several statements, such as one that inserts a table beside a put or a delete of it, whose removals
+  run first, is refused when it compiles (`stampedApart`); a later stratum reads the stamped rows back as stored
+  instants. Two clocks of one scope may stamp in two strata or two statements of one call: each stamps rows of its own
+  relation, and both take the call's one instant.
+- **A stamped row is new.** Its instant is above every instant its scope held at its key, so an insertion that stamps a
+  clock meets no stored row at the primary key: `delta.met` holds none of its rows ([Rows an insertion
   met](#rows-an-insertion-met)), and a call retried after `commitUnknown` adds them again, at a later instant.
-- **The stamp.** The call's instant at a child is `greatest(c, h + 1)`: `c` the call's reading of the database's clock
-  in microseconds, `transaction_timestamp()`, and `h` the child's head, the last instant ever stamped at it. Each clock
-  keeps its children's heads in a table of its own, one row a child, beside its relation, which no role reads or writes:
-  the statement that stamps calls the clock's stamp function, which advances each child's row by one `INSERT ... ON
-  CONFLICT DO UPDATE` and returns it. A ChangeSet that stamps has a READ COMMITTED form, so its role runs at the level
-  the rest of its workload earns ([READ COMMITTED writes](#read-committed-writes)).
+- **The stamp.** The call's instant at a key is `greatest(c, h + 1)`: `c` the call's reading of the database's clock in
+  microseconds, `transaction_timestamp()`, and `h` the key's head, the last instant ever stamped in the scope there.
+  Each scope keeps its keys' heads in a table of its own, one row a key, which no role reads or writes: a unit's in the
+  installation's root schema, a clock's own beside its relation. The statement that stamps calls the scope's stamp
+  function, which advances each key's row by one `INSERT ... ON CONFLICT DO UPDATE` and returns it. A ChangeSet that
+  stamps has a READ COMMITTED form, so its role runs at the level the rest of its workload earns ([READ COMMITTED
+  writes](#read-committed-writes)).
 
-**Why it is the child's order.** For one child of one clock, at every level:
+**Why it is the scope's order.** For one key of one scope, at every level:
 
-- **Two calls that stamp the child take turns, and instant order is commit order.** The stamp function's upsert either
-  inserts the child's head row or locks the row it meets and assigns from its latest committed version, whatever the
-  calling statement's snapshot holds, and keeps that lock until the call ends (PostgreSQL's ON CONFLICT DO UPDATE). So a
-  call that stamps the child while another holds its head waits for that call to end, then stamps at least one past
-  its instant, and commits after it. At SERIALIZABLE, a call whose snapshot cannot see the head's latest version, one a
-  call that committed since wrote, is refused with 40001, a retryable `transient`, and its retry stamps after it.
-- **Calls that stamp different children never wait on each other.** Each child's head is its own row, so no lock of one
-  child's stamp is another's: the child is the shard key, and children shard freely. A call that stamps several
-  children of one clock takes their heads in key order, so two such calls never wait on each other in a cycle. Two
-  calls that each stamp two heads, clocks or places, at children the other stamps too may: a ChangeSet that stamps
-  one of them before the other, in an earlier stratum or an earlier part of one statement, beside one that stamps them
-  the other way round. PostgreSQL then fails one of them with 40P01, a retryable `transient`.
+- **Two calls that stamp the key take turns, and instant order is commit order, across every clock of the scope.** The
+  stamp function's upsert either inserts the key's head row or locks the row it meets and assigns from its latest
+  committed version, whatever the calling statement's snapshot holds, and keeps that lock until the call ends
+  (PostgreSQL's ON CONFLICT DO UPDATE). So a call that stamps the key while another holds its head waits for that call
+  to end, then stamps at least one past its instant, and commits after it, whichever clocks the two stamp. A call that
+  began before another committed reads an earlier clock, and `h + 1` carries it past the other's instant. At
+  SERIALIZABLE, a call whose snapshot cannot see the head's latest version, one a call that committed since wrote, is
+  refused with 40001, a retryable `transient`, and its retry stamps after it. So a law that compares two clocks of one
+  unit at one key, an end with the snapshots before it, reads every row of the one stored before the other's insertion
+  at an instant at most the other's: a scope's instants are commit-ordered across the clocks it holds.
+- **A unit's head adds no wait.** Every write of a unit's relations holds the unit's borrow exclusively at its key from
+  before its first statement ([Units](#units)), so no other call of that key could meet its head's lock: the unit's
+  writes already take turns.
+- **No writer states a clock out of order.** The head records the transaction that stamped each key last, and every
+  relation of a clock holds a guard: each row a statement inserts, and each row an UPDATE moves to another instant or
+  key, must hold its transaction's own stamp of the clock at its scope's key, else the statement is refused with 23514
+  under `__clocked` (an insert, at the statement's end) or `__clock_moved` (a move, at COMMIT). A served write meets it
+  by construction; a direct writer, the owner and a migration's data step alike, calls the scope's stamp function first
+  and states the instant it returns, one instant a key a transaction, so a history of several instants at a key is
+  written one transaction an instant, in order. The insert guard probes the head once for each distinct key and
+  instant of its statement's rows: a served statement, whose rows of one call share their instant at a key, probes it
+  once a key, the row its own stamp just wrote, and never scans it.
+- **Calls that stamp different keys never wait on each other.** Each key's head is its own row, so no lock of one key's
+  stamp is another's: the key is the shard key, and keys shard freely. A call that stamps several keys of one scope
+  takes their heads in key order, so two such calls never wait on each other in a cycle. Two calls that each stamp two
+  heads, scopes or places, at keys the other stamps too may: a ChangeSet that stamps one of them before the other, in
+  an earlier stratum or an earlier part of one statement, beside one that stamps them the other way round. PostgreSQL
+  then fails one of them with 40P01, a retryable `transient`.
 - **A clock that steps back reorders nothing.** An NTP step or a failover to a host whose clock is behind gives a
-  smaller `c`, and `h + 1` wins: the child's instants count up by one a write until the clock passes them again. An
+  smaller `c`, and `h + 1` wins: the key's instants count up by one a write until the clock passes them again. An
   instant is never earlier than its call's reading.
 - **A call that rolls back stamps nothing**: its head's advance rolls back with it.
-- **No occupant of the call's microsecond is met.** A stamped row's instant is above every instant ever stamped at its
-  child, so an insertion that stamps a clock meets no stored row at the primary key.
-- **What a child holds.** A write may delete its head; a later stamp is still above it, since the head keeps the last
-  instant stamped, not the greatest one held.
+- **No occupant of the call's microsecond is met.** A stamped row's instant is above every instant ever stamped in its
+  scope at its key, so an insertion that stamps a clock meets no stored row at the primary key.
+- **What a key holds.** A write may delete a row its head counted; a later stamp is still above it, since the head
+  keeps the last instant stamped, not the greatest one held.
 - **A clock a migration adds to stored rows** takes the migration's instant on every one, its transaction's reading
   of the database's clock, under a DEFAULT the backfill then drops, with no placeholder: re-keying `VerifiedEmail` from
   `(user)` to `(user, at)` gives each stored row the one instant, and every later insert stamps above it. A migration
-  that creates a clock's head table beside stored rows, for a clock it adds, a child it re-keys or a type it changes,
-  fills it with each child's greatest stored instant, so every later stamp is above every row it finds. That keeps
-  the rows apart exactly when the new primary key holds the old one beside the clock; a clock added under a key that
-  does not, `(user, email)` to `(user, at)`, is refused when generate drafts it (`InstantRefused`, `addedOverRows`,
-  naming both keys): keep the old key's fields, or re-key in a migration of its own.
+  that creates a scope's head table beside stored rows, for a clock it adds, a child it re-keys, a unit it declares or
+  a type it changes, fills it with each key's greatest stored instant across the scope's clocks, and one whose clock
+  joins a scope over stored rows, a relation re-keyed into the unit or a clock added to one of its relations, makes the
+  head again and fills it so, so every later stamp is above every row it finds. That keeps the rows apart exactly when
+  the new primary key holds the old one beside the clock; a clock added under a key that does not, `(user, email)` to
+  `(user, at)`, is refused when generate drafts it (`InstantRefused`, `addedOverRows`, naming both keys): keep the old
+  key's fields, or re-key in a migration of its own.
 
 **An instant stored as it is.** A read delivers an instant as an `Instant`, a `bigint` under the brand grizzle's read of
 one alone mints, so a host holds an instant only where a read delivered it. `instant.stored` is a field of instant's
@@ -4310,11 +4568,47 @@ definition is unit-local, as a rule judged whole is ([Rules over queries](#rules
 
 Whether the relations it reads are closed or open decides nothing. A definition over closed relations alone that joins
 two units' rows could lose a fact two writers inserted into the two at once, so it is live; one over a relation open
-inside its unit is kept under the borrow every writer of the unit holds. Every other derived relation is live: it stores
-nothing, and every query that matches it and every rule over it reads its definition. `grizzle generate` records each
-live one in snapshot.json, under `derived.liveDerived`, with why: `notUnitLocal`, naming the condition it lacks
-(`inPlace`, `unitKey`, `split`, `negation`, `aggregate`, `recursion`, `shape`, `hidden`, `noUnit`, `call` or `borrow`)
-and where, or `unrepresentable`, naming why no table could hold its rows.
+inside its unit is kept under the borrow every writer of the unit holds.
+
+A definition that reads relations of a unit sealed at founding beside relations of another unit reads the sealed ones by
+reference, as it reads a closed relation, and stands in the other unit alone: a learner's credit over a package's
+content is stored in the learner's unit. Each such read must stand at a key of the sealed unit that a row of the
+definition's own unit, matched in the same rule, names through a containment the schema states into the sealed unit
+(`contained(on(Attempt, "package", "item"), on(Item, "package", "item"))`), over every row that match admits; a
+reference-only query read at such a key counts as read there. A row so contained stands only once its key was founded,
+and the founding transaction wrote every row of the sealed unit there, which no later write changes, so the stored rows
+change only with the writes of their own unit: a later fact of a learner, a regrade's assertion among them, is
+re-stated at its COMMIT; a founding changes no stored row but at the units its own transaction writes; and a
+migration's data step, the one writer that removes or updates a sealed row, is followed by its bracket's re-check, which
+makes the relation its definition's rows again by one MERGE of its table, so no capture writes a sealed row's removal.
+A read of sealed content at a key no such row reaches is live (`reference`).
+
+Its upkeep costs what a write's delta bounds, never its whole unit: its unit is wider than the declared unit and one
+read of it roots the others by their keys, or its unit binds a key of every relation it reads, or its declared unit is
+sealed and its one founding write the upkeep's; or else its upkeep is a delta form whatever the width of its unit:
+checked, every rule a join of relations reached from its head by keys, or by seeks, an existence test of one relation at
+the fields the head binds, one descent of an index and at most one range of one more column, each changed row of it
+naming its one fact by keys (a sitting holding an unprocessed attempt, a session whose control lies above its counted
+attempts), and every negation one relation's, so a write reads
+each fact it gains from the rows it wrote outward and checks each fact it may withdraw at the fact, one probe of a key
+each, a fact whose candidate leaves fields free read from the stored table's own rows at the fields it binds, only where
+those hold the unit's key and more (a removed snapshot withdraws its facts in each candidate session, read from
+SessionSnapshot's table at the snapshot, never at the learner alone), and every stored relation a statement reads
+read by an index of its own at the keys the write binds (a suspension's open snapshots read from TestSnapshot's
+table at the sitting);
+or monotone over closed relations, every rule a join negating nothing over relations no served write updates or
+deletes, so a served write only gains facts, each read from the rows it wrote, and a migration's data step that removes
+a row re-derives the units it touched. Ledger's TestSnapshot, SessionSnapshot, ItemSessionControl, ItemSessionOpen,
+SettledSitting and UnsettledSitting, each at a learner whose sittings, item sessions and attempts are keyed apart, are
+stored checked, an import read by its name where its canonical relation is stored. A definition whose upkeep is none of these is live
+(`unboundedUpkeep`), and snapshot.json records why its delta form bounds none (`delta`: `arms`, `match`, `negation`,
+`unreached`, `loss` or `open`, and where).
+
+Every other derived relation is live: it stores nothing, and every query that matches it and every rule over it reads
+its definition. `grizzle generate` records each live one in snapshot.json, under `derived.liveDerived`, with why:
+`notUnitLocal`, naming the condition it lacks (`inPlace`, `unitKey`, `split`, `negation`, `aggregate`, `recursion`,
+`shape`, `hidden`, `noUnit`, `call`, `borrow` or `reference`) and where, or `unrepresentable`, naming why no table could
+hold its rows.
 
 A stored relation's table serves a read exactly where its rows are its definition's there:
 - **A query** that matches it reads the table, a range of its key, never its definition.
@@ -4337,7 +4631,11 @@ definition.
   the written units' and never the table's. A stored row that stays is never touched. A definition that reads another
   stored relation reads its table, which the judge keeps first in the same COMMIT: it keeps each stored relation after
   every stored relation it reads, at the units whose rows the transaction wrote or whose stored rows the keeping of
-  those below it changed, so no work below is done twice. After `SET CONSTRAINTS ALL
+  those below it changed, so no work below is done twice. A query a definition imports is a relation too, stored where
+  it can be kept as a derived relation is, and read alike: its table, by reference, wherever a definition imports it,
+  never its definition spelled again in place, so each statement the judge runs for an upkeep or a rule is as large as
+  its own definition, however many stored derivations stand beneath it, and plans in time bounded by its own
+  relations. After `SET CONSTRAINTS ALL
   IMMEDIATE` the judge runs at the end of each statement, so the stored rows are current after each.
 - **Laws over it.** A rule over a stored relation reads its table, its rows as the transaction leaves them. A key
   over it is a unique index of its table (the index of the key it provably has, where it is one), a check over it its
@@ -4363,7 +4661,7 @@ definition.
 `records(stem, query, owner, ownerKey)` declares the relations that hold the rows a query found, for a level over the
 query's to list: `${stem}Row`, the owner's fields, then each column of the query's heading as the query's own field, keyed
 by `ownerKey`, a nonempty list of the owner's field names, as `relation`'s primary key takes it. A column is stored as
-the type it is declared of, its contract's brand and check, its closed id's roster, its text's patterns, so a closed id
+the type it is declared of, its contract's host type and check, its closed id's roster, its text's patterns, so a closed id
 references the roster of the level below; a drawn, generated or accumulated field is stored as its declared type, never
 drawn again; a computed numeric is stored as numeric within its bound (`pg.numeric.within`), an instant as a stored one
 (`instant.stored`) and a search document as a stored one (`pg.tsvector`); a head literal is stored nowhere, its read writing it again, but a union's rules that write literals of
@@ -4402,7 +4700,7 @@ the attachment's stored columns; and a drawn count under the name of each array 
 among them. Each is keyed by its parent's key, then an array's place, and held to its parent by the law its delivery
 states: an array is the parent's ordered family counted at the attachment's name, so `recordsFacts` nests its members
 under their owner in the order the query delivered them and their places are 0 … n − 1; an option is contained in its
-parent; the one child mirrors it; and the arms of one field are one `alternatives` law over the parent's discriminator.
+parent; and the one child mirrors it.
 `R.apart` names the relations an insert states beside the root, every attachment's but an array's; `recordsFacts`
 gives each its facts under its name, its carried key's values then its own, so `insertAll(recordsFacts(level,
 records)([]))` is the member that takes them all. `recordsQuery` reads each attachment back over its relation as the
@@ -4410,15 +4708,16 @@ query stated its delivery, an array in its places' order, so its rows are still 
 name the records mint is the stem followed by more: name a relation of your own the stem itself, never the stem and a
 suffix.
 
-A name the records derive that PostgreSQL would cut short is refused, never cut or hashed: a relation whose name's
-identifier, its conversion, passes 63 bytes (`NAMEDATALEN` less one) is `RecordNameTooLong`, naming the stem, the
-relation's `path` (its attachment names from the root, none for the root), the `name`, its identifier's `bytes` and the
-`limit`. The fix is yours: `records(stem, query, owner, ownerKey, { names })` states a relation's name for an
-attachment's path, its attachment names from the root joined by `.`, as `{ names: { "stimuli.document": "Stimulus" } }`,
-in place of the derived one, and the derived names of the repeated attachments under it follow it. The options are
-optional: left out, no name is stated. The root's name is the stem's, so its fix is a shorter stem. A stated name is a
-relation's declared name, `IdentifierTooLong` past the bound, a path no attachment has is refused, and a name of a
-digest is one you write: grizzle derives none.
+A name the records derive is never cut short and never refused for its length, however deep the attachments: it is
+the relation's name in the schema's types, and no PostgreSQL identifier. The relation's table and whole view are
+named `__<stem>_<digest>`, hashed over the relation's name and spelled after the records' stem and the relation's path
+(its attachment names from the root, none for the root), within PostgreSQL's 63 bytes, with a COMMENT naming the
+relation, and listed by `grizzle names`. Two derived names that convert alike are still one name, refused as any two are.
+`records(stem, query, owner, ownerKey, { names })` states a relation's name for an attachment's path, its attachment
+names from the root joined by `.`, as `{ names: { "stimuli.document": "Stimulus" } }`, in place of the derived one,
+and the derived names of the repeated attachments under it follow it. The options are optional: left out, no name is
+stated. A stated name is a relation's declared name: its table and whole view are its conversion, readable, and one
+past 63 bytes is `IdentifierTooLong`. A path no attachment has is refused.
 
 Records' relations are relations like any other: their rows go by deletes, under the unit their owner's key leads with,
 a reference to a row of them refusing its delete while it remains.
@@ -4490,12 +4789,17 @@ export const Lexicon = schema("Lexicon", [folded, doubled, summary], [])
   heading (an array of that one's row type) or one row of one, so a heading holds another as one composite or as
   many: `Titled` above holds its words, and its row type installs after `Weighted`'s. A value's type is a base type, a
   closed id, a contract or a refined text over one: a serial, money, an exact value, bytes, a set, a span or a vector is a type error,
-  and from JavaScript `Refused` when the schema is owned. A heading holds no NULL, so no row is no arm of a type: a
+  and from JavaScript `Refused` when the schema is owned. A closed id is of its whole roster: one of a subset is refused
+  alike, since no body is a value of a subset and the call casts its value to the roster's domain alone, while a
+  variant's arm field of a subset is held to it by the variant's domain the call casts to. A heading holds no NULL, so no row is no arm of a type: a
   function of one row returns its row, and a body with none to return raises. PostgreSQL holds a function to its
   declared types exactly (a PL/pgSQL `RETURN QUERY` refuses a column whose type is not the row type's), so each is its
   field's base type, `natural` a bigint, `Word` a text and a closed id its code, a smallint: a contract, a pattern or
   a roster is checked where a statement reads the function's value, cast to its field's domain, never by the
-  signature. A call passes a closed id of the argument's own roster alone, as every term does.
+  signature. That cast makes the contract's values from what the body returned, so a function whose result holds a
+  consumer's contract at any depth is declared under each such contract's key, by its name, after its definition:
+  `fn("grade", { …, returns: row(Single) }, { QtiInteger: qtiIntegerKey })`; one whose result holds none takes
+  nothing. A call passes a closed id of the argument's own roster alone, as every term does.
 - **Order.** A heading's fields and a function's arguments are each a set of names, and PostgreSQL reads both by
   position: a row type's attributes, in the order `ROW(...)::${heading}` builds them and a body's `SELECT` or
   `RETURN QUERY` returns them, and a function's parameters, in the order a call passes them and `$1`, `$2` number
@@ -4785,8 +5089,8 @@ export const AuthorApp = login(Qti, "author_app", [QtiAuthor])
   any number. Every member that reads one bound query reads one evaluation of it: an import's in the statement of the
   query that imports it, a ChangeSet's before the first stratum of the part it was bound on.
 - **The empty level is below every root.** `schema.empty` is the level of no relation and no rule, below every root: a
-  program over it is a program over every schema and every role, which holds it whole whatever it holds, by its
-  phantom alone, the least, so no level's levels grow by it. A read of no relation, a row of its parameters and
+  query over it is a query over every schema and every role, which holds it whole whatever it holds: every level's
+  reader of queries admits it beside its own, so no level's levels grow by it. A read of no relation, a row of its parameters and
   constants alone, is written over it, `query(schema.empty).rule((r) => r.find({ at: r.param("at", pg.bigint) }))`, and
   runs on every role, so the role serving it holds nothing for it: den's role serves a schedule's input derived from
   its key so while holding nothing of the app's. It installs nothing and names no migrations directory. A level that
@@ -4903,6 +5207,7 @@ import { Blog, caPem, EtlJob, Web } from "./src/blog.ts"
 export default defineConfig({
 	schemas: [Blog],
 	logins: [Web, EtlJob],
+	contracts: [],
 	migrations: "migrations",
 	rolePrefixBytes: 0,
 	connection: () => ({
@@ -4940,7 +5245,7 @@ Every setting is required, and nothing else is configurable:
   63 bytes under a prefix that long, naming the role, its bytes and the limit, before anything is written, so
   `generate` never drafts a role `migrate` would cut short; and every command that connects refuses a connection whose
   `rolePrefix` is longer.
-- **`connection`**: a function returning where `migrate`, `drift`, `upgrade`, `roles` and `uninstall` connect, as the
+- **`connection`**: a function returning where `migrate`, `drift`, `roles` and `uninstall` connect, as the
   role that owns the schemas. Only they call it, so `generate`, `check` and `names` read no cluster setting and no CA file, and
   run in CI where no cluster is reachable. Its password is a `Redacted` or an Effect evaluated for each connection
   attempt. Its `rolePrefix`, which `DbLayer.make` takes too, is the installation's own, optional: see "Two
@@ -4954,15 +5259,14 @@ grizzle generate <config> [--name <name>] [--schema <schema>] [--rename <old>=<n
     draft the next migration from the schemas' changes
 grizzle generate <config> --custom --name <name> [--schema <schema>]
     an empty migration for data steps
+grizzle draft-key <config> [generate's options]
+    the key of the draft generate makes with these options: the SHA-256 of every input it reads
 grizzle check <config>
     generated, resolved and untampered? (offline)
 grizzle migrate <config>
     apply pending migrations, then check the database against the snapshot as drift does
 grizzle drift <config>
     does the database match the snapshot? (applies nothing; migrate ends with this check)
-grizzle upgrade <config>
-    rebase the live installation onto this grizzle's format: its snapshot again, or an
-    upgrade migration (applies nothing)
 grizzle names <config>
     each hashed object's PostgreSQL name and what it is
 grizzle roles <config>
@@ -4972,9 +5276,11 @@ grizzle uninstall <config>
 ```
 
 `--name` is lowercase ASCII letters and digits in words joined by `_` or `-`, at most 240 characters, so that the folder `<timestamp>_<name>` fits
-one file name (NAME_MAX, 255 bytes); without it, a drafted folder is named after its change. `--schema` is accepted
-only when the config lists several schemas, and required there with `--custom`, `--rename` or `--drop`. Exit codes: 0
-ok, 1 refused, 2 usage error, 130 interrupted.
+one file name (NAME_MAX, 255 bytes); without it, a drafted folder is named after its change. The timestamp is the
+committed chain's, never a clock's: a schema's first folder is `19700101000000`, each later one the second after the
+newest folder's, so two drafts on one chain (two lines of work merged) share a timestamp, which `generate`, `check` and
+`migrate` refuse as a forked chain. `--schema` is accepted only when the config lists several schemas, and required
+there with `--custom`, `--rename` or `--drop`. Exit codes: 0 ok, 1 refused, 2 usage error, 130 interrupted.
 
 The loop: change the schema in code, run `grizzle generate grizzle.config.ts`, read the SQL it drafts and resolve its
 markers, run `grizzle check grizzle.config.ts`, commit, and run `grizzle migrate grizzle.config.ts` from CI or the
@@ -4987,6 +5293,37 @@ deploy.
   `snapshot.json` records: `snapshot.json` (the fingerprint, the levels, the constraints' laws and the rosters' codes)
   and `manifest.json`, the rest. Beside them, `served/<login>.json` holds each login's workloads compiled under the
   snapshot, the one file an app imports for `DbLayer.make`. Commit all of them.
+- **A draft is a function of its inputs, and `grizzle draft-key` prints their key.** `grizzle generate <config>
+  [flags]` leaves the migrations directory byte for byte the same, folder names included, wherever and whenever it
+  runs, given the same inputs, which grizzle names in one roster (`packages/grizzle/src/cli/draft-inputs.ts`) and reads
+  and digests by one code:
+  1. the command line's flags: `--name`, `--custom`, `--schema`, and each `--rename` and `--drop` in order, as
+     generate reads them, never the configuration file's path or `--phases`, which writes to stderr alone;
+  2. the configuration: the configuration file's bytes, and every module its import loads but grizzle's and a
+     package's, each by its path from the configuration file's directory and its bytes;
+  3. the lockfile: the `pnpm-lock.yaml` nearest above the configuration file, by its bytes, which names every package
+     a module loads through `node_modules`, grizzle's dependencies among them;
+  4. the committed migrations directory: every visible entry of the directory the configuration's `migrations` names,
+     by its path there and a file's bytes; an entry whose name starts with `.`, an editor's or the scratch a write
+     passes through, is none;
+  5. grizzle: each of its packages' `package.json` and every file under its `src/` (text, engine, openapi and
+     grizzle), by its path in the checkout and its bytes, which a commit of grizzle names;
+  6. Node: the version of the Node that runs it; the variables its own code reads (`NODE_COMPILE_CACHE`,
+     `NODE_COMPILE_CACHE_PORTABLE`, `NODE_COMPILE_CACHE_READONLY`, `NODE_V8_COVERAGE`, `WATCH_REPORT_DEPENDENCIES`)
+     configure the runtime, never what a draft holds.
+
+  `grizzle draft-key <config> [generate's flags]` prints the SHA-256 of exactly these, in hex on one line, each input
+  by what names it in its member, never by an absolute path: a cache of generate's output keys by it and keeps no list
+  of its own, so a change of the roster reaches every cache in grizzle's own commit. Nothing else reaches a draft: no
+  clock, no time zone, locale or other environment variable but the ones Node reads of its own, no directory it runs
+  in, no host, CPU count or randomness, and no order a file system lists a directory in (every listing is sorted). A
+  configuration module that reads a file, a variable or a clock as it loads makes an input no key sees: keep the
+  configuration a function of its modules. `test/unit/cli/draft-determinism.test.ts` holds the draft to its inputs:
+  one source drafted from nothing and then on its committed chain by two real processes at two absolute paths, from
+  three directories, in two time zones and two locales, one after the other, writes one tree byte for byte.
+  `test/unit/cli/draft-key.test.ts` holds the key to them: twin projects give one key, a change of any one input moves
+  it while a change of nothing the roster names leaves it, and a real `generate` under a read trace loads, reads and
+  consults nothing outside the roster, and no clock.
 - **`manifest.json` is the record of what is installed**, which a draft reads of the installation it migrates from,
   where only the record can say what is installed, and the drift check judges a database by: each installed
   statement compact on a line of its own, but a PL/pgSQL function and a constant, each recorded by its header alone, a
@@ -5009,25 +5346,11 @@ deploy.
   member, and `manifest.json`'s seal digests both snapshot files under it. A pair whose `snapshot.json` records another
   format, or none, is read no further: `check` reports it with the format it records and the one this grizzle reads
   and writes, and `generate`, `migrate`, `drift` and `names` refuse it at stage `format`, writing nothing. No grizzle
-  converts another format's records: a live installation is rebased onto this grizzle by `grizzle upgrade` (below),
-  and one with no database is drafted afresh, from an empty migrations directory. A served file is written again by
-  `grizzle generate`, and an application refuses one, or a `snapshot.json`, of another format where it loads it,
-  `ArtifactFormat`.
-- **Upgrading across a format** is `grizzle upgrade`, run from the commit the installation was deployed from, with the
-  new grizzle. It never reads `snapshot.json` or `manifest.json`: it compiles the source again and reads the database,
-  the one authority on what it holds. Its history comes off the live catalog: each roster's codes off the names
-  constant its domain reads, holes and renamed handles kept, never assigned by default; each table's attribute numbers;
-  each pattern language's spelling, one the schema writes of it. The drift check of the compile against the catalog
-  proves each of them. Then it writes either the snapshot's files again in this format, where the database holds the
-  compile whole, or a folder `<timestamp>_upgrade` drafted by the normal diff, from the compile's objects the database
-  holds: absent objects created, ones it holds otherwise changed by their kind's own rule (functions replaced in
-  place, keys swapped, CHECKs added `NOT VALID` and validated, triggers replaced under their table's lock), ones no
-  object of the compile is dropped at the end. It writes nothing to the database: commit what it wrote, run `grizzle
-  check`, then `grizzle migrate`, whose drift check judges the database by the new snapshot. It refuses, at stage
-  `upgrade` and by name, a database its committed folders do not reach, a roster whose codes do not read, a spelling no
-  installed object proves, a role's, grant's or setting's change, and an object holding stored rows that the database
-  holds otherwise, grizzle's own ledger and drift proofs among them: a format change after a production cutover leaves
-  those unchanged unless it ships a carried conversion.
+  reads, converts or carries forward another format's records, and no installation crosses a format: purge and
+  regenerate. Drop the installation (`grizzle uninstall`), empty its migrations directory, run `grizzle generate`,
+  which drafts the schema afresh as one init migration in this format, and `grizzle migrate`. A served file is written
+  again by `grizzle generate`, and an application refuses one, or a `snapshot.json`, of another format where it loads
+  it, `ArtifactFormat`.
 - **Plain SQL you may edit**, as long as the database ends where the snapshot says, and the drift check after the apply
   judges every edit by the catalog it reaches. Any text tool may read and write a drafted file back: every constant
   whose value holds a control character or a line or paragraph separator is written as an escape string (`E'\r'`, a
@@ -5149,7 +5472,10 @@ deploy.
   whole views is `__` and its own. A login's or role's PostgreSQL role joins its schema's conversion and its own, its
   stem, under the installation's role prefix: take it from `roleNameOf(login or role, connection)`, a schema's or a
   role's schema from `schemaNameOf(schema or role)`, and a schema's schema of whole views from `wholeSchemaNameOf`,
-  never spell one. Refused: two names that convert to one, a conversion over 63 bytes (a login's or role's with its schema's,
+  never spell one. A relation or roster whose name a library derives is the exception, records' own among them: its
+  table or domain and its whole view are hashed over its name (Records of a query, `derivedName`), whatever its
+  length.
+  Refused: two names that convert to one, a conversion over 63 bytes (a login's or role's with its schema's,
   and with the role prefix, which `migrate`, `DbLayer.make` and `roleNameOf` refuse before they connect), and a schema
   name or a role prefix starting with `pg_`. A relation's, roster's, derived relation's or schema's name over 63 bytes
   is refused by its builder, `IdentifierTooLong` naming it and its conversion's bytes, and a field's or a check's by
@@ -5252,8 +5578,14 @@ grizzle decided them:
   `unreported`: a refusal at COMMIT, by a foreign key or a rule over a query of the level above, or a row grizzle
   cannot judge. Only `every` carries `refused.laws`.
 
-**Witness**: `{ kind: "key", relation, values }`, the key of one row that breaks the rule and never another column,
-`{ kind: "unreported" }` or `{ kind: "unreproduced" }`. Every insert, a family's members and a tree's nodes included, checks each key and unique of its
+**Witness**: `{ kind: "key", relation, values }`, the key of one row that breaks the rule and never another column;
+`{ kind: "drawn", relation, values, drawn }`, that key where the database supplies a field of it as its statement
+writes the row, `values` the key's other fields and `drawn` each such field by what supplies it, never a value guessed
+for it: `"clock"`, an instant its clock stamps or a field the call computes from its reading of the clock
+(transaction_timestamp, one value a call); `"place"`, a place its insert stamps; `"call"`, a field the call computes
+by a term grizzle does not evaluate, which the statement does; `{ kind: "unreported" }` or `{ kind: "unreproduced" }`.
+A field the call computes (`ChangeSet.insertAllComputed`) is in the key at the value its term takes over the call's
+parameters wherever grizzle evaluates the term, once a call, as the statement fills it. Every insert, a family's members and a tree's nodes included, checks each key and unique of its
 table in the statement that writes the rows: a declared key, a key over a side, a family's (owner, index) and a tree's
 (root, start), against the stored rows and between the rows the statement writes. That is one index lookup per row and
 key beside PostgreSQL's own check, the same cost on every insert. So a key (over a table or a side of one) that a row you
@@ -5272,12 +5604,11 @@ order, and it leaves nothing: no row, no drawn value, nothing a live query sees.
 more. Where another write committed between the two flights and left no such row, the witness is
 `{ kind: "unreproduced" }`, never a guess. grizzle sends the second flight only for a key on a table the write changes,
 where your role writes that table and the key's target through whole entries. Otherwise the witness is `unreported`.
-That covers a query or scoped entry, as PostgreSQL itself states the key to no role that cannot read it, and a key a
+That covers a query entry, as PostgreSQL itself states the key to no role that cannot read it, and a key a
 delete from its target breaks on a table the write leaves alone. A drawn key, such as an instant from the database clock, is the one the
 second flight drew. The witness is `unreported` for a foreign key PostgreSQL checks at the statement, and where no
 row you stated breaks the rule: a row only PostgreSQL computes,
-a query's, a rule reading a value the host does not hold or over what the host does not evaluate, or a row whose key
-PostgreSQL draws. A family member you put is such a row: its running values are PostgreSQL's, folded again in the
+a query's, or a rule reading a value the host does not hold or over what the host does not evaluate. A family member you put is such a row: its running values are PostgreSQL's, folded again in the
 write's own statement from the stored members before it, and its counts and ends stay as stored, so grizzle holds none
 of them, and a rule only they break is refused with the witness `unreported`. A family's owner that you insert and the
 write never reads, such as one with no members in the ChangeSet or an ordered one, could be new or a stored one you
@@ -5296,10 +5627,14 @@ by its domain's CHECK as the statement casts it, before the row's constraints an
 value is cast as PostgreSQL binds it, to its contract's domain or to its own pattern domain, one per parameter and
 pattern, which `grizzle generate` installs for every contract and every pattern a served parameter names: a value
 outside them is refused
-there, before the statement reads a row. A write binds every such parameter in its first statement, so the refusal
-comes before any other statement of the write runs, whichever stratum reads the parameter, and no law a stratum
-breaks answers first. A read binds every one in its statement, those its query leaves unread too (a rule under the
-constant false `r.or()`), so a call is refused for the parameters it declares, never only for those its logic reads. A
+there, before the statement reads a row. A write binds every such parameter in the first statement each call sends,
+and sends no statement for it: each parameter is an entry no query reads, leading every statement before the first
+one the write sends wherever the parameter may hold a refused value (a scalar's in every call, a relation parameter's
+where it holds a fact) and that one, its placeholders the statement's first; where no statement is sent so, the
+write's first statement is sent there besides, writing nothing. So the refusal comes before any other statement of the
+write runs, whichever stratum reads the parameter, and no law a stratum breaks answers first. A read binds every one
+in its statement, those its query leaves unread too (a rule under the constant false `r.or([])`), so a call is refused
+for the parameters it declares, never only for those its logic reads. A
 contract's refusal of a parameter is `refused` on the contract's law, its
 witness `unreported`, a write's and a read's (`LawRejected`) alike; a pattern's refusal of a parameter, a
 `str.bytes` bound's among them, is `paramRejected` (`ParamRejected`), its `param` where: `{ kind: "scalar", name }`
@@ -5325,13 +5660,14 @@ stored members.
 | `primaryKey` | `relation`, `fields` (a span field makes it a no-overlap key)                                                   |
 | `key`        | `side`: a key statement, a candidate key of its relation when its side reads every row and its terms are fields |
 | `check`      | `relation`, `name`                                                                                              |
-| `contained`  | `from`, `to`: a containment, foreign keys included; an `alternatives` statement and a `mirrors` are containments |
+| `contained`  | `from`, `to`: a containment, foreign keys included; a `mirrors` is two containments                              |
 | `coverage`   | `from`, `to`: a containment whose sides pair a span field                                                       |
 | `family`     | `order` (`"ordered"` or `"counted"`), `member` (a side), `slots` (`{ owner, count }`)                           |
 | `tree`       | `member`, `slots`, `root` (the root fields, a list)                                                             |
 | `fold`       | `family` (its slots), `monoid`, `step` and `end` (sides)                                                        |
 | `contract`   | `contract`                                                                                                      |
 | `pattern`    | `relation`, `field`, `patterns`: each `{ source, flags }` as that field spells it, one rule per field           |
+| `variant`    | `relation`, `field`, `variant`: a variant field's value is of one arm, each field of its type and its arm's check holding, one rule per field |
 | `generated`  | `relation`, `field`: a generated field whose term has no value at a row, a closed read at a key its relation lacks |
 | `above`      | `level`, `law`: a law of a level above the Db's, as that level states it, only ever in `refused.above` of an `above` refusal |
 
@@ -5365,7 +5701,7 @@ it, its entry included, so every rule an outcome over the schema names is one of
 law's own. Name the rules you handle by their ids once, then read a refusal's `laws` by `id`, with no search and no
 table of ids of your own. In order, however you declared the schema: each table's primary key, by table
 name; the rules of the schema's statements in canonical order, one for a key, check, containment, family, tree or fold,
-two containments for a mirrors and an alternatives statement's containments, none for `mutable`; each contract's, by
+two containments for a mirrors, none for `mutable`; each contract's, by
 name; then each stored field's pattern rule and each generated field's rule, by table name and each table's fields in
 declared order. A rule two statements state, such as a key over a table's primary key, is listed once. A pattern every
 text matches, such as `"^.*$"` under `"su"`, states no rule: grizzle drops it, and the column is plain text. Neither
@@ -5375,8 +5711,8 @@ statement reads it, and no write is refused by it. Each call compiles the rules,
 
 `lawsByStatement(schema)` compiles the rules once and gives a lookup: bind it once,
 `const lawsOfStatement = lawsByStatement(schema)`, then `lawsOfStatement(statement)` lists the rules that statement
-states, each a `law` of `lawsOf(schema)`'s list, in its order: two containments for a mirrors, an alternatives statement's
-containments, none for `mutable`, and a rule two statements state is each one's. A statement is its canonical form, so
+states, each a `law` of `lawsOf(schema)`'s list, in its order: two containments for a mirrors, none for `mutable`, and
+a rule two statements state is each one's. A statement is its canonical form, so
 an equal statement built again is the same one, at any level. A lookup compiles nothing, and throws `CompileError` for a
 statement no level of the schema states.
 
@@ -5398,10 +5734,10 @@ grizzle answers, here and in `codecText`, `insertPreview` and `indexesOf`, is Ef
 once, `evaluate.admit(Account, row)`, then evaluated as a row of any source of its relation, `evaluate(Account,
 admitted)` or `evaluate(select(Account, (a) => a.gt(a.units, 3)), admitted)` for a selection. A source is any relation of
 the schema, stored, derived or closed, a roster among the closed ones, or a selection of one. The row is typed off the
-relation: every field but the generated ones, each its codec's value, so a contract's value is its brand, `Units(5)`,
+relation: every field but the generated ones, each its codec's value, so a contract's value is its host's, `toUnits(5)`,
 and an instant, the database's or a stored one, the `bigint` it is: an evaluation writes nothing, so a row it judges
 holds any instant, and an admitted row's instant is no `Instant`, which only a read delivers.
-PostgreSQL reads each value as its column's type and holds it to its domain before anything else, which a brand does
+PostgreSQL reads each value as its column's type and holds it to its domain before anything else, which a mint does
 not check, and so does admit: `{ _tag: "ValueRefused", field, fault }`, a field whose value its type's input function
 refuses (an integer that is none or past its type's range, a text holding NUL, a date no calendar holds, a numeric past
 its typmod), by the codec's fault, the word `codecText` refuses the value by; `{ _tag: "DomainRefused", field }`, a
@@ -5580,7 +5916,7 @@ A call's `CallError` is read from the reason that failed it, each reason a class
 
 | Reason                                                                                                                                                                       | `kind`          |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
-| the server's `ServerError`, 53200 and 54001 among them; `TemporaryRefused`, below; `UnreadableAnswer`, rows grizzle cannot read or its compiled proof says the query cannot deliver; `CompileError`; `DriverFailure`, pg's refusal of a query on a connection still standing | `failed`        |
+| the server's `ServerError`, 53200 and 54001 among them; `UnreadableAnswer`, rows grizzle cannot read or its compiled proof says the query cannot deliver; `CompileError`; `DriverFailure`, pg's refusal of a query on a connection still standing | `failed`        |
 | `CredentialError`; `StartupRefused` of SQLSTATE class 28; `TlsRefused`, but a handshake's failure with a system error's code; `DriverRefused` | `credentialRefused` |
 | `StartupRefused` of any other SQLSTATE, with the server's report; `SocketFailed`; `TlsRefused` of a system error's code; `ConnectionClosed`; `LayerReleased`, a layer whose scope has closed | `unavailable`   |
 | `NoCancelKey`                                                                                                                                                                 | `failed`        |
@@ -5597,22 +5933,15 @@ A call's `CallError` is read from the reason that failed it, each reason a class
 rows one stratum adds at one key, or a nested row's generated field with no value: its `refused` and `witness` are
 that refusal's.
 
-**`TemporaryRefused`**: the write's stand-up creates a temporary table, a carrier of its own (the rows of a query that
-two of its statements read, in a stratum that runs statement by statement) or one its nested rows past one Bind message
-travel through, and the role holds no `TEMPORARY` privilege on the database, which `privilege` names; `error`
-is the server's 42501. Nothing committed: a session stands a write's carriers up in a transaction of its own before
-its first call of the write, and the call never ran. `grizzle migrate` grants the privilege to every role whose served workload
-creates one, and `grizzle drift` reports a grant revoked since.
-
 **`InputTooLarge`** is found on the host before the call's flight is sent. Its `bound`, which never counts rows:
 
 - `message`: one statement's Bind message is longer than PostgreSQL reads (1,073,741,822 bytes,
-  `PQ_LARGE_MESSAGE_LIMIT`), with the statement and its length. Split the input across calls.
+  `PQ_LARGE_MESSAGE_LIMIT`), with the statement and its length. Split the input across calls. A family write's
+  statement, which no execution cuts, meets it as every statement does; the largest real call, pantry's QTI publish at
+  161.8 MB, is about 6 times under it.
 - `literal`: one column of a relation input is an array longer than one JavaScript string holds (536,870,888 UTF-16
   code units), or for a bytes column longer than the message limit, with the input and its column. Split the input
   across calls.
-- `familyRow`: one row a family write places, vacates or recounts is past one of those bounds alone, so no statement
-  can carry it. Shorten the row's values.
 - `input`: a ChangeSet member's arrays, or one row of a nested write, would make a Bind message past that limit, with
   the input and the least length its statement would take. It is counted from your values' lengths before any of
   their bytes is read or copied. Split the input across calls.
@@ -5635,14 +5964,14 @@ creates one, and `grizzle drift` reports a grant revoked since.
 | `DuplicateIdentity`                             | the `earlier` declaration                                                                                |
 | `IdentifierCollision`                           | the `other` declaration and the `identifier` both convert to                                             |
 | `IdentifierTooLong`                             | the `declaration` whose `identifier`, a name's conversion or a login's or role's role, takes `bytes` past PostgreSQL's `limit` |
-| `RecordNameTooLong`                             | the relation `records` (the stem) derive at `path`, its `name`, whose `identifier` takes `bytes` past PostgreSQL's `limit`; state a name for the path, or a shorter stem for the root |
+| `DecodedColumnTooLong`                        | the `relation`'s closed-id `field` whose `conversion` takes `bytes` past `limit`, PostgreSQL's 63 less `_name`, so its decoded column `<field>_name` would not fit |
 | `DigestCollision`                               | two objects, `display` and `otherDisplay`, whose hashed names share the stem and digest of `identifier`; renaming a declaration either is built from gives it another |
 | `UnrepresentableKey`                            | every key the compile met whose entry no index holds, in `keys`, each with its `fault`                   |
 | `PartialOperation`                              | an `operation` whose `precondition` on `operand` nothing proves, and the `guard` to write                |
 | `RecursionRefused`, `DerivedRefused`            | their `cause`                                                                                            |
 | `ForeignLevel`                                  | a rule over `over` (a schema or a role) reading a query written over `written`, none of `over`'s levels  |
 | `RoleRefused`, `LoginRefused`, `ContextRefused` | the `rule` broken                                                                                        |
-| `ScopeRefused`                                  | the `schema` scopedEntriesOf scopes and the `rule` broken: `owner` (`why`), `rootRelation`, `rootField` or `ambiguous` |
+| `ScopeRefused`                                  | the `role` whose scope breaks the `rule`: `owner` (`why`), `unit`, `unitType` or `twice` |
 | `GeneratedRefused`                              | the generated `field` of a `relation` and the `rule` it breaks                                           |
 | `FoldOverProjection`                            | the match's `source` and the `key` it must bind for an aggregate to read each row once                   |
 | `QueriedOwnerAppend`                            | an insert or put (`op`), at `at`, of the `owner` from a query beside an append of `member` to its `family` (`{ owner, count }`) |
@@ -5677,8 +6006,7 @@ anchor's faults.
   migration identity starts with SERIALIZABLE as its default. grizzle sets no database default: a foreign session
   starts at the server's, READ COMMITTED unless the operator chose otherwise. A write below SERIALIZABLE on a grizzle
   table is refused with 25000, by the table's guard trigger, psql's included, so a direct writer says SERIALIZABLE; the
-  guard, not a default, keeps every direct writer of a guarded table inside what certification proves. An installation
-  of format 7 or before set the database's default to SERIALIZABLE; `grizzle upgrade` resets it.
+  guard, not a default, keeps every direct writer of a guarded table inside what certification proves.
 - **A role's writes run READ COMMITTED only where generate proves it.** `grizzle generate` certifies each role from
   the statements its ChangeSets send, against every other writer, and the role's served file begins its writes at the
   level it proved ([READ COMMITTED writes](#read-committed-writes)). Reads are always SERIALIZABLE READ ONLY
@@ -5766,8 +6094,8 @@ statement's. The role is certified READ COMMITTED when all of these hold, and st
   none: PostgreSQL arbitrates an exclusion constraint by `ON CONFLICT ON CONSTRAINT ... DO NOTHING` alone, so no
   statement can tell a fact the insert met from one it made. A role with such an insert, or a put of such a relation,
   runs SERIALIZABLE, where the insert arbitrates every key at once and classifies what it met. An insert that stamps an
-  instant or a place has one: it takes its stamp from its child's head row, which serializes the calls of one child and
-  no others ([Instants](#instants)), and reads nothing of its own relation to do it.
+  instant or a place has one: it takes its stamp from its scope's or its group's head row at its key, which serializes
+  the calls of one key and no others ([Instants](#instants)), and reads nothing of its own relation to do it.
 - **It only inserts.** It states `insert`, not `write`, so it holds INSERT and SELECT alone, and every relation it
   writes is one no role updates or deletes: by a grant, by a ChangeSet, or by an `ON UPDATE CASCADE` into it.
 - **Its relations' laws hold at READ COMMITTED.** Every law over a relation it writes is one PostgreSQL checks at every
@@ -5794,8 +6122,8 @@ statement's. The role is certified READ COMMITTED when all of these hold, and st
   statement, beside no foreign key check that reads more of them, and each row it writes is joined with what it read,
   so a call that finds nothing writes nothing. Each foreign key check it makes finds an immutable row in the same way,
   or a row of a relation no role updates, which the check locks until the call commits, or refuses the call whole: by
-  a whole key PostgreSQL enforces, a key over the columns a law adds among them, as an `alternatives` arm's way back to
-  its relation or a family's slot is. A
+  a whole key PostgreSQL enforces, a key over the columns a law adds among them, as an arm's mirrors' way back to its
+  relation or a family's slot is. A
   row the call inserted, read back in a later statement by the key it was inserted at, is its own, when no statement
   up to the insert read other calls' rows.
 - **No SERIALIZABLE role writes what it writes.** The table's guard would refuse every one of its writes.
@@ -5974,7 +6302,8 @@ it met is in `delta.met(R)`, and the call's outcome is `accepted` or `no-change`
 A claim of work, keyed by the work it claims and never searched for:
 
 ```ts
-export const Instant = contract("Instant", pg.bigint)
+const instantKey = Symbol("Instant")
+export const Instant = contract<typeof instantKey>()("Instant", pg.bigint)
 /** A step, by its name in its flow, and a claimer, by its own name: its host and its process. */
 const StepName = str.regex("^[0-9A-Za-z:_-]{1,96}$")
 const Worker = str.regex("^[0-9a-z.-]{1,64}:[0-9]{1,10}$")
@@ -6086,12 +6415,10 @@ checks (below). `grizzle migrate`, which runs the drift check after every apply,
   JIT among them: on a server built with LLVM, `jit_above_cost` can make a large statement compile its plan to machine
   code first.
 - **Privileges:** the login's and the role's privileges exactly as the snapshot installs them, and the policies naming
-  the role the snapshot's, by table and name. A write whose stand-up creates a temporary table, a carrier of its own (the
-  rows of a query two of its statements read) or one its nested rows past one Bind message travel through, needs the `TEMPORARY` privilege on the database, so `grizzle
-  migrate` grants it to every role whose served workload creates one, and to no other role or login. The drift check
-  judges each role's and login's own `TEMPORARY` grant exactly; `PUBLIC`'s, which PostgreSQL gives every database, is
-  the database owner's, which grizzle neither relies on nor revokes. A grant revoked after the migration makes the
-  write `TemporaryRefused`. A login that fences a relation holds MAINTAIN on its table and USAGE on its schema, which
+  the role the snapshot's, by table and name. No role or login is granted `TEMPORARY`: a write's carriers travel in
+  its transaction's settings. The drift check judges each role's and login's own `TEMPORARY` grant exactly, none;
+  `PUBLIC`'s, which PostgreSQL gives every database, is the database owner's, which grizzle neither relies on nor
+  revokes. A login that fences a relation holds MAINTAIN on its table and USAGE on its schema, which
   its fenced writes lock it by ([READ COMMITTED writes](#read-committed-writes)). The login is LOGIN NOINHERIT and the
   role NOLOGIN, neither with
   SUPERUSER, CREATEDB, CREATEROLE, REPLICATION or BYPASSRLS. A role's members are its login and the migration role; any
@@ -6111,8 +6438,8 @@ flight. From the first file until the last commits, and while a stopped run leav
 fails at once with a `stale` `CallError` (`StaleSnapshot`, reason `Migrating`) before any statement runs. After the migration, a `Db` opened at the old snapshot fails with `stale` (reason `Migrated`),
 and keeps failing: deploy the code that carries the new served files and open new `Db`s with them. A migration that
 drops a role, a login, the decoder login or the function owner ends, right before its DROP ROLE, every session that
-holds a temporary object of it, and waits for each to exit: a write's carrier, a temporary table one of the role's
-transactions made, stands until its session ends, and PostgreSQL refuses to drop a role while one does (2BP01). Such a
+holds a temporary object of it, and waits for each to exit: a temporary table one of the role's transactions made
+stands until its session ends, and PostgreSQL refuses to drop a role while one does (2BP01). Such a
 session belongs to the installation that is ending; its pool opens a new connection at the next lease, and every other
 session, of the same login among them, runs on. A migration whose
 Structure holds a data step (a backfill, a fill, a reviewer's UPDATE) drops the immutability guard of every immutable
@@ -6120,7 +6447,22 @@ relation's table before its data steps and creates it again after them, in the s
 of any such table also waits for the migration to commit: DROP TRIGGER takes ACCESS EXCLUSIVE. Only dropped, never
 disabled, does the guard leave the steps' UPDATEs as fast as the table without it: PostgreSQL counts a disabled
 BEFORE ROW UPDATE trigger as one, which makes an UPDATE compute every stored generated column of every row it writes
-and hold memory that grows with its rows.
+and hold memory that grows with its rows. Without the guard a data step may delete or rewrite an immutable relation's
+rows, which the rule judge is compiled never to see from any other writer: it reads no row a write removes of an
+immutable relation, and no row a write adds to one where a contained relation pins its key
+([Rules over queries](#rules-over-queries)). So the data step pays for it, once, in its own transaction: right after
+its data steps and before the guards stand again, every stored derived relation whose definition reads an immutable
+relation is made its definition's rows again by one MERGE of its table, and every rule over a query that reads an
+immutable relation is checked over every row, where a step you write can move them: the data step at a placeholder,
+or a custom migration's file. The steps grizzle drafts, a fill and the backfill, write columns it knows, so after
+them only the rules whose checks read one of those columns are checked, and only the stored relations that read one
+and stand from before the migration refilled; a draft whose steps meet no such read re-checks nothing, and a rule
+re-checked there is checked in Validate no more. A data step that deletes or rewrites immutable rows against a rule is
+refused before it commits, 23000 with the law as its constraint, and rolled back with its transaction; a stored
+relation over immutable rows equals its definition after it. A custom migration's transactional file does the same
+after its statements, through the function `__recheck` each level holds where it has such a rule or stored relation.
+A migration with no data step re-checks nothing. The re-check reads each table as a rule's first migration reads it,
+a bounded number of times for each law over it.
 
 **Each transaction checks the snapshot.** Every transaction a `Db` sends starts with two statements in the same round
 trip: one takes the ledger's lock without waiting, so a running migration refuses it at once and the app never waits;
@@ -6213,6 +6555,7 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
 | 23502               | a NULL in a column, such as one an INSERT leaves out that is not generated (every column a writer supplies is NOT NULL, a family's hidden ones included); a generated field whose term has no value at the row, a closed read at a key its relation holds no row at; each reported by its table and column alone |
 | 22P02, 22003, 23514 | a `grizzle.claims` setting PostgreSQL cannot read, where a statement reads it (below)                                                                         |
 | 23514               | a row check, a family's CHECK or a rule over a closed relation, each named by its rule; a value its contract or pattern refuses, or a code or set its roster's domain refuses, as the statement casts it, before row-level security and the row's constraints |
+| 23514               | a clock stated at an instant its transaction did not stamp at its scope's key: an INSERT at the statement's end (`__clocked`), an UPDATE that moves one at COMMIT (`__clock_moved`); stamp first, `SELECT * FROM <schema>.<stamp>(ARRAY[<key>], <microseconds>)`, which `grizzle names` lists, and state the `__instant` it returns ([Instants](#instants)) |
 | 23505               | at the statement: a duplicate key, over a table or over a side of one, an exact repeat included; or a key a concurrent transaction committed after this one's snapshot, which is retryable |
 | 23P01               | at the statement: an overlap under a no-overlap key; or a span a concurrent transaction committed after this one's snapshot, which is retryable               |
 | 23503               | a foreign key, a containment between sides included: at COMMIT when deferred (below), at the statement otherwise                                             |
@@ -6226,9 +6569,11 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
   family or tree and a tree's owner key a refill rewrites); any key on a cycle of the foreign keys that order a write's
   statements, a family's owner key among them, as a containment from an owner into its members closes one; and any
   other whose target has a field that is not one of the columns it references.
-- **The claims setting** is readable exactly when it has the shape a `Db` writes: empty, or a JSON object with no key
-  repeated at any depth whose every member is an object of JSON strings. Anything else, non-JSON text included, is
-  22P02 with constraint `grizzle.claims` and DETAIL `c[]`. A context's member holding other keys than exactly its fields
+- **The claims setting** is readable exactly when it has the shape a `Db` writes: a JSON object with no key repeated
+  at any depth whose every member is an object of JSON strings, `{}` where it holds no fact. A setting that holds no
+  document, never set in the session or empty (as a transaction's own setting is once it ends), is 22P02 with
+  constraint `grizzle.claims` and DETAIL `c-`, never read as a document of no fact. Anything else, non-JSON text
+  included, is 22P02 with constraint `grizzle.claims` and DETAIL `c[]`. A context's member holding other keys than exactly its fields
   is 22P02 with DETAIL `c["<Context>"]`; a member of a context the statement does not read is never judged. Each claim
   is then cast to its field's type, a closed id's claim being its handle's code: one its type refuses (not a uuid, an
   integer or a boolean) is 22P02, an integer out of range 22003, and a value its contract, pattern or roster refuses
@@ -6253,6 +6598,10 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
 - **The login is the boundary.** Whoever holds a login's password can open any of its roles with any claims: a claim
   is what `verify` returned, and PostgreSQL cannot check a token's signature. The web login can be any user of the web
   app, but it never reaches `PostViews`, which only another login's role writes. Give each trust domain its own login.
+- **A role's scope is its programs' meaning.** Every read a role's programs make of a member of a unit its claims bind
+  reads the claimed keys' rows alone, and every write of one refuses a fact outside them, in the compiled statements
+  themselves ([The scope of a role](#the-scope-of-a-role)). No view or policy holds it: the role holds the unit's tables
+  whole, so a raw SQL session as the role reads every row, as a password holder could anyway by setting any claims.
 - **Claims are verified once, then decoded.** `verify` decides the token. grizzle decodes the value it returns, never
   the token's JSON text (so a key the token repeats is `verify`'s to refuse), through the contexts' fields. A present
   claim object missing a field or holding a value its field's encoder refuses (a text holding NUL or a lone surrogate
@@ -6267,7 +6616,7 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
   its own schema. A table some role writes through a query entry that leaves rows out is under row-level security, with
   a policy for each role that writes it: the entry's filter, or true for a role that writes every row. A table every
   writer writes whole has no row-level security and no policy, since each policy would be true: the grants alone decide
-  its writes. A query entry's view, a scoped entry's among them, is a security-barrier view; a whole-table entry hides
+  its writes. A query entry's view is a security-barrier view; a whole-table entry hides
   nothing, so its view is plain and PostgreSQL plans through it onto the table's indexes. On a table under row-level security, constraint messages
   omit row and key detail.
 - **The rule judge's session tables are its own.** A session holds the rows a transaction wrote of each table a rule
@@ -6275,10 +6624,14 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
   write of it ([Rules over queries](#rules-over-queries)). PostgreSQL gives `PUBLIC` the `TEMPORARY` privilege on every
   database, so any role could make a temporary table under one of the judge's names first, and empty it before COMMIT,
   or make the table whose trigger runs the judge without the trigger, so the judge never ran. So the stand-up refuses a
-  table of the judge's names some other role made, and every capture of a write reads, once per statement, that each
-  table it writes or reads stands and is the definer's own, and refuses the write otherwise (55Z03, naming the table and
-  its stand-up). Neither reads more than one row of `pg_catalog.pg_class` a table, and neither makes or plans anything
-  after the session's first call.
+  table of the judge's names some other role made, and makes last a marker, a table of no column named by the set of
+  every table it made; every capture of a write reads, once per statement, that the sentinel and its table's marker
+  stand and are the definer's own, and refuses the write otherwise (55Z03, naming the table and its stand-up). No role
+  but the definer drops, alters or renames the definer's temporary tables, and `DISCARD TEMP` drops all of them at once,
+  the marker with them, so the marker standing proves every table the write can reach stands as the definer's own. A
+  table's write is so refused in a session that has not run the table's own stand-up, whatever other stand-ups made.
+  Neither reads more than one row of `pg_catalog.pg_class` a table, and neither makes or plans anything after the
+  session's first call.
 - **What a role can learn.** Rules hold across the whole database. A delete refused by a comment you cannot see, or a
   limit that counts rows outside your view, tells you such rows exist; a collision at a key tells you a row exists at
   the key you submitted (one overlapping the span you submitted, for a no-overlap key), never any of its other columns.
@@ -6292,10 +6645,9 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
 
 - USAGE on the schema, the schema of whole views of each table it holds whole, its own schema where it holds a query
   entry, and the vector extension's schema when a column it reads or writes is a vector; on no domain. PostgreSQL checks
-  a type's USAGE only where a statement creates an object of it, and the one object a role creates, a carrier of its
-  session, names no domain: its every column is its value's base type, a set's bit(n) of its roster's width, and a
-  value reaches its table through the column's domain, which judges it there; so a migration that drops, retypes or
-  tightens a domain never meets a live session's carrier.
+  a type's USAGE only where a statement creates an object of it, and a role creates none: a write's carriers travel in
+  its transaction's settings, every column its value's base type, a set's bit(n) of its roster's width, and a value
+  reaches its table through the column's domain, which judges it there.
 - SELECT on the whole view of each table it holds whole and on each of its query entries' views, and on no other view
   and no stored derived table. USAGE on a schema only resolves its names: every view's own grants decide who reads it.
 - On a table it writes through a whole-table entry: SELECT, INSERT and DELETE, and UPDATE when the table is mutable.
@@ -6320,9 +6672,6 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
     constant, a set's live constant), from the domains of its columns, from every CHECK, generated field, default and
     index of a table it writes, a cast into a domain inside them included, and from its policies and its views; and
     the closed constants its queries read.
-- TEMPORARY on the database, when a ChangeSet its login serves it stands up a temporary table: a carrier of its own,
-  the rows of a query two of its statements read, or one its nested rows past one Bind message travel through. A
-  read-back never needs one. No login holds it.
 - EXECUTE on the stand-up of each table it writes that a rule over a query reads, which makes the rule judge's
   temporary tables of the session, as the judge's own definer ([Rules over queries](#rules-over-queries)).
 - Nothing else: no TRUNCATE, no sequence, and no other role's view or function.
@@ -6385,7 +6734,8 @@ grizzle fits applications that own their data end to end, with rules worth decla
 - **Every key fits its index entry for every value its fields admit, in any order of its columns**: a primary key, a declared key, a key over a selection, the UNIQUE a containment references where its target's columns are no declared key, a family's own UNIQUEs, and each family axis's UNIQUE with the copies it carries, a fold's running values among them. Each has at most 32 columns (`INDEX_MAX_KEYS`) and a B-tree entry of at most 2,704 bytes (`BTMaxItemSize`) counted from its columns' types as PostgreSQL could lay them out in any order: from the data offset, each datum after its widest alignment padding, at its longest, the whole MAXALIGNed, so whether a key fits is a function of its column set and never of the order a key, a UNIQUE or a reference lists it in. A key past either, or over a text of no byte bound, is `UnrepresentableKey` when the schema compiles, naming the relation, the key, each column's counted bytes and the fix, not PostgreSQL's 54000 at the first write.
 - **grizzle never hashes a key behind your back.** A key holds every column as itself. Where one could outgrow its entry, declare a byte bound (`str.bytes(n)`) or a precision, or key by an explicit digest field you declare, a generated `Crypto.sha256(x)`, which the key then holds and reads by like any other field. A lookup that binds a text of no byte bound by equality seeks by that digest, grizzle stating `digest = Crypto.sha256(value)` wherever the rule states the text equal to a value, and rechecks the text on the rows of that digest; one with no digest to seek by is `UnrepresentableKey`, as a key is. A key that large is almost always a modelling bug: an identity is a short name, a path or a digest, never a document. (Settled: CONTRIBUTING.md "Settled decisions".)
 - **A family axis carries a set by its roster's codes.** A `Monoid.concat` fold's accumulators ride its axes as themselves, so their text needs a byte bound that fits the axis's UNIQUE beside its other columns (`keyTextBytes`, and the bound a refused fold names), or the fold names their SHA-256 digests in their places ([Families](#families)). An `or` or `twos` fold's set is its roster's `bit(n)`, `n` every code the roster has minted, removed handles' included, in whole bytes, sized when `generate`, `check` or `migrate` compiles the installation, so a roster grown and pruned past about 21,000 codes refuses the UNIQUE there.
-- **Every read leads an index exactly, with the fewest indexes.** Indexes come from the reads alone: each keyed read a workload program, a write or a rule's judge makes binds a set of columns by equality, and it reads through an index whose leading columns are exactly that set, in any order, or through a unique index all of whose keys it binds, never through one that holds its columns after one it leaves unbound, which would read every row of that column's values and filter the rest. A relation's sets ordered by inclusion fall into chains, each the leading columns of one index that orders its columns along the chain, and grizzle creates the fewest such indexes for the reads no key's index already serves. A range's prefix and its range column, a seek's fixed columns and its order keys, and a whole rule's unit and the rest of its lookup, lead their index in that order. Where every read needs one set, or a chain that adds one column at a time (a range, a seek), the fewest are a minimum chain cover (Dilworth's theorem, by a maximum matching); a whole rule's lookup may share an index with reads whose sets fall between its unit and the rest, and there the fewest indexes are NP-hard to find (by a reduction from colouring circular arcs), so grizzle merges the reads that ask the same, lets each read another's index serves ride it, and searches the rest exactly: the work is exponential only in the distinct reads that interleave so, never in how many ask (physical/indexes/chains.ts).
+- **Every read leads an index exactly, with the fewest indexes.** Indexes come from the reads alone: each keyed read a workload program, a write or a rule's judge makes binds a set of columns by equality, and it reads through an index whose leading columns are exactly that set (a workload's read that binds only booleans and closed ids, and orders and ranges by nothing, reads a declared share of the table by a scan and asks for no index, but where it binds a whole key), in any order, or through a unique index all of whose keys it binds, never through one that holds its columns after one it leaves unbound, which would read every row of that column's values and filter the rest. A relation's sets ordered by inclusion fall into chains, each the leading columns of one index that orders its columns along the chain, and grizzle creates the fewest such indexes for the reads no key's index already serves. A range's prefix and its range column, a seek's fixed columns and its order keys, and a whole rule's unit and the rest of its lookup, lead their index in that order. Where every read needs one set, or a chain that adds one column at a time (a range, a seek), the fewest are a minimum chain cover (Dilworth's theorem, by a maximum matching); a whole rule's lookup may share an index with reads whose sets fall between its unit and the rest, and there the fewest indexes are NP-hard to find (by a reduction from colouring circular arcs), so grizzle merges the reads that ask the same, lets each read another's index serves ride it, and searches the rest exactly: the work is exponential only in the distinct reads that interleave so, never in how many ask (physical/indexes/chains.ts).
+- **A keyed read no index serves is an internal compiler error.** `generate`, `check` and `upgrade` hold every statement the installation installs, and every read and write each login's served file sends, its reads of the role's views as PostgreSQL expands them into it, to the indexes the installation plans: a read at a binding no index's leading run holds, beside the columns of few values a run leaves as filters, is an internal compiler error naming the statement, the relation, its columns and the table's indexes. It is grizzle's bug, a read whose index the extraction never asked for, to report, never a scan of the table found where the file is served. A rule's judge, a stored relation's upkeep and a served write ask their equality lookups' indexes from their statements as printed, one request for each seek the check would judge, so none of theirs can miss; a served read asks from its query and the check holds it.
 - **A lookup holds only the columns that fit its entry.** An index grizzle plans for a rule's probe, a workload program's equality lookup or join key, the equality prefix of a range or a prefix search, or a page holds its columns as themselves, never by an image. Where they could not all fit `BTMaxItemSize` in any order, it leaves out the columns its requests bind by equality, the widest first and a column of no byte bound widest of all, until the rest fits: each left out is a filter the read applies beside the index, and the index's comment in the drafted SQL names it (`COMMENT ON INDEX … IS 'btree index Attribute(package, name), value filtered beside it, not indexed: no byte bound fits the entry'`), so a review sees every lookup column a byte bound would bring into its index. A column it orders by or matches a prefix of stays, and an entry those still overfill is `UnrepresentableKey` naming them; a lookup left no column is refused for the widest it binds.
 - **A containment's target holds a key.** A foreign key references a UNIQUE, so grizzle states a containment as one only into a side a key of its target's relation holds apart: at that key's own UNIQUE, or at one over a superkey of it, which the key implies and which must fit its index entry as above. A containment into a side no key holds apart is judged whole where it is unit-local over immutable relations or one declared unit's, and refused anywhere else ([Rules over queries](#rules-over-queries)).
 - **A containment's reverse index never refuses free text.** Its probe is PostgreSQL's RI trigger's, which states the referencing columns' equalities alone, so grizzle indexes the lookup of referencing rows by a B-tree over the longest leading run of bounded referencing columns whose entry fits, or, with no such run, a hash index on one referencing column, whose entry is a 4-byte hash code. A PERIOD reference's GiST index holds the longest leading run of bounded scalars that fits a GiST page, then the span. Only the referenced UNIQUE must be bounded. With no fitting run and every referencing column of a type no hash index takes (money, a set's `bit(n)`, a vector), the containment is `UnrepresentableKey` when the schema compiles.
@@ -6412,11 +6762,15 @@ statistics from the schema's facts, so the estimate is grizzle's proof order at 
   each column of many values a containment proves determines one of those (a column contained with others in another
   relation at fields holding a key of one field, as metis's assignment.user, contained with child in person_user keyed
   by number, determines child) is an anchor: it holds 2^y rows a value at any size (`-1/2^y`); so is, in a relation in
-  no unit, which states no scope of its rows' growth, the first column of many values of each index. In a unit's member
-  no other column is, however many indexes it leads: a member's rows are its units', so a column no fact binds to a unit
-  recurs across the units, as a content coordinate recurs under every learner, and an equality on it alone binds a share
-  of the table that grows with the units, so PostgreSQL reads a probe of a member's whole key by the key, never by an
-  index led by such a column, filtering the unit after. Where two anchors stand in one set an index's equalities stop
+  no unit, which states no scope of its rows' growth, the first column of many values of each index. In a unit's member,
+  so is the first column of many values of each index a read that binds none of the unit's fields and none of the
+  keys' first columns binds whole, a read that spans the units, as a staff read of every learner's sittings at a stage
+  does: its selectivity is no fact of the schema's, and an index scan is then the minimax plan, at worst a constant
+  factor off a scan where a scan is at worst off by the whole table, so PostgreSQL reads it through its index at any
+  size. Such a column is paired with the unit's anchor by a dependency, as below, each of the two declared to bind
+  more rows than the pair, so a read that binds the unit and it is priced through the unit's own index below the
+  spanning one, which never holds the unit's fields its requests leave unbound. No other column of a member is an
+  anchor, however many indexes it leads. Where two anchors stand in one set an index's equalities stop
   at, a functional dependency of the one on the other (`CREATE STATISTICS ... (dependencies)`, its degree restored by
   `pg_restore_extended_stats` and its statistics target 0) prices the two at 2^m rows, m ≥ 1 the pair's own exponent,
   which every set holding the pair bounds as it bounds an anchor's, where PostgreSQL would multiply them below one; an

@@ -43,8 +43,8 @@ import {
 	schemaCodes,
 	schemaDesc
 } from "#test/support/oracle/gen/schema.ts"
+import { oraclePlanUnder } from "#test/support/oracle/install/drafted.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
-import { oraclePlanUnder } from "#test/support/oracle/install/real.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import {
 	conservative,
@@ -424,14 +424,25 @@ export const judged = (position: Position): ReadonlyArray<readonly [Lowering, Ru
 		? [[optimized, conservative]]
 		: Arr.map(lowerings, (lowering) => [lowering, reference] as const)
 
-/** The roots of every SubPlan and InitPlan of a plan that ran. */
-const subplansRun = (plan: PlanNode): ReadonlyArray<PlanNode> =>
-	Arr.filter(
-		Arr.fromIterable(planNodes(plan)),
+/**
+ * The roots of every subquery expression's plan that ran, a SubPlan or an InitPlan: a guarded form's exact path where
+ * it runs as one. A WITH query's plan, which PostgreSQL runs as an InitPlan of the statement named for its CTE (the
+ * held rows a part orders, lower/shapes/index.ts #formed), computes the statement's rows, not an expression's, and is
+ * none of them.
+ */
+const subplansRun = (plan: PlanNode): ReadonlyArray<PlanNode> => {
+	const nodes = Arr.fromIterable(planNodes(plan))
+	const ctes = new Set(
+		Arr.flatMap(nodes, (n) => Option.toArray(Option.map(n.cte, (name) => `CTE ${name}`)))
+	)
+	return Arr.filter(
+		nodes,
 		(n) =>
 			Option.exists(n.parentRelationship, (r) => r === "SubPlan" || r === "InitPlan") &&
+			!Option.exists(n.subplanName, (name) => ctes.has(name)) &&
 			n.actualLoops > 0
 	)
+}
 
 /**
  * The statement of `lowering` over the case, installed and filled under a savepoint of the case's rolled-back

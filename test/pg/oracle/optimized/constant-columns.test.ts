@@ -97,9 +97,9 @@ export const aReferenceReadsAParameterInAColumnsPlaceOnlyWhereEveryRowHoldsThatV
 			{
 				file: "packages/engine/src/ir/scalar.ts",
 				original:
-					"const equalityIsIdentityOf: { readonly [C in Carrier]: boolean } = {\n\tint2: true,\n\tint4: true,\n\tint8: true,\n\tnumeric: false,\n\tfloat4: false,\n\tfloat8: false,\n",
+					"const equalityIsIdentityOf = {\n\tint2: true,\n\tint4: true,\n\tint8: true,\n\tnumeric: true,\n\tfloat4: false,\n\tfloat8: false,\n",
 				replacement:
-					"const equalityIsIdentityOf: { readonly [C in Carrier]: boolean } = {\n\tint2: true,\n\tint4: true,\n\tint8: true,\n\tnumeric: false,\n\tfloat4: true,\n\tfloat8: true,\n",
+					"const equalityIsIdentityOf = {\n\tint2: true,\n\tint4: true,\n\tint8: true,\n\tnumeric: true,\n\tfloat4: true,\n\tfloat8: true,\n",
 				why: "A float's equality reads as identity: x = q holds x at q, so the projection delivers q's 0 for the stored -0."
 			}
 		],

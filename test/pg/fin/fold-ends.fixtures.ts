@@ -44,7 +44,8 @@ import {
 	treeFact,
 	treeRows
 } from "#test/support/families/ends.ts"
-import { type Installed, installedTemplate } from "#test/support/install-migrate.ts"
+import { type Generated, type Installed } from "#test/support/install-migrate.ts"
+import { fullWorldTemplate } from "#test/support/installed.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import {
 	member,
@@ -54,7 +55,6 @@ import {
 	servedFixture
 } from "#test/support/served-db.ts"
 import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
-import { fullWorld } from "#test/support/worlds.ts"
 
 /**
  * Every fold's end and running values after every write grizzle's apply makes of a family, on PostgreSQL 19: what
@@ -897,23 +897,20 @@ export const judgeRefused = (
 }
 
 /** A family kind's schema migrated with its full world's login, once per member: the template its cases clone. */
-const endsTemplate = (kind: FamilyKind): SubstrateTemplate<Installed> => {
+const endsTemplate = (kind: FamilyKind): SubstrateTemplate<Generated> => {
 	const declaredKind = schemas[kind].value(`FoldEnds_${kind}`)
-	return installedTemplate({
+	return fullWorldTemplate({
 		declaredIn: import.meta,
 		name: `ends_${kind}`,
-		schema: declaredKind,
-		options: {
-			ambient: ordinarySession,
-			label: `ends_${kind}`,
-			logins: [fullWorld(declaredKind, {}).server],
-			extensions: []
-		}
+		fixture: declaredKind,
+		programs: {},
+		label: `ends_${kind}`,
+		ambient: ordinarySession
 	})
 }
 
 /** Each family kind's template, by kind: a case takes only the one of its sketch's kind. */
-export const endsTemplates: { readonly [K in FamilyKind]: SubstrateTemplate<Installed> } = {
+export const endsTemplates: { readonly [K in FamilyKind]: SubstrateTemplate<Generated> } = {
 	counted: endsTemplate("counted"),
 	ordered: endsTemplate("ordered"),
 	tree: endsTemplate("tree")

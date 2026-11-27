@@ -8,18 +8,15 @@ import { Db } from "#adapter/public/db.ts"
 import { assert } from "@bjornpagen/testing/assert"
 import { readLedger } from "#adapter/migrate/apply.ts"
 import { ledger, shopV1 } from "#test/pg/cli/fixture.ts"
-import { bin, cli, cliClock, harnessCaVariable, servedFromFile } from "#test/pg/cli/support.ts"
+import { bin, cli, harnessCaVariable, servedFromFile } from "#test/pg/cli/support.ts"
 import { openMigrator } from "#test/pg/migrate/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { writeAnswerOf, oneOf as oneRowOf } from "#test/support/calls.ts"
 import { chunked } from "#test/support/chunked.ts"
-import { Id, type IdValue } from "#test/support/ids.ts"
+import { type IdValue, toId } from "#test/support/ids.ts"
 import { migrationFolders } from "#test/support/migrate/kit.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
-
-/** The clock the in-process command lines of this file read. */
-const nextNow = cliClock()
 
 const executors = ["the bin", "in process"] as const
 
@@ -86,7 +83,7 @@ export type CliFeature =
 	| `a role that does not own the schemas refused, run by ${Executor}`
 
 const id = (n: number): IdValue =>
-	Id(`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`)
+	toId(`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`)
 
 /** The texts of a schema's committed snapshot files. */
 export const snapshotFilesOf = (dir: string, schema: string) =>
@@ -135,7 +132,7 @@ const strayEnvironment: Readonly<Record<string, string>> = {
 export const runner =
 	(executor: Executor, dir: string, caFile: string) => (argv: ReadonlyArray<string>) =>
 		executor === "in process"
-			? Effect.map(cli(dir, argv, nextNow()), (r) => r.code)
+			? Effect.map(cli(dir, argv), (r) => r.code)
 			: Effect.map(
 					bin(dir, argv, { ...strayEnvironment, [harnessCaVariable]: caFile }),
 					(r) => r.status

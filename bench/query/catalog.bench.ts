@@ -203,7 +203,7 @@ export default defineGate({
 	} satisfies { readonly full: Options; readonly quick: Options },
 	run: ({ options }) =>
 		Effect.gen(function* () {
-			const fx = yield* installFixture(Lab, labPrograms, {}, "benchcatalog", [])
+			const fx = yield* installFixture(Lab, labPrograms, {}, "benchcatalog", () => [])
 			const size = { students: options.students, perStudent: options.perStudent }
 			yield* loadLab(fx, size)
 			const runtime = yield* runtimeSession(fx, fx.world.app)

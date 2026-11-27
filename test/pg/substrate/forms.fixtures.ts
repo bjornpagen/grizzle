@@ -1,43 +1,37 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Effect } from "effect"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { Account, Work, type WorkNamed, workWorlds } from "#test/support/fixtures/api/work.ts"
-import {
-	generatedTemplate,
-	type Installed,
-	migratedTemplate,
-	noPlaceholders
-} from "#test/support/install-migrate.ts"
+import { generatedTemplate, type Installed, type Version } from "#test/support/install-migrate.ts"
 import { rebuild } from "#test/support/installed.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
-import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import {
+	claimsOfNoFact,
 	roleSession,
 	type SubstrateShape,
 	worldSession
 } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
+/** Work rebuilt under the allocated name `name` (installed.ts rebuild) with its server login over it. */
+const workVersion = (name: string): Version => {
+	const named = rebuild(Work, name)
+	return { schema: named, logins: [workWorlds(named).server] }
+}
+
 /**
  * Work installed through its first migration with its server login (test/support/fixtures/api/work.ts): the template the
  * forms' properties clone, built once per member.
  */
-export const workTemplate = migratedTemplate({
+export const workTemplate = generatedTemplate({
 	declaredIn: import.meta,
 	name: "work",
 	content: { schema: "Work", logins: ["server"], ambient: "ordinary" },
-	versions: [{ schema: Work, logins: [workWorlds(Work).server], declarations: noDeclarations }],
-	options: {
-		label: "work",
-		extensions: [],
-		compile: compileInstallation,
-		ambient: ordinarySession,
-		review: noPlaceholders
-	}
+	build: workVersion,
+	ambient: ordinarySession
 })
 
 /**
@@ -45,18 +39,12 @@ export const workTemplate = migratedTemplate({
  * template of the closed sets the oneOf and budget properties draw from.
  */
 const workCopyTemplate = (copy: string) =>
-	migratedTemplate({
+	generatedTemplate({
 		declaredIn: import.meta,
 		name: `work, ${copy}`,
 		content: { schema: "Work", logins: ["server"], ambient: "ordinary", copy },
-		versions: [{ schema: Work, logins: [workWorlds(Work).server], declarations: noDeclarations }],
-		options: {
-			label: "work",
-			extensions: [],
-			compile: compileInstallation,
-			ambient: ordinarySession,
-			review: noPlaceholders
-		}
+		build: workVersion,
+		ambient: ordinarySession
 	})
 
 /** The second of the closed set of templates oneOfTemplates draws from. */
@@ -153,7 +141,9 @@ export const loggedIn = (
 		yield* server.query("SELECT 1", [])
 		const owner = yield* substrate.session(roleSession(installed.ambientOwner.credentials))
 		yield* owner.query("SELECT 1", [])
-		const reader = yield* substrate.session(worldSession(installed.world(worlds.reader)))
+		const reader = yield* substrate.session(
+			worldSession(installed.world(worlds.reader), claimsOfNoFact)
+		)
 		const [[role] = []] = yield* reader.values("SELECT current_user::text", [])
 		assert.equal(role, installed.role(worlds.reader), "the reader's session acts as its world role")
 	}).pipe(Effect.scoped)

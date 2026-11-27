@@ -5,7 +5,8 @@ import { array, type Gen, int, parents } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import { noClock, transactionClock } from "#compiler/ir/clock.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { installOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
 import {
 	fin,
@@ -19,7 +20,6 @@ import {
 	tree,
 	unit
 } from "#compiler/public/schema.ts"
-import { carrierScope } from "#compiler/sql/naming.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -91,8 +91,7 @@ export const nestedCompiled = (value: unknown): CompiledWrite =>
 			derived: artifacts.derived,
 			level: "serializable",
 			clock: noClock,
-			source: transactionClock,
-			carrierScope: carrierScope(undefined)
+			source: transactionClock
 		})
 	)
 

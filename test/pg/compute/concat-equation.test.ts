@@ -214,9 +214,9 @@ export const aConcatenationTermIsOnPostgreSQLItsPartsJoinedInOrderInAQueryAndACh
 			{
 				file: "packages/engine/src/scalar/compute/typing.ts",
 				original:
-					"\t\tconst node = this.native(op, [a, b], wildcardText, undefined, at, spelling.concat)\n\t\tconst aBytes",
+					"\t\tconst node = this.native(op, [a, b], wildcardText, undefined, at, spelling.concat)\n",
 				replacement:
-					"\t\tconst node = this.native(op, [b, a], wildcardText, undefined, at, spelling.concat)\n\t\tconst aBytes",
+					"\t\tconst node = this.native(op, [b, a], wildcardText, undefined, at, spelling.concat)\n",
 				why: "A concatenation term builds its operands in reverse, so PostgreSQL's text is its parts out of order wherever two differ."
 			}
 		]

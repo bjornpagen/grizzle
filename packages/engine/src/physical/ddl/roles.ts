@@ -4,7 +4,6 @@ import {
 	appendNonEmpty,
 	extendNonEmpty,
 	isNonEmpty,
-	lastNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
@@ -24,7 +23,7 @@ import { refuse } from "#compiler/analysis/theory/build.ts"
 import { withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
 import { hnswPolicy } from "#compiler/check/approximate/policy.ts"
 import type { AdmittedQuery } from "#compiler/check/index.ts"
-import { catchRefusal, sameContent, unwrap } from "#compiler/core/canonical.ts"
+import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import {
 	conversionOf,
@@ -38,7 +37,7 @@ import {
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
-import type { DerivedRows } from "#compiler/ir/derived.ts"
+import { type DerivedRows, noneWritten } from "#compiler/ir/derived.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import type { Family } from "#compiler/ir/family.ts"
@@ -52,7 +51,7 @@ import { baseTypeRef, missing } from "#compiler/ir/physical.ts"
 import type { DeployPhase } from "#compiler/ir/products.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import { derivedKeyConstraints, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
+import { derivedEvidence, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { namesConstant } from "#compiler/physical/ddl/constants.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
@@ -106,7 +105,6 @@ import type { LoginFence, RoleCall, RoleCarriers } from "#compiler/physical/inst
 import { enforcement, type Node, type ObjectSpec } from "#compiler/physical/obligations/graph.ts"
 import type { HeadStanding } from "#compiler/schema/entry.ts"
 import type { OwnedEntry, OwnedLogin, OwnedRole, OwnedWorldEntry } from "#compiler/schema/own.ts"
-import { determines, type PinChain, pinForms, type Scope } from "#compiler/schema/scope.ts"
 
 import type {
 	ColumnPrivilege,
@@ -150,8 +148,7 @@ import {
 	type OutsideProbe,
 	probeIdentity,
 	probeParams,
-	relationUniques,
-	scopedProbes
+	relationUniques
 } from "#compiler/write/insert/unique.ts"
 import { refusalFunction } from "#compiler/write/refusal.ts"
 
@@ -167,7 +164,7 @@ import { refusalFunction } from "#compiler/write/refusal.ts"
  * (ownerStartupOptions). Bjorn approved it in the read-committed cutover (2026-11-23), the one planner setting grizzle
  * pins.
  */
-const genericPlans = {
+export const genericPlans = {
 	parameter: "plan_cache_mode",
 	value: "force_generic_plan"
 } as const satisfies RoleSetting
@@ -198,7 +195,7 @@ export const loginStartupOptions: string = printStartupOptions(roleDefaultSettin
 
 /**
  * The startup packet's `options` of every owner's session (wire/session.ts): the migration identity's, every command
- * line's, the drift check's and an upgrade's, the live leader's and a listener's. An owner stores none of a login's
+ * line's, the drift check's, the live leader's and a listener's. An owner stores none of a login's
  * defaults and states none of them; it starts under generic plans alone (genericPlans), the one setting every session
  * grizzle opens starts under.
  */
@@ -360,7 +357,7 @@ const worldsContext = (b: InstallBuilder): WorldsContext => {
 	const checked = b.checked
 	const catalog = evidenceCatalog({
 		laws: b.model,
-		views: derivedKeyConstraints(derivedAnalysis(checked))
+		views: derivedEvidence(derivedAnalysis(checked), b.model.existence)
 	})
 	return {
 		checked,
@@ -529,9 +526,11 @@ const worldView = (
 ): ViewPlan => {
 	const role = checked.world.role
 	const entry = `${role.name}.${e.name}`
-	/** A query entry's view is read inside the role's writes too: a stored derived relation one of them may write the
-	 * holders of is read through its definition (analysis/schema.ts CheckedSchema writable). */
-	const lowered = cx.lower(entry, analysis.query, checked.world.base.rows(checked.writable))
+	/** A query entry's view reads the role's world (analysis/schema.ts CheckedSchema rows): each member of a unit its
+	 * claims bind at its owner's keys alone, as every read of the role does; and it is read inside the role's writes too,
+	 * so a stored derived relation one of them may write the holders of is read through its definition (CheckedSchema
+	 * writable). */
+	const lowered = cx.lower(entry, analysis.query, checked.rows(checked.writable))
 	const decodes = analysis.heading.some((c) => baseOf(c.type).carrier === "code")
 	const reading = decodes
 		? unwrap(derivedReading(lowered, `the decoded view of ${entry}`))
@@ -605,7 +604,9 @@ interface WholeViewObject {
 /**
  * The whole views of the installation, by their relations' declared names: one per stored relation or stored derived
  * relation some role of `roles` holds whole, named as that role's names name it (names.ts RoleViewName `whole`), the
- * relation's name in its level's schema of whole views, created once with that schema, owned by the owner. A whole view
+ * relation's name in its level's schema of whole views, and one per anonymous canonical relation some role reads
+ * (`anonymousTables`), named by its form (names.ts InstallNames canonicalWholeView), created once with that schema,
+ * owned by the owner. A whole view
  * is its relation's alone, the same view whichever role holds it: every role holding the relation is granted SELECT on
  * it (addRole), and no other.
  */
@@ -613,11 +614,12 @@ const addWholeViews = (
 	b: InstallBuilder,
 	roles: ReadonlyArray<CheckedRole>
 ): ReadonlyMap<string, WholeViewObject> => {
+	/** Each whole view by its relation's name: its name, and its plan under the name it is created by. */
 	const held = new Map<
 		string,
 		{
-			readonly relation: ViewedWhole
 			readonly view: Extract<RoleViewName, { readonly kind: "whole" }>
+			readonly plan: (name: ObjectName) => ViewPlan
 		}
 	>()
 	for (const { views, checked } of roles) {
@@ -629,12 +631,20 @@ const addWholeViews = (
 			if (view?.kind !== "whole") {
 				return missing(`physical: the whole entry ${r.entry.name} is named no whole view`)
 			}
-			held.set(r.entry.name, { relation: r, view })
+			held.set(r.entry.name, { view, plan: (name) => wholeViewOf(b, name, r) })
+		}
+		for (const t of anonymousTables(checked)) {
+			if (!held.has(t.name)) {
+				held.set(t.name, {
+					view: b.names.canonicalWholeView(t.name),
+					plan: (name) => wholeView(b, name, t.name, t.heading, b.readObject(t.name))
+				})
+			}
 		}
 	}
 	const schemas = new Map<string, WholeViewObject["schema"]>()
 	const out = new Map<string, WholeViewObject>()
-	for (const [relation, { relation: r, view }] of [...held].toSorted(([x], [y]) =>
+	for (const [relation, { view, plan: planOf }] of [...held].toSorted(([x], [y]) =>
 		compareStrings(x, y)
 	)) {
 		const schemaName = b.name(view.schema)
@@ -651,7 +661,7 @@ const addWholeViews = (
 				[]
 			)
 		}))
-		const plan = wholeViewOf(b, objectName(schemaName, b.name(view.name)), r)
+		const plan = planOf(objectName(schemaName, b.name(view.name)))
 		const own = emptyUse()
 		columnDomains(b, plan.heading, own)
 		const node = b.add(
@@ -748,30 +758,20 @@ export const entryMembership = (
 
 /**
  * The key and unique probes a role's query entry `w` installs over T (see `addWorlds`), exactly those of T's unique
- * objects (write/insert/unique.ts RelationUniques.probes) its precheck calls (write/entry/precheck.ts): a scoped entry's
- * but those whose compared fields decide its owner (write/insert/unique.ts scopedProbes). The installation creates each
- * (`writePlan`); certification reads a call of each as its body (program/isolation/member-facts.ts extractNames).
+ * objects (write/insert/unique.ts RelationUniques.probes) its precheck calls (write/entry/precheck.ts). The
+ * installation creates each (`writePlan`); certification reads a call of each as its body (program/isolation/member-facts.ts extractNames).
  */
 export const entryProbes = (
 	model: LawModel,
-	role: OwnedRole,
 	w: WrittenEntry & { readonly write: Exclude<RoleWrite, { readonly kind: "whole" }> }
 ): ReadonlyArray<OutsideProbe> => {
-	const relation = w.relation.name
 	const uniques = relationUniques(
-		model.relations.get(relation) ??
-			refuse(
-				"MalformedDescription",
-				role.loc,
-				`a writable entry over an ordinary relation, not ${relation}`
-			)
+		defined(
+			model.relations.get(w.relation.name),
+			"a law model holds the laws of every ordinary relation, a writable entry's among them"
+		)
 	)
-	const e = w.write
-	if (e.kind !== "scoped") {
-		return uniques.probes
-	}
-	const scope = e.scope
-	return scopedProbes(uniques, (fields) => determines(scope, fields))
+	return uniques.probes
 }
 
 /** What one role's writable entry installs on its table: its membership, its filter function when its membership
@@ -879,19 +879,13 @@ const writePlan = (
 		isNonEmpty(columns)
 			? [{ kind: "grantColumns", privilege, table: tableName, columns, to: identifierOf(theory) }]
 			: []
-	/** A scoped entry writes its table as a whole entry does, every column (its law and drawn columns among them) by a
-	 * table grant, behind its membership's policy and precheck; a query entry by column grants on its fields alone. */
-	const grants: ReadonlyArray<SqlStatement> =
-		e.kind === "scoped"
-			? [grant(held, { kind: "TABLE", names: [tableName] })]
-			: [
-					...columnGrant("SELECT", all),
-					...columnGrant("INSERT", insertable),
-					...columnGrant("UPDATE", updatable),
-					...(held.includes("DELETE")
-						? [grant(["DELETE"], { kind: "TABLE", names: [tableName] })]
-						: [])
-				]
+	/** A query entry writes by column grants on its fields alone. */
+	const grants: ReadonlyArray<SqlStatement> = [
+		...columnGrant("SELECT", all),
+		...columnGrant("INSERT", insertable),
+		...columnGrant("UPDATE", updatable),
+		...(held.includes("DELETE") ? [grant(["DELETE"], { kind: "TABLE", names: [tableName] })] : [])
+	]
 	/** The entry's probes (see `addWorlds`), exactly those of T's unique objects (write/insert/unique.ts
 	 * RelationUniques.probes) an entry's precheck calls: whether T holds a fact that conflicts with the submitted values
 	 * at one of its unique objects and lies outside the entry's membership, which the policy's own predicate decides
@@ -959,7 +953,7 @@ const writePlan = (
 			}
 		}
 	}
-	const probes = entryProbes(b.model, role, { write: e, relation: written }).map(probe)
+	const probes = entryProbes(b.model, { write: e, relation: written }).map(probe)
 	const probeGrants: ReadonlyArray<SqlStatement> = isNonEmpty(probes)
 		? [grant(["EXECUTE"], { kind: "FUNCTION", names: mapNonEmpty(probes, (p) => p.name) })]
 		: []
@@ -1069,47 +1063,58 @@ const ownerReadColumns = (family: Family): ReadonlyArray<LawField> => {
 }
 
 /**
- * What a role that writes a member of a family holds on the family's owner O, beside what its own
- * entries grant, and nothing wider. Column SELECT on its key, the owner fields the group pairs with, and
- * `ownerReadColumns`: its count, its ends and the fields its owner axis copies into members, which the role writes into
- * its own member rows. Column UPDATE, when O is mutable, on exactly what the recount of each family whose member the
- * role writes in full sets (write/family/additions.ts, removals.ts): its count and `endColumns`, a closed member by its
- * insert list, an open one by its write list (`fullyWrittenBy`). No UPDATE on an immutable O, whose family is fixed when
- * it is inserted, nor for a family whose open member the role names under its insert list, which only adds that
- * member's facts and changes nothing beside them, so its program is refused a recount (write/program/insert-only.ts).
- * None of O's other fields. A role that writes O whole holds all of O already and takes
- * none. `families` are the families of O whose member it writes, in
- * the law model's order; each column list is in O's field order.
+ * What a role that writes a member of a family holds on the family's owner O beyond what its own entries grant, and
+ * nothing wider. Apart (`apart`), where the role writes O through no entry: column SELECT on its key, the owner fields
+ * the group pairs with, and `ownerReadColumns`: its count, its ends and the fields its owner axis copies into members,
+ * which the role writes into its own member rows; and column UPDATE, when O is mutable, on exactly what the recount of
+ * each family whose member the role writes in full sets (write/family/additions.ts, removals.ts): its count and
+ * `endColumns`, a closed member by its insert list, an open one by its write list (`fullyWrittenBy`). No UPDATE on an
+ * immutable O, whose family is fixed when it is inserted, nor for a family whose open member the role names under its
+ * insert list, which only adds that member's facts and changes nothing beside them, so its program is refused a recount
+ * (write/program/insert-only.ts). None of O's other fields. Recounting (`recounting`), where its insert list names O
+ * whole, whose table grant holds SELECT and INSERT and no UPDATE: the same column UPDATE, and no column SELECT, which
+ * that table grant holds already, so no grant states a column privilege its table's of the same type holds, a fact the
+ * catalog's privileges never state apart (adapter/admission/roles.ts reads a column's privilege only where its table's
+ * does not hold). A role that writes O whole otherwise holds all of O already and takes none. `families` are the
+ * families of O whose member it writes, in the law model's order; each column list is in O's field order.
  */
-export interface OwnerHold {
-	readonly owner: RelationInfo
+export type OwnerHold =
+	| {
+			readonly kind: "apart"
+			readonly owner: RelationInfo
+			readonly families: NonEmptyReadonlyArray<Family>
+			readonly select: ReadonlyArray<LawField>
+			readonly update: ReadonlyArray<LawField>
+	  }
+	| {
+			readonly kind: "recounting"
+			readonly owner: RelationInfo
+			readonly families: NonEmptyReadonlyArray<Family>
+			readonly update: ReadonlyArray<LawField>
+	  }
+
+/** The families of one owner a role holds (`heldFamilies`), and how its own grant holds that owner (`OwnerHold`). */
+interface HeldFamilies {
 	readonly families: NonEmptyReadonlyArray<Family>
-	readonly select: ReadonlyArray<LawField>
-	readonly update: ReadonlyArray<LawField>
+	readonly own: OwnerHold["kind"]
 }
 
-/** The families whose members a role writes (`written`) and whose owner it does not write whole or scoped, a table
- * grant holding the owner then (`writePlan`), grouped by owner, in the law model's order of each owner's first family;
- * but an owner its insert list names whole, whose table grant holds no UPDATE, holds each family of it whose recount it
- * makes here too: a mutable owner's whose member it writes in full (`fullyWrittenBy`). A scoped owner's families agree
- * with it by scope (`scopedCovers`, held where the role's objects are added). */
+/** The families whose members a role writes (`written`) and whose owner it does not write whole, a table grant holding
+ * the owner then (`writePlan`), grouped by owner, in the law model's order of each owner's first family; but an owner
+ * its insert list names whole, whose table grant holds no UPDATE, holds each family of it whose recount it makes here
+ * too: a mutable owner's whose member it writes in full (`fullyWrittenBy`). */
 const heldFamilies = (
 	model: LawModel,
 	written: ReadonlyArray<WrittenEntry>
-): ReadonlyArray<NonEmptyReadonlyArray<Family>> => {
+): ReadonlyArray<HeldFamilies> => {
 	const writes = new Set(written.map((w) => w.relation.name))
-	/** How the role's own grant holds each owner it writes whole or scoped: all of it (`covered`), by its write list or
-	 * its scope, or its rows' insertion alone (`inserted`), whole by its insert list. */
+	/** How the role's own grant holds each owner it writes whole: all of it (`covered`), by its write list, or its rows'
+	 * insertion alone (`inserted`), by its insert list. */
 	const owned = new Map(
 		written.flatMap((w) =>
 			w.write.kind === "rows"
 				? []
-				: [
-						[
-							w.relation.name,
-							w.write.kind === "whole" && w.write.mode === "insert" ? "inserted" : "covered"
-						] as const
-					]
+				: [[w.relation.name, w.write.mode === "insert" ? "inserted" : "covered"] as const]
 		)
 	)
 	const full = fullyWrittenBy(written)
@@ -1130,7 +1135,10 @@ const heldFamilies = (
 			byOwner.set(f.owner.name, at === undefined ? [f] : appendNonEmpty(at, f))
 		}
 	}
-	return [...byOwner.values()]
+	return [...byOwner.values()].map((families) => ({
+		families,
+		own: owned.get(families[0].owner.name) === "inserted" ? "recounting" : "apart"
+	}))
 }
 
 /**
@@ -1145,19 +1153,10 @@ const fullyWrittenBy = (written: ReadonlyArray<WrittenEntry>): ReadonlySet<strin
 		)
 	)
 
-/** What a role holds on `owner`, the owner of `families`, `full` the relations it writes in full (`fullyWrittenBy`,
- * `OwnerHold`). */
-const holdOn = (
-	owner: RelationInfo,
-	families: NonEmptyReadonlyArray<Family>,
-	full: ReadonlySet<string>
-): OwnerHold => {
-	const selected = new Set(
-		families.flatMap((f) => [
-			...f.group.map((g) => g.owner.name),
-			...ownerReadColumns(f).map((c) => c.name)
-		])
-	)
+/** What a role holds on `owner`, the owner of `held`'s families, `full` the relations it writes in full
+ * (`fullyWrittenBy`, `OwnerHold`). */
+const holdOn = (owner: RelationInfo, held: HeldFamilies, full: ReadonlySet<string>): OwnerHold => {
+	const families = held.families
 	const updated = new Set(
 		owner.mutable
 			? families.flatMap((f) =>
@@ -1165,24 +1164,34 @@ const holdOn = (
 				)
 			: []
 	)
+	const update = owner.fields.filter((field) => updated.has(field.name))
+	if (held.own === "recounting") {
+		return { kind: "recounting", owner, families, update }
+	}
+	const selected = new Set(
+		families.flatMap((f) => [
+			...f.group.map((g) => g.owner.name),
+			...ownerReadColumns(f).map((c) => c.name)
+		])
+	)
 	return {
+		kind: "apart",
 		owner,
 		families,
 		select: owner.fields.filter((field) => selected.has(field.name)),
-		update: owner.fields.filter((field) => updated.has(field.name))
+		update
 	}
 }
 
 /** The owners whose members a role writes (`written`), each with what the role holds on it (`OwnerHold`), in the law
  * model's order of their first family, each owner the relation its families name (ir/family.ts Family `owner`), an
- * ordinary relation of the schema whether or not the model's slice writes it: a role's grants are the installation's,
- * whatever slice a compile plans. */
+ * ordinary relation of the schema. */
 export const ownerHolds = (
 	model: LawModel,
 	written: ReadonlyArray<WrittenEntry>
 ): ReadonlyArray<OwnerHold> =>
-	heldFamilies(model, written).map((families) =>
-		holdOn(families[0].owner, families, fullyWrittenBy(written))
+	heldFamilies(model, written).map((held) =>
+		holdOn(held.families[0].owner, held, fullyWrittenBy(written))
 	)
 
 /**
@@ -1215,8 +1224,9 @@ export const roleUpdates = (
 		}
 	}
 	const full = fullyWrittenBy(written)
-	for (const families of heldFamilies(model, written)) {
-		hold(families[0].owner.name, holdOn(families[0].owner, families, full).update)
+	for (const held of heldFamilies(model, written)) {
+		const owner = held.families[0].owner
+		hold(owner.name, holdOn(owner, held, full).update)
 	}
 	return (relation, column) => whole.has(relation) || (columns.get(relation)?.has(column) ?? false)
 }
@@ -1245,7 +1255,7 @@ export const grantedPrivileges = (
 	}
 	for (const h of ownerHolds(model, written)) {
 		const privileges: Array<TablePrivilege> = []
-		if (isNonEmpty(h.select)) {
+		if (h.kind === "apart" && isNonEmpty(h.select)) {
 			privileges.push("SELECT")
 		}
 		if (isNonEmpty(h.update)) {
@@ -1257,9 +1267,32 @@ export const grantedPrivileges = (
 }
 
 /**
+ * The canonical relations a role reads that its base names nowhere (analysis/derived/canonical.ts), an anonymous one or
+ * a named one of a level above its base, each through its whole view, by name with their headings, in admission order:
+ * each stored one whose table serves the role (analysis/schema.ts CheckedSchema serves), its definition reading only
+ * relations the role sees whole (schema/own.ts roleSeesWhole), so its rows are a function of rows the role sees, and a
+ * statement of the role reads its table wherever its form stands (ir/derived.ts servedDag). A role that sees a relation
+ * one reads narrowed reads none of its table.
+ */
+export const anonymousTables = (
+	checked: CheckedSchema<RoleWorld>
+): ReadonlyArray<{
+	readonly name: string
+	readonly heading: NonEmptyReadonlyArray<HeadingColumn>
+}> =>
+	[...checked.canonical.values()].flatMap((c) =>
+		c.holding.kind === "stored" &&
+		!Object.hasOwn(checked.world.role.base.relations, c.subject.name) &&
+		checked.serves(c.subject.name, noneWritten)
+			? [{ name: c.subject.name, heading: c.holding.analysis.heading }]
+			: []
+	)
+
+/**
  * Every relation a statement of a role can read, by its declared name, in code-unit order, as its installation grants
  * it: each relation its views read as their owner, a whole entry's relation, a stored derived relation it reads in full
- * among them (analysis/schema.ts CheckedSchema), and each relation a query entry's definition reads, any other derived
+ * among them (analysis/schema.ts CheckedSchema), each anonymous canonical table it reads (`anonymousTables`), and each
+ * relation a query entry's definition reads, any other derived
  * relation by the relations its own definition reads, which the role reads in its place; and each relation it holds a
  * table privilege on (grantedPrivileges), what it writes and the owners of the families
  * whose members it writes. Its filter functions and key and unique probes, the one other way it reads, read a relation
@@ -1277,7 +1310,8 @@ export const readableRelations = (
 		...Object.values(role.relations).flatMap((entry) =>
 			entry.kind === "whole" ? [entry.relation.name] : []
 		),
-		...role.wholeDerived.filter((name) => checked.holdings.get(name)?.kind === "stored")
+		...role.wholeDerived.filter((name) => checked.holdings.get(name)?.kind === "stored"),
+		...anonymousTables(checked).map((t) => t.name)
 	])
 	const stored = (name: string): ReadonlyArray<string> => {
 		const relation = role.base.relations[name]
@@ -1399,38 +1433,6 @@ const covers = (own: Membership, family: Membership): boolean =>
 	(family.kind === "narrowed" && printExpr(own.filter) === printExpr(family.filter))
 
 /**
- * Whether a scoped owner's own membership is a scoped member's, read through its family F: the member's scope's own pin
- * form (schema/scope.ts pinForms, its last), each of its fields read as the field of the owner it pairs with
- * (`ownerPaired`), is a pin form of the owner's scope, of one chain. Each pin form decides whether a row is its owner's
- * by its fields alone, so the owner's policy then holds exactly the owner rows the member's family writes touch, as
- * `covers` asks of one predicate, which two scoped entries state by filter functions of their own.
- */
-const scopedCovers = (owner: Scope, member: Scope, f: Family): boolean => {
-	const last = lastNonEmpty(pinForms(member))
-	const read = last.columns.map((c) => {
-		const field = f.member.fields.find((x) => x.name === c)
-		return field === undefined ? undefined : ownerPaired(f, field)?.name
-	})
-	return pinForms(owner).some(
-		(o) =>
-			sameChain(o.chain, last.chain) &&
-			o.columns.length === read.length &&
-			o.columns.every((c, i) => read[i] === c)
-	)
-}
-
-/** Whether two pin chains are one: one owner, by its query and field, or one scope's key, by its definition. */
-const sameChain = (a: PinChain, b: PinChain): boolean =>
-	a.kind === "owner"
-		? b.kind === "owner" &&
-			a.owner.field === b.owner.field &&
-			sameContent(a.owner.query, b.owner.query)
-		: b.kind === "key" &&
-			sameContent(a.scope.definition, b.scope.definition) &&
-			a.key.length === b.key.length &&
-			a.key.every((k, i) => b.key[i] === k)
-
-/**
  * The constants a role is granted EXECUTE on, with their objects: every one its statements evaluate, transitively
  * through constants' bodies and domains' base types and CHECKs (InstallBuilder.evaluated), since PostgreSQL checks
  * EXECUTE against the invoker. Its statements evaluate the domains its own statements name, those its columns are typed
@@ -1470,9 +1472,8 @@ const roleExecutes = (
  * through its relation's whole view (`whole`, addWholeViews), which the role is granted SELECT on, with USAGE on its
  * schema. A roster whole entry has no view: its handles are read as codes, typed by its domain, which the role uses. The
  * filter function a policy calls, then the probes, each come after every relation, type and function their statements
- * read. TEMPORARY on the database is among its grants where its served workload creates a carrier (`carried`), with
- * EXECUTE on what the CHECKs call of the domains its carriers' fields are typed by, which the statements filling the
- * carrier cast into, and EXECUTE on each function of `held`. */
+ * read. EXECUTE on what the CHECKs call of the domains its carriers' fields are typed by, which the statements filling
+ * a carrier cast into (`carried`), is among its grants, and EXECUTE on each function of `held`. */
 const addRole = (
 	b: InstallBuilder,
 	cx: WorldsContext,
@@ -1549,6 +1550,17 @@ const addRole = (
 				break
 		}
 	}
+	/** Each anonymous canonical table the role reads (`anonymousTables`), through its whole view (addWholeViews, names.ts
+	 * InstallNames canonicalWholeView), granted SELECT on it, with USAGE on its schema. */
+	const anonymous = anonymousTables(checked)
+	for (const { name } of anonymous) {
+		const view = defined(whole.get(name), `the whole view of ${name}`)
+		columnDomains(b, view.heading, use)
+		read.push(view.create.name)
+		viewStatements.push(view.create)
+		viewSchemas.set(view.schema.name, view.schema.node)
+		after.push(view.node)
+	}
 	/** Its own schema, of its query entries' views, which it holds exactly when it holds a query entry. */
 	const ownSchema: Array<string> = []
 	const ownViews: Array<ObjectName> = []
@@ -1619,28 +1631,13 @@ const addRole = (
 			membership: plan.membership
 		})
 	}
-	for (const f of b.model.families) {
-		const ownerWrite = written.find((w) => w.relation.name === f.owner.name)?.write
-		const memberWrite = written.find((w) => w.relation.name === f.member.name)?.write
-		if (
-			ownerWrite?.kind === "scoped" &&
-			memberWrite !== undefined &&
-			!(memberWrite.kind === "scoped" && scopedCovers(ownerWrite.scope, memberWrite.scope, f))
-		) {
-			refuse(
-				"UnsupportedOperation",
-				role.loc,
-				`the role ${role.name} writes ${f.owner.name} by its owner's rows and ${f.member.name}, a member of its family ${f.id.owner}.${f.id.count}, by other rows, whose family reads and counts ${f.owner.name} past them: one policy holds the role on ${f.owner.name}, so scope ${f.member.name} by the same owner, through the fields its family pairs with ${f.owner.name}'s key`
-			)
-		}
-	}
 	const holds = ownerHolds(b.model, written)
 	for (const hold of holds) {
 		const owner = hold.owner.name
 		const ownerTable = b.names.relation(owner)
 		const columns = (fields: ReadonlyArray<LawField>): ReadonlyArray<string> =>
 			fields.map((field) => b.names.column(owner, field.name))
-		const select = columns(hold.select)
+		const select = hold.kind === "apart" ? columns(hold.select) : []
 		const update = columns(hold.update)
 		if (isNonEmpty(select)) {
 			grants.push({
@@ -1722,9 +1719,6 @@ const addRole = (
 		privileges.push(
 			grant(["EXECUTE"], { kind: "FUNCTION", names: mapNonEmpty(executes, (e) => e.name) })
 		)
-	}
-	if (carried !== undefined) {
-		privileges.push(grant(["TEMPORARY"], { kind: "DATABASE" }))
 	}
 	if (isNonEmpty(held)) {
 		privileges.push(
@@ -1997,7 +1991,8 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  *   key, nor drawn by T's family, and DELETE;
  *   EXECUTE on its filter functions and key and unique probes. For each family whose member it writes, on the family's owner O, unless it
  *   writes O whole (`ownerHolds`): column SELECT on O's key, count, ends and the fields its owner axis copies into
- *   members, and, when O is mutable, column UPDATE on what its recount sets, O's count and ends, none on an immutable O, whose family is fixed at insert.
+ *   members, and, when O is mutable, column UPDATE on what its recount sets, O's count and ends, none on an immutable O, whose family is fixed at insert;
+ *   where its insert list names O whole, that column UPDATE alone, its table grant holding SELECT.
  *   EXECUTE on the refusal function, to every role, whatever it writes: a write's statements refuse through it, a
  *   context source refuses an unreadable claims setting through it, and a read-back checks each bare child and option
  *   it delivers through it (lower/conservative/deliver.ts checkedAttachment), on any role, one that writes nothing among
@@ -2017,15 +2012,10 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  *   PostgreSQL checks it only where a statement creates an object of the type (PostgreSQL 19.0, 2026-11-23: a role
  *   holding none cast into a domain, bound a parameter of it, wrote a column of it, called a function of it and read
  *   its arrays, and was refused only a temporary table and a function naming it, 42501), and a role creates no object
- *   of one: its carriers hold their values' session types (ir/physical.ts sessionTypeRef). TRUNCATE is granted to no
- *   one, and no role holds a privilege on a base table
- *   it does not write or own a member of. TEMPORARY on the current database to a role whose served workload creates a
- *   carrier (`carriers`, stated by the served workload's extension): a ChangeSet's own carrier (write/carriers) or a
- *   staged statement's (write/program/staged.ts), each a CREATE TEMPORARY TABLE, which PostgreSQL judges against the
- *   role a transaction's SET ROLE takes on, never its login. No other login or role is granted it, and PUBLIC's, which
- *   PostgreSQL gives every database, is the database owner's: grizzle neither relies on it nor revokes it. A later
- *   migration revokes it from a role whose workload no longer creates one, as it replaces any role's changed grants.
- *   EXECUTE on the stamp
+ *   of one: a carrier travels in its transaction's settings (write/carriers), no object. TRUNCATE is granted to no
+ *   one, and no role holds a privilege on a base table it does not write or own a member of. No login or role is granted
+ *   TEMPORARY, and PUBLIC's, which PostgreSQL gives every database, is the database owner's: grizzle neither relies on it
+ *   nor revokes it. EXECUTE on the stamp
  *   function of each head of a relation it holds INSERT on (physical/ddl/stamps.ts addStamps), which each of its inserts
  *   that stamps the head calls; SELECT and DELETE on the head table of each place of a relation it holds DELETE on, which
  *   each of its deletes, removing whole groups, deletes the groups' heads of (write/insert/stamp.ts placeReleases); no

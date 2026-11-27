@@ -4,7 +4,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { element, type Gen, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
-import { draftSchema, servedFiles } from "#cli/generate.ts"
+import { draftSchema, eachServedFile } from "#cli/generate.ts"
 import { type ReasonAt, reasonsOf, type RoleCertificate } from "#compiler/core/certificate.ts"
 import { silentPhases } from "#compiler/core/phase.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
@@ -31,7 +31,8 @@ import { jsonOf } from "#test/support/chunked.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 
-const Instant = contract("Instant", pg.bigint)
+const instantKey = Symbol("Instant")
+const Instant = contract<typeof instantKey>()("Instant", pg.bigint)
 
 const Step = relation("Step", { id: pg.integer }, ["id"])
 
@@ -73,11 +74,11 @@ const changes = {
 			return r
 				.match(Claim, { step, attempt, at, ttl })
 				.where(
-					r.and(
+					r.and([
 						r.eq(step, r.param("step", pg.integer)),
 						r.eq(attempt, r.param("attempt", pg.integer)),
 						r.lt(Num.add(Type.base(at), ttl), Type.base(r.param("now", Instant)))
-					)
+					])
 				)
 				.find({ step, attempt: r.param("next", pg.integer), at: r.param("now", Instant), ttl })
 		})
@@ -97,7 +98,7 @@ const changes = {
 			const { key, at } = v(Stamp, "stamp")
 			return r
 				.match(Stamp, { key, at })
-				.where(r.and(r.eq(key, r.param("key", pg.integer)), r.eq(at, r.param("now", Instant))))
+				.where(r.and([r.eq(key, r.param("key", pg.integer)), r.eq(at, r.param("now", Instant))]))
 				.find({ key, due: at })
 		})
 	),
@@ -227,6 +228,7 @@ export const compiled = (c: Case, clocked: boolean) =>
 		const app = login(Box, "app", [worker], { workload: [workload(Box, programsOf(c, clocked))] })
 		const config = yield* resolveConfig(
 			defineConfig({
+				contracts: [],
 				schemas: [Box],
 				logins: [app],
 				migrations: "migrations",
@@ -246,7 +248,13 @@ export const compiled = (c: Case, clocked: boolean) =>
 		)
 		const served = draft.served
 		assert.ok(served.kind === "logins", "a schema with a login plans its logins")
-		const entries = yield* servedFiles(schemaCompiled, draft, served, silentPhases)
+		const entries = yield* eachServedFile(
+			schemaCompiled,
+			draft,
+			served,
+			silentPhases,
+			Effect.succeed
+		)
 		const entry = defined(
 			Option.getOrUndefined(Arr.findFirst(entries, (e) => e.login === "app")),
 			"the served file of login app"

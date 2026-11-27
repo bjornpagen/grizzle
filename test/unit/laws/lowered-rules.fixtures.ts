@@ -22,13 +22,9 @@ import type { LawId, RelationIdent } from "#compiler/core/ids.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { compileLaws, triggerLawsOver } from "#compiler/laws/model/model.ts"
-import {
-	compileInstallation,
-	type Installation,
-	installOptions
-} from "#compiler/physical/install/compile.ts"
+import { type Installation, installOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { own } from "#compiler/schema/own.ts"
-import { everySlice } from "#compiler/schema/reach.ts"
 import {
 	type ColumnDef,
 	type ForeignKey,
@@ -60,7 +56,7 @@ import {
  * it, or, where that costs the schema fewer indexes and columns, from the source's columns alone into the match's own
  * columns under its constants (laws/model/plan.ts sharedTargets); and the rule then holds no capture. Every other rule
  * over a query is kept for the set judge (physical/ddl/rules.ts addRules), a capture on each table it reads. The law
- * oracle's conservative installation (physical/install/compile.ts conservativeInstallation) keeps every rule so, under
+ * oracle's conservative installation (program/install.ts conservativeInstallation) keeps every rule so, under
  * the same laws.
  *
  * Each case draws a definition over R0 (id, a, b, k; keyed by id and by (a, b)) and R1 (id, a, k; keyed by id) on a
@@ -534,9 +530,7 @@ export const assertTriggerLaws = (
 	kept: boolean
 ): void => {
 	const model = succeeded(
-		Result.flatMap(own(decodedSchema(desc)), (owned) =>
-			compileLaws(owned, everySlice(owned), { kind: "planned" })
-		)
+		Result.flatMap(own(decodedSchema(desc)), (owned) => compileLaws(owned, { kind: "planned" }))
 	)
 	for (const relation of ["S", "R0", "R1"]) {
 		assert.deepEqual(

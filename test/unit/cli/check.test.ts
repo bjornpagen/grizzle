@@ -27,7 +27,6 @@ import { silentPhases } from "#compiler/core/phase.ts"
 import { cliOver, configName, resolvedConfig, workspace } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
-	at,
 	type CheckFeature,
 	config,
 	entryOf,
@@ -76,7 +75,7 @@ export const grizzleCheckReportsEveryPlantedFaultAtOnceEachAtItsEntryExactlyAsTh
 							yield* plant(ws, p, layout)
 							const expected = findingsOf(p, layout)
 							c.noteAll(notesOf(p, expected))
-							const ran = yield* cliOver(ws, config, ["check", configName], at(2))
+							const ran = yield* cliOver(ws, config, ["check", configName])
 							assert.equal(ran.code, expected.length > 0 ? 1 : 0, ran.stderr)
 							const read = yield* resolvedConfig(config, `${ws}/${configName}`)
 							const resolved = succeeded(read)

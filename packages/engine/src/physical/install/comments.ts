@@ -27,7 +27,7 @@ import { functionNameOf } from "#compiler/sql/build.ts"
 const mintedName = (census: Census, identifier: string): Censused => {
 	const named = censused(census, identifier)
 	if (named === undefined) {
-		throw defect(`the naming door minted the identifier ${identifier}`)
+		defect(`the naming door minted the identifier ${identifier}`)
 	}
 	return named
 }
@@ -133,7 +133,7 @@ const created = (s: SqlStatement): ReadonlyArray<Created> => {
 		case "createPolicy":
 			return [{ on: { kind: "POLICY", name: s.name, on: s.table }, identifier: s.name }]
 		case "createGuardTrigger":
-		case "createUpdateGuardTrigger":
+		case "createImmutableGuardTrigger":
 		case "createConstraintTrigger":
 		case "createTransitionTrigger":
 			return [{ on: { kind: "TRIGGER", name: s.name, on: s.table }, identifier: s.name }]
@@ -185,13 +185,14 @@ const created = (s: SqlStatement): ReadonlyArray<Created> => {
 		case "renameConstraint":
 		case "dropIndex":
 		case "dropPolicy":
+		case "alterRowType":
 		case "drop":
 		case "dropFunction":
 		case "dropTrigger":
 		case "handOverFunction":
 		case "adoptRole":
 		case "endHolders":
-		case "resetDatabaseDefault":
+		case "guardBracket":
 		case "alterRole":
 		case "grantRole":
 		case "revokeRole":
@@ -201,8 +202,6 @@ const created = (s: SqlStatement): ReadonlyArray<Created> => {
 		case "alterDefaultPrivileges":
 		case "createExtension":
 		case "lockTable":
-		case "createCarrier":
-		case "emptyCarrier":
 		case "beginRead":
 		case "beginWrite":
 		case "commit":

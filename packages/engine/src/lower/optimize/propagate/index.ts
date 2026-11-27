@@ -64,6 +64,7 @@ const sameValue = (a: ScalarExpr, b: ScalarExpr): boolean => {
 		case "literal":
 		case "op":
 		case "cond":
+		case "variant":
 		case "closedAt":
 		case "closedRow":
 		case "closedHas":
@@ -120,17 +121,48 @@ const fixing = (
 	return at(x, y) ?? at(y, x)
 }
 
-/** The columns of `input` a filter's predicate `pred` holds at a value (fixing), each value read through `valueOf`. */
+/**
+ * The columns of `input` a conjunct of a filter's predicate `pred` equates with a literal, PostgreSQL's equality: each
+ * column whose canonical value is that literal (`fixings`).
+ */
+const literalFixed = (pred: ScalarExpr, input: Cell): ReadonlySet<string> =>
+	new Set(
+		conjuncts(pred).flatMap((e) => {
+			const [x, y, ...more] = e.kind === "op" && nativeOp(e.op)?.fn === "eq" ? e.args : []
+			if (x === undefined || y === undefined || more.length > 0) {
+				return []
+			}
+			const at = (column: ScalarExpr, value: ScalarExpr): ReadonlyArray<string> =>
+				column.kind === "column" && column.column.node === input.id && value.kind === "literal"
+					? [column.column.name]
+					: []
+			return [...at(x, y), ...at(y, x)]
+		})
+	)
+
+/**
+ * The columns of `input` a filter's predicate `pred` holds at a value (fixing), each value read through `valueOf`. A
+ * column's canonical value is its most specific name, a literal over a parameter and a parameter over a column, so a
+ * column a conjunct equates with a literal holds that literal, which is spelled where it is written and never read in
+ * the column's place: it holds no statement value, and a conjunct equating it with a parameter stays as written. So
+ * `Bool = 0 AND Bool = $p` keeps Bool, fixed to 0, wherever it is read, where reading it as `$p` left `$p = 0` and a
+ * reader of `$p` alone, a union's arm no analysis then told apart from another's (public-programs, rotating 0xb475cf76,
+ * case 150).
+ */
 const fixings = (
 	ed: DagEditor,
 	pred: ScalarExpr,
 	input: Cell,
 	valueOf: ValueOf
-): ReadonlyArray<{ readonly column: string; readonly value: ScalarExpr }> =>
-	conjuncts(pred).flatMap((e) => {
+): ReadonlyArray<{ readonly column: string; readonly value: ScalarExpr }> => {
+	const literal = literalFixed(pred, input)
+	return conjuncts(pred).flatMap((e) => {
 		const f = fixing(e, input, valueOf)
-		return f === undefined ? [] : [{ column: f.column, value: readThrough(ed, f.value, valueOf) }]
+		return f === undefined || literal.has(f.column)
+			? []
+			: [{ column: f.column, value: readThrough(ed, f.value, valueOf) }]
 	})
+}
 
 /** The values both `a` and `b` hold a column at: the columns they agree on. */
 const meet = (a: Values, b: Values): Values => {
@@ -147,7 +179,8 @@ const meet = (a: Values, b: Values): Values => {
 /**
  * What a region holds each class of its variables at (regionVarClasses), as an equality holds it: a column its
  * occurrence's source holds at a value (`of`), a constant of an occurrence that binds a column of the class, a
- * correlation of a variable of it, and each variable of its heading its readers keep at a value (`kept`).
+ * correlation of a variable of it, and each variable of its heading its readers keep at a value (`kept`). A class an
+ * occurrence's literal constant binds holds that literal, its canonical value (`fixings`), and so no statement value.
  */
 const classValues = (
 	ed: DagEditor,
@@ -158,9 +191,17 @@ const classValues = (
 ): { readonly classOf: (v: VarDecl) => VarId; readonly values: ReadonlyMap<VarId, ScalarExpr> } => {
 	const classOf = regionVarClasses(region)
 	const values = new Map<VarId, ScalarExpr>()
+	const literal = new Set(
+		region.occurrences.flatMap((o) =>
+			o.constants.flatMap((k) => {
+				const b = o.bindings.find((x) => x.column === k.column)
+				return b !== undefined && k.expr.kind === "literal" ? [classOf(b.var)] : []
+			})
+		)
+	)
 	const hold = (v: VarDecl, value: ScalarExpr): void => {
 		const at = classOf(v)
-		if (!values.has(at)) {
+		if (!values.has(at) && !literal.has(at)) {
 			values.set(at, value)
 		}
 	}
@@ -226,7 +267,8 @@ const leavesOf =
  * inputs' (`of`), each column a reference reads through `valueOf`.
  *
  * - A projection holds an output whose expression is one once its inputs' columns are read as theirs.
- * - A filter holds its input's, and a column a conjunct equates with one.
+ * - A filter holds its input's, and a column a conjunct equates with one, but a column a conjunct equates with a
+ *   literal, whose canonical value is the literal (`fixings`).
  * - A region holds a variable its class holds at one (classValues); where only stated equalities hold (Holds), only
  *   where every column bound to the class holds it itself (statedAtEveryBinding).
  * - A semi-join holds its left's, and, where the joined equalities hold (Holds), a left column paired with a right
@@ -238,7 +280,7 @@ const leavesOf =
  *   its column, which on a numeric's scale or a float's zero may be another value.
  *
  * A column an equality holds at a value holds it only where the equality names one value (ir/scalar.ts equalityIsIdentity): a region's
- * variable, a filter's, a semi-join's or a take's column on a numeric, a float or a vector carrier holds none.
+ * variable, a filter's, a semi-join's or a take's column on a float carrier holds none.
  */
 const valuesOf = (
 	ed: DagEditor,
@@ -276,12 +318,17 @@ const valuesOf = (
 				}
 			}
 			break
-		case "Filter":
-			carry(node.input, undefined)
+		case "Filter": {
+			const literal = literalFixed(node.pred, node.input)
+			carry(
+				node.input,
+				node.heading.map((c) => c.name).filter((c) => !literal.has(c))
+			)
 			for (const f of fixings(ed, node.pred, node.input, valueOf)) {
 				put(f.column, f.value, true)
 			}
 			break
+		}
 		case "MatchRegion": {
 			const { classOf, values } = classValues(ed, node, of, valueOf, none)
 			for (const v of node.vars) {
@@ -533,13 +580,15 @@ const keptBy = (
 	const at = (columns: ReadonlyArray<string>): Values =>
 		new Map([...kept].filter(([c]) => columns.includes(c)))
 	switch (node.kind) {
-		case "Filter":
+		case "Filter": {
+			const literal = literalFixed(node.pred, node.input)
 			return [
 				new Map([
-					...kept,
+					...[...kept].filter(([c]) => !literal.has(c)),
 					...fixings(ed, node.pred, node.input, valueOf).map((f) => [f.column, f.value] as const)
 				])
 			]
+		}
 		case "ProjectSet":
 			return [
 				new Map(
@@ -757,8 +806,8 @@ const fixedAbove = (
  *    `t.child = $1`, wherever the statement holds it: through a column of a CTE, of a derived table or of a LATERAL's
  *    outer row, or through the readers of a node every one of which keeps it there, where PostgreSQL would read the
  *    stored relation whole or by a column the plan joins and the borrow checker sees no binding. A restriction drops
- *    only rows no root reads, so every root's rows are unchanged; a node it may shrink claims no more than at most one
- *    row (DagEditor.subsetMeta).
+ *    only rows no root reads, so every root's rows are unchanged; what a node it restricts claims is its output's
+ *    analysis's, as every pass's (pipeline.ts claimed), so the pass weakens no claim itself.
  * 4. The values again, over the restricted DAG, and the substitution (propagate.substitute): every reference to a column
  *    its node holds at a value reads the value instead, so a projection delivers the parameter, a CTE's column carries
  *    it where its reader reads it, and a LATERAL's correlation to an earlier source's column fixes its key at the value.
@@ -797,66 +846,28 @@ const propagate =
 			}
 		}
 		const keptAt = (cell: Cell): Values => kept.get(cell) ?? none
-		/**
-		 * The value a cell's column holds in every row it is read at: its own (valuesAll), or, where every reader is an
-		 * attachment that correlates the column, the value its correlation fixes it at for each parent, the parent column's
-		 * (keptBy's `Attach`), one for every reader. A cell kept at that value is restricted to no fewer rows than each of
-		 * its reads reads: a count attached by a column its head holds at a parameter, exactly one row per parent, keeps it.
-		 */
-		const heldAt = (cell: Cell, column: string): ScalarExpr | undefined => {
-			const own = of(cell).get(column)
-			if (own !== undefined) {
-				return own
-			}
-			const values = cx.cells.readers(cell).map((r) => {
-				const reader = r.current
-				const pair =
-					reader.kind === "Attach" && reader.child === cell
-						? reader.correlation.find((c) => c.child === column)
-						: undefined
-				return reader.kind === "Attach" && pair !== undefined
-					? (keptAt(r).get(pair.parent) ?? of(reader.parent).get(pair.parent))
-					: undefined
-			})
-			const [first, ...rest] = values
-			return first !== undefined && rest.every((v) => v !== undefined && sameValue(v, first))
-				? first
-				: undefined
-		}
-
 		for (const cell of live) {
 			const node = cell.current
-			const shrinks = [...keptAt(cell)].some(([column, value]) => {
-				const held = heldAt(cell, column)
-				return held === undefined || !sameValue(held, value)
-			})
-			if (node.kind === "MatchRegion") {
-				const at = regionKept(ed, node, keptAt(cell), of, valueOf)
-				const above = fixedAbove(ed, cx, cell, node, valueOf)
-				const added: Array<NodeId> = []
-				const occurrences = node.occurrences.map((o) => {
-					if (o.source.current.kind !== "Base") {
-						return o
-					}
-					const more = statable(o.source.current, [...o.constants, ...above], at.get(o.id) ?? none)
-					if (!isNonEmpty(more)) {
-						return o
-					}
-					added.push(o.source.id)
-					return { ...o, constants: [...o.constants, ...more] }
-				})
-				if (added.length > 0) {
-					ed.set(cell, {
-						...node,
-						occurrences,
-						meta: shrinks ? DagEditor.subsetMeta(node.meta) : node.meta
-					})
-					certify(cx, propagateRules.restrict, [cell.id, ...added], cell, [cell.id])
-					continue
-				}
+			if (node.kind !== "MatchRegion") {
+				continue
 			}
-			if (shrinks && cell.current.meta.card === "one") {
-				ed.set(cell, { ...cell.current, meta: DagEditor.subsetMeta(cell.current.meta) })
+			const at = regionKept(ed, node, keptAt(cell), of, valueOf)
+			const above = fixedAbove(ed, cx, cell, node, valueOf)
+			const added: Array<NodeId> = []
+			const occurrences = node.occurrences.map((o) => {
+				if (o.source.current.kind !== "Base") {
+					return o
+				}
+				const more = statable(o.source.current, [...o.constants, ...above], at.get(o.id) ?? none)
+				if (!isNonEmpty(more)) {
+					return o
+				}
+				added.push(o.source.id)
+				return { ...o, constants: [...o.constants, ...more] }
+			})
+			if (added.length > 0) {
+				ed.set(cell, { ...node, occurrences })
+				certify(cx, propagateRules.restrict, [cell.id, ...added], cell, [cell.id])
 			}
 		}
 

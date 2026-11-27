@@ -31,7 +31,7 @@ export const readText = (
 			Stream.runForEach((piece) =>
 				Effect.sync(() => {
 					if (!isWellFormedText(piece)) {
-						throw defect("a decoder's text is well-formed")
+						defect("a decoder's text is well-formed")
 					}
 					out.append(piece)
 				})

@@ -1,7 +1,8 @@
 import { registerHooks } from "node:module"
+import { fileURLToPath } from "node:url"
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
-import { Array as Arr, Console, Effect, FileSystem, Path } from "effect"
+import { Array as Arr, Console, Effect, FileSystem, Path, String as Str } from "effect"
 import type { ConfigFile } from "#cli/config.ts"
 import {
 	type CliError,
@@ -34,6 +35,10 @@ const unloaded =
  * knowing src/'s whole import graph (test/unit/deps), and the application's configuration is an external module of
  * that graph, as `effect` is. A process runs one command line, so the hook answers that specifier with one file, and
  * only a command that reads the configuration imports it.
+ *
+ * A load hook records every file module Node loads while the import runs, the configuration file first: its closure,
+ * a draft's configuration input (draft-inputs.ts). A module the command line had loaded already is grizzle's or a
+ * package's, which other inputs name, so what the import loads anew is every module of the configuration's own.
  */
 const configAt = (
 	file: string
@@ -45,22 +50,36 @@ const configAt = (
 			return yield* cliError(new ConfigMissing({ file }))
 		}
 		const url = (yield* Effect.mapError(path.toFileUrl(file), unloaded(file))).href
+		const closure: Array<string> = []
+		const recording = { on: true }
 		yield* Effect.sync(() =>
 			registerHooks({
 				resolve: (specifier, context, nextResolve) =>
 					specifier === "grizzle:config" && context.parentURL === import.meta.url
 						? { url, shortCircuit: true }
-						: nextResolve(specifier, context)
+						: nextResolve(specifier, context),
+				load: (loadedUrl, context, nextLoad) => {
+					if (recording.on && Str.startsWith("file:")(loadedUrl)) {
+						closure.push(fileURLToPath(loadedUrl))
+					}
+					return nextLoad(loadedUrl, context)
+				}
 			})
 		)
 		const module: unknown = yield* Effect.tryPromise({
 			try: () => import("grizzle:config"),
 			catch: unloaded(file)
-		})
+		}).pipe(
+			Effect.ensuring(
+				Effect.sync(() => {
+					recording.on = false
+				})
+			)
+		)
 		if (typeof module !== "object" || module === null || !("default" in module)) {
 			return yield* cliError(new ExportRefused({ file, fault: "missing" }))
 		}
-		const loaded: ConfigFile = { file, value: module.default }
+		const loaded: ConfigFile = { file, value: module.default, closure }
 		return loaded
 	})
 
@@ -108,7 +127,7 @@ export const processMeter: PhaseMeter = {
 const main = Effect.gen(function* () {
 	const argv = yield* Effect.sync(() => process.argv.slice(argumentsStart))
 	const cwd = yield* Effect.sync(() => process.cwd())
-	const report = yield* runCli(argv, cwd, configAt, processMeter)
+	const report = yield* runCli(argv, cwd, process.version, configAt, processMeter)
 	yield* written(Console.log, report.stdout)
 	yield* written(Console.error, report.stderr)
 	yield* Effect.sync(() => {

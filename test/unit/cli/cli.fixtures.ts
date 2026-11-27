@@ -58,23 +58,41 @@ import { repoRoot } from "#test/support/files.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { noDeclarations, parsedMigrationName } from "#test/support/migrate/kit.ts"
 import { upTo } from "#test/support/up-to.ts"
-/** The commands that take no flag: every command of the command line but generate (cli/errors.ts CommandName). */
-type PlainCommand = Exclude<CommandName, "generate">
+/** The commands that draft, by generate's flags: generate, and draft-key, which digests its draft's inputs. */
+type DraftingCommand = Extract<CommandName, "generate" | "draft-key">
+
+/** The commands that take no flag: every command of the command line but the drafting ones (cli/errors.ts CommandName). */
+type PlainCommand = Exclude<CommandName, DraftingCommand>
+
+/** The drafting commands, which the grammar draws alike. */
+const draftingCommands: Arr.NonEmptyReadonlyArray<DraftingCommand> = ["generate", "draft-key"]
+
+/** Whether a command is a drafting one. */
+const isDrafting = (command: CommandName): command is DraftingCommand =>
+	Arr.contains(draftingCommands, command)
 
 /** What generate makes, as the grammar spells it: a draft, named or not, or a custom folder, always named. */
 type GrammarMode =
 	| { readonly kind: "draft"; readonly name: Option.Option<MigrationName> }
 	| { readonly kind: "custom"; readonly name: MigrationName }
 
-/** A command line of the grammar: a plain command, or generate with its mode and schema, over a configuration file. */
+/**
+ * A command line of the grammar: a plain command, or a drafting command with generate's mode and schema, over a
+ * configuration file.
+ */
 type GrammarLine =
 	| { readonly command: PlainCommand; readonly config: string }
 	| {
-			readonly command: "generate"
+			readonly command: DraftingCommand
 			readonly config: string
 			readonly mode: GrammarMode
 			readonly schema: Option.Option<string>
 	  }
+
+/** Whether a line is a drafting command's, with generate's mode and schema. */
+const isDraftingLine = (
+	line: GrammarLine
+): line is Extract<GrammarLine, { readonly mode: GrammarMode }> => isDrafting(line.command)
 
 /** One argument of a line, or one flag with its value: what a shuffle moves whole and a fault is injected between. */
 interface Unit {
@@ -93,7 +111,6 @@ const plainCommandSet: { readonly [C in PlainCommand]: null } = {
 	check: null,
 	migrate: null,
 	drift: null,
-	upgrade: null,
 	names: null,
 	roles: null,
 	uninstall: null
@@ -175,7 +192,7 @@ const malformedGen: Gen<string> = (source) => {
 const lineGen: Gen<GrammarLine> = oneOf<GrammarLine>([
 	(source) => ({ command: source.draw(element(plainCommands)), config: source.draw(configGen) }),
 	(source) => ({
-		command: "generate",
+		command: source.draw(element(draftingCommands)),
 		config: source.draw(configGen),
 		mode: source.draw(
 			oneOf<GrammarMode>([
@@ -209,7 +226,7 @@ const unitsOf =
 	(line: GrammarLine): Gen<ReadonlyArray<Unit>> =>
 	(source) => {
 		const config: Unit = { role: "config", tokens: [line.config] }
-		if (line.command !== "generate") {
+		if (!isDraftingLine(line)) {
 			return [config]
 		}
 		const custom: ReadonlyArray<Unit> =
@@ -257,7 +274,7 @@ export const argvOf = (command: string, units: ReadonlyArray<Unit>): ReadonlyArr
 
 /** What the parser must read a line of the grammar as. */
 export const meaningOf = (line: GrammarLine): CommandLine => {
-	if (line.command !== "generate") {
+	if (!isDraftingLine(line)) {
 		return { kind: "run", config: line.config, command: { kind: line.command }, phases: false }
 	}
 	const mode: GenerateMode =
@@ -273,7 +290,12 @@ export const meaningOf = (line: GrammarLine): CommandLine => {
 	return {
 		kind: "run",
 		config: line.config,
-		command: { kind: "generate", mode, schema: line.schema, declared: noDeclarations },
+		command: {
+			kind: line.command === "generate" ? "generate" : "draftKey",
+			mode,
+			schema: line.schema,
+			declared: noDeclarations
+		},
 		phases: false
 	}
 }
@@ -281,6 +303,7 @@ export const meaningOf = (line: GrammarLine): CommandLine => {
 /** What an accepted line reaches. */
 export type GrammarFeature =
 	| PlainCommand
+	| "draft-key"
 	| "a draft named after its change"
 	| "a draft named by --name"
 	| "a custom migration"
@@ -291,6 +314,7 @@ export type GrammarFeature =
 
 export const grammarFeatures = [
 	...plainCommands,
+	"draft-key",
 	"a draft named after its change",
 	"a draft named by --name",
 	"a custom migration",
@@ -306,16 +330,17 @@ export const grammarNotes = (s: Spelled): ReadonlyArray<GrammarFeature> => {
 	return Arr.flatMap(
 		[
 			...Arr.map(plainCommands, (c) => [c, line.command === c] as const),
+			["draft-key", line.command === "draft-key"],
 			[
 				"a draft named after its change",
-				line.command === "generate" && line.mode.kind === "draft" && Option.isNone(line.mode.name)
+				isDraftingLine(line) && line.mode.kind === "draft" && Option.isNone(line.mode.name)
 			],
 			[
 				"a draft named by --name",
-				line.command === "generate" && line.mode.kind === "draft" && Option.isSome(line.mode.name)
+				isDraftingLine(line) && line.mode.kind === "draft" && Option.isSome(line.mode.name)
 			],
-			["a custom migration", line.command === "generate" && line.mode.kind === "custom"],
-			["--schema", line.command === "generate" && Option.isSome(line.schema)],
+			["a custom migration", isDraftingLine(line) && line.mode.kind === "custom"],
+			["--schema", isDraftingLine(line) && Option.isSome(line.schema)],
 			["a flag spelled --flag=value", Arr.some(flags, (u) => u.tokens.length === 1)],
 			["a flag spelled --flag value", Arr.some(flags, (u) => u.tokens.length === 2)],
 			["the configuration file after a flag", s.units[0]?.role !== "config"]
@@ -352,8 +377,8 @@ const insertedGen =
 		return [...units.slice(0, at), unit, ...units.slice(at)]
 	}
 
-/** The commands, generate's and the plain ones. */
-const commands: ReadonlyArray<string> = ["generate", ...plainCommands]
+/** The commands, the drafting ones and the plain ones. */
+const commands: ReadonlyArray<string> = [...draftingCommands, ...plainCommands]
 
 /** The flags a command takes, by name: generate's switches, valued flags and repeated flags. */
 const flagNames: Arr.NonEmptyReadonlyArray<string> = [
@@ -464,7 +489,7 @@ const faultsOf = (s: Spelled): Gen<Fault> => {
 			return fault("unknownOption")(source.draw(insertedGen(units, unknown)))
 		}
 	]
-	if (command !== "generate") {
+	if (!isDrafting(command)) {
 		return oneOf<Fault>([
 			...common,
 			(source) => {
@@ -575,47 +600,61 @@ const nonsenseGen: Gen<string> = (source) => {
 	return digitsOf(broken)
 }
 
-/** The second at `millis`, or `fallback`'s past year 9999, which no folder's fourteen digits name. */
-const secondWithin = (millis: number, fallback: number): Second => {
-	const s = secondAt(millis)
-	return s.year > 9999 ? secondAt(fallback) : s
-}
+/** The seconds of a chain drafted from nothing, from the epoch, as many as its folders: the command line's own chains. */
+const draftedChainGen: Gen<ReadonlyArray<Second>> = map(int(1, 3), (folders) =>
+	upTo(folders, (i) => secondAt(i * 1000))
+)
 
 /**
- * A folder's second around the clock's: before it, at it, after it, or a year's last second after it. A committed
- * folder's name names its second (deploy/render/folder.ts folderParts), so every one is a second.
+ * A committed chain whose last folder is at a second `lastGen` draws, and up to two folders before it, each a second or
+ * up to a year before the next, as a chain whose folders the command line once named by its clock holds them.
  */
-const existingGen = (now: number): Gen<Second> =>
-	weighted([
-		[3, map(int(-3, 3), (offset) => secondWithin(now + offset * 1000, now))],
-		[
-			1,
-			map(int(0, 2), (ahead) => ({
-				year: Math.min(secondAt(now).year + ahead, 9999),
-				month: 12,
-				day: 31,
-				hour: 23,
-				minute: 59,
-				second: 59
-			}))
-		]
-	])
+const chainEndingGen =
+	(lastGen: Gen<Second>): Gen<ReadonlyArray<Second>> =>
+	(source) => {
+		const last = millisOf(source.draw(lastGen))
+		const gaps = source.draw(array(oneOf([constant(1), int(2, 366 * 86_400)]), { min: 0, max: 2 }))
+		const [, earlier] = Arr.mapAccum(gaps, last, (at, gap) => [at - gap * 1000, at - gap * 1000])
+		return [...Arr.map(Arr.reverse(earlier), secondAt), secondAt(last)]
+	}
+
+/** A year's last second: the next one rolls the year over, and 9999's names no second of four digits. */
+const yearEndGen: Gen<Second> = map(edged(1970, 9999, [9999]), (year) => ({
+	year,
+	month: 12,
+	day: 31,
+	hour: 23,
+	minute: 59,
+	second: 59
+}))
 
 interface Stamping {
-	readonly now: Second
-	readonly existing: ReadonlyArray<Second>
+	/** A second, whose fourteen digits the command line writes and reads back. */
+	readonly at: Second
+	/** The committed chain's folders' seconds, in chain order, strictly increasing. */
+	readonly chain: ReadonlyArray<Second>
 	/** Fourteen digits naming no second, which no folder's name holds: read as no timestamp. */
 	readonly nonsense: ReadonlyArray<string>
 }
 
-/** A clock at the second `nowGen` draws, beside up to three folders around it and up to two texts naming no second. */
+/**
+ * A second `atGen` draws, beside a committed chain, of no folder, drafted from nothing or ending at any second or at a
+ * year's last, a February 29 when `atGen` draws one, and up to two texts naming no second.
+ */
 const stampingOf =
-	(nowGen: Gen<Second>): Gen<Stamping> =>
+	(atGen: Gen<Second>): Gen<Stamping> =>
 	(source) => {
-		const now = source.draw(nowGen)
+		const at = source.draw(atGen)
 		return {
-			now,
-			existing: source.draw(array(existingGen(millisOf(now)), { min: 0, max: 3 })),
+			at,
+			chain: source.draw(
+				weighted<ReadonlyArray<Second>>([
+					[1, constant([])],
+					[1, draftedChainGen],
+					[2, chainEndingGen(oneOf([constant(at), secondGen]))],
+					[1, chainEndingGen(yearEndGen)]
+				])
+			),
 			nonsense: source.draw(array(nonsenseGen, { min: 0, max: 2 }))
 		}
 	}
@@ -635,41 +674,32 @@ const leapDayGen: Gen<Second> = (source) => ({
 	second: source.draw(edged(0, 59, [0, 59]))
 })
 
-/** A clock at any second, or, for a witness while February 29 is pending, at a second of a leap day. */
+/** Any second, or, for a witness while February 29 is pending, a second of a leap day. */
 export const stampingSpace = aimed(stampingOf(secondGen), [["February 29", stampingOf(leapDayGen)]])
 
 export type StampFeature =
 	| "no folder"
-	| "the clock past the newest folder"
-	| "the clock at the newest folder's second"
-	| "the clock behind the newest folder"
+	| "a chain drafted from nothing"
 	| "a text naming no second"
 	| "a day rolled over"
 	| "a year rolled over"
 	| "a timestamp past year 9999"
 	| "February 29"
 
-/** What a new folder's timestamp is by the oracle: the current second, or the second after the newest folder's. */
+/**
+ * What a new folder's timestamp is by the oracle: the second after the chain's last folder's, by day arithmetic, or the
+ * epoch's for a chain of none.
+ */
 export const nextOf = (s: Stamping, c: Case<StampFeature>): string => {
-	const current = digitsOf(s.now)
-	const newest = Arr.reduce(s.existing, Option.none<Second>(), (best, e) =>
-		Option.isSome(best) && digitsOf(best.value) >= digitsOf(e) ? best : Option.some(e)
-	)
-	if (Option.isNone(newest)) {
+	const last = Arr.last(s.chain)
+	if (Option.isNone(last)) {
 		c.note("no folder")
-		return current
+		return digitsOf(secondAt(0))
 	}
-	const newestDigits = digitsOf(newest.value)
-	if (current > newestDigits) {
-		c.note("the clock past the newest folder")
-		return current
+	if (Arr.every(s.chain, (f, i) => millisOf(f) === i * 1000)) {
+		c.note("a chain drafted from nothing")
 	}
-	c.note(
-		current === newestDigits
-			? "the clock at the newest folder's second"
-			: "the clock behind the newest folder"
-	)
-	const millis = millisOf(newest.value)
+	const millis = millisOf(last.value)
 	const next = secondAt(millis + 1000)
 	const was = secondAt(millis)
 	if (next.day !== was.day) {
@@ -726,7 +756,13 @@ type ConfigFault =
 	| { readonly kind: "an unknown setting"; readonly setting: "poolSize" | "migration" | "schema" }
 	| {
 			readonly kind: "a setting left out"
-			readonly setting: "schemas" | "logins" | "migrations" | "rolePrefixBytes" | "connection"
+			readonly setting:
+				| "schemas"
+				| "logins"
+				| "contracts"
+				| "migrations"
+				| "rolePrefixBytes"
+				| "connection"
 	  }
 	| { readonly kind: "an empty migrations path" }
 	| { readonly kind: "a rolePrefixBytes no bound"; readonly value: MalformedBound }
@@ -792,7 +828,14 @@ const configFaultGen = (schemas: number, logins: ReadonlyArray<number>): Gen<Con
 		[
 			1,
 			map(
-				element(["schemas", "logins", "migrations", "rolePrefixBytes", "connection"] as const),
+				element([
+					"schemas",
+					"logins",
+					"contracts",
+					"migrations",
+					"rolePrefixBytes",
+					"connection"
+				] as const),
 				(setting) => ({ kind: "a setting left out", setting })
 			)
 		],
@@ -1021,6 +1064,7 @@ export const valueOf = (
 		)
 	]
 	const config = defineConfig({
+		contracts: [],
 		schemas: [at(0).schema, ...Arr.drop(schemas, 1)],
 		logins,
 		migrations: migrationsOf(s.migrations).given,

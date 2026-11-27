@@ -61,7 +61,7 @@ const boxCases: ReadonlyArray<StoredKindsCase> = [
 	},
 	{
 		what: "a contract over a search document",
-		statement: 'contract("Doc", pg.tsvector("english"))',
+		statement: 'contract<typeof probeKey>()("Doc", pg.tsvector("english"))',
 		verdict: { kind: "refusal", refusal: searchRefusal }
 	},
 	{
@@ -117,7 +117,8 @@ const caseBlock = (c: StoredKindsCase, index: number): ReadonlyArray<string> => 
 const prelude = await Effect.runPromise(preludeAt("test/support/programs/stored-kinds.ts"))
 
 /** Lesson and Note, each with a generated document, Kept and Total, which store one and a computed numeric. */
-const storedKindsHeader = `const Title = str.bytes(200, str.regex("^.*$", "su"))
+const storedKindsHeader = `export const probeKey = Symbol("Probe")
+const Title = str.bytes(200, str.regex("^.*$", "su"))
 export const Lesson = relation.generated("Lesson", { id: pg.integer, title: Title }, ["id"], (r) => ({ search: searchDocument("english", ["A", r.title]) }))
 export const Note = relation.generated("Note", { id: pg.integer, body: Title }, ["id"], (r) => ({ search: searchDocument("simple", ["B", r.body]) }))
 export const Kept = relation("Kept", { id: pg.integer, doc: pg.tsvector("english") }, ["id"])

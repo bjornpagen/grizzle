@@ -41,9 +41,8 @@ import {
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { closedIndexOf, closedLeaf } from "#compiler/runtime/write/fill.ts"
-import { compiledExpr, type EvalLeaves } from "#compiler/scalar/compute/evaluate.ts"
+import { compiledExpr, type EvalLeaves, noParamLeaf } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
-import { everySlice } from "#compiler/schema/reach.ts"
 import { generatedField, generatedRelation } from "#compiler/schema/relation.ts"
 import { checkBuilder, selectBuilder } from "#compiler/schema/statements.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
@@ -468,7 +467,7 @@ const postgresAnswers = (
 const hostValueOf = (closed: EvalLeaves["closed"], expr: ScalarExpr, item: Item, id: number) => {
 	const table = predicateTable(expr)
 	return compiledExpr(table)(
-		{ value: undefined, column: hostColumns(item, id), closed },
+		{ value: undefined, column: hostColumns(item, id), closed, param: noParamLeaf },
 		ProgramPatterns.of(tablePatterns(table))
 	)
 }
@@ -538,6 +537,7 @@ const lawName = (law: Law): string => {
 		case "fold":
 		case "contract":
 		case "pattern":
+		case "variant":
 		case "sealed":
 			return law.kind
 	}
@@ -647,7 +647,7 @@ export const nullCase = (nc: NullCase, notes: Case<Feature>) =>
 		}
 		const owned = owning(built.Null)
 		const model = succeeded(
-			compileLaws(owned, everySlice(owned), { kind: "planned" }),
+			compileLaws(owned, { kind: "planned" }),
 			"the case's schema compiles its laws"
 		)
 		const closed = closedRowsOf(model)

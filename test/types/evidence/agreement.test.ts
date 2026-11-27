@@ -113,6 +113,14 @@ export const evidence = agreement(evidenceSpace, {
 			reason:
 				"an approximate search over a region of Item, a relation parameter, Owned bound and Slot that negates OwnerCounts at the parameter's id: OwnerCounts is computed at the keys the region reads, a key set of the statement's WITH that reads the region's own sources, Slot among them, which its first read defined inside the scope that reads Slot through the search's ordered stream, so the key set read that very stream again, its query spliced into the WITH a second time under a column list of Slot's heading, short of the stream's distance, and a second search that may find fewer rows than the region's, the negation then missing keys; the key set reads Slot itself (TEST_SEED=2219874524, trunk red since 7c0f2c554)",
 			since: "2026-11-24"
+		},
+		{
+			token: ReplayToken(
+				"test/types/evidence/agreement.test.ts#evidence:1ffffffffffffffffffffffff.1a:0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.1.0.0.0.0.0.0.0.0.0.0.0.1.0.1.0.0.0.0.0.0.0.0.0.1.0.0.0.1.0.0.0.0.0.0.0.0.1.0.0.0.1.0.1.0.0.0.0.0.0.0"
+			),
+			reason:
+				"an approximate search over Item, an interior stage of Item equated to the item by a where, and Slot under a range filter: the semi-join rewrite took the stage out of the region and left the projection restoring the region's heading between it and the filter, which the lowering's trace of the search stopped at, refusing a search the checker admitted (UnsupportedOperation, the ranked vector from a rule whose head produces spans); the trace passes the projections a rewrite leaves between the region and the rule's filters (check/approximate/trace.ts toRegion; floor seed 0xa72d70a7, base red at b2a268bd4)",
+			since: "2026-11-27"
 		}
 	],
 	kills: [
@@ -131,7 +139,7 @@ export const evidence = agreement(evidenceSpace, {
 		},
 		{
 			file: "packages/engine/src/check/approximate/trace.ts",
-			original: "\tconst scored = zeroPeeled(out.expr).term\n",
+			original: "\tconst scored = canonicalPeeled(out.expr).term\n",
 			replacement: "\tconst scored = out.expr\n",
 			why: "An approximate search's score is read without its canonical zero, which the merge completion puts on a float its head delivers (check/complete.ts), so the lowering refuses a cosine distance the checker admitted; a clean drawn query's nearest search dies."
 		},
@@ -155,8 +163,8 @@ export const evidence = agreement(evidenceSpace, {
 		},
 		{
 			file: "packages/engine/src/scalar/compute/typing.ts",
-			original: "\t\tif (!meets(against.nominal, term.nominal) && !refinedPair(against, term)) {",
-			replacement: "\t\tif (!meets(against.nominal, term.nominal)) {",
+			original: "\t\tif (!meets(against, term.nominal) && !refinedPair(against, term.nominal)) {",
+			replacement: "\t\tif (!meets(against, term.nominal)) {",
 			why: "The engine refuses an equality of two refinements of one base carrier, where the types admit it: the program of the witness of an equality across refining types fails."
 		},
 		{
@@ -197,6 +205,14 @@ export const faults = agreement(faultSpace, {
 			reason:
 				"a Reader query over Item binding its cost, a Cents contract that declares nonnegative, to a parameter: its map's entry is ParamType of the contract's domain, its brand and declared fact with it, where the oracle wrote the plain base's, bigint, once a contract's descriptor held its carrier and contract alone (011a72711) and its domain was read off the base (test/support/agreement/heading.ts paramDomain)",
 			since: "2026-11-19"
+		},
+		{
+			token: ReplayToken(
+				"test/types/evidence/agreement.test.ts#faults:-:b.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.1.0.3.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.1.0.0.0"
+			),
+			reason:
+				"Item, Owned bound at the item's id and matched at a variable a where equates to it, an interior stage and Slot: Owned's rows read the id's class and bind it, which the existence rule told apart by name, so they passed for its binder, Item's match became an existence test, and the region had no order in which Owned follows what it reads (UnsupportedOperation at the lowering); reads and bindings are told apart by class (lower/optimize/existence unreadBindings; seed 0xc0714ea1, base red at b2a268bd4)",
+			since: "2026-11-27"
 		}
 	],
 	kills: [
@@ -263,6 +279,26 @@ export const admission = boxAgreement(admissionBox, {
 				"\t\tUnionToIntersection<{ [K in keyof A]-?: ParamsContribution<ParamsOf<A[K]>> }[keyof A]>\n",
 			replacement: "\t\tUnionToIntersection<{ [K in keyof A]-?: ParamsOf<A[K]> }[keyof A]>\n",
 			why: "ChangeSet.bind folds its bind map's values as maps, so the value bound to p, which needs none, is unknown beside the query of q (valueBeside) and erases q: the write states no parameter where the engine needs q; the program fails."
+		},
+		{
+			file: "packages/engine/src/types/core/phantom.ts",
+			original:
+				"export type NegationFreeEach<Ps> = { readonly [I in keyof Ps]: Ps[I] & NegationFree<Ps[I]> }\n",
+			replacement:
+				"export type NegationFreeEach<Ps> = {\n\treadonly [I in keyof Ps]: Ps[I] & (I extends number ? unknown : NegationFree<Ps[I]>)\n}\n",
+			why: "A disjunction's list holds its fixed positions alone negation-free, never an array's element: a relational negation in the array a disjunction's list spreads, the rule's or Logic's (spreadInDisjunction), is admitted by the types where the engine refuses it; the program fails."
+		},
+		{
+			file: "packages/engine/src/types/core/phantom.ts",
+			original: "\t: Xs extends ReadonlyArray<infer X>\n\t\t? ParamsOfTerm<X>\n\t\t: unknown\n",
+			replacement: "\t: unknown\n",
+			why: "A list's parameters are its fixed positions' alone, an array's elements' dropped: Logic.or over a list a spread array of a parameter's predicates leads (besideSpreadLedComputeDisjunction) states no parameter where the engine needs p; the program fails."
+		},
+		{
+			file: "packages/engine/src/types/compute/compute.ts",
+			original: "\t\tps: NegationFreeEach<Qs>\n",
+			replacement: "\t\tps: Qs & { readonly [I in keyof Qs]: NegationFree<Qs[I]> }\n",
+			why: "Logic.or takes the list intersected with its refusals, as before: a list a spread array leads, qti-pie's E1_derived shape (besideSpreadLedComputeDisjunction), is typed an array no tuple of a leading rest holds (TS2345), where the engine admits it; the program fails."
 		}
 	]
 })
@@ -307,9 +343,48 @@ export const reordered = property.explore(oneOf([agreementCases, faultCases]), {
 			reason:
 				"a count over two matches of OwnerCounts, Rollup's live derived relation keyed by its owner, each binding its owner to a parameter: each match binds a key of the relation, so the fold reads each fact once, where the engine read a live derived relation as an import of its definition, a set keyed by its whole heading, and refused the fold as binding none of its keys, (owner, items), naming no relation; the types, and a stored OwnerCounts, read its proven key (TEST_SEED=2219874524, trunk red since e1b52df00 made OwnerCounts live)",
 			since: "2026-11-24"
+		},
+		{
+			token: ReplayToken(
+				"test/types/evidence/agreement.test.ts#reordered:-:0.6.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.1.0.0.0.1.0.1.0.0.0.0.1.0.1.1.1.0.0.0.0.0.0.3.0.0.0.0.0.0.3.1.1.0.0.0.0.0.0.0.0.1.1.0.2.0.0.1.0.1.0.0.0.0.1.1.0.1.0.0.2.0.0.0.0.0.0.0.0.0.1.0.1.0.1.1.1.0.0.0.0.1.0.0.1.0.0.0.0.0"
+			),
+			reason:
+				"a union whose rule reads an owned item bound at a tag's item beside the stage that binds the same item, read per row of a driven key set: the key's chain led with the owned items, whose correlation read the stage's id, the occurrence that first bound the item in placement order, so their fenced read named the stage's alias before it was in scope (\"r20\" is not a relation in scope); the chain places each step after every occurrence its derived table reads (lower/shapes/region readableOrder; slice 2 red, the gate of FOLDKEY's combined landing)",
+			since: "2026-11-26"
+		},
+		{
+			token: ReplayToken(
+				"test/types/evidence/agreement.test.ts#reordered:-:0.0.0.0.0.0.0.0.1.0.1.3.1.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.1.0.3.1.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.1.1.0.0.3.0.0.1.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.1.c.0.0.0.0.0"
+			),
+			reason:
+				"an approximate search ranking a second match of Slot, beside Item pinned at a handle, Tag equated to the first Slot's item, and the Tones union: the semi-join rewrite took Tag out of the region and left the projection restoring its heading, narrowed by demand to the vector column, between the region and the search's projection, where the lowering's trace stopped and refused a search the checker admitted; the trace passes the projections a rewrite leaves between the region and the rule's filters (check/approximate/trace.ts toRegion; seed 0xe1d76d2e, base red at b2a268bd4)",
+			since: "2026-11-27"
+		},
+		{
+			token: ReplayToken(
+				"test/types/evidence/agreement.test.ts#reordered:-:1.h.0.0.0.1.1.1.1.0.0.0.0.0.0.1.0.1.0.0.0.0.1.0.0.1.0.0.0.0.1.3.1.1.0.1.1.0.1.1.0.0.0.0.0.0.0.0.1.0.1.1.0.0.0.0.0.0.0.0.0.0.1.0.0.1.1.0.0.2.2.0.2.0.3.0.0.1.1.0.0.2.0.1.0.2.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.1.0.0.0.0.0.0.0.0.1.0"
+			),
+			reason:
+				"an approximate search over Item pinned by its key, Owned bound at a parameter, an interior stage equated to the item's n, which a parameter fixes, Slot and the Tones union: the semi-join rewrite's restoring projection held n under its class's other name, then constant propagation made it the parameter, a projection that computes a column, where the trace stopped (seed 0x80ae3f4d, found once the first projections passed)",
+			since: "2026-11-27"
+		},
+		{
+			token: ReplayToken(
+				"test/types/evidence/agreement.test.ts#reordered:-:1.0.0.0.0.0.0.0.0.1.0.3.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.0.0.0.1.0.1.0.0.0.0.0.0.0.0.0.0.0.3.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.4.0.0.1.0.1.1.1.0.0.0.1.0.1.0.0.0.1.0.0.0.0.0.0.0.0"
+			),
+			reason:
+				"Tone, Item at its owner pinned to a handle, Owned bound at the item's owner and matched at its n, and Slot under a span filter, where item.owner = slot.item: Slot binds the owner's class, so the semi-join rewrite took Item out, and Owned, still correlated on the item's owner, which the region no longer bound, had no order to follow it in (UnsupportedOperation at the lowering); a remaining source reads the class's kept member instead, Slot's item (lower/optimize/existence redirectReads; seed 0x437f2318)",
+			since: "2026-11-27"
 		}
 	],
 	kills: [
+		{
+			file: "packages/engine/src/lower/shapes/region/index.ts",
+			original:
+				"\tconst placed = readableOrder(\n\t\torder.map((o) => partOf(o.occurrence)),\n\t\twithin\n\t).map((part) => ({\n",
+			replacement: "\tconst placed = order.map((o) => partOf(o.occurrence)).map((part) => ({\n",
+			why: "The chain takes its steps in the key's order alone, as before: the kept union's owned items, ordered before the stage whose id their correlation reads, name that stage's alias before it is in scope, and the lowering breaks its statement audit; the property fails."
+		},
 		{
 			file: "packages/engine/src/query/build/rule.ts",
 			original: "!isPlainRecord(head)",

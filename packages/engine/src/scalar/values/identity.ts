@@ -10,7 +10,14 @@ import { type TextsId, textsId, validateText } from "#compiler/core/text.ts"
 import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { codeOf, type HandleOrder, handlesText, type RosterCodec } from "#compiler/ir/codes.ts"
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
-import { baseOf, type Carrier, integerTypmodOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import {
+	baseOf,
+	type Carrier,
+	integerTypmodOf,
+	isNonIdentity,
+	type NonIdentityCarrier,
+	type ScalarType
+} from "#compiler/ir/scalar.ts"
 import { statedRoster } from "#compiler/scalar/values/bits.ts"
 import {
 	AdmittedBytes,
@@ -46,6 +53,7 @@ import {
 	type Inet,
 	netValueOf
 } from "#compiler/scalar/values/net.ts"
+import { recordText } from "#compiler/scalar/values/record.ts"
 import {
 	admitSpan,
 	compareSpan,
@@ -70,7 +78,33 @@ type PlainCarrier = Exclude<
 	| "range8"
 	| "rangeDate"
 	| "bytes"
+	| "variant"
 >
+
+/** One field of a variant's arm as a spec reads it: its name and its own type's spec. */
+export interface VariantFieldSpec {
+	readonly name: string
+	readonly spec: CarrierSpec
+}
+
+/**
+ * One arm of a variant as a spec reads it: its fields in declared order, each with `at`, the attribute of the variant's
+ * composite it is, in the variant's layout under the installation's codes (ir/codes.ts variantLayout).
+ */
+export interface VariantArmSpec {
+	readonly fields: ReadonlyArray<
+		VariantFieldSpec & { readonly at: number; readonly zero: number | undefined }
+	>
+}
+
+/**
+ * A variant's host value: its arm's handle under `tag`, and the host value of each of that arm's fields under its name,
+ * frozen, its keys the tag and then the arm's fields in declared order (admitVariant).
+ */
+export interface VariantValue {
+	readonly tag: string
+	readonly [field: string]: unknown
+}
 
 /**
  * What a carrier needs beyond its name to admit a value. A closed id and a set over a roster carry the roster's codes,
@@ -98,6 +132,15 @@ export type CarrierSpec =
 	| { readonly carrier: "bits"; readonly roster: RosterCodec }
 	| { readonly carrier: "vector"; readonly dimensions: number }
 	| { readonly carrier: "range4" | "range8" | "rangeDate"; readonly width: bigint | undefined }
+	| {
+			readonly carrier: "variant"
+			/** The tag's roster's codes: a value is written by its tag's code, as a closed id is. */
+			readonly roster: RosterCodec
+			/** Each live handle's arm, by handle. */
+			readonly arms: ReadonlyMap<string, VariantArmSpec>
+			/** The composite's attributes: the tag and every arm's fields. */
+			readonly attributes: number
+	  }
 
 export interface CarrierHost {
 	readonly int2: number
@@ -134,6 +177,8 @@ export interface CarrierHost {
 	readonly tsvector: string
 	readonly exactInteger: bigint
 	readonly exactMoney: Money
+	/** A variant's host value is its arm's handle and that arm's fields' host values (VariantValue). */
+	readonly variant: VariantValue
 }
 
 /** A value of some carrier as the host holds it: its carrier's host value (CarrierHost). */
@@ -167,6 +212,11 @@ interface SpecExtras {
 	readonly rangeDate: { readonly width: bigint | undefined }
 	readonly exactInteger: { readonly typmod: NumericTypmod | undefined }
 	readonly exactMoney: unknown
+	readonly variant: {
+		readonly roster: RosterCodec
+		readonly arms: ReadonlyMap<string, VariantArmSpec>
+		readonly attributes: number
+	}
 }
 
 /** The spec of one carrier, its carrier exactly C. */
@@ -224,6 +274,13 @@ interface OrderExtras {
 	readonly rangeDate: unknown
 	readonly exactInteger: unknown
 	readonly exactMoney: unknown
+	readonly variant: {
+		readonly roster: HandleOrder
+		readonly arms: ReadonlyMap<
+			string,
+			{ readonly fields: ReadonlyArray<{ readonly name: string; readonly spec: OrderSpec }> }
+		>
+	}
 }
 
 /** What the order of one carrier's values reads, its carrier exactly C. Every carrier's spec is one (CarrierSpec). */
@@ -329,6 +386,49 @@ export const admitHandles = (
 }
 
 /**
+ * A variant's value, read once into a frozen record grizzle alone holds: a plain record whose own keys are exactly `tag`,
+ * a live handle of the variant's roster, and that arm's fields, each admitted by its own spec through `admit` (the
+ * exact parse of a caller's value, or PostgreSQL's coercion of one grizzle computed). A value that is no such record is
+ * variantType, a tag no arm holds variantTag, and a field its spec refuses that field's own fault.
+ */
+const admitVariant = (
+	value: unknown,
+	spec: SpecExtras["variant"],
+	admit: (spec: CarrierSpec, value: unknown) => Result.Result<HostValue, ValueFault>
+): Result.Result<VariantValue, ValueFault> => {
+	if (!isPlainRecord(value)) {
+		return Result.err("variantType")
+	}
+	const tag = value["tag"]
+	if (typeof tag !== "string") {
+		return Result.err("variantType")
+	}
+	const arm = spec.arms.get(tag)
+	if (arm === undefined) {
+		return Result.err("variantTag")
+	}
+	if (Reflect.ownKeys(value).length !== arm.fields.length + 1) {
+		return Result.err("variantType")
+	}
+	const held: Record<string, unknown> = { tag }
+	for (const field of arm.fields) {
+		if (!Object.hasOwn(value, field.name)) {
+			return Result.err("variantType")
+		}
+		const fieldValue: unknown = value[field.name]
+		if (fieldValue === null || fieldValue === undefined) {
+			return Result.err("variantType")
+		}
+		const admittedField = admit(field.spec, fieldValue)
+		if (!admittedField.ok) {
+			return admittedField
+		}
+		held[field.name] = admittedField.value
+	}
+	return Result.ok(Object.freeze({ ...held, tag }))
+}
+
+/**
  * A money field's value: a Money (one this module's mint made, which `instanceof` checks) whose count is within int64,
  * the range of PostgreSQL's money. An exact amount outside it, money arithmetic's, is no money value.
  */
@@ -370,7 +470,8 @@ const coercions: Admitters = {
 	vector: (value, spec) => admitVector(value, spec.dimensions),
 	tsvector: (value) => parseSearchDocument(value),
 	exactInteger: (value, spec) => integerAt(value, spec.typmod),
-	exactMoney: (value) => (value instanceof Money ? Result.ok(value) : Result.err("moneyType"))
+	exactMoney: (value) => (value instanceof Money ? Result.ok(value) : Result.err("moneyType")),
+	variant: (value, spec) => admitVariant(value, spec, (field, v) => storedValue(field, v))
 }
 
 /**
@@ -382,7 +483,8 @@ const coercions: Admitters = {
 const parsers: Admitters = {
 	...coercions,
 	numeric: (value, spec) => decimalAt(parseNumeric)(value, spec),
-	float4: (value) => parseReal(value)
+	float4: (value) => parseReal(value),
+	variant: (value, spec) => admitVariant(value, spec, (field, v) => parseValue(field, v))
 }
 
 /**
@@ -414,7 +516,8 @@ export const unreadableOf: { readonly [C in Carrier]: () => ValueFault } = {
 	vector: () => "vectorType",
 	tsvector: () => "textType",
 	exactInteger: () => "integerType",
-	exactMoney: () => "moneyType"
+	exactMoney: () => "moneyType",
+	variant: () => "variantType"
 }
 
 /** One carrier's entry of an admitter table, read through the spec's own carrier, its value read once (hostRead). */
@@ -479,7 +582,9 @@ const hostChecks: { readonly [C in Carrier]: (value: unknown) => value is Carrie
 	vector: isVector,
 	tsvector: isString,
 	exactInteger: isBigint,
-	exactMoney: (value) => value instanceof Money
+	exactMoney: (value) => value instanceof Money,
+	variant: (value): value is VariantValue =>
+		isPlainRecord(value) && Object.isFrozen(value) && typeof value["tag"] === "string"
 }
 
 /** Whether a value has the host type of a carrier. */
@@ -515,7 +620,32 @@ const canonicalTexts: CanonicalTexts = {
 	vector: (v) => Vector.componentText(v),
 	tsvector: (v) => v,
 	exactInteger: (v) => String(v),
-	exactMoney: (v) => v.toString()
+	exactMoney: (v) => v.toString(),
+	variant: (v, spec) => variantText(v, spec)
+}
+
+/**
+ * A variant value's one text: the record literal of its composite (ir/scalar.ts VariantType), `(` the tag's code, then
+ * each attribute, its arm's fields' canonical texts at their attributes and every other arm's left unwritten, NULL,
+ * `)`. It is the parameter text record_in reads into the variant's domain, which checks each attribute's own domain
+ * and the arm the tag names, and the fact identity's part: two values are one exactly where their tags are and each
+ * field's canonical text is, since each attribute is quoted and so framed.
+ */
+const variantText = (value: VariantValue, spec: SpecExtras["variant"]): string => {
+	const arm = defined(spec.arms.get(value.tag), "an admitted variant's arm")
+	const attributes: Array<string | undefined> = Array.from(
+		{ length: spec.attributes },
+		() => undefined
+	)
+	attributes[0] = String(codeOf(spec.roster, value.tag))
+	for (const field of arm.fields) {
+		const held = value[field.name]
+		attributes[field.at] = canonicalText(field.spec, hostOf(field.spec.carrier, held))
+		if (field.zero !== undefined) {
+			attributes[field.zero] = Object.is(held, -0) ? "t" : "f"
+		}
+	}
+	return recordText(attributes)
 }
 
 /**
@@ -632,7 +762,42 @@ const comparators: Comparators = {
 	vector: (x, y) => Vector.compare(x, y),
 	tsvector: (x, y) => compareCodePoints(x, y),
 	exactInteger: (x, y) => compareOrdered(x, y),
-	exactMoney: (x, y) => x.compare(y)
+	exactMoney: (x, y) => x.compare(y),
+	variant: (x, y, order) => compareVariants(x, y, order)
+}
+
+/**
+ * Two variant values in PostgreSQL's record order of their composite: by their tags' codes, the order's rank (ir/codes.ts
+ * HandleOrder), then, under one tag, field by field in the arm's declared order, each by its own type's order, a float's
+ * then by its zero sign, false first, so 0 before -0 (ir/codes.ts FieldLayout `zero`); every other arm's attributes are
+ * absent alike in both, which record order holds equal.
+ */
+const compareVariants = (
+	x: VariantValue,
+	y: VariantValue,
+	order: OrderExtras["variant"]
+): -1 | 0 | 1 => {
+	const byTag = sign(rankOf(order.roster, x.tag) - rankOf(order.roster, y.tag))
+	if (byTag !== 0) {
+		return byTag
+	}
+	const arm = defined(order.arms.get(x.tag), "a compared variant's arm")
+	for (const field of arm.fields) {
+		const { spec } = field
+		const a = x[field.name]
+		const b = y[field.name]
+		const byField = compareValues(spec, hostOf(spec.carrier, a), hostOf(spec.carrier, b))
+		if (byField !== 0) {
+			return byField
+		}
+		if (spec.carrier === "float4" || spec.carrier === "float8") {
+			const byZero = sign(Number(Object.is(a, -0)) - Number(Object.is(b, -0)))
+			if (byZero !== 0) {
+				return byZero
+			}
+		}
+	}
+	return 0
 }
 
 /**
@@ -667,7 +832,8 @@ export const equalByIdentity: { readonly [C in Carrier]: boolean } = {
 	vector: false,
 	tsvector: true,
 	exactInteger: true,
-	exactMoney: false
+	exactMoney: false,
+	variant: false
 }
 
 /**
@@ -698,7 +864,7 @@ export const compareValues = <C extends Carrier>(
  */
 export const hostOf = <C extends Carrier>(carrier: C, value: unknown): CarrierHost[C] => {
 	if (!isHostValue(carrier, value)) {
-		throw defect(`a ${carrier} host value`)
+		defect(`a ${carrier} host value`)
 	}
 	return value
 }
@@ -707,7 +873,7 @@ export const hostOf = <C extends Carrier>(carrier: C, value: unknown): CarrierHo
 const decimalOfInteger = (x: bigint): Decimal => {
 	const d = Decimal.fromBigInt(x)
 	if (!d.ok) {
-		throw defect(
+		defect(
 			"an integer numeric's value is a Decimal: its typmod bounds it far inside numeric's format"
 		)
 	}
@@ -736,7 +902,7 @@ export const heldValue = (t: ScalarType, value: unknown): HostValue => {
 	}
 	const x = integerOfDecimal(hostOf("numeric", value))
 	if (x === undefined) {
-		throw defect("an evaluated integer numeric is an integer")
+		defect("an evaluated integer numeric is an integer")
 	}
 	return x
 }
@@ -756,15 +922,22 @@ export const admittedText = <C extends Carrier>(
 	value: unknown
 ): string => canonicalText(spec, admitted(spec, value))
 
+/** The canonical text of each carrier whose equality is no identity, of its canonical text (keyText): a float's -0 0. */
+const canonicalKeyText: { readonly [C in NonIdentityCarrier]: (text: string) => string } = {
+	float4: (text) => (text === floatText(-0) ? floatText(0) : text),
+	float8: (text) => (text === floatText(-0) ? floatText(0) : text)
+}
+
 /**
- * The text a key compares a value by, of its canonical text (canonicalText): the text itself, but a float zero's, -0's
- * and +0's alike, since PostgreSQL's equality holds them one key: two values of one type share a key text exactly when
- * that equality holds them equal, as a key's same-key refusal reads them, where a fact's identity tells them apart.
+ * The text a key compares a value by, of its canonical text (canonicalText): the text itself where its carrier's
+ * equality is identity (ir/scalar.ts equalityIsIdentity), else its canonical form's, a float zero's, -0's and +0's
+ * alike, since PostgreSQL's equality holds them one key: two values of one type share a key text exactly when that
+ * equality holds them equal, as a key's same-key refusal reads them, where a fact's identity tells them apart. A
+ * variant's is its text itself: its one equality is its identity, which its composite's record equality is, each float
+ * field's zero sign beside it (ir/codes.ts FieldLayout `zero`).
  */
 export const keyText = (spec: CarrierSpec, text: string): string =>
-	(spec.carrier === "float4" || spec.carrier === "float8") && text === floatText(-0)
-		? floatText(0)
-		: text
+	isNonIdentity(spec.carrier) ? canonicalKeyText[spec.carrier](text) : text
 
 export interface HeadingField {
 	readonly name: string
@@ -863,7 +1036,23 @@ const sameExtras: { readonly [C in Carrier]: (a: SpecOf<C>, b: CarrierSpec) => b
 	vector: (a, b) => b.carrier === "vector" && a.dimensions === b.dimensions,
 	tsvector: (_, b) => b.carrier === "tsvector",
 	exactInteger: (a, b) => b.carrier === "exactInteger" && sameTypmod(a.typmod, b.typmod),
-	exactMoney: (_, b) => b.carrier === "exactMoney"
+	exactMoney: (_, b) => b.carrier === "exactMoney",
+	variant: (a, b) =>
+		b.carrier === "variant" &&
+		sameCodes(a.roster, b.roster) &&
+		a.attributes === b.attributes &&
+		a.arms.size === b.arms.size &&
+		Array.from(a.arms).every(([handle, arm]) => {
+			const other = b.arms.get(handle)
+			return (
+				other !== undefined &&
+				other.fields.length === arm.fields.length &&
+				arm.fields.every((f, i) => {
+					const g = other.fields[i]
+					return g !== undefined && f.name === g.name && f.at === g.at && sameSpec(f.spec, g.spec)
+				})
+			)
+		})
 }
 
 /** Whether two specs admit, part and spell every value alike (`sameExtras`). */
@@ -892,21 +1081,34 @@ const unshapedFact = (): FactFault => ({ fault: "factShape", field: undefined })
 
 /**
  * One own field of a fact, read once through its descriptor: a data property's value, or what its getter returns
- * when called once; none when the fact has no such own field.
+ * when called once; factShape when the fact has no such own field or its read throws.
  */
-const ownField = (fact: object, name: string): Result.Result<unknown, FactFault> =>
-	hostRead<unknown, FactFault>(
-		() => ({ fault: "factShape", field: name }),
+const ownField = (fact: object, name: string): Result.Result<unknown, CodecFault> =>
+	hostRead<unknown, CodecFault>(
+		() => "factShape",
 		() => {
 			const descriptor = Reflect.getOwnPropertyDescriptor(fact, name)
 			if (descriptor === undefined) {
-				return Result.err({ fault: "factShape", field: name })
+				return Result.err("factShape")
 			}
 			const value: unknown =
 				descriptor.get === undefined ? descriptor.value : Reflect.apply(descriptor.get, fact, [])
 			return Result.ok(value)
 		}
 	)
+
+/**
+ * A field `name` of a caller's fact read as `spec`'s, the one reading of a stated field, every reader's, a write's
+ * fact's (readFact) and an evaluated row's (program/evaluate.ts admission): its own field read once (`ownField`), a
+ * field the fact lacks, or one whose read throws, factShape; then its value admitted (`admitValue`), NULL or undefined
+ * the null ban's nullValue.
+ */
+export const readField = (
+	spec: CarrierSpec,
+	fact: object,
+	name: string
+): Result.Result<HostValue | Uint8Array, CodecFault> =>
+	Result.flatMap(ownField(fact, name), (value) => admitValue(spec, value))
 
 /**
  * A fact read against its heading and its values admitted, its bytes values not yet digested: each field's value in the
@@ -960,11 +1162,7 @@ export const readFact = (plan: HeadingPlan, fact: unknown): Result.Result<ReadFa
 	const values: Array<unknown> = []
 	const parts: Array<string> = []
 	for (const field of entries) {
-		const read = ownField(fact, field.name)
-		if (!read.ok) {
-			return Result.err(read.error)
-		}
-		const value = admitValue(field.spec, read.value)
+		const value = readField(field.spec, fact, field.name)
 		if (!value.ok) {
 			return Result.err({ fault: value.error, field: field.name })
 		}
@@ -1039,7 +1237,8 @@ const heldAs: { readonly [C in Carrier]: "shared" | "again" } = {
 	vector: "again",
 	tsvector: "shared",
 	exactInteger: "shared",
-	exactMoney: "shared"
+	exactMoney: "shared",
+	variant: "again"
 }
 
 /** The positions among a planned heading's entries of the fields whose values a write takes again (`heldAs`). */
@@ -1094,7 +1293,7 @@ const admittedRead = (value: unknown, name: string): AdmittedBytes => {
 		return value
 	}
 	if (!(value instanceof Uint8Array)) {
-		throw defect(`a read fact's bytes field ${name}, the caller's array`)
+		defect(`a read fact's bytes field ${name}, the caller's array`)
 	}
 	return new AdmittedBytes(value)
 }

@@ -14,7 +14,7 @@ import { derivedLaw, namedLaw } from "#compiler/runtime/law-entry.ts"
 import type { UniqueAbort } from "#compiler/runtime/write/steps.ts"
 import type { StatementAt } from "#compiler/runtime/write/witness.ts"
 import type { Law, RefusingObject, Witness } from "#compiler/types/changeset/changeset.ts"
-import { wild } from "#test/support/kernel/naming.ts"
+import { parsedName, wild } from "#test/support/kernel/naming.ts"
 import { resolveCase } from "#test/support/oracle/public/generate.ts"
 import { lawFeatures } from "#test/support/oracle/public/laws.ts"
 import { encodeRefusalDetail } from "#test/support/oracle/write/detail.ts"
@@ -173,7 +173,7 @@ export const aServerErrorAtAWriteMeansWhatTheClassificationRulesSayOfTheFieldsGr
 									name: identifierOf(
 										identity.domainCheck(
 											c.carrier === "code"
-												? identity.rosterDomain(codec.roster)
+												? identity.rosterDomain(parsedName(codec.roster))
 												: identity.bitsDomain(codec.roster, codec.width)
 										)
 									),

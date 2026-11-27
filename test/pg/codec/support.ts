@@ -110,6 +110,8 @@ export const wireSql = (descriptor: ScalarType, names: SqlNames): string => {
 			return type.digits <= 18 ? "int8" : "numeric"
 		case "exactMoney":
 			return "numeric"
+		case "variant":
+			throw new Error("no codec case draws a variant")
 	}
 }
 

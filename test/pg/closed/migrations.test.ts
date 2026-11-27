@@ -10,8 +10,8 @@
  * - **grow, re-add:** the roster takes the next code; a set column widens to bit(n′) where its codes pass a whole hex
  *   digit, and keeps every stored set;
  * - **remove:** the handle's code becomes a hole. Where a row or a set still holds it, the domain's VALIDATE fails with
- *   23514 naming the table and the column of each, unless the reviewer drafted the data step into the folder; after a
- *   refusal the data step runs and the migration applies. VALIDATE fails exactly when the model says a row holds the
+ *   23514 naming the table and the column of each, unless the data step was drafted as a custom migration applied
+ *   with the removal, before it; after a refusal the data step runs and the migration applies. VALIDATE fails exactly when the model says a row holds the
  *   removed code and no data step ran, and names exactly the columns that hold it;
  * - **reorder:** refused before anything is drafted, naming the pair it puts out of their codes' order, which the model
  *   names too; nothing changes;
@@ -33,9 +33,10 @@
  * The roster is drawn by A8's generator in spellings a swarm picks per case, so its handles meet an array literal's
  * quoting (`NULL`, a comma, a quote, a brace, a 63-byte multibyte name). Each case's commands are a swarm drawn per case
  * (testing doctrine, rule 7); the all-off draw is guarded by keeping `write`, which applies in every state, always on,
- * so no program stalls. Bound: programs of one to six steps over a roster installed with two to four handles. A
- * reviewer that drafts a data step puts it in the drafted file the plan places its VALIDATE in (planFiles), read from
- * the plan's steps, never from the SQL text.
+ * so no program stalls. Bound: programs of one to six steps over a roster installed with two to four handles. A data
+ * step drafted is a custom migration (README, Data steps) applied with the removal, before it, and one run after a
+ * refusal runs in a transaction of its own inside the guard bracket over the table it writes (physical/ddl/immutable.ts
+ * guardBracket): a closed relation's rows are removed by that bracket alone.
  *
  * Features: a handle grown, removed and declared again, a reorder and an undeclared drop refused, VALIDATE refusing a
  * removed code a row holds and a removed bit a set holds, a data step drafted, a set column widened and a set stored,
@@ -62,7 +63,12 @@ import {
 import { liveOf } from "#test/support/closed/generate.ts"
 import { migrated, noObservation } from "#test/support/installed.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
-import { Substrate, worldSession, baseSubstrate } from "#test/support/substrate/substrate.ts"
+import {
+	baseSubstrate,
+	claimsOfNoFact,
+	Substrate,
+	worldSession
+} from "#test/support/substrate/substrate.ts"
 
 /** Roster migrations on PostgreSQL 19 every migration of a roster's history leaves the installation the model's, and VALIDATE and the closed-only law refuse exactly what the model refuses. */
 export const rosterMigrations = property.explore(steered(runGen), {
@@ -107,7 +113,7 @@ export const rosterMigrations = property.explore(steered(runGen), {
 						const first = defined(builds[0], "the first version")
 						const substrate = yield* Substrate
 						const writer = yield* substrate.session({
-							...worldSession(m.world(first.writer)),
+							...worldSession(m.world(first.writer), claimsOfNoFact),
 							label: "writer"
 						})
 						const sys: System = {

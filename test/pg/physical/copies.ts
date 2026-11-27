@@ -7,12 +7,12 @@
  * never grown.
  */
 import { Array as Arr, Effect, Option, String as Str } from "effect"
-import { quoteIdent } from "#compiler/core/text.ts"
+import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { printCommands } from "#compiler/sql/print.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { insertOf } from "#test/support/substrate/fill.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { autovacuumOff, Substrate } from "#test/support/substrate/substrate.ts"
 
 /** A table a copy is made of: its schema, its name, and both quoted and qualified. */
 export interface CopiedTable {
@@ -41,8 +41,11 @@ const textsOf = (
  * (LIKE ... INCLUDING ALL EXCLUDING STATISTICS), each index in its table's order, so ties PostgreSQL breaks by the
  * latest index fall alike), then the table's declared statistics, the installation's own declaration
  * (physical/statistics/statistics.ts) printed over the copy, each declared dependency a statistics object of the copy's
- * own, none where the installation declares none. In a transaction the caller rolls back, the copy goes with
- * it; outside one, the caller drops it (dropCopy).
+ * own, none where the installation declares none; and autovacuum kept out of it (substrate.ts autovacuumOff), so each
+ * state a law names by the VACUUMs it ran is the one PostgreSQL plans over, never one an autovacuum visit made of it
+ * between them (plan-shape's state loaded over a rolled-back load, never vacuumed: a key probe read through the
+ * judge's index on (doc, part) in one run of NOSETTINGS's at 0x928210aa, case 21, and through its key in every replay).
+ * In a transaction the caller rolls back, the copy goes with it; outside one, the caller drops it (dropCopy).
  */
 export const standCopy = (
 	installation: Installation,
@@ -55,6 +58,7 @@ export const standCopy = (
 			`CREATE TABLE ${copy.quoted} (LIKE ${table.quoted} INCLUDING ALL EXCLUDING STATISTICS)`,
 			[]
 		)
+		yield* admin.query(autovacuumOff(`ARRAY[${quoteString(copy.quoted)}::pg_catalog.regclass]`), [])
 		const declarations = Arr.flatMap(installation.manifest.objects, (o) =>
 			o.kind === "statistics"
 				? Arr.flatMap(o.ddl, (s) =>

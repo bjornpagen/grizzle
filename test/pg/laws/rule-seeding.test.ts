@@ -44,19 +44,25 @@
  *   finds a row exactly where it does. Then SET CONSTRAINTS ALL IMMEDIATE runs
  *   the judge, and the transaction commits exactly when the oracle finds no violation, refused otherwise at that moment
  *   by SQLSTATE 23503 for a containment and 23505 for a key, naming a rule the installation's constraint map maps to
- *   the rule.
+ *   the rule. A transaction that deletes a row, a data step's, runs inside the bracket a migration's runner sends
+ *   (data-step.ts dataStepOf), the oracle reading the state it leaves before the bracket's checks, which refuse a
+ *   breaking step there: by the judge as above, or by the re-check, 23000 under the rule's law, where only its removals
+ *   of closed rows, which no capture records, break the rule.
  * - **Locality:** one search per shape, as for equivalence, each with the rotating budget the one search over every
- *   shape had and no steered phase, since every case of a shape's search measures that shape; each case draws a count
- *   of keys from 250 to 400 and one of them, and 600 to 900 keys more.
+ *   shape had and no steered phase, since every case of a shape's search measures that shape; each case holds 2,048
+ *   keys and draws one of them, and 1,024 keys more, so every table is larger than one probe of it, with no planner
+ *   setting.
  *   The shape holds the first keys' rows, each key a chain of value 1, two marks and a block of no link, then every
  *   key's: the block holds out no link, and keeps N's key index from standing empty, which PostgreSQL locks whole
- *   (nbtsearch.c _bt_first), so a probe of a block bounded by its key locks a leaf page of it. Each of the drawn key's
- *   rows on a table the rule reads, and a block of each of its links, is touched: in a transaction of its
- *   own the row stands in the judge's region: a stored row's image copied into each delta of its table as it is stored,
- *   counted once put on the side of news, the table unwritten, a block inserted and deleted again, which the captures
- *   take. SET CONSTRAINTS ALL IMMEDIATE
- *   runs the judge, the SIRead locks the transaction holds are counted by lock type and relation, and every probe of
- *   the judge over the table's deltas is explained while they hold the row's images, the transaction rolled back. The rows each probe reads, as EXPLAIN ANALYZE counts them, and
+ *   (nbtsearch.c _bt_first), so a probe of a block bounded by its key locks a leaf page of it. The measured write is
+ *   a served one: a key past every stored one, beside the drawn key, founded as every stored key was, its chain, marks
+ *   and block written through the captures in a transaction of its own, with budget's an L1 of value 2 beside it, which
+ *   Budgeted's judge reads where it reads none of value 1 (rule-seeding.fixtures.ts foundingSql). Every
+ *   relation is closed, so a served write only adds rows: the judge runs on those, never on a stored row's image, which
+ *   only a data step rewrites, judged whole by its bracket's re-check. For each table the rule reads, SET CONSTRAINTS
+ *   ALL IMMEDIATE runs the judge, the SIRead locks the transaction holds are counted by lock type and relation, and
+ *   every probe of the judge over the table's deltas is explained while they hold the write's rows, the transaction
+ *   rolled back. The rows each probe reads, as EXPLAIN ANALYZE counts them, and
  *   the SIRead locks are the same beside every
  *   key as beside the first, and no SIRead lock is on a whole relation: an invariance, no time. The first keys' rows
  *   fill more than one heap page of every table and the rest three more, so a probe that read every key would read
@@ -76,11 +82,13 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { family, type Kill, property, type Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Record as Rec, String as Str } from "effect"
+import type { SeatCase } from "#test/pg/fin/installed.ts"
 import {
 	aimsOf,
 	caseGen,
 	type EquivalenceFeature,
 	footprints,
+	localityTemplates,
 	installedIn,
 	judgeHistory,
 	judgedShapes,
@@ -104,7 +112,7 @@ const equivalenceKills: { readonly [S in JudgedShape]: ReadonlyArray<Kill> } = {
 			file: "packages/engine/src/analysis/theory/query.ts",
 			original: "\t...movedCandidates(arms, direction, relation, side, depth, memo, loc)\n",
 			replacement: "",
-			why: "A relation under three negations probed by no deletion: a fact a negation now blocks is withdrawn by no candidate, so a block deleted, which makes its member paceless and its root no longer rate-paced, brings back a fact the check refuses, and it commits."
+			why: "A definition's negations moved by no write inside a moved definition: an L2 a served chain adds under an L1 that stood, two negations deep, moves Paceless and through it RatePaced by no candidate, so its L1 of value 0, no longer rate-paced, breaks the check, and it commits."
 		}
 	],
 	lifted: [
@@ -118,16 +126,10 @@ const equivalenceKills: { readonly [S in JudgedShape]: ReadonlyArray<Kill> } = {
 	standing: [
 		{
 			file: "packages/engine/src/analysis/theory/query.ts",
-			original: "\t\t\t\t[turned(direction)],\n",
-			replacement: "\t\t\t\t[direction],\n",
-			why: "A relation read under two negations probed by no write: a mark inserted, which lifts a standing block and brings back the facts it held out, is judged by no probe, so the key it breaks commits."
-		},
-		{
-			file: "packages/engine/src/analysis/theory/query.ts",
 			original:
 				'const flipped = (p: Polarity): Polarity => (p === "positive" ? "negative" : "positive")',
 			replacement: "const flipped = (p: Polarity): Polarity => p",
-			why: "A negation that does not flip its arm's polarity: the deltas a probe of a negated relation reads are never captured, so a block deleted commits the key it breaks."
+			why: "A negation that does not flip its arm's polarity: N, read under one negation, is read as a positive occurrence, so its inserts are captured and probed, though a block inserted only holds facts out."
 		}
 	]
 }
@@ -215,41 +217,60 @@ export const readTheSameRowsAndTakeTheSameSireadLocksBesideHundredsMoreKeys = fa
 		Arr.map(shapes, (shape) => [
 			shape,
 			property.explore(localityGen(shape), {
-				needs: { fresh: Substrate.fresh(seedTemplates[shape]) },
+				needs: {
+					few: Substrate.fresh(localityTemplates[shape].few),
+					many: Substrate.fresh(localityTemplates[shape].many)
+				},
 				situations: [`${shape} measured`] satisfies ReadonlyArray<Reached<LocalityFeature>>,
 				check:
-					({ fresh }, search: Case<LocalityFeature>) =>
+					({ few: fewClone, many: manyClone }, search: Case<LocalityFeature>) =>
 					(l) =>
 						Effect.scoped(
-							Effect.flatMap(fresh, (taken) =>
-								Effect.provideService(
-									Effect.gen(function* () {
-										const { seat } = yield* installedIn(taken, shape)
-										const few = yield* footprints(seat, l.key, 1, l.before)
-										const many = yield* footprints(seat, l.key, l.before + 1, l.after)
-										for (const [i, touched] of touchedOf(seat, l.key).entries()) {
-											const where = `${Formatter.format(l)}, ${touched.table} ${touched.id}`
-											const before = defined(few[i], "a footprint beside the first keys")
-											const after = defined(many[i], "a footprint beside every key")
-											assert.ok(before.rows.length > 0, `${where}: a probe reads the touched table`)
-											assert.deepEqual(
-												after.rows,
-												before.rows,
-												`${where}: each probe reads the same rows`
-											)
-											assert.deepEqual(after.locks, before.locks, `${where}: the same SIRead locks`)
-											assert.deepEqual(
-												Arr.filter(after.locks, Str.startsWith("relation ")),
-												[],
-												`${where}: no SIRead lock on a whole relation`
-											)
-										}
-										search.note(`${l.shape} measured`)
-									}),
-									Substrate,
-									taken.substrate
-								)
-							)
+							Effect.gen(function* () {
+								/** Each footprint on a clone, its locks named within the clone's schema, which each template names apart. */
+								const footprintsOn = (taken: SeatCase) =>
+									Effect.provideService(
+										Effect.flatMap(installedIn(taken, shape), ({ seat }) =>
+											Effect.map(footprints(seat, shape, l.key), (prints) => ({
+												seat,
+												prints: Arr.map(prints, (p) => ({
+													...p,
+													locks: Arr.map(
+														p.locks,
+														Str.replaceAll(`${seat.installed.installation.names.schema}.`, "")
+													)
+												}))
+											}))
+										),
+										Substrate,
+										taken.substrate
+									)
+								const fewTaken = yield* fewClone
+								const manyTaken = yield* manyClone
+								const { seat, prints: few } = yield* footprintsOn(fewTaken)
+								const { prints: many } = yield* footprintsOn(manyTaken)
+								for (const [i, table] of touchedOf(seat).entries()) {
+									const where = `${Formatter.format(l)}, ${table}`
+									const before = defined(few[i], "a footprint beside the first keys")
+									const after = defined(many[i], "a footprint beside every key")
+									assert.ok(
+										before.rows.length > 0,
+										`${where}: a probe reads the founded key's rows`
+									)
+									assert.deepEqual(
+										after.rows,
+										before.rows,
+										`${where}: each probe reads the same rows`
+									)
+									assert.deepEqual(after.locks, before.locks, `${where}: the same SIRead locks`)
+									assert.deepEqual(
+										Arr.filter(after.locks, Str.startsWith("relation ")),
+										[],
+										`${where}: no SIRead lock on a whole relation`
+									)
+								}
+								search.note(`${l.shape} measured`)
+							})
 						),
 				oracle: {
 					kind: "universal",

@@ -36,6 +36,7 @@ import { rowsViolations } from "#test/support/oracle/verify/rows.ts"
 import {
 	auditStatementDetailed,
 	auditTextViolations,
+	guardedTermsOf,
 	type StatementAudit
 } from "#test/support/oracle/verify/sql.ts"
 
@@ -90,7 +91,7 @@ const statementSql = (
 	if (printStatement(s.ast) !== s.sql.text) {
 		out.push(problem("statementText", where, "the text the AST prints"))
 	}
-	for (const v of auditTextViolations(s.sql.text)) {
+	for (const v of auditTextViolations(s.sql.text, guardedTermsOf(s.ast))) {
 		out.push(problem("statementText", where, `${v.rule} at ${v.where}: ${v.detail}`))
 	}
 	const n = s.params.length

@@ -47,6 +47,7 @@ import type {
 	Takes,
 	TakesFirst,
 	TakesRest,
+	ValueOperand,
 	WholeTerm,
 	WithinFacts
 } from "#compiler/types/compute/scalar.ts"
@@ -56,6 +57,7 @@ import type {
 	CallArgs,
 	CalledTerm,
 	CallFields,
+	CallNumberings,
 	CallReads,
 	CallSource,
 	ExactCallArgs,
@@ -102,9 +104,11 @@ import type {
 	Field,
 	FieldBase,
 	LiteralOf,
+	MintKey,
 	NotInstant,
 	NotRoster,
-	NotStoredOnly
+	NotStoredOnly,
+	ValueLiteralOf
 } from "#compiler/types/fields/field.ts"
 import type { PatternValidate } from "#compiler/types/fields/regex.ts"
 import type { FunctionType } from "#compiler/types/schema/function.ts"
@@ -286,7 +290,7 @@ type Conditional<C, A, Otherwise, X, S extends SqlTag, L> = Every<
 	[
 		Takes<C, PredicateBase | Meets<boolean, "boolean">>,
 		TakesFirst<A, SqlTag>,
-		Takes<Otherwise, Operand<X, S, L>>
+		Takes<Otherwise, ValueOperand<X, S, L>>
 	]
 >
 /**
@@ -440,17 +444,20 @@ export interface TypeApi {
 	 * refined text's pattern's, uuid_out's spelling. Its value is the one approximation its type keeps: its column
 	 * delivers the host type, never x alone. A roster's member is X.handle(member), whose column delivers the member, so a
 	 * closed id's descriptor is refused here, and a set's, of the code-free SQL type bits, is a descriptor like any other.
-	 * A contract refuses a value the types see lacking a fact it declares (Refutes), and judges any other when compilation
+	 * A variant's descriptor is refused too: its one value spelling is V.make(tag, { …fields }). A contract refuses a value the types see lacking a fact it declares (Refutes), and judges any other when compilation
 	 * reads it.
 	 */
 	literal<H, S extends SqlTag, D, F extends Facts, const V>(
 		type: Field<H, S, D, F> &
 			([S] extends ["code"] ? NotRoster : unknown) &
+			([S] extends ["variant"]
+				? Refusal<"a variant's value made of its arm's fields, V.make(tag, { …fields }), its one spelling, never a literal">
+				: unknown) &
 			NotStoredOnly<S> &
 			NotInstant<D>,
-		value: Fit<V, NoInfer<LiteralOf<H>>> & ContractAdmits<Takes<V, LiteralOf<H>>, F, V>
+		value: Fit<V, NoInfer<ValueLiteralOf<H>>> & ContractAdmits<Takes<V, ValueLiteralOf<H>>, F, V>
 	): Admitted<
-		Every<[Takes<V, LiteralOf<H>>, Not<Refutes<F, V>>]>,
+		Every<[Takes<V, ValueLiteralOf<H>>, Not<Refutes<F, V>>]>,
 		Term<D, unknown, ConstantOrigin, S, H, F> & Literal<V>
 	>
 	/** Drops a contract to its base explicitly: the plain value of its SQL type, with every fact it states. */
@@ -465,7 +472,9 @@ export interface TypeApi {
 	 * The numeric family and money convert among themselves where PostgreSQL has a cast; any other base
 	 * casts only into a contract or refinement over itself: its domain D over the same base. The result is of the
 	 * target's domain, and delivers its values H, its language. Whether PostgreSQL has the cast is judged of a term,
-	 * and the narrowing's finiteness of a cast it has.
+	 * and the narrowing's finiteness of a cast it has. A cast into a consumer's contract makes the contract's values in
+	 * the database, so it takes the contract's key after the target, `Type.cast(x, Graded, gradedKey)`, as mintOf takes
+	 * it on the host (types/fields MintKey); a cast into any other type takes none.
 	 */
 	cast<
 		A extends TermBase | FirstValue,
@@ -477,7 +486,8 @@ export interface TypeApi {
 		F extends SqlTag,
 		D,
 		FX extends Facts,
-		LX
+		LX,
+		T
 	>(
 		x: A &
 			FirstTerm<A> &
@@ -494,7 +504,8 @@ export interface TypeApi {
 				FiniteCast<S, F, ValueOfTerm<A>, FX, LX>,
 				"a value proved finite: guard it with Logic.when(Num.isFinite(x), (x) => …, otherwise)"
 			>,
-		to: Field<H, F, D> & NotInstant<D>
+		to: T & Field<H, F, D> & NotInstant<D>,
+		...key: MintKey<T>
 	): Admitted<
 		Casts<A, X, S, D, F>,
 		Term<D, PA, ComputedOrigin<OA>, F, H, CastFacts<S, F, ValueOfTerm<A>, FX>>
@@ -993,7 +1004,7 @@ export interface LogicApi {
 	>(
 		p: C & First<C, [A, Otherwise]> & NegationFree<C>,
 		then: A & First<A, [C, Otherwise]> & Term<X, PT, OT, S, V, Facts, L>,
-		otherwise: Fit<Otherwise, NoInfer<Operand<X, S, L>>> &
+		otherwise: Fit<Otherwise, NoInfer<ValueOperand<X, S, L>>> &
 			ContractAdmits<Conditional<C, A, Otherwise, X, S, L>, ColumnFacts<A>, Otherwise> &
 			SharesType<Conditional<C, A, Otherwise, X, S, L>, S, Otherwise>
 	): Admitted<
@@ -1023,14 +1034,14 @@ export interface LogicApi {
 	when<Gd extends Guard<TermBase, never>, X, PT, OT, S extends SqlTag, V, L, const Otherwise>(
 		guard: Gd,
 		then: (subject: Gd[typeof guarded]) => Term<X, PT, OT, S, V, Facts, L> & FirstOrigin<OT>,
-		otherwise: Fit<Otherwise, NoInfer<Operand<X, S, L>>> &
+		otherwise: Fit<Otherwise, NoInfer<ValueOperand<X, S, L>>> &
 			ContractAdmits<
-				Every<[Takes<Gd, Guard<TermBase, never>>, Takes<Otherwise, Operand<X, S, L>>]>,
+				Every<[Takes<Gd, Guard<TermBase, never>>, Takes<Otherwise, ValueOperand<X, S, L>>]>,
 				ColumnFacts<Term<X, PT, OT, S, V, Facts, L>>,
 				Otherwise
 			> &
 			SharesType<
-				Every<[Takes<Gd, Guard<TermBase, never>>, Takes<Otherwise, Operand<X, S, L>>]>,
+				Every<[Takes<Gd, Guard<TermBase, never>>, Takes<Otherwise, ValueOperand<X, S, L>>]>,
 				S,
 				Otherwise
 			>
@@ -1038,7 +1049,7 @@ export interface LogicApi {
 		Every<
 			[
 				Takes<Gd, Guard<TermBase, never>>,
-				Takes<Otherwise, Operand<X, S, L>>,
+				Takes<Otherwise, ValueOperand<X, S, L>>,
 				Not<RefutedAt<Term<X, PT, OT, S, V, Facts, L>, Otherwise>>,
 				OneType<S, Otherwise>
 			]
@@ -1060,12 +1071,12 @@ export interface LogicApi {
 	 * them does; a disjunction states nothing and holds none.
 	 */
 	and<const Qs extends ReadonlyArray<PredicateBase>>(
-		...ps: Qs
+		ps: Qs
 	): Predicate<ParamsOfEach<Qs>, ComputedOrigin<O<Qs[number]>>> &
 		Stating<StatesOf<Qs>> &
 		NegatesIn<Qs>
 	or<const Qs extends ReadonlyArray<PredicateBase>>(
-		...ps: Qs & NegationFreeEach<Qs>
+		ps: NegationFreeEach<Qs>
 	): Predicate<ParamsOfEach<Qs>, ComputedOrigin<O<Qs[number]>>>
 	/**
 	 * In a rule's where, an equality between a variable and a value fixed per binding fixes the variable, and one between
@@ -1209,7 +1220,8 @@ export interface TextApi {
 	): Admitted<TakesFirst<A, "text">, Scalar<number, PA, ComputedOrigin<OA>, "integer">>
 	/**
 	 * a || b, PostgreSQL's textcat: text of no pattern, which compilation reads within a's bytes and b's where both are
-	 * bounded, a string by its own. The second operand is a text term the first meets, a parameter among them, or a
+	 * bounded, a string or a typed constant by its own; a literal compared with it, in an equation or an IN list, of more
+	 * bytes than that is refused at compile (ContractLiteral). The second operand is a text term the first meets, a parameter among them, or a
 	 * string. Admitted in contract predicates, row checks, generated fields and folds; in a query wherever a's and b's
 	 * types bound its bytes within the most one varlena holds, a query's head among them, since it allocates its
 	 * result, which PostgreSQL refuses past 1 GB, and a read never fails on a value; and over any texts as a side of
@@ -1716,7 +1728,13 @@ export interface FnApi {
 	>(
 		f: RowsFunction<Args, Fields>,
 		args: A & ExactCallArgs<A, Args>
-	): CallSource<FactOfFields<Fields>, BindMapParams<A>, Fields, CallReads<A>>
+	): CallSource<
+		FactOfFields<Fields>,
+		BindMapParams<A>,
+		Fields,
+		CallReads<A>,
+		CallNumberings["declared"]
+	>
 	/**
 	 * The fields of the one row a declared function of one row returns at its arguments, immutable or stable, each
 	 * argument as Fn.rows takes one: each field of the row that holds rows of a heading of values, by its name, a

@@ -21,9 +21,9 @@ export const scaling = growthGate(queryDimensions, {
 		{
 			file: "packages/engine/src/types/query/query.ts",
 			original:
-				"\t\tOver,\n\t\tconst Name extends string,\n\t\tC extends Child<Over>,\n\t\tCH,\n\t\tCI,\n\t\tconst K extends DeliveryKind,\n\t\tconst F extends keyof Head & string,\n\t\tconst Hd extends string\n\t>(\n\t\tthis: OverSchema<Over>,\n\t\tname: AttachmentName<Name, Head>,\n\t\tchild: (\n\t\t\tparent: ParentVars<DeliveredHeading<Head, Hc>, Ev>",
+				"\tattach<Over, const Name extends string, C extends Child<Over>, CH, CI, const K extends Delivery>(\n\t\tthis: OverSchema<Over>,\n\t\tname: AttachmentName<Name, Head>,\n\t\tchild: (\n\t\t\tparent: ParentVars<DeliveredHeading<Head, Hc>, Ev>",
 			replacement:
-				"\t\tOver extends S,\n\t\tconst Name extends string,\n\t\tC extends Child<S>,\n\t\tCH,\n\t\tCI,\n\t\tconst K extends DeliveryKind,\n\t\tconst F extends keyof Head & string,\n\t\tconst Hd extends string\n\t>(\n\t\tname: AttachmentName<Name, Head>,\n\t\tchild: (\n\t\t\tparent: ParentVars<DeliveredHeading<Head, Hc>, Ev>",
+				"\tattach<Over extends S, const Name extends string, C extends Child<S>, CH, CI, const K extends Delivery>(\n\t\tname: AttachmentName<Name, Head>,\n\t\tchild: (\n\t\t\tparent: ParentVars<DeliveredHeading<Head, Hc>, Ev>",
 			why: "An attachment's method is typed over the whole schema rather than its own source: a second difference of 11,200."
 		},
 		{

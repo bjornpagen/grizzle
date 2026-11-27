@@ -30,11 +30,12 @@ import {
 } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema, schemaDescOf } from "#compiler/schema/schema.ts"
 import {
-	alternativesBuilder,
 	containedBuilder,
 	keyBuilder,
+	mirrorsBuilder,
 	mutableBuilder,
 	onBuilder,
+	selectBuilder,
 	unitBuilder
 } from "#compiler/schema/statements.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
@@ -45,9 +46,11 @@ import {
 	type AuthoredStatementDesc as StatementDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { Id } from "#test/support/ids.ts"
-import { argumentsOf } from "#test/support/list.ts"
 import { ownInput } from "#test/support/policy.ts"
 import { bareContract, rawClosedId, rawPg, regex, type Row } from "#test/unit/schema/support.ts"
+
+/** A row of a relation holding a kind, a closed id of Kind, as a selection's callback reads it. */
+type KindRow = Row & { readonly kind: Row["id"] }
 
 /** The handles of Kind, a roster. */
 const kindHandles = ["Automatic", "Manual"] as const
@@ -87,7 +90,20 @@ export const Work = schema(
 		keyBuilder(onBuilder(Account, ["name"])),
 		entity,
 		mutableBuilder(Account),
-		alternativesBuilder(Task, "kind", Kind, { Automatic: AutomaticTask, Manual: ManualTask })
+		mirrorsBuilder(
+			onBuilder(AutomaticTask, ["task"]),
+			onBuilder(
+				selectBuilder(Task, (t: KindRow) => t.eq(t.kind, "Automatic")),
+				["id"]
+			)
+		),
+		mirrorsBuilder(
+			onBuilder(ManualTask, ["task"]),
+			onBuilder(
+				selectBuilder(Task, (t: KindRow) => t.eq(t.kind, "Manual")),
+				["id"]
+			)
+		)
 	],
 	[]
 )
@@ -214,7 +230,7 @@ export const limitsPredicate = (r: LimitsRow, p: LimitsPredicate, rewrite: boole
 		case "and":
 		case "or": {
 			const args = Arr.map(p.args, (a) => limitsPredicate(r, a, rewrite))
-			return r[p.kind](...argumentsOf(rewrite ? rotated(args, p.rotate) : args))
+			return r[p.kind](rewrite ? rotated(args, p.rotate) : args)
 		}
 	}
 }
@@ -322,7 +338,6 @@ export type DerivedStatementKind =
 	| "contained from"
 	| "contained into"
 	| "mirrors"
-	| "an alternatives arm"
 
 /**
  * Each statement in each form it is written in: a description or a builder. mirrors is a builder's alone: it is sugar,
@@ -338,8 +353,7 @@ const described: Arr.NonEmptyReadonlyArray<Exclude<DerivedStatementKind, "mirror
 	"race",
 	"check",
 	"contained from",
-	"contained into",
-	"an alternatives arm"
+	"contained into"
 ]
 
 export const statementForms: Arr.NonEmptyReadonlyArray<StatementForm> = [
@@ -351,9 +365,8 @@ export const statementForms: Arr.NonEmptyReadonlyArray<StatementForm> = [
 ]
 
 /** Whether ownership reads the statement as a rule over the derived relation's definition: every rule but those that
- * name rows grizzle writes, mutable's, race's and an alternatives arm's, which it refuses as MalformedDescription. */
-export const ruled = (kind: DerivedStatementKind): boolean =>
-	kind !== "mutable" && kind !== "race" && kind !== "an alternatives arm"
+ * name rows grizzle writes, mutable's and race's, which it refuses as MalformedDescription. */
+export const ruled = (kind: DerivedStatementKind): boolean => kind !== "mutable" && kind !== "race"
 
 export const derivedSide = on("TaskIds", ["id"])
 

@@ -20,14 +20,19 @@
  *   (terms.ts) build and read terms this way, so a scalar expression over a row's fields composes with the row's own
  *   comparisons.
  * - Owned schema values. Every value this package builds (relations, closed and derived relations, statements, the
- *   expansions of mirrors and alternatives, sides, selections, schemas, fragments, contexts, world relations, roles and
+ *   expansions of mirrors, sides, selections, schemas, fragments, contexts, world relations, roles and
  *   logins)
  *   is frozen, carries its Description under a non-enumerable `desc`, and is registered here, so ownership trusts
  *   exactly the values the builders made and a JavaScript look-alike is decoded strictly.
  */
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type CompileError, malformedDescription, ruleRefused } from "#compiler/core/errors.ts"
-import { admitDeclaredName, type DeclaredName } from "#compiler/core/identity.ts"
+import {
+	admitDeclaredName,
+	admitDerivedName,
+	type DeclaredName,
+	type DerivedName
+} from "#compiler/core/identity.ts"
 import { captureLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
@@ -39,6 +44,7 @@ import {
 	decodeDesc,
 	type FieldDesc,
 	type FunctionBodyDesc,
+	type VariantSpellingDesc,
 	type FunctionDesc,
 	type HeadingDesc,
 	type LoginDesc,
@@ -60,7 +66,13 @@ import type { FragmentContent, FragmentDesc } from "#compiler/schema/schema.ts"
 import type { ExpansionDesc, SelectedDesc } from "#compiler/schema/statements.ts"
 import type { BuiltRoleLevel, WorldDraft } from "#compiler/schema/world.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
-import type { AnyFunction, AnyRow, AnyRows, FunctionBody } from "#compiler/types/schema/function.ts"
+import type {
+	AnyFunction,
+	AnyRow,
+	AnyRows,
+	FunctionBody,
+	VariantSpelling
+} from "#compiler/types/schema/function.ts"
 import type { AnyClosedRelation, AnyRelation, AnyRoster } from "#compiler/types/schema/relation.ts"
 import type { AnyFragment, AnySchema } from "#compiler/types/schema/schema.ts"
 import type {
@@ -69,13 +81,7 @@ import type {
 	Selection,
 	Statement
 } from "#compiler/types/schema/statements.ts"
-import type {
-	AnyContext,
-	AnyLogin,
-	AnyRole,
-	AnyScoped,
-	AnyWorld
-} from "#compiler/types/schema/world.ts"
+import type { AnyContext, AnyLogin, AnyRole, AnyWorld } from "#compiler/types/schema/world.ts"
 
 /** A builder location: the label and the user's call site (core/loc.ts). */
 export const builderLoc = (label: string, path: ReadonlyArray<string | number>): SourceLoc =>
@@ -121,6 +127,18 @@ export const requireDeclaredName = (value: unknown, label: string, kind: string)
 	const name = requireName(value, label, `a ${kind} name`)
 	return orThrow(
 		admitDeclaredName(name, `${kind} name ${JSON.stringify(name)}`, builderLoc(label, []))
+	)
+}
+
+/**
+ * A name a library derives for a relation or roster (core/identity.ts DerivedName): requireName's, parsed by the
+ * derived-name rule where it is built (admitDerivedName), a declared name's characters at any length, since what it
+ * installs is hashed over it, never named by its conversion.
+ */
+export const requireDerivedName = (value: unknown, label: string, kind: string): DerivedName => {
+	const name = requireName(value, label, `a ${kind} name`)
+	return orThrow(
+		admitDerivedName(name, `${kind} name ${JSON.stringify(name)}`, builderLoc(label, []))
 	)
 }
 
@@ -290,11 +308,6 @@ interface OwnedKinds {
 		readonly desc: WorldDraft
 		readonly content: undefined
 	}
-	readonly scope: {
-		readonly value: AnyScoped
-		readonly desc: WorldDraft
-		readonly content: undefined
-	}
 	readonly role: {
 		readonly value: AnyRole
 		readonly desc: RoleDesc
@@ -331,6 +344,11 @@ interface OwnedKinds {
 	readonly body: {
 		readonly value: FunctionBody
 		readonly desc: FunctionBodyDesc
+		readonly content: undefined
+	}
+	readonly spelling: {
+		readonly value: VariantSpelling
+		readonly desc: VariantSpellingDesc
 		readonly content: undefined
 	}
 }

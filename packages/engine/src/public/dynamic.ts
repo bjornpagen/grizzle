@@ -1,12 +1,28 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import {
+	declaredNaming,
+	derivedRosterNaming,
+	type RelationNaming,
+	type RosterNaming
+} from "#compiler/ir/desc.ts"
+import { recordsBuilder } from "#compiler/program/records.ts"
 import type { GenerationRow } from "#compiler/schema/api.ts"
 import {
+	admitDerivedNaming,
 	closedBuilder,
 	closedRelation as closedRelationBuilder,
-	generatedRelation,
-	relationBuilder
+	type DerivedNamingInput,
+	namedClosedBuilder,
+	namedGeneratedRelation,
+	namedRelationBuilder
 } from "#compiler/schema/relation.ts"
 import type { FieldBase, GeneratedField } from "#compiler/types/fields/field.ts"
+import type {
+	GeneratedRecords,
+	NoRecordNames,
+	RecordedQuery,
+	RecordOwner
+} from "#compiler/types/schema/records.ts"
 import type {
 	AnyClosedRelation,
 	AnyRelation,
@@ -32,30 +48,48 @@ import type {
  *   root's.
  * - `closed.relation(name, fields, key, rows)`: a closed relation, as the root's; its value holds its facts, one per
  *   distinct row written, in `rows`.
+ * - `records(stem, query, owner, ownerKey, { names })`: a query's records, as the root's (program/records.ts, its one
+ *   builder), their stem any string and the names they state a run-time record of attachment paths to relation names,
+ *   typed GeneratedRecords: every relation one of any name and every law a statement.
+ * - `derivedName({ stem, path })`: relation, relation.generated and closed.unordered under a derived naming, as the
+ *   root's derivedName, each typed as the door's own.
+ *
+ * Each of relation, relation.generated and closed.unordered is one view of its builder under a naming (ir/desc.ts
+ * RelationNaming, RosterNaming), the door's declared and derivedName's derived.
  */
 
-/** relation(name, fields, primaryKey): an ordinary relation of a name known only at run time. */
-const ordinaryRelation = (
-	name: string,
-	fields: Readonly<Record<string, FieldBase>>,
-	primaryKey: NonEmptyReadonlyArray<string>,
-	...extra: ReadonlyArray<never>
-): AnyRelation => relationBuilder(name, fields, primaryKey, extra)
+/** relation(name, fields, primaryKey) under `naming`: an ordinary relation of a name known only at run time. */
+const ordinaryRelationNamed =
+	(naming: RelationNaming) =>
+	(
+		name: string,
+		fields: Readonly<Record<string, FieldBase>>,
+		primaryKey: NonEmptyReadonlyArray<string>,
+		...extra: ReadonlyArray<never>
+	): AnyRelation =>
+		namedRelationBuilder(name, naming, fields, primaryKey, extra)
+
+const ordinaryRelation = ordinaryRelationNamed(declaredNaming)
 
 /**
- * relation.generated(name, written, primaryKey, generate): a relation of a name known only at run time whose fields
- * `generate` returns PostgreSQL writes. Its row is the root's (schema/api.ts GenerationRow), typed by the written
- * fields' own types, the one thing the value's type does not keep that a term the callback builds reads.
+ * relation.generated(name, written, primaryKey, generate) under `naming`: a relation of a name known only at run time
+ * whose fields `generate` returns PostgreSQL writes. Its row is the root's (schema/api.ts GenerationRow), typed by the
+ * written fields' own types, the one thing the value's type does not keep that a term the callback builds reads.
  */
-const generated = <const Written extends Readonly<Record<string, FieldBase>>>(
-	name: string,
-	written: Written,
-	primaryKey: NonEmptyReadonlyArray<string>,
-	generate: (
-		row: GenerationRow<Relation<string, Written, NonEmptyReadonlyArray<keyof Written & string>>>
-	) => Readonly<Record<string, GeneratedField<FieldBase>>>,
-	...extra: ReadonlyArray<never>
-): AnyRelation => generatedRelation(name, written, primaryKey, generate, extra)
+const generatedNamed =
+	(naming: RelationNaming) =>
+	<const Written extends Readonly<Record<string, FieldBase>>>(
+		name: string,
+		written: Written,
+		primaryKey: NonEmptyReadonlyArray<string>,
+		generate: (
+			row: GenerationRow<Relation<string, Written, NonEmptyReadonlyArray<keyof Written & string>>>
+		) => Readonly<Record<string, GeneratedField<FieldBase>>>,
+		...extra: ReadonlyArray<never>
+	): AnyRelation =>
+		namedGeneratedRelation(name, naming, written, primaryKey, generate, extra)
+
+const generated = generatedNamed(declaredNaming)
 
 export const relation: typeof ordinaryRelation & { readonly generated: typeof generated } =
 	Object.freeze(Object.assign(ordinaryRelation, { generated }))
@@ -67,12 +101,14 @@ const orderedRoster = (
 	...extra: ReadonlyArray<never>
 ): AnyRoster => closedBuilder(name, handles, "ordered", extra)
 
-/** closed.unordered(name, handles): a roster of a name known only at run time whose order means nothing. */
-const unorderedRoster = (
-	name: string,
-	handles: ReadonlyArray<string>,
-	...extra: ReadonlyArray<never>
-): AnyRoster => closedBuilder(name, handles, "unordered", extra)
+/** closed.unordered(name, handles) under `naming`: a roster of a name known only at run time whose order means
+ * nothing. */
+const unorderedRosterNamed =
+	(naming: RosterNaming) =>
+	(name: string, handles: ReadonlyArray<string>, ...extra: ReadonlyArray<never>): AnyRoster =>
+		namedClosedBuilder(name, naming, handles, "unordered", extra)
+
+const unorderedRoster = unorderedRosterNamed(declaredNaming)
 
 /** closed.zones(name, zones): a roster of time zones of a name known only at run time. */
 const zoneRoster = (
@@ -104,3 +140,48 @@ export const closed: {
 	zones: zoneRoster,
 	relation: closedRelation
 })
+
+/**
+ * records(stem, query, owner, ownerKey, { names }): the records of `query` (program/records.ts) for a generated schema,
+ * their stem known only at run time and `names` a record, read at run time, of relation names by attachment path
+ * (recordPaths lists them), an empty one stating none. Built by records' one builder as the root's records are, which
+ * admits every argument at run time: the stem, each stated path one of the query's attachments and each stated name a
+ * declared name.
+ */
+export const records = (
+	stem: string,
+	query: RecordedQuery,
+	owner: RecordOwner,
+	ownerKey: NonEmptyReadonlyArray<string>,
+	options: { readonly names: Readonly<Record<string, string>> },
+	...extra: ReadonlyArray<never>
+): GeneratedRecords =>
+	recordsBuilder<string, RecordedQuery, RecordOwner, NonEmptyReadonlyArray<string>, NoRecordNames>(
+		stem,
+		query,
+		owner,
+		ownerKey,
+		[options, ...extra]
+	)
+
+/**
+ * derivedName({ stem, path }): the root's derivedName at the door, for a library that derives its relations' and
+ * rosters' names from data known only at run time: relation, relation.generated and closed.unordered, each typed as the
+ * door's own, each name readable at any length and refused for nothing but its characters and a collision, what it
+ * installs hashed over it (schema/api.ts derivedName).
+ */
+export const derivedName = (
+	naming: DerivedNamingInput,
+	...extra: ReadonlyArray<never>
+): {
+	readonly relation: typeof ordinaryRelation
+	readonly generated: typeof generated
+	readonly unordered: typeof unorderedRoster
+} => {
+	const admitted = admitDerivedNaming(naming, extra)
+	return Object.freeze({
+		relation: ordinaryRelationNamed(admitted),
+		generated: generatedNamed(admitted),
+		unordered: unorderedRosterNamed(derivedRosterNaming)
+	})
+}

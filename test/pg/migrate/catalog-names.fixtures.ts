@@ -4,9 +4,14 @@ import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { boolean, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
-import { SourceLoc } from "#compiler/core/loc.ts"
-import { decodeDesc, type LoginDesc, type SchemaDesc } from "#compiler/ir/desc.ts"
-import { fullRoleDesc } from "#compiler/schema/own.ts"
+import { closedId, pg, span } from "#compiler/public/fields.ts"
+import { query, v } from "#compiler/public/query.ts"
+import { contained, login, mutable, on, schema } from "#compiler/public/schema.ts"
+import { str } from "#compiler/public/text.ts"
+import { computeCore } from "#compiler/scalar/compute/builders.ts"
+import { closedBuilder, derivedBuilder, relationBuilder } from "#compiler/schema/relation.ts"
+import { unitBuilder } from "#compiler/schema/statements.ts"
+import { roleBuilder } from "#compiler/schema/world.ts"
 import { catalogSpelling, type CatalogTypeName } from "#compiler/sql/ast.ts"
 import {
 	type AmbientFeature,
@@ -14,21 +19,9 @@ import {
 	grizzleFirstSession,
 	ordinarySession
 } from "#test/support/ambient.ts"
-import { succeeded } from "#test/support/assert.ts"
-import {
-	closed,
-	contained,
-	decodedQuery,
-	decodedSchema,
-	f,
-	ge,
-	literal,
-	mutable,
-	on,
-	relation,
-	unit,
-	value
-} from "#test/support/fixtures/ir/desc.ts"
+import { contractDescriptor } from "#test/support/fixtures/descriptors.ts"
+import { Id } from "#test/support/ids.ts"
+import type { Version } from "#test/support/install-migrate.ts"
 import { catalogDeclared } from "#test/support/kernel/dict.ts"
 
 export const targets = ["relation", "closed relation", "contract", "derived relation"] as const
@@ -84,109 +77,73 @@ export const caseGen: Gen<BoxCase> = (source) => ({
 	names: namesAt(source.draw(int(0, catalogNames.length - 1)))
 })
 
-const entry = "Entry"
-
-/** A case's schema: its named objects, the holder of the types they shadow, a relation contained in it, and a level
- * holding the derived relation. */
-export const schemaOf = (names: Names): SchemaDesc => {
-	const holder = names.relation.declared
-	const kind = names["closed relation"].declared
-	const base = decodedSchema({
-		name: "Box",
-		relations: [
-			closed.ordered(kind, ["Low", "High"]),
-			relation(
-				holder,
-				{
-					id: f.uuid,
-					note: f.wildcard,
-					amount: f.contract(names.contract.declared, f.bigint, ge(value, literal(0n))),
-					price: f.pg("money"),
-					cost: f.numeric(12, 2),
-					ratio: f.pg("real"),
-					exact: f.pg("double precision"),
-					flag: f.boolean,
-					kind: f.closedId(kind),
-					during: f.span(f.integer, undefined)
-				},
-				["id"]
-			),
-			relation(entry, { holder: f.uuid, id: f.uuid }, ["holder", "id"])
-		],
-		statements: [
-			contained(on(entry, ["holder"]), on(holder, ["id"])),
-			mutable(holder),
-			unit("Held", { id: f.uuid }),
-			unit("Holding", { holder: f.uuid })
-		],
-		bases: []
-	})
-	return decodedSchema({
-		name: "Counts",
-		bases: [base],
-		relations: [
-			{
-				kind: "derived",
-				name: names["derived relation"].declared,
-				level: 1,
-				query: decodedQuery({
-					kind: "rules",
-					arms: [
-						{
-							vars: [
-								{ id: "id", origin: { relation: entry, field: "id" } },
-								{ id: "holder", origin: { relation: entry, field: "holder" } }
-							],
-							matches: [
-								{
-									source: { kind: "relation", name: entry },
-									bindings: {
-										id: { kind: "var", var: "id" },
-										holder: { kind: "var", var: "holder" }
-									}
-								}
-							],
-							where: [],
-							head: {
-								holder: { kind: "var", var: "holder" },
-								entries: { kind: "aggregate", fn: "count" }
-							},
-							interiors: [],
-							attach: []
-						}
-					]
-				})
-			}
-		],
-		statements: []
-	})
-}
-
 /**
- * The login of a case's schema: a writer holding and writing its stored relations, and a reader holding every one and
- * the closed relation, so it reads the derived relation's table through its whole view (schema/own.ts OwnedRole
- * `wholeDerived`), each the full role's description over it (schema/own.ts fullRoleDesc, which states every list a role
- * describes) narrowed to what it holds and writes.
+ * A case's version under the allocated `name`, the values `grizzle generate` drafts and serves it from. Its schema: a
+ * root named `name` holding the named objects, the holder of the types they shadow, a relation contained in it and the
+ * units of each, and a level above it, `${name}_1`, holding the derived relation, which counts each holder's entries,
+ * each entry matched by its key. Its login `server`: a writer holding and inserting the stored relations whole, and a
+ * reader holding every one and the closed relation whole, so it reads the derived relation's table through its whole
+ * view (schema/own.ts OwnedRole `wholeDerived`).
+ *
+ * The public signatures take a relation's, a roster's, a contract's and a derived relation's name as one literal
+ * (types/schema/relation.ts RelationName, types/fields/constructors.ts OneContractName) and hold a role's whole
+ * entries to the relations its level's type names (types/schema/world.ts EntriesCheck), which a level of names known
+ * only at run time names none of; the box's names are drawn. So those values are
+ * built on the builders' runtime paths, as a JavaScript caller's are (schema/relation.ts relationBuilder, closedBuilder
+ * and derivedBuilder, schema/statements.ts unitBuilder, schema/world.ts roleBuilder,
+ * test/support/fixtures/descriptors.ts contractDescriptor): the public builders' own cores, which admit the same
+ * values. Every other value is the public builders'. Its uuids are Id's (ids.ts), a contract over pg_catalog's uuid,
+ * which a drawn Uuid shadows: the builders refuse a bare uuid whose owner no contract names, at run time as in the types
+ * (types/fields/field.ts NamedIds), as they refuse a consumer's.
  */
-export const loginOf = (desc: SchemaDesc, names: Names): LoginDesc => {
-	const loc = SourceLoc("the catalog-names box", [])
-	const whole = (held: ReadonlyArray<string>) =>
-		Arr.map(held, (name) => ({ kind: "whole" as const, name, loc }))
-	const stored = [names.relation.declared, entry]
-	const read = [names["closed relation"].declared, ...stored]
-	const full = succeeded(fullRoleDesc(desc, "full", loc), "the full role over the box's schema")
-	return succeeded(
-		decodeDesc("login", {
-			name: "server",
-			base: desc,
-			roles: [
-				{ ...full, name: "writer", relations: whole(stored), insert: stored, write: [] },
-				{ ...full, name: "reader", relations: whole(read), insert: [], write: [] }
-			],
-			loc
-		}),
-		"the box's login"
+export const versionOf = (names: Names, name: string): Version => {
+	const Kind = closedBuilder(names["closed relation"].declared, ["Low", "High"], "ordered", [])
+	const Holder = relationBuilder(
+		names.relation.declared,
+		{
+			id: Id,
+			note: str.regex("^.*$", "su"),
+			amount: contractDescriptor(names.contract.declared, pg.bigint, (amount: unknown) =>
+				computeCore.ge(amount, 0n)
+			),
+			price: pg.money,
+			cost: pg.numeric(12, 2),
+			ratio: pg.real,
+			exact: pg["double precision"],
+			flag: pg.boolean,
+			kind: closedId(Kind),
+			during: span(pg.integer)
+		},
+		["id"],
+		[]
 	)
+	const Entry = relationBuilder("Entry", { holder: Id, id: Id }, ["holder", "id"], [])
+	const base = schema(
+		name,
+		[Kind, Holder, Entry],
+		[
+			contained(on(Entry, "holder"), on(Holder, "id")),
+			mutable(Holder),
+			unitBuilder("Held", { id: Id }, []),
+			unitBuilder("Holding", { holder: Id }, [])
+		]
+	)
+	const Counts = derivedBuilder(
+		names["derived relation"].declared,
+		query(base).rule((r) => {
+			const { holder, id } = v(Entry, "entry")
+			return r.match(Entry, { holder, id }).find({ holder, entries: r.count() })
+		}),
+		[]
+	)
+	const level = schema.extend([base], `${name}_1`, [Counts], [])
+	const stored = { [Holder.name]: Holder, Entry }
+	const writer = roleBuilder(level, "writer", stored, {
+		insert: [Holder.name, Entry.name],
+		write: []
+	})
+	const reader = roleBuilder(level, "reader", { ...stored, [Kind.name]: Kind })
+	return { schema: level, logins: [login(level, "server", [writer, reader])] }
 }
 
 export const required: Arr.NonEmptyReadonlyArray<Reached<Feature>> = [

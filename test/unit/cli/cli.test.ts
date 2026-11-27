@@ -8,10 +8,9 @@
  *   fault injected into a line, a --name of no folder name's shape among them, is a usage error naming that fault;
  *   --help or -h anywhere prints the usage.
  * - Folder timestamps, generated against day arithmetic of the proleptic Gregorian calendar: a timestamp is the UTC second as fourteen digits,
- *   read back as the second it names and as nothing when its digits name none; a new folder's is the current second or
- *   one second after the schema's newest folder, whichever is later, its digits counted on as a number when they name
- *   no second.
- * - The configuration, generated: defineConfig({ schemas, logins, migrations, rolePrefixBytes, connection }) over one
+ *   read back as the second it names and as nothing when its digits name none; a new folder's is the second after its
+ *   committed chain's last folder's, the epoch's for a chain of none, read off no clock.
+ * - The configuration, generated: defineConfig({ contracts: [], schemas, logins, migrations, rolePrefixBytes, connection }) over one
  *   to three schemas and any of their logins, and maybe a login whose PostgreSQL role fills 63 bytes under the declared
  *   role prefix, resolves to exactly its schemas, each with its PostgreSQL schema, its directory and its logins, the
  *   migrations directory against the configuration file's, and the connection kept unread; one fault planted into it,
@@ -32,7 +31,7 @@
  */
 import { inspect } from "node:util"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
-import { assert, lacksText } from "@bjornpagen/testing/assert"
+import { assert, defined, lacksText } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -47,9 +46,9 @@ import {
 	String as Str
 } from "effect"
 import { parseArgs } from "#cli/args.ts"
-import { formatTimestamp, nextTimestamp, parseTimestamp } from "#cli/clock.ts"
 import { migrationConnection } from "#cli/connection.ts"
 import { cliStageFix } from "#cli/refusals.ts"
+import { formatTimestamp, nextTimestamp, parseTimestamp } from "#cli/timestamp.ts"
 import {
 	maxIdentifierBytes,
 	maxRolePrefixBytes,
@@ -57,6 +56,7 @@ import {
 	type RoleSpace,
 	roleSpaceOf
 } from "#compiler/core/identity.ts"
+import { timestampParts } from "#compiler/plan/migration.ts"
 import {
 	bin,
 	configName,
@@ -213,21 +213,20 @@ export const theCommandLineGeneratedPrintsTheUsageForHelpOrHAnywhereAndForNoArgu
 
 /**
  * Folder timestamps, generated, are the UTC second as fourteen digits, read back as the second they name, and a new
- * folder's sorts after every folder of its schema.
+ * folder's is the second after its committed chain's last folder's, the epoch's for a chain of none: a function of the
+ * chain alone, which reads no clock.
  *
  * Budget: its suite's count before the conversion (unit/cli/timestamps: 400 independent cases and 0 steered, Vitest at
  * grizzle 4ca3036a). At those counts its required situations went unreached at TEST_SEED=1 (a timestamp past year
  * 9999; toolchain-test run of 2026-11-16 08:21Z), so its steered phase keeps the runner's cap of 200, which it stops
  * short of once every situation is reached.
  */
-export const folderTimestampsGeneratedAreTheUTCSecondAsFourteenDigitsReadBackAsTheSecondTheyNameAndANewFoldersSortsAfterEveryFolderOfItsSchema =
+export const folderTimestampsGeneratedAreTheUTCSecondAsFourteenDigitsReadBackAsTheSecondTheyNameAndANewFoldersIsTheSecondAfterItsChainsLastFolders =
 	property.explore(stampingSpace, {
 		needs: {},
 		situations: [
 			"no folder",
-			"the clock past the newest folder",
-			"the clock at the newest folder's second",
-			"the clock behind the newest folder",
+			"a chain drafted from nothing",
 			"a text naming no second",
 			"a day rolled over",
 			"a year rolled over",
@@ -236,38 +235,49 @@ export const folderTimestampsGeneratedAreTheUTCSecondAsFourteenDigitsReadBackAsT
 		] satisfies ReadonlyArray<Reached<StampFeature>>,
 		check: (_, c: Case<StampFeature>) => (s) =>
 			Effect.sync(() => {
-				const millis = millisOf(s.now)
-				const now = DateTime.makeUnsafe(millis)
-				if (s.now.month === 2 && s.now.day === 29) {
+				if (s.at.month === 2 && s.at.day === 29) {
 					c.note("February 29")
 				}
-				const digits = digitsOf(s.now)
-				assert.equal(formatTimestamp(now), digits, "the UTC second's digits")
+				const digits = digitsOf(s.at)
+				assert.equal(
+					formatTimestamp(DateTime.makeUnsafe(millisOf(s.at))),
+					digits,
+					"the UTC second's digits"
+				)
 				for (const text of s.nonsense) {
 					c.note("a text naming no second")
 					assert.ok(Option.isNone(parseTimestamp(text)), `${text} names no second`)
 				}
-				for (const text of [digits, ...Arr.map(s.existing, digitsOf), ...s.nonsense]) {
+				for (const text of [digits, ...Arr.map(s.chain, digitsOf), ...s.nonsense]) {
 					assert.deepEqual(
 						Option.map(parseTimestamp(text), DateTime.toEpochMillis),
 						secondOfDigits(text),
 						`${text} reads as the second it names, or none`
 					)
 				}
-				assert.equal(nextTimestamp(now, s.existing), nextOf(s, c), Formatter.format(s))
+				const chain = Arr.map(s.chain, (f) =>
+					defined(timestampParts(digitsOf(f)), "a committed folder's second")
+				)
+				assert.equal(nextTimestamp(chain), nextOf(s, c), Formatter.format(s))
 			}),
 		oracle: {
 			kind: "second-implementation",
-			name: "day arithmetic of the Gregorian calendar, and the documented rule: the current second or one past the newest folder's"
+			name: "day arithmetic of the Gregorian calendar, and the documented rule: one second past the chain's last folder's, the epoch for none"
 		},
 		budget: { runs: 400, steered: 200 },
 		kept: [],
 		kills: [
 			{
-				file: "packages/grizzle/src/cli/clock.ts",
-				original: "\treturn current > timestampText(newest)",
-				replacement: "\treturn current >= timestampText(newest)",
-				why: "A new folder's timestamp repeats the newest folder's when the clock reads it."
+				file: "packages/grizzle/src/cli/timestamp.ts",
+				original: "\t\t\tonNone: () => chainStart,",
+				replacement: "\t\t\tonNone: () => DateTime.nowUnsafe(),",
+				why: "A schema's first folder is stamped with the clock's second, as before DRAFTDET, where the chain of none gives the epoch."
+			},
+			{
+				file: "packages/grizzle/src/cli/timestamp.ts",
+				original: "\t\t\tonSome: (last) => DateTime.add(instantOf(last), timestampResolution)",
+				replacement: "\t\t\tonSome: (last) => instantOf(last)",
+				why: "A new folder's timestamp repeats its chain's last folder's."
 			},
 			{
 				file: "packages/text/src/text.ts",

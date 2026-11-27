@@ -4,6 +4,7 @@ import { prepared } from "#compiler/core/prepared.ts"
 import type { LiveSource } from "#compiler/live/notify.ts"
 import { createSlotTemplate, startTemplate } from "#compiler/live/replication.ts"
 import type { LiveGap, ServedFootprint, ServedLive } from "#compiler/served/forms.ts"
+import { liveSecretColumn } from "#compiler/sql/ast.ts"
 import type { CatalogSelect } from "#compiler/sql/catalog.ts"
 import {
 	advisoryKey,
@@ -101,7 +102,11 @@ export const servedLiveOf = (root: string, source: LiveSource): ServedLive => {
 		tables: source.tables,
 		listen: prepared(emitCatalog({ kind: "listen", channel: publication })),
 		secret: preparedRead(
-			query([catalogCall("encode", [secret.col("secret"), text("hex")])], [secret.item], undefined)
+			query(
+				[catalogCall("encode", [secret.col(liveSecretColumn), text("hex")])],
+				[secret.item],
+				undefined
+			)
 		),
 		lock: emitCatalog(
 			query(

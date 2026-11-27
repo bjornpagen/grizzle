@@ -28,7 +28,7 @@ export const isolationWrites = programProperty({
 	kept: [
 		{
 			token: ReplayToken(
-				"test/pg/world-model/isolation-writes.test.ts#isolationWrites:70085c15c6690073d0.33:1.0.0.0.0.1.1.0.1.0.0.0.1.0.0.0.0.1.0.0.1.1.0.1.1.1.1.0.0.0.0.1.1.1.1.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.1.0.1.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.1.0.0.0.0.0.0.0"
+				"test/pg/world-model/isolation-writes.test.ts#isolationWrites:1c02170571d00073d0.31:1.0.0.0.0.1.1.0.1.0.0.0.1.0.0.0.0.1.0.0.1.1.0.1.1.1.1.0.0.0.0.1.1.1.1.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.1.0.1.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.1.0.0.0.0.0.0.0"
 			),
 			reason:
 				"an insert of {plan_via: 0} through View0, a query entry whose head names Org's plan plan_via, its Doc and Org matched at literal keys: the served member admitted its facts by the relation's key heads, read by Org's field names, which name none of the entry's, so the host refused every fact of it as factShape (main's red at 3e47c8f8a, from GENPK's 55fce798e; its token run on to the program's end past the refused apply)",
@@ -36,7 +36,7 @@ export const isolationWrites = programProperty({
 		},
 		{
 			token: ReplayToken(
-				"test/pg/world-model/isolation-writes.test.ts#isolationWrites:100000018000000000.27:0.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.2.0.0.0.0.2.0.0.1.0.0.0.1.0.1.1.0.0.0.0.0.0.0.0.1.1.0.0.0.1.0.0.0.0.0.0"
+				"test/pg/world-model/isolation-writes.test.ts#isolationWrites:40000006000000000.25:0.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.2.0.0.0.0.2.0.0.1.0.0.0.1.0.1.1.0.0.0.0.0.0.0.0.1.1.0.0.0.1.0.0.0.0.0.0"
 			),
 			reason:
 				"an insert through TenantDoc, the editor's query entry over Doc at its Tenant's org, of a fact whose id a Doc already holds: the write is refused as a key conflict, its key's constraint on Doc's table, which the served refusal tables name by Doc, where the entry's own name names no table of them (found by the MyBooking kill's mutant at 200 runs, once the worlds model's derived relations went and the floor's witnesses no longer drew it; its token run on past the refused apply to the program's end)",

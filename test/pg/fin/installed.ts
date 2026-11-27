@@ -201,8 +201,7 @@ export const seatOf = (
 		const installed = yield* installMigrated(schema, {
 			ambient: ordinarySession,
 			extensions: [],
-			label: schemaLabelOf(label),
-			logins: []
+			label: schemaLabelOf(label)
 		})
 		return yield* seatOfInstalled(installed, relations, label)
 	})
@@ -226,7 +225,7 @@ export const seatTemplate = (
 		declaredIn,
 		name: label,
 		schema,
-		options: { ambient: ordinarySession, extensions: [], label: schemaLabelOf(label), logins: [] }
+		options: { ambient: ordinarySession, extensions: [], label: schemaLabelOf(label) }
 	})
 
 /**
@@ -245,7 +244,7 @@ export const seededSeatTemplate = <E>(
 		declaredIn,
 		name: label,
 		schema,
-		options: { ambient: ordinarySession, extensions: [], label: schemaLabelOf(label), logins: [] },
+		options: { ambient: ordinarySession, extensions: [], label: schemaLabelOf(label) },
 		seed: (installed) => Effect.flatMap(seatOfInstalled(installed, relations, label), seed)
 	})
 

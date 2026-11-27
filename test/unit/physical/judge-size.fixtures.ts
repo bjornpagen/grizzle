@@ -4,15 +4,30 @@ import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Formatter, String as Str } from "effect"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { installOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, type Rule, v } from "#compiler/public/query.ts"
-import { check, contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
+import {
+	check,
+	contained,
+	derived,
+	mutable,
+	on,
+	relation,
+	schema,
+	unit
+} from "#compiler/public/schema.ts"
 import type { FromItem, FromSource, OperandSelect } from "#compiler/sql/ast.ts"
-import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
+import { inertVisitor, visitDml, visitSelect } from "#compiler/sql/transform.ts"
 import { succeeded } from "#test/support/assert.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
-import { judgedDeltaReadsOf, judgedStatementsOf } from "#test/support/judge.ts"
+import {
+	type JudgeStatement,
+	judgedDeltaReadsOf,
+	judgedStatementsOf,
+	judgeStatementsOf
+} from "#test/support/judge.ts"
 import { owning } from "#test/support/policy.ts"
 
 /**
@@ -206,6 +221,26 @@ const schemaOf = (c: Chain): FixtureSchema => {
 	}
 }
 
+/** A walk of a statement under an SQL visitor (sql/transform.ts visitSelect, visitDml). */
+type Walk = (visitor: typeof inertVisitor) => void
+
+/** Every FROM source of the statement `visit` walks, at any depth, each of a join's in its order. */
+const sourcesOf = (visit: Walk): ReadonlyArray<FromSource> => {
+	const sources: Array<FromSource> = []
+	const item = (i: FromItem): void => {
+		if (i.kind === "joins") {
+			sources.push(i.first)
+			for (const step of i.steps) {
+				sources.push(step.source)
+			}
+			return
+		}
+		sources.push(i)
+	}
+	visit({ ...inertVisitor, fromItem: item })
+	return sources
+}
+
 /**
  * How `statement` reads the session's deltas, at any depth: the FROM sources that name a table of pg_temp, and those that
  * call a function, a delta's reader (physical/ddl/rules.ts readers) where the judge's statement reads one.
@@ -213,28 +248,15 @@ const schemaOf = (c: Chain): FixtureSchema => {
 const deltaReadsOf = (
 	statement: OperandSelect
 ): { readonly tables: number; readonly calls: number } => {
-	let tables = 0
-	let calls = 0
-	const source = (s: FromSource): void => {
-		if (s.kind === "table" && typeof s.table !== "string" && s.table.schema === "pg_temp") {
-			tables += 1
-		}
-		if (s.kind === "function" && s.call.fn.kind === "qualified") {
-			calls += 1
-		}
+	const sources = sourcesOf((visitor) => visitSelect(statement, visitor))
+	return {
+		tables: Arr.filter(
+			sources,
+			(s) => s.kind === "table" && typeof s.table !== "string" && s.table.schema === "pg_temp"
+		).length,
+		calls: Arr.filter(sources, (s) => s.kind === "function" && s.call.fn.kind === "qualified")
+			.length
 	}
-	const item = (i: FromItem): void => {
-		if (i.kind === "joins") {
-			source(i.first)
-			for (const step of i.steps) {
-				source(step.source)
-			}
-			return
-		}
-		source(i)
-	}
-	visitSelect(statement, { ...inertVisitor, fromItem: item })
-	return { tables, calls }
 }
 
 /**
@@ -272,26 +294,42 @@ export const readsDeltasThroughReaders = (c: Chain, note: (r: Reached) => void):
 	}
 }
 
-/** The reads of Node's table in `statement`, at any depth: each FROM source that names it. */
-const nodeReadsOf = (statement: OperandSelect): number => {
-	let reads = 0
-	const source = (s: FromSource): void => {
-		if (s.kind === "table" && typeof s.table !== "string" && s.table.name === "node") {
-			reads += 1
+/** The reads of the table `table` in the statement `visit` walks (`sourcesOf`): each FROM source that names it. */
+const tableReadsIn = (visit: Walk, table: string): number =>
+	Arr.filter(
+		sourcesOf(visit),
+		(s) => s.kind === "table" && typeof s.table !== "string" && s.table.name === table
+	).length
+
+/** The reads of the table `table` in `statement`, at any depth (`tableReadsIn`). */
+const tableReadsOf = (statement: OperandSelect, table: string): number =>
+	tableReadsIn((visitor) => visitSelect(statement, visitor), table)
+
+/** The reads of Node's table in `statement`, at any depth (`tableReadsIn`). */
+const nodeReadsOf = (statement: OperandSelect): number => tableReadsOf(statement, "node")
+
+/**
+ * The reads of Node's table in a statement the judge runs (`tableReadsIn`): a rule's query, an upkeep's write, or an
+ * upkeep's removal loop, its query and each write of its body (support/judge.ts UpkeepRun).
+ */
+const judgeNodeReads = (statement: JudgeStatement): number => {
+	switch (statement.kind) {
+		case "rule":
+			return nodeReadsOf(statement.statement.query)
+		case "upkeep": {
+			const run = statement.statement
+			return tableReadsIn((visitor) => {
+				if (run.kind !== "loop") {
+					visitDml(run, visitor)
+					return
+				}
+				visitSelect(run.query, visitor)
+				for (const m of run.body) {
+					visitDml(m, visitor)
+				}
+			}, "node")
 		}
 	}
-	const item = (i: FromItem): void => {
-		if (i.kind === "joins") {
-			source(i.first)
-			for (const step of i.steps) {
-				source(step.source)
-			}
-			return
-		}
-		source(i)
-	}
-	visitSelect(statement, { ...inertVisitor, fromItem: item })
-	return reads
 }
 
 /**
@@ -972,13 +1010,23 @@ export type NestedReached =
 	| "three rules a level"
 	| "four levels deep"
 
+/**
+ * The nested box's base: a document's nodes and its root, both open in the document's unit, so a write that removes a
+ * document's root withdraws Servable's facts there, the statement over Doc's delta that reads the target (a closed
+ * relation loses no row, so no statement reads its removed side), and the sessions of a document, keyed apart from it,
+ * so the rule reads two units and is probed.
+ */
 const NestNode = relation("Node", { doc: pg.integer, start: pg.integer, kind: pg.integer }, [
 	"doc",
 	"start"
 ])
 const Doc = relation("Doc", { doc: pg.integer, root: pg.integer }, ["doc"])
 const Session = relation("Session", { id: pg.integer, doc: pg.integer }, ["id"])
-const NestBase = schema("judge_nested", [NestNode, Doc, Session], [])
+const NestBase = schema(
+	"judge_nested",
+	[NestNode, Doc, Session],
+	[unit("Docs", { doc: pg.integer }), mutable(NestNode), mutable(Doc)]
+)
 
 /** A rule reading Node at `kind`. */
 const nodeAt = (kind: number) => (r: Rule<typeof NestBase>) => {
@@ -1062,7 +1110,7 @@ const topOf = (c: Nested): Match2 | Match3 => {
 		: Arr.reduce(levels, match3Leaf, negates ? match3 : chained3)
 }
 
-/** The nested box's schema (`Nested`): Servable over the case's top level, and Session's containment in it. */
+/** The nested box's schema (`Nested`): Servable over the case's top level, and Session's containment in it or its check. */
 const nestedSchemaOf = (c: Nested): FixtureSchema => {
 	const top = topOf(c)
 	const Servable = derived(
@@ -1088,54 +1136,62 @@ const nestedSchemaOf = (c: Nested): FixtureSchema => {
 	)
 }
 
+/** The statements the judge runs in the nested box's case `c`, its rule's and its stored relations' upkeeps'. */
+const nestedJudge = (c: Nested): ReadonlyArray<JudgeStatement> => {
+	const owned = owning(nestedSchemaOf(c))
+	return judgeStatementsOf(succeeded(compileInstallation(owned, installOptions(owned))))
+}
+
+/** The statements of `judge` over Doc's delta, a rule's or an upkeep's. */
+const overDocOf = (judge: ReadonlyArray<JudgeStatement>): ReadonlyArray<JudgeStatement> =>
+	Arr.filter(judge, (s) => Arr.some([...s.deltas], Str.includes("_doc_")))
+
 /**
- * Judges the nested box's judge: one statement for each relation the rule reads and each side, eight at most, however
- * deep and wide the levels (physical/ddl/rules.ts sideBlock, analysis/theory/query.ts probe); each statement reads Node
- * at most twice for each rule of the description and the root's, levels that negate and levels that match alike, linear
- * in the description, where distributed into its paths the levels that match read it the width to the depth times
- * (analysis/theory/query.ts DefinedMatch, movedOf); and, of a containment over negating levels, each statement over
- * Doc's delta, whose one occurrence is the root's, spells the target once, each level's definition once: it reads Node
- * once for the root and once for each rule of each level, the lowest's among them, 1 + (depth + 1) × width times (analysis/theory/query.ts absentsOf).
- * Before, a block held a statement for every occurrence of the touched relation, each spelling the whole target, and the
- * target spelled each negated level once per arm of the level negating it: a negation of a union of w rules was w
- * anti-joins, each spelling the level below again, w to the depth.
+ * Judges the nested box's judge, every statement it runs: its rule's, one for each relation the rule reads and each
+ * side, eight at most, however deep and wide the levels (physical/ddl/rules.ts sideBlock, analysis/theory/query.ts
+ * probe); and every stored relation's upkeep's. Each level is a canonical relation stored in the documents' unit, the
+ * union of each among them, and so is Servable over negating levels (STOREDERIVE's canonical relations, 8a2fe37d5a, and
+ * the unit's storage), so every statement reads each level below its own by its table: each reads Node at most twice
+ * for each rule of the description and the root's, levels that negate and levels that match alike, linear in the
+ * description, where distributed into its paths the levels that match read it the width to the depth times
+ * (analysis/theory/query.ts DefinedMatch, movedOf); and each statement over Doc's delta, the rule's over a live Servable
+ * or Servable's upkeep's, reads Node as often as the box's smallest case of the same law and reads does, at one level
+ * of two rules: the root's match alone, however deep and wide the levels, each level read by its table. Before every
+ * level was stored, the rule's statement over Doc's delta spelled the live target once, each level's definition once,
+ * reading Node 1 + (depth + 1) × width times (analysis/theory/query.ts absentsOf); and before that a block held a
+ * statement for every occurrence of the touched relation, each spelling the whole target, and the target spelled each
+ * negated level once per arm of the level negating it: a negation of a union of w rules was w anti-joins, each spelling
+ * the level below again, w to the depth.
  */
 export const judgedNested = (c: Nested, note: (r: NestedReached) => void): void => {
-	const owned = owning(nestedSchemaOf(c))
-	const installation = succeeded(compileInstallation(owned, installOptions(owned)))
+	const judge = nestedJudge(c)
 	note(c.law)
 	note(c.reads)
 	note(c.width === 2 ? "two rules a level" : "three rules a level")
 	if (c.depth === 4) {
 		note("four levels deep")
 	}
-	const reads = judgedDeltaReadsOf(installation)
+	const rules = Arr.filter(judge, (s) => s.kind === "rule")
 	assert.ok(
-		reads.length <= 8,
-		`${Formatter.format(c)}: the judge holds ${reads.length} statements, past one for each of the rule's four relations and each side`
+		rules.length <= 8,
+		`${Formatter.format(c)}: the judge holds ${rules.length} statements of its rule, past one for each of the rule's four relations and each side`
 	)
-	const overDoc = Arr.filter(reads, (r) => Arr.some([...r.deltas], Str.includes("_doc_")))
-	assert.ok(overDoc.length > 0, `${Formatter.format(c)}: a statement over Doc's delta`)
 	const linear = 2 * (1 + (c.depth + 1) * c.width)
-	for (const { statement } of reads) {
-		const nodes = nodeReadsOf(statement.query)
+	for (const statement of judge) {
+		const nodes = judgeNodeReads(statement)
 		assert.ok(
 			nodes <= linear,
-			`${Formatter.format(c)}: a statement reads Node ${nodes} times, past ${linear}, twice each rule of the description and the root's`
+			`${Formatter.format(c)}: a statement of the judge's ${statement.kind} reads Node ${nodes} times, past ${linear}, twice each rule of the description and the root's`
 		)
 	}
-	if (c.law === "a check of Servable" || c.reads === "matches the level below") {
-		return
-	}
-	const bound = 1 + (c.depth + 1) * c.width
-	for (const { statement } of overDoc) {
-		const nodes = nodeReadsOf(statement.query)
-		assert.equal(
-			nodes,
-			bound,
-			`${Formatter.format(c)}: a statement over Doc's delta reads Node ${nodes} times, where the target spelled once reads it ${bound} times`
-		)
-	}
+	const overDoc = overDocOf(judge)
+	assert.ok(overDoc.length > 0, `${Formatter.format(c)}: a statement over Doc's delta`)
+	const smallest = Arr.map(overDocOf(nestedJudge({ ...c, width: 2, depth: 1 })), judgeNodeReads)
+	assert.deepEqual(
+		Arr.map(overDoc, judgeNodeReads),
+		smallest,
+		`${Formatter.format(c)}: the statements over Doc's delta read Node as the smallest case of its law and reads does, each level read by its table`
+	)
 }
 
 /**
@@ -1239,28 +1295,6 @@ const foldedSchemaOf = (c: Folded): FixtureSchema => {
 			)
 		}
 	}
-}
-
-/** The reads of the table `table` in `statement`, at any depth: each FROM source that names it. */
-const tableReadsOf = (statement: OperandSelect, table: string): number => {
-	let reads = 0
-	const source = (s: FromSource): void => {
-		if (s.kind === "table" && typeof s.table !== "string" && s.table.name === table) {
-			reads += 1
-		}
-	}
-	const item = (i: FromItem): void => {
-		if (i.kind === "joins") {
-			source(i.first)
-			for (const step of i.steps) {
-				source(step.source)
-			}
-			return
-		}
-		source(i)
-	}
-	visitSelect(statement, { ...inertVisitor, fromItem: item })
-	return reads
 }
 
 /**

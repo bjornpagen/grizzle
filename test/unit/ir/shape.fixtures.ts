@@ -40,8 +40,17 @@ const mark = S.structWith(
 	{ kind: S.refine(S.string, (text) => text !== "mark", "a text other than the case's tag") }
 )
 
+/** A point as shape decodes it: its x, and its label where it states one. */
+type Point = { readonly x: number; readonly label?: string }
+
+/** What shape decodes: a point, a list of points, or a mark, by kind. */
+type Shaped =
+	| ({ readonly kind: "point" } & Point)
+	| { readonly kind: "list"; readonly items: ReadonlyArray<Point> }
+	| { readonly kind: "mark" }
+
 /** The shape every property decodes: a point, a list of points, or a mark, by kind. */
-export const shape = S.tagged("kind", { point, list: S.struct({ items: points }), mark })
+export const shape = S.tagged<Shaped>()("kind", { point, list: S.struct({ items: points }), mark })
 
 /** A 32-bit integer: a point's coordinate, a list's item and a record's value. */
 export const int4Gen = int(-(2 ** 31), 2 ** 31 - 1)
@@ -282,7 +291,9 @@ export const placed = (
 			return { shape: S.unionShape(inner.shape, S.integer, S.string), value: inner.value }
 		case "a tagged case":
 			return {
-				shape: S.tagged("kind", { a: S.struct({ n: inner.shape }) }),
+				shape: S.tagged<{ readonly kind: "a"; readonly n: unknown }>()("kind", {
+					a: S.struct({ n: inner.shape })
+				}),
 				value: { kind: "a", n: inner.value }
 			}
 	}
@@ -307,7 +318,7 @@ type Chain = { readonly kind: "end" } | { readonly kind: "link"; readonly next: 
 const chainShape: S.Shape<Chain> = S.ref("a chain", () => chainBody)
 
 /** The decoder chainShape refers to (S.ref). */
-const chainBody: S.Shape<Chain> = S.tagged("kind", {
+const chainBody: S.Shape<Chain> = S.tagged<Chain>()("kind", {
 	end: S.struct({}),
 	link: S.struct({ next: chainShape })
 })
@@ -456,8 +467,9 @@ type ConsumerAnswer =
 
 /**
  * A child Node started in the checkout a worker runs the repository's code from (a worker tree, under a
- * mutant), with no flag and no NODE_OPTIONS, which carries the hardened flags (test/support/process.ts hardenedNode), as
- * a library consumer's is (shape-record.child.ts). The function it gives hands the child a record's entries on a line
+ * mutant), with no flag, none of the hardened ones (test/support/process.ts hardenedNode), as a library consumer's is
+ * (shape-record.child.ts); this Node reads no NODE_OPTIONS, so none reaches it either. It is Node itself, so the
+ * worker's guard records what it reads in its own process, where a wrapper (env) ran it under strace. The function it gives hands the child a record's entries on a line
  * and takes its answer from the next line it prints, or its exit. The child ends with the scope it starts in.
  */
 const consumerProcess = (checkout: CheckoutDir) =>
@@ -465,8 +477,8 @@ const consumerProcess = (checkout: CheckoutDir) =>
 		const requests = yield* Queue.unbounded<string>()
 		const answers = yield* Queue.unbounded<ConsumerAnswer>()
 		const handle = yield* ChildProcess.make(
-			"env",
-			["-u", "NODE_OPTIONS", process.execPath, `${import.meta.dirname}/shape-record.child.ts`],
+			process.execPath,
+			[`${import.meta.dirname}/shape-record.child.ts`],
 			{
 				cwd: checkout,
 				extendEnv: true,

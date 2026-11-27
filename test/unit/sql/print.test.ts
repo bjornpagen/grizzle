@@ -38,7 +38,7 @@ import {
 	writeStatement
 } from "#compiler/sql/print.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { auditTextViolations } from "#test/support/oracle/verify/sql.ts"
+import { auditTextViolations, guardedTermsOf } from "#test/support/oracle/verify/sql.ts"
 import {
 	blockSketch,
 	type ClauseFeature,
@@ -372,7 +372,7 @@ export const aConstantInAQuerysOrderByGroupByOrDistinctOnPrintsAsTheConstantType
 				}
 				const { select, printed } = clauseQuery(clauseCase)
 				const text = printStatement(select)
-				assert.deepEqual(auditTextViolations(text), [], text)
+				assert.deepEqual(auditTextViolations(text, guardedTermsOf(select)), [], text)
 				for (const clause of ["ORDER BY", "GROUP BY", "DISTINCT ON"] as const) {
 					assert.equal(
 						printedItems(text, clause).length,

@@ -52,13 +52,18 @@ export const everyFoldsEndThroughGrizzlesApplyOnPostgreSQL19StoresExactlyTheREAD
 						Effect.gen(function* () {
 							const s = schemas[sketch.kind]
 							const done = taken.value
-							const value = s.value(done.schema)
+							const value = s.value(done.installed.schema)
 							const compiles = yield* ends.compiles
-							const db = yield* compiles.db(done, fullWorld(value, {}).server.roles.app)
+							const db = yield* compiles.db(done.installed, fullWorld(value, {}).server.roles.app)
 							const o = { kind: sketch.kind, s, done, value, db } as const
 							let state = emptyState
 							for (const w of sketch.writes) {
-								const served = yield* compiles.write(o.db, o.done, o.value, slotsOf(o.s, w))
+								const served = yield* compiles.write(
+									o.db,
+									o.done.installed,
+									o.value,
+									slotsOf(o.s, w)
+								)
 								const outcome = yield* writeAnswerOf(
 									writeOnce(served.calls)({ params: {}, facts: served.facts })
 								)
@@ -67,7 +72,7 @@ export const everyFoldsEndThroughGrizzlesApplyOnPostgreSQL19StoresExactlyTheREAD
 									const named = judgeRefused(o.s, w, broken, outcome)
 									const kept = w.kind === "trees" ? treesRows(o.s, []) : storedRows(o.s, state)
 									for (const r of storedRelations(o.s)) {
-										const stored = yield* tableState(o.done, r)
+										const stored = yield* tableState(o.done.installed, r)
 										unorderedEqual<ModelRow>(
 											stored,
 											kept.get(r.name) ?? [],
@@ -88,7 +93,7 @@ export const everyFoldsEndThroughGrizzlesApplyOnPostgreSQL19StoresExactlyTheREAD
 								state = next
 								if (sketch.kind === "tree" && w.kind === "trees") {
 									for (const g of o.s.groups) {
-										const stored = yield* tableState(o.done, g.member)
+										const stored = yield* tableState(o.done.installed, g.member)
 										unorderedEqual<ModelRow>(
 											stored,
 											treeRows(
@@ -104,7 +109,7 @@ export const everyFoldsEndThroughGrizzlesApplyOnPostgreSQL19StoresExactlyTheREAD
 								} else {
 									const expected = storedRows(o.s, state)
 									for (const r of storedRelations(o.s)) {
-										const stored = yield* tableState(o.done, r)
+										const stored = yield* tableState(o.done.installed, r)
 										unorderedEqual<ModelRow>(
 											stored,
 											expected.get(r.name) ?? [],

@@ -87,6 +87,19 @@ export interface ValueRefused<R> {
 }
 
 /**
+ * A value the contract `contract` refuses on the host (runtime/contract.ts contractParserOver), as PostgreSQL refuses
+ * it before it stores it: one of no value of its base's type, which the type's input function refuses, by the codec's
+ * fault (ValueRefused's); one outside its domain, its predicate or its base's refinements, a pattern or a contract below
+ * it, which the domain's CHECK refuses (23514, DomainRefused's); or any value, where the checker file the parser reads
+ * is another contract's, compiled from another description than the one it is given, or of another name
+ * (CheckerDrifted): `grizzle generate` writes the file again, and `grizzle check` refuses a file that drifted.
+ */
+export type ContractRefused<Name extends string> =
+	| { readonly _tag: "ValueRefused"; readonly contract: Name; readonly fault: CodecFault }
+	| { readonly _tag: "DomainRefused"; readonly contract: Name }
+	| { readonly _tag: "CheckerDrifted"; readonly contract: Name; readonly checker: string }
+
+/**
  * A row's evaluation over S: each generated field of its relation, its value or NULL, null; each row check of its
  * relation, its verdict; and whether its source selects it, the truth of the source's predicate, a relation's being
  * select(R, TRUE). Each item is its own Result, Effect's, so an item the host cannot evaluate leaves the others theirs.

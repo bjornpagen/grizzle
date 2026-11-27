@@ -1,7 +1,8 @@
 /**
  * What the properties of xsd.test.ts read: drawn XML Schema patterns, each beside its oracle, the pattern's meaning
- * spelled as an ECMAScript expression under the `v` flag construct by construct from Appendix F's definitions, and
- * drawn words to hold the reader's language to it.
+ * built construct by construct from Appendix F's definitions, each character class an ECMAScript class under the `v`
+ * flag and the regular operators a tree the oracle matches by partial derivatives, and drawn words to hold the
+ * reader's language to it.
  */
 
 import {
@@ -25,11 +26,40 @@ import {
 import { Array as Arr, Function, Option, String as Str } from "effect"
 import { runsOfRunningNode } from "#scripts/gen/unicode/generate.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { compiledPattern } from "#test/support/regex.ts"
 
-/** A drawn piece of a pattern: its XML Schema spelling and its oracle's, an ECMAScript `v`-flag spelling of its meaning. */
+/**
+ * A drawn class of a pattern, one character's worth: its XML Schema spelling and its oracle's, an ECMAScript `v`-flag
+ * class of the characters Appendix F says it means.
+ */
 export interface Drawn {
 	readonly xsd: string
 	readonly oracle: string
+}
+
+/**
+ * A drawn pattern's meaning by Appendix F, construct by construct: a class (its ECMAScript `v`-flag spelling, Drawn's
+ * oracle), the concatenation of pieces, the alternation of branches, and a piece repeated between `min` and `max`
+ * times, `max` none for no bound. The regular operators are a tree, never one ECMAScript expression, so the oracle
+ * matches a word by partial derivatives (oracleMatcher) in time linear in the word: a backtracking engine reading the
+ * nested repetitions of alternations that admit the empty word, as `((a|)+|){2,}`, tries exponentially many splits
+ * of the word, and V8's held a property's worker past its deadline on a word of five code points.
+ */
+export type Oracle =
+	| { readonly kind: "class"; readonly source: string }
+	| { readonly kind: "seq"; readonly items: ReadonlyArray<Oracle> }
+	| { readonly kind: "alt"; readonly branches: ReadonlyArray<Oracle> }
+	| {
+			readonly kind: "repeat"
+			readonly of: Oracle
+			readonly min: number
+			readonly max: number | undefined
+	  }
+
+/** A drawn pattern, or a piece or group of one: its XML Schema spelling and its oracle, its meaning (Oracle). */
+export interface DrawnPattern {
+	readonly xsd: string
+	readonly oracle: Oracle
 }
 
 /**
@@ -226,38 +256,51 @@ const leaf: Gen<Drawn> = weighted([
 	[1, constant(wildcard)]
 ])
 
+/** A quantifier: its XML Schema spelling and the counts it repeats its piece between; none, the empty spelling. */
+interface Quantifier {
+	readonly spelled: string
+	readonly min: number
+	readonly max: number | undefined
+}
+
 /** A quantifier, or none. */
-const quantifier: Gen<string> = weighted([
-	[4, constant("")],
-	[1, constant("?")],
-	[1, constant("*")],
-	[1, constant("+")],
-	[1, map(int(0, 3), (n) => `{${n}}`)],
-	[1, map(int(0, 2), (n) => `{${n},}`)],
+const quantifier: Gen<Quantifier | undefined> = weighted<Quantifier | undefined>([
+	[4, constant(undefined)],
+	[1, constant({ spelled: "?", min: 0, max: 1 })],
+	[1, constant({ spelled: "*", min: 0, max: undefined })],
+	[1, constant({ spelled: "+", min: 1, max: undefined })],
+	[1, map(int(0, 3), (n) => ({ spelled: `{${n}}`, min: n, max: n }))],
+	[1, map(int(0, 2), (n) => ({ spelled: `{${n},}`, min: n, max: undefined }))],
 	[
 		1,
 		(source) => {
 			const n = source.draw(int(0, 2))
-			return `{${n},${n + source.draw(int(0, 2))}}`
+			const m = n + source.draw(int(0, 2))
+			return { spelled: `{${n},${m}}`, min: n, max: m }
 		}
 	]
 ])
 
 /** An expression of branches of pieces, a group's its own expression. */
-const expression = (atom: Gen<Drawn>): Gen<Drawn> =>
+const expression = (atom: Gen<DrawnPattern>): Gen<DrawnPattern> =>
 	map(
 		array(
 			array(
-				(source): Drawn => {
+				(source): DrawnPattern => {
 					const a = source.draw(atom)
 					const q = source.draw(quantifier)
-					return { xsd: `${a.xsd}${q}`, oracle: `(?:${a.oracle})${q}` }
+					return q === undefined
+						? a
+						: {
+								xsd: `${a.xsd}${q.spelled}`,
+								oracle: { kind: "repeat", of: a.oracle, min: q.min, max: q.max }
+							}
 				},
 				{ min: 0, max: 3 }
 			),
 			{ min: 1, max: 3 }
 		),
-		(branches): Drawn => ({
+		(branches): DrawnPattern => ({
 			xsd: Arr.join(
 				Arr.map(branches, (b) =>
 					Arr.join(
@@ -267,31 +310,153 @@ const expression = (atom: Gen<Drawn>): Gen<Drawn> =>
 				),
 				"|"
 			),
-			oracle: Arr.join(
-				Arr.map(branches, (b) =>
-					Arr.join(
-						Arr.map(b, (p) => p.oracle),
-						""
-					)
-				),
-				"|"
-			)
+			oracle: {
+				kind: "alt",
+				branches: Arr.map(branches, (b) => ({ kind: "seq", items: Arr.map(b, (p) => p.oracle) }))
+			}
 		})
 	)
 
-/** An atom: a leaf, or a group of an expression nested at most two levels deep. */
-const atom: Gen<Drawn> = recursive(
-	leaf,
-	(inner) =>
-		map(expression(inner), (e): Drawn => ({ xsd: `(${e.xsd})`, oracle: `(?:${e.oracle})` })),
+/** An atom: a leaf, its class its oracle, or a group of an expression nested at most two levels deep. */
+const atom: Gen<DrawnPattern> = recursive(
+	map(leaf, (l): DrawnPattern => ({ xsd: l.xsd, oracle: { kind: "class", source: l.oracle } })),
+	(inner) => map(expression(inner), (e): DrawnPattern => ({ xsd: `(${e.xsd})`, oracle: e.oracle })),
 	2
 )
 
-/** A drawn pattern, its oracle anchored at both ends, as XML Schema anchors every expression. */
-export const patternGen: Gen<Drawn> = map(expression(atom), (e) => ({
-	xsd: e.xsd,
-	oracle: `^(?:${e.oracle})$`
-}))
+/** A drawn pattern; its oracle matches the whole word, as XML Schema anchors every expression. */
+export const patternGen: Gen<DrawnPattern> = expression(atom)
+
+/** The ECMAScript `v`-flag spelling of an oracle, anchored at both ends: what a failure shows, never what matches. */
+export const oracleText = (oracle: Oracle): string => `^(?:${spelled(oracle)})$`
+
+const spelled = (oracle: Oracle): string => {
+	switch (oracle.kind) {
+		case "class":
+			return oracle.source
+		case "seq":
+			return Arr.join(
+				Arr.map(oracle.items, (i) => `(?:${spelled(i)})`),
+				""
+			)
+		case "alt":
+			return Arr.join(Arr.map(oracle.branches, spelled), "|")
+		case "repeat":
+			return `(?:${spelled(oracle.of)}){${oracle.min},${oracle.max ?? ""}}`
+	}
+}
+
+/** An oracle node as the matcher reads it: each class compiled once, each node numbered by its place in the tree. */
+type Node =
+	| { readonly kind: "class"; readonly id: number; readonly test: (c: string) => boolean }
+	| { readonly kind: "seq"; readonly id: number; readonly items: ReadonlyArray<Node> }
+	| { readonly kind: "alt"; readonly id: number; readonly branches: ReadonlyArray<Node> }
+	| {
+			readonly kind: "repeat"
+			readonly id: number
+			readonly of: Node
+			readonly min: number
+			readonly max: number | undefined
+	  }
+
+/** The matcher's nodes of an oracle, numbered in a walk from `next`, with the count it reached. */
+const compiled = (oracle: Oracle, next: { n: number }): Node => {
+	const id = next.n++
+	switch (oracle.kind) {
+		case "class": {
+			const cls = compiledPattern(`^${oracle.source}$`, "v")
+			return { kind: "class", id, test: (c) => cls.test(c) }
+		}
+		case "seq":
+			return { kind: "seq", id, items: Arr.map(oracle.items, (i) => compiled(i, next)) }
+		case "alt":
+			return { kind: "alt", id, branches: Arr.map(oracle.branches, (b) => compiled(b, next)) }
+		case "repeat":
+			return { kind: "repeat", id, of: compiled(oracle.of, next), min: oracle.min, max: oracle.max }
+	}
+}
+
+/** Whether a node matches the empty word. */
+const nullable = (node: Node): boolean => {
+	switch (node.kind) {
+		case "class":
+			return false
+		case "seq":
+			return Arr.every(node.items, nullable)
+		case "alt":
+			return Arr.some(node.branches, nullable)
+		case "repeat":
+			return node.min === 0 || nullable(node.of)
+	}
+}
+
+/**
+ * A partial derivative (Antimirov): what is left of a match to read, a concatenation of nodes, each a node of the tree
+ * or a repetition of one with fewer counts left. Its key names it by each node's number and a repetition's counts, so
+ * two equal derivatives are one state.
+ */
+type Term = ReadonlyArray<Node>
+
+const keyOf = (term: Term): string =>
+	Arr.join(
+		Arr.map(term, (n) => (n.kind === "repeat" ? `${n.id}{${n.min},${n.max ?? ""}}` : `${n.id}`)),
+		" "
+	)
+
+/** The partial derivatives of a node by the code point `c`: the terms left to read after reading it first. */
+const nodeDerivatives = (node: Node, c: string): ReadonlyArray<Term> => {
+	switch (node.kind) {
+		case "class":
+			return node.test(c) ? [[]] : []
+		case "seq":
+			return termDerivatives(node.items, c)
+		case "alt":
+			return Arr.flatMap(node.branches, (b) => nodeDerivatives(b, c))
+		case "repeat": {
+			if (node.max === 0) {
+				return []
+			}
+			const max = node.max === undefined ? undefined : node.max - 1
+			const rest: Term =
+				max === 0 ? [] : [{ ...node, min: nullable(node.of) ? 0 : Math.max(node.min - 1, 0), max }]
+			return Arr.map(nodeDerivatives(node.of, c), (t) => Arr.appendAll(t, rest))
+		}
+	}
+}
+
+/** The partial derivatives of a concatenation: its head's, then its tail's where the head may read nothing. */
+const termDerivatives = (term: Term, c: string): ReadonlyArray<Term> => {
+	const [head, ...rest] = term
+	if (head === undefined) {
+		return []
+	}
+	const first = Arr.map(nodeDerivatives(head, c), (t) => Arr.appendAll(t, rest))
+	return nullable(head) ? Arr.appendAll(first, termDerivatives(rest, c)) : first
+}
+
+/**
+ * The oracle's matcher of a drawn pattern: whether a word is in the pattern's language, by Antimirov's partial
+ * derivatives over the oracle's tree, each class tested on one code point. The states a word reaches are sets of
+ * distinct terms, each a concatenation of the tree's nodes and repetitions with fewer counts left, at most the tree's
+ * positions times the counts its repetitions hold; a word of n code points costs n steps over at most that many
+ * terms, linear in the word, whatever the pattern nests.
+ */
+export const oracleMatcher = (oracle: Oracle): ((word: string) => boolean) => {
+	const root = compiled(oracle, { n: 0 })
+	return (word) => {
+		let states: ReadonlyArray<Term> = [[root]]
+		for (const c of word) {
+			const next = new Map<string, Term>()
+			for (const term of states) {
+				for (const d of termDerivatives(term, c)) {
+					next.set(keyOf(d), d)
+				}
+			}
+			states = Arr.fromIterable(next.values())
+		}
+		return Arr.some(states, (term) => Arr.every(term, nullable))
+	}
+}
 
 /** Words over the pool, up to six characters. */
 export const wordsGen: Gen<ReadonlyArray<string>> = array(

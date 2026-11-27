@@ -5,15 +5,7 @@
  */
 
 import { assert, defined } from "@bjornpagen/testing/assert"
-import {
-	boolean,
-	constant,
-	element,
-	type Gen,
-	int,
-	shuffled,
-	weighted
-} from "@bjornpagen/testing/gen"
+import { boolean, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Formatter, Option, Record as Rec } from "effect"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import type { WholeRule } from "#compiler/analysis/theory/query.ts"
@@ -98,10 +90,6 @@ const deltaOf = (
 	return side === "added" ? without(after, before) : without(before, after)
 }
 
-/** Whether `t` lost no row of any relation: a publish. */
-export const isPublish = (t: Transition): boolean =>
-	Arr.every(Rec.keys(t.before), (r) => deltaOf(t, r, "removed").length === 0)
-
 /** The rule a theory states over its D, judged whole: the theory's one check law, which no other statement states. */
 export const wholeRuleOf = (
 	t: TestTheory
@@ -151,10 +139,6 @@ export const deltaRead = (
 		: assert.fail("a region rule matches a delta of added or removed rows")
 }
 
-/** Whether a region rule reads its delta's rows only where they replace a row lost (unit.ts replacing). */
-export const readsReplaced = (rule: InferredRule): boolean =>
-	Arr.some(rule.where, (c) => c.kind === "exists")
-
 /** A literal of a region's condition as a row holds it: an integer a bigint. */
 const valueOfLiteral = (value: LiteralDesc): Value =>
 	typeof value === "number"
@@ -168,7 +152,7 @@ const valueOfLiteral = (value: LiteralDesc): Value =>
  * each condition a comparison of its variables and literals, a membership, a connective, or the existence of a delta's
  * row at its variables, the forms the boxes' regions state; any other a failure of the box.
  */
-export const admitted = (rule: InferredRule, t: Transition): ReadonlyArray<Row> => {
+const admitted = (rule: InferredRule, t: Transition): ReadonlyArray<Row> => {
 	const read = deltaRead(rule)
 	const [m] = rule.matches
 	const bindings = defined(m, "a region rule's match").bindings
@@ -308,9 +292,9 @@ export const nodeBoxGen =
 	})
 
 /**
- * How many of the region's rules read every row T gained that their conditions admit, each other one reading only those
- * that replace a row T lost: one for each set of conditions of the occurrences of T the proofs of analysis/theory/unit.ts
- * spare nothing, the region holding each rule once. A tree's rows are fixed at its root, doc, by any of them standing,
+ * How many of the region's rules read the rows T gained, every one their conditions admit: one for each set of
+ * conditions of the occurrences of T the proofs of analysis/theory/unit.ts spare nothing, the region holding each rule
+ * once, and none for a proved occurrence, whose gained rows open a fact only beside a witness's row the write gained. A tree's rows are fixed at its root, doc, by any of them standing,
  * so another occurrence of T in the document proves one, or an occurrence of Tag whose reading implies a containment of
  * it into T; a plain T's are fixed at its key alone, so only such an occurrence at its key does. Of the occurrences that
  * prove each other, the one its conditions restrict most is read.
@@ -334,26 +318,22 @@ export const wholeReads = (box: NodeBox): number => {
 }
 
 /**
- * The fields at which the region reads the rows T lost, to find the gained rows that replace one (WholeRule `replaced`):
- * those of each proof of an occurrence of T, a key where a witness binds a key of T alike, else a tree's root, doc,
- * where one binds doc alike, its witness the one that reads least (unit.ts witnessOrder): two nodes at one key in a tree,
- * which its own axis witnesses at doc and its identity at the key, are proved at the key.
+ * Whether the box's rule proves an occurrence of T (unit.ts proofsOf): one beside a witness binding a key of T alike, or
+ * a tree's root, doc, where one binds doc alike.
  */
-export const replacedFields = (box: NodeBox): ReadonlyArray<ReadonlyArray<string>> => {
+export const provesAnOccurrence = (box: NodeBox): boolean => {
 	const tree = box.nodes === "tree"
-	const key = ["doc", "start"]
 	switch (box.shape) {
 		case "parent beside child":
-			return tree ? [key] : []
 		case "child beside its parent's tag":
 		case "two nodes of one kind":
 		case "a node beside its kind":
-			return tree ? [["doc"]] : []
+			return tree
 		case "two nodes at one key":
-			return [key]
+			return true
 		case "a tag beside its node":
 		case "a false tag beside its node":
-			return box.tagged === "true" ? [] : [key]
+			return box.tagged !== "true"
 	}
 }
 
@@ -639,50 +619,7 @@ export const nodeTheoryOf = (box: NodeBox): TestTheory => {
 	return theoryOf(judgedOver(base, nodeRuleOf(box.shape)))
 }
 
-/**
- * The order box's theory: the nodes' schema, each tag contained in T at (doc, start), T's key, and at (doc, mark) in T
- * at (doc, kind), its mark a kind of a node of its document, and a rule over a tag of its node's kind beside its node,
- * the kind its value. T's occurrence has two witnesses beside the tag's: the first containment at T's key and, where T
- * is a tree, the second at its root, doc, which reads every gained node of a document that lost one; the key's reads
- * least, so it proves the node whatever order the containments stand in.
- */
-export const orderTheoryOf = (nodes: Nodes): TestTheory =>
-	theoryOf(
-		judgedOver(
-			nodeSchemaOf(nodes, [
-				contained(on("Tag", ["doc", "start"]), on("T", ["doc", "start"])),
-				contained(on("Tag", ["doc", "mark"]), on("T", ["doc", "kind"]))
-			]),
-			derivedOf(
-				[
-					{ relation: "Tag", bindings: { doc: "doc", start: "start", mark: "kind" } },
-					{ relation: "T", bindings: { doc: "doc", start: "start", kind: "kind" } }
-				],
-				[],
-				{ doc: "doc", start: "start", value: "kind" }
-			)
-		)
-	)
-
-/** The fields at which the order box's region reads the rows T lost (WholeRule `replaced`): T's key, its witness's. */
-export const orderReplacedFields: ReadonlyArray<ReadonlyArray<string>> = [["doc", "start"]]
-
 const loc = SourceLoc("region-proofs", [])
-
-/**
- * `t`'s whole rule decided again over its containments in `order`, a permutation of their places (unit.ts wholeRule
- * over RegionFacts), the containments its region's proofs read standing in that order.
- */
-export const wholeRuleInOrder = (t: TestTheory, order: ReadonlyArray<number>): WholeRule => {
-	const { rule } = wholeRuleOf(t)
-	const containments = Arr.map(order, (at) =>
-		defined(t.regionFacts.containments[at], "a place of the theory's containments")
-	)
-	return defined(
-		wholeRule(rule.law, rule.everyRow, relationsOf(t), { ...t.regionFacts, containments }, loc),
-		"the rule is whole whatever order its containments stand in"
-	)
-}
 
 /** `t`'s whole rule decided again over region facts `facts` (unit.ts wholeRule). */
 export const wholeRuleOver = (t: TestTheory, facts: RegionFacts): WholeRule => {
@@ -710,26 +647,6 @@ export const withUnrelated = (facts: RegionFacts, n: number): RegionFacts => ({
 	]
 })
 
-/** A permutation of `n` places (gen.ts shuffled, every place drawn). */
-export const permutationGen = (n: number): Gen<ReadonlyArray<number>> => {
-	const places = Array.from({ length: n }, (_, i) => i)
-	return shuffled(places, { min: n, max: n })
-}
-
-/** The region's reads as the judge reads them, each rule by the relation and side of its delta and whether it reads
- * only rows that replace one (`regionRulesOf`): what the proofs decide. */
-export const regionReadsOf = (
-	rule: WholeRule
-): ReadonlyArray<{
-	readonly relation: string
-	readonly side: string
-	readonly replaced: boolean
-}> =>
-	Arr.map(regionRulesOf(rule.judged), (r) => {
-		const read = deltaRead(r)
-		return { relation: read.relation, side: read.side, replaced: readsReplaced(r) }
-	})
-
 /** A kind or a count of 0, 1 or 2, 1 the likeliest, the value each rule refuses. */
 const smallGen: Gen<bigint> = weighted([
 	[1, constant(0n)],
@@ -756,41 +673,6 @@ const treeGen =
 			children: Arr.flatMap(parents, (p, i) => (p === node ? [nodeAt(i + 1)] : []))
 		})
 		return nodeAt(0)
-	}
-
-/**
- * A tree edited at one node, reached from the root by descending into a drawn child or stopping: a leaf of a drawn kind
- * appended to its children, its kind drawn anew, or, a leaf but the root, removed; each node off the path as it was.
- * An aimed edit draws the node's kind anew among `kinds` alone.
- */
-const editedGen =
-	(tree: Node, aimed: ReadonlyArray<number>): Gen<Node> =>
-	(s) => {
-		const edited = (node: Node, root: boolean): ReadonlyArray<Node> => {
-			if (node.children.length > 0 && s.draw(boolean)) {
-				const into = s.pick(0, node.children.length - 1)
-				return [
-					{
-						kind: node.kind,
-						children: Arr.flatMap(node.children, (c, i) => (i === into ? edited(c, false) : [c]))
-					}
-				]
-			}
-			const [first, ...more] = aimed
-			if (first !== undefined) {
-				return [{ kind: s.draw(element([first, ...more])), children: node.children }]
-			}
-			const kind = Number(s.draw(smallGen))
-			switch (s.draw(element(["append", "kind", "remove"] as const))) {
-				case "append":
-					return [{ kind: node.kind, children: [...node.children, { kind, children: [] }] }]
-				case "kind":
-					return [{ kind, children: node.children }]
-				case "remove":
-					return node.children.length === 0 && !root ? [] : [node]
-			}
-		}
-		return defined(edited(tree, true)[0], "the edited tree's root")
 	}
 
 /** A tree document's rows of T: its tree numbered in pre-order. */
@@ -827,14 +709,15 @@ const plainGen =
 			(start) => (s.draw(boolean) ? [s.draw(plainRowGen(doc, start))] : [])
 		)
 
-/** A plain document edited: grown, every row kept, or each row kept or not; and a row drawn at each start no kept row
- * holds, or not. */
-const plainEditedGen =
+/**
+ * A plain document grown, as a served write grows a closed relation: every row kept, and a row drawn at each start no
+ * row holds, or not.
+ */
+const grownGen =
 	(rows: ReadonlyArray<Row>): Gen<ReadonlyArray<Row>> =>
 	(s) => {
-		const grown = s.draw(boolean)
-		const kept = Arr.filter(rows, () => grown || s.draw(boolean))
-		const doc = defined(rows[0], "an edited document's row")["doc"]
+		const kept = rows
+		const doc = defined(rows[0], "a grown document's row")["doc"]
 		return typeof doc === "bigint"
 			? [
 					...kept,
@@ -931,13 +814,13 @@ const listedKinds = (kinds: ReadonlyArray<Row>, nodes: ReadonlyArray<Row>): Read
 	Arr.filter(kinds, (k) => Arr.some(nodes, (n) => n["doc"] === k["doc"] && n["kind"] === k["kind"]))
 
 /**
- * A transition of the node box: some documents' nodes drawn, and tags and kinds; then each document kept, edited at one
- * node, aimed, dropped or drawn anew, or, absent, drawn or not, a tagged one's tree of four nodes or five; an aimed tree
- * draws one node's kind anew among those K lists in its document, an aimed plain document gains a node at each start a
- * row's parent or a tag names that no row holds; and each tag and kind kept or not beside some drawn anew, every tag
- * the box contains in T kept only where a node stands at it and every kind where a node of it stands in its document;
- * a publish keeps every document, tag and kind and draws only absent documents' nodes and new tags and kinds, so it
- * loses no row.
+ * A transition of the node box as a served write makes one over its closed relations, every row kept and rows added at
+ * new keys alone (physical/ddl/immutable.ts): some documents' nodes drawn, and tags and kinds; then each tree kept, each
+ * plain document kept, grown or aimed, and each absent document drawn or not, a tagged one's tree of four nodes or five;
+ * an aimed plain document gains a node at each start a row's parent or a tag names that no row holds; and every tag and
+ * kind kept beside some drawn anew, every tag the box contains in T kept only where a node stands at it and every kind
+ * where a node of it stands in its document; a publish keeps every document and draws only absent documents' nodes.
+ * A transition that removes a closed row, a migration's data step's alone, is its migration's to check whole.
  */
 export const nodeTransitionGen =
 	(box: NodeBox): Gen<{ readonly before: Instance; readonly after: Instance }> =>
@@ -958,39 +841,27 @@ export const nodeTransitionGen =
 					: []
 			}
 			const nodes = was.value.nodes
-			const listed = Arr.flatMap(beforeKinds, (k) =>
-				k["doc"] === doc && typeof k["kind"] === "bigint" ? [Number(k["kind"])] : []
-			)
-			switch (
-				publish ? "keep" : s.draw(element(["keep", "edit", "aim", "drop", "redraw"] as const))
-			) {
+			if (nodes.kind === "tree" || publish) {
+				return rowsOfDoc(doc, nodes)
+			}
+			switch (s.draw(element(["keep", "grow", "aim"] as const))) {
 				case "keep":
 					return rowsOfDoc(doc, nodes)
-				case "edit":
-					return nodes.kind === "tree"
-						? treeRows(doc, s.draw(editedGen(nodes.tree, [])))
-						: nodes.rows.length === 0
-							? []
-							: s.draw(plainEditedGen(nodes.rows))
+				case "grow":
+					return nodes.rows.length === 0 ? [] : s.draw(grownGen(nodes.rows))
 				case "aim":
-					return nodes.kind === "tree"
-						? treeRows(doc, s.draw(editedGen(nodes.tree, listed)))
-						: s.draw(aimedPlainGen(doc, nodes.rows, beforeTags))
-				case "drop":
-					return []
-				case "redraw":
-					return rowsOfDoc(doc, s.draw(docNodesGen(box.nodes, doc, 1)))
+					return s.draw(aimedPlainGen(doc, nodes.rows, beforeTags))
 			}
 		})
 		const tags = [
-			...Arr.filter(beforeTags, () => publish || s.draw(int(0, 3)) > 0),
+			...beforeTags,
 			...Arr.filter(
 				s.draw(tagsGen),
 				(g) => !Arr.some(beforeTags, (o) => o["doc"] === g["doc"] && o["start"] === g["start"])
 			)
 		]
 		const kinds = [
-			...Arr.filter(beforeKinds, () => publish || s.draw(int(0, 3)) > 0),
+			...beforeKinds,
 			...Arr.filter(s.draw(kindsGen), (k) => !Arr.some(beforeKinds, (o) => sameRow(o, k)))
 		]
 		return {
@@ -1059,22 +930,24 @@ const chainInstanceGen =
 		return { F: fs, E: es, N: ns }
 	}
 
-/** A transition of the chain: a state of some documents drawn, then each document kept, dropped or drawn anew. */
+/**
+ * A transition of the chain as a served write makes one over its closed relations: a state of some documents drawn,
+ * then every row kept and some absent documents drawn.
+ */
 export const chainTransitionGen: Gen<{ readonly before: Instance; readonly after: Instance }> = (
 	s
 ) => {
 	const present = Arr.filter(docs, () => s.draw(boolean))
 	const before = s.draw(chainInstanceGen(present))
-	const kept = Arr.filter(docs, () => s.draw(boolean))
-	const fresh = s.draw(chainInstanceGen(Arr.filter(docs, (doc) => !Arr.contains(kept, doc))))
-	const keptOf = (relationName: string): ReadonlyArray<Row> =>
-		Arr.filter(before[relationName] ?? [], (r) => Arr.some(kept, (doc) => r["doc"] === doc))
+	const fresh = s.draw(
+		chainInstanceGen(Arr.filter(docs, (doc) => !Arr.contains(present, doc) && s.draw(boolean)))
+	)
 	return {
 		before,
 		after: {
-			F: [...keptOf("F"), ...(fresh["F"] ?? [])],
-			E: [...keptOf("E"), ...(fresh["E"] ?? [])],
-			N: [...keptOf("N"), ...(fresh["N"] ?? [])]
+			F: [...(before["F"] ?? []), ...(fresh["F"] ?? [])],
+			E: [...(before["E"] ?? []), ...(fresh["E"] ?? [])],
+			N: [...(before["N"] ?? []), ...(fresh["N"] ?? [])]
 		}
 	}
 }

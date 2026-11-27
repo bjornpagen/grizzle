@@ -4,7 +4,7 @@ import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec, String as Str } from "effect"
 import { floatLiteral } from "#compiler/ir/carriers.ts"
 import { conservativeMeta, type Heading, type RelNode } from "#compiler/ir/rel.ts"
-import { canonicalZeroSpec } from "#compiler/scalar/compute/registry.ts"
+import { canonicalSpec } from "#compiler/scalar/compute/registry.ts"
 import { float4, float8 } from "#test/support/oracle/gen/domain.ts"
 import { schemaName } from "#test/support/oracle/gen/schema.ts"
 import { noBindings, Reference, unobserved } from "#test/support/oracle/reference/evaluate.ts"
@@ -131,13 +131,13 @@ export const evaluated = (c: SetCase): ReadonlyArray<string> => {
 	)
 }
 
-/** A region binding the input's first column alone, read through a projection that delivers its canonical zero. */
+/** A region binding the input's first column alone, read through a projection that delivers its canonical form. */
 const merged = (q: Q, input: RelNode): RelNode => {
 	const region = q.region([{ source: input, bind: { c0: "c0" }, constants: {} }])
 	const read = q.col(region, "c0")
-	const spec = canonicalZeroSpec(read)
+	const spec = canonicalSpec(read)
 	if (spec === undefined) {
-		throw new Error("no canonical zero for a float column")
+		throw new Error("no canonical form for a column of an identity type")
 	}
 	return q.project(region, [["c0", [q.b.expr(spec), read.type]]], conservativeMeta)
 }

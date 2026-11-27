@@ -11,13 +11,14 @@ import {
 	type BuiltSchemaContent,
 	contentOfDesc,
 	isLevelOf,
+	levelRelations,
 	type SchemaContent,
 	sameRoleLevel
 } from "#compiler/schema/levels.ts"
-import { type Owned, ownedOf } from "#compiler/schema/own.ts"
+import { type Owned, ownBuiltRole, ownedOf } from "#compiler/schema/own.ts"
 import { ownedEntry } from "#compiler/schema/protocol.ts"
 import type { FragmentDesc } from "#compiler/schema/schema.ts"
-import type { BuiltRoleLevel } from "#compiler/schema/world.ts"
+import { type BuiltRoleLevel, roleLevelOver } from "#compiler/schema/world.ts"
 
 /**
  * What a program is given, parsed once where it is given: a schema, a role or a fragment its builders made, or a
@@ -48,12 +49,13 @@ export type SchemaInput =
 			readonly content: SchemaContent
 	  }
 	| { readonly kind: "desc"; readonly desc: SchemaDesc; readonly content: SchemaContent }
-	| {
-			readonly kind: "role"
-			readonly value: object
-			readonly desc: RoleDesc
-			readonly level: BuiltRoleLevel
-	  }
+	| { readonly kind: "role"; readonly desc: RoleDesc; readonly level: BuiltRoleLevel }
+
+/** A role value role(...) built, parsed: its Description, and its level as role(...) read it once. */
+const builtRole = (role: {
+	readonly desc: RoleDesc
+	readonly content: BuiltRoleLevel
+}): ParsedRole => Object.freeze({ kind: "role", desc: role.desc, level: role.content })
 
 /**
  * A schema input, or the decoder's own refusal of it, its path included: the one door a schema value passes, once, so
@@ -75,14 +77,7 @@ export const parseSchemaInput = (value: unknown): Result.Result<SchemaInput, Com
 	}
 	const role = ownedEntry(value, "role")
 	if (role !== undefined) {
-		return Result.ok(
-			Object.freeze<SchemaInput>({
-				kind: "role",
-				value: role.value,
-				desc: role.desc,
-				level: role.content
-			})
-		)
+		return Result.ok(builtRole(role))
 	}
 	const built = ownedEntry(value, "schema")
 	if (built !== undefined) {
@@ -137,8 +132,49 @@ export const parseOver = (value: unknown): Result.Result<Over, CompileError> => 
 /** A schema value schema(...) or schema.extend built, parsed: what Db.open is given, read once there. */
 export type BuiltSchema = Extract<SchemaInput, { readonly kind: "built" }>
 
-/** A role value parsed: what a role's programs compile against, and a login's compile reads of each of its roles. */
+/**
+ * A schema input of a schema, not a role, with its content: what a login is over and an installation installs, a value
+ * schema(...) or schema.extend built, an Owned, or a Description.
+ */
+export type BaseInput = Exclude<SchemaInput, ParsedRole>
+
+/**
+ * A role parsed: its Description and its level (schema/world.ts BuiltRoleLevel), what a role's programs compile against
+ * and what a login's compile reads of each of its roles. It holds no value, so nothing past the door a role enters by
+ * can read one again. A role value enters by parseRole, or by parseSchemaInput as every schema value does, and a role's
+ * Description over its base's Owned by roleOfDesc; no reader can tell which door a role entered by.
+ */
 export type ParsedRole = Extract<SchemaInput, { readonly kind: "role" }>
+
+/**
+ * The parsed role a value is, or the refusal of any other value at `loc`: a value role(...) did not build. Its level is
+ * the one role(...) read once, at its build (schema/world.ts BuiltRoleLevel).
+ */
+export const parseRole = (
+	value: unknown,
+	loc: SourceLoc
+): Result.Result<ParsedRole, CompileError> => {
+	const role = ownedEntry(value, "role")
+	return role === undefined
+		? Result.err(malformedDescription(loc, "a role built by role(...)"))
+		: Result.ok(builtRole(role))
+}
+
+/**
+ * A role read from its Description, over the Owned `base` of the schema its Description is over: its level read from
+ * the descriptions (schema/world.ts roleLevelOver), its base's content as a schema's is read from its description
+ * (schema/levels.ts contentOfDesc), and the role owned over `base` once, where it is first read, as a built role's level
+ * owns it over its base's Owned. A role role(...) built over that base, from that Description, parses to one level with
+ * it (parseRole, schema/levels.ts sameRoleLevel).
+ */
+export const roleOfDesc = (desc: RoleDesc, base: Owned): ParsedRole =>
+	Object.freeze({
+		kind: "role",
+		desc,
+		level: roleLevelOver(desc, contentOfDesc(desc.base), levelRelations(desc.base), () =>
+			ownBuiltRole(desc, base)
+		)
+	})
 
 /**
  * The built schema a value is, or the refusal of any other value at `loc`: a value no schema builder made, an

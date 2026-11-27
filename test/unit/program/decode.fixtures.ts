@@ -60,12 +60,16 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
 /** The roster the decoded rows' closed ids and sets are of. */
 const Tone = closed.ordered("Tone", ["low", "mid", "high"])
 
+const shortKey = Symbol("Short")
 /** A text of at most four characters, a contract the host judges, and a word of lower-case letters, a pattern. */
-const Short = contract("Short", str.regex("^.*$", "su"), (v) => Logic.le(Text.charLength(v), 4))
+const Short = contract<typeof shortKey>()("Short", str.regex("^.*$", "su"), (v) =>
+	Logic.le(Text.charLength(v), 4)
+)
 const Word = str.regex("^[a-z]+$")
 
+const countKey = Symbol("Count")
 /** A count of no fewer than none: an integer under a contract. */
-const Count = contract("Count", pg.integer, (v) => Logic.ge(v, 0))
+const Count = contract<typeof countKey>()("Count", pg.integer, (v) => Logic.ge(v, 0))
 
 /** A relation inserted flat: a field of each carrier an export's rows hold, a contract, a pattern and a bytes field. */
 const Flat = relation(

@@ -6,7 +6,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { planNodes } from "#bench/harness/explain.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, derived, relation, schema } from "#compiler/public/schema.ts"
@@ -15,14 +15,17 @@ import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/
 import {
 	judgedPlans,
 	judgedStatementsOf,
-	lookupSettings,
-	scannedRowsOf,
+	keyedReadWork,
+	keyedWork,
+	probeCostOf,
 	scannedTableOf,
-	standUpJudge
+	standUpJudge,
+	wideScans
 } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
+import { countedAsVacuumed } from "#test/support/substrate/fill.ts"
 
 /** A seat of a unit, at its place `k`, sitting a test: the relation a write inserts into, whose probe the case reads. */
 const Seat = relation("Seat", { unit: pg.integer, k: pg.integer, test: pg.integer }, ["unit", "k"])
@@ -98,7 +101,7 @@ export const probeShareTemplate = migratedTemplate({
 	declaredIn: import.meta,
 	name: "probe share",
 	content: { schema: Checked.name, logins: [] },
-	versions: [{ schema: Checked, logins: [], declarations: noDeclarations }],
+	versions: [{ schema: Checked, declarations: noDeclarations }],
 	options: {
 		label: "probe_share",
 		extensions: [],
@@ -108,8 +111,27 @@ export const probeShareTemplate = migratedTemplate({
 	}
 })
 
-/** The documents of one share of the population: each with its test, two timed and two paced scopes, and a seat. */
-const share = 64
+/**
+ * The documents of one share of the population, each with its test, two timed and two paced scopes, and a seat: the
+ * fewest at which a B-tree probe is PostgreSQL's cheapest read of every table the probe looks up by key, its tables'
+ * sizes stated as a VACUUM counts them after each load (fill.ts countedAsVacuumed), on relations of the case's own (the
+ * rolled-back seat's fresh relations, substrate.ts). On a table of a page or two a sequential scan costs less than a
+ * probe and reads every row of the table, which the oracle would count as rows that grow with the population.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19's cost model (costsize.c cost_seqscan and cost_index) at its default cost settings
+ * @unit documents
+ * @scope each share of one case's population
+ * @derivation A filtered sequential scan of a table of N rows over P pages costs P × seq_page_cost + N × (cpu_tuple_cost
+ *   + cpu_operator_cost) = P + 0.0125 N; a probe of a unique B-tree key reads an index page and a heap page, 2 ×
+ *   random_page_cost = 8, planned at 8.17. Content, the narrowest table the probe looks up by key (two int4 columns, 36
+ *   bytes a row with its tuple header and line pointer, 226 rows on an 8,192-byte page), costs N / 226 + 0.0125 N, past
+ *   the probe's 8.17 from N = 8.17 / (1 / 226 + 0.0125) = 482.7: 483 rows, one a document. Every other table the probe
+ *   looks up holds wider rows or more of them a document, so its scan passes the probe sooner. At 64 documents an empty
+ *   template autovacuum had visited planned each key lookup of Content as a Seq Scan, cost 3.83 against the probe's 8.17,
+ *   and the case read every row of it.
+ */
+const share = 483
 
 /** How many shares the population grows to, from one. */
 const growths = [2, 4, 8, 16] as const
@@ -156,6 +178,12 @@ const population = (installed: Installed, from: number, to: number): ReadonlyArr
 	]
 }
 
+/** The statements stating the population's tables' sizes as a VACUUM counts them (fill.ts countedAsVacuumed). */
+const counted = (installed: Installed): ReadonlyArray<string> => {
+	const names = namesOf(installed)
+	return Arr.map([Seat, Content, Timed, Paced, Budget], (r) => countedAsVacuumed(names.table(r)))
+}
+
 /** A seat of a unit no other row names, at place 0, sitting the test of document `doc`: the write the case probes. */
 const seatAt = (installed: Installed, unit: number, doc: number): string => {
 	const names = namesOf(installed)
@@ -167,15 +195,13 @@ const seatAt = (installed: Installed, unit: number, doc: number): string => {
 
 /**
  * The rows each table's scans read over the judge's statements that read the session's delta, explained with ANALYZE as
- * the judge would run them (judge.ts judgedPlans), each join read by a nested loop that looks its inner side up at the
- * outer row's values (judge.ts lookupSettings): by the table each scan names, the rows it returned and its filters
- * removed over all of its loops.
+ * the judge would run them (judge.ts judgedPlans), with no planner setting: by the table each scan names, the rows it
+ * returned and its filters removed over all of its loops, but a sequential scan of a table no larger than one probe,
+ * `probeCost`, which PostgreSQL reads whole for what a lookup of a key in it costs (judge.ts keyedWork); and each table
+ * a scan that costs more than a probe reads whole (judge.ts wideScans).
  */
-const rowsReadByTable = (installed: Installed, connection: PgConnection) =>
+const rowsReadByTable = (installed: Installed, connection: PgConnection, probeCost: number) =>
 	Effect.gen(function* () {
-		for (const sql of lookupSettings) {
-			yield* connection.query(sql, [])
-		}
 		const plans = yield* judgedPlans(
 			(sql) => connection.queryValues(sql, []),
 			installed.installation,
@@ -185,13 +211,31 @@ const rowsReadByTable = (installed: Installed, connection: PgConnection) =>
 		for (const { plan } of plans) {
 			for (const n of planNodes(plan)) {
 				const table = scannedTableOf(n)
-				if (Option.isSome(table)) {
-					out[table.value] = (out[table.value] ?? 0) + scannedRowsOf(n) * n.actualLoops
+				const read = keyedWork(n, probeCost)
+				if (Option.isSome(table) && read > 0) {
+					out[table.value] = (out[table.value] ?? 0) + read
 				}
 			}
 		}
-		return out
+		return { rows: out, wide: Arr.flatMap(plans, ({ plan }) => wideScans(plan, probeCost)) }
 	})
+
+/**
+ * The work of the judge's statements over a load of the population written at once, explained with ANALYZE as the
+ * judge would run them while the deltas hold the load (judge.ts judgedPlans): every row their scans of stored
+ * relations read and their reads of the deltas yield, and every row each scan of a CTE reads, over all of its loops
+ * (judge.ts keyedReadWork), where a set the statement computes once and joins inside a probe evaluated per written row
+ * is scanned whole at each.
+ */
+const loadWork = (installed: Installed, connection: PgConnection, probeCost: number) =>
+	Effect.map(
+		judgedPlans(
+			(sql) => connection.queryValues(sql, []),
+			installed.installation,
+			judgedStatementsOf(installed.installation)
+		),
+		(plans) => Arr.reduce(plans, 0, (sum, { plan }) => sum + keyedReadWork(plan, probeCost))
+	)
 
 /** The judge run over what the transaction wrote since it last ran, then deferred again: it must accept. */
 const judged = (connection: PgConnection) =>
@@ -201,11 +245,13 @@ const judged = (connection: PgConnection) =>
 	})
 
 /**
- * One case in its one transaction, which the case's end rolls back: one share of the population written and judged;
- * a seat at the case's document written and the judge's statements explained over it; the judge run; the population
- * grown to the case's shares and judged; a second seat at the same document written and the statements explained again.
- * Each table's rows read over the second seat equal those over the first: the probe reads the rows its write's keys
- * reach, whatever the population.
+ * One case in its one transaction, which the case's end rolls back: one share of the population written, the judge's
+ * statements explained over it, and judged; a seat at the case's document written and the statements explained over
+ * it; the judge run; the population grown to the case's shares, the statements explained over the growth, and judged;
+ * a second seat at the same document written and the statements explained again. Each table's rows read over the
+ * second seat equal those over the first: the probe reads the rows its write's keys reach, whatever the population. And
+ * the judge's work over the growth, its shares but the first written at once, is at most their count times its work
+ * over the first share: each written row's probe reads the rows its keys reach, whatever else the transaction wrote.
  */
 export const runProbeShare = (
 	installed: Installed,
@@ -219,26 +265,42 @@ export const runProbeShare = (
 			c.note("the population grown sixteen times")
 		}
 		yield* standUpJudge(connection, installed.installation)
+		const probeCost = yield* probeCostOf((sql) => connection.queryValues(sql, []))
 		yield* connection.query("SET CONSTRAINTS ALL DEFERRED", [])
-		for (const sql of population(installed, 0, share)) {
+		for (const sql of [...population(installed, 0, share), ...counted(installed)]) {
 			yield* connection.query(sql, [])
 		}
+		const first = yield* loadWork(installed, connection, probeCost)
 		yield* judged(connection)
 		yield* connection.query(seatAt(installed, -1, drawn.doc), [])
-		const small = yield* rowsReadByTable(installed, connection)
+		const small = yield* rowsReadByTable(installed, connection, probeCost)
 		yield* judged(connection)
-		for (const sql of population(installed, share, share * drawn.growth)) {
+		for (const sql of [
+			...population(installed, share, share * drawn.growth),
+			...counted(installed)
+		]) {
 			yield* connection.query(sql, [])
 		}
+		const growth = yield* loadWork(installed, connection, probeCost)
 		yield* judged(connection)
 		yield* connection.query(seatAt(installed, -2, drawn.doc), [])
-		const grown = yield* rowsReadByTable(installed, connection)
-		const tables = Arr.dedupe([...Rec.keys(small), ...Rec.keys(grown)])
+		const grown = yield* rowsReadByTable(installed, connection, probeCost)
+		assert.deepEqual(
+			[...small.wide, ...grown.wide],
+			[],
+			`${Formatter.format(drawn)}: the judge's statements read no table larger than a probe whole`
+		)
+		const tables = Arr.dedupe([...Rec.keys(small.rows), ...Rec.keys(grown.rows)])
 		for (const table of tables) {
 			assert.equal(
-				grown[table] ?? 0,
-				small[table] ?? 0,
-				`${Formatter.format(drawn)}: the judge's statements read ${grown[table] ?? 0} rows of ${table} over a seat written at ${drawn.growth} shares of the population, where over one they read ${small[table] ?? 0}`
+				grown.rows[table] ?? 0,
+				small.rows[table] ?? 0,
+				`${Formatter.format(drawn)}: the judge's statements read ${grown.rows[table] ?? 0} rows of ${table} over a seat written at ${drawn.growth} shares of the population, where over one they read ${small.rows[table] ?? 0}`
 			)
 		}
+		const shares = drawn.growth - 1
+		assert.ok(
+			growth <= shares * first,
+			`${Formatter.format(drawn)}: the judge's statements read ${growth} rows over the ${shares} shares of the population written at once, past ${shares} times the ${first} they read over the first share`
+		)
 	})

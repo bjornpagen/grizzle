@@ -43,7 +43,8 @@ import {
 	logicalPropsOf,
 	type Props,
 	type PropsEnv,
-	type PropsReading
+	type PropsReading,
+	propsScratch
 } from "#compiler/logical/props.ts"
 
 export interface LogicalEnv {
@@ -234,10 +235,24 @@ interface DagReaders {
  * function of the node, the environment and those judgments, so the entry a node holds is the annotation any analysis
  * of the compile makes of it there. Every other node is the analysis's own, kept as long as it runs.
  */
-/** What a compile's shared analyses hold: the nodes the compile shares, and each recorded node's entry. */
+/**
+ * What a compile's shared analyses hold: the nodes the compile shares, each recorded node's entry, and each annotated
+ * node an analysis made of a shared node over a plain sub-DAG (`selves`), with its properties.
+ *
+ * `selves`: an annotation is idempotent (test/unit/analysis/logical/evidence.test.ts): annotating an annotated node
+ * states what the analysis that made it stated. So the annotated node an analysis makes of a shared node is its own
+ * annotation in any later analysis of the compile, with the properties made of it, where nothing below it rests on a
+ * judgment another DAG could make otherwise: no attachment, whose delivered type and exclusive child's revision rest
+ * on its child's readers, and no recursion, and no view's keys restated. A later version of a DAG built from annotated
+ * nodes (a write's restatement, its rewrites, write/frontend/compile.ts) annotates the nodes it built alone, where its
+ * records, keyed by the nodes an analysis annotated, held none of the annotated ones. Every entry is the store's own
+ * environment's (SharedAnalyses env): a store is made with one environment and read under no other, so no annotation
+ * one environment made is read under another.
+ */
 interface SharedState {
 	readonly shares: (node: RelNode) => boolean
 	readonly entries: WeakMap<RelNode, SharedEntry>
+	readonly selves: WeakMap<RelNode, Props>
 }
 
 export class SharedAnalyses {
@@ -247,7 +262,7 @@ export class SharedAnalyses {
 
 	constructor(env: LogicalEnv, shares: (node: RelNode) => boolean) {
 		this.env = env
-		this.state = { shares, entries: new WeakMap() }
+		this.state = { shares, entries: new WeakMap(), selves: new WeakMap() }
 	}
 }
 
@@ -506,6 +521,16 @@ class Annotator<R extends Roots> {
 		const keeps = (node: RelNode): boolean =>
 			kept.kind === "every" || (kept.kind === "named" && kept.nodes.has(node))
 		/**
+		 * Whether this analysis reads the nodes that are their own annotations (SharedState selves): a caller that names
+		 * the nodes it reads the properties of, as one reading the records does, since a node read so walks none below it.
+		 */
+		const readsSelves = kept.kind === "named"
+		/**
+		 * The nodes over a plain sub-DAG (SharedState selves) this analysis met: those it annotated over plain inputs, no
+		 * attachment, recursion or restated view among them, and those it read as their own annotation.
+		 */
+		const plain = new Set<RelNode>()
+		/**
 		 * The records whose annotations this analysis may read: those of a caller that names the nodes it reads the
 		 * properties of, none of them inside the record, whose nodes hold none (SharedEntry), and that the DAG reads
 		 * only through their roots.
@@ -591,13 +616,13 @@ class Annotator<R extends Roots> {
 			}
 		}
 		const propsOf = (node: RelNode): Props => {
-			const own = live.get(node)
+			const own = live.get(node) ?? (readsSelves ? shared.state.selves.get(node) : undefined)
 			if (own !== undefined) {
 				return own
 			}
 			const entry = entryOf(shared.state, node)
 			if (entry?.kind !== "root") {
-				throw defect("a node's properties are held until its last reader is built")
+				defect("a node's properties are held until its last reader is built")
 			}
 			return entry.annotated.props
 		}
@@ -643,7 +668,8 @@ class Annotator<R extends Roots> {
 			/** The attachment's delivered shape rests on the child's evidence too. */
 			const d = delivery(node, reading, {
 				context: env.context,
-				containments: env.containments
+				containments: env.containments,
+				scratch: propsEnv.scratch
 			})
 			const exclusive = count(node.child) === 1
 			const childMeta = exclusive ? d.relative : reading.child
@@ -680,11 +706,34 @@ class Annotator<R extends Roots> {
 			}
 		}
 		const fold = new Fold<RelNode, AnnotatedNode>(
-			annotationStep(shared.state, agrees, annotate, (node, made) => {
-				annotated.push(node)
-				live.set(node, made.props)
-				built(node)
-			})
+			annotationStep(
+				shared.state,
+				agrees,
+				annotate,
+				(node, made) => {
+					annotated.push(node)
+					live.set(node, made.props)
+					if (
+						shared.state.shares(node) &&
+						!made.restated &&
+						node.kind !== "Attach" &&
+						node.kind !== "Recursive" &&
+						node.kind !== "SelfRef" &&
+						inputsOf(node).every((input) => plain.has(input))
+					) {
+						plain.add(node)
+						shared.state.selves.set(made.node, made.props)
+					}
+					built(node)
+				},
+				(node) => {
+					if (!readsSelves || !shared.state.selves.has(node)) {
+						return undefined
+					}
+					plain.add(node)
+					return { node, judged: node, restated: false }
+				}
+			)
 		)
 		const of = annotatedOf(fold)
 		const dag = assembledDag(mapRoots(this.dag.roots, rootOf(of, "node")))
@@ -703,6 +752,7 @@ class Annotator<R extends Roots> {
 			const read =
 				revised.get(node)?.props ??
 				live.get(node) ??
+				(readsSelves ? shared.state.selves.get(node) : undefined) ??
 				(entry?.kind === "root" && agreed.get(entry.record) === true
 					? entry.annotated.props
 					: undefined)
@@ -720,6 +770,7 @@ class Annotator<R extends Roots> {
 		revised.clear()
 		unread.clear()
 		annotated.length = 0
+		plain.clear()
 		return { dag, judged, of: revisedOf(revisions, of), props }
 	}
 }
@@ -735,7 +786,8 @@ class Annotator<R extends Roots> {
  */
 const propsEnvOf = (scopes: Fold<RelNode, NodeScope>, keyedViews: boolean): PropsEnv => ({
 	scope: (node) => scopes.of(node),
-	keyedViews
+	keyedViews,
+	scratch: propsScratch()
 })
 
 /** A node's scope, from the analysis's scopes. */
@@ -763,16 +815,22 @@ const revisedOf =
 		revisions.get(node) ?? of(node)
 
 /**
- * The fold's step (ir/fold.ts): the compile's recorded annotation where the DAG judges its sub-DAG alike (`agrees`),
- * which reads no input; otherwise the node annotated from its inputs' values (`annotate`), `made` told of it.
+ * The fold's step (ir/fold.ts): a node that is its own annotation (`own`, SharedState selves), or the compile's
+ * recorded annotation where the DAG judges its sub-DAG alike (`agrees`), each reading no input; otherwise the node
+ * annotated from its inputs' values (`annotate`), `made` told of it.
  */
 const annotationStep = (
 	state: SharedState,
 	agrees: (record: SharedRecord) => boolean,
 	annotate: (node: RelNode, values: NodeOver<ValueRefs<AnnotatedNode>>) => Annotated,
-	made: (node: RelNode, annotation: Annotated) => void
+	made: (node: RelNode, annotation: Annotated) => void,
+	own: (node: RelNode) => AnnotatedNode | undefined
 ) =>
 	function* (node: RelNode): Generator<RelNode, AnnotatedNode, AnnotatedNode> {
+		const self = own(node)
+		if (self !== undefined) {
+			return self
+		}
 		const entry = entryOf(state, node)
 		if (entry !== undefined && agrees(entry.record)) {
 			return entry.annotated
@@ -887,6 +945,6 @@ export const judgedAsDelivered = <R extends Roots>(dag: ValidDag<R>): JudgedDag<
  */
 export const annotateQuery = <Q extends LogicalQuery>(
 	query: Q,
-	env: LogicalEnv
+	env: LogicalEnv | SharedAnalyses
 ): Result.Result<Q, CompileError> =>
 	Result.map(analyzeLogical(query.dag, env, keptNodes([])), (a) => ({ ...query, dag: a.dag }))

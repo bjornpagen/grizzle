@@ -13,17 +13,19 @@ import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
-import { headsOf } from "#compiler/ir/instant.ts"
+import { headNameOf, headsOf } from "#compiler/ir/instant.ts"
 import type { NativeColumn, NativeObject } from "#compiler/ir/law.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import type {
 	ArrayPart,
+	DeclaredValue,
 	RelationColumn,
 	WriteParamSlot
 } from "#compiler/lower/conservative/types.ts"
 import { libraryRef, tablelessLibrary } from "#compiler/physical/ddl/library.ts"
 import type { NamedRole } from "#compiler/physical/ddl/names.ts"
 import {
+	anonymousTables,
 	entryMembership,
 	entryProbes,
 	holdMembership,
@@ -43,7 +45,6 @@ import {
 	type SlotFill
 } from "#compiler/program/isolation/extract.ts"
 import type { ArtifactsWorld, SchemaArtifacts } from "#compiler/program/schema.ts"
-import { reachOf } from "#compiler/runtime/write/steps.ts"
 import type { Expr, SqlStatement } from "#compiler/sql/ast.ts"
 import { col } from "#compiler/sql/build.ts"
 import { fieldColumns } from "#compiler/write/defined.ts"
@@ -72,35 +73,42 @@ interface SentStatement {
  * Every statement a compiled write's flight may send, in the order it sends them (adapter/apply/run.ts):
  * its write statements, each in every form an execution may send (write/program/served.ts projectWrite), then its
  * read-backs', which run in the change's own transaction at its level: a read-back riding a write statement is parts
- * of that statement's own forms (write/program/artifact.ts ReadBackCarried), and sends nothing of its own. A staged
- * statement reads its nested rows from carriers in place of its arrays and reads the stored relations its inline form
- * reads (write/program/staged.ts), so its inline form stands for it. A statement
- * that reaches only the call's parameters, the admission, reads no relation and writes nothing (runtime/write/steps.ts
- * reachOf).
+ * of that statement's own forms (write/program/artifact.ts ReadBackCarried), and sends nothing of its own. The admission
+ * an own statement carries (write/program/admission.ts) reads the call's parameters alone, no relation.
  */
 const flightStatements = (compiled: CompiledWrite): ReadonlyArray<SentStatement> => [
-	...compiled.artifact.statements
-		.filter((s) => s.step.kind !== "readBack" && reachOf(s.step) === "state")
-		.flatMap(sentForms),
+	...compiled.artifact.statements.filter((s) => s.step.kind !== "readBack").flatMap(sentForms),
 	...compiled.artifact.readBacks.flatMap((r) =>
 		r.carried.kind === "sent" ? sentForms(r.carried.statement) : []
 	)
 ]
 
+/** What fills a declared parameter's placeholder (slotFill): a scalar's parameter, by its name, or a relation
+ * parameter's array (`inputFill`). */
+const declaredFill = (value: DeclaredValue): SlotFill => {
+	switch (value.kind) {
+		case "scalar":
+			return { kind: "param", name: value.param }
+		case "relation":
+			return inputFill(value.param, value.columns, value.part)
+	}
+}
+
 /**
  * What fills a placeholder, as the extractor reads it (extract.ts SlotFill): a declared scalar's parameter, by its
- * name; a relation parameter's or a member slot's array of one column, that field of its input's heading; and any other
- * array, a stratum's nested rows' or an input's count.
+ * name; a relation parameter's or a member slot's array of one column, that field of its input's heading; an
+ * admission's, the declared parameter's it admits; and any other array, a stratum's nested rows' or an input's count.
  */
 const slotFill = (slot: WriteParamSlot | undefined): SlotFill => {
 	if (slot === undefined) {
-		throw defect("a placeholder its statement allocates no slot for")
+		defect("a placeholder its statement allocates no slot for")
 	}
 	switch (slot.kind) {
 		case "scalar":
-			return { kind: "param", name: slot.param }
 		case "relation":
-			return inputFill(slot.param, slot.columns, slot.part)
+			return declaredFill(slot)
+		case "admission":
+			return declaredFill(slot.admits)
 		case "member":
 			return inputFill(slot.slot, slot.columns, slot.part)
 		case "nestedRows":
@@ -119,7 +127,7 @@ const inputFill = (
 	}
 	const column = columns[part.index]
 	if (column === undefined) {
-		throw defect("an input's array of a column its input holds")
+		defect("an input's array of a column its input holds")
 	}
 	return { kind: "input", parameter, field: column.name }
 }
@@ -129,8 +137,11 @@ const inputFill = (
  * artifacts give the installation's objects:
  *
  * - a stored relation's table and a stored derived relation's table are that relation, a table the role reads
- *   under a row policy of its own among them;
- * - the role's view of a whole entry is its relation; a view of a query entry is its definition (roleWorld);
+ *   under a row policy of its own among them, a stored canonical relation of an import no declaration names
+ *   (analysis/derived/canonical.ts) among them;
+ * - the role's view of a whole entry is its relation, and the whole view of each canonical relation its base names
+ *   nowhere that it reads (physical/ddl/roles.ts anonymousTables) is that relation; a view of a query entry is its
+ *   definition (roleWorld);
  * - a column of a stored relation's table is its field, and none of a law column;
  * - the refusal function, each closed relation's constant functions, each library function whose definition reads no
  *   table (physical/ddl/library.ts tablelessLibrary, a text's digest among them), each declared function and each head's
@@ -180,6 +191,10 @@ export const extractNames = (role: {
 				relations.set([view.schema, view.name], entry.relation.name)
 			}
 		}
+		for (const { name } of anonymousTables(world.checked)) {
+			const view = world.names.view(name)
+			relations.set([view.schema, view.name], name)
+		}
 	}
 	const columns = new TupleMap<readonly [string, string], string>()
 	const refuse = refusalFunction(names.schema)
@@ -204,7 +219,7 @@ export const extractNames = (role: {
 		}
 	}
 	for (const head of headsOf(artifacts.laws.theory.instants)) {
-		const stamp = names.stamp(head.relation, head.field.name)
+		const stamp = names.stamp(headNameOf(head))
 		noTable.add([stamp.schema, stamp.name])
 	}
 	const arbiters = new Map<string, Array<ReadonlyArray<string>>>()
@@ -323,7 +338,7 @@ const roleWorld = (
 				column: (f) => names.column(relation, f.name)
 			})
 		)
-		for (const probe of entryProbes(model, role, { write: e, relation: w.relation })) {
+		for (const probe of entryProbes(model, { write: e, relation: w.relation })) {
 			const fn = world.names.probe(e.name, probe, [])
 			functions.set(
 				[fn.schema, fn.name],

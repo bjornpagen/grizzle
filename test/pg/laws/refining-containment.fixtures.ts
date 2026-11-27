@@ -22,11 +22,13 @@ import {
 import { type Seat, seatTemplate } from "#test/pg/fin/installed.ts"
 import { attempt } from "#test/support/substrate.ts"
 
+const lowKey = Symbol("Low")
 /** A contract over pg.bigint of the values at most 1, a sibling of natural: neither refines the other. */
-const Low = contract("Low", pg.bigint, (x) => Logic.le(x, 1n))
+const Low = contract<typeof lowKey>()("Low", pg.bigint, (x) => Logic.le(x, 1n))
 
+const unitKey = Symbol("Unit")
 /** A contract over natural of the values at most 1: a refinement of natural, and through it of pg.bigint. */
-const Unit = contract("Unit", natural, (x) => Logic.le(x, 1n))
+const Unit = contract<typeof unitKey>()("Unit", natural, (x) => Logic.le(x, 1n))
 
 /** The types the schema's fields are of, each of the base carrier int8: pg.bigint, natural, Low and Unit. */
 const types = ["Big", "Natural", "Low", "Unit"] as const

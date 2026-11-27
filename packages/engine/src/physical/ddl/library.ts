@@ -22,11 +22,13 @@ import { type Identity, identity } from "#compiler/core/identity.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { type LibraryFn, libraryFns } from "#compiler/ir/physical.ts"
+import { baseOf } from "#compiler/ir/scalar.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { persistentExprs } from "#compiler/physical/ddl/constants.ts"
 import { constantRevoke, type InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { enforcement } from "#compiler/physical/obligations/graph.ts"
 import { libraryOf, nativeOp, nativeOps, nullRules } from "#compiler/scalar/compute/registry.ts"
+import { digestPartOf } from "#compiler/scalar/variant-digest.ts"
 import type {
 	Expr,
 	FrameBound,
@@ -1823,10 +1825,28 @@ export const tablelessLibrary: ReadonlyArray<LibraryFn> = libraryFns.filter((fn)
 	bodyReadsNoTable(definitions[fn].body)
 )
 
-/** The library function an expression calls, by its native operation's SQL (registry.ts libraryOf), or none. */
+/** The library function an expression calls: its native operation's SQL's (registry.ts libraryOf), or a variant digest's textDigest where it images a text (scalar/variant-digest.ts); or none. */
 export const calledLibrary = (e: ScalarExpr): LibraryFn | undefined => {
+	if (e.kind === "variant") {
+		return e.op.kind === "digest" && digestReadsText(e) ? "textDigest" : undefined
+	}
 	const sql = e.kind === "op" ? nativeOp(e.op)?.sql : undefined
 	return sql === undefined ? undefined : libraryOf(sql)
+}
+
+/** Whether a variant's digest images a text or an exact integer, each by the library's textDigest (scalar/variant-digest.ts). */
+const digestReadsText = (e: ScalarExpr): boolean => {
+	const subject = e.args[0]
+	const base = subject === undefined ? undefined : baseOf(subject.type)
+	return (
+		base?.carrier === "variant" &&
+		base.variant.arms.some((arm) =>
+			arm.fields.some((f) => {
+				const image = digestPartOf(f.type)
+				return image === "text" || image === "integer"
+			})
+		)
+	)
 }
 
 /** The identity a library function is named by (core/identity.ts libraryFunction). */

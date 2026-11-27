@@ -20,6 +20,13 @@ const fileTransaction: Transaction = {
 }
 
 /**
+ * The transaction the names of what the session holds before a file's transaction are read in (`probingSession`):
+ * read-only, and its own, so the catalogs the names probe reads, each locked to its transaction's end, are released
+ * before the file's transaction begins.
+ */
+const priorTransaction: Transaction = { access: "readOnly", end: "COMMIT" }
+
+/**
  * The locks the session's backend holds, each locked object once whatever its modes (lock.c LOCKTAG): every row of
  * pg_locks of its own pid granted, but its virtual transaction id, which lives in its fast-path slot and no shared entry
  * until another waits on it, a predicate lock, which lives in the predicate lock table (predicate.c), and pg_locks
@@ -125,7 +132,8 @@ export interface ProbedTransaction {
 	readonly peak: number
 	/** Each object held locked at its end (namesProbe), the session's own before it began among them. */
 	readonly names: ReadonlyArray<string>
-	/** Each object the session held locked before the transaction began. */
+	/** Each object the session held locked before the transaction began, read in a transaction of its own before it,
+	 * the catalogs that read locks among them. */
 	readonly before: ReadonlyArray<string>
 }
 
@@ -135,8 +143,15 @@ const countOf = (rows: ReadonlyArray<ReadonlyArray<string>>): number => Number(r
 /**
  * A migration session over `session` whose every transaction runs as the apply runner sends it, a probe of its locks
  * after BEGIN and after each statement and the names of what it holds before COMMIT, each probe a read that changes
- * nothing: what each transaction held is pushed onto `ran`, in order. Statements apart and the drift check's
- * transaction run as they do.
+ * nothing, and before it, in a read-only transaction of its own, the names of what the session holds: what each
+ * transaction held is pushed onto `ran`, in order. Statements apart and the drift check's transaction run as they do.
+ *
+ * No names probe runs in the file's transaction before its last count: the names probe reads the catalogs it names
+ * objects from, pg_class, pg_namespace, pg_proc, pg_trigger and a dozen more, each with every index of it its planner
+ * opens, and keeps each locked to its transaction's end, so read after BEGIN it stood in the baseline every count
+ * subtracts, and every catalog the file itself reads was held already and counted for none: a structure file whose
+ * guard bracket reads pg_trigger, pg_class, pg_namespace and pg_proc with their indexes, fourteen catalogs its count
+ * states, measured 21 where it held 35, and its stated 43 read as past twice what it held.
  */
 export const probingSession = (
 	session: Session,
@@ -149,27 +164,29 @@ export const probingSession = (
 	return {
 		...plain,
 		transaction: (statements: ReadonlyArray<BatchStatement>) =>
-			Effect.map(
-				runTransaction(
-					session,
-					[names, count, ...Arr.flatMap(statements, (s) => [s, count]), names],
-					fileTransaction
-				),
-				(outcomes) => {
-					const counts = Arr.map(
-						Arr.filter(outcomes.slice(1, -1), (_, i) => i % 2 === 0),
-						(o) => countOf(o.rows)
-					)
-					const [baseline = 0] = counts
-					const last = statements.at(-1)
-					const file = last?._tag === "oneShot" ? last.params[2] : undefined
-					ran.push({
-						file: typeof file === "string" ? file : undefined,
-						peak: Arr.reduce(counts, 0, (most, n) => Math.max(most, n)) - baseline,
-						names: Arr.map(outcomes.at(-1)?.rows ?? [], (row) => row[0] ?? ""),
-						before: Arr.map(outcomes[0]?.rows ?? [], (row) => row[0] ?? "")
-					})
-				}
+			Effect.flatMap(runTransaction(session, [names], priorTransaction), (prior) =>
+				Effect.map(
+					runTransaction(
+						session,
+						[count, ...Arr.flatMap(statements, (s) => [s, count]), names],
+						fileTransaction
+					),
+					(outcomes) => {
+						const counts = Arr.map(
+							Arr.filter(outcomes.slice(0, -1), (_, i) => i % 2 === 0),
+							(o) => countOf(o.rows)
+						)
+						const [baseline = 0] = counts
+						const last = statements.at(-1)
+						const file = last?._tag === "oneShot" ? last.params[2] : undefined
+						ran.push({
+							file: typeof file === "string" ? file : undefined,
+							peak: Arr.reduce(counts, 0, (most, n) => Math.max(most, n)) - baseline,
+							names: Arr.map(outcomes.at(-1)?.rows ?? [], (row) => row[0] ?? ""),
+							before: Arr.map(prior[0]?.rows ?? [], (row) => row[0] ?? "")
+						})
+					}
+				)
 			)
 	}
 }

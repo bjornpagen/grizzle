@@ -14,7 +14,7 @@ import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
 	type ConcatProbeFeature,
-	concatProbeTemplate,
+	concatProbeTemplates,
 	runConcatProbe,
 	storedGen
 } from "#test/pg/laws/rule-concat-probe.fixtures.ts"
@@ -30,19 +30,17 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 export const aProbeOfATextAConcatenationNamesReadsItsRowsAsAPointLookup = property.explore(
 	storedGen,
 	{
-		needs: { substrate: Substrate.rolledBack(concatProbeTemplate) },
+		needs: Substrate.oneOf(concatProbeTemplates, Substrate.rolledBack),
 		situations: [
 			"a few thousand references a package",
 			"six thousand references a package and more",
 			"a variable no reference names refused"
 		] satisfies ReadonlyArray<Reached<ConcatProbeFeature>>,
-		check:
-			({ substrate }, c) =>
-			(stored) =>
-				Effect.gen(function* () {
-					const { connection, value } = yield* substrate
-					yield* runConcatProbe(value, connection, stored, c)
-				}),
+		check: (templates, c) => (stored) =>
+			Effect.gen(function* () {
+				const { connection, value } = yield* templates[`${stored.references}`]
+				yield* runConcatProbe(value, connection, stored, c)
+			}),
 		oracle: {
 			kind: "universal",
 			name: "bound: each scan of Ref a rule's probe makes reads at most, a loop, the rows one identifier matches, its output and its filters' removals together; and the containment refusing a variable whose qualified name no reference's identifier is"

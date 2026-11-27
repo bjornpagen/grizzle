@@ -46,8 +46,8 @@ import { isRecord } from "#compiler/core/record.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { isolationGuardName } from "#compiler/physical/ddl/isolation.ts"
 import { snapshotGuardName } from "#compiler/physical/ddl/ledger.ts"
-import { Engine, levelChain, type RowDecoder } from "#compiler/plan/common.ts"
-import { everySlice, servedSnapshot } from "#compiler/plan/serve.ts"
+import { levelChain, type RowDecoder } from "#compiler/plan/common.ts"
+import { servedSnapshot } from "#compiler/plan/serve.ts"
 import type { WriteStepResult } from "#compiler/runtime/write/steps.ts"
 import type { Insert, SqlStatement, With } from "#compiler/sql/ast.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
@@ -62,6 +62,7 @@ import type { ArtifactStatement } from "#compiler/write/program/artifact.ts"
 import { refusalFunctionName } from "#compiler/write/refusal.ts"
 import { conservativeChange } from "#test/support/conservative.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
+import { standUpJudge } from "#test/support/judge.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { member, openServedDb, type ServedDb } from "#test/support/served-db.ts"
@@ -128,14 +129,15 @@ type TextRow = readonly [text: string]
 
 /**
  * Installs `schema`, the template-named value of a gate's builder, complete, with the access paths its workload programs
- * request, under a fresh schema name, with its full world and the further `logins` the gate's own roles are in.
+ * request, under a fresh schema name, with its full world and the further logins `logins` builds under that name, which
+ * the gate's own roles are in.
  */
 export const installWrites = <S extends Parameters<typeof fullWorld>[0]>(
 	schema: S,
 	label: string,
 	options: {
 		readonly programs: Readonly<Record<string, unknown>>
-		readonly logins: ReadonlyArray<AnyLogin>
+		readonly logins: (name: string) => ReadonlyArray<AnyLogin>
 	}
 ): Effect.Effect<
 	Fixture<S>,
@@ -177,20 +179,18 @@ const servedRoleOf = (
 				levelChain(login.base.desc).length - 1
 			)
 		)
-		const slice = everySlice(owned.base)
-		const { artifacts } = yield* fromEngine(
-			artifactsUnder(owned.base, snapshot.codes, snapshot.derived, slice, {
-				kind: "recorded",
-				installed: snapshot.derived.params
-			})
+		const artifacts = yield* fromEngine(
+			artifactsUnder(
+				owned.base,
+				snapshot.codes,
+				snapshot.derived,
+				{ kind: "recorded", installed: snapshot.derived.params },
+				{ kind: "analyzed" },
+				new Set()
+			)
 		)
 		const roles = yield* Effect.mapError(
-			loginRoles(
-				{ ...login, workload: [] },
-				owned,
-				{ slice, artifacts, over: () => Engine.ok(artifacts) },
-				lawsAbove(snapshot)
-			),
+			loginRoles({ ...login, workload: [] }, owned, artifacts, lawsAbove(snapshot)),
 			(refused) => refused.error
 		)
 		const found = Option.getOrUndefined(Arr.findFirst(roles, (r) => r.role.name === role.role.name))
@@ -252,13 +252,17 @@ export const owner = Effect.fn("owner")(function* (
 })
 
 /**
- * Runs `sql` as the owner in one transaction: a seed whose rows hold a deferred law, a native foreign key that no
- * DISABLE TRIGGER USER turns off, only together, which statements committed one by one would each break.
+ * Runs `sql` of `fixture`'s installation as the owner in one transaction, after the judge's tables are stood up on the
+ * owner's session (judge.ts standUpJudge), so every capture records its rows and every rule over a query judges them at
+ * the COMMIT, as a writer outside grizzle's are: a seed whose rows hold a deferred law or a native deferred foreign key
+ * only together, which statements committed one by one would each break.
  */
-export const ownerTransaction = Effect.fn("ownerTransaction")(function* (
+export const ownerTransaction = Effect.fn("ownerTransaction")(function* <S>(
+	fixture: Fixture<S>,
 	sql: ReadonlyArray<string>
 ): Effect.fn.Return<void, SqlError | TransactionRolledBack, Substrate> {
 	const s = yield* Substrate
+	yield* standUpJudge(s.admin, fixture.installed.installation)
 	yield* transaction(s.admin, sql)
 })
 
@@ -268,10 +272,9 @@ export const ownerTransaction = Effect.fn("ownerTransaction")(function* (
  */
 export type StatementLabel =
 	| WriteLabel
-	| { readonly kind: "carrier"; readonly position: number; readonly step: "empty" | "fill" }
+	| { readonly kind: "carrier"; readonly position: number }
 	| { readonly kind: "readBack"; readonly position: number; readonly name: string }
 	| { readonly kind: "check"; readonly position: number; readonly entry: string }
-	| { readonly kind: "admission"; readonly position: number }
 	| {
 			readonly kind: "single"
 			readonly position: number
@@ -293,13 +296,11 @@ const statementLabel = (statement: ArtifactStatement): StatementLabel => {
 		case "write":
 			return { kind: "write", position, relation: step.relation, result: step.result }
 		case "carrier":
-			return { kind: "carrier", position, step: step.step }
+			return { kind: "carrier", position }
 		case "readBack":
 			return { kind: "readBack", position, name: step.name }
 		case "check":
 			return { kind: "check", position, entry: step.entry }
-		case "admission":
-			return { kind: "admission", position }
 		case "single":
 			return {
 				kind: "single",
@@ -347,13 +348,11 @@ export const labelText = (label: StatementLabel): string => {
 		case "write":
 			return writeText(label.relation, label.result)
 		case "carrier":
-			return `carrier ${label.step}`
+			return "carrier fill"
 		case "readBack":
 			return `read ${label.name}`
 		case "check":
 			return `check ${label.entry}`
-		case "admission":
-			return "admission"
 		case "single":
 			return `single (${Arr.join(
 				Arr.map(label.parts, (p) => writeText(p.relation, p.result)),
@@ -1076,12 +1075,10 @@ const explainingSession = (
 })
 
 /**
- * Whether EXPLAIN plans a statement of `label`: every statement but a carrier's emptying, a call of the carrier's
- * session function (sql/ast.ts EmptyCarrier), whose plan is no statement of the write's, which runs as it is, so the
- * statements after it read the carrier it empties (write/program/slot-carriers.ts).
+ * Whether EXPLAIN plans a statement of `label`: every statement but a carrier's fill, which runs as it is, so the
+ * statements after it read the settings it writes (write/carriers/carriers.ts carrierStash).
  */
-const explainPlans = (label: StatementLabel): boolean =>
-	!(label.kind === "carrier" && label.step === "empty")
+const explainPlans = (label: StatementLabel): boolean => label.kind !== "carrier"
 
 /**
  * The plans of one application of a ChangeSet value on the Db `opened`, as observedChange applies it, its program's

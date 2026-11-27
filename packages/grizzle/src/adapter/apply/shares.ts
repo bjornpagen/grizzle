@@ -5,11 +5,13 @@
  * transaction (apply/run.ts runWriteShares).
  *
  * A share holds whole groups. A group is what one host fill reads across facts: an owner a stratum's appends count and
- * every member of its counted families the call states (binding.ts FreshStratum, CountedFamily), keyed by the owner's
- * key as each member's group fields name it, a relation that is both a member and an owner joining its two families'
- * groups into one; every other fact is a group of its own, its nested rows, an ordered family's members and a tree's
- * nodes, with it. So every count, end, slot and fresh group the host draws reads the facts of one share, as it reads
- * the call's. A group past a share's bytes is a share of its own.
+ * every member of its counted families the call states (binding.ts FreshStratum, CountedFamily), keyed by the pairs of
+ * the family's group that every fact holding one of its owner's or members' rows names by a field of its own
+ * (binding.ts FamilyShares): an owner's own fact by its key fields, and a tree's root, whose fact holds every node of
+ * the tree, by its root fields alone, since a node's `start` is drawn by the walk, never stated. A relation that is both
+ * a member and an owner joins its two families' groups into one; every other fact is a group of its own, its nested
+ * rows, an ordered family's members and a tree's nodes, with it. So every count, end, slot and fresh group the host
+ * draws reads the facts of one share, as it reads the call's. A group past a share's bytes is a share of its own.
  *
  * Only a write every statement of which its facts feed is drawn so: a call of no facts sends no statement but its family
  * statements, which over no member and no nested row insert and recount nothing (`sendsAlone`; the bind's own `needs`,
@@ -28,15 +30,6 @@ import type { FlightWrite } from "#compiler/plan/change.ts"
 import type { EncodingFailure } from "#compiler/plan/common.ts"
 import { drawableShape, readCall, type SlotReads } from "#compiler/plan/runtime.ts"
 
-/** The slots of a family's owner and members, and how a fact of each names its group. */
-interface FamilySlots {
-	readonly member: ReadonlyArray<string>
-	readonly owner: ReadonlyArray<string>
-	readonly memberFields: ReadonlyArray<string>
-	readonly ownerFields: ReadonlyArray<string>
-	readonly id: number
-}
-
 /** A value of a group field as text, by its kind, so a text and a number of one spelling are two groups. */
 const keyText = (value: unknown): string =>
 	typeof value === "string"
@@ -49,34 +42,42 @@ const keyText = (value: unknown): string =>
 					? `b${String(value)}`
 					: `o${String(value)}`
 
-/** Fact `at`'s group key under a family, as the call's read found it: the family, then each of its group fields' values. */
+/** Fact `at`'s group key under a family, as the call's read found it: the family's key, then the values of the fields
+ * that name its group in the fact (binding.ts GroupHolder). */
 const groupKey = (
-	family: number,
+	family: string,
 	reads: SlotReads,
 	at: number,
 	fields: ReadonlyArray<string>
 ): string => {
-	let key = String(family)
+	let key = family
 	for (const field of fields) {
 		key += `\u0000${keyText(reads.field(at, field))}`
 	}
 	return key
 }
 
-/** The counted families a write's fresh strata draw, each with the slots of its owner and of its members. */
-const familySlots = (program: FlightWrite): ReadonlyArray<FamilySlots> => {
-	const slotsOf = (relation: string): ReadonlyArray<string> =>
-		Arr.flatMap(program.binding.members, (m) => (m.relation === relation ? [m.slot] : []))
-	return Arr.map(
-		Arr.flatMap(program.binding.fresh, (stratum) => stratum.counted),
-		(family, id) => ({
-			id,
-			member: slotsOf(family.member),
-			owner: slotsOf(family.owner),
-			memberFields: Arr.map(family.group, (g) => g.member.name),
-			ownerFields: Arr.map(family.group, (g) => g.owner.name)
-		})
-	)
+/**
+ * A slot whose facts hold rows of a counted family's owner or member, and the fields of a fact that name the family's
+ * group there (binding.ts GroupHolder), under the family's key.
+ */
+interface FamilyHolder {
+	readonly family: string
+	readonly fields: ReadonlyArray<string>
+}
+
+/** Each slot whose facts hold rows of a counted family a write's fresh strata draw, by its name, with each family's
+ * holder it is, in the families' order, a slot of both an owner's and a member's rows twice. */
+const holdersBySlot = (program: FlightWrite): ReadonlyMap<string, ReadonlyArray<FamilyHolder>> => {
+	const out = new Map<string, Array<FamilyHolder>>()
+	for (const stratum of program.binding.fresh) {
+		for (const [family, shares] of stratum.shares) {
+			for (const holder of [...shares.members, ...shares.owners]) {
+				out.getOrInsertComputed(holder.slot, () => []).push({ family, fields: holder.fields })
+			}
+		}
+	}
+	return out
 }
 
 /**
@@ -182,14 +183,12 @@ const sharesOf = (
 	if (total <= bytes) {
 		return { whole, shares: undefined }
 	}
-	const families = familySlots(program)
-	const grouped = new Set(Arr.flatMap(families, (f) => [...f.member, ...f.owner]))
-	/** Each grouped fact's group keys, under every family whose member or owner its slot is, in the families' order. */
+	const holders = holdersBySlot(program)
+	const grouped = new Set(holders.keys())
+	/** Each grouped fact's group keys, under every family whose member or owner rows its slot's facts hold, in the
+	 * families' order. */
 	const keysOf = (slot: string, reads: SlotReads, at: number): ReadonlyArray<string> =>
-		Arr.flatMap(families, (f) => [
-			...(f.member.includes(slot) ? [groupKey(f.id, reads, at, f.memberFields)] : []),
-			...(f.owner.includes(slot) ? [groupKey(f.id, reads, at, f.ownerFields)] : [])
-		])
+		Arr.map(holders.get(slot) ?? [], (h) => groupKey(h.family, reads, at, h.fields))
 	/** Each grouped slot's facts' groups, by the union of their families' keys. */
 	const groups = unionFind()
 	const keys = new Map<string, ReadonlyArray<ReadonlyArray<string>>>()

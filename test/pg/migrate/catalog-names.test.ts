@@ -11,9 +11,12 @@
  * name converts to, each taken by each of the four objects once, the four of a case each named after a different type,
  * under the owner's ordinary path and under the installation's schemas first (test/support/ambient.ts), the second
  * migrate as the installation's own owner login, under the same path. A case's schema holds the named objects and the
- * types they shadow: a holder relation of text, uuid, money, numeric, real, double precision, a span and a handle of the closed relation, mutable, with a contract field; a relation contained in it, keyed by its holder first, in a unit of the holder; and, a level up in a
- * schema of its own, the stored derived relation counting each holder's entries, each entry matched by its key, so the
- * count folds over keyed rows. Its login's writer and reader hold every relation whole. Properties, for every case:
+ * types they shadow: a holder relation of text, uuid, money, numeric, real, double precision, a span and a handle of
+ * the closed relation, mutable, with a contract field; a relation contained in it, keyed by its holder first, in a unit
+ * of the holder; and, a level up, the stored derived relation counting each holder's entries, each entry matched by its
+ * key, so the count folds over keyed rows. Its login's writer and reader hold every relation whole. Each case is built
+ * under the name the substrate allocates (catalog-names.fixtures.ts versionOf) and drafted with its login as `grizzle
+ * generate` drafts it (test/support/install-migrate.ts installGenerated). Properties, for every case:
  *
  * - its first migration applies, and migrate's drift check after it matches the catalog against the snapshot;
  * - the migrated catalog holds the installed-catalog checker's posture, its columns' types pg_catalog's own;
@@ -34,14 +37,13 @@ import { Effect } from "effect"
 import {
 	caseGen,
 	type Feature,
-	loginOf,
 	required,
-	schemaOf,
-	targets
+	targets,
+	versionOf
 } from "#test/pg/migrate/catalog-names.fixtures.ts"
 import { apply, noFurther, openMigrator } from "#test/pg/migrate/support.ts"
 import { ambientFeatures } from "#test/support/ambient.ts"
-import { installMigrated } from "#test/support/install-migrate.ts"
+import { installGenerated } from "#test/support/install-migrate.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** Objects named like PostgreSQL's own types every catalog type's name on every object, under every path: migrate and drift match, and a second migrate applies nothing. */
@@ -64,12 +66,9 @@ export const catalogNames = property.exhaust(finite(caseGen), {
 						}
 					}
 					const substrate = yield* Substrate
-					const desc = schemaOf(c.names)
-					const installed = yield* installMigrated(desc, {
+					const { installed } = yield* installGenerated((name) => versionOf(c.names, name), {
 						ambient: c.ambient,
-						label: "catalog_names",
-						logins: [loginOf(desc, c.names)],
-						extensions: []
+						label: "catalog_names"
 					})
 					const m = yield* openMigrator(substrate, installed.ambientOwner.credentials)
 					const again = yield* apply(

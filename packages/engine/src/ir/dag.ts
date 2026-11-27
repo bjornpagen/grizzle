@@ -1,6 +1,6 @@
 import { appendAll, sameOrder } from "@bjornpagen/grizzle-text/base/array"
 import { postorder } from "@bjornpagen/grizzle-text/base/graph"
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { WellFormedText } from "@bjornpagen/grizzle-text/utf8"
@@ -28,12 +28,14 @@ import { sha256Hex } from "#compiler/core/sha256.ts"
 import { wellFormed } from "#compiler/core/text.ts"
 import {
 	DagDigests,
-	type DagTemplates,
+	DagTemplates,
+	digestedBase,
 	digestedFields,
 	numberReach,
 	type TableOuterNames,
 	ReachNumbering,
-	tableExprOf
+	tableExprOf,
+	unclaimed
 } from "#compiler/ir/dag-digest.ts"
 import {
 	builtExpr,
@@ -837,6 +839,30 @@ export class LabelSupply {
 		return renamedPast(this.#tops, query, () => undefined).node
 	}
 
+	/** A fresh node label past every one so far: a node the lowering reads beside the DAG's own (ir/derived.ts). */
+	node(): NodeId {
+		this.#tops.node += 1
+		return NodeId(`${allocatedKinds.node}${this.#tops.node}`)
+	}
+
+	/** A fresh variable label past every one so far: a variable of a region the lowering reads (ir/derived.ts). */
+	variable(): VarId {
+		this.#tops.var += 1
+		return VarId(`${allocatedKinds.var}${this.#tops.var}`)
+	}
+
+	/** A fresh scope label past every one so far: a region the lowering reads (ir/derived.ts). */
+	scope(): ScopeId {
+		this.#tops.scope += 1
+		return ScopeId(`${allocatedKinds.scope}${this.#tops.scope}`)
+	}
+
+	/** A fresh occurrence label past every one so far: a Base the lowering reads in a node's place (ir/derived.ts). */
+	occurrence(): OccurrenceId {
+		this.#tops.occurrence += 1
+		return OccurrenceId(`${allocatedKinds.occurrence}${this.#tops.occurrence}`)
+	}
+
 	/** The DAG of `roots`, the builder's DAG's nodes and the Forbid nodes forbid gave, with the labels' tops. */
 	dag<R extends Roots>(roots: R): LabelledDag<R> {
 		return labelledDag(roots, { ...this.#tops })
@@ -921,13 +947,73 @@ export const normalizeReach = (
 
 /**
  * The semantic fingerprint of a DAG: SHA-256 over its normalized canonical text, source locations excluded. Two DAGs
- * of one domain that differ only in allocation order and the proofs of their claimed keys have one digest, but for
+ * of one domain that differ only in allocation order and the claims an analysis made of them have one digest, but for
  * their calls of a volatile function, each its own evaluation, which the text names by its label (ir/dag-digest.ts
  * callsVolatile).
  */
-type DagDigest = string & { readonly [dagDigestBrand]: true }
+export type DagDigest = string & { readonly [dagDigestBrand]: true }
 declare const dagDigestBrand: unique symbol
 const DagDigest = nominal<string, DagDigest>()
+
+/** The domain a canonical relation's digest is taken under (CanonicalDigests). */
+const canonicalDomain = "canonical relation"
+
+/**
+ * The canonical forms of closed nodes (analysis/derived/canonical.ts): each node's rows form (ir/dag-digest.ts rowsNode,
+ * no key claimed), alpha-equivalent, digested bottom-up under `canonicalDomain`, every closed node below it, one that
+ * reads no outer value (ir/dag.ts nodeScopes), read by its own digest, taken first and once (DagDigests
+ * `closedDigest`), so each closed sub-query is digested once however many forms read it, and a form's digest walks its
+ * own nodes alone, down to the closed ones: the forms of a DAG cost its size, never its size by its depth. A form is its
+ * node's structure's alone, so the schema's canonical relations and the lowering's reading of them (`servedDag`) read
+ * one form. Its lifetime is its holder's: one schema's canonical relations, or one served DAG's.
+ */
+export class CanonicalDigests {
+	readonly #scopes = nodeScopes()
+	/** Every node walked, by its label, which a form's names read (DagDigests labels): the labels of one label space. */
+	readonly #labels = new Map<NodeId, RelNode>()
+	readonly #digests = new DagDigests(() => this.#labels, maxStringLength, new DagTemplates("rows"))
+	/** Each closed node's form, every node below it walked. */
+	readonly #forms = new Map<RelNode, Result.Result<DagDigest, CompileError>>()
+	readonly #walked = new Set<RelNode>()
+
+	/** The canonical form of the closed node `node`: its every closed node's first, inputs before the nodes over them. */
+	of(node: RelNode): Result.Result<DagDigest, CompileError> {
+		const pending: Array<{ readonly node: RelNode; readonly inputsDone: boolean }> = [
+			{ node, inputsDone: false }
+		]
+		for (let at = pending.pop(); at !== undefined; at = pending.pop()) {
+			if (this.#walked.has(at.node)) {
+				continue
+			}
+			if (!at.inputsDone) {
+				pending.push({ node: at.node, inputsDone: true })
+				for (const input of inputsOf(at.node)) {
+					if (!this.#walked.has(input)) {
+						pending.push({ node: input, inputsDone: false })
+					}
+				}
+				continue
+			}
+			this.#walked.add(at.node)
+			this.#labels.set(at.node.id, at.node)
+			if (this.#scopes.of(at.node).outer.size === 0) {
+				this.#forms.set(at.node, this.#formOf(at.node))
+			}
+		}
+		return defined(this.#forms.get(node), "a closed node's form")
+	}
+
+	/** The digest of the closed node `node`, each closed node below it read by its form, taken before it. */
+	#formOf(node: RelNode): Result.Result<DagDigest, CompileError> {
+		return Result.map(
+			this.#digests.closedDigest(node, canonicalDomain, (below) => {
+				const form = this.#forms.get(below)
+				return form?.ok === true ? form.value : undefined
+			}),
+			DagDigest
+		)
+	}
+}
 
 /**
  * Each node's shape, a fold over the DAG: SHA-256 of its kind, its heading's columns and their types, and, per input
@@ -988,7 +1074,7 @@ const closedReadFacts = (
 ): { readonly heading: Heading; readonly rows: ReadonlyArray<ReadonlyArray<TypedLiteral>> } => {
 	const facts = closedFacts.get(relation)
 	if (facts === undefined) {
-		throw defect(`the installation holds the closed relation ${relation} a closed read names`)
+		defect(`the installation holds the closed relation ${relation} a closed read names`)
 	}
 	const key = new Set(facts.relation.primaryFields.map((f) => f.name))
 	const read = facts.heading.flatMap((column, position) =>
@@ -1076,17 +1162,17 @@ const statedExpr = (e: TableExpr, stated: StatedFacts): object => {
 		case "cast":
 		case "domainCast":
 		case "cond":
+		case "variant":
 		case "call":
 			return e
 	}
 }
 
 /**
- * What a normal DAG states, as a meaning digest reads it: each node's own fields (digestedFields) with the metadata an
- * analysis derives, its keys, cardinality and evidence context, the conservative metadata that claims none
- * (rel.ts conservativeMeta), since an improvement of the analysis changes them and not what the DAG asks; its
- * structural fields, which its own fields and its inputs' make (dag.ts relNode), kept; and each expression with the
- * closed facts it reads (statedExpr), so a closed relation's changed rows are a new meaning of every DAG that reads them.
+ * What a normal DAG states, as a meaning digest reads it: each node's own fields (digestedFields), unclaimed
+ * (ir/dag-digest.ts unclaimed), since an improvement of the analysis changes its claims and not what the DAG asks; and
+ * each expression with the closed facts it reads (statedExpr), so a closed relation's changed rows are a new meaning of
+ * every DAG that reads them.
  */
 const statedForm = (
 	normal: DagTable,
@@ -1095,10 +1181,7 @@ const statedForm = (
 ): unknown => ({
 	roots: normal.roots,
 	nodes: Object.fromEntries(
-		Object.entries(normal.nodes).map(([id, node]) => [
-			id,
-			fields({ ...node, meta: { ...node.meta, ...conservativeMeta } })
-		])
+		Object.entries(normal.nodes).map(([id, node]) => [id, fields(unclaimed(node))])
 	),
 	exprs: Object.fromEntries(
 		Object.entries(normal.exprs).map(([id, e]) => [id, statedExpr(e, stated)])
@@ -1106,20 +1189,23 @@ const statedForm = (
 })
 
 /**
- * A node as the rows it yields read it (rowsDigestWithin): a stored relation's scan without the keys its relation's laws
- * declare beside its primary key and its generated fields' reads, and a view's scan without the keys it is read by, which
- * its definition's keys restate.
- * A key is a law its relation's rows obey, never a row they hold, so a key a relation gains or loses yields no other row.
+ * A node as the rows it yields read it (rowsDigestWithin): its own fields as a digest reads them (dag-digest.ts
+ * digestedBase, without the dependencies, the unit and the generated reads the checker stamps on a Base), a stored
+ * relation's scan without the keys its relation's laws declare beside its primary key, and a view's without the keys it
+ * is read by, which its definition's keys restate. A key, a containment and a unit are laws its relation's rows obey,
+ * never a row they hold, so one a relation gains or loses yields no other row: T's key of `b`, which the dependencies
+ * of the views over T then carry, recreates no table over them (test/unit/deploy/view-identity).
  */
 const rowsFields = (node: TableNode): object => {
 	if (node.kind !== "Base") {
 		return digestedFields(node)
 	}
-	if (node.relationKind === "relation") {
-		const { keys: _keys, generated: _generated, ...rows } = node
+	const digested = digestedBase(node)
+	if (digested.relationKind === "relation") {
+		const { keys: _keys, ...rows } = digested
 		return rows
 	}
-	const { keys: _keys, view: _views, primaryKey: _primaryKey, ...rows } = node
+	const { keys: _keys, primaryKey: _primaryKey, ...rows } = digested
 	return rows
 }
 

@@ -129,7 +129,7 @@ const minimize = (mask: number, terms: ReadonlyArray<Term>): AllenFormula => {
 	}
 	const formula = search(mask, 0, cost(mask))
 	if (formula === undefined) {
-		throw defect(`a formula for the Allen mask ${mask}`)
+		defect(`a formula for the Allen mask ${mask}`)
 	}
 	return formula
 }

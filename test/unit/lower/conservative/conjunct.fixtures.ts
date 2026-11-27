@@ -15,8 +15,8 @@ import {
 	type ScalarExpr,
 	storedColumn
 } from "#compiler/ir/expr.ts"
-import { sharedExpr } from "#compiler/lower/conservative/expr/share.ts"
-import { compiledExpr, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
+import { FieldTexts, sharedExpr } from "#compiler/lower/conservative/expr/share.ts"
+import { compiledExpr, sqlNull, noParamLeaf } from "#compiler/scalar/compute/evaluate.ts"
 import { connectiveOps, definedIdOf, overloadOf } from "#compiler/scalar/compute/registry.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
@@ -96,7 +96,7 @@ export const shared = (shape: Shape): ScalarExpr =>
 			lowerWith("query", selectionOf(shape), { kind: column, base: column }, true, baseParams),
 			`the selection ${shape} lowers in a query`
 		).root.expr,
-		{ closed: new Map(), host: () => undefined, size: () => 0 }
+		{ closed: new Map(), host: () => undefined, size: () => 0, texts: new FieldTexts() }
 	)
 
 /** Whether `e` holds a conditional anywhere. */
@@ -217,7 +217,12 @@ export const negativeTerm = (negative: Negative): ScalarExpr => {
 
 /** `e` shared as every lowering shares a term, over no closed relation. */
 export const sharedTerm = (e: ScalarExpr): ScalarExpr =>
-	sharedExpr(e, { closed: new Map(), host: () => undefined, size: () => 0 })
+	sharedExpr(e, {
+		closed: new Map(),
+		host: () => undefined,
+		size: () => 0,
+		texts: new FieldTexts()
+	})
 
 /** How many times `e`'s tree reads a closed relation, each read counted where it stands. */
 export const closedReads = (e: ScalarExpr): number =>
@@ -329,7 +334,8 @@ export const hostValue = (
 			value: undefined,
 			column: (ref) =>
 				ref.name === "kind" ? row.kind : ref.name === "base" ? row.base : undefined,
-			closed: () => (row.kind === 633 ? 633 : sqlNull)
+			closed: () => (row.kind === 633 ? 633 : sqlNull),
+			param: noParamLeaf
 		},
 		ProgramPatterns.of(tablePatterns(table))
 	)

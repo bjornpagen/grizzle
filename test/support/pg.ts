@@ -1,16 +1,11 @@
 import { Buffer } from "node:buffer"
 import net, { connect as netConnect } from "node:net"
 import { checkServerIdentity, type PeerCertificate, connect as tlsConnect } from "node:tls"
-import { waitingOn, waitingOnWork } from "@bjornpagen/testing/live"
-import type { PgMember } from "@bjornpagen/testing/pg"
-import { backendWorking } from "@bjornpagen/testing/pg-session"
 import {
 	Array as Arr,
 	Data,
 	DateTime,
-	Deferred,
 	Effect,
-	Exit,
 	Function,
 	Option,
 	pipe,
@@ -27,7 +22,6 @@ import { type ParsedConnection, parseConnection, roleSettings } from "#adapter/c
 import { type CredentialError } from "#adapter/errors/credential.ts"
 import { BatchRefused } from "#adapter/errors/failures.ts"
 import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
-import type { PgClientConfig, PgDriver, PgQueryConfig } from "#adapter/types/driver.ts"
 import type { DbConnection, PoolBounds, Transport } from "#adapter/types/layer.ts"
 import {
 	type ApartFailure,
@@ -58,107 +52,6 @@ import { servedSession } from "#compiler/program/served.ts"
  */
 export const noPassword: Redacted.Redacted = Redacted.make("")
 
-/** How many of a statement's first words name the declared wait on its answer: what a hang report shows. */
-const waitNameWords = 6
-
-/** A declared wait's name for `sql`: its first words. */
-const waitName = (sql: string): string =>
-	`PostgreSQL: ${Arr.join(Arr.take(Str.split(Str.trim(sql), regex("\\s+")), waitNameWords), " ")}`
-
-/**
- * `effect`, which awaits PostgreSQL's answer to `sql` from backend `pid` of `member`, as a declared wait of this process
- * on the member's work that the guard checks (@bjornpagen/testing/live waitingOnWork, pg-session backendWorking): the
- * server is no process of a case's tree, so a case's guard would read the wall time a statement spends on a loaded
- * server as a stall of the case, its CPU unmoved, and judge it hung; and at each of its readings it asks the member
- * whether the backend still works on the statement, so a wait whose backend sits idle while its client still awaits an
- * answer (one that never comes, a backend gone) closes, and its silence counts. Every statement test support hands
- * PostgreSQL awaits its answer through this: a raw session's flight (connectOnce), the adapter's under test
- * (testDriver), the bootstrap superuser's (substrate/shared.ts superuserClient) and a psql writer's once its backend is
- * known (substrate/psql.ts). It is named by the statement's first words, so a verdict reached while it is open names
- * the statement.
- */
-export const awaitingBackend = (member: PgMember, pid: number, sql: string) =>
-	waitingOnWork(waitName(sql), backendWorking(member, pid))
-
-/**
- * `effect`, which awaits PostgreSQL's work with no backend to check it by, as a declared wait the guard trusts
- * (@bjornpagen/testing/live waitingOn), named `what`: a login before the server's BackendKeyData names its backend, a
- * psql writer's startup, and a grizzle command line run as a child process (test/pg/cli/support.ts bin), whose own
- * statements its process declares where no guard of this process reads them.
- */
-export const awaitingUnchecked = (what: string) => waitingOn(`PostgreSQL: ${what}`)
-
-/**
- * The backend of each connection the test driver's clients made (testDriver), recorded at its first ReadyForQuery,
- * which pg follows with the first statement it submits on it: what each of its statements' waits checks.
- */
-const backends = new WeakMap<object, number>()
-
-/**
- * The pg module as test support hands it to grizzle's adapter over the cluster member `member` (DbConnection.driver):
- * pg's own classes, each login and each statement awaiting PostgreSQL as a declared wait.
- *
- * - Client: as grizzle's adapter extends it for every session and pg's Pool builds it (types/driver.ts PgDriver Client,
- *   wire/session.ts sessionClient), a declared wait on its login (awaitingUnchecked) from the moment its connection's
- *   socket connects to its first ReadyForQuery, or its end or error, which pg reports for a connection that never stood
- *   (Client _connect): a client never connected holds none. At that ReadyForQuery its backend is recorded (backends).
- * - Query: as the adapter submits each statement of a flight (PgDriver Query, wire/session.ts submitConfig), a checked
- *   wait on its connection's backend (awaitingBackend) from its submission to the end or the error pg reports for it,
- *   which pg reports for every query it was given, a query of a connection that ended included (Client
- *   _errorAllQueries).
- */
-export const testDriver = (member: PgMember): PgDriver => {
-	class AwaitedClient extends pgDriver.Client {
-		constructor(config: PgClientConfig) {
-			super(config)
-			const ready = Deferred.makeUnsafe<void>()
-			const settle = (): void => {
-				Deferred.doneUnsafe(ready, Exit.void)
-			}
-			const connection = this.connection
-			connection.once("connect", () => {
-				Effect.runFork(
-					awaitingUnchecked(`connect as ${config.user} to ${config.database}`)(
-						Deferred.await(ready)
-					)
-				)
-			})
-			connection.once("readyForQuery", () => {
-				backends.set(connection, backendOf(this))
-				settle()
-			})
-			this.once("end", settle)
-			this.once("error", settle)
-		}
-	}
-	class AwaitedQuery extends pgDriver.Query {
-		constructor(config: PgQueryConfig) {
-			super(config)
-			const answered = Deferred.makeUnsafe<void>()
-			const settle = (): void => {
-				Deferred.doneUnsafe(answered, Exit.void)
-			}
-			this.once("end", settle)
-			this.once("error", settle)
-			const submit = this.submit
-			this.submit = (connection) => {
-				const awaiting = Option.match(Option.fromNullishOr(backends.get(connection)), {
-					onNone: () =>
-						awaitingUnchecked(`${config.text} (on a connection of no recorded backend)`),
-					onSome: (pid) => awaitingBackend(member, pid, config.text)
-				})
-				Effect.runFork(awaiting(Deferred.await(answered)))
-				return submit.call(this, connection)
-			}
-		}
-	}
-	return {
-		Client: AwaitedClient,
-		Pool: pgDriver.Pool,
-		Query: AwaitedQuery,
-		DatabaseError: pgDriver.DatabaseError
-	}
-}
 /**
  * The fields of a PostgreSQL ErrorResponse that tests assert on: `code` is the SQLSTATE; the fields PostgreSQL may omit
  * are decoded once, none where it sent none; `where` is the CONTEXT lines, where in a function or trigger the error was
@@ -254,6 +147,11 @@ export interface PgConnection {
 	readonly processId: number
 	/** Statements in one flush, every one answered (Exchange): what the connection's other statements are made of. */
 	readonly exchange: Exchange
+	/** One unnamed statement: its command tag, row count, columns and rows, each positional (RawAnswer). */
+	readonly answer: (
+		sql: string,
+		params: ReadonlyArray<unknown>
+	) => Effect.Effect<RawAnswer, SqlError>
 	/** One unnamed statement; its rows as records by column name. */
 	readonly query: (
 		sql: string,
@@ -615,6 +513,7 @@ export const exchanging = (processId: number, exchange: Exchange): PgConnection 
 	const connection: PgConnection = {
 		processId,
 		exchange,
+		answer: one,
 		query: (sql, params) => Effect.map(one(sql, params), recordsOf),
 		queryValues: (sql, params) => Effect.map(one(sql, params), (answer) => answer.rows),
 		pipeline: (statements) =>
@@ -639,7 +538,7 @@ const numberOf = (client: Client, field: string): number => {
 }
 
 /** The backend of a connected pg client, as the server's BackendKeyData named it (pg's `processID`). */
-export const backendOf = (client: Client): number => numberOf(client, "processID")
+const backendOf = (client: Client): number => numberOf(client, "processID")
 
 /**
  * The startup options of every harness session: the closed search path and fixed values of every setting an ambient
@@ -709,16 +608,14 @@ const connectOnce = (
 			}
 		})
 		yield* Effect.acquireRelease(
-			awaitingUnchecked(`connect as ${options.username} to ${options.database}`)(
-				Effect.callback<void, SqlError>((resume) => {
-					client.connect((error: unknown) => {
-						resume(
-							error === null || error === undefined ? Effect.void : Effect.fail(sqlErrorOf(error))
-						)
-					})
-					return Effect.sync(() => client.connection.stream.destroy())
+			Effect.callback<void, SqlError>((resume) => {
+				client.connect((error: unknown) => {
+					resume(
+						error === null || error === undefined ? Effect.void : Effect.fail(sqlErrorOf(error))
+					)
 				})
-			),
+				return Effect.sync(() => client.connection.stream.destroy())
+			}),
 			() => Effect.ignore(Effect.tryPromise({ try: () => client.end(), catch: sqlErrorOf }))
 		)
 		const processId = backendOf(client)
@@ -768,13 +665,10 @@ const connectOnce = (
 				stream.uncork()
 				return cancelUntil(() => finished)
 			})
-		/** A flight, its answers awaited as a checked wait on the session's backend (awaitingBackend). */
-		const exchange: Exchange = (statements) =>
-			awaitingBackend(cluster, processId, Arr.headNonEmpty(statements).sql)(flight(statements))
 		/** The connection as a pinned scope holds it: its statements take no turn, and pinning it again is itself. */
-		const pinned = exchanging(processId, exchange)
+		const pinned = exchanging(processId, flight)
 		return {
-			...exchanging(processId, (statements) => turn.withPermit(exchange(statements))),
+			...exchanging(processId, (statements) => turn.withPermit(flight(statements))),
 			pin: Effect.as(
 				Effect.acquireRelease(turn.take(1), () => turn.release(1)),
 				pinned
@@ -827,16 +721,15 @@ const clusterTransport = (cluster: BudgetedCluster): Transport =>
 	})
 
 /**
- * A connection to the local cluster's `database` as a plain Node caller writes one, on grizzle's public path: the real
- * pg module's classes as the driver, each statement awaiting PostgreSQL as a declared wait (testDriver), the cluster's
- * transport and `password`.
+ * A connection to the local cluster's `database` as a plain Node caller writes one, on grizzle's public path: the pg
+ * module as the caller imports it as the driver, the cluster's transport and `password`.
  */
 export const clusterConnection = (
 	cluster: BudgetedCluster,
 	database: string,
 	password: Redacted.Redacted | Effect.Effect<Redacted.Redacted, CredentialError>
 ): DbConnection => ({
-	driver: testDriver(cluster),
+	driver: pgDriver,
 	transport: clusterTransport(cluster),
 	database,
 	password

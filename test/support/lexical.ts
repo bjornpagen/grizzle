@@ -15,6 +15,7 @@ import { type Array as Arr, DateTime, Record as Rec, String as Str } from "effec
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import { decimalTextMaxBytes, type LexicalTarget } from "#compiler/scalar/lexical.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
 import { referenceDecimal } from "#test/support/oracle/evaluate/decimal-text.ts"
 import { referenceDouble } from "#test/support/oracle/evaluate/double-text.ts"
 
@@ -51,9 +52,15 @@ const sign = weighted([
 ])
 
 /**
+ * The exact integers' digits a candidate's target draws: a few, so its texts stay short at its byte bound, in bigint's
+ * space (at most int8ExactDigits) and past it in numeric's.
+ */
+const exactDigits = [1, 2, 3, 6, 19, 20] as const
+
+/**
  * The lexical targets, one generator per kind of LexicalTarget, so a kind the type gains is a missing key here: an
- * integer carrier of the carriers' ranges, numeric(p, s) for every precision up to `maxPrecision` and every scale from
- * 0 to p, and the double, boolean and date forms.
+ * integer carrier of the carriers' ranges, an exact integer of exactDigits, numeric(p, s) for every precision up to
+ * `maxPrecision` and every scale from 0 to p, and the double, boolean and date forms.
  */
 const targetsOfKind = (
 	maxPrecision: number
@@ -64,6 +71,7 @@ const targetsOfKind = (
 		kind: "integer",
 		carrier
 	})),
+	exactInteger: map(element(exactDigits), (digits) => ({ kind: "exactInteger", digits })),
 	decimal: (source) => {
 		const precision = source.draw(int(1, maxPrecision))
 		return { kind: "decimal", typmod: { precision, scale: source.draw(int(0, precision)) } }
@@ -87,13 +95,28 @@ export type TypeTarget = Exclude<LexicalTarget, { readonly kind: "doubleText" | 
 
 const candidateTargets = targetsOfKind(candidateMaxPrecision)
 
-/** A type's target, as candidateGen draws one: an integer carrier, numeric(p, s), double precision, boolean or date. */
-export const typeTargetGen: Gen<TypeTarget> = oneOf<TypeTarget>([
+/**
+ * A type's target a literal of it is a value of, as candidateGen draws one: an integer carrier, numeric(p, s), double
+ * precision, boolean or date; every type's target but an exact integer's, of which no literal is a value
+ * (scalar/compute/literal.ts), so an accumulated field of it starts nowhere.
+ */
+export type StartedTarget = Exclude<TypeTarget, { readonly kind: "exactInteger" }>
+
+export const startedTargetGen: Gen<StartedTarget> = oneOf<StartedTarget>([
 	candidateTargets.integer,
 	candidateTargets.decimal,
 	candidateTargets.double,
 	candidateTargets.boolean,
 	candidateTargets.date
+])
+
+/**
+ * A type's target: a started one (startedTargetGen), or an exact integer field's, at numeric's own limit
+ * (scalar/exact.ts exactInteger), the one exact integer a field declares, each kind alike.
+ */
+export const typeTargetGen: Gen<TypeTarget> = weighted<TypeTarget>([
+	[5, startedTargetGen],
+	[1, constant({ kind: "exactInteger", digits: numericMaxIntegerDigits })]
 ])
 
 /** A candidate text, whether the specification makes it a member, and the value it names when it is one. */
@@ -108,6 +131,8 @@ export interface Candidate {
 export type Shape =
 	| "integer in range"
 	| "integer past range"
+	| "exact integer within bytes"
+	| "exact integer past bytes"
 	| "decimal fits"
 	| "decimal past typmod"
 	| "double finite"
@@ -127,6 +152,8 @@ export type Shape =
 export const shapes: Arr.NonEmptyReadonlyArray<Shape> = [
 	"integer in range",
 	"integer past range",
+	"exact integer within bytes",
+	"exact integer past bytes",
 	"decimal fits",
 	"decimal past typmod",
 	"double finite",
@@ -162,6 +189,32 @@ const integerGen =
 			member,
 			value: member ? value : undefined,
 			shape: member ? "integer in range" : "integer past range"
+		}
+	}
+
+/**
+ * An exact integer of `digits` digits: a sign and a numeral of a drawn few digits or of the digits its byte bound leaves
+ * the sign, one fewer or one more, leading zeros among them, a member exactly where it is within `digits` bytes. A long
+ * numeral is a drawn head of digits padded with zeros, so a field's target, at numeric's own limit, draws no digit per
+ * byte.
+ */
+const exactIntegerGen =
+	(bound: number): Gen<Candidate> =>
+	(source) => {
+		const s = source.draw(sign)
+		const room = bound - s.length
+		const length = source.draw(
+			element([source.draw(int(1, 3)), Math.max(room - 1, 1), Math.max(room, 1), room + 1])
+		)
+		const head = source.draw(digits(1, Math.min(length, 3)))
+		const text = `${s}${head}${Str.repeat(length - head.length)("0")}`
+		const member = text.length <= bound
+		return {
+			target: { kind: "exactInteger", digits: bound },
+			text,
+			member,
+			value: member ? BigInt(text) : undefined,
+			shape: member ? "exact integer within bytes" : "exact integer past bytes"
 		}
 	}
 
@@ -635,6 +688,8 @@ const candidatesOf = (target: LexicalTarget): Gen<Candidate> => {
 	switch (target.kind) {
 		case "integer":
 			return integerGen(target.carrier)
+		case "exactInteger":
+			return exactIntegerGen(target.digits)
 		case "decimal":
 			return decimalGen(target.typmod.precision, target.typmod.scale)
 		case "double":

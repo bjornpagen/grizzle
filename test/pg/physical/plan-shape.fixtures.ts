@@ -3,7 +3,7 @@
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, int, subset, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Record as Rec, Result, String as Str } from "effect"
-import { type EstimatedNode, parsePlanTree } from "#bench/harness/explain.ts"
+import { type EstimatedNode, genericPlanOf, parsePlanTree } from "#bench/harness/explain.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
@@ -14,10 +14,19 @@ import {
 	dropCopy,
 	fillCopy,
 	indexesOf,
-	readsOneRowByKey,
 	standCopy
 } from "#test/pg/physical/copies.ts"
-import { type ScanBinding, scanBindings } from "#test/pg/physical/plan-bindings.ts"
+import {
+	type Asked,
+	judged,
+	judgeScans,
+	keyIn,
+	type Read,
+	readOf,
+	readText,
+	type ScanBinding,
+	scanBindings
+} from "#test/pg/physical/plan-bindings.ts"
 import { drawnRequests, type RequestSpec } from "#test/pg/physical/serving.ts"
 import {
 	type AuthoredStatementDesc,
@@ -34,10 +43,12 @@ import {
 	type JudgedStatement,
 	judgedStatementsOf,
 	plannedQueryOf,
-	raisedRule
+	raisedRule,
+	standUpJudge
 } from "#test/support/judge.ts"
 import { installRealSchema } from "#test/support/oracle/install/real.ts"
 import type { SqlError } from "#test/support/pg.ts"
+import { committedOn } from "#test/support/stored.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 export type PlanShapeFeature =
@@ -381,8 +392,11 @@ const describe = (
  * - `joined`: a member's key probed by an anti join from two sides, as metis's submit probes processed_attempt's key
  *   (child, package, path, n, at): its unit's fields from a carrier of parameters (`unit`), a set-returning function of
  *   PostgreSQL's ten rows, and its other fields from a row of the table read at that unit, a table of the copy's rows,
- *   so the probe's paths each bind the fields of the side they are parameterized by, and a path parameterized by the
- *   table's rows alone, binding the key's fields but its unit's, is priced over as many loops as the table has rows.
+ *   every field the probe states against that row, its unit's too, as the lowering states a variable a stored relation
+ *   holds against that relation's column, where a carrier binds it too (lower/conservative/match-region regionParts
+ *   bindValue, ACCESS-P3's e5764491): a path parameterized by the table's rows alone, priced over as many loops as the
+ *   table has rows, binds the key's every field, where stated against the carrier it bound all but the unit's and read
+ *   an index the key's coordinates lead, every unit's rows at them.
  */
 type Probe =
 	| {
@@ -424,10 +438,6 @@ const referencesOf = (quoted: string) =>
 		}))
 	})
 
-/** What a scan reads its relation through: the indexes it scans, or the table itself. */
-const readText = (scan: ScanBinding): string =>
-	scan.nodeType === "Seq Scan" ? "a Seq Scan" : Arr.join(scan.indexes, " and ")
-
 /** The plan of a statement as EXPLAIN (VERBOSE) prints it, each column qualified by its relation's alias. */
 const verbosePlan = (
 	explained: ReadonlyArray<ReadonlyArray<unknown>>,
@@ -460,11 +470,7 @@ const probeSql = (copy: Copy, probe: Probe): { readonly sql: string; readonly al
 					Arr.map(carried, (c) => `s.${c} = c.${c}`),
 					" AND "
 				)} WHERE NOT EXISTS (SELECT 1 FROM ONLY ${copy.quoted} AS x WHERE ${Arr.join(
-					Arr.map(probe.binding, (c) =>
-						probe.unit.includes(c)
-							? `x.${quoteIdent(c)} = c.${quoteIdent(c)}`
-							: `x.${quoteIdent(c)} = s.${quoteIdent(c)}`
-					),
+					Arr.map(probe.binding, (c) => `x.${quoteIdent(c)} = s.${quoteIdent(c)}`),
 					" AND "
 				)})`,
 				alias: "x"
@@ -479,8 +485,8 @@ const parameterCount = (probe: Probe): number =>
 	probe.kind === "lookup" ? probe.binding.length : probe.unit.length
 
 /**
- * A probe's generic plan over `copy` (PREPARE, then EXPLAIN EXECUTE under force_generic_plan with every parameter null,
- * as every login's role plans the statements it prepares): its one judged scan of the copy, or why it is none.
+ * A probe's generic plan over `copy`, as every session grizzle opens plans the statements it prepares
+ * (bench/harness/explain.ts genericPlanOf): its one judged scan of the copy, or why it is none.
  */
 const planned = (
 	copy: Copy,
@@ -489,25 +495,7 @@ const planned = (
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
 		const { sql, alias } = probeSql(copy, probe)
-		const answer = yield* Effect.acquireUseRelease(
-			admin.query(`PREPARE judged_law AS ${sql}`, []),
-			() =>
-				Effect.andThen(
-					admin.query("SET plan_cache_mode = force_generic_plan", []),
-					admin.queryValues(
-						`EXPLAIN (VERBOSE, FORMAT JSON) EXECUTE judged_law(${Arr.join(
-							Array.from({ length: parameterCount(probe) }, () => "NULL"),
-							", "
-						)})`,
-						[]
-					)
-				),
-			() =>
-				Effect.andThen(
-					Effect.ignore(admin.query("RESET plan_cache_mode", [])),
-					Effect.ignore(admin.query("DEALLOCATE judged_law", []))
-				)
-		)
+		const answer = yield* genericPlanOf({ values: admin.queryValues }, sql, parameterCount(probe))
 		const scans = Arr.filter(
 			scanBindings(verbosePlan(answer, probe.label)),
 			(scan) => scan.relation === copy.name && scan.alias === alias
@@ -517,52 +505,6 @@ const planned = (
 			? Result.fail(`${scans.length} scans of the relation as ${alias}`)
 			: Result.succeed(scan)
 	})
-
-/** The leading run of an index's key columns `columns` holds. */
-const covered = (index: CopyIndex, columns: ReadonlySet<string>): number =>
-	Option.getOrElse(
-		Arr.findFirstIndex(index.columns, (c) => !columns.has(c)),
-		() => index.columns.length
-	)
-
-/** Whether `index` is a key's whose every column `columns` holds. */
-const keyIn = (index: CopyIndex, columns: ReadonlySet<string>): boolean =>
-	index.unique && index.columns.length > 0 && Arr.every(index.columns, (c) => columns.has(c))
-
-/**
- * The law's judgment of one scan (see plan-shape.test.ts): a scan whose binding holds a key reads at most one row by a
- * key, the leading run of its index's columns that its index condition binds by equality holding a key's every column
- * (copies.ts readsOneRowByKey); any other binds by its index condition as long a run of its binding as any B-tree of the
- * relation does, none if none binds any, and never scans the table where one does, but a binding that `spans` the
- * units, a member's binding of no column the schema scopes its rows by, which a declaration prices at a share of the
- * table, may scan it.
- */
-const judged = (
-	indexes: ReadonlyArray<CopyIndex>,
-	label: string,
-	scan: ScanBinding,
-	spans: boolean
-): Option.Option<string> => {
-	const used = Arr.filter(indexes, (i) => scan.indexes.includes(i.name))
-	if (Arr.some(indexes, (i) => keyIn(i, scan.binding))) {
-		return Arr.some(used, (i) => readsOneRowByKey(indexes, i, scan.bound))
-			? Option.none()
-			: Option.some(
-					`${label} binds a key and reads ${readText(scan)}, binding (${Arr.join([...scan.bound], ", ")}), no run of whose index holds a key`
-				)
-	}
-	const best = Arr.reduce(
-		Arr.filter(indexes, (i) => i.method === "btree"),
-		0,
-		(most, i) => Math.max(most, covered(i, scan.binding))
-	)
-	const reached = Arr.reduce(used, 0, (most, i) => Math.max(most, covered(i, scan.bound)))
-	return best === 0 || reached >= best || (spans && scan.nodeType === "Seq Scan")
-		? Option.none()
-		: Option.some(
-				`${label} reads ${readText(scan)}, binding ${reached} of its columns where an index of the relation binds ${best}`
-			)
-}
 
 /**
  * The law's judgment of one probe's scan: a lookup's as `judged` says; a joined probe's (Probe `joined`), whose paths
@@ -579,7 +521,7 @@ const judgedProbe = (
 ): Option.Option<string> => {
 	switch (probe.kind) {
 		case "lookup":
-			return judged(indexes, probe.label, scan, spans(scopes, probe.binding))
+			return judged(indexes, probe.label, scan)
 		case "joined":
 			return scan.nodeType === "Seq Scan" || spans(scopes, [...scan.bound])
 				? Option.some(
@@ -629,15 +571,14 @@ interface Judgeable {
 }
 
 /**
- * Every probe's read in a state of `copy`, with the problems the law finds in them: each lookup's read by its probe, but
- * a binding that spans its member's units (`spans`), which a declaration prices at a share of the table and PostgreSQL
- * may read through its index or by a scan as the table's size stands, and a joined probe, whose read is judged within
- * its scope (`judgedProbe`), so no state's read of either is held to another's.
+ * Every probe's read in a state of `copy`, with the problems the law finds in them: each lookup's read by its probe, a
+ * binding that spans its member's units (`spans`) among them; but a joined probe, whose read is judged within its scope
+ * (`judgedProbe`), so no state's read of it is held to another's.
  */
 const statePlans = (copy: Copy, probes: ReadonlyArray<Probe>, scopes: Scopes, label: string) =>
 	Effect.gen(function* () {
 		const indexes = yield* indexesOf(copy.quoted)
-		const reads = new Map<string, string>()
+		const reads = new Map<string, Read>()
 		const problems: Array<string> = []
 		for (const p of probes) {
 			const scan = yield* planned(copy, p)
@@ -645,8 +586,8 @@ const statePlans = (copy: Copy, probes: ReadonlyArray<Probe>, scopes: Scopes, la
 				problems.push(`${label}: ${p.label}: ${scan.failure}`)
 				continue
 			}
-			if (p.kind === "lookup" && !spans(scopes, p.binding)) {
-				reads.set(p.label, readText(scan.success))
+			if (p.kind === "lookup") {
+				reads.set(p.label, readOf(indexes, scan.success))
 			}
 			Option.match(judgedProbe(indexes, scopes, p, scan.success), {
 				onNone: () => undefined,
@@ -656,23 +597,30 @@ const statePlans = (copy: Copy, probes: ReadonlyArray<Probe>, scopes: Scopes, la
 		return { reads, problems }
 	})
 
-/** The problems of a state whose reads are not the filled state's. */
+/**
+ * The problems of a state whose reads select other rows than the filled state's: a read whose index condition binds
+ * another run of its binding (Read), the index each read through named.
+ */
 const unlike = (
 	label: string,
-	filled: ReadonlyMap<string, string>,
-	now: ReadonlyMap<string, string>
+	filled: ReadonlyMap<string, Read>,
+	now: ReadonlyMap<string, Read>
 ): ReadonlyArray<string> =>
 	Arr.flatMap([...filled], ([statement, read]) => {
 		const other = now.get(statement)
-		return other === undefined || other === read
+		return other === undefined || other.run === read.run
 			? []
-			: [`${label}: ${statement} reads ${other}, filled ${read}`]
+			: [
+					`${label}: ${statement} binds (${other.run}) through ${other.through}, filled (${read.run}) through ${read.through}`
+				]
 	})
 
 /**
  * The law over one relation (see plan-shape.test.ts): its copy empty as installed, every key's probe; filled and
  * vacuumed, every probe; then after ANALYZE, after VACUUM, and, mutable, emptied, vacuumed, refilled and vacuumed, each
- * read as filled; and a copy ANALYZEd at one row in a hundred, then loaded whole and vacuumed, each read as filled.
+ * read as filled; a copy ANALYZEd at one row in a hundred, then loaded whole and vacuumed, each read as filled; and a
+ * copy loaded over a rolled-back load, its rows' pages and index entries dead before the live ones, never vacuumed and
+ * then vacuumed, each read as filled.
  */
 const lawOver = (r: Judgeable, note: (feature: PlanShapeFeature) => void) =>
 	Effect.gen(function* () {
@@ -734,6 +682,37 @@ const lawOver = (r: Judgeable, note: (feature: PlanShapeFeature) => void) =>
 				}),
 			dropCopy
 		)
+		yield* Effect.acquireUseRelease(
+			standCopy(r.installation, r.table),
+			(copy) =>
+				Effect.gen(function* () {
+					yield* admin.query("BEGIN", [])
+					yield* fillCopy(copy, r.columns, 0, filledRows - 1)
+					yield* admin.query("ROLLBACK", [])
+					yield* fillCopy(copy, r.columns, 0, filledRows - 1)
+					const dead = yield* statePlans(
+						copy,
+						r.probes,
+						r.scopes,
+						"loaded over a rolled-back load, never vacuumed"
+					)
+					record(problems, dead.problems)
+					record(
+						problems,
+						unlike("loaded over a rolled-back load, never vacuumed", filled, dead.reads)
+					)
+					yield* admin.query(`VACUUM ${copy.quoted}`, [])
+					const pruned = yield* statePlans(
+						copy,
+						r.probes,
+						r.scopes,
+						"loaded over a rolled-back load, vacuumed"
+					)
+					record(problems, pruned.problems)
+					record(problems, unlike("loaded over a rolled-back load, vacuumed", filled, pruned.reads))
+				}),
+			dropCopy
+		)
 		return problems
 	})
 
@@ -747,6 +726,7 @@ interface Loaded {
 const judgeReads = (
 	statements: ReadonlyArray<JudgedStatement>,
 	tables: ReadonlyArray<Loaded>,
+	asked: Asked,
 	label: string
 ) =>
 	Effect.gen(function* () {
@@ -756,7 +736,7 @@ const judgeReads = (
 			const of = yield* indexesOf(t.table.quoted)
 			indexes.set(t.table.quoted, of)
 		}
-		const reads = new Map<string, string>()
+		const reads = new Map<string, Read>()
 		const problems: Array<string> = []
 		for (const [at, statement] of statements.entries()) {
 			const name = `the judge's statement ${at + 1} of ${Option.getOrElse(raisedRule(statement), () => "no rule")}`
@@ -764,18 +744,12 @@ const judgeReads = (
 				`EXPLAIN (VERBOSE, FORMAT JSON) ${plannedQueryOf(statement)}`,
 				[]
 			)
-			const plan = verbosePlan(explained, name)
-			for (const scan of scanBindings(plan)) {
-				const of = indexes.get(`${quoteIdent(scan.schema)}.${quoteIdent(scan.relation)}`)
-				if (of === undefined) {
-					continue
-				}
-				const read = `${name}'s scan of ${scan.relation} as ${scan.alias}`
-				reads.set(read, readText(scan))
-				Option.match(judged(of, read, scan, false), {
-					onNone: () => undefined,
-					onSome: (why) => problems.push(`${label}: ${why}`)
-				})
+			const judgedPlan = judgeScans(verbosePlan(explained, name), indexes, asked, name)
+			for (const [read, scanRead] of judgedPlan.reads) {
+				reads.set(read, scanRead)
+			}
+			for (const why of judgedPlan.problems) {
+				problems.push(`${label}: ${why}`)
 			}
 		}
 		return { reads, problems }
@@ -783,14 +757,16 @@ const judgeReads = (
 
 /**
  * The law over the judge's statements (see plan-shape.test.ts), over the shape's own tables, which they read together:
- * each filled at the filled state's rows in the shape's order, a referenced relation before the one referencing it, its
- * own triggers off so no capture or judge runs (a foreign key's, the system's, checks the fill, which holds: a reference
- * holds the values of the row it references), and vacuumed, every scan of every
- * statement judged; then after ANALYZE, each read as filled.
+ * each filled at the filled state's rows in the shape's order, a referenced relation before the one referencing it, in
+ * one SERIALIZABLE transaction through the captures, judged at its COMMIT as every earlier transaction's rows were
+ * (stored.ts committedOn), which holds: a reference holds the values of the row it references; then vacuumed, every
+ * scan of every statement judged, each scan of a side at the coordinates its delta asks for (`Asked`); then after
+ * ANALYZE, each read as filled.
  */
 const judgeLaw = (
 	installation: Installation,
 	tables: ReadonlyArray<Loaded>,
+	asked: Asked,
 	note: (feature: PlanShapeFeature) => void
 ) =>
 	Effect.gen(function* () {
@@ -800,25 +776,35 @@ const judgeLaw = (
 		}
 		note("a containment the rule judge reads")
 		const { admin } = yield* Substrate
-		for (const t of tables) {
-			yield* admin.query(`ALTER TABLE ${t.table.quoted} DISABLE TRIGGER USER`, [])
-			yield* admin.query(
-				`INSERT INTO ${t.table.quoted} (${Arr.join(
-					Arr.map(t.columns, ([c]) => c),
-					", "
-				)}) SELECT ${Arr.join(
-					Arr.map(t.columns, ([, sql]) => sql),
-					", "
-				)} FROM pg_catalog.generate_series(0, ${filledRows - 1}) AS g`,
-				[]
+		yield* Effect.scoped(
+			Effect.flatMap(admin.pin, (pinned) =>
+				Effect.andThen(
+					standUpJudge(pinned, installation),
+					committedOn(
+						pinned,
+						Arr.map(
+							tables,
+							(t) =>
+								`INSERT INTO ${t.table.quoted} (${Arr.join(
+									Arr.map(t.columns, ([c]) => c),
+									", "
+								)}) SELECT ${Arr.join(
+									Arr.map(t.columns, ([, sql]) => sql),
+									", "
+								)} FROM pg_catalog.generate_series(0, ${filledRows - 1}) AS g`
+						)
+					)
+				)
 			)
+		)
+		for (const t of tables) {
 			yield* admin.query(`VACUUM ${t.table.quoted}`, [])
 		}
-		const filled = yield* judgeReads(statements, tables, "the judge, filled")
+		const filled = yield* judgeReads(statements, tables, asked, "the judge, filled")
 		for (const t of tables) {
 			yield* admin.query(`ANALYZE ${t.table.quoted}`, [])
 		}
-		const analyzed = yield* judgeReads(statements, tables, "the judge, after ANALYZE")
+		const analyzed = yield* judgeReads(statements, tables, asked, "the judge, after ANALYZE")
 		return [
 			...filled.problems,
 			...analyzed.problems,
@@ -837,7 +823,6 @@ export const shapeCase = (sketch: ShapeSketch, note: (feature: PlanShapeFeature)
 		const installed = yield* Effect.result(
 			installRealSchema(desc, {
 				label: "plan_shape",
-				logins: [],
 				extensions: [drawnRequests(specs)]
 			})
 		)
@@ -979,7 +964,23 @@ export const shapeCase = (sketch: ShapeSketch, note: (feature: PlanShapeFeature)
 			)
 			record(problems, found)
 		}
-		const judges = yield* judgeLaw(installation, loaded, note)
+		const first = sketch.relations[0]
+		const sideUnit = first.member ? units : []
+		const asked: Asked = new Map(
+			sketch.judged.length === 0
+				? []
+				: [
+						[
+							tableOf(0).quoted,
+							Arr.map([...sideUnit, ...Arr.map(sketch.judged, fieldName)], (f) => column(0, f))
+						],
+						[
+							tableOf(1).quoted,
+							Arr.map([...sideUnit, ...judgedFields(sketch)], (f) => column(1, f))
+						]
+					]
+		)
+		const judges = yield* judgeLaw(installation, loaded, asked, note)
 		record(problems, judges)
 		assert.deepEqual(problems, [], `the plan-shape law holds over ${desc.name}`)
 	})

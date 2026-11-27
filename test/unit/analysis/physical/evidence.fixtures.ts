@@ -4,7 +4,6 @@ import { Array as Arr } from "effect"
 import { checkedSchema } from "#compiler/analysis/schema.ts"
 import { buildTheory, theoryEvidence } from "#compiler/analysis/theory/theory.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
-import { everySlice } from "#compiler/schema/reach.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { ownedFixture } from "#test/support/evidence.ts"
 import { contained, f, key, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
@@ -31,9 +30,7 @@ const Crm: SchemaDesc = {
 
 export const crm = ownedFixture(Crm)
 
-export const theory = succeeded(
-	buildTheory(succeeded(checkedSchema(crm.owned, everySlice(crm.owned))))
-)
+export const theory = succeeded(buildTheory(succeeded(checkedSchema(crm.owned))))
 
 export const evidence = theoryEvidence(theory.laws, new Set())
 

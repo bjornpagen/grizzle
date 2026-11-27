@@ -3,10 +3,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import {
-	compileInstallation,
-	conservativeInstallation
-} from "#compiler/physical/install/compile.ts"
+import { compileInstallation, conservativeInstallation } from "#compiler/program/install.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
 	KEYS,

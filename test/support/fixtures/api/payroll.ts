@@ -9,13 +9,13 @@ import {
 	Decimal,
 	drawn,
 	generated,
+	mintOf,
 	natural,
 	pg,
 	span
 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
-	alternatives,
 	check,
 	closed,
 	contained,
@@ -39,15 +39,25 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
-import { Cents, Instant } from "#test/support/fixtures/api/contracts.ts"
+import { Cents, centsKey, Instant, toCents } from "#test/support/fixtures/api/contracts.ts"
 import { Id } from "#test/support/ids.ts"
 
-export const Rate = contract("Rate", pg.numeric(7, 6), (x) => Logic.between(x, 0n, 1n))
-export const Micros = contract("Micros", pg.bigint, (x) => Logic.ge(x, 0n))
-export const Week = contract("Week", pg.bigint)
-export const Ein = contract("Ein", str.regex("^[0-9]{2}-[0-9]{7}$"))
-export const LegalName = contract("LegalName", str.regex("^.+$", "su"), (x) =>
-	Logic.le(Text.charLength(x), 300)
+const rateKey = Symbol("Rate")
+export const Rate = contract<typeof rateKey>()("Rate", pg.numeric(7, 6), (x) =>
+	Logic.between(x, 0n, 1n)
+)
+export const toRate = mintOf(rateKey)
+const microsKey = Symbol("Micros")
+export const Micros = contract<typeof microsKey>()("Micros", pg.bigint, (x) => Logic.ge(x, 0n))
+const weekKey = Symbol("Week")
+export const Week = contract<typeof weekKey>()("Week", pg.bigint)
+const einKey = Symbol("Ein")
+export const Ein = contract<typeof einKey>()("Ein", str.regex("^[0-9]{2}-[0-9]{7}$"))
+const legalNameKey = Symbol("LegalName")
+export const LegalName = contract<typeof legalNameKey>()(
+	"LegalName",
+	str.regex("^.+$", "su"),
+	(x) => Logic.le(Text.charLength(x), 300)
 )
 
 const EmployeeCode = str.regex("^E[0-9]{6}$")
@@ -73,9 +83,13 @@ const LevyRate = closed.relation(
 	{ levy: closedId(Levy), employeeRate: Rate, employerRate: Rate },
 	["levy"],
 	[
-		{ levy: "SocialSecurity", employeeRate: Rate(dec("0.062")), employerRate: Rate(dec("0.062")) },
-		{ levy: "Medicare", employeeRate: Rate(dec("0.0145")), employerRate: Rate(dec("0.0145")) },
-		{ levy: "Futa", employeeRate: Rate(dec("0")), employerRate: Rate(dec("0.006")) }
+		{
+			levy: "SocialSecurity",
+			employeeRate: toRate(dec("0.062")),
+			employerRate: toRate(dec("0.062"))
+		},
+		{ levy: "Medicare", employeeRate: toRate(dec("0.0145")), employerRate: toRate(dec("0.0145")) },
+		{ levy: "Futa", employeeRate: toRate(dec("0")), employerRate: toRate(dec("0.006")) }
 	]
 )
 
@@ -181,7 +195,7 @@ export const PayLine = relation(
 		net: Cents,
 		offCycle: pg.boolean,
 		deposits: drawn(natural),
-		deposited: accumulated(Cents, Cents(0n))
+		deposited: accumulated(Cents, toCents(0n), centsKey)
 	},
 	["id"]
 )
@@ -221,13 +235,13 @@ export const Request = relation("Request", { id: Id, digest: Digest, result: Mem
  *
  * Its statements hold every law family of the first compiler: candidate keys; opt-ins to in-place change; a row check;
  * containments into keyed relations and into closed facts (a roster, and closed tuples); keyed equality, unconditional
- * and conditional outside alternatives; exhaustive alternatives with a partial arm map, where draft and approved runs
- * carry no payload; a selected target and selected sources; span coverage (mirrors, plain, selected target, selected
- * source); and the counting and summing laws, each by fin.md §6: at most one reissue per run and one remainder deposit per
- * line, keys over a side; at least one approver per employer and at most four deposits per line, counted families with
- * a row check on the owner's count; the deposits' amounts summing to the line's net and its approved shifts' hours
- * within its timesheet's ceiling, sum folds with a row check on the end; and a line's net within its gross, a row
- * check.
+ * and conditional; a run's stage as a tagged header whose paid and voided runs each mirror their payload, where draft
+ * and approved runs carry none; a selected target and selected sources; span coverage (mirrors, plain, selected target,
+ * selected source); and the counting and summing laws, each by fin.md §6: at most one reissue per run and one remainder
+ * deposit per line, keys over a side; at least one approver per employer and at most four deposits per line, counted
+ * families with a row check on the owner's count; the deposits' amounts summing to the line's net and its approved
+ * shifts' hours within its timesheet's ceiling, sum folds with a row check on the end; and a line's net within its
+ * gross, a row check.
  */
 /** Each employer's approvers, a counted family: "at least one" over an unkeyed side is a count (fin.md §6). */
 const employerApprovers = counted(on(Approver, "employer"), fin(Employer, "approvers"))
@@ -311,7 +325,20 @@ export const Payroll = schema(
 			),
 			on(OffCycleReason, "line")
 		),
-		alternatives(PayRun, "stage", Stage, { paid: Payment, voided: Voiding }),
+		mirrors(
+			on(Payment, "run"),
+			on(
+				select(PayRun, (r) => r.eq(r.stage, "paid")),
+				"id"
+			)
+		),
+		mirrors(
+			on(Voiding, "run"),
+			on(
+				select(PayRun, (r) => r.eq(r.stage, "voided")),
+				"id"
+			)
+		),
 		contained(
 			on(Reissue, "replaces"),
 			on(
@@ -646,8 +673,8 @@ export const withholdingFor = query(Payroll).rule((r) => {
 					0n,
 					9223372036854775807n
 				),
-				(cents) => Type.cast(cents, Cents),
-				0n
+				(cents) => Type.cast(cents, Cents, centsKey),
+				toCents(0n)
 			)
 		})
 })
@@ -759,8 +786,8 @@ export const postingMember = query(Payroll)
 			side: "credit",
 			amount: Logic.when(
 				Num.within(Num.sub(gross, net), 0n, 9223372036854775807n),
-				(withheld) => Type.cast(withheld, Cents),
-				0n
+				(withheld) => Type.cast(withheld, Cents, centsKey),
+				toCents(0n)
 			)
 		})
 	})

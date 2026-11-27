@@ -5,7 +5,7 @@ import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { rowsTouched } from "#bench/harness/explain.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -85,7 +85,7 @@ const templateOf = (judged: Judged) => {
 		declaredIn: import.meta,
 		name: `${judged} region`,
 		content: { schema: value.name, logins: [] },
-		versions: [{ schema: value, logins: [], declarations: noDeclarations }],
+		versions: [{ schema: value, declarations: noDeclarations }],
 		options: {
 			label: `${judged}_region`,
 			extensions: [],

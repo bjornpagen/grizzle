@@ -7,7 +7,7 @@ import { encode, omitSourceLocs } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { digest } from "#compiler/core/fingerprint.ts"
 import { makeIdSupply } from "#compiler/core/ids.ts"
-import { claimedNode, type TableOuterNames } from "#compiler/ir/dag-digest.ts"
+import { derivationForm, type TableOuterNames } from "#compiler/ir/dag-digest.ts"
 import { normalizeReach } from "#compiler/ir/dag.ts"
 import type { RelDag, Roots } from "#compiler/ir/rel.ts"
 import { everyKind } from "#test/unit/ir/fixture.ts"
@@ -34,15 +34,15 @@ export const digestCaseGen: Gen<{
 	}
 }
 
-/** The claimed form of a sub-query's normal form: the table a share or evaluation key digests. */
-const claimedTable = (
+/** The derivation form of a sub-query's normal form: the table a share or evaluation key digests. */
+const derivationTable = (
 	dag: RelDag,
 	roots: Roots,
 	outer: TableOuterNames
 ): Result.Result<unknown, CompileError> =>
 	Result.map(normalizeReach(dag, roots, outer), (normal) => ({
 		roots: normal.roots,
-		nodes: Rec.map(normal.nodes, claimedNode),
+		nodes: Rec.map(normal.nodes, derivationForm),
 		exprs: normal.exprs
 	}))
 
@@ -52,13 +52,14 @@ export const tableUnits = (
 	roots: Roots,
 	outer: TableOuterNames
 ): Result.Result<number, CompileError> =>
-	Result.flatMap(claimedTable(dag, roots, outer), (table) =>
+	Result.flatMap(derivationTable(dag, roots, outer), (table) =>
 		Result.map(encode(table, { omit: omitSourceLocs }), (text) => text.length)
 	)
 
 /**
  * The digest a sub-query's key was before templates: SHA-256 of the canonical text of its normal form's table
- * (normalizeReach), each node in its claimed form (claimedNode), source locations left out, under the domain's frame.
+ * (normalizeReach), each node in its derivation form (derivationForm), source locations left out, under the domain's
+ * frame.
  */
 export const tableDigest = (
 	dag: RelDag,
@@ -66,7 +67,7 @@ export const tableDigest = (
 	domain: string,
 	outer: TableOuterNames
 ): Result.Result<string, CompileError> =>
-	Result.flatMap(claimedTable(dag, roots, outer), (table) =>
+	Result.flatMap(derivationTable(dag, roots, outer), (table) =>
 		digest(domain, table, { omit: omitSourceLocs })
 	)
 

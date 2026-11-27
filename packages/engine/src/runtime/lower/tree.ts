@@ -1,4 +1,8 @@
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Heading, HeadingColumn, NodeOf } from "#compiler/ir/rel.ts"
 import { plainType } from "#compiler/scalar/native.ts"
@@ -28,13 +32,21 @@ export type StatementRole =
 	| { readonly kind: "attachment"; readonly parentKey: ReadonlyArray<ParentKeyColumn> }
 
 /** The name of the private column a zero-column relation carries. */
-export const unitColumn = "__unit"
+const unitColumn = "__unit"
 
 const unitHeading: Heading = Object.freeze([{ name: unitColumn, type: plainType("bool") }])
 
 /** The output columns of a delivered relation: its heading, or the private unit column. */
 export const deliveredHeading = (heading: Heading): Heading =>
 	heading.length === 0 ? unitHeading : heading
+
+/**
+ * The output names of a relation whose columns are `names`: those, or, for a relation of no column, the private unit
+ * column's, deliveredHeading's rule over names. The one rule a derived table's or a CTE's heading is named by
+ * (sql/naming.ts namedQuery), a read of no field's among them.
+ */
+export const namesOrUnit = (names: ReadonlyArray<string>): NonEmptyReadonlyArray<string> =>
+	isNonEmpty(names) ? names : [unitColumn]
 
 const noKey: ReadonlyArray<ParentKeyColumn> = Object.freeze([])
 

@@ -40,13 +40,13 @@ export const rosterInBoxItems: Arr.NonEmptyReadonlyArray<FilterCell> = [
 	},
 	{
 		name: "r.in in a conjunction",
-		where: 'r.and(r.in(status, ["ASSIGNED", "PAUSED"]), r.eq(number, 1))',
+		where: 'r.and([r.in(status, ["ASSIGNED", "PAUSED"]), r.eq(number, 1)])',
 		found: "status",
 		type: '"ASSIGNED" | "PAUSED"'
 	},
 	{
 		name: "r.in in a disjunction",
-		where: 'r.or(r.in(status, ["ASSIGNED"]), r.eq(number, 1))',
+		where: 'r.or([r.in(status, ["ASSIGNED"]), r.eq(number, 1)])',
 		found: "status",
 		type: everyHandle
 	},

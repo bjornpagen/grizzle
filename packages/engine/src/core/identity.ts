@@ -60,7 +60,9 @@ export const maxIdentifierBytes = namedatalen - 1
  *   namespace: declared names are compared by their conversions (`DeclaredNamespace`, every namespace of declared
  *   names: the schema's relations, rosters and contracts, each relation's or view's columns, each table's row checks,
  *   each role's views), none starts with `_`, and one whose conversion is over maxIdentifierBytes is refused; a schema's
- *   conversion does not start with `pg_`. So no `__<schema>` meets a level's schema, a declared conversion, or a role's,
+ *   conversion does not start with `pg_`. A name a library derives (DerivedName) is compared in the same namespace by
+ *   its conversion, at any length, and names no readable object. So no `__<schema>` meets a level's schema, a declared
+ *   conversion, or a role's,
  *   `<schema>__<name>`, which starts as its level's does. A readable constructor takes the name parsed (`DeclaredName`,
  *   minted by `parseDeclaredName`; `SchemaName`, by `parseSchemaName`), so no readable identity has a name the rule
  *   refuses; a login's or role's name is refused when it does not fit with its schema's, and a level's schema of whole
@@ -69,7 +71,9 @@ export const maxIdentifierBytes = namedatalen - 1
  *   canonical encoding, the first `5 * digestChars` bits of its SHA-256 as `digestChars` characters of lowercase RFC
  *   4648 base32: keys, foreign keys, span, norm and law checks, indexes, declared dependencies, contract and
  *   text-pattern domains, named by their definitions, constants, sets' domains, law and arm tag columns, laws and their functions and triggers, filter functions, key and unique probes,
- *   a migration's temporaries, and a write program's carriers, named by their declarations too.
+ *   a migration's temporaries, and the table and whole view of a relation, and the domain and whole view of a roster,
+ *   whose name a library derives, each named by that name, which its schema's namespace keeps unique (derivedTable,
+ *   derivedWholeView, derivedRosterDomain).
  *   Every name grizzle derives starts with `__`, so no declared name meets
  *   one; two distinct hashed identities meet only where their stems and their digests do, which the installation's
  *   census refuses as DigestCollision (`censusOf`), and a migration's census (`TemporaryCensus`) where a temporary
@@ -247,21 +251,41 @@ const nameSegments = (name: string): ReadonlyArray<string> => {
 /** The conversion of segments a name or a stem split into: joined by single underscores. */
 const joined = (segments: ReadonlyArray<string>): string => segments.join("_")
 
-/** The conversion of a name: its segments, lowercased, joined by single underscores. A declared name's is its readable
- * identifier. */
+/**
+ * The conversion of a name: its segments, lowercased, joined by single underscores. A declared name's is its readable
+ * identifier. The package root exports it beside parseDeclaredName, so a generator that writes declared names (den's
+ * lowering) reads a name's segments and compares two names as grizzle's namespaces do, never by a rule of its own.
+ */
 export const conversionOf = (name: string): string => joined(nameSegments(name))
 
 declare const declaredNameBrand: unique symbol
+declare const derivedNameBrand: unique symbol
 declare const schemaNameBrand: unique symbol
 
 /** A name as declared that keeps the declared-name rule, minted only by `parseDeclaredName`: what every readable
  * identity's constructor takes. */
 export type DeclaredName = string & { readonly [declaredNameBrand]: true }
 
+/**
+ * A name a library derives for a relation or roster (ir/desc.ts RelationNaming and RosterNaming `derived`: the package
+ * root's derivedName, and records' own, program/records.ts), minted only by `parseDerivedName`: a declared name's
+ * characters at any length, since no identifier is its conversion. The door names the objects it installs hashed over
+ * it (identity.derivedTable, identity.derivedWholeView, identity.derivedRosterDomain), so no readable constructor takes
+ * one.
+ */
+export type DerivedName = string & { readonly [derivedNameBrand]: true }
+
+/**
+ * A relation's or roster's name as its schema's namespace took it (DeclaredNamespace): a declared name, or a name a
+ * library derives. Two of either kind that convert alike are one name of the namespace.
+ */
+export type HeldName = DeclaredName | DerivedName
+
 /** A schema's declared name that keeps the schema's rule besides, minted only by `parseSchemaName`. */
 export type SchemaName = DeclaredName & { readonly [schemaNameBrand]: true }
 
 const declaredNameOf = nominal<string, DeclaredName>()
+const derivedNameOf = nominal<string, DerivedName>()
 const schemaName = nominal<DeclaredName, SchemaName>()
 
 /**
@@ -365,6 +389,29 @@ const faultRefusal = (fault: SchemaNameFault, declaration: string, loc: SourceLo
  */
 export const parseDeclaredName = (name: string): Result.Result<DeclaredName, NameFault> =>
 	Result.map(parsedName(name), (parsed) => parsed.name)
+
+/**
+ * The rule a name a library derives keeps (DerivedName): a declared name's characters (parseNameCharacters), at any
+ * length, the rule every relation's or roster's name keeps, so a lookup of one by its text parses it so. The name,
+ * parsed, or how it breaks the rule, its characters.
+ */
+export const parseDerivedName = (name: string): Result.Result<DerivedName, NameFault> => {
+	const named = parseNameCharacters(name)
+	return named.ok
+		? Result.ok(derivedNameOf(named.value))
+		: Result.err({ kind: "characters", why: named.error })
+}
+
+/**
+ * A name a library derives admitted where its relation or roster is built, `declaration` (its kind and name) at `loc`:
+ * the name, parsed by the derived-name rule (parseDerivedName), or its refusal, MalformedDescription for its characters.
+ */
+export const admitDerivedName = (
+	name: string,
+	declaration: string,
+	loc: SourceLoc
+): Result.Result<DerivedName, CompileError> =>
+	Result.mapError(parseDerivedName(name), (fault) => faultRefusal(fault, declaration, loc))
 
 /**
  * A declared name admitted where it is written, `declaration` (its kind and name) at `loc`: the name, parsed by the
@@ -693,9 +740,9 @@ export const installationRoleOf = (
 	}
 }
 
-/** Whether two declared names are one name: their segments agree, so the door renders both as one conversion
- * (TaskNote, Task_Note and task_note). */
-export const declaredAlike = (a: DeclaredName, b: DeclaredName): boolean =>
+/** Whether two names, declared or derived, are one name of a namespace: their segments agree, so the door renders both
+ * as one conversion (TaskNote, Task_Note and task_note). */
+export const declaredAlike = (a: HeldName, b: HeldName): boolean =>
 	conversionOf(a) === conversionOf(b)
 
 /**
@@ -758,7 +805,38 @@ export class DeclaredNamespace {
 		if (!parsed.ok) {
 			return Result.err(faultRefusal(parsed.error, `${kind} name ${JSON.stringify(name)}`, loc))
 		}
-		const { conversion } = parsed.value
+		return Result.map(this.#take(name, parsed.value.conversion, kind, loc), () => parsed.value.name)
+	}
+
+	/**
+	 * Declares `name`, a name a library derives for a `kind` at `loc` (DerivedName), into the same namespace as every
+	 * declared name: the name, parsed by the derived-name rule (parseDerivedName), at any length, since it names no
+	 * identifier, or its refusal: MalformedDescription for its characters or a conversion PostgreSQL holds, and
+	 * IdentifierCollision for a conversion an earlier declaration took, a declared name's or a derived one's, as
+	 * `declare` refuses it.
+	 */
+	declareDerived(
+		name: string,
+		kind: string,
+		loc: SourceLoc
+	): Result.Result<DerivedName, CompileError> {
+		const parsed = parseDerivedName(name)
+		if (!parsed.ok) {
+			return Result.err(faultRefusal(parsed.error, `${kind} name ${JSON.stringify(name)}`, loc))
+		}
+		return Result.map(this.#take(name, conversionOf(parsed.value), kind, loc), () => parsed.value)
+	}
+
+	/**
+	 * Takes `conversion`, the conversion of `name`, a `kind` at `loc`, or refuses it: MalformedDescription where
+	 * PostgreSQL holds it in the namespace, IdentifierCollision where an earlier declaration took it.
+	 */
+	#take(
+		name: string,
+		conversion: string,
+		kind: string,
+		loc: SourceLoc
+	): Result.Result<string, CompileError> {
 		if (this.#held.has(conversion)) {
 			return Result.err(
 				malformedDescription(
@@ -783,7 +861,7 @@ export class DeclaredNamespace {
 			)
 		}
 		this.#taken.set(conversion, { declaration, loc })
-		return Result.ok(parsed.value.name)
+		return Result.ok(conversion)
 	}
 }
 
@@ -852,6 +930,13 @@ const mint = <K extends IdentityKind>(
  * (adapter/migrate/apply.ts installedStandUps), as it finds the guards by their trigger's one name.
  */
 export const standUpDisplayLead = "the stand-up of the rule judge's session tables a write of "
+
+/**
+ * The name of the installation's re-check of a data step in each schema of its levels (identity.dataStepRecheck), by
+ * which a custom migration's data step finds every one the catalog holds where it runs (adapter/migrate/apply.ts
+ * installedRechecks).
+ */
+export const dataStepRecheckName = "__recheck"
 
 export const identifierOf = <K extends IdentityKind>(identity: Identity<K>): Identifier<K> =>
 	identity.identifier
@@ -936,14 +1021,15 @@ const digestCollision = (identifier: string, display: string, otherDisplay: stri
 	})
 
 /**
- * The first two distinct identities of one identifier among `identities`, in their order, when there are two: what a
- * digest collision is, since every hashed identifier is its identity's stem and digest.
+ * The first two distinct contents of one identifier among `named`, in their order, when there are two: what a digest
+ * collision is, since every hashed identifier is its identity's stem and digest, and every content-addressed key its
+ * content's digest.
  */
-const firstCollision = (
-	identities: Iterable<Identity<IdentityKind>>
-): readonly [Identity<IdentityKind>, Identity<IdentityKind>] | undefined => {
-	const seen = new Map<string, Identity<IdentityKind>>()
-	for (const i of identities) {
+const firstCollision = <N extends { readonly identifier: string; readonly canonical: string }>(
+	named: Iterable<N>
+): readonly [N, N] | undefined => {
+	const seen = new Map<string, N>()
+	for (const i of named) {
 		const prior = seen.get(i.identifier)
 		if (prior !== undefined && prior.canonical !== i.canonical) {
 			return [prior, i]
@@ -951,6 +1037,37 @@ const firstCollision = (
 		seen.set(i.identifier, i)
 	}
 	return undefined
+}
+
+/**
+ * The digest of a content, `canonical` its canonical text, as a hashed name ends in its identity's: digestChars
+ * characters of lowercase base32, the first 5 * digestChars bits of its SHA-256 (digestOf). The one rendering of a
+ * digest grizzle names a thing by, a hashed object's and a content-addressed key's alike (physical/planned/graph.ts
+ * PlannedReachKey), whose table's keys `contentCensus` holds apart.
+ */
+export const contentDigest = (canonical: string): string => digestOf(canonical)
+
+/** A content a key of one table names: its key (contentDigest of `canonical`), its canonical text, and its display. */
+export interface ContentKey {
+	readonly key: string
+	readonly canonical: string
+	readonly display: string
+}
+
+/**
+ * The census of one table's content-addressed keys, or its refusal: two distinct contents of one key, which the digest's
+ * width makes rare, never impossible, refused as DigestCollision naming both, as censusOf refuses two hashed identities
+ * of one identifier.
+ */
+export const contentCensus = (
+	keys: ReadonlyArray<ContentKey>
+): Result.Result<void, CompileError> => {
+	const collision = firstCollision(keys.map((k) => ({ ...k, identifier: k.key })))
+	if (collision !== undefined) {
+		const [first, second] = collision
+		return Result.err(digestCollision(first.key, first.display, second.display))
+	}
+	return Result.ok(undefined)
 }
 
 /**
@@ -1092,6 +1209,22 @@ export interface KeySide {
 export type IndexMethod = "btree" | "gist" | "hnsw" | "hash" | "gin"
 
 /**
+ * The parts of a stored relation's upkeep, each a function of the judge of its own (identity.storedUpkeep, physical/ddl
+ * rules.ts upkeepBlock), run where a delta its statements read holds a row, in this order: a unit form's rows at the
+ * units a transaction wrote made its definition's rows there (`units`); a delta form's removal of the facts a write
+ * withdraws (`lost`), then its insert of the facts it gains (`gained`).
+ */
+export const upkeepParts = ["units", "lost", "gained"] as const
+export type UpkeepPart = (typeof upkeepParts)[number]
+
+/** How an upkeep part's block's identity tells it after its relation. */
+const upkeepPartDisplay: Readonly<Record<UpkeepPart, string>> = {
+	units: "",
+	lost: ": the facts a write withdraws",
+	gained: ": the facts a write gains"
+}
+
+/**
  * What a B-tree entry does with a column: binds it by `equality`, reads its entries in its `order` (a seek, a page, a
  * range's last column), or matches a `prefix` of it (a prefix search's last column). A key's every column is an
  * equality. Only an equality's column may be left out of a lookup's entry, as a filter beside it, which keeps the
@@ -1188,11 +1321,38 @@ const drawnWords = {
 const decodedSuffix = "_name"
 
 /**
- * Whether a closed-id field's decoded column fits maxIdentifierBytes: its field's conversion and the suffix, which a
- * field whose conversion fills the identifier leaves no room for.
+ * The bytes a closed-id field's conversion may take: maxIdentifierBytes less its decoded column's suffix, `_name`, so
+ * the decoded column `<field>_name` each role view shows beside the code fits PostgreSQL's identifier. No limit of its
+ * own: PostgreSQL's identifier read against the decoded column's form.
  */
-export const decodedColumnFits = (field: DeclaredName): boolean =>
-	utf8Length(`${conversionOf(field)}${decodedSuffix}`) <= maxIdentifierBytes
+export const closedIdFieldBytes: number = maxIdentifierBytes - decodedSuffix.length
+
+/**
+ * A closed-id field's name admitted where its relation is built, `relation` its relation's: the name, or
+ * DecodedColumnTooLong where its conversion passes closedIdFieldBytes, so its decoded column would pass PostgreSQL's
+ * identifier.
+ */
+export const admitClosedIdField = (
+	relation: string,
+	field: string,
+	loc: SourceLoc
+): Result.Result<string, CompileError> => {
+	const conversion = conversionOf(field)
+	const bytes = utf8Length(conversion)
+	return bytes > closedIdFieldBytes
+		? Result.err(
+				CompileError.make({
+					_tag: "DecodedColumnTooLong",
+					at: loc,
+					relation,
+					field,
+					conversion,
+					bytes,
+					limit: closedIdFieldBytes
+				})
+			)
+		: Result.ok(field)
+}
 
 /**
  * An identity of a kind readable as one declared name's conversion, stemmed from that name: the name split once, its
@@ -1207,13 +1367,34 @@ const readableAs = <K extends IdentityKind>(
 	return mint(kind, [name], segments, display, readable(joined(segments)))
 }
 
+/**
+ * An identity of a kind hashed over a derived name, `name`, which its schema's namespace keeps unique, so two derived
+ * relations or rosters are two identities whatever they are spelled after: `spelling`, the words its digest's readable
+ * stem is spelled from, each split once, is its part beside the name, so no declared name's identity of the kind, its
+ * one name, has its parts.
+ */
+const derivedAs = <K extends IdentityKind>(
+	kind: K,
+	name: DerivedName,
+	spelling: ReadonlyArray<string>,
+	display: string
+): Identity<K> => mint(kind, [name, spelling], spelling.flatMap(nameSegments), display, hashed)
+
 /** One constructor per kind: nothing else mints an identity. */
 export const identity = Object.freeze({
 	/** A schema, by its declared name, or the unique name a test installs a schema under, either parsed. */
 	schema: (name: SchemaName): Identity<"schema"> => readableAs("schema", name, `schema ${name}`),
-	/** A stored relation's table. */
+	/** A stored relation's table, by its declared name. */
 	table: (relation: DeclaredName): Identity<"table"> =>
 		readableAs("table", relation, `relation ${relation}`),
+	/**
+	 * The table of a relation whose name a library derives (ir/desc.ts RelationNaming `derived`), any length, no
+	 * identifier: hashed, `__<stem>_<digest>`, over the name, which the schema's namespace keeps unique, so two derived
+	 * relations are two tables whatever their stems and paths; its stem spelled from `spelling`, its naming's stem and
+	 * path (derivedAs).
+	 */
+	derivedTable: (relation: DerivedName, spelling: ReadonlyArray<string>): Identity<"table"> =>
+		derivedAs("table", relation, spelling, `relation ${relation}`),
 	/**
 	 * A roster's domain over smallint, its codes' range proof: its one CHECK admits exactly the roster's live codes, so
 	 * every closed id it types is one, and every digit a closed relation's constant is indexed by is in range.
@@ -1221,11 +1402,18 @@ export const identity = Object.freeze({
 	rosterDomain: (roster: DeclaredName): Identity<"rosterDomain"> =>
 		readableAs("rosterDomain", roster, `roster ${roster}`),
 	/**
+	 * The domain of a roster whose name a library derives (ir/desc.ts RosterNaming `derived`), any length, no identifier:
+	 * hashed over the name, which the schema's namespace keeps unique, and spelled after it (derivedAs), as the roster's
+	 * constants are named by it.
+	 */
+	derivedRosterDomain: (roster: DerivedName): Identity<"rosterDomain"> =>
+		derivedAs("rosterDomain", roster, [roster], `roster ${roster}`),
+	/**
 	 * A roster's names constant, named by its roster and the digest of its names in code order: a changed constant is a
 	 * new function, never one replaced in place.
 	 */
 	rosterConstant: (
-		roster: DeclaredName,
+		roster: HeldName,
 		digest: ConstantDigest<"roster-names">
 	): Identity<"rosterConstant"> =>
 		mint(
@@ -1240,10 +1428,7 @@ export const identity = Object.freeze({
 	 * handle, its padding 0, which its domain's CHECK and its sets' domain's read: named by those bits' digest, so a
 	 * removal or a growth is a new function and a handle's rename none.
 	 */
-	rosterLive: (
-		roster: DeclaredName,
-		digest: ConstantDigest<"roster-live">
-	): Identity<"rosterLive"> =>
+	rosterLive: (roster: HeldName, digest: ConstantDigest<"roster-live">): Identity<"rosterLive"> =>
 		mint(
 			"rosterLive",
 			[roster, digest],
@@ -1256,7 +1441,7 @@ export const identity = Object.freeze({
 	 * digits, whose one CHECK admits only its live codes' bits: one per roster and width, so a growth past a whole digit
 	 * is a new domain and a column moves to it.
 	 */
-	bitsDomain: (roster: DeclaredName, width: number): Identity<"bitsDomain"> =>
+	bitsDomain: (roster: HeldName, width: number): Identity<"bitsDomain"> =>
 		mint(
 			"bitsDomain",
 			[roster, `${width}`],
@@ -1270,6 +1455,43 @@ export const identity = Object.freeze({
 	 */
 	digestDomain: (): Identity<"digestDomain"> =>
 		mint("digestDomain", [], ["sha256"], "the SHA-256 digest domain", readable("__sha256")),
+	/**
+	 * A variant's composite (ir/scalar.ts VariantType): its tag's code, then every arm's fields, one attribute each, in
+	 * arm order. Named by the variant's declared name, so an arm appended to it adds attributes to this one type in place,
+	 * which no stored value is rewritten for.
+	 */
+	variantRow: (variant: DeclaredName): Identity<"variantRow"> =>
+		mint(
+			"variantRow",
+			[variant],
+			[...nameSegments(variant), "row"],
+			`the composite of variant ${variant}`,
+			hashed
+		),
+	/**
+	 * A variant's domain over its composite, whose one CHECK holds every attribute of the arm its tag names present and
+	 * every other arm's absent: every column, cast and parameter of the variant is typed by it, so a value of it is a sum
+	 * value wherever it stands. Named by the variant's declared name, as a roster's domain is by its roster's.
+	 */
+	variantDomain: (variant: DeclaredName): Identity<"variantDomain"> =>
+		readableAs("variantDomain", variant, `variant ${variant}`),
+	/**
+	 * One attribute of a variant's composite past its tag: an arm's field's value, or, for a float, whether it is -0
+	 * (ir/codes.ts FieldLayout `zero`), by the arm's code, which its handle keeps across every rename, the field's name
+	 * and the part, which no other attribute of the composite holds together.
+	 */
+	variantAttribute: (
+		code: number,
+		field: string,
+		part: "value" | "zero"
+	): Identity<"variantAttribute"> =>
+		mint(
+			"variantAttribute",
+			[String(code), field, part],
+			[`a${code}`, ...nameSegments(field), ...(part === "zero" ? ["zero"] : [])],
+			`${part === "zero" ? "the zero sign of " : ""}field ${field} of the arm of code ${code}`,
+			hashed
+		),
 	/**
 	 * A closed relation's or a side's constant, named by the digest of its content alone: two of equal content are one
 	 * function, and a changed one is a new function.
@@ -1301,9 +1523,25 @@ export const identity = Object.freeze({
 	 */
 	rowFunction: (digest: ConstantDigest<"row-function">): Identity<"rowFunction"> =>
 		mint("rowFunction", [digest], ["row"], `row function ${digest}`, hashed),
-	/** A derived relation's stored table. */
-	view: (relation: DeclaredName): Identity<"view"> =>
-		readableAs("view", relation, `derived relation ${relation}`),
+	/**
+	 * A canonical relation's stored table (analysis/derived/canonical.ts), named by the digest of its canonical form alone:
+	 * every derived relation's definition and every closed import of one built alike, named or not, is one table, and a
+	 * changed definition is a new one.
+	 */
+	view: (digest: string): Identity<"view"> =>
+		mint("view", [digest], ["stored"], `stored canonical relation ${digest}`, hashed),
+	/**
+	 * The whole view of an anonymous canonical relation's stored table (analysis/derived/canonical.ts), which every role
+	 * that sees each relation of its definition whole reads it through: named by its form's digest, as its table is.
+	 */
+	canonicalWholeView: (digest: string): Identity<"wholeView"> =>
+		mint(
+			"wholeView",
+			[digest],
+			["stored"],
+			`whole view of stored canonical relation ${digest}`,
+			hashed
+		),
 	/** A field's column, in whatever table or view holds it: its name alone, so renaming a relation renames no column. */
 	column: (field: DeclaredName): Identity<"column"> =>
 		readableAs("column", field, `field ${field}`),
@@ -1394,8 +1632,8 @@ export const identity = Object.freeze({
 			hashed
 		),
 	/**
-	 * The head table of a clock or a place (ir/instant.ts Head), by its relation and its field: each child's last stamp,
-	 * which the head's stamp function alone advances (physical/ddl/stamps.ts).
+	 * The head table of a place, or of a clock no unit holds (ir/instant.ts Head), by its relation and its field: each
+	 * child's last stamp, which the head's stamp function alone advances (physical/ddl/stamps.ts).
 	 */
 	head: (relation: string, field: string): Identity<"head"> =>
 		mint(
@@ -1414,8 +1652,8 @@ export const identity = Object.freeze({
 			`primary key of the head table of ${relation}.${field}`,
 			hashed
 		),
-	/** The stamp function of a clock or a place, by its relation and its field, which advances each child's head and
-	 * returns it (physical/ddl/stamps.ts). */
+	/** The stamp function of a place, or of a clock no unit holds, by its relation and its field, which advances each
+	 * child's head and returns it (physical/ddl/stamps.ts). */
 	stamp: (relation: string, field: string): Identity<"stamp"> =>
 		mint(
 			"stamp",
@@ -1423,6 +1661,78 @@ export const identity = Object.freeze({
 			["stamp", ...nameSegments(relation), ...nameSegments(field)],
 			`stamp function of ${relation}.${field}`,
 			hashed
+		),
+	/**
+	 * The head table of the unit `unit`'s clocks (ir/instant.ts ClockScope `unit`), in the installation's root schema:
+	 * each key's last instant stamped in the unit, every clock of it alike, which the unit's stamp function alone
+	 * advances (physical/ddl/stamps.ts).
+	 */
+	unitHead: (unit: string): Identity<"unitHead"> =>
+		mint("unitHead", [unit], [...nameSegments(unit), "head"], `head table of unit ${unit}`, hashed),
+	/** The primary key of the unit `unit`'s head table, over the unit's key. */
+	unitHeadKey: (unit: string): Identity<"unitHeadKey"> =>
+		mint(
+			"unitHeadKey",
+			[unit],
+			[...nameSegments(unit), "head", "pk"],
+			`primary key of the head table of unit ${unit}`,
+			hashed
+		),
+	/** The stamp function of the unit `unit`'s clocks, which advances each key's head and returns it
+	 * (physical/ddl/stamps.ts). */
+	unitStamp: (unit: string): Identity<"unitStamp"> =>
+		mint(
+			"unitStamp",
+			[unit],
+			["stamp", ...nameSegments(unit)],
+			`stamp function of unit ${unit}`,
+			hashed
+		),
+	/** Every clock head table's column of each key's last instant (physical/ddl/stamps.ts), which no declared name is. */
+	headInstant: (): Identity<"headInstant"> =>
+		mint("headInstant", [], ["instant"], "the last instant stamped", readable("__instant")),
+	/** Every head table's column of the transaction that last stamped each key, by its 64-bit id (xid8), which no
+	 * declared name is (physical/ddl/stamps.ts). */
+	headStamper: (): Identity<"headStamper"> =>
+		mint(
+			"headStamper",
+			[],
+			["stamper"],
+			"the transaction that last stamped",
+			readable("__stamper")
+		),
+	/** The guard of the clocks of `relation` (physical/ddl/clocked.ts): each row a statement inserts holds its
+	 * transaction's stamp of each of its clocks at its scope's key. */
+	clockGuard: (relation: string): Identity<"clockGuard"> =>
+		mint(
+			"clockGuard",
+			[relation],
+			["clocked", ...nameSegments(relation)],
+			`clock guard of ${relation}`,
+			hashed
+		),
+	/** The guard of the clocks of `relation` against an UPDATE that moves one (physical/ddl/clocked.ts): each row whose
+	 * clock or scope key it changes holds its transaction's stamp there. */
+	clockMoveGuard: (relation: string): Identity<"clockMoveGuard"> =>
+		mint(
+			"clockMoveGuard",
+			[relation],
+			["clock", "moved", ...nameSegments(relation)],
+			`clock move guard of ${relation}`,
+			hashed
+		),
+	/** Every clock relation's insert guard's trigger: one name, which PostgreSQL scopes to its table's triggers, and the
+	 * constraint a refusal of either clock guard reports. */
+	clockTrigger: (): Identity<"clockTrigger"> =>
+		mint("clockTrigger", [], ["clocked"], "the clock trigger", readable("__clocked")),
+	/** Every clock relation's move guard's trigger, beside its insert guard's. */
+	clockMoveTrigger: (): Identity<"clockMoveTrigger"> =>
+		mint(
+			"clockMoveTrigger",
+			[],
+			["clock", "moved"],
+			"the clock move trigger",
+			readable("__clock_moved")
 		),
 	/**
 	 * A stored relation's primary key, by its relation alone: a relation has exactly one, so a migration that moves it
@@ -1544,6 +1854,7 @@ export const identity = Object.freeze({
 			| "rosterDomain"
 			| "bitsDomain"
 			| "digestDomain"
+			| "variantDomain"
 		>
 	): Identity<"domainCheck"> =>
 		mint(
@@ -1594,11 +1905,19 @@ export const identity = Object.freeze({
 			`dependencies ${fieldsOf(relation, [determinant, dependent])}`,
 			hashed
 		),
-	/** A derived relation's unique index on a key its definition proves. */
-	derivedKey: (view: string, fields: ReadonlyArray<string>): Identity<"derivedKey"> =>
+	/**
+	 * A derived relation's unique index on a key its definition proves, in the stored table `table` holds its rows in
+	 * (core/identity.ts view, a canonical relation's): minted from the table, so each table's indexes are its own and a
+	 * definition whose new form is a new table names new ones, its name read from the relation's.
+	 */
+	derivedKey: (
+		view: string,
+		table: string,
+		fields: ReadonlyArray<string>
+	): Identity<"derivedKey"> =>
 		mint(
 			"derivedKey",
-			[view, fields],
+			[table, fields],
 			[...nameSegments(view), "key", ...fields.flatMap(nameSegments)],
 			`key ${fieldsOf(view, fields)}`,
 			hashed
@@ -1618,6 +1937,21 @@ export const identity = Object.freeze({
 			[domain, relation, field],
 			[...nameSegments(relation), "pattern", ...nameSegments(field)],
 			`pattern law of ${relation}.${field} under ${domain.display}`,
+			hashed
+		),
+	/** The law of one stored field's variant, that its value is a value of the variant, checked by the variant's domain's
+	 * CHECK and the domains of its arms' fields, which every field of one variant shares: one law per field, so the
+	 * field names it. */
+	variantLaw: (
+		domain: Identity<"variantDomain">,
+		relation: string,
+		field: string
+	): Identity<"variantLaw"> =>
+		mint(
+			"variantLaw",
+			[domain, relation, field],
+			[...nameSegments(relation), "variant", ...nameSegments(field)],
+			`variant law of ${relation}.${field} under ${domain.display}`,
 			hashed
 		),
 	/**
@@ -1689,6 +2023,16 @@ export const identity = Object.freeze({
 	 * its table's. */
 	wholeView: (relation: DeclaredName): Identity<"wholeView"> =>
 		readableAs("wholeView", relation, `whole view of relation ${relation}`),
+	/**
+	 * The whole view of a relation or roster whose name a library derives (ir/desc.ts RelationNaming and RosterNaming
+	 * `derived`), in its level's schema of whole views, hashed over the name as its table or domain is (derivedAs),
+	 * spelled after `spelling`.
+	 */
+	derivedWholeView: (
+		relation: DerivedName,
+		spelling: ReadonlyArray<string>
+	): Identity<"wholeView"> =>
+		derivedAs("wholeView", relation, spelling, `whole view of relation ${relation}`),
 	/** A writable entry's filter function. */
 	filter: (role: Identity<"role">, entry: string): Identity<"filter"> =>
 		mint(
@@ -1789,7 +2133,8 @@ export const identity = Object.freeze({
 			`immutability guard of ${relation}`,
 			hashed
 		),
-	/** Every immutable relation's table's guard trigger: one name, which PostgreSQL scopes to its table's triggers. */
+	/** Every immutable relation's table's guard trigger of its rows: one name, which PostgreSQL scopes to its table's
+	 * triggers. */
 	immutableTrigger: (): Identity<"immutableTrigger"> =>
 		mint(
 			"immutableTrigger",
@@ -1797,6 +2142,15 @@ export const identity = Object.freeze({
 			["immutable"],
 			"the immutability guard trigger",
 			readable("__immutable")
+		),
+	/** Every immutable relation's table's guard trigger of a TRUNCATE: one name, scoped to its table's triggers. */
+	immutableTruncateTrigger: (): Identity<"immutableTruncateTrigger"> =>
+		mint(
+			"immutableTruncateTrigger",
+			[],
+			["immutable", "truncate"],
+			"the immutability guard trigger of a TRUNCATE",
+			readable("__immutable_truncate")
 		),
 	/**
 	 * The law of the sealed unit `unit` (physical/ddl/seal.ts): every row of every relation under it at a key is inserted
@@ -1944,15 +2298,49 @@ export const identity = Object.freeze({
 			hashed
 		),
 	/**
-	 * The rule judge's block of stored derived relation `relation`'s upkeep (physical/ddl/rules.ts, phase A): the function
-	 * that makes its rows at the units a transaction wrote its definition's rows there.
+	 * The maker of a closure of the rule judge (physical/ddl/rules.ts Closure): the function the stand-up of every table
+	 * whose writes reach the closure calls, which makes its deltas and their indexes where the session holds none, as the
+	 * judge's definer, and last its marker, `stood`. It is named by its marker, so a closure of other deltas is another
+	 * function, its stem by `relation`, the closure's first stored relation in name order. Its display leads with no
+	 * stand-up's, so no custom migration's data step calls it as one (standUpDisplayLead).
 	 */
-	storedUpkeep: (relation: string): Identity<"storedUpkeep"> =>
+	ruleClosure: (relation: string, stood: Identity<"ruleStood">): Identity<"ruleClosure"> =>
+		mint(
+			"ruleClosure",
+			[stood],
+			["closure", ...nameSegments(relation)],
+			`the maker of the rule judge's session tables the upkeeps over ${relation} reach`,
+			hashed
+		),
+	/**
+	 * The maker of a share of the rule judge (physical/ddl/rules.ts Share): the function that makes `deltas`, the deltas
+	 * two or more of the judge's makers need, a closure's maker or a table's stand-up, alike, and their indexes, where the
+	 * session holds none, as the judge's definer, so the installation states each delta's table once. Named by its
+	 * deltas, its stem by `relation`, the relation of the first of them.
+	 */
+	ruleShare: (
+		relation: string,
+		deltas: NonEmptyReadonlyArray<Identity<"ruleDelta">>
+	): Identity<"ruleShare"> =>
+		mint(
+			"ruleShare",
+			deltas,
+			["share", ...nameSegments(relation)],
+			`the maker of the rule judge's session tables of ${relation} that more than one stand-up needs`,
+			hashed
+		),
+	/**
+	 * A function of the rule judge's upkeep of stored derived relation `relation` (physical/ddl/rules.ts upkeepBlock,
+	 * phase A): the one that runs one part of its form (`UpkeepPart`), which its part of the judge calls where a delta
+	 * its statements read holds a row, so a session compiles and plans the parts its writes touch alone. A unit form's
+	 * one part keeps the name of the relation alone.
+	 */
+	storedUpkeep: (relation: string, part: UpkeepPart): Identity<"storedUpkeep"> =>
 		mint(
 			"storedUpkeep",
-			[relation],
+			part === "units" ? [relation] : [relation, part],
 			["upkeep", ...nameSegments(relation)],
-			`the rule judge's upkeep of stored relation ${relation}`,
+			`the rule judge's upkeep of stored relation ${relation}${upkeepPartDisplay[part]}`,
 			hashed
 		),
 	/**
@@ -1976,25 +2364,42 @@ export const identity = Object.freeze({
 	ruleJudge: (): Identity<"ruleJudge"> =>
 		mint("ruleJudge", [], ["judge"], "the rule judge", readable("__judge")),
 	/**
+	 * The installation's re-check of a data step (physical/ddl/recheck.ts): the function a custom migration's data step
+	 * calls after its statements, inside its bracket (physical/ddl/immutable.ts dataStepBracket), which finds it by this
+	 * one name in each schema of the installation's levels (adapter/migrate/apply.ts installedRechecks), as it finds the
+	 * guards by their trigger's.
+	 */
+	dataStepRecheck: (): Identity<"dataStepRecheck"> =>
+		mint(
+			"dataStepRecheck",
+			[],
+			["recheck"],
+			"the re-check of a data step",
+			readable(dataStepRecheckName)
+		),
+	/**
 	 * A part of the rule judge (physical/ddl/rules.ts addRules): the function that judges every rule whose statements
 	 * read one of the session's deltas `deltas`, which the judge runs where the transaction wrote one of them, the
-	 * written set its `sentinel` holds. It is named by its sentinel and its deltas, and its stem by the relation of the
-	 * first, `relation`, so a part whose deltas or whose written set's declaration change is another function, created
-	 * in its place, never one whose parameters CREATE OR REPLACE would have to rename (42P13).
+	 * written set its `sentinel` holds. It is named by its sentinel and its deltas, an upkeep's by its stratum too, which
+	 * two strata's parts over the same deltas tell apart, and its stem by the relation of the first, `relation`, so a part
+	 * whose deltas or whose written set's declaration change is another function, created in its place, never one whose
+	 * parameters CREATE OR REPLACE would have to rename (42P13).
 	 */
 	ruleJudgePart: (
 		relation: string,
 		sentinel: Identity<"ruleSentinel">,
 		deltas: NonEmptyReadonlyArray<Identity<"ruleDelta">>,
-		pass: "upkeep" | "rules"
+		pass: { readonly kind: "upkeep"; readonly stratum: number } | { readonly kind: "rules" }
 	): Identity<"ruleJudgePart"> =>
 		mint(
 			"ruleJudgePart",
-			pass === "rules" ? [sentinel, ...deltas] : [sentinel, pass, ...deltas],
+			pass.kind === "rules"
+				? [sentinel, ...deltas]
+				: [sentinel, "upkeep", String(pass.stratum), ...deltas],
 			["judge", ...nameSegments(relation)],
-			pass === "rules"
+			pass.kind === "rules"
 				? `the rule judge of the deltas of ${relation} and the relations its rules join it to`
-				: `the upkeep of the stored relations over the deltas of ${relation} and the relations they read beside it`,
+				: `the upkeep of stratum ${String(pass.stratum)} of the stored relations over the deltas of ${relation} and the relations they read beside it`,
 			hashed
 		),
 	/**
@@ -2080,6 +2485,24 @@ export const identity = Object.freeze({
 			hashed
 		),
 	/**
+	 * A session's marker of a set of the rule judge's deltas, `deltas`, of an installation, the identity of its root schema
+	 * (physical/ddl/rules.ts Closure, addStandUps): a table of pg_temp of no column, which the one site that makes the
+	 * set's deltas makes last, so its standing as the definer's own proves every one of them stands as the definer's own.
+	 * Named by the set, so two sites that make one set make one marker, and an installation whose set holds another
+	 * delta names another, which no session that stood the old set up holds.
+	 */
+	ruleStood: (
+		installation: Identity<"schema">,
+		deltas: NonEmptyReadonlyArray<Identity<"ruleDelta">>
+	): Identity<"ruleStood"> =>
+		mint(
+			"ruleStood",
+			[installation, ...deltas],
+			["stood"],
+			`the marker of a set of the rule judge's session tables of ${installation.display}`,
+			hashed
+		),
+	/**
 	 * A session's sentinel of an installation, the identity of its root schema (physical/ddl/rules.ts addRules): a table
 	 * of pg_temp whose one row arms its deferred trigger, which runs the judge, and holds the transaction's written set,
 	 * named by its declaration's canonical text too, so a migration that changes it names another and no capture meets
@@ -2106,21 +2529,7 @@ export const identity = Object.freeze({
 		mint("roleAside", [role], [asideSegment], `the role ${role} set aside`, hashed),
 	/** The name an index is built under before it is swapped in for `of`. */
 	swap: (of: string): Identity<"swap"> =>
-		mint("swap", [of], ["next", ...nameSegments(of)], `the next ${of}`, hashed),
-	/**
-	 * A write program's transaction-scoped carrier (sql/naming.ts carrierName): the `ordinal`-th of its program's
-	 * carriers, from 1, and its declaration's canonical text, the CREATE TEMPORARY TABLE's columns and key. A carrier
-	 * lives in its session's pg_temp until its transaction ends, so its name is no installation's: one name stands for
-	 * one declaration, and a served statement that names it reads one row type.
-	 */
-	carrier: (scope: string, ordinal: number, declaration: string): Identity<"carrier"> =>
-		mint(
-			"carrier",
-			[scope, String(ordinal), declaration],
-			["carrier", String(ordinal)],
-			`carrier ${ordinal} of its program`,
-			hashed
-		)
+		mint("swap", [of], ["next", ...nameSegments(of)], `the next ${of}`, hashed)
 })
 
 declare const fittedBrand: unique symbol

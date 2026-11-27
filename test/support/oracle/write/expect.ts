@@ -104,11 +104,11 @@ export type Expected =
 	  }
 	| {
 			/**
-			 * A parameter passed outside the field it is declared at, read by any stratum (unboundParams): the flight's
-			 * admission, its first statement and the one that reaches the call's parameters alone (runtime/write/steps.ts
-			 * StepReach), binds every parameter at once, so PostgreSQL refuses the value there, ExecutionFailure with
-			 * reason ParamRejected at one such parameter, before any statement that reaches state runs and so before any
-			 * law of any stratum; the initial state stays.
+			 * A parameter passed outside the field it is declared at, read by any stratum (unboundParams): the admission
+			 * the first statement a call sends carries (write/program/admission.ts) binds every such parameter before any
+			 * other placeholder of it, so PostgreSQL refuses the value there, ExecutionFailure with reason ParamRejected at
+			 * one such parameter, before any statement runs and so before any law of any stratum; the initial state
+			 * stays.
 			 */
 			readonly kind: "unbound"
 			/** The names of the parameters passed outside their fields, one of which the refusal names. */
@@ -242,9 +242,10 @@ const sameKeyViolations = (
  * The parameters `members` pass outside the field each is declared at (domain.ts fitsField): a head parameter at its
  * target's column, a filter's at its source's column, a scope's at its relation's column, and a relation parameter's
  * facts at their relation's columns. Nothing on the host checks a parameter's pattern: PostgreSQL checks it by the
- * parameter's own pattern domain as it binds the flight's admission (write/admission/statement.ts), which binds every
- * parameter of every stratum at once, whether or not its source holds a row, after every host refusal (hostRefusals)
- * and before any statement that reaches state.
+ * parameter's own pattern domain as it binds the admission the first statement a call sends carries
+ * (write/program/admission.ts), which binds every parameter of every stratum that may hold a value outside it, whether
+ * or not its source holds a row, after every host refusal (hostRefusals) and before any other placeholder of that
+ * statement and any statement runs.
  */
 const unboundParams = (
 	ctx: ExpectContext,
@@ -455,10 +456,10 @@ export const unorderableStrata = (group: WGroup, c: WChangeSet): ReadonlyArray<C
  * every violation query evaluated by brute force is empty where it is judged.
  *
  * Before any of these, host normalization refuses a same-key pair among the enumerated additions of any stratum, with
- * that key's law and a violating key (hostRefusals), before any SQL. Then the flight's first statement, its admission,
- * which reaches the call's parameters alone (runtime/write/steps.ts StepReach), refuses a parameter passed outside the
- * field it is declared at, whichever stratum reads it, ExecutionFailure with reason ParamRejected, before any statement
- * that reaches state (unboundParams), so no law of any stratum answers first (README, Contracts and patterns). A stratum that adds a fact holding a
+ * that key's law and a violating key (hostRefusals), before any SQL. Then the admission the first statement a call
+ * sends carries (write/program/admission.ts) refuses a parameter passed outside the field it is declared at, whichever
+ * stratum reads it, ExecutionFailure with reason ParamRejected, as that statement is bound, before any statement runs
+ * (unboundParams), so no law of any stratum answers first (README, Contracts and patterns). A stratum that adds a fact holding a
  * stored value its field's domain refuses, a described member
  * reading a wider text into a narrower field, is refused there by the domain, naming the laws of the columns it types
  * in the tables its statement writes (DomainRefusal), or meets a law of the stratum first. A refused change leaves the
@@ -477,10 +478,9 @@ export const expectChangeSet = (ctx: ExpectContext, facts: WFacts, c: WChangeSet
 /**
  * expectChangeSet's expectation of an orderable ChangeSet.
  *
- * The host's normalization, before any SQL; then the flight's statements by what they reach (StepReach): its
- * admission, which reaches the parameters alone, first (write/program/compile.ts placeAdmission); then each stratum's
- * end, in order, the first one that adds outside a domain, or breaks a key or an immediate foreign key, refusing the
- * change.
+ * The host's normalization, before any SQL; then the admission the flight's first statement a call sends carries, its
+ * placeholders bound before any other (write/program/admission.ts); then each stratum's end, in order, the first one
+ * that adds outside a domain, or breaks a key or an immediate foreign key, refusing the change.
  */
 const expectUnder = (ctx: ExpectContext, facts: WFacts, c: WChangeSet): Expected => {
 	const schema = oracleSchemaOf(ctx.group, ctx.laws)

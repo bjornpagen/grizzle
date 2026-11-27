@@ -419,7 +419,7 @@ export interface ClosedRelation<
 	/**
 	 * C.has(k…): whether a row holds the key k…, one argument per key field in key order, as C.at's key. It is a
 	 * predicate, false where no row holds the key, so a law states what holds there by its own connectives:
-	 * `or(not(C.has(k…)), φ(C.at(f, k…)))`, or a value, `Logic.cond(C.has(k…), C.at(f, k…), d)`. A NULL key value is
+	 * `or([not(C.has(k…)), φ(C.at(f, k…))])`, or a value, `Logic.cond(C.has(k…), C.at(f, k…), d)`. A NULL key value is
 	 * NULL, as at every closed read.
 	 */
 	readonly has: <const A extends KeyTerms<Fields, Key>>(

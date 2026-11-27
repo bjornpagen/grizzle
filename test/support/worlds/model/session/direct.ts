@@ -117,8 +117,12 @@ const claimRefusal = (names: InstalledNames, refusal: RefusedClaim): ActionOutco
 const contextRefused = (refusal: ContextRefusal): RefusedClaim =>
 	refusal.kind === "keys" ? { kind: "state", sqlstate: "22P02" } : refusal.refusal
 
-/** The claims a session reads when it holds no claims document: no fact, no refused context. */
-const noClaims: ClaimsRead = { kind: "document", facts: {}, refused: new Map() }
+/**
+ * The claims a session reads when its setting holds no claims document: none, every read of a claim refused, whether
+ * the setting was never set, emptied by its transaction's end or set to a text that is no document
+ * (sql/print.ts claimsDocument).
+ */
+const unreadable: ClaimsRead = { kind: "unreadable" }
 
 /** JSON's insignificant whitespace (RFC 8259): space, tab, line feed and carriage return. */
 const isJsonSpace = (code: number): boolean =>
@@ -372,14 +376,14 @@ interface ClaimFault {
 
 /**
  * Every refused claim of a session's claims (ClaimsRead) that `observation` is the refusal of (metBy), of the contexts
- * whose member holds exactly their fields: none for a text that is no claims document.
+ * whose member holds exactly their fields: none for a setting that holds no claims document.
  */
 export const handSetFaults = (
 	names: InstalledNames,
 	read: ClaimsRead,
 	observation: Observation
 ): ReadonlyArray<ClaimFault> =>
-	read.kind === "malformed"
+	read.kind === "unreadable"
 		? []
 		: Arr.flatMap([...read.refused], ([context, refusals]) =>
 				Arr.flatMap(refusals, (r): ReadonlyArray<ClaimFault> => {
@@ -394,20 +398,17 @@ export const handSetFaults = (
 			)
 
 /**
- * The claims PostgreSQL reads from a setting's text: the empty text holds none (claimsDocument's first branch); a text
- * that is no claims document is malformed; a claims document holds, for each context of the installation it has a
- * member for, the context's fact where the member holds exactly the context's fields and each value casts to its
- * field's type (claimCast), or else the refusals a read of the context meets: other keys (contextClaims), each
- * value's own refusal otherwise, any of which the read may meet first. A member of no context of the installation is
- * never read.
+ * The claims PostgreSQL reads from a setting's text: the empty text and a text that is no claims document hold no
+ * document (claimsDocument), so every read of a claim refuses; a claims document holds, for each context of the
+ * installation it has a member for, the context's fact where the member holds exactly the context's fields and each
+ * value casts to its field's type (claimCast), or else the refusals a read of the context meets: other keys
+ * (contextClaims), each value's own refusal otherwise, any of which the read may meet first. A member of no context of
+ * the installation is never read.
  */
 const textRead = (base: BaseSpec, names: InstalledNames, text: string): ClaimsRead => {
-	if (text === "") {
-		return noClaims
-	}
-	const document = claimsDocumentOf(text)
+	const document = text === "" ? Option.none() : claimsDocumentOf(text)
 	if (Option.isNone(document)) {
-		return { kind: "malformed" }
+		return unreadable
 	}
 	const facts: Array<readonly [string, HostFact]> = []
 	const refused = new Map<string, Arr.NonEmptyReadonlyArray<ContextRefusal>>()
@@ -462,9 +463,9 @@ const settingRead = (base: BaseSpec, names: InstalledNames, setting: ClaimsSetti
 		? { kind: "document", facts: setting.facts, refused: new Map() }
 		: textRead(base, names, setting.text)
 
-/** The claims a session reads: none before it set any, else the read its setting was parsed to as it entered. */
+/** The claims a session reads: no document before it set any, else the read its setting was parsed to as it entered. */
 const claimsRead = (session: DirectSessionState): ClaimsRead =>
-	session.claims.kind === "none" ? noClaims : session.claims.read
+	session.claims.kind === "none" ? unreadable : session.claims.read
 
 /** The role a direct writer has taken on, or undefined while it acts as its login. */
 const currentRole = (state: ModelState, session: DirectSessionState): RoleSpec | undefined =>
@@ -705,15 +706,15 @@ export const directBranches = (
 	const role = currentRole(state, session)
 	const claims = claimsRead(session)
 	const facts = claims.kind === "document" ? claims.facts : {}
-	/** Whether a read of a context refuses: every one under a setting that is no claims document, else a refused one. */
+	/** Whether a read of a context refuses: every one under a setting that holds no claims document, else a refused one. */
 	const faulty = (context: string): boolean =>
-		claims.kind === "malformed" || claims.refused.has(context)
+		claims.kind === "unreadable" || claims.refused.has(context)
 	/**
 	 * The refusals a judgment reading `contexts` may meet as it reads the claims: none where it reads no faulty context;
-	 * 22P02 under a setting that is no claims document; each refused context's otherwise.
+	 * 22P02 under a setting that holds no claims document; each refused context's otherwise.
 	 */
 	const faultsOf = (contexts: ReadonlySet<string>): ReadonlyArray<RefusedClaim> =>
-		claims.kind === "malformed"
+		claims.kind === "unreadable"
 			? contexts.size === 0
 				? []
 				: [{ kind: "state", sqlstate: "22P02" }]

@@ -31,7 +31,7 @@ import {
 	readSchemaTree,
 	type SchemaTree
 } from "#cli/files.ts"
-import { keptSchemaDraft, loginText, servedFiles } from "#cli/generate.ts"
+import { eachServedFile, keptSchemaDraft, loginText } from "#cli/generate.ts"
 import { phasedEffect } from "#cli/phases.ts"
 import { refusalText } from "#cli/refusals.ts"
 import {
@@ -136,7 +136,7 @@ export type CheckFinding = FindingOf & {
  *   which its seal alone trusts, is not the record the compile reaches (build.ts recordHolds); generate writes it again,
  *   with no migration where nothing else changed;
  * - a served workload out of date: each login of the configuration over the schema compiled under the snapshot the
- *   draft lays out, as generate compiles it (generate.ts servedFiles), whose committed `served/<login>.json` is not
+ *   draft lays out, as generate compiles it (generate.ts eachServedFile), whose committed `served/<login>.json` is not
  *   that text byte for byte, each named with the first member where they part (served/compile.ts servedDifference); a
  *   login with no served file; and a served file of a login the configuration does not list;
  * - a literal pack edited: a closed relation's constant, stated as one hex literal, whose literal does not decode to
@@ -244,8 +244,20 @@ const checkCommitted = Effect.fn("checkCommitted")(function* (
 	const chain = committedChain(schema, sources)
 	const packs: Array<PackStatement> = []
 	for (const folder of chain.folders) {
-		if (folder.place.kind === "misnamed") {
-			at("folderName", path(folder.name), refusalText.folderName.problem)
+		const place = folder.place
+		switch (place.kind) {
+			case "misnamed":
+				at("folderName", path(folder.name), refusalText.folderName.problem)
+				break
+			case "forked":
+				at(
+					"forkedChain",
+					path(folder.name),
+					`${refusalText.forkedChain.problem}, this one and ${place.previous}`
+				)
+				break
+			case "placed":
+				break
 		}
 		const m = folder.meta
 		switch (m.kind) {
@@ -384,88 +396,95 @@ const loginRules = {
 }
 
 /**
- * The findings of a schema's committed login files of `kind`, `committed` their paths by login, against the ones
- * generate writes under the draft's snapshot, `served`, each where it lies relative to `cwd`: a login's file whose bytes
- * part from its text, each read a block at a time and held to the text as it is read (files.ts matchesFile), a login
- * with none, and a file of a login the configuration does not list. A file that cannot be read is a stray entry, as a
- * directory that cannot be read is (checkCommitted).
+ * The finding of a login's committed file of `kind`, at `path` in `committed` where it lies relative to `cwd`
+ * (`where`), against the one generate writes under the draft's snapshot, `entry`'s: none for a file whose bytes are its
+ * text's, read a block at a time and held to the text as it is read (files.ts matchesFile), one for a file whose bytes
+ * part from it, and one for a login with none. A file that cannot be read is a stray entry, as a directory that cannot
+ * be read is (checkCommitted).
  */
-const loginFindings = (
+const loginFinding = (
 	schema: ConfiguredSchema,
 	kind: LoginFileKind,
-	served: ReadonlyArray<ServedEntry>,
+	entry: ServedEntry,
 	committed: ReadonlyMap<string, string>,
 	where: (login: string) => string
 ): Effect.Effect<ReadonlyArray<CheckFinding>, never, FileSystem.FileSystem> => {
 	const rules = loginRules[kind]
-	const listed = new Set(Arr.map(served, (f) => f.login))
-	const extra = Arr.filter(Arr.fromIterable(committed.keys()), (login) => !listed.has(login))
-	const held = Effect.forEach(served, (file) => {
-		const path = committed.get(file.login)
-		const expected = loginText(file, kind)
-		if (path === undefined) {
-			return Effect.succeed([
-				finding(
-					schema,
-					rules.missing,
-					where(file.login),
-					`login ${file.login}: ${refusalText[rules.missing].problem}`
-				)
-			])
-		}
-		const stale = Effect.flatMap(matchesFile(path, expected), (parting) =>
-			parting.kind === "same"
-				? Effect.succeed([])
-				: Effect.map(rules.parting(expected, path), (part) => [
-						finding(
-							schema,
-							rules.stale,
-							where(file.login),
-							`login ${file.login}, ${Option.match(part, {
-								onNone: () => "",
-								onSome: (text) => `${text}: `
-							})}${refusalText[rules.stale].problem}`
-						)
-					])
-		)
-		return Effect.catchTag(stale, "PlatformError", (cause) =>
-			Effect.succeed([
-				finding(
-					schema,
-					"strayEntry",
-					where(file.login),
-					cliError(new TreeUnread({ schema: schema.declared, directory: path, cause })).reason
-						.message
-				)
-			])
-		)
-	})
-	return Effect.map(held, (found) => [
-		...Arr.flatten(found),
-		...Arr.map(Arr.sort(extra, Order.String), (login) =>
+	const path = committed.get(entry.login)
+	const expected = loginText(entry, kind)
+	if (path === undefined) {
+		return Effect.succeed([
 			finding(
 				schema,
-				rules.extra,
-				where(login),
-				`login ${login}: ${refusalText[rules.extra].problem}`
+				rules.missing,
+				where(entry.login),
+				`login ${entry.login}: ${refusalText[rules.missing].problem}`
 			)
-		)
-	])
+		])
+	}
+	const stale = Effect.flatMap(matchesFile(path, expected), (parting) =>
+		parting.kind === "same"
+			? Effect.succeed([])
+			: Effect.map(rules.parting(expected, path), (part) => [
+					finding(
+						schema,
+						rules.stale,
+						where(entry.login),
+						`login ${entry.login}, ${Option.match(part, {
+							onNone: () => "",
+							onSome: (text) => `${text}: `
+						})}${refusalText[rules.stale].problem}`
+					)
+				])
+	)
+	return Effect.catchTag(stale, "PlatformError", (cause) =>
+		Effect.succeed([
+			finding(
+				schema,
+				"strayEntry",
+				where(entry.login),
+				cliError(new TreeUnread({ schema: schema.declared, directory: path, cause })).reason.message
+			)
+		])
+	)
 }
+
+/** The findings of each committed login file of `kind` of a login the configuration does not list, in login order. */
+const extraFindings = (
+	schema: ConfiguredSchema,
+	kind: LoginFileKind,
+	listed: ReadonlySet<string>,
+	committed: ReadonlyMap<string, string>,
+	where: (login: string) => string
+): ReadonlyArray<CheckFinding> =>
+	Arr.map(
+		Arr.sort(
+			Arr.filter(Arr.fromIterable(committed.keys()), (login) => !listed.has(login)),
+			Order.String
+		),
+		(login) =>
+			finding(
+				schema,
+				loginRules[kind].extra,
+				where(login),
+				`login ${login}: ${refusalText[loginRules[kind].extra].problem}`
+			)
+	)
 
 /**
  * One compiled schema's findings: its committed files' (checkCommitted), then the draft of its change from the committed
  * snapshot (generate.ts draftSchema): each literal pack held to the drafted installation, a roster reordered, a schema
  * or access plan the compiler refuses, each workload program whose access moved, and an ungenerated change, against the
  * committed snapshot; then every login's workload compiled under the snapshot the draft lays out, as generate compiles
- * it (generate.ts servedFiles), a login it refuses, and the committed served files held to it (servedFindings).
+ * it (generate.ts eachServedFile), a login it refuses, and the committed served files held to it, each login's as it
+ * is compiled (loginFinding), then the files of logins the configuration does not list (extraFindings).
  */
 const checkSchema = Effect.fn("checkSchema")(function* (
+	schema: ConfiguredSchema,
 	compiled: CompiledSchema,
 	cwd: string,
 	phases: Phases
 ): Effect.fn.Return<SchemaCheck, never, FileSystem.FileSystem | Path.Path> {
-	const schema = compiled.configured
 	const committed = yield* checkCommitted(schema, cwd)
 	const snapshot = Option.map(committed.committed, (c) => c.snapshot)
 	const draft = Option.isSome(snapshot)
@@ -534,8 +553,21 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 			) {
 				at("manifestRecord", schema.declared, refusalText.manifestRecord.problem)
 			}
+			const paths = yield* Path.Path
+			const where = (kind: LoginFileKind) => (login: string) =>
+				paths.relative(cwd, Arr.join([schema.directory, loginFiles[kind].path(login)], "/"))
 			const served = yield* Effect.result(
-				servedFiles(compiled, draft.success, draft.success.served, phases)
+				eachServedFile(compiled, draft.success, draft.success.served, phases, (entry) => {
+					const of = (kind: LoginFileKind) =>
+						loginFinding(schema, kind, entry, committed.logins[kind], where(kind))
+					return Effect.map(
+						Effect.all({ served: of("served"), openapi: of("openapi") }),
+						(found) => ({
+							login: entry.login,
+							found
+						})
+					)
+				})
 			)
 			if (Result.isFailure(served)) {
 				at(
@@ -544,17 +576,20 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 					`${refusalText.compile.problem}: ${served.failure.reason.message}`
 				)
 			} else {
-				const paths = yield* Path.Path
+				const listed = new Set(Arr.map(served.success, (s) => s.login))
 				for (const kind of loginFileKinds) {
-					const stale = yield* loginFindings(
+					for (const login of served.success) {
+						for (const f of login.found[kind]) {
+							findings.push(f)
+						}
+					}
+					for (const f of extraFindings(
 						schema,
 						kind,
-						served.success,
+						listed,
 						committed.logins[kind],
-						(login) =>
-							paths.relative(cwd, Arr.join([schema.directory, loginFiles[kind].path(login)], "/"))
-					)
-					for (const f of stale) {
+						where(kind)
+					)) {
 						findings.push(f)
 					}
 				}
@@ -629,7 +664,7 @@ export const check = (
 				Effect.suspend(() =>
 					Effect.fromResult(phased(phases, { name: "build", of: [] }, () => compileSchema(schema)))
 				),
-				(compiled) => checkSchema(compiled, cwd, phases)
+				(compiled) => checkSchema(schema, compiled, cwd, phases)
 			)
 		)
 	)

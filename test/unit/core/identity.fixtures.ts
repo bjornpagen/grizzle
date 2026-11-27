@@ -14,7 +14,8 @@ import {
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { hashedNames } from "#compiler/physical/install/comments.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { Logic, Xml } from "#compiler/public/compute.ts"
 import { Bits, bits, closedId, contract, natural, pg } from "#compiler/public/fields.ts"
 import {
@@ -53,6 +54,10 @@ const declaredUnder = "names"
 
 const handles = ["k0", "k1", "k2"] as const
 
+const handleKey = Symbol("Handle")
+const innerKey = Symbol("Inner")
+const outerKey = Symbol("Outer")
+const patternedKey = Symbol("Patterned")
 /**
  * A schema each of whose objects named by its definition's digest has a definition that reads the installation's own
  * names: a contract over another contract, one over a closed id, its roster's domain, and one calling Xml.isPattern,
@@ -78,10 +83,10 @@ const definitionsOf = (name: string) => {
 		["k"],
 		[{ k: "k0", f: "k1" }]
 	)
-	const Inner = contract("Inner", pg.bigint, (v) => Logic.ge(v, 0n))
-	const Outer = contract("Outer", Inner, (v) => Logic.le(v, 10n))
-	const Handle = contract("Handle", closedId(K), undefined)
-	const Patterned = contract("Patterned", str.regex("^.*$", "su"), (v) =>
+	const Inner = contract<typeof innerKey>()("Inner", pg.bigint, (v) => Logic.ge(v, 0n))
+	const Outer = contract<typeof outerKey>()("Outer", Inner, (v) => Logic.le(v, 10n))
+	const Handle = contract<typeof handleKey>()("Handle", closedId(K), undefined)
+	const Patterned = contract<typeof patternedKey>()("Patterned", str.regex("^.*$", "su"), (v) =>
 		Logic.eq(Xml.isPattern(v), true)
 	)
 	const T = relation.generated(

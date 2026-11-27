@@ -40,7 +40,7 @@ import {
 import { exactIntegerDescriptor } from "#compiler/scalar/exact.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { stretchOver } from "#compiler/scalar/regex/stretch.ts"
-import { bareEnv, type SqlTag } from "#compiler/scalar/registry.ts"
+import { bareEnv, type Described, type SqlTag } from "#compiler/scalar/registry.ts"
 import { functionDescOf } from "#compiler/schema/function.ts"
 import { untypedLiteral } from "#compiler/schema/literal.ts"
 import { describedField, malformed, ownedEntry } from "#compiler/schema/protocol.ts"
@@ -50,6 +50,7 @@ import type {
 	CallArgs,
 	CalledTerm,
 	CallFields,
+	CallNumberings,
 	CallReads,
 	CallSource,
 	ExactCallArgs,
@@ -213,7 +214,13 @@ export const callRows = <
 >(
 	f: RowsFunction<Args, Fields>,
 	args: A & ExactCallArgs<A, Args>
-): CallSource<FactOfFields<Fields>, BindMapParams<A>, Fields, CallReads<A>> => {
+): CallSource<
+	FactOfFields<Fields>,
+	BindMapParams<A>,
+	Fields,
+	CallReads<A>,
+	CallNumberings["declared"]
+> => {
 	const label = spelling.rowsOf
 	const desc = declaredOf(f, label)
 	const returns = desc.returns
@@ -565,5 +572,39 @@ export const seriesRows = (low: unknown, high: unknown): Built & Headed<typeof s
 		seriesCarriers,
 		[],
 		"a series"
+	)
+}
+
+/**
+ * V.arm(value, handle): the fields of the arm `handle` of a value of the variant `variant`, a source a rule matches as it
+ * matches a call's rows: one fact of the arm's fields, each at its own type and carried by its own descriptor
+ * (`carriers`), where the value's tag is that arm, none where it is another (ir/rel.ts CallFunction `arm`), so a rule
+ * that matches it keeps only the bindings whose value holds that arm, its fields bound as columns. `value` is a term,
+ * a parameter or a JavaScript value, as a call's value argument is (`valueArgument`), which the checker holds to the
+ * variant. An arm of no field is refused: its tag is compared instead (V.tag).
+ */
+export const armRows = <C extends Carriers>(
+	variant: FieldDesc,
+	handle: string,
+	fields: ReadonlyArray<readonly [string, Described]>,
+	carriers: C,
+	value: unknown,
+	label: string
+): Built & Headed<C> => {
+	if (fields.length === 0) {
+		throw malformed(
+			label,
+			`an arm with a field; arm ${handle} holds none: compare its tag instead, V.tag`
+		)
+	}
+	return callSourceValue(
+		{ kind: "arm", variant, handle, value: valueArgument(value, `${label} value`) },
+		heading(
+			fields.map(([name, described]) => [name, typed(described.scalar)] as const),
+			[]
+		),
+		carriers,
+		[],
+		`arm ${handle} of a variant's value`
 	)
 }

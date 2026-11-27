@@ -15,6 +15,7 @@ import { parseIdent } from "#compiler/physical/obligations/graph.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { contained, on, relation, schema, select, type Statement } from "#compiler/public/schema.ts"
 import { firstCodes } from "#test/support/compile.ts"
+import { triggerDisabled } from "#test/support/drift/hand-change.ts"
 import { atName } from "#test/support/kernel/naming.ts"
 import { draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
 import { testSql } from "#test/support/sql.ts"
@@ -157,7 +158,7 @@ export const madeEdit = (
 				ident.kind === "trigger" && ident.schema === schema
 					? [
 							{
-								sql: `ALTER TABLE ${qualified(schema, ident.relation)} DISABLE TRIGGER ${quoteIdent(ident.name)}`,
+								sql: triggerDisabled({ schema, name: ident.relation }, ident.name),
 								kind: "differs" as const,
 								fact: `trigger ${schema}.${ident.relation}.${ident.name}`
 							}

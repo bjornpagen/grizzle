@@ -10,18 +10,7 @@ import { toCalendarDate } from "#compiler/ir/date.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { type RosterOrder, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
-import {
-	Crypto,
-	Distance,
-	Fn,
-	Logic,
-	Num,
-	Range,
-	Search,
-	Text,
-	Type,
-	Xml
-} from "#compiler/public/compute.ts"
+import * as computeApi from "#compiler/public/compute.ts"
 import { Bits, bytes, Decimal, Money, sha256 } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { lexicalForm, str } from "#compiler/public/text.ts"
@@ -39,6 +28,7 @@ import {
 	AsTyped,
 	Cell,
 	Cells,
+	cellKeys,
 	Heads,
 	Tone,
 	Tuning
@@ -1859,19 +1849,14 @@ const memberNames: { readonly [H in Holder]: Arr.NonEmptyReadonlyArray<string> }
 	parts: ["kind", "coefficient", "minScale", "exponent"]
 }
 
-/** The catalogue's namespaces, by the names a program reads them by. */
+/**
+ * The catalogue's namespaces, by the names a program reads them by: every namespace the public compute module exports,
+ * read off the module, so a namespace it adds is the catalogue's at once, where a list here lacked Time and Net once
+ * they were added; and Bits, the field barrel's.
+ */
 const catalogue: Readonly<Record<string, object>> = {
-	Bits,
-	Crypto,
-	Distance,
-	Fn,
-	Logic,
-	Num,
-	Range,
-	Search,
-	Text,
-	Type,
-	Xml
+	...Rec.filter(computeApi, (exported) => typeof exported === "object"),
+	Bits
 }
 
 /** The catalogue's own members, each as a program spells it: its namespace and its name there. */
@@ -2188,7 +2173,7 @@ const tunedValueText = (v: TunedValue): string => {
 
 /** A closed read's case's schema: Rows, whose generated field casts its value, under its guard or not. */
 const closedSchemaText = (spec: Extract<CaseSpec, { readonly kind: "closed" }>): string => {
-	const cast = (x: string): string => `Type.cast(${x}, Cell.fields.${spec.to})`
+	const cast = (x: string): string => castText(x, spec.to)
 	const value = tunedValueText(spec.value)
 	const term =
 		spec.guard.kind === "within"
@@ -2241,10 +2226,10 @@ const closedSchema = (spec: Extract<CaseSpec, { readonly kind: "closed" }>): Fix
 											tunedBound(v, guard.low).value,
 											tunedBound(v, guard.high).value
 										),
-										(g: unknown) => computeCore.cast(g, target),
+										(g: unknown) => castInto(g, target, spec.to),
 										cell[spec.to]
 									)
-								: computeCore.cast(value, target),
+								: castInto(value, target, spec.to),
 							[]
 						)
 					}
@@ -2302,6 +2287,11 @@ class Rendering {
 	usesHead = false
 	readonly fields = new Set<FieldName>()
 
+	/** A conditional's other arm beside a branch of the contract field `field`: a literal there is the field's mint's. */
+	arm(o: Operand, field: FieldName | undefined): string {
+		return o.kind === "literal" ? valueText(o.lit.text, field) : this.operand(o)
+	}
+
 	operand(o: Operand): string {
 		switch (o.kind) {
 			case "field":
@@ -2314,7 +2304,7 @@ class Rendering {
 			case "literal":
 				return o.lit.text
 			case "typed":
-				return `Type.literal(Cell.fields.${o.field}, ${o.lit.text})`
+				return `Type.literal(Cell.fields.${o.field}, ${valueText(o.lit.text, o.field)})`
 			case "guarded":
 				return "g"
 			case "lexical":
@@ -2336,13 +2326,13 @@ class Rendering {
 					", "
 				)})`
 			case "cast":
-				return `Type.cast(${this.operand(t.x)}, Cell.fields.${t.to})`
+				return castText(this.operand(t.x), t.to)
 			case "endpoint":
 				return `${spelling[t.fn]}(${this.operand(t.s)}, Cell.fields.${t.to})`
 			case "cond":
-				return `Logic.cond(${this.pred(t.p)}, ${this.operand(t.whenTrue)}, ${this.operand(t.otherwise)})`
+				return `Logic.cond(${this.pred(t.p)}, ${this.operand(t.whenTrue)}, ${this.arm(t.otherwise, contractOfOperand(t.whenTrue))})`
 			case "when":
-				return `Logic.when(${this.guard(t.guard)}, (${readsSubject(t.body) ? "g" : "_g"}) => ${this.term(t.body)}, ${this.operand(t.otherwise)})`
+				return `Logic.when(${this.guard(t.guard)}, (${readsSubject(t.body) ? "g" : "_g"}) => ${this.term(t.body)}, ${this.arm(t.otherwise, contractOfTerm(t.body))})`
 		}
 	}
 
@@ -2489,7 +2479,7 @@ class Building {
 					Arr.map(t.args, (a) => this.operand(a))
 				)
 			case "cast":
-				return computeCore.cast(this.operand(t.x), this.#world.Cell.fields[t.to])
+				return castInto(this.operand(t.x), this.#world.Cell.fields[t.to], t.to)
 			case "endpoint":
 				return computeCore[t.fn](this.operand(t.s), this.#world.Cell.fields[t.to])
 			case "cond":
@@ -2655,6 +2645,87 @@ const contractFields: Readonly<Record<string, FieldName>> = {
 /** The fields of Cell whose type is a contract. */
 const contractTyped: ReadonlySet<FieldName> = new Set(Rec.values(contractFields))
 
+/** The mint of each contract field's values, as the program names it (./compute-schema.ts, test/support/ids.ts). */
+const mints: Readonly<Record<string, string>> = {
+	id: "toId",
+	cents: "toCents",
+	epoch: "toEpochDay",
+	rate: "toRate",
+	divisor: "toDivisor",
+	body: "toBody"
+}
+
+/** The key of each contract field's contract, as the program names it, which a cast into the field's type takes. */
+const keyNames: Readonly<Record<string, string>> = {
+	id: "idKey",
+	cents: "centsKey",
+	epoch: "epochDayKey",
+	rate: "rateKey",
+	divisor: "divisorKey",
+	body: "bodyKey"
+}
+
+/** A cast into `to`'s type as the program spells it: its key after the target where `to` is a contract field. */
+const castText = (x: string, to: FieldName): string => {
+	const key = keyNames[to]
+	return key === undefined
+		? `Type.cast(${x}, Cell.fields.${to})`
+		: `Type.cast(${x}, Cell.fields.${to}, ${key})`
+}
+
+/** The engine's reading of a cast of `x` into `target`, `to`'s type: under its key where `to` is a contract field. */
+const castInto = (x: unknown, target: unknown, to: FieldName): unknown => {
+	const key = cellKeys[to]
+	return key === undefined ? computeCore.cast(x, target) : computeCore.cast(x, target, key)
+}
+
+/** The contract field an operand's values are of, where its type is a contract's, and none where it is not or unread. */
+const contractOfOperand = (o: Operand): FieldName | undefined => {
+	switch (o.kind) {
+		case "field":
+		case "param":
+		case "typed":
+			return contractTyped.has(o.field) ? o.field : undefined
+		case "term":
+			return contractOfTerm(o.term)
+		case "heading":
+			return contractTyped.has(headFields[o.column]) && o.column !== "base" && o.column !== "cast"
+				? headFields[o.column]
+				: undefined
+		case "literal":
+		case "guarded":
+		case "lexical":
+			return undefined
+	}
+}
+
+/**
+ * The contract field a term's values are of: a cast's or an endpoint's target, a conditional's branch's, LEAST's and
+ * GREATEST's first operand's; arithmetic and every other operation delivers its base.
+ */
+const contractOfTerm = (t: TermSpec): FieldName | undefined => {
+	switch (t.kind) {
+		case "apply":
+			return t.fn === "least" || t.fn === "greatest" ? contractOfOperand(t.args[0]) : undefined
+		case "cast":
+		case "endpoint":
+			return contractTyped.has(t.to) ? t.to : undefined
+		case "cond":
+			return contractOfOperand(t.whenTrue)
+		case "when":
+			return contractOfTerm(t.body)
+	}
+}
+
+/**
+ * A literal's text where it becomes a value of a contract field, its mint's call over it, and as it is anywhere else:
+ * a typed constant of a contract and a conditional's literal arm beside a contract's branch take its mint's value.
+ */
+const valueText = (text: string, field: FieldName | undefined): string => {
+	const mint = field === undefined ? undefined : mints[field]
+	return mint === undefined ? text : `${mint}(${text})`
+}
+
 /**
  * The host type a value of the engine's type `t` has, as the program spells it, with the names it imports: a term's
  * identity, a contract's domain with the facts it declares and a closed id's handles with their roster's brand, or the
@@ -2737,6 +2808,8 @@ const hostText = (t: ScalarType, uses: Set<Imported>, position: "term" | "delive
 				Arr.map(t.roster.handles, (h) => jsonText(h)),
 				" | "
 			)}> & Rostered<${jsonText(t.roster.closed)}>`
+		case "variant":
+			throw new Error("no agreement compute draws a variant term")
 	}
 }
 
@@ -2943,25 +3016,27 @@ const contractVerdict = (
 }
 
 /**
- * A scalar parameter's ParamType: its domain and SQL type, and its host value where they differ, as for a contract
- * that declares facts, whose domain carries them, and a closed id, whose domain brands its handles by its roster while
- * a caller binds them bare.
+ * A scalar parameter's ParamType: its domain and SQL type, and its host value where they differ, as for a contract,
+ * whose domain is its base's under its name and whose host value is its key's mint's, and a closed id, whose domain
+ * brands its handles by its roster while a caller binds them bare.
  */
 const paramTypeText = (t: ScalarType, uses: Set<Imported>): string => {
 	const sql = jsonText(carrierSql[t.carrier])
-	return declaresFacts(t) || t.carrier === "code"
+	return hostApart(t) || t.carrier === "code"
 		? `ParamType<${hostText(t, uses, "term")}, ${sql}, ${hostText(t, uses, "delivered")}>`
 		: `ParamType<${hostText(t, uses, "term")}, ${sql}>`
 }
 
-/** Whether a type's values carry facts its contract declares, a span's through its endpoint's, which its host drops. */
-const declaresFacts = (t: ScalarType): boolean => {
+/**
+ * Whether a type's host value is no value of its domain: a contract's, but natural's, whose host is under its key and
+ * whose domain under its name, and a span's through its endpoint's.
+ */
+const hostApart = (t: ScalarType): boolean => {
 	const span = spanOf(t)
 	if (span !== undefined) {
-		return declaresFacts(span.endpoint)
+		return hostApart(span.endpoint)
 	}
-	const declares = t.contract
-	return declares !== undefined && Arr.isReadonlyArrayNonEmpty(declares.facts)
+	return t.contract !== undefined && t.contract.name !== "natural"
 }
 
 const paramsOf = (
@@ -4618,7 +4693,7 @@ export const computeProgram = (
 						"export type CellVars = ReturnType<typeof cellVars>",
 						'const headVars = () => v(Heads, "head")',
 						"export type HeadVars = ReturnType<typeof headVars>",
-						"export type AggregateHost<X> = X extends Aggregate<infer T, never> ? T : never",
+						"export type AggregateHost<X> = X extends Aggregate<infer T, never, SqlTag, unknown, unknown> ? T : never",
 						""
 					]
 				},

@@ -5,7 +5,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
 import { Array as Arr, Data, Effect, Formatter, Option, Result, String as Str } from "effect"
 import { rowEvaluator } from "#adapter/public/host.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { Crypto } from "#compiler/public/compute.ts"
 import { generated, pg, sha256 } from "#compiler/public/fields.ts"
 import { check, key, on, relation, schema } from "#compiler/public/schema.ts"
@@ -43,7 +43,7 @@ export const digestTemplate = migratedTemplate({
 	declaredIn: import.meta,
 	name: "text digest",
 	content: { schema: digestSchema.name, logins: [] },
-	versions: [{ schema: digestSchema, logins: [], declarations: noDeclarations }],
+	versions: [{ schema: digestSchema, declarations: noDeclarations }],
 	options: {
 		label: "text_digest",
 		extensions: [],

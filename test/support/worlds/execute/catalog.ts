@@ -1,4 +1,3 @@
-import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option, Record as Rec, Result, String as Str } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
 import { applyOnSession } from "#adapter/migrate/apply.ts"
@@ -7,7 +6,6 @@ import { type FolderTexts, folderSource } from "#adapter/migrate/input.ts"
 import { type MigrationSession, migrationSession } from "#adapter/migrate/session.ts"
 import { type BatchStatement, oneShotStatement } from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"
-import { nextTimestamp, parseTimestamp } from "#cli/clock.ts"
 import type { Named } from "#compiler/core/errors.ts"
 import { identifierOf, identity, roleIdentity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -15,19 +13,14 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { sqlstateClass, sqlstates } from "#compiler/core/sqlstate.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
-import { folderParts } from "#compiler/deploy/render/folder.ts"
-import {
-	emptySnapshot,
-	noWorkload,
-	rosterFates,
-	spellingsOf
-} from "#compiler/deploy/snapshot/build.ts"
+import { type GenerateResult } from "#compiler/deploy/render/generate.ts"
+import { emptySnapshot, rosterFates, spellingsOf } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { draftCodebook, noRenames, reorderRefusal } from "#compiler/ir/codes.ts"
 import { isolationGuardName } from "#compiler/physical/ddl/isolation.ts"
 import { namedRole, worldNames } from "#compiler/physical/ddl/names.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
-import type { AnySchema } from "#compiler/public/schema.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
+import { type AnyLogin, type AnySchema } from "#compiler/public/schema.ts"
 import { type Owned, type OwnedRole, own, rostersOf } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import type { CreatePolicy, CreateView, ObjectName, RoleSetting } from "#compiler/sql/ast.ts"
@@ -38,18 +31,17 @@ import type { AmbientOwner } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { chunked, joined } from "#test/support/chunked.ts"
 import { filledStatements } from "#test/support/compile.ts"
+import { triggerDisabled } from "#test/support/drift/hand-change.ts"
+import { generatedDrafting } from "#test/support/install-migrate.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { draftedAt, fromSnapshot, generate, noDeclarations } from "#test/support/migrate/kit.ts"
+import { fromSnapshot, noDeclarations } from "#test/support/migrate/kit.ts"
 import { review } from "#test/support/migrate/review.ts"
-import {
-	type LoginSource,
-	planRealInstall,
-	type RealInstallPlan
-} from "#test/support/oracle/install/real.ts"
+import type { RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { type PgConnection, runAlone, type SqlError, wireSession } from "#test/support/pg.ts"
+import { ownedInput } from "#test/support/policy.ts"
 import { testSql } from "#test/support/sql.ts"
 import type { SubstrateShape } from "#test/support/substrate/substrate.ts"
-import { baseBuild } from "#test/support/worlds/execute/build.ts"
+import { buildInstall } from "#test/support/worlds/execute/build.ts"
 import { sqlStateOf } from "#test/support/worlds/execute/observe.ts"
 import { RealizeRefused } from "#test/support/worlds/execute/refused.ts"
 import type { Seen } from "#test/support/worlds/execute/session.ts"
@@ -666,9 +658,7 @@ const disabledTriggers = (
 				})
 				const disabled = yield* Effect.forEach(rows, ([table, name]) =>
 					typeof table === "string" && typeof name === "string"
-						? Effect.succeed(
-								`ALTER TABLE ${quoteIdent(schema)}.${quoteIdent(table)} DISABLE TRIGGER ${quoteIdent(name)}`
-							)
+						? Effect.succeed(triggerDisabled({ schema, name: table }, name))
 						: Effect.die(new Error("a trigger row without its table and name"))
 				)
 				return Arr.isReadonlyArrayNonEmpty(disabled)
@@ -910,16 +900,22 @@ const dropsOf = (
 }
 
 /**
- * A version's installation under `schema` as `grizzle generate` compiles it over the directory's snapshot `previous`,
- * with the base it owns: its rosters numbered by the codes they continue, every handle the snapshot holds keeping its
- * own (D1); a version that declares a roster out of its codes' order is refused as generate refuses it.
+ * A version's installation under `schema`, its values built under that name, drafted with its logins as `grizzle
+ * generate` drafts it over the directory's snapshot `previous` at `step` under `declarations` (install-migrate.ts
+ * generatedDrafting), with the base it owns and the draft as generate wrote it: its rosters numbered by the codes they
+ * continue, every handle the snapshot holds keeping its own (D1); a version that declares a roster out of its codes'
+ * order is refused as generate refuses it, before anything is drafted.
  */
 export const plannedVersion = (
 	declared: AnySchema,
-	logins: ReadonlyArray<LoginSource>,
+	logins: ReadonlyArray<AnyLogin>,
 	schema: string,
-	previous: DeploySnapshot
-): Effect.Effect<{ readonly plan: RealInstallPlan; readonly owned: Owned }, RealizeRefused> =>
+	previous: DeploySnapshot,
+	at: { readonly step: number; readonly declarations: Declarations }
+): Effect.Effect<
+	{ readonly plan: RealInstallPlan; readonly owned: Owned; readonly generated: GenerateResult },
+	RealizeRefused
+> =>
 	Effect.gen(function* () {
 		const desc = schemaDescOf(declared)
 		if (desc === undefined) {
@@ -943,61 +939,47 @@ export const plannedVersion = (
 				refusal: reorderRefusal(drafted.error)
 			})
 		}
-		const plan = yield* Effect.orDie(
-			fromEngine(
-				planRealInstall(desc, {
+		const { plan, generated } = yield* Effect.orDie(
+			generatedDrafting(
+				{ schema: declared, logins, declarations: at.declarations },
+				{
 					installation: identity.schema(parsedSchemaName(schema)),
-					logins,
-					extensions: [],
-					codes: drafted.value,
-					compile: compileInstallation
-				})
+					previous: fromSnapshot(previous),
+					step: at.step
+				}
 			)
 		)
-		return { plan, owned }
+		return { plan, owned, generated }
 	})
 
 /**
- * The next migration of an installation under `schema`, drafted from the directory's snapshot as `grizzle generate`
- * drafts it over the version's plan (plannedVersion), no rename declared, every drop declared (dropsOf) and every loss
- * written in, at the CLI's timestamp. A version whose plan is refused is refused before anything is drafted. A draft
- * that needs a placeholder value is a defect of the drawn spec.
+ * The next migration of an installation under `schema`, its values built under that name, drafted from the directory's
+ * snapshot as `grizzle generate` drafts it (plannedVersion), no rename declared, every drop declared (dropsOf) and
+ * every loss written in, at the step after every folder applied. A version whose plan is refused is refused before
+ * anything is drafted. A draft that needs a placeholder value is a defect of the drawn spec.
  */
 export const draftNext = (
 	declared: AnySchema,
-	logins: ReadonlyArray<LoginSource>,
+	logins: ReadonlyArray<AnyLogin>,
 	schema: string,
 	previous: Continued
 ): Effect.Effect<Drafted, RealizeRefused> =>
 	Effect.gen(function* () {
-		const now = parseTimestamp(draftedAt(1))
-		if (Option.isNone(now)) {
-			return yield* Effect.die(new Error("the stand-in clock names no UTC second"))
-		}
-		/** The CLI's timestamp: its clock's second, or one after the newest folder applied, so the folder sorts last. */
-		const timestamp = nextTimestamp(
-			now.value,
-			Arr.map(previous.folders, (f) =>
-				defined(folderParts(f.name), "a drafted folder's name names its second")
-			)
-		)
-		const { plan, owned } = yield* plannedVersion(declared, logins, schema, previous.snapshot)
+		const owned = yield* Effect.orDie(fromEngine(ownedInput(declared)))
 		const drops = dropsOf(
 			previous.snapshot,
 			owned,
-			Arr.map(plan.installation.worlds, (l) => l.name)
+			Arr.map(logins, (l) => l.name)
 		)
-		const g = yield* Effect.orDie(
-			fromEngine(
-				generate({
-					installation: plan.installation,
-					name: "next",
-					timestamp,
-					previous: fromSnapshot(previous.snapshot),
-					workload: noWorkload,
-					declared: drops
-				})
-			)
+		const { plan, generated: g } = yield* plannedVersion(
+			declared,
+			logins,
+			schema,
+			previous.snapshot,
+			{
+				step: previous.folders.length,
+				declarations: drops
+			}
 		)
 		const reviewed = review(g, {
 			losses: "written",
@@ -1027,10 +1009,10 @@ export const draftedPhases = (
 	schema: string
 ): Effect.Effect<ReadonlyArray<string>, RealizeRefused> =>
 	Effect.gen(function* () {
-		const before = yield* baseBuild(from)
-		const after = yield* baseBuild(to)
+		const before = yield* buildInstall(from, schema)
+		const after = yield* buildInstall(to, schema)
 		const first = yield* draftNext(before.base, Rec.values(before.logins), schema, {
-			snapshot: emptySnapshot({ schemaName: from.base.name, schema }),
+			snapshot: emptySnapshot({ schemaName: schema, schema }),
 			folders: []
 		})
 		const next = yield* draftNext(after.base, Rec.values(after.logins), schema, {

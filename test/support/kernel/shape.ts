@@ -131,6 +131,7 @@ const roleOf = (e: Expr): Role => {
 			return "literal"
 		case "subquery":
 			return "subquery"
+		case "attribute":
 		case "binary":
 		case "negate":
 		case "and":
@@ -268,6 +269,7 @@ const exprFeature = (e: Expr): ReadonlyArray<ShapeFeature> => {
 		case "complement":
 		case "lowerAscii":
 			return [e.kind]
+		case "attribute":
 		case "column":
 		case "excluded":
 		case "returning":

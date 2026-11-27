@@ -6,8 +6,14 @@ import {
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
-import { fieldColumnType, rowTypeOf } from "#compiler/ir/physical.ts"
 import {
+	fieldColumnType,
+	rowTypeOf,
+	variantAttributes,
+	variantTagAttribute
+} from "#compiler/ir/physical.ts"
+import {
+	armArgument,
 	type CallFunction,
 	decodedPathHeading,
 	type Heading,
@@ -21,7 +27,7 @@ import {
 	type TextSplit,
 	tokensHeading
 } from "#compiler/ir/rel.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	columnIn,
 	type ColumnMap,
@@ -37,8 +43,10 @@ import {
 import type { ParentRows } from "#compiler/lower/conservative/deliver.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { collapsedText } from "#compiler/lower/conservative/expr/ops.ts"
+import { provedEmpty } from "#compiler/lower/optimize/cte-policy/index.ts"
 import type { Call, Cte, Expr, FromSource, OperandSelect, Select } from "#compiler/sql/ast.ts"
 import {
+	arrayOf,
 	binary,
 	call,
 	cast,
@@ -46,6 +54,7 @@ import {
 	conjunction,
 	cteRefAs,
 	derived,
+	eq,
 	keyedSet,
 	lit,
 	or,
@@ -68,9 +77,11 @@ const originOf = (node: NodeOf<"Call">) => ({ kind: "node", node: node.id }) as 
  * its declared type's base, the type the function takes it at; rows as the array of the heading's row type
  * (ir/physical.ts rowTypeOf), each element the row of the argument query's fields in the heading's order, its row
  * type's attributes',
- * `ARRAY(SELECT ROW(r2.c1, r2.c2)::<level>.__rows_<digest> FROM (<rows argument>) AS r2(c1, c2))`. An argument reads
- * outer values through the environment, a region's columns among them, so a call that reads its region's variables is
- * placed LATERAL by the region (match-region), and runs once per binding of the matches before it.
+ * `ARRAY(SELECT ROW(r2.c1, r2.c2)::<level>.__rows_<digest> FROM (<rows argument>) AS r2(c1, c2))`, and a rows argument
+ * proved empty (lower/optimize/cte-policy provedEmpty) the empty array of the row type,
+ * `'{}'::<level>.__rows_<digest>[]`, a value that derives nothing. An argument reads outer values through the
+ * environment, a region's columns among them, so a call that reads its region's variables is placed LATERAL by the
+ * region (match-region), and runs once per binding of the matches before it.
  */
 const calledItem = (
 	node: NodeOf<"Call">,
@@ -84,13 +95,16 @@ const calledItem = (
 		if (a.kind === "value") {
 			return cast(lowerExpr(cx, a.expr, env), cx.baseTypeRef(a.type))
 		}
-		/** The argument's query is lowered inside its ARRAY subquery, a sublink of the call's FROM item. */
-		const rows = cx.inSublink().source(a.rows, env)
 		const row = rowTypeOf(
 			cx.names,
 			fn.types,
 			mapNonEmpty(a.columns, (c) => ({ name: c.name, type: { kind: "value", type: c.type } }))
 		)
+		if (provedEmpty(a.rows)) {
+			return lit.text("{}", defined(arrayOf(row.type), "the array of a row type"))
+		}
+		/** The argument's query is lowered inside its ARRAY subquery, a sublink of the call's FROM item. */
+		const rows = cx.inSublink().source(a.rows, env)
 		const element = cast(
 			{ kind: "row", items: mapNonEmpty(a.columns, (c) => columnIn(rows.map, c.name)) },
 			row.type
@@ -150,7 +164,7 @@ const calledRows = (
 ): OperandSelect => {
 	const heading = node.heading
 	if (!isNonEmpty(heading)) {
-		throw defect("a call's heading, its result's fields, of at least one field")
+		defect("a call's heading, its result's fields, of at least one field")
 	}
 	return distinctSelect(
 		mapNonEmpty(heading, (c, i) =>
@@ -187,7 +201,7 @@ const lowerDeclared = (
 	return cx.evaluationOf(node, env, () => {
 		const { item, columns } = calledItem(node, called.name, node.heading.length, cx, env)
 		if (!isNonEmpty(columns)) {
-			throw defect("a call's heading, its result's fields, of at least one field")
+			defect("a call's heading, its result's fields, of at least one field")
 		}
 		const noNull = refusingNull(cx, called.name, columns, "a row holding NULL")
 		return calledRows(node, columns, [item], [noNull], cx)
@@ -198,7 +212,7 @@ const lowerDeclared = (
 const fieldAt = (called: Extract<CallFunction, { readonly kind: "field" }>): number => {
 	const at = called.row.indexOf(called.field)
 	if (at < 0) {
-		throw defect(`${called.field}, a field of ${called.name}'s row`)
+		defect(`${called.field}, a field of ${called.name}'s row`)
 	}
 	return at
 }
@@ -220,7 +234,7 @@ const evaluationOf = (
 } => {
 	const { item, columns } = calledItem(node, called.name, called.row.length, cx, env)
 	if (!isNonEmpty(columns)) {
-		throw defect(`the row of ${called.name}, of at least one field`)
+		defect(`the row of ${called.name}, of at least one field`)
 	}
 	return {
 		item,
@@ -257,7 +271,7 @@ const ownEvaluation = (
 export const evaluationQuery = (node: NodeOf<"Call">, cx: LowerContext, env: Env): Select => {
 	const called = node.function
 	if (called.kind !== "field") {
-		throw defect("an evaluation of a call whose row's fields a query reads")
+		defect("an evaluation of a call whose row's fields a query reads")
 	}
 	return cx.evaluationOf(node, env, () => {
 		const { item, attributes, check } = evaluationOf(node, called, cx, env)
@@ -276,7 +290,7 @@ export const evaluationQuery = (node: NodeOf<"Call">, cx: LowerContext, env: Env
 export const evaluationWidth = (node: NodeOf<"Call">): number => {
 	const called = node.function
 	if (called.kind !== "field") {
-		throw defect("an evaluation of a call whose row's fields a query reads")
+		defect("an evaluation of a call whose row's fields a query reads")
 	}
 	return called.row.length
 }
@@ -357,7 +371,7 @@ export const parentEvaluations = (
 		const columns = evaluation.attributes.map(() => cx.supply.column(origin))
 		const [first, ...rest] = columns
 		if (first === undefined) {
-			throw defect("a call's row, of at least one field")
+			defect("a call's row, of at least one field")
 		}
 		const valueAt = (name: string): Expr => {
 			for (const [id, named] of free) {
@@ -366,7 +380,7 @@ export const parentEvaluations = (
 					return value
 				}
 			}
-			throw defect(`the parent's column ${name} in the environment of a read of its evaluation`)
+			defect(`the parent's column ${name} in the environment of a read of its evaluation`)
 		}
 		const from = cteRefAs(evaluation.name, at)
 		const query = select(
@@ -436,7 +450,7 @@ const definedParentEvaluation = (
 	const keyColumns = demand.map(() => cx.supply.column(origin))
 	const [first, ...rest] = Array.from({ length: width }, () => cx.supply.column(origin))
 	if (first === undefined) {
-		throw defect("a call's row, of at least one field")
+		defect("a call's row, of at least one field")
 	}
 	ctes.add({
 		name,
@@ -470,7 +484,7 @@ const definedEvaluation = (
 		cx.supply.column(origin)
 	)
 	if (first === undefined) {
-		throw defect("a call's row, of at least one field")
+		defect("a call's row, of at least one field")
 	}
 	const columns: NonEmptyReadonlyArray<string> = [first, ...rest]
 	ctes.add({ name, materialized: "MATERIALIZED", query: namedQuery(query, columns) })
@@ -530,7 +544,7 @@ const fieldRows = (
 	const columns = node.heading.map(() => cx.supply.column(originOf(node)))
 	const reads = columns.map((c) => col(alias, c))
 	if (!isNonEmpty(reads)) {
-		throw defect("a field's heading, of at least one field")
+		defect("a field's heading, of at least one field")
 	}
 	const rows: FromSource = {
 		kind: "function",
@@ -552,7 +566,7 @@ const fieldRows = (
 const splitArgument = (node: NodeOf<"Call">, name: string, cx: LowerContext, env: Env): Expr => {
 	const a = node.args.find((x) => x.name === name)
 	if (a?.kind !== "value") {
-		throw defect(`a split's ${name}, a value argument`)
+		defect(`a split's ${name}, a value argument`)
 	}
 	return lowerExpr(cx, a.expr, env)
 }
@@ -595,7 +609,7 @@ const splitRows = (
 ): OperandSelect => {
 	const heading = node.heading
 	if (!isNonEmpty(heading)) {
-		throw defect(`${what}, a heading of one column or more`)
+		defect(`${what}, a heading of one column or more`)
 	}
 	return select(
 		keyedSet(
@@ -644,7 +658,7 @@ const lowerTokens = (node: NodeOf<"Call">, cx: LowerContext, env: Env): OperandS
 			if (name === tokensHeading.token) {
 				return read(0)
 			}
-			throw defect(`a token split's heading of its place and its token, not ${name}`)
+			defect(`a token split's heading of its place and its token, not ${name}`)
 		},
 		"a token split's rows"
 	)
@@ -691,7 +705,7 @@ const lowerPieces = (
 			if (name === piecesHeading.piece) {
 				return read(0)
 			}
-			throw defect(`a separator split's heading of its place and its piece, not ${name}`)
+			defect(`a separator split's heading of its place and its piece, not ${name}`)
 		},
 		"a separator split's rows"
 	)
@@ -730,7 +744,7 @@ const lowerRest = (node: NodeOf<"Call">, cx: LowerContext, env: Env): OperandSel
 			if (name === restHeading.rest) {
 				return read(0)
 			}
-			throw defect(`a rest's heading of its rest, not ${name}`)
+			defect(`a rest's heading of its rest, not ${name}`)
 		},
 		"a rest's rows"
 	)
@@ -762,7 +776,7 @@ const lowerDecodedPath = (node: NodeOf<"Call">, cx: LowerContext, env: Env): Ope
 			if (name === decodedPathHeading.path) {
 				return read(0)
 			}
-			throw defect(`a decoded path's heading of its path, not ${name}`)
+			defect(`a decoded path's heading of its path, not ${name}`)
 		},
 		"a decoded path's rows"
 	)
@@ -799,7 +813,7 @@ const lowerResolvedWithin = (node: NodeOf<"Call">, cx: LowerContext, env: Env): 
 			if (name === resolvedWithinHeading.target) {
 				return read(0)
 			}
-			throw defect(`a target within a base's heading of its target, not ${name}`)
+			defect(`a target within a base's heading of its target, not ${name}`)
 		},
 		"a target within a base's rows"
 	)
@@ -846,7 +860,7 @@ const lowerSplitLast = (
 			if (name === splitLastHeading.after) {
 				return call("right", [text, binary("-", read(0), lit.int(1, types.integer))])
 			}
-			throw defect(`a split at the last separator's heading of its two sides, not ${name}`)
+			defect(`a split at the last separator's heading of its two sides, not ${name}`)
 		},
 		"a split at the last separator's rows"
 	)
@@ -890,7 +904,7 @@ const lowerSeries = (node: NodeOf<"Call">, cx: LowerContext, env: Env): OperandS
 	const end = (name: string): Expr => {
 		const a = node.args.find((x) => x.name === name)
 		if (a?.kind !== "value") {
-			throw defect(`a series' ${name} end, a value argument`)
+			defect(`a series' ${name} end, a value argument`)
 		}
 		return cast(lowerExpr(cx, a.expr, env), cx.baseTypeRef(a.type))
 	}
@@ -906,15 +920,70 @@ const lowerSeries = (node: NodeOf<"Call">, cx: LowerContext, env: Env): OperandS
 	}
 	const [column, ...more] = node.heading
 	if (column?.name !== seriesHeading.at || more.length > 0) {
-		throw defect("a series' heading, its element")
+		defect("a series' heading, its element")
 	}
 	return select(keyedSet([target(col(alias, element))], [item], undefined, "a series' rows"))
 }
 
 /**
+ * An arm's call (V.arm): the fields of the arm `handle` of its value, one row where the value's tag is that arm, none
+ * where it is another.
+ *
+ *   SELECT (<the value>)."<attribute>", … WHERE (<the value>)."tag" = <the arm's code>
+ *
+ * Each field is read from its attribute of the variant's composite (ir/physical.ts variantAttributes), which the
+ * variant's domain holds present wherever the tag names its arm, so no column of the row is NULL; the one row is a
+ * function of the value, which the call's argument determines.
+ */
+const lowerArm = (
+	node: NodeOf<"Call">,
+	called: Extract<CallFunction, { readonly kind: "arm" }>,
+	cx: LowerContext,
+	env: Env
+): OperandSelect => {
+	const a = node.args.find((x) => x.name === armArgument)
+	if (a?.kind !== "value") {
+		defect("an arm's value, a value argument")
+	}
+	const base = baseOf(a.type)
+	if (base.carrier !== "variant") {
+		defect("an arm's value, a variant's")
+	}
+	const value = lowerExpr(cx, a.expr, env)
+	const arm = defined(
+		variantAttributes(base.variant, cx.names.codes).find((x) => x.handle === called.handle),
+		`the arm ${called.handle} of variant ${base.variant.name}`
+	)
+	const heading = node.heading
+	if (!isNonEmpty(heading)) {
+		defect("an arm's rows, a heading of one column or more")
+	}
+	return select(
+		keyedSet(
+			mapNonEmpty(heading, (c) =>
+				target({
+					kind: "attribute",
+					record: value,
+					attribute: defined(
+						arm.fields.find((f) => f.field.name === c.name),
+						`the field ${c.name} of the arm ${called.handle}`
+					).attribute
+				})
+			),
+			[],
+			eq(
+				{ kind: "attribute", record: value, attribute: variantTagAttribute },
+				lit.int(arm.code, types.smallint)
+			),
+			"an arm's rows"
+		)
+	)
+}
+
+/**
  * Call: the rows a function returns for its arguments, a set, by its function (ir/rel.ts CallFunction): a declared
  * function's (lowerDeclared), a field's of a declared function's one row (lowerField), one of grizzle's splits'
- * (lowerSplit), or a series' (lowerSeries).
+ * (lowerSplit), a series' (lowerSeries), or a variant's arm's (lowerArm).
  */
 const lowerCall: NodeLowerer<"Call"> = (node, cx, env) => {
 	const called = node.function
@@ -927,6 +996,8 @@ const lowerCall: NodeLowerer<"Call"> = (node, cx, env) => {
 			return lowerSplit(node, called.split, cx, env)
 		case "series":
 			return lowerSeries(node, cx, env)
+		case "arm":
+			return lowerArm(node, called, cx, env)
 	}
 }
 

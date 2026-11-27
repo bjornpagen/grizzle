@@ -101,7 +101,7 @@ export const matchPattern = (
 export const matchAre = (source: string): string => {
 	const parsed = parsePattern(source, matchFlags)
 	if (!parsed.ok) {
-		throw defect(`a Text.matches pattern its admission admitted: /${source}/${matchFlags}`)
+		defect(`a Text.matches pattern its admission admitted: /${source}/${matchFlags}`)
 	}
 	return toAre(parsed.value)
 }

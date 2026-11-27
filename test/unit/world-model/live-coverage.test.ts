@@ -9,7 +9,7 @@
  * its roles holds, the read the worlds executor serves of it (execute/session.ts readProgramOf) and, where the case
  * draws it, that read with one of its fields fixed to a parameter, so the read routes the relation's table by that
  * field. Each installation is drafted as `grizzle generate` drafts it with those workloads (cli/generate.ts
- * draftSchema, then servedFiles), and each login's file is compiled again over the snapshot.json the draft writes by
+ * draftSchema, then eachServedFile), and each login's file is compiled again over the snapshot.json the draft writes by
  * the test door the worlds executor compiled its reads by (adapter/public/compile.ts compileServed): generate serves
  * every login, and the door compiles each one's own workloads, refused by no UncoveredRead, into the file generate
  * wrote.

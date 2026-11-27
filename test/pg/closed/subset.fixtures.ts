@@ -6,7 +6,7 @@ import { Array as Arr, Record as Rec } from "effect"
 import { type ClosedIdField, closedId, pg } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { installedTemplate } from "#test/support/install-migrate.ts"
+import { fullWorldTemplate } from "#test/support/installed.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
 /** The roster's handles, in its order. */
@@ -47,11 +47,13 @@ const Subsets = schema("Subsets", [Mark, Marked], [])
 export const world = fullWorld(Subsets, {})
 
 /** Subsets installed once per member with its full world's login (install-migrate.ts installedTemplate). */
-export const subsetsTemplate = installedTemplate({
+export const subsetsTemplate = fullWorldTemplate({
 	declaredIn: import.meta,
 	name: "subsets",
-	schema: Subsets,
-	options: { ambient: ordinarySession, label: "subsets", logins: [world.server], extensions: [] }
+	fixture: Subsets,
+	programs: {},
+	label: "subsets",
+	ambient: ordinarySession
 })
 
 /** What a case writes: a handle of the roster, by its code, into the column of a subset. */

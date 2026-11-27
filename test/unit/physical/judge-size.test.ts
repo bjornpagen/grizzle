@@ -163,8 +163,8 @@ export const aWholeRulesContainmentReadsEachDefinitionItsSidesShareOncePerSetOfV
 		kills: [
 			{
 				file: "packages/engine/src/lower/shapes/index.ts",
-				original: "\t\t\tconst region = filteredRegion(node)\n",
-				replacement: '\t\t\tconst region = node.kind === "MatchRegion" ? node : undefined\n',
+				original: "\t\tconst region = filteredRegion(node)\n",
+				replacement: '\t\tconst region = node.kind === "MatchRegion" ? node : undefined\n',
 				why: "A region's CTEs stand in its own SELECT alone, as before, so the negation of To, a SELECT over the region, reads none of them and spells each definition again at every read, each level's inside the one above, and the reads of Node grow with the depth; the property fails."
 			},
 			{
@@ -185,6 +185,13 @@ export const aWholeRulesContainmentReadsEachDefinitionItsSidesShareOncePerSetOfV
 				original: "\t\t\t\tpinnedBy(flatFixed(read.flat, rule.loc)),\n",
 				replacement: "\t\t\t\t(e: InferredExpr): InferredExpr => e,\n",
 				why: "A filter passes a term its rule fixes to the unit's channel through a channel of its own, as before, so a negation inside To reads the leaf at that channel, another set of values than the unit's, spelled again, and a containment with the negation a level above the leaf reads Node 12 times, past its 9; the property fails."
+			},
+			{
+				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
+				original:
+					"\t\t\trestrictedWithin(o.source, region) ||\n\t\t\tsites.some((s) => s.source === o.source)\n",
+				replacement: "\t\t\tsites.some((s) => s.source === o.source)\n",
+				why: "A union its own correlation restricts at the unit's channels is a correlated site of the region that reads it, as before (the held chain's half key for a held set proving its arms bound), restricted again at those values at each read and spelled there, where it was one CTE of its readers: a containment with the negation reads Node 15 times, past its 9; the property fails."
 			}
 		]
 	})
@@ -274,13 +281,19 @@ export const aWholeRulesStatementsReadEveryDeltaThroughItsReader = property.exha
  * A probed rule over levels of definitions, each negating the one below or each a union whose rules match the one
  * below, a containment into them or a check of them, is judged by one statement for each relation and side, each
  * spelling the target once, each level's definition once, and reading what the write moves of each level once, however
- * deep and wide (analysis/theory/query.ts probe, absentsOf, movedOf, DefinedMatch): every statement reads Node at most
- * twice for each rule of the description, levels that negate and levels that match alike. edullm's ledger judged
- * its servable rule, a containment in Servable whose leaves negate definitions that match unions and negate in turn, by
- * 1083 probes of about 800 KB each, the judge's two hours; one statement per block, its rows a path each down the negated
- * arms, still spelled a migration past V8's longest string; and qti's Human within maximum, a check of a definition
- * matching a union beside definitions over Node and Attribute, spelled a statement of 12.75 MB, a row for each choice of
- * one rule at every union it matched.
+ * deep and wide (analysis/theory/query.ts probe, absentsOf): every statement reads Node at most twice for each rule of
+ * the description, levels that negate and levels that match alike. Since STOREDERIVE's canonical relations (8a2fe37d5a)
+ * every level is stored in the documents' unit, and Servable too over negating levels, so the judge's statements are
+ * its rule's and the levels' upkeeps', each reading the levels below its own by their tables: the bound holds of every
+ * one, and the statements over Doc's delta read Node as the box's smallest case does however deep and wide the levels,
+ * where the rule's statement over Doc's delta spelled each level once. No statement reads a level live, so what a write
+ * moves of a level's rules (movedOf, one query for the rules that bind the same keys) and a level matched whole
+ * (DefinedMatch, never an arm for each choice of a rule) are held where a definition is read live: the fold's property
+ * below and judge-copies.test.ts. edullm's ledger judged its servable rule, a containment in Servable whose leaves
+ * negate definitions that match unions and negate in turn, by 1083 probes of about 800 KB each, the judge's two hours;
+ * one statement per block, its rows a path each down the negated arms, still spelled a migration past V8's longest
+ * string; and qti's Human within maximum, a check of a definition matching a union beside definitions over Node and
+ * Attribute, spelled a statement of 12.75 MB, a row for each choice of one rule at every union it matched.
  */
 export const aProbedRuleOverNestedDefinitionsReadsEachDefinitionOnceInOneStatementPerBlock =
 	property.exhaust(finite(nestedGen), {
@@ -298,24 +311,11 @@ export const aProbedRuleOverNestedDefinitionsReadsEachDefinitionOnceInOneStateme
 			Effect.sync(() => judgedNested(nested, c.note)),
 		oracle: {
 			kind: "specification",
-			name: "the description: one statement per relation and side, Node read at most twice for each rule of the description in each, and, under negating levels, the target's Node once for the root and once for each rule of each level"
+			name: "the description: one statement of the rule per relation and side, Node read at most twice for each rule of the description in each statement of the judge, the rule's and every upkeep's, and the statements over Doc's delta reading Node as the smallest case does, each level read by its table"
 		},
 		box: "every containment of Session's doc in Servable, and every check of Servable's doc, Servable the docs whose root no level holds, one to four levels, each one rule matching a union of two or three rules over Node and negating the level below, or each a union of two or three rules each matching Node and the level below",
 		kept: [],
-		kills: [
-			{
-				file: "packages/engine/src/analysis/theory/query.ts",
-				original: '\t\tconst k = r.fields.join(",")\n',
-				replacement: '\t\tconst k = r.fields.join(",") + String(groups.size)\n',
-				why: "Each rule of what a write moves of a definition is a query of its own, as each path down the negated arms was a row of its own before: a level reads each rule of the level below apart, so the rows of Node's blocks grow as w to the depth, past twice each rule of the description; the property fails."
-			},
-			{
-				file: "packages/engine/src/analysis/theory/query.ts",
-				original: "\t\t\t\t\t: inlined.arms.length > 1\n",
-				replacement: "\t\t\t\t\t: inlined.arms.length > 1 && inlined.arms.length < 1\n",
-				why: "A definition of several rules a rule matches is distributed into its arms, as before, an arm for each choice of a rule at every union matched: a level whose rules each match the level below is the width to the depth arms, each a row of Node's blocks, past twice each rule of the description; the property fails."
-			}
-		]
+		kills: []
 	})
 
 /**
@@ -344,6 +344,12 @@ export const aProbedRuleOverAFoldOfAUnionReadsTheUnionOnceForTheFoldAtTheGroupsA
 		box: "a check of the last sign of each visit, the greatest of a union of a visit's own sign and one or two rules over Mark, read directly or through a derived relation beside a relation keyed apart",
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/query.ts",
+				original: '\t\tconst k = r.fields.join(",")\n',
+				replacement: '\t\tconst k = r.fields.join(",") + String(groups.size)\n',
+				why: "What a write moves of the union is a query for each rule, where the rules that bind the same keys are one: the fold reads the union at the touched groups of each, so a statement over Mark's delta under a union of two rules over Mark reads Mark 4 times, past its 2; the property fails."
+			},
 			{
 				file: "packages/engine/src/analysis/theory/query.ts",
 				original: "\t\t\t\t\tkeyed(definitionsKeyed(arm, t.region, depth, loc)),\n",

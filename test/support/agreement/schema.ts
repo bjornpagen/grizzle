@@ -1,18 +1,19 @@
 import { Record as Rec } from "effect"
 import { Logic } from "#compiler/public/compute.ts"
-import { closedId, contract, date, natural, pg, span } from "#compiler/public/fields.ts"
+import { closedId, contract, date, mintOf, natural, pg, span } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
-	alternatives,
 	closed,
 	contained,
 	derived,
 	key,
+	mirrors,
 	mutable,
 	on,
 	relation,
 	role,
 	schema,
+	select,
 	unit
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -60,9 +61,13 @@ import { Id } from "#test/support/ids.ts"
  */
 export const Tone = closed.ordered("Tone", ["low", "mid", "high"])
 export const Shade = closed.ordered("Shade", ["low", "dark"])
-export const Cents = contract("Cents", pg.bigint, (x) => Logic.ge(x, 0n), {
+const centsKey = Symbol("Cents")
+export const Cents = contract<typeof centsKey>()("Cents", pg.bigint, (x) => Logic.ge(x, 0n), {
 	proves: ["nonnegative"]
 })
+export const toCents = mintOf(centsKey)
+/** The key's type, which a program states a Cents value by and which mints nothing. */
+export type CentsKey = typeof centsKey
 
 export const Item = relation(
 	"Item",
@@ -119,8 +124,8 @@ export const ToneWeight = closed.relation(
 	{ tone: closedId(Tone), weight: Cents },
 	["tone"],
 	[
-		{ tone: "low", weight: Cents(1n) },
-		{ tone: "mid", weight: Cents(2n) }
+		{ tone: "low", weight: toCents(1n) },
+		{ tone: "mid", weight: toCents(2n) }
 	]
 )
 
@@ -207,8 +212,8 @@ export const Apart = schema("Apart", [Tone, Shade, Cell], [])
  * The schema the attachment agreement draws its parents and children over (test/support/agreement/attachments.ts): a
  * containment from a field into an ordinary relation's key (Task.account into Account, TaskNote.task into Task), into a
  * closed relation's (Account.plan into PlanBudget), and a composite one (TaskLabel's account and label into Label), each
- * of which proves the one child; keys a child may be bound by, at most one child per parent; and the alternatives law
- * over Task by its kind, whose arms are AutomaticTask and ManualTask.
+ * of which proves the one child; keys a child may be bound by, at most one child per parent; and Task's kind's arms,
+ * AutomaticTask and ManualTask, each mirrored with the tasks of its kind.
  */
 const Kind = closed.ordered("Kind", ["Automatic", "Manual"])
 const Plan = closed.ordered("Plan", ["Free", "Pro"])
@@ -217,8 +222,8 @@ const PlanBudget = closed.relation(
 	{ plan: closedId(Plan), budget: Cents },
 	["plan"],
 	[
-		{ plan: "Free", budget: Cents(1n) },
-		{ plan: "Pro", budget: Cents(2n) }
+		{ plan: "Free", budget: toCents(1n) },
+		{ plan: "Pro", budget: toCents(2n) }
 	]
 )
 const Account = relation("Account", { id: Id, rank: pg.integer, plan: closedId(Plan) }, ["id"])
@@ -244,7 +249,20 @@ export const Deliver = schema(
 		contained(on(Account, "plan"), on(PlanBudget, "plan")),
 		contained(on(TaskNote, "task"), on(Task, "id")),
 		contained(on(TaskLabel, "account", "label"), on(Label, "account", "label")),
-		alternatives(Task, "kind", Kind, { Automatic: AutomaticTask, Manual: ManualTask })
+		mirrors(
+			on(AutomaticTask, "task"),
+			on(
+				select(Task, (t) => t.eq(t.kind, "Automatic")),
+				"id"
+			)
+		),
+		mirrors(
+			on(ManualTask, "task"),
+			on(
+				select(Task, (t) => t.eq(t.kind, "Manual")),
+				"id"
+			)
+		)
 	]
 )
 

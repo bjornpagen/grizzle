@@ -22,6 +22,7 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
+import { namesOrUnit } from "#compiler/runtime/lower/tree.ts"
 import type {
 	Cte,
 	Expr,
@@ -29,6 +30,7 @@ import type {
 	OperandCore,
 	Select,
 	SetCore,
+	StatementText,
 	Target
 } from "#compiler/sql/ast.ts"
 import {
@@ -56,7 +58,7 @@ import {
 	unitTargets
 } from "#compiler/sql/build.ts"
 import { namedBody, namedQuery, type NameSupply } from "#compiler/sql/naming.ts"
-import { type WriteCarrier, carrierField, carrierScan } from "#compiler/write/carriers/carriers.ts"
+import { type WriteCarrier, carrierField, carrierRead } from "#compiler/write/carriers/carriers.ts"
 import type { FieldColumns } from "#compiler/write/defined.ts"
 import {
 	type InputColumnType,
@@ -76,11 +78,11 @@ import {
 
 /** How a statement over `inputs` is built under `key` in `memo` (`Sharing`): its own when it reads a
  * described member, shared otherwise. */
-export const inputSharing = <B>(
-	memo: Shared<Made<B>>,
+export const inputSharing = <B, T extends StatementText>(
+	memo: Shared<Made<B, T>>,
 	inputs: ReadonlyArray<WriteInput>,
 	key: ReadonlyArray<KeyPart>
-): Sharing<B> =>
+): Sharing<B, T> =>
 	inputs.some((i) => i.kind === "described") ? ownBuild : { kind: "shared", memo, key }
 
 /**
@@ -389,7 +391,7 @@ const inputColumns = (
 		case "carrier": {
 			const alias = aliasOf({ kind: "internal", purpose: "carrier scan" })
 			return {
-				from: carrierScan(input.carrier, alias),
+				from: carrierRead(input.carrier, alias),
 				read: (field) => {
 					const type = typeOf(field)
 					return {
@@ -495,7 +497,7 @@ export const keyGeneratedRead = (
 	const fields = carried.pairs.map((p) => p.field)
 	const value = requestedValue(w, relation, fields, (f) => col(scanned, carried.of(f)))
 	return [
-		cte(scanned, namedBody(read, carried.columns)),
+		cte(scanned, namedBody(read, namesOrUnit(carried.columns))),
 		cte(
 			into.name,
 			namedBody(

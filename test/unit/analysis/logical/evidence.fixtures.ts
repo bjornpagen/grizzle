@@ -123,6 +123,8 @@ const provingCase = (c: QueryCase, picks: ReadonlyArray<number>): QueryCase => {
 			keys: Arr.map(relation.keys, (k) => nonEmptyList(k, "a candidate key")),
 			relationKind: "relation",
 			generated: [],
+			unit: [],
+			determined: [],
 			heading,
 			loc: undefined,
 			meta: conservativeMeta
@@ -428,7 +430,6 @@ const contexted = (c: QueryCase, s: ContextSketch): Contexted => {
 				selection: []
 			},
 			coverage: spanCoverage(c.schema, k),
-			statement: "contained",
 			context
 		})),
 		orphaned
@@ -870,6 +871,95 @@ export const sharedOn = <S>(draw: CaseDraw<S>, stated: Stated<SharedFeature>): P
 		oracle: {
 			kind: "second-implementation",
 			name: "an analysis of each DAG alone, which reads no other analysis"
+		},
+		kept: stated.kept,
+		kills: stated.kills
+	})
+
+/** What a case of versionsOn reaches. */
+type VersionFeature =
+	| "a version of the case's own nodes"
+	| "a version built from annotated nodes"
+	| "a version rooted at an annotated attachment's child"
+	| "an annotated node read as its own annotation"
+
+/**
+ * Every case of `draw` analyzed as a compile analyzes its DAG's versions: one store of shared analyses under the case's
+ * evidence sharing every node (SharedAnalyses, `() => true`), the case's DAG first, then a version of its own nodes
+ * rooted again (its roots and its attachments' children, or drawn nodes) and versions built from the first analysis's
+ * annotated nodes (all of them, or drawn ones, as a write's restatement and its rewrites build theirs), each analyzed
+ * through the store and alone: every version's annotated DAG, judged DAG and roots' claims are the analysis alone's.
+ */
+export const versionsOn = <S>(draw: CaseDraw<S>, stated: Stated<VersionFeature>): Property =>
+	property.explore(draw.generator, {
+		needs: {},
+		budget: evidenceBudget,
+		situations: stated.situations,
+		check:
+			(_, c: Case<VersionFeature>) =>
+			([drawnSketch, sketch]) =>
+				Effect.sync(() => {
+					const generated = c.draw(draw.resolve(drawnSketch))
+					const env = envOf(contexted(generated, sketch))
+					const analyses = new SharedAnalyses(env, () => true)
+					const through = (dag: ValidDag, what: string) => {
+						const kept = keptNodes(dag.roots)
+						const reading = succeeded(
+							analyzeLogical(dag, analyses, kept),
+							`${what}, through the store`
+						)
+						const alone = succeeded(analyzeLogical(dag, env, kept), `${what}, alone`)
+						assert.deepEqual(toTable(reading.dag), toTable(alone.dag), `${what}: the annotated DAG`)
+						assert.deepEqual(
+							toTable(reading.judged),
+							toTable(alone.judged),
+							`${what}: the judged DAG`
+						)
+						for (const root of dag.roots) {
+							assert.deepEqual(
+								claimsOf(defined(reading.props.get(root), "a root's properties, kept")),
+								claimsOf(defined(alone.props.get(root), "a root's properties, kept")),
+								`${what}: ${root.id} (${root.kind}) claimed alike`
+							)
+						}
+						return reading
+					}
+					const own = generated.query.dag
+					const first = through(own, "the case's DAG")
+					const nodes = topoOrder(own)
+					const children = Arr.flatMap(nodes, (n) => (n.kind === "Attach" ? [n.child] : []))
+					const ownMarks = c.draw(array(boolean, { min: nodes.length, max: nodes.length }))
+					c.note("a version of the case's own nodes")
+					through(assembledDag([...own.roots, ...children]), "its own nodes, its children rooted")
+					const ownDrawn = Arr.filter(nodes, (_, i) => ownMarks[i] === true)
+					if (Arr.isReadonlyArrayNonEmpty(ownDrawn)) {
+						through(assembledDag(ownDrawn), "its own drawn nodes")
+					}
+					const annotated = topoOrder(first.dag)
+					if (Arr.some(annotated, (n) => analyses.state.selves.has(n))) {
+						c.note("an annotated node read as its own annotation")
+					}
+					const marks = c.draw(array(boolean, { min: annotated.length, max: annotated.length }))
+					c.note("a version built from annotated nodes")
+					through(first.dag, "its annotated DAG")
+					const drawn = Arr.filter(annotated, (_, i) => marks[i] === true)
+					if (Arr.isReadonlyArrayNonEmpty(drawn)) {
+						through(assembledDag(drawn), "its drawn annotated nodes")
+					}
+					const annotatedChildren = Arr.flatMap(annotated, (n) =>
+						n.kind === "Attach" ? [n.child] : []
+					)
+					if (Arr.isReadonlyArrayNonEmpty(annotatedChildren)) {
+						c.note("a version rooted at an annotated attachment's child")
+						through(
+							assembledDag([...first.dag.roots, ...annotatedChildren]),
+							"its annotated children rooted"
+						)
+					}
+				}),
+		oracle: {
+			kind: "second-implementation",
+			name: "an analysis of each version alone, which reads no other analysis"
 		},
 		kept: stated.kept,
 		kills: stated.kills

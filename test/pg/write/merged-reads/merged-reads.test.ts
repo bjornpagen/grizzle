@@ -79,7 +79,7 @@ export const twoReadBacksOfOneNameOverOneQueryAreOneReadAfterTheWholeChangeSetIt
 							const s = yield* Substrate
 							const fx = yield* installWrites(build("MergedReads"), "mergedreads", {
 								programs: {},
-								logins: []
+								logins: () => []
 							})
 							const S = build(fx.installed.declared)
 							const names = namesOf(fx.installed)

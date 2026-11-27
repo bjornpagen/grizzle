@@ -18,7 +18,7 @@ import {
 	nativeEqualityKey,
 	type ScalarExpr,
 	type TypedLiteral,
-	zeroPeeled
+	canonicalPeeled
 } from "#compiler/ir/expr.ts"
 import { drive } from "#compiler/ir/fold.ts"
 import { comparedValue } from "#compiler/ir/injective.ts"
@@ -64,6 +64,7 @@ import {
 	unionKeyDetermines,
 	type ViewKey,
 	numberedRow,
+	pairedKeeps,
 	viewAlternative,
 	windowValue
 } from "#compiler/ir/keys.ts"
@@ -86,13 +87,14 @@ import {
 	type ValueRefs
 } from "#compiler/ir/rel.ts"
 
-import { floatCarrierOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
+import { equalityIsIdentity, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import {
 	type Attributes,
 	attributesOver,
 	type Bits,
 	bitsAt,
 	addTo,
+	BitsSet,
 	bitsOf,
 	copyBits,
 	dropFrom,
@@ -105,7 +107,6 @@ import {
 	noBits,
 	orInto,
 	positions,
-	sameBits,
 	union,
 	subsetOf
 } from "#compiler/logical/attributes.ts"
@@ -114,6 +115,7 @@ import {
 	closure,
 	covers,
 	derivation,
+	FactorScratch,
 	derivationRows,
 	independentFactors,
 	minimalKeys,
@@ -389,7 +391,21 @@ export interface PropsEnv {
 	/** Whether a Base over a view is keyed by the keys stamped on it (ir/rel.ts ViewBase view); without them it states
 	 * no key, and is keyed by its whole heading, as any set is. */
 	readonly keyedViews: boolean
+	/** Where the analysis's searches work (PropsScratch): made with the environment, read one node at a time. */
+	readonly scratch: PropsScratch
 }
+
+/**
+ * Where an analysis's searches over its nodes work, each array grown to the largest node it has held, so a node no
+ * larger than one before it allocates none of them: the key search's (logical/closure.ts FactorScratch). Made once an
+ * analysis (logical/annotate.ts), never held by a node's properties.
+ */
+export interface PropsScratch {
+	readonly factors: FactorScratch
+}
+
+/** A fresh scratch for an analysis's searches (PropsScratch). */
+export const propsScratch = (): PropsScratch => ({ factors: new FactorScratch() })
 
 /**
  * The premise of a stored relation's declared key: the installed constraint the naming door names for it, its primary
@@ -408,10 +424,11 @@ export const storedKeyPremise = (relation: string, fields: KeySet, primary: bool
 				constraintKind: "unique"
 			}
 
-/** The premise of a derived relation's inherited key: its view's unique index, which the naming door names. */
-export const derivedKeyPremise = (relation: string, fields: KeySet): Premise => ({
+/** The premise of a derived relation's inherited key: the unique index of the table `table` holds its rows in, which
+ * the naming door names. */
+export const derivedKeyPremise = (relation: string, table: string, fields: KeySet): Premise => ({
 	kind: "constraint",
-	constraint: identifierOf(identity.derivedKey(relation, fields)),
+	constraint: identifierOf(identity.derivedKey(relation, table, fields)),
 	constraintKind: "uniqueIndex"
 })
 
@@ -455,6 +472,7 @@ export const valueAt = (e: ScalarExpr, locals: ReadonlySet<NodeId>): ValueAt => 
 		case "cast":
 		case "domainCast":
 		case "cond":
+		case "variant":
 		case "closedAt":
 		case "closedRow":
 		case "closedHas":
@@ -574,6 +592,22 @@ export type FixedName = Exclude<Fixed, { readonly kind: "expr" }>
 export interface NamedValue {
 	readonly name: FixedName
 	readonly derivation: Implication
+}
+
+/**
+ * The value a column holds where the analysis knows it only by its name, a parameter or an outer column, which no
+ * reader tells from another value but by that name: none for a literal, whose value every reader reads itself (a
+ * union's separators, a fixed column's name), nor for a computation.
+ */
+const unknownValue = (name: FixedName): string | undefined => {
+	switch (name.kind) {
+		case "literal":
+			return undefined
+		case "param":
+			return `param\u0000${name.param}`
+		case "outer":
+			return `outer\u0000${name.node}\u0000${name.column}`
+	}
 }
 
 /** The name a value gives what it is: a literal, a parameter, an outer column; none for a computation, which names no
@@ -1037,12 +1071,12 @@ const carriedInputOf = <P>(
 			return defined(keptInputOf(reading), "a kept rule's node keeps an input's rows")
 		case "intersected":
 			if (reading.kind !== "Intersect") {
-				throw defect("an intersected rule is an intersection's")
+				defect("an intersected rule is an intersection's")
 			}
 			return reading.right
 		case "grouped":
 			if (reading.kind !== "Group" && reading.kind !== "OrderedSetAggregate") {
-				throw defect("a grouped rule is a group's")
+				defect("a grouped rule is a group's")
 			}
 			return reading.input
 	}
@@ -1133,28 +1167,11 @@ const stepSource = (
 	const node = props.reading
 	const rule = d.rule
 	switch (rule.rule) {
-		case "fixed": {
-			const witness = rule.witness
-			if (witness.kind !== "semiJoinPair") {
-				return own(fixedWitnessValue(props, witness, column))
-			}
-			if (node.kind !== "SemiJoin") {
-				throw defect("a semi-join pair fixes a column of its semi-join")
-			}
-			const pair = defined(
-				node.on[witness.index],
-				"a semi-join pair's index names one of its pairs"
-			)
-			return {
-				kind: "input",
-				input: node.right,
-				column: pair.right,
-				over: (right) => fixedColumn(column, { kind: "semiJoinPair", index: witness.index, right })
-			}
-		}
+		case "fixed":
+			return own(fixedWitnessValue(props, rule.witness, column))
 		case "correlated": {
 			if (index.kind !== "region") {
-				throw defect("a correlated variable is a region's")
+				defect("a correlated variable is a region's")
 			}
 			const corr = defined(
 				index.node.correlated[rule.index],
@@ -1169,7 +1186,7 @@ const stepSource = (
 			}
 		case "match": {
 			if (index.kind !== "region") {
-				throw defect("a match binds a variable of its region")
+				defect("a match binds a variable of its region")
 			}
 			const occurrence = defined(
 				index.occurrences.get(rule.occurrence),
@@ -1193,7 +1210,7 @@ const stepSource = (
 		}
 		case "projection": {
 			if (index.kind !== "projection") {
-				throw defect("a projection's rule is a projection's")
+				defect("a projection's rule is a projection's")
 			}
 			/** A hidden attribute of the input is no output: what it holds is opaque. */
 			const out = index.outputs.get(column)
@@ -1219,9 +1236,25 @@ const stepSource = (
 			const carry = carriers[rule.rule]
 			return { kind: "input", input, column, over: (derived) => carry(d.from, [column], derived) }
 		}
+		case "paired": {
+			if (node.kind !== "SemiJoin") {
+				defect("a semi-join keeps its right side's dependencies at its pairs")
+			}
+			const derived = new Set([...rule.input.from, ...rule.input.steps.flatMap((s) => s.to)])
+			const pair = defined(
+				node.on.find((p) => p.left === column && derived.has(p.right)),
+				"a paired column's pair with a right column the right side's derivation reaches"
+			)
+			return {
+				kind: "input",
+				input: node.right,
+				column: pair.right,
+				over: (right) => pairedKeeps(d.from, [column], right)
+			}
+		}
 		case "agreed":
 			if (node.kind !== "Union") {
-				throw defect("the arms that agree on a column are a union's")
+				defect("the arms that agree on a column are a union's")
 			}
 			return { kind: "arms", arms: unionArms(node.groups) }
 		case "declared":
@@ -1301,20 +1334,13 @@ const sourcesOf = (props: Steps): StepSources => {
 	}))
 }
 
-/**
- * The value a fixed column holds by the witness that fixed it at the node `props` are of, a witness of the node's own: a
- * semi-join's pair carries the right side's (stepSource).
- */
-const fixedWitnessValue = (
-	props: Steps,
-	witness: Exclude<FixedWitness, { readonly kind: "semiJoinPair" }>,
-	column: string
-): ValueAt => {
+/** The value a fixed column holds by the witness that fixed it at the node `props` are of, a witness of the node's own. */
+const fixedWitnessValue = (props: Steps, witness: FixedWitness, column: string): ValueAt => {
 	const node = props.reading
 	switch (witness.kind) {
 		case "conjunct": {
 			if (node.kind !== "Filter") {
-				throw defect("a conjunct fixes a column of its filter")
+				defect("a conjunct fixes a column of its filter")
 			}
 			const input = node.input.node.id
 			const conjunct = defined(
@@ -1333,7 +1359,7 @@ const fixedWitnessValue = (
 		}
 		case "closedValue": {
 			if (node.kind !== "Closed") {
-				throw defect("a closed value fixes a column of its closed relation")
+				defect("a closed value fixes a column of its closed relation")
 			}
 			const row = defined(node.rows[0], "a column every fact agrees on has a fact")
 			const literal = defined(
@@ -1344,7 +1370,7 @@ const fixedWitnessValue = (
 		}
 		case "takeCorrelation": {
 			if (node.kind !== "Take") {
-				throw defect("a take's correlation fixes a column of its take")
+				defect("a take's correlation fixes a column of its take")
 			}
 			const corr = defined(
 				node.correlation[witness.index],
@@ -1355,7 +1381,7 @@ const fixedWitnessValue = (
 		case "attachCorrelation": {
 			const attach = props.attachment
 			if (attach?.id !== witness.attach) {
-				throw defect("an attachment's correlation fixes a column of the child it relates")
+				defect("an attachment's correlation fixes a column of the child it relates")
 			}
 			const pair = defined(
 				attach.correlation[witness.index],
@@ -1386,8 +1412,9 @@ interface Determinant {
 const determinantsOf = (props: Props): ReadonlyArray<Determinant> => {
 	const attributes = attributesOf(props)
 	const out: Array<Determinant> = []
+	const sets = new BitsSet()
 	const add = (columns: KeySet, at: Bits): void => {
-		if (!out.some((d) => sameBits(d.at, at))) {
+		if (sets.add(at)) {
 			out.push({ columns, at })
 		}
 	}
@@ -1589,6 +1616,36 @@ const carried = (
 				]
 	})
 
+/**
+ * What a semi-join keeps of its right side (ir/keys.ts pairedKeeps): each right determinant of paired columns alone,
+ * nothing included, determining the paired columns its closure in the right side reaches, each right column at the left
+ * columns paired with it, by the right side's derivation. A left column paired with a column the right side fixes is
+ * fixed so, and one paired with a column a right key determines is determined by the key's left columns: R02's
+ * existence test of an arm's relation, whose declared key determined the arm's column, keeps it determined, so the arm
+ * stays keyed and the union of its arms a key its order covers (public-programs, rotating 0xc1c125c3).
+ */
+const pairedDependencies = (
+	on: ReadonlyArray<{ readonly left: string; readonly right: string }>,
+	right: Props
+): ReadonlyArray<Dependency> => {
+	const attributes = right.stated.attributes
+	/** The left columns paired with a right attribute: none for one no pair reads, a hidden attribute among them. */
+	const leftOf = (column: string): ReadonlyArray<string> =>
+		on.flatMap((p) => (p.right === column ? [p.left] : []))
+	return determinantsOf(right).flatMap((d) => {
+		const from = d.columns.flatMap((c) => leftOf(c).slice(0, 1))
+		if (from.length < d.columns.length) {
+			return []
+		}
+		const reached = reachedFrom(right, d.at)
+		const to = stepsOf(reached).filter((p) => leftOf(attributeAt(attributes, p)).length > 0)
+		const toLeft = [...new Set(to.flatMap((p) => leftOf(attributeAt(attributes, p))))].filter(
+			(c) => !from.includes(c)
+		)
+		return toLeft.length === 0 ? [] : [pairedKeeps(from, toLeft, derivation(reached, to))]
+	})
+}
+
 /** The name every attribute of an input keeps at a node keeping its rows under the input's own names. */
 const sameName = (attribute: string): string => attribute
 
@@ -1714,16 +1771,17 @@ export type WholeKey =
 export type Distinctness = "native" | "members"
 
 /**
- * Whether a column of a node may hold a float's -0 apart from its +0 between two rows natively equal: a float column,
- * but for a projection's output it delivers through the float's canonical zero (check/merge.ts, ir/expr.ts zeroPeeled),
- * which holds +0 alone, or one value per row it delivers (oneValuePerRow).
+ * Whether a column of a node may hold a float's -0 apart from its +0 between two rows natively equal: a column of a type
+ * whose equality is no identity (ir/scalar.ts equalityIsIdentity), but for a projection's output it delivers through its
+ * canonical form (check/merge.ts, ir/expr.ts canonicalPeeled), which holds +0 alone, or one value per row it delivers
+ * (oneValuePerRow).
  */
 const holdsZeroApart = (node: RelNode, reading: PropsReading): boolean => {
 	if (node.kind !== "ProjectSet" || reading.kind !== "ProjectSet") {
-		return node.heading.some((c) => floatCarrierOf(c.type) !== undefined)
+		return node.heading.some((c) => !equalityIsIdentity(c.type))
 	}
 	const apart = node.out.filter(
-		(o) => floatCarrierOf(o.expr.type) !== undefined && !zeroPeeled(o.expr).canonical
+		(o) => !equalityIsIdentity(o.expr.type) && !canonicalPeeled(o.expr).canonical
 	)
 	return apart.length > 0 && !apart.every(oneValuePerRow(node, reading.input))
 }
@@ -1742,7 +1800,7 @@ const oneValuePerRow =
 		const columns = new Set(input.columns)
 		const determinants = projection.out.flatMap((o) => {
 			const column = copiedColumn(o.expr)
-			return column === undefined || floatCarrierOf(o.expr.type) !== undefined ? [] : [column]
+			return column === undefined || !equalityIsIdentity(o.expr.type) ? [] : [column]
 		})
 		const reached = reachedFrom(input, bitsOf(attributesOf(input), determinants))
 		const delivered = new Set(
@@ -1755,7 +1813,7 @@ const oneValuePerRow =
 			(c) =>
 				(input.factFields.get(c) ?? []).some((key) => key.every((k) => delivered.has(k))) ||
 				(columns.has(c) &&
-					!input.node.heading.some((h) => h.name === c && floatCarrierOf(h.type) !== undefined) &&
+					!input.node.heading.some((h) => h.name === c && !equalityIsIdentity(h.type)) &&
 					reaches(reached, c))
 		)
 	}
@@ -1847,7 +1905,8 @@ const factFieldsOf = (node: RelNode, reading: PropsReading): FactFields => {
 				const sourceKeys =
 					o.source.distinct === "native"
 						? o.source.keys.flatMap((k) => {
-								const here = keyHere(k.key)
+								const key = keyAmong([k], (c) => keyHere([c]) !== undefined)
+								const here = key === undefined ? undefined : keyHere(key)
 								return here === undefined ? [] : [here]
 							})
 						: []
@@ -1926,9 +1985,28 @@ const factFieldsOf = (node: RelNode, reading: PropsReading): FactFields => {
 }
 
 /**
+ * The first key of the proofs `keys` that lies among the columns `holds` admits: a proof's own key or any key its
+ * factors' alternatives choose (ir/keys.ts keyIn), never its own key alone, which names one of a relation's minimal keys,
+ * so a primary key beside a candidate key, the one the proof did not choose, was read as no key. The one reading of a
+ * source's keys among the columns a node reads (readsOneFact, projectsOneRow, factFieldsOf).
+ */
+const keyAmong = (
+	keys: ReadonlyArray<KeyProof>,
+	holds: (column: string) => boolean
+): KeySet | undefined => {
+	for (const k of keys) {
+		const key = keyIn(k, holds)
+		if (key !== undefined) {
+			return key
+		}
+	}
+	return undefined
+}
+
+/**
  * Whether an occurrence of a region reads one fact of its source for each binding of its variables: its source is
- * natively distinct and one of the source's keys is among the columns it binds or fixes to a constant, so two facts it
- * reads differ natively in a variable.
+ * natively distinct and one of the source's keys is among the columns it binds or fixes to a constant (keyAmong), so
+ * two facts it reads differ natively in a variable.
  */
 const readsOneFact = (occurrence: ReadingOf<"MatchRegion">["occurrences"][number]): boolean => {
 	const read = new Set([
@@ -1937,7 +2015,7 @@ const readsOneFact = (occurrence: ReadingOf<"MatchRegion">["occurrences"][number
 	])
 	return (
 		occurrence.source.distinct === "native" &&
-		occurrence.source.keys.some((k) => k.key.every((c) => read.has(c)))
+		keyAmong(occurrence.source.keys, (c) => read.has(c)) !== undefined
 	)
 }
 
@@ -1954,7 +2032,7 @@ const projectsOneRow = (projection: ReadingOf<"ProjectSet">): boolean => {
 	)
 	return (
 		projection.input.distinct === "native" &&
-		projection.input.keys.some((k) => k.key.every((c) => copied.has(c)))
+		keyAmong(projection.input.keys, (c) => copied.has(c)) !== undefined
 	)
 }
 
@@ -2001,6 +2079,7 @@ type Reach =
 interface Subject extends Pick<Props, "node" | "attachment" | "outer" | "distinct" | "factFields"> {
 	readonly reading: PropsReading
 	readonly views: ViewReading
+	readonly scratch: PropsScratch
 }
 
 /**
@@ -2014,6 +2093,7 @@ interface Finished extends Pick<
 > {
 	readonly reading: StepsReading
 	readonly views: ViewReading
+	readonly scratch: PropsScratch
 }
 
 /** The views of a reading's inputs, each in its input's place (PropsView). */
@@ -2062,7 +2142,8 @@ const keysOf = (
 	classes: ReadonlyMap<string, NonEmptyReadonlyArray<string>>,
 	reachOf: (key: Bits) => Reach | undefined,
 	proofOf: (key: KeySet, reach: Reach) => KeyProof,
-	membersOf: (cs: ReadonlyArray<string>) => ReadonlyArray<KeyMember>
+	membersOf: (cs: ReadonlyArray<string>) => ReadonlyArray<KeyMember>,
+	scratch: PropsScratch
 ): ReadonlyArray<KeyProof> => {
 	const { attributes } = rest
 	const heading = attributes.heading
@@ -2121,6 +2202,7 @@ const keysOf = (
 				: []
 		)
 		const search = independentFactors(
+			scratch.factors,
 			union(representatives, intersect(reachable, bitsOf(attributes, attributes.hidden))),
 			stated
 		)
@@ -2390,7 +2472,9 @@ const finish = (subject: Finished, dependencies: ReadonlyArray<Dependency>, rest
 						key: proofOf(columns, { kind: "rows", reached: coverOf({ stated }, heading) })
 					}
 				: { kind: "groups" }
-	const keys = keyed ? keysOf(steps, rest, classes, reachOf, proofOf, membersOf) : []
+	const keys = keyed
+		? keysOf(steps, rest, classes, reachOf, proofOf, membersOf, subject.scratch)
+		: []
 	const atMostOne = keys.some((k) => k.key.length === 0)
 	const nothing = closureOf(table, noBits(attributes))
 	const provenance = provenanceOver(columns, rest.provenance)
@@ -2603,7 +2687,8 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 		attachment: undefined,
 		outer: env.scope(node).outer,
 		distinct: distinctOf(node, reading),
-		factFields: factFieldsOf(node, reading)
+		factFields: factFieldsOf(node, reading),
+		scratch: env.scratch
 	}
 	const all = node.heading.map((c) => c.name)
 	/**
@@ -2834,29 +2919,7 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 			const right = reading.right
 			const deps: Array<Dependency> = [...carried(left, sameName, rowsKeep)]
 			if (reading.kind === "SemiJoin") {
-				/**
-				 * A left column paired with a right column the right side fixes is fixed too, by the pair: the right side
-				 * reads nothing of the left (ir/rel.ts SemiJoinRight, which only semiJoinRight mints, reading its subtree), so
-				 * it is one relation per evaluation of the semi-join.
-				 */
-				const rightFixed = right.nothing
-				appendAll(
-					deps,
-					reading.on.flatMap((pair, index) =>
-						reaches(rightFixed, pair.right)
-							? [
-									fixedColumn(pair.left, {
-										kind: "semiJoinPair",
-										index,
-										right: derivation(
-											rightFixed,
-											positionsOf(right.stated.attributes, [pair.right])
-										)
-									})
-								]
-							: []
-					)
-				)
+				appendAll(deps, pairedDependencies(reading.on, right))
 			}
 			return finish(
 				subject,
@@ -3344,16 +3407,15 @@ const projectProps = (subject: Subject, node: ReadingOf<"ProjectSet">): Props =>
 	}
 	/** The images of the input's determinants, every attribute named here, then each copying output alone. */
 	const deps: Array<Dependency> = []
-	const seen: Array<Bits> = []
+	const seen = new BitsSet()
 	for (const from of [
 		...determinantsOf(input).map((d) => d.columns.map(nameOf)),
 		...[...copyOf.keys()].map((o) => [o])
 	]) {
 		const at = bitsOf(attributes, from)
-		if (seen.some((s) => sameBits(s, at))) {
+		if (!seen.add(at)) {
 			continue
 		}
-		seen.push(at)
 		const reached = reachedFrom(input, readBy(at))
 		const to = noBits(attributes)
 		let p = 0
@@ -3376,8 +3438,38 @@ const projectProps = (subject: Subject, node: ReadingOf<"ProjectSet">): Props =>
 	/**
 	 * Copies of columns of one input class are equal, each two by the input's path between the columns they copy, none for
 	 * copies of one column; copies of columns of two classes are never equal, so only the copies of one class are paired.
+	 * Outputs of one value the analysis knows only by its name, a parameter or an outer column (unknownValue), are equal by
+	 * no step of the input, as copies of one column are: constant propagation makes a projection's copies of a column the
+	 * parameter a filter fixes it to (lower/optimize/propagate), and they stay one class.
 	 */
 	const equal: Array<Equality> = []
+	const named = Map.groupBy(
+		node.out.flatMap((o, at) => {
+			const name = namedOf(valueAt(o.expr, new Set([inputId])))
+			const value = name === undefined ? undefined : unknownValue(name)
+			const column = node.heading[at]
+			return value === undefined || column === undefined
+				? []
+				: [{ name: o.name, type: column.type, value }]
+		}),
+		(o) => o.value
+	)
+	for (const outputs of named.values()) {
+		for (const [i, x] of outputs.entries()) {
+			for (const y of outputs.slice(i + 1)) {
+				if (sameScalarType(x.type, y.type)) {
+					const none = implication([], [])
+					equal.push({
+						a: x.name,
+						b: y.name,
+						by: "equalities",
+						there: projectionCloses([x.name], [y.name], none),
+						back: projectionCloses([y.name], [x.name], none)
+					})
+				}
+			}
+		}
+	}
 	const byClass = Map.groupBy(copyOf, ([, c]) => input.classes.get(c)?.[0] ?? c)
 	for (const copying of byClass.values()) {
 		for (const [i, [x, cx]] of copying.entries()) {
@@ -3475,7 +3567,7 @@ const groupProps = (
 	}
 	const at = subject.node
 	if (at.kind !== "Union") {
-		throw defect("a union's properties are of a union")
+		defect("a union's properties are of a union")
 	}
 	const alone = relNode(at.id, {
 		...at,
@@ -3497,7 +3589,8 @@ const groupProps = (
 			attachment: subject.attachment,
 			outer: subject.outer,
 			distinct: distinctOf(alone, reading),
-			factFields: factFieldsOf(alone, reading)
+			factFields: factFieldsOf(alone, reading),
+			scratch: subject.scratch
 		},
 		reading
 	)
@@ -3707,7 +3800,11 @@ const unionProps = (subject: Subject, node: ReadingOf<"Union">): Props => {
  * An attachment's child relative to its parent: the child's dependencies with each correlated child column fixed per
  * parent row, so its keys are reduced by them.
  */
-export const relativeProps = (child: Props, attach: NodeOf<"Attach">): Props =>
+export const relativeProps = (
+	child: Props,
+	attach: NodeOf<"Attach">,
+	scratch: PropsScratch
+): Props =>
 	finish(
 		{
 			node: child.node,
@@ -3716,7 +3813,8 @@ export const relativeProps = (child: Props, attach: NodeOf<"Attach">): Props =>
 			attachment: attach,
 			outer: child.outer,
 			distinct: child.distinct,
-			factFields: child.factFields
+			factFields: child.factFields,
+			scratch
 		},
 		[
 			...child.stated.rows.map((row) => row.dependency),

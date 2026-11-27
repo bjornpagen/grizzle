@@ -1,4 +1,3 @@
-import type { PgMember } from "@bjornpagen/testing/pg"
 import {
 	Array as Arr,
 	type Cause,
@@ -22,7 +21,7 @@ import { ChildProcess, type ChildProcessSpawner } from "effect/process"
 import { pgPin } from "#test/support/env.ts"
 import { type ClientBackend, ownBackendOf, ownBackendQuery } from "#test/support/kernel/sanitize.ts"
 import { messageOf } from "#test/support/message.ts"
-import { awaitingBackend, awaitingUnchecked, reportedConstraintOf } from "#test/support/pg.ts"
+import { reportedConstraintOf } from "#test/support/pg.ts"
 import {
 	type PgErrorFields,
 	PsqlProcessError,
@@ -81,8 +80,6 @@ export interface PsqlWriter {
 }
 
 export interface PsqlOptions {
-	/** The cluster member the writer reaches, which each statement's declared wait asks after its backend. */
-	readonly member: PgMember
 	/** The port of the cluster member the writer reaches. */
 	readonly port: number
 	readonly database: string
@@ -890,26 +887,12 @@ export const openPsql = Effect.fnUntraced(function* (
 			})
 		)
 
-	/**
-	 * One statement queued and its outcome awaited (sent), which is psql's and PostgreSQL's work: a declared wait, every
-	 * statement of a writer going through it. Once the writer's backend is known (`canceler`), the wait is checked on it
-	 * (pg.ts awaitingBackend); the startup read, which runs before it is, is trusted (pg.ts awaitingUnchecked).
-	 */
-	const send = (
-		sql: string,
-		answer: Answer,
-		canceler: Canceler
-	): Effect.Effect<Completed, PsqlProcessError> =>
-		(canceler._tag === "Backend"
-			? awaitingBackend(options.member, canceler.pid, sql)
-			: awaitingUnchecked(`${label}'s psql startup`))(sent(sql, answer, canceler))
-
 	const complete = (
 		sql: string,
 		answer: Answer,
 		canceler: Canceler
 	): Effect.Effect<Completed, PsqlStatementError | PsqlProcessError> =>
-		Effect.flatMap(send(sql, answer, canceler), (completed) => {
+		Effect.flatMap(sent(sql, answer, canceler), (completed) => {
 			const refusal = refusalOf(label, sql, completed)
 			return refusal === undefined ? Effect.succeed(completed) : Effect.fail(refusal)
 		})
@@ -927,7 +910,7 @@ export const openPsql = Effect.fnUntraced(function* (
 	 * The startup read, before the backend pid is known. It also surfaces a refused connection or login as a process
 	 * error, and so a server's report on the query itself.
 	 */
-	const started = yield* send(ownBackendQuery, "rows", { _tag: "Signal" })
+	const started = yield* sent(ownBackendQuery, "rows", { _tag: "Signal" })
 	const refused = refusalOf(label, ownBackendQuery, started)
 	if (refused !== undefined) {
 		return yield* refused._tag === "PsqlStatementError"

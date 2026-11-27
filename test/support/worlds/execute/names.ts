@@ -13,11 +13,9 @@ import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import { type ConstraintOwner, lawsOfConstraint } from "#compiler/ir/products.ts"
 import type { TextDomain } from "#compiler/physical/ddl/domains.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import type { Statement } from "#compiler/public/schema.ts"
 import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { namedRelation } from "#compiler/schema/relation.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
-import type { AlternativesBase } from "#compiler/types/schema/statements.ts"
 import {
 	type InstalledAt,
 	installationNamesOf,
@@ -34,7 +32,6 @@ import type {
 	InstallSpec,
 	InstalledNames,
 	LawIds,
-	LawSpec,
 	RelationSpec,
 	HandleCodes
 } from "#test/support/worlds/model/types.ts"
@@ -42,39 +39,6 @@ import type {
 /** An installation's codes as the model reads them: each roster's handles by code, a hole's "". */
 export const rosterCodesOf = (codes: Codebook): HandleCodes =>
 	Rec.fromEntries(Arr.map([...codes.rosters], ([roster, codec]) => [roster, codec.names] as const))
-
-/**
- * The names the compiler gives an installation, read from its compilation through the kernel's naming door
- * (kernel/naming.ts installationWith and installationNamesOf), never spelled: each relation's table and columns, each
- * law's identities, and each role's and login's PostgreSQL role.
- */
-const isAlternatives = (statement: Statement): statement is AlternativesBase & Statement =>
-	statement.kind === "alternatives"
-
-/** The law identities of one law spec, of its kind. */
-const lawIdsOf = (
-	names: ReturnType<typeof installationNamesOf>,
-	law: LawSpec,
-	statement: Statement
-): Effect.Effect<LawIds> => {
-	switch (law.kind) {
-		case "alternatives": {
-			if (!isAlternatives(statement)) {
-				return Effect.die(
-					new Error(`the alternatives law of ${law.relation} built a ${statement.kind} statement`)
-				)
-			}
-			const laws = names.alternativesOf(statement)
-			return Effect.succeed({ kind: "alternatives", arms: laws.arms, reverse: laws.reverse })
-		}
-		case "key":
-		case "spanKey":
-		case "check":
-		case "contained":
-		case "covered":
-			return Effect.succeed({ kind: law.kind, law: names.lawOf(statement) })
-	}
-}
 
 /**
  * The PostgreSQL role an installation gives a role of a name over its top level, whether it holds one or not: a role it
@@ -128,7 +92,7 @@ export const namesOfBuiltAt = (
 			const statement = built.laws[i]
 			return statement === undefined
 				? Effect.die(new Error(`no statement was built for law ${i}`))
-				: lawIdsOf(names, law, statement)
+				: Effect.succeed<LawIds>({ kind: law.kind, law: names.lawOf(statement) })
 		})
 		const stored = Arr.map(
 			spec.base.relations,

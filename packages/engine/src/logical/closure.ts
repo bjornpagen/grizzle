@@ -1,11 +1,4 @@
-import { appendAll } from "@bjornpagen/grizzle-text/base/array"
-import { postorder, stronglyConnected } from "@bjornpagen/grizzle-text/base/graph"
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
-import {
-	isNonEmpty,
-	lastNonEmpty,
-	type NonEmptyReadonlyArray
-} from "@bjornpagen/grizzle-text/base/nonempty"
 import { type Dependency, type Implication, implication } from "#compiler/ir/keys.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
 import {
@@ -16,6 +9,7 @@ import {
 	copyBits,
 	dropFrom,
 	emptyLike,
+	emptyWords,
 	holdsAt,
 	holdsName,
 	lowest,
@@ -24,6 +18,7 @@ import {
 	namesOf,
 	noBits,
 	positions,
+	positionsInto,
 	pushPositions,
 	sizeOf,
 	union,
@@ -843,266 +838,24 @@ const keyWithin = (
 	return false
 }
 
-/**
- * The dependencies of the factor search, indexed as a closure reads them (as Rows are, for Beeri and Bernstein's
- * counters): each one's determinants, each once, and their count; each position's dependencies reading it, packed:
- * position p's are `readers` from `readersAt[p]` to `readersAt[p + 1]`; the dependencies of no determinant, which every
- * closure fires; the positions each determines as it now stands, which irredundant shrinks; and how many of them
- * determine each position as they now stand, so a position none determines is known reached by no closure that does not
- * start from it.
- */
-interface FactorTable {
-	/** A set of the table's positions, whose words every set of them takes. */
-	readonly like: Bits
-	readonly from: ReadonlyArray<ReadonlyArray<number>>
-	readonly to: Array<ReadonlyArray<number>>
-	readonly determinants: Int32Array
-	readonly readersAt: Int32Array
-	readonly readers: Int32Array
-	readonly given: ReadonlyArray<number>
-	readonly determiners: Int32Array
-}
+/** An array of small integers of room for `n`: a FactorScratch's one allocation, made only where an array grows (grown). */
+const allocated = (n: number): Int32Array => new Int32Array(n)
 
-/** The factor table of `dependencies`, over positions whose sets take the words of `like`. */
-const factorTable = (
-	like: Bits,
-	dependencies: ReadonlyArray<{ readonly from: Bits; readonly to: ReadonlyArray<number> }>
-): FactorTable => {
-	const size = capacityOf(like)
-	const from = dependencies.map((d) => positions(d.from))
-	const determinants = new Int32Array(from.length)
-	const readersAt = new Int32Array(size + 1)
-	from.forEach((f, i) => {
-		determinants[i] = f.length
-		for (const p of f) {
-			readersAt[p + 1] = (readersAt[p + 1] ?? 0) + 1
-		}
-	})
-	for (let p = 0; p < size; p++) {
-		readersAt[p + 1] = (readersAt[p + 1] ?? 0) + (readersAt[p] ?? 0)
-	}
-	const readers = new Int32Array(readersAt[size] ?? 0)
-	const filled = readersAt.slice(0, size)
-	from.forEach((f, i) => {
-		for (const p of f) {
-			const at = filled[p] ?? 0
-			readers[at] = i
-			filled[p] = at + 1
-		}
-	})
-	const determiners = new Int32Array(size)
-	for (const d of dependencies) {
-		for (const t of d.to) {
-			determiners[t] = (determiners[t] ?? 0) + 1
-		}
-	}
-	return {
-		like,
-		from,
-		to: dependencies.map((d) => d.to),
-		determiners,
-		determinants,
-		readersAt,
-		readers,
-		given: from.flatMap((f, i) => (f.length === 0 ? [i] : []))
-	}
-}
+/** `held` where it has room for `n`, else an array of room for `n`: a scratch array grows to the largest search it holds. */
+const grown = (held: Int32Array, n: number): Int32Array => (n <= held.length ? held : allocated(n))
 
 /**
- * Closures over one factor table, one at a time, each firing a dependency once its last determinant is known (Beeri and
- * Bernstein's LINCLOSURE) and sharing the table's counters: a counter is set again the first time a closure reads it,
- * by its closure's mark, and a closure's positions are cleared from the set it holds when the next begins, so a
- * closure costs what it reaches, never the table's size.
+ * The last epoch a FactorScratch's closures take before their epochs begin again, its counters' marks cleared: the
+ * greatest value an Int32Array holds.
  *
- * A closure begins with nothing known but `skipped` left out (begin), grows with the positions added (add), and fires
- * the dependencies of no determinant once what was added determines no more. Where it is asked for some positions
- * (want), it stops as soon as it holds every one: a closure that reaches them near its start reads no more of the table.
+ * @formatConstant an Int32Array element: a signed 32-bit integer, 2³¹ − 1 the greatest
  */
-interface FactorClosures {
-	readonly known: Bits
-	readonly begin: (skipped: number) => void
-	readonly want: (targets: ReadonlyArray<number>) => void
-	readonly add: (columns: Iterable<number>) => void
-}
+const lastEpoch = 0x7fff_ffff
 
-const factorClosures = (table: FactorTable): FactorClosures => {
-	const known = emptyLike(table.like)
-	const wanted = emptyLike(table.like)
-	const missing = new Int32Array(table.from.length)
-	/** The closure that last set each counter, by its number: a counter of another is unset in this one. */
-	const setBy = new Int32Array(table.from.length)
-	let current = 0
-	let skipped = -1
-	let givenFired = false
-	/** The wanted positions not held yet, and whether any is wanted. */
-	let open = 0
-	let wanting = false
-	const touched: Array<number> = []
-	const wantedAt: Array<number> = []
-	const queue: Array<number> = []
-	const reach = (c: number): void => {
-		if (holdsAt(known, c)) {
-			return
-		}
-		addTo(known, c)
-		touched.push(c)
-		queue.push(c)
-		if (holdsAt(wanted, c)) {
-			open--
-		}
-	}
-	const fire = (row: number): void => {
-		if (row === skipped) {
-			return
-		}
-		for (const t of table.to[row] ?? []) {
-			reach(t)
-		}
-	}
-	const done = (): boolean => wanting && open === 0
-	const drain = (): void => {
-		for (let c = queue.pop(); c !== undefined && !done(); c = queue.pop()) {
-			for (let r = table.readersAt[c] ?? 0; r < (table.readersAt[c + 1] ?? 0); r++) {
-				const row = table.readers[r] ?? 0
-				if (setBy[row] !== current) {
-					setBy[row] = current
-					missing[row] = table.determinants[row] ?? 0
-				}
-				const left = (missing[row] ?? 0) - 1
-				missing[row] = left
-				if (left === 0) {
-					fire(row)
-				}
-			}
-		}
-	}
-	return {
-		known,
-		begin: (leftOut) => {
-			for (const c of touched) {
-				dropFrom(known, c)
-			}
-			for (const c of wantedAt) {
-				dropFrom(wanted, c)
-			}
-			touched.length = 0
-			wantedAt.length = 0
-			queue.length = 0
-			current++
-			skipped = leftOut
-			givenFired = false
-			open = 0
-			wanting = false
-		},
-		want: (targets) => {
-			wanting = true
-			for (const t of targets) {
-				if (holdsAt(wanted, t)) {
-					continue
-				}
-				addTo(wanted, t)
-				wantedAt.push(t)
-				if (!holdsAt(known, t)) {
-					open++
-				}
-			}
-		},
-		add: (columns) => {
-			for (const c of columns) {
-				reach(c)
-			}
-			drain()
-			if (givenFired) {
-				return
-			}
-			givenFired = true
-			for (const row of table.given) {
-				if (done()) {
-					return
-				}
-				fire(row)
-				drain()
-			}
-		}
-	}
-}
-
-/**
- * The dependencies with each one of several determinants stating only what the others do not reach from them, in
- * table order, each judged against the ones before it as they now stand and the ones after it as stated: the same
- * closure of every start. A dependency a parent closes over a key of its input's independent factors, or a view's key
- * beside its alternatives, determines what each factor's own dependencies already reach, and states none of it here.
- * A dependency of one determinant joins nothing its targets do not: what it reaches through the others, it reaches
- * through dependencies its determinant stands in.
- *
- * One closure per dependency of several determinants, asked for the targets it judges, so it reads the table only
- * until it holds them: a target no other dependency determines, nor its determinants hold, is reached by none but the
- * one judged, so it is not asked for, and a dependency with no other target is judged by no closure at all.
- */
-const irredundant = (table: FactorTable, closures: FactorClosures): void => {
-	const targeted = table.determiners
-	table.from.forEach((from, judged) => {
-		if (from.length < 2) {
-			return
-		}
-		const to = table.to[judged] ?? []
-		const asked = to.filter((t) => from.includes(t) || (targeted[t] ?? 0) > 1)
-		if (asked.length === 0) {
-			return
-		}
-		closures.begin(judged)
-		closures.want(asked)
-		closures.add(from)
-		const kept = to.filter((c) => !holdsAt(closures.known, c))
-		if (kept.length === to.length) {
-			return
-		}
-		for (const c of to) {
-			if (holdsAt(closures.known, c)) {
-				targeted[c] = (targeted[c] ?? 0) - 1
-			}
-		}
-		table.to[judged] = kept
-	})
-}
-
-/** A strongly connected set of positions, and the sets it leans on: each with a position a dependency reaching it reads. */
-interface Part {
-	readonly columns: NonEmptyReadonlyArray<number>
-	readonly leansOn: Set<Part>
-}
-
-/**
- * The strongly connected sets of `columns` under `next` (core/graph.ts stronglyConnected), each its root first,
- * ordered so that each set comes after every set that reaches it, and otherwise in the order of its first position:
- * each position's set in turn, after the sets it leans on that have not come yet (core/graph.ts postorder).
- */
-const connectedSets = (
-	columns: ReadonlyArray<number>,
-	next: (column: number) => ReadonlyArray<number>
-): ReadonlyArray<NonEmptyReadonlyArray<number>> => {
-	const partOf = new Map<number, Part>()
-	for (const members of stronglyConnected(columns, next)) {
-		const part: Part = {
-			columns: [lastNonEmpty(members), ...members.slice(0, -1)],
-			leansOn: new Set()
-		}
-		for (const m of part.columns) {
-			partOf.set(m, part)
-		}
-	}
-	for (const [c, part] of partOf) {
-		for (const d of next(c)) {
-			const reached = partOf.get(d)
-			if (reached !== undefined && reached !== part) {
-				reached.leansOn.add(part)
-			}
-		}
-	}
-	return postorder(
-		columns.map((c) => defined(partOf.get(c), `the strongly connected set of position ${c}`)),
-		(part) => [...part.leansOn]
-	).map((part) => part.columns)
+/** A dependency of the factor search: its determinants as a set, its targets in its order. */
+interface FactorDependency {
+	readonly from: Bits
+	readonly to: ReadonlyArray<number>
 }
 
 /**
@@ -1113,91 +866,691 @@ const connectedSets = (
  * two.
  *
  * The parts are the strongly connected sets of the attributes under what the dependencies reading them determine, read
- * off the dependencies irredundant (above), each after all that determine it and otherwise in the order of its first
- * attribute. A dependency determining an attribute of a set reads only it and the sets before it, so a key holds a key
- * of each set given the sets before it, which every key determines, and each set's keys are found apart: the product. A
- * dependency's targets the others reach from its determinants join nothing, so a key of k independent factors that a
- * parent closes over, or a view states beside its factors' alternatives, leaves them k factors; a set the ones before
- * it determine whole is in no minimal key and is no factor: an attribute a key determines, a cycle of attributes another
- * factor's key determines, an attribute two factors each determine. Each factor is a set of attributes.
+ * off the dependencies irredundant (FactorScratch), each after all that determine it and otherwise in the order of its
+ * first attribute. A dependency determining an attribute of a set reads only it and the sets before it, so a key holds
+ * a key of each set given the sets before it, which every key determines, and each set's keys are found apart: the
+ * product. A dependency's targets the others reach from its determinants join nothing, so a key of k independent
+ * factors that a parent closes over, or a view states beside its factors' alternatives, leaves them k factors; a set the
+ * ones before it determine whole is in no minimal key and is no factor: an attribute a key determines, a cycle of
+ * attributes another factor's key determines, an attribute two factors each determine. Each factor is a set of
+ * attributes.
  *
  * Linear in the table's size after the irredundant dependencies.
  *
- * The search keeps its table and its engine, so the key search over its factors (logical/props.ts finish) asks them
- * whether a set of positions determines a factor, a closure that stops as soon as it holds the factor, over the
- * dependencies by their classes' representatives, irredundant, which have every closure the node's dependencies have
- * among those positions.
+ * The search keeps its table and its engine in its scratch, so the key search over its factors (logical/props.ts
+ * finish) asks them whether a set of positions determines a factor, a closure that stops as soon as it holds the
+ * factor, over the dependencies by their classes' representatives, irredundant, which have every closure the node's
+ * dependencies have among those positions. It is the scratch's until the next search begins.
  */
 export interface FactorSearch {
 	readonly factors: ReadonlyArray<Bits>
 	/**
 	 * Whether `start` determines every position of `targets` under the table's dependencies: a closure of the search's
-	 * engine (factorClosures) asked for them, which stops as soon as it holds every one, and none where a target outside
-	 * `start` is one no dependency determines.
+	 * engine asked for them, which stops as soon as it holds every one, and none where a target outside `start` is one
+	 * no dependency determines.
 	 */
-	readonly covers: (start: Bits, targets: Bits) => boolean
+	covers(start: Bits, targets: Bits): boolean
 	/** What `start` determines under the table's dependencies: a closure of the search's engine, whole. */
-	readonly reached: (start: Bits) => Bits
+	reached(start: Bits): Bits
 }
 
-export const independentFactors = (
-	columns: Bits,
-	stated: ReadonlyArray<{ readonly from: Bits; readonly to: ReadonlyArray<number> }>
-): FactorSearch => {
-	const table = factorTable(columns, stated)
-	const closures = factorClosures(table)
-	irredundant(table, closures)
-	/** Each dependency's targets among `columns`, as irredundant left them. */
-	const among = table.to.map((to) => to.filter((t) => holdsAt(columns, t)))
-	/** What the dependencies reading each position determine among `columns`, read once a position. */
-	const nexts = new Map<number, ReadonlyArray<number>>()
-	const next = (c: number): ReadonlyArray<number> => {
-		const read = nexts.get(c)
-		if (read !== undefined) {
-			return read
-		}
-		const out: Array<number> = []
-		for (let r = table.readersAt[c] ?? 0; r < (table.readersAt[c + 1] ?? 0); r++) {
-			appendAll(out, among[table.readers[r] ?? 0] ?? [])
-		}
-		nexts.set(c, out)
-		return out
-	}
-	closures.begin(-1)
-	closures.add([])
-	const factors: Array<Bits> = []
-	for (const set of connectedSets(positions(columns), next)) {
-		if (isNonEmpty(set) && !set.every((c) => holdsAt(closures.known, c))) {
-			const factor = emptyLike(columns)
-			for (const c of set) {
-				addTo(factor, c)
+/**
+ * Where a key search works (independentFactors): its factor table, its closures' counters and lists, and its walk of
+ * the table's connected sets, each an array of small integers grown to the largest search it has held and never
+ * shrunk, so a search over a table no larger than one before it allocates none of them (grown); made once an analysis
+ * (logical/props.ts PropsEnv scratch) and read by one search at a time, the search being the scratch itself
+ * (FactorSearch) until the next begins.
+ *
+ * The table, as a closure reads it (Beeri and Bernstein's counters): each dependency's determinants, packed (dependency
+ * i's are fromList from fromAt[i] to fromAt[i + 1]), and their count; each position's dependencies reading it, packed
+ * likewise (readersAt, readers); each dependency's targets, packed (toAt, toList), the first toEnd[i] − toAt[i] of
+ * dependency i's those it determines as it now stands, which irredundant shrinks; the dependencies of no determinant,
+ * which every closure fires; and how many dependencies determine each position as they now stand, so a position none
+ * determines is known reached by no closure that does not start from it.
+ *
+ * Its closures run one at a time over the table, each firing a dependency once its last determinant is known
+ * (LINCLOSURE) and sharing the table's counters: a counter is set again the first time a closure reads it, by the
+ * closure's epoch, and a closure's positions are cleared from the set it holds when the next begins, so a closure costs
+ * what it reaches, never the table's size. A closure begins with nothing known but `skipped` left out (begin), grows
+ * with the positions added (add), and fires the dependencies of no determinant once what was added determines no more.
+ * Where it is asked for some positions (want), it stops as soon as it holds every one: a closure that reaches them near
+ * its start reads no more of the table.
+ */
+export class FactorScratch implements FactorSearch {
+	factors: ReadonlyArray<Bits> = []
+	#known: Bits = emptyWords(0)
+	#wanted: Bits = emptyWords(0)
+	#rows = 0
+	#determinants = allocated(0)
+	#fromAt = allocated(0)
+	#fromList = allocated(0)
+	#toAt = allocated(0)
+	#toEnd = allocated(0)
+	#toList = allocated(0)
+	#given = allocated(0)
+	#givenCount = 0
+	#readersAt = allocated(0)
+	#readers = allocated(0)
+	#filled = allocated(0)
+	#determiners = allocated(0)
+	/** Each dependency's determinants the running closure has not reached, its own where setBy holds the closure's epoch. */
+	#missing = allocated(0)
+	#setBy = allocated(0)
+	#epoch = 0
+	#skipped = -1
+	#givenFired = false
+	/** The wanted positions not held yet, and whether any is wanted. */
+	#open = 0
+	#wanting = false
+	#touched = allocated(0)
+	#touchedCount = 0
+	#wantedAt = allocated(0)
+	#wantedCount = 0
+	#queue = allocated(0)
+	#queueCount = 0
+	/** One question's positions, read out of its set: a closure reads each before the next question. */
+	#at = allocated(0)
+	/** What the dependencies reading each position determine among the search's columns, packed (nextAt, nextList). */
+	#nextAt = allocated(0)
+	#nextList = allocated(0)
+	/** Tarjan's walk: each position's discovery index (−1 unentered) and whether its set is open, the walk, the stack. */
+	#index = allocated(0)
+	#isOpen = allocated(0)
+	#walkVertex = allocated(0)
+	#walkCursor = allocated(0)
+	#walkLow = allocated(0)
+	#stack = allocated(0)
+	#entered = 0
+	#walk = 0
+	#stacked = 0
+	/** The connected sets in the order the walk closes them, each packed with its root first (partAt, partList). */
+	#partAt = allocated(0)
+	#partList = allocated(0)
+	#partOf = allocated(0)
+	/** The sets each set leans on, in the order first found: a linked list a set (leanHead, leanTail, leanNext, leanPart). */
+	#leanHead = allocated(0)
+	#leanTail = allocated(0)
+	#leanMark = allocated(0)
+	#leanNext = allocated(0)
+	#leanPart = allocated(0)
+	/** The postorder of the sets: each one seen, the walk's frames, the order. */
+	#seen = allocated(0)
+	#postPart = allocated(0)
+	#postCursor = allocated(0)
+	#order = allocated(0)
+
+	/** The factor search of `stated` among `columns` (independentFactors), run in the scratch: the scratch, its search. */
+	searchFactors(columns: Bits, stated: ReadonlyArray<FactorDependency>): FactorSearch {
+		const size = this.#table(columns, stated)
+		this.#irredundant()
+		this.#nexts(columns, size)
+		const parts = this.#connectedSets(columns, size)
+		this.#begin(-1)
+		this.#add(this.#at, 0, 0)
+		const factors: Array<Bits> = []
+		const order = this.#order
+		const partAt = this.#partAt
+		const partList = this.#partList
+		for (let o = 0; o < parts; o++) {
+			const part = order[o] ?? 0
+			const start = partAt[part] ?? 0
+			const end = partAt[part + 1] ?? 0
+			let known = true
+			for (let k = start; k < end && known; k++) {
+				known = holdsAt(this.#known, partList[k] ?? 0)
 			}
-			factors.push(factor)
+			if (!known) {
+				const factor = emptyLike(columns)
+				for (let k = start; k < end; k++) {
+					addTo(factor, partList[k] ?? 0)
+				}
+				factors.push(factor)
+			}
+			this.#add(partList, start, end)
 		}
-		closures.add(set)
+		this.factors = factors
+		return this
 	}
-	/** One question's positions at a time, read out of its set: the engine reads each list before it returns. */
-	const at: Array<number> = []
-	const read = (bits: Bits): ReadonlyArray<number> => {
-		at.length = 0
-		pushPositions(at, bits)
-		return at
-	}
-	return {
-		factors,
-		covers: (start, targets) => {
-			if (read(targets).some((t) => !holdsAt(start, t) && (table.determiners[t] ?? 0) === 0)) {
+
+	covers(start: Bits, targets: Bits): boolean {
+		const at = this.#at
+		const n = positionsInto(at, 0, targets)
+		for (let k = 0; k < n; k++) {
+			const t = at[k] ?? 0
+			if (!holdsAt(start, t) && (this.#determiners[t] ?? 0) === 0) {
 				return false
 			}
-			closures.begin(-1)
-			closures.want(read(targets))
-			closures.add(read(start))
-			return subsetOf(targets, closures.known)
-		},
-		reached: (start) => {
-			closures.begin(-1)
-			closures.add(read(start))
-			return copyBits(closures.known)
+		}
+		this.#begin(-1)
+		this.#wanting = true
+		for (let k = 0; k < n; k++) {
+			this.#want(at[k] ?? 0)
+		}
+		this.#add(at, 0, positionsInto(at, 0, start))
+		return subsetOf(targets, this.#known)
+	}
+
+	reached(start: Bits): Bits {
+		this.#begin(-1)
+		this.#add(this.#at, 0, positionsInto(this.#at, 0, start))
+		return copyBits(this.#known)
+	}
+
+	/** The table of `dependencies` over positions whose sets take the words of `like`, in the scratch: its positions' room. */
+	#table(like: Bits, dependencies: ReadonlyArray<FactorDependency>): number {
+		const size = capacityOf(like)
+		const rows = dependencies.length
+		let fromTotal = 0
+		let toTotal = 0
+		for (const d of dependencies) {
+			fromTotal += sizeOf(d.from)
+			toTotal += d.to.length
+		}
+		if (this.#known.length !== like.length) {
+			this.#known = emptyLike(like)
+			this.#wanted = emptyLike(like)
+			this.#touchedCount = 0
+			this.#wantedCount = 0
+		}
+		this.#rows = rows
+		this.#determinants = grown(this.#determinants, rows)
+		const determinants = this.#determinants
+		this.#fromAt = grown(this.#fromAt, rows + 1)
+		const fromAt = this.#fromAt
+		this.#fromList = grown(this.#fromList, fromTotal)
+		const fromList = this.#fromList
+		this.#toAt = grown(this.#toAt, rows + 1)
+		const toAt = this.#toAt
+		this.#toEnd = grown(this.#toEnd, rows)
+		const toEnd = this.#toEnd
+		this.#toList = grown(this.#toList, toTotal)
+		const toList = this.#toList
+		this.#given = grown(this.#given, rows)
+		const given = this.#given
+		this.#readersAt = grown(this.#readersAt, size + 1)
+		const readersAt = this.#readersAt
+		this.#readers = grown(this.#readers, fromTotal)
+		const readers = this.#readers
+		this.#filled = grown(this.#filled, size)
+		const filled = this.#filled
+		this.#determiners = grown(this.#determiners, size)
+		const determiners = this.#determiners
+		this.#missing = grown(this.#missing, rows)
+		this.#setBy = grown(this.#setBy, rows)
+		this.#touched = grown(this.#touched, size)
+		this.#wantedAt = grown(this.#wantedAt, size)
+		this.#queue = grown(this.#queue, size)
+		this.#at = grown(this.#at, size)
+		readersAt.fill(0, 0, size + 1)
+		determiners.fill(0, 0, size)
+		let f = 0
+		let t = 0
+		let g = 0
+		for (let i = 0; i < rows; i++) {
+			const d = defined(dependencies[i], "a dependency of the table")
+			fromAt[i] = f
+			f = positionsInto(fromList, f, d.from)
+			determinants[i] = f - (fromAt[i] ?? 0)
+			for (let k = fromAt[i] ?? 0; k < f; k++) {
+				const p = (fromList[k] ?? 0) + 1
+				readersAt[p] = (readersAt[p] ?? 0) + 1
+			}
+			if (f === fromAt[i]) {
+				given[g] = i
+				g++
+			}
+			toAt[i] = t
+			for (const x of d.to) {
+				toList[t] = x
+				t++
+				determiners[x] = (determiners[x] ?? 0) + 1
+			}
+			toEnd[i] = t
+		}
+		fromAt[rows] = f
+		toAt[rows] = t
+		this.#givenCount = g
+		for (let p = 0; p < size; p++) {
+			readersAt[p + 1] = (readersAt[p + 1] ?? 0) + (readersAt[p] ?? 0)
+			filled[p] = readersAt[p] ?? 0
+		}
+		for (let i = 0; i < rows; i++) {
+			for (let k = fromAt[i] ?? 0; k < (fromAt[i + 1] ?? 0); k++) {
+				const p = fromList[k] ?? 0
+				const at = filled[p] ?? 0
+				readers[at] = i
+				filled[p] = at + 1
+			}
+		}
+		return size
+	}
+
+	/** A closure begins: the last one's positions cleared, its counters its own by a new epoch, `skipped` left out. */
+	#begin(skipped: number): void {
+		for (let i = 0; i < this.#touchedCount; i++) {
+			dropFrom(this.#known, this.#touched[i] ?? 0)
+		}
+		for (let i = 0; i < this.#wantedCount; i++) {
+			dropFrom(this.#wanted, this.#wantedAt[i] ?? 0)
+		}
+		this.#touchedCount = 0
+		this.#wantedCount = 0
+		this.#queueCount = 0
+		if (this.#epoch === lastEpoch) {
+			this.#setBy.fill(0)
+			this.#epoch = 0
+		}
+		this.#epoch++
+		this.#skipped = skipped
+		this.#givenFired = false
+		this.#open = 0
+		this.#wanting = false
+	}
+
+	/** Position `t` wanted by the running closure, which stops once it holds every position wanted. */
+	#want(t: number): void {
+		if (holdsAt(this.#wanted, t)) {
+			return
+		}
+		addTo(this.#wanted, t)
+		this.#wantedAt[this.#wantedCount] = t
+		this.#wantedCount++
+		if (!holdsAt(this.#known, t)) {
+			this.#open++
 		}
 	}
+
+	#reach(c: number): void {
+		if (holdsAt(this.#known, c)) {
+			return
+		}
+		addTo(this.#known, c)
+		this.#touched[this.#touchedCount] = c
+		this.#touchedCount++
+		this.#queue[this.#queueCount] = c
+		this.#queueCount++
+		if (holdsAt(this.#wanted, c)) {
+			this.#open--
+		}
+	}
+
+	#fire(row: number): void {
+		if (row === this.#skipped) {
+			return
+		}
+		const toList = this.#toList
+		for (let k = this.#toAt[row] ?? 0; k < (this.#toEnd[row] ?? 0); k++) {
+			this.#reach(toList[k] ?? 0)
+		}
+	}
+
+	#done(): boolean {
+		return this.#wanting && this.#open === 0
+	}
+
+	#drain(): void {
+		const readersAt = this.#readersAt
+		const readers = this.#readers
+		const setBy = this.#setBy
+		const missing = this.#missing
+		const determinants = this.#determinants
+		const epoch = this.#epoch
+		while (this.#queueCount > 0) {
+			this.#queueCount--
+			const c = this.#queue[this.#queueCount] ?? 0
+			if (this.#done()) {
+				return
+			}
+			for (let r = readersAt[c] ?? 0; r < (readersAt[c + 1] ?? 0); r++) {
+				const row = readers[r] ?? 0
+				if (setBy[row] !== epoch) {
+					setBy[row] = epoch
+					missing[row] = determinants[row] ?? 0
+				}
+				const left = (missing[row] ?? 0) - 1
+				missing[row] = left
+				if (left === 0) {
+					this.#fire(row)
+				}
+			}
+		}
+	}
+
+	/** The positions of `list` from `start` to `end` added to the running closure, and what they determine. */
+	#add(list: Int32Array, start: number, end: number): void {
+		for (let k = start; k < end; k++) {
+			this.#reach(list[k] ?? 0)
+		}
+		this.#drain()
+		if (this.#givenFired) {
+			return
+		}
+		this.#givenFired = true
+		for (let i = 0; i < this.#givenCount; i++) {
+			if (this.#done()) {
+				return
+			}
+			this.#fire(this.#given[i] ?? 0)
+			this.#drain()
+		}
+	}
+
+	/**
+	 * The dependencies with each one of several determinants stating only what the others do not reach from them, in
+	 * table order, each judged against the ones before it as they now stand and the ones after it as stated: the same
+	 * closure of every start. A dependency a parent closes over a key of its input's independent factors, or a view's
+	 * key beside its alternatives, determines what each factor's own dependencies already reach, and states none of it
+	 * here. A dependency of one determinant joins nothing its targets do not: what it reaches through the others, it
+	 * reaches through dependencies its determinant stands in.
+	 *
+	 * One closure per dependency of several determinants, asked for the targets it judges, so it reads the table only
+	 * until it holds them: a target no other dependency determines, nor its determinants hold, is reached by none but
+	 * the one judged, so it is not asked for, and a dependency with no other target is judged by no closure at all.
+	 */
+	#irredundant(): void {
+		const fromAt = this.#fromAt
+		const fromList = this.#fromList
+		const toAt = this.#toAt
+		const toEnd = this.#toEnd
+		const toList = this.#toList
+		const determiners = this.#determiners
+		for (let judged = 0; judged < this.#rows; judged++) {
+			const from = fromAt[judged] ?? 0
+			const fromEnd = fromAt[judged + 1] ?? 0
+			if (fromEnd - from < 2) {
+				continue
+			}
+			const to = toAt[judged] ?? 0
+			const toStop = toEnd[judged] ?? 0
+			let any = false
+			for (let k = to; k < toStop && !any; k++) {
+				any = this.#asked(toList[k] ?? 0, from, fromEnd)
+			}
+			if (!any) {
+				continue
+			}
+			this.#begin(judged)
+			this.#wanting = true
+			for (let k = to; k < toStop; k++) {
+				const t = toList[k] ?? 0
+				if (this.#asked(t, from, fromEnd)) {
+					this.#want(t)
+				}
+			}
+			this.#add(fromList, from, fromEnd)
+			let kept = to
+			for (let k = to; k < toStop; k++) {
+				const c = toList[k] ?? 0
+				if (holdsAt(this.#known, c)) {
+					determiners[c] = (determiners[c] ?? 0) - 1
+				} else {
+					toList[kept] = c
+					kept++
+				}
+			}
+			toEnd[judged] = kept
+		}
+	}
+
+	/**
+	 * Whether the closure judging the dependency whose determinants are fromList from `from` to `to` is asked for its
+	 * target `t`: one of those determinants, or a position another dependency determines too.
+	 */
+	#asked(t: number, from: number, to: number): boolean {
+		const fromList = this.#fromList
+		for (let k = from; k < to; k++) {
+			if (fromList[k] === t) {
+				return true
+			}
+		}
+		return (this.#determiners[t] ?? 0) > 1
+	}
+
+	/** What the dependencies reading each of `columns` determine among them, as they now stand, packed by position. */
+	#nexts(columns: Bits, size: number): void {
+		const readersAt = this.#readersAt
+		const readers = this.#readers
+		const toAt = this.#toAt
+		const toEnd = this.#toEnd
+		const toList = this.#toList
+		let total = 0
+		for (let p = 0; p < size; p++) {
+			if (holdsAt(columns, p)) {
+				for (let r = readersAt[p] ?? 0; r < (readersAt[p + 1] ?? 0); r++) {
+					const row = readers[r] ?? 0
+					total += (toEnd[row] ?? 0) - (toAt[row] ?? 0)
+				}
+			}
+		}
+		this.#nextAt = grown(this.#nextAt, size + 1)
+		const nextAt = this.#nextAt
+		this.#nextList = grown(this.#nextList, total)
+		const nextList = this.#nextList
+		let n = 0
+		for (let p = 0; p < size; p++) {
+			nextAt[p] = n
+			if (!holdsAt(columns, p)) {
+				continue
+			}
+			for (let r = readersAt[p] ?? 0; r < (readersAt[p + 1] ?? 0); r++) {
+				const row = readers[r] ?? 0
+				for (let k = toAt[row] ?? 0; k < (toEnd[row] ?? 0); k++) {
+					const t = toList[k] ?? 0
+					if (holdsAt(columns, t)) {
+						nextList[n] = t
+						n++
+					}
+				}
+			}
+		}
+		nextAt[size] = n
+	}
+
+	/**
+	 * The strongly connected sets of `columns` under what the dependencies reading each determine (Tarjan's walk from
+	 * each position in turn and through each one's successors in their order), each its root first and then its other
+	 * positions as the walk's stack gives them back, ordered so that each set comes after every set that reaches it, and
+	 * otherwise in the order of its first position: each position's set in turn, after the sets it leans on that have
+	 * not come yet, in the order each was first found leaned on (postorder). Into partAt, partList and order: how many.
+	 */
+	#connectedSets(columns: Bits, size: number): number {
+		const nextAt = this.#nextAt
+		const nextList = this.#nextList
+		this.#index = grown(this.#index, size)
+		const index = this.#index
+		this.#isOpen = grown(this.#isOpen, size)
+		const isOpen = this.#isOpen
+		this.#walkVertex = grown(this.#walkVertex, size)
+		const walkVertex = this.#walkVertex
+		this.#walkCursor = grown(this.#walkCursor, size)
+		const walkCursor = this.#walkCursor
+		this.#walkLow = grown(this.#walkLow, size)
+		const walkLow = this.#walkLow
+		this.#stack = grown(this.#stack, size)
+		const stack = this.#stack
+		this.#partAt = grown(this.#partAt, size + 1)
+		const partAt = this.#partAt
+		this.#partList = grown(this.#partList, size)
+		const partList = this.#partList
+		this.#partOf = grown(this.#partOf, size)
+		const partOf = this.#partOf
+		index.fill(-1, 0, size)
+		this.#entered = 0
+		this.#walk = 0
+		this.#stacked = 0
+		let parts = 0
+		let listed = 0
+		partAt[0] = 0
+		const roots = this.#at
+		const rootCount = positionsInto(roots, 0, columns)
+		for (let i = 0; i < rootCount; i++) {
+			const root = roots[i] ?? 0
+			if ((index[root] ?? 0) !== -1) {
+				continue
+			}
+			this.#enter(root)
+			while (this.#walk > 0) {
+				const top = this.#walk - 1
+				const v = walkVertex[top] ?? 0
+				const cursor = walkCursor[top] ?? 0
+				if (cursor < (nextAt[v + 1] ?? 0)) {
+					walkCursor[top] = cursor + 1
+					const s = nextList[cursor] ?? 0
+					if ((index[s] ?? 0) === -1) {
+						this.#enter(s)
+					} else if (isOpen[s] === 1) {
+						walkLow[top] = Math.min(walkLow[top] ?? 0, index[s] ?? 0)
+					}
+					continue
+				}
+				this.#walk--
+				const low = walkLow[top] ?? 0
+				if (top > 0) {
+					walkLow[top - 1] = Math.min(walkLow[top - 1] ?? 0, low)
+				}
+				if (low === index[v]) {
+					partList[listed] = v
+					listed++
+					this.#stacked--
+					for (let m = stack[this.#stacked] ?? 0; m !== v; m = stack[this.#stacked] ?? 0) {
+						partList[listed] = m
+						listed++
+						isOpen[m] = 0
+						partOf[m] = parts
+						this.#stacked--
+					}
+					isOpen[v] = 0
+					partOf[v] = parts
+					parts++
+					partAt[parts] = listed
+				}
+			}
+		}
+		this.#leans(parts, nextAt[size] ?? 0)
+		return this.#postorder(parts, rootCount)
+	}
+
+	/** Tarjan's walk enters position `v`: its discovery index, open, its frame on the walk and itself on the stack. */
+	#enter(v: number): void {
+		const walk = this.#walk
+		this.#index[v] = this.#entered
+		this.#walkLow[walk] = this.#entered
+		this.#entered++
+		this.#isOpen[v] = 1
+		this.#walkVertex[walk] = v
+		this.#walkCursor[walk] = this.#nextAt[v] ?? 0
+		this.#walk = walk + 1
+		this.#stack[this.#stacked] = v
+		this.#stacked++
+	}
+
+	/**
+	 * The sets each set leans on, each once, in the order first found: for each set in turn and each of its positions,
+	 * the set of each position a dependency reading it determines leans on it.
+	 */
+	#leans(parts: number, edgesAtMost: number): void {
+		const nextAt = this.#nextAt
+		const nextList = this.#nextList
+		const partAt = this.#partAt
+		const partList = this.#partList
+		const partOf = this.#partOf
+		this.#leanHead = grown(this.#leanHead, parts)
+		const head = this.#leanHead
+		this.#leanTail = grown(this.#leanTail, parts)
+		const tail = this.#leanTail
+		this.#leanMark = grown(this.#leanMark, parts)
+		const mark = this.#leanMark
+		this.#leanNext = grown(this.#leanNext, edgesAtMost)
+		const next = this.#leanNext
+		this.#leanPart = grown(this.#leanPart, edgesAtMost)
+		const leaned = this.#leanPart
+		head.fill(-1, 0, parts)
+		tail.fill(-1, 0, parts)
+		mark.fill(-1, 0, parts)
+		let edges = 0
+		for (let p = 0; p < parts; p++) {
+			for (let k = partAt[p] ?? 0; k < (partAt[p + 1] ?? 0); k++) {
+				const c = partList[k] ?? 0
+				for (let j = nextAt[c] ?? 0; j < (nextAt[c + 1] ?? 0); j++) {
+					const q = partOf[nextList[j] ?? 0] ?? 0
+					if (q === p || mark[q] === p) {
+						continue
+					}
+					mark[q] = p
+					leaned[edges] = p
+					next[edges] = -1
+					const last = tail[q] ?? -1
+					if (last === -1) {
+						head[q] = edges
+					} else {
+						next[last] = edges
+					}
+					tail[q] = edges
+					edges++
+				}
+			}
+		}
+	}
+
+	/**
+	 * The sets in postorder from each root position's set in turn (`rootCount` of them, in the scratch's question), each
+	 * after the sets it leans on: into order, how many.
+	 */
+	#postorder(parts: number, rootCount: number): number {
+		const roots = this.#at
+		const partOf = this.#partOf
+		const head = this.#leanHead
+		const next = this.#leanNext
+		const leaned = this.#leanPart
+		this.#seen = grown(this.#seen, parts)
+		const seen = this.#seen
+		this.#postPart = grown(this.#postPart, parts)
+		const framePart = this.#postPart
+		this.#postCursor = grown(this.#postCursor, parts)
+		const frameCursor = this.#postCursor
+		this.#order = grown(this.#order, parts)
+		const order = this.#order
+		seen.fill(0, 0, parts)
+		let placed = 0
+		let frames = 0
+		for (let i = 0; i < rootCount; i++) {
+			const root = partOf[roots[i] ?? 0] ?? 0
+			if (seen[root] === 1) {
+				continue
+			}
+			seen[root] = 1
+			framePart[frames] = root
+			frameCursor[frames] = head[root] ?? -1
+			frames++
+			while (frames > 0) {
+				const top = frames - 1
+				const edge = frameCursor[top] ?? -1
+				if (edge === -1) {
+					frames--
+					order[placed] = framePart[top] ?? 0
+					placed++
+					continue
+				}
+				frameCursor[top] = next[edge] ?? -1
+				const input = leaned[edge] ?? 0
+				if (seen[input] !== 1) {
+					seen[input] = 1
+					framePart[frames] = input
+					frameCursor[frames] = head[input] ?? -1
+					frames++
+				}
+			}
+		}
+		return placed
+	}
 }
+
+/**
+ * The factors of `stated`'s minimal keys among `columns` (FactorSearch), searched in `scratch`: the scratch, its
+ * search until the next.
+ */
+export const independentFactors = (
+	scratch: FactorScratch,
+	columns: Bits,
+	stated: ReadonlyArray<FactorDependency>
+): FactorSearch => scratch.searchFactors(columns, stated)

@@ -4,8 +4,8 @@
  * once, from the classifier's roles (analysis/theory/instants.ts):
  *
  * - an insert leaves a clock out, which it stamps, and states none (`clockStated`); a reference it leaves out is stamped
- *   by its clock's stamp source, and one with none is refused (`unstampable`); no stamp reads a child the same insert
- *   stamps (`childStamped`);
+ *   by its clock's stamp source, and one with none is refused (`unstampable`); no stamp's child holds a field the same
+ *   insert stamps (`childStamped`);
  * - a put states every instant of its rows, a clock never (`clockStated`), and a delete states every instant
  *   (`unstated`), each from a stored instant, which only a query's term of instant's type is (check/member.ts): no host
  *   row carries an instant (frontend/compile.ts carriedOf);
@@ -13,7 +13,9 @@
  *   statement, which stamps every row of its nesting (write/family/additions.ts); never through a query entry's
  *   precheck (`stampedApart`, statements);
  * - a ChangeSet stamps each clock in one stratum (`stampedApart`, strata), and a reference it stamps beside an insert of
- *   its clock in that stratum (`clockUnstamped`). A later stratum reads the stamped rows back as stored instants.
+ *   its clock in that stratum (`clockUnstamped`). A later stratum reads the stamped rows back as stored instants. Two
+ *   clocks of one scope may stamp in two strata, or two statements: each stamps rows of its own relation, which the
+ *   other's never meets at its key, and both take the call's one instant of the scope (write/insert/stamp.ts).
  *
  * A place (ir/instant.ts PlaceHead) is stamped as a clock is, by its own head at its group, and refused as PlaceRefused:
  * no put writes its relation, and a delete only where it removes whole groups (`written`, Removal), its group holds no
@@ -30,9 +32,9 @@ import type { WriteOp } from "#compiler/ir/desc.ts"
 import {
 	type HeadStamped,
 	headStamped,
-	headText,
 	type Instants,
-	type Stamped
+	type Stamped,
+	stampText
 } from "#compiler/ir/instant.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
@@ -83,8 +85,17 @@ export const refuseUnitPlace = (
 	}
 }
 
-/** A stamp's head's spelling in a refusal: its relation and field. */
-const clockText = (s: HeadStamped): string => headText(s.stamp.head)
+/** A stamp's spelling in a refusal: its clock's relation and field, or its place's. */
+const clockText = (s: HeadStamped): string => stampText(s.stamp)
+
+/** Whether a stamp is `relation`'s own: its own clock, or its own place, never a reference's clock. */
+const ownStamp = (s: HeadStamped, relation: string): boolean => {
+	const [of, field] =
+		s.stamp.kind === "clock"
+			? [s.stamp.clock.relation, s.stamp.clock.field.name]
+			: [s.stamp.place.relation, s.stamp.place.field.name]
+	return of === relation && field === s.field.name
+}
 
 /**
  * The refusal of `s`, a stamp of `relation`'s, as stamped apart: `apart` in two strata or in a stratum of several
@@ -96,7 +107,7 @@ const refusedApart = (
 	s: HeadStamped,
 	apart: "strata" | "statements"
 ): never =>
-	s.stamp.head.kind === "clock"
+	s.stamp.kind === "clock"
 		? refused(loc, relation, s.field.name, { kind: "stampedApart", clock: clockText(s), apart })
 		: placeRefused(loc, relation, s.field.name, { kind: "stampedApart", apart })
 
@@ -150,7 +161,7 @@ export const stampsOf = (
 		if (role.stamp === undefined) {
 			return refused(loc, relation.name, field.name, { kind: "unstampable" })
 		}
-		stamped.push({ field, stamp: { kind: "head", ...role.stamp } })
+		stamped.push({ field, stamp: { kind: "clock", ...role.stamp } })
 	}
 	if (place !== undefined) {
 		if (op === "delete" && removes === "groups") {
@@ -159,7 +170,7 @@ export const stampsOf = (
 		if (op !== "insert") {
 			return placeRefused(loc, relation.name, place.field.name, { kind: "written", op })
 		}
-		stamped.push({ field: place.field, stamp: { kind: "head", head: place, child: place.child } })
+		stamped.push({ field: place.field, stamp: { kind: "place", place, child: place.child } })
 	}
 	for (const s of stamped) {
 		const inChild = s.stamp.child.find((f) => stamped.some((o) => o.field.name === f.name))
@@ -167,7 +178,7 @@ export const stampsOf = (
 			continue
 		}
 		const within = `${relation.name}.${inChild.name}`
-		return s.stamp.head.kind === "clock"
+		return s.stamp.kind === "clock"
 			? refused(loc, relation.name, s.field.name, { kind: "childStamped", stamped: within })
 			: placeRefused(loc, relation.name, s.field.name, { kind: "groupStamped", stamped: within })
 	}
@@ -247,9 +258,7 @@ export const refuseStampsApart = (actions: ReadonlyArray<StampingAction>): void 
 	const clocks = new Map<string, number>()
 	for (const a of actions) {
 		for (const s of headStamped(a.stamps)) {
-			const own =
-				s.stamp.head.relation === a.relation.name && s.stamp.head.field.name === s.field.name
-			if (!own) {
+			if (!ownStamp(s, a.relation.name)) {
 				continue
 			}
 			const key = clockText(s)

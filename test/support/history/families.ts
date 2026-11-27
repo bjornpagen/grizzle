@@ -9,7 +9,6 @@ import type { HistoryEnv } from "#test/support/history/run.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import { type Names, namesOf } from "#test/support/kernel/naming.ts"
 import {
-	alternativesBox,
 	Done,
 	Employment,
 	type Family,
@@ -27,6 +26,7 @@ import {
 	Seat,
 	Shift,
 	spanCoverage,
+	taggedArmsBox,
 	type TimekeepingParams,
 	Timesheet,
 	timekeeping,
@@ -204,7 +204,7 @@ const historyTemplates =
 					database: template.database,
 					bound: Effect.map(
 						template.bound,
-						(bind) => (binding) => historyInstallOf(family, p, bind(binding))
+						(bind) => (binding) => historyInstallOf(family, p, bind(binding).installed)
 					)
 				}
 				return [String(at), value] as const
@@ -241,10 +241,10 @@ const historyEnv = <P>(
 		}
 	})
 
-export const alternativesHistory: HistoryFamily<RunsParams> = {
-	family: alternativesBox,
-	templates: historyTemplates(alternativesBox),
-	install: (p) => historyInstall(alternativesBox, p),
+export const taggedArmsHistory: HistoryFamily<RunsParams> = {
+	family: taggedArmsBox,
+	templates: historyTemplates(taggedArmsBox),
+	install: (p) => historyInstall(taggedArmsBox, p),
 	connect: (i) => {
 		const schema = runs(i.params)(i.installed.declared)
 		return historyEnv(i, schema, runsRelations(i.params))

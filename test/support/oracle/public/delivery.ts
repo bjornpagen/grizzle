@@ -15,7 +15,6 @@ import {
 	type StatedDelivery,
 	type Stored
 } from "#test/support/oracle/public/program.ts"
-import { equal, type Value } from "#test/support/oracle/reference/values.ts"
 
 /** The query an attachment attaches to, as the proof reads it. */
 export type Parent<P extends ParentColumn> = Pick<ProgramQuery<P>, "heading" | "arms">
@@ -24,7 +23,6 @@ export type Parent<P extends ParentColumn> = Pick<ProgramQuery<P>, "heading" | "
 export interface DeliveryProof {
 	readonly atMostOne: boolean
 	readonly exactlyOne: boolean
-	readonly arms: ReadonlyArray<Extract<StatedDelivery, { readonly kind: "arm" }>>
 }
 
 /**
@@ -190,43 +188,6 @@ const reflexive = <P extends ParentColumn>(
 	)
 }
 
-/** The arms the child is (see the header): one per literal handle at a handle field and parent column d that hold. */
-const arms = <P extends ParentColumn>(
-	parent: Parent<P>,
-	rule: Rule<ParentColumn>
-): DeliveryProof["arms"] =>
-	Arr.flatMap(rule.matches[0].bindings, (h) => {
-		const operand = h.operand
-		const m = soleMatch(rule, h.field)
-		if (m === undefined || operand.kind !== "literal" || operand.literal.kind !== "handle") {
-			return []
-		}
-		const handle = operand.literal.handle
-		const bound = parentBound(m)
-		const fixed = new Set(Arr.map(bound, (b) => b.field))
-		if (
-			!Arr.some(
-				keysOf(m.source),
-				(k) => k.length === fixed.size && Arr.every(k, (f) => fixed.has(f))
-			)
-		) {
-			return []
-		}
-		return Arr.flatMap(parent.heading, (d) =>
-			d.type.carrier === "code" &&
-			Arr.every(parent.arms, (pr) =>
-				Arr.some(
-					pr.matches,
-					(pm) =>
-						readsAt(pr, pm, m.source, h.field, d, false) &&
-						Arr.every(bound, ({ field, column }) => readsAt(pr, pm, m.source, field, column, false))
-				)
-			)
-				? [{ kind: "arm" as const, field: d, handle }]
-				: []
-		)
-	})
-
 /**
  * What the program language proves of an attachment's children per parent, by its own rules, and the deliveries an
  * attachment may therefore state.
@@ -243,13 +204,7 @@ const arms = <P extends ParentColumn>(
  *   stored relation R, with no filter and no negation, every field bound to a parent column or to a variable bound
  *   nowhere else, or left out. The parent is one rule in which one match of R binds, at each field the child binds to
  *   a parent column, the head variable of that column, once in that match. The parent's own fact is then one of the
- *   child's, so the child's group is never empty;
- * - the arm of handle H over the parent column d: the child is one match of a stored relation R, with no filter and
- *   no negation, binding exactly the fields of a key K of R to parent columns, a handle field h of R outside K to
- *   the literal H, and every other field to a variable bound nowhere else, or leaving it out. In every rule of the
- *   parent one match of R binds each field of K to the head variable of the parent column the child binds it to, and h
- *   to the head variable of d. A parent row's key and d are then one fact's, so its child exists exactly when d holds
- *   H, and at most once.
+ *   child's, so the child's group is never empty.
  *
  * What the language proves of `child`'s children per row of `parent`.
  */
@@ -259,33 +214,27 @@ export const deliveryProof = <P extends ParentColumn>(
 ): DeliveryProof => {
 	const [rule, ...more] = child.arms
 	if (more.length > 0 || child.bound.kind !== "set") {
-		return { atMostOne: false, exactlyOne: false, arms: [] }
+		return { atMostOne: false, exactlyOne: false }
 	}
 	const exactlyOne = reflexive(parent, rule)
 	const atMostOne =
 		exactlyOne ||
 		groupsByNoVariable(rule) ||
 		(!isAggregate(rule) && Arr.every(rule.matches, fixesKey))
-	return { atMostOne, exactlyOne, arms: atMostOne ? arms(parent, rule) : [] }
+	return { atMostOne, exactlyOne }
 }
 
 /** The deliveries an attachment may state, the array first: every one its proof licenses. */
 export const licensed = (proof: DeliveryProof): Arr.NonEmptyReadonlyArray<StatedDelivery> => [
 	{ kind: "array" },
 	...(proof.atMostOne ? [{ kind: "option" } as const] : []),
-	...(proof.exactlyOne ? [{ kind: "one" } as const] : []),
-	...proof.arms
+	...(proof.exactlyOne ? [{ kind: "one" } as const] : [])
 ]
 
 /**
- * How many children a stated delivery promises a parent row of `shape` holding `values`: any number, at most one,
- * exactly one, or for an arm one exactly where the row's field holds the handle and none elsewhere.
+ * How many children a stated delivery promises a parent row: any number, at most one, or exactly one.
  */
-const promised = (
-	delivery: StatedDelivery,
-	shape: Shape,
-	values: ReadonlyArray<Value>
-): ((count: number) => boolean) => {
+const promised = (delivery: StatedDelivery): ((count: number) => boolean) => {
 	switch (delivery.kind) {
 		case "array":
 			return () => true
@@ -293,14 +242,6 @@ const promised = (
 			return (count) => count <= 1
 		case "one":
 			return (count) => count === 1
-		case "arm": {
-			const at = Arr.findFirstIndex(shape.columns, (c) => c.name === delivery.field.name)
-			const selected = Option.exists(at, (i) => {
-				const value = values[i]
-				return value !== undefined && equal(value, delivery.handle, delivery.field.type)
-			})
-			return (count) => count === (selected ? 1 : 0)
-		}
 	}
 }
 
@@ -313,7 +254,7 @@ export const brokenDelivery = (shape: Shape, rows: ReadonlyArray<Nested>): Optio
 	Arr.findFirst(rows, (row) =>
 		Arr.findFirst(shape.attachments, (a, i): Option.Option<string> => {
 			const children = row.attachments[i] ?? []
-			if (!promised(a.delivery, shape, row.values)(children.length)) {
+			if (!promised(a.delivery)(children.length)) {
 				return Option.some(
 					`${a.name} states ${a.delivery.kind} and the reference delivers ${children.length} children to a parent`
 				)

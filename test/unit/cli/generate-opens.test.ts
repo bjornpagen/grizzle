@@ -6,10 +6,10 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Exit, Layer, Result } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
 import { served } from "#adapter/public/layer.ts"
-import { artifactsOver, layerOver, loginRoles, workloadSlice } from "#adapter/served/login.ts"
+import { artifactsOver, loginRoles, workloadReach } from "#adapter/served/login.ts"
 import { noLevelAbove } from "#adapter/witness/keylaw.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
-import { draftSchema, servedFiles } from "#cli/generate.ts"
+import { draftSchema, eachServedFile } from "#cli/generate.ts"
 import { silentPhases } from "#compiler/core/phase.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
@@ -50,6 +50,7 @@ export const generateAndDbLayerMakeCompileALoginsProgramsAlikeAtTheSelectListsBo
 				const pairs = pairsOf(head)
 				const config = yield* resolveConfig(
 					defineConfig({
+						contracts: [],
 						schemas: [pairs.schema],
 						logins: [pairs.login],
 						migrations: "migrations",
@@ -70,30 +71,30 @@ export const generateAndDbLayerMakeCompileALoginsProgramsAlikeAtTheSelectListsBo
 							noDeclarations,
 							silentPhases
 						),
-						(draft) => servedFiles(compiledSchema, draft, draft.served, silentPhases)
+						(draft) =>
+							eachServedFile(compiledSchema, draft, draft.served, silentPhases, Effect.succeed)
 					)
 				)
 				const codes = firstCodebook(rostersOf(compiledSchema.owned))
 				const compiled = yield* Effect.result(
 					Effect.flatMap(
-						Effect.mapError(
-							workloadSlice(compiledLogin.login, compiledLogin.owned),
-							(refused) => refused.error
-						),
-						(slice) =>
-							Effect.flatMap(
+						Effect.flatMap(
+							Effect.mapError(
+								workloadReach(compiledLogin.login, compiledLogin.owned),
+								(refused) => refused.error
+							),
+							(reach) =>
 								fromEngine(
-									layerOver(slice, (sliced) =>
-										Engine.flatMap(installBasis(compiledLogin.owned.base, codes, sliced), (basis) =>
-											artifactsOver(basis, boxParams)
-										)
+									Engine.flatMap(
+										installBasis(compiledLogin.owned.base, codes, reach.served),
+										(basis) => artifactsOver(basis, boxParams)
 									)
-								),
-								(layer) =>
-									Effect.mapError(
-										loginRoles(compiledLogin.login, compiledLogin.owned, layer, noLevelAbove),
-										(refused) => refused.error
-									)
+								)
+						),
+						(artifacts) =>
+							Effect.mapError(
+								loginRoles(compiledLogin.login, compiledLogin.owned, artifacts, noLevelAbove),
+								(refused) => refused.error
 							)
 					)
 				)

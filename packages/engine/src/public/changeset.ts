@@ -44,6 +44,7 @@ export type {
 	Member,
 	OwnLaw,
 	BrokenLaws,
+	DrawnBy,
 	RefusedLaw,
 	RefusingObject,
 	StatedLaw,

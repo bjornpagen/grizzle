@@ -24,7 +24,8 @@ import { OptimizedDelivery, optimizedDispatch, ShapeState } from "#compiler/lowe
 import { noKeys } from "#compiler/lower/shapes/share/keyed.ts"
 import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
-import type { OperandBody, OperandSelect } from "#compiler/sql/ast.ts"
+import type { OperandBody, OperandSelect, EmittedSql } from "#compiler/sql/ast.ts"
+import { emitText } from "#compiler/sql/emit.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { mergeComparator } from "#test/support/merge.ts"
 import { keyed, Posting, Q, T, Task } from "#test/unit/lower/conservative/fixtures.ts"
@@ -88,7 +89,9 @@ export const optimized = (built: LogicalQuery): number => {
 	)
 	return Arr.reduce(
 		flight(
-			new OptimizedDelivery<never>(cx, facts, state).optimizedProgram(built.dag.roots[0]).roots
+			new OptimizedDelivery<never, never, EmittedSql>(cx, facts, state, emitText).optimizedProgram(
+				built.dag.roots[0]
+			).roots
 		),
 		0,
 		(n, s) => n + (s.role.kind === "attachment" ? 1 : 0) + s.fused.length

@@ -52,11 +52,8 @@ import {
 	payloadsOfLiteral
 } from "#compiler/ir/cells.ts"
 import { literalPackFault } from "#compiler/physical/ddl/literal.ts"
-import {
-	compileInstallation,
-	type Installation,
-	installOptions
-} from "#compiler/physical/install/compile.ts"
+import { type Installation, installOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import type { ObjectName, PackConstant, PackLayout } from "#compiler/sql/ast.ts"
 import { type ConstantFunctions, pack } from "#compiler/sql/constants.ts"
 import { printObjectName, printStatement, readLiteralPack } from "#compiler/sql/print.ts"

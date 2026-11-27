@@ -170,7 +170,7 @@ const sent = (statement: UninstallStatement): BatchStatement =>
 const privilegeLock = (): BatchStatement => {
 	const lock = emit(databaseLock, emptyNameMap)
 	if (!lock.ok) {
-		throw defect("the database lock prints")
+		defect("the database lock prints")
 	}
 	return oneShotStatement(lock.value.text, [])
 }
@@ -179,7 +179,7 @@ const privilegeLock = (): BatchStatement => {
 const emitted = (statement: Parameters<typeof emit>[0]): BatchStatement => {
 	const printed = emit(statement, emptyNameMap)
 	if (!printed.ok) {
-		throw defect(`uninstall's ${statement.kind} prints`)
+		defect(`uninstall's ${statement.kind} prints`)
 	}
 	return oneShotStatement(printed.value.text, [])
 }

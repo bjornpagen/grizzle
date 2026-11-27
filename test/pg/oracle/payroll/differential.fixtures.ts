@@ -1,6 +1,6 @@
 import { array, type Gen } from "@bjornpagen/testing/gen"
 import { Effect } from "effect"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { type PayrollProgram, payrollPrograms } from "#test/pg/oracle/payroll/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { templateNeedBudget } from "#test/support/budgets.ts"
@@ -11,7 +11,6 @@ import {
 	type HistoryOptions,
 	type Installed,
 	noPlaceholders,
-	noVersionWorkload,
 	templateInstalled
 } from "#test/support/install-migrate.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -65,12 +64,7 @@ export const payrollTemplate = installTemplate({
 	plan: (names) =>
 		Effect.map(
 			draftedHistory(
-				[
-					{
-						version: { schema: P.Reporting, logins: [], declarations: noDeclarations },
-						workload: noVersionWorkload
-					}
-				],
+				[{ schema: P.Reporting, declarations: noDeclarations }],
 				options,
 				names.schema
 			),

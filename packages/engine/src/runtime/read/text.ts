@@ -11,7 +11,7 @@ import {
 	type ColumnForm,
 	type DecoderForm,
 	formFields,
-	type FormField,
+	type FieldForm,
 	type OptionVocabulary
 } from "#compiler/core/decoder.ts"
 import type { CodecFault } from "#compiler/core/errors.ts"
@@ -47,9 +47,10 @@ const listText =
 /**
  * A column's value's text by its form (core/decoder.ts ColumnForm), framed: a converted column's and head literals'
  * its conversion's carrier's one text (codec/scalar.ts specText), a refined text's the text itself, a closed id's its
- * handle (handleText), a set's its handles in its roster's declared order as a list (handleList), and a bytes value's
- * its digest, its canonical text. Each is the column's type's one text of the value, so two values have one text
- * exactly where the type's equality holds them equal.
+ * handle (handleText), a set's its handles in its roster's declared order as a list (handleList), a bytes value's
+ * its digest, its canonical text, and a variant's its tag's handle and its arm's fields' texts by their own columns, as
+ * a list. Each is the column's type's one text of the value, so two values have one text exactly where the type's
+ * equality holds them equal.
  */
 const columnText = (column: ColumnForm, rosterOf: (name: string) => Roster): ValueText => {
 	switch (column.kind) {
@@ -74,15 +75,44 @@ const columnText = (column: ColumnForm, rosterOf: (name: string) => Roster): Val
 			const handles = handleList(rosterOf(column.roster))
 			return (value) => Result.map(handles(value), framedList)
 		}
+		case "variant": {
+			const arms = new Map(
+				column.arms.map(
+					(arm) =>
+						[
+							arm.handle,
+							arm.fields.map(([name, form]) => [name, columnText(form, rosterOf)] as const)
+						] as const
+				)
+			)
+			return (value) => {
+				if (!isRecord(value) || typeof value["tag"] !== "string") {
+					return Result.err("variantType")
+				}
+				const fields = arms.get(value["tag"])
+				if (fields === undefined) {
+					return Result.err("variantTag")
+				}
+				const texts: Array<string> = [value["tag"]]
+				for (const [name, text] of fields) {
+					const t = text(value[name])
+					if (!t.ok) {
+						return t
+					}
+					texts.push(t.value)
+				}
+				return Result.ok(framedList(texts))
+			}
+		}
 	}
 }
 
 /**
  * A field's value's text: a column's (columnText); an attachment's children's texts as a list, an array's in their
- * order, an Option's none or its one, the one child's alone; an alternatives arm's, an Option, its none or its one.
+ * order, an Option's none or its one, the one child's alone.
  */
 const fieldText = (
-	field: FormField,
+	field: FieldForm,
 	rosterOf: (name: string) => Roster,
 	options: OptionVocabulary
 ): ValueText => {
@@ -95,7 +125,7 @@ const fieldText = (
 				case "array":
 					return (value) => {
 						if (!isList(value)) {
-							throw defect("an array attachment's value is its children's list")
+							defect("an array attachment's value is its children's list")
 						}
 						return children(value)
 					}
@@ -104,12 +134,6 @@ const fieldText = (
 				case "one":
 					return (value) => children([value])
 			}
-		}
-		case "some":
-		case "none":
-		case "arm": {
-			const children = listText(rowTextOf(field.child, rosterOf, options))
-			return (value) => children(options.held(value))
 		}
 	}
 }
@@ -138,11 +162,11 @@ export const rowTextOf = (
 	const byKeys = new Map(headings.map((heading) => [heading.keys, heading] as const))
 	return (value) => {
 		if (!isRecord(value)) {
-			throw defect("a found row is a record")
+			defect("a found row is a record")
 		}
 		const heading = byKeys.get(Object.keys(value).toSorted().join("\n"))
 		if (heading === undefined) {
-			throw defect("a found row holds the keys of one of its query's headings")
+			defect("a found row holds the keys of one of its query's headings")
 		}
 		let text = `${heading.place}:`
 		for (const [key, read] of heading.fields) {

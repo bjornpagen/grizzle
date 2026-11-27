@@ -1,6 +1,6 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { TextChunks } from "@bjornpagen/grizzle-text/chunks"
-import type { UnitLocalityCondition } from "#compiler/core/causes.ts"
+import type { UncheckedDelta, UnitLocalityCondition } from "#compiler/core/causes.ts"
 import type { ColumnIdent, LawId, RelationIdent, SchemaFingerprint } from "#compiler/core/ids.ts"
 import type { RecordedManifest } from "#compiler/deploy/snapshot/recorded.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
@@ -19,6 +19,7 @@ import type { LivePlan, LiveSource } from "#compiler/live/notify.ts"
 import type { ClosedNames } from "#compiler/physical/ddl/constants.ts"
 import type { InstalledParams, TextDomainNames } from "#compiler/physical/ddl/domains.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
+import type { PlannedGraph } from "#compiler/physical/planned/graph.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 
 /**
@@ -249,15 +250,15 @@ export interface CompileFacts {
 	 */
 	readonly closed: ClosedNames
 	/**
-	 * The foreign key graph's strongly connected components of more than one relation, names in code point order, which
-	 * a layer planning only a slice reads for its deferral (laws/model/model.ts FkCycles). generate plans them from every
-	 * law; DbLayer.make reads them here and plans no law its slice does not name.
+	 * The foreign key graph's strongly connected components of more than one relation, names in code point order, which a
+	 * login's compile reads for its deferral (laws/model/model.ts FkCycles). generate plans them from every law;
+	 * DbLayer.make reads them here.
 	 */
 	readonly fkCycles: FkCycles
 	/**
-	 * The parts whose fixed targets take the shared reference (laws/model/plan.ts ReferenceChoice), which a layer planning
-	 * only a slice reads for each reference it plans. generate chooses them over every law; DbLayer.make reads them here
-	 * and chooses none.
+	 * The parts whose fixed targets take the shared reference (laws/model/plan.ts ReferenceChoice), which a login's
+	 * compile reads for each reference it plans. generate chooses them over every law; DbLayer.make reads them here and
+	 * chooses none.
 	 */
 	readonly references: ReferenceChoice
 	/**
@@ -269,9 +270,9 @@ export interface CompileFacts {
 	readonly judged: ReadonlyArray<string>
 	/**
 	 * Each structural text domain the installation holds, by its pattern language's key, with the digest that names it
-	 * (physical/ddl/domains.ts TextDomainNames), which every compile names a refined text's domain by whatever relations
-	 * its slice reads. generate plans them from every artifact and served program (physical/install/plan.ts
-	 * artifactObjects, ServedTypes); DbLayer.make reads them here and collects none.
+	 * (physical/ddl/domains.ts TextDomainNames), which every compile names a refined text's domain by. generate plans
+	 * them from every artifact and served program (physical/install/plan.ts artifactObjects, ServedTypes); DbLayer.make
+	 * reads them here and collects none.
 	 */
 	readonly textDomains: TextDomainNames
 	/**
@@ -369,13 +370,64 @@ export interface SnapshotDerived extends CompileFacts {
 	 * and what keeps each from being stored (analysis/derived/storage.ts). No compile reads it.
 	 */
 	readonly liveDerived: Readonly<Record<string, LiveDerived>>
+	/**
+	 * Each rule over a query whose probes of the rows a write adds to a relation read none of them at some occurrence of
+	 * it, by its law's identifier, with each such relation and its proofs (`ProvedRelation`): the record a reviewer
+	 * reads to see why the rule judge holds no block of a law over a relation's added rows. No compile reads it.
+	 */
+	readonly proved: Readonly<Record<string, NonEmptyReadonlyArray<ProvedRelation>>>
+	/**
+	 * The installation's planned queries (physical/planned/graph.ts PlannedGraph): what each of its functions' bodies,
+	 * each trigger's by its event, and each referential action plans, and what each reaches, which a served compile walks
+	 * from a call's own statements to bound the pg_stat_statements entries one call makes (program/planned.ts). No served
+	 * file reads it.
+	 */
+	readonly planned: PlannedGraph
 }
+
+/**
+ * A relation a rule over a query reads that its probes of a write's added rows spare at some occurrence, as
+ * snapshot.json records it (laws/model/model.ts CoveredRelation): the relation; each sibling's cover, the relation of
+ * the stored match beside the occurrence, the field pairs of the containment of its rows into the relation it is read
+ * through, and what it pins, every field the occurrence reads (`read`), or a key of a closed relation (`fresh`, every
+ * row a write adds of it a row of a new key); or a target's negation of it a sibling arm regains (`clock`, the fields
+ * the negation binds and the relation's clocks the sibling reads, each no earlier than a clock of its scope); and the
+ * sides of the relation's writes a block of the
+ * rule still reads, none where it holds no block of the relation.
+ */
+export interface ProvedRelation {
+	readonly relation: string
+	readonly covers: NonEmptyReadonlyArray<ProvedCover>
+	readonly sides: ReadonlyArray<"added" | "removed">
+}
+
+/** A sibling's cover of an occurrence (ProvedRelation `covers`), as snapshot.json records it. */
+export type ProvedCover =
+	| {
+			readonly kind: "read"
+			readonly sibling: string
+			readonly pairs: NonEmptyReadonlyArray<{ readonly from: string; readonly to: string }>
+	  }
+	| {
+			readonly kind: "fresh"
+			readonly sibling: string
+			readonly pairs: NonEmptyReadonlyArray<{ readonly from: string; readonly to: string }>
+			readonly key: NonEmptyReadonlyArray<string>
+	  }
+	| {
+			readonly kind: "clock"
+			readonly fields: NonEmptyReadonlyArray<string>
+			readonly clocks: NonEmptyReadonlyArray<string>
+	  }
 
 /**
  * Why the installation keeps a derived relation live (analysis/derived/storage.ts LiveReason), as snapshot.json records
  * it: `notUnitLocal`, the condition of unit-locality its definition lacks, with where; `unboundedUpkeep`, the declared
- * unit its upkeep would re-derive whole and the fields of its unit's key; or `unrepresentable`, why its table could not
- * hold its rows, as the refusal of its table states it.
+ * unit its upkeep would re-derive whole, the fields of its unit's key, and why its delta form bounds no upkeep, the
+ * condition it lacks and where (core/causes.ts UncheckedDelta); `recursion`, a recursion over a unit no
+ * founding write writes whole, which no delta rule keeps, with that unit and its key's fields; `unrepresentable`,
+ * why its table could not hold its rows, as the refusal of its table states it; or `copy`, the relation whose rows,
+ * projected onto a key of it, are its own.
  */
 export type LiveDerived =
 	| {
@@ -387,5 +439,12 @@ export type LiveDerived =
 			readonly kind: "unboundedUpkeep"
 			readonly unit: string
 			readonly fields: ReadonlyArray<string>
+			readonly delta: { readonly reason: UncheckedDelta["reason"]; readonly detail: string }
+	  }
+	| {
+			readonly kind: "recursion"
+			readonly unit: string
+			readonly fields: ReadonlyArray<string>
 	  }
 	| { readonly kind: "unrepresentable"; readonly detail: string }
+	| { readonly kind: "copy"; readonly relation: string }

@@ -17,14 +17,14 @@ import { Array as Arr, Effect, Formatter, Option, Order, pipe, Result, String as
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { Logic, Type } from "#compiler/public/compute.ts"
-import { closedId, contract, generated, pg, Uuid, Vector } from "#compiler/public/fields.ts"
+import { closedId, contract, generated, mintOf, pg, Uuid, Vector } from "#compiler/public/fields.ts"
 import { check, closed, mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { derivedLaw } from "#compiler/runtime/law-entry.ts"
 import { fixtureTemplate, openedIn } from "#test/pg/reads/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { writeAnswerOf } from "#test/support/calls.ts"
-import { Id, type IdValue } from "#test/support/ids.ts"
+import { Id, type IdValue, toId } from "#test/support/ids.ts"
 import { type Generated } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"
@@ -52,7 +52,9 @@ const Rate = closed.relation(
 		{ tier: "silver", rate: 500 }
 	]
 )
-const Units = contract("Units", pg.integer, (x) => Logic.le(x, 1000))
+const unitsKey = Symbol("Units")
+const Units = contract<typeof unitsKey>()("Units", pg.integer, (x) => Logic.le(x, 1000))
+const toUnits = mintOf(unitsKey)
 /** The pattern an account's code and its alias share, so one domain types both columns, each field its own law. */
 const codeSource = "^[a-z]{1,8}$"
 const Account = relation.generated(
@@ -242,7 +244,7 @@ const accountAims: ReadonlyArray<readonly [AccountFeature, Gen<AccountCase>]> = 
 ]
 
 const idOf = (n: number): IdValue =>
-	Id(
+	toId(
 		succeeded(
 			Uuid.parse(
 				`00000000-0000-4000-8000-${pipe((0x7000 + n).toString(16), Str.padStart(12, "0"))}`
@@ -284,6 +286,7 @@ const brokenOf = (law: Law): Broken | undefined => {
 		case "tree":
 		case "above":
 		case "fold":
+		case "variant":
 		case "sealed":
 			return undefined
 	}
@@ -364,7 +367,7 @@ export const hostCase = (
 			const facts = Arr.map(k.accounts, (a, i) => ({
 				id: idOf(i),
 				tier: a.tier,
-				units: Units(a.units),
+				units: toUnits(a.units),
 				code: a.code,
 				alias: a.alias,
 				from: east,

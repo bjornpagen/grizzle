@@ -27,7 +27,7 @@ import {
 } from "#compiler/core/errors.ts"
 import { digest, ownedDigest } from "#compiler/core/fingerprint.ts"
 import { formatKey, formatOf, isFormatOf } from "#compiler/core/format.ts"
-import { type DeclaredName, declaredAlike, identifierOf } from "#compiler/core/identity.ts"
+import { declaredAlike, identifierOf, type HeldName } from "#compiler/core/identity.ts"
 import type { Identifier, LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
 import { SchemaFingerprint as toSchemaFingerprint } from "#compiler/core/ids.ts"
 import { chunkedTextOf, type Lines } from "#compiler/core/lines.ts"
@@ -57,6 +57,8 @@ import {
 	manifestFileName,
 	type SnapshotContent,
 	type LiveDerived,
+	type ProvedCover,
+	type ProvedRelation,
 	type SnapshotDerived,
 	type SnapshotFiles,
 	snapshotFileName,
@@ -80,9 +82,7 @@ import {
 	type AccessIndexRequest,
 	type InstallationManifest,
 	indexOpclassText,
-	type PhysicalKind,
 	type PhysicalObject,
-	physicalKinds,
 	type PhysicalReason,
 	type ProgramAccess,
 	type StoredIndexRequest,
@@ -107,6 +107,11 @@ import { definitionMeanings } from "#compiler/physical/derived/meaning.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import { namedEdges, namedIdent } from "#compiler/physical/obligations/graph.ts"
+import {
+	type PlannedGraph,
+	type PlannedReach,
+	plannedGraph
+} from "#compiler/physical/planned/graph.ts"
 import {
 	addedColumn,
 	type AlterTableAction,
@@ -192,7 +197,7 @@ const fillerForm = (
 	spell: FillSpelling
 ): FillerForm => {
 	if (filler === undefined) {
-		throw defect(`the theory names what fills the field ${field.name}`)
+		defect(`the theory names what fills the field ${field.name}`)
 	}
 	return { role: filler.role, laws: fillerLaws(filler, spell) }
 }
@@ -298,20 +303,7 @@ const theoryOf = (installation: Installation, checks: LawChecks): SnapshotTheory
 	): ReadonlyArray<readonly [string, SnapshotRelation]> => {
 		switch (o.kind) {
 			case "derived":
-				return installation.checked.holdings.get(o.name)?.kind !== "stored"
-					? []
-					: [
-							[
-								o.name,
-								{
-									kind: "derived",
-									ident: o.ident,
-									mutable: o.mutable,
-									level: o.desc.level,
-									meaning: defined(meanings.get(o.name), "every stored derived relation's meaning")
-								}
-							]
-						]
+				return []
 			case "closed":
 				return [
 					[
@@ -330,8 +322,30 @@ const theoryOf = (installation: Installation, checks: LawChecks): SnapshotTheory
 				return []
 		}
 	}
+	/** Each stored canonical relation (analysis/derived/canonical.ts), once, by its name, its table its form's. */
+	const storedRecords = [...installation.checked.canonical.values()].flatMap(
+		(c): ReadonlyArray<readonly [string, SnapshotRelation]> =>
+			c.holding.kind !== "stored"
+				? []
+				: [
+						[
+							c.subject.name,
+							{
+								kind: "derived",
+								ident: c.subject.ident,
+								mutable: false,
+								level: c.subject.level,
+								meaning: defined(
+									meanings.get(c.subject.name),
+									"every stored derived relation's meaning"
+								)
+							}
+						]
+					]
+	)
 	const entries: ReadonlyArray<readonly [string, SnapshotRelation]> = [
 		...Object.values(owned.relations).flatMap(ownedRecord),
+		...storedRecords,
 		...Object.values(theory.relations).flatMap(
 			(t): ReadonlyArray<readonly [string, SnapshotRelation]> =>
 				t.kind === "relation" ? [[t.name, stored(t)]] : []
@@ -369,7 +383,7 @@ const theoryOf = (installation: Installation, checks: LawChecks): SnapshotTheory
 export const codebookOf = (snapshot: DeploySnapshot): Codebook =>
 	rosterCodebook(
 		Object.entries(snapshot.theory.relations).flatMap(([name, r]) =>
-			r.kind === "closed" ? [[trusted<DeclaredName>(name), r.codes] as const] : []
+			r.kind === "closed" ? [[trusted<HeldName>(name), r.codes] as const] : []
 		)
 	)
 
@@ -478,9 +492,9 @@ export const withInstalledViews = <S extends Pick<SnapshotContent, "manifest">>(
 export const rosterFates = (
 	previous: DeploySnapshot,
 	declared: Declarations,
-	rosters: ReadonlyArray<DeclaredName>
+	rosters: ReadonlyArray<HeldName>
 ): ReadonlyArray<PreviousRoster> => {
-	const renamed = new Map(
+	const renamed = new Map<HeldName, HeldName>(
 		declared.renames.flatMap((r) =>
 			r.from.kind === "relation" && r.to.kind === "relation"
 				? [[r.from.relation, r.to.relation] as const]
@@ -596,7 +610,6 @@ const levelsOf = (installation: Installation): ReadonlyArray<SnapshotLevel> => {
 			case "family":
 			case "tree":
 			case "fold":
-			case "alternatives":
 			case "series":
 				return statementLevel(law.source.statement)
 		}
@@ -695,7 +708,7 @@ const constraintKeys = (constraint: TableConstraint): NonEmptyReadonlyArray<KeyA
 			}))
 		case "check":
 		case "foreignKey":
-			throw defect(`the constraint ${constraint.name}, which installs no index`)
+			defect(`the constraint ${constraint.name}, which installs no index`)
 	}
 }
 
@@ -713,7 +726,7 @@ const createdKeys = (create: CreateIndex): NonEmptyReadonlyArray<KeyAt> =>
 		if (suffixed !== undefined) {
 			return { column: suffixed, held: "suffix", direction }
 		}
-		throw defect(
+		defect(
 			`the index ${create.name} over an expression no suffix key is, which no installation creates`
 		)
 	})
@@ -781,7 +794,7 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 	): void => {
 		const on = valueAt(schemas, table.schema, table.name)
 		if (on === undefined) {
-			throw defect(`the index ${name} is on a relation's table, not ${table.name}`)
+			defect(`the index ${name} is on a relation's table, not ${table.name}`)
 		}
 		const columnOf = (k: KeyAt): IndexedColumn => {
 			const field = on.fields.get(k.column)
@@ -791,9 +804,7 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 			const held = valueAt(holds, on.relation, k.column)
 			const laws = valueAt(lawColumns, nameKey(table), k.column)
 			if (held === undefined || laws === undefined) {
-				throw defect(
-					`the column ${k.column} of index ${name}: a field or a law column of ${on.relation}`
-				)
+				defect(`the column ${k.column} of index ${name}: a field or a law column of ${on.relation}`)
 			}
 			return { kind: "law", holds: held, laws }
 		}
@@ -813,7 +824,7 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 		const constraint =
 			create === undefined ? undefined : tableConstraints(create).find((c) => c.name === name)
 		if (constraint === undefined) {
-			throw defect(`the constraint ${name}, which its table ${table.name} declares`)
+			defect(`the constraint ${name}, which its table ${table.name} declares`)
 		}
 		return constraint
 	}
@@ -884,7 +895,7 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 		for (const { table, name } of o.ddl.flatMap(indexesCreatedBy)) {
 			const on = valueAt(schemas, table.schema, table.name)
 			if (on !== undefined && !on.indexes.has(name)) {
-				throw defect(
+				defect(
 					`the index ${name} on ${on.relation}'s table, which the installation creates and its snapshot does not name`
 				)
 			}
@@ -942,20 +953,60 @@ export const derivedOf = (installation: Installation): SnapshotDerived => ({
 	tables: snapshotTablesOf(installation),
 	live: liveSourceOf(installation),
 	params: installation.installedParams,
-	liveDerived: liveDerivedOf(installation)
+	liveDerived: liveDerivedOf(installation),
+	proved: provedOf(installation),
+	planned: plannedGraph(installation.statements)
 })
 
+/**
+ * Each rule over a query whose probes spare a relation's added rows at some occurrence, by its law's identifier in code
+ * point order, with each such relation in the order its law reads them and its covers (types.ts ProvedRelation), each
+ * containment by its field pairs alone, so the record is the same wherever the schema was compiled.
+ */
+const provedOf = (
+	installation: Installation
+): Readonly<Record<string, NonEmptyReadonlyArray<ProvedRelation>>> =>
+	Object.fromEntries(
+		installation.laws.rules
+			.toSorted((a, b) => compareStrings(a.law.id, b.law.id))
+			.flatMap((rule) => {
+				const [first, ...rest] = rule.covered.map((c): ProvedRelation => ({
+					relation: c.relation,
+					covers: mapNonEmpty(c.covers, (cover): ProvedCover => {
+						if (cover.kind === "clock") {
+							return { kind: "clock", fields: cover.fields, clocks: cover.clocks }
+						}
+						const pairs = mapNonEmpty(cover.containment.pairs, (p) => ({ from: p.from, to: p.to }))
+						return cover.kind === "read"
+							? { kind: "read", sibling: cover.sibling, pairs }
+							: { kind: cover.kind, sibling: cover.sibling, pairs, key: cover.key }
+					}),
+					sides: c.sides
+				}))
+				return first === undefined ? [] : [[rule.law.id, [first, ...rest]] as const]
+			})
+	)
+
 /** Why a derived relation is live, as snapshot.json records it (types.ts LiveDerived): the condition of unit-locality
- * its definition lacks, the unit its upkeep would re-derive whole, or the refusal of its table as its reason's text
- * alone. */
+ * its definition lacks, the unit its upkeep would re-derive whole with why its delta form is no checked one, the refusal
+ * of its table as its reason's text alone, or the relation it copies. */
 const liveDerivedOfReason = (why: LiveReason): LiveDerived => {
 	switch (why.kind) {
 		case "notUnitLocal":
 			return { kind: "notUnitLocal", condition: why.lacks.condition, detail: why.lacks.detail }
 		case "unboundedUpkeep":
-			return { kind: "unboundedUpkeep", unit: why.unit, fields: why.fields }
+			return {
+				kind: "unboundedUpkeep",
+				unit: why.unit,
+				fields: why.fields,
+				delta: { reason: why.delta.reason, detail: why.delta.detail }
+			}
+		case "recursion":
+			return { kind: "recursion", unit: why.unit, fields: why.fields }
 		case "unrepresentable":
 			return { kind: "unrepresentable", detail: compileReasonText(why.refusal.reason) }
+		case "copy":
+			return { kind: "copy", relation: why.relation }
 	}
 }
 
@@ -969,7 +1020,9 @@ const liveDerivedOf = (installation: Installation): Readonly<Record<string, Live
 		[...installation.checked.holdings]
 			.toSorted(([a], [b]) => compareStrings(a, b))
 			.flatMap(([name, holding]): ReadonlyArray<readonly [string, LiveDerived]> =>
-				holding.kind === "stored" ? [] : [[name, liveDerivedOfReason(holding.why)]]
+				holding.kind === "stored" || installation.checked.owned.relations[name]?.kind !== "derived"
+					? []
+					: [[name, liveDerivedOfReason(holding.why)]]
 			)
 	)
 
@@ -1127,11 +1180,12 @@ const sortedOwners = <V>(
 type SnapshotForm = RecordOf<never>
 
 /** A unit of snapshot.json laid out compact, on one line of its own, as its one canonical value: an installed
- * statement, the unit the diff compares and a review reads, so a changed statement is one changed line; or a level's
- * law as an outcome names it. */
+ * statement, the unit the diff compares and a review reads, so a changed statement is one changed line; a level's
+ * law as an outcome names it; or an entry of the installation's planned queries, a reach, a function or a relation, so
+ * the file's lines grow with its entries, never with the queries, triggers and names each holds. */
 class CompactLine {
-	readonly value: SqlStatement | RecordedStatement | DescribedLaw
-	constructor(value: SqlStatement | RecordedStatement | DescribedLaw) {
+	readonly value: SqlStatement | RecordedStatement | DescribedLaw | SnapshotForm
+	constructor(value: SqlStatement | RecordedStatement | DescribedLaw | SnapshotForm) {
 		this.value = value
 	}
 }
@@ -1150,22 +1204,26 @@ type FormOf<S> =
 /** A record of the snapshot's form whose installed statements are `S`. */
 type RecordOf<S> = { readonly [key: string]: FormOf<S> }
 
-/** How a form holds its compact units: an installed statement, whole or recorded, and a level's law. */
+/** How a form holds its compact units: an installed statement, whole or recorded, a level's law, and the form of an
+ * entry of the planned queries. */
 interface Units<S> {
 	readonly statement: (s: SqlStatement | RecordedStatement) => S
 	readonly law: (l: DescribedLaw) => S
+	readonly planned: (entry: SnapshotForm) => FormOf<S>
 }
 
 /** Each unit as itself. */
 const asValues: Units<SqlStatement | RecordedStatement | DescribedLaw> = {
 	statement: (s) => s,
-	law: (l) => l
+	law: (l) => l,
+	planned: (entry) => entry
 }
 
 /** Each unit as its line of snapshot.json. */
 const asLines: Units<CompactLine> = {
 	statement: (s) => new CompactLine(s),
-	law: (l) => new CompactLine(l)
+	law: (l) => new CompactLine(l),
+	planned: (entry) => new CompactLine(entry)
 }
 
 const writingForm = (w: SnapshotWriting): FormOf<never> =>
@@ -1423,8 +1481,60 @@ const indexedForm = (c: IndexedColumn): IndexedColumn =>
 		? { kind: c.kind, field: c.field }
 		: { kind: c.kind, holds: c.holds, laws: c.laws }
 
-/** The JSON form of the installation's derived runtime facts (SnapshotDerived): each member's form by its owner. */
-const derivedForm = (d: SnapshotDerived): SnapshotForm => ({
+/** The JSON form of a planned reach (physical/planned/graph.ts PlannedReach), its members in their fixed order. */
+const reachForm = (r: PlannedReach): SnapshotForm => ({
+	queries: r.queries,
+	raises: r.raises,
+	calls: r.calls,
+	reads: r.reads,
+	types: r.types,
+	writes: r.writes.map((w) => ({
+		relation: w.relation,
+		event:
+			w.event.kind === "update"
+				? { kind: w.event.kind, columns: w.event.columns }
+				: { kind: w.event.kind }
+	}))
+})
+
+/**
+ * The JSON form of the installation's planned queries (physical/planned/graph.ts PlannedGraph): each reach of its table,
+ * each function and each relation one compact unit of `units`, a line of its own in snapshot.json (CompactLine), every
+ * function, relation, trigger and domain naming its reach by its key.
+ */
+const plannedForm = <S>(g: PlannedGraph, units: Units<S>): RecordOf<S> => ({
+	reaches: Object.fromEntries(
+		Object.entries(g.reaches).map(([key, r]) => [key, units.planned(reachForm(r))])
+	),
+	functions: Object.fromEntries(
+		Object.entries(g.functions).map(([name, f]) => [
+			name,
+			units.planned(f.kind === "declared" ? { kind: f.kind } : { kind: f.kind, reach: f.reach })
+		])
+	),
+	relations: Object.fromEntries(
+		Object.entries(g.relations).map(([name, r]) => [
+			name,
+			units.planned({
+				read: r.read,
+				row: r.row,
+				triggers: r.triggers.map((t) => ({
+					event: t.event,
+					columns: t.columns,
+					fires: t.fires,
+					reach: t.reach
+				}))
+			})
+		])
+	),
+	domains: g.domains
+})
+
+/**
+ * The JSON form of the installation's derived runtime facts (SnapshotDerived): each member's form by its owner, the
+ * planned queries' entries each a unit of `units`.
+ */
+const derivedForm = <S>(d: SnapshotDerived, units: Units<S>): RecordOf<S> => ({
 	live: d.live,
 	params: {
 		domains: d.params.domains,
@@ -1441,6 +1551,25 @@ const derivedForm = (d: SnapshotDerived): SnapshotForm => ({
 	textDomains: Object.fromEntries([...d.textDomains].toSorted(([a], [b]) => compareStrings(a, b))),
 	library: d.library,
 	liveDerived: d.liveDerived,
+	planned: plannedForm(d.planned, units),
+	proved: Object.fromEntries(
+		Object.entries(d.proved).map(([law, relations]) => [
+			law,
+			relations.map((p) => ({
+				relation: p.relation,
+				covers: p.covers.map((c): SnapshotForm => {
+					if (c.kind === "clock") {
+						return { kind: c.kind, fields: c.fields, clocks: c.clocks }
+					}
+					const pairs = c.pairs.map((x) => ({ from: x.from, to: x.to }))
+					return c.kind === "read"
+						? { kind: c.kind, sibling: c.sibling, pairs }
+						: { kind: c.kind, sibling: c.sibling, pairs, key: c.key }
+				}),
+				sides: p.sides
+			}))
+		])
+	),
 	tables: Object.fromEntries(
 		Object.entries(d.tables).map(([schema, tables]) => [
 			schema,
@@ -1574,7 +1703,7 @@ const runtimeForm = <S>(
 	constraintToLaw: s.constraintToLaw,
 	live: liveForm(s.live),
 	rosters: rostersForm(s.theory),
-	derived: derivedForm(derived)
+	derived: derivedForm(derived, units)
 })
 
 /**
@@ -1706,7 +1835,7 @@ export const writeRuntimeSnapshot = (
  * since no fact is part of the fingerprinted content.
  */
 export const derivedHolds = (recorded: unknown, computed: SnapshotDerived): boolean =>
-	canonicalEquals(recorded, derivedForm(computed))
+	canonicalEquals(recorded, derivedForm(computed, asValues))
 
 /**
  * Whether a committed snapshot, as its files record it, is `computed`, the record of the snapshot the compile reaches
@@ -1842,45 +1971,4 @@ const joinedManifest = (
 		recordedObjects.push(object)
 	}
 	return Result.ok({ ...manifest, objects: recordedObjects, edges })
-}
-
-/**
- * A committed snapshot's record as its seal holds it (the shell's boundary/snapshot.ts): each member as this grizzle's
- * snapshot holds it, but each manifest object of whatever kind the grizzle that wrote it installed (recordedSnapshot).
- */
-export type SealedRecord = Omit<DeploySnapshot, "manifest"> & {
-	readonly manifest: Omit<RecordedManifest, "objects"> & {
-		readonly objects: ReadonlyArray<Omit<RecordedObject, "kind"> & { readonly kind: string }>
-	}
-}
-
-const installedKinds: ReadonlySet<string> = new Set(physicalKinds)
-
-/** Whether `kind` is one this grizzle installs. */
-const isInstalledKind = (kind: string): kind is PhysicalKind => installedKinds.has(kind)
-
-/**
- * The snapshot a sealed record is (SealedRecord), each manifest object of a kind this grizzle installs: so no reader of
- * it meets an object it has no reading of. A record of this format holds no other, since a kind's removal is a change
- * of the format (core/format.ts), and a record of another is refused before its objects are read (joinedSnapshot); one
- * that holds another anyway, a kind removed without the format's change, is no record this grizzle reads, refused as
- * MalformedArtifact at the object's place.
- */
-export const recordedSnapshot = (
-	record: SealedRecord
-): Result.Result<DeploySnapshot, CompileError> => {
-	const objects: Array<RecordedObject> = []
-	for (const [at, o] of record.manifest.objects.entries()) {
-		if (!isInstalledKind(o.kind)) {
-			return Result.err(
-				malformedArtifact(
-					"snapshot",
-					["manifest", "objects", String(at), "kind"],
-					`an object of a kind this grizzle installs, not ${o.kind}`
-				)
-			)
-		}
-		objects.push({ ...o, kind: o.kind })
-	}
-	return Result.ok({ ...record, manifest: { ...record.manifest, objects } })
 }

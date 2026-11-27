@@ -41,28 +41,32 @@ import type { PublicResult } from "#compiler/core/public-result.ts"
 import { isList } from "#compiler/core/record.ts"
 import type { FamilyId } from "#compiler/ir/law.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
-import { isRefined } from "#compiler/ir/scalar.ts"
-import { domainRefusal } from "#compiler/program/evaluate.ts"
+import { isJudged } from "#compiler/ir/scalar.ts"
 import { parseBuiltSchema } from "#compiler/program/input.ts"
 import { familyInsertsOf } from "#compiler/program/preview.ts"
 import { compiledSchema } from "#compiler/program/schema.ts"
 import { additionSplitter, type NestingLevels } from "#compiler/runtime/write/addition.ts"
 import { type DecodedInput, recordDecoded } from "#compiler/runtime/write/decoded.ts"
 import { levelNormalizer, nestedReader } from "#compiler/runtime/write/nesting.ts"
-import { type JudgedField, type Judge, judgeOf } from "#compiler/runtime/write/witness.ts"
+import {
+	outsideDomain,
+	type JudgedField,
+	type Judge,
+	judgeOf
+} from "#compiler/runtime/write/witness.ts"
 import type { HeadingPlan, ReadFact } from "#compiler/scalar/values/identity.ts"
 import type { InsertableNameOf, InsertAllRowsOf } from "#compiler/types/changeset/changeset.ts"
 import type { FactsDecoder, FactsRefused, RowPlace } from "#compiler/types/changeset/decode.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 
 /**
- * A level of a relation's rows as decode reads them: the normalizer its facts are read by, its refined fields, and each
+ * A level of a relation's rows as decode reads them: the normalizer its facts are read by, its judged fields, and each
  * field's position among the normalizer's, where a read fact holds its value (codec/recordset.ts RelationNormalizer
  * `fields`).
  */
 interface Level {
 	readonly normalize: RelationNormalizer
-	readonly refined: ReadonlyArray<JudgedField>
+	readonly judged: ReadonlyArray<JudgedField>
 	readonly at: ReadonlyMap<string, number>
 }
 
@@ -78,24 +82,24 @@ const placed = (refusal: RowRefusal): RowPlaced => ({
 	fault: refusal.fault
 })
 
-/** A level over `normalize`, its refined fields read off `heading`, the heading its facts are admitted by. */
+/** A level over `normalize`, its judged fields read off `heading`, the heading its facts are admitted by. */
 const levelOf = (normalize: RelationNormalizer, heading: Heading): Level => {
 	const types = new Map(heading.map((c) => [c.name, c.type] as const))
 	return {
 		normalize,
-		refined: normalize.fields.flatMap((name): ReadonlyArray<JudgedField> => {
+		judged: normalize.fields.flatMap((name): ReadonlyArray<JudgedField> => {
 			const type = defined(types.get(name), `the type of ${name}, a field its heading admits`)
-			return isRefined(type) ? [{ name, type, writing: { kind: "caller" } }] : []
+			return isJudged(type) ? [{ name, type, writing: { kind: "caller" } }] : []
 		}),
 		at: new Map(normalize.fields.map((name, at) => [name, at] as const))
 	}
 }
 
-/** The first refined field of a level's read whose value is outside its domain (evaluate.ts domainRefusal), or none. */
+/** The first judged field of a level's read whose value is outside its domain (runtime/write/witness.ts outsideDomain), or none. */
 const domainOf = (judge: Judge, level: Level, read: ReadFact): string | undefined =>
-	domainRefusal(
+	outsideDomain(
 		judge,
-		level.refined,
+		level.judged,
 		(name) => read.values[defined(level.at.get(name), `${name}, a field its level reads`)]
 	)
 
@@ -113,7 +117,7 @@ type RowsDecoder = (
 
 /**
  * The decoder of a relation's rows (`RowsDecoder`) whose rows each read into an R: `read`, the write's reader of a fact
- * of its member, its refusal unplaced; `domain`, the first refined field of a read outside its domain, at any level of
+ * of its member, its refusal unplaced; `domain`, the first judged field of a read outside its domain, at any level of
  * it; `kept`, the reads of every row, kept for the write.
  */
 const rowsDecoder =
@@ -269,7 +273,7 @@ export const factsDecoderOver = <S extends AnySchema>(
 					return input
 				}
 				if (!isRowsOf(relation, rows, rowsOf(input.value))) {
-					throw defect("decoded rows, every one of them admitted")
+					defect("decoded rows, every one of them admitted")
 				}
 				if (frozen(rows)) {
 					recordDecoded(rows, input.value)

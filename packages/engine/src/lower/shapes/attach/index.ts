@@ -12,14 +12,17 @@ import { sameScalarType } from "#compiler/ir/scalar.ts"
 import {
 	columnIn,
 	type ColumnMap,
-	correlatedColumns,
 	correlationEqualities,
 	type Env,
+	equalitiesOver,
 	envOf,
+	freshCtes,
 	headingTargets,
+	heldEnv,
+	holdsInside,
 	type LowerContext,
 	restrictedEnv,
-	restrictsInside
+	withLeading
 } from "#compiler/lower/conservative/context.ts"
 
 import {
@@ -34,19 +37,28 @@ import {
 } from "#compiler/lower/conservative/take/order.ts"
 import type { DeliveredBreach } from "#compiler/lower/conservative/types.ts"
 import { resultCast } from "#compiler/lower/delivery.ts"
-import { attachmentRead } from "#compiler/lower/optimize/cte-policy/index.ts"
+import { attachmentPrefix, attachmentRead } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { pushedInto } from "#compiler/lower/shapes/share/keyed.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import type { ChoiceInput } from "#compiler/lower/shapes/take/index.ts"
 import { type DeliveryOrder, orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
 import { type FusedColumn, type FusedLayout, fusedElement } from "#compiler/runtime/lower/fused.ts"
-import type { Expr, FromItem, OperandSelect, OrderItem, Select, Target } from "#compiler/sql/ast.ts"
+import type {
+	Cte,
+	Expr,
+	FromItem,
+	OperandSelect,
+	OrderItem,
+	Select,
+	Target
+} from "#compiler/sql/ast.ts"
 import {
 	arrayOf,
 	arrays,
 	asc,
 	call,
 	col,
+	cteRefAs,
 	columnDefinition,
 	conjunction,
 	core,
@@ -325,30 +337,32 @@ const keyedRows = (
 	cx: LowerContext,
 	attach: NodeOf<"Attach">,
 	env: Env,
-	parentMap: ColumnMap
+	parentMap: ColumnMap,
+	pairs: NodeOf<"Attach">["correlation"]
 ): OperandSelect => {
 	const child = attach.child
-	const correlation = correlatedColumns(attach, parentMap)
+	const correlation = pairs.map((c) => ({ column: c.child, value: columnIn(parentMap, c.parent) }))
 	/**
 	 * A child that holds the restriction itself (context.ts restrictsInside): a union in each arm, a region at the
 	 * occurrence its chain leads with, a fold by every column the Attach correlates below its aggregate.
 	 */
-	const inside =
-		restrictsInside(child) &&
-		(child.kind !== "Group" || correlation.every((e) => child.keys.includes(e.column)))
-	const within = restrictedEnv(
-		env,
-		new Map([[child, inside ? correlation : []], ...pushedInto(child, correlation)])
+	const inside = holdsInside(child, correlation)
+	const held = freshCtes<RelNode>()
+	const placed = pushedInto(child, correlation, "held", held)
+	const within = heldEnv(
+		restrictedEnv(env, new Map([[child, inside ? correlation : []], ...placed.restricted])),
+		placed.held
 	)
 	if (inside && child.kind === "Group") {
-		return cx.lower(child, within)
+		return withLeading(cx.lower(child, within), held.ctes)
 	}
 	const source = cx.source(child, within)
-	const where = inside
-		? []
-		: correlationEqualities(cx, attach, child.heading, source.map, parentMap)
-	return select(
-		distinctCore(headingTargets(child.heading, source.map), [source.item], conjunction(where))
+	const where = inside ? [] : equalitiesOver(cx, child.heading, source.map, correlation)
+	return withLeading(
+		select(
+			distinctCore(headingTargets(child.heading, source.map), [source.item], conjunction(where))
+		),
+		held.ctes
 	)
 }
 
@@ -575,6 +589,8 @@ export const pipelinedAttachment = (
 	const env: Env = envOf(spine.map((n) => [n.id, parentMap] as const))
 	const origin = { kind: "node", node: child.id } as const
 	const read = attachmentRead(attach)
+	/** The CTEs the part's query holds: the child's rows at each prefix value, where it is read so. */
+	const ctes: Array<Cte> = []
 	/**
 	 * The part's rows: the parent keys beside the child at each (`perKey`) or beside the take's form (`take`), or the
 	 * co-group of both (`coGroup`), its parent keys and child columns each read through its own map.
@@ -587,8 +603,92 @@ export const pipelinedAttachment = (
 	} => {
 		switch (read.kind) {
 			case "perKey": {
-				const source = cx.wrapAs(keyedRows(cx, attach, env, parentMap), child.heading, origin, true)
-				return { from: [parent.item, source.item], keys: parentMap, child: source.map, where: [] }
+				const prefix = attachmentPrefix(attach, (n) => cx.computedAt(n)) ?? []
+				if (!isNonEmpty(prefix)) {
+					const source = cx.wrapAs(
+						keyedRows(cx, attach, env, parentMap, attach.correlation),
+						child.heading,
+						origin,
+						true
+					)
+					return { from: [parent.item, source.item], keys: parentMap, child: source.map, where: [] }
+				}
+				/**
+				 * The child at each distinct value of the prefix its parent keys hold whole (cte-policy attachmentPrefix), a
+				 * range of its key read once a value, a MATERIALIZED CTE of the part's query, so its rows are derived once
+				 * whatever join PostgreSQL places them in, where a derived table beside the parent keys was read again for
+				 * each key on a nested loop's inner side; then joined to the parent keys on every column the attachment
+				 * correlates.
+				 */
+				const keysAgain = parentKeysSource(cx, rows, parentColumns, {
+					kind: "node",
+					node: attach.id
+				})
+				const alias = cx.relationAlias(origin)
+				const columns = mapNonEmpty(prefix, () => cx.supply.column(origin))
+				const prefixRows = derived(
+					namedQuery(
+						select(
+							distinctCore(
+								mapNonEmpty(prefix, (c) => target(keysAgain.column(c.parent))),
+								[keysAgain.item],
+								undefined
+							)
+						),
+						columns
+					),
+					alias,
+					false
+				)
+				const prefixMap: ColumnMap = new Map(
+					prefix.map(
+						(c, i) => [c.parent, col(alias, defined(columns[i], "a prefix column"))] as const
+					)
+				)
+				const source = cx.wrapAs(
+					keyedRows(
+						cx,
+						attach,
+						envOf(spine.map((n) => [n.id, prefixMap] as const)),
+						prefixMap,
+						prefix
+					),
+					child.heading,
+					origin,
+					true
+				)
+				const name = cx.relationAlias(origin)
+				const cteColumns = cx.supply.columns(child.heading.map(() => origin))
+				ctes.push({
+					name,
+					materialized: "MATERIALIZED",
+					query: namedQuery(
+						select(
+							distinctCore(
+								headingTargets(child.heading, source.map),
+								[prefixRows, source.item],
+								undefined
+							)
+						),
+						cteColumns
+					)
+				})
+				const childAlias = cx.relationAlias(origin)
+				const childMap: ColumnMap = new Map(
+					child.heading.map(
+						(h, i) =>
+							[
+								h.name,
+								col(childAlias, defined(cteColumns[i], "a child column's CTE column"))
+							] as const
+					)
+				)
+				return {
+					from: [cteRefAs(name, childAlias), parent.item],
+					keys: parentMap,
+					child: childMap,
+					where: correlationEqualities(cx, attach, child.heading, childMap, parentMap)
+				}
 			}
 			case "take": {
 				const source = cx.sourceAs(child, env, true)
@@ -620,8 +720,8 @@ export const pipelinedAttachment = (
 			? distinctCore(targets, part.from, conjunction(part.where))
 			: provedCore("certified", targets, part.from, conjunction(part.where))
 	return {
-		query: { ...select(body), orderBy: order(part.keys, part.child) },
-		rows: select(body),
+		query: withLeading({ ...select(body), orderBy: order(part.keys, part.child) }, ctes),
+		rows: withLeading(select(body), ctes),
 		order
 	}
 }

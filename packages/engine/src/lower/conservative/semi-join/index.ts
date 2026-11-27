@@ -1,5 +1,9 @@
 import { type Lowerers, type NodeLowerer, nodeLabel } from "#compiler/lower/conservative/context.ts"
-import { existenceTest } from "#compiler/lower/conservative/semi-join/exists.ts"
+import {
+	type AtLeftRow,
+	asItStands,
+	existenceTest
+} from "#compiler/lower/conservative/semi-join/exists.ts"
 
 /**
  * SemiJoin: keep a left tuple when at least one right witness exists.
@@ -10,8 +14,13 @@ import { existenceTest } from "#compiler/lower/conservative/semi-join/exists.ts"
  * The witness payload is not a contribution: EXISTS observes only whether a row exists, so the subquery
  * needs `SELECT 1` and no fabricated witness key. The right side lowers as a set like every node.
  */
-const lowerSemiJoin: NodeLowerer<"SemiJoin"> = (node, cx, env) =>
-	existenceTest(cx, env, node, nodeLabel(node), false)
+export const lowerSemiJoinAt =
+	(atLeftRow: AtLeftRow): NodeLowerer<"SemiJoin"> =>
+	(node, cx, env) =>
+		existenceTest(cx, env, node, nodeLabel(node), false, atLeftRow)
 
-/** This kind's entry of the conservative kind table (dispatch.ts). */
-export const semiJoinLowering: Lowerers<"SemiJoin"> = { SemiJoin: lowerSemiJoin }
+/**
+ * This kind's entry of the conservative kind table (dispatch.ts): a right side read per left row lowered where it
+ * stands, the conservative lowering deriving no set once.
+ */
+export const semiJoinLowering: Lowerers<"SemiJoin"> = { SemiJoin: lowerSemiJoinAt(asItStands) }

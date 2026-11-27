@@ -8,16 +8,13 @@ import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { predicateTable } from "#compiler/ir/expr.ts"
-import {
-	compileInstallation,
-	type Installation,
-	installOptions
-} from "#compiler/physical/install/compile.ts"
+import { type Installation, installOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { decimalText, decimalTextMaxBytes, str } from "#compiler/public/text.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
-import { compiledExpr } from "#compiler/scalar/compute/evaluate.ts"
+import { compiledExpr, noParamLeaf } from "#compiler/scalar/compute/evaluate.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { describeFieldOrThrow } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -190,7 +187,7 @@ export const hostValue = (text: string): DecimalValue => {
 	const value = succeeded(
 		Engine.mapError(
 			compiledExpr(table)(
-				{ value: undefined, column: () => text, closed: () => undefined },
+				{ value: undefined, column: () => text, closed: () => undefined, param: noParamLeaf },
 				patterns
 			),
 			(stop) => new Error(Formatter.format(stop))

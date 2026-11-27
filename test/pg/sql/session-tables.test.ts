@@ -1,13 +1,13 @@
 /**
- * A session table's emptying on PostgreSQL 19 (sql/print.ts sessionTableEmptied), through a write's carrier, which the
- * session stands up once and every use empties by its session function (sql/print.ts carrierEmptying): over drawn
- * sequences of two to six uses on one session, each writing no row, one, or more than the pages the carrier's emptying
- * keeps hold (sql/print.ts sessionTableKeptBytes), narrow in its heap or wide in its TOAST table, and ending in COMMIT
- * or ROLLBACK, a carrier keyed or not, every emptying leaves the carrier with no row; keeps its file, so it sent no
- * invalidation, where the use before left its heap and its TOAST table's each within what it keeps; gives it back
- * where either held more; and leaves each within what it keeps.
+ * A session table's emptying on PostgreSQL 19 (sql/print.ts sessionTableEmptied), through a table of the session's own
+ * temporary schema emptied as a rule judge's delta is, by a session function of its name: over drawn sequences of two to
+ * six uses on one session, each writing no row, one, or more than the pages its emptying keeps hold (sql/print.ts
+ * sessionTableKeptBytes), narrow in its heap or wide in its TOAST table, and ending in COMMIT or ROLLBACK, every
+ * emptying leaves the table with no row; keeps its file, so it sent no invalidation, where the use before left its heap
+ * and its TOAST table's each within what it keeps; gives it back where either held more; and leaves each within what it
+ * keeps.
  *
- * Features: a carrier that kept its file and one that gave it back, outgrown in its heap and in its TOAST table, and an
+ * Features: a table that kept its file and one that gave it back, outgrown in its heap and in its TOAST table, and an
  * emptying after a rollback.
  */
 
@@ -63,7 +63,7 @@ export const aSessionTablesEmptyingKeepsItsFileWhileItHoldsThePagesItKeepsAndGiv
 					Effect.scoped(
 						Effect.gen(function* () {
 							const s = yield* Substrate
-							const session = yield* s.session({ ...ownerSession(), label: "carrier uses" })
+							const session = yield* s.session({ ...ownerSession(), label: "session table uses" })
 							yield* runUses(session, k, c)
 						})
 					),
@@ -72,7 +72,7 @@ export const aSessionTablesEmptyingKeepsItsFileWhileItHoldsThePagesItKeepsAndGiv
 				),
 		oracle: {
 			kind: "postgresql",
-			name: "the carrier's rows, file and heap and TOAST bytes at each emptying, against the bytes the use before left: none holds a row, a file within its page kept, one past it given back, each within its page after"
+			name: "the session table's rows, file and heap and TOAST bytes at each emptying, against the bytes the use before left: none holds a row, a file within its page kept, one past it given back, each within its page after"
 		},
 		budget: { runs: 1, steered: 200 },
 		kept: [],
@@ -83,7 +83,7 @@ export const aSessionTablesEmptyingKeepsItsFileWhileItHoldsThePagesItKeepsAndGiv
 					'\t\t{ condition: sessionTableOvergrown(name), body: [{ kind: "truncateSessionTable", name }] }',
 				replacement:
 					'\t\t{ condition: lit.bool(false), body: [{ kind: "truncateSessionTable", name }] }',
-				why: "The emptying never truncates, a DELETE at every use as e8de84026's judge did: a carrier refilled past its page keeps every page, and a session's carriers grow by each use."
+				why: "The emptying never truncates, a DELETE at every use as e8de84026's judge did: a delta refilled past its page keeps every page, and a session's deltas grow by each use."
 			},
 			{
 				file: "packages/engine/src/sql/print.ts",
@@ -91,7 +91,7 @@ export const aSessionTablesEmptyingKeepsItsFileWhileItHoldsThePagesItKeepsAndGiv
 					'\t\t{ condition: sessionTableOvergrown(name), body: [{ kind: "truncateSessionTable", name }] }',
 				replacement:
 					'\t\t{ condition: lit.bool(true), body: [{ kind: "truncateSessionTable", name }] }',
-				why: "The emptying truncates at every use: a carrier within its page gets a new file at each use, and every backend of the database walks every plan it holds for the invalidations."
+				why: "The emptying truncates at every use: a delta within its page gets a new file at each use, and every backend of the database walks every plan it holds for the invalidations."
 			}
 		]
 	})

@@ -253,7 +253,7 @@ export const Items = query(Root).rule((r) => {
 	const { id, n } = v(Item, "item")
 	return r.match(Item, { id, n }).find({ id, n })
 })
-export const tagId = Id("00000000-0000-0000-0000-000000000000")
+export const tagId = toId("00000000-0000-0000-0000-000000000000")
 `
 
 /** The program over a batch's cells, its imports read through its prelude as `entry` reaches it. */

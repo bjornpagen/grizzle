@@ -8,7 +8,6 @@ import { descText } from "#compiler/ir/desc.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { role } from "#compiler/public/schema.ts"
-import { carrierScope } from "#compiler/sql/naming.ts"
 import {
 	changeSetOver as ChangeSet,
 	type ChangeSetValue,
@@ -17,7 +16,6 @@ import {
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import {
 	Budget,
-	Cents,
 	Chip,
 	Item,
 	Node,
@@ -25,6 +23,7 @@ import {
 	Pool,
 	Task,
 	Ticket,
+	toCents,
 	Work
 } from "#test/support/agreement/changeset-schema.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -112,9 +111,9 @@ const factOf = (name: KeyName, n: number): Readonly<Record<string, unknown>> => 
 		case "Manual":
 			return { id: uuidOf(n), account: uuidOf(n) }
 		case "Budget":
-			return { task: uuidOf(n), cents: Cents(BigInt(n)) }
+			return { task: uuidOf(n), cents: toCents(BigInt(n)) }
 		case "Ticket":
-			return { account: uuidOf(n), amount: Cents(5n) }
+			return { account: uuidOf(n), amount: toCents(5n) }
 		case "Order":
 			return { id: uuidOf(n), n: [{ qty: 1n }, { qty: BigInt(n) }] }
 		case "Pool":
@@ -222,8 +221,7 @@ const roleWorld = Object.freeze(
 				derived: artifacts.derived,
 				level: "serializable" as const,
 				clock: noClock,
-				source: transactionClock,
-				carrierScope: carrierScope(world.role.name)
+				source: transactionClock
 			}
 		}
 	})()

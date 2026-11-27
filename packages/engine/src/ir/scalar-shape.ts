@@ -3,6 +3,7 @@ import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { TextBounds } from "@bjornpagen/grizzle-text/regex/dfa"
 import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
 import { floatSpecialNames } from "#compiler/core/canonical.ts"
+import { isSha256Text } from "#compiler/core/digest.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { admittedFunctionDigest } from "#compiler/core/fingerprint.ts"
 import { functionVolatilities } from "#compiler/core/function.ts"
@@ -34,7 +35,8 @@ import {
 	rangeOp,
 	rangeOpCodes,
 	type TableExpr,
-	type TableExprOf
+	type TableExprOf,
+	type VariantOp
 } from "#compiler/ir/expr.ts"
 import {
 	admitSpelling,
@@ -66,6 +68,7 @@ import {
 	type RegexCheck,
 	RegexKey,
 	type RegexRef,
+	inRosterOrder,
 	isRosterSubset,
 	Roster,
 	type ScalarType,
@@ -73,6 +76,8 @@ import {
 	type SpanInfo,
 	type TextInfo,
 	type TextLanguage,
+	type VariantArm,
+	type VariantInfo,
 	type VectorTypmod,
 	capabilities,
 	carriers,
@@ -137,6 +142,7 @@ interface WireScalarType {
 	readonly digits: number | undefined
 	readonly bound: NumericBound | undefined
 	readonly configuration: TextSearchConfiguration | undefined
+	readonly variant: VariantInfo | undefined
 }
 
 const capabilityShape: S.Shape<Capability> = S.literalsShape(capabilities)
@@ -180,13 +186,13 @@ const patternRegexShape = S.structStated(
 )
 
 /** A pattern's enforcement as the text analysis chose it (ir/scalar.ts PatternCheck). */
-const patternCheckShape: S.Shape<PatternCheck> = S.tagged("kind", {
+const patternCheckShape: S.Shape<PatternCheck> = S.tagged<PatternCheck>()("kind", {
 	finite: finiteCheckShape,
 	regex: patternRegexShape
 })
 
 /** A refinement's enforcement (ir/scalar.ts RegexCheck): a pattern's, or a byte bound beside one or alone. */
-const regexCheckShape: S.Shape<RegexCheck> = S.tagged("kind", {
+const regexCheckShape: S.Shape<RegexCheck> = S.tagged<RegexCheck>()("kind", {
 	finite: finiteCheckShape,
 	regex: patternRegexShape,
 	octets: S.structStated(
@@ -240,7 +246,7 @@ const regexRefShape: S.Shape<RegexRef> = S.struct({
 })
 
 /** A text descriptor's analyzed language (ir/scalar.ts TextLanguage), as the text analysis minted it. */
-export const textLanguageShape: S.Shape<TextLanguage> = S.tagged("kind", {
+export const textLanguageShape: S.Shape<TextLanguage> = S.tagged<TextLanguage>()("kind", {
 	every: S.struct({}),
 	refined: S.struct({ key: regexKeyShape, check: regexCheckShape })
 })
@@ -309,6 +315,40 @@ const spanShape: S.Shape<WireSpan> = S.structStated(
 	{}
 )
 
+/** One arm of a variant: its handle and its fields, each a name and a declared type (ir/scalar.ts VariantArm). */
+const variantArmShape: S.Shape<VariantArm> = S.structStated(
+	{
+		handle: S.nonEmptyString,
+		fields: S.array(S.struct({ name: S.nonEmptyString, type: scalarTypeShape }))
+	},
+	{ check: S.ref("an expression table", () => exprTableShape) },
+	{}
+)
+
+/**
+ * A variant (ir/scalar.ts VariantInfo): its declared name, its roster, and its arms, at least one, each of a live handle
+ * of the roster, each once, in its handle order (inRosterOrder), each field named apart from the arm's others and from
+ * `tag`.
+ */
+const variantShape: S.Shape<VariantInfo> = S.refine(
+	S.struct({
+		name: declaredNameShape,
+		roster: rosterShape,
+		arms: S.nonEmptyArray(variantArmShape)
+	}),
+	(v) =>
+		inRosterOrder(
+			v.roster,
+			v.arms.map((arm) => arm.handle)
+		) &&
+		v.arms.every(
+			(arm) =>
+				new Set(arm.fields.map((f) => f.name)).size === arm.fields.length &&
+				arm.fields.every((f) => f.name !== "tag")
+		),
+	"a variant's arms, each of a handle of its roster, each once in its order, each field named once and never tag"
+)
+
 /** The decoder wireShape refers to (S.ref). */
 const wireBody: S.Shape<WireScalarType> = S.structStated(
 	{ carrier: S.literalsShape(carriers) },
@@ -322,7 +362,8 @@ const wireBody: S.Shape<WireScalarType> = S.structStated(
 		span: spanShape,
 		digits: S.nonNegativeInteger,
 		bound: numericBoundShape,
-		configuration: S.literalsShape(textSearchConfigurations)
+		configuration: S.literalsShape(textSearchConfigurations),
+		variant: variantShape
 	},
 	{}
 )
@@ -342,7 +383,8 @@ const narrowContract = (t: WireScalarType, contract: WireContract): ScalarType |
 		t.only !== undefined ||
 		t.span !== undefined ||
 		t.digits !== undefined ||
-		t.bound !== undefined
+		t.bound !== undefined ||
+		t.variant !== undefined
 	) {
 		return "a contract's descriptor holds its carrier and the contract alone; its base holds the rest"
 	}
@@ -370,6 +412,9 @@ const narrowContract = (t: WireScalarType, contract: WireContract): ScalarType |
 	}
 	if (base.carrier === "tsvector") {
 		return "a search document is never a contract's base"
+	}
+	if (base.carrier === "variant") {
+		return "a variant is never a contract's base"
 	}
 	const { name, predicate } = contract
 	if (predicate !== undefined) {
@@ -437,7 +482,7 @@ const narrowVectorTypmod = (typmod: WireTypmod | undefined): VectorTypmod | stri
 /**
  * A wire descriptor as its carrier's variant, or the first broken rule: a contract's (narrowContract), or a plain one.
  * Each variant is rebuilt with the keys in the wire order (carrier, caps, typmod, contract, text, roster, only, span,
- * digits, bound, configuration), so decoding is idempotent.
+ * digits, bound, configuration, variant), so decoding is idempotent.
  */
 const narrow = (t: WireScalarType): ScalarType | string =>
 	t.contract === undefined ? narrowPlain(t) : narrowContract(t, t.contract)
@@ -471,6 +516,9 @@ const narrowPlain = (t: WireScalarType): ScalarType | string => {
 	}
 	if (t.configuration !== undefined && carrier !== "tsvector") {
 		return "only a search document names a text search configuration"
+	}
+	if (t.variant !== undefined && carrier !== "variant") {
+		return "only a variant states its arms"
 	}
 	const contract = undefined
 	switch (carrier) {
@@ -555,6 +603,10 @@ const narrowPlain = (t: WireScalarType): ScalarType | string => {
 			return t.digits === undefined
 				? `${carrier} carries its digit bound`
 				: Object.freeze({ carrier, caps, contract, digits: t.digits })
+		case "variant":
+			return t.variant === undefined
+				? "a variant states its arms"
+				: Object.freeze({ carrier, caps, contract, variant: t.variant })
 	}
 }
 
@@ -594,7 +646,14 @@ export const calendarDateShape: S.Shape<CalendarDate> = S.plain({
 	}
 })
 
-export const literalShape: S.Shape<TypedLiteral> = S.tagged("kind", {
+/** A SHA-256 digest's one text (core/sha256.ts sha256Text): a literal's and a Description's. */
+export const sha256TextShape: S.Shape<string> = S.refine(
+	S.string,
+	isSha256Text,
+	"a SHA-256 digest's one text, \\x and 64 hex digits"
+)
+
+export const literalShape: S.Shape<TypedLiteral> = S.tagged<TypedLiteral>()("kind", {
 	int: S.struct({ value: S.bigint }),
 	numeric: S.struct({
 		value: S.canonicalParsed<DecimalValue>(
@@ -615,6 +674,7 @@ export const literalShape: S.Shape<TypedLiteral> = S.tagged("kind", {
 	bool: S.struct({ value: S.boolean }),
 	text: S.struct({ value: S.string }),
 	uuid: S.struct({ value: S.string }),
+	sha256: S.struct({ value: sha256TextShape }),
 	date: S.struct({ value: calendarDateShape }),
 	inet: S.struct({ value: inetShape }),
 	cidr: S.struct({ value: cidrShape }),
@@ -664,11 +724,11 @@ const exactShape: S.Shape<Exact> = S.struct({ units: S.bigint, scale: S.nonNegat
 
 const operandIndexShape: S.Shape<OperandIndex> = S.literalsShape([0, 1, 2, 3])
 
-/** Every precondition's case, each kind's own: a kind the decoder lacks is a type error here, never a refusal of a proof. */
-const preconditionCases = Object.freeze({
+const preconditionShape: S.Shape<Precondition> = S.tagged<Precondition>()("kind", {
 	nonzero: S.struct({ operand: operandIndexShape }),
 	nonnegative: S.struct({ operand: operandIndexShape }),
 	finite: S.struct({ operand: operandIndexShape }),
+	integral: S.struct({ operand: operandIndexShape }),
 	fits: S.struct({}),
 	contract: S.struct({}),
 	language: S.struct({}),
@@ -678,19 +738,16 @@ const preconditionCases = Object.freeze({
 	lexical: S.struct({ form: S.literalsShape(parseForms) }),
 	bounded: S.struct({}),
 	clock: S.struct({})
-}) satisfies { readonly [K in Precondition["kind"]]: unknown }
+})
 
-const preconditionShape: S.Shape<Precondition> = S.tagged("kind", preconditionCases)
-
-const factSourceShape: S.Shape<FactSource> = S.tagged("kind", {
+const factSourceShape: S.Shape<FactSource> = S.tagged<FactSource>()("kind", {
 	literal: S.struct({}),
 	contract: S.struct({ name: S.nonEmptyString }),
 	guard: S.struct({}),
 	type: S.struct({})
 })
 
-/** Every premise's case, each kind's own: a kind the decoder lacks is a type error here, never a refusal of a proof. */
-const premiseCases = Object.freeze({
+const premiseShape: S.Shape<OperandPremise> = S.tagged<OperandPremise>()("kind", {
 	fact: S.struct({ operand: operandIndexShape, fact: factShape, source: factSourceShape }),
 	interval: S.struct({
 		operand: operandIndexShape,
@@ -707,10 +764,9 @@ const premiseCases = Object.freeze({
 		{ bytes: S.nonNegativeInteger },
 		{}
 	),
-	octets: S.struct({ operand: operandIndexShape, bytes: S.nonNegativeInteger })
-}) satisfies { readonly [K in OperandPremise["kind"]]: unknown }
-
-const premiseShape: S.Shape<OperandPremise> = S.tagged("kind", premiseCases)
+	octets: S.struct({ operand: operandIndexShape, bytes: S.nonNegativeInteger }),
+	scale: S.struct({ operand: operandIndexShape, scale: S.integer })
+})
 
 const preconditionProofShape: S.Shape<PreconditionProof> = S.struct({
 	precondition: preconditionShape,
@@ -726,11 +782,14 @@ const nativeShape: S.Shape<NativeProof> = S.struct({ premises: S.nonEmptyArray(p
  * kind's own fields, then the common optional ones.
  */
 /** A declared function as a call names it (ir/expr.ts CalledFunction): its name, its volatility and its digest. */
-export const calledFunctionShape: S.Shape<CalledFunction> = S.struct({
+/** A called function's fields (CalledFunction), each by its shape: what a call of it carries, beside its own. */
+export const calledFunctionFields = {
 	name: S.nonEmptyString,
 	volatility: S.literalsShape(functionVolatilities),
 	definition: S.branded(admittedFunctionDigest, S.nonEmptyString)
-})
+} as const satisfies S.ShapesOf<CalledFunction>
+
+export const calledFunctionShape: S.Shape<CalledFunction> = S.struct(calledFunctionFields)
 
 const common = <A, N>(args: S.Shape<A>, nonNull: S.Shape<N>) =>
 	({
@@ -749,7 +808,7 @@ const strict = S.literalsShape(["strict"])
 type CaseFields<E> = E extends unknown ? Omit<E, "kind"> : never
 
 /** The shape of an expression's outside form, its arguments by identifier: a table entry (ExprTable, dag.ts toTable). */
-export const tableExprShape: S.Shape<TableExpr> = S.tagged("kind", {
+export const tableExprShape: S.Shape<TableExpr> = S.tagged<TableExpr>()("kind", {
 	column: S.struct({
 		...common(leaf, S.literalsShape(["storage", "codec"])),
 		column: columnRefShape
@@ -820,6 +879,15 @@ export const tableExprShape: S.Shape<TableExpr> = S.tagged("kind", {
 		...common(S.array(exprIdShape), S.literalsShape(callNonNulls)),
 		function: calledFunctionShape,
 		params: S.array(scalarTypeShape)
+	}),
+	variant: S.struct({
+		...common(S.array(exprIdShape), S.literalsShape(["strict", "arm"])),
+		op: S.tagged<VariantOp>()("kind", {
+			tag: S.struct({}),
+			digest: S.struct({}),
+			field: S.struct({ handle: S.nonEmptyString, field: S.nonEmptyString }),
+			make: S.struct({ handle: S.nonEmptyString })
+		})
 	})
 })
 

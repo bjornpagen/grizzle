@@ -69,7 +69,8 @@ const derived = (name: string, source: string): LawEntry =>
  * The entry grizzle derives for a law whose schema's author declares none (LawEntry `derived`), from what it states: its
  * name as the naming door displays the law, but a check's and a contract's, which are their declared names, and its
  * source the statement that states it, as grizzle spells it. A primary key is its relation's, a pattern law its field's
- * text refinement and a generated law its generated field's, which no statement states.
+ * text refinement, a variant law its field's variant and a generated law its generated field's, which no statement
+ * states.
  */
 export const derivedEntry = (law: StatedLaw): LawEntry => {
 	switch (law.kind) {
@@ -113,6 +114,11 @@ export const derivedEntry = (law: StatedLaw): LawEntry => {
 			return derived(
 				`pattern of ${law.relation}.${law.field}`,
 				`${law.relation}.${law.field}: ${patternsSource(law.patterns)}`
+			)
+		case "variant":
+			return derived(
+				`variant of ${law.relation}.${law.field}`,
+				`${law.relation}.${law.field}: variant(${quoted(law.variant)}, …)`
 			)
 		case "generated":
 			return derived(

@@ -70,8 +70,7 @@ export interface MetaLosses {
 /** One step of a drafted file as meta.json records it, every statement in its place:
  * - `statement`: a drafted statement, the reviewer's to keep, edit or fill, by its text as the file spells it from its
  *   first token: one that holds a placeholder, which a written statement fills by any value (markers.ts writtenAs), as
- *   generate records it, or any, as a meta.json of format 7 or before records every statement, which `grizzle upgrade`
- *   reads;
+ *   generate records it;
  * - `digest`: any other drafted statement by the digest of its tokens (markers.ts statementDigest), which a written
  *   statement's tokens give exactly when it is written as drafted;
  * - `loss`: a statement that loses stored data no declaration names, decided by being written in, by its text;
@@ -464,8 +463,9 @@ interface MigrationFile {
  * A folder holds the drafted `NN-<phase>.sql` files and `meta.json`, which records
  * the folder's source and target snapshot fingerprints: `grizzle migrate` refuses a folder whose source is not
  * the database's latest applied target before any statement runs, and records both in the ledger.
- * The CLI supplies the timestamp, since the compiler reads no clock: fourteen digits,
- * `YYYYMMDDHHMMSS` in UTC, so folders sort in creation order by name. meta.json also records the folder's kind:
+ * The CLI supplies the timestamp, the second after the chain's last folder's (the Unix epoch for a schema's first), so a
+ * draft is a function of its source and its committed chain: fourteen digits, `YYYYMMDDHHMMSS` in UTC, so folders sort
+ * in chain order by name. meta.json also records the folder's kind:
  * drafted, or a custom migration, whose source and target are the same snapshot, and the laws its statements' refusals
  * name (`laws`, FolderLaws), by which `grizzle migrate` names the law a refused constraint reports, each folder by its
  * own. A drafted folder records the renames
@@ -509,7 +509,8 @@ const dayTimeMax = { hour: 23, minute: 59, second: 59 } as const
  * digits YYYYMMDDHHMMSS, a year from leastYear (four digits, no leading zero), a month, a day of that month in that year
  * of the proleptic Gregorian calendar (ir/date.ts daysInMonth), an hour, a minute and a second of a day. The one grammar
  * of a folder's timestamp: a folder's name is one by it (folderParts), a draft's folder is named by it (folderName), and
- * the CLI reads a folder's instant from the parts it gives and writes its clock's second through timestampText.
+ * the CLI reads a folder's instant from the parts it gives and writes the second after its chain's last through
+ * timestampText.
  */
 export const timestampParts = (text: string): TimestampParts | undefined => {
 	if (text.length !== timestampLength || !isAsciiDigits(text, 0, text.length)) {
@@ -567,9 +568,6 @@ export const initMigrationName: MigrationName = migrationName("init")
 
 /** The name of a migration whose change names no object. */
 export const updateMigrationName: MigrationName = migrationName("update")
-
-/** The name of `grizzle upgrade`'s folder, which rebases an installation onto a new compile of its source. */
-export const upgradeMigrationName: MigrationName = migrationName("upgrade")
 
 /** What a migration does to the object its name leads with. */
 export type ChangeVerb = "add" | "drop" | "change"

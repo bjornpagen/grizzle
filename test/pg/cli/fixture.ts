@@ -2,17 +2,18 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { closedId, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
-	alternatives,
 	closed,
 	contained,
 	context,
 	derived,
 	login,
+	mirrors,
 	mutable,
 	on,
 	relation,
 	role,
 	schema,
+	select,
 	unit,
 	wholeEntriesOf,
 	wholeWritesOf
@@ -146,10 +147,10 @@ export const shopV2 = (name: string, programs: ShopWorkload) => {
  * change no folder a configuration drafts.
  *
  * And a ledger (`ledger`), whose generate output needs what a plain shop's does not. Payment's plan selects one of two
- * arm relations through `alternatives`, whose forward and reverse containments are native foreign keys, the reverse
- * deferred on the cycle with a generated law column per armed handle (fin.md §7); a derived relation CustomerSpend sums each
- * customer's payments; and the workload reads CustomerSpend by a range on its payment count, which reads Payment by
- * customer through its definition, beside a lookup of customers by name.
+ * arm relations, each mirrored with the payments of its plan, whose forward and reverse containments are native foreign
+ * keys, the reverse deferred on the cycle with a generated law column per armed handle (fin.md §7); a derived relation
+ * CustomerSpend sums each customer's payments; and the workload reads CustomerSpend by a range on its payment count,
+ * which reads Payment by customer through its definition, beside a lookup of customers by name.
  */
 export type ShopV1 = ReturnType<typeof shopV1>
 export type ShopV2 = ReturnType<typeof shopV2>
@@ -179,7 +180,20 @@ export const ledger = (name: string) => {
 		[Plan, Customer, Payment, CardPayment, InvoicePayment],
 		[
 			contained(on(Payment, "customer"), on(Customer, "id")),
-			alternatives(Payment, "plan", Plan, { Card: CardPayment, Invoice: InvoicePayment })
+			mirrors(
+				on(CardPayment, "payment"),
+				on(
+					select(Payment, (p) => p.eq(p.plan, "Card")),
+					"id"
+				)
+			),
+			mirrors(
+				on(InvoicePayment, "payment"),
+				on(
+					select(Payment, (p) => p.eq(p.plan, "Invoice")),
+					"id"
+				)
+			)
 		]
 	)
 	/** Each customer's payment count and total, keyed by customer. */

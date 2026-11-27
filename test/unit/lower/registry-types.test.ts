@@ -16,10 +16,12 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
+import { queryEvidence } from "#compiler/logical/annotate.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
-import { lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
+import { annotatedInput, lowerOptimized } from "#compiler/lower/optimize/pipeline.ts"
 import { statementOutput } from "#compiler/runtime/lower/tree.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { admitGenerated } from "#test/support/compile.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
@@ -72,7 +74,7 @@ export const theScalarTypesOfLoweredStatementsAreTheRegistrysEveryPlainOrWildcar
 					const catalog = genCatalog(c.schema)
 					const admission = admitGenerated(query)
 					const optimized = admission.ok
-						? lowerOptimized(admission.value, {
+						? lowerOptimized(succeeded(annotatedInput(admission.value, queryEvidence)), {
 								names,
 								context: "snapshot",
 								catalog,

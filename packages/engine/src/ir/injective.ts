@@ -1,9 +1,10 @@
-import { type ScalarExpr, zeroPeeled } from "#compiler/ir/expr.ts"
+import { type ScalarExpr, canonicalPeeled } from "#compiler/ir/expr.ts"
 import {
 	baseOf,
 	type Carrier,
 	numericTypmodOf,
 	rosterOf,
+	sameScalarType,
 	type ScalarType,
 	vectorTypmodOf
 } from "#compiler/ir/scalar.ts"
@@ -56,6 +57,8 @@ export const castInjective = (from: ScalarType, to: ScalarType): boolean => {
 				return f.typmod.dims === vectorTypmodOf(t)?.dims
 			case "tsvector":
 				return t.carrier === "tsvector" && f.configuration === t.configuration
+			case "variant":
+				return sameScalarType(f, t)
 			case "code":
 			case "bits":
 				return f.roster.closed === rosterOf(t)?.closed
@@ -105,14 +108,14 @@ export const castIdentity = (from: ScalarType, to: ScalarType): `cast:${Carrier}
 
 /**
  * The value an equality compares an operand at: under every cast that maps distinct values to distinct values
- * (castInjective), and under a float's canonical zero, which gives one value of equal ones and distinct values of
- * distinct ones (ir/expr.ts canonicalZeroIds), its operand, so an equality of the cast values is an equality of the
+ * (castInjective), and under a canonical form, which gives one value of equal ones and distinct values of distinct
+ * ones (ir/expr.ts canonicalIds), its operand, so an equality of the cast values is an equality of the
  * values. An equality of a column with an expression over parameters and literals fixes the column, and of two columns
  * equates them, whatever carriers and widenings the comparison is written at, and a projection that delivers a
- * column's canonical zero delivers the column.
+ * column's canonical form delivers the column.
  */
 export const comparedValue = (e: ScalarExpr): ScalarExpr => {
-	const peeled = zeroPeeled(e)
+	const peeled = canonicalPeeled(e)
 	if (peeled.canonical) {
 		return comparedValue(peeled.term)
 	}

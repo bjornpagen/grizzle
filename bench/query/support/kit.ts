@@ -51,7 +51,6 @@ import { queryInput } from "#compiler/program/input.ts"
 import type { InstalledArtifacts } from "#compiler/program/schema.ts"
 import { servedSession } from "#compiler/program/served.ts"
 import { type CompiledTemplate, templateFor } from "#compiler/program/template.ts"
-import { workload } from "#compiler/program/workload/value.ts"
 import { isOrderedValue, isQueryValue } from "#compiler/query/build/query.ts"
 import { recordsReader } from "#compiler/runtime/read/record.ts"
 import { bindGroups } from "#compiler/schema/record.ts"
@@ -66,9 +65,7 @@ import {
 	partSelects,
 	partStatement,
 	programAsts,
-	schemaInputOf,
-	paramsOver,
-	workloadOver
+	schemaInputOf
 } from "#test/support/compile.ts"
 import {
 	conservativeRunning,
@@ -76,13 +73,14 @@ import {
 	withConservative
 } from "#test/support/conservative.ts"
 import { ledgerPrologue } from "#test/support/flight/model.ts"
-import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
+import { type Installed, installGenerated } from "#test/support/install-migrate.ts"
+import { renamed } from "#test/support/installed.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { clusterConnection, parsedConnection, SqlError } from "#test/support/pg.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
-import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
+import { claimsOfNoFact, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { textsOfParams } from "#test/support/wire.ts"
 import { type FullWorld, fullWorld } from "#test/support/worlds.ts"
 
@@ -155,12 +153,12 @@ export interface Fixture<S> {
 }
 
 /**
- * Installs `schema` complete, with the access paths its workload programs request, compiled against the schema the
- * installation installs (test/support/compile.ts workloadOver), under a fresh schema name of the gate's database (R13:
- * every index beyond a key's own has a recorded justification), with its full world and the further `logins` a gate's
- * own roles are in. `outside` are the programs a gate compiles outside the workload: the installation installs the
- * types they cast their parameters to and nothing else of theirs (paramsOver), no access path among them, so such a
- * program runs over the installation without a cast to a type it lacks.
+ * Installs `schema` complete under a fresh schema name of the gate's database as `grizzle generate` drafts and serves
+ * it (install-migrate.ts installGenerated), rebuilt under that name (installed.ts renamed), with its full world's
+ * login, whose workload holds `programs` and `outside`, so the installation holds the access paths they request (R13:
+ * every index beyond a key's own has a recorded justification) and the types they cast their parameters to, and the
+ * further logins `logins` builds under that name, which a gate's own roles are in. `outside` are the programs a gate
+ * compiles outside the workload it measures, served by the login as generate serves every program of its workload.
  */
 export const installFixture = Effect.fn("installFixture")(function* <
 	S extends Parameters<typeof fullWorld>[0]
@@ -169,7 +167,7 @@ export const installFixture = Effect.fn("installFixture")(function* <
 	programs: Readonly<Record<string, unknown>>,
 	outside: Readonly<Record<string, unknown>>,
 	label: string,
-	logins: ReadonlyArray<AnyLogin>
+	logins: (name: string) => ReadonlyArray<AnyLogin>
 ): Effect.fn.Return<
 	Fixture<S>,
 	CompileError | SqlError | TransactionRolledBack,
@@ -179,15 +177,16 @@ export const installFixture = Effect.fn("installFixture")(function* <
 		Parameters<typeof fullWorld>[0],
 		Readonly<Record<string, unknown>>
 	>(schema, {})
-	const installed = yield* install(schema, {
-		ambient: ordinarySession,
-		label,
-		extensions: [
-			workloadOver([{ login: "server", workloads: [workload(schema, programs)] }]),
-			paramsOver([{ login: "server", workloads: [workload(schema, outside)] }])
-		],
-		logins: [world.server, ...logins]
-	})
+	const { installed } = yield* installGenerated(
+		(name) => {
+			const named = renamed(schema, name)
+			return {
+				schema: named,
+				logins: [fullWorld(named, { ...programs, ...outside }).server, ...logins(name)]
+			}
+		},
+		{ ambient: ordinarySession, label }
+	)
 	const names = installed.names
 	const table = (relation: string): string => {
 		const n = names.relation(relation)
@@ -334,7 +333,7 @@ export const rawSession = Effect.fn("rawSession")(function* <S>(
 	label: string
 ): Effect.fn.Return<RawSession, SqlError, Substrate | Scope.Scope> {
 	const s = yield* Substrate
-	return yield* s.session({ ...worldSession(fixture.installed.world(role)), label })
+	return yield* s.session({ ...worldSession(fixture.installed.world(role), claimsOfNoFact), label })
 })
 
 export interface Compiled {

@@ -5,6 +5,7 @@ import { ownPidOf, ownPidQuery } from "#test/support/kernel/sanitize.ts"
 import {
 	type PgConnection,
 	type PipelineRefused,
+	type RawAnswer,
 	type RawQueryResult,
 	type SqlError,
 	session
@@ -52,6 +53,14 @@ export interface RawSession {
 	 * ownPidQuery), read once when the session opens.
 	 */
 	readonly pid: number
+	/**
+	 * One statement per call, through the extended protocol, its answer positional (RawAnswer): its rows in its columns'
+	 * order, so two columns of one name are each read.
+	 */
+	readonly answer: (
+		sql: string,
+		params: ReadonlyArray<unknown>
+	) => Effect.Effect<RawAnswer, SqlError>
 	/** One statement per call, through the extended protocol; parameters are text-cast by the caller's SQL. */
 	readonly query: (
 		sql: string,
@@ -140,6 +149,7 @@ export const openSession = Effect.fnUntraced(function* (
 		role: options.credentials.role,
 		database: options.database,
 		pid: own.value,
+		answer: pinned.answer,
 		query,
 		values,
 		pipeline: pinned.pipeline,

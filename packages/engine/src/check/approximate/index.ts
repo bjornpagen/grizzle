@@ -34,7 +34,7 @@ import type { Heading, RelNode } from "#compiler/ir/rel.ts"
  *   attachment's parent variable, by a filter or by a match that binds it, would run one search per outer row, while a
  *   shared approximate source evaluates once per execution and its candidate relation is reused, so it is UnsupportedOperation (attach.ts). The node records the parameters the sealed source depends
  *   on, the bindings fixed for its one evaluation, and `sealed: true`: no later filter, projection or bound enters it
- *   (pushdown, demand and fusion treat it as a boundary), and its heading is the source's whole heading, the candidate
+ *   (demand and fusion treat it as a boundary), and its heading is the source's whole heading, the candidate
  *   identity;
  * - the bound: `take` is a positive integer, the requested result bound and never a scan budget, which the
  *   description's decoder admits before any check runs (ir/desc.ts, ir/shape.ts positiveInteger).
@@ -101,7 +101,7 @@ export const approximate: ApproximatePlugin = {
 		 * Two HNSW scans of one statement could see different graphs under concurrent inserts, so two
 		 * evaluations of one search are not interchangeable with one.
 		 */
-		const identity = `${unwrap(dagDigest(cx.builder.build([input]), "approximate source", new DagTemplates()))}\u0000${stage.by}\u0000${stage.take}`
+		const identity = `${unwrap(dagDigest(cx.builder.build([input]), "approximate source", new DagTemplates("derivation")))}\u0000${stage.by}\u0000${stage.take}`
 		const shared = cx.searches.get(identity)
 		if (shared !== undefined) {
 			return shared

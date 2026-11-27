@@ -2,7 +2,7 @@
 
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { Nfa } from "@bjornpagen/grizzle-text/regex/nfa"
-import { SearchSubsets, type Subset, subsetKey } from "@bjornpagen/grizzle-text/regex/subset"
+import { SearchSubsets, type Subset, SubsetNumbers } from "@bjornpagen/grizzle-text/regex/subset"
 import { defined } from "@bjornpagen/testing/assert"
 import { array, boolean, characterOf, type Gen, string, uniqueKeys } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, String as Str } from "effect"
@@ -115,12 +115,12 @@ export const atomByAtom = (nfa: Nfa): AtomByAtom => {
 	const subsets = new SearchSubsets(nfa)
 	const { atomCount, atomOf } = subsets.alphabet
 	const restAtom = defined(atomOf[0], "the alphabet's first atom")
-	const numbers = new Map<string, number>()
+	const numbers = new SubsetNumbers()
 	const members: Array<Subset> = []
 	const numbered = (subset: Subset): void => {
-		const key = subsetKey(subset)
-		if (!numbers.has(key)) {
-			numbers.set(key, members.length)
+		const slot = numbers.slot(subset)
+		if (slot.number < 0) {
+			slot.number = members.length
 			members.push(subset)
 		}
 	}
@@ -129,12 +129,12 @@ export const atomByAtom = (nfa: Nfa): AtomByAtom => {
 	let keys = 1
 	for (let id = 0; id < members.length; id++) {
 		const subset = defined(members[id], "a reached state")
-		const restart = subsetKey(subsets.target(subset, restAtom).to)
+		const restart = numbers.slot(subsets.target(subset, restAtom).to)
 		keys += 1
 		for (let atom = 0; atom < atomCount; atom++) {
 			const step = subsets.target(subset, atom)
 			work += step.work
-			if (subsetKey(step.to) !== restart) {
+			if (numbers.slot(step.to) !== restart) {
 				keys += 1
 			}
 			numbered(step.to)

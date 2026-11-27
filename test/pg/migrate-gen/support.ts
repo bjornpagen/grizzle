@@ -5,6 +5,7 @@ import { array, boolean, constant, element, type Gen, int, map } from "@bjornpag
 import { type Swarm, swarm, swarmChoice, weightOf } from "@bjornpagen/testing/swarm"
 import {
 	Array as Arr,
+	Effect,
 	Equal,
 	Formatter,
 	Option,
@@ -28,6 +29,7 @@ import type { CodeSlot } from "#compiler/ir/cells.ts"
 import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
 import {
 	admitLoginRoles,
+	declaredNaming,
 	decodeRoleOver,
 	everyFact,
 	type FieldDecl,
@@ -45,7 +47,6 @@ import {
 	type ScalarType,
 	sameScalarType
 } from "#compiler/ir/scalar.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import type { ColumnDef } from "#compiler/sql/ast.ts"
 import { printType } from "#compiler/sql/print.ts"
@@ -54,6 +55,7 @@ import type {
 	SchemaDesc as AuthoredSchemaDesc,
 	AuthoredStatementDesc as StatementDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import { describedLogin, describedPlan } from "#test/support/generate-draft.ts"
 import {
 	admittedByFeature,
 	catalogConversions,
@@ -100,7 +102,7 @@ import {
 	schemaName,
 	schemaSketchGen
 } from "#test/support/oracle/gen/schema.ts"
-import { planRealInstall, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
+import type { RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { inputText } from "#test/support/oracle/runner.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
@@ -596,6 +598,7 @@ const boundsOf = (type: ScalarType): readonly [LiteralDesc, LiteralDesc] | undef
 		case "int4":
 		case "int8":
 			return integerBounds[type.carrier]
+		case "variant":
 		case "numeric":
 		case "float4":
 		case "float8":
@@ -709,6 +712,7 @@ const worldsOf = (
 			insert: Arr.filter(stored, (r) => !open.has(r)),
 			write: Arr.filter(stored, (r) => open.has(r)),
 			contexts: [],
+			scope: [],
 			loc
 		}),
 		(writer) =>
@@ -720,6 +724,7 @@ const worldsOf = (
 							insert: [],
 							write: [],
 							contexts: [],
+							scope: [],
 							loc
 						}),
 						(reader) => admitLoginRoles(desc, { name: "server", roles: [writer, reader], loc })
@@ -753,10 +758,17 @@ const codedOf = (
 	const { target, source } = codedRelations
 	return {
 		relations: [
-			{ kind: "relation", name: target, fields: { code }, primaryKey: ["code"] },
+			{
+				kind: "relation",
+				name: target,
+				naming: declaredNaming,
+				fields: { code },
+				primaryKey: ["code"]
+			},
 			{
 				kind: "relation",
 				name: source,
+				naming: declaredNaming,
 				fields: { id: callerWritten(fieldDescOf(int4)), code },
 				primaryKey: ["id"]
 			}
@@ -2586,21 +2598,21 @@ const versionCodes = (v: Version): Codebook => ({
 	spellings: noSpellings
 })
 
-/** The installation plan of a version under `schema`, for its physical names and its fact statements: a fresh install
- * under the version's codes, so it installs every law and derived relation, as a draft's compilation does. */
-export const planOf = (v: Version, schema: string): RealInstallPlan => {
-	const planned = planRealInstall(v.desc, {
-		installation: identity.schema(parsedSchemaName(schema)),
-		logins: versionLogins(v),
-		extensions: [],
-		codes: versionCodes(v),
-		compile: compileInstallation
-	})
-	if (!planned.ok) {
-		throw new Error(planned.error.message)
-	}
-	return planned.value
-}
+/**
+ * The installation plan of a version under `schema`, for its physical names and its fact statements: a fresh install
+ * under the version's codes, holes included, with its worlds, installed as `grizzle generate` installs it from the
+ * version's descriptions (generate-draft.ts describedPlan), so it installs every law and derived relation and its
+ * logins' served workload certified.
+ */
+export const planOf = (v: Version, schema: string): RealInstallPlan =>
+	Effect.runSync(
+		describedPlan(
+			v.desc,
+			Arr.map(versionLogins(v), describedLogin),
+			identity.schema(parsedSchemaName(schema)),
+			versionCodes(v)
+		)
+	)
 
 /** The rows of every relation of a version in `schema`, its fields in declaration order, each value as its output
  * function's text, sorted: a multiset that two installations of one version compare by. Each query is keyed by its

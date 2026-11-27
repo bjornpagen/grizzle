@@ -8,7 +8,7 @@ import {
 	exprClosure,
 	fieldReads,
 	type ScalarExpr,
-	zeroPeeled
+	canonicalPeeled
 } from "#compiler/ir/expr.ts"
 import {
 	exprsOf,
@@ -38,7 +38,8 @@ export interface ApproximateTrace {
 	/** The rule's set projection. */
 	readonly projection: NodeOf<"ProjectSet">
 	/**
-	 * The nodes from the projection's input down to the region, inclusive, each passing the vector column unchanged.
+	 * The nodes from the projection's input down to the region, inclusive, each passing the vector column unchanged: the
+	 * rule's filters and negations, and the projections a rewrite leaves among them (toRegion).
 	 */
 	readonly chain: ReadonlyArray<RelNode>
 	readonly region: NodeOf<"MatchRegion">
@@ -147,7 +148,7 @@ const readsNoRow = (e: ScalarExpr): boolean => e.deps.nodes.length === 0
 
 /**
  * The conjuncts of the rule's filters in `chain` that fix a variable to a value that reads no row, `x = c` or `c = x`
- * for a column x of the filter's input, which names its region variable.
+ * for a column x of the filter's input, which names its region variable (toRegion).
  */
 const fixingConjuncts = (chain: ReadonlyArray<RelNode>): ReadonlyArray<FixingConjunct> =>
 	chain.flatMap((node) =>
@@ -300,6 +301,8 @@ const exprLabel = (e: ScalarExpr): string => {
 			return "a cast"
 		case "cond":
 			return "a conditional"
+		case "variant":
+			return "a variant's operation"
 		case "value":
 			return "a domain value"
 		case "closedAt":
@@ -314,8 +317,14 @@ const exprLabel = (e: ScalarExpr): string => {
 }
 
 /**
- * The source's projection input traced to the region whose columns it keeps, through the rule's filters and negations,
- * or the kind of the node that stops the trace.
+ * The source's projection input traced to the region whose rows it keeps, through the rule's filters and negations and
+ * the projections a rewrite leaves among them, or the kind of the node that stops the trace. The semi-join rewrite
+ * restores the region's heading over the semi-join it makes (lower/optimize/existence R02.semiJoin), which demand narrows
+ * and constant propagation fixes: each column is the variable of its name it copies, or the variable a replaced name
+ * stood for, which the region no longer holds, or the value a filter fixes its variable to. So a name the trace reads of
+ * the region (the ranked vector, the query vector's reads, a fixing conjunct's variable) is that variable's in every row,
+ * or the region holds none of it and the read finds nothing; and a projection whose repeated rows its readers count is
+ * realized `distinct` by the placement, which the lowering refuses in the chain (lower/shapes/vector).
  */
 const toRegion = (
 	start: RelNode
@@ -337,6 +346,9 @@ const toRegion = (
 			case "AntiJoin":
 				node = node.left
 				break
+			case "ProjectSet":
+				node = node.input
+				break
 			case "Base":
 			case "Closed":
 			case "InputSet":
@@ -344,7 +356,6 @@ const toRegion = (
 			case "Delta":
 			case "Intersect":
 			case "Difference":
-			case "ProjectSet":
 			case "Union":
 			case "Group":
 			case "Produce":
@@ -385,7 +396,7 @@ export const outerRefusal = (outer: ReadonlyArray<NodeId>): string =>
  *   Filter, SemiJoin and AntiJoin nodes over the projection (each keeping its left side's heading), lowered in the
  *   search's own statement before the bound, so they restrict the eligible universe rather than the candidates;
  * - its `by` output is exactly Distance.cosine, one native node `vector:cosine_distance(vector,vector)`, or its
- *   canonical zero (ir/expr.ts zeroPeeled), which a merge of the rule's head puts on it and which keeps its order;
+ *   canonical zero (ir/expr.ts canonicalPeeled), which a merge of the rule's head puts on it and which keeps its order;
  * - one operand is a column of the rule's region and the other the query vector, one value per execution (QueryVector):
  *   a parameter or a literal that reads no row, or a field of another match than the ranked column's, whose declared
  *   key the rule fixes to such values (an Anchor, `r.match(Item, { item: r.param("item", …), embedding: q })`), which
@@ -394,9 +405,9 @@ export const outerRefusal = (outer: ReadonlyArray<NodeId>): string =>
  *   index serves; cosine distance is symmetric bit for bit (the kernel's dot product and the product of the two norms
  *   commute), so the column may be either operand;
  * - that column passes unchanged through the rule's filters and negations (Filter, SemiJoin, AntiJoin, each keeping
- *   its left side's columns) to the region, where exactly one match binds it: a field of an ordinary stored relation
- *   (a Base that is no derived relation's view), bound by no second match, no equality and no correlation, which is
- *   the column an HNSW index can order;
+ *   its left side's columns), and through every projection a rewrite leaves among them (toRegion), to the region,
+ *   where exactly one match binds it: a field of an ordinary stored relation (a Base that is no derived relation's
+ *   view), bound by no second match, no equality and no correlation, which is the column an HNSW index can order;
  * - the field is a vector of 1-2000 dimensions, HNSW's indexed range.
  *
  * Everything else the rule matches, its joins, its filters and its existential witnesses, is the eligible universe,
@@ -431,7 +442,7 @@ export const traceApproximate = (
 	if (out === undefined) {
 		return Result.err(`${prefix}: by names ${score}, a column of the source's heading`)
 	}
-	const scored = zeroPeeled(out.expr).term
+	const scored = canonicalPeeled(out.expr).term
 	if (scored.kind !== "op" || scored.op !== cosineDistanceOp) {
 		return Result.err(
 			`${prefix}: by ${score} names ${exprLabel(scored)}, not Distance.cosine over vectors; approximate retrieval never ranks by an arbitrary score`

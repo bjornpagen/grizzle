@@ -1,4 +1,5 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { importLabels, servedDerivations } from "#compiler/analysis/derived/served.ts"
 import { clockParams, sourcedParams } from "#compiler/check/clock.ts"
 import { type AdmittedQuery, checkQuery } from "#compiler/check/index.ts"
 import { CheckSession } from "#compiler/check/session.ts"
@@ -9,6 +10,7 @@ import type { ClockBinding, ClockSource } from "#compiler/ir/clock.ts"
 import { noneWritten, servedQuery } from "#compiler/ir/derived.ts"
 import { isOrderedQuery, type QueryDesc } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import {
 	type CallerParamDecl,
 	type ClockParamDecl,
@@ -24,12 +26,15 @@ import type { ProgramDelivery } from "#compiler/lower/conservative/types.ts"
 import {
 	lowerOptimized,
 	type OptimizedProgram,
-	optimizedInput
+	optimizedInput,
+	type PageLowering
 } from "#compiler/lower/optimize/pipeline.ts"
+import { completedPageOrder, statedOrderOf } from "#compiler/lower/shapes/page/compile.ts"
 
 import { type SpecifiedArtifact, specifiedProgram } from "#compiler/lower/template.ts"
 import type { QueryInput, SchemaInput } from "#compiler/program/input.ts"
 import { programSchema, type SchemaArtifacts } from "#compiler/program/schema.ts"
+import type { Owned } from "#compiler/schema/own.ts"
 
 export interface QueryTemplate extends ProgramArtifacts {
 	readonly kind: "query" | "ordered"
@@ -106,12 +111,7 @@ const schemaOfInput = (
 	switch (input.kind) {
 		case "built":
 			if (named !== undefined) {
-				return programSchema(
-					input.schema,
-					named,
-					{ kind: "query", query: input.desc },
-					SourceLoc("compile", [])
-				)
+				return programSchema(input.schema, named, SourceLoc("compile", []))
 			}
 			return input.schema.kind === "fragment"
 				? Result.err(
@@ -156,6 +156,35 @@ export const querySchema = (
 	}))
 
 /**
+ * What a query read by pages is lowered as (lower/optimize/pipeline.ts PageLowering): its ordered result in the order
+ * its pages compare by (lower/shapes/page/compile.ts completedPageOrder), which a window's driver is read in, and each
+ * relation's unit key fields. A query whose order no page completes is lowered as a query, and the page compiler
+ * refuses it with its own reason.
+ */
+const pageSubject = (
+	checked: AdmittedQuery,
+	desc: QueryDesc,
+	names: PhysicalNames,
+	owned: Owned
+): PageLowering | { readonly kind: "query" } => {
+	const root = checked.dag.roots[0]
+	const stated = statedOrderOf(desc, SourceLoc("query", []))
+	if (!stated.ok || root.kind !== "OrderedResult") {
+		return { kind: "query" }
+	}
+	const completed = catchRefusal(() =>
+		completedPageOrder({ checked, names, stated: stated.value }, root)
+	)
+	return completed.ok
+		? {
+				kind: "page",
+				order: completed.value.order,
+				unitOf: (relation) => owned.unitOf.get(relation)?.fields ?? []
+			}
+		: { kind: "query" }
+}
+
+/**
  * Compiling a query into its template.
  *
  * A template is compiled for one execution context, `snapshot` (Db reads, which may rely on lawful committed-snapshot
@@ -177,15 +206,19 @@ export const compileQuery = (
 	const { context, artifacts } = options
 	/** The checked schema the query is checked against, its artifacts' own: a role's, over its base, or reality's. */
 	const read = artifacts.world.kind === "role" ? artifacts.world.checked : artifacts.derived.schema
+	const session = CheckSession.own()
 	const checkedQuery = checkQuery(read, source.desc, {
 		read: options.read,
 		label: "query",
 		clock: options.clock,
-		session: CheckSession.own()
+		session
 	})
 	if (!checkedQuery.ok) {
 		return checkedQuery
 	}
+	/** The label of each closed import the query's check built, which a served statement holds to its tables
+	 * (analysis/derived/served.ts). */
+	const imports = importLabels(checkedQuery.value.dag, session)
 	const params = clockParams(checkedQuery.value.params, options.clock, "clocked")
 	if (!params.ok) {
 		return params
@@ -218,10 +251,16 @@ export const compileQuery = (
 	 * one whose holders the schema's writes may write, since the transaction may have written what that table's upkeep
 	 * replaces only at its COMMIT (analysis/schema.ts CheckedSchema serves, writable).
 	 */
-	const served = servedQuery(
-		judged,
-		read.rows(context === "snapshot" ? noneWritten : read.writable)
-	)
+	const rows = read.rows(context === "snapshot" ? noneWritten : read.writable)
+	const served = servedQuery(judged, rows)
+	servedDerivations({
+		schema: read,
+		rows,
+		checked: judged.dag,
+		served: served.dag,
+		imports,
+		member: "a served read"
+	})
 	/** The query as the optimized lowering takes it (optimizedInput), annotated under the query's evidence, the checker's
 	 * with the keys of the views it reads (logical/annotate.ts queryEvidence). */
 	const rewritten = optimizedInput(served, queryEvidence)
@@ -230,7 +269,10 @@ export const compileQuery = (
 	}
 	const lowered = lowerOptimized(rewritten.value, {
 		names: artifacts.reads,
-		subject: { kind: "query" },
+		subject:
+			options.read === "page"
+				? pageSubject(served, source.desc, artifacts.reads, read.owned)
+				: { kind: "query" },
 		catalog: evidenceCatalog(artifacts),
 		context
 	})

@@ -9,7 +9,7 @@ import { ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr } from "effect"
 import {
 	keptFaultCase,
-	schemaCases,
+	schemaAimed,
 	schemaProgram,
 	schemaRequired
 } from "#test/support/agreement/schemas.ts"
@@ -23,7 +23,7 @@ import { schemaKeptBox } from "#test/types/schema/agreement.dictionary.ts"
  * 226.3 CPU-s against 328.9, every situation reached and every kill killed alike (budgets/schemas.*.txt)
  * (~/.cache/grizzle-release/TESTSYS/GZ-TYPES/measure/budgets, 2026-11-16, load 470 to 670).
  */
-export const schemas = agreement(schemaCases, {
+export const schemas = agreement(schemaAimed, {
 	budget: { runs: 48, steered: 200 },
 	situations: schemaRequired,
 	notes: (c) => c.notes,
@@ -33,11 +33,27 @@ export const schemas = agreement(schemaCases, {
 	kept: [
 		{
 			token: ReplayToken(
-				"test/types/schema/agreement.test.ts#schemas:7ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff.1:0.0.0.0.0.1.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+				"test/types/schema/agreement.test.ts#schemas:7fffffffffffffffffffffffffffffffffffffffffffffffffffffffff.1:1.0.1.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.2.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
 			),
 			reason:
-				"a relation of a numeric(7, 2) field, whose descriptor is NumericTypmodField<Decimal> since numeric's host follows its scale (4da9792ba), where the model wrote the bare NumericTypmodField, Decimal | bigint (TEST_SEED=655968417)",
+				"a contract over a numeric(7, 2) field, whose descriptor is NumericTypmodField<Decimal> since numeric's host follows its scale (4da9792ba), where the model wrote the bare NumericTypmodField, Decimal | bigint (TEST_SEED=655968417; its token drawn again at the merged tree, whose schemas agreement declares 231 requirements where the token's steering named 243, VALUECELL's deletion of the alternatives pack and probe (271ffecf2) among the twelve gone: the floor's first failure under the kill that forgets numeric's scale)",
 			since: "2026-11-19"
+		},
+		{
+			token: ReplayToken(
+				"test/types/schema/agreement.test.ts#schemas:7fffffffffffffffffffffffffffffffffffffffffffffffffffffffff.0:5.0.0.1.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.2.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+			),
+			reason:
+				"a contract over another, Code over Cents, both under the program's one Key: BRAND's KeyApart (97c8891645) refuses it in the types while the engine admits it, TypesDisagreed at case-0.ts:31 (floor 0x70a719f7, case 0, on the merged tree); each pool contract is under a key of its own since",
+			since: "2026-11-27"
+		},
+		{
+			token: ReplayToken(
+				"test/types/schema/agreement.test.ts#schemas:7fffffffffffffffffffffffffffffffffffffffffffffffffffffffff.1:0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.1.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.1.0.0.0.0.1.0.0.0.1.0.0.1.2.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+			),
+			reason:
+				"a containment of Counts(owner) in Account(owner), Account in the declared unit over its id: NOSETTINGS refuses a probed law over an aggregate whose groups span the units (UnsupportedLawFamily), which no type tracks, and the generator drew it as admitted (floor 0x70a719f7, case 1, behind case 0); now the declared class aggregateAcrossUnits",
+			since: "2026-11-27"
 		}
 	],
 	kills: [

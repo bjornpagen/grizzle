@@ -1,42 +1,31 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { levelSchema, type ParsedRole, parseSchemaInput } from "#compiler/program/input.ts"
-import { programSchema } from "#compiler/program/schema.ts"
+import { levelSchema, type ParsedRole } from "#compiler/program/input.ts"
 import { type WorkloadProgram, workloadState } from "#compiler/program/workload/value.ts"
 import type { OwnedLogin, OwnedRole } from "#compiler/schema/own.ts"
 
 const loc = SourceLoc("login compile", [])
 
-/** A login's role value parsed, with its login's owned role of its name. */
-export interface LoginRole {
-	readonly input: ParsedRole
-	readonly owned: OwnedRole
-}
-
 /**
- * A role value of a login read where its login is compiled: parsed (program/schema.ts parseSchemaInput), with the owned
- * role of `owned` of its name. A value no role(...) built, or a role of no role of the login, is refused.
+ * The owned role of `owned`, a login owned, of the name of `role`, one of the login's roles, where its login is
+ * compiled. The role was parsed where its login was read (program/input.ts parseRole, roleOfDesc), so no step of the
+ * compile reads a role value, and the login was owned from the Description its roles were read with, which names each.
  */
-export const loginRole = (
-	value: unknown,
-	owned: OwnedLogin
-): Result.Result<LoginRole, CompileError> =>
-	Result.flatMap(parseSchemaInput(value), (input) => {
-		const role =
-			input.kind === "role" ? owned.roles.find((r) => r.name === input.desc.name) : undefined
-		return input.kind === "role" && role !== undefined
-			? Result.ok({ input, owned: role })
-			: Result.err(malformedDescription(loc, "a login's role built by role(...)"))
-	})
+export const loginRole = (role: ParsedRole, owned: OwnedLogin): OwnedRole =>
+	defined(
+		owned.roles.find((r) => r.name === role.desc.name),
+		`role ${role.desc.name} of login ${owned.name}, which its Description names`
+	)
 
 /**
  * The programs of a login's workloads that run on a role, in the workloads' order, each one's programs in its record's
- * order: a workload over the role is the role's own, and a workload over the base or a level of it runs on a role that
- * holds every relation of it whole or scoped, whose levels hold the base (program/schema.ts levelSchema), and on no
- * other one. A program of such a workload that reads a relation the role holds scoped other than row by row is refused
- * for the role, by its name (program/schema.ts programSchema). A workload value no workload(...) built is refused.
+ * order: a workload over a level of the role runs on it (program/input.ts levelSchema), and on no other one, each of its
+ * programs over the role's world (schema/scope.ts): a workload over the role itself, which is one level with it
+ * (schema/levels.ts sameRoleLevel), and a workload over the base or a level of it on a role that holds every relation
+ * of it whole, whose levels hold the base. A workload value no workload(...) built is refused.
  */
 export const programsOn = (
 	role: ParsedRole,
@@ -48,27 +37,8 @@ export const programsOn = (
 		if (state === undefined) {
 			return Result.err(malformedDescription(loc, "a workload built by workload(...)"))
 		}
-		const over = state.schema
-		if (over.kind === "role") {
-			if (over.value === role.value) {
-				appendAll(running, state.programs)
-			}
-			continue
-		}
-		if (!levelSchema(over, role, loc).ok) {
-			continue
-		}
-		for (const program of state.programs) {
-			const held = programSchema(
-				over,
-				role,
-				program.desc,
-				SourceLoc(`login compile program ${program.name}`, ["programs", program.name])
-			)
-			if (!held.ok) {
-				return held
-			}
-			running.push(program)
+		if (levelSchema(state.schema, role, loc).ok) {
+			appendAll(running, state.programs)
 		}
 	}
 	return Result.ok(running)

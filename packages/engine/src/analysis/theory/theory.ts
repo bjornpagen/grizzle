@@ -4,6 +4,7 @@ import { type FieldClass, FieldClasses } from "#compiler/analysis/theory/classes
 import { knownColumns } from "#compiler/analysis/theory/columns.ts"
 import { familyStated } from "#compiler/analysis/theory/families.ts"
 import { fillOrder } from "#compiler/analysis/theory/fill.ts"
+import { foundedAt } from "#compiler/analysis/theory/frozen.ts"
 import { instantRoles } from "#compiler/analysis/theory/instants.ts"
 import {
 	type ContractUse,
@@ -23,6 +24,8 @@ import { typedHeads } from "#compiler/analysis/theory/leaves.ts"
 import {
 	type LawSide,
 	liveReading,
+	noClocks,
+	proofsOf,
 	type QueryRule,
 	type RuleLaw
 } from "#compiler/analysis/theory/query.ts"
@@ -53,20 +56,18 @@ import {
 	type Part
 } from "#compiler/core/identity.ts"
 
-import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
-	frontierOf,
 	type RegionFacts,
 	regionFactsOf,
-	type StoredUpkeep,
-	storedUpkeep
+	type StoredUpkeep
 } from "#compiler/analysis/theory/unit.ts"
+import { upkeepOf } from "#compiler/analysis/theory/upkeep.ts"
 import { type ConstraintName, FieldId, type LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { compareNumbers, compareStrings } from "#compiler/core/order.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import { type LabelledDag, LabelSupply, topoOrder } from "#compiler/ir/dag.ts"
 import { noneWritten, servedQuery } from "#compiler/ir/derived.ts"
@@ -87,7 +88,6 @@ import {
 	type EvidenceSide,
 	fieldNames,
 	type LawField,
-	type LawSource,
 	type RelationInfo,
 	type StoredDerivedRelation,
 	type TheoryRelation
@@ -109,28 +109,6 @@ import { contractInfoOf, type ScalarEnv, scalarTypeOf } from "#compiler/scalar/r
 import { derivedStatement, mergedEntry } from "#compiler/schema/declared-entries.ts"
 import type { Owned } from "#compiler/schema/own.ts"
 import type { StatedEntry } from "#compiler/types/changeset/changeset.ts"
-
-/**
- * What the statement a containment's law is from refuses two of its paired fields of other base carriers for
- * (scalar/compute/types.ts sameCarrier): an alternatives arm's key against its parent's, or the sides of a containment
- * it states.
- */
-const containmentPairing = (source: LawSource): Refused => {
-	switch (source.kind) {
-		case "alternatives":
-			return "the arm's key does not match the parent key"
-		case "series":
-		case "relation":
-		case "key":
-		case "contract":
-		case "check":
-		case "contained":
-		case "family":
-		case "tree":
-		case "fold":
-			return "the sides' field types differ"
-	}
-}
 
 /** A key of a relation as immediate evidence: the PRIMARY KEY or UNIQUE that holds at every statement. */
 interface KeyEvidence {
@@ -215,8 +193,7 @@ interface TheoryEvidence {
  * - field-compatibility classes over the admitted containment pairings and every family's (classes.ts), refusing a
  *   pairing of fields of different identity;
  * - the normalized laws, each with its source identity and its violation query as a Forbid node in one DAG
- *   (laws.ts): a key and a containment over partial projections, an alternatives statement's containments, a family,
- *   a tree and a fold;
+ *   (laws.ts): a key and a containment over partial projections, a family, a tree and a fold;
  * - every family, a tree's included, resolved (families.ts): its axes' carried pairs and its folds, and their fill
  *   order (fill.ts), every column and relation no write fills refused;
  * - the relation dependency graph: each relation and the relations its laws read;
@@ -491,7 +468,7 @@ export const typingEnv = (
 
 /**
  * What a checked schema's law sides are resolved in (laws.ts SidesEnv): the stored relations' handles the checked
- * schema minted, by name, its closure's, and the typing environment of its laws (typingEnv), its lowerings applying the
+ * schema minted, by name, and the typing environment of its laws (typingEnv), its lowerings applying the
  * closed relations its laws' predicates and terms may read (CheckedSchema.closedReads).
  */
 const sidesEnvOf = (checked: CheckedSchema): SidesEnv => {
@@ -517,7 +494,7 @@ class Builder {
 	readonly checked: CheckedSchema
 	/** Each derived relation's definition, by name, a stored one's among them. */
 	readonly definitions: ReadonlyMap<string, QueryDesc>
-	/** The containments of the closure's statements a whole rule's region reads (unit.ts RegionFacts), and the declared
+	/** The containments of the schema's statements a whole rule's region reads (unit.ts RegionFacts), and the declared
 	 * unit each relation's rows sit in, a stored derived relation's the one its admission decided (ir/unit.ts StoredUnit
 	 * `declared`), so a rule reading its table and its holders is judged whole under the one borrow that covers both. */
 	readonly regionFacts: RegionFacts
@@ -534,38 +511,33 @@ class Builder {
 		)
 		this.owned = checked.owned
 		const authored = sidesEnvOf(checked)
-		const closure = regionFactsOf(
-			checked.closure.statements.map((s) => s.statement),
+		const facts = regionFactsOf(
+			checked.owned.statements,
 			authored.relations,
 			this.definitions,
 			checked.owned.unitOf
 		)
-		/** The closure's facts with the stored derived relations whose rows are an open frontier (unit.ts frontierOf),
-		 * which the checked schema's holdings decide (analysis/derived/storage.ts DerivedHolding). */
-		const facts: RegionFacts = {
-			...closure,
-			frontiers: new Map(
-				[...this.definitions].flatMap(([name, definition]) => {
-					const settledBy =
-						checked.holdings.get(name)?.kind === "stored"
-							? frontierOf(definition, (n) => closure.keys.get(n) ?? [])
-							: undefined
-					return settledBy === undefined ? [] : [[name, settledBy] as const]
-				})
-			)
-		}
 		const { stored, upkeeps } = this.#stored(authored.relations, facts)
 		this.upkeeps = upkeeps
+		/** Each stored relation by every name it is read by: its canonical relation's, and each derived relation's whose
+		 * definition is that canonical relation's (analysis/derived/canonical.ts). */
+		const named = [...this.checked.holdings].flatMap(([name, holding]) =>
+			holding.kind === "stored" ? [[name, holding.relation] as const] : []
+		)
 		this.sides = {
 			...authored,
-			relations: new Map([...authored.relations, ...stored.map((r) => [r.name, r] as const)])
+			relations: new Map([
+				...authored.relations,
+				...stored.map((r) => [r.name, r] as const),
+				...named
+			])
 		}
 		this.regionFacts = {
 			...facts,
 			members: new Map([
 				...facts.members,
-				...stored.flatMap((r) =>
-					r.unit.kind === "unit" ? [[r.name, r.unit.declared] as const] : []
+				...named.flatMap(([name, r]) =>
+					r.unit.kind === "unit" ? [[name, r.unit.declared] as const] : []
 				)
 			])
 		}
@@ -585,8 +557,12 @@ class Builder {
 			? undefined
 			: this.definitions.get(relation)
 
-	/** How the theory reads each relation, each live definition read once however many readers read it. */
-	readonly #live = liveReading((relation) => this.#readLive(relation))
+	/** How the theory reads each relation, each live definition read once however many readers read it, and each stored
+	 * canonical relation a definition imports by its name (CheckedSchema storedImport). */
+	readonly #live = liveReading(
+		(relation) => this.#readLive(relation),
+		(query) => this.checked.storedImport(query)
+	)
 
 	/**
 	 * What normalizing the schema's laws reads of it: its relations, each derived relation's definition and the types its
@@ -608,8 +584,7 @@ class Builder {
 	 * Primary keys, in relation order; every family's and tree's shape, so a containment knows the axes it may ride;
 	 * the statements, in canonical order; contracts, in name order, with every column and span endpoint that stores
 	 * their values. Then the drawn and accumulated fields' namings are checked: every law kept, none written yet. The
-	 * relations and statements are the checked schema's closure's (analysis/closure.ts), each law sourced at its index in
-	 * the whole schema's, so each is the law the whole schema's theory states.
+	 * relations and statements are the whole schema's, each law sourced at its index in it.
 	 */
 	#normalize(): Normalizer {
 		const normalizer = new Normalizer(this.env())
@@ -622,8 +597,8 @@ class Builder {
 				normalizer.primaryKey(r, index)
 			}
 		}
-		normalizer.families(this.checked.closure.statements.map((s) => s.statement))
-		for (const { statement, index } of this.checked.closure.statements) {
+		normalizer.families(this.owned.statements)
+		for (const [index, statement] of this.owned.statements.entries()) {
 			normalizer.statement(statement, index)
 		}
 		const contracts = Object.entries(this.owned.contracts).toSorted(([a], [b]) =>
@@ -635,7 +610,7 @@ class Builder {
 			)
 			normalizer.contract(contract, index, uses, contract.loc)
 		}
-		normalizer.finish(this.checked.closure.filled)
+		normalizer.finish()
 		return normalizer
 	}
 
@@ -647,7 +622,7 @@ class Builder {
 		const { laws, primaryKeys, dag, families } = this.#written(normalizer, kept)
 		const fill = unwrap(fillOrder(families, laws))
 		const relations = Object.freeze(Object.fromEntries(this.sides.relations))
-		const instants = unwrap(instantRoles(relations, laws))
+		const instants = unwrap(instantRoles(relations, laws, this.owned.unitOf))
 		return Object.freeze({
 			schema: this.owned.fingerprint,
 			name: this.owned.name,
@@ -670,8 +645,9 @@ class Builder {
 	 * Each stored derived relation, as the checked schema decided it (analysis/derived/storage.ts DerivedHolding), with its
 	 * upkeep, level by level and in name order within one: its definition read live (`live`), each live derived relation
 	 * it names through its definition and each stored one as its table, over the authored and closed relations
-	 * `relations` and the stored relations of the levels below it, its upkeep's region read by the closure's facts
-	 * `facts`.
+	 * `relations` and the stored relations of the levels below it, its upkeep's region read by the schema's facts
+	 * `facts`. Its upkeep at COMMIT is none for one frozen at the installation, whose rows no COMMIT changes (ir/unit.ts
+	 * FrozenUnit), and otherwise the form its definition's class takes (analysis/theory/upkeep.ts upkeepOf).
 	 */
 	#stored(
 		relations: ReadonlyMap<string, TheoryRelation>,
@@ -683,33 +659,60 @@ class Builder {
 		const stored: Array<StoredDerivedRelation> = []
 		const upkeeps: Array<StoredUpkeep> = []
 		const known = new Map(relations)
-		for (const r of Object.values(this.owned.relations).toSorted(
-			(a, b) => compareNumbers(a.level, b.level) || compareStrings(a.name, b.name)
-		)) {
-			const holding = this.checked.holdings.get(r.name)
-			if (r.kind !== "derived" || holding?.kind !== "stored") {
+		/** The field `field` of `relation` is, where the schema or a level below holds the relation. */
+		const fieldOf = (relation: string, field: string): FieldDesc | undefined =>
+			known.get(relation)?.fields.find((f) => f.name === field)?.desc
+		/** Whether a write changes rows of `relation`: an ordinary relation's or a stored one's. */
+		const holder = (relation: string): boolean => {
+			const kind = known.get(relation)?.kind
+			return kind === "relation" || kind === "stored"
+		}
+		/** What every upkeep's delta rules prove a cover by (upkeep.ts DeltaInput `proofs`): the schema's containments and
+		 * keys, over the relations known as each level is admitted. */
+		const proofs = proofsOf(facts, (relation) => known.get(relation), noClocks)
+		for (const c of this.checked.canonical.values()) {
+			if (c.holding.kind !== "stored") {
 				continue
 			}
-			const admitted = holding.relation
+			const admitted = c.holding.relation
 			stored.push(admitted)
-			/** Its upkeep at COMMIT, none for one frozen at the installation, whose rows no COMMIT changes (ir/unit.ts
-			 * FrozenUnit). */
-			const definition = this.#live.query(r.desc.query)
-			const upkeep =
-				admitted.unit.kind === "unit"
-					? [
-							storedUpkeep(
-								r.name,
-								typedHeads(definition, this.#columns(r.name, definition, r.desc.loc)),
-								admitted.unit,
-								known,
-								facts,
-								r.desc.loc
-							)
-						]
-					: []
-			appendAll(upkeeps, upkeep)
-			known.set(r.name, admitted)
+			const unit = admitted.unit
+			if (unit.kind === "unit") {
+				const definition = this.#live.query(c.holding.rows)
+				const typed = typedHeads(
+					definition,
+					this.#columns(c.subject.name, definition, c.subject.loc)
+				)
+				upkeeps.push(
+					upkeepOf({
+						name: c.subject.name,
+						relation: admitted,
+						heading: mapNonEmpty(admitted.heading, (f) => f.name),
+						table:
+							this.checked.owned.relations[c.subject.name]?.kind === "derived"
+								? { kind: "table", relation: c.subject.name, unit: unit.fields }
+								: { kind: "none" },
+						stored: unit,
+						founded: foundedAt(this.checked.owned, unit.declared.unit),
+						bound: c.holding.bound,
+						definition,
+						typed,
+						known,
+						facts,
+						env: {
+							definition: this.#readLive,
+							columnType: this.#columns,
+							live: this.#live,
+							loc: c.subject.loc
+						},
+						holder: (relation) => holder(relation) && !unit.references.includes(relation),
+						fieldOf,
+						proofs,
+						loc: c.subject.loc
+					})
+				)
+			}
+			known.set(c.subject.name, admitted)
 		}
 		return { stored: Object.freeze(stored), upkeeps: Object.freeze(upkeeps) }
 	}
@@ -854,7 +857,6 @@ class Builder {
 		for (const k of kept) {
 			const detail = k.draft.identity.detail
 			if (detail.kind === "containment") {
-				const refusal = containmentPairing(k.draft.identity.source)
 				for (const p of detail.pairs) {
 					pair(
 						detail.from.relation,
@@ -863,7 +865,7 @@ class Builder {
 						p.to.column,
 						k.tracked,
 						sameCarrier,
-						refusal
+						"the sides' field types differ"
 					)
 				}
 			}
@@ -983,6 +985,7 @@ const readsStable = (dag: ValidDag): boolean =>
 			(n.kind === "Call" &&
 				n.function.kind !== "split" &&
 				n.function.kind !== "series" &&
+				n.function.kind !== "arm" &&
 				n.function.volatility !== "immutable") ||
 			exprsOf(n).some((e) => e.volatility === "stable")
 	)
@@ -995,14 +998,57 @@ const readsStable = (dag: ValidDag): boolean =>
 export const lawSides = (checked: CheckedSchema): LawSides => new LawSides(sidesEnvOf(checked))
 
 /**
- * Each key, row check and containment's evidence, an alternatives expansion's containments among them (statement
- * "alternatives"), with its validity context: keys and row checks are validated immediate storage facts, and so is a
- * containment into a closed relation, since the roster's domain types a lone field contained in its own roster, a table
- * CHECK reads every other's constant, and one between closed relations holds of their declared facts, which the
- * migration installing them checks. Any other containment is a native reference, immediate where law specialization
- * proves it (`immediate`, a non-deferred native FK) and holding in lawful committed snapshots otherwise. A family's, a
- * tree's and a fold's laws give none of their own: a containment riding a family's axis gives its evidence as a
- * containment.
+ * A key a law states of a stored derived relation's fields, every fact of it read, as evidence: the native UNIQUE the law
+ * model installs on the relation's table (laws/model/plan.ts projectedKey), named at the naming door as any key over the
+ * fields (core/identity.ts key), immediate at every statement as an ordinary relation's key is. A key over a selection,
+ * a term not a field, a span, or another relation's projection gives none.
+ */
+const storedViewKey = (side: ResolvedSide): Omit<KeyEvidence, "law"> | undefined => {
+	const fields = fieldTermsOf(side.terms)
+	if (side.rel.kind !== "stored" || fields === undefined || side.selection.conjuncts.length > 0) {
+		return undefined
+	}
+	const names = mapNonEmpty(fields, (f) => f.field)
+	return {
+		relation: side.relation,
+		fields: names,
+		spans: [],
+		kind: "unique",
+		constraint: identifierOf(identity.key(side.relation, names)),
+		context: "immediate"
+	}
+}
+
+/**
+ * A containment a law states into a stored derived relation, which the theory judges as a rule over a query
+ * (laws.ts readByRule), as evidence: each side's fields, every fact of each read, holding where the rule judge holds it,
+ * at COMMIT, so in lawful committed snapshots. A side that selects or reads a term not a field gives none.
+ */
+const viewContainment = (law: {
+	readonly from: LawSide
+	readonly to: LawSide
+}): Omit<ContainmentEvidence, "law"> | undefined => {
+	const side = (s: LawSide): EvidenceSide | undefined => {
+		const fields = s.selection.conjuncts.length === 0 ? fieldTermsOf(s.terms) : undefined
+		return fields === undefined
+			? undefined
+			: { relation: s.relation, fields: mapNonEmpty(fields, (f) => f.field), selection: [] }
+	}
+	const from = side(law.from)
+	const to = side(law.to)
+	return from === undefined || to === undefined
+		? undefined
+		: { from, to, coverage: false, context: "committedSnapshot" }
+}
+
+/**
+ * Each key, row check and containment's evidence, with its validity context: keys and row checks are validated
+ * immediate storage facts, and so is a containment into a closed relation, since the roster's domain types a lone field
+ * contained in its own roster, a table CHECK reads every other's constant, and one between closed relations holds of
+ * their declared facts, which the migration installing them checks. Any other containment is a native reference,
+ * immediate where law specialization proves it (`immediate`, a non-deferred native FK) and holding in lawful committed
+ * snapshots otherwise. A family's, a tree's and a fold's laws give none of their own: a containment riding a family's
+ * axis gives its evidence as a containment.
  */
 export const theoryEvidence = (
 	laws: ReadonlyArray<TheoryLaw>,
@@ -1023,6 +1069,17 @@ export const theoryEvidence = (
 				law: law.id,
 				context: "immediate"
 			})
+		} else if (d.kind === "projectedKey") {
+			const key = storedViewKey(d.side)
+			if (key !== undefined) {
+				keys.push({ ...key, law: law.id })
+			}
+		} else if (d.kind === "rule") {
+			const stated = d.rule.kind === "whole" ? d.rule.law : d.rule
+			const contained = stated.kind === "contained" ? viewContainment(stated) : undefined
+			if (contained !== undefined) {
+				containments.push({ ...contained, law: law.id })
+			}
 		} else if (d.kind === "check") {
 			checks.push({ relation: d.relation, name: d.name, law: law.id, context: "immediate" })
 		} else if (d.kind === "containment") {
@@ -1033,7 +1090,6 @@ export const theoryEvidence = (
 					from: sides.from,
 					to: sides.to,
 					coverage: d.pairing.kind === "span",
-					statement: law.source.kind === "alternatives" ? law.source.kind : "contained",
 					context:
 						d.to.rel.kind === "closed" || immediate.has(law.id) ? "immediate" : "committedSnapshot"
 				})

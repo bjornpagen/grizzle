@@ -17,15 +17,12 @@ import type {
 	NameOf
 } from "#compiler/types/schema/relation.ts"
 import type {
-	Alternatives,
-	AlternativesBase,
 	AnyFin,
 	AnyTerm,
 	CandidateKey,
 	Check,
 	Containment,
 	Counted,
-	ExpansionOf,
 	Fin,
 	Fold,
 	Key,
@@ -35,7 +32,6 @@ import type {
 	OrderedFamily,
 	Race,
 	Series,
-	RelationOfKey,
 	Selection,
 	Side,
 	Statement,
@@ -223,13 +219,6 @@ type SideSpelled<S, Rs, To extends Spelling> = S extends unknown
 			: S
 	: never
 
-/** A relation or a candidate key in key position, spelled: a key, told by its kind, its side spelled. */
-type KeyRefSpelled<K, Rs, To extends Spelling> = K extends unknown
-	? KindStated<K> extends "key"
-		? KeyBuilt<SideSpelled<Stated<K, "side">, Rs, To>>
-		: Spelled<K, Rs, To>
-	: never
-
 /** A family's slots spelled, told by their kind: fin(O, n) over its owner spelled; anything else, itself. */
 type FinSpelled<Fi, Rs, To extends Spelling> = Fi extends unknown
 	? KindStated<Fi> extends "fin"
@@ -273,8 +262,7 @@ type FamilySpelledAs<Fa, Kind, Rs, To extends Spelling> = Kind extends "ordered"
  * One statement spelled, each relation it names in place, the statement told by its kind and read by key
  * (StatementSpelledAs), never tested whole: a statement over a derived relation holds its definition, a query over the
  * level below, and a conditional the checker resolves instantiates its operands whole. A statement of no kind spelled
- * here, a unit, is itself. An alternatives law keeps its arm map as written, the caller's own object-literal
- * type, which the checker instantiates as one type without walking its arms.
+ * here, a unit, is itself.
  */
 type StatementSpelled<St, Rs, To extends Spelling> = St extends unknown
 	? StatementSpelledAs<St, KindStated<St>, Rs, To>
@@ -308,23 +296,14 @@ type StatementSpelledAs<St, Kind, Rs, To extends Spelling> = Kind extends "key"
 									SideSpelled<Stated<St, "left">, Rs, To>,
 									SideSpelled<Stated<St, "right">, Rs, To>
 								>
-							: Kind extends "alternatives"
-								? Stated<St, "discriminator"> extends infer D extends string
-									? AlternativesBuilt<
-											KeyRefSpelled<Stated<St, "parent">, Rs, To>,
-											D,
-											Spelled<Stated<St, "roster">, Rs, To>,
-											Stated<St, "arms">
-										>
-									: St
-								: Kind extends "fold"
-									? FoldBuilt<
-											FamilySpelled<Stated<St, "family">, Rs, To>,
-											Stated<St, "monoid">,
-											SideSpelled<Stated<St, "step">, Rs, To>,
-											SideSpelled<Stated<St, "end">, Rs, To>
-										>
-									: FamilySpelledAs<St, Kind, Rs, To>
+							: Kind extends "fold"
+								? FoldBuilt<
+										FamilySpelled<Stated<St, "family">, Rs, To>,
+										Stated<St, "monoid">,
+										SideSpelled<Stated<St, "step">, Rs, To>,
+										SideSpelled<Stated<St, "end">, Rs, To>
+									>
+								: FamilySpelledAs<St, Kind, Rs, To>
 
 /**
  * T as it is, read as a record's member. The spelled statements' constructors name their interface through it: inside
@@ -347,7 +326,6 @@ type SeriesBuilt<R> = Constructed<Series<R>>
 type CheckBuilt<N extends string, R> = Constructed<Check<N, R>>
 type ContainmentBuilt<L, R> = Constructed<Containment<L, R>>
 type MirrorsBuilt<L, R> = Constructed<Mirrors<L, R>>
-type AlternativesBuilt<P, D extends string, C, Arms> = Constructed<Alternatives<P, D, C, Arms>>
 type FoldBuilt<Fa, M, S, E> = Constructed<Fold<Fa, M, S, E>>
 type OrderedFamilyBuilt<F, Fi> = Constructed<OrderedFamily<F, Fi>>
 type CountedBuilt<F, Fi> = Constructed<Counted<F, Fi>>
@@ -536,11 +514,10 @@ export type LevelKeyOf<L> = L extends unknown
 	: never
 
 /**
- * The relations a statement names: the relation of a mutable, a race or a check; the source of each law side (a selection's
- * relation), a key's, a family's, a tree's and a fold's included; a family's and a tree's owner; and an alternatives
- * law's parent, roster and arms. A unit names none, and a statement typed `any`, whose keys are
- * every key, names `unknown`, as a side typed `any` does (SideNames). Each statement is read by its kind
- * (NamedByAs), each part by key.
+ * The relations a statement names: the relation of a mutable, a race or a check; the source of each law side (a
+ * selection's relation), a key's, a family's, a tree's and a fold's included; and a family's and a tree's owner. A unit
+ * names none, and a statement typed `any`, whose keys are every key, names `unknown`, as a side typed `any` does
+ * (SideNames). Each statement is read by its kind (NamedByAs), each part by key.
  */
 export type NamedBy<St> = St extends unknown
 	? symbol extends keyof St
@@ -558,15 +535,11 @@ type NamedByAs<St, Kind> = Kind extends "key"
 		? Stated<St, "relation">
 		: Kind extends "contained" | "mirrors"
 			? SideNames<Stated<St, "left">> | SideNames<Stated<St, "right">>
-			: Kind extends "alternatives"
-				? | RelationOfKey<Stated<St, "parent">>
-					| Stated<St, "roster">
-					| RelationOfKey<Exclude<Stated<St, "arms">[keyof Stated<St, "arms">], undefined>>
-				: Kind extends "ordered" | "counted" | "tree"
-					? SideNames<Stated<St, "family">> | OwnerOf<Stated<St, "slots">>
-					: Kind extends "fold"
-						? SideNames<Stated<St, "step">> | SideNames<Stated<St, "end">>
-						: never
+			: Kind extends "ordered" | "counted" | "tree"
+				? SideNames<Stated<St, "family">> | OwnerOf<Stated<St, "slots">>
+				: Kind extends "fold"
+					? SideNames<Stated<St, "step">> | SideNames<Stated<St, "end">>
+					: never
 
 /**
  * The relation each law side of X reads, by key: its source's, a selection's relation (SourceRelation). A side typed
@@ -924,39 +897,23 @@ type RecordOver<B, L> =
 
 /**
  * The empty level, schema.empty's type (schema/api.ts): no relation under any name, no statement, nothing below it, the
- * level below every root, as schema/levels.ts emptyLevel is its content. A query over it reads no relation, so it runs over every
- * schema and on every role, which holds it whole vacuously: a program over it carries the least level phantom
- * (LevelPhantom), which every level's readers admit, so no level's levels (LevelsOf) hold it.
+ * level below every root, as schema/levels.ts emptyLevel is its content. A query over it reads no relation, so it runs
+ * over every schema and on every role, which holds it whole vacuously: every level's reader of queries admits a query
+ * over it beside its own (types/query/query.ts QueryOver), and each check of a source's level that refuses one over no
+ * level admits it where no level of its own is the source's, a rule's match (types/query/rule.ts RequireLevel), a
+ * role's query entry (types/schema/world.ts EntryCheck) and a relation parameter's bind (types/query/query.ts
+ * WrittenOver), as schema/levels.ts isLevelOf tests it last, so no level's levels (LevelsOf) hold it, nor IsLevelOf,
+ * each of whose tests of a level that is not one would pay it (test/types/schema/budget/served-records.ts). A reader
+ * distributes over a level's levels once for each level it reads, and the empty level a member of each of them cost
+ * every role's workload and every login instantiations of their own (test/types/schema/budget/login-lists.ts); a
+ * program over it carries its own Invariant, as every program does, so no program pays for it either; the reader pays
+ * one instantiation for each level it reads (QueryOver).
  */
 export type EmptyLevel = Schema<"Empty", { readonly [name: string]: never }, readonly []>
 
 /**
- * The least level phantom: assignable to Invariant<L> for every L, its parameter taking anything and its result
- * nothing, as the empty level is a level of every level.
- */
-type LevelBottom = (value: unknown) => never
-
-/**
- * The phantom a program over the level S carries, by which every reader of a level's programs admits it, each against
- * Invariant<L> of a level L it reads (types/query/query.ts QueryOver and ChildBundle, types/changeset/changeset.ts
- * ChangeSetOver, IsLevelOfInvariant): Invariant<S>, so a program over S is a program over each level S is a level of
- * and over no other; over the empty level, the least phantom beside it (LevelBottom), so a program over the empty level
- * is a program over every level. The empty level is the base case of the levels by its phantom alone: no level's
- * levels (LevelsOf) hold it, since every reader distributes over a level's levels once for each level it reads, and the
- * empty level a member of each of them cost every role's workload and every login instantiations of their own
- * (test/types/schema/budget/login-lists.ts, served-records.ts). Its Invariant<S>, the last signature, is what a reader
- * of a program's schema infers (`Invariant<infer S>`): the empty level. S is the empty level exactly, compared both
- * ways, so neither never nor a wider schema is taken for it.
- */
-export type LevelPhantom<S> = [EmptyLevel] extends [S]
-	? [S] extends [EmptyLevel]
-		? LevelBottom & Invariant<S>
-		: Invariant<S>
-	: Invariant<S>
-
-/**
  * S, every schema below it, and every fragment one of them lists (FragmentsOf). A query over any of them is a query
- * over S, and so is a query over the empty level, by its phantom (LevelPhantom). The recursion is as deep as the
+ * over S, and so is a query over the empty level, at every reader of queries (QueryOver, EmptyLevel). The recursion is as deep as the
  * extension chain, never over relations or statements.
  */
 export type LevelsOf<S> = S | FragmentsOf<S> | LevelsBelow<BelowOf<S>>
@@ -1212,12 +1169,6 @@ type Desugared<L> = L extends MirrorsBase
 		: never
 	: L
 
-/**
- * The laws of S: its statements, each alternatives law read as the statements it expands to, and each mirrors, its
- * own or an alternatives arm's, as its two containments.
- */
-export type LawsOf<S> =
-	StatementOf<S> extends infer St
-		? Desugared<St extends AlternativesBase ? ExpansionOf<St> : St>
-		: never
+/** The laws of S: its statements, each mirrors as its two containments. */
+export type LawsOf<S> = StatementOf<S> extends infer St ? Desugared<St> : never
 export type ContainmentsOf<S> = Extract<LawsOf<S>, Containment<unknown, unknown>>

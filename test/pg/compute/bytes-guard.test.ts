@@ -21,7 +21,8 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case as CaseOf, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { identity } from "#compiler/core/identity.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { installOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import {
 	admitted,
 	caseGen,

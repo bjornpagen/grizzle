@@ -1,7 +1,12 @@
+import { compareStrings } from "#compiler/core/order.ts"
 import {
 	type BindMapDesc,
+	type BindTermDesc,
+	type CallArgDesc,
 	type ContextDesc,
+	type ExprDesc,
 	exprChildren,
+	type FieldDesc,
 	headTerms,
 	type Inferred,
 	type InferredExpr,
@@ -11,11 +16,16 @@ import {
 	type InferredSource,
 	type InferredStage,
 	type Located,
+	mapExpr,
 	type QueryDesc,
 	type QueryStageDesc,
 	type RuleDesc,
+	nestedFields,
 	type SourceDesc
 } from "#compiler/ir/desc.ts"
+
+/** A contract's field descriptor. */
+type ContractFieldDesc = Extract<FieldDesc, { readonly kind: "contract" }>
 
 interface QueryUses {
 	/** The stored, closed, derived and world relations the query reads, by name. */
@@ -26,6 +36,9 @@ interface QueryUses {
 	readonly inputs: ReadonlySet<string>
 	/** The contexts it matches, by name, each as its first match carries it. */
 	readonly contexts: ReadonlyMap<string, ContextDesc>
+	/** The contracts it types a value by, each as written, at any depth of a type: each cast's target and each typed
+	 * literal's type (a retype, which the engine writes, declares nothing). */
+	readonly contracts: ReadonlyArray<ContractFieldDesc>
 }
 
 class Collector {
@@ -33,6 +46,7 @@ class Collector {
 	readonly deltas = new Set<string>()
 	readonly inputs = new Set<string>()
 	readonly contexts = new Map<string, ContextDesc>()
+	readonly contracts: Array<ContractFieldDesc> = []
 
 	query(q: InferredQuery): void {
 		this.stage(q.stage)
@@ -117,6 +131,9 @@ class Collector {
 		for (const [name, c] of inner.contexts) {
 			this.contexts.getOrInsert(name, c)
 		}
+		for (const d of inner.contracts) {
+			this.contracts.push(d)
+		}
 		const bound = new Set(Object.keys(bind))
 		for (const input of inner.inputs) {
 			const name = input.startsWith("parameter ")
@@ -167,6 +184,9 @@ class Collector {
 				this.expr(s.low)
 				this.expr(s.high)
 				return
+			case "arm":
+				this.expr(s.value)
+				return
 			case "param":
 				this.inputs.add(`relation parameter ${s.name}`)
 				return
@@ -211,9 +231,24 @@ class Collector {
 		if (e.kind === "closedAt" || e.kind === "closedRow" || e.kind === "closedHas") {
 			this.relations.add(e.relation)
 		}
+		if (e.kind === "cast") {
+			this.#typed(e.to)
+		}
+		if (e.kind === "literal" && e.type !== undefined) {
+			this.#typed(e.type)
+		}
 		for (const c of exprChildren(e)) {
 			this.expr(c.term)
 		}
+	}
+
+	/** Each contract `type` names, at any depth. */
+	#typed(type: FieldDesc): void {
+		nestedFields(type, (d) => {
+			if (d.kind === "contract") {
+				this.contracts.push(d)
+			}
+		})
 	}
 }
 
@@ -229,7 +264,13 @@ class Collector {
 export const queryUses = (q: QueryDesc): QueryUses => {
 	const c = new Collector()
 	c.query(q)
-	return { relations: c.relations, deltas: c.deltas, inputs: c.inputs, contexts: c.contexts }
+	return {
+		relations: c.relations,
+		deltas: c.deltas,
+		inputs: c.inputs,
+		contexts: c.contexts,
+		contracts: c.contracts
+	}
 }
 
 /**
@@ -287,3 +328,111 @@ export const approximates = (q: QueryDesc): boolean => stageApproximates(q.stage
 
 /** Whether a query's delivered heading carries an attachment: a role's query entry, a flat view, does not. */
 export const attachesHeading = (q: QueryDesc): boolean => stageAttaches(q.stage)
+
+/** The relations `query` reads by name at any depth, through every query it imports, in name order. */
+export const readsOf = (query: QueryDesc): ReadonlyArray<string> =>
+	[...queryUses(query).relations].toSorted(compareStrings)
+
+/**
+ * The queries `query` imports under an empty bind map, at any depth, each Description object once, every query one
+ * imports before it: each such import of a match or a negation, in every stage, interior stage and attachment of it and
+ * of every query it imports, and each query a bind map or a call binds rows to under an empty bind map of its own. Such
+ * an import reads no parameter of its reader and no outer value, so its rows are a relation of the schema's alone, a
+ * canonical relation's (the header); an import under a bind map reads its reader's values and is walked for the closed
+ * imports inside it.
+ */
+export const closedImportsOf = (query: QueryDesc): ReadonlyArray<QueryDesc> => {
+	const out: Array<QueryDesc> = []
+	const seen = new Set<QueryDesc>()
+	const imported = (q: QueryDesc, closed: boolean): void => {
+		if (seen.has(q)) {
+			return
+		}
+		seen.add(q)
+		walk(q)
+		if (closed) {
+			out.push(q)
+		}
+	}
+	const bound = (term: BindTermDesc | CallArgDesc): void => {
+		if (term.kind === "rows") {
+			imported(term.query, Object.keys(term.bind).length === 0)
+		}
+	}
+	const source = (s: SourceDesc): SourceDesc => {
+		switch (s.kind) {
+			case "query":
+			case "step":
+				imported(s.query, s.kind === "query" && Object.keys(s.bind).length === 0)
+				Object.values(s.bind).forEach(bound)
+				return s
+			case "call":
+			case "callField":
+				Object.values(s.args).forEach(bound)
+				return s
+			case "relation":
+			case "split":
+			case "series":
+			case "param":
+			case "paramOf":
+			case "interior":
+			case "self":
+			case "delta":
+			case "context":
+			case "row":
+			case "arm":
+				return s
+		}
+	}
+	const exprSources = (e: ExprDesc): void => {
+		mapExpr(e, {
+			leaf: (x) => x,
+			term: (x) => {
+				exprSources(x)
+				return x
+			},
+			source
+		})
+	}
+	const rule = (r: RuleDesc): void => {
+		for (const m of r.matches) {
+			source(m.source)
+		}
+		r.where.forEach(exprSources)
+		for (const i of r.interiors) {
+			i.arms.forEach(rule)
+		}
+		for (const a of r.attach) {
+			walk(a.child)
+		}
+	}
+	const stage = (st: QueryStageDesc): void => {
+		switch (st.kind) {
+			case "rules":
+				st.arms.forEach(rule)
+				return
+			case "union":
+				stage(st.input)
+				st.arms.forEach(rule)
+				return
+			case "recursive":
+				st.recursive.base.forEach(rule)
+				st.recursive.rec.forEach(rule)
+				return
+			case "attach":
+				stage(st.input)
+				walk(st.attach.child)
+				return
+			case "named":
+			case "order":
+			case "take":
+			case "approx":
+				stage(st.input)
+		}
+	}
+	const walk = (q: QueryDesc): void => {
+		stage(q.stage)
+	}
+	walk(query)
+	return out
+}

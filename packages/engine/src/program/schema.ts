@@ -1,6 +1,5 @@
 import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import type { CatalogKey } from "#compiler/analysis/physical/evidence.ts"
 import {
 	type CheckedSchema,
 	type DerivedAnalysis,
@@ -9,16 +8,15 @@ import {
 } from "#compiler/analysis/schema.ts"
 import { catchCompileError, settled } from "#compiler/core/canonical.ts"
 import { CompileError } from "#compiler/core/errors.ts"
-import { type DeclaredName, identifierOf } from "#compiler/core/identity.ts"
+import { type HeldName, identifierOf } from "#compiler/core/identity.ts"
 import type { LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
 import { Lazy } from "#compiler/core/lazy.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import type { ProgramDesc } from "#compiler/ir/desc.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import { derivedKeyConstraints } from "#compiler/laws/model/catalog.ts"
+import { derivedEvidence, type ViewEvidence } from "#compiler/laws/model/catalog.ts"
 import {
 	changedBy,
 	compileLaws,
@@ -53,10 +51,8 @@ import {
 } from "#compiler/program/input.ts"
 import type { SchemaLaws } from "#compiler/program/laws.ts"
 import type { FamilyInserts } from "#compiler/program/preview.ts"
-import { sliceRefusal } from "#compiler/program/slice.ts"
 import type { DeclaredEntries } from "#compiler/schema/declared-entries.ts"
 import { type Owned, type OwnedRole, own } from "#compiler/schema/own.ts"
-import { everySlice } from "#compiler/schema/reach.ts"
 import type { RecordedLaw } from "#compiler/types/changeset/changeset.ts"
 import { type UnmatchedQuery, unmatchedQueryOf } from "#compiler/write/unmatched.ts"
 
@@ -95,10 +91,10 @@ export interface SchemaArtifacts<S extends ParamSource = ParamSource> {
 	/** The schema's derived analysis, which its checked schema computed when it was built (`derived.schema`). */
 	readonly derived: DerivedAnalysis
 	/**
-	 * Each derived relation's inherited keys with the unique index its view is installed with, which the evidence
-	 * catalog resolves a view's key to.
+	 * What its derived relations prove: each one's inherited keys with the unique index its view is installed with,
+	 * which the evidence catalog resolves a view's key to, and the containments each definition draws.
 	 */
-	readonly views: ReadonlyArray<CatalogKey>
+	readonly views: ViewEvidence
 	/** Every installed constraint with its owner and the law a violation reports, described (physical/install
 	 * InstallPlan). */
 	readonly constraintLaws: ReadonlyArray<ConstraintLaw>
@@ -142,41 +138,22 @@ interface SchemaArtifactOptions {
 
 /**
  * The schema a program over the schema or fragment `carried` compiles against when the caller names `named`
- * (levelSchema), and, where `named` is a role holding relations scoped and the program is over a level of its base, the
- * program held to its owner's rows (program/slice.ts sliceRefusal): OutsideRole crossOwner at `loc` where it reads a
- * scoped relation other than row by row. A program over the role itself reads the role's own relations, so nothing
- * holds it.
+ * (levelSchema): on a role, a program over a level of its base means its evaluation over the role's world
+ * (schema/scope.ts), each member of a unit the role's claims bind read at its owner's keys alone.
  */
 export const programSchema = (
 	carried: Over,
 	named: SchemaInput,
-	program: ProgramDesc,
 	loc: SourceLoc
-): Result.Result<SchemaInput, CompileError> =>
-	Result.flatMap(levelSchema(carried, named, loc), (chosen) => {
-		const crossing =
-			named.kind === "role" && carried.kind !== "role"
-				? sliceRefusal(program, named.desc.base, named.level.scoped)
-				: undefined
-		return crossing === undefined
-			? Result.ok(chosen)
-			: Result.err(
-					CompileError.make({
-						_tag: "OutsideRole",
-						at: loc,
-						role: named.desc.name,
-						access: { kind: "crossOwner", relation: crossing.relation, read: crossing.read }
-					})
-				)
-	})
+): Result.Result<SchemaInput, CompileError> => levelSchema(carried, named, loc)
 
 /**
- * The law model of an owned schema that every installation of it plans over: its every slice's, planned. The program
+ * The law model of an owned schema that every installation of it plans over, planned. The program
  * layer's compile ends here, so every unrepresentable key the model met is refused here, all at once
  * (core/canonical.ts settled).
  */
 const plannedModel = (owned: Owned): Result.Result<LawModel, CompileError> =>
-	Result.flatMap(compileLaws(owned, everySlice(owned), { kind: "planned" }), (model) =>
+	Result.flatMap(compileLaws(owned, { kind: "planned" }), (model) =>
 		settled(model.unrepresentable, Result.ok(model))
 	)
 
@@ -201,7 +178,7 @@ export interface CompiledSchema {
  */
 const built = new WeakMap<object, Result.Result<CompiledSchema, CompileError>>()
 
-/** The compiled state of a built schema (`built`): the law model, over every slice, planned, of the Owned the schema's
+/** The compiled state of a built schema (`built`): the law model, planned, of the Owned the schema's
  * value holds (levels.ts BuiltSchemaContent). */
 export const compiledSchema = (
 	schema: BuiltSchema
@@ -275,9 +252,9 @@ export const baseArtifacts = <S extends ParamSource>(
 				names: plan.names,
 				reads: plan.names,
 				world: reality,
-				laws: plan.laws,
+				laws: basis.model,
 				derived,
-				views: derivedKeyConstraints(derived),
+				views: derivedEvidence(derived, plan.laws.existence),
 				constraintLaws: plan.constraintLaws,
 				theoryLaws: plan.theoryLaws,
 				described: plan.described
@@ -347,7 +324,7 @@ export interface Raisable {
 	 * the role reads whole (`readsWhole`), whose relation is among `relations`, so the key it names decodes.
 	 */
 	readonly unmatched: ReadonlyArray<UnmatchedQuery>
-	readonly rosters: ReadonlySet<DeclaredName>
+	readonly rosters: ReadonlySet<HeldName>
 	/** The catalog entries the schema's authors declare for its generated fields' laws (Owned declared `generated`). */
 	readonly generatedEntries: DeclaredEntries["generated"]
 }
@@ -402,7 +379,7 @@ const castDomains = (names: InstallNames, t: ScalarType): ReadonlyArray<string> 
  * writePlan). A deferred foreign key's witness query (write/unmatched.ts) runs as the role on such tables alone: the
  * key it names is of a row the role selects itself, so it reveals nothing the role cannot read, and every target row
  * is in its sight, so a row it names unmatched is unmatched. A role that reads the table or the target narrowed, a
- * query or scoped entry's policy or columns, or not at all, is served no witness query, and its refusal at COMMIT is
+ * query entry's policy or columns, or not at all, is served no witness query, and its refusal at COMMIT is
  * `unreported`, as PostgreSQL's own DETAIL states no key to a role that cannot read it.
  */
 const readsWhole = (world: ArtifactsWorld): ((relation: string) => boolean) => {

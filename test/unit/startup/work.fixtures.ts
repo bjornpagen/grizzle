@@ -30,13 +30,7 @@ import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, AnyRelation, Relation } from "#compiler/types/schema/relation.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
 import { defineConfig } from "#index.ts"
-import {
-	cliClock,
-	cliOver,
-	configName,
-	offlineConnection,
-	offlineOwner
-} from "#test/pg/cli/support.ts"
+import { cliOver, configName, offlineConnection, offlineOwner } from "#test/pg/cli/support.ts"
 import { callCounts, type CountedFunction } from "#test/support/kernel/calls.ts"
 import { offlineDecoders, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
@@ -57,15 +51,12 @@ const sites = Object.freeze({
 	contentOfDesc: { file: "packages/engine/src/schema/levels.ts", name: "contentOfDesc" },
 	own: { file: "packages/engine/src/schema/own.ts", name: "ownWith" },
 	schemaFingerprint: { file: "packages/engine/src/core/fingerprint.ts", name: "schemaFingerprint" },
-	compileLaws: { file: "packages/engine/src/laws/model/model.ts", name: "compileLaws" },
+	lawModels: { file: "packages/engine/src/laws/model/model.ts", name: "dischargedLaws" },
 	installBasis: { file: "packages/engine/src/physical/install/plan.ts", name: "installBasis" },
 	planBasis: { file: "packages/engine/src/physical/install/plan.ts", name: "planBasis" },
 	planClosed: { file: "packages/engine/src/physical/ddl/constants.ts", name: "planClosed" },
 	plan: { file: "packages/engine/src/physical/install/plan.ts", name: "planInstallation" },
-	installation: {
-		file: "packages/engine/src/physical/install/compile.ts",
-		name: "installationOver"
-	},
+	installation: { file: "packages/engine/src/program/install.ts", name: "installationOver" },
 	plannedLoginRoles: {
 		file: "packages/grizzle/src/adapter/served/login.ts",
 		name: "plannedLoginRoles"
@@ -194,8 +185,6 @@ const unreachable: MigrationConnectionConfig = {
 	transport: { ...offlineOwner.transport, open: () => new Unreachable() }
 }
 
-const nextNow = cliClock()
-
 /** What each step of an installation's life counted: the builders, each command, and the layer. */
 export interface Steps {
 	readonly schema: Counts
@@ -225,6 +214,7 @@ export const stepsAt = (dir: ScratchDir) => (size: Size) =>
 				sites
 			)
 			const config = defineConfig({
+				contracts: [],
 				schemas: [base],
 				logins: [server],
 				migrations: "migrations",
@@ -233,9 +223,9 @@ export const stepsAt = (dir: ScratchDir) => (size: Size) =>
 			})
 			const ws = yield* fs.makeTempDirectoryScoped({ directory: dir, prefix: "startup-" })
 			const command = (name: "check" | "migrate" | "drift") =>
-				callCounts(cliOver(ws, config, [name, configName], nextNow()), sites)
+				callCounts(cliOver(ws, config, [name, configName]), sites)
 			const [generated, generate] = yield* callCounts(
-				cliOver(ws, config, ["generate", configName, "--name", "init"], nextNow()),
+				cliOver(ws, config, ["generate", configName, "--name", "init"]),
 				sites
 			)
 			assert.equal(generated.code, 0, generated.stderr)
@@ -294,13 +284,13 @@ const commandPlans = [
  */
 export const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 	schema: { levelContent: 1, contentOfDesc: 0, own: 0 },
-	builders: { descText: 0, levelContent: 0, contentOfDesc: 0, own: 0, compileLaws: 0 },
+	builders: { descText: 0, levelContent: 0, contentOfDesc: 0, own: 0, lawModels: 0 },
 	generate: {
 		levelContent: 0,
 		contentOfDesc: 0,
 		own: 1,
 		schemaFingerprint: 1,
-		compileLaws: 1,
+		lawModels: 1,
 		installBasis: 1,
 		planBasis: 0,
 		planClosed: 1,
@@ -313,7 +303,7 @@ export const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		contentOfDesc: 0,
 		own: 0,
 		schemaFingerprint: 0,
-		compileLaws: 1,
+		lawModels: 1,
 		installBasis: 1,
 		planBasis: 0,
 		planClosed: 1,
@@ -325,7 +315,7 @@ export const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		levelContent: 0,
 		contentOfDesc: 0,
 		own: 0,
-		compileLaws: 0,
+		lawModels: 0,
 		installBasis: 0,
 		planBasis: 0,
 		planClosed: 0,
@@ -339,7 +329,7 @@ export const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		levelContent: 0,
 		contentOfDesc: 0,
 		own: 0,
-		compileLaws: 0,
+		lawModels: 0,
 		installBasis: 0,
 		planBasis: 0,
 		planClosed: 0,
@@ -354,7 +344,7 @@ export const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		contentOfDesc: 0,
 		own: 0,
 		schemaFingerprint: 0,
-		compileLaws: 0,
+		lawModels: 0,
 		installBasis: 0,
 		planBasis: 0,
 		planClosed: 0,

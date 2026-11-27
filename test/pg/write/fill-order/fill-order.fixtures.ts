@@ -50,7 +50,7 @@ import {
 	writtenFollowUpGen,
 	writtenRows
 } from "#test/support/families/fill.ts"
-import { installMigrated } from "#test/support/install-migrate.ts"
+import { installFullWorld } from "#test/support/installed.ts"
 import { oneFlight } from "#test/support/one-flight.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
 import { tableState } from "#test/support/substrate/state.ts"
@@ -887,12 +887,7 @@ export const checkCase = (
 	Effect.gen(function* () {
 		const built = buildFill(spec)
 		const declared = built.rename("Fill")
-		const done = yield* installMigrated(declared, {
-			ambient: ordinarySession,
-			label: "fill",
-			logins: [fullWorld(declared, {}).server],
-			extensions: []
-		})
+		const done = yield* installFullWorld(declared, {}, { ambient: ordinarySession, label: "fill" })
 		const value = built.rename(done.schema)
 		const world = fullWorld(value, {})
 		const relationAtName = (r: number) => defined(built.relations[relationName(r)])

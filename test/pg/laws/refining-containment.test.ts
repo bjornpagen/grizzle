@@ -96,8 +96,8 @@ export const containmentsAcrossRefiningTypesOfOneBaseCarrierAreInstalledAndCommi
 			},
 			{
 				file: "packages/engine/src/scalar/compute/typing.ts",
-				original: "\t\tif (!meets(against.nominal, term.nominal) && !refinedPair(against, term)) {",
-				replacement: "\t\tif (!meets(against.nominal, term.nominal)) {",
+				original: "\t\tif (!meets(against, term.nominal) && !refinedPair(against, term.nominal)) {",
+				replacement: "\t\tif (!meets(against, term.nominal)) {",
 				why: "An equality between two refinements of one base carrier is refused as any comparison of two types is: a probe's equality of a lost row's value with the source's field, its navigated import's head with the term it is met at, is refused, so the template installs nothing and no case runs."
 			},
 			{

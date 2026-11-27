@@ -22,7 +22,7 @@ import type { ConstraintOwner } from "#compiler/ir/products.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { sameLaw } from "#compiler/public/changeset.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { closedId, contract, pg, span } from "#compiler/public/fields.ts"
+import { closedId, contract, pg, span, variant } from "#compiler/public/fields.ts"
 import {
 	type AnyRelation,
 	type AnySchema,
@@ -38,7 +38,6 @@ import {
 	relationBuilder as relation
 } from "#compiler/schema/relation.ts"
 import {
-	alternativesBuilder,
 	checkBuilder,
 	containedBuilder,
 	expansionDescOf,
@@ -89,14 +88,15 @@ export interface Spelled {
 /** The bigint contracts of one definition, `>= 0`, which share a domain with each other and with the span's endpoint. */
 type Count = "Pos" | "Nonneg"
 
-/** A table's field: a text of a pattern, a contract over a pattern, an integer, a count, or a contract that refines
- * nothing. */
+/** A table's field: a text of a pattern, a contract over a pattern, an integer, a count, a contract that refines
+ * nothing, or a variant of its own whose arms hold a text of a pattern and a count. */
 type FieldCase =
 	| { readonly kind: "text"; readonly pattern: Spelled }
 	| { readonly kind: "textContract"; readonly pattern: Spelled }
 	| { readonly kind: "integer" }
 	| { readonly kind: "count"; readonly contract: Count }
 	| { readonly kind: "brand" }
+	| { readonly kind: "variant"; readonly pattern: Spelled; readonly contract: Count }
 
 /** A generated field: an integer read from an integer field, or a refined text read from a text field. */
 type GeneratedCase =
@@ -141,7 +141,8 @@ interface SchemaCase {
 	readonly core: SwarmSpec
 	readonly tables: ReadonlyArray<TableCase>
 	readonly statements: ReadonlyArray<StatementCase>
-	readonly alternatives: boolean
+	/** Whether Kilo's kind is a tagged header whose lima and oscar arms each mirror the kilos of their kind. */
+	readonly arms: boolean
 	/** Whether the tables' level holds a sealed unit, Victor over Victor and Whiskey (`victorUnit`). */
 	readonly sealed: boolean
 	readonly payload: Option.Option<Spelled>
@@ -219,7 +220,15 @@ const fieldGen =
 				[2, (s) => ({ kind: "textContract", pattern: s.draw(spelledGen(palette)) })],
 				[3, () => ({ kind: "integer" })],
 				[2, (s) => ({ kind: "count", contract: s.draw(element<Count>(["Pos", "Nonneg"])) })],
-				[1, () => ({ kind: "brand" })]
+				[1, () => ({ kind: "brand" })],
+				[
+					1,
+					(s) => ({
+						kind: "variant",
+						pattern: s.draw(spelledGen(palette)),
+						contract: s.draw(element<Count>(["Pos", "Nonneg"]))
+					})
+				]
 			])
 		)
 
@@ -401,7 +410,7 @@ const schemaCaseGen: Gen<SchemaCase> = (source) => {
 		core,
 		tables,
 		statements,
-		alternatives: source.draw(boolean),
+		arms: source.draw(boolean),
 		sealed: source.draw(boolean),
 		payload: source.draw(boolean) ? Option.some(source.draw(spelledGen(palette))) : Option.none(),
 		levels: source.draw(boolean)
@@ -427,15 +436,25 @@ export const caseGen: Gen<LawsCase> = (source) => ({
 const textOf = (pattern: Spelled): FieldBase =>
 	pattern.flags === "u" ? regexField(pattern.source, ["u"]) : regexField(pattern.source, ["su"])
 
+const nonnegKey = Symbol("Nonneg")
+const posKey = Symbol("Pos")
 /** The contracts of one definition, `>= 0` over a bigint: the counts and the span's endpoint. */
 const counts: Readonly<Record<Count, FieldBase>> = {
-	Pos: contract("Pos", pg.bigint, (c) => Logic.ge(c, 0n)),
-	Nonneg: contract("Nonneg", pg.bigint, (c) => Logic.ge(c, 0n))
+	Pos: contract<typeof posKey>()("Pos", pg.bigint, (c) => Logic.ge(c, 0n)),
+	Nonneg: contract<typeof nonnegKey>()("Nonneg", pg.bigint, (c) => Logic.ge(c, 0n))
 }
 
-const Minute = contract("Minute", pg.bigint, (m) => Logic.ge(m, 0n))
+const minuteKey = Symbol("Minute")
+const Minute = contract<typeof minuteKey>()("Minute", pg.bigint, (m) => Logic.ge(m, 0n))
 
-const Brand = contract("Brand", pg.bigint)
+const brandKey = Symbol("Brand")
+const Brand = contract<typeof brandKey>()("Brand", pg.bigint)
+
+/** The arms of every variant a table's field holds: a text of a pattern, or a count. */
+const Arm = closed.unordered("Arm", ["word", "count"])
+
+/** The name of the variant a table's field holds, its own: the table's and the field's. */
+export const variantName = (t: TableCase, name: string): string => `${t.name}_${name}`
 
 const fieldOf = (t: TableCase, name: string, f: FieldCase): FieldBase => {
 	switch (f.kind) {
@@ -449,6 +468,11 @@ const fieldOf = (t: TableCase, name: string, f: FieldCase): FieldBase => {
 			return counts[f.contract]
 		case "brand":
 			return Brand
+		case "variant":
+			return variant(variantName(t, name), Arm, {
+				word: { word: textOf(f.pattern) },
+				count: { count: counts[f.contract] }
+			})
 	}
 }
 
@@ -496,6 +520,19 @@ const Kilo = relation("Kilo", { id: Id, kind: closedId(Kind) }, ["id"], [])
 const Lima = relation("Lima", { kilo: Id, note: pg.integer }, ["kilo"], [])
 
 const Oscar = relation("Oscar", { kilo: Id }, ["kilo"], [])
+
+/** The kilos of one kind, a mirrors' side. */
+const kilosOf = (kind: "lima" | "oscar") =>
+	onBuilder(
+		selectBuilder(Kilo, (k: RowScalars<typeof Kilo>) => k.eq(k.kind, kind)),
+		["id"]
+	)
+
+/** Kilo's kind's arms: Lima mirrored with the lima kilos, Oscar with the oscar kilos. */
+const kiloArms: ReadonlyArray<Statement> = [
+	mirrorsBuilder(onBuilder(Lima, ["kilo"]), kilosOf("lima")),
+	mirrorsBuilder(onBuilder(Oscar, ["kilo"]), kilosOf("oscar"))
+]
 
 const Key = closed.ordered("Key", ["one"])
 
@@ -560,7 +597,7 @@ export const levelsOf = (
 	const tables: Level = {
 		relations: [
 			...Arr.map(values, (v) => [v.name, v] as const),
-			...(c.alternatives
+			...(c.arms
 				? [
 						["Kind", Kind] as const,
 						["Kilo", Kilo] as const,
@@ -578,15 +615,12 @@ export const levelsOf = (
 					] as const
 				]
 			}),
-			...(c.sealed ? [["Victor", Victor] as const, ["Whiskey", Whiskey] as const] : [])
+			...(c.sealed ? [["Victor", Victor] as const, ["Whiskey", Whiskey] as const] : []),
+			...(Arr.some(c.tables, (t) => Arr.some(t.fields, ([, f]) => f.kind === "variant"))
+				? [["Arm", Arm] as const]
+				: [])
 		],
-		statements: [
-			...statements,
-			...(c.alternatives
-				? [alternativesBuilder(Kilo, "kind", Kind, { lima: Lima, oscar: Oscar })]
-				: []),
-			...(c.sealed ? [victorUnit] : [])
-		]
+		statements: [...statements, ...(c.arms ? kiloArms : []), ...(c.sealed ? [victorUnit] : [])]
 	}
 	const base: Level = {
 		relations: Rec.toEntries(core.relations),
@@ -771,13 +805,14 @@ export const reportable = (installation: Installation): ReadonlyArray<Identified
 							s.action.constraint.name
 						)
 					: []
+			case "alterRowType":
 			case "rename":
 			case "replaceConstant":
 			case "renameColumn":
 			case "renameConstraint":
 			case "lockTable":
 			case "createGuardTrigger":
-			case "createUpdateGuardTrigger":
+			case "createImmutableGuardTrigger":
 			case "createPublication":
 			case "dropPublication":
 			case "createLiveSecret":
@@ -799,7 +834,7 @@ export const reportable = (installation: Installation): ReadonlyArray<Identified
 			case "dropFunction":
 			case "fillStored":
 			case "dropPolicy":
-			case "resetDatabaseDefault":
+			case "guardBracket":
 			case "revokeRole":
 			case "alterDefaultPrivileges":
 			case "createExtension":
@@ -809,8 +844,6 @@ export const reportable = (installation: Installation): ReadonlyArray<Identified
 			case "update":
 			case "delete":
 			case "merge":
-			case "createCarrier":
-			case "emptyCarrier":
 			case "beginRead":
 			case "beginWrite":
 			case "commit":
@@ -900,6 +933,7 @@ export const lawKinds = {
 	fold: "a fold law",
 	contract: "a contract law",
 	pattern: "a pattern law",
+	variant: "a variant law",
 	generated: "a generated law",
 	sealed: "a sealed law"
 } as const satisfies { readonly [K in OwnLaw["kind"]]: `a ${K} law` }
@@ -915,11 +949,12 @@ export type LawsFeature =
 	| "a generated refined text"
 	| "a key restating the primary key refused"
 	| "a mirrors"
-	| "an alternatives law"
+	| "a tagged header's arms"
 	| "a statement declared twice"
 	| "a statement restated a level above"
 	| "a level above"
 	| "a check's installed name"
+	| "an arm's field's domain beside a stored field's"
 	| "another order listing the same laws"
 	| "a statement stating no law"
 	| "a law two statements state"

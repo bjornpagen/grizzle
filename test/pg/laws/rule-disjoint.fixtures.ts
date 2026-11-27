@@ -3,15 +3,14 @@
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
+import { type Installed, seededTemplate } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
-import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgErrorFields } from "#test/support/pg.ts"
+import { storedSeed } from "#test/support/stored.ts"
 import { refusalOf } from "#test/support/substrate.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 
@@ -55,20 +54,6 @@ const Disjoint = (() => {
 	)
 })()
 
-export const disjointTemplate = migratedTemplate({
-	declaredIn: import.meta,
-	name: "disjoint units",
-	content: { schema: Disjoint.name, logins: [] },
-	versions: [{ schema: Disjoint, logins: [], declarations: noDeclarations }],
-	options: {
-		label: "disjoint_units",
-		extensions: [],
-		compile: compileInstallation,
-		ambient: ordinarySession,
-		review: noPlaceholders
-	}
-})
-
 /**
  * The stored units between and around the written ones: every package of [0, fillers) but the written ones, each of
  * `fillerRows` rows of T, U and S, lawful.
@@ -83,6 +68,9 @@ const layout = { fillers: 500, fillerRows: 20, spacing: 100 } as const
  * package-led index holds two; or `adjacent`, at consecutive packages, whose boundary leaf pages they share.
  */
 const placements = ["spaced", "adjacent"] as const
+
+/** The most units a case writes at once (concurrentGen). */
+const mostUnits = 4
 type Placement = (typeof placements)[number]
 
 /** One write of a written unit: a row of T, of U or of S. */
@@ -115,7 +103,7 @@ export interface Concurrent {
 
 export const concurrentGen: Gen<Concurrent> = (s) => {
 	const placement = s.draw(element(placements))
-	const units = s.draw(array(unitGen, { min: 2, max: 4 }))
+	const units = s.draw(array(unitGen, { min: 2, max: mostUnits }))
 	const left = Arr.map(units, (rows) => rows.length + 1)
 	const order: Array<number> = []
 	for (;;) {
@@ -151,20 +139,39 @@ const packageOf = (placement: Placement, j: number): number => {
 	}
 }
 
-/** The statements loading the stored units, the tables' captures off. */
-const loaded = (installed: Installed, written: ReadonlyArray<number>): ReadonlyArray<string> => {
+/** Every package a case may write a unit at, under either placement: the template stores none of them. */
+const writable = Arr.dedupe(
+	Arr.flatMap(placements, (placement) =>
+		Array.from({ length: mostUnits }, (_, j) => packageOf(placement, j))
+	)
+)
+
+/**
+ * The stored units, every package of [0, fillers) a case writes no unit at (`writable`), each of `fillerRows` lawful
+ * rows of T, U and S, then each table analyzed.
+ */
+const storedRows = (installed: Installed): ReadonlyArray<string> => {
 	const names = namesOf(installed)
-	const tables = [names.table(T), names.table(U), names.table(S)]
-	const packages = `SELECT p FROM generate_series(0, ${layout.fillers - 1}) AS f(p) WHERE p NOT IN (${Arr.join(Arr.map(written, String), ", ")})`
+	const packages = `SELECT p FROM generate_series(0, ${layout.fillers - 1}) AS f(p) WHERE p NOT IN (${Arr.join(Arr.map(writable, String), ", ")})`
 	return [
-		...Arr.map(tables, (t) => `ALTER TABLE ${t} DISABLE TRIGGER USER`),
 		`INSERT INTO ${names.table(S)} (package, x) SELECT p, i FROM (${packages}) AS u(p), generate_series(0, ${layout.fillerRows - 1}) AS r(i)`,
 		`INSERT INTO ${names.table(T)} (package, id, g, x) SELECT p, i, 1 + i % 3, i FROM (${packages}) AS u(p), generate_series(0, ${layout.fillerRows - 1}) AS r(i)`,
 		`INSERT INTO ${names.table(U)} (package, id, g) SELECT p, i, 1 + i % 3 FROM (${packages}) AS u(p), generate_series(0, ${layout.fillerRows - 1}) AS r(i)`,
-		...Arr.map(tables, (t) => `ALTER TABLE ${t} ENABLE TRIGGER USER`),
-		...Arr.map(tables, (t) => `ANALYZE ${t}`)
+		...Arr.map([T, U, S], (r) => `ANALYZE ${names.table(r)}`)
 	]
 }
+
+/**
+ * Disjoint installed and its stored units committed through the captures once per member, judged at their COMMIT
+ * (stored.ts storedSeed): the template each case's clone holds.
+ */
+export const disjointTemplate = seededTemplate({
+	declaredIn: import.meta,
+	name: "disjoint units",
+	schema: Disjoint,
+	options: { ambient: ordinarySession, extensions: [], label: "disjoint_units" },
+	seed: storedSeed(storedRows)
+})
 
 /** The INSERT of one row of the unit of `pkg`. */
 const insertOf = (installed: Installed, pkg: number, row: Row): string => {
@@ -215,7 +222,8 @@ type Progress =
 const serializationFailure = "40001"
 
 /**
- * One case: the stored units loaded and analyzed on `loader`, then the written units' transactions, each on a session
+ * One case over a fresh clone of disjointTemplate, whose stored units the template committed: the written units'
+ * transactions, each on a session
  * of its own, run in the drawn order: a transaction's first step begins it, each step after runs its next INSERT, and
  * its last, once every INSERT has run, runs its judge by SET CONSTRAINTS ALL IMMEDIATE, reads its predicate locks and
  * COMMITs. Each unit keeps every rule, and no read of a whole rule's judge leaves its own unit's pages, by the unit-led
@@ -234,10 +242,6 @@ export const runConcurrent = (
 	c: Case<ConcurrentFeature>
 ) =>
 	Effect.gen(function* () {
-		const written = Arr.map(drawn.units, (_, j) => packageOf(drawn.placement, j))
-		for (const sql of loaded(installed, written)) {
-			yield* loader.query(sql, [])
-		}
 		c.note(drawn.units.length === 2 ? "two units at once" : "three or four units at once")
 		if (drawn.placement === "adjacent") {
 			c.note("adjacent units")

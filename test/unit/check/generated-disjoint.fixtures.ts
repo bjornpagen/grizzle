@@ -5,11 +5,8 @@ import type { Gen } from "@bjornpagen/testing/gen"
 import { element } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
-import {
-	compileInstallation,
-	type Installation,
-	installOptions
-} from "#compiler/physical/install/compile.ts"
+import { type Installation, installOptions } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { Text } from "#compiler/public/compute.ts"
 import { generated } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"

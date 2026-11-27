@@ -13,7 +13,6 @@ import { codebookOf } from "#compiler/deploy/snapshot/build.ts"
 import { type DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { type Codebook } from "#compiler/ir/codes.ts"
 import { type ScalarType } from "#compiler/ir/scalar.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { bits, pg } from "#compiler/public/fields.ts"
 import {
@@ -36,13 +35,18 @@ import {
 	sizeOf
 } from "#test/support/closed/generate.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
-import { draftVersion, type Installed } from "#test/support/install-migrate.ts"
-import { migrated, noObservation, type Version, workloadOf } from "#test/support/installed.ts"
+import { generatedDraft, type Installed, type Version } from "#test/support/install-migrate.ts"
+import { migrated, noObservation } from "#test/support/installed.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { fromSnapshot, noDeclarations } from "#test/support/migrate/kit.ts"
 import { type RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { type RawSession } from "#test/support/substrate/session.ts"
-import { ownerSession, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
+import {
+	claimsOfNoFact,
+	ownerSession,
+	Substrate,
+	worldSession
+} from "#test/support/substrate/substrate.ts"
 import { paramText } from "#test/support/wire.ts"
 
 /** A migration of the installed `m` from `previous` to `version`, drafted as `grizzle generate` drafts it and reviewed. */
@@ -55,7 +59,7 @@ export interface Drafted {
 
 /**
  * The next migration of `m`, from the snapshot `previous` to `version`, as the `ordinal`-th folder of its history,
- * declaring `declared`, drafted as every history drafts a version (install-migrate.ts draftVersion), at its step's
+ * declaring `declared`, drafted as `grizzle generate` drafts it (install-migrate.ts generatedDraft), at its step's
  * instant after the installation's own folder, and reviewed with every loss written in, '0' for each placeholder; its
  * codes the codebook of the snapshot it reaches.
  */
@@ -68,21 +72,14 @@ export const draftNext = (
 ) =>
 	Effect.map(
 		Effect.orDie(
-			draftVersion(
-				{
-					version: { schema: version.schema, logins: version.logins, declarations: declared },
-					workload: workloadOf(version)
-				},
+			generatedDraft(
+				{ schema: version.schema, logins: version.logins, declarations: declared },
 				{
 					installation: identity.schema(parsedSchemaName(m.declared)),
 					previous: fromSnapshot(previous),
 					step: ordinal - 1
 				},
-				{
-					extensions: [],
-					compile: compileInstallation,
-					review: { kind: "values", value: () => "'0'" }
-				}
+				{ kind: "values", value: () => "'0'" }
 			)
 		),
 		(drafted): Drafted => ({
@@ -135,7 +132,7 @@ export const installFirst = <B>(
 /** A writer's session in `role`'s world of `m`. */
 export const sessionOf = (m: Installed, world: AnyRole, label: string) =>
 	Effect.flatMap(Substrate, (substrate) =>
-		substrate.session({ ...worldSession(m.world(world)), label })
+		substrate.session({ ...worldSession(m.world(world), claimsOfNoFact), label })
 	)
 
 /** The server's report of a migration's failure, which a test of a refused migration requires. */

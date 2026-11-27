@@ -181,7 +181,7 @@ const writtenFamilies = (model: LawModel, stated: ReadonlyArray<string>): Readon
 			}
 			for (const role of roles.values()) {
 				if (role.kind === "reference" && role.stamp !== undefined) {
-					written.add(role.stamp.head.relation)
+					written.add(role.stamp.clock.relation)
 				}
 			}
 		}
@@ -223,7 +223,7 @@ const previewWrite = (
 			.insertAll(Object.fromEntries(insertable.map((name) => [name, []] as const)))
 	)
 	if (parsed === undefined) {
-		throw defect("insertAll's value, a ChangeSet")
+		defect("insertAll's value, a ChangeSet")
 	}
 	const { model, codes } = compile
 	return Result.map(
@@ -278,9 +278,7 @@ const storedValue = (
 		case "accumulated": {
 			const value = row.values[field.at]
 			if (value === undefined) {
-				throw defect(
-					`the field ${relation}.${field.name} the write's binding fills on a row it inserts`
-				)
+				defect(`the field ${relation}.${field.name} the write's binding fills on a row it inserts`)
 			}
 			return value
 		}
@@ -335,7 +333,7 @@ export const previewThrough = (
 		)
 		const described = namedLaw(lawDescription(law))
 		if (described.kind !== "family") {
-			throw defect(`the law of the counted family ${family.owner}.${family.count}, a family's`)
+			defect(`the law of the counted family ${family.owner}.${family.count}, a family's`)
 		}
 		return { _tag: "OwnerAbsent", law: described }
 	}
@@ -507,7 +505,7 @@ export const insertPreviewOver = <S extends AnySchema>(
 			answer(
 				Result.map(preview(rows), (built) => {
 					if (!isPreviewRowsOf<S>(built, names)) {
-						throw defect("a preview's rows keyed by the schema's writable relations")
+						defect("a preview's rows keyed by the schema's writable relations")
 					}
 					return built
 				})

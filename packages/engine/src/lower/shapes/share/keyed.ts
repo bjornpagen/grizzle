@@ -10,10 +10,13 @@ import {
 	type ColumnEqualities,
 	columnIn,
 	type ColumnMap,
+	type CteTable,
 	emptyEnv,
 	type Env,
 	envOf,
 	equalitiesOver,
+	freshCtes,
+	heldEnv,
 	type InputSource,
 	type LowerContext,
 	namedMap,
@@ -34,14 +37,17 @@ import {
 import {
 	atomsOf,
 	type FixedOf,
+	heldOnce,
 	type KeyAtom,
 	keyPlan,
 	type Keys,
 	type KeySource,
 	type Lookups,
+	type PagedRead,
 	type ReadAtom,
 	readAtKeys,
 	restrictionWalk,
+	type WalkReach,
 	whole
 } from "#compiler/lower/shapes/share/keys.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
@@ -111,42 +117,51 @@ export const noKeys: StatementKeys = {
  * statement's WITH (cte-policy CteDecision, statement scope) at its key set, each union or fold the statement lowers in
  * place at its own, and each class of copies it reads at several sites beside the rows that drive it (copies.ts
  * copyPlan), the physical analysis's fixings `fixed` equating a correlated read's columns, its `realization` telling
- * copies apart.
+ * copies apart, and the rows a page's windows read per window row `paged` read at no key set (keys.ts PagedRead).
  */
 export const queryKeys = (
 	dag: ValidDag,
 	cte: CtePlan,
 	fixed: FixedOf,
-	realization: (node: RelNode) => string
+	realization: (node: RelNode) => string,
+	paged: ReadonlyArray<PagedRead>
 ): StatementKeys => {
 	const order = topoOrder(dag)
 	const place = new Map(order.map((node, i) => [node, i] as const))
-	const once = order.filter((node) => {
+	/** Each statement CTE's copies (cte-policy CteDecision `copies`), one key set for all of them, which they share. */
+	const classes = new Map<NodeId, Array<RelNode>>()
+	for (const node of order) {
 		const decision = cte.decisions[node.id]
-		return (
+		if (
 			decision?.scope.kind === "statement" &&
 			(decision.strategy === "materialized" || decision.strategy === "notMaterialized")
-		)
-	})
+		) {
+			classes.getOrInsertComputed(decision.copies, () => []).push(node)
+		}
+	}
+	const once = [...classes.values()]
 	const plan = keyPlan({
 		nodes: order,
 		roots: new Map(dag.roots.map((r) => [r, whole] as const)),
-		once: once.map((node) => [node]),
+		once,
 		fixed,
+		paged,
 		inputs: inputsOf,
 		height: (node) => place.get(node) ?? 0
 	})
 
 	return {
 		once: new Map(
-			once.flatMap((node, i) => {
+			once.flatMap((copies, i) => {
 				const keys = plan.once[i]
-				return keys === undefined ? [] : [[node.id, keys] as const]
+				return keys === undefined ? [] : copies.map((node) => [node.id, keys] as const)
 			})
 		),
-		atValues: new Set(once.flatMap((node, i) => (plan.atValues[i] === true ? [node.id] : []))),
+		atValues: new Set(
+			once.flatMap((copies, i) => (plan.atValues[i] === true ? copies.map((node) => node.id) : []))
+		),
 		inPlace: plan.inPlace,
-		copies: copyPlan(dag, order, cte, new Set(once), realization)
+		copies: copyPlan(dag, order, cte, new Set(once.flat()), realization)
 	}
 }
 
@@ -177,12 +192,28 @@ export type Carrier =
 	| { readonly kind: "lowering" }
 	| { readonly kind: "defined"; readonly cte: DefinedCte }
 
-/** The restriction `restrictionWalk` places under `root`, as the lowering's scope holds it (restrictedEnv). */
+/**
+ * What `restrictionWalk` places under a root, as the lowering's scope holds it: each node it reaches at its equalities
+ * (restrictedEnv), and each the root's query holds once (keys.ts heldOnce) in `table`, the root's query's WITH (heldEnv).
+ */
+export interface WalkPlacement {
+	readonly restricted: ReadonlyMap<RelNode, ColumnEqualities>
+	readonly held: ReadonlyMap<RelNode, CteTable<RelNode>>
+}
+
+/** The restriction `restrictionWalk` places under `root` (WalkPlacement), a node held under the root held in `table`. */
 export const pushedInto = (
 	root: RelNode,
-	restriction: ColumnEqualities
-): ReadonlyMap<RelNode, ColumnEqualities> =>
-	new Map(restrictionWalk(root, restriction).map((r) => [r.node, r.equalities] as const))
+	restriction: ColumnEqualities,
+	reach: WalkReach,
+	table: CteTable<RelNode>
+): WalkPlacement => {
+	const reaches = restrictionWalk(root, restriction, reach)
+	return {
+		restricted: new Map(reaches.map((r) => [r.node, r.equalities] as const)),
+		held: new Map(heldOnce(root, reaches).map((r) => [r.node, table] as const))
+	}
+}
 
 /**
  * A union or a fold read at keys, each restricted column of it equal to its value: lower/shapes/union keyedUnion, each
@@ -202,7 +233,7 @@ const headingTargetsOf = (
 ): NonEmptyReadonlyArray<ReturnType<typeof target>> => {
 	const [first, ...rest] = node.heading.map((c) => target(columnIn(columns, c.name)))
 	if (first === undefined) {
-		throw defect("a held node's heading, of at least one column")
+		defect("a held node's heading, of at least one column")
 	}
 	return [first, ...rest]
 }
@@ -332,7 +363,8 @@ export class KeyedLowering {
 			column: n.name,
 			value: col(keyRows.alias, n.column)
 		}))
-		const within = restrictedEnv(env, pushedInto(node, equalities))
+		const placed = pushedInto(node, equalities, "once", freshCtes())
+		const within = heldEnv(restrictedEnv(env, placed.restricted), placed.held)
 		const rows = cx.wrapAs(this.#keyed(node, cx, within, equalities), node.heading, origin, true)
 		return select(
 			distinctCore(headingTargetsOf(node, rows.map), [keyRows.item, rows.item], undefined)
@@ -371,7 +403,7 @@ export class KeyedLowering {
 	#carriedNames(copied: CopyClass): NonEmptyReadonlyArray<string> {
 		const [head, ...tail] = copied.representative.heading
 		if (head === undefined) {
-			throw defect("a carried copy's heading, of at least one column")
+			defect("a carried copy's heading, of at least one column")
 		}
 		return [carriedName(copied.index, 0), ...tail.map((_, j) => carriedName(copied.index, j + 1))]
 	}

@@ -1,7 +1,7 @@
 /** What the properties of rule-net-write.test.ts read: the schema and its template, the spaces, and each case's run. */
 
 import { assert, defined } from "@bjornpagen/testing/assert"
-import { aimed, array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import { aimed, array, boolean, element, type Gen, weighted } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, Option, String as Str } from "effect"
 import { rowsRead } from "#bench/harness/explain.ts"
@@ -14,8 +14,8 @@ import {
 } from "#compiler/deploy/snapshot/violation.ts"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { countColumn } from "#compiler/physical/ddl/deltas.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, mutable, on, relation, schema, unit } from "#compiler/public/schema.ts"
@@ -23,7 +23,12 @@ import { str } from "#compiler/public/text.ts"
 import type { PlStatement } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
+import {
+	type Installed,
+	migratedTemplate,
+	noPlaceholders,
+	seededTemplate
+} from "#test/support/install-migrate.ts"
 import {
 	capturedDeltasOf,
 	foundQueryOf,
@@ -35,8 +40,10 @@ import {
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
+import { storedSeed } from "#test/support/stored.ts"
 import { refusalOf } from "#test/support/substrate.ts"
 import type { CaseSession, RawSession } from "#test/support/substrate/session.ts"
+import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 
 /** A package's name, and a document's path within it: text a qti path's characters spell. */
 const Path = str.regex("^[a-z0-9/._-]{1,250}$")
@@ -132,7 +139,7 @@ export const netWriteTemplate = migratedTemplate({
 	declaredIn: import.meta,
 	name: "net write",
 	content: { schema: "NetWrite", logins: [] },
-	versions: [{ schema: NetWrite, logins: [], declarations: noDeclarations }],
+	versions: [{ schema: NetWrite, declarations: noDeclarations }],
 	options: {
 		label: "net_write",
 		extensions: [],
@@ -806,21 +813,13 @@ export const runSchedule = (
 		}
 	})
 
-/** A case of indexTie: the rows sharing the touched row's prefix when first measured and the rows added after. */
+/** A case of indexTie: the touched row's governor, and the statistics each measurement is planned under. */
 export interface Tie {
-	readonly few: number
-	readonly more: number
 	readonly governor: 1 | 2
 	readonly statistics: "none" | "analyzed"
 }
 
-/**
- * The rows that share a prefix of the touched row's key: 2,000 rows or more, so A's primary key, over paths of about
- * 200 characters, is a B-tree of three levels where the index of (governor, name, package) is one of two.
- */
 export const tieGen: Gen<Tie> = (s) => ({
-	few: s.draw(int(2000, 3000)),
-	more: s.draw(int(2000, 3000)),
 	governor: s.draw(element([1, 2] as const)),
 	statistics: s.draw(element(["none", "analyzed"] as const))
 })
@@ -828,43 +827,49 @@ export const tieGen: Gen<Tie> = (s) => ({
 export type TieFeature = "measured with no statistics" | "measured analyzed"
 
 /**
- * The statements loading attributes `from` to `to` of governor `governor`, all of one package and name, A's captures
- * off, and, of governor 1, their facts of Media, Media's captures off: Media is stored (`NetWrite`), and a load that
- * left its table without them would leave it short of its definition, as no installation keeps it, its upkeep's reads
- * of it measured over a table of none of the rows beside the touched one.
+ * The lawful stored rows of `count` attributes of each governor, all of one package and name, each beside what its
+ * rule asks of it: of governor 1, each referenced at its key (R), at starts 1 to count; of governor 2, its name declared
+ * in its package (Q), at starts count + 1 to 2 · count. Media, which is stored (`NetWrite`), takes its facts of them
+ * from its upkeep at their COMMIT, as an installation keeps it.
  */
-const loaded = (
-	installed: Installed,
-	governor: number,
-	from: number,
-	to: number
-): ReadonlyArray<string> => {
+const storedRows = (installed: Installed, count: number): ReadonlyArray<string> => {
 	const names = namesOf(installed)
 	const path = "'doc/' || lpad(i::text, 8, '0') || '/' || repeat('x', 180)"
-	const series = `FROM generate_series(${from}, ${to}) AS g(i)`
-	const offWhile = (table: string, insert: string) => [
-		`ALTER TABLE ${table} DISABLE TRIGGER USER`,
-		insert,
-		`ALTER TABLE ${table} ENABLE TRIGGER USER`
-	]
-	const media = names.table(Media)
-	const fields = ["package", "path", "start", "name"] as const
+	const of = (governor: Governor) =>
+		`FROM generate_series(${(governor - 1) * count + 1}, ${governor * count}) AS g(i)`
 	return [
-		...offWhile(
-			names.table(A),
-			`INSERT INTO ${names.table(A)} (package, path, start, name, governor, note) SELECT 'pkg', ${path}, i, 7, ${governor}, 0 ${series}`
-		),
-		...(governor === 1
-			? offWhile(
-					media,
-					`INSERT INTO ${media} (${Arr.join(
-						Arr.map(fields, (f) => names.column(Media, f)),
-						", "
-					)}) SELECT 'pkg', ${path}, i, 7 ${series}`
-				)
-			: [])
+		`INSERT INTO ${names.table(A)} (package, path, start, name, governor, note) SELECT 'pkg', ${path}, i, 7, 1, 0 ${of(1)}`,
+		`INSERT INTO ${names.table(R)} (pack, path, start, name) SELECT 'pkg', ${path}, i, 7 ${of(1)}`,
+		`INSERT INTO ${names.table(A)} (package, path, start, name, governor, note) SELECT 'pkg', ${path}, i, 7, 2, 0 ${of(2)}`,
+		`INSERT INTO ${names.table(Q)} (pack, name) VALUES ('pkg', 7)`
 	]
 }
+
+/**
+ * The rows sharing the touched row's prefix, a template's: 2,000 rows or more, so A's primary key, over paths of about
+ * 200 characters, is a B-tree of three levels where the index of (governor, name, package) is one of two; and twice
+ * as many beside the touched row's second measurement.
+ */
+const tieSizes = { few: 2500, more: 5000 } as const
+
+/**
+ * NetWrite installed, and `count` stored attributes of each governor committed through the captures once per member,
+ * judged at their COMMIT (stored.ts storedSeed).
+ */
+const tieTemplate = (count: number): SubstrateTemplate<Installed> =>
+	seededTemplate({
+		declaredIn: import.meta,
+		name: `net write tie ${count}`,
+		schema: NetWrite,
+		options: { ambient: ordinarySession, extensions: [], label: "net_write" },
+		seed: storedSeed((installed) => storedRows(installed, count))
+	})
+
+/** The templates by how many rows of each governor share the touched row's prefix. */
+export const tieTemplates = {
+	few: tieTemplate(tieSizes.few),
+	more: tieTemplate(tieSizes.more)
+} as const
 
 /**
  * The rows each statement the judge runs over the rows written reads, as EXPLAIN ANALYZE counts them over the deltas
@@ -883,60 +888,51 @@ const readsOf = (installed: Installed, connection: PgConnection) =>
 	)
 
 /**
- * One indexTie case in its one transaction, which the case's end rolls back, so no statistics outlive it and
- * autovacuum sees no row of it: `few` attributes of the touched row's package, name and governor loaded with A's
- * captures off, ANALYZE where the case draws it, the touched row's reference or declaration, then the touched row,
- * which its capture counts on A's side of news. Every statement the judge runs over it is explained over the deltas
- * that hold it, before the judge (`readsOf`), and the judge runs, accepting it, and runs again over the row taken back,
- * which empties the deltas; then `more` such attributes are loaded, the touched row put again, and each statement
- * explained again over it, and the judge runs. Each must read the same rows: a probe of Named reads the touched row
- * from A's side of news, never from A again, and Media's upkeep reads A at the touched row's whole key, never through
- * the index of its prefix. The measurement runs the upkeep's writes (test/support/judge.ts judgeRun), which stand in
- * the case's one transaction, so the row is judged and taken back before it is put and measured again, every table
- * beside the loaded rows as the first measurement found it.
+ * One indexTie case over two clones, each in one transaction the case's end rolls back, so no statistics outlive it
+ * and autovacuum sees no row of it: on `few`'s, beside its template's committed attributes of the touched row's package,
+ * name and governor (tieTemplates), ANALYZE where the case draws it, the touched row's reference where it is of governor
+ * 1, then the touched row, which its capture counts on A's side of news. Every statement the judge runs over it is
+ * explained over the deltas that hold it, before the judge (`readsOf`), and the judge runs, accepting it; then the same
+ * on `more`'s, beside twice as many such attributes. Each must read the same rows: a probe of Named reads the touched
+ * row from A's side of news, never from A again, and Media's upkeep reads A at the touched row's whole key, never
+ * through the index of its prefix. The measurement runs the upkeep's writes (test/support/judge.ts judgeRun), which
+ * stand in the case's transaction.
  */
 export const runTie = (
-	installed: Installed,
-	connection: PgConnection,
+	few: { readonly installed: Installed; readonly connection: PgConnection },
+	more: { readonly installed: Installed; readonly connection: PgConnection },
 	tie: Tie,
 	c: Case<TieFeature>
 ) =>
 	Effect.gen(function* () {
-		yield* standUpJudge(connection, installed.installation)
-		const names = namesOf(installed)
-		const a = names.table(A)
-		const statistics = tie.statistics === "analyzed" ? [`ANALYZE ${a}`] : []
-		const kept =
-			tie.governor === 1
-				? `INSERT INTO ${names.table(R)} (pack, path, start, name) VALUES ('pkg', 'doc/touched', 0, 7)`
-				: `INSERT INTO ${names.table(Q)} (pack, name) VALUES ('pkg', 7)`
-		const touched = `INSERT INTO ${a} (package, path, start, name, governor, note) VALUES ('pkg', 'doc/touched', 0, 7, ${tie.governor}, 0)`
-		for (const sql of [
-			...loaded(installed, tie.governor, 1, tie.few),
-			...statistics,
-			kept,
-			touched
-		]) {
-			yield* connection.query(sql, [])
-		}
-		const first = yield* readsOf(installed, connection)
+		/** The judge's reads over the touched row on one clone, then its verdict, which accepts it. */
+		const measured = (installed: Installed, connection: PgConnection) =>
+			Effect.gen(function* () {
+				yield* standUpJudge(connection, installed.installation)
+				const names = namesOf(installed)
+				const a = names.table(A)
+				for (const sql of [
+					...(tie.statistics === "analyzed" ? [`ANALYZE ${a}`] : []),
+					...(tie.governor === 1
+						? [
+								`INSERT INTO ${names.table(R)} (pack, path, start, name) VALUES ('pkg', 'doc/touched', 0, 7)`
+							]
+						: []),
+					`INSERT INTO ${a} (package, path, start, name, governor, note) VALUES ('pkg', 'doc/touched', 0, 7, ${tie.governor}, 0)`
+				]) {
+					yield* connection.query(sql, [])
+				}
+				const reads = yield* readsOf(installed, connection)
+				yield* connection.query("SET CONSTRAINTS ALL IMMEDIATE", [])
+				return reads
+			})
+		const first = yield* measured(few.installed, few.connection)
 		assert.ok(first.length > 0, "a statement of the judge reads the touched row")
-		for (const sql of [
-			"SET CONSTRAINTS ALL IMMEDIATE",
-			`DELETE FROM ${a} WHERE package = 'pkg' AND path = 'doc/touched' AND start = 0 AND name = 7`,
-			"SET CONSTRAINTS ALL DEFERRED",
-			...loaded(installed, tie.governor, tie.few + 1, tie.few + tie.more),
-			...statistics,
-			touched
-		]) {
-			yield* connection.query(sql, [])
-		}
-		const again = yield* readsOf(installed, connection)
+		const again = yield* measured(more.installed, more.connection)
 		assert.deepEqual(
 			again,
 			first,
-			`${Formatter.format(tie)}: each statement the judge runs over the touched row reads the same rows beside ${tie.more} more rows of its package, name and governor`
+			`${Formatter.format(tie)}: each statement the judge runs over the touched row reads the same rows beside ${tieSizes.more} rows of its package, name and governor as beside ${tieSizes.few}`
 		)
-		yield* connection.query("SET CONSTRAINTS ALL IMMEDIATE", [])
 		c.note(tie.statistics === "none" ? "measured with no statistics" : "measured analyzed")
 	})

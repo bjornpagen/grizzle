@@ -1,6 +1,6 @@
 /**
  * A member slot's facts as one relation of the flight: a slot two or more statements of the program read is staged once,
- * at the flight's start, into a transaction carrier of its own, and every statement that reads it reads the carrier.
+ * at the flight's start, into a carrier of its own, and every statement that reads it reads the carrier.
  *
  * A statement reads a member slot's facts through its arrays, one per column of the slot (insert/input.ts readInput),
  * and binds its own copy of every one of them. A replace reads its additions twice: the exact deletion excepts them
@@ -9,23 +9,21 @@
  * (the member placeholders of its forms), so it decides which travel once: a slot read by two or more statements is
  * staged, and a slot read by one stays that statement's arrays.
  *
- *   SELECT "pg_temp"."__carrier_<k>"()                       (the carrier emptied, sql/ast.ts EmptyCarrier)
- *   INSERT INTO "pg_temp"."__carrier_<k>" ("c1", "c2", ...)
- *     SELECT "r1"."c1", "r1"."c2", ... FROM (SELECT pg_catalog.unnest($1::text[]) AS "c1", ...) AS "r1"
+ *   SELECT pg_catalog.set_config('grizzle.__carrier_<k>_c1', ...::text, true), ... FROM (SELECT "r1"."c1", "r1"."c2",
+ *     ... FROM (SELECT pg_catalog.unnest($1::text[]) AS "c1", ...) AS "r1") AS "r2"(...)   (the carrier filled)
  *   ... every reader, each FROM item of the slot's arrays read from the carrier under its own alias and columns:
- *     (SELECT "r40"."c2", "r40"."c1", ... FROM "pg_temp"."__carrier_<k>" AS "r40") AS "r8"("c21", "c22", ...)
+ *     (SELECT "r40"."c2", "r40"."c1", ... FROM (SELECT "u"."c1" AS "c1", ... FROM ROWS FROM (pg_catalog.unnest(
+ *     pg_catalog.current_setting(...)::text[]), ...) AS "u"("c1", ...)) AS "r40") AS "r8"("c21", "c22", ...)
  *
  * Every reader's FROM item declares the slot's whole heading, one element type, collation and check per field
  * (insert/input.ts inputColumns), and the carrier declares each field's column so, its fill binding the slot's arrays as
  * a reader did, each through its check: the carrier holds exactly the rows each reader's arrays held, the slot's normal
  * facts, a set the host made, which the reader keeps reading as a relation input's (sql/ast.ts RowsProof `input`). A
- * reader's other placeholders are numbered again in order. The carriers are made by the session's stand-up of the
- * write, as every carrier of it is (write/carriers/carriers.ts carrierStandUp), and emptied and filled after the
- * admission, before any stratum, and belong to none; never analyzed, since every stored relation a reader joins is restricted to
- * the keys of the rows it holds (write/probe.ts amongHeld). A slot of no column, read through its count,
+ * reader's other placeholders are numbered again in order. The carriers are filled first in the flight, before any
+ * stratum, and belong to none (write/carriers/carriers.ts carrierStash). A slot of no column, read through its count,
  * carries nothing to stage.
  */
-import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { appendAll, indices } from "@bjornpagen/grizzle-text/base/array"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	isNonEmpty,
@@ -41,14 +39,7 @@ import type {
 	WriteParamSlot
 } from "#compiler/lower/conservative/types.ts"
 import { oneForm } from "#compiler/runtime/lower/forms.ts"
-import type {
-	ArrayCheck,
-	ArrayColumn,
-	Cte,
-	FromSource,
-	Insert,
-	SqlStatement
-} from "#compiler/sql/ast.ts"
+import type { ArrayCheck, ArrayColumn, Cte, FromSource, SqlStatement } from "#compiler/sql/ast.ts"
 import {
 	arrays,
 	col,
@@ -73,8 +64,8 @@ import {
 	type CarrierColumn,
 	type CarrierDeclaring,
 	carrierColumnDef,
-	carrierEmptied,
-	carrierScan,
+	carrierRead,
+	carrierStash,
 	type WriteCarrier
 } from "#compiler/write/carriers/carriers.ts"
 import type { CarrierResult, WriteStatement } from "#compiler/write/insert/statement.ts"
@@ -86,7 +77,6 @@ import {
 	wholeText,
 	writeStatementSpec
 } from "#compiler/write/program/artifact.ts"
-import { renumberedStatement, renumbering } from "#compiler/write/program/staged.ts"
 
 /**
  * A member slot staged into a carrier: its first reader's placeholder, which names the slot and its relation and
@@ -162,9 +152,7 @@ const slotReaders = (
 				} else if (sameHeading(known.first, slot)) {
 					known.readers.add(position)
 				} else {
-					throw defect(
-						`every statement that reads member slot ${slot.slot} declares its heading alike`
-					)
+					defect(`every statement that reads member slot ${slot.slot} declares its heading alike`)
 				}
 			}
 		}
@@ -190,22 +178,22 @@ const stagedSlots = (
 				columns.map((c, i) =>
 					Object.freeze(carrierColumnDef(`c${i + 1}`, declaring.typing(c.type)))
 				)
-			),
-			primaryKey: undefined
+			)
 		})
 		staged.push(
 			Object.freeze({
 				first,
 				columns,
 				carrier: Object.freeze({
-					name: carrierName(declaring.scope, known + staged.length + 1, declaration),
+					name: carrierName(known + staged.length + 1),
 					heading: Object.freeze(
 						columns.map((c, i): CarrierColumn =>
 							Object.freeze({ name: c.name, type: c.type, column: `c${i + 1}` })
 						)
 					),
-					fill: "insertSelect" as const,
-					declaration
+					declaration,
+					bound: "held",
+					rows: "a member slot's facts"
 				})
 			})
 		)
@@ -214,8 +202,8 @@ const stagedSlots = (
 }
 
 /**
- * The fill of a staged slot's carrier: the slot's arrays, one placeholder per carrier column from $1 in the carrier's
- * order, each declared and checked as every reader declares it, inserted whole.
+ * The fill of a staged slot's carrier (write/carriers/carriers.ts carrierStash): the slot's arrays, one placeholder per
+ * carrier column from $1 in the carrier's order, each declared and checked as every reader declares it, read whole.
  */
 const fillOf = (staged: StagedSlot): WriteStatement<CarrierResult> => {
 	const { first, carrier } = staged
@@ -235,26 +223,19 @@ const fillOf = (staged: StagedSlot): WriteStatement<CarrierResult> => {
 		array: positionalValue(i + 1),
 		check: c.check
 	}))
-	const ast: Insert = {
-		kind: "insert",
-		with: undefined,
-		table: carrier.name,
-		alias: undefined,
-		onConflict: undefined,
-		returning: [],
-		columns: carrier.heading.map((c) => c.column),
-		source: {
-			kind: "query",
-			query: select(
-				provedCore(
-					"input",
-					columns.map((c) => target(col(alias, c.definition.name))),
-					[arrays({ kind: "columns", columns: read, ordinal: undefined }, alias)],
-					undefined
-				)
-			)
-		}
-	}
+	const rows = select(
+		provedCore(
+			"input",
+			columns.map((c) => target(col(alias, c.definition.name))),
+			[arrays({ kind: "columns", columns: read, ordinal: undefined }, alias)],
+			undefined
+		)
+	)
+	const stash = { kind: "internal", purpose: "staged slot fill" } as const
+	const ast = carrierStash(carrier, rows, {
+		alias: supply.relation(stash),
+		columns: carrier.heading.map(() => supply.column(stash))
+	})
 	return Object.freeze({
 		role: "carrier" as const,
 		ast,
@@ -270,11 +251,7 @@ const fillOf = (staged: StagedSlot): WriteStatement<CarrierResult> => {
 				part: { kind: "column", index }
 			}))
 		),
-		result: Object.freeze({
-			kind: "carrier" as const,
-			carrier: carrier.name,
-			step: "fill" as const
-		}),
+		result: Object.freeze({ kind: "carrier" as const, carrier: carrier.name }),
 		needs: always
 	})
 }
@@ -342,11 +319,65 @@ const relationNumber = (name: string): number | undefined => {
 }
 
 /** The first relation number past every r<n> `ast` defines, as a NameSupply starts a statement that continues it. */
-const relationsPast = (ast: SqlStatement): number =>
+export const relationsPast = (ast: SqlStatement): number =>
 	relationNames(ast).reduce((next, name) => {
 		const n = relationNumber(name)
 		return n === undefined ? next : Math.max(next, n + 1)
 	}, freshNames.relationStart)
+
+/**
+ * The numbering of a statement's placeholders `$1` to `$count` once the `moved` ones are gone, each other numbered again
+ * in order: a defect for a moved one, which the FROM item that read it no longer does once it is replaced.
+ */
+const renumbering = (count: number, moved: ReadonlySet<number>): ((number: number) => number) => {
+	const kept = indices(count).flatMap((i) => (moved.has(i + 1) ? [] : [i + 1]))
+	const numbered = new Map(kept.map((number, i) => [number, i + 1] as const))
+	return (number) =>
+		defined(numbered.get(number), `placeholder $${number}, which a replaced FROM item carries`)
+}
+
+/**
+ * `ast` with each FROM item `replace` replaces, and every placeholder of the rest, a value's and an arrays FROM item's
+ * count's and columns', numbered by `renumbered` (`renumbering`, or the admission's shift, write/program/admission.ts).
+ */
+export const renumberedStatement = (
+	ast: SqlStatement,
+	renumbered: (number: number) => number,
+	replace: (source: FromSource) => FromSource | undefined
+): SqlStatement =>
+	transformStatement(ast, {
+		...identityHooks,
+		replaceSource: replace,
+		expr: (e) =>
+			e.kind === "param" ? { ...e, slot: positionalValue(renumbered(e.slot.number)) } : e,
+		fromSource: (source) => {
+			if (source.kind !== "arrays") {
+				return source
+			}
+			const read = source.source
+			switch (read.kind) {
+				case "count":
+					return {
+						...source,
+						source: { ...read, count: positionalValue(renumbered(read.count.number)) }
+					}
+				case "columns":
+					return {
+						...source,
+						source: {
+							...read,
+							columns: mapNonEmpty(read.columns, (c) => ({
+								...c,
+								array: positionalValue(renumbered(c.array.number))
+							}))
+						}
+					}
+				case "carried":
+				case "setting":
+					return source
+			}
+		}
+	})
 
 /**
  * A form read through the carriers of the slots `staged` holds: each FROM item of a staged slot's arrays replaced by the
@@ -371,7 +402,7 @@ const restaged = (
 		return { form, names: [], reads: [] }
 	}
 	if (!form.params.every((s, i) => s.number === i + 1)) {
-		throw defect("a statement's placeholder $n is its n-th slot")
+		defect("a statement's placeholder $n is its n-th slot")
 	}
 	const supply = new NameSupply({ relationStart: relationsPast(form.ast), columnStart: 1 })
 	const reads = new Set<ParamId>()
@@ -386,21 +417,19 @@ const restaged = (
 		const [head] = of
 		if (head === undefined) {
 			if (of.some((s) => s !== undefined)) {
-				throw defect("a FROM item of a staged slot's arrays reads that slot's arrays alone")
+				defect("a FROM item of a staged slot's arrays reads that slot's arrays alone")
 			}
 			return undefined
 		}
 		if (!of.every((s) => s === head) || source.source.ordinal !== undefined) {
-			throw defect(
-				"a FROM item of a staged slot's arrays reads that slot's arrays alone, unordered"
-			)
+			defect("a FROM item of a staged slot's arrays reads that slot's arrays alone, unordered")
 		}
 		reads.add(head.first.slot)
 		const scan = supply.relation({ kind: "internal", purpose: "staged slot scan" })
 		const fieldOf = (number: number): string => {
 			const slot = slotAt(number)
 			if (slot?.kind !== "member" || slot.part.kind !== "column") {
-				throw defect("a staged slot's array placeholder of one of its columns")
+				defect("a staged slot's array placeholder of one of its columns")
 			}
 			return defined(slot.columns[slot.part.index], "the column of a member placeholder's part")
 				.name
@@ -421,7 +450,7 @@ const restaged = (
 								)
 							)
 						),
-						[carrierScan(head.carrier, scan)],
+						[carrierRead(head.carrier, scan)],
 						undefined
 					)
 				),
@@ -444,8 +473,8 @@ const restaged = (
 
 /**
  * The statements `placed` with every member slot two or more of them read staged into a carrier (see the header), the
- * carriers numbered after the program's own, `carriers`: each carrier emptied and filled after the admission, every
- * position after it moved past them, and every reader depending on the fills of the slots it reads.
+ * carriers numbered after the program's own, `carriers`: each carrier filled first in the flight, every position moved
+ * past them, and every reader depending on the fills of the slots it reads.
  */
 export const withStagedSlots = (
 	placed: ReadonlyArray<PlacedStatement>,
@@ -457,49 +486,26 @@ export const withStagedSlots = (
 		return { statements: placed, carriers }
 	}
 	const bySlot = new Map(staged.map((s) => [s.first.slot, s] as const))
-	const [head] = placed
-	const at = head?.kind === "own" && head.step.kind === "admission" ? 1 : 0
-	const inserted = 2 * staged.length
-	const move = (position: number): number => (position < at ? position : position + inserted)
-	const fillAt = new Map(staged.map((s, i) => [s.first.slot, at + 2 * i + 1] as const))
-	const carrierSteps = staged.flatMap((s, i): ReadonlyArray<PlacedStatement> => {
-		const empty = carrierEmptied(s.carrier)
+	const inserted = staged.length
+	const move = (position: number): number => position + inserted
+	const fillAt = new Map(staged.map((s, i) => [s.first.slot, i] as const))
+	const carrierSteps = staged.map((s): PlacedStatement => {
 		const fill = fillOf(s)
-		const name = s.carrier.name
-		return [
-			{
-				kind: "own",
-				step: Object.freeze({
-					kind: "carrier",
-					carrier: name,
-					step: "empty",
-					stratum: undefined,
-					casts: castsNothing
-				}),
-				spec: writeStatementSpec(empty, []),
-				ast: empty.ast,
-				text: wholeText,
-				forms: oneForm,
-				names: empty.sql.nameMap,
-				riders: []
-			},
-			{
-				kind: "own",
-				step: Object.freeze({
-					kind: "carrier",
-					carrier: name,
-					step: "fill",
-					stratum: undefined,
-					casts: castsNothing
-				}),
-				spec: writeStatementSpec(fill, [at + 2 * i]),
-				ast: fill.ast,
-				text: wholeText,
-				forms: oneForm,
-				names: fill.sql.nameMap,
-				riders: []
-			}
-		]
+		return {
+			kind: "own",
+			step: Object.freeze({
+				kind: "carrier",
+				carrier: s.carrier.name,
+				stratum: undefined,
+				casts: castsNothing
+			}),
+			spec: writeStatementSpec(fill, []),
+			ast: fill.ast,
+			text: wholeText,
+			forms: oneForm,
+			names: fill.sql.nameMap,
+			riders: []
+		}
 	})
 	const moved = placed.map((p): PlacedStatement => {
 		if (p.kind !== "own") {
@@ -537,7 +543,7 @@ export const withStagedSlots = (
 		}
 	})
 	return {
-		statements: [...placed.slice(0, at), ...carrierSteps, ...moved.slice(at)],
+		statements: [...carrierSteps, ...moved],
 		carriers: [...carriers, ...staged.map((s) => s.carrier)]
 	}
 }

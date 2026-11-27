@@ -62,7 +62,7 @@ export interface RelationSpec {
 
 /**
  * A side of a law: a relation, its paired fields in pair order, and the field values its selector fixes, the
- * selection `select(R, (r) => r.and(r.eq(r.f, v), ...))` states.
+ * selection `select(R, (r) => r.and([r.eq(r.f, v), ...]))` states.
  */
 export interface SideSpec {
 	readonly relation: string
@@ -109,13 +109,6 @@ export type LawSpec =
 			readonly source: SideSpec
 			readonly target: SideSpec
 			readonly span: { readonly source: string; readonly target: string }
-	  }
-	| {
-			readonly kind: "alternatives"
-			readonly relation: string
-			readonly tag: string
-			readonly closed: string
-			readonly arms: Readonly<Record<string, string>>
 	  }
 
 /** Where a context reads its fields in the verified token's payload: the top level, or one named claim object. */
@@ -206,22 +199,11 @@ export interface InstallSpec {
 	readonly logins: Arr.NonEmptyReadonlyArray<LoginSpec>
 }
 
-/**
- * The law identities the compiler gave one declared law: one for most laws, and for alternatives two per armed handle,
- * the containments it states (fin.md §7).
- */
-export type LawIds =
-	| {
-			readonly kind: "key" | "spanKey" | "check" | "contained" | "covered"
-			readonly law: LawId
-	  }
-	| {
-			readonly kind: "alternatives"
-			/** Each armed handle's arm in the parent selected by it, keyed by the handle. */
-			readonly arms: Readonly<Record<string, LawId>>
-			/** The parent selected by each armed handle in that handle's arm, keyed by the handle. */
-			readonly reverse: Readonly<Record<string, LawId>>
-	  }
+/** The law identity the compiler gave one declared law. */
+export interface LawIds {
+	readonly kind: "key" | "spanKey" | "check" | "contained" | "covered"
+	readonly law: LawId
+}
 
 /** The names the compiler gave an installation, read back from it by the executor: never spelled by a test. */
 export interface InstalledNames {
@@ -401,7 +383,8 @@ export type ContextRefusal =
  * contextClaims), parsed once where the setting enters (model/session/direct.ts settingRead): a claims document,
  * holding the facts of the contexts whose member holds exactly their fields, each value admitted by its field's type,
  * and the contexts whose member holds other keys or a value its type refuses, each with the refusals a read of it meets;
- * or a text that is no claims document, which every read of a claim refuses (22P02).
+ * or no claims document, a setting never set or empty (DETAIL `c-`) or a text that is no claims document (`c[]`), which
+ * every read of a claim refuses (22P02).
  */
 export type ClaimsRead =
 	| {
@@ -409,7 +392,7 @@ export type ClaimsRead =
 			readonly facts: ContextFacts
 			readonly refused: ReadonlyMap<string, Arr.NonEmptyReadonlyArray<ContextRefusal>>
 	  }
-	| { readonly kind: "malformed" }
+	| { readonly kind: "unreadable" }
 
 /** The claims a direct writer sets as it begins: none, or a setting, sent as `grizzle.claims`. */
 export type ClaimsStart =
@@ -1159,17 +1142,9 @@ export type ReadBackClass = "untouched" | "written" | "beside" | "undetermined"
 
 /**
  * The family of the law a refusal names (README "Rules"): a key or a no-overlap key (a primary or a candidate one), a
- * row check, a contract's or a pattern's domain CHECK, a containment, a coverage, or one of an alternatives law's
- * containments.
+ * row check, a contract's or a pattern's domain CHECK, a containment, or a coverage.
  */
-export type LawFamily =
-	| "key"
-	| "span-key"
-	| "check"
-	| "domain"
-	| "contained"
-	| "covered"
-	| "alternatives"
+export type LawFamily = "key" | "span-key" | "check" | "domain" | "contained" | "covered"
 
 /**
  * How a refused write reached its law: a Db's ChangeSet writing through a query entry, a partial world, or through whole

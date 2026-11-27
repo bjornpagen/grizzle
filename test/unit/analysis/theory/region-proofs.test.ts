@@ -1,57 +1,47 @@
 /**
  * A whole rule's region reads a row its relation gained only where no proof spares it (analysis/theory/unit.ts
- * proofsOf): a proved occurrence reads its gained rows only where they replace a row lost at the fields its witness
- * fixes the relation's rows at, a key's or a tree's root fields, and the rest read every gained row their conditions
- * admit. Each property draws a schema, a rule the judge holds whole, and a transition between two states its laws hold
- * in, and reads the region as the judge does, each of its rules over the transition's delta.
+ * proofsOf): a proved occurrence of a closed relation reads none of its gained rows, a row it gains opening a fact only
+ * beside a witness's row the write gained, and the rest read every gained row their conditions admit. Each property
+ * draws a schema of closed relations, a rule the judge holds whole, and a transition a served write makes between two
+ * states its laws hold in, every row kept and rows added at new keys alone (physical/ddl/immutable.ts), and reads the
+ * region as the judge does, each of its rules over the transition's delta.
  *
  * Oracle: the rule itself. The reference evaluator (test/support/oracle/reference) reads the rule's violation query over
  * each document's rows after the transition, the state before it holding every law, so every document it finds broken
  * holds a fact the transition opened, which the judge must read: the region holds it. And the proofs are counted: the
- * region reads every gained row of exactly the occurrences the box says no proof spares (`wholeReads`), and on a
- * publish, which loses no row, a proved occurrence reads none. And each proof takes its occurrence's least-reading
- * witness whatever order the schema's containments stand in (`wholeRuleInOrder`). And the region's work is linear in
- * its occurrences: a rule that reads an import of many rules again and again makes each of the region's rules once, its
- * calls growing no faster than linearly in the import's rules however often it is read (`readsTheoryOf`).
+ * region reads the gained rows of exactly the occurrences the box says no proof spares (`wholeReads`). And the region's
+ * work is linear in its occurrences: a rule that reads an import of many rules again and again makes each of the region's rules once,
+ * its calls growing no faster than linearly in the import's rules however often it is read (`readsTheoryOf`).
  */
 
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
-import { element, finite, type Gen, int } from "@bjornpagen/testing/gen"
+import { element, finite, int } from "@bjornpagen/testing/gen"
 import { type Case, type Kill, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { canonicalEquals } from "#compiler/core/canonical.ts"
 import { incrementsDoNotGrow } from "#test/support/growth.ts"
 import { everyCallCount } from "#test/support/kernel/calls.ts"
 import {
-	admitted,
 	brokenDocs,
 	chainTheory,
 	chainTransitionGen,
 	chainWholeReads,
 	deltaRead,
 	type Instance,
-	isPublish,
 	lawfulBut,
 	lawfulTransition,
 	type NodeBox,
 	nodeBoxGen,
 	nodeTheoryOf,
 	nodeTransitionGen,
-	type Nodes,
-	orderReplacedFields,
-	orderTheoryOf,
-	permutationGen,
-	readsReplaced,
+	provesAnOccurrence,
 	readsTheoryOf,
 	regionOf,
-	regionReadsOf,
 	regionRulesOf,
 	type Shape,
-	replacedFields,
 	type Transition,
 	wholeReads,
-	wholeRuleInOrder,
 	wholeRuleOf,
 	wholeRuleOver,
 	withUnrelated
@@ -59,8 +49,8 @@ import {
 import type { TestTheory } from "#test/unit/analysis/theory/support.ts"
 
 /**
- * The region of `t`'s whole rule over `transition`, its every broken document held to be among it, and its reads of
- * `relation`'s gained rows: the rules that read every one, and on a publish none read by a proved occurrence.
+ * The region of `t`'s whole rule over `transition`, its every broken document held to be among it, and its rules over
+ * `relation`'s gained rows.
  */
 const judged = (
 	t: TestTheory,
@@ -69,7 +59,6 @@ const judged = (
 	readonly transition: Transition
 	readonly broken: ReadonlyArray<bigint>
 	readonly whole: (relation: string) => number
-	readonly replaced: (relation: string) => number
 } => {
 	const { law, rule } = wholeRuleOf(t)
 	const transition = lawfulTransition(t, law, drawn.before, drawn.after)
@@ -86,31 +75,14 @@ const judged = (
 			`the transition breaks the rule in document ${doc}, which its region ${Formatter.format(region)} misses: ${Formatter.format(transition)}`
 		)
 	}
-	const gained = (relation: string) =>
-		Arr.filter(regionRulesOf(rule.judged), (r) => {
-			const read = deltaRead(r)
-			return read.relation === relation && read.side === "added"
-		})
-	const replaced = (relation: string): number =>
-		Arr.reduce(
-			Arr.filter(gained(relation), readsReplaced),
-			0,
-			(sum, r) => sum + admitted(r, transition).length
-		)
-	if (isPublish(transition)) {
-		for (const relation of ["T", "Tag", "K", "F", "E", "N"]) {
-			assert.equal(
-				replaced(relation),
-				0,
-				`a publish's region reads no ${relation} row a proof spares`
-			)
-		}
-	}
 	return {
 		transition,
 		broken,
-		whole: (relation) => Arr.filter(gained(relation), (r) => !readsReplaced(r)).length,
-		replaced
+		whole: (relation) =>
+			Arr.filter(regionRulesOf(rule.judged), (r) => {
+				const read = deltaRead(r)
+				return read.relation === relation && read.side === "added"
+			}).length
 	}
 }
 
@@ -125,7 +97,6 @@ type NodeFeature =
 	| "a node proved by the kind its document lists"
 	| "a document the transition breaks the rule in"
 	| "a publish beside a document it keeps"
-	| "a node read where it replaces one"
 
 /** The situations a node box reaches by its schema alone. */
 const nodeBoxFeatures = (box: NodeBox): ReadonlyArray<NodeFeature> => {
@@ -157,14 +128,13 @@ const nodeBoxFeatures = (box: NodeBox): ReadonlyArray<NodeFeature> => {
 /** What every node property reaches beside its shapes' own situations. */
 const transitions = [
 	"a document the transition breaks the rule in",
-	"a publish beside a document it keeps",
-	"a node read where it replaces one"
+	"a publish beside a document it keeps"
 ] as const
 
 /**
  * The node box's property over `shapes`: the region of each box's rule over each transition reads every document the
- * transition breaks the rule in, every gained node at the occurrences no proof spares (`wholeReads`), the lost nodes at
- * the fields each proof fixes T's rows at (`replacedFields`), and on a publish no node a proof spares.
+ * transition breaks the rule in, and every gained node at the occurrences no proof spares (`wholeReads`), none at a
+ * proved one.
  */
 const nodeProperty = (
 	shapes: Arr.NonEmptyReadonlyArray<Shape>,
@@ -183,15 +153,6 @@ const nodeProperty = (
 				Effect.sync(() => {
 					const t = nodeTheoryOf(drawn.box)
 					const read = judged(t, drawn)
-					const replaced: ReadonlyArray<ReadonlyArray<string>> = Arr.flatMap(
-						wholeRuleOf(t).rule.replaced,
-						(r) => (r.relation === "T" ? [r.fields] : [])
-					)
-					assert.deepEqual(
-						replaced,
-						replacedFields(drawn.box),
-						`the region reads the nodes lost at the fields each proof fixes T's rows at, in ${Formatter.format(drawn.box)}`
-					)
 					assert.equal(
 						read.whole("T"),
 						wholeReads(drawn.box),
@@ -203,16 +164,13 @@ const nodeProperty = (
 					if (read.broken.length > 0) {
 						k.note("a document the transition breaks the rule in")
 					}
-					if (isPublish(read.transition) && (read.transition.before["T"] ?? []).length > 0) {
+					if ((read.transition.before["T"] ?? []).length > 0) {
 						k.note("a publish beside a document it keeps")
-					}
-					if (read.replaced("T") > 0) {
-						k.note("a node read where it replaces one")
 					}
 				}),
 			oracle: {
 				kind: "universal",
-				name: "the rule's violation query, as the reference evaluator reads it over each document's rows after a transition from a state every law holds in: every document it breaks the rule in is the region's; and the box's proofs, the occurrences each spares and the fields each fixes T's rows at"
+				name: "the rule's violation query, as the reference evaluator reads it over each document's rows after a served write's transition from a state every law holds in: every document it breaks the rule in is the region's; and the box's proofs, the occurrences each spares"
 			},
 			kept: [],
 			kills
@@ -323,8 +281,8 @@ export const aWholeRuleOverANodeAndItsKindReadsEveryDocumentATransitionBreaksItI
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
 				original: '\t\t\t\t? { by: "roots", fields: root }\n\t\t\t\t: undefined',
-				replacement: '\t\t\t\t? { by: "roots", fields: alike }\n\t\t\t\t: undefined',
-				why: "A node proved through its tree's root is read only where a row of every field its witness binds alike was lost, its kind among them, where only a row of its document need be: a node whose kind is drawn anew to one K lists for another node of its document is never judged."
+				replacement: "\t\t\t\t? undefined\n\t\t\t\t: undefined",
+				why: "No node is proved through its tree's root: a node beside the kind its document lists reads every node its relation gains, which the kind's own occurrence already puts in the region."
 			}
 		]
 	)
@@ -332,7 +290,6 @@ export const aWholeRuleOverANodeAndItsKindReadsEveryDocumentATransitionBreaksItI
 type ChainFeature =
 	| "N proved by E, itself proved by F"
 	| "a document the transition breaks the rule in"
-	| "a row read where it replaces one"
 
 /**
  * A whole rule over a chain of keyed relations, F contained in E at E's key and E in N at N's key, reads every document
@@ -345,8 +302,7 @@ export const aWholeRuleOverAChainOfKeyedRelationsReadsEveryDocumentATransitionBr
 		needs: {},
 		situations: [
 			"N proved by E, itself proved by F",
-			"a document the transition breaks the rule in",
-			"a row read where it replaces one"
+			"a document the transition breaks the rule in"
 		] satisfies ReadonlyArray<Reached<ChainFeature>>,
 		check: (_, k: Case<ChainFeature>) => (drawn) =>
 			Effect.sync(() => {
@@ -361,9 +317,6 @@ export const aWholeRuleOverAChainOfKeyedRelationsReadsEveryDocumentATransitionBr
 				k.note("N proved by E, itself proved by F")
 				if (read.broken.length > 0) {
 					k.note("a document the transition breaks the rule in")
-				}
-				if (read.replaced("N") + read.replaced("E") > 0) {
-					k.note("a row read where it replaces one")
 				}
 			}),
 		oracle: {
@@ -381,114 +334,6 @@ export const aWholeRuleOverAChainOfKeyedRelationsReadsEveryDocumentATransitionBr
 			}
 		]
 	})
-
-/** A box of the order property: a node box, or the order box over T, a tree or plain (region-proofs.fixtures.ts
- * orderTheoryOf). */
-type OrderedBox =
-	| { readonly kind: "nodes"; readonly box: NodeBox }
-	| { readonly kind: "order"; readonly nodes: Nodes }
-
-type OrderFeature =
-	| "a node box"
-	| "a node proved at T's key beside a witness at its root"
-	| "a node proved at its key in no tree"
-	| "containments in another order"
-
-const shapes: Arr.NonEmptyReadonlyArray<Shape> = [
-	"parent beside child",
-	"child beside its parent's tag",
-	"two nodes at one key",
-	"two nodes of one kind",
-	"a tag beside its node",
-	"a false tag beside its node",
-	"a node beside its kind"
-]
-
-const orderedBoxGen: Gen<OrderedBox> = (s) =>
-	s.draw(element(["nodes", "order"] as const)) === "nodes"
-		? { kind: "nodes", box: s.draw(nodeBoxGen(shapes)) }
-		: { kind: "order", nodes: s.draw(element(["tree", "plain"] as const)) }
-
-/**
- * A whole rule's proofs are the same whatever order its schema's containments stand in (analysis/theory/unit.ts
- * witnessesOf, witnessOrder): over every node box and the order box, whose node has two witnesses beside its tag, at
- * T's key and, in a tree, at its root, the rule decided again over its containments in a drawn order reads the rows T
- * lost at the fields the box's least-reading witness fixes T's rows at, and its region reads as the theory's own does.
- * The containments come in the order the owned schema states its statements in, which no meaning fixes, so a proof
- * that took its first witness in that order read a tree's whole document where it could read one node.
- *
- * Its budget is the runner's: a new property, with no suite before it to carry a count from.
- */
-export const aWholeRulesProofsAreItsLeastReadingWitnessesWhateverOrderItsSchemasContainmentsStandIn =
-	property.explore(
-		(s) => {
-			const box = s.draw(orderedBoxGen)
-			const t = box.kind === "nodes" ? nodeTheoryOf(box.box) : orderTheoryOf(box.nodes)
-			return { box, order: s.draw(permutationGen(t.regionFacts.containments.length)) }
-		},
-		{
-			needs: {},
-			situations: [
-				"a node box",
-				"a node proved at T's key beside a witness at its root",
-				"a node proved at its key in no tree",
-				"containments in another order"
-			] satisfies ReadonlyArray<Reached<OrderFeature>>,
-			check: (_, k: Case<OrderFeature>) => (drawn) =>
-				Effect.sync(() => {
-					const t =
-						drawn.box.kind === "nodes"
-							? nodeTheoryOf(drawn.box.box)
-							: orderTheoryOf(drawn.box.nodes)
-					const own = wholeRuleOf(t).rule
-					const ordered = wholeRuleInOrder(t, drawn.order)
-					const fields: ReadonlyArray<ReadonlyArray<string>> = Arr.flatMap(ordered.replaced, (r) =>
-						r.relation === "T" ? [r.fields] : []
-					)
-					assert.deepEqual(
-						fields,
-						drawn.box.kind === "nodes" ? replacedFields(drawn.box.box) : orderReplacedFields,
-						`the rule over its containments in the order ${Formatter.format(drawn.order)} reads the nodes lost at the fields its least-reading witness fixes T's rows at, in ${Formatter.format(drawn.box)}`
-					)
-					assert.deepEqual(
-						regionReadsOf(ordered),
-						regionReadsOf(own),
-						`the rule's region reads as the theory's own over its containments in the order ${Formatter.format(drawn.order)}, in ${Formatter.format(drawn.box)}`
-					)
-					if (drawn.box.kind === "nodes") {
-						k.note("a node box")
-					} else {
-						k.note(
-							drawn.box.nodes === "tree"
-								? "a node proved at T's key beside a witness at its root"
-								: "a node proved at its key in no tree"
-						)
-					}
-					if (Arr.some(drawn.order, (at, i) => at !== i)) {
-						k.note("containments in another order")
-					}
-				}),
-			oracle: {
-				kind: "specification",
-				name: "the least-reading witness of each box's node, a key's before a root's, and the theory's own region, whatever order its containments stand in"
-			},
-			kept: [],
-			kills: [
-				{
-					file: "packages/engine/src/analysis/theory/unit.ts",
-					original: "\t\t.toSorted(witnessOrder)\n",
-					replacement: "",
-					why: "Each node proved by its first witness in the order its containments stand in: in a tree, the order box's tag at its node's kind, stated or composed before its tag at its node's key, proves the node at its root, so the region reads every gained node of a document that lost one, where it read the one that replaced a node."
-				},
-				{
-					file: "packages/engine/src/analysis/theory/unit.ts",
-					original: "const fixedRank = { key: 0, roots: 1 } as const",
-					replacement: "const fixedRank = { key: 1, roots: 0 } as const",
-					why: "A root's witness taken before a key's: in a tree, the order box's node is proved at its document, doc, and two nodes at one key at doc, so the region reads every gained node of a document that lost one, where it read the one that replaced a node."
-				}
-			]
-		}
-	)
 
 /** Every function of the region's module (analysis/theory/unit.ts), whose calls are a region's work. */
 const isRegionModule = (file: string): boolean => Str.endsWith("analysis/theory/unit.ts")(file)
@@ -556,7 +401,7 @@ export const aWholeRulesRegionDoesTheSameWorkHoweverManyContainmentsTheFactsHold
 							own.calls,
 							`the region's work over ${unrelated} unrelated containments more is its work over the theory's own`
 						)
-						c.note(own.rule.replaced.length > 0 ? "an occurrence proved" : "no occurrence proved")
+						c.note(provesAnOccurrence(box) ? "an occurrence proved" : "no occurrence proved")
 					}),
 			oracle: {
 				kind: "specification",

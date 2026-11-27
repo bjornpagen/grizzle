@@ -23,7 +23,7 @@ import {
 } from "#compiler/runtime/write/steps.ts"
 import { isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import { isVector } from "#compiler/scalar/values/vector.ts"
-import type { KeyHost, Witness } from "#compiler/types/changeset/changeset.ts"
+import type { DrawnBy, KeyHost, Witness } from "#compiler/types/changeset/changeset.ts"
 import type { FamilyPart } from "#compiler/write/family/written.ts"
 
 /** The changes an artifact's statements made. */
@@ -91,6 +91,22 @@ export const keyWitness = (
 	relation: RoleRelationName,
 	key: Readonly<Record<string, KeyHost>>
 ): KeyWitness => Object.freeze({ kind: "key", relation, values: Object.freeze(key) })
+
+/**
+ * The witness of one relation's key where the database draws some of its fields (Witness `drawn`): the values of the
+ * others, and each drawn field by what draws it.
+ */
+export const drawnWitness = (
+	relation: RoleRelationName,
+	values: Readonly<Record<string, KeyHost>>,
+	drawn: Readonly<Record<string, DrawnBy>>
+): Witness =>
+	Object.freeze({
+		kind: "drawn",
+		relation,
+		values: Object.freeze(values),
+		drawn: Object.freeze(drawn)
+	})
 
 /** One fact a write statement's row made present or absent, with the tag of the change. */
 interface RowChange {

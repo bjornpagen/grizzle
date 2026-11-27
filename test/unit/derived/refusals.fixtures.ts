@@ -14,17 +14,15 @@ import type {
 	RuleDesc,
 	SideDesc
 } from "#compiler/ir/desc.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { installOptions } from "#compiler/physical/install/compile.ts"
 import { parseSchemaInput } from "#compiler/program/input.ts"
-import { everySlice } from "#compiler/schema/reach.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { type CaseSketch, type GenSchema, unitLocalSketchGen } from "#test/pg/derived/oracle/gen.ts"
 import {
-	alternatives,
 	check as checkDesc,
 	contained,
 	counted,
-	f,
 	field,
 	fin,
 	ge,
@@ -33,7 +31,6 @@ import {
 	mutable,
 	on,
 	ordered,
-	relation,
 	type SchemaDesc,
 	type AuthoredStatementDesc as StatementDesc
 } from "#test/support/fixtures/ir/desc.ts"
@@ -109,7 +106,6 @@ type LawSketch =
 			readonly member: Slot
 			readonly owner: Slot
 	  }
-	| { readonly kind: "alternatives"; readonly derived: number; readonly handle: boolean }
 
 /** Two slots, at least one derived. */
 const slotPairGen: Gen<readonly [Slot, Slot]> = (source) => {
@@ -140,12 +136,7 @@ export const lawSketchGen: Gen<LawSketch> = oneOf<LawSketch>([
 	(source) => {
 		const [member, owner] = source.draw(slotPairGen)
 		return { kind: "family", ordered: source.draw(boolean), member, owner }
-	},
-	(source) => ({
-		kind: "alternatives",
-		derived: source.draw(pickGen),
-		handle: source.draw(boolean)
-	})
+	}
 ])
 
 const derivedAt = (pick: number) =>
@@ -201,19 +192,6 @@ export const lawOf = (
 				named: slotNames([law.member, law.owner])
 			}
 		}
-		case "alternatives": {
-			const d = derivedAt(law.derived)
-			const Kind = { name: "Kind", handles: ["Automatic", "Manual"] }
-			const Task = relation("Task", { id: f.uuid, account: f.uuid, kind: f.closedId("Kind") }, [
-				"id"
-			])
-			return {
-				statement: alternatives(Task, "kind", Kind, {
-					[law.handle ? "Automatic" : "Manual"]: { name: d.name, primaryKey: ["account"] }
-				}),
-				named: [d.name]
-			}
-		}
 	}
 }
 
@@ -222,7 +200,7 @@ export const lawOf = (
 export const entries = (desc: SchemaDesc): ReadonlyArray<Result.Result<unknown, CompileError>> => [
 	ownedInput(desc),
 	Result.map(
-		Result.flatMap(ownedInput(desc), (owned) => checkedSchema(owned, everySlice(owned))),
+		Result.flatMap(ownedInput(desc), (owned) => checkedSchema(owned)),
 		derivedAnalysis
 	),
 	Result.flatMap(ownedInput(desc), (o) => compileInstallation(o, installOptions(o)))
@@ -234,7 +212,7 @@ export const refusalsEverywhere = (desc: SchemaDesc): ReadonlyArray<CompileError
 
 /** Whether a drawn statement names the rows grizzle writes, which ownership refuses over a derived relation. */
 export const writesRows = (law: LawSketch): boolean =>
-	law.kind === "mutable" || law.kind === "family" || law.kind === "alternatives"
+	law.kind === "mutable" || law.kind === "family"
 
 export type LawFeature =
 	| `law ${LawSketch["kind"]}`

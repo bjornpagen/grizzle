@@ -23,7 +23,6 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import { compileLaws } from "#compiler/laws/model/model.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
-import { everySlice } from "#compiler/schema/reach.ts"
 import { generatedField, generatedRelation } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { regexField } from "#compiler/text/field.ts"
@@ -101,10 +100,7 @@ export const aTextsDerivedLanguagesAreAnalyzedOnceForItsOwnLanguageHoweverManyCo
 				k.note(patterns.length === 1 ? "one pattern" : "several patterns")
 				const owned = succeeded(ownedInput(schemaOf(patterns)), "the schema owns")
 				const compile = () =>
-					succeeded(
-						compileLaws(owned, everySlice(owned), { kind: "planned" }),
-						"the schema compiles"
-					)
+					succeeded(compileLaws(owned, { kind: "planned" }), "the schema compiles")
 				const [, first] = yield* callCounts(Effect.sync(compile), derivationSites)
 				if (first.collapsed > 0 && first.imaged > 0) {
 					k.note("a first compile deriving")

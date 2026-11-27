@@ -407,6 +407,7 @@ const numberLiteral = (carrier: Carrier, n: number): LiteralDesc => {
 		case "money":
 		case "exactMoney":
 			return Money.of(BigInt(n) * 100n)
+		case "variant":
 		case "int2":
 		case "int4":
 		case "float4":

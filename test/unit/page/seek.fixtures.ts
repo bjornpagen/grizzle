@@ -103,6 +103,7 @@ export const evaluate = (
 				lexicographic(isList(l) ? l : [integer(l)], isList(r) ? r : [integer(r)])
 			)
 		}
+		case "attribute":
 		case "array":
 		case "between":
 		case "call":

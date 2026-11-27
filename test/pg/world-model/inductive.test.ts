@@ -66,9 +66,9 @@ export const inductive = property.explore(inductiveSpace, {
 		},
 		{
 			file: "packages/engine/src/deploy/ledger/ledger.ts",
-			original: '\t\t\t\ttargetAs(localSetting(claimsSettingName, 3), "c3")',
+			original: '\t\t\ttargetAs(localSetting(claimsSettingName, 3), "c3")',
 			replacement:
-				'\t\t\t\ttargetAs(call("set_config", [lit.text(claimsSettingName, types.text), param(3, types.text), lit.bool(false)]), "c3")',
+				'\t\t\ttargetAs(call("set_config", [lit.text(claimsSettingName, types.text), param(3, types.text), lit.bool(false)]), "c3")',
 			why: "A Db's claims set for the session, not the transaction, so a pooled connection holds them between transactions; the driver's probe fails."
 		}
 	],

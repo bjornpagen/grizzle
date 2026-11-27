@@ -96,16 +96,16 @@ export const generatedFillMemory = property.exhaust(finite(memberGen), {
 			why: "No anchor: the fold's backfill UPDATE sets only Member's accumulators, so PostgreSQL builds Member's 50 generation expressions again for every row and ExecutorState grows with the members."
 		},
 		{
-			file: "packages/engine/src/physical/ddl/immutable.ts",
+			file: "packages/engine/src/deploy/diff/diff.ts",
 			original:
-				'\tdrop: guards.map((g) => ({ kind: "dropTrigger", name: g.name, table: g.table, ifExists: false })),\n\tcreate: guards\n',
-			replacement: "\tdrop: [],\n\tcreate: []\n",
+				'\t\tthis.sql("structure", [bracket.unguard])\n\t\tthis.sql("structure.constraints", [bracket.reguard])\n',
+			replacement: "\t\tvoid bracket\n",
 			why: "The data steps run with every guard in place, a BEFORE ROW UPDATE trigger on Member: the backfill UPDATE computes all 49 generated columns of each row and copies Member's key bitmap into ExecutorState once a row, so its memory grows with the members, as a disabled guard's did."
 		},
 		{
-			file: "packages/engine/src/physical/ddl/immutable.ts",
-			original: "\tcreate: guards\n",
-			replacement: "\tcreate: []\n",
+			file: "packages/engine/src/sql/catalog.ts",
+			original: '\t\t\t\t\texecuteVariable("restoring")\n',
+			replacement: "",
 			why: "A guard dropped for the data steps is never created again: the migration's drift check finds Member and Owner without the trigger their snapshot records, and the migration is refused."
 		}
 	]

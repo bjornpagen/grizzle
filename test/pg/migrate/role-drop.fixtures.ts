@@ -9,15 +9,10 @@ import { roleNameOf } from "#adapter/served/served.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { login, relation, role, schema } from "#compiler/public/schema.ts"
-import { standUpTexts } from "#compiler/runtime/write/flight.ts"
-import type { CreateCarrier } from "#compiler/sql/ast.ts"
-import { types } from "#compiler/sql/build.ts"
-import { carrierName, carrierScope } from "#compiler/sql/naming.ts"
-import { carrierStandUp } from "#compiler/write/carriers/carriers.ts"
 import { migrationConnection, parsedTarget } from "#test/pg/migrate/support.ts"
 import { Id } from "#test/support/ids.ts"
-import { noPlaceholders } from "#test/support/install-migrate.ts"
-import { migrated, type Version } from "#test/support/installed.ts"
+import { noPlaceholders, type Version } from "#test/support/install-migrate.ts"
+import { migrated } from "#test/support/installed.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
@@ -102,16 +97,8 @@ const dropped: { readonly [D in Drop]: ReadonlyArray<Acting> } = {
 	uninstall: ["scribe", "reader"]
 }
 
-/** The carrier a session makes as `pgRole`: a write's, scoped to the role (sql/naming.ts carrierScope). */
-const carrierOf = (pgRole: string): CreateCarrier => {
-	const columns = [{ name: "c1", type: types.bigint, collation: undefined, generated: undefined }]
-	return {
-		kind: "createCarrier",
-		name: carrierName(carrierScope(pgRole), 1, { columns, primaryKey: undefined }),
-		columns,
-		primaryKey: undefined
-	}
-}
+/** The temporary table a session makes as a role, an object of the role's in its session's temporary schema. */
+const heldTable = "__held"
 
 /** A session of the case, open: its pid and its carriers by the role that made each. */
 interface Live {
@@ -121,10 +108,9 @@ interface Live {
 }
 
 /**
- * Opens `opened` as `desk` and runs one transaction for each role it holds a carrier of, as a session's stand-up of a
- * write of the role does (adapter apply/stand-up.ts): SET LOCAL ROLE, then the carrier's stand-up by grizzle's own texts
- * (write/carriers/carriers.ts carrierStandUp), its table and its emptying, a function of its session's temporary schema,
- * and a row in it; then it rests, idle, as a pooled session does between transactions.
+ * Opens `opened` as `desk` and runs one transaction for each role it holds a temporary object of: SET LOCAL ROLE, then a
+ * temporary table of its session kept by every COMMIT, made under PUBLIC's TEMPORARY on the database, and a row in it;
+ * then it rests, idle, as a pooled session does between transactions.
  */
 const openOne = (
 	substrate: SubstrateShape,
@@ -136,15 +122,16 @@ const openOne = (
 		const session = yield* substrate.session({ as: desk, role: Option.none(), label: opened.label })
 		const carriers: Array<Live["carriers"][number]> = []
 		for (const acting of opened.holds) {
-			const carrier = carrierOf(pgRoles[acting])
+			const table = `${heldTable}_${acting}`
 			yield* session.begin
 			yield* session.query(`SET LOCAL ROLE ${quoteIdent(pgRoles[acting])}`, [])
-			for (const text of standUpTexts(carrierStandUp(carrier))) {
-				yield* session.query(text, [])
-			}
-			yield* session.query(`INSERT INTO pg_temp.${quoteIdent(carrier.name)} (c1) VALUES (1)`, [])
+			yield* session.query(
+				`CREATE TEMPORARY TABLE pg_temp.${quoteIdent(table)} (c1 bigint) ON COMMIT PRESERVE ROWS`,
+				[]
+			)
+			yield* session.query(`INSERT INTO pg_temp.${quoteIdent(table)} (c1) VALUES (1)`, [])
 			yield* session.commit
-			carriers.push({ role: acting, carrier: carrier.name })
+			carriers.push({ role: acting, carrier: table })
 		}
 		if (opened.holds.length === 0) {
 			yield* session.begin

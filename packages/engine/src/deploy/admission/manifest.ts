@@ -55,7 +55,7 @@ export type ManifestStatement =
 					| "createRowType"
 					| "adoptRole"
 					| "createGuardTrigger"
-					| "createUpdateGuardTrigger"
+					| "createImmutableGuardTrigger"
 					| "createConstraintTrigger"
 					| "createTransitionTrigger"
 					| "createPublication"
@@ -98,7 +98,7 @@ const manifestStatement = (s: SqlStatement): ManifestStatement => {
 		case "createRowType":
 		case "adoptRole":
 		case "createGuardTrigger":
-		case "createUpdateGuardTrigger":
+		case "createImmutableGuardTrigger":
 		case "createConstraintTrigger":
 		case "createTransitionTrigger":
 		case "createPublication":
@@ -135,13 +135,14 @@ const manifestStatement = (s: SqlStatement): ManifestStatement => {
 		case "revokeRole":
 		case "renameConstraint":
 		case "alterDomain":
+		case "alterRowType":
 		case "dropIndex":
 		case "drop":
 		case "endHolders":
 		case "dropFunction":
 		case "dropTrigger":
 		case "dropPublication":
-		case "resetDatabaseDefault":
+		case "guardBracket":
 		case "lockTable":
 		case "insert":
 		case "update":
@@ -153,8 +154,6 @@ const manifestStatement = (s: SqlStatement): ManifestStatement => {
 		case "rollback":
 		case "setConstraintsImmediate":
 		case "fillStored":
-		case "createCarrier":
-		case "emptyCarrier":
 			return refuse(`a manifest of installation statements, not ${s.kind}`)
 	}
 }

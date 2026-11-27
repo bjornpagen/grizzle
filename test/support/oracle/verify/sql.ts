@@ -21,7 +21,6 @@ import {
 	type Collation,
 	type ColumnDef,
 	type CommentTarget,
-	type CreateCarrier,
 	type CreateConstant,
 	type CreateFunction,
 	type CreateTable,
@@ -37,7 +36,6 @@ import {
 	type KeyColumn,
 	type LiteralValue,
 	type Merge,
-	type MergeWhen,
 	type ObjectName,
 	type OperandBody,
 	type OperandSelect,
@@ -47,10 +45,10 @@ import {
 	type SelectCore,
 	type SqlFunction,
 	type SqlStatement,
+	type StoredGeneration,
 	type StubConstant,
 	type TableConstraint,
 	tableConstraints,
-	type TableName,
 	type Target,
 	type TypeRef,
 	type Update,
@@ -76,7 +74,6 @@ type AuditRule =
 	| "arity"
 	| "naming"
 	| "columnList"
-	| "scope"
 	| "context"
 	| "positional"
 	| "function"
@@ -202,57 +199,14 @@ const numericLikeBuiltins: ReadonlySet<string> = new Set([
 	"money"
 ])
 
-/** A relation visible to column references: its columns when the statement defines them, undefined for a table. */
-interface Relation {
-	readonly columns: ReadonlySet<string> | undefined
-}
-
-class Scope {
-	readonly relations = new Map<string, Relation>()
-	readonly parent: Scope | undefined
-	constructor(parent: Scope | undefined) {
-		this.parent = parent
-	}
-	resolve(name: string): Relation | undefined {
-		return this.relations.get(name) ?? this.parent?.resolve(name)
-	}
-}
-
-/** A scope under `parent` holding the relations `arms` names. */
-const scopeOver = (
-	parent: Scope | undefined,
-	arms: ReadonlyArray<readonly [string, Relation]>
-): Scope => {
-	const scope = new Scope(parent)
-	for (const [name, relation] of arms) {
-		scope.relations.set(name, relation)
-	}
-	return scope
-}
-
-class CteScope {
-	readonly ctes = new Map<string, Relation>()
-	readonly parent: CteScope | undefined
-	constructor(parent: CteScope | undefined) {
-		this.parent = parent
-	}
-	resolve(name: string): Relation | undefined {
-		return this.ctes.get(name) ?? this.parent?.resolve(name)
-	}
-}
-
 /** Where an expression sits, which decides which reference forms it may use. */
 interface ExprContext {
 	/**
-	 * "query": column references are qualified and resolve in `scope`; "ddl": unqualified, of `tableColumns` when
-	 * known; "output": unqualified output names of a set operation, for its ORDER BY; "domain": no column
-	 * references, VALUE allowed; "pl": PL/pgSQL expressions outside a query.
+	 * "query": column references are qualified (the printer's scope check, sql/scope.ts, binds each); "ddl": unqualified;
+	 * "output": unqualified output names of a set operation, for its ORDER BY; "domain": no column references, VALUE
+	 * allowed; "pl": PL/pgSQL expressions outside a query.
 	 */
 	readonly mode: "query" | "ddl" | "output" | "domain" | "pl"
-	readonly scope: Scope | undefined
-	readonly ctes: CteScope | undefined
-	/** The columns an unqualified reference may name, or undefined when they are not known. */
-	readonly tableColumns: ReadonlySet<string> | undefined
 	/** Whether EXCLUDED is in reach: inside ON CONFLICT. */
 	readonly excluded: boolean
 	/**
@@ -270,39 +224,26 @@ interface ExprContext {
 	readonly underIsTrue: ReadonlySet<"old" | "new"> | undefined
 	/** Whether merge_action() is in reach: inside MERGE ... RETURNING. */
 	readonly mergeAction: boolean
-	/** The PL/pgSQL variables in scope, or undefined outside PL/pgSQL. */
-	readonly plVars: ReadonlySet<string> | undefined
+	/** Whether the expression is inside PL/pgSQL, where its variables and NEW, OLD and TG_* are defined. */
+	readonly pl: boolean
 }
 
 /**
- * An expression context of `mode` over `scope` and `ctes`, inside PL/pgSQL when `plVars` names its variables, with no
- * table columns known and neither EXCLUDED, RETURNING nor merge_action() in reach.
+ * An expression context of `mode`, inside PL/pgSQL where `pl` says so, with neither EXCLUDED, RETURNING nor
+ * merge_action() in reach.
  */
-const context = (
-	mode: ExprContext["mode"],
-	scope: Scope | undefined,
-	ctes: CteScope | undefined,
-	plVars: ReadonlySet<string> | undefined
-): ExprContext => ({
+const context = (mode: ExprContext["mode"], pl: boolean): ExprContext => ({
 	mode,
-	scope,
-	ctes,
-	tableColumns: undefined,
 	excluded: false,
 	returningSides: undefined,
 	underIsTrue: undefined,
 	mergeAction: false,
-	plVars
+	pl
 })
 
-/**
- * Where a query body sits: its enclosing scope and CTEs, its PL/pgSQL variables, and whether it is the outermost
- * output, whose names may be public.
- */
+/** Where a query body sits: inside PL/pgSQL or not, and whether it is the outermost output, whose names may be public. */
 interface BodyContext {
-	readonly scope: Scope | undefined
-	readonly ctes: CteScope | undefined
-	readonly plVars: ReadonlySet<string> | undefined
+	readonly pl: boolean
 	readonly outermost: boolean
 }
 
@@ -452,7 +393,7 @@ class StatementAuditor {
 		this.ident(name.name, what, at)
 	}
 
-	tableName(table: TableName, at: string | number): void {
+	tableName(table: ObjectName, at: string | number): void {
 		if (typeof table === "string") {
 			this.ident(table, "carrier", at)
 		} else {
@@ -626,6 +567,8 @@ class StatementAuditor {
 					this.report("literal", `a float literal typed ${builtin}`)
 				}
 				return
+			case "null":
+				return
 			case "text":
 				if (Str.includes("\u0000")(value.value)) {
 					this.report("literal", "a text literal contains NUL")
@@ -704,6 +647,12 @@ class StatementAuditor {
 				return
 			case "literal":
 				this.literal(e.value, e.type)
+				return
+			case "attribute":
+				this.ident(e.attribute, "attribute")
+				this.at("record", () => {
+					this.expr(e.record, ctx)
+				})
 				return
 			case "cast":
 			case "collate":
@@ -856,7 +805,7 @@ class StatementAuditor {
 				this.plVar(e.name, ctx)
 				return
 			case "plSpecial":
-				if (ctx.plVars === undefined) {
+				if (!ctx.pl) {
 					this.report("context", `${e.name} outside PL/pgSQL`)
 				}
 				return
@@ -864,7 +813,7 @@ class StatementAuditor {
 				this.ident(e.field, "record field")
 				if (e.record.kind === "plVar") {
 					this.plVar(e.record.name, ctx)
-				} else if (ctx.plVars === undefined) {
+				} else if (!ctx.pl) {
 					this.report("context", `${e.record.name} outside PL/pgSQL`)
 				}
 				return
@@ -895,44 +844,26 @@ class StatementAuditor {
 		})
 	}
 
+	/** A variable is named only inside PL/pgSQL; the printer's scope check (sql/scope.ts) holds it to its body's. */
 	plVar(name: string, ctx: ExprContext): void {
 		this.ident(name, "PL/pgSQL variable")
-		if (ctx.plVars === undefined) {
+		if (!ctx.pl) {
 			this.report("context", `variable "${name}" outside PL/pgSQL`)
-		} else if (!ctx.plVars.has(name)) {
-			this.report("scope", `variable "${name}" is not declared`)
 		}
 	}
 
-	/** In a query every column is referenced as r<n>.c<n> or r<n>.<stored column>. */
+	/**
+	 * A column names nothing inside a domain CHECK. Everywhere else the printer's scope check (sql/scope.ts) binds it:
+	 * qualified by a relation in reach in a query, unqualified in DDL and a set operation's ORDER BY.
+	 */
 	column(e: Extract<Expr, { kind: "column" }>, ctx: ExprContext): void {
 		this.ident(e.column, "column")
 		if (ctx.mode === "domain") {
 			this.report("context", `column "${e.column}" inside a domain CHECK`)
 			return
 		}
-		if (ctx.mode === "ddl" || ctx.mode === "output") {
-			const where = ctx.mode === "ddl" ? "inside DDL" : "in a set operation's ORDER BY"
-			if (e.table !== undefined) {
-				this.report("scope", `column "${e.table}"."${e.column}" is qualified ${where}`)
-			} else if (ctx.tableColumns !== undefined && !ctx.tableColumns.has(e.column)) {
-				this.report(
-					"scope",
-					`column "${e.column}" is not ${ctx.mode === "ddl" ? "a column of the table" : "an output column"}`
-				)
-			}
-			return
-		}
-		if (e.table === undefined) {
-			this.report("scope", `column "${e.column}" is unqualified`)
-			return
-		}
-		this.ident(e.table, "column qualifier")
-		const relation = ctx.scope?.resolve(e.table)
-		if (relation === undefined) {
-			this.report("scope", `"${e.table}" is not a relation in scope`)
-		} else if (relation.columns !== undefined && !relation.columns.has(e.column)) {
-			this.report("scope", `"${e.table}" has no column "${e.column}"`)
+		if (e.table !== undefined) {
+			this.ident(e.table, "column qualifier")
 		}
 	}
 
@@ -1010,31 +941,19 @@ class StatementAuditor {
 	 */
 	constantBody(body: Expr): void {
 		if (body.kind !== "subquery") {
-			this.expr(body, context("ddl", undefined, undefined, undefined))
+			this.expr(body, context("ddl", false))
 			return
 		}
 		this.at("query", () => {
-			this.select(body.query, {
-				scope: undefined,
-				ctes: undefined,
-				plVars: undefined,
-				outermost: true,
-				topLevel: false
-			})
+			this.select(body.query, { pl: false, outermost: true, topLevel: false })
 		})
 	}
 
-	/** A query nested in an expression: it sees the enclosing scope for correlation. */
+	/** A query nested in an expression, correlated into its enclosing query; inside PL/pgSQL an embedded statement. */
 	subquery(query: OperandSelect, ctx: ExprContext): void {
 		if (ctx.mode === "pl") {
 			this.embedded(() => {
-				this.select(query, {
-					scope: undefined,
-					ctes: undefined,
-					plVars: ctx.plVars,
-					outermost: false,
-					topLevel: false
-				})
+				this.select(query, { pl: ctx.pl, outermost: false, topLevel: false })
 			})
 			return
 		}
@@ -1044,37 +963,17 @@ class StatementAuditor {
 				`a subquery in ${ctx.mode === "output" ? "a set operation's ORDER BY" : "DDL"}`
 			)
 		}
-		this.select(query, {
-			scope: ctx.scope,
-			ctes: ctx.ctes,
-			plVars: ctx.plVars,
-			outermost: false,
-			topLevel: false
-		})
+		this.select(query, { pl: ctx.pl, outermost: false, topLevel: false })
 	}
 
 	/** `topLevel`: the WITH of the statement itself, the only one that may hold a data-modifying CTE. */
-	with(
-		w: ReadonlyArray<Cte>,
-		recursive: boolean,
-		outer: CteScope | undefined,
-		scope: Scope | undefined,
-		plVars: ReadonlySet<string> | undefined,
-		topLevel: boolean
-	): CteScope {
-		const ctes = new CteScope(outer)
-		const relationOf = (cte: Cte): Relation => ({ columns: cteColumns(cte) })
-		/** A data-modifying CTE with no RETURNING is a write no part of its statement reads: PostgreSQL refuses a
-		 * reference to it, so it names no relation of the scope, and a read of it is a read of an unknown relation. */
-		const readable = (cte: Cte): boolean =>
-			cte.query.kind === "select" || cte.query.returning.length > 0
+	with(w: ReadonlyArray<Cte>, recursive: boolean, pl: boolean, topLevel: boolean): void {
 		this.at("with", () => {
 			if (recursive) {
 				for (const [i, cte] of w.entries()) {
 					this.at(i, () => {
 						this.defineRelation(cte.name, "name")
 					})
-					ctes.ctes.set(cte.name, relationOf(cte))
 				}
 			}
 			for (const [i, cte] of w.entries()) {
@@ -1082,14 +981,10 @@ class StatementAuditor {
 					if (!recursive) {
 						this.defineRelation(cte.name, "name")
 					}
-					this.cte(cte, ctes, scope, plVars, topLevel)
-					if (!recursive && readable(cte)) {
-						ctes.ctes.set(cte.name, relationOf(cte))
-					}
+					this.cte(cte, pl, topLevel)
 				})
 			}
 		})
-		return ctes
 	}
 
 	/**
@@ -1101,18 +996,12 @@ class StatementAuditor {
 	 * a set operation's arm, a CTE body, an INSERT's source query or the WITH of another data-modifying CTE
 	 * (0A000).
 	 */
-	cte(
-		cte: Cte,
-		ctes: CteScope,
-		scope: Scope | undefined,
-		plVars: ReadonlySet<string> | undefined,
-		topLevel: boolean
-	): void {
+	cte(cte: Cte, pl: boolean, topLevel: boolean): void {
 		const body = cte.query
 		if (body.kind === "select") {
 			this.at("columns", () => this.columnList(selectColumns(body), "CTE", true))
 			this.at("query", () => {
-				this.select(body, { scope, ctes, plVars, outermost: false, topLevel: false })
+				this.select(body, { pl, outermost: false, topLevel: false })
 			})
 			return
 		}
@@ -1129,7 +1018,7 @@ class StatementAuditor {
 			this.report("columnList", `data-modifying CTE "${cte.name}" has an unnamed RETURNING column`)
 		}
 		this.at("query", () => {
-			this.dml(body, ctes, false, plVars)
+			this.dml(body, false, pl)
 		})
 	}
 
@@ -1148,35 +1037,16 @@ class StatementAuditor {
 				"body"
 			)
 		}
-		const ctes =
-			select.with === undefined
-				? ctx.ctes
-				: this.with(
-						select.with.ctes,
-						select.with.recursive,
-						ctx.ctes,
-						ctx.scope,
-						ctx.plVars,
-						ctx.topLevel
-					)
-		const coreScope = this.at("body", () =>
-			this.body(select.body, {
-				scope: ctx.scope,
-				ctes,
-				plVars: ctx.plVars,
-				outermost: ctx.outermost
-			})
-		)
-		/** ORDER BY over a set operation names its output columns, unqualified; over a core it sees the core's FROM. */
-		const tail: ExprContext =
-			coreScope === undefined
-				? {
-						...context("output", undefined, ctes, ctx.plVars),
-						tableColumns: outputNames(bodyPositionNames(select.body))
-					}
-				: context("query", coreScope, ctes, ctx.plVars)
+		if (select.with !== undefined) {
+			this.with(select.with.ctes, select.with.recursive, ctx.pl, ctx.topLevel)
+		}
+		this.at("body", () => {
+			this.body(select.body, { pl: ctx.pl, outermost: ctx.outermost })
+		})
+		/** ORDER BY over a set operation names its output columns, unqualified; over a core it reads the core's FROM. */
+		const tail = context(select.body.kind === "core" ? "query" : "output", ctx.pl)
 		this.orderBy(select.orderBy, tail, "orderBy")
-		const bound = context("query", ctx.scope, ctes, ctx.plVars)
+		const bound = context("query", ctx.pl)
 		if (select.limit !== undefined) {
 			const limit = select.limit
 			this.at("limit", () => {
@@ -1191,11 +1061,11 @@ class StatementAuditor {
 		}
 	}
 
-	/** Returns the FROM scope of a core body, for ORDER BY. */
-	body(body: OperandBody, ctx: BodyContext): Scope | undefined {
+	body(body: OperandBody, ctx: BodyContext): void {
 		switch (body.kind) {
 			case "core":
-				return this.core(body, ctx)
+				this.core(body, ctx)
+				return
 			case "setOp": {
 				const [first, ...later] = body.arms
 				const width = bodyWidth(first)
@@ -1226,14 +1096,16 @@ class StatementAuditor {
 				}
 				this.at("arms", () => {
 					for (const [i, arm] of body.arms.entries()) {
-						this.at(i, () => this.body(arm, ctx))
+						this.at(i, () => {
+							this.body(arm, ctx)
+						})
 					}
 				})
-				return undefined
+				return
 			}
 			case "select":
 				this.select(body, { ...ctx, topLevel: false })
-				return undefined
+				return
 		}
 	}
 
@@ -1241,12 +1113,13 @@ class StatementAuditor {
 	 * An ungrouped aggregate query yields one row over empty input, and every aggregate but count is NULL there.
 	 * An aggregate-only query groups by a constant column its input carries, so empty input yields no row.
 	 */
-	core(core: SelectCore, ctx: BodyContext): Scope {
-		const scope = new Scope(ctx.scope)
-		const exprCtx = context("query", scope, ctx.ctes, ctx.plVars)
+	core(core: SelectCore, ctx: BodyContext): void {
+		const exprCtx = context("query", ctx.pl)
 		this.at("from", () => {
 			for (const [i, item] of core.from.entries()) {
-				this.at(i, () => this.fromItem(item, scope, ctx.scope, ctx.ctes, ctx.plVars))
+				this.at(i, () => {
+					this.fromItem(item, ctx.pl)
+				})
 			}
 		})
 		if (typeof core.distinct === "object") {
@@ -1285,7 +1158,6 @@ class StatementAuditor {
 				this.ungroupedAggregates(core.having, "having")
 			}
 		}
-		return scope
 	}
 
 	/**
@@ -1336,36 +1208,20 @@ class StatementAuditor {
 	}
 
 	/**
-	 * Registers a FROM item's relations in `scope`, in order, and returns them. `scope` holds the FROM entries audited
-	 * so far over `outer`: a LATERAL item sees them all, inside a join tree too, while a non-lateral derived table,
-	 * function or VALUES list sees only `outer`. A join's ON sees only its own two arms over `outer`: PostgreSQL
-	 * refuses a reference from ON to an earlier comma-separated entry or to an enclosing join's other arm.
+	 * A FROM item's names and lists, each relation alias it defines defined once. Which relations each place of it reaches
+	 * is the printer's scope check (sql/scope.ts).
 	 */
-	fromItem(
-		item: FromItem,
-		scope: Scope,
-		outer: Scope | undefined,
-		ctes: CteScope | undefined,
-		plVars: ReadonlySet<string> | undefined
-	): ReadonlyArray<readonly [string, Relation]> {
-		const register = (
-			name: string,
-			relation: Relation
-		): ReadonlyArray<readonly [string, Relation]> => {
-			scope.relations.set(name, relation)
-			return [[name, relation]]
-		}
+	fromItem(item: FromItem, pl: boolean): void {
 		switch (item.kind) {
 			case "table":
 				this.tableName(item.table, "table")
 				this.defineRelation(item.alias, "alias")
-				return register(item.alias, { columns: undefined })
+				return
 			case "probe":
 			case "met": {
 				this.tableName(item.table, "table")
 				this.ident(item.inner, "probed row", "inner")
-				const probed = scopeOver(scope, [[item.inner, { columns: undefined }]])
-				const ctx = context("query", probed, ctes, plVars)
+				const ctx = context("query", pl)
 				if (item.kind === "probe") {
 					this.at("by", () => {
 						for (const [i, c] of item.by.columns.entries()) {
@@ -1400,7 +1256,7 @@ class StatementAuditor {
 						})
 					}
 				})
-				const columns = this.at("columns", () =>
+				this.at("columns", () =>
 					this.columnList(
 						Arr.map(item.columns, (c) => c.as),
 						"probe",
@@ -1408,7 +1264,7 @@ class StatementAuditor {
 					)
 				)
 				this.defineRelation(item.alias, "alias")
-				return register(item.alias, { columns })
+				return
 			}
 			case "metRows": {
 				this.ident(item.insert, "met rows' INSERT", "insert")
@@ -1434,7 +1290,7 @@ class StatementAuditor {
 						})
 					}
 				})
-				const columns = this.at("columns", () =>
+				this.at("columns", () =>
 					this.columnList(
 						Arr.map(item.columns, (c) => c.column),
 						"met rows",
@@ -1442,56 +1298,44 @@ class StatementAuditor {
 					)
 				)
 				this.defineRelation(item.alias, "alias")
-				return register(item.alias, { columns })
+				return
 			}
 			case "cte": {
 				this.ident(item.name, "CTE reference", "name")
-				const cte = ctes?.resolve(item.name)
-				if (cte === undefined) {
-					this.report("scope", `"${item.name}" is not a CTE in scope`, "name")
-				}
 				if (item.alias !== undefined) {
 					this.defineRelation(item.alias, "alias")
 				}
-				return register(item.alias ?? item.name, { columns: cte?.columns })
+				return
 			}
 			case "enclosing":
 				this.ident(item.name, "enclosing CTE", "name")
 				this.defineRelation(item.alias, "alias")
-				return register(item.alias, { columns: undefined })
+				return
 			case "transition":
 				this.defineRelation(item.alias, "alias")
-				return register(item.alias, { columns: undefined })
+				return
 			case "derived": {
-				const columns = this.at("columns", () =>
-					this.columnList(selectColumns(item.query), "derived table", true)
-				)
+				this.at("columns", () => this.columnList(selectColumns(item.query), "derived table", true))
 				this.at("query", () => {
-					this.select(item.query, {
-						scope: item.lateral ? scope : outer,
-						ctes,
-						plVars,
-						outermost: false,
-						topLevel: false
-					})
+					this.select(item.query, { pl, outermost: false, topLevel: false })
 				})
 				if (item.alias === operandsAlias) {
 					this.ident(item.alias, "operand binding", "alias")
 				} else {
 					this.defineRelation(item.alias, "alias")
 				}
-				return register(item.alias, { columns })
+				return
 			}
 			case "function": {
-				const columns = this.at("columns", () =>
+				this.at("columns", () =>
 					this.columnList(functionColumnNames(item.columns), "function", true)
 				)
-				const ctx = context("query", item.lateral ? scope : outer, ctes, plVars)
+				const ctx = context("query", pl)
 				this.at("call", () => {
 					this.call(item.call, ctx)
 				})
 				this.defineRelation(item.alias, "alias")
-				return register(item.alias, { columns })
+				return
 			}
 			case "arrays": {
 				const source = item.source
@@ -1500,11 +1344,11 @@ class StatementAuditor {
 						this.placeholder(source.count.number, types.bigint)
 					})
 					this.defineRelation(item.alias, "alias")
-					return register(item.alias, { columns: this.columnList([], "input arrays", true) })
+					return
 				}
-				if (source.kind === "carried") {
-					const ctx = context("query", outer, ctes, plVars)
-					const columns = this.at("source", () => {
+				if (source.kind === "carried" || source.kind === "setting") {
+					const ctx = context("query", pl)
+					this.at("source", () => {
 						for (const [i, { definition, array }] of source.columns.entries()) {
 							this.at(i, () => {
 								this.type(definition.type)
@@ -1519,9 +1363,9 @@ class StatementAuditor {
 						)
 					})
 					this.defineRelation(item.alias, "alias")
-					return register(item.alias, { columns })
+					return
 				}
-				const columns = this.at("source", () => {
+				this.at("source", () => {
 					for (const [i, { definition, array }] of source.columns.entries()) {
 						this.at(i, () => {
 							this.type(definition.type)
@@ -1544,11 +1388,11 @@ class StatementAuditor {
 					)
 				})
 				this.defineRelation(item.alias, "alias")
-				return register(item.alias, { columns })
+				return
 			}
 			case "context": {
 				this.claimKey(item.context, "context")
-				const columns = this.at("columns", () => {
+				this.at("columns", () => {
 					for (const [i, { field, column }] of item.columns.entries()) {
 						this.at(i, () => {
 							this.claimKey(field, "claim field")
@@ -1565,65 +1409,46 @@ class StatementAuditor {
 				this.ident(item.refusal.schema, "function schema")
 				this.ident(item.refusal.name, "function name")
 				this.defineRelation(item.alias, "alias")
-				return register(item.alias, { columns })
+				return
 			}
 			case "values": {
-				const columns = this.at("columns", () => this.columnList(item.columns, "VALUES", true))
-				this.valuesRows(item.rows, item.columns.length, context("query", outer, ctes, plVars))
+				this.at("columns", () => this.columnList(item.columns, "VALUES", true))
+				this.valuesRows(item.rows, item.columns.length, context("query", pl))
 				this.defineRelation(item.alias, "alias")
-				return register(item.alias, { columns })
+				return
 			}
-			case "joins": {
-				const joined: Array<readonly [string, Relation]> = []
-				const add = (relations: ReadonlyArray<readonly [string, Relation]>): void => {
-					for (const relation of relations) {
-						joined.push(relation)
-					}
-				}
-				add(this.at("first", () => this.fromItem(item.first, scope, outer, ctes, plVars)))
+			case "joins":
+				this.at("first", () => {
+					this.fromItem(item.first, pl)
+				})
 				this.at("steps", () => {
 					for (const [i, step] of item.steps.entries()) {
 						this.at(i, () => {
-							add(this.at("source", () => this.fromItem(step.source, scope, outer, ctes, plVars)))
+							this.at("source", () => {
+								this.fromItem(step.source, pl)
+							})
 							if (step.kind !== "cross") {
-								const on = scopeOver(outer, joined)
 								this.at("on", () => {
-									this.expr(step.on, context("query", on, ctes, plVars))
+									this.expr(step.on, context("query", pl))
 								})
 							}
 						})
 					}
 				})
-				return joined
-			}
+				return
 		}
 	}
 
-	/**
-	 * The FROM, USING or USING-source items of a write. They never see the write's target: PostgreSQL refuses a
-	 * reference to it from a join's ON or a LATERAL item. The target and the items together form the scope of the
-	 * write's own clauses.
-	 */
-	writeScope(
-		alias: string,
-		items: ReadonlyArray<FromItem>,
-		at: string,
-		ctes: CteScope | undefined,
-		plVars: ReadonlySet<string> | undefined
-	): Scope {
+	/** A write's target alias and its FROM, USING or USING-source items, each alias defined once. */
+	writeItems(alias: string, items: ReadonlyArray<FromItem>, at: string, pl: boolean): void {
 		this.defineRelation(alias, "alias")
-		const from = new Scope(undefined)
 		this.at(at, () => {
 			for (const [i, item] of items.entries()) {
-				this.at(i, () => this.fromItem(item, from, undefined, ctes, plVars))
+				this.at(i, () => {
+					this.fromItem(item, pl)
+				})
 			}
 		})
-		const scope = new Scope(undefined)
-		scope.relations.set(alias, { columns: undefined })
-		for (const [name, relation] of from.relations) {
-			scope.relations.set(name, relation)
-		}
-		return scope
 	}
 
 	valuesRows(rows: ReadonlyArray<ReadonlyArray<Expr>>, width: number, ctx: ExprContext): void {
@@ -1643,35 +1468,24 @@ class StatementAuditor {
 		})
 	}
 
-	/** `topLevel`: the statement's own output, whose RETURNING may carry public names; `plVars`, the PL/pgSQL variables
-	 * in scope, where the statement is a PL/pgSQL function's (PlStatement modify), or undefined. */
-	dml(
-		statement: CteBody,
-		ctes: CteScope | undefined,
-		topLevel: boolean,
-		plVars: ReadonlySet<string> | undefined
-	): void {
+	/** `topLevel`: the statement's own output, whose RETURNING may carry public names; `pl`, whether the statement is a
+	 * PL/pgSQL function's (PlStatement modify). */
+	dml(statement: CteBody, topLevel: boolean, pl: boolean): void {
 		switch (statement.kind) {
 			case "select":
-				this.select(statement, {
-					scope: undefined,
-					ctes,
-					plVars,
-					outermost: topLevel,
-					topLevel
-				})
+				this.select(statement, { pl, outermost: topLevel, topLevel })
 				return
 			case "insert":
-				this.insert(statement, ctes, topLevel, plVars)
+				this.insert(statement, topLevel, pl)
 				return
 			case "update":
-				this.update(statement, ctes, topLevel, plVars)
+				this.update(statement, topLevel, pl)
 				return
 			case "delete":
-				this.delete(statement, ctes, topLevel, plVars)
+				this.delete(statement, topLevel, pl)
 				return
 			case "merge":
-				this.merge(statement, ctes, topLevel, plVars)
+				this.merge(statement, topLevel, pl)
 				return
 		}
 	}
@@ -1687,16 +1501,10 @@ class StatementAuditor {
 		})
 	}
 
-	insert(
-		insert: Insert,
-		outer: CteScope | undefined,
-		topLevel: boolean,
-		plVars: ReadonlySet<string> | undefined
-	): void {
-		const ctes =
-			insert.with === undefined
-				? outer
-				: this.with(insert.with.ctes, insert.with.recursive, outer, undefined, plVars, topLevel)
+	insert(insert: Insert, topLevel: boolean, pl: boolean): void {
+		if (insert.with !== undefined) {
+			this.with(insert.with.ctes, insert.with.recursive, pl, topLevel)
+		}
 		this.tableName(insert.table, "table")
 		this.at("columns", () => {
 			this.baseColumns(insert.columns, "INSERT column")
@@ -1711,26 +1519,14 @@ class StatementAuditor {
 					)
 				}
 				this.at("query", () => {
-					this.select(source.query, {
-						scope: undefined,
-						ctes,
-						plVars,
-						outermost: false,
-						topLevel: false
-					})
+					this.select(source.query, { pl, outermost: false, topLevel: false })
 				})
 			} else {
-				this.valuesRows(
-					source.rows,
-					insert.columns.length,
-					context("query", undefined, ctes, plVars)
-				)
+				this.valuesRows(source.rows, insert.columns.length, context("query", pl))
 			}
 		})
-		const scope = new Scope(undefined)
 		if (insert.alias !== undefined) {
 			this.defineRelation(insert.alias, "alias")
-			scope.relations.set(insert.alias, { columns: undefined })
 		}
 		if (insert.onConflict !== undefined) {
 			const conflict = insert.onConflict
@@ -1745,7 +1541,7 @@ class StatementAuditor {
 				this.at("columns", () => {
 					this.baseColumns(conflict.columns, "arbiter column")
 				})
-				const ctx: ExprContext = { ...context("query", scope, ctes, plVars), excluded: true }
+				const ctx: ExprContext = { ...context("query", pl), excluded: true }
 				const action = conflict.action
 				if (action.kind === "doUpdate") {
 					this.assignments(action.set, ctx)
@@ -1761,7 +1557,7 @@ class StatementAuditor {
 		this.returning(
 			insert.returning,
 			{
-				...context("query", scope, ctes, plVars),
+				...context("query", pl),
 				returningSides: newSide,
 				underIsTrue: meetsStoredRow(insert) ? bothSides : undefined
 			},
@@ -1786,19 +1582,13 @@ class StatementAuditor {
 		})
 	}
 
-	update(
-		update: Update,
-		outer: CteScope | undefined,
-		topLevel: boolean,
-		plVars: ReadonlySet<string> | undefined
-	): void {
-		const ctes =
-			update.with === undefined
-				? outer
-				: this.with(update.with.ctes, update.with.recursive, outer, undefined, plVars, topLevel)
+	update(update: Update, topLevel: boolean, pl: boolean): void {
+		if (update.with !== undefined) {
+			this.with(update.with.ctes, update.with.recursive, pl, topLevel)
+		}
 		this.objectName(update.table, "table", "table")
-		const scope = this.writeScope(update.alias, update.from, "from", ctes, plVars)
-		const ctx = context("query", scope, ctes, plVars)
+		this.writeItems(update.alias, update.from, "from", pl)
+		const ctx = context("query", pl)
 		this.assignments(update.set, ctx)
 		if (update.where !== undefined) {
 			const where = update.where
@@ -1810,19 +1600,13 @@ class StatementAuditor {
 	}
 
 	/** new.* is NULL for a deleted row; the target alias already is the old row. */
-	delete(
-		del: Delete,
-		outer: CteScope | undefined,
-		topLevel: boolean,
-		plVars: ReadonlySet<string> | undefined
-	): void {
-		const ctes =
-			del.with === undefined
-				? outer
-				: this.with(del.with.ctes, del.with.recursive, outer, undefined, plVars, topLevel)
+	delete(del: Delete, topLevel: boolean, pl: boolean): void {
+		if (del.with !== undefined) {
+			this.with(del.with.ctes, del.with.recursive, pl, topLevel)
+		}
 		this.tableName(del.table, "table")
-		const scope = this.writeScope(del.alias, del.using, "using", ctes, plVars)
-		const ctx = context("query", scope, ctes, plVars)
+		this.writeItems(del.alias, del.using, "using", pl)
+		const ctx = context("query", pl)
 		if (del.where !== undefined) {
 			const where = del.where
 			this.at("where", () => {
@@ -1832,44 +1616,24 @@ class StatementAuditor {
 		this.returning(del.returning, { ...ctx, returningSides: oldSide }, topLevel)
 	}
 
-	/** The source never sees the target (see writeScope). */
-	merge(
-		merge: Merge,
-		outer: CteScope | undefined,
-		topLevel: boolean,
-		plVars: ReadonlySet<string> | undefined
-	): void {
-		const ctes =
-			merge.with === undefined
-				? outer
-				: this.with(merge.with.ctes, merge.with.recursive, outer, undefined, plVars, topLevel)
+	/** Which side each WHEN and the RETURNING reach is the printer's scope check (sql/scope.ts). */
+	merge(merge: Merge, topLevel: boolean, pl: boolean): void {
+		if (merge.with !== undefined) {
+			this.with(merge.with.ctes, merge.with.recursive, pl, topLevel)
+		}
 		this.objectName(merge.table, "table", "table")
 		this.defineRelation(merge.alias, "alias")
-		const source = new Scope(undefined)
-		this.at("using", () => this.fromItem(merge.using, source, undefined, ctes, plVars))
-		const target = new Scope(undefined)
-		target.relations.set(merge.alias, { columns: undefined })
-		const scope = new Scope(undefined)
-		scope.relations.set(merge.alias, { columns: undefined })
-		for (const [name, relation] of source.relations) {
-			scope.relations.set(name, relation)
-		}
-		const ctx = context("query", scope, ctes, plVars)
-		/**
-		 * A WHEN NOT MATCHED row has no target row and a WHEN NOT MATCHED BY SOURCE row no source row, so PostgreSQL
-		 * lets their condition and action name only the side that exists.
-		 */
-		const whenCtx = (match: MergeWhen["match"]): ExprContext =>
-			match === "MATCHED"
-				? ctx
-				: context("query", match === "NOT MATCHED" ? source : target, ctes, plVars)
+		this.at("using", () => {
+			this.fromItem(merge.using, pl)
+		})
+		const ctx = context("query", pl)
 		this.at("on", () => {
 			this.expr(merge.on, ctx)
 		})
 		this.at("whens", () => {
 			for (const [i, when] of merge.whens.entries()) {
 				this.at(i, () => {
-					const inner = whenCtx(when.match)
+					const inner = ctx
 					if (when.condition !== undefined) {
 						const condition = when.condition
 						this.at("condition", () => {
@@ -1909,15 +1673,10 @@ class StatementAuditor {
 		if (!deletes) {
 			sides.add("new")
 		}
-		/**
-		 * A row a WHEN NOT MATCHED BY SOURCE action updated or deleted has no source row, whose every column
-		 * PostgreSQL returns as NULL there; RETURNING then names only the target.
-		 */
-		const sourceless = Arr.some(merge.whens, (when) => when.match === "NOT MATCHED BY SOURCE")
 		this.returning(
 			merge.returning,
 			{
-				...context("query", sourceless ? target : scope, ctes, plVars),
+				...context("query", pl),
 				returningSides: sides,
 				mergeAction: true
 			},
@@ -1925,13 +1684,13 @@ class StatementAuditor {
 		)
 	}
 
-	ddlExpr(e: Expr, tableColumns: ReadonlySet<string> | undefined, at: string): void {
+	ddlExpr(e: Expr, at: string): void {
 		this.at(at, () => {
-			this.expr(e, { ...context("ddl", undefined, undefined, undefined), tableColumns })
+			this.expr(e, context("ddl", false))
 		})
 	}
 
-	columnDef(column: ColumnDef, tableColumns: ReadonlySet<string> | undefined): void {
+	columnDef(column: ColumnDef): void {
 		this.ident(column.name, "column", "name")
 		this.at("type", () => {
 			this.type(column.type)
@@ -1943,12 +1702,12 @@ class StatementAuditor {
 		}
 		switch (generated.kind) {
 			case "stored":
-				this.ddlExpr(generated.expr, tableColumns, "generated")
+				this.ddlExpr(generated.expr, "generated")
 				return
 			case "partial":
 				this.at("generated", () => {
-					this.ddlExpr(generated.when, tableColumns, "when")
-					this.ddlExpr(generated.expr, tableColumns, "expr")
+					this.ddlExpr(generated.when, "when")
+					this.ddlExpr(generated.expr, "expr")
 				})
 				return
 		}
@@ -1957,11 +1716,11 @@ class StatementAuditor {
 	/**
 	 * A span key's span, and a PERIOD reference's span, is the last column. A key's columns, and a foreign key's
 	 * referenced columns, are each listed once (42701, 42830); a foreign key's referencing columns may list a column more
-	 * than once, which PostgreSQL accepts (`repeats` "admitted").
+	 * than once, which PostgreSQL accepts (`repeats` "admitted"). That each is a column of its table is the printer's
+	 * scope check (sql/scope.ts).
 	 */
 	keyColumns(
 		columns: ReadonlyArray<SpanColumn>,
-		tableColumns: ReadonlySet<string> | undefined,
 		at: string,
 		repeats: "refused" | "admitted"
 	): void {
@@ -1973,9 +1732,6 @@ class StatementAuditor {
 					this.report("columnList", `key column "${c.column}" is listed twice`, i)
 				}
 				seen.add(c.column)
-				if (tableColumns !== undefined && !tableColumns.has(c.column)) {
-					this.report("scope", `key column "${c.column}" is not a column of the table`, i)
-				}
 				if (c.span && i !== columns.length - 1) {
 					this.report("columnList", `the span "${c.column}" is not the key's last column`, i)
 				}
@@ -1983,24 +1739,18 @@ class StatementAuditor {
 		})
 	}
 
-	constraint(constraint: TableConstraint, tableColumns: ReadonlySet<string> | undefined): void {
+	constraint(constraint: TableConstraint): void {
 		this.ident(constraint.name, "constraint", "name")
 		switch (constraint.kind) {
 			case "primaryKey":
 			case "unique":
-				this.keyColumns(Arr.map(constraint.columns, keySpan), tableColumns, "columns", "refused")
+				this.keyColumns(Arr.map(constraint.columns, keySpan), "columns", "refused")
 				return
 			case "foreignKey": {
-				this.keyColumns(
-					Arr.map(constraint.columns, periodSpan),
-					tableColumns,
-					"columns",
-					"admitted"
-				)
+				this.keyColumns(Arr.map(constraint.columns, periodSpan), "columns", "admitted")
 				this.objectName(constraint.references, "referenced table", "references")
 				this.keyColumns(
 					Arr.map(constraint.referencedColumns, periodSpan),
-					undefined,
 					"referencedColumns",
 					"refused"
 				)
@@ -2018,12 +1768,11 @@ class StatementAuditor {
 				return
 			}
 			case "check":
-				this.ddlExpr(constraint.predicate, tableColumns, "predicate")
+				this.ddlExpr(constraint.predicate, "predicate")
 				return
 			case "exclude":
 				this.keyColumns(
 					Arr.map(constraint.elements, (e) => ({ column: e.column, span: false })),
-					tableColumns,
 					"elements",
 					"refused"
 				)
@@ -2031,8 +1780,8 @@ class StatementAuditor {
 		}
 	}
 
-	/** A table's or a carrier's columns, each declared once; returns their names. */
-	tableColumns(columns: ReadonlyArray<ColumnDef>): ReadonlySet<string> {
+	/** A table's or a carrier's columns, each declared once. */
+	tableColumns(columns: ReadonlyArray<ColumnDef>): void {
 		const names = new Set<string>()
 		for (const [i, column] of columns.entries()) {
 			if (names.has(column.name)) {
@@ -2043,40 +1792,26 @@ class StatementAuditor {
 		this.at("columns", () => {
 			for (const [i, column] of columns.entries()) {
 				this.at(i, () => {
-					this.columnDef(column, names)
+					this.columnDef(column)
 				})
 			}
 		})
-		return names
-	}
-
-	/** A carrier's columns, and its key's, each a column of the carrier listed once. */
-	createCarrier(carrier: CreateCarrier): void {
-		const columns = this.tableColumns(carrier.columns)
-		if (carrier.primaryKey !== undefined) {
-			this.keyColumns(
-				Arr.map(carrier.primaryKey, (column) => ({ column, span: false })),
-				columns,
-				"primaryKey",
-				"refused"
-			)
-		}
 	}
 
 	createTable(table: CreateTable): void {
 		this.objectName(table.table, "table", "table")
-		const columns = this.tableColumns(table.columns)
+		this.tableColumns(table.columns)
 		this.uniqueNames(
 			Arr.map(tableConstraints(table), (c) => c.name),
 			"constraint"
 		)
 		this.at("primaryKey", () => {
-			this.constraint(table.primaryKey, columns)
+			this.constraint(table.primaryKey)
 		})
 		this.at("secondary", () => {
 			for (const [i, c] of table.secondary.entries()) {
 				this.at(i, () => {
-					this.constraint(c, columns)
+					this.constraint(c)
 				})
 			}
 		})
@@ -2129,7 +1864,7 @@ class StatementAuditor {
 			}
 		})
 		this.at("body", () => {
-			this.plStatements(fn.body.body, vars)
+			this.plStatements(fn.body.body)
 		})
 	}
 
@@ -2151,7 +1886,7 @@ class StatementAuditor {
 		this.argumentsBody(fn.params, () => {
 			this.embedded(() => {
 				this.at("body", () => {
-					this.expr(fn.body, context("pl", undefined, undefined, new Set()))
+					this.expr(fn.body, context("pl", true))
 				})
 			})
 		})
@@ -2185,10 +1920,10 @@ class StatementAuditor {
 		}
 	}
 
-	plStatements(statements: ReadonlyArray<PlStatement>, vars: ReadonlySet<string>): void {
+	plStatements(statements: ReadonlyArray<PlStatement>): void {
 		for (const [i, s] of statements.entries()) {
 			this.at(i, () => {
-				this.plStatement(s, vars)
+				this.plStatement(s)
 			})
 		}
 	}
@@ -2200,17 +1935,11 @@ class StatementAuditor {
 	 *
 	 * A fixed message: '%' would be a format placeholder without an argument.
 	 */
-	plStatement(statement: PlStatement, vars: ReadonlySet<string>): void {
-		const ctx = context("pl", undefined, undefined, vars)
+	plStatement(statement: PlStatement): void {
+		const ctx = context("pl", true)
 		const embeddedSelect = (query: OperandSelect): void => {
 			this.embedded(() => {
-				this.select(query, {
-					scope: undefined,
-					ctes: undefined,
-					plVars: vars,
-					outermost: false,
-					topLevel: false
-				})
+				this.select(query, { pl: true, outermost: false, topLevel: false })
 			})
 		}
 		switch (statement.kind) {
@@ -2222,13 +1951,13 @@ class StatementAuditor {
 								this.expr(branch.condition, ctx)
 							})
 							this.at("body", () => {
-								this.plStatements(branch.body, vars)
+								this.plStatements(branch.body)
 							})
 						})
 					})
 				}
 				this.at("else", () => {
-					this.plStatements(statement.else, vars)
+					this.plStatements(statement.else)
 				})
 				return
 			case "assign":
@@ -2241,17 +1970,11 @@ class StatementAuditor {
 				this.plVar(statement.variable, ctx)
 				this.at("query", () => {
 					this.embedded(() => {
-						this.select(statement.query, {
-							scope: undefined,
-							ctes: undefined,
-							plVars: vars,
-							outermost: false,
-							topLevel: true
-						})
+						this.select(statement.query, { pl: true, outermost: false, topLevel: true })
 					})
 				})
 				this.at("body", () => {
-					this.plStatements(statement.body, vars)
+					this.plStatements(statement.body)
 				})
 				return
 			case "perform":
@@ -2259,23 +1982,22 @@ class StatementAuditor {
 					embeddedSelect({ kind: "select", with: undefined, ...statement.query })
 				})
 				return
+			case "wholeReads":
+				this.at("body", () => {
+					this.plStatements(statement.body)
+				})
+				return
 			case "modify":
 				this.at("statement", () => {
 					this.embedded(() => {
-						this.dml(statement.statement, undefined, true, vars)
+						this.dml(statement.statement, true, true)
 					})
 				})
 				return
 			case "returnQuery":
 				this.at("query", () => {
 					this.embedded(() => {
-						this.select(statement.query, {
-							scope: undefined,
-							ctes: undefined,
-							plVars: vars,
-							outermost: false,
-							topLevel: true
-						})
+						this.select(statement.query, { pl: true, outermost: false, topLevel: true })
 					})
 				})
 				return
@@ -2303,7 +2025,7 @@ class StatementAuditor {
 					embeddedSelect(statement.query)
 				})
 				this.at("body", () => {
-					this.plStatements(statement.body, vars)
+					this.plStatements(statement.body)
 				})
 				return
 			case "case":
@@ -2315,7 +2037,7 @@ class StatementAuditor {
 						this.at(i, () => {
 							this.exprs(branch.values, ctx, "values")
 							this.at("body", () => {
-								this.plStatements(branch.body, vars)
+								this.plStatements(branch.body)
 							})
 						})
 					})
@@ -2355,19 +2077,13 @@ class StatementAuditor {
 	statement(statement: SqlStatement): void {
 		switch (statement.kind) {
 			case "select":
-				this.select(statement, {
-					scope: undefined,
-					ctes: undefined,
-					plVars: undefined,
-					outermost: true,
-					topLevel: true
-				})
+				this.select(statement, { pl: false, outermost: true, topLevel: true })
 				return
 			case "insert":
 			case "update":
 			case "delete":
 			case "merge":
-				this.dml(statement, undefined, true, undefined)
+				this.dml(statement, true, false)
 				return
 			case "beginRead":
 			case "beginWrite":
@@ -2387,21 +2103,8 @@ class StatementAuditor {
 					)
 				}
 				this.at("query", () => {
-					this.select(statement.query, {
-						scope: undefined,
-						ctes: undefined,
-						plVars: undefined,
-						outermost: true,
-						topLevel: false
-					})
+					this.select(statement.query, { pl: false, outermost: true, topLevel: false })
 				})
-				return
-			case "createCarrier":
-				this.withoutParams(() => {
-					this.createCarrier(statement)
-				})
-				return
-			case "emptyCarrier":
 				return
 			case "createSchema":
 			case "createTable":
@@ -2428,19 +2131,20 @@ class StatementAuditor {
 			case "createDeclaredFunction":
 			case "handOverFunction":
 			case "createRowType":
+			case "alterRowType":
 			case "adoptRole":
 			case "endHolders":
 			case "createConstant":
 			case "stubConstant":
 			case "packConstant":
 			case "createGuardTrigger":
-			case "createUpdateGuardTrigger":
+			case "createImmutableGuardTrigger":
 			case "createConstraintTrigger":
 			case "createTransitionTrigger":
 			case "createPublication":
 			case "dropPublication":
 			case "createLiveSecret":
-			case "resetDatabaseDefault":
+			case "guardBracket":
 			case "createRole":
 			case "alterRole":
 			case "grant":
@@ -2529,7 +2233,7 @@ class StatementAuditor {
 									this.ident(action.column, "column", "column")
 									this.at("generation", () => {
 										const g = action.generation
-										const ddl = context("ddl", undefined, undefined, new Set())
+										const ddl = context("ddl", false)
 										if (g.kind === "partial") {
 											this.at("when", () => {
 												this.expr(g.when, ddl)
@@ -2544,20 +2248,20 @@ class StatementAuditor {
 								case "addColumnPlaceholder":
 								case "addColumnUnchecked":
 									this.at("column", () => {
-										this.columnDef(action.column, undefined)
+										this.columnDef(action.column)
 									})
 									return
 								case "addColumnDefault":
 									this.at("column", () => {
-										this.columnDef(action.column, undefined)
+										this.columnDef(action.column)
 									})
 									this.at("default", () => {
-										this.expr(action.default, context("ddl", undefined, undefined, new Set()))
+										this.expr(action.default, context("ddl", false))
 									})
 									return
 								case "addConstraint":
 									this.at("constraint", () => {
-										this.constraint(action.constraint, undefined)
+										this.constraint(action.constraint)
 									})
 									return
 								case "alterColumnType":
@@ -2569,7 +2273,7 @@ class StatementAuditor {
 									this.at("using", () => {
 										switch (action.using.kind) {
 											case "expr":
-												this.ddlExpr(action.using.expr, undefined, "expr")
+												this.ddlExpr(action.using.expr, "expr")
 												return
 											case "placeholder":
 												return
@@ -2669,7 +2373,7 @@ class StatementAuditor {
 							if (key.key.kind === "column") {
 								this.ident(key.key.column, "index column", "key")
 							} else {
-								this.ddlExpr(key.key.expr, undefined, "key")
+								this.ddlExpr(key.key.expr, "key")
 							}
 							if (key.collation !== undefined) {
 								this.collation(key.collation, "collation")
@@ -2684,7 +2388,7 @@ class StatementAuditor {
 					this.baseColumns(statement.include, "included column")
 				})
 				if (statement.where !== undefined) {
-					this.ddlExpr(statement.where, undefined, "where")
+					this.ddlExpr(statement.where, "where")
 				}
 				return
 			case "dropIndex":
@@ -2702,13 +2406,7 @@ class StatementAuditor {
 					)
 				}
 				this.at("query", () => {
-					this.select(statement.query, {
-						scope: undefined,
-						ctes: undefined,
-						plVars: undefined,
-						outermost: true,
-						topLevel: false
-					})
+					this.select(statement.query, { pl: false, outermost: true, topLevel: false })
 				})
 				return
 			}
@@ -2729,13 +2427,7 @@ class StatementAuditor {
 				}
 				this.at("query", () => {
 					this.embedded(() => {
-						this.select(statement.query, {
-							scope: undefined,
-							ctes: undefined,
-							plVars: undefined,
-							outermost: true,
-							topLevel: true
-						})
+						this.select(statement.query, { pl: false, outermost: true, topLevel: true })
 					})
 				})
 				return
@@ -2745,12 +2437,11 @@ class StatementAuditor {
 				this.ident(statement.role, "role", "role")
 				/**
 				 * A policy's predicate is a query's condition over its table's row, which it reads by the table's name and
-				 * which may hold subqueries: the one relation in its scope is the table, under that name.
+				 * which may hold subqueries.
 				 */
-				const scope = new Scope(undefined)
-				scope.relations.set(statement.table.name, { columns: undefined })
+				const filter = context("query", false)
 				this.at("filter", () => {
-					this.expr(statement.filter, context("query", scope, undefined, undefined))
+					this.expr(statement.filter, filter)
 				})
 				return
 			}
@@ -2797,6 +2488,11 @@ class StatementAuditor {
 				this.at("returns", () => {
 					this.type("setOf" in statement.returns ? statement.returns.setOf : statement.returns)
 				})
+				this.at("namedAlone", () => {
+					for (const [i, type] of statement.namedAlone.entries()) {
+						this.at(i, () => this.type(type))
+					}
+				})
 				return
 			case "handOverFunction":
 				this.objectName(statement.name, "function", "name")
@@ -2811,6 +2507,13 @@ class StatementAuditor {
 							this.type(a.type)
 						})
 					}
+				})
+				return
+			case "alterRowType":
+				this.objectName(statement.name, "type", "name")
+				this.at("add", () => {
+					this.ident(statement.add.name, "attribute", "name")
+					this.type(statement.add.type)
 				})
 				return
 			case "adoptRole":
@@ -2873,7 +2576,7 @@ class StatementAuditor {
 				return
 			}
 			case "createGuardTrigger":
-			case "createUpdateGuardTrigger":
+			case "createImmutableGuardTrigger":
 			case "createConstraintTrigger":
 			case "createTransitionTrigger":
 				this.ident(statement.name, "trigger", "name")
@@ -2897,8 +2600,22 @@ class StatementAuditor {
 			case "createLiveSecret":
 				this.objectName(statement.table, "table", "table")
 				return
-			case "resetDatabaseDefault":
-				return
+			case "guardBracket":
+				for (const [i, g] of statement.guards.entries()) {
+					this.ident(g.name, "trigger", i)
+				}
+				switch (statement.scope.kind) {
+					case "tables":
+						for (const [i, t] of statement.scope.tables.entries()) {
+							this.objectName(t, "table", i)
+						}
+						return
+					case "schemas":
+						for (const [i, schema] of statement.scope.schemas.entries()) {
+							this.ident(schema, "schema", i)
+						}
+						return
+				}
 			case "createRole":
 				this.ident(statement.name, "role", "name")
 				return
@@ -2967,7 +2684,7 @@ class StatementAuditor {
 
 	domainPredicate(predicate: Expr): void {
 		this.at("predicate", () => {
-			this.expr(predicate, context("domain", undefined, undefined, undefined))
+			this.expr(predicate, context("domain", false))
 		})
 	}
 }
@@ -3053,6 +2770,9 @@ const forEachAggregateCall = (e: Expr, f: (call: FunctionCall) => void): void =>
 		case "inQuery":
 			forEachAggregateCall(e.expr, f)
 			return
+		case "attribute":
+			forEachAggregateCall(e.record, f)
+			return
 		case "nullif":
 			all([e.expr, e.absent])
 			return
@@ -3134,39 +2854,6 @@ const hasClauses = (select: OperandSelect): boolean =>
 	select.limit !== undefined ||
 	select.offset !== undefined
 
-/**
- * A set operation's output names, for its ORDER BY: known only when PostgreSQL's name for every position is, and
- * undefined otherwise.
- */
-const outputNames = (names: ReadonlyArray<string | undefined>): ReadonlySet<string> | undefined => {
-	const known: Array<string> = []
-	for (const name of names) {
-		if (name === undefined) {
-			return undefined
-		}
-		known.push(name)
-	}
-	return new Set(known)
-}
-
-/**
- * The columns a CTE exposes, as PostgreSQL names them: its column list, else its query's output names or its RETURNING
- * aliases; undefined where an output has no name, which no reference is then checked against.
- */
-const cteColumns = (cte: Cte): ReadonlySet<string> | undefined => {
-	if (cte.query.kind === "select") {
-		return outputNames(bodyPositionNames(cte.query.body))
-	}
-	const names: Array<string> = []
-	for (const target of cte.query.returning) {
-		if (target.alias === undefined) {
-			return undefined
-		}
-		names.push(target.alias)
-	}
-	return new Set(names)
-}
-
 export interface StatementAudit {
 	readonly violations: ReadonlyArray<SqlViolation>
 	/** The type of each placeholder $1..$n, in order. */
@@ -3181,14 +2868,13 @@ export interface StatementAudit {
  * Two layers, both structural:
  *
  * - The statement audit walks the AST and checks what its types cannot carry: single-assignment r<n>/c<n> naming with
- *   every relation alias defined once per statement, explicit column lists on CTEs and derived tables, every column
- *   reference qualified by a visible relation, generated names everywhere but the outermost output; contiguous,
+ *   every relation alias defined once per statement, explicit column lists on CTEs and derived tables, generated names
+ *   everywhere but the outermost output; contiguous,
  *   consistently typed parameters and none in DDL; identifier and literal validity; the fixed collation on every
  *   column and domain of type text; RETURNING old./new. only where every returned row has that version, or under IS
  *   TRUE an INSERT's old where its ON CONFLICT DO SELECT or DO UPDATE returns the stored row it meets; and no query
  *   body that PostgreSQL would merge with its enclosing query's clauses, through any chain of parentheses; a
- *   data-modifying CTE only in the statement's own WITH; MERGE WHEN clauses and RETURNING naming only the rows their
- *   match has; UNION arms named by position with the union's names; no builtin function outside the catalogue of
+ *   data-modifying CTE only in the statement's own WITH; UNION arms named by position with the union's names; no builtin function outside the catalogue of
  *   ast.ts; and none of the NULL-yielding aggregate and window forms: LEAD or LAG
  *   without its default (R27), or a NULL-on-empty aggregate in an ungrouped core.
  * - The text audit lexes the printed text (lexer.ts) and refuses, wherever they occur outside identifiers, strings,
@@ -3204,6 +2890,10 @@ export interface StatementAudit {
  *
  * An audit failure is a compiler defect, reported as a CompileError: MalformedDescription for a structurally malformed
  * statement, UnsupportedOperation for SQL the emission discipline forbids.
+ *
+ * That every name a statement reads is bound where it reads it (a column's qualifier by a relation in reach, a CTE by a
+ * WITH in reach, a variable by its body, an unqualified column by its table or its operation's outputs) is no rule of
+ * the audit: the printer holds every statement it prints to it, an internal compiler error (sql/scope.ts).
  */
 export const auditStatementDetailed = (statement: SqlStatement): StatementAudit => {
 	const auditor = new StatementAuditor()
@@ -3717,8 +3407,24 @@ type OpenCases = ReadonlyArray<CaseFrame>
 class TextAuditor {
 	readonly violations: Array<SqlViolation> = []
 	readonly base: number
-	constructor(base: number) {
+	/** How many guarded terms the text may still hold: its statement's partial generations not yet met (guardedTermsOf). */
+	#guarded: number
+	constructor(base: number, guarded: number) {
 		this.base = base
+		this.#guarded = guarded
+	}
+
+	/**
+	 * Whether a CASE of a guarded term's shape is one of its statement's partial generations: admitted while the
+	 * statement's count of them lasts, each once. A text cannot tell a partial generation from a stored generation of a
+	 * CASE whose ELSE went missing, whose print is that shape too, so the statement's AST says how many there are.
+	 */
+	admitsGuardedTerm(): boolean {
+		if (this.#guarded === 0) {
+			return false
+		}
+		this.#guarded -= 1
+		return true
 	}
 
 	report(rule: AuditRule, offset: number, detail: string): void {
@@ -3874,7 +3580,7 @@ class TextAuditor {
 			this.report("lex", t.bodyStart + body.error.offset, body.error.message)
 			return
 		}
-		const inner = new TextAuditor(this.base + t.bodyStart)
+		const inner = new TextAuditor(this.base + t.bodyStart, 0)
 		inner.statement(body.tokens, true)
 		appendAll(this.violations, inner.violations)
 	}
@@ -4048,7 +3754,7 @@ class TextAuditor {
 							top.whens === 1 &&
 							isPunct(next, ")") &&
 							isWord(tokens[i + 2], "STORED")
-						if (!top.elseSeen && !guardedTerm) {
+						if (!top.elseSeen && !(guardedTerm && this.admitsGuardedTerm())) {
 							this.report("caseWithoutElse", top.start, "a CASE expression without ELSE")
 						}
 						return outer
@@ -4075,15 +3781,52 @@ const splitStatements = (tokens: ReadonlyArray<Token>): ReadonlyArray<ReadonlyAr
 	return Arr.filter(statements, (s) => s.length > 0)
 }
 
-export const auditTextViolations = (text: string): ReadonlyArray<SqlViolation> =>
-	auditLexedViolations(lex(text))
+export const auditTextViolations = (text: string, guarded: number): ReadonlyArray<SqlViolation> =>
+	auditLexedViolations(lex(text), guarded)
 
-/** The text audit of a text's tokens, as lex read them. */
-const auditLexedViolations = (lexed: Lexed): ReadonlyArray<SqlViolation> => {
+/**
+ * The guarded terms a statement prints, `GENERATED ALWAYS AS (CASE WHEN φ THEN t END) STORED`: its columns' partial
+ * generations (StoredGeneration `partial`), the one CASE without ELSE the text audit admits, and only as many times.
+ */
+export const guardedTermsOf = (statement: SqlStatement): number => {
+	const partial = (g: StoredGeneration | undefined): number => (g?.kind === "partial" ? 1 : 0)
+	if (statement.kind === "createTable") {
+		return Arr.reduce(statement.columns, 0, (n, c) => n + partial(c.generated))
+	}
+	return statement.kind !== "alterTable"
+		? 0
+		: Arr.reduce(statement.actions, 0, (n, a) => {
+				switch (a.kind) {
+					case "addColumn":
+					case "addColumnPlaceholder":
+					case "addColumnDefault":
+					case "addColumnUnchecked":
+						return n + partial(a.column.generated)
+					case "setExpression":
+						return n + partial(a.generation)
+					case "setNotNull":
+					case "dropColumn":
+					case "dropDefault":
+					case "alterColumnType":
+					case "addConstraint":
+					case "addConstraintUsingIndex":
+					case "validateConstraint":
+					case "alterConstraintDeferral":
+					case "dropConstraint":
+					case "enableRowSecurity":
+					case "disableRowSecurity":
+					case "replicaIdentity":
+						return n
+				}
+			})
+}
+
+/** The text audit of a text's tokens, as lex read them, its statement holding `guarded` guarded terms. */
+const auditLexedViolations = (lexed: Lexed, guarded: number): ReadonlyArray<SqlViolation> => {
 	if (lexed.error !== undefined) {
 		return [{ rule: "lex", where: `offset ${lexed.error.offset}`, detail: lexed.error.message }]
 	}
-	const auditor = new TextAuditor(0)
+	const auditor = new TextAuditor(0, guarded)
 	for (const statement of splitStatements(lexed.tokens)) {
 		auditor.statement(statement, false)
 	}

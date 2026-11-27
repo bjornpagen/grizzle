@@ -13,17 +13,20 @@ import { ownedFixture } from "#test/support/evidence.ts"
 import { SchemaModel } from "#test/support/fixtures/ir/build.ts"
 
 import {
-	alternatives,
 	closed,
 	closedRelation,
 	contained,
 	decodedQuery,
 	decodedSchema,
+	eq,
 	f,
+	field,
 	ge,
 	literal,
+	mirrors,
 	mutable,
 	on,
+	onWhere,
 	relation,
 	unit,
 	value
@@ -41,17 +44,26 @@ const AutomaticTask = relation("AutomaticTask", { task: f.uuid, budget: CentsDes
 const ManualTask = relation("ManualTask", { task: f.uuid, operator: Name }, ["task"])
 const TaskNote = relation("TaskNote", { task: f.uuid, note: Name }, ["task"])
 
-/** The Work alternatives expansion: its contained statement and both containments of each arm's mirrors. */
-const taskKinds = alternatives(Task, "kind", Kind, { Automatic: AutomaticTask, Manual: ManualTask })
+/** A task's kind carries its detail: each kind's arm mirrored with the tasks of that kind. */
+const taskKinds = Object.freeze([
+	...mirrors(
+		on("AutomaticTask", ["task"]),
+		onWhere("Task", ["id"], eq(field("kind"), literal("Automatic")))
+	),
+	...mirrors(
+		on("ManualTask", ["task"]),
+		onWhere("Task", ["id"], eq(field("kind"), literal("Manual")))
+	)
+])
 
-/** The laws, with the alternatives helper expanded into its contained statement and both containments per arm. */
+/** The laws: the containments, each kind's arm mirrored with its tasks, the units and the mutable relations. */
 export const WorkDesc: SchemaDesc = decodedSchema({
 	name: "Work",
 	relations: [Kind, Account, Task, AutomaticTask, ManualTask, TaskNote],
 	statements: [
 		contained(on("Task", ["account"]), on("Account", ["id"])),
 		contained(on("TaskNote", ["task"]), on("Task", ["id"])),
-		taskKinds,
+		...taskKinds,
 		unit("Entity", { id: f.uuid }),
 		unit("Task", { task: f.uuid }),
 		mutable("Task"),

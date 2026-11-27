@@ -6,7 +6,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
 import { temporarySchema } from "#compiler/core/temporary.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -20,7 +20,7 @@ import {
 	unit
 } from "#compiler/public/schema.ts"
 import { objectName } from "#compiler/sql/build.ts"
-import { printTableName } from "#compiler/sql/print.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import {
@@ -113,14 +113,17 @@ const Base = schema(
 )
 
 /**
- * The documents that have a part: stored (analysis/derived/storage.ts), its definition unit-local in a package's unit
- * and its unit, (package, doc), wider than the package's, so its upkeep runs where a delta of Doc or Part holds a row,
- * reading both sides of each and the two tables at the documents the transaction wrote (physical/ddl/rules.ts
- * upkeepBlock), and writes its table, whose capture writes its side of olds, which the rule over Note reads.
+ * The documents that have a part: stored (analysis/derived/storage.ts), a join of relations read positively whose Part
+ * no key reaches from its head, so its upkeep is a monotone delta form (analysis/theory/upkeep.ts): the facts a write
+ * gains, read from Doc's and Part's sides of news, in one call, and the documents the rows it removed touch,
+ * re-derived from their sides of olds, a DELETE that seeks Documented's table at each and an INSERT, in another before
+ * it (physical/ddl/rules.ts upkeepBlock), each run where a delta of its own holds a row, so an inserted document runs the
+ * gain alone, which reads Part beside it, since whether the document has a part decides whether it is documented, and
+ * never Documented's table. It writes its table, whose capture writes its side of olds, which the rule over Note reads.
  *
  * No write of the box changes it: every document a write inserts or deletes, 300 + t or 100 + t, has no part, and
  * every part a write inserts or deletes lies under document 1, which keeps part 1, which no write removes (`seeded`,
- * `statementOf`), so Documented holds document 1 alone throughout; its upkeep's DELETE and INSERT change no row, its
+ * `statementOf`), so Documented holds document 1 alone throughout; its upkeep's DELETE and INSERTs change no row, its
  * capture writes no delta, and no statement over its deltas runs.
  */
 const Documented = derived(
@@ -150,7 +153,7 @@ export const dispatchTemplate = migratedTemplate({
 	declaredIn: import.meta,
 	name: "rule dispatch",
 	content: { schema: "Dispatch", logins: [] },
-	versions: [{ schema: Dispatch, logins: [], declarations: noDeclarations }],
+	versions: [{ schema: Dispatch, declarations: noDeclarations }],
 	options: {
 		label: "rule_dispatch",
 		extensions: [],
@@ -304,7 +307,7 @@ const observed = (
 		const standing = new Set<string>()
 		for (const name of deltas) {
 			const [[stands] = []] = yield* session.values(
-				`SELECT to_regclass(${quoteString(printTableName(objectName(temporarySchema, name)))}) IS NOT NULL`,
+				`SELECT to_regclass(${quoteString(printObjectName(objectName(temporarySchema, name)))}) IS NOT NULL`,
 				[]
 			)
 			if (stands === true) {

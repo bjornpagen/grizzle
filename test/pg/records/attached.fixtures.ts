@@ -15,8 +15,8 @@ import { readOnce, writeOnce } from "#test/support/calls.ts"
 import { levelNameAt } from "#test/support/compile.ts"
 import { exactValue } from "#test/support/equivalence.ts"
 import { shelvesNamed } from "#test/support/fixtures/records/shelves.ts"
-import { Id, type IdValue } from "#test/support/ids.ts"
-import { installMigrated } from "#test/support/install-migrate.ts"
+import { type IdValue, toId } from "#test/support/ids.ts"
+import { installFullWorld } from "#test/support/installed.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
@@ -81,12 +81,12 @@ export const attachedCaseGen: Gen<AttachedCase> = (source) => ({
 	facts: source.draw(factsGen)
 })
 
-const shelfId = Id("00000000-0000-4000-8000-000000000001")
-const otherShelf = Id("00000000-0000-4000-8000-000000000002")
-const runId = Id("00000000-0000-4000-8000-0000000000aa")
+const shelfId = toId("00000000-0000-4000-8000-000000000001")
+const otherShelf = toId("00000000-0000-4000-8000-000000000002")
+const runId = toId("00000000-0000-4000-8000-0000000000aa")
 
 const bookId = (shelf: number, i: number): IdValue =>
-	Id(`00000000-0000-4000-9000-0000000000${shelf}${i}`)
+	toId(`00000000-0000-4000-9000-0000000000${shelf}${i}`)
 
 /** Every fact of a case, under each relation's name, as an insert of Shelves takes them. */
 const shelvesFacts = (facts: ShelvesFacts): Readonly<Record<string, ReadonlyArray<unknown>>> => {
@@ -182,12 +182,11 @@ class AttachedDisagreed extends Data.TaggedError("AttachedDisagreed")<{
 export const attachedCase = (c: AttachedCase) =>
 	Effect.gen(function* () {
 		const declared = builtAt(c.shape, "Shelves")
-		const installed = yield* installMigrated(declared.level, {
-			ambient: ordinarySession,
-			label: "records",
-			logins: [fullWorld(declared.level, {}).server],
-			extensions: []
-		})
+		const installed = yield* installFullWorld(
+			declared.level,
+			{},
+			{ ambient: ordinarySession, label: "records" }
+		)
 		const at = builtAt(c.shape, installed.declared)
 		/** The relations an insert states apart, as the runtime records hold them: a query built at run time types none. */
 		const apart: ReadonlyArray<{ readonly name: string }> = at.kept.apart

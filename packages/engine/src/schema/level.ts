@@ -16,9 +16,9 @@ import type { AnyRole } from "#compiler/types/schema/world.ts"
 /** What a query or a ChangeSet is written over, as a level: a schema value with its levels and its content; a fragment
  * value with its content, a root level's (schema.ts fragmentBuilder); or a role value over its base, with its level as
  * role(...) read it once (`RoleLevel`). A role's levels are itself, every level of its base it holds, with every
- * relation of the levels below it, whole or scoped under its own name (RoleLevel.whole), and every fragment of its base
- * whose relations it holds so (`unheldOf`): programs over such a level run on it unchanged, a full role's base's among
- * them, each over its scoped relations' owner's rows (program/slice.ts). */
+ * relation of the levels below it, whole under its own name (RoleLevel.whole), and every fragment of its base whose
+ * relations it holds so (`unheldOf`): programs over such a level run on it unchanged, a full role's base's among them,
+ * each over the role's world (schema/scope.ts). */
 export type Level =
 	| {
 			readonly kind: "schema"
@@ -34,12 +34,11 @@ export type Level =
 	  }
 	| ({ readonly kind: "role"; readonly value: AnyRole } & BuiltRoleLevel)
 
-/** The first relation of a fragment of content `fragment` that the role `role` does not hold whole or scoped under its
- * own name, a relation no role holds (ir/desc.ts heldRelation) aside: a program over the fragment reads or writes it, so
+/** The first relation of a fragment of content `fragment` that the role `role` does not hold whole under its own name, a relation no role holds (ir/desc.ts heldRelation) aside: a program over the fragment reads or writes it, so
  * the program runs on the role only where there is none. */
 export const unheldOf = (fragment: SchemaContent, role: RoleLevel): string | undefined => {
 	for (const [name, desc] of fragment.relations) {
-		if (heldRelation(desc) && role.entries.get(name)?.kind !== "whole" && !role.scoped.has(name)) {
+		if (heldRelation(desc) && role.entries.get(name)?.kind !== "whole") {
 			return name
 		}
 	}

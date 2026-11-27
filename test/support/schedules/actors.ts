@@ -1,7 +1,7 @@
 import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Formatter, Option, Predicate, Record, type Scope } from "effect"
 import type { SessionPool } from "#adapter/wire/pool.ts"
-import type { RawQueryResult, SqlError } from "#test/support/pg.ts"
+import type { SqlError } from "#test/support/pg.ts"
 import type { DirectAction, ScheduleOutcome } from "#test/support/schedules/types.ts"
 import {
 	type PsqlProcessError,
@@ -17,6 +17,7 @@ import type {
 } from "#test/support/substrate/session.ts"
 
 import {
+	claimsOfNoFact,
 	rolePsql,
 	roleSession,
 	type SubstrateShape,
@@ -147,38 +148,17 @@ const directActor = <E>(parts: ActorParts<E>): DirectActor => ({
 	}
 })
 
-/**
- * The rows of a raw result in field order. PgConnection keys each row by column name, so two columns with one name
- * cannot both be read: that is a defect in the schedule, which must alias them.
- */
-const resultRows = (sql: string, result: RawQueryResult): Effect.Effect<TextRows> => {
-	const names = Arr.map(result.fields, (field) => field.name)
-	const repeated = Arr.filter(names, (name, index) => names.indexOf(name) !== index)
-	if (repeated.length > 0) {
-		return Effect.die(
-			new Error(
-				`a raw session cannot read result columns sharing a name (${Arr.join(repeated, ", ")}); alias them: ${sql}`
-			)
-		)
-	}
-	return Effect.succeed(
-		Arr.map(result.rows, (row) => Arr.map(names, (name) => textOfValue(row[name])))
-	)
-}
-
-/** A raw pinned session as a direct actor. Rows are read in the result's field order. */
+/** A raw pinned session as a direct actor. Rows are read by position, in the result's field order (RawAnswer). */
 const rawActor = (name: string, session: RawSession): DirectActor =>
 	directActor<SqlError>({
 		name,
 		role: session.role,
 		pid: session.pid,
 		sql: (text) =>
-			Effect.flatMap(session.query(text, []), (result) =>
-				Effect.map(resultRows(text, result), (found) => ({
-					rows: found,
-					rowCount: result.rowCount
-				}))
-			),
+			Effect.map(session.answer(text, []), (answer) => ({
+				rows: Arr.map(answer.rows, (row) => Arr.map(row, textOfValue)),
+				rowCount: answer.rowCount
+			})),
 		begin: session.begin,
 		beginBelow: session.beginBelow,
 		commit: session.commit,
@@ -261,14 +241,14 @@ const openActor = (
 	spec.kind === "raw"
 		? Effect.map(
 				substrate.session({
-					...("login" in spec.as ? worldSession(spec.as) : roleSession(spec.as)),
+					...("login" in spec.as ? worldSession(spec.as, claimsOfNoFact) : roleSession(spec.as)),
 					label: name
 				}),
 				(session) => rawActor(name, session)
 			)
 		: Effect.map(
 				substrate.psql({
-					...("login" in spec.as ? worldPsql(spec.as) : rolePsql(spec.as)),
+					...("login" in spec.as ? worldPsql(spec.as, claimsOfNoFact) : rolePsql(spec.as)),
 					label: name
 				}),
 				(writer) => psqlActor(name, writer)

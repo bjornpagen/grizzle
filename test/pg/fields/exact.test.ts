@@ -245,10 +245,9 @@ export const anExactFieldStoresAndReadsBackEveryDrawnValueBitExactlyItsExactSums
 		kills: [
 			{
 				file: "packages/engine/src/physical/numeric/storage.ts",
-				original:
-					'\t\tbinary("=", call("scale", [column]), lit.int(exactScale(type), types.integer)),',
+				original: '\tbinary("=", call("scale", [value]), lit.int(exactScale(type), types.integer))',
 				replacement:
-					'\t\tbinary(">=", call("scale", [column]), lit.int(exactScale(type), types.integer)),',
+					'\tbinary(">=", call("scale", [value]), lit.int(exactScale(type), types.integer))',
 				why: "An exact field's CHECK admits every scale at or above its own, so a direct writer stores 1.5 into an integer and 1.505 into an amount; the refusals fail."
 			},
 			{

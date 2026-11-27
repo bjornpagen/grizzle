@@ -22,6 +22,7 @@ import {
 	soleOrder
 } from "#compiler/ir/rel.ts"
 import { withAdmission } from "#compiler/lower/conservative/admission.ts"
+import { lowerAntiJoinAt } from "#compiler/lower/conservative/anti-join/index.ts"
 import { parentEvaluations, statementEvaluations } from "#compiler/lower/conservative/call/index.ts"
 import {
 	type Carrying,
@@ -40,6 +41,7 @@ import {
 	nodeLabel,
 	type NodeLowerer,
 	refuse,
+	restrictedRead,
 	withLeading
 } from "#compiler/lower/conservative/context.ts"
 import {
@@ -50,7 +52,7 @@ import {
 	type HeterogeneousPlan,
 	headingGroupsDelivery,
 	parentColumnsOf,
-	printedStatement,
+	deliveredStatement,
 	statementRows
 } from "#compiler/lower/conservative/deliver.ts"
 import { conservativeLowerers } from "#compiler/lower/conservative/dispatch.ts"
@@ -62,6 +64,7 @@ import {
 	parentFixed,
 	type RowKeys
 } from "#compiler/lower/conservative/keys.ts"
+import { lowerSemiJoinAt } from "#compiler/lower/conservative/semi-join/index.ts"
 import { orderItemsOf } from "#compiler/lower/conservative/take/order.ts"
 import {
 	type ConservativeParamSlot,
@@ -76,7 +79,8 @@ import {
 	type CteDecision,
 	type CtePlan,
 	type CteStrategy,
-	filteredRegion
+	filteredRegion,
+	semiJoinDriven
 } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { partQuery, shiftedPart, type TaggedPart, taggedParts } from "#compiler/lower/parts.ts"
 import { aggregateLowerer, keyedGroup } from "#compiler/lower/shapes/aggregate/index.ts"
@@ -96,6 +100,7 @@ import { refineDelivered } from "#compiler/lower/shapes/refined/index.ts"
 import { regionLowerer } from "#compiler/lower/shapes/region/index.ts"
 import { inputSetLowerer } from "#compiler/lower/shapes/relparam/index.ts"
 import { searchFenced } from "#compiler/lower/shapes/search/index.ts"
+import { atRowWalk, drivenSemiJoin } from "#compiler/lower/shapes/semi-join/index.ts"
 import type { DrivingSet } from "#compiler/lower/shapes/share/copies.ts"
 import { shareKey } from "#compiler/lower/shapes/share/index.ts"
 import {
@@ -145,7 +150,8 @@ import {
 	type OperandSelect,
 	type OrderItem,
 	type Select,
-	type SelectCore
+	type SelectCore,
+	type StatementText
 } from "#compiler/sql/ast.ts"
 import {
 	and,
@@ -158,7 +164,7 @@ import {
 	select,
 	target
 } from "#compiler/sql/build.ts"
-import { emit } from "#compiler/sql/emit.ts"
+import { emitText, type TextOf } from "#compiler/sql/emit.ts"
 import {
 	freshNames,
 	namedQuery,
@@ -245,10 +251,12 @@ export type RelationChoice = ShapeChoice<RelationInput>
  * output columns after the heading, in order: the statement a page's conservative artifact places, and what a
  * statement of a conservative program fuses (none).
  */
-export type FusedStatement<Slot extends ConservativeParamSlot = DeclaredParamSlot> =
-	ConservativeStatement<Slot> & {
-		readonly fused: ReadonlyArray<FusedAttachment>
-	}
+export type FusedStatement<
+	Slot extends ConservativeParamSlot = DeclaredParamSlot,
+	T extends StatementText = EmittedSql
+> = ConservativeStatement<Slot, T> & {
+	readonly fused: ReadonlyArray<FusedAttachment>
+}
 
 /**
  * A delivered relation of a program, as the runtime reads it: its role (an attachment's with its parent key), the
@@ -278,14 +286,23 @@ export interface LoweredTaggedPart extends TaggedPart {
  * delivers as lowered (`delivered`, which an embedding reads, before its executable form casts its outputs to text);
  * or each behind its tag, the part's position in part order, each as lowered (LoweredTaggedPart).
  */
-export type StatementParts<Slot extends ConservativeParamSlot = DeclaredParamSlot> =
-	| { readonly kind: "one"; readonly delivered: FusedStatement<Slot> }
+export type StatementParts<
+	Slot extends ConservativeParamSlot = DeclaredParamSlot,
+	T extends StatementText = EmittedSql
+> =
+	| { readonly kind: "one"; readonly delivered: FusedStatement<Slot, T> }
 	| { readonly kind: "tagged"; readonly parts: NonEmptyReadonlyArray<LoweredTaggedPart> }
 
-/** One form of the statement a program sends: its executable AST, its text and its placeholders. */
-export interface SentStatement<Slot extends ConservativeParamSlot = DeclaredParamSlot> {
+/**
+ * One form of the statement a program sends: its executable AST, its text, none where another statement composes it
+ * (UnprintedSql), and its placeholders.
+ */
+export interface SentStatement<
+	Slot extends ConservativeParamSlot = DeclaredParamSlot,
+	T extends StatementText = EmittedSql
+> {
 	readonly ast: Select
-	readonly sql: EmittedSql
+	readonly sql: T
 	readonly params: ReadonlyArray<Slot>
 }
 
@@ -295,8 +312,9 @@ export interface SentStatement<Slot extends ConservativeParamSlot = DeclaredPara
  */
 export type FormedStatement<
 	C,
-	Slot extends ConservativeParamSlot = DeclaredParamSlot
-> = SentStatement<Slot> & { readonly forms: StatementForms<C, SentStatement<Slot>> }
+	Slot extends ConservativeParamSlot = DeclaredParamSlot,
+	T extends StatementText = EmittedSql
+> = SentStatement<Slot, T> & { readonly forms: StatementForms<C, SentStatement<Slot, T>> }
 
 /**
  * The one statement a program sends, in its forms, how its rows divide into parts, and each part's delivered relation,
@@ -304,18 +322,20 @@ export type FormedStatement<
  */
 export interface PartedStatement<
 	C = unknown,
-	Slot extends ConservativeParamSlot = DeclaredParamSlot
+	Slot extends ConservativeParamSlot = DeclaredParamSlot,
+	T extends StatementText = EmittedSql
 > {
-	readonly statement: FormedStatement<C, Slot>
-	readonly parts: StatementParts<Slot>
+	readonly statement: FormedStatement<C, Slot, T>
+	readonly parts: StatementParts<Slot, T>
 	readonly roots: StatementRoots<DeliveredPart>
 }
 
 /** An optimized delivery's program: its parted statement, and how the runtime delivers its parts' rows. */
 export interface OptimizedDeliveryProgram<
 	C = unknown,
-	Slot extends ConservativeParamSlot = DeclaredParamSlot
-> extends PartedStatement<C, Slot> {
+	Slot extends ConservativeParamSlot = DeclaredParamSlot,
+	T extends StatementText = EmittedSql
+> extends PartedStatement<C, Slot, T> {
 	readonly delivery: ProgramDelivery
 }
 
@@ -343,7 +363,7 @@ export const partedConservative = <Slot extends ConservativeParamSlot>(
 		return {
 			statement: {
 				ast,
-				sql: emitted(ast, only.sql.nameMap),
+				sql: emitText(ast, only.sql.nameMap),
 				params: only.params,
 				forms: oneForm
 			},
@@ -384,7 +404,7 @@ export const partedConservative = <Slot extends ConservativeParamSlot>(
 	return {
 		statement: {
 			ast,
-			sql: emitted(ast, [...names, ...supply.map()]),
+			sql: emitText(ast, [...names, ...supply.map()]),
 			params,
 			forms: oneForm
 		},
@@ -401,8 +421,11 @@ export const conservativeStatement = <Slot extends ConservativeParamSlot>(
 	delivery: program.delivery
 })
 
-/** The CTEs one statement defined while it was lowered: its WITH entries, and each shared node's CTE by node. */
-type CteLog = CteTable<RelNode>
+/**
+ * The CTEs one statement defined while it was lowered: its WITH entries, and each shared node's CTE, by the label of its
+ * class of copies' first node (cte-policy CteDecision `copies`), so every copy reads one CTE.
+ */
+type CteLog = CteTable<NodeId>
 
 /**
  * The CTEs a holder's query holds while it is lowered (ShapeLog `heldCtes`), and the scope the holder is lowered in,
@@ -800,13 +823,23 @@ const takeShape =
 		}
 	}
 
-/** A semi-join keeps its DISTINCT over a recursion's feedback, where it lowers as a join (semi-join/exists.ts). */
+/**
+ * A semi-join keeps its DISTINCT over a recursion's feedback, where it lowers as a join (semi-join/exists.ts); one its
+ * right side drives (cte-policy semiJoinDriven) reads its left side once per right-side key (shapes/semi-join).
+ */
 const semiJoinShape = (facts: ShapeFacts): NodeLowerer<"SemiJoin"> => {
-	const plain = realized(facts, conservativeLowerers.SemiJoin)
+	const test = lowerSemiJoinAt(atRowWalk)
+	const plain = realized(facts, test)
+	const driven = realized<"SemiJoin">(facts, (node, cx, env) => {
+		const on = semiJoinDriven(node)
+		return on === undefined ? test(node, cx, env) : drivenSemiJoin(cx, env, node, on)
+	})
 	return (node, cx, env) =>
 		cx.readsFeedback(node.right)
 			? conservativeLowerers.SemiJoin(node, cx, env)
-			: plain(node, cx, env)
+			: semiJoinDriven(node) !== undefined
+				? driven(node, cx, env)
+				: plain(node, cx, env)
 }
 
 /** The kind table. */
@@ -827,7 +860,7 @@ const optimizedLowerers = <I extends ChoiceInput>(
 	Filter: realized(facts, searchFenced(conservativeLowerers.Filter)),
 	ProjectSet: realized(facts, conservativeLowerers.ProjectSet),
 	SemiJoin: semiJoinShape(facts),
-	AntiJoin: realized(facts, conservativeLowerers.AntiJoin),
+	AntiJoin: realized(facts, lowerAntiJoinAt(atRowWalk)),
 	Union: unionLowerer(facts),
 	Intersect: conservativeLowerers.Intersect,
 	Difference: conservativeLowerers.Difference,
@@ -883,6 +916,34 @@ const dispatchIn = <I extends ChoiceInput>(
 				: keyedGroup(facts, node, cx, env, restriction),
 		(node) => node.id
 	)
+	/**
+	 * Whether `node` is lowered where it is read, in the query that reads it: the policy shares it as no CTE
+	 * (CteDecision), every read of it reads it at values (StatementKeys atValues), or a read of it reads a recursion's
+	 * feedback.
+	 */
+	const loweredInPlace = (node: RelNode, cx: LowerContext): boolean => {
+		const shared = state.decision(node)
+		const decision = shared !== undefined && state.keys.atValues.has(node.id) ? undefined : shared
+		return (
+			decision === undefined ||
+			cteMaterialization(decision.strategy) === undefined ||
+			cx.readsFeedback(node)
+		)
+	}
+	/**
+	 * The region whose held CTEs (cte-policy sharedCorrelated) lead the query `node` is lowered as: its filtered region,
+	 * the node itself or a semi- or anti-join's left, where that region is lowered in this very query; none where the
+	 * region is a CTE of its own, whose body is spelled in the statement's WITH and holds them there. A held CTE stands
+	 * in its holder's query, which encloses every read of it: opened around a semi-join over a region the statement
+	 * shares, it led the semi-join's query, while the reads stood in the region's CTE, out of its reach (key-sets,
+	 * rotating 0x2f1e3cf5).
+	 */
+	const holdingRegion = (node: RelNode, cx: LowerContext): NodeOf<"MatchRegion"> | undefined => {
+		const region = filteredRegion(node)
+		return region !== undefined && (region === node || loweredInPlace(region, cx))
+			? region
+			: undefined
+	}
 	const placed: NodeDispatch = (node, cx: LowerContext, env) => {
 		/**
 		 * Whether a restriction reaches the node (share/keys.ts restrictionWalk): it is lowered where it is read, at the
@@ -891,7 +952,7 @@ const dispatchIn = <I extends ChoiceInput>(
 		 */
 		const restricted = env.restricted.has(node)
 		if (restricted) {
-			return plugIn(node, cx, env)
+			return restrictedRead(cx, node, env, (at, within) => plugIn(node, at, within))
 		}
 		const shared = state.decision(node)
 		/** A node every read of which reads it at values is read inline at each (StatementKeys atValues). */
@@ -902,7 +963,7 @@ const dispatchIn = <I extends ChoiceInput>(
 			return keyed.atKeys(node, inPlace, cx, env, state.keyScope(cx.atStatementRoot(dispatch)))
 		}
 		if (decision === undefined || materialized === undefined || cx.readsFeedback(node)) {
-			const region = filteredRegion(node)
+			const region = holdingRegion(node, cx)
 			return region === undefined
 				? plugIn(node, cx, env)
 				: state.withHeldCtes(region.id, env, () => plugIn(node, cx, env))
@@ -912,19 +973,22 @@ const dispatchIn = <I extends ChoiceInput>(
 			case "statement": {
 				const keys = state.keys.once.get(node.id)
 				const statement = cx.atStatementRoot(dispatch)
-				return cteAtFirstUse(cx, node, state.log, node, materialized, () =>
+				const region = holdingRegion(node, statement)
+				const body = (): OperandSelect =>
 					keys === undefined
 						? plugIn(node, statement, emptyEnv)
 						: keyed.body(node, keys, state.keyScope(statement), (within) =>
 								plugIn(node, within, emptyEnv)
 							)
+				return cteAtFirstUse(cx, node, state.log, decision.copies, materialized, () =>
+					region === undefined ? body() : state.withHeldCtes(region.id, emptyEnv, body)
 				)
 			}
 			case "held": {
 				const held = state.heldCtes(scope.holder)
 				return held === undefined
 					? plugIn(node, cx, env)
-					: cteAtFirstUse(cx, node, held.table, node, materialized, () =>
+					: cteAtFirstUse(cx, node, held.table, node.id, materialized, () =>
 							plugIn(node, cx, held.env)
 						)
 			}
@@ -1066,9 +1130,6 @@ interface HeldPairs extends HeldRows {
 }
 
 /** The text of the statement `ast` under the names `nameMap`, which a statement the lowering built always prints. */
-const emitted = (ast: Select, nameMap: NameMap): EmittedSql => {
-	return unwrap(emit(ast, nameMap))
-}
 
 /**
  * An optimized delivery whose delivered rows an input of `I` may bound (a page's requested size in a page, none
@@ -1076,15 +1137,24 @@ const emitted = (ast: Select, nameMap: NameMap): EmittedSql => {
  */
 export class OptimizedDelivery<
 	I extends ChoiceInput,
-	Own extends PageParamSlot = never
+	Own extends PageParamSlot,
+	T extends StatementText
 > extends Delivery<Own> {
 	readonly facts: ShapeFacts
 	readonly state: ShapeState<I | RelationInput>
+	/** Each statement's text: its print where it is sent, none where another statement composes it. */
+	readonly #text: TextOf<T>
 
-	constructor(cx: LowerContext, facts: ShapeFacts, state: ShapeState<I | RelationInput>) {
+	constructor(
+		cx: LowerContext,
+		facts: ShapeFacts,
+		state: ShapeState<I | RelationInput>,
+		text: TextOf<T>
+	) {
 		super(cx)
 		this.facts = facts
 		this.state = state
+		this.#text = text
 	}
 
 	/** The parts of the statement being lowered, in part order. */
@@ -1201,7 +1271,7 @@ export class OptimizedDelivery<
 	 */
 	#program(
 		place: () => StatementRoots<DeliveredPart>
-	): PartedStatement<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own> {
+	): PartedStatement<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own, T> {
 		const small = this.#statement("small", place)
 		if (!isNonEmpty(small.choices)) {
 			return {
@@ -1226,8 +1296,8 @@ export class OptimizedDelivery<
 	 * own, every part in that statement.
 	 *
 	 * One part is the statement: its query, its refined output casts, the statement's WITH entries and its public
-	 * names, printed by sql/emit, then its executable form (template.ts executableQueryFrom), exactly as a statement of
-	 * its own. Several parts are each part's executable form as a CTE of the statement after its WITH entries
+	 * names, its text made (printed by sql/emit where it is sent, none where another statement composes it: TextOf),
+	 * then its executable form (template.ts executableQueryFrom), exactly as a statement of its own. Several parts are each part's executable form as a CTE of the statement after its WITH entries
 	 * (lower/parts.ts partQuery), and the statement's rows are each part's rows behind its tag (lower/parts.ts
 	 * taggedParts). A part's refined outputs are refined over the statement's WITH entries, which the refinement retypes
 	 * with the part, so every part and entry reads one placeholder alike.
@@ -1236,8 +1306,8 @@ export class OptimizedDelivery<
 		mode: InputChoiceMode,
 		place: () => StatementRoots<DeliveredPart>
 	): {
-		readonly sent: SentStatement<DeclaredParamSlot | Own>
-		readonly parts: StatementParts<DeclaredParamSlot | Own>
+		readonly sent: SentStatement<DeclaredParamSlot | Own, T>
+		readonly parts: StatementParts<DeclaredParamSlot | Own, T>
 		readonly roots: StatementRoots<DeliveredPart>
 		readonly choices: ReadonlyArray<ShapeChoice<I | RelationInput>>
 	} {
@@ -1257,11 +1327,11 @@ export class OptimizedDelivery<
 		const supply = cx.supply
 		const [only, ...others] = placed
 		if (only === undefined) {
-			throw defect("a program places its rows' part")
+			defect("a program places its rows' part")
 		}
 		if (!isNonEmpty(others)) {
 			const output = statementOutput(only.role, only.heading, only.fused)
-			const printed = printedStatement(
+			const ast = deliveredStatement(
 				withAdmission(
 					cx,
 					readByItsIndexes(
@@ -1272,17 +1342,19 @@ export class OptimizedDelivery<
 				output.names,
 				supply
 			)
+			const nameMap = supply.map()
 			const executable = executableQueryFrom(
-				{ ast: printed.ast, role: only.role, heading: only.heading, fused: only.fused },
-				new NameSupply(namesPast(printed.sql.nameMap, freshNames))
+				{ ast, role: only.role, heading: only.heading, fused: only.fused },
+				new NameSupply(namesPast(nameMap, freshNames))
 			)
 			const params = [...this.params.slots]
 			return {
-				sent: { ast: executable, sql: emitted(executable, printed.sql.nameMap), params },
+				sent: { ast: executable, sql: this.#text(executable, nameMap), params },
 				parts: {
 					kind: "one",
 					delivered: {
-						...printed,
+						ast,
+						sql: this.#text(ast, nameMap),
 						params,
 						role: only.role,
 						heading: only.heading,
@@ -1347,7 +1419,7 @@ export class OptimizedDelivery<
 			supply
 		)
 		return {
-			sent: { ast, sql: emitted(ast, supply.map()), params: [...this.params.slots] },
+			sent: { ast, sql: this.#text(ast, supply.map()), params: [...this.params.slots] },
 			parts: { kind: "tagged", parts: mapNonEmpty(parts, (p) => p.shape) },
 			roots,
 			choices: log.choices
@@ -1384,7 +1456,7 @@ export class OptimizedDelivery<
 	/** The program delivering `root`'s rows, its attachments' and its heading groups', as one statement (`#program`). */
 	optimizedProgram(
 		root: RelNode
-	): OptimizedDeliveryProgram<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own> {
+	): OptimizedDeliveryProgram<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own, T> {
 		const cx = this.cx
 		const plan = this.heterogeneousPlan(root)
 		if (plan !== undefined) {
@@ -1419,7 +1491,7 @@ export class OptimizedDelivery<
 	 */
 	pageProgram(
 		place: () => StatementRoots<DeliveredPart>
-	): PartedStatement<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own> {
+	): PartedStatement<ShapeChoice<I | RelationInput>, DeclaredParamSlot | Own, T> {
 		return this.#program(place)
 	}
 
@@ -1430,21 +1502,25 @@ export class OptimizedDelivery<
 
 	/**
 	 * The rows `query` delivers, of heading `heading`, held once by the statement being lowered (`#held`), as the parts
-	 * of the attachments over them read them, at most `bound` of them.
+	 * of the attachments over them read them, at most `bound` of them, and the held rows themselves, which a page's rows
+	 * part delivers (lower/shapes/page/compile.ts).
 	 */
 	heldRows(
 		query: OperandSelect,
 		heading: Heading,
 		origin: RelNode,
 		bound: RowsBound<I>
-	): DeliveredRows<I> {
+	): { readonly rows: DeliveredRows<I>; readonly read: () => OperandSelect } {
 		const held = this.#held(query, deliveredHeading(heading).length, {
 			kind: "node",
 			node: origin.id
 		})
 		return {
-			...statementRows(this.cx, heading, origin, held.rows, this.#rowKeys(origin, undefined)),
-			bound
+			rows: {
+				...statementRows(this.cx, heading, origin, held.rows, this.#rowKeys(origin, undefined)),
+				bound
+			},
+			read: held.rows
 		}
 	}
 

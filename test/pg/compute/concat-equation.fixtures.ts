@@ -10,7 +10,8 @@ import { Array as Arr, Data, Effect, Formatter, Option, Record as Rec, String as
 import type { LawId } from "#compiler/core/ids.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { Text } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -289,7 +290,7 @@ export const splitTemplate = migratedTemplate({
 	declaredIn: import.meta,
 	name: "concat split",
 	content: { schema: splitSchema.name, logins: [] },
-	versions: [{ schema: splitSchema, logins: [], declarations: noDeclarations }],
+	versions: [{ schema: splitSchema, declarations: noDeclarations }],
 	options: {
 		label: "concat_split",
 		extensions: [],

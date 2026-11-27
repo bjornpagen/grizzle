@@ -45,7 +45,7 @@ export const partitionOf = (
 	const indexOf = (cut: number): number => {
 		const index = cutIndex.get(cut)
 		if (index === undefined) {
-			throw defect(`a set's bound ${cut}, which the partition's cuts hold`)
+			defect(`a set's bound ${cut}, which the partition's cuts hold`)
 		}
 		return index
 	}

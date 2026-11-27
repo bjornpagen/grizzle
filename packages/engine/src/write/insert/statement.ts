@@ -4,6 +4,7 @@ import type { ConstraintName, EntryName, StoredRelationName } from "#compiler/co
 import type { Isolation } from "#compiler/core/isolation.ts"
 import type { DagTemplates } from "#compiler/ir/dag-digest.ts"
 import { columnReads } from "#compiler/ir/expr.ts"
+import type { HeadName } from "#compiler/ir/instant.ts"
 import { generationOf, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import type { Needs } from "#compiler/ir/needs.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
@@ -28,21 +29,37 @@ import {
 	textRows
 } from "#compiler/lower/delivery.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
-import type {
-	EmittedSql,
-	Expr,
-	FromItem,
-	ObjectName,
-	RowsProof,
-	Select,
-	SqlStatement,
-	TypeRef,
-	With
+import {
+	bodyPositionNames,
+	type EmittedSql,
+	type StatementText,
+	type Expr,
+	type FromItem,
+	type InsertTarget,
+	type ObjectName,
+	type OrderItem,
+	type RowsProof,
+	type Select,
+	type SqlStatement,
+	type TypeRef,
+	type With
 } from "#compiler/sql/ast.ts"
-import { call, cast, lit, provedCore, sameTypeRef, targetAs, types } from "#compiler/sql/build.ts"
-import { emitText } from "#compiler/sql/emit.ts"
+import {
+	call,
+	cast,
+	col,
+	derived,
+	lit,
+	provedCore,
+	sameTypeRef,
+	select,
+	target,
+	targetAs,
+	types
+} from "#compiler/sql/build.ts"
+import { emitText, type TextOf } from "#compiler/sql/emit.ts"
 import type { TableGeneration } from "#compiler/sql/generation.ts"
-import { NameSupply, type NameSupplyStart } from "#compiler/sql/naming.ts"
+import { namedQuery, NameSupply, type NameSupplyStart } from "#compiler/sql/naming.ts"
 import type { FieldColumns } from "#compiler/write/defined.ts"
 
 /** The installed names a write statement addresses: the query lowering's names plus the installed schema, whose
@@ -50,13 +67,50 @@ import type { FieldColumns } from "#compiler/write/defined.ts"
  * arbiter of an insert into a span primary key. `InstallNames` satisfies it. */
 export interface WriteNames extends PhysicalNames {
 	readonly schema: string
-	/** A clock's or a place's stamp function, by its relation and field (physical/ddl/stamps.ts), which the statement
-	 * that stamps it calls. */
-	readonly stamp: (relation: string, field: string) => ObjectName
-	/** A clock's or a place's head table, by its relation and field (physical/ddl/stamps.ts), whose rows of the groups a
-	 * delete of a place's relation removes it deletes (write/insert/stamp.ts placeReleases). */
-	readonly head: (relation: string, field: string) => ObjectName
+	/** A head's stamp function, by its name (ir/instant.ts HeadName, physical/ddl/stamps.ts), which the statement that
+	 * stamps it calls. */
+	readonly stamp: (head: HeadName) => ObjectName
+	/** A head's table, by its name, whose rows of the groups a delete of a place's relation removes it deletes
+	 * (write/insert/stamp.ts placeReleases). */
+	readonly head: (head: HeadName) => ObjectName
 	readonly primaryKey: (relation: string) => ConstraintName
+}
+
+/**
+ * The source of an INSERT of new keys: `rows` sorted by `key`, the primary key under the fixed collation, so concurrent
+ * inserters take new-key locks in one order (protocol.ts), read whole as a derived table under a name of the
+ * statement's own supply:
+ *
+ *   SELECT "<name>"."<c>", ... FROM (<rows, each output named "<c>"> ORDER BY <key>) AS "<name>"
+ *
+ * PostgreSQL flattens the outer query into the INSERT and plans the sorted rows apart under that name (allpaths.c
+ * set_subquery_pathlist), its ModifyTable reading them as the sort leaves them, as it read the INSERT's own sorted
+ * source. That source had no alias, and PostgreSQL 19 plans an unaliased subquery as `unnamed_subquery`
+ * (parse_relation.c), the name every other one of the statement takes too, so each searched the numbered names
+ * `unnamed_subquery_1`, `_2`, ... against every name the statement's planning had used before it (planner.c
+ * choose_plan_name): a search quadratic in a statement's parts, an INSERT per part. A name of the supply is the
+ * statement's alone, found new in one pass.
+ */
+export const keyOrderedSource = (
+	supply: NameSupply,
+	rows: Select,
+	key: NonEmptyReadonlyArray<OrderItem>
+): Extract<InsertTarget["source"], { readonly kind: "query" }> => {
+	const name = supply.relation({ kind: "internal", purpose: "key-ordered insert source" })
+	const columns = bodyPositionNames(rows.body).map(() =>
+		supply.column({ kind: "internal", purpose: "key-ordered insert source column" })
+	)
+	return {
+		kind: "query",
+		query: select(
+			provedCore(
+				"keyed",
+				columns.map((c) => target(col(name, c))),
+				[derived(namedQuery({ ...rows, orderBy: key }, columns), name, false)],
+				undefined
+			)
+		)
+	}
 }
 
 /** One result column: a fact field by its name, or a protocol marker. */
@@ -119,17 +173,10 @@ export interface DeleteResult {
 	readonly key: KeySet
 }
 
-/** The admission of a write's caller parameters (write/admission/statement.ts), first in its flight; its row carries
- * nothing to decode. */
-export interface AdmissionResult {
-	readonly kind: "admission"
-}
-
-/** A carrier's creation or fill; no rows. */
+/** A carrier's fill (write/carriers/carriers.ts carrierStash); its one row carries nothing to decode. */
 export interface CarrierResult {
 	readonly kind: "carrier"
 	readonly carrier: string
-	readonly step: "empty" | "fill"
 }
 
 /** A query entry's check of the facts an addition is about to write: no rows, or the
@@ -139,12 +186,7 @@ export interface EntryCheckResult {
 	readonly entry: EntryName
 }
 
-export type WriteResult =
-	| InsertResult
-	| DeleteResult
-	| AdmissionResult
-	| CarrierResult
-	| EntryCheckResult
+export type WriteResult = InsertResult | DeleteResult | CarrierResult | EntryCheckResult
 
 /** A built statement whose rows mean `R`.
  *
@@ -173,11 +215,14 @@ export type WriteResult =
  * Every statement lists a relation's columns key first, the primary key in its declared order and
  * then the other fields in heading order: for Task(id, account, kind) keyed by id that is id, account,
  * kind, and it fixes the input arrays' columns c1 to cn. */
-export interface WriteStatement<R extends WriteResult = WriteResult> {
+export interface WriteStatement<
+	R extends WriteResult = WriteResult,
+	T extends StatementText = EmittedSql
+> {
 	readonly role: StatementRole
-	/** The AST; `sql` is its emission. */
+	/** The AST; `sql` is its emission where it is sent alone, none where a single statement composes it (StatementWriting). */
 	readonly ast: SqlStatement
-	readonly sql: EmittedSql
+	readonly sql: T
 	/** Placeholder $n is params[n - 1], in the conservative lowering's slot vocabulary. */
 	readonly params: ReadonlyArray<WriteParamSlot>
 	readonly result: R
@@ -209,7 +254,10 @@ export type Returning = { readonly cte: string } & (
 export type WithSelect = Select & { readonly with: With }
 
 /** A write statement of facts, a SELECT over the CTE that writes them, which states its RETURNING. */
-export type ModifyingStatement<R extends InsertResult | DeleteResult> = WriteStatement<R> & {
+export type ModifyingStatement<
+	R extends InsertResult | DeleteResult,
+	T extends StatementText = EmittedSql
+> = WriteStatement<R, T> & {
 	readonly ast: WithSelect
 	readonly returning: Returning
 }
@@ -225,11 +273,20 @@ export interface WriteContext {
 	/** Where a statement's generated names start: r0 and c1 for a statement of its own; past every name the parts before
 	 * it used, for a part of a stratum's single statement, so the parts' names never collide. */
 	readonly start: NameSupplyStart
-	/** The statements the compilation built, which an equal request shares (StatementShare). */
-	readonly share: StatementShare
 	/** What an UPDATE of a relation's table meets of its stored generated columns, as the compilation's updater runs it
 	 * (laws/model/generation.ts generations), which every UPDATE's SET list is built against (sql/generation.ts). */
 	readonly generation: (relation: string) => TableGeneration
+}
+
+/**
+ * A write context that builds statements (buildStatement): how it makes their text, printed where a statement is sent
+ * alone (sql/emit.ts emitText), none where a stratum's single statement composes it as a part (unprintedText), whose
+ * names may read the CTEs the single statement holds, so a print of it apart would read names nothing binds
+ * (sql/scope.ts); and the statements the compilation built of that text, which an equal request shares.
+ */
+export interface StatementWriting<T extends StatementText> extends WriteContext {
+	readonly text: TextOf<T>
+	readonly share: StatementShare<T>
 }
 
 /** A statement of its own numbers its relations from r0 and its columns from c1. */
@@ -245,7 +302,7 @@ interface WriteContextOptions {
 	/** How a described member's query lowers: the conservative baseline (`dispatchNode`) or an optimized
 	 * dispatch. */
 	readonly dispatch: ConstructorParameters<typeof LowerContext>[2]
-	readonly share: StatementShare
+	readonly share: StatementShare<EmittedSql>
 	readonly level: Isolation
 	readonly generation: (relation: string) => TableGeneration
 	/** The templates of the write's compile (lower/conservative/types.ts WriteLowering). */
@@ -254,7 +311,11 @@ interface WriteContextOptions {
 	readonly bound: BoundCarrierOf
 }
 
-export const writeContext = (dag: ValidDag, options: WriteContextOptions): WriteContext => {
+/** The write context of a compilation's statements, each printed, as a statement sent alone is (StatementWriting). */
+export const writeContext = (
+	dag: ValidDag,
+	options: WriteContextOptions
+): StatementWriting<EmittedSql> => {
 	const cx = new LowerContext(
 		dag,
 		{
@@ -271,6 +332,7 @@ export const writeContext = (dag: ValidDag, options: WriteContextOptions): Write
 		names: options.names,
 		level: options.level,
 		start: ownStatement,
+		text: emitText,
 		share: options.share,
 		generation: options.generation
 	}
@@ -286,11 +348,11 @@ export interface Built<R extends WriteResult> {
 }
 
 /** What building one statement made: what its builder built, its placeholder slots, and its text with its generated
- * names. */
-export interface Made<B> {
+ * names (StatementWriting `text`). */
+export interface Made<B, T extends StatementText> {
 	readonly built: B
 	readonly params: ReadonlyArray<WriteParamSlot>
-	readonly sql: EmittedSql
+	readonly sql: T
 }
 
 /**
@@ -319,16 +381,15 @@ const unshared = <V>(): Shared<V> => ({ made: undefined, next: new Map() })
  * An equal request is answered with the statement already built and emitted; the program charges each statement it
  * sends once (write/program/compile.ts). A share serves one compilation and holds what it built until that compilation
  * is done. */
-export class StatementShare {
+export class StatementShare<T extends StatementText> {
 	readonly inserts =
 		unshared<
-			Made<Built<InsertResult> & { readonly ast: WithSelect; readonly returning: Returning }>
+			Made<Built<InsertResult> & { readonly ast: WithSelect; readonly returning: Returning }, T>
 		>()
 	readonly deletions =
 		unshared<
-			Made<Built<DeleteResult> & { readonly ast: WithSelect; readonly returning: Returning }>
+			Made<Built<DeleteResult> & { readonly ast: WithSelect; readonly returning: Returning }, T>
 		>()
-	readonly emptyings = unshared<Made<Built<CarrierResult>>>()
 }
 
 /** How a statement is built: shared with every equal request of the compilation under `key` in `memo`, its spec's
@@ -337,25 +398,25 @@ export class StatementShare {
  * per-execution choices. Any other statement's build reads only the installed names (each type through them), its spec,
  * and the naming and placeholder state that buildStatement begins for it, so the key and where its names start
  * determine it. */
-export type Sharing<B> =
+export type Sharing<B, T extends StatementText> =
 	| {
 			readonly kind: "shared"
-			readonly memo: Shared<Made<B>>
+			readonly memo: Shared<Made<B, T>>
 			readonly key: ReadonlyArray<KeyPart>
 	  }
 	| { readonly kind: "own" }
 
 export const ownBuild = { kind: "own" } as const
 
-/** Builds and emits one statement with fresh single-assignment names, numbering relations from the context's start (r0
- * for a statement of its own, as the write protocols do), and fresh placeholders, or takes the statement an equal
- * request built (`sharing`). */
-export const buildStatement = <B extends Built<WriteResult>>(
-	w: WriteContext,
-	sharing: Sharing<B>,
+/** Builds one statement with fresh single-assignment names, numbering relations from the context's start (r0 for a
+ * statement of its own, as the write protocols do), and fresh placeholders, its text the context's (StatementWriting `text`),
+ * or takes the statement an equal request built (`sharing`). */
+export const buildStatement = <B extends Built<WriteResult>, T extends StatementText>(
+	w: StatementWriting<T>,
+	sharing: Sharing<B, T>,
 	build: (supply: NameSupply) => B
-): B & Pick<WriteStatement, "sql" | "params"> => {
-	const make = (): Made<B> => {
+): B & Pick<WriteStatement<WriteResult, T>, "sql" | "params"> => {
+	const make = (): Made<B, T> => {
 		const supply = new NameSupply(w.start)
 		const placeholders = new WriteParams()
 		w.cx.beginWriteStatement(supply, placeholders)
@@ -363,10 +424,10 @@ export const buildStatement = <B extends Built<WriteResult>>(
 		return {
 			built,
 			params: Object.freeze([...placeholders.slots]),
-			sql: emitText(built.ast, supply.map())
+			sql: w.text(built.ast, supply.map())
 		}
 	}
-	let made: Made<B>
+	let made: Made<B, T>
 	if (sharing.kind === "own") {
 		made = make()
 	} else {
@@ -374,7 +435,7 @@ export const buildStatement = <B extends Built<WriteResult>>(
 		for (const part of [w.names, w.start.relationStart, w.start.columnStart, ...sharing.key]) {
 			const known = node.next.get(part)
 			if (known === undefined) {
-				const fresh = unshared<Made<B>>()
+				const fresh = unshared<Made<B, T>>()
 				node.next.set(part, fresh)
 				node = fresh
 			} else {
@@ -514,6 +575,7 @@ export const unrefined = (t: ScalarType): ScalarType => {
 		case "tsvector":
 		case "exactInteger":
 		case "exactMoney":
+		case "variant":
 			return base
 	}
 }
@@ -590,11 +652,11 @@ export const writeValue = (
 	from: InputColumnType,
 	to: ScalarType
 ): Expr => {
-	const target = w.cx.typeRef(to)
+	const column = w.cx.typeRef(to)
 	if (from.sqlType !== undefined) {
-		return sameTypeRef(from.sqlType, target) ? value : cast(value, target)
+		return sameTypeRef(from.sqlType, column) ? value : cast(value, column)
 	}
-	return isDomain(to) || !writeKeeps(w, from.type, to) ? cast(value, target) : value
+	return isDomain(to) || !writeKeeps(w, from.type, to) ? cast(value, column) : value
 }
 
 /** Whether writing a value of `from`, a type no SQL type fixes, into a column of `to` keeps it (writeValue): their base

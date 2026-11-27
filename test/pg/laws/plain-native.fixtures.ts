@@ -1,14 +1,17 @@
 /** What the property of plain-native.test.ts reads: its schema and template, its space, and each case's run. */
 
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { contained, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
+import { asDataStep } from "#test/support/data-step.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -59,7 +62,7 @@ export const plainTemplate = migratedTemplate({
 	declaredIn: import.meta,
 	name: "plain native",
 	content: { schema: Plain.name, logins: [] },
-	versions: [{ schema: Plain, logins: [], declarations: noDeclarations }],
+	versions: [{ schema: Plain, declarations: noDeclarations }],
 	options: {
 		label: "plain_native",
 		extensions: [],
@@ -269,8 +272,14 @@ const lawsOf = (installation: Installation): ReadonlyMap<LawId, Containment | "G
 	return new Map(named)
 }
 
+/** The relations a state is written over, sources first. */
+const writtenRelations: NonEmptyReadonlyArray<
+	typeof C | typeof B | typeof G | typeof F | typeof E
+> = [C, B, G, F, E]
+
 /** The statements writing `state` in place of whatever stands, on the installation's tables `table`: every source row
- * deleted, then every target's, then the targets' rows inserted and the source's last. */
+ * deleted, then every target's, then the targets' rows inserted and the source's last, a data step's, since it removes
+ * closed relations' rows (data-step.ts asDataStep). */
 const statementsOf = (
 	table: (relation: typeof C | typeof B | typeof G | typeof F | typeof E) => string,
 	state: State
@@ -285,7 +294,7 @@ const statementsOf = (
 			? []
 			: [`INSERT INTO ${into} (${columns}) VALUES ${Arr.join(Arr.map(list, values), ", ")}`]
 	return [
-		...Arr.map([C, B, G, F, E], (r) => `DELETE FROM ${table(r)}`),
+		...Arr.map(writtenRelations, (r) => `DELETE FROM ${table(r)}`),
 		...rows(table(B), "g, i, kind", state.b, (r) => `(${r.g}, ${r.i}, ${r.kind})`),
 		...rows(table(G), "g, i, j", state.gs, (r) => `(${r.g}, ${r.i}, ${r.j})`),
 		...rows(table(F), "g, i, kind, n", state.f, (r) => `(${r.g}, ${r.i}, ${r.kind}, ${r.n})`),
@@ -296,7 +305,8 @@ const statementsOf = (
 
 /**
  * One case: every containment of the installation held by a foreign key and none by the judge, then each state
- * written in a transaction of its own as the owner, at SERIALIZABLE, replacing the last: it commits exactly when it
+ * written in a transaction of its own as the owner, at SERIALIZABLE, replacing the last, a data step since it removes
+ * the last state's closed rows (data-step.ts asDataStep): it commits exactly when it
  * breaks no law, as the laws' meaning reads it (`brokenBy`), and is refused otherwise with 23505 or 23503 under a law it
  * breaks, through the installation's constraint map. A state after a committed one that drops a target row a source row
  * kept needs is a target row removed under its source.
@@ -336,7 +346,10 @@ export const runPlain = (
 		for (const [at, state] of states.entries()) {
 			const where = `state ${at} of ${Formatter.format(states)}`
 			const broken = brokenBy(state)
-			const outcome = yield* attempt(session, statementsOf(names.table, state))
+			const outcome = yield* attempt(
+				session,
+				asDataStep(installation, statementsOf(names.table, state))
+			)
 			if (outcome.kind === "committed") {
 				if (broken.length > 0) {
 					return yield* new Disagreed({

@@ -13,10 +13,12 @@ import {
 	descentsOf,
 	type EstimatedNode,
 	explainStatementWith,
+	genericPlanOf,
 	type PlanNode,
 	parsePlan,
 	parsePlanTree,
-	planNodes
+	planNodes,
+	underGenericPlans
 } from "#bench/harness/explain.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 
@@ -662,7 +664,7 @@ export const loadAtVolume = (
 			(table) => admin.query(`ALTER TABLE ${table} SET (autovacuum_enabled = false)`, []),
 			{ discard: true }
 		)
-		yield* fillRows(installed, loads, volumeRows)
+		yield* fillRows(installed, loads, 0, volumeRows)
 		const [filled] = yield* Effect.map(
 			admin.queryValues(
 				"SELECT pg_catalog.pg_snapshot_xmax(pg_catalog.pg_current_snapshot())::pg_catalog.xid::text",
@@ -700,6 +702,40 @@ export const loadAtVolume = (
 		})
 	})
 
+/**
+ * The share of the load's rows a change of them adds (analyzedAroundAChange): a quarter, rows of values none of the
+ * load's held, which a sampled column's statistics follow, at a quarter of the load's cost.
+ *
+ * @formatConstant a quarter of the load's series
+ */
+const changedShare = 4
+
+/**
+ * Every table of the settled load's schema VACUUMed and ANALYZEd twice, its rows changed between: the load's series
+ * continued past its end by a quarter of its rows (fillRows, changedShare), so each loaded table holds rows of values it
+ * held none of, and every table, grizzle's own among them, is analyzed over both populations. A
+ * column ANALYZE samples leaves its statistics as the second population holds them, where a declared one keeps its
+ * declaration (sql/ast.ts DeclareStatistics).
+ */
+export const analyzedAroundAChange = (
+	settled: Settled
+): Effect.Effect<void, SqlError | VolumeFillRefused, Substrate> =>
+	Effect.gen(function* () {
+		const { admin } = yield* Substrate
+		const listed = yield* admin.queryValues(
+			"SELECT pg_catalog.string_agg(c.oid::pg_catalog.regclass::pg_catalog.text, ', ' ORDER BY c.oid) FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace WHERE n.nspname = $1::text AND c.relkind IN ('r', 'p', 'm')",
+			[settled.installed.schema]
+		)
+		const tables = Arr.flatMap(textsOf(listed), (row) => row.slice(0, 1))
+		yield* Effect.forEach(tables, (list) => admin.query(`VACUUM (ANALYZE) ${list}`, []), {
+			discard: true
+		})
+		yield* fillRows(settled.installed, settled.loads, volumeRows, volumeRows / changedShare)
+		yield* Effect.forEach(tables, (list) => admin.query(`VACUUM (ANALYZE) ${list}`, []), {
+			discard: true
+		})
+	})
+
 /** A relation's load as the fill of the table `into` names (fill.ts VolumeTable): each field's column and its SQL. */
 const volumeTable = (installed: Judged, load: VolumeLoad, into: string): VolumeTable => ({
 	table: into,
@@ -711,7 +747,7 @@ const volumeTable = (installed: Judged, load: VolumeLoad, into: string): VolumeT
 })
 
 /**
- * Fills every relation in order over the series 0 to `rows` - 1 as the owner, each a volume fill (substrate/fill.ts:
+ * Fills every relation in order over the series of `rows` indices from `first` as the owner, each a volume fill (substrate/fill.ts:
  * chunks that commit alone, so no load holds its transaction for the whole series), each row a key already holds
  * skipped. A chunk's commit, like every commit in a test database, is flushed before it returns (test/support/pg.ts
  * testDatabaseSettings), so VACUUM can hint its rows. A load of no field inserts rows of defaults only, a serial
@@ -720,12 +756,14 @@ const volumeTable = (installed: Judged, load: VolumeLoad, into: string): VolumeT
 const fillRows = (
 	installed: Judged,
 	loads: ReadonlyArray<VolumeLoad>,
+	first: number,
 	rows: number
 ): Effect.Effect<void, SqlError | VolumeFillRefused, Substrate> =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
 		const fills = Arr.map(loads, (l): VolumeFill => ({
 			tables: [volumeTable(installed, l, tableSql(installed, l.relation))],
+			first,
 			rows,
 			conflicts: "skipped"
 		}))
@@ -1305,8 +1343,8 @@ const verdictOf = (
 const analyzed = { serialize: { kind: "off" }, wal: false, verbose: true } as const
 
 /**
- * Runs `use` in a transaction rolled back after it, with sequential and bitmap scans disabled and generic plans, as
- * every probe runs, and deallocates what it prepared: the test session's statements are unnamed, so none but these.
+ * Runs `use` in a transaction rolled back after it, under no planner setting, and deallocates what it prepared: the
+ * test session's statements are unnamed, so none but these.
  */
 const rolledBack = <A, E>(
 	use: Effect.Effect<A, E, Substrate>
@@ -1315,19 +1353,7 @@ const rolledBack = <A, E>(
 		const { admin } = yield* Substrate
 		return yield* Effect.acquireUseRelease(
 			admin.query("BEGIN", []),
-			() =>
-				Effect.andThen(
-					Effect.forEach(
-						[
-							"SET LOCAL enable_seqscan = off",
-							"SET LOCAL enable_bitmapscan = off",
-							"SET LOCAL plan_cache_mode = force_generic_plan"
-						],
-						(statement) => admin.query(statement, []),
-						{ discard: true }
-					),
-					use
-				),
+			() => use,
 			() =>
 				Effect.andThen(
 					Effect.ignore(admin.query("ROLLBACK", [])),
@@ -1337,9 +1363,11 @@ const rolledBack = <A, E>(
 	})
 
 /**
- * Each probe with its plan, run in one transaction rolled back, with sequential and bitmap scans disabled and `before`
- * run first. Each probe runs twice and its second run is judged: a first execution reads the catalog rows its scan's
- * operator classes need, which PostgreSQL counts in the scan's buffers.
+ * Each probe with its plan, run in one transaction rolled back, under no planner setting, `before` run first. Each
+ * probe runs twice and its second run is judged: a first execution reads the catalog rows its scan's operator classes
+ * need, which PostgreSQL counts in the scan's buffers. It runs its generic plan, under the generic plans every session
+ * grizzle opens plans by (bench/harness/explain.ts underGenericPlans): a run plan needs EXPLAIN ANALYZE, which EXPLAIN
+ * (GENERIC_PLAN) cannot combine with.
  */
 const planned = (probes: ReadonlyArray<Probe>, before: ReadonlyArray<string>) =>
 	rolledBack(
@@ -1358,8 +1386,12 @@ const planned = (probes: ReadonlyArray<Probe>, before: ReadonlyArray<string>) =>
 						: `EXECUTE ${name}(${Arr.join(probe.values, ", ")})`,
 					analyzed
 				)
-				yield* admin.queryValues(explain, [])
-				const rows = yield* admin.queryValues(explain, [])
+				const generic = underGenericPlans(
+					{ values: admin.queryValues },
+					admin.queryValues(explain, [])
+				)
+				yield* generic
+				const rows = yield* generic
 				const plan = parsePlan(rows[0]?.[0])
 				if (Result.isFailure(plan)) {
 					return assert.fail(`${probe.label}: no plan: ${plan.failure.message}`)
@@ -1451,8 +1483,8 @@ const stoodUp = (installed: Judged, table: Table, load: VolumeLoad, state: LawSt
 	})
 
 /**
- * What PostgreSQL's generic plan of a probe reads its relation through (EXPLAIN (GENERIC_PLAN), as every login's role
- * plans each statement it prepares): an index, by the name of the table's index of the same definition, with the rows
+ * What PostgreSQL's generic plan of a probe reads its relation through (bench/harness/explain.ts genericPlanOf, as every
+ * login's role plans each statement it prepares): an index, an index scan's or the one a bitmap heap scan's bitmap reads, by the name of the table's index of the same definition, with the rows
  * it estimates the scan returns and the columns its index condition binds by equality (plan-bindings.ts scanBindings);
  * or none, and why.
  */
@@ -1465,22 +1497,18 @@ type Choice =
 	  }
 	| { readonly kind: "none"; readonly why: string; readonly rows: number }
 
-/** The generic plan's choice for `sql` at `values` (Choice), prepared and planned under force_generic_plan, whose scans
- * of the relation EXPLAIN reports as `relation`, each index of its scan named by `original`. */
+/** The generic plan's choice for `sql` of `parameters` parameters (Choice), as every session grizzle opens plans the
+ * statements it prepares (bench/harness/explain.ts genericPlanOf), whose scans of the relation EXPLAIN reports as
+ * `relation`, each index of its scan named by `original`. */
 const choiceOf = (
 	sql: string,
-	values: ReadonlyArray<string>,
+	parameters: number,
 	relation: string,
 	original: (index: string) => Option.Option<string>
 ) =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
-		yield* admin.query(`PREPARE judged_choice AS ${sql}`, [])
-		const rows = yield* admin.queryValues(
-			`EXPLAIN (VERBOSE, FORMAT JSON) EXECUTE judged_choice${values.length === 0 ? "" : `(${Arr.join(values, ", ")})`}`,
-			[]
-		)
-		yield* admin.query("DEALLOCATE judged_choice", [])
+		const rows = yield* genericPlanOf({ values: admin.queryValues }, sql, parameters)
 		const plan = parsePlanTree(rows[0]?.[0])
 		if (Result.isFailure(plan)) {
 			return assert.fail(`no generic plan of ${sql}: ${plan.failure.message}`)
@@ -1497,10 +1525,21 @@ const choiceOf = (
 				rows: 0
 			} satisfies Choice
 		}
-		if (scan.nodeType !== "Index Scan" && scan.nodeType !== "Index Only Scan") {
+		const binding = Arr.findFirst(scanBindings(plan.success), (b) => b.relation === relation)
+		/** The one index the scan reads through: an index scan's own, or the one bitmap index scan a bitmap heap scan reads. */
+		const through =
+			scan.nodeType === "Index Scan" || scan.nodeType === "Index Only Scan"
+				? scan.index
+				: scan.nodeType === "Bitmap Heap Scan"
+					? Option.flatMap(binding, (b) => {
+							const [only, ...others] = b.indexes
+							return others.length === 0 ? Option.fromNullishOr(only) : Option.none()
+						})
+					: Option.none()
+		if (Option.isNone(through)) {
 			return { kind: "none", why: `a ${scan.nodeType}`, rows: scan.planRows } satisfies Choice
 		}
-		const index = Option.flatMap(scan.index, original)
+		const index = Option.flatMap(through, original)
 		return Option.match(index, {
 			onNone: () =>
 				({
@@ -1513,10 +1552,10 @@ const choiceOf = (
 					kind: "index",
 					index: name,
 					rows: scan.planRows,
-					bound: Option.match(
-						Arr.findFirst(scanBindings(plan.success), (b) => b.relation === relation),
-						{ onNone: () => new Set<string>(), onSome: (b) => b.bound }
-					)
+					bound: Option.match(binding, {
+						onNone: () => new Set<string>(),
+						onSome: (b) => b.bound
+					})
 				}) satisfies Choice
 		})
 	})
@@ -1666,9 +1705,9 @@ const leadsExactly = (request: IndexRequest, index: PlannedIndex): boolean => {
  * The engine plans every request onto an index it claims serves it. Nothing here restates which index serves which
  * request. Each request becomes a probe, the statement its use asks of its relation (shapeOf, from what each use means,
  * ir/products.ts accessUses), its values those of a row the relation holds, each a parameter, and PostgreSQL prepares
- * it, plans it generically, as every login's role plans each statement it prepares (plan_cache_mode at
- * force_generic_plan, physical/ddl/roles.ts), and runs it under EXPLAIN (ANALYZE, BUFFERS) EXECUTE with sequential and
- * bitmap scans disabled, so it reads through an index whenever one can apply the probe at all. A literal in its place
+ * it, plans it generically, as every session grizzle opens plans each statement it prepares (plan_cache_mode at
+ * force_generic_plan, physical/ddl/roles.ts genericPlans, applied by reference: bench/harness/explain.ts
+ * underGenericPlans), and runs it under EXPLAIN (ANALYZE, BUFFERS) EXECUTE, under no other planner setting. A literal in its place
  * would be planned at its value under statistics the installation declares and never samples, which hold no
  * histogram: PostgreSQL prices each bound of a range at half the rows and the pair at none (selfuncs.c scalarineqsel,
  * clausesel.c addRangeClause), a plan no statement of the installation is given.
@@ -1891,7 +1930,7 @@ export const judgeServing = (
 					})
 					return yield* Effect.forEach(lookups, (p) =>
 						Effect.map(
-							choiceOf(p.on(copy.quoted), p.values, copy.name, originalIn(copy)),
+							choiceOf(p.on(copy.quoted), p.values.length, copy.name, originalIn(copy)),
 							(c) => [p, c] as const
 						)
 					)
@@ -1949,7 +1988,9 @@ export const judgeServing = (
 				if (Option.isNone(densest)) {
 					continue
 				}
-				const estimate = yield* rolledBack(choiceOf(p.sql, p.values, table.name, Option.some))
+				const estimate = yield* rolledBack(
+					choiceOf(p.sql, p.values.length, table.name, Option.some)
+				)
 				growing.push({
 					relation,
 					probe: p,
@@ -2004,7 +2045,7 @@ export const judgeServing = (
 					const original = originalIn(copy)
 					const choices = new Map<Probe, Choice>()
 					for (const p of probesOn(relation)) {
-						const choice = yield* choiceOf(p.on(copy.quoted), p.values, copy.name, original)
+						const choice = yield* choiceOf(p.on(copy.quoted), p.values.length, copy.name, original)
 						choices.set(p, choice)
 					}
 					const without = new Map<string, ReadonlyMap<Probe, Choice>>()
@@ -2024,7 +2065,12 @@ export const judgeServing = (
 						const left = new Map<Probe, Choice>()
 						for (const r of i.requests) {
 							const p = probeFor(r)
-							const choice = yield* choiceOf(p.on(copy.quoted), p.values, copy.name, original)
+							const choice = yield* choiceOf(
+								p.on(copy.quoted),
+								p.values.length,
+								copy.name,
+								original
+							)
 							left.set(p, choice)
 						}
 						yield* admin.query("ROLLBACK TO SAVEPOINT without_one", [])

@@ -17,14 +17,19 @@
  * - Each attachment's relation (types/schema/records.ts types each): the name its author states for the attachment's
  *   path in the options' `names` (its attachment names from the root joined by `.`), or `${stem}${Capitalize<name>}`,
  *   or its parent's name followed by `Capitalize<name>` where that name is another attachment's or the root's `Row`, so
- *   a parent's stated name leads its children's. A name records derive whose identifier passes PostgreSQL's
- *   (core/identity.ts maxIdentifierBytes), the root's among them, is refused as RecordNameTooLong, naming its path and
- *   its fix, a name stated at the path, or a shorter stem for the root: never cut short or hashed. Its fields
- *   its parent's key carried, each name fresh beside its own columns and attachments, its place `at` for an array, its
- *   stored columns and its arrays' counts; keyed by the carried key, then its place. Its law over its parent: an array is
- *   the parent's ordered family counted at its name, so an insert nests its members in order and its places are 0 … n − 1
- *   by grizzle's family laws; an option is contained in its parent, keyed by its parent's key alone; one mirrors its
- *   parent; the arms of one discriminator field are one alternatives law over it.
+ *   a parent's stated name leads its children's. A stated name is declared (ir/desc.ts RelationNaming `declared`), its
+ *   table and whole view its conversion, refused past PostgreSQL's identifier (IdentifierTooLong) as every declared
+ *   name is. A name records derive, the root's among them, is derived at its path (RelationNaming `derived`,
+ *   ir/desc.ts derivedNaming): the schema type's key at any length, never cut short, its table and whole view hashed
+ *   over the name and spelled after the stem and the path (core/identity.ts identity.derivedTable,
+ *   identity.derivedWholeView), so every records compile whatever their depth.
+ *   Its fields its parent's key carried, each name fresh beside its own columns and attachments, its place `at` for an
+ *   array, its stored columns and its arrays' counts; keyed by the carried key, then its place. Its law over its
+ *   parent: an array is the parent's ordered family counted at its name, so an insert nests its members in order and
+ *   its places are 0 … n − 1 by grizzle's family laws; an option is contained in its parent, keyed by its parent's key
+ *   alone; one mirrors its parent.
+ * - recordPaths(query): the path of each attachment, at any depth, as `names` keys it (recordPathsOf), the run time's
+ *   reading of RecordPaths<Q>.
  * - recordsQuery(level, records): the rows stored at one value of the owner's key, each key field a parameter of its
  *   name, read by one rule over the root, each attachment attached as the query states its delivery, over its relation
  *   keyed by its parent's delivered key and an array ordered by its place, and delivered through the query's own
@@ -37,19 +42,20 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { type DecoderForm, decoderOf, formFields, headingsOf } from "#compiler/core/decoder.ts"
-import { CompileError, unsupported } from "#compiler/core/errors.ts"
 import {
-	type DeclaredName,
-	maxIdentifierBytes,
-	parseDeclaredName
-} from "#compiler/core/identity.ts"
+	type DecoderForm,
+	type Delivery,
+	decoderOf,
+	formFields,
+	headingsOf
+} from "#compiler/core/decoder.ts"
+import { type CompileError, unsupported } from "#compiler/core/errors.ts"
+import { parseDerivedName, type HeldName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
-import type { ContractFieldDesc } from "#compiler/ir/desc.ts"
+import { type ContractFieldDesc, declaredNaming, derivedNaming } from "#compiler/ir/desc.ts"
 import type { Roster } from "#compiler/ir/scalar.ts"
-import { arm } from "#compiler/query/build/attach.ts"
 import {
 	decodedBy,
 	type OrderedValue,
@@ -81,9 +87,8 @@ import {
 	requireName
 } from "#compiler/schema/protocol.ts"
 import { recordFields, recordsValue } from "#compiler/schema/record.ts"
-import { drawnField, relationBuilder } from "#compiler/schema/relation.ts"
+import { drawnField, namedRelationBuilder } from "#compiler/schema/relation.ts"
 import {
-	alternativesBuilder,
 	containedBuilder,
 	finBuilder,
 	mirrorsBuilder,
@@ -94,12 +99,7 @@ import type { ServedRecords } from "#compiler/served/forms.ts"
 import type { Carrier, Carriers } from "#compiler/types/core/phantom.ts"
 import type { Evidence } from "#compiler/types/evidence/evidence.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import type {
-	ArmOf,
-	AttachmentDelivery,
-	HeadOf,
-	ImmediateHeadOf
-} from "#compiler/types/query/query.ts"
+import type { ArmOf, HeadOf, ImmediateHeadOf } from "#compiler/types/query/query.ts"
 import type {
 	AnyRecords,
 	OwnerFacts,
@@ -126,12 +126,11 @@ interface KeyField {
 	readonly carried: FieldBase
 }
 
-/** How an attachment's relation holds its child's records: as an array at its place, an option, the one child or an arm. */
+/** How an attachment's relation holds its child's records: as an array at its place, an option or the one child. */
 type Holding =
 	| { readonly kind: "array"; readonly place: string }
 	| { readonly kind: "option" }
 	| { readonly kind: "one" }
-	| { readonly kind: "arm"; readonly field: string; readonly handle: string }
 
 /**
  * A relation that holds records, as the attachments under it read it: the relation, its key in order, and its path, the
@@ -177,7 +176,7 @@ interface RecordsState {
 	readonly stem: string
 	/** Its query's rows' decoder form, and the schema's roster of each name a code or set column of it names. */
 	readonly form: DecoderForm
-	readonly roster: (name: DeclaredName) => Roster | undefined
+	readonly roster: (name: HeldName) => Roster | undefined
 }
 
 /** Each records value's state, by the value: a WeakMap, so it holds nothing alive and is never enumerated. */
@@ -315,34 +314,6 @@ const fresh = (base: string, taken: ReadonlySet<string>): string => {
 	}
 }
 
-/**
- * A name records derive, `name`, for the relation at `path` of the records of `stem` (its attachment names from the
- * root, none for the root): the name, or RecordNameTooLong where its identifier, the declared-name rule's conversion,
- * passes PostgreSQL's maxIdentifierBytes, which PostgreSQL would cut short. Its characters are the relation builder's
- * to judge, as every relation name's.
- */
-const derivedName = (
-	name: string,
-	path: ReadonlyArray<string>,
-	stem: string,
-	label: string
-): string => {
-	const parsed = parseDeclaredName(name)
-	if (parsed.ok || parsed.error.kind !== "length") {
-		return name
-	}
-	throw CompileError.make({
-		_tag: "RecordNameTooLong",
-		at: builderLoc(label, path),
-		records: stem,
-		path,
-		name,
-		identifier: parsed.error.conversion,
-		bytes: parsed.error.bytes,
-		limit: maxIdentifierBytes
-	})
-}
-
 /** The path of each attachment of `attached` under `path`, at any depth: its names from the root, joined by `.`. */
 const attachmentPaths = (
 	attached: ReadonlyArray<AttachedChild>,
@@ -352,6 +323,21 @@ const attachmentPaths = (
 		const at = [...path, a.name]
 		return [at.join("."), ...attachmentPaths(a.child.attached, at)]
 	})
+
+/**
+ * recordPaths(query), the public schema barrel's: the path of each of the query's attachments at any depth, its
+ * attachment names from the root joined by `.`, each in the order attached and before those under it. It is the run
+ * time's reading of RecordPaths<Q> (types/schema/records.ts), from the tree records' names are admitted by
+ * (admitNames), so a generator that names every attachment's relation itself (den's lowering, whose names are its own
+ * fixed form) states a name for each path and leaves records to derive none.
+ */
+export const recordPathsOf = (query: RecordedQuery): ReadonlyArray<string> => {
+	const state = queryState(query)
+	if (state === undefined) {
+		throw malformed("recordPaths", "a query the builder made")
+	}
+	return attachmentPaths(state.attached, [])
+}
 
 /**
  * The relation names records' options state, by path (see the header): none where the options are left out, their
@@ -395,10 +381,7 @@ const admitNames = (
 }
 
 /** How an attachment's relation holds its child's records, by its stated delivery, an array at its place. */
-const holdingOf = (delivery: AttachmentDelivery, place: () => string): Holding => {
-	if (typeof delivery !== "string") {
-		return { kind: "arm", field: delivery.field, handle: delivery.handle }
-	}
+const holdingOf = (delivery: Delivery, place: () => string): Holding => {
 	switch (delivery) {
 		case "array":
 			return { kind: "array", place: place() }
@@ -430,33 +413,8 @@ interface Building {
 }
 
 /**
- * The roster of the closed id field `field` of a holder's stored columns, by name in the query's level: the roster an
- * arm's alternatives law reads.
- */
-const rosterOf = (holder: Parent, field: string, building: Building): unknown => {
-	const label = `${building.label} arm over ${field}`
-	const column = holder.relation.fields[field]?.column
-	if (column?.kind !== "code") {
-		throw malformed(
-			label,
-			`an arm whose field is a stored closed id of its parent; ${field} is not one`
-		)
-	}
-	const relations: Readonly<Record<string, unknown>> =
-		building.level.kind === "role"
-			? building.level.value.base.relations
-			: building.level.value.relations
-	const roster = relations[column.roster]
-	if (roster === undefined) {
-		throw malformed(label, `the roster ${column.roster} among the query's level's relations`)
-	}
-	return roster
-}
-
-/**
  * The relations and laws of the attachments `attached` under the holder `parent`, at any depth, into `built`: each
- * attachment's relation (see the header), its law over its parent, and the arms of one discriminator field one
- * alternatives law; its records as a holder, in the order attached.
+ * attachment's relation (see the header) and its law over its parent; its records as a holder, in the order attached.
  */
 const attachmentsUnder = (
 	parent: Parent,
@@ -464,33 +422,7 @@ const attachmentsUnder = (
 	building: Building,
 	built: Built
 ): ReadonlyArray<AttachmentRecords> => {
-	const records = attached.map((a) => attachmentRecords(parent, a, building, built))
-	const arms = new Map<string, Map<string, RecordsRelation>>()
-	for (const a of records) {
-		if (a.holding.kind !== "arm") {
-			continue
-		}
-		const byHandle = arms.get(a.holding.field) ?? new Map<string, RecordsRelation>()
-		if (byHandle.has(a.holding.handle)) {
-			throw malformed(
-				`${building.label} attachment ${a.name}`,
-				`one arm attachment per handle of a field; ${a.holding.field} holds ${a.holding.handle} twice`
-			)
-		}
-		byHandle.set(a.holding.handle, a.holder.relation)
-		arms.set(a.holding.field, byHandle)
-	}
-	for (const [field, byHandle] of arms) {
-		built.laws.push(
-			alternativesBuilder(
-				parent.relation,
-				field,
-				rosterOf(parent, field, building),
-				Object.fromEntries(byHandle)
-			)
-		)
-	}
-	return records
+	return attached.map((a) => attachmentRecords(parent, a, building, built))
 }
 
 /** One attachment's records under `parent` (see the header), its relation and law into `built`, then those under it. */
@@ -516,17 +448,23 @@ const attachmentRecords = (
 		holding.kind === "array" ? [[holding.place, drawnNatural()]] : []
 	const occurs = building.occurrences.get(capitalized(a.name)) ?? 0
 	const path = [...parent.path, a.name]
-	const name =
-		building.names.get(path.join(".")) ??
-		derivedName(
-			`${occurs > 1 ? parent.relation.name : building.stem}${capitalized(a.name)}`,
-			path,
-			building.stem,
-			building.label
-		)
+	const stated = building.names.get(path.join("."))
+	const [name, naming] =
+		stated === undefined
+			? [
+					`${occurs > 1 ? parent.relation.name : building.stem}${capitalized(a.name)}`,
+					derivedNaming(building.stem, path)
+				]
+			: [stated, declaredNaming]
 	const fields = [...carried, ...place, ...storedOf(columns), ...countsOf(a.child.attached)]
 	const keyNames = [...carried, ...place].map(([field]) => field)
-	const relation = relationBuilder(name, recordFields<RecordOwner>(fields), keyNames, [])
+	const relation = namedRelationBuilder(
+		name,
+		naming,
+		recordFields<RecordOwner>(fields),
+		keyNames,
+		[]
+	)
 	built.relations.push(relation)
 	const carriedNames = carried.map(([field]) => field)
 	const parentKey = parent.key.map((k) => k.name)
@@ -547,9 +485,6 @@ const attachmentRecords = (
 			built.laws.push(
 				mirrorsBuilder(onBuilder(relation, carriedNames), onBuilder(parent.relation, parentKey))
 			)
-			break
-		case "arm":
-			built.apart.push(relation)
 			break
 	}
 	const key: ReadonlyArray<KeyField> = [
@@ -683,8 +618,9 @@ export const recordsBuilder = <
 > => {
 	const admitted = admitRecords(stem, query, owner, ownerKey, options)
 	const { state } = admitted
-	const row = relationBuilder(
-		derivedName(`${admitted.stem}Row`, [], admitted.stem, admitted.label),
+	const row = namedRelationBuilder(
+		`${admitted.stem}Row`,
+		derivedNaming(admitted.stem, []),
 		recordFields<RecordOwner>([
 			...Object.entries(admitted.owner),
 			...storedOf(admitted.columns),
@@ -770,15 +706,13 @@ const stateOf = (records: unknown, label: string): RecordsState => {
 	return state
 }
 
-/** The delivery an attachment's read states: the query's own, an array's, an option's, the one child's or the arm's. */
-const deliveryOf = (holding: Holding): AttachmentDelivery => {
+/** The delivery an attachment's read states: an array's, an option's or the one child's. */
+const deliveryOf = (holding: Holding): Delivery => {
 	switch (holding.kind) {
 		case "array":
 		case "option":
 		case "one":
 			return holding.kind
-		case "arm":
-			return arm(holding.field, holding.handle)
 	}
 }
 
@@ -787,9 +721,9 @@ const deliveryOf = (holding: Holding): AttachmentDelivery => {
  * delivery, its child one rule over its relation keyed by the parent's delivered key, finding its own key, its stored
  * columns and its head literals, with its own attachments, and an array ordered by its place. An array's members
  * match their carried key by variables of their own, each held to the parent's by an equality, so they deliver their
- * whole key from their own relation, which their children's laws read it as; an option, the one child and an arm
- * match theirs at the parent's variables themselves, the binding their delivery's proof reads (an alternatives arm keyed
- * by the parent, a containment of the parent's key into the child's).
+ * whole key from their own relation, which their children's laws read it as; an option and the one child match
+ * theirs at the parent's variables themselves, the binding their delivery's proof reads (a containment of the parent's
+ * key into the child's).
  */
 const attachedReads = (parent: QueryValue, holder: Holder, level: unknown): QueryValue =>
 	holder.attachments.reduce(
@@ -917,7 +851,7 @@ export const recordsFactsOver = <L, R extends AnyRecords>(
 	})
 }
 
-/** Each roster a code or set column of `form` names, at any depth of its attachments and arms, into `names`. */
+/** Each roster a code or set column of `form` names, at any depth of its attachments, into `names`. */
 const formRosters = (form: DecoderForm, names: Set<string>): void => {
 	for (const fields of formFields(form)) {
 		for (const [, field] of fields) {
@@ -928,9 +862,6 @@ const formRosters = (form: DecoderForm, names: Set<string>): void => {
 					}
 					break
 				case "attachment":
-				case "some":
-				case "none":
-				case "arm":
 					formRosters(field.child, names)
 					break
 			}
@@ -946,10 +877,10 @@ const servedRecords = (recorded: RecordsState): ServedRecords => {
 		form: recorded.form,
 		rosters: new Map(
 			[...names].toSorted(compareStrings).map((name) => {
-				const declared = parseDeclaredName(name)
-				const roster = declared.ok ? recorded.roster(declared.value) : undefined
+				const parsed = parseDerivedName(name)
+				const roster = parsed.ok ? recorded.roster(parsed.value) : undefined
 				if (roster === undefined) {
-					throw defect(`a column's roster ${name} is one its records' schema declares`)
+					defect(`a column's roster ${name} is one its records' schema declares`)
 				}
 				return [name, { order: roster.order, handles: roster.handles }] as const
 			})

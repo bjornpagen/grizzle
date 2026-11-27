@@ -22,7 +22,6 @@ import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { carrierSql } from "#compiler/scalar/registry.ts"
 import { insertableNamesOf } from "#compiler/schema/world.ts"
-import { carrierScope } from "#compiler/sql/naming.ts"
 import {
 	changeSetDesc,
 	changeSetOver,
@@ -38,7 +37,6 @@ import {
 	Book,
 	Budget,
 	Cart,
-	Cents,
 	Chip,
 	Clerk,
 	Entry,
@@ -58,6 +56,7 @@ import {
 	Task,
 	TaskCount,
 	Ticket,
+	toCents,
 	Twin,
 	Work,
 	Writer
@@ -142,13 +141,13 @@ interface Lit {
 }
 
 /**
- * The nth uuid as the tests' Id, a call of its contract (test/support/ids.ts): a contract's value is wider than one
+ * The nth uuid as the tests' Id, its key's mint's (test/support/ids.ts toId): a contract's value is wider than one
  * literal (types/fields/field.ts contract), so no Id value claims a key the types read; a key the types judge is a
  * bigint's.
  */
 const uuidLit = (n: number): Lit => {
 	const text = `00000000-0000-4000-8000-${Str.padStart(12, "0")(String(n))}`
-	return { text: `Id(${jsonText(text)})`, value: text }
+	return { text: `toId(${jsonText(text)})`, value: text }
 }
 
 /**
@@ -176,8 +175,8 @@ const uuids: Arr.NonEmptyReadonlyArray<Lit> = [uuidLit(1), uuidLit(2)]
  */
 const wideBigint: Lit = { text: "bigintOf(3)", value: 3n }
 const cents: Arr.NonEmptyReadonlyArray<Lit> = [
-	{ text: "Cents(5n)", value: Cents(5n) },
-	{ text: "Cents(0n)", value: Cents(0n) }
+	{ text: "toCents(5n)", value: toCents(5n) },
+	{ text: "toCents(0n)", value: toCents(0n) }
 ]
 const plainNumber: Lit = { text: "1", value: 1 }
 const kinds: Arr.NonEmptyReadonlyArray<Lit> = [
@@ -1985,7 +1984,7 @@ class Rendering {
 		if (l === wideBigint) {
 			this.uses.add("bigintOf")
 		}
-		if (Str.startsWith("Cents(")(l.text)) {
+		if (Str.startsWith("toCents(")(l.text)) {
 			this.uses.add("Cents")
 		}
 		if (Str.startsWith("Money.")(l.text)) {
@@ -2528,6 +2527,7 @@ const hostText = (t: ScalarType): string => {
 			)
 		case "bits":
 			return `BitsOf<typeof ${t.roster.closed}>`
+		case "variant":
 		case "range4":
 		case "range8":
 		case "rangeDate":
@@ -2539,10 +2539,15 @@ const hostText = (t: ScalarType): string => {
 
 /**
  * The ParamType a parameter of the engine's type has, as the program spells it: a closed id's domain is its handles,
- * each branded by its roster, and its language the handles alone; any other's language is its domain.
+ * each branded by its roster, and its language the handles alone; a contract's domain is its base's under its name and
+ * its language its host type, its key's mint's (types/fields/field.ts Contract); any other's language is its domain.
  */
 const paramText = (t: ScalarType): string => {
 	const b = baseOf(t)
+	const named = t.contract
+	if (named !== undefined && (named.name === "Cents" || named.name === "Id")) {
+		return `ParamType<DomainOf<typeof ${named.name}>, ${jsonText(carrierSql[t.carrier])}, ${hostText(t)}>`
+	}
 	return b.carrier === "code"
 		? `ParamType<${Arr.join(
 				Arr.map(
@@ -2617,8 +2622,7 @@ const roleWorldOf = (name: RoleName) => {
 			derived: artifacts.value.derived,
 			level: "serializable" as const,
 			clock: noClock,
-			source: transactionClock,
-			carrierScope: carrierScope(world.role.name)
+			source: transactionClock
 		}
 	}
 }

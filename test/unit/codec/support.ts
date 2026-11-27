@@ -38,7 +38,7 @@ const ofCarrier = <C extends Carrier>(
  * The scalar types the codec tests read, each the one the registry builds (fixtures/ir/scalar.ts): every capability set
  * a codec meets is production's.
  */
-export const types = {
+export const codecTypes = {
 	int2: ofCarrier("int2", plainType("int2")),
 	int4: ofCarrier("int4", plainType("int4")),
 	int8: ofCarrier("int8", plainType("int8")),
@@ -71,7 +71,9 @@ export const types = {
 } as const satisfies Readonly<Record<string, ScalarType>>
 
 /** The codes a fresh installation gives the codec tests' one roster, Kind: Manual 0, Automatic 1, Ünïcode 2. */
-export const kindCodes: Codebook = firstCodebook([defined(rosterOf(types.kind), "Kind's roster")])
+export const kindCodes: Codebook = firstCodebook([
+	defined(rosterOf(codecTypes.kind), "Kind's roster")
+])
 
 /**
  * A type's codec beside its reader and the kernel's strict reader of its output texts (test/support/kernel/strict.ts):

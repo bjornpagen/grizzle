@@ -10,7 +10,8 @@ export const mintedRefusal =
  * never written where a Stripe customer's belongs. The relation builders refuse a bare uuid field by this message, and
  * the types where it is written (types/fields/field.ts NamedIds).
  */
-export const unnamedIdRefusal = 'say whose id this is: contract("ClerkUserId", uuid)' as const
+export const unnamedIdRefusal =
+	'say whose id this is: contract<typeof key>()("ClerkUserId", uuid)' as const
 
 /**
  * What pg.smallserial, pg.serial, pg.bigserial and pg.uuidv7 are: no field descriptor but the refusal of one, a value

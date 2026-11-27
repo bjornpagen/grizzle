@@ -11,7 +11,7 @@
  * relations written cover every kind of field and law Work holds: a closed id, a set and texts (Tag), a serial
  * (Ticket), a contract (Budget), a plain relation (Task), an immutable family owner (Order, Pool) and a tree (Node).
  *
- * Properties, over the draft's own plan as generate and check compile it (draftSchema, then servedFiles):
+ * Properties, over the draft's own plan as generate and check compile it (draftSchema, then eachServedFile):
  *
  * - Names: every reason any certificate gives names a relation of Work, never a table, a function or a statement the
  *   names grizzle installs leave unresolved (`?"schema"."name"`, `?function:...`, `?statement:...`), so every object a
@@ -31,7 +31,7 @@ import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
 import { served as servedLogin } from "#adapter/public/layer.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
-import { draftSchema, servedFiles } from "#cli/generate.ts"
+import { draftSchema, eachServedFile } from "#cli/generate.ts"
 import { reasonsOf } from "#compiler/core/certificate.ts"
 import { silentPhases } from "#compiler/core/phase.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
@@ -105,6 +105,7 @@ export const aRolesIsolationLevelIsDecidedOnceFromTheStatementsItsWritesSendEver
 				}
 				const config = yield* resolveConfig(
 					defineConfig({
+						contracts: [],
 						schemas: [Work],
 						logins: [app, ...psql],
 						migrations: "migrations",
@@ -124,7 +125,7 @@ export const aRolesIsolationLevelIsDecidedOnceFromTheStatementsItsWritesSendEver
 				)
 				const served = draft.served
 				assert.ok(served.kind === "logins", "a schema with a login plans its logins")
-				const entries = yield* servedFiles(compiled, draft, served, silentPhases)
+				const entries = yield* eachServedFile(compiled, draft, served, silentPhases, Effect.succeed)
 				const servedLogins = new Map(
 					Arr.map(
 						entries,
@@ -244,6 +245,13 @@ export const aRolesIsolationLevelIsDecidedOnceFromTheStatementsItsWritesSendEver
 			}
 		],
 		kills: [
+			{
+				file: "packages/engine/src/program/workload/roles.ts",
+				original: "\t\tif (levelSchema(state.schema, role, loc).ok) {",
+				replacement:
+					'\t\tif (state.schema.kind === "role" ? state.schema.value === role.value : levelSchema(state.schema, role, loc).ok) {',
+				why: "programsOn reads a role value again to tell a workload's role from the login's, where a parsed role holds none (program/input.ts ParsedRole): the writer's workload runs on the reader too, whose inserts its role refuses, and the draft is refused."
+			},
 			{
 				file: "packages/grizzle/src/adapter/served/served.ts",
 				original: "\t\troles[role.name] = servedRole(read.base, name, role.name, role.isolation)",

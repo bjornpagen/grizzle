@@ -26,6 +26,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { type DfaOutcome, minimalDfa } from "@bjornpagen/grizzle-text/regex/dfa"
 import { regexDfaLimits } from "@bjornpagen/grizzle-text/regex/limits"
 import type { Nfa } from "@bjornpagen/grizzle-text/regex/nfa"
+import { includedWithin } from "@bjornpagen/grizzle-text/regex/within"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -199,11 +200,13 @@ export const aTransformedTextsByteBoundAdmitsACastIntoABoundedTextExactlyWhenThe
 				const route = Arr.lastNonEmpty(c.steps).kind
 				run.note(`${route} ${checked.ok ? "admitted" : "refused"}`)
 				installsStored(c.steps, OperandText, TargetText)
-				const verdict = inclusion(
-					[minimal(nfaOf(languageSource(typed.language), "u"))],
-					[minimal(nfaOf(target.source, target.flags))],
-					regexDfaLimits
-				).kind
+				/** The one inclusion judgment: the operand's language within its bound inside the target's language. */
+				const inner = minimal(nfaOf(languageSource(typed.language), "u"))
+				const outer = minimal(nfaOf(target.source, target.flags))
+				const verdict =
+					inner.kind === "minimal" && outer.kind === "minimal"
+						? includedWithin(inner.dfa, bound, outer.dfa, regexDfaLimits).kind
+						: "bounded"
 				const longest = longestWithin(typed.language, bound)
 				const label = `${Formatter.format(c)}: ${verdict} within ${bound} bytes, its longest text ${longest}, cast into ${bytes}`
 				if (verdict === "bounded") {
@@ -317,11 +320,11 @@ export const aTransformedTextsByteBoundAdmitsACastIntoABoundedTextExactlyWhenThe
 				why: "A collapse carries no byte bound, so a cast of it is refused where the bound fits; the byte cast property fails."
 			},
 			{
-				file: "packages/engine/src/scalar/compute/lower.ts",
+				file: "packages/engine/src/scalar/regex/inclusion.ts",
 				original:
-					'\treturn longest.kind === "within" && longest.bytes <= octets ? premise(longest.bytes) : undefined',
+					'\t\treturn most.kind === "bounded" ? "bounded" : most.bytes <= outer.octets ? "included" : "refuted"',
 				replacement:
-					'\treturn longest.kind === "within" && bound <= octets ? premise(longest.bytes) : undefined',
+					'\t\treturn most.kind === "bounded" ? "bounded" : inner.octets <= outer.octets ? "included" : "refuted"',
 				why: "A cast compares its operand's bound, not the longest text of its language within it, so it is refused where a collapse drops what the bound leaves room for; the byte cast property fails."
 			}
 		]

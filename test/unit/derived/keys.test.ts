@@ -1,6 +1,7 @@
 /**
  * Key inheritance for derived relations: a derived relation needs no declared key and admits none. Its keys are the
- * keys its definition proves, each in heading order, narrowest first and then by heading position, none implied by a
+ * keys its definition proves, each in key order (the columns the definition carries from a declared key first, every
+ * other after, each part in heading order), narrowest first and then by key-order position, none implied by a
  * narrower one; the whole heading when nothing narrower is proven; and for a definition of at most one fact its first
  * representable column. Each becomes a unique index, so each must fit PostgreSQL's B-tree entry and column limits, and
  * a definition a stored table cannot hold is refused.
@@ -50,7 +51,7 @@
 
 import { indices, maxOf } from "@bjornpagen/grizzle-text/base/array"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { assert, deepEquals, defined, unorderedEqual } from "@bjornpagen/testing/assert"
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed, boolean, finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -84,6 +85,7 @@ import {
 	keyedBase,
 	type KeyFeature,
 	keyName,
+	keyOrder,
 	keyRules,
 	minimalKeys,
 	type NamedKey,
@@ -96,6 +98,7 @@ import {
 	productMinimal,
 	productOf,
 	productSketchGen,
+	sameColumns,
 	storableCaseGen,
 	type StorableFeature,
 	storableModel,
@@ -105,7 +108,7 @@ import {
 } from "#test/unit/derived/keys.fixtures.ts"
 
 /**
- * Derived relation keys are proven keys in heading order, narrowest first, none implied by another, the whole heading
+ * Derived relation keys are proven keys in key order, narrowest first, none implied by another, the whole heading
  * only alone.
  *
  * Budget: 100 runs and 100 steered cases, what its suite stated before it became a property
@@ -141,9 +144,7 @@ export const derivedRelationKeysAreProvenKeysInHeadingOrderNarrowestFirstNoneImp
 						}
 						if (r.wholeHeading) {
 							c.note("the whole heading")
-							assert.deepEqual<ReadonlyArray<ReadonlyArray<string>>>(keys, [
-								Arr.map(r.heading, (col) => col.name)
-							])
+							assert.deepEqual<ReadonlyArray<ReadonlyArray<string>>>(keys, [keyOrder(r)])
 						}
 						if (r.card === "atMostOne") {
 							c.note("at most one fact")
@@ -168,7 +169,7 @@ export const derivedRelationKeysAreProvenKeysInHeadingOrderNarrowestFirstNoneImp
 				}),
 			oracle: {
 				kind: "specification",
-				name: "proven keys in heading order, narrowest first, none implied by another, the whole heading only alone, one fact by its first representable column, a level one above what it reads"
+				name: "proven keys in key order, narrowest first, none implied by another, the whole heading only alone, one fact by its first representable column, a level one above what it reads"
 			},
 			kept: [],
 			kills: [
@@ -230,9 +231,7 @@ export const derivedRelationKeysStateExactlyTheMinimalSetsOfHeadColumnsAJoinsKey
 						keyRules(d)
 						const minimal = Arr.map(expected, (k) => Arr.map(k, headName))
 						assert.ok(
-							Arr.every(d.keys, (k) =>
-								Arr.some(minimal, (m) => deepEquals<ReadonlyArray<string>>(m, k.fields))
-							),
+							Arr.every(d.keys, (k) => Arr.some(minimal, (m) => sameColumns(m, k.fields))),
 							"every key the view indexes is a minimal key of the join"
 						)
 						unorderedEqual(

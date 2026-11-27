@@ -27,10 +27,10 @@ import {
  *
  *     grizzle generate <config> [--name <name>] [--schema <schema>] [--rename <old>=<new>]… [--drop <old>]… [--phases]
  *     grizzle generate <config> --custom --name <name> [--schema <schema>] [--phases]
+ *     grizzle draft-key <config> [generate's flags]
  *     grizzle check <config> [--phases]
  *     grizzle migrate <config>
  *     grizzle drift <config>
- *     grizzle upgrade <config>
  *     grizzle names <config>
  *     grizzle roles <config>
  *     grizzle uninstall <config>
@@ -45,9 +45,9 @@ import {
  * (renames.ts), so a declaration its text shows wrong never reaches the compiler; a custom migration drafts nothing
  * and takes none. `--phases` reports each phase of the run on stderr as it starts and ends, with the process's
  * readings (phases.ts), and changes nothing else the command writes or prints. Flags follow drizzle's spelling, as
- * `--flag value` or `--flag=value`, anywhere after the command, and only generate takes any but `--phases`, which check
- * takes too. `--help` (or `-h`, anywhere, or no argument) prints the usage. Anything else is a usage
- * error.
+ * `--flag value` or `--flag=value`, anywhere after the command, and only generate and draft-key, which takes exactly
+ * generate's, take any but `--phases`, which check takes too. `--help` (or `-h`, anywhere, or no argument) prints the
+ * usage. Anything else is a usage error.
  *
  * What generate makes: the next migration drafted from the schemas' change, named `--name` or after the change; or an
  * empty custom folder for data steps, named `--name`.
@@ -56,22 +56,26 @@ export type GenerateMode =
 	| { readonly kind: "draft"; readonly naming: FolderNaming }
 	| { readonly kind: "custom"; readonly name: MigrationName }
 
+/**
+ * What generate's flags ask it to draft, but `--phases`: what it makes, the schema it drafts, and the declared renames
+ * and drops; `grizzle draft-key` takes the same flags, and digests the inputs of the draft they ask for
+ * (draft-inputs.ts).
+ */
+export interface DraftRequest {
+	readonly mode: GenerateMode
+	/** `--schema`: a declared schema name or PostgreSQL schema identifier, or none for every configured one. */
+	readonly schema: Option.Option<string>
+	/** `--rename` and `--drop`: the draft's declared renames and drops, none for a custom migration. */
+	readonly declared: Declarations
+}
+
 /** What a command does with the configuration it reads. */
 type Command =
-	| {
-			readonly kind: "generate"
-			readonly mode: GenerateMode
-			/**
-			 * `--schema`: a declared schema name or PostgreSQL schema identifier, or none for every configured one.
-			 */
-			readonly schema: Option.Option<string>
-			/** `--rename` and `--drop`: the draft's declared renames and drops, none for a custom migration. */
-			readonly declared: Declarations
-	  }
+	| ({ readonly kind: "generate" } & DraftRequest)
+	| ({ readonly kind: "draftKey" } & DraftRequest)
 	| { readonly kind: "check" }
 	| { readonly kind: "migrate" }
 	| { readonly kind: "drift" }
-	| { readonly kind: "upgrade" }
 	| { readonly kind: "names" }
 	| { readonly kind: "roles" }
 	| { readonly kind: "uninstall" }
@@ -231,14 +235,18 @@ const declaredOf = (
 	return Result.mapError(parseDeclarations(renames, drops), cliError)
 }
 
-const parseGenerate = (rest: ReadonlyArray<string>): Result.Result<CommandLine, CliError> =>
-	Result.flatMap(scan("generate", rest, generateFlags), (scanned) =>
+/** A command that drafts, generate or draft-key, over the request generate's flags make (DraftRequest). */
+const parseDrafting = (
+	command: "generate" | "draft-key",
+	rest: ReadonlyArray<string>
+): Result.Result<CommandLine, CliError> =>
+	Result.flatMap(scan(command, rest, generateFlags), (scanned) =>
 		Result.flatMap(modeOf(scanned), (mode) =>
 			Result.map(declaredOf(scanned, mode), (declared): CommandLine => ({
 				kind: "run",
 				config: scanned.config,
 				command: {
-					kind: "generate",
+					kind: command === "generate" ? "generate" : "draftKey",
 					mode,
 					schema: Option.fromUndefinedOr(scanned.values.get("schema")),
 					declared
@@ -249,7 +257,7 @@ const parseGenerate = (rest: ReadonlyArray<string>): Result.Result<CommandLine, 
 	)
 
 const parsePlain = (
-	command: Exclude<CommandName, "generate">,
+	command: Exclude<CommandName, "generate" | "draft-key">,
 	rest: ReadonlyArray<string>
 ): Result.Result<CommandLine, CliError> =>
 	Result.map(
@@ -271,13 +279,13 @@ export const parseArgs = (argv: ReadonlyArray<string>): Result.Result<CommandLin
 		case "check":
 		case "migrate":
 		case "drift":
-		case "upgrade":
 		case "names":
 		case "roles":
 		case "uninstall":
 			return parsePlain(command, rest)
 		case "generate":
-			return parseGenerate(rest)
+		case "draft-key":
+			return parseDrafting(command, rest)
 		default:
 			return malformed({ kind: "unknownCommand", command })
 	}

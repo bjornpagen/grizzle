@@ -26,7 +26,6 @@ import {
 import type { ParamId } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import { overRowsOf } from "#compiler/lower/conservative/expr/lateral.ts"
 import {
 	type Assignment,
 	type CteBody,
@@ -43,20 +42,18 @@ import {
 	type OperandBody,
 	type OperandSelect,
 	type OrderItem,
+	overRowsOf,
 	type ProbeColumn,
 	type QualifiedFunctionRef,
 	selectColumns,
 	type SetOperation,
 	type SqlStatement,
-	type TableName,
 	type Update,
 	type WindowSpec,
 	type With
 } from "#compiler/sql/ast.ts"
 import { col, derived, eq, simpleSelect, targetAs } from "#compiler/sql/build.ts"
-import { carrierReadBy } from "#compiler/sql/naming.ts"
 import { printExpr, printObjectName } from "#compiler/sql/print.ts"
-import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 
 /**
  * How the extractor reads one role's statements back:
@@ -139,11 +136,11 @@ interface Stored {
 /** The name of the stored table `table` a node names, its columns renamed by `columns` (none for the table itself). */
 const storedAt = (
 	at: StoredAt,
-	table: TableName,
+	table: ObjectName,
 	columns: ReadonlyMap<string, string> | undefined,
 	names: ExtractNames
 ): Stored => {
-	const relation = typeof table === "string" ? undefined : names.relationOf(table)
+	const relation = names.relationOf(table)
 	return {
 		kind: "stored",
 		at,
@@ -164,7 +161,7 @@ const storedOf = (source: FromSource, names: ExtractNames): Stored => {
 		case "derived": {
 			const projection = projectionOf(source)
 			if (projection === undefined) {
-				throw defect("a derived table names a stored table only where it renames one")
+				defect("a derived table names a stored table only where it renames one")
 			}
 			return storedAt(source, projection.table, projection.columns, names)
 		}
@@ -176,7 +173,7 @@ const storedOf = (source: FromSource, names: ExtractNames): Stored => {
 		case "function":
 		case "arrays":
 		case "values":
-			throw defect("only a table, a renaming projection, a probe or a met row names a stored table")
+			defect("only a table, a renaming projection, a probe or a met row names a stored table")
 	}
 }
 
@@ -366,7 +363,7 @@ const predicate = (c: Context, not: boolean): Polarity => {
 type Found<Top extends Arrival = Arrival> =
 	| {
 			readonly kind: "table"
-			readonly table: TableName
+			readonly table: ObjectName
 			readonly alias: string
 			readonly context: Context<Top>
 			readonly conditions: ReadonlyArray<Scoped>
@@ -463,6 +460,8 @@ const operandsOf = (e: Expr): ReadonlyArray<Expr> => {
 			return [e.expr, e.absent]
 		case "subscript":
 			return [e.array, e.index]
+		case "attribute":
+			return [e.record]
 		case "between":
 			return [e.expr, e.low, e.high]
 		case "inList":
@@ -541,7 +540,7 @@ const innerConditions = (sources: ReadonlyArray<JoinedSource>): ReadonlyArray<Ex
 /** A relation's table read whole by a derived table that only renames its columns: the table, and for each of the
  * derived table's columns the table's column it is. */
 interface Projection {
-	readonly table: TableName
+	readonly table: ObjectName
 	readonly columns: ReadonlyMap<string, string>
 }
 
@@ -549,7 +548,7 @@ interface Projection {
 const underOf = (
 	p: Projection | undefined
 ):
-	| { readonly table: TableName; readonly column: (column: string) => string | undefined }
+	| { readonly table: ObjectName; readonly column: (column: string) => string | undefined }
 	| undefined => (p === undefined ? undefined : { table: p.table, column: (c) => p.columns.get(c) })
 
 /**
@@ -691,6 +690,7 @@ const callValue = (e: Expr, own: ReadonlySet<string>): boolean => {
 		case "binary":
 		case "nullif":
 		case "subscript":
+		case "attribute":
 		case "between":
 		case "inList":
 		case "equalsAny":
@@ -754,7 +754,7 @@ const callRow = (q: OperandSelect): boolean => {
 const nameOf = (source: FromSource): readonly [string, "table" | OwnRows["rows"] | MetRows] => {
 	switch (source.kind) {
 		case "table":
-			return [source.alias, typeof source.table === "string" ? "many" : "table"]
+			return [source.alias, "table"]
 		case "cte":
 			return [source.alias ?? source.name, "many"]
 		case "context":
@@ -767,7 +767,7 @@ const nameOf = (source: FromSource): readonly [string, "table" | OwnRows["rows"]
 		case "derived": {
 			const projection = projectionOf(source)
 			if (projection !== undefined) {
-				return [source.alias, typeof projection.table === "string" ? "many" : "table"]
+				return [source.alias, "table"]
 			}
 			return [source.alias, callRow(source.query) ? "one" : "many"]
 		}
@@ -1120,8 +1120,6 @@ export class Walk<Top extends Arrival> {
 			return
 		}
 		if (
-			s.kind === "createCarrier" ||
-			s.kind === "emptyCarrier" ||
 			s.kind === "beginRead" ||
 			s.kind === "beginWrite" ||
 			s.kind === "commit" ||
@@ -1210,10 +1208,7 @@ export class Walk<Top extends Arrival> {
 		return inner
 	}
 
-	#writeOf(table: TableName, op: WriteFact["op"]): ReadonlyArray<number> {
-		if (typeof table === "string") {
-			return []
-		}
+	#writeOf(table: ObjectName, op: WriteFact["op"]): ReadonlyArray<number> {
 		this.#statement.writes.push({ table, op })
 		return [this.#statement.writes.length - 1]
 	}
@@ -1522,9 +1517,10 @@ export class Walk<Top extends Arrival> {
 
 	/**
 	 * A FROM source of a core: the sources every row of it comes through, a table's read, a probe's, a CTE's or a derived
-	 * table's rows, an INSERT's met rows' proposed CTE's; none for a LATERAL one, whose rows are computed per row of the
-	 * sources before it, nor for the row an arbitration met, a function's rows, VALUES, a relation input's arrays or a
-	 * context's fact. A probe's rows are its table's at its driving row's values, inner-joined, so every row of its core
+	 * table's rows, a LATERAL one's among them, whose rows are computed per row of the sources before it, each row of the
+	 * core one of them, as a region's chain reads each step at the steps before it (lower/shapes/region chainedSelect), an
+	 * INSERT's met rows' proposed CTE's; none for the row an arbitration met, a function's rows, VALUES, a relation
+	 * input's arrays or a context's fact. A probe's rows are its table's at its driving row's values, inner-joined, so every row of its core
 	 * comes through one of them; met rows are rows of the CTE their INSERT proposes, read where they stand, less the
 	 * rows its RETURNING holds, the call's own.
 	 */
@@ -1602,7 +1598,7 @@ export class Walk<Top extends Arrival> {
 								columns: projection.columns,
 								met: undefined
 							})
-				return source.lateral ? [] : rows
+				return rows
 			}
 			case "function":
 				this.expr(source.call, source.lateral ? beneath : { ...beneath, scope: enclosing })
@@ -1664,8 +1660,7 @@ export class Walk<Top extends Arrival> {
 	 */
 	#table(found: TableFound<Top>): ReadonlyArray<RowSource> {
 		const table = found.table
-		const definition =
-			typeof table === "string" ? undefined : this.#statement.names.definitionOf(table)
+		const definition = this.#statement.names.definitionOf(table)
 		if (definition !== undefined) {
 			return this.#defined(found, definition)
 		}
@@ -1690,15 +1685,13 @@ export class Walk<Top extends Arrival> {
 	#policed(found: TableFound<Top>): void {
 		const table = found.table
 		const policy =
-			typeof table === "string" || found.context.reader === "owner"
-				? undefined
-				: this.#statement.names.policyOf(table)
+			found.context.reader === "owner" ? undefined : this.#statement.names.policyOf(table)
 		if (policy === undefined) {
 			return
 		}
 		const row = found.context.scope.get(found.alias)
 		if (row?.kind !== "stored") {
-			throw defect("a policed read is of a stored table's source, which its scope names")
+			defect("a policed read is of a stored table's source, which its scope names")
 		}
 		this.expr(
 			policy,
@@ -1734,7 +1727,7 @@ export class Walk<Top extends Arrival> {
 	#cteRead(name: string, c: Context<Top>): ReadonlyArray<RowSource> {
 		const ref = c.ctes.get(name)
 		if (ref === undefined) {
-			throw defect(`a source names the CTE ${name}, which no WITH around it defines`)
+			defect(`a source names the CTE ${name}, which no WITH around it defines`)
 		}
 		if (ref.kind !== "query") {
 			return []
@@ -1995,7 +1988,7 @@ export class Statement {
 		if (feeds === "site") {
 			const reading = this.#reading.at(-1)
 			if (reading === undefined) {
-				throw defect("a site feeds the site's writes only in a query CTE's walk")
+				defect("a site feeds the site's writes only in a query CTE's walk")
 			}
 			this.#template(name, cte, polarity, counted)
 			reading.push({ name, cte, polarity, counted })
@@ -2051,7 +2044,7 @@ export class Statement {
  */
 const siteCore = (core: number | Arrival): number | undefined => {
 	if (core === "site") {
-		throw defect(
+		defect(
 			"a query CTE read outside every core of a CTE's query, where no data-modifying CTE stands"
 		)
 	}
@@ -2208,35 +2201,16 @@ const modeOf = (c: Context, arbiter: boolean): ReadFact["mode"] => {
 	return c.counted ? "counted" : "positive"
 }
 
-/**
- * A statement with every FROM item that calls a carrier's reader, pg_temp."<carrier>_rows"() with no ordinality, read
- * as the carrier's table (write/carriers/carriers.ts carrierRead, sql/naming.ts carrierReadBy): the reader returns every
- * row of the carrier, every column under its own name, which the item's alias list repeats, so its rows are the
- * carrier's, the call's own rows its fill states (Carriers), as a read of the carrier's table is.
- */
-const carrierReads = (s: SqlStatement): SqlStatement =>
-	transformStatement(s, {
-		...identityHooks,
-		fromSource: (source) => {
-			if (source.kind !== "function") {
-				return source
-			}
-			const carrier = carrierReadBy(source)
-			return carrier === undefined ? source : { kind: "table", table: carrier, alias: source.alias }
-		}
-	})
-
-/** One statement's facts (analysis/isolation/facts.ts StatementFacts), its carriers' readers read as their tables. */
+/** One statement's facts (analysis/isolation/facts.ts StatementFacts). */
 const statementFacts = (
 	sent: SqlStatement,
 	names: ExtractNames,
 	slotOf: (n: number) => SlotFill,
 	level: Isolation
 ): StatementFacts => {
-	const s = carrierReads(sent)
 	const statement = new Statement(names, slotOf, level)
 	const walk = new Walk<undefined>(statement, [])
-	walk.statement(s)
+	walk.statement(sent)
 	const relation = (t: ObjectName): string => names.relationOf(t) ?? `?${printObjectName(t)}`
 	/**
 	 * What a read's column is bound to as its body's facts state it (Binding): a stored table's field resolved to its
@@ -2275,19 +2249,6 @@ const statementFacts = (
 					group: undefined
 				},
 				feeds: []
-			}
-		}
-		if (typeof f.table === "string") {
-			return {
-				read: {
-					relation: `carrier:${f.table}`,
-					mode: modeOf(f.context, false),
-					base: baseOf(false),
-					probes: f.context.probes,
-					own: true,
-					group: undefined
-				},
-				feeds: f.feeds
 			}
 		}
 		const rel = relation(f.table)
@@ -2377,7 +2338,7 @@ const statementFacts = (
 const nestedAt = (instance: Instance, place: number): number => {
 	const at = instance.nested[place]
 	if (at === undefined) {
-		throw defect("an instance resolves every query CTE its walk reads")
+		defect("an instance resolves every query CTE its walk reads")
 	}
 	return at
 }
@@ -2419,7 +2380,8 @@ const probeAt = <Core extends SiteCore>(
  *   source appear only in a statement compiled for SERIALIZABLE (`level`), whose transaction snapshot the met row's
  *   seal rests on: in a READ COMMITTED one each is a read no names clear, `?every:"schema"."name"` or
  *   `?met:"schema"."name"`, which the certifier refuses.
- * - A carrier's read is the call's own, named `carrier:<name>`, a call of its reader in FROM among them (carrierReads). A table no relation is read as `?"schema"."name"`, a
+ * - A carrier's read is the call's own rows, its columns' arrays read from the transaction's settings
+ *   (write/carriers/carriers.ts carrierRead). A table no relation is read as `?"schema"."name"`, a
  *   schema function no names clear as `?function:"schema"."name"`, and a statement that is no DML, carrier, ANALYZE or
  *   transaction control as `?statement:<kind>`: the certifier refuses each as a relation
  *   it states no fact of. Each object is named as the printer quotes it (sql/print.ts printObjectName), so two names are

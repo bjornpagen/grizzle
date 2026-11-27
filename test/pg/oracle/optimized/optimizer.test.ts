@@ -111,9 +111,10 @@ export const optimizer = differentialProperty(
 			},
 			{
 				file: "packages/engine/src/lower/shapes/attach/index.ts",
-				original: "\tconst correlation = correlatedColumns(attach, parentMap)\n",
+				original:
+					"\tconst correlation = pairs.map((c) => ({ column: c.child, value: columnIn(parentMap, c.parent) }))\n",
 				replacement:
-					'\tconst correlation =\n\t\tchild.kind === "Group"\n\t\t\t? [...new Map(correlatedColumns(attach, parentMap).map((e) => [e.column, e])).values()]\n\t\t\t: correlatedColumns(attach, parentMap)\n',
+					'\tconst correlation = (\n\t\tchild.kind === "Group" ? [...new Map(pairs.map((c) => [c.child, c] as const)).values()] : pairs\n\t).map((c) => ({ column: c.child, value: columnIn(parentMap, c.parent) }))\n',
 				why: "The fold an attachment restricts by its parent's values keeps one equality per key column (lower/shapes/attach/index.ts keyedRows), so a key paired with two parent columns is restricted by one of them and a parent whose two columns differ receives a group."
 			},
 			{

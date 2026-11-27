@@ -3,6 +3,7 @@
 import { ChunkView } from "@bjornpagen/grizzle-text/chunks"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import {
+	array,
 	int as between,
 	constant,
 	element,
@@ -38,7 +39,8 @@ import {
 	ordered,
 	pred,
 	relation,
-	schema
+	schema,
+	unit
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
@@ -1890,6 +1892,104 @@ export const judgeClocked = (c: Clocked): void => {
 			Order.String
 		),
 		"every stored sign-in takes the migration's one value of its head"
+	)
+	assertFresh(m, state)
+}
+
+/**
+ * A clock that joins a unit's scope over stored rows (deploy/diff/diff.ts headJoined): the unit User over Visit, whose
+ * clock its head already counts on, and SignIn, keyed by user, which the migration re-keys by user and a clock, so its
+ * every stored row takes the migration's instant, a clock of User's scope. `signIns` are the users with a stored
+ * sign-in, `visits` the stored visits, each at an instant around the migration's.
+ */
+export interface Joined {
+	readonly signIns: ReadonlyArray<number>
+	readonly visits: ReadonlyArray<{ readonly user: number; readonly at: number }>
+}
+
+export type JoinedFeature =
+	| "a clock joining its unit's head over stored rows"
+	| "a visit past the migration's instant"
+	| "a user of visits alone"
+	| "over no row"
+
+/** The migration's instant, as the model's every transaction reads it, in microseconds. */
+const migrationMicros = Number(modelInstant.micros)
+
+/** Stored sign-ins and visits, distinct by their keys, each visit's instant up to three microseconds either side of
+ * the migration's. */
+export const joinedGen: Gen<Joined> = (source) => ({
+	signIns: source.draw(keysGen({ min: 0, max: 4 })),
+	visits: Arr.dedupeWith(
+		source.draw(
+			array(
+				(s) => ({ user: s.draw(between(1, 6)), at: migrationMicros + s.draw(between(-3, 3)) }),
+				{ min: 0, max: 5 }
+			)
+		),
+		(a, b) => a.user === b.user && a.at === b.at
+	)
+})
+
+export const joinedNotes = (j: Joined): ReadonlyArray<JoinedFeature> => [
+	...(j.signIns.length > 0 ? (["a clock joining its unit's head over stored rows"] as const) : []),
+	...(Arr.some(j.visits, (v) => v.at > migrationMicros)
+		? (["a visit past the migration's instant"] as const)
+		: []),
+	...(Arr.some(j.visits, (v) => !j.signIns.includes(v.user))
+		? (["a user of visits alone"] as const)
+		: []),
+	...(j.signIns.length === 0 && j.visits.length === 0 ? (["over no row"] as const) : [])
+]
+
+/** The unit User over Visit, a clock of child user, and SignIn, keyed by user, or by user and its own clock once
+ * `clocked`. */
+const usersOf = (clocked: boolean) =>
+	schema(
+		"Backfill",
+		[
+			relation("Visit", { user: pg.integer, at: instant }, ["user", "at"]),
+			clocked
+				? relation("SignIn", { user: pg.integer, at: instant, email: pg.integer }, ["user", "at"])
+				: relation("SignIn", { user: pg.integer, email: pg.integer }, ["user"])
+		],
+		[unit("User", { user: pg.integer })]
+	)
+
+/**
+ * What the joined case's migration must do: every stored sign-in takes the migration's instant (modelInstant), and the
+ * unit's head stands, at each user, at the greatest instant the unit holds there, of its visits and its sign-ins
+ * alike, so every later stamp of the unit is above every row it holds (README "Instants"); and the catalog is the one
+ * the target installs from nothing.
+ */
+export const judgeJoined = (j: Joined): void => {
+	const m = migrationOf(usersOf(false), usersOf(true))
+	const state = migrated(m, [
+		{ relation: "SignIn", rows: Arr.map(j.signIns, (user) => ({ user, email: user + 100 })) },
+		{ relation: "Visit", rows: j.visits }
+	])
+	const user = fieldColumn(m.second, "SignIn", "user")
+	const head = m.second.names.head({ kind: "unit", unit: "User" })
+	const greatest = new Map<number, number>()
+	for (const { user: u, at } of [
+		...Arr.map(j.signIns, (u) => ({ user: u, at: migrationMicros })),
+		...j.visits
+	]) {
+		greatest.set(u, Math.max(greatest.get(u) ?? at, at))
+	}
+	assert.deepEqual(
+		Arr.sort(
+			Arr.map(
+				defined(state.tables.get(head.name), "the unit's head table").rows,
+				(row) => `${intCell(row, user)} ${intCell(row, "__instant")}`
+			),
+			Order.String
+		),
+		Arr.sort(
+			Arr.map([...greatest], ([u, at]) => `${u} ${at}`),
+			Order.String
+		),
+		"the unit's head stands at each user's greatest instant, of its visits and its sign-ins alike"
 	)
 	assertFresh(m, state)
 }

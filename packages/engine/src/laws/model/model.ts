@@ -1,3 +1,4 @@
+import { sameOrder } from "@bjornpagen/grizzle-text/base/array"
 import { stronglyConnected } from "@bjornpagen/grizzle-text/base/graph"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
@@ -10,20 +11,25 @@ import {
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import type { PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
-import { readBySlice } from "#compiler/analysis/closure.ts"
 import type { TriggerLaw } from "#compiler/analysis/isolation/facts.ts"
-import { type CheckedSchema, checkedSchema } from "#compiler/analysis/schema.ts"
+import {
+	type CheckedSchema,
+	checkedReality,
+	type RealityReading
+} from "#compiler/analysis/schema.ts"
 import { ViolationBuilder } from "#compiler/analysis/theory/build.ts"
 import { lawDescription } from "#compiler/analysis/theory/description.ts"
-import type {
-	ResolvedConjunct,
-	ResolvedSide,
-	ResolvedTerm,
-	TheoryLaw
-} from "#compiler/analysis/theory/laws.ts"
+import type { ResolvedConjunct, ResolvedTerm, TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import {
+	clockOrders,
+	coversOf,
+	type ProbeSide,
+	type Proofs,
+	type Proved,
+	proofsOf,
 	type QueryRule,
 	type Touches,
+	touchedOn,
 	touches,
 	witnesses
 } from "#compiler/analysis/theory/query.ts"
@@ -66,7 +72,7 @@ import { blockSize, itemIdBytes, pageHeaderBytes } from "#compiler/core/page.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import type { CellSide } from "#compiler/ir/cells.ts"
 import { mergeDags } from "#compiler/ir/dag.ts"
-import { descText, type ExprDesc, mapExprChildren } from "#compiler/ir/desc.ts"
+import { descText, type ExprDesc, mapExprChildren, type QueryDesc } from "#compiler/ir/desc.ts"
 import type { ExistenceConstraint } from "#compiler/ir/evidence.ts"
 import {
 	type ExprSpec,
@@ -140,7 +146,6 @@ import {
 	typePatterns
 } from "#compiler/scalar/regex/patterns.ts"
 import type { Owned } from "#compiler/schema/own.ts"
-import type { Slice } from "#compiler/schema/reach.ts"
 import { alignUp, maxAlign } from "#compiler/schema/representability.ts"
 import type { RecordedLaw } from "#compiler/types/changeset/changeset.ts"
 
@@ -420,6 +425,21 @@ export interface RuleTrigger {
 	readonly rule: QueryRule
 	readonly named: Identity<"lawTrigger">
 	readonly tables: NonEmptyReadonlyArray<RuleTable>
+	/** Each relation it reads whose occurrences a sibling covers (analysis/theory/query.ts coversOf), by name. */
+	readonly covered: ReadonlyArray<CoveredRelation>
+}
+
+/**
+ * A relation a rule over a query reads that its probes of the rows a write adds read no row of at some occurrence, a
+ * sibling's rows pinning it (analysis/theory/query.ts Cover), or a sibling arm regaining what a negation of it withdraws
+ * (Regained): the relation, each proof, and the sides of its writes a
+ * block of the rule still reads (`sides`, none where the judge holds no block of it), what generate records beside the
+ * installation of why a law holds no block of a relation's added rows (deploy/snapshot/build.ts provedOf).
+ */
+export interface CoveredRelation {
+	readonly relation: string
+	readonly covers: NonEmptyReadonlyArray<Proved>
+	readonly sides: ReadonlyArray<ProbeSide>
 }
 
 /** One table a rule over a query reads, with what its writes can break of the rule and its trigger's function. */
@@ -451,20 +471,20 @@ export interface LawModel {
 	readonly identities: ReadonlyArray<Identity<IdentityKind>>
 	/** The laws whose containment evidence holds at every statement (an immediate foreign key or a CHECK). */
 	readonly immediate: ReadonlySet<LawId>
-	/** The cycles of the foreign key graph its deferral reads (FkCycles), names only: what generate records for a layer
-	 * that plans only a slice. */
+	/** The cycles of the foreign key graph its deferral reads (FkCycles), names only: what generate records for a login's
+	 * compile to read. */
 	readonly fkCycles: FkCycles
-	/** The reference choice its recognizer read (plan.ts ReferenceChoice): what generate records for a layer that plans
-	 * only a slice, which chooses none of its own. */
+	/** The reference choice its recognizer read (plan.ts ReferenceChoice): what generate records for a login's compile,
+	 * which chooses none of its own. */
 	readonly references: ReferenceChoice
 	/**
 	 * The relations whose writes the installation's rule judge captures (physical/ddl/rules.ts addRules, judgedTables),
 	 * in code point order: each a rule over a query reads (RuleTrigger `tables`) and each a stored derived relation's
-	 * upkeep reads (StoredUpkeep `reads`), of every level (`judgedOf`). A session stands up the judge's tables a write of
+	 * upkeep reads a side of (StoredUpkeep `sides`), of every level (`judgedOf`). A session stands up the judge's tables a write of
 	 * one needs before its first such write (physical/ddl/rules.ts addStandUps), which a served write does in its
 	 * session's stand-up (write/program/stand-up.ts writeStandUps): what generate records for a layer that plans only a
-	 * level or a slice (CycleSource), whose own rules are not the installation's, a rule of a level above its own over a
-	 * relation it writes among them.
+	 * level (CycleSource), whose own rules are not the installation's, a rule of a level above its own over a relation it
+	 * writes among them.
 	 */
 	readonly judged: ReadonlyArray<string>
 	/** Each containment's existence evidence a query may rely on, its law and the context its discharge holds it in
@@ -478,8 +498,8 @@ export interface LawModel {
 	readonly migrationLaws: ReadonlyArray<LawId>
 	/** The rules over queries, in law order, with the triggers that discharge them at every COMMIT. */
 	readonly rules: ReadonlyArray<RuleTrigger>
-	/** Each ordinary relation its slice writes by name, with its primary key and the unique objects its natives install
-	 * (uniques.ts relationLaws): one per primary key the model seeds, so one per relation its slice writes. */
+	/** Each ordinary relation by name, with its primary key and the unique objects its natives install (uniques.ts
+	 * relationLaws): one per primary key the model seeds, so one per ordinary relation. */
 	readonly relations: ReadonlyMap<string, RelationLaws>
 	/** The checker's reading of the owned schema, whose relation handles the theory's laws read. */
 	readonly checked: CheckedSchema
@@ -527,7 +547,7 @@ export const changedBy = (
 /**
  * The laws of `model`'s theory nothing of the model discharges, in law order: no native object holds it, no migration
  * checks it and no rule trigger judges it. An installation's model, over every write any program may make, has none:
- * a law nothing holds accepts every state that breaks it (physical/install/compile.ts installationOver).
+ * a law nothing holds accepts every state that breaks it (program/install.ts installationOver).
  */
 export const undischargedLaws = (model: LawModel): ReadonlyArray<LawId> => {
 	const discharged = new Set<LawId>([
@@ -542,7 +562,7 @@ export const undischargedLaws = (model: LawModel): ReadonlyArray<LawId> => {
 
 /**
  * The relations whose writes a judge of `rules` and `upkeeps` captures (LawModel `judged`): each relation a rule reads
- * and each an upkeep reads, in code point order.
+ * and each an upkeep reads a side of (StoredUpkeep `sides`), in code point order.
  */
 const judgedOf = (
 	rules: ReadonlyArray<RuleTrigger>,
@@ -551,13 +571,13 @@ const judgedOf = (
 	[
 		...new Set([
 			...rules.flatMap((r) => r.tables.map((t) => t.relation.name)),
-			...upkeeps.flatMap((u) => u.reads.map((r) => r.relation))
+			...upkeeps.flatMap((u) => u.sides.map((r) => r.relation))
 		])
 	].toSorted(compareStrings)
 
 /**
  * The admitted patterns the host's evaluation of a write reads over the model: the field types and generated
- * expressions of every stored relation its slice writes, which are the relations a write's rows are of, every family
+ * expressions of every ordinary stored relation, which are the relations a write's rows are of, every family
  * fold's selections, and every constraint native's predicates the witness judges (runtime/write/fill.ts hostEvaluator,
  * runtime/write/witness.ts), each parse read from `compile`, the checked schema's table, which parsed every pattern its
  * fields and closed relations hold.
@@ -732,7 +752,7 @@ export const domainCheck = (info: ContractInfo): DomainCheck => {
  * The cycles of the foreign keys that order a write's statements (`#deferral`): each strongly connected component of
  * more than one relation, its relations' names in code point order, the components in the order of their first names.
  * A foreign key lies on a cycle exactly when it references its own relation or its two ends are in one of them
- * (`onCycleOf`). Names only: what generate records in the snapshot for a layer that plans only a slice of the laws.
+ * (`onCycleOf`). Names only: what generate records in the snapshot for a login's compile.
  */
 export type FkCycles = ReadonlyArray<NonEmptyReadonlyArray<string>>
 
@@ -770,11 +790,9 @@ const onCycleOf = (cycles: FkCycles): ((from: string, to: string) => boolean) =>
 /**
  * Where a law model's whole-schema facts come from, its foreign key cycles (FkCycles), its reference choice (plan.ts
  * ReferenceChoice) and the relations its installation's judge captures (LawModel `judged`): planned from every law of
- * the schema, which the model then plans whatever its slice names, or recorded by generate in the snapshot
- * (snapshot.json derived.fkCycles, derived.references and derived.judged), which a login's compile reads so that its
- * model plans only the laws a compile over its slice reads (`plannedLaws`), chooses no reference over a slice's laws,
- * whose uses of a target are not the schema's, and stands up every table the installation's judge captures, though its
- * level holds no rule of a level above it and its slice no rule its slice does not read.
+ * the schema, or recorded by generate in the snapshot (snapshot.json derived.fkCycles, derived.references and
+ * derived.judged), which a login's compile reads, so that it chooses the installation's references and stands up every
+ * table the installation's judge captures, though its level holds no rule of a level above it.
  */
 export type CycleSource =
 	| { readonly kind: "planned" }
@@ -784,45 +802,6 @@ export type CycleSource =
 			readonly references: ReferenceChoice
 			readonly judged: ReadonlyArray<string>
 	  }
-
-/**
- * The laws a model plans: every law of the theory when it plans its cycles, which every law's plan settles; under
- * recorded cycles, the laws a compile over its slice reads (analysis/closure.ts readBySlice, over the sides each law's
- * foreign keys reference, referencedSides), and every contract, whose domain types its values wherever a role's context
- * field or a parameter names it, beyond any relation.
- */
-const plannedLaws = (
-	laws: ReadonlyArray<TheoryLaw>,
-	slice: Slice,
-	cycles: CycleSource
-): ReadonlyArray<TheoryLaw> =>
-	cycles.kind === "planned"
-		? laws
-		: laws.filter(
-				(l) => l.detail.kind === "contract" || readBySlice([...l.reads], referencedSides(l), slice)
-			)
-
-/**
- * The sides a law's foreign keys reference: a containment's target, and each target of the foreign keys a rule over a
- * query lowers to (analysis/theory/laws.ts RuleLowering), each a side of a stored relation as a containment's is.
- */
-const referencedSides = (law: TheoryLaw): ReadonlyArray<ResolvedSide> => {
-	const d = law.detail
-	switch (d.kind) {
-		case "containment":
-			return [d.to]
-		case "rule":
-			return d.lowering.kind === "foreignKeys" ? d.lowering.parts.map((part) => part.to) : []
-		case "key":
-		case "check":
-		case "contract":
-		case "projectedKey":
-		case "family":
-		case "tree":
-		case "fold":
-			return []
-	}
-}
 
 /** The edges of the foreign key graph `plans` order a write's statements by (`#deferral`): every foreign key its family
  * does not fix deferred, and every PERIOD foreign key, from its relation to its target. */
@@ -1116,16 +1095,13 @@ class Specializer {
 	readonly theory: Theory
 	readonly checked: CheckedSchema
 	readonly owned: Owned
-	/** The ordinary relations whose writes the model serves (schema/reach.ts Slice.writes). */
-	readonly writes: ReadonlySet<string>
-	/** The relations those writes change by their COMMIT (`changedBy`): they and every stored derived relation kept from
+	/** Every ordinary relation of the schema, whose writes the model serves. */
+	readonly ordinary: ReadonlySet<string>
+	/** The relations their writes change by their COMMIT (`changedBy`): they and every stored derived relation kept from
 	 * them, whose rules the judge holds as it holds a rule over their own rows. */
 	readonly changed: ReadonlySet<string>
-	/** The laws the model plans (`plannedLaws`), in law order. */
-	readonly planned: ReadonlyArray<TheoryLaw>
 	readonly cycles: CycleSource
-	/** The recognizer over every law of the theory, planned or not: a planned containment into a relation its slice
-	 * does not name finds its target's projected keys and family laws there. */
+	/** The recognizer over every law of the theory. */
 	readonly recognizer: Recognizer
 	/** The typing environment every lowering of the model reads, each text pattern analyzed once in it. */
 	readonly #typing: ReturnType<typeof typingEnv>
@@ -1134,11 +1110,12 @@ class Specializer {
 	readonly #lawColumns = new Map<string, Map<ColumnIdent, PlannedLawColumn>>()
 	/** Every law by its id, a primary key's included: what a constraint's every law is described by. */
 	readonly #laws: ReadonlyMap<LawId, TheoryLaw>
+	/** What the probes of the rules over queries prove covers by: the theory's containments and keys, indexed once. */
+	readonly #proofs: Proofs
 
 	constructor(
 		theory: Theory,
 		checked: CheckedSchema,
-		slice: Slice,
 		cycles: CycleSource,
 		discharge: RuleDischarge,
 		keys: KeyLedger
@@ -1146,9 +1123,10 @@ class Specializer {
 		this.theory = theory
 		this.checked = checked
 		this.owned = checked.owned
-		this.writes = slice.writes
-		this.changed = changedBy(theory.upkeeps, slice.writes)
-		this.planned = plannedLaws(theory.laws, slice, cycles)
+		this.ordinary = new Set(
+			Object.values(checked.owned.relations).flatMap((r) => (r.kind === "relation" ? [r.name] : []))
+		)
+		this.changed = changedBy(theory.upkeeps, this.ordinary)
 		this.cycles = cycles
 		this.recognizer = new Recognizer(
 			theory.laws,
@@ -1166,6 +1144,11 @@ class Specializer {
 			...theory.laws.map((l) => [l.id, l] as const),
 			...theory.primaryKeys.map((pk) => [pk.law.id, pk.law] as const)
 		])
+		this.#proofs = proofsOf(
+			theory.regionFacts,
+			(relation) => theory.relations[relation],
+			clockOrders(theory.instants)
+		)
 	}
 
 	/** The identifier of a law column, its identity kept to name its native. */
@@ -1185,7 +1168,7 @@ class Specializer {
 	#planned(relation: Pick<LawRelation, "name">, column: ColumnIdent): PlannedLawColumn {
 		const planned = this.#lawColumns.get(relation.name)?.get(column)
 		if (planned === undefined) {
-			throw defect(`the law column ${column} of ${relation.name}, minted as it is planned`)
+			defect(`the law column ${column} of ${relation.name}, minted as it is planned`)
 		}
 		return planned
 	}
@@ -1222,7 +1205,7 @@ class Specializer {
 	}
 
 	run(): LawModel {
-		const plans = this.planned.map((law) => this.recognizer.plan(law))
+		const plans = this.theory.laws.map((law) => this.recognizer.plan(law))
 		const fkCycles =
 			this.cycles.kind === "planned" ? fkCyclesOf(fkEdges(plans)) : this.cycles.cycles
 		const deferred = this.#deferral(fkCycles)
@@ -1270,12 +1253,12 @@ class Specializer {
 					return n
 			}
 		}
-		/** A held native as placed, and a foreign key's reverse index beside it where the slice writes its relation
+		/** A held native as placed, and a foreign key's reverse index beside it where its relation is an ordinary one
 		 * (`#held`). */
 		const placedOf = (n: NativePlan, plan: LawPlan): ReadonlyArray<PlacedNative> => {
 			const own = place(n, plan)
 			return (n.kind === "ForeignKey" || n.kind === "PeriodForeignKey") &&
-				this.writes.has(n.relation.name)
+				this.ordinary.has(n.relation.name)
 				? [own, reverseIndexOf(n)]
 				: [own]
 		}
@@ -1296,7 +1279,7 @@ class Specializer {
 		 * KeyColumnSet: a key keeps the order its first plan gives it, a declared key its declared order. */
 		const byKey = new TupleMap<NativeIdentity, Merged>()
 		for (const pk of this.theory.primaryKeys) {
-			if (this.writes.has(pk.relation.name)) {
+			if (this.ordinary.has(pk.relation.name)) {
 				this.#seed(byKey, pk)
 			}
 		}
@@ -1373,7 +1356,7 @@ class Specializer {
 			}
 		}
 		this.#refuseWideRows(natives)
-		const evidence = theoryEvidence(this.planned, immediate)
+		const evidence = theoryEvidence(this.theory.laws, immediate)
 		return {
 			owned: this.owned,
 			theory: Object.freeze({ ...this.theory, dag: merged.dag, evidence }),
@@ -1392,7 +1375,7 @@ class Specializer {
 			relations: relationLaws(keyed, natives),
 			checked: this.checked,
 			patterns: lawPatterns(
-				this.checked.stored.filter((r) => this.writes.has(r.name)),
+				this.checked.stored.filter((r) => this.ordinary.has(r.name)),
 				this.theory.families,
 				natives,
 				this.checked.patterns
@@ -1401,11 +1384,11 @@ class Specializer {
 		}
 	}
 
-	/** The families whose laws the model plans, a tree's included, in the theory's order: what a write of its slice
-	 * draws, fills and orders by, each with its owner axis among the model's natives. */
+	/** The families whose laws the model plans, a tree's included, in the theory's order: what a write draws, fills and
+	 * orders by, each with its owner axis among the model's natives. */
 	#plannedFamilies(): ReadonlyArray<Family> {
 		const planned = new Set(
-			this.planned.flatMap((law) =>
+			this.theory.laws.flatMap((law) =>
 				law.detail.kind === "family" || law.detail.kind === "tree"
 					? [familyKey(law.detail.family.id)]
 					: []
@@ -1416,20 +1399,17 @@ class Specializer {
 
 	/**
 	 * Whether the model holds a planned native, decided by what the native is, so every plan of one object decides it
-	 * alike and a held object discharges every law any plan gives it, as the whole schema's model's does. It holds every
-	 * native of a relation its slice writes, which a write of the slice can break or a write's statements read, and on
-	 * every relation the natives a read of the schema relies on, whoever writes: each foreign key, PERIOD foreign key,
-	 * CHECK of a containment into a closed relation and roster domain, the existence evidence a query's evidence catalog
-	 * names (catalog.ts existenceConstraints), a foreign key into a relation the slice writes also what a delete of its
-	 * rows meets; each contract's domain, which the installed names type a contract's values by; and each selection key,
-	 * a law column of a field term under a selection a UNIQUE holds, with the UNIQUEs that hold one, which a query's
-	 * probe reads (physical/ddl/names.ts selectionKeysOf). Any other native of a relation the slice does not write, a
-	 * key, a CHECK, another law column or a foreign key's reverse index (`run`), only a write of that relation can break
-	 * or read, so the model holds none of it; but a stored derived relation's UNIQUE and CHECK it holds always, since the
-	 * judge's upkeep writes its rows at every COMMIT that changes what it reads, whichever slice wrote that.
+	 * alike and a held object discharges every law any plan gives it. It holds every native of an ordinary relation, which
+	 * a write of it can break or a write's statements read; on every relation, each foreign key, PERIOD foreign key, CHECK
+	 * of a containment into a closed relation and roster domain, each contract's domain, which the installed names type a
+	 * contract's values by, and each selection key, a law column of a field term under a selection a UNIQUE holds, with the
+	 * UNIQUEs that hold one, which a query's probe reads (physical/ddl/names.ts selectionKeysOf); and a stored derived
+	 * relation's UNIQUE and CHECK, since the judge's upkeep writes its rows at every COMMIT that changes what it reads.
+	 * No other native: a key, a CHECK, another law column or a primary key of a relation that is neither ordinary nor a
+	 * stored derived one has no table to hold it.
 	 */
 	#held(plans: ReadonlyArray<LawPlan>): (n: NativePlan) => boolean {
-		const writes = this.writes
+		const ordinary = this.ordinary
 		const selected = (c: LawColumnPlan): boolean =>
 			c.kind === "term" && c.term.kind === "field" && c.selection.conjuncts.length > 0
 		const unique = new Set(
@@ -1456,25 +1436,25 @@ class Specializer {
 				case "Domain":
 					return true
 				case "LawColumn":
-					return writes.has(n.column.relation.name) || selectionKey(n.column)
+					return ordinary.has(n.column.relation.name) || selectionKey(n.column)
 				case "Unique":
 					return (
 						n.relation.kind === "stored" ||
-						writes.has(n.relation.name) ||
+						ordinary.has(n.relation.name) ||
 						n.columns.some((c) => c.kind === "law" && selectionKey(c.column))
 					)
 				case "TableCheck":
-					return n.relation.kind === "stored" || writes.has(n.relation.name)
+					return n.relation.kind === "stored" || ordinary.has(n.relation.name)
 				case "PrimaryKey":
 				case "GeneratedCheck":
 				case "WithoutOverlaps":
-					return writes.has(n.relation.name)
+					return ordinary.has(n.relation.name)
 			}
 		}
 	}
 
 	/**
-	 * Refuses a relation the slice writes whose rows can exceed one heap tuple (MaxHeapTupleSize, `heapTupleMaxBytes`): its
+	 * Refuses an ordinary relation whose rows can exceed one heap tuple (MaxHeapTupleSize, `heapTupleMaxBytes`): its
 	 * fields and every law column on it, a generated one outside its guard NULL, each counted at the most it can take
 	 * inline once every variable-length value that can be is moved out of line (rows.ts).
 	 */
@@ -1488,7 +1468,7 @@ class Specializer {
 			own.push(n.object)
 		}
 		for (const r of Object.values(this.theory.relations)) {
-			if (r.kind !== "relation" || !this.writes.has(r.name)) {
+			if (r.kind !== "relation") {
 				continue
 			}
 			const columns = [
@@ -1513,7 +1493,7 @@ class Specializer {
 		const named = this.#named(identity.lawTrigger(law.named))
 		const tables = [...law.reads].flatMap((name): ReadonlyArray<RuleTable> => {
 			const relation = this.theory.relations[name]
-			const touched = touches(rule, name)
+			const touched = touches(rule, name, this.#proofs)
 			return (relation?.kind === "relation" || relation?.kind === "stored") && touched !== undefined
 				? [
 						{
@@ -1526,9 +1506,17 @@ class Specializer {
 		})
 		const [first, ...rest] = tables
 		if (first === undefined) {
-			throw defect("a rule over a query discharged by triggers reads an ordinary relation")
+			defect("a rule over a query discharged by triggers reads an ordinary relation")
 		}
-		return { law, rule, named, tables: [first, ...rest] }
+		const covered = [...law.reads].flatMap((name): ReadonlyArray<CoveredRelation> => {
+			const [c, ...cs] = coversOf(rule, name, this.#proofs)
+			const read = tables.find((t) => t.relation.name === name)
+			const sides = (["added", "removed"] as const).filter(
+				(side) => read !== undefined && touchedOn(read.touches, side) !== undefined
+			)
+			return c === undefined ? [] : [{ relation: name, covers: [c, ...cs], sides }]
+		})
+		return { law, rule, named, tables: [first, ...rest], covered }
 	}
 
 	/** The law `id` names, which the theory states. */
@@ -1880,16 +1868,23 @@ class Specializer {
 				return constraint(object, object.named)
 			case "Unique": {
 				/** A UNIQUE over a declared candidate key's set is that key's; over a stored derived relation's proven key, its
-				 * primary one's among them, it is the index the relation's table already has (physical/derived/objects.ts),
-				 * which the law's refusal names. */
+				 * primary one's among them, held in the law's order, it is the index the relation's table already has
+				 * (physical/derived/objects.ts), which the law's refusal names. A key law's order orders its index, as every
+				 * key's does: one stating a proven key's fields in another order is a UNIQUE of its own, in its order, beside
+				 * the table's own index, which its unit leads. */
 				const relation = object.relation
-				const k =
-					relation.kind === "stored"
-						? declaredKeyOf(relation, scalarKeySet(relation.name, object.columns))
-						: declaredKeyOf(relation, scalarKeySet(relation.name, object.columns))
+				const k = declaredKeyOf(relation, scalarKeySet(relation.name, object.columns))
+				const held =
+					k !== undefined &&
+					(relation.kind === "stored"
+						? sameOrder(
+								k.fields.map((f) => columnKey(fieldColumn(f))),
+								object.columns.map(columnKey)
+							)
+						: !k.primary)
 				return constraint(
 					object,
-					k !== undefined && (relation.kind === "stored" || !k.primary)
+					held
 						? k.named
 						: this.#named(identity.key(relation.name, this.#keyNames(relation, object.columns)))
 				)
@@ -2101,12 +2096,11 @@ const baseLeaves = (
 const specialize = (
 	theory: Theory,
 	checked: CheckedSchema,
-	slice: Slice,
 	cycles: CycleSource,
 	discharge: RuleDischarge,
 	keys: KeyLedger
 ): Result.Result<LawModel, CompileError> =>
-	catchRefusal(() => new Specializer(theory, checked, slice, cycles, discharge, keys).run())
+	catchRefusal(() => new Specializer(theory, checked, cycles, discharge, keys).run())
 
 /** Law specialization: an owned schema's CheckedTheory with every law lowered to its natives. It runs theory
  * normalization with the law identities the naming door gives (theory.ts lawIdentityOf), recognizes every normalized
@@ -2151,16 +2145,12 @@ const specialize = (
  * - The DAG: the theory's lowered fold selections plus each declared and generated CHECK's predicate and each
  *   generated law column's value, each lowered here over its relation's row.
  *
- * - Slice: the model serves the writes of its slice (schema/reach.ts Slice), and holds exactly the natives those
- *   writes can break or read, with every native a read relies on (Specializer.#held): an installation's, writing every
- *   ordinary relation, holds them all; a login's runtime, writing the relations its roles write, holds no other native
- *   and no rule that reads none of them, each a constraint no write of the login can raise. Under planned cycles
- *   (CycleSource) the model plans every law, whose plans settle the foreign key graph's cycles; under the cycles
- *   generate recorded from every law, it plans only the laws a compile over its slice reads (analysis/closure.ts
- *   readBySlice). A law's plan reads the law and the recognizer's indexes of every law, and its deferral its own plan and the cycles, so each law
- *   it plans is planned, deferred, proved immediate and gives evidence as in the whole schema's model.
+ * - The whole schema: the model plans every law and holds every native an installation installs, every ordinary
+ *   relation's and every stored derived relation's, whatever reads or writes it (Specializer.#held). A law's plan reads
+ *   the law and the recognizer's indexes of every law, and its deferral its own plan and the cycles (CycleSource):
+ *   planned from every law, or as generate recorded them.
  *
- * The law model of an owned schema for `slice` under `cycles`, or the first refusal: a theory refusal or a law shape the
+ * The law model of an owned schema under `cycles`, or the first refusal: a theory refusal or a law shape the
  * compiler does not admit (UnsupportedLawFamily), each refused in place of every unrepresentable key met before it
  * (core/canonical.ts metFirst). An unrepresentable key refuses nothing here: the model carries every one it met, its
  * owned schema's and its own (`unrepresentable`), for its reader to refuse all at once. The theory is normalized once and each law
@@ -2168,35 +2158,45 @@ const specialize = (
  * and specialization states the evidence each law gives with that validity context (theoryEvidence). */
 export const compileLaws = (
 	owned: Owned,
-	slice: Slice,
 	cycles: CycleSource
-): Result.Result<LawModel, CompileError> => dischargedLaws(owned, slice, cycles, "native")
+): Result.Result<LawModel, CompileError> =>
+	levelLaws(owned, new Set(), cycles, { kind: "analyzed" })
 
 /**
- * The law model of an owned schema for `slice` as the law oracle's conservative installation holds it
- * (physical/install/compile.ts conservativeInstallation): compileLaws's, its cycles planned from every law, with every
- * rule over a query discharged by its triggers, a rule that lowers to foreign keys among them, so its laws are the same
- * laws under the same identities.
+ * compileLaws's law model of `owned`, its checked schema admitting `served`, the closed imports of the programs it serves,
+ * and read as `reading` says (analysis/schema.ts checkedReality, RealityReading): a level's within its installation,
+ * the installation's reading of each relation held by reference.
  */
-export const conservativeLaws = (
+export const levelLaws = (
 	owned: Owned,
-	slice: Slice
-): Result.Result<LawModel, CompileError> =>
-	dischargedLaws(owned, slice, { kind: "planned" }, "triggers")
+	served: ReadonlySet<QueryDesc>,
+	cycles: CycleSource,
+	reading: RealityReading
+): Result.Result<LawModel, CompileError> => dischargedLaws(owned, served, cycles, "native", reading)
 
-/** The law model of `owned` for `slice` under `cycles`, its rules over queries that lower to foreign keys discharged
- * as `discharge` says. */
+/**
+ * The law model of an owned schema as the law oracle's conservative installation holds it (program/install.ts
+ * conservativeInstallation): compileLaws's, its cycles planned from every law, with every rule over a query discharged
+ * by its triggers, a rule that lowers to foreign keys among them, so its laws are the same laws under the same
+ * identities.
+ */
+export const conservativeLaws = (owned: Owned): Result.Result<LawModel, CompileError> =>
+	dischargedLaws(owned, new Set(), { kind: "planned" }, "triggers", { kind: "analyzed" })
+
+/** The law model of `owned` under `cycles`, its checked schema admitting the closed imports `served` and read as
+ * `reading` says, its rules over queries that lower to foreign keys discharged as `discharge` says. */
 const dischargedLaws = (
 	owned: Owned,
-	slice: Slice,
+	served: ReadonlySet<QueryDesc>,
 	cycles: CycleSource,
-	discharge: RuleDischarge
+	discharge: RuleDischarge,
+	reading: RealityReading
 ): Result.Result<LawModel, CompileError> => {
 	const keys = new KeyLedger(owned.unrepresentable)
 	return keys.first(
-		Result.flatMap(checkedSchema(owned, slice), (checked) =>
+		Result.flatMap(checkedReality(owned, served, reading), (checked) =>
 			Result.flatMap(buildTheory(checked), (theory) =>
-				specialize(theory, checked, slice, cycles, discharge, keys)
+				specialize(theory, checked, cycles, discharge, keys)
 			)
 		)
 	)
@@ -2206,11 +2206,10 @@ const dischargedLaws = (
  * Every law the model still discharges by deferred constraint triggers, once rules that lower to foreign keys are
  * lowered, whose trigger fires on `relation` or whose query reads it: on either side, by a match or a negation, at any
  * depth of the derived relations it reads (analysis/theory/query.ts ruleReads), so a superset only of the laws a write
- * of `relation` or a read of it by a trigger can involve. Empty exactly when every law over `relation` is native, a key,
- * a CHECK, a domain or a foreign key, a lowered rule's among them, and no remaining trigger reads it. A model holds the
- * rules its slice's writes can fire (`compileLaws`), so a reader that asks about every writer, the isolation
- * certifier's, asks the installation's model, whose slice writes every ordinary relation. Each law comes with its rule's
- * witnesses (analysis/theory/query.ts witnesses), what the certifier judges a READ COMMITTED writer of it by.
+ * of `relation` or a read of it by a trigger can involve. Empty exactly when every law over `relation` is native, a
+ * key, a CHECK, a domain or a foreign key, a lowered rule's among them, and no remaining trigger reads it. Each law
+ * comes with its rule's witnesses (analysis/theory/query.ts witnesses), what the certifier judges a READ COMMITTED
+ * writer of it by.
  */
 export const triggerLawsOver = (model: LawModel, relation: string): ReadonlyArray<TriggerLaw> =>
 	model.rules.flatMap((r) =>

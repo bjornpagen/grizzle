@@ -311,7 +311,7 @@ export const keyedTreeOf = () => {
 				nodes,
 				monoids.count,
 				onBuilder(
-					select(Node, (n) => n.and(n.gt(n.start, 0n), n.ne(n.parentKind, n.parentParentKind))),
+					select(Node, (n) => n.and([n.gt(n.start, 0n), n.ne(n.parentKind, n.parentParentKind)])),
 					["package", "path", "parent", "turnsBefore", "turnsAfter"]
 				),
 				onBuilder(Node, ["package", "path", "start", "turns"])

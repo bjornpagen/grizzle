@@ -86,12 +86,12 @@ export const rolesThatWriteEachRelationUnderItsListTheDeclarationItsGrantsAndThe
 		situations: features,
 		check: (_, c: Case<InsertFeature>) => (w: InsertWorld) =>
 			Effect.sync(() => {
-				const s = schemaOf(w.mutability)
+				const s = schemaOf(w.mutability, "Shops")
 				const declared = Arr.flatMap(roleNames, (name): ReadonlyArray<InsertDeclared> => {
 					const rc = w.roles[name]
 					const desc = defined(roleDescOf(roleOf(s, name, rc)), "a role built by role(...)")
 					const owned = ownRole(desc)
-					const refusal = declarationRefusal(rc, w.mutability)
+					const refusal = declarationRefusal(s, rc, w.mutability)
 					if (!owned.ok) {
 						const error = owned.error
 						c.note("a closed relation under write refused")

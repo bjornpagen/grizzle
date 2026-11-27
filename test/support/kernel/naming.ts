@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 import { exact, ordered } from "@bjornpagen/testing/oracle"
 import { Array as Arr, Formatter, Option, Record as Rec } from "effect"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
@@ -24,7 +25,7 @@ import {
 } from "#compiler/schema/own.ts"
 import type { NativeKind } from "#test/support/native/model.ts"
 
-import { appendNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import { appendNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type {
 	ColumnIdent,
@@ -37,17 +38,16 @@ import type {
 import { bookkeepingTables } from "#compiler/deploy/ledger/ledger.ts"
 import {
 	descText,
-	type ExprDesc,
 	type FieldDesc,
 	type SchemaDesc as SrcSchemaDesc,
 	type StatementDesc
 } from "#compiler/ir/desc.ts"
 
 import { type Codebook, codeOf, firstCodebook } from "#compiler/ir/codes.ts"
-import { headsOf } from "#compiler/ir/instant.ts"
+import { headNameOf, headsOf } from "#compiler/ir/instant.ts"
 import { type NativeColumn, type NativeObject, type NativeOf } from "#compiler/ir/law.ts"
 import { installedSpellings } from "#compiler/ir/pattern.ts"
-import type { PhysicalNames } from "#compiler/ir/physical.ts"
+import { fieldColumnType, type PhysicalNames } from "#compiler/ir/physical.ts"
 import {
 	type ConstraintLaws,
 	type ConstraintOwner,
@@ -73,8 +73,9 @@ import {
 import { libraryRef } from "#compiler/physical/ddl/library.ts"
 import { namedRole, roleReadNames, worldNames } from "#compiler/physical/ddl/names.ts"
 import { keyTermText } from "#compiler/physical/indexes/engine.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
 import { parseSchemaInput } from "#compiler/program/input.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { sameLaw } from "#compiler/public/changeset.ts"
 import {
 	type AnyRelation,
@@ -87,16 +88,16 @@ import {
 } from "#compiler/public/schema.ts"
 import { namedLaw } from "#compiler/runtime/law-entry.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
-import { everySlice } from "#compiler/schema/reach.ts"
-import { statementDescOf } from "#compiler/schema/statements.ts"
+import { expansionDescOf, statementDescOf } from "#compiler/schema/statements.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
 import { type SqlStatement, tableConstraints } from "#compiler/sql/ast.ts"
+import { printType } from "#compiler/sql/print.ts"
 import { storedColumns } from "#compiler/sql/stored.ts"
 import { installationTypes, vectorTypes } from "#compiler/sql/type-schemas.ts"
 import type { IdentifiedLaw, Law, RecordedLaw } from "#compiler/types/changeset/changeset.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { RelationFieldsOf } from "#compiler/types/schema/relation.ts"
-import type { AlternativesBase } from "#compiler/types/schema/statements.ts"
+import type { MirrorsBase } from "#compiler/types/schema/statements.ts"
 import { refusalRef } from "#compiler/write/refusal.ts"
 import { allocatedLevels } from "#test/support/compile.ts"
 import type { AuthoredStatementDesc, SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
@@ -186,9 +187,14 @@ export const productionNames = (
 		column: (...[, field]) => identifierOf(identity.column(parsedName(field))),
 		rosterDomain: (roster) => ({
 			schema: types,
-			name: identifierOf(identity.rosterDomain(roster))
+			name: identifierOf(identity.rosterDomain(parsedName(roster)))
 		}),
 		digestDomain: { schema: types, name: identifierOf(identity.digestDomain()) },
+		variantRow: (variant) => ({ schema: types, name: identifierOf(identity.variantRow(variant)) }),
+		variantDomain: (variant) => ({
+			schema: types,
+			name: identifierOf(identity.variantDomain(variant))
+		}),
 		bitsDomain: (roster) => {
 			const codec = codes.rosters.get(roster)
 			if (codec === undefined) {
@@ -297,6 +303,14 @@ export interface LawNames {
 	readonly lawOf: (statement: Statement) => LawId
 	/** The law an authored statement desc declares. */
 	readonly lawOfDesc: (statement: AuthoredStatementDesc) => LawId
+	/**
+	 * The two laws a mirrors value states, its two containments (schema/statements.ts ExpansionDesc): its left side's
+	 * in its right (`forward`), and its right side's in its left (`reverse`).
+	 */
+	readonly mirrorsOf: (statement: MirrorsBase) => {
+		readonly forward: LawId
+		readonly reverse: LawId
+	}
 	/** The law a relation's primary key reports. */
 	readonly primaryKeyLaw: (relation: NamedRelation) => LawId
 	/**
@@ -310,9 +324,9 @@ export interface LawNames {
 		fields: ReadonlyArray<string>
 	) => ConstraintName
 	/**
-	 * The one constraint or domain constraint of `kind` that reports `law`: one law can be reported by several (an
-	 * alternatives arm's foreign key and the generated unique key it references); a test names it here only where it is
-	 * the one of its kind.
+	 * The one constraint or domain constraint of `kind` that reports `law`: one law can be reported by several (a
+	 * selected side's foreign key and the generated unique key it references); a test names it here only where it is the
+	 * one of its kind.
 	 */
 	readonly constraintOf: (law: LawId, kind: NativeKind) => ConstraintName
 	/**
@@ -328,25 +342,8 @@ export interface LawNames {
 		owner: ConstraintOwner,
 		constraint: ConstraintName
 	) => Arr.NonEmptyReadonlyArray<LawId>
-	/** The laws an alternatives value expands to (a public schema). */
-	readonly alternativesOf: (value: AlternativesBase) => AlternativesLaws
-	/** The laws of an alternatives expansion as a desc fixture spells it (fixtures/ir/desc.ts alternatives(...)). */
-	readonly alternativesOfDesc: (expansion: ReadonlyArray<AuthoredStatementDesc>) => AlternativesLaws
 	/** A contract's domain, its CHECK, and its law. */
 	readonly contract: (contract: string) => ContractNames
-}
-
-export interface AlternativesLaws {
-	/**
-	 * Each armed handle's arm relation's law, its foreign key into the parent: one law per arm relation, which every
-	 * handle it is the arm of names.
-	 */
-	readonly arms: Readonly<Record<string, LawId>>
-	/**
-	 * The parent selected by each armed handle in that handle's arm, keyed by the handle: one containment per armed
-	 * handle (fin.md §7).
-	 */
-	readonly reverse: Readonly<Record<string, LawId>>
 }
 
 export type ContractNames =
@@ -392,6 +389,20 @@ export interface Names extends LawNames {
 	 * (substrate/replace.ts installationGroup).
 	 */
 	readonly standUps: ReadonlyArray<string>
+	/**
+	 * The stamp of the clock `field` of `relation` at the key `key`, the SQL terms of its scope's key fields in order,
+	 * read at the instant `instant`, a SQL term of microseconds: the call of its scope's stamp function
+	 * (physical/ddl/stamps.ts), a FROM item of one row whose `__instant` column is the stamp, which a direct writer reads
+	 * in the transaction that then inserts rows at that instant, the one the clock's guard admits
+	 * (physical/ddl/clocked.ts). The instant is `instant` where the key's head is below it: a seed of history stamps each
+	 * of a key's instants in its own transaction, in order.
+	 */
+	readonly stampCall: (
+		relation: AnyRelation,
+		field: string,
+		key: NonEmptyReadonlyArray<string>,
+		instant: string
+	) => string
 	/** A field's column, quoted; a derived relation's view column by its head name. */
 	readonly column: <R extends AnyRelation | AnyDerived>(
 		relation: R,
@@ -693,100 +704,12 @@ const theLaw = (target: string, laws: ReadonlyArray<TheoryLaw>, what: string): L
 			)}`
 	).id
 
-/** A literal of a discriminator's selection as its handle: the handle a desc spells, or a typed handle literal. */
-const handleText = (value: unknown): ReadonlyArray<string> =>
-	typeof value === "string"
-		? [value]
-		: typeof value === "object" &&
-			  value !== null &&
-			  "kind" in value &&
-			  value.kind === "handle" &&
-			  "handle" in value &&
-			  typeof value.handle === "string"
-			? [value.handle]
-			: []
-
-/**
- * The handles a selection fixes its discriminator to, as an alternatives expansion states it (ir/desc.ts
- * discriminated): `discriminator = handle` fixes one, `discriminator in (handle…)` several; none for any other
- * selection.
- */
-const selectedHandles = (
-	conjuncts: ReadonlyArray<{ readonly predicate: ExprDesc }>
-): ReadonlyArray<string> => {
-	const [p, ...more] = conjuncts
-	if (p === undefined || more.length > 0) {
-		return []
-	}
-	const predicate = p.predicate
-	if (predicate.kind === "compare" && predicate.op === "eq" && predicate.right.kind === "literal") {
-		return handleText(predicate.right.value)
-	}
-	return predicate.kind === "in" ? Arr.flatMap(predicate.values, handleText) : []
-}
-
-/**
- * The laws an alternatives statement expands to, every one a containment (fin.md §7): an arm relation's,
- * `contained(on(Arm, …), on(select(P, tag ∈ handles), …))`, its target the parent selected by the handles the relation
- * is the arm of, which every one of those handles names; and each armed handle's reverse, `contained(on(select(P, tag =
- * h), …), on(Arm_h, …))`, its source the parent selected by its handle. The statement is one owned statement, so its
- * laws are the theory's laws that hold it, each classified by the side its selection is on.
- */
-const alternativesLaws = <L>(
-	holding: Holding,
-	expansion: ReadonlyArray<StatementDesc<L>>
-): AlternativesLaws => {
-	const armLaws: Record<string, LawId> = {}
-	const reverseLaws: Record<string, LawId> = {}
-	for (const statement of expansion) {
-		if (statement.kind !== "alternatives") {
-			throw new Error(
-				`the test names the laws of an alternatives expansion holding a ${statement.kind} statement, not an alternatives statement`
-			)
-		}
-		const { target, laws } = holding(statement)
-		const handles = new Set(Arr.map(statement.arms, (a) => a.handle))
-		for (const law of laws) {
-			if (law.detail.kind !== "containment") {
-				throw new Error(
-					`the alternatives statement ${target} holds the ${law.detail.kind} law ${law.id}`
-				)
-			}
-			const reverse = selectedHandles(law.detail.from.selection.conjuncts)
-			const arm = selectedHandles(law.detail.to.selection.conjuncts)
-			const [handle, ...others] = reverse
-			if (handle !== undefined && others.length === 0 && arm.length === 0) {
-				reverseLaws[handle] = law.id
-			} else if (arm.length > 0 && reverse.length === 0) {
-				for (const handle of arm) {
-					armLaws[handle] = law.id
-				}
-			} else {
-				throw new Error(
-					`the alternatives statement ${target} holds ${law.id}, which selects no one handle side`
-				)
-			}
-		}
-		for (const handle of handles) {
-			if (armLaws[handle] === undefined || reverseLaws[handle] === undefined) {
-				throw new Error(
-					`the test names the laws of ${target}, which hold no arm law and reverse law for ${handle}: ${Arr.join(
-						Arr.map(laws, (l) => l.id),
-						", "
-					)}`
-				)
-			}
-		}
-	}
-	return { arms: armLaws, reverse: reverseLaws }
-}
-
-/** The one statement a law-naming value is; a mirrors or alternatives value expands to several and names none. */
+/** The one statement a law-naming value is; a mirrors value expands to two and names none. */
 const descOf = (statement: Statement): StatementDesc => {
 	const desc = statementDescOf(statement)
 	if (desc === undefined) {
 		throw new Error(
-			"the test names a law by a value that is not one statement (a mirrors or alternatives value expands to several): name one of its expanded statements"
+			"the test names a law by a value that is not one statement (a mirrors value expands to two): name one of its containments"
 		)
 	}
 	return desc
@@ -833,6 +756,14 @@ const lawNamesOver = (
 		model,
 		lawOf: (statement) => lawOfDesc(descOf(statement)),
 		lawOfDesc,
+		mirrorsOf: (statement) => {
+			const expansion = expansionDescOf(statement)
+			if (expansion === undefined) {
+				throw new Error("the test names the laws of a value that is not mirrors(...)")
+			}
+			const [forward, reverse] = expansion.statements
+			return { forward: lawOfDesc(forward), reverse: lawOfDesc(reverse) }
+		},
 		primaryKeyLaw: (relation) => {
 			const pks = Arr.flatMap(model.natives, (n) => {
 				if (n.namespace !== "constraint") {
@@ -888,8 +819,6 @@ const lawNamesOver = (
 			return laws
 		},
 
-		alternativesOf: (value) => alternativesLaws(holding, [descOf(value)]),
-		alternativesOfDesc: (expansion) => alternativesLaws(holding, expansion),
 		contract: (name) => {
 			const owned = model.owned.contracts[name]
 			if (owned === undefined) {
@@ -933,7 +862,7 @@ export const lawNamesOf = (subject: NamingSubject): LawNames => {
 	if (!owned.ok) {
 		throw refused(owned.error)
 	}
-	const model = compileLaws(owned.value, everySlice(owned.value), { kind: "planned" })
+	const model = compileLaws(owned.value, { kind: "planned" })
 	if (!model.ok) {
 		throw refused(model.error)
 	}
@@ -1081,9 +1010,33 @@ const namesOver = (installation: Installation, schema: string): Names => {
 		const q = names.relation(relation.name)
 		return `${quoteIdent(q.schema)}.${quoteIdent(q.name)}`
 	}
+	const stamp = (
+		relation: AnyRelation,
+		field: string,
+		key: NonEmptyReadonlyArray<string>,
+		instant: string
+	): string => {
+		const role = Option.getOrUndefined(
+			Arr.findFirst(
+				[...installation.laws.theory.instants.roles],
+				([name]) => name === relation.name
+			)
+		)?.[1].get(field)
+		if (role?.kind !== "clock") {
+			throw new Error(`the test stamps ${relation.name}.${field}, which is no clock`)
+		}
+		const head = role.stamp.clock.head
+		const fn = names.stamp(headNameOf(head))
+		const arrays = Arr.map(head.key, (f, i) => {
+			const type = printType(fieldColumnType(names, f.type).type)
+			return `ARRAY[${defined(key[i], `the stamped key's value of ${f.name}`)}]::${type}[]`
+		})
+		return `${quoteIdent(fn.schema)}.${quoteIdent(fn.name)}(${Arr.join([...arrays, `${instant}::bigint`], ", ")})`
+	}
 	return {
 		...laws,
 		installation,
+		stampCall: stamp,
 		described: (law) => {
 			const found = installation.described.get(law)
 			if (found === undefined) {
@@ -1101,7 +1054,7 @@ const namesOver = (installation: Installation, schema: string): Names => {
 					: []
 			),
 			...Arr.map(headsOf(installation.laws.theory.instants), (h) => {
-				const q = names.head(h.relation, h.field.name)
+				const q = names.head(headNameOf(h))
 				return `${quoteIdent(q.schema)}.${quoteIdent(q.name)}`
 			})
 		],
@@ -1182,7 +1135,13 @@ const namesOver = (installation: Installation, schema: string): Names => {
 			}
 			return created(
 				view,
-				identifierOf(identity.derivedKey(view.name, fields)),
+				identifierOf(
+					identity.derivedKey(
+						view.name,
+						installation.checked.canonicalOf(view.name).subject.ident,
+						fields
+					)
+				),
 				`unique index of the key (${Arr.join(fields, ", ")})`
 			)
 		}

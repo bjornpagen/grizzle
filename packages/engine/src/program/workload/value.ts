@@ -1,4 +1,5 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { admitHostKey } from "#compiler/core/brand.ts"
 import { type ClockUnit, isClockUnit } from "#compiler/core/clock.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
@@ -93,14 +94,19 @@ type ProgramValue =
 
 /**
  * One program of a workload, by kind, as `grizzle generate` compiles it: a query or ordered query value, or a key,
- * which reads through its lookup query (query/build/key.ts keyQuery) at the key position the workload admitted, each
- * a read, answered where it is answered(...) (answeredMember) or clocked, its isolation the compile's to infer
- * (core/isolation.ts ReadIsolation), and a ChangeSet value, each with the Description the migration generator plans (a key's
- * is its lookup's, built over the workload's schema).
+ * which reads through its lookup query (query/build/key.ts keyQuery) at the key position the workload admitted, built
+ * once over the workload's schema, the query every role the workload runs on compiles, each a read, answered where it
+ * is answered(...) (answeredMember) or clocked, its isolation the compile's to infer (core/isolation.ts ReadIsolation),
+ * and a ChangeSet value, each with the Description the migration generator plans (a key's is its lookup's).
  */
 export type WorkloadProgram = { readonly name: string } & (
 	| ReadValue
-	| { readonly kind: "key"; readonly target: KeyPosition; readonly desc: UnclockedReadDesc }
+	| {
+			readonly kind: "key"
+			readonly target: KeyPosition
+			readonly query: unknown
+			readonly desc: UnclockedReadDesc
+	  }
 	| Extract<ProgramValue, { readonly kind: "changeSet" }>
 )
 
@@ -208,24 +214,48 @@ const clockBinding = (binding: unknown): ClockBinding => {
 }
 
 /**
- * clocked(program, binding): the workload member that serves `program`, a query, an ordered query or a ChangeSet, with
- * each parameter `binding` names bound to the database's clock in its unit: the instant the call's transaction began,
- * transaction_timestamp(), one value in every statement of the call, which no call supplies. A clocked read is an
- * answered one (answeredMember) with its clock, read at that instant and never live, since time passing is no change:
- * its handle answers `once` alone. Whether each name is
- * a bigint parameter of the program is the compile's to judge (check/clock.ts clockParams); a program that is none of
- * the three, a paged one among them, and a binding of no parameter or of a unit that is no clock unit throw CompileError
- * MalformedDescription synchronously.
+ * What clocked(program, binding) takes after its binding, `rest`, as a JavaScript caller passes it (types/db
+ * ClockKeysOf): none, or a record of keys by the names of parameters the binding binds, each a value mintOf would take
+ * (core/brand.ts admitHostKey), which a parameter of a consumer's contract needs, since the reading is cast to its
+ * domain at bind. Whose each key is, and which parameter needs one, the types judge.
+ */
+const admitClockKeys = (binding: ClockBinding, rest: ReadonlyArray<unknown>): void => {
+	const [keys, ...extra] = rest
+	if (rest.length === 0) {
+		return
+	}
+	if (
+		extra.length > 0 ||
+		!isPlainRecord(keys) ||
+		Object.keys(keys).some((name) => !Object.hasOwn(binding, name))
+	) {
+		throw malformed(
+			"clocked",
+			"clocked(program, binding, keys): keys holds the key of each consumer's contract the binding binds a parameter of, by the parameter's name"
+		)
+	}
+	for (const name of Object.keys(keys)) {
+		admitHostKey(keys[name], `clocked key ${name}`)
+	}
+}
+
+/**
+ * clocked(program, binding, keys): the workload member that serves `program`, a query, an ordered query or a ChangeSet,
+ * with each parameter `binding` names bound to the database's clock in its unit: the instant the call's transaction
+ * began, transaction_timestamp(), one value in every statement of the call, which no call supplies, cast to the
+ * parameter's type, a consumer's contract's under its key in `keys` (admitClockKeys). A clocked read is an answered one
+ * (answeredMember) with its clock, read at that instant and never live, since time passing is no change: its handle
+ * answers `once` alone. Whether each name is a bigint parameter of the program is the compile's to judge (check/clock.ts
+ * clockParams); a program that is none of the three, a paged one among them, and a binding of no parameter or of a
+ * unit that is no clock unit throw CompileError MalformedDescription synchronously.
  */
 export const clockedMember = <X, B>(
 	program: X,
 	binding: B,
-	...extra: ReadonlyArray<unknown>
+	...rest: ReadonlyArray<unknown>
 ): Clocked<X, B> => {
-	if (extra.length > 0) {
-		throw malformed("clocked", "clocked(program, binding): two arguments")
-	}
 	const clock = clockBinding(binding)
+	admitClockKeys(clock, rest)
 	const served: unknown = program
 	if (!isQueryValue(served) && !isOrderedValue(served) && !isChangeSetValue(served)) {
 		throw malformed("clocked", "a query, an ordered query or a ChangeSet the builders made")
@@ -370,7 +400,7 @@ const workloadDescOf = (program: WorkloadProgram): ProgramDesc => {
 const workloadProgram = (
 	name: string,
 	program: unknown,
-	schema: object,
+	schema: unknown,
 	built: SchemaInput
 ): WorkloadProgram => {
 	const answered = hasProperties(program) ? answeredValues.get(program) : undefined
@@ -399,6 +429,7 @@ const workloadProgram = (
 		name,
 		kind: "key",
 		target: lookup.target,
+		query: lookup.query,
 		desc: served(orThrow(queryInput(lookup.query)).desc)
 	}
 }
@@ -463,7 +494,7 @@ export const workload = <S, P extends object>(
 	const named = read.value
 	const entries: Array<WorkloadProgram> = []
 	for (const name of Object.keys(named)) {
-		const program = workloadProgram(name, named[name], built.value, built)
+		const program = workloadProgram(name, named[name], schema, built)
 		entries.push(program)
 		Object.defineProperty(descs, name, {
 			value: workloadDescOf(program),

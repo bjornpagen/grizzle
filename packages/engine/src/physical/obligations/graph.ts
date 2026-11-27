@@ -603,10 +603,15 @@ export class ObligationGraph {
 	): Node<P> {
 		const node = new GraphNode(spec, after)
 		if (this.#nodes.has(node.text)) {
-			throw defect(`physical: two objects of the identity ${node.text}`)
+			defect(`physical: two objects of the identity ${node.text}`)
 		}
 		this.#nodes.set(node.text, node)
 		return node
+	}
+
+	/** Every statement of the objects added so far, each object's in its order, the objects in the order they were added. */
+	statements(): ReadonlyArray<SqlStatement> {
+		return [...this.#nodes.values()].flatMap((n) => n.ddl)
 	}
 
 	/** Adds reasons to an object: a law-maintenance request a key index already serves. */
@@ -630,9 +635,7 @@ export class ObligationGraph {
 			const from = defined(this.#nodes.get(e.from), "a named object of the graph")
 			const to = defined(this.#nodes.get(e.to), "an object of the graph")
 			if (phaseRank(from.phase) > phaseRank(to.phase)) {
-				throw defect(
-					`physical: ${e.to}, of phase ${to.phase}, names ${e.from}, of phase ${from.phase}`
-				)
+				defect(`physical: ${e.to}, of phase ${to.phase}, names ${e.from}, of phase ${from.phase}`)
 			}
 			defined(after.get(to), "an object of the graph").add(from)
 		}

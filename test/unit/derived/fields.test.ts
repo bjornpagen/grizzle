@@ -7,10 +7,13 @@
  *   spans, closed ids and sets over drawn rosters, vectors), every declared field's descriptor comes back from its
  *   type unchanged. Oracle: the round trip fieldDescOf ∘ scalarOf = id. Features: each kind, each pg member by itself.
  *   The exact fields' round trip, an exact value of any bound among them, is test/unit/scalar/exact-fields.test.ts's.
- * - Undeclared contracts: over drawn contracts, each declared by a relation or not, and a derived field cast to one
- *   of them, a contract no relation declares has no descriptor, fieldDescOf names it and the derived field is
- *   refused at that field (DerivedRefused, undeclaredContract); a declared one is the derived field's descriptor, as
- *   the relation declaring it holds it. Oracle: that rule, restated. Features: declared, undeclared.
+ * - Cast contracts: over drawn contracts, each declared by a relation or not, and a derived field cast to one of them
+ *   under the key its module holds (a cast into a consumer's contract takes its key since 97c8891645, BRAND's, so a
+ *   keyless cast is refused before the field is typed), the contract is the schema's either way, a relation's field or the definition's cast declaring it (schema/own.ts
+ *   #collectFields, schema/walk.ts queryUses `contracts`), so the derived field's descriptor is the contract's as
+ *   declared and fieldDescOf finds it, where a contract only a definition's cast named was refused at the field
+ *   (DerivedRefused, undeclaredContract: edullm's LastPresence, cast to LastBeacon). Oracle: that rule, restated.
+ *   Features: by a relation, by the cast alone.
  *
  * - Stored kinds: over drawn search documents of every configuration, computed numeric bounds, numeric's own limits and
  *   stored instants, a stored field of each is its caller's, and its descriptor and its type each give back the other,
@@ -24,7 +27,7 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record } from "effect"
 import { instant, pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
@@ -46,6 +49,7 @@ import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { Id } from "#test/support/ids.ts"
 import { checkedIn, checking } from "#test/support/policy.ts"
 import {
+	type CastSite,
 	contractCaseGen,
 	type DeclaredFeature,
 	declaredGen,
@@ -143,21 +147,28 @@ export const derivedFieldInferenceGivesBackTheDescriptorOfEveryDeclarableFieldTy
 		]
 	})
 
+/** Where a contract's declaration comes from, and where the cast stands. */
+type ContractFeature = "by a relation" | "by the cast alone" | CastSite
+
 /**
- * Derived field inference refuses a contract the schema declares on no relation, in fieldDescOf and at the derived
- * field cast to it.
+ * A contract a derived field is cast to is the schema's, whether a relation's field or the definition's cast alone
+ * declares it, and the derived field's descriptor is the contract's as declared.
  *
  * Budget: 40 runs and 40 steered cases, what its suite stated before it became a property
  * (test/unit/derived/fields.test.ts:186 at 8cad5bce, its runs and its coverage's cases).
  */
-export const derivedFieldInferenceRefusesAContractTheSchemaDeclaresOnNoRelationInFieldDescOfAndAtTheDerivedFieldCastToIt =
+export const aContractADerivedFieldIsCastToIsTheSchemasWhetherARelationOrTheCastAloneDeclaresItAndIsTheFieldsDescriptor =
 	property.explore(contractCaseGen, {
 		needs: {},
 		budget: { runs: 40, steered: 40 },
-		situations: ["declared", "undeclared"] satisfies ReadonlyArray<
-			Reached<"declared" | "undeclared">
-		>,
-		check: (_, c: Case<"declared" | "undeclared">) => (k) =>
+		situations: [
+			"by a relation",
+			"by the cast alone",
+			"head",
+			"max",
+			"import"
+		] satisfies ReadonlyArray<Reached<ContractFeature>>,
+		check: (_, c: Case<ContractFeature>) => (k) =>
 			Effect.sync(() => {
 				const contracts = Arr.map(k.contracts, (checked, i) =>
 					checked
@@ -165,6 +176,9 @@ export const derivedFieldInferenceRefusesAContractTheSchemaDeclaresOnNoRelationI
 						: bareContract(`Cents${i}`, pg.bigint)
 				)
 				const target = defined(contracts[k.target], "the target contract")
+				/** The key the target's module holds, which a cast into a consumer's contract takes (scalar/contract.ts
+				 * admitMintKey, since 97c8891645). */
+				const key = Symbol(`Cents${k.target}`)
 				const holders = Record.fromEntries(
 					Arr.flatMap(contracts, (cents, i) =>
 						Arr.contains(k.declared, i)
@@ -179,65 +193,91 @@ export const derivedFieldInferenceRefusesAContractTheSchemaDeclaresOnNoRelationI
 				)
 				const Line = relation("Line", { id: Id, amount: pg.bigint }, ["id"])
 				const L = schema("L", [...Record.values(holders), Line], [])
-				const q = queryOver(L).rule((r: RuleValue) => {
-					const vars = varsOver(Line, "line")
-					return r.match(Line, { id: vars["id"], amount: vars["amount"] }).find({
-						id: vars["id"],
-						c: computeCore.when(
-							computeCore.nonnegative(vars["amount"]),
-							(a: unknown) => computeCore.cast(a, target),
-							computeCore.literal(target, 0n)
-						)
-					})
-				})
-				const analyzed = Result.flatMap(
-					checkedIn(runtimeSchema.extend([L], "Level1", [runtimeDerived("T", q, [])], [], [])),
-					analysesOf
-				)
-				const owned = checking(L).owned
-				const holder = owned.relations[`Holder${k.target}`]
-				if (holder !== undefined) {
-					c.note("declared")
-					assert.ok(holder.desc.kind === "relation", "a holder is a relation")
-					const declared = defined(holder.desc.fields["price"], "the holder's price").type
-					const a = succeeded(analyzed)
-					assert.deepEqual(
-						defined(
-							Option.getOrUndefined(
-								Arr.findFirst(defined(a.relations["T"]).heading, (col) => col.name === "c")
-							)
-						).desc,
-						declared
+				/** The line's amount cast to the target contract under its key where it is no negative, else the contract's
+				 * zero. */
+				const cast = (amount: unknown): unknown =>
+					computeCore.when(
+						computeCore.nonnegative(amount),
+						(a: unknown) => computeCore.cast(a, target, key),
+						computeCore.literal(target, 0n)
 					)
-					return
-				}
-				c.note("undeclared")
-				assert.ok(!analyzed.ok && analyzed.error.reason._tag === "DerivedRefused")
-				assert.deepEqual(analyzed.error.reason.cause, {
-					kind: "undeclaredContract",
-					relation: "T",
-					field: "c",
-					contract: `Cents${k.target}`
+				/** Each line with its cast amount. */
+				const lines = queryOver(L).rule((r: RuleValue) => {
+					const vars = varsOver(Line, "line")
+					return r
+						.match(Line, { id: vars["id"], amount: vars["amount"] })
+						.find({ id: vars["id"], c: cast(vars["amount"]) })
 				})
-				const typeOf = scalarOf(field.contract(`Cents${k.target}`, field.bigint, undefined), {})
-				const out = fieldDescOf(typeOf, ownedContractsByName(owned.contracts))
-				assert.deepEqual(!out.ok && out.error, {
-					kind: "undeclared",
-					contract: `Cents${k.target}`
-				})
+				const q =
+					k.site === "head"
+						? lines
+						: k.site === "max"
+							? queryOver(L).rule((r: RuleValue) => {
+									const vars = varsOver(Line, "line")
+									return r
+										.match(Line, { id: vars["id"], amount: vars["amount"] })
+										.find({ c: r.max(cast(vars["amount"])) })
+								})
+							: queryOver(L).rule((r: RuleValue) => {
+									const vars = varsOver(lines, "cast")
+									return r
+										.match(lines, { id: vars["id"], c: vars["c"] })
+										.find({ id: vars["id"], c: vars["c"] })
+								})
+				c.note(k.site)
+				const extended = runtimeSchema.extend([L], "Level1", [runtimeDerived("T", q, [])], [], [])
+				const a = succeeded(Result.flatMap(checkedIn(extended), analysesOf))
+				const owned = checking(extended).owned
+				const name = `Cents${k.target}`
+				const declared = defined(owned.contracts[name], `the schema's contract ${name}`)
+				c.note(
+					owned.relations[`Holder${k.target}`] === undefined ? "by the cast alone" : "by a relation"
+				)
+				const desc = defined(
+					Option.getOrUndefined(
+						Arr.findFirst(defined(a.relations["T"]).heading, (col) => col.name === "c")
+					)
+				).desc
+				assert.deepEqual(desc, declared.desc)
+				const typeOf = scalarOf(field.contract(name, field.bigint, undefined), {})
+				assert.deepEqual(
+					succeeded(fieldDescOf(typeOf, ownedContractsByName(owned.contracts))),
+					declared.desc
+				)
 			}),
 		oracle: {
 			kind: "specification",
-			name: "a contract no relation declares has no descriptor; one a relation declares is the derived field's"
+			name: "a contract a relation's field or a derived definition's cast types a value by is the schema's, and the derived field's descriptor is it as declared"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/derived/fields.test.ts#aContractADerivedFieldIsCastToIsTheSchemasWhetherARelationOrTheCastAloneDeclaresItAndIsTheFieldsDescriptor:-:1.0.0.2"
+				),
+				reason:
+					"A contract only a cast in the head of a query the definition imports names: the ledger's PresentTime, its pieces cast to PieceStart in its import, whose canonical relation was live, its field refused as a contract the schema declares nowhere",
+				since: "2026-11-25"
+			}
+		],
 		kills: [
 			{
-				file: "packages/engine/src/schema/field-desc.ts",
-				original: '\t\t\treturn Result.err({ kind: "undeclared", contract: contract.name })',
+				file: "packages/engine/src/schema/own.ts",
+				original: "\t\t\t\tfor (const d of queryUses(entry.desc.query).contracts) {",
 				replacement:
-					'\t\t\treturn Result.err({ kind: "undeclared", contract: contract.base.carrier })',
-				why: "A column whose contract is undeclared is refused naming its base's carrier for the contract; the undeclared contracts' property fails."
+					"\t\t\t\tfor (const d of queryUses(entry.desc.query).contracts.filter(() => false)) {",
+				why: "A contract only a derived definition's cast names is the schema's no longer: the derived field cast to it is refused undeclaredContract, and the cast-alone situation fails."
+			},
+			{
+				file: "packages/engine/src/schema/walk.ts",
+				original: '\t\t\tif (d.kind === "contract") {\n\t\t\t\tthis.contracts.push(d)',
+				replacement: '\t\t\tif (d.kind === "bits") {\n\t\t\t\tthis.contracts.push(d)',
+				why: "A query's casts and typed literals type no value by a contract any more (schema/walk.ts queryUses): the cast-alone situation's contract is undeclared, and the property fails."
+			},
+			{
+				file: "packages/engine/src/schema/walk.ts",
+				original: "\t\tfor (const d of inner.contracts) {\n\t\t\tthis.contracts.push(d)\n\t\t}\n",
+				replacement: "",
+				why: "A query's imports type no value by a contract for the query that imports them: a cast in an imported query's head names a contract the schema declares nowhere, and the import site fails, as the ledger's PresentTime was refused."
 			}
 		]
 	})

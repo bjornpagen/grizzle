@@ -46,7 +46,7 @@ export class KeyedList<Row extends object> implements Iterable<Row> {
 			const key = keyOf(fields, row)
 			const form = formOf(key)
 			if (value.#nodes.has(form)) {
-				throw defect("a read delivered two rows of one key: its served key fields are no key")
+				defect("a read delivered two rows of one key: its served key fields are no key")
 			}
 			value.#link({ key, form, row, prev: undefined, next: undefined }, value.#tail)
 		}
@@ -144,7 +144,7 @@ export class KeyedList<Row extends object> implements Iterable<Row> {
 		this.#remove(form)
 		const prev = after === null ? undefined : this.#nodes.get(formOf(after))
 		if (after !== null && prev === undefined) {
-			throw defect("an upsert follows a key its value does not hold")
+			defect("an upsert follows a key its value does not hold")
 		}
 		this.#link({ key, form, row, prev: undefined, next: undefined }, prev)
 	}

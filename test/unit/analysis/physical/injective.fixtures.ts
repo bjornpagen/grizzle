@@ -7,7 +7,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { floatLiteral } from "#compiler/ir/carriers.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { builtExpr, type ScalarExpr, type TypedLiteral } from "#compiler/ir/expr.ts"
-import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, type ScalarType, subsumes } from "#compiler/ir/scalar.ts"
 import { binaryCoercion, castOf } from "#compiler/scalar/compute/registry.ts"
 import { anyNumeric } from "#compiler/scalar/compute/types.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
@@ -157,10 +157,15 @@ export const dictionary: ReadonlyArray<{
 ]
 
 /**
- * A cast of `arg` into `type` as the registry names it: the coercion within a carrier, a cast defined on every value,
- * or a narrowing beside a proof, which the evaluator never reads; the evaluator states where a narrowing is undefined.
+ * A cast of `arg` into `type` as the registry names it: none where `type` subsumes the argument's, the value standing as
+ * it is (ir/scalar.ts subsumes; ir/expr.ts builtExpr refuses the up-cast); the coercion within a carrier, a cast defined
+ * on every value, or a narrowing beside a proof, which the evaluator never reads; the evaluator states where a narrowing
+ * is undefined.
  */
 const castNode = (arg: ScalarExpr, type: ScalarType, id: ExprId): ScalarExpr => {
+	if (subsumes(type, arg.type)) {
+		return arg
+	}
 	const from = baseOf(arg.type).carrier
 	const to = baseOf(type).carrier
 	const native = from === to ? undefined : castOf(from, to)
@@ -237,6 +242,7 @@ export const family = (t: ScalarType): Family => {
 		case "float4":
 		case "float8":
 			return "float"
+		case "variant":
 		case "bool":
 		case "code":
 		case "bits":

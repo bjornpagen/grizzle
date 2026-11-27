@@ -22,6 +22,15 @@ export type DeclaredFeature =
 	| "an index led by a column of many values in no unit"
 	| "a member's index led by a column no fact binds to its unit"
 	| "a column determining an anchor"
+	| "a member's index led by a spanning binding's column"
+	| "a spanning lead beside another anchor"
+
+/** What the lesson's property reads (declared.test.ts): reads that bind a unit beside indexes a spanning column leads. */
+export type LessonFeature =
+	| "a read binding the unit beside a spanning index"
+	| "a spanning index binding a pair's lead"
+	| "a spanning index binding no anchor"
+	| "a read binding the unit through a key"
 
 /** A sequence of distinct columns of `columns`, `min` to `max` of them. */
 const sequenceGen =
@@ -214,6 +223,73 @@ export const unitTail = (shape: RelationShape): ReadonlyArray<string> =>
 		),
 		{ onNone: () => [], onSome: (at) => shape.unit.slice(at + 1) }
 	)
+
+/**
+ * The columns that scope a member's rows: its unit's fields and each key's first column of many values, the scope of
+ * its rows; none in a relation in no unit. A binding holding none spans the member's units.
+ */
+export const scopingColumns = (shape: RelationShape): ReadonlySet<string> =>
+	new Set(
+		shape.unit.length === 0
+			? []
+			: [...shape.unit, ...Arr.flatMap(shape.keys, (k) => Option.toArray(scopeOf(shape, k)))]
+	)
+
+/**
+ * The columns the declaration takes as anchors for leading an index a binding spanning a member's units binds whole
+ * (physical/statistics/declared.ts spanningLeads): the first column of many values of the index's leading run a
+ * binding holding none of the columns that scope the member's rows (`scopingColumns`) binds whole, its every column
+ * leading the index.
+ */
+export const spanningLeadsOf = (shape: RelationShape): ReadonlySet<string> => {
+	const scoping = scopingColumns(shape)
+	return new Set(
+		Arr.flatMap(shape.unit.length === 0 ? [] : shape.bindings, (binding) => {
+			const bound = new Set(binding.columns)
+			if (bound.size === 0 || Arr.some(binding.columns, (c) => scoping.has(c))) {
+				return []
+			}
+			return Arr.flatMap(shape.indexes, (index) => {
+				const run = boundPrefix(index, bound)
+				return run.length === bound.size ? Option.toArray(scopeOf(shape, run)) : []
+			})
+		})
+	)
+}
+
+/**
+ * The exponent of the rows PostgreSQL reads through `index` for a binding whose equalities stop at `run` on it, clamped
+ * at one row as it clamps them (selfuncs.c clamp_row_est): a unique index of a key `run` holds whole at one tuple
+ * whatever the statistics (btcostestimate), any other at `estimate`'s rows; a set of growing rows at infinity.
+ */
+export const priced = (
+	shape: RelationShape,
+	declared: ReadonlyMap<string, DeclaredDistinct>,
+	dependencies: ReadonlyArray<DeclaredDependency>,
+	index: ReadonlyArray<string>,
+	run: ReadonlyArray<string>
+): number => {
+	if (
+		Arr.some(
+			shape.keys,
+			(k) =>
+				k.length === index.length &&
+				Arr.every(k, (c, at) => index[at] === c) &&
+				Arr.every(k, (c) => run.includes(c))
+		)
+	) {
+		return 0
+	}
+	const e = estimate(declared, dependencies, run)
+	switch (e.kind) {
+		case "rows":
+			return Math.max(0, e.log2)
+		case "belowOne":
+			return 0
+		case "growing":
+			return Number.POSITIVE_INFINITY
+	}
+}
 
 /** Whether a set of columns holds a key of the shape: every column of one but those of one value, the unit's key's
  * fields after its first of many values and a roster's of one handle. */

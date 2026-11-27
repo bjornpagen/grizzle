@@ -12,10 +12,8 @@ import {
 	type ChildLaw,
 	type Delivery,
 	type Layout,
-	noChild,
 	type RecordField,
 	type Row,
-	someChild,
 	textColumn
 } from "#compiler/core/decoder.ts"
 import { codeNames } from "#compiler/ir/codes.ts"
@@ -82,9 +80,6 @@ export const parentRow = (n: number): Row => ({
 	]
 })
 
-/** How a field reads the children: an attachment delivering one of the three ways, or an alternatives arm's. */
-type Reader = Delivery | "a selected arm" | "an unselected arm"
-
 /** What the contract makes of `n` children under `reader`: the children, an Option, the one child, or a defect. */
 type Expected =
 	| { readonly kind: "children"; readonly n: number }
@@ -92,7 +87,7 @@ type Expected =
 	| { readonly kind: "one"; readonly child: { readonly c: string } }
 	| { readonly kind: "defect"; readonly law: ChildLaw }
 
-export const expected = (reader: Reader, n: number): Expected => {
+export const expected = (reader: Delivery, n: number): Expected => {
 	switch (reader) {
 		case "array":
 			return { kind: "children", n }
@@ -103,46 +98,25 @@ export const expected = (reader: Reader, n: number): Expected => {
 					? { kind: "option", child: Option.some(childOf("c0")) }
 					: { kind: "defect", law: "atMostOne" }
 		case "one":
-		case "a selected arm":
 			return n === 1
 				? { kind: "one", child: childOf("c0") }
 				: { kind: "defect", law: n === 0 ? "exactlyOne" : "atMostOne" }
-		case "an unselected arm":
-			return n === 0 ? { kind: "option", child: Option.none() } : { kind: "defect", law: "none" }
 	}
 }
 
-export const fieldOf = (reader: Reader): RecordField<unknown> => {
-	switch (reader) {
-		case "array":
-		case "option":
-		case "one":
-			return attachment(child, reader)
-		case "a selected arm":
-			return someChild(child)
-		case "an unselected arm":
-			return noChild(child)
-	}
-}
+export const fieldOf = (reader: Delivery): RecordField<unknown> => attachment(child, reader)
 
 interface DeliveryCase {
-	readonly reader: Reader
+	readonly reader: Delivery
 	readonly proved: Delivery
 	readonly n: number
 }
 
-const readers: Arr.NonEmptyReadonlyArray<Reader> = [
-	"array",
-	"option",
-	"one",
-	"a selected arm",
-	"an unselected arm"
-]
 const deliveriesList: Arr.NonEmptyReadonlyArray<Delivery> = ["array", "option", "one"]
 
 /** Every reader under every proof that licenses it, over zero to three children. */
 export const deliveryCases: Gen<DeliveryCase> = (source) => ({
-	reader: source.draw(element(readers)),
+	reader: source.draw(element(deliveriesList)),
 	proved: source.draw(element(deliveriesList)),
 	n: source.draw(int(0, 3))
 })

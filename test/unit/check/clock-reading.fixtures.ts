@@ -54,15 +54,20 @@ export const deadlineFeature = (d: Deadline): DeadlineFeature =>
 			? "a micros deadline past bigint"
 			: "a deadline past its field's bound"
 
+const delayKey = Symbol("Delay")
+const dueKey = Symbol("Due")
+const instantKey = Symbol("DenInstant")
 /** The case's schema and its clocked write's ChangeSet, built as a JavaScript caller builds them. */
 export const deadlineOf = (d: Deadline) => {
-	const Instant = contract("DenInstant", pg.bigint)
+	const Instant = contract<typeof instantKey>()("DenInstant", pg.bigint)
 	const Due =
 		d.due === "unbounded"
-			? contract("Due", pg.bigint)
-			: contract("Due", pg.bigint, (t) => Logic.le(t, 10n ** 16n))
+			? contract<typeof dueKey>()("Due", pg.bigint)
+			: contract<typeof dueKey>()("Due", pg.bigint, (t) => Logic.le(t, 10n ** 16n))
 	const bound = 10n ** BigInt(d.exponent)
-	const Delay = contract("Delay", pg.bigint, (t) => Logic.and(Logic.ge(t, 0n), Logic.le(t, bound)))
+	const Delay = contract<typeof delayKey>()("Delay", pg.bigint, (t) =>
+		Logic.and([Logic.ge(t, 0n), Logic.le(t, bound)])
+	)
 	const Step = relation("Step", { step: pg.integer, at: Instant, delay: Delay, due: Due }, ["step"])
 	const Deadlines = schema("Deadlines", [Step], [])
 	const spawned = query(Deadlines).rule((r) => {
@@ -72,7 +77,7 @@ export const deadlineOf = (d: Deadline) => {
 			step: row.step,
 			at: r.param("now", Instant),
 			delay: row.delay,
-			due: Type.cast(Num.add(Type.base(r.param("now", Instant)), Type.base(row.delay)), Due)
+			due: Type.cast(Num.add(Type.base(r.param("now", Instant)), Type.base(row.delay)), Due, dueKey)
 		})
 	})
 	return { schema: Deadlines, changeSet: () => ChangeSet.empty(Deadlines).insert(Step, spawned) }

@@ -2,8 +2,9 @@
 
 import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
-import { Array as Arr, Option } from "effect"
+import { Array as Arr, Number as Num, Option, Order } from "effect"
 import { readSnapshot } from "#adapter/boundary/snapshot.ts"
+import { compareIdentities, type Identity, identity } from "#compiler/core/identity.ts"
 import type { Slot, Step } from "#compiler/deploy/diff/plan.ts"
 import { writeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
@@ -15,16 +16,43 @@ import { lit, types } from "#compiler/sql/build.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
 	asDrafted,
+	compile,
 	draftChain,
 	fromEmpty,
 	fromSnapshot,
 	noDeclarations
 } from "#test/support/migrate/kit.ts"
 
-/** A stored derived relation of the schema, in install order: Ones and Twos over T, at level 1, and Fives over Ones, at
- * level 2. */
+/** A stored derived relation of the schema: Ones and Twos over T, at level 1, and Fives over Ones, at level 2. */
 export const views = ["Ones", "Twos", "Fives"] as const
 export type View = (typeof views)[number]
+
+/** Each stored relation's derived level. */
+const levels: Readonly<Record<View, number>> = { Ones: 1, Twos: 1, Fives: 2 }
+
+/**
+ * `some` in the install order of a version's stored tables (`identities`): level by level, the tables of one level in
+ * the order of the identities their names are minted from, each its canonical form's (core/identity.ts view, its form's
+ * digest), as the installation orders a hashed name (physical/obligations/graph.ts), never by the name's own digest,
+ * which is no order: two of one level stand in an order no relation's name decides.
+ */
+export const inInstallOrder = (
+	identities: ReadonlyMap<View, Identity<"view">>,
+	some: ReadonlyArray<View>
+): ReadonlyArray<View> => {
+	const minted = (view: View): Identity<"view"> =>
+		defined(identities.get(view), `${view}'s canonical identity`)
+	return Arr.sort(
+		some,
+		Order.combine(
+			Order.mapInput(Order.Number, (view: View) => levels[view]),
+			Order.mapInput(
+				(x: Identity<"view">, y: Identity<"view">) => Num.sign(compareIdentities(x, y)),
+				minted
+			)
+		)
+	)
+}
 
 /**
  * What the second version changes: nothing; how Ones is lowered alone, its installed definition another lowering's of
@@ -170,19 +198,24 @@ export interface ViewStep {
 	readonly slot: Slot
 }
 
-/** What one draft does to the stored tables, in step order, the snapshot it continues and the one it leaves. */
+/**
+ * What one draft does to the stored tables, in step order, the snapshot it continues and the one it leaves, and the
+ * identity each stored table of its version is named from (`inInstallOrder`).
+ */
 export interface ViewDraft {
 	readonly created: ReadonlyArray<ViewStep>
 	readonly filled: ReadonlyArray<ViewStep>
 	readonly steps: number
 	readonly previous: DeploySnapshot
 	readonly snapshot: DeploySnapshot
+	readonly identities: ReadonlyMap<View, Identity<"view">>
 }
 
 const viewDraft = (
 	previous: DeploySnapshot,
 	snapshot: DeploySnapshot,
-	steps: ReadonlyArray<Step>
+	steps: ReadonlyArray<Step>,
+	identities: ReadonlyMap<View, Identity<"view">>
 ): ViewDraft => {
 	const statements = Arr.flatMap(steps, (step) =>
 		step.draft.kind === "statement" ? [{ slot: step.slot, statement: step.draft.statement }] : []
@@ -200,8 +233,17 @@ const viewDraft = (
 		),
 		steps: steps.length,
 		previous,
-		snapshot
+		snapshot,
+		identities
 	}
+}
+
+/** The identity each stored relation of `desc` is named from: its canonical form's (analysis/derived/canonical.ts). */
+const identitiesOf = (desc: ReturnType<typeof schemaOf>): ReadonlyMap<View, Identity<"view">> => {
+	const checked = compile(desc, asDrafted).checked
+	return new Map(
+		Arr.map(views, (view) => [view, identity.view(checked.canonicalOf(view).digest)] as const)
+	)
 }
 
 /** The two drafts of `change`: the first version's from no installation, and the second's over the first's snapshot as
@@ -226,7 +268,17 @@ export const viewDrafts = (
 	)
 	const two = defined(second, "the second migration")
 	return {
-		first: viewDraft(one.snapshot, one.snapshot, one.plan.steps),
-		second: viewDraft(previous, two.snapshot, two.plan.steps)
+		first: viewDraft(
+			one.snapshot,
+			one.snapshot,
+			one.plan.steps,
+			identitiesOf(schemaOf(change, "first"))
+		),
+		second: viewDraft(
+			previous,
+			two.snapshot,
+			two.plan.steps,
+			identitiesOf(schemaOf(change, "second"))
+		)
 	}
 }

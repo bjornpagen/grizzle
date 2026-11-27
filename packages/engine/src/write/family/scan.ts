@@ -255,7 +255,7 @@ const ownValue =
 			if (generation !== undefined) {
 				return lowering.expression(generation, (name) => value(columnKeyOf(name)))
 			}
-			throw defect(`the column ${k} of ${relation.name}, which a write reads`)
+			defect(`the column ${k} of ${relation.name}, which a write reads`)
 		}
 		return value(key)
 	}
@@ -503,7 +503,7 @@ export const scanOf = (lowering: ScanLowering, supply: NameSupply, spec: ScanSpe
 		if (ready.length === 0) {
 			const chain = waitingChains.find((x) => [...x.reads].every((k) => drawn.has(k)))
 			if (chain === undefined) {
-				throw defect(
+				defect(
 					`an order of the layers of ${spec.family.id.owner}.${spec.family.id.count}'s scan on ${spec.member.name}, whose columns read each other within a row only where the fill order refuses them`
 				)
 			}
@@ -653,7 +653,7 @@ const columnOf = (
 			const own = defined(rule.befores[plane], `the before of plane ${plane}`)
 			const pred = spec.drawn.find((d) => columnKey(d.column) === columnKey(own))
 			if (pred?.rule.kind !== "predecessor" || columnKey(pred.rule.to) !== columnKey(c.column)) {
-				throw defect(
+				defect(
 					`the before ${columnKey(own)} of ${columnKey(c.column)}, which its predecessor axis copies from the after before it`
 				)
 			}
@@ -685,7 +685,7 @@ const columnOf = (
 		case "end":
 		case "last":
 		case "generated":
-			throw defect(
+			defect(
 				`a ${rule.kind} rule among the columns a scan of ${spec.family.id.owner}.${spec.family.id.count} draws`
 			)
 	}
@@ -983,7 +983,7 @@ const chainLayer = (
 					case "ownerCopy":
 					case "last":
 					case "generated":
-						throw defect(`a ${rule.kind} rule among the columns a chain of a scan draws`)
+						defect(`a ${rule.kind} rule among the columns a chain of a scan draws`)
 				}
 			})()
 			const base = lowering.baseType(c.type)

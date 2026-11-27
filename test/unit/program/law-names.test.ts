@@ -100,7 +100,7 @@ const selected = (shape: Shape) =>
 				case "compare":
 					return Logic[x.op](m.number, x.value)
 				case "or":
-					return Logic.or(build(x.left), build(x.right))
+					return Logic.or([build(x.left), build(x.right)])
 				case "not":
 					return Logic.not(build(x.arg))
 				case "in":

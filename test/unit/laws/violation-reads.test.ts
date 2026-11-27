@@ -44,7 +44,7 @@ import { planFiles } from "#compiler/deploy/phases/files.ts"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { installationsOf, own, rostersOf } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
@@ -360,20 +360,6 @@ export const aUnitLocalRulesJudgeAndCheckReadEachStepByWhatTheStepsBeforeItBound
 			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: "\t\tconst inside = boundInside(source, m.bindings, fixed, columns)",
-				replacement: "\t\tconst inside = source",
-				why: "An aggregate's import is navigated apart from the unit its groups are bound to: the judged statement computes Known's count over the key set of every unit the transaction wrote at each row of its region and keeps the row's unit after, U units' imports at each of U rows, every step still a lookup by what the steps before it bound; it fails the key's case."
-			},
-			{
-				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original:
-					'\treturn (term) => (term.kind === "var" ? fixed(term.var) : isFixed(term) ? term : undefined)',
-				replacement:
-					'\treturn (term) => (term.kind === "var" ? undefined : isFixed(term) ? term : undefined)',
-				why: "A variable the aggregate's rule equates with the unit's channel is no fixed term, so the unit stops at the aggregate's rule and its import's chain reads every Op row once per unit; it fails the key's case."
-			},
-			{
-				file: "packages/engine/src/analysis/theory/navigate.ts",
 				original: "\treturn { one, most, every, filtersJoin }",
 				replacement: "\treturn { one, most: one, every: one, filtersJoin }",
 				why: "A filter of a rule over an import of several rules is read as written, Two's two rules over ops each a core of the three reads ops joins, derived whole and anti-joined to Known by PostgreSQL's estimates; it fails the containment's case."
@@ -386,8 +372,8 @@ export const aUnitLocalRulesJudgeAndCheckReadEachStepByWhatTheStepsBeforeItBound
 			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: "\t\t\tif (!splits(rule) || !someConjunctionJoins(interned.reads(rule))) {",
-				replacement: "\t\t\tif (true || !someConjunctionJoins(interned.reads(rule))) {",
+				original: "\t\t\tif (!splits(arm) || !someConjunctionJoins(interned.reads(arm))) {",
+				replacement: "\t\t\tif (true || !someConjunctionJoins(interned.reads(arm))) {",
 				why: "A rule over Either, a union of Op's and Item's rows, is read as written beside its negation of Two, which is derived whole and anti-joined to it; it fails the union's case."
 			},
 			{

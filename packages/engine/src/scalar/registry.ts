@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
@@ -9,7 +10,13 @@ import {
 	unsupported
 } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
-import { admitDeclaredName, type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
+import {
+	admitDeclaredName,
+	type DeclaredName,
+	parseDeclaredName,
+	parseDerivedName,
+	type HeldName
+} from "#compiler/core/identity.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import {
 	type Built,
@@ -35,6 +42,7 @@ import {
 	type ExactValueCarrier,
 	isDateType,
 	isExactValue,
+	inRosterOrder,
 	isRosterSubset,
 	languageOctets,
 	languageWithin,
@@ -49,7 +57,12 @@ import {
 	type ScalarType,
 	type SpanCarrier,
 	textInfoOf,
-	typeLabel
+	typeLabel,
+	type VariantArm,
+	type ArmField,
+	type VariantInfo,
+	variantOnly,
+	type VariantType
 } from "#compiler/ir/scalar.ts"
 import type { TextSearchConfiguration } from "#compiler/ir/search.ts"
 import { minted, mintedRefusal } from "#compiler/scalar/minted.ts"
@@ -68,7 +81,8 @@ const tieBreakingCarriers: ReadonlySet<Carrier> = new Set<Carrier>([
 	"code",
 	"bits",
 	"bytes",
-	"tsvector"
+	"tsvector",
+	"variant"
 ])
 
 /**
@@ -141,7 +155,8 @@ export const carrierSql = {
 	vector: "vector",
 	tsvector: "tsvector",
 	exactInteger: "exact integer",
-	exactMoney: "exact money"
+	exactMoney: "exact money",
+	variant: "variant"
 } as const satisfies { readonly [C in Carrier]: string }
 
 /** A descriptor's SQL type name, the `sql` member of every descriptor and term: one of carrierSql's. */
@@ -199,7 +214,7 @@ const owned = new WeakSet<object>()
 
 /**
  * Freezes `target` with its members, registers it as an owned descriptor, and returns it. `target` is an object or,
- * for a value-and-callable descriptor (a contract), a function. Every member is non-writable;
+ * for a value-and-callable descriptor (pg.numeric, whose call is numeric(p, s)), a function. Every member is non-writable;
  * the public ones, the column among them, are enumerable, and the internal desc and scalar are not enumerated. A caller
  * leaves an absent optional member out of `members`. Only defineField reaches it, so every owned descriptor was
  * decoded and checked.
@@ -443,28 +458,15 @@ const statesLaw = (value: object): boolean =>
 /**
  * A copy of a descriptor that states a law (statesLaw), registered wherever the descriptor it copies is, so every
  * reader reads it as it reads that one: law(...)'s value (schema/law-entries.ts), the copy the catalog entry its author
- * declares is held for, the descriptor copied left as it was. Every own property is copied as it stands, onto a brand
- * constructor where the descriptor is one, which brands as it does, and onto a record otherwise. Undefined for any
- * other value, which states no law of its own.
+ * declares is held for, the descriptor copied left as it was. Every own property is copied as it stands onto a record:
+ * no descriptor that states a law is a function. Undefined for any other value, which states no law of its own.
  */
 export const descriptorCopy = <F extends object>(value: F): F | undefined => {
 	if (!statesLaw(value)) {
 		return undefined
 	}
-	const keys = Reflect.ownKeys(value).filter((key) => key !== "length" && key !== "prototype")
-	const target =
-		typeof value === "function"
-			? (branded: unknown): unknown => Reflect.apply(value, undefined, [branded])
-			: {}
-	for (const key of keys) {
-		Object.defineProperty(target, key, {
-			value: undefined,
-			enumerable: true,
-			writable: true,
-			configurable: true
-		})
-	}
-	const copy = Object.assign(target, value)
+	const keys = Reflect.ownKeys(value)
+	const copy = Object.assign({}, value)
 	for (const key of keys) {
 		const property = Object.getOwnPropertyDescriptor(value, key)
 		if (property !== undefined) {
@@ -559,11 +561,12 @@ export const describeFieldOrThrow = (value: unknown, loc: SourceLoc): Described 
 }
 
 /**
- * The roster of a closed relation by its declared name: a closedId desc names its roster only (ir/desc.ts), which the
- * registry parses as a declared name before it asks. An environment answers with one roster value for each closed
+ * The roster of a closed relation by its name: a closedId desc names its roster only (ir/desc.ts), which the registry
+ * parses by the characters every relation's name keeps (core/identity.ts parseDerivedName), a declared one's or a
+ * derived one's, before it asks. An environment answers with one roster value for each closed
  * relation it holds, so its handles' digest is taken where the environment makes it, never for each field it types.
  */
-export type RosterLookup = (name: DeclaredName) => Roster | undefined
+export type RosterLookup = (name: HeldName) => Roster | undefined
 
 /**
  * The analyzed language of a conjunction of text patterns, before any byte bound cuts it: the text analysis's
@@ -756,8 +759,180 @@ const scalarAt = (
 			)
 		case "contract":
 			return Result.map(contractInfoOf(desc, env, loc), withContract)
+		case "variant":
+			return variantAt(desc, env, loc)
 	}
 }
+
+/**
+ * Whether a type is a variant arm's field's: any declared type but a variant (a sum is never an arm of another, so a
+ * value has one tag), bytes, which are written and read back in chunks of their own, a search document, PostgreSQL's
+ * parse of a row's texts, a vector, whose dimensions no record text states, and money, exact or not, which travels as
+ * numeric text its statement converts, where a record attribute is read by its own type's input.
+ */
+const isArmFieldType = (t: DeclaredType): boolean => {
+	switch (t.carrier) {
+		case "variant":
+		case "bytes":
+		case "tsvector":
+		case "vector":
+		case "money":
+		case "exactMoney":
+			return false
+		case "bits":
+		case "bool":
+		case "cidr":
+		case "code":
+		case "date":
+		case "exactInteger":
+		case "float4":
+		case "float8":
+		case "inet":
+		case "int2":
+		case "int4":
+		case "int8":
+		case "numeric":
+		case "range4":
+		case "range8":
+		case "rangeDate":
+		case "sha256":
+		case "text":
+		case "uuid":
+			return true
+	}
+}
+
+/** The name no arm's field takes: the host value's discriminant, which names the arm itself. */
+export const variantTagField = "tag"
+
+/**
+ * The variant a Description states (ir/desc.ts FieldDesc variant): its declared name; the roster that tags it, resolved
+ * as a closed id's is; and its arms, at least one, each of a live handle of the roster, each once, in its handle order,
+ * the subset of the roster the variant holds (ir/scalar.ts variantOnly), each field's type resolved as a field's, of a
+ * type an arm holds (isArmFieldType), its name unique in its arm and never `tag`. Anything else is
+ * MalformedDescription, or refused as its fields' types refuse.
+ */
+const variantAt = (
+	desc: Extract<FieldDesc, { readonly kind: "variant" }>,
+	env: ScalarEnv,
+	loc: SourceLoc
+): Result.Result<DeclaredType, CompileError> => {
+	const name = admitDeclaredName(desc.name, `variant name ${JSON.stringify(desc.name)}`, loc)
+	if (!name.ok) {
+		return name
+	}
+	const roster = rosterAt(desc.roster, env, loc)
+	if (!roster.ok) {
+		return roster
+	}
+	if (
+		!inRosterOrder(
+			roster.value,
+			desc.arms.map((arm) => arm.handle)
+		)
+	) {
+		return Result.err(
+			malformedDescription(
+				loc,
+				`a variant's arms, each of a handle of ${roster.value.closed}, each once in its order (${roster.value.handles.join(", ")})`
+			)
+		)
+	}
+	const arms: Array<VariantArm> = []
+	for (const arm of desc.arms) {
+		const armLoc = childLoc(loc, arm.handle)
+		const seen = new Set<string>()
+		const fields: Array<ArmField> = []
+		for (const field of arm.fields) {
+			if (field.name === variantTagField) {
+				return Result.err(
+					ruleRefused(
+						childLoc(armLoc, field.name),
+						"a variant arm's field is named apart from tag, which names its arm"
+					)
+				)
+			}
+			if (seen.has(field.name) || !parseDeclaredName(field.name).ok) {
+				return Result.err(
+					malformedDescription(armLoc, "an arm's fields, each named once by a declared name")
+				)
+			}
+			seen.add(field.name)
+			const fieldLoc = childLoc(armLoc, field.name)
+			const type = scalarAt(field.desc, env, fieldLoc)
+			if (!type.ok) {
+				return type
+			}
+			if (!isArmFieldType(type.value)) {
+				return Result.err(
+					ruleRefused(
+						fieldLoc,
+						"a variant arm's field is a value of a type that is no variant, bytes, search document, vector or money"
+					)
+				)
+			}
+			fields.push(Object.freeze({ name: field.name, type: type.value }))
+		}
+		arms.push(
+			Object.freeze({ handle: arm.handle, fields: Object.freeze(fields), check: undefined })
+		)
+	}
+	const [first, ...rest] = arms
+	if (first === undefined) {
+		return Result.err(
+			ruleRefused(loc, "a variant holds at least one arm, each named by a handle of its roster")
+		)
+	}
+	const unchecked = variantType(name.value, roster.value, [first, ...rest])
+	if (env.kind === "builder" || desc.arms.every((arm) => arm.check === undefined)) {
+		return Result.ok(unchecked)
+	}
+	/** Each arm's check typed over the variant's VALUE, of the variant its fields make, as a contract's predicate is. */
+	const checked: Array<VariantArm> = []
+	for (const [i, arm] of [first, ...rest].entries()) {
+		const check = desc.arms[i]?.check
+		if (check === undefined) {
+			checked.push(arm)
+			continue
+		}
+		const table = env.contractPredicate(check, unchecked, `${name.value}.${arm.handle}`, [])
+		if (!table.ok) {
+			return table
+		}
+		checked.push(Object.freeze({ ...arm, check: table.value }))
+	}
+	const [head, ...tail] = checked
+	return Result.ok(
+		variantType(name.value, roster.value, [defined(head, "a variant's first arm"), ...tail])
+	)
+}
+
+/** The variant type of `name` over `roster` with `arms`, frozen, its keys in the decoder's order (ir/scalar-shape.ts). */
+const variantType = (
+	name: DeclaredName,
+	roster: Roster,
+	arms: NonEmptyReadonlyArray<VariantArm>
+): VariantType =>
+	Object.freeze({
+		carrier: "variant",
+		caps: capabilitiesOf("variant"),
+		contract: undefined,
+		variant: Object.freeze({ name, roster, arms: Object.freeze(arms) })
+	})
+
+/**
+ * The type of a variant's tag (scalar/compute/typing.ts variant), frozen, its keys in the decoder's order: a closed id of
+ * its roster holding the handles its arms name (ir/scalar.ts variantOnly), as closedId(roster, { only }) holds its
+ * subset's, every handle where its arms name every one.
+ */
+export const variantTagType = (variant: VariantInfo): DeclaredType =>
+	Object.freeze({
+		carrier: "code",
+		caps: closedIdCapabilities(variant.roster),
+		contract: undefined,
+		roster: variant.roster,
+		only: variantOnly(variant)
+	})
 
 /**
  * A closed id's capabilities, by its roster's order: an ordered roster's are the code carrier's, and an unordered or a
@@ -774,15 +949,15 @@ const closedIdCapabilities = (roster: Roster): CapabilitySet => {
 }
 
 /**
- * The roster a closed id or a set names, by the closed relation's declared name, as its environment holds it: a name
- * the declared-name rule refuses, or no closed relation's, is MalformedDescription.
+ * The roster a closed id or a set names, by the closed relation's name, as its environment holds it: a name of
+ * characters no relation's name keeps, or no closed relation's, is MalformedDescription.
  */
 const rosterAt = (
 	closed: string,
 	env: ScalarEnv,
 	loc: SourceLoc
 ): Result.Result<Roster, CompileError> => {
-	const name = parseDeclaredName(closed)
+	const name = parseDerivedName(closed)
 	const roster = name.ok ? env.roster(name.value) : undefined
 	return roster === undefined
 		? Result.err(malformedDescription(loc, `a closed relation named ${JSON.stringify(closed)}`))
@@ -859,6 +1034,8 @@ export const descCapabilities = (desc: FieldDesc): CapabilitySet => {
 		}
 		case "contract":
 			return descCapabilities(desc.base)
+		case "variant":
+			return capabilitiesOf("variant")
 	}
 }
 
@@ -988,6 +1165,14 @@ const contractOver = (
 			ruleRefused(
 				loc,
 				"no contract is over an exact value of any size: declare it over pg.bigint, pg.numeric(p, s) or pg.money"
+			)
+		)
+	}
+	if (base.carrier === "variant") {
+		return Result.err(
+			ruleRefused(
+				loc,
+				"no contract is over a variant: its domain holds its arms, and each arm field's type holds its own predicate"
 			)
 		)
 	}

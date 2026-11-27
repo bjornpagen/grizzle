@@ -26,14 +26,18 @@ import type {
 } from "#compiler/sql/ast.ts"
 import { cast, lit, objectName, types } from "#compiler/sql/build.ts"
 import { printCommands, printExpr } from "#compiler/sql/print.ts"
-import { auditStatementViolations, auditTextViolations } from "#test/support/oracle/verify/sql.ts"
+import {
+	auditStatementViolations,
+	auditTextViolations,
+	guardedTermsOf
+} from "#test/support/oracle/verify/sql.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 
 /** `statement`'s commands as a driver sends them, one message each (sql/print.ts printCommands), each audited. */
 export const commands = (statement: SqlStatement): ReadonlyArray<string> => {
 	assert.deepEqual(auditStatementViolations(statement), [])
 	return Arr.map(printCommands(statement), (text) => {
-		assert.deepEqual(auditTextViolations(text), [])
+		assert.deepEqual(auditTextViolations(text, guardedTermsOf(statement)), [])
 		return text
 	})
 }

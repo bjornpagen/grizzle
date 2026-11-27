@@ -5,7 +5,7 @@ import { array, element, type Gen, int, shuffled, weighted } from "@bjornpagen/t
 import { Array as Arr, String as Str } from "effect"
 import { decodedQuery, f, relation, type SchemaDesc, unit } from "#test/support/fixtures/ir/desc.ts"
 
-const Org = relation("Org", { id: f.uuid }, ["id"])
+const Org = relation("Org", { id: f.uuid, n: f.integer }, ["id"])
 
 /** Org, in a unit of its id, so a stored relation over it sits in that unit too. */
 const Base: SchemaDesc = {
@@ -15,7 +15,8 @@ const Base: SchemaDesc = {
 	bases: []
 }
 
-/** A level over Base holding a stored derived relation over Org whose head binds Org's id under two names. */
+/** A level over Base holding a stored derived relation over the Orgs of n at least 0, a selection of Org's rows and so no
+ * copy of them (analysis/derived/storage.ts copiedRelation), whose head binds Org's id under two names. */
 export const pairs = (a: string, b: string): SchemaDesc => ({
 	name: "Upper",
 	bases: [Base],
@@ -28,14 +29,24 @@ export const pairs = (a: string, b: string): SchemaDesc => ({
 				kind: "rules",
 				arms: [
 					{
-						vars: [{ id: "id", origin: { relation: "Org", field: "id" } }],
+						vars: [
+							{ id: "id", origin: { relation: "Org", field: "id" } },
+							{ id: "n", origin: { relation: "Org", field: "n" } }
+						],
 						matches: [
 							{
 								source: { kind: "relation", name: "Org" },
-								bindings: { id: { kind: "var", var: "id" } }
+								bindings: { id: { kind: "var", var: "id" }, n: { kind: "var", var: "n" } }
 							}
 						],
-						where: [],
+						where: [
+							{
+								kind: "compare",
+								op: "ge",
+								left: { kind: "var", var: "n" },
+								right: { kind: "literal", value: 0 }
+							}
+						],
 						head: { [a]: { kind: "var", var: "id" }, [b]: { kind: "var", var: "id" } },
 						interiors: [],
 						attach: []

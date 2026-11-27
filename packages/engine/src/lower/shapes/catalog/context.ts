@@ -16,7 +16,7 @@ import {
 	type VarDecl
 } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
-import { analyzeLogical, keptNodes, queryEvidence } from "#compiler/logical/annotate.ts"
+import { analyzeLogical, keptNodes, type SharedAnalyses } from "#compiler/logical/annotate.ts"
 import type { Props } from "#compiler/logical/props.ts"
 import type { CatalogEditor } from "#compiler/lower/shapes/catalog/edit.ts"
 
@@ -41,6 +41,13 @@ export interface CatalogOptions {
 	/** Resolves a stored relation's declared keys to their installed constraints (analysis/physical/evidence.ts). */
 	readonly catalog: EvidenceCatalog
 	readonly parents: ParentPolicy
+	/**
+	 * The compile's analyses (logical/annotate.ts SharedAnalyses), under the evidence its optimized input is annotated
+	 * with (lower/optimize/pipeline.ts OptimizedInput), which every analysis the catalog makes reads: a node an analysis
+	 * of the compile annotated is read as it stands, so an analysis of a cell annotates the nodes the catalog's rewrites
+	 * built alone.
+	 */
+	readonly analyses: SharedAnalyses
 }
 
 /**
@@ -123,9 +130,9 @@ export class CatalogContext {
 	/**
 	 * The logical properties of `cell` as the cells stand now: a fresh analysis (logical/annotate.ts analyzeLogical) of
 	 * the DAG the roots reach when they reach `cell`, so a node under an attachment is read relative to its parent; else,
-	 * a node a rewrite is still building, of the cells it reaches alone. It runs under the evidence the optimized input is
-	 * annotated with (lower/optimize/pipeline.ts optimizedInput, queryEvidence), so a node a rewrite built is keyed by
-	 * what the analysis proves of it, as every other node is.
+	 * a node a rewrite is still building, of the cells it reaches alone. It runs through the compile's analyses
+	 * (CatalogOptions analyses), so a node a rewrite built is keyed by what the analysis proves of it, as every other node
+	 * is, under the evidence of every other claim of the compile.
 	 */
 	propsOf(cell: Cell): Props {
 		const finished = this.ed.finished()
@@ -133,7 +140,7 @@ export class CatalogContext {
 		const analysis = unwrap(
 			analyzeLogical(
 				this.ed.reachable().has(cell) ? finished.dag : assembledDag([node] as const),
-				queryEvidence,
+				this.options.analyses,
 				keptNodes([node])
 			)
 		)

@@ -8,9 +8,9 @@
  * variables "v#i", occurrences "o#i" and scopes "s#i". ReachNumbering is that numbering, the one the table
  * (normalizeWithin) and the digests read.
  *
- * A digest of the claimed form (claimedNode, tableExprOf) is SHA-256 of its table's canonical text, a call of a
- * volatile function's form holding its label besides (templateForm), so no two calls are one. DagDigests writes
- * each node's and each expression's claimed form once for a DAG, as its canonical bytes with a hole where each name it
+ * A digest of the derivation form (derivationForm, tableExprOf) is SHA-256 of its table's canonical text, a call of a
+ * volatile function's form holding its label besides (templateForm), so no two calls are one. DagDigests writes each
+ * node's and each expression's derivation form once for a DAG, as its canonical bytes with a hole where each name it
  * holds goes (core/canonical.ts writeTemplate), beside the names it gives in the numbering's order (its namings). A
  * digest numbers its reach by replaying those namings (numberReach), then streams the table's text into SHA-256 (core/
  * sha256.ts Sha256Messages): each entry's template copied, its holes filled with this digest's names, the entries in
@@ -50,9 +50,11 @@ import {
 } from "#compiler/ir/expr.ts"
 import { drive } from "#compiler/ir/fold.ts"
 import {
+	conservativeMeta,
 	inputsOf,
 	type LiveRefs,
 	mapNode,
+	type NodeMeta,
 	type RefMap,
 	type RelNode,
 	type Roots,
@@ -279,10 +281,11 @@ export const numberReach = (
 }
 
 /**
- * A node's own fields as a digest reads them: a Delta's without its keys, a view Base's without the keys the checker
- * stamped on it, and a stored Base's without its generated fields' reads (rel.ts StoredBase generated), each its
- * relation's, named already; an Attach's without the delivered type its template's analysis judged, which no SQL reads
- * (rel.ts Attach judged).
+ * A node's own fields as a digest reads them: a Delta's without its keys, a view Base's without the keys and the
+ * dependencies the checker stamped on it, and a stored Base's without its generated fields' reads, its unit's key and
+ * the dependencies its containments give it (rel.ts StoredBase generated, unit, determined), each its relation's, named
+ * already; an Attach's without the delivered type its template's analysis judged, which no SQL reads (rel.ts Attach
+ * judged).
  */
 export const digestedFields = (node: TableNode): object => {
 	if (node.kind === "Delta") {
@@ -293,27 +296,86 @@ export const digestedFields = (node: TableNode): object => {
 		const { judged: _judged, ...digested } = node
 		return digested
 	}
-	if (node.kind === "Base" && node.relationKind !== "relation") {
-		const { view: _views, ...digested } = node
-		return digested
-	}
 	if (node.kind === "Base") {
-		const { generated: _generated, ...digested } = node
-		return digested
+		return digestedBase(node)
 	}
 	return node
 }
 
+/** A Base's own fields as a digest reads them (digestedFields): a view Base's without its stamped keys and dependencies,
+ * a stored Base's without its generated fields' reads, its unit's key and its dependencies. */
+export const digestedBase = (node: Extract<TableNode, { readonly kind: "Base" }>) => {
+	if (node.relationKind !== "relation") {
+		const { view: _views, determined: _determined, ...digested } = node
+		return digested
+	}
+	const { generated: _generated, unit: _unit, determined: _determined, ...digested } = node
+	return digested
+}
+
 /**
- * A node of a normal form as a share or evaluation key reads it: its own fields (digestedFields), its claimed keys as
- * the columns they claim. A key's proof is a value about the DAG its analysis ran over, naming that DAG's labels, which
- * no rename carries (rel.ts MetaSpec), so two sub-queries one template builds alike, each proved over its own nodes,
- * claim the same keys under different proofs.
+ * A node with the metadata an analysis derives, its keys, cardinality and evidence context, the conservative metadata
+ * that claims none (rel.ts conservativeMeta), and its structural fields, which its own fields and its inputs' make
+ * (dag.ts relNode), kept: what derives its rows, which no claim of an analysis enters. A claim is a fact some analysis
+ * proved of the rows, and whether one ran is no part of them: a check completes, and so claims, only a DAG that states
+ * an order or a merge, never a closed import of no order it reads (check/complete.ts completeStated), so of two copies
+ * of one closed relation the checked DAG claims a key of one alone, and an improvement of the analysis changes claims
+ * and not the rows.
  */
-export const claimedNode = (node: TableNode): object => ({
-	...digestedFields(node),
-	meta: { ...node.meta, logicalKeys: node.meta.logicalKeys.map((k) => k.key) }
+export const unclaimed = (node: TableNode): TableNode => ({
+	...node,
+	meta: { ...node.meta, ...conservativeMeta }
 })
+
+/**
+ * A node's metadata as its form writes it (derivationForm, rowsNode): without what its inputs make, the parameters and
+ * the stored relations it reads (rel.ts NodeMeta paramDeps, reads), each its own fields' and its inputs', which its
+ * own fields and its inputs' forms state already. Written at every node, they made each node's form as long as its
+ * reach, so the forms of a nest of n sub-queries the square of n (test/unit/physical/copy-shapes), once every closed
+ * sub-expression of a definition was formed (analysis/derived/canonical.ts).
+ */
+const ownMeta = (meta: NodeMeta) => {
+	const { paramDeps: _paramDeps, reads: _reads, ...own } = meta
+	return own
+}
+
+/**
+ * A node of a normal form as a share or evaluation key reads it: its own fields (digestedFields), unclaimed, so a key is
+ * a function of the derivation alone, and two copies of one sub-query are of one key in every DAG, claimed or not; its
+ * metadata its own (ownMeta).
+ */
+export const derivationForm = (node: TableNode): object => {
+	const claimed = unclaimed(node)
+	return { ...digestedFields(claimed), meta: ownMeta(claimed.meta) }
+}
+
+/**
+ * A node of a normal form as a canonical relation's identity reads it (analysis/derived/canonical.ts): its own fields
+ * (digestedFields) with no key a relation claims, a Base's primary key and further keys and every node's logical keys,
+ * and its metadata its own (ownMeta), so the form is its rows' definition alone. A key is a fact proven of the rows,
+ * never part of what they are: a key added to a relation a stored canonical relation reads leaves its form, and so its
+ * table, as they were, its key indexes migrated and no row filled again.
+ */
+const rowsNode = (node: TableNode): object => {
+	const { logicalKeys: _claimed, ...meta } = ownMeta(node.meta)
+	if (node.kind === "Base") {
+		const { primaryKey: _primaryKey, keys: _keys, ...rows } = digestedBase(node)
+		return { ...rows, meta }
+	}
+	return { ...digestedFields(node), meta }
+}
+
+/**
+ * The form of a node a store of templates writes (DagTemplates): `derivation`, its derivation form (derivationForm),
+ * what a share or evaluation key reads; or `rows`, its rows form (rowsNode), what a canonical relation's identity reads.
+ */
+export type NodeForm = "derivation" | "rows"
+
+/** Each form's writer (NodeForm). */
+const nodeForms: { readonly [F in NodeForm]: (node: TableNode) => object } = {
+	derivation: derivationForm,
+	rows: rowsNode
+}
 
 /**
  * Whether a node calls a volatile function, a declared function's rows (Fn.rows), the one volatile evaluation a DAG
@@ -326,12 +388,12 @@ const callsVolatile = (node: RelNode): boolean =>
 	node.function.volatility === "volatile"
 
 /**
- * A node's claimed form (claimedNode) as its template writes it: a call of a volatile function (callsVolatile) holds its
- * own label as its `evaluation`, which no other node holds, so two equal calls, and every node above either, are of two
+ * A node's form `form` (NodeForm) as its template writes it: a call of a volatile function (callsVolatile) holds its own
+ * label as its `evaluation`, which no other node holds, so two equal calls, and every node above either, are of two
  * keys, and one call read twice is of one, its one evaluation.
  */
-const templateForm = (node: RelNode, entry: TableNode): object =>
-	callsVolatile(node) ? { ...claimedNode(entry), evaluation: node.id } : claimedNode(entry)
+const templateForm = (node: RelNode, entry: TableNode, form: NodeForm): object =>
+	callsVolatile(node) ? { ...nodeForms[form](entry), evaluation: node.id } : nodeForms[form](entry)
 
 /**
  * An expression of a normal form: its spec with its arguments named, its volatility, its own name, and its
@@ -361,7 +423,7 @@ type Naming =
 	| { readonly kind: "scope"; readonly id: ScopeId }
 
 /**
- * A node's or an expression's template: its namings in the numbering's order, and its claimed form's canonical text
+ * A node's or an expression's template: its namings in the numbering's order, and its derivation form's canonical text
  * with a hole for each naming's name (hole i, the i-th naming's), its own name (hole `namings.length`) and an
  * expression's dependencies (hole `namings.length + 1`); or the refusal its form's text is.
  */
@@ -405,7 +467,7 @@ const markedTemplate = (
 		const seen = new Set(text.value.holes)
 		if (seen.size === text.value.holes.length) {
 			if (seen.size !== expected) {
-				throw defect("a template's text writes each name its form holds")
+				defect("a template's text writes each name its form holds")
 			}
 			return { namings: [...namings], text }
 		}
@@ -413,7 +475,7 @@ const markedTemplate = (
 }
 
 /** The marker a naming's family writes, typed as the name it stands for, which the canonical text writes as a string. */
-const nodeTemplateOf = (node: RelNode): Template => {
+const nodeTemplateOf = (node: RelNode, form: NodeForm): Template => {
 	const namings: Array<Naming> = []
 	return markedTemplate(
 		(family, marker) => {
@@ -429,7 +491,7 @@ const nodeTemplateOf = (node: RelNode): Template => {
 			const entry = drive(mapNode<LiveRefs, TableRefs>(node, refs), (input) =>
 				NodeId(marker({ kind: "edge", node: input }))
 			)
-			return templateForm(node, { ...entry, id: NodeId(`~slot${family}:${namings.length}`) })
+			return templateForm(node, { ...entry, id: NodeId(`~slot${family}:${namings.length}`) }, form)
 		},
 		(count) => count + 1,
 		namings
@@ -566,9 +628,18 @@ const numbered = (numbering: Numbering, naming: Naming): void => {
  * its holder's: one write compile (write/program/compile.ts compileAt), or one reader's own.
  */
 export class DagTemplates {
+	/** The form of each node its templates write. */
+	readonly form: NodeForm
 	readonly #nodes = new Map<RelNode, Template>()
 	readonly #exprs = new Map<ScalarExpr, Template>()
+	/** Each closed node's template as a form below it reads it (`closed`). */
+	readonly #closed = new Map<RelNode, Template>()
 	#written = 0
+
+	/** A store whose templates write each node's `form`. */
+	constructor(form: NodeForm) {
+		this.form = form
+	}
 
 	/** How many templates are written: one for each node and expression any key reached, at most. */
 	get written(): number {
@@ -581,8 +652,29 @@ export class DagTemplates {
 		if (known !== undefined) {
 			return known
 		}
-		const template = nodeTemplateOf(node)
+		const template = nodeTemplateOf(node, this.form)
 		this.#nodes.set(node, template)
+		this.#written += 1
+		return template
+	}
+
+	/**
+	 * A closed node's template as a form that reads it below its root writes it (DagDigests `closedDigest`): its digest,
+	 * `digest`, and its own name, its one hole, so the form reads it as that digest alone and walks none of its nodes. No
+	 * node's form is a digest and a name alone: every node's holds its kind.
+	 */
+	closed(node: RelNode, digest: string): Template {
+		const known = this.#closed.get(node)
+		if (known !== undefined) {
+			return known
+		}
+		const namings: Array<Naming> = []
+		const template = markedTemplate(
+			(family) => ({ digest, id: `~slot${family}:0` }),
+			(count) => count + 1,
+			namings
+		)
+		this.#closed.set(node, template)
 		this.#written += 1
 		return template
 	}
@@ -712,7 +804,7 @@ const writeEntry = (
 }
 
 /**
- * The claimed-form digests of one DAG's sub-queries (evaluation keys, a DAG's digest), each node's and expression's
+ * The derivation-form digests of one DAG's sub-queries (evaluation keys, a DAG's digest), each node's and expression's
  * template read from a store (DagTemplates) that writes it once for every reader of the store, and every digest written
  * by one writer (Sha256Messages), so a digest copies its reach's bytes and builds no text. Its lifetime is its DAG's: an
  * EvaluationKeys'.
@@ -724,7 +816,7 @@ export class DagDigests {
 	/**
 	 * The longest table text a digest writes, past which it is refused: V8's longest string in production. The table text
 	 * is hashed and never built, as a digest's text is (core/canonical.ts ByteSink, which has no bound), but this digest
-	 * is a claimed form's, which must refuse where `encode` refuses the form it claims to be (test/unit/ir/dag-digest),
+	 * is a derivation form's, which must refuse where `encode` refuses the form it digests (test/unit/ir/dag-digest),
 	 * so it keeps the bound a built text has.
 	 */
 	readonly #limit: number
@@ -738,8 +830,29 @@ export class DagDigests {
 
 	/** The digest under `domain` of what `roots` reach, its enclosing nodes read as `outer` says (OuterNames). */
 	digest(roots: Roots, domain: string, outer: OuterNames): Result.Result<string, CompileError> {
-		return Result.map(this.#framed(roots, domain, outer), (d) => d.digest)
+		return Result.map(this.#framed(roots, domain, outer, this.#nodeTemplate), (d) => d.digest)
 	}
+
+	/**
+	 * The digest under `domain` of the closed node `root` and what it reaches, each closed node below it whose digest
+	 * `closed` holds read as that digest alone (DagTemplates `closed`), none of its nodes walked again: a form digested
+	 * bottom-up (ir/dag.ts CanonicalDigests), each closed sub-query once however many forms read it.
+	 */
+	closedDigest(
+		root: RelNode,
+		domain: string,
+		closed: (node: RelNode) => string | undefined
+	): Result.Result<string, CompileError> {
+		const templates = this.#templates
+		const template = (node: RelNode): Template => {
+			const digest = node === root ? undefined : closed(node)
+			return digest === undefined ? templates.node(node) : templates.closed(node, digest)
+		}
+		return Result.map(this.#framed([root], domain, "followed", template), (d) => d.digest)
+	}
+
+	/** A node's own template, its form written whole. */
+	readonly #nodeTemplate = (node: RelNode): Template => this.#templates.node(node)
 
 	/**
 	 * The digest under `domain` of what `roots` reach, each node outside it and each column read of one by its place
@@ -747,17 +860,19 @@ export class DagDigests {
 	 * reads outside.
 	 */
 	positional(roots: Roots, domain: string): Result.Result<PositionalDigest, CompileError> {
-		return this.#framed(roots, domain, "positional")
+		return this.#framed(roots, domain, "positional", this.#nodeTemplate)
 	}
 
-	/** The digest of a framed table under `domain`, refused where its form is (#digest). */
+	/** The digest of a framed table under `domain`, each node written as `template` gives it, refused where its form is
+	 * (#digest). */
 	#framed(
 		roots: Roots,
 		domain: string,
-		outer: OuterNames
+		outer: OuterNames,
+		template: (node: RelNode) => Template
 	): Result.Result<PositionalDigest, CompileError> {
 		return Result.flatMap(fingerprintDomain(domain), (line) => {
-			const digested = this.#digest(roots, line, outer)
+			const digested = this.#digest(roots, line, outer, template)
 			if (!digested.ok) {
 				this.#messages.discard()
 			}
@@ -769,14 +884,15 @@ export class DagDigests {
 	#digest(
 		roots: Roots,
 		line: WellFormedText,
-		outer: OuterNames
+		outer: OuterNames,
+		nodeTemplate: (node: RelNode) => Template
 	): Result.Result<PositionalDigest, CompileError> {
 		return catchRefusal(() => {
 			const templates = this.#templates
 			const labels = this.#labels
 			const numbering = new ReachNumbering(() => labels.of(), roots, outer)
 			const rootNumbers = numberReach(numbering, roots, (met) => {
-				const template = met.kind === "node" ? templates.node(met.node) : templates.expr(met.expr)
+				const template = met.kind === "node" ? nodeTemplate(met.node) : templates.expr(met.expr)
 				for (const naming of template.namings) {
 					numbered(numbering, naming)
 				}
@@ -822,7 +938,7 @@ export class DagDigests {
 			out.ascii('},"nodes":{')
 			for (const [at, index] of nameOrder(nodes.length).entries()) {
 				const node = defined(nodes[index], "a node the numbering met")
-				writeEntry(out, names, "n", index, at, templates.node(node), [])
+				writeEntry(out, names, "n", index, at, nodeTemplate(node), [])
 				boundCanonicalText(out.units - start, this.#limit)
 			}
 			out.ascii('},"roots":[')

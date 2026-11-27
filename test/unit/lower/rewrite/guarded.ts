@@ -10,7 +10,7 @@ import {
 import { Array as Arr, Effect } from "effect"
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
-import { nodesByLabel, rooted, topoOrder } from "#compiler/ir/dag.ts"
+import { nodesByLabel, topoOrder } from "#compiler/ir/dag.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import { exprClosure } from "#compiler/ir/expr.ts"
 import type { Pass } from "#compiler/ir/pass.ts"
@@ -189,16 +189,6 @@ const guardShapesOf = (dag: RelDag): ReadonlyArray<GuardShape> =>
 
 /** What a guard search's case reaches: the shapes its input holds, the rules its passes fired, the reference's verdict. */
 export type GuardFeature = GuardShape | CertificateRule | `reference ${RewriteAgreement}`
-
-/**
- * Whether `after`, a node of the rewritten query, delivers the rows `before` delivers in the case's query, by the
- * reference; "unsupported" where the reference evaluates neither alone, as a node correlated with an outer tuple.
- */
-export const rowsAgreeAt = (q: QueryCase, before: RelNode, after: RelNode): RewriteAgreement =>
-	agrees(
-		{ ...q, query: { ...q.query, dag: rooted([before]) } },
-		{ dag: rooted([after]), params: [] }
-	)
 
 /** A sequence of rewrite passes. */
 type Passes = ReadonlyArray<Pass<LogicalQuery, LogicalQuery>>

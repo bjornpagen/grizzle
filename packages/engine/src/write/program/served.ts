@@ -11,6 +11,7 @@ import { prepared } from "#compiler/core/prepared.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { type CallerParamDecl, callerParams, type ClockParamDecl } from "#compiler/ir/products.ts"
 import type {
+	DeclaredValue,
 	RelationColumn,
 	ServedSlot,
 	SlotColumn,
@@ -31,12 +32,15 @@ import {
 	type ServedWriteForm,
 	type WriteExclusion
 } from "#compiler/runtime/write/flight.ts"
-import type { PreparedStaged, Staged } from "#compiler/runtime/write/staged.ts"
 import type { OwnStep, UniqueAbort } from "#compiler/runtime/write/steps.ts"
 import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import type { ServedReadBack } from "#compiler/served/read.ts"
 import { servedReadBacks } from "#compiler/served/spine.ts"
 import type { EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
+import { emitText } from "#compiler/sql/emit.ts"
+import { emptyNameMap } from "#compiler/sql/naming.ts"
+import { type Reach, ReachOf } from "#compiler/sql/reach.ts"
+import { type SeekProgram, seekProgram } from "#compiler/sql/seeks.ts"
 import type { CarrierColumn } from "#compiler/write/carriers/carriers.ts"
 import type { WriteFrontend } from "#compiler/write/frontend/compile.ts"
 import type {
@@ -53,7 +57,19 @@ import { partedOf } from "#compiler/write/program/single.ts"
 const slotColumn = (column: RelationColumn): SlotColumn =>
 	Object.freeze({ name: column.name, type: column.type })
 
-/** A placeholder as a served file holds it (ServedSlot): each column of a relation input its name and type. */
+/** A declared parameter's placeholder as a served file holds it (ServedSlot): a relation's columns each its name and
+ * type. */
+const servedDeclared = (value: DeclaredValue): ServedSlot<DeclaredValue> => {
+	switch (value.kind) {
+		case "scalar":
+			return value
+		case "relation":
+			return Object.freeze({ ...value, columns: Object.freeze(value.columns.map(slotColumn)) })
+	}
+}
+
+/** A placeholder as a served file holds it (ServedSlot): each column of a relation input its name and type, an
+ * admission's the placeholder it admits as one is held. */
 const servedWriteSlot = (slot: WriteParamSlot): ServedSlot<WriteParamSlot> => {
 	switch (slot.kind) {
 		case "scalar":
@@ -62,25 +78,10 @@ const servedWriteSlot = (slot: WriteParamSlot): ServedSlot<WriteParamSlot> => {
 		case "member":
 		case "nestedRows":
 			return Object.freeze({ ...slot, columns: Object.freeze(slot.columns.map(slotColumn)) })
+		case "admission":
+			return Object.freeze({ ...slot, admits: servedDeclared(slot.admits) })
 	}
 }
-
-/** A statement's staged form with each of its texts named, where generate serves its write. */
-const preparedStaged = (staged: Staged): PreparedStaged =>
-	staged.kind === "none"
-		? staged
-		: Object.freeze({
-				kind: "carriers",
-				carriers: mapNonEmpty(staged.carriers, (carrier) =>
-					Object.freeze({
-						empty: prepared(carrier.empty),
-						fill: prepared(carrier.fill),
-						columns: carrier.columns
-					})
-				),
-				sql: prepared(staged.sql),
-				kept: staged.kept
-			})
 
 /** A form's data: its text, named here (core/prepared.ts), and its placeholders. */
 const servedWriteForm = (form: {
@@ -116,7 +117,7 @@ const servedPartedForm = (form: {
 	readonly text: FormText
 }): ServedPartedForm => {
 	if (form.text.kind !== "parted") {
-		throw defect("a single statement's every form is sent by its units")
+		defect("a single statement's every form is sent by its units")
 	}
 	const parted = partedOf(form.ast, form.params.map(servedWriteSlot), form.text.units)
 	return Object.freeze({ units: mapNonEmpty(parted.units, (unit) => Object.freeze(unit)) })
@@ -152,7 +153,6 @@ const servedStep = (step: OwnStep, isolation: Isolation): OwnStep => {
 		case "carrier":
 		case "check":
 		case "familyWrite":
-		case "admission":
 			return step
 	}
 }
@@ -174,8 +174,7 @@ const servedStatements = (
 					kind: "whole",
 					step: servedStep(step, level),
 					form: servedWriteForm({ sql: s.spec.sql, params: s.spec.paramSlots }),
-					forms: servedForms(s.forms, servedWriteForm),
-					staged: preparedStaged(s.staged)
+					forms: servedForms(s.forms, servedWriteForm)
 				})
 			]
 		case "parted":
@@ -197,10 +196,12 @@ const servedStatements = (
  * exclusion; its statements as its application runs them at that level, but the read-backs', which their own programs
  * run, each step with the aborts it meets there, every form its text, parts and slots (ServedStatement); its read-backs
  * as its served file holds them (served/spine.ts servedReadBacks); its stand-ups, every text named
- * (runtime/write/flight.ts StandUp), whether one makes a carrier and the columns of its program carriers; its declared and clocked
+ * (runtime/write/flight.ts StandUp), and the columns of its program carriers; its declared and clocked
  * parameters, its binding; and of its front end the schema it compiled against, the relations it writes and the codes it reads. A compiled write's
  * artifact holds each statement's SQL AST beside its text, which its certification's facts read and nothing after
- * (program/isolation/member-facts.ts), so the servable write holds no AST, no schedule, no placement and no analysis.
+ * (program/isolation/member-facts.ts), so the servable write holds no AST, no schedule, no placement and no analysis:
+ * what the missed-index check reads of its statements is their seek program (`seeks`), which names tables and columns
+ * alone.
  */
 export interface ServableWrite {
 	readonly level: Isolation
@@ -208,14 +209,27 @@ export interface ServableWrite {
 	readonly statements: ReadonlyArray<ServedStatement>
 	readonly readBacks: ReadonlyArray<ServedReadBack>
 	readonly standUps: ReadonlyArray<ServedStandUp>
-	readonly carriers: {
-		readonly creates: boolean
-		readonly columns: ReadonlyArray<CarrierColumn>
-	}
+	readonly carried: ReadonlyArray<CarrierColumn>
 	readonly params: ReadonlyArray<CallerParamDecl>
 	readonly clocked: ReadonlyArray<ClockParamDecl>
 	readonly binding: Binding
 	readonly frontend: Pick<WriteFrontend, "schema" | "written" | "codes">
+	/**
+	 * What every statement its flight may send seeks (sql/seeks.ts seekProgram), read off each statement's AST before
+	 * the AST goes: each form of each, the read-backs' own and the admission among them, which generate judges at the
+	 * installation's indexes once they are planned (physical/access/seeks.ts judgeSeeks, adapter/served/compile.ts
+	 * servedEntry), so a write's seek no index serves is an internal compiler error of generate's. A staged form is the
+	 * inline form with each FROM item of its nested rows read from a carrier under the same alias, rows no index serves
+	 * either way, so it seeks what its inline form seeks; a stand-up reads the session's carriers alone, or calls the
+	 * judge's stand-up, which the installation installs and holds to its indexes itself.
+	 */
+	readonly seeks: SeekProgram
+	/**
+	 * What every statement its flight may send reaches as PostgreSQL runs it (sql/reach.ts), read off each statement's
+	 * AST before the AST goes, as `seeks` is: each form of each, the read-backs' own and the admission among them, and its
+	 * stand-ups' calls, which a bound of the queries one call plans follows into the installation (program/planned.ts).
+	 */
+	readonly reach: Reach
 }
 
 /** `compiled` as everything past its compile reads it (ServableWrite), its statements projected at its level. */
@@ -223,16 +237,19 @@ export const servableWrite = (compiled: CompiledWrite): ServableWrite => {
 	const { artifact } = compiled
 	const standUps = Object.freeze(
 		compiled.standUps.map((s): ServedStandUp =>
-			s.kind === "carrier"
-				? Object.freeze({
-						kind: "carrier",
-						table: prepared(s.table),
-						emptying: prepared(s.emptying),
-						reader: prepared(s.reader)
-					})
-				: Object.freeze({ kind: "judged", call: prepared(s.call) })
+			Object.freeze({ kind: "judged", call: prepared(emitText(s.call, emptyNameMap).text) })
 		)
 	)
+	const statementAsts = artifact.statements.flatMap((s) =>
+		s.forms.kind === "chosen" ? [s.ast, s.forms.large.ast] : [s.ast]
+	)
+	const reach = new ReachOf()
+	for (const ast of statementAsts) {
+		reach.statement(ast)
+	}
+	for (const s of compiled.standUps) {
+		reach.query(s.call)
+	}
 	return Object.freeze({
 		level: compiled.level,
 		exclusion: compiled.exclusion,
@@ -241,10 +258,7 @@ export const servableWrite = (compiled: CompiledWrite): ServableWrite => {
 		),
 		readBacks: Object.freeze(servedReadBacks(artifact.readBacks)),
 		standUps,
-		carriers: Object.freeze({
-			creates: standUps.some((s) => s.kind === "carrier"),
-			columns: Object.freeze(artifact.carriers.flatMap((c) => c.heading))
-		}),
+		carried: Object.freeze(artifact.carriers.flatMap((c) => c.heading)),
 		params: compiled.params,
 		clocked: compiled.clocked,
 		binding: compiled.binding,
@@ -252,16 +266,18 @@ export const servableWrite = (compiled: CompiledWrite): ServableWrite => {
 			schema: compiled.frontend.schema,
 			written: compiled.frontend.written,
 			codes: compiled.frontend.codes
-		})
+		}),
+		seeks: seekProgram(statementAsts),
+		reach: reach.reach()
 	})
 }
 
 /**
  * The data an application of `compiled` reads (`ServedWrite`) at the level it was compiled for (ServableWrite
  * `level`): its declared parameters, its binding, what its transaction locks before its snapshot, its stand-ups, its
- * statements but the
- * read-backs', which the read-backs' own programs run, each step with the aborts it meets at that level, and its written
- * relations' headings.
+ * statements but the read-backs', which the read-backs' own programs run, each step with the aborts it meets at that
+ * level, the statements one call sends, its own and its read-backs' after the last stratum, and its written relations'
+ * headings.
  */
 export const projectWrite = (compiled: ServableWrite): ServedWrite =>
 	Object.freeze({
@@ -270,6 +286,9 @@ export const projectWrite = (compiled: ServableWrite): ServedWrite =>
 		exclusion: compiled.exclusion,
 		standUps: compiled.standUps,
 		statements: compiled.statements,
+		sends:
+			compiled.statements.length +
+			compiled.readBacks.filter((read) => read.carried.kind === "sent").length,
 		written: Object.freeze(
 			compiled.frontend.written.map((r) =>
 				Object.freeze({

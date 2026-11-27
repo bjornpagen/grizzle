@@ -103,8 +103,8 @@ export const generated = conservativeAgreement(
 	[
 		{
 			file: "packages/engine/src/lower/conservative/anti-join/index.ts",
-			original: "\texistenceTest(cx, env, node, nodeLabel(node), true)",
-			replacement: "\texistenceTest(cx, env, node, nodeLabel(node), false)",
+			original: "\t\texistenceTest(cx, env, node, nodeLabel(node), true, atLeftRow)",
+			replacement: "\t\texistenceTest(cx, env, node, nodeLabel(node), false, atLeftRow)",
 			why: "The conservative AntiJoin lowers as a semi-join (lower/conservative/anti-join/index.ts)."
 		},
 		{

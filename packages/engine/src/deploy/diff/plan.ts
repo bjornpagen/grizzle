@@ -45,8 +45,7 @@ export interface Declarations {
 	readonly drops: ReadonlyArray<Named>
 }
 
-/** No rename and no drop declared: a draft that declares nothing, and an upgrade's, which drafts from the source the
- * installation was deployed from. */
+/** No rename and no drop declared: a draft that declares nothing. */
 export const noDeclarations: Declarations = Object.freeze({ renames: [], drops: [] })
 
 /** Where a drafted statement goes. Slots are ordered, and each names the file its steps go to (`slotFile`), which
@@ -75,6 +74,12 @@ export const noDeclarations: Declarations = Object.freeze({ renames: [], drops: 
  *   first, its table created and filled from its relation as every data step leaves it, and its stamp function; then
  *   each sealed unit's founding table it creates or changes (structure.foundings; physical/ddl/seal.ts), a changed one
  *   dropped first, created and filled from its members as every data step leaves them;
+ *   then, when Structure holds a data step, the re-check it owes the judge (structure.recheck,
+ *   physical/ddl/recheck.ts, diff.ts recheck): after a step a reviewer writes, each stored table over a closed
+ *   relation made its definition's rows by one MERGE and each rule over a closed relation checked over every row;
+ *   after the steps grizzle drafts alone, only the rules and stored tables that read a column they write; so a data
+ *   step that deletes or rewrites a closed relation's rows against a rule is refused in its own transaction, naming
+ *   the law;
  *   then each table's one alteration adding the
  *   constraints of tables that may hold rows, NOT VALID, after every value they read is drawn, and each dropped guard
  *   created again as the previous installation created it; and last the roles' changed
@@ -122,6 +127,7 @@ export const slots = [
 	"structure.stored",
 	"structure.heads",
 	"structure.foundings",
+	"structure.recheck",
 	"structure.constraints",
 	"structure.worlds",
 	"indexes",
@@ -187,6 +193,7 @@ export const slotFile: { readonly [S in Slot]: SlotsFile } = {
 	"structure.stored": structureFile,
 	"structure.heads": structureFile,
 	"structure.foundings": structureFile,
+	"structure.recheck": structureFile,
 	"structure.constraints": structureFile,
 	"structure.worlds": structureFile,
 	indexes: indexesFile,

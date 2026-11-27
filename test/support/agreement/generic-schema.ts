@@ -43,9 +43,8 @@ export const Folded = relation(
 	["id"]
 )
 
-/** A relation a reference is contained in, and an arm keyed as the members are. */
+/** A relation a reference is contained in. */
 export const Target = relation("Target", { id: Id }, ["id"])
-export const Arm = relation("Arm", { id: Id }, ["id"])
 
 /** The trees' one heading: a tree's root field, its drawn parent, index, count and interval. */
 const treeHeading = {

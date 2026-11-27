@@ -127,7 +127,7 @@ export const servedDifference = (ours: TextChunks, committed: TextChunks): Serve
 	}
 	const own = revived(ours)
 	if (own === undefined) {
-		throw defect("the compile's own served file reads back")
+		defect("the compile's own served file reads back")
 	}
 	const keys = [...new Set([...Object.keys(own), ...Object.keys(theirs)])].toSorted(compareStrings)
 	for (const key of keys) {

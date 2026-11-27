@@ -112,16 +112,14 @@ export const aServedFileReadsBackEveryDrawnLoginsFileAsTheRuntimeReadsItAndNoMem
 			kills: [
 				{
 					file: "packages/engine/src/served/json.ts",
-					original: '\tif (!isFormatOf("served", format)) {',
+					original: "\tif (!isFormatOf(kind, format)) {",
 					replacement: "\tif (false) {",
 					why: "A served file of no format, or of another, is read as this grizzle's; the format refusals fail."
 				},
 				{
 					file: "packages/engine/src/served/json.ts",
-					original:
-						'\t\t\tconst written = shareRepeated([new ServedWriter().record(members)], servedSharing)\n\t\t\tconst wire: RostersWire = Object.fromEntries(\n\t\t\t\tArray.from(rosters, ([roster, codes]) => [roster, rosterWire(codes)])\n\t\t\t)\n\t\t\tconst [root] = written.roots\n\t\t\treturn {\n\t\t\t\t...membersRecord(defined(root, "a served file\'s members")),',
-					replacement:
-						'\t\t\tconst unshared = new ServedWriter().record(members)\n\t\t\tconst written = shareRepeated([unshared], servedSharing)\n\t\t\tconst wire: RostersWire = Object.fromEntries(\n\t\t\t\tArray.from(rosters, ([roster, codes]) => [roster, rosterWire(codes)])\n\t\t\t)\n\t\t\tconst [root] = written.roots\n\t\t\treturn {\n\t\t\t\t...membersRecord(defined(root, "a served file\'s members")),\n\t\t\t\troles: defined(unshared["roles"], "the roles as the writer wrote them"),',
+					original: `\t\t\tconst written = shareRepeated([new ServedWriter().record(members)], servedSharing)\n\t\t\tconst wire: RostersWire = Object.fromEntries(\n\t\t\t\tArray.from(rosters, ([roster, codes]) => [roster, rosterWire(codes)])\n\t\t\t)\n\t\t\tconst [root] = written.roots\n\t\t\treturn {\n\t\t\t\t...membersRecord(defined(root, \`a \${kind} file's members\`)),`,
+					replacement: `\t\t\tconst unshared = new ServedWriter().record(members)\n\t\t\tconst written = shareRepeated([unshared], servedSharing)\n\t\t\tconst wire: RostersWire = Object.fromEntries(\n\t\t\t\tArray.from(rosters, ([roster, codes]) => [roster, rosterWire(codes)])\n\t\t\t)\n\t\t\tconst [root] = written.roots\n\t\t\treturn {\n\t\t\t\t...membersRecord(defined(root, \`a \${kind} file's members\`)),\n\t\t\t\troles: defined(unshared["roles"], "the roles as the writer wrote them"),`,
 					why: "The file's roles are written as the writer wrote them, outside the table; each shape once fails."
 				},
 				{
@@ -138,14 +136,16 @@ export const aServedFileReadsBackEveryDrawnLoginsFileAsTheRuntimeReadsItAndNoMem
 				},
 				{
 					file: "packages/engine/src/served/json.ts",
-					original: `\t\t\t\t\t(String(Number(payload)) === payload ? this.#shared[Number(payload)] : undefined) ??\n\t\t\t\t\tunread(\n\t\t\t\t\t\twithin,\n\t\t\t\t\t\t\`a reference to an entry of the file's table read before it, one of \${this.#shared.length}, not ~\${tag}:\${payload}\`\n\t\t\t\t\t)`,
+					original: `\t\t\t\t\t(String(Number(payload)) === payload ? this.#shared[Number(payload)] : undefined) ??\n\t\t\t\t\tunread(\n\t\t\t\t\t\tthis.#artifact,\n\t\t\t\t\t\twithin,\n\t\t\t\t\t\t\`a reference to an entry of the file's table read before it, one of \${this.#shared.length}, not ~\${tag}:\${payload}\`\n\t\t\t\t\t)`,
 					replacement: "\t\t\t\t\tthis.#shared[Number(payload)]",
 					why: "A reference is read as whatever the table holds at its index, an entry not read yet included; the table cut short is read rather than refused."
 				},
 				{
 					file: "packages/engine/src/served/json.ts",
-					original: '\t\t\t\treturn rosterOf(this.#handles, "unordered", payload, within)',
-					replacement: '\t\t\t\treturn rosterOf(this.#handles, "ordered", payload, within)',
+					original:
+						'\t\t\t\treturn rosterOf(this.#artifact, this.#handles, "unordered", payload, within)',
+					replacement:
+						'\t\t\t\treturn rosterOf(this.#artifact, this.#handles, "ordered", payload, within)',
 					why: "An unordered roster is read back as an ordered one, over its live handles in code order; the round trip fails."
 				},
 				{
@@ -214,10 +214,8 @@ export const aServedFileReadsBackEveryServedChangeSetAsTheRuntimeReadsItAndNoMem
 			kills: [
 				{
 					file: "packages/engine/src/served/json.ts",
-					original:
-						'\t\t\tconst written = shareRepeated([new ServedWriter().record(members)], servedSharing)\n\t\t\tconst wire: RostersWire = Object.fromEntries(\n\t\t\t\tArray.from(rosters, ([roster, codes]) => [roster, rosterWire(codes)])\n\t\t\t)\n\t\t\tconst [root] = written.roots\n\t\t\treturn {\n\t\t\t\t...membersRecord(defined(root, "a served file\'s members")),',
-					replacement:
-						'\t\t\tconst unshared = new ServedWriter().record(members)\n\t\t\tconst written = shareRepeated([unshared], servedSharing)\n\t\t\tconst wire: RostersWire = Object.fromEntries(\n\t\t\t\tArray.from(rosters, ([roster, codes]) => [roster, rosterWire(codes)])\n\t\t\t)\n\t\t\tconst [root] = written.roots\n\t\t\treturn {\n\t\t\t\t...membersRecord(defined(root, "a served file\'s members")),\n\t\t\t\troles: defined(unshared["roles"], "the roles as the writer wrote them"),',
+					original: `\t\t\tconst written = shareRepeated([new ServedWriter().record(members)], servedSharing)\n\t\t\tconst wire: RostersWire = Object.fromEntries(\n\t\t\t\tArray.from(rosters, ([roster, codes]) => [roster, rosterWire(codes)])\n\t\t\t)\n\t\t\tconst [root] = written.roots\n\t\t\treturn {\n\t\t\t\t...membersRecord(defined(root, \`a \${kind} file's members\`)),`,
+					replacement: `\t\t\tconst unshared = new ServedWriter().record(members)\n\t\t\tconst written = shareRepeated([unshared], servedSharing)\n\t\t\tconst wire: RostersWire = Object.fromEntries(\n\t\t\t\tArray.from(rosters, ([roster, codes]) => [roster, rosterWire(codes)])\n\t\t\t)\n\t\t\tconst [root] = written.roots\n\t\t\treturn {\n\t\t\t\t...membersRecord(defined(root, \`a \${kind} file's members\`)),\n\t\t\t\troles: defined(unshared["roles"], "the roles as the writer wrote them"),`,
 					why: "The file's roles are written as the writer wrote them, outside the table; each shape once fails."
 				},
 				{
@@ -234,7 +232,7 @@ export const aServedFileReadsBackEveryServedChangeSetAsTheRuntimeReadsItAndNoMem
 				},
 				{
 					file: "packages/engine/src/served/json.ts",
-					original: `\t\t\t\t\t(String(Number(payload)) === payload ? this.#shared[Number(payload)] : undefined) ??\n\t\t\t\t\tunread(\n\t\t\t\t\t\twithin,\n\t\t\t\t\t\t\`a reference to an entry of the file's table read before it, one of \${this.#shared.length}, not ~\${tag}:\${payload}\`\n\t\t\t\t\t)`,
+					original: `\t\t\t\t\t(String(Number(payload)) === payload ? this.#shared[Number(payload)] : undefined) ??\n\t\t\t\t\tunread(\n\t\t\t\t\t\tthis.#artifact,\n\t\t\t\t\t\twithin,\n\t\t\t\t\t\t\`a reference to an entry of the file's table read before it, one of \${this.#shared.length}, not ~\${tag}:\${payload}\`\n\t\t\t\t\t)`,
 					replacement: "\t\t\t\t\tthis.#shared[Number(payload)]",
 					why: "A reference is read as whatever the table holds at its index, an entry not read yet included; the table cut short is read rather than refused."
 				}
@@ -293,10 +291,8 @@ export const aServedFileReadsBackEveryVectorAServedChangeSetBindsBitForBitAsItWa
 			kills: [
 				{
 					file: "packages/engine/src/served/json.ts",
-					original:
-						'\t\t\tconst written = shareRepeated([new ServedWriter().record(members)], servedSharing)\n\t\t\tconst wire: RostersWire = Object.fromEntries(\n\t\t\t\tArray.from(rosters, ([roster, codes]) => [roster, rosterWire(codes)])\n\t\t\t)\n\t\t\tconst [root] = written.roots\n\t\t\treturn {\n\t\t\t\t...membersRecord(defined(root, "a served file\'s members")),',
-					replacement:
-						'\t\t\tconst unshared = new ServedWriter().record(members)\n\t\t\tconst written = shareRepeated([unshared], servedSharing)\n\t\t\tconst wire: RostersWire = Object.fromEntries(\n\t\t\t\tArray.from(rosters, ([roster, codes]) => [roster, rosterWire(codes)])\n\t\t\t)\n\t\t\tconst [root] = written.roots\n\t\t\treturn {\n\t\t\t\t...membersRecord(defined(root, "a served file\'s members")),\n\t\t\t\troles: defined(unshared["roles"], "the roles as the writer wrote them"),',
+					original: `\t\t\tconst written = shareRepeated([new ServedWriter().record(members)], servedSharing)\n\t\t\tconst wire: RostersWire = Object.fromEntries(\n\t\t\t\tArray.from(rosters, ([roster, codes]) => [roster, rosterWire(codes)])\n\t\t\t)\n\t\t\tconst [root] = written.roots\n\t\t\treturn {\n\t\t\t\t...membersRecord(defined(root, \`a \${kind} file's members\`)),`,
+					replacement: `\t\t\tconst unshared = new ServedWriter().record(members)\n\t\t\tconst written = shareRepeated([unshared], servedSharing)\n\t\t\tconst wire: RostersWire = Object.fromEntries(\n\t\t\t\tArray.from(rosters, ([roster, codes]) => [roster, rosterWire(codes)])\n\t\t\t)\n\t\t\tconst [root] = written.roots\n\t\t\treturn {\n\t\t\t\t...membersRecord(defined(root, \`a \${kind} file's members\`)),\n\t\t\t\troles: defined(unshared["roles"], "the roles as the writer wrote them"),`,
 					why: "The file's roles are written as the writer wrote them, outside the table; each shape once fails."
 				},
 				{
@@ -313,9 +309,15 @@ export const aServedFileReadsBackEveryVectorAServedChangeSetBindsBitForBitAsItWa
 				},
 				{
 					file: "packages/engine/src/served/json.ts",
-					original: `\t\t\t\t\t(String(Number(payload)) === payload ? this.#shared[Number(payload)] : undefined) ??\n\t\t\t\t\tunread(\n\t\t\t\t\t\twithin,\n\t\t\t\t\t\t\`a reference to an entry of the file's table read before it, one of \${this.#shared.length}, not ~\${tag}:\${payload}\`\n\t\t\t\t\t)`,
+					original: `\t\t\t\t\t(String(Number(payload)) === payload ? this.#shared[Number(payload)] : undefined) ??\n\t\t\t\t\tunread(\n\t\t\t\t\t\tthis.#artifact,\n\t\t\t\t\t\twithin,\n\t\t\t\t\t\t\`a reference to an entry of the file's table read before it, one of \${this.#shared.length}, not ~\${tag}:\${payload}\`\n\t\t\t\t\t)`,
 					replacement: "\t\t\t\t\tthis.#shared[Number(payload)]",
 					why: "A reference is read as whatever the table holds at its index, an entry not read yet included; the table cut short is read rather than refused."
+				},
+				{
+					file: "packages/engine/src/write/program/compile.ts",
+					original: '\tb.statements.length === 0 ? "own" : "write"',
+					replacement: '\t"write"',
+					why: "A ChangeSet of reads alone lowers its read-back to admit nothing, as one after a statement of its write's own, so its flight holds no statement that admits its caller parameters and its compile dies an internal invariant (write/program/admission.ts readBackAdmitted), as the vector ChangeSet's did since PLANONCE folded the admission into the flight."
 				}
 			]
 		}

@@ -4,21 +4,32 @@ import { assert } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
+import {
+	type PlanNode,
+	parsePlan,
+	planNodes,
+	rowsRead,
+	scannedRows
+} from "#bench/harness/explain.ts"
 import { baselineRuleChecks } from "#compiler/deploy/snapshot/violation.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
-import { printStatement } from "#compiler/sql/print.ts"
+import { printExpr, printStatement } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
+import { succeeded } from "#test/support/assert.ts"
+import { dataStepOf, refusedByRecheck } from "#test/support/data-step.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
-import { standUpJudge } from "#test/support/judge.ts"
+import { judgeBodiesOf, standUpJudge } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
-import { refusalOf } from "#test/support/substrate.ts"
+import { committedOn } from "#test/support/stored.ts"
+import { firstRefusalOf, refusalOf } from "#test/support/substrate.ts"
 import { type PgErrorFields, pgErrorFields } from "#test/support/substrate/errors.ts"
-import type { RawSession } from "#test/support/substrate/session.ts"
+import { beginSerializable, type RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, type SubstrateShape } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -152,7 +163,7 @@ export const guardTemplate = migratedTemplate({
 	declaredIn: import.meta,
 	name: "rule guard",
 	content: { schema: guardSchema.name, logins: [] },
-	versions: [{ schema: guardSchema, logins: [], declarations: noDeclarations }],
+	versions: [{ schema: guardSchema, declarations: noDeclarations }],
 	options: {
 		label: "rule_guard",
 		extensions: [],
@@ -199,12 +210,13 @@ export type GuardFeature =
 	| "refused where another package's mark breaks an arm read past the unit"
 	| "skipped on the added side where no session of the document stands"
 	| "refused on the added side by a session of the document"
-	| "refused on the removed side, unguarded, by another package's withdrawn template"
+	| "refused on the removed side by the re-check, another package's template withdrawn"
 
 /**
- * One case in its one transaction, which the case's end rolls back: Bound's row of package 1 and the case's Value rows
- * loaded with the captures off, so no delta holds them and no block of the judge reads them as written; then, through
- * the captures, package 1's node of kind 10 and its child, whose rows Node's delta holds; then the judge
+ * One case on a fresh clone and one owner backend (`connection`): Bound's row of package 1 and the case's Value rows
+ * committed first, in a transaction of their own judged at its COMMIT (stored.ts committedOn), so no delta of the
+ * case's transaction holds them and no block of its judge reads them as written; then, in the case's transaction,
+ * through the captures, package 1's node of kind 10 and its child, whose rows Node's delta holds; then the judge
  * (SET CONSTRAINTS ALL IMMEDIATE). Of the judge's statements only the probe of the written nodes reads Node, each of
  * its rows looking up the written node's parent or child first, before any Value row, so the scans of Node the judge
  * adds to the transaction's (pg_stat_xact_user_tables, before and after it runs) say whether the probe ran: none where
@@ -229,15 +241,18 @@ export const runGuard = (
 	)
 
 /**
- * A case of Ready (`Item`, `Doc`, `Sess`), in its one transaction, every row but the written one loaded with the
- * captures off. On the added side, package 1's part of kind 1 naming template 9, which no part publishes, makes item 1
+ * A case of Ready (`Item`, `Doc`, `Sess`): every row but the written one committed first (committedOn), then the
+ * written one in the case's transaction. On the added side, package 1's part of kind 1 naming template 9, which no part publishes, makes item 1
  * unready: with no session of it the judge accepts, its probe never run (the scans of Doc the judge adds are the
  * probe's lookup of the published templates); with a session of it the judge refuses it, the guard reading Sess at the
- * written part's package and document. On the removed side, package 2's part of kind 2 publishing template 9 is
- * deleted beside package 1's part naming it and a session of item 1: the item turns unready by a row of another
- * package, and the judge refuses it, no guard standing before that probe. Sess ⊆ Ready is a rule over a query, which no
- * foreign key holds, every row the case loads satisfying every other law: the judge raises it as 23503 under the
- * rule's own name, from its block over Doc's rows, which the case reads off the refusal.
+ * written part's package and document. Sess ⊆ Ready is a rule over a query, which no foreign key holds, every row the
+ * case loads satisfying every other law: the judge raises it as 23503 under the rule's own name, from its block over
+ * Doc's rows, which the case reads off the refusal. On the removed side, package 2's part of kind 2 publishing template
+ * 9 is deleted beside package 1's part naming it and a session of item 1: the item turns unready by a row of another
+ * package. The part is closed, so its deletion is a data step's, inside the bracket a migration's runner sends
+ * (data-step.ts dataStepOf), and no capture records a closed relation's removed rows, so no judge reads them: the
+ * bracket's re-check refuses the step, 23000 under the rule's law (data-step.ts refusedByRecheck), before the
+ * transaction's end.
  */
 const runReady = (
 	installed: Installed,
@@ -257,30 +272,45 @@ const runReady = (
 		const d = (f: "pkg" | "item" | "kind" | "ref") => names.column(Doc, f)
 		const t = (f: "child" | "pkg" | "item") => names.column(Sess, f)
 		const withdrawn = learner === "another package's template withdrawn beside a session"
-		const loaded = [
-			`ALTER TABLE ${item} DISABLE TRIGGER USER`,
+		yield* committedOn(connection, [
 			`INSERT INTO ${item} (${i("pkg")}, ${i("item")}) VALUES (1, 1)`,
-			`ALTER TABLE ${item} ENABLE TRIGGER USER`,
 			...(learner === "an unresolved part, no session"
 				? []
-				: [
-						`ALTER TABLE ${sess} DISABLE TRIGGER USER`,
-						`INSERT INTO ${sess} (${t("child")}, ${t("pkg")}, ${t("item")}) VALUES (7, 1, 1)`,
-						`ALTER TABLE ${sess} ENABLE TRIGGER USER`
-					]),
+				: [`INSERT INTO ${sess} (${t("child")}, ${t("pkg")}, ${t("item")}) VALUES (7, 1, 1)`]),
 			...(withdrawn
 				? [
-						`ALTER TABLE ${doc} DISABLE TRIGGER USER`,
-						`INSERT INTO ${doc} (${d("pkg")}, ${d("item")}, ${d("kind")}, ${d("ref")}) VALUES (1, 1, 1, 9), (2, 5, 2, 9)`,
-						`ALTER TABLE ${doc} ENABLE TRIGGER USER`
+						`INSERT INTO ${doc} (${d("pkg")}, ${d("item")}, ${d("kind")}, ${d("ref")}) VALUES (1, 1, 1, 9), (2, 5, 2, 9)`
 					]
-				: []),
+				: [])
+		])
+		if (withdrawn) {
+			const bracket = dataStepOf(installed.installation)
+			for (const sql of [
+				beginSerializable,
+				"SET CONSTRAINTS ALL DEFERRED",
+				...bracket.before,
+				`DELETE FROM ${doc} WHERE ${d("pkg")} = 2 AND ${d("item")} = 5 AND ${d("kind")} = 2`
+			]) {
+				yield* connection.query(sql, [])
+			}
+			const bracketed = yield* firstRefusalOf(bracket.after, (sql) => connection.query(sql, []))
+			const law = Arr.findFirst(installed.installation.laws.rules, (r) =>
+				Str.startsWith("__sess_in_ready")(r.law.id)
+			)
+			assert.ok(
+				Option.isSome(bracketed) &&
+					Option.isSome(law) &&
+					refusedByRecheck(bracketed.value, law.value.law.id),
+				`${Formatter.format(learner)}: the data step's re-check refuses the step under Sess ⊆ Ready's law, inside its bracket: ${Option.isSome(bracketed) ? `${bracketed.value.code} ${String(bracketed.value.constraint)}` : "nothing refused"}`
+			)
+			c.note("refused on the removed side by the re-check, another package's template withdrawn")
+			return
+		}
+		for (const sql of [
+			beginSerializable,
 			"SET CONSTRAINTS ALL DEFERRED",
-			withdrawn
-				? `DELETE FROM ${doc} WHERE ${d("pkg")} = 2 AND ${d("item")} = 5 AND ${d("kind")} = 2`
-				: `INSERT INTO ${doc} (${d("pkg")}, ${d("item")}, ${d("kind")}, ${d("ref")}) VALUES (1, 1, 1, 9)`
-		]
-		for (const sql of loaded) {
+			`INSERT INTO ${doc} (${d("pkg")}, ${d("item")}, ${d("kind")}, ${d("ref")}) VALUES (1, 1, 1, 9)`
+		]) {
 			yield* connection.query(sql, [])
 		}
 		const scansOfDoc = `SELECT (coalesce(seq_scan, 0) + coalesce(idx_scan, 0))::text FROM pg_stat_xact_user_tables WHERE relid = '${doc}'::regclass`
@@ -311,16 +341,12 @@ const runReady = (
 				Option.getOrUndefined(refusal?.table ?? Option.none()) === "doc",
 			`${Formatter.format(learner)}: the refusal is the rule's own, raised by its block over Doc's rows, its containment of Sess in Ready (no foreign key holds it): ${String(refusal?.constraint)} on ${String(Option.getOrUndefined(refusal?.table ?? Option.none()))}`
 		)
-		c.note(
-			withdrawn
-				? "refused on the removed side, unguarded, by another package's withdrawn template"
-				: "refused on the added side by a session of the document"
-		)
+		c.note("refused on the added side by a session of the document")
 	})
 
 /**
- * The case read past the unit, in its one transaction: package 1's node of kind 10 and its Mark of 900 loaded with the
- * captures off, then, through the captures, package 2's node of kind 20 whose parent is that node's start, which joins
+ * The case read past the unit: package 1's node of kind 10 and its Mark of 900 committed first (committedOn), then, in
+ * the case's transaction, through the captures, package 2's node of kind 20 whose parent is that node's start, which joins
  * them into a fact of Linked whose mark passes the far node's start, 5. The judge refuses it (23514): Linked's arm
  * reaches the written Wire through a match that binds the Mark's package to nothing of the written row, so no guard
  * stands before its probe.
@@ -332,13 +358,12 @@ const runCross = (installed: Installed, connection: PgConnection, c: Case<GuardF
 		const mark = names.table(Mark)
 		const n = (f: "pkg" | "start" | "parent" | "kind") => names.column(Wire, f)
 		const m = (f: "child" | "pkg" | "start" | "score") => names.column(Mark, f)
-		for (const sql of [
-			`ALTER TABLE ${wire} DISABLE TRIGGER USER`,
+		yield* committedOn(connection, [
 			`INSERT INTO ${wire} (${n("pkg")}, ${n("start")}, ${n("parent")}, ${n("kind")}) VALUES (1, 1, 0, 10)`,
-			`ALTER TABLE ${wire} ENABLE TRIGGER USER`,
-			`ALTER TABLE ${mark} DISABLE TRIGGER USER`,
-			`INSERT INTO ${mark} (${m("child")}, ${m("pkg")}, ${m("start")}, ${m("score")}) VALUES (7, 1, 1, 900)`,
-			`ALTER TABLE ${mark} ENABLE TRIGGER USER`,
+			`INSERT INTO ${mark} (${m("child")}, ${m("pkg")}, ${m("start")}, ${m("score")}) VALUES (7, 1, 1, 900)`
+		])
+		for (const sql of [
+			beginSerializable,
 			"SET CONSTRAINTS ALL DEFERRED",
 			`INSERT INTO ${wire} (${n("pkg")}, ${n("start")}, ${n("parent")}, ${n("kind")}) VALUES (2, 5, 1, 20)`
 		]) {
@@ -382,17 +407,16 @@ const runWithin = (
 			"within its bound": [{ child: 7, pkg: 1, start: 1, score: 40 }],
 			"over its bound": [{ child: 7, pkg: 1, start: 1, score: 900 }]
 		}[learner]
-		const loaded = [
-			`ALTER TABLE ${bound} DISABLE TRIGGER USER`,
+		yield* committedOn(connection, [
 			`INSERT INTO ${bound} (${b("pkg")}, ${b("kind")}, ${b("bound")}) VALUES (1, 5, 50)`,
-			`ALTER TABLE ${bound} ENABLE TRIGGER USER`,
-			`ALTER TABLE ${value} DISABLE TRIGGER USER`,
 			...Arr.map(
 				values,
 				(row) =>
 					`INSERT INTO ${value} (${w("child")}, ${w("pkg")}, ${w("start")}, ${w("score")}) VALUES (${row.child}, ${row.pkg}, ${row.start}, ${row.score})`
-			),
-			`ALTER TABLE ${value} ENABLE TRIGGER USER`,
+			)
+		])
+		const loaded = [
+			beginSerializable,
 			"SET CONSTRAINTS ALL DEFERRED",
 			`INSERT INTO ${node} (${n("pkg")}, ${n("start")}, ${n("parent")}, ${n("kind")}) VALUES (1, 1, 0, 10), (1, 2, 1, 5)`
 		]
@@ -439,6 +463,129 @@ const runWithin = (
 				? "skipped where no value of the package stands"
 				: "skipped where another package's value stands"
 		)
+	})
+
+/**
+ * Each guard of the judge's blocks as the judge runs it (analysis/theory/query.ts probeGuard): an existence over its
+ * query (sql/build.ts whenExists), or a PERFORM of its query read to its end (whenFound) whose body runs the probe, not a
+ * RAISE.
+ */
+const guardsOf = (installation: Installation): ReadonlyArray<string> =>
+	Arr.flatMap(judgeBodiesOf(installation), (s): ReadonlyArray<string> => {
+		switch (s.kind) {
+			case "if":
+				return Arr.flatMap(s.branches, (b) =>
+					b.condition.kind === "exists" && !b.condition.not
+						? [`SELECT ${printExpr(b.condition)}`]
+						: []
+				)
+			case "whenFound":
+				return s.body[0].kind === "raise"
+					? []
+					: [`SELECT 1 FROM ${printExpr({ kind: "subquery", query: s.query })} AS "found"`]
+			case "assign":
+			case "case":
+			case "createSessionIndex":
+			case "createSessionTable":
+			case "createSessionTrigger":
+			case "forQuery":
+			case "modify":
+			case "perform":
+			case "raise":
+			case "return":
+			case "returnQuery":
+			case "truncateSessionTable":
+			case "wholeReads":
+				return []
+		}
+	})
+
+/** The rows a guard's plan reads of the stored relations, and the index entries its bitmaps read beside them. */
+const valueWork = (plan: PlanNode): number =>
+	rowsRead(plan) +
+	Arr.reduce(
+		Arr.filter(Arr.fromIterable(planNodes(plan)), (n) => n.nodeType === "Bitmap Index Scan"),
+		0,
+		(sum, n) => sum + scannedRows(n)
+	)
+
+/** A guard's population: how many learners' values stand at each package, 1x or 10x. */
+export type Population = 1 | 10
+
+export const populationGen: Gen<Population> = (s) => s.draw(element<Population>([1, 10]))
+
+export type GuardWorkFeature = "at one population" | "at ten times it"
+
+/** How many learners' values stand at each package at a population of 1x. */
+const learnersAtOnce = 200
+
+/** The packages a case's write writes the content of, each beside its learners' values. */
+const writtenPackages = [1, 2, 3] as const
+
+/**
+ * One case of the guard's work on a fresh clone and one owner backend: the values of `population` times 200 learners
+ * at each of packages 1 to 4, package 4's first, every one at a node no rule reads, committed first (committedOn); then,
+ * in the case's transaction, the content of packages 1 to 3, a node of kind 10 and its child at each; then the judge
+ * (SET CONSTRAINTS ALL IMMEDIATE). Value is keyed by the learner first, so the guard of the probe of the written nodes
+ * reads it by the package alone (analysis/theory/query.ts probeGuard), every learner's values of the package there.
+ * The guard is an existence (sql/build.ts whenExists), and a read of no column stops at its first row
+ * (lower/conservative/step headingRead), so it reads one value, the first of the first written package it seeks: each
+ * guard over Value explained as the judge runs it (EXPLAIN ANALYZE, `guardsOf`), before the judge runs, reads one row
+ * of the stored relations and no index entry beside them (`valueWork`) at every population, where a guard read to its
+ * every row reads every value of each written package, 600 at 1x and 6,000 at 10x. The judge then accepts the content,
+ * every value lawful.
+ */
+export const runGuardWork = (
+	installed: Installed,
+	connection: PgConnection,
+	population: Population,
+	c: Case<GuardWorkFeature>
+) =>
+	Effect.gen(function* () {
+		yield* standUpJudge(connection, installed.installation)
+		const names = namesOf(installed)
+		const node = names.table(Node)
+		const value = names.table(Value)
+		const n = (f: "pkg" | "start" | "parent" | "kind") => names.column(Node, f)
+		const w = (f: "child" | "pkg" | "start" | "score") => names.column(Value, f)
+		const learners = learnersAtOnce * population
+		yield* committedOn(connection, [
+			`INSERT INTO ${value} (${w("child")}, ${w("pkg")}, ${w("start")}, ${w("score")}) SELECT child, 4, 3, 1 FROM generate_series(1, ${learners}) AS child`,
+			`INSERT INTO ${value} (${w("child")}, ${w("pkg")}, ${w("start")}, ${w("score")}) SELECT child, pkg, 3, 1 FROM generate_series(1, ${learners}) AS child, generate_series(1, 3) AS pkg`
+		])
+		for (const sql of [
+			beginSerializable,
+			"SET CONSTRAINTS ALL DEFERRED",
+			`INSERT INTO ${node} (${n("pkg")}, ${n("start")}, ${n("parent")}, ${n("kind")}) VALUES ${Arr.join(
+				Arr.map(writtenPackages, (pkg) => `(${pkg}, 1, 0, 10), (${pkg}, 2, 1, 5)`),
+				", "
+			)}`
+		]) {
+			yield* connection.query(sql, [])
+		}
+		const guards = Arr.filter(guardsOf(installed.installation), Str.includes(value))
+		assert.ok(guards.length > 0, "a guard of the judge reads Value")
+		let read = 0
+		for (const guard of guards) {
+			const [explained] = yield* connection.queryValues(
+				`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${guard}`,
+				[]
+			)
+			read += valueWork(succeeded(parsePlan(explained?.[0]), "one EXPLAIN plan").plan)
+		}
+		const [judged] = yield* connection.exchange([
+			{ sql: "SET CONSTRAINTS ALL IMMEDIATE", params: [] }
+		])
+		assert.ok(
+			Result.isSuccess(judged),
+			`population ${population}x: the judge accepts the content beside the learners' lawful values`
+		)
+		assert.equal(
+			read,
+			1,
+			`population ${population}x: the guard reads one value, where it read ${read} rows and index entries, the written packages holding ${learners * writtenPackages.length} values`
+		)
+		c.note(population === 1 ? "at one population" : "at ten times it")
 	})
 
 /**
@@ -532,15 +679,7 @@ export const runRace = (
 			yield* learner.query(sql, [])
 		}
 		const run = (session: RawSession, statements: ReadonlyArray<string>) =>
-			Effect.gen(function* () {
-				for (const sql of statements) {
-					const refused = yield* refusalOf(session.query(sql, []))
-					if (Option.isSome(refused)) {
-						return refused
-					}
-				}
-				return Option.none()
-			})
+			firstRefusalOf(statements, (sql) => session.query(sql, []))
 		const published = yield* run(publisher, [
 			`INSERT INTO ${doc} (${d("pkg")}, ${d("item")}, ${d("kind")}, ${d("ref")}) VALUES (1, 2, 1, 9)`,
 			...(race.own

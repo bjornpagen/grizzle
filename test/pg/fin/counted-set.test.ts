@@ -73,16 +73,16 @@ export const aCountedSetKeyedByThreeFieldsAndANameStoresEachOwnersCountAndFoldsO
 				Effect.flatMap(counted, ({ substrate: s, value: done }) =>
 					Effect.provideService(
 						Effect.gen(function* () {
-							const value = declaredSchema(done.schema)
+							const value = declaredSchema(done.installed.schema)
 							const world = fullWorld(value, {})
-							const names = namesOf(done)
+							const names = namesOf(done.installed)
 							const lawNames = lawNamesOf(value)
 							const lawOf: { readonly [B in Broken]: LawId } = {
 								"the owner's key": lawNames.primaryKeyLaw({ name: Owner.name }),
 								"the member's key": lawNames.primaryKeyLaw({ name: Attr.name }),
 								"the family": lawNames.lawOf(family)
 							}
-							const db = yield* openServedDb(done, world.server.roles.app, {})
+							const db = yield* openServedDb(done.installed, world.server.roles.app, {})
 							const loaded = yield* db.load({
 								insert: ChangeSet.empty(value).insert(Owner, []).insert(Attr, []),
 								delete: ChangeSet.empty(value).delete(Attr, []),
@@ -186,13 +186,13 @@ export const aCountedSetKeyedByThreeFieldsAndANameStoresEachOwnersCountAndFoldsO
 								}
 								c.noteAll(situationsOf(state, w, verdict))
 								state = verdict.kind === "written" ? verdict.next : state
-								const owners = yield* tableState(done, Owner)
+								const owners = yield* tableState(done.installed, Owner)
 								unorderedEqual<Readonly<Record<string, unknown>>>(
 									owners,
 									ownerRowsOf(state),
 									`the owners after ${label}`
 								)
-								const attrs = yield* tableState(done, Attr)
+								const attrs = yield* tableState(done.installed, Attr)
 								unorderedEqual<Readonly<Record<string, unknown>>>(
 									attrs,
 									Arr.map(state.attrs, attrRowOf),

@@ -308,6 +308,53 @@ export const written: { readonly [C in Carrier]: Arr.NonEmptyReadonlyArray<Writt
 			type: { carrier: "exactMoney", caps, digits: 30 },
 			live: map(bigint(1n - 10n ** 32n, 10n ** 32n - 1n), (n) => Money.exact(n))
 		}
+	],
+	variant: [
+		{
+			label: "variant of Kind",
+			type: {
+				carrier: "variant",
+				caps,
+				variant: {
+					name: "Pick",
+					roster: kind,
+					arms: [
+						{
+							handle: "Manual",
+							fields: [
+								{ name: "n", type: { carrier: "int4", caps } },
+								{ name: "x", type: { carrier: "float8", caps } }
+							]
+						},
+						{ handle: "Automatic", fields: [] },
+						{
+							handle: "Ünïcode",
+							fields: [{ name: "t", type: { carrier: "text", text: "wildcard", caps } }]
+						}
+					]
+				}
+			},
+			live: weighted<unknown>([
+				[
+					2,
+					(source) =>
+						Object.freeze({
+							tag: "Manual",
+							n: source.draw(int32),
+							x: source.draw(element([0, -0, Number.NaN, 1.5, -2]))
+						})
+				],
+				[1, () => Object.freeze({ tag: "Automatic" })],
+				[
+					2,
+					(source) =>
+						Object.freeze({
+							tag: "Ünïcode",
+							t: source.draw(string(codePoint(0x20, 0x7e), { min: 0, max: 6 }))
+						})
+				]
+			])
+		}
 	]
 }
 

@@ -9,7 +9,11 @@ import { printStatement } from "#compiler/sql/print.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { featureCount, type ShapeFeature, shapeOf } from "#test/support/kernel/shape.ts"
 import { noHoles, oneHole, type SqlCatalog } from "#test/support/kernel/sqlgen.ts"
-import { auditStatementViolations, auditTextViolations } from "#test/support/oracle/verify/sql.ts"
+import {
+	auditStatementViolations,
+	auditTextViolations,
+	guardedTermsOf
+} from "#test/support/oracle/verify/sql.ts"
 
 export const catalog: SqlCatalog = [
 	{
@@ -69,7 +73,10 @@ export const admitted = (statement: SqlStatement): void => {
 	const text = printStatement(statement)
 	assert.deepEqual(found, [], text)
 	assert.deepEqual(
-		Arr.map(auditTextViolations(text), (v) => `${v.rule} at ${v.where}: ${v.detail}`),
+		Arr.map(
+			auditTextViolations(text, guardedTermsOf(statement)),
+			(v) => `${v.rule} at ${v.where}: ${v.detail}`
+		),
 		[],
 		text
 	)

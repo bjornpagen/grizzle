@@ -6,9 +6,14 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
-import type { CatalogKey } from "#compiler/analysis/physical/evidence.ts"
+import { servedDerivations } from "#compiler/analysis/derived/served.ts"
 import { closedTableOf } from "#compiler/analysis/schema.ts"
-import type { CheckedEntry, CheckedSchema, DerivedAnalysis } from "#compiler/analysis/schema.ts"
+import type {
+	CheckedEntry,
+	CheckedSchema,
+	ClaimsMembership,
+	DerivedAnalysis
+} from "#compiler/analysis/schema.ts"
 import { queryColumns } from "#compiler/analysis/theory/columns.ts"
 import { withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
 import { navigateQuery, Navigation } from "#compiler/analysis/theory/navigate.ts"
@@ -26,14 +31,14 @@ import type { MemberColumn, MemberRelation } from "#compiler/check/schema.ts"
 import { catchRefusal, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import { CompileError, type ProseTag, prose, ruleRefused } from "#compiler/core/errors.ts"
 import type { IdentityDigest } from "#compiler/core/fingerprint.ts"
-import { type EntryName, type LawId, ParamId, type StoredRelationName } from "#compiler/core/ids.ts"
+import { EntryName, type LawId, ParamId, type StoredRelationName } from "#compiler/core/ids.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import * as Order from "#compiler/core/order.ts"
 import { closedChangeRefusals } from "#compiler/core/refusals.ts"
 import type { ClockBinding, ClockSource } from "#compiler/ir/clock.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { rooted } from "#compiler/ir/dag.ts"
-import { type DerivedRows, servedDag } from "#compiler/ir/derived.ts"
+import { claimedColumn, type DerivedRows, servedDag } from "#compiler/ir/derived.ts"
 import {
 	bindRelationParams,
 	boundRowsLoc,
@@ -84,14 +89,15 @@ import type {
 	Stratum,
 	WriteIR
 } from "#compiler/ir/write.ts"
-import { derivedKeyConstraints } from "#compiler/laws/model/catalog.ts"
+import { derivedEvidence, type ViewEvidence } from "#compiler/laws/model/catalog.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { keyWitness } from "#compiler/laws/model/uniques.ts"
 import {
 	analyzeLogical,
 	judgedAsDelivered,
 	keptNodes,
-	type LogicalAnalysis
+	type LogicalAnalysis,
+	type LogicalEnv
 } from "#compiler/logical/annotate.ts"
 import { type Producers, propagatedWrite } from "#compiler/lower/optimize/propagate/index.ts"
 import { sameExpr } from "#compiler/lower/shapes/catalog/exprs.ts"
@@ -103,8 +109,7 @@ import {
 	hostEvaluator
 } from "#compiler/runtime/write/fill.ts"
 import { sentLayout } from "#compiler/runtime/write/nesting.ts"
-import { writesOf } from "#compiler/schema/reach.ts"
-import { determines } from "#compiler/schema/scope.ts"
+import { readsThrough, writesOf } from "#compiler/schema/reach.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
 import type { RecordedLaw } from "#compiler/types/changeset/changeset.ts"
 import { groupBy } from "#compiler/write/defined.ts"
@@ -119,9 +124,14 @@ import {
 } from "#compiler/write/frontend/entry.ts"
 import { equalQuery } from "#compiler/write/frontend/equal.ts"
 
-import type { HostChecks, StartData } from "#compiler/runtime/write/normalize.ts"
+import type { HostChecks, KeyGeneration, StartData } from "#compiler/runtime/write/normalize.ts"
 import type { WitnessEntry } from "#compiler/runtime/write/witness.ts"
-import type { UnitDelete, UnitMatch, UnitMember, UnitSource } from "#compiler/write/delete/unit.ts"
+import type {
+	FamilySource,
+	UnitDelete,
+	UnitMatch,
+	UnitMember
+} from "#compiler/write/delete/unit.ts"
 import {
 	type NestedLayout,
 	type Nesting,
@@ -168,12 +178,10 @@ import { type RelationInput, relationInput } from "#compiler/write/insert/input.
 import { isCarried, keyFirst } from "#compiler/write/insert/statement.ts"
 import {
 	entryUniques,
-	type OutsideProbe,
-	scopedProbes,
 	type RelationUniques,
 	relationUniques
 } from "#compiler/write/insert/unique.ts"
-import { computedChecks, hostChecks } from "#compiler/write/normalize/normalize.ts"
+import { computedChecks, hostChecks, keyGenerations } from "#compiler/write/normalize/normalize.ts"
 import { existingKeysProofOver } from "#compiler/write/put/proof.ts"
 
 export interface FrontendOptions {
@@ -273,11 +281,13 @@ export type StatedIn =
 	| { readonly kind: "relation" }
 	| { readonly kind: "entry"; readonly entry: WitnessEntry }
 
-/** What the host's normalization reads of the facts of a slot group: the words they are stated in, and their same-key
- * checks, over the facts' own fields. */
+/** What the host's normalization reads of the facts of a slot group: the words they are stated in, their same-key
+ * checks, over the facts' own fields, and the key generations it fills each fact with (write/normalize/normalize.ts
+ * keyGenerations), none for facts a query entry states, whose statement casts them into its target. */
 export interface SlotFacts {
 	readonly stated: StatedIn
 	readonly host: HostChecks
+	readonly generations: ReadonlyArray<KeyGeneration>
 }
 
 /** Facts stated in their written relation's own words. */
@@ -388,7 +398,7 @@ export const stratumLayouts = (
 		for (const [relation, layout] of nesting.layouts) {
 			const other = out.get(relation)
 			if (other !== undefined) {
-				throw defect(
+				defect(
 					`${relation}'s rows nested by one nesting of stratum ${stratum}, ${nesting.relation.name}'s, where ${other.nesting.relation.name}'s nests them too`
 				)
 			}
@@ -434,7 +444,7 @@ export type NamedDelta =
 			readonly kind: "relation"
 			readonly relation: RelationInfo
 			readonly sides: ReadonlySet<DeltaSide>
-			readonly via: DeltaVia
+			readonly via: Via
 	  }
 	| {
 			readonly kind: "empty"
@@ -457,36 +467,38 @@ export interface ActionInfo {
 	readonly stamps: ReadonlyArray<Stamped>
 	/** What the action writes: its relation whole, or a role's query entry, whose fill its source reads through and whose
 	 * membership its additions are prechecked against. */
-	readonly entry: ActionEntry
+	readonly entry: Via
+	/** What its facts are held to beside its relation's laws and its entry's membership: the role's claims or nothing. */
+	readonly claims: ClaimsCheck
 }
 
-/** How a delta reads its relation: whole, or through the query entry the role writes it by. */
-export type DeltaVia =
+/** How a role reaches a relation, a write writing it or a delta reading it: whole, or through the query entry the role
+ * writes it by. */
+export type Via =
 	| { readonly kind: "whole" }
 	| { readonly kind: "entry"; readonly entry: CheckedEntry }
 
 /**
- * What a whole write is held to beside its relation's laws: nothing, or a scoped entry's membership (schema/scope.ts),
- * its additions prechecked against the entry's membership and probed at `probes`, the unique objects of its relation
- * whose fields do not decide whether a row is the owner's (scopedProbes), before the write, which is otherwise its
- * relation's whole write, its families, nestings and stamps drawn as any whole write's.
+ * What a write is held to beside its relation's laws, whole or through a query entry alike: nothing; or, on a role whose
+ * claims bind a unit the relation is a member of (schema/scope.ts), the claims: each fact it states prechecked against
+ * the relation's claims membership (analysis/schema.ts ClaimsMembership), a fact outside the units the claims bind
+ * outsideWorld under `entry`, the name the role writes the relation by, its query entry's or its own
+ * (write/frontend/entry.ts claimsKeyOf), before the write, which is otherwise its relation's write, its families,
+ * nestings and stamps drawn as any write's. Its laws hold over every row: a key a row outside the world holds refuses it
+ * on that key.
  */
-export type WholeCheck =
+export type ClaimsCheck =
 	| { readonly kind: "none" }
 	| {
-			readonly kind: "scoped"
-			readonly entry: CheckedEntry
-			readonly probes: ReadonlyArray<OutsideProbe>
+			readonly kind: "claimed"
+			readonly membership: ClaimsMembership
+			readonly entry: EntryName
 	  }
 
-export type ActionEntry =
-	| { readonly kind: "whole"; readonly check: WholeCheck }
-	| { readonly kind: "entry"; readonly entry: CheckedEntry }
+const noCheck: ClaimsCheck = Object.freeze({ kind: "none" })
 
-const noCheck: WholeCheck = Object.freeze({ kind: "none" })
-
-/** A delta read of its relation whole. */
-const wholeVia: DeltaVia = Object.freeze({ kind: "whole" })
+/** A relation read or written whole. */
+const wholeVia: Via = Object.freeze({ kind: "whole" })
 
 const describedIn = (
 	node: RelNode,
@@ -509,6 +521,10 @@ export const infoIn = (info: ActionInfo, at: Counterpart): ActionInfo =>
 export const outsideIn = (write: OutsideWrite, at: Counterpart): OutsideWrite =>
 	Object.freeze({ entry: write.entry, reads: sourceReadsIn(write.reads, at) })
 
+/** A family statement's source with the node it names read through `at`. */
+const familySourceIn = (source: FamilySource, at: Counterpart): FamilySource =>
+	source.kind === "described" ? Object.freeze({ kind: "described", node: at(source.node) }) : source
+
 /** A family statement's place with each described source of a unit delete it reads read through `at`. */
 const familyAtIn = (placed: FamilyAt, at: Counterpart): FamilyAt =>
 	placed.node.kind === "unit"
@@ -517,16 +533,16 @@ const familyAtIn = (placed: FamilyAt, at: Counterpart): FamilyAt =>
 				node: Object.freeze({
 					kind: "unit",
 					below: placed.node.below,
-					units: mapNonEmpty(placed.node.units, (u): UnitDelete => {
-						const source: UnitSource =
-							u.source.kind === "described"
-								? { kind: "described", node: at(u.source.node) }
-								: u.source
-						return Object.freeze({ ...u, source })
-					})
+					units: mapNonEmpty(placed.node.units, (u): UnitDelete =>
+						Object.freeze({ ...u, source: familySourceIn(u.source, at) })
+					)
 				})
 			})
 		: placed
+
+/** A family statement's precheck with the described source it reads read through `at`. */
+const memberCheckIn = (check: MemberCheck, at: Counterpart): MemberCheck =>
+	Object.freeze({ ...check, source: familySourceIn(check.source, at) })
 
 /** The write's queries before its DAG is analyzed: the strata, each with its refused additions, and the read-backs over
  * the nodes the frontend built, read in each form of the DAG through that form's counterparts (queriesIn). */
@@ -555,7 +571,7 @@ const queriesIn = (drafted: Drafted, dag: ValidDag, at: Counterpart): WriteQueri
 							)
 						),
 						outside: Object.freeze(stratum.outside.map((write) => outsideIn(write, at))),
-						checks: stratum.checks,
+						checks: Object.freeze(stratum.checks.map((c) => memberCheckIn(c, at))),
 						family: Object.freeze(stratum.family.map((f) => familyAtIn(f, at)))
 					})
 				)
@@ -567,6 +583,17 @@ const queriesIn = (drafted: Drafted, dag: ValidDag, at: Counterpart): WriteQueri
 	})
 
 /**
+ * The evidence a write's statements are read under, in its transaction: an immediate fact holds at every statement and
+ * a deferred law only at COMMIT, so the laws' immediate containments alone; and a derived or world relation a member or
+ * read-back matches is keyed by its definition's keys. Its frontend's analyses and its read-backs' lowering read it.
+ */
+export const transactionEvidence = (laws: LawModel): LogicalEnv => ({
+	context: "transaction",
+	containments: immediateEvidence(laws.theory.evidence).containments,
+	keyedViews: true
+})
+
+/**
  * The queries `drafted` names over a write's analyzed DAG, each attachment judged at the delivered type the analysis
  * restated it to (rel.ts Attach judged), which the read-backs' reader delivers, each node the frontend built read as its
  * annotated counterpart, and that DAG. The DAG served (ir/derived.ts servedDag) and its analysis are made here and are
@@ -574,15 +601,18 @@ const queriesIn = (drafted: Drafted, dag: ValidDag, at: Counterpart): WriteQueri
  * before the restatement analyzes the DAG again (made by the caller and passed in, each stayed in the caller's frame as
  * long as the compile ran): a write's compile holds one analysis at a time, where the first, held by the compile's own
  * scope, lived beside the second, each every node's properties (a write of edullm's endTest, 35K nodes, held two of
- * 540 MB each), and the served DAG's folds, every node of the write's, lived to the compile's end.
+ * 540 MB each), and the served DAG's folds, every node of the write's, lived to the compile's end. `held` holds the
+ * served DAG to the served rule before its analysis (analysis/derived/served.ts servedDerivations).
  */
 const analyzedQueries = (
 	drafted: Drafted,
 	written: ValidDag,
 	rows: DerivedRows,
-	analyzed: (structure: ValidDag) => LogicalAnalysis
+	analyzed: (structure: ValidDag) => LogicalAnalysis,
+	held: (served: ValidDag) => void
 ): { readonly dag: ValidDag; readonly queries: WriteQueries } => {
 	const structural = servedDag(written, rows)
+	held(structural.dag)
 	const analysis = analyzed(structural.dag)
 	const judged = judgedAsDelivered(analysis.dag)
 	return {
@@ -666,15 +696,16 @@ export type SourceReads =
 export type Counterpart = (node: RelNode) => RelNode
 
 /**
- * The facts of a relation a scoped entry writes (WholeCheck `scoped`) that no action of their stratum writes, read off
- * their slot: a managed member's insert or put, or a stamped nesting's root, each of which its family statement writes.
- * Its precheck is its family statement's, before the first of the stratum's that writes its relation
- * (schedule/plan.ts familyStepsOf), as an action's is before its first statement.
+ * The facts of a relation a claims-held write writes (ClaimsCheck `claimed`) that no action of their stratum writes, read
+ * off their source: a managed member's insert, put or delete, a stamped nesting's root, each off its slot, or a unit
+ * delete's units, off its slot or its described source, each of which its family statement writes. Its precheck is its
+ * family statement's, before the first of the stratum's that writes its relation (schedule/plan.ts familyStepsOf), as an
+ * action's is before its first statement.
  */
 export interface MemberCheck {
 	readonly relation: WrittenRelation
-	readonly slot: MemberSlot
-	readonly check: Extract<WholeCheck, { readonly kind: "scoped" }>
+	readonly source: FamilySource
+	readonly check: Extract<ClaimsCheck, { readonly kind: "claimed" }>
 }
 
 /** A stratum of a write: its actions, each carrying its information, the additions it refuses outright
@@ -717,9 +748,10 @@ export interface WriteFrontend extends WriteQueries {
 	readonly desc: PlannedChangeSetDesc
 	readonly schema: CheckedSchema
 	readonly laws: LawModel
-	/** Each derived relation's inherited keys with its view's unique index: with the laws, what the write's placement
-	 * and read-backs resolve keys through (`evidenceCatalog`). */
-	readonly views: ReadonlyArray<CatalogKey>
+	/** What its derived relations prove, their inherited keys with their views' unique indexes and their drawn
+	 * containments: with the laws, what the write's placement and read-backs resolve evidence through
+	 * (`evidenceCatalog`). */
+	readonly views: ViewEvidence
 	/** The relations the ChangeSet writes, in code point order. */
 	readonly written: ReadonlyArray<WrittenRelation>
 	/** The parameters the members and read-backs declare, merged by name. */
@@ -750,6 +782,13 @@ export interface WriteFrontend extends WriteQueries {
 	/** The host's evaluation of generated fields, as PostgreSQL generates them, which a nested write's fill reads
 	 * (runtime/write/keys.ts FillContext). */
 	readonly evaluate: HostEvaluator
+	/** Each writing stratum's computed records (ir/instant.ts Computed), each with the relation whose host rows leave its
+	 * fields out, which the call computes (`strataComputed`). */
+	readonly computed: ReadonlyArray<{
+		readonly stratum: StratumAt
+		readonly relation: string
+		readonly record: Computed
+	}>
 }
 
 /** A tree's root fields, whose values name each of its trees: a tree's delete states them. */
@@ -888,7 +927,7 @@ const carriedOf = (member: MemberRelation): Heading =>
 /** What a member writes: its relation whole; or a query entry, its target its relation, `member` the entry's facts its
  * source carries, and whether the Db holds a fact of every context its fixed fields read. */
 type MemberEntry =
-	| { readonly kind: "whole"; readonly check: WholeCheck }
+	| { readonly kind: "whole" }
 	| {
 			readonly kind: "entry"
 			readonly entry: CheckedEntry
@@ -905,6 +944,7 @@ type MemberEntry =
 interface CheckedTarget {
 	readonly relation: WrittenRelation
 	readonly entry: MemberEntry
+	readonly claims: ClaimsCheck
 	readonly carried: Heading
 }
 
@@ -950,7 +990,7 @@ type DraftReads =
  * the fill's root in the write DAG, over its relation parameter `entryRowsParam`, which the sources are substituted
  * for (substitute). */
 type DraftEntry =
-	| { readonly kind: "whole"; readonly check: WholeCheck }
+	| { readonly kind: "whole" }
 	| {
 			readonly kind: "entry"
 			readonly entry: CheckedEntry
@@ -965,6 +1005,8 @@ interface Draft {
 	readonly carried: Heading
 	readonly reads: DraftReads
 	readonly entry: DraftEntry
+	/** What its facts are held to beside its relation's laws: its target's claims (CheckedTarget). */
+	readonly claims: ClaimsCheck
 	/** What its delete removes of its relation's place groups: every member's, `groups` only where each removes whole
 	 * groups (write/frontend/instants.ts Removal). */
 	readonly removes: Removal
@@ -982,6 +1024,8 @@ interface UnitDraft {
 	readonly heading: Heading
 	readonly slot: MemberSlot | undefined
 	readonly roots: ReadonlyArray<RelNode>
+	/** What its units are held to beside its relation's laws: its target's claims (CheckedTarget). */
+	readonly claims: ClaimsCheck
 	/** What it removes of its relation's place groups (write/frontend/instants.ts Removal). */
 	readonly removes: Removal
 	readonly loc: SourceLoc
@@ -1130,7 +1174,6 @@ const baseWritten = (world: CheckedSchema["world"], relation: string): ReadonlyA
 	}
 	switch (write.kind) {
 		case "whole":
-		case "scoped":
 			return [write.relation.name]
 		case "rows":
 			return [write.writable.target.name]
@@ -1152,7 +1195,7 @@ const compile = (
 	/** The columns of each query the ChangeSet's members import, each checked once however many members navigate it. */
 	const columns = queryColumns(checked, at)
 	const { laws, derived, codes, clock } = options
-	const views = derivedKeyConstraints(derived)
+	const views = derivedEvidence(derived, laws.existence)
 	const existingKeysProof = existingKeysProofOver({ laws, views })
 	/** The base every written relation is an ordinary relation of: reality's own, or the role's base. */
 	const base = checked.definitions()
@@ -1193,8 +1236,11 @@ const compile = (
 	 * one input of the call, its rows in the state before the first stratum of the part it was bound on (BoundRowsDesc
 	 * `stratum`, ir/write.ts BoundInput). Its readers are the members that read it, each in the state before its own
 	 * stratum, the read-backs, in the state after the last, and the inputs whose rows read it, each in the state it is
-	 * evaluated in. One whose every reader reads the state it is evaluated in is a part of their queries, as any import of
-	 * a query is (`inlined`). Any other is carried (`later`): checked once, after the carried inputs its own rows read,
+	 * evaluated in. One whose every reader reads a state that agrees with the one it is evaluated in on everything its
+	 * rows read (`agrees`) reads the same rows in its own state, so it is a part of their queries, as any import of a
+	 * query is (`inlined`): metis's assign binds its target test to a read of the catalog the assign never writes, so the
+	 * stratum after the first and the read-backs read the catalog themselves, keyed by the call's test. Any other is
+	 * carried (`later`): checked once, after the carried inputs its own rows read,
 	 * its query a root of the write DAG evaluated right before the statements of the first stratum at or after its own
 	 * that writes (write/schedule/plan.ts), every reader's use of it read as its InputSet (CheckSession `bound`). Its
 	 * query's own parameters join the ChangeSet's.
@@ -1210,9 +1256,51 @@ const compile = (
 			rowsParamNames(other.rows).has(name) ? [stateBefore(other.stratum)] : []
 		)
 	]
+	/** The relations each writing stratum writes, by its place among them (`occupiedStrata`), closed under what a write
+	 * of one writes of another (schema/reach.ts writesOf). */
+	const occupiedWrites = occupiedStrata.map(([, place]) =>
+		writesOf(
+			checked.owned,
+			defined(strataWrites[place], "a writing stratum's members").flatMap((m) =>
+				baseWritten(checked.world, m.relation)
+			)
+		)
+	)
+	/** The relations of the base whose facts a binding's rows depend on (schema/reach.ts readsThrough): what its query
+	 * reads, at any depth of its imports, and what each binding its rows read depends on in turn. */
+	const footprints = new Map<string, ReadonlySet<string>>()
+	const footprintOf = (name: string): ReadonlySet<string> => {
+		const known = footprints.get(name)
+		if (known !== undefined) {
+			return known
+		}
+		const { rows } = defined(desc.boundRows[name], "a binding of the ChangeSet's bound rows")
+		const uses = queryUses(boundRowsQuery(name, rows, boundRowsLoc(name)))
+		const own = readsThrough(
+			checked.owned,
+			checked.world.kind === "role" ? checked.world.role : undefined,
+			[...uses.relations, ...uses.deltas]
+		)
+		const footprint = new Set([
+			...own,
+			...[...rowsParamNames(rows)].flatMap((read) =>
+				desc.boundRows[read] === undefined ? [] : [...footprintOf(read)]
+			)
+		])
+		footprints.set(name, footprint)
+		return footprint
+	}
+	/** Whether a binding evaluated in the state `from` reads the same rows in the state `to`, a later one: no stratum
+	 * between them writes a relation its rows depend on. */
+	const agrees = (name: string, from: number, to: number): boolean => {
+		const footprint = footprintOf(name)
+		return occupiedWrites
+			.slice(from, to)
+			.every((written) => ![...footprint].some((relation) => written.has(relation)))
+	}
 	const later = new Set(
 		Object.entries(desc.boundRows).flatMap(([name, { stratum }]) =>
-			readerStates(name).every((state) => state === stateBefore(stratum)) ? [] : [name]
+			readerStates(name).every((state) => agrees(name, stateBefore(stratum), state)) ? [] : [name]
 		)
 	)
 	const inlined = new Map(
@@ -1264,7 +1352,7 @@ const compile = (
 			}
 			bound = bindRelationParams(bound, inlined, identity)
 		}
-		throw defect("a binding's rows that read it again, which ChangeSet.bind admits none of")
+		defect("a binding's rows that read it again, which ChangeSet.bind admits none of")
 	}
 	const boundInputs: Array<BoundInput> = []
 	const carrying = new Set<string>()
@@ -1519,7 +1607,7 @@ const compile = (
 				intoUnit(name).every((f) => roots.includes(f.owner.name) || ordered.includes(f.owner.name))
 			)
 			if (next === undefined) {
-				throw defect(
+				defect(
 					`a delete of ${named}, whose families nest ${remaining.join(", ")} in a cycle, which the schema refuses when it compiles (analysis/theory/fill.ts unwritable, UnwritableRelation unitCycle)`
 				)
 			}
@@ -1538,7 +1626,7 @@ const compile = (
 			}
 			const [first, ...rest] = intoUnit(name)
 			if (first === undefined) {
-				throw defect(`the family that reaches ${name} below ${named}`)
+				defect(`the family that reaches ${name} below ${named}`)
 			}
 			const reaching: NonEmptyReadonlyArray<Family> = [first, ...rest]
 			return Object.freeze({
@@ -1624,11 +1712,40 @@ const compile = (
 			})
 		)
 	}
-	/** A relation written whole, its additions held to `check`. */
-	const wholeTarget = (name: string, loc: SourceLoc, check: WholeCheck): CheckedTarget => {
-		const relation = writtenOf(name, loc)
-		return { relation, entry: { kind: "whole", check }, carried: carriedOf(relation) }
+	/** What the role's write of `name` by `entry`, the name it writes the relation by, is held to: the claims where the
+	 * world restricts the relation, nothing elsewhere. */
+	const claimsOf = (name: string, entry: EntryName): ClaimsCheck => {
+		const membership = checked.claimsMembership(name)
+		return membership === undefined ? noCheck : { kind: "claimed", membership, entry }
 	}
+	/** A relation written whole, its facts held to `claims`. */
+	const wholeTarget = (name: string, loc: SourceLoc, claims: ClaimsCheck): CheckedTarget => {
+		const relation = writtenOf(name, loc)
+		return { relation, entry: wholeVia, claims, carried: carriedOf(relation) }
+	}
+	/** What the role's world holds of each relation: its claims bind the units it restricts (schema/scope.ts). */
+	const claimedWorld = checked.worldRows()
+	/**
+	 * Whether every fact a described source states lies in the units the role's claims bind, whole or through a query
+	 * entry's fill alike: at each field of its relation the claims membership reads, the unit's key, a key the world's
+	 * rows hold (ir/derived.ts claimedColumn), so its precheck would refuse nothing and is emitted nowhere.
+	 */
+	const claimedRows = (root: RelNode, membership: ClaimsMembership): boolean => {
+		const restriction = claimedWorld.restricted.get(membership.target.name)
+		return (
+			restriction?.on.every((p) =>
+				claimedColumn(claimedWorld, restriction.owner.unit, root, p.left)
+			) === true
+		)
+	}
+	/** What a write's facts are held to: its target's `claims`, or nothing where they are a described source's, `described`,
+	 * every fact of which lies in the world (`claimedRows`). */
+	const heldClaims = (claims: ClaimsCheck, described: RelNode | undefined): ClaimsCheck =>
+		claims.kind === "claimed" &&
+		described !== undefined &&
+		claimedRows(described, claims.membership)
+			? noCheck
+			: claims
 	/** What a member's relation name writes (see `compileChangeSet`), and the heading its facts carry, decided once. */
 	const targetOf = (name: string, loc: SourceLoc): CheckedTarget => {
 		const world = checked.world
@@ -1648,15 +1765,7 @@ const compile = (
 			)
 		}
 		if (write.kind === "whole") {
-			return wholeTarget(name, loc, noCheck)
-		}
-		if (write.kind === "scoped") {
-			const scope = write.scope
-			return wholeTarget(name, loc, {
-				kind: "scoped",
-				entry: write.writable,
-				probes: scopedProbes(writtenOf(name, loc).uniques, (fields) => determines(scope, fields))
-			})
+			return wholeTarget(name, loc, claimsOf(name, EntryName(name)))
 		}
 		const entry = write.writable
 		const written = writtenOf(entry.target.name, loc)
@@ -1675,6 +1784,7 @@ const compile = (
 				member,
 				fillable: entryFillable(entry, options.claims)
 			},
+			claims: claimsOf(written.name, entry.entry),
 			carried: carriedOf(member)
 		}
 	}
@@ -1765,7 +1875,7 @@ const compile = (
 			}
 			const root = query.dag.roots[0]
 			if (root.kind !== "ProjectSet") {
-				throw defect(
+				defect(
 					`the computed fields of ${relation.name} checked as one rule's projection, not a ${root.kind}`
 				)
 			}
@@ -2004,8 +2114,7 @@ const compile = (
 			)
 		}
 	}
-	/** What a refill reads and rewrites of the base, which a role holds only whole or scoped, a scoped relation's rows
-	 * its owner's (write/frontend/refill.ts). */
+	/** What a refill reads and rewrites of the base, which a role holds only whole (write/frontend/refill.ts). */
 	const holds: RefillHolds = ((): RefillHolds => {
 		const world = checked.world
 		if (world.kind === "reality") {
@@ -2016,12 +2125,8 @@ const compile = (
 			role: world.role.name,
 			base: world.base.owned.name,
 			reads: (relation) =>
-				world.role.scoped.has(relation) ||
 				checked.entries.some((e) => e.kind === "whole" && e.relation.name === relation),
-			writes: (relation) => {
-				const kind = world.writes.get(relation)?.kind
-				return kind === "whole" || kind === "scoped"
-			}
+			writes: (relation) => world.writes.get(relation)?.kind === "whole"
 		}
 	})()
 	/** Each stratum's refills, by its position among the ChangeSet's strata. */
@@ -2141,19 +2246,20 @@ const compile = (
 			  }
 			| { readonly op: "nested" }
 	}> = []
-	/** Each stratum's prechecks of the slots of `edits` a scoped entry writes. */
+	/** Each stratum's prechecks of the slots of `edits` a claims-held write writes. */
 	const memberChecks: Array<{ readonly stratum: StratumAt; readonly check: MemberCheck }> = []
-	/** Records the precheck of `slot`'s facts of `relation`, which a family statement of `stratum` writes, where `target`
-	 * is a scoped entry's. */
+	/** Records the precheck of `source`'s facts of `relation`, which a family statement of `stratum` writes, where they are
+	 * held to the claims (`heldClaims`). */
 	const precheckMember = (
 		stratum: StratumAt,
 		relation: WrittenRelation,
-		slot: MemberSlot,
-		target: MemberEntry
+		source: FamilySource,
+		claims: ClaimsCheck
 	): void => {
-		if (target.kind === "whole" && target.check.kind === "scoped") {
+		const held = heldClaims(claims, source.kind === "described" ? source.node : undefined)
+		if (held.kind === "claimed") {
 			memberChecks.push(
-				Object.freeze({ stratum, check: Object.freeze({ relation, slot, check: target.check }) })
+				Object.freeze({ stratum, check: Object.freeze({ relation, source, check: held }) })
 			)
 		}
 	}
@@ -2167,7 +2273,7 @@ const compile = (
 		for (const [, list] of byRelation) {
 			/** One target per base relation per role (targetOf), its writable entry and the heading its facts carry, so every
 			 * member of the relation writes it alike and every operation's slot is headed by the relation's own heading. */
-			const { relation, entry: target, carried: facts } = list[0].target
+			const { relation, entry: target, claims, carried: facts } = list[0].target
 			const written: MemberRelation = target.kind === "entry" ? target.member : relation
 			const groupInputs: Array<EnumeratedInput> = []
 			const ops = (["delete", "put", "insert"] as const).flatMap((op) => {
@@ -2292,6 +2398,7 @@ const compile = (
 							carried,
 							reads,
 							entry: target,
+							claims,
 							removes,
 							loc: site,
 							computed
@@ -2311,6 +2418,7 @@ const compile = (
 						carried,
 						reads,
 						entry: { kind: "entry", entry: target.entry, fill },
+						claims,
 						removes,
 						loc: site,
 						computed
@@ -2377,9 +2485,7 @@ const compile = (
 								write: { op, slot: slot.slot, stamps: computed }
 							})
 						)
-						if (op !== "delete") {
-							precheckMember(stratum, relation, slot, target)
-						}
+						precheckMember(stratum, relation, { kind: "slot", input: slot.input }, claims)
 					}
 					continue
 				}
@@ -2408,6 +2514,7 @@ const compile = (
 								heading: named,
 								slot: singleInput(act, named, named),
 								roots: queries.map((q) => q.root),
+								claims,
 								removes,
 								loc
 							})
@@ -2462,7 +2569,7 @@ const compile = (
 												write: { op: "insert", slot: slot.slot, stamps }
 											})
 										)
-										precheckMember(stratum, relation, slot, target)
+										precheckMember(stratum, relation, { kind: "slot", input: slot.input }, claims)
 									} else {
 										draft(insert, nesting.top, slot, [], loc, [])
 									}
@@ -2492,7 +2599,8 @@ const compile = (
 								? entryFacts(target.entry, relation.host)
 								: {
 										stated: statedInRelation,
-										host: groupHost(relation, groupInputs, computedStamps(s, relation.name))
+										host: groupHost(relation, groupInputs, computedStamps(s, relation.name)),
+										generations: keyGenerations(relation.fields)
 									}
 					})
 				)
@@ -2554,71 +2662,75 @@ const compile = (
 	const builtByStratum = draftsByStratum.map(({ stratum, drafts, outside }) => ({
 		stratum,
 		outside,
-		built: drafts.map(({ act, relation, carried, reads, entry, removes, loc, computed }): Built => {
-			/** The source, what it reads and the heading it delivers: the slot alone; one described member's query alone;
-			 * or the Union of the slot's InputSet and of every described member's query. A query entry's sources, in its
-			 * facts, fill its fill's relation parameter, and the fill is the source. */
-			const read = ((): {
-				readonly source: ActionSource
-				readonly reads: SourceReads
-				readonly heading: Heading
-			} => {
-				if (entry.kind === "entry") {
-					const name = entry.entry.entry
-					const node = substitute(entry.fill, entryRowsParam, (input) =>
-						reads.kind === "slot"
-							? glue.inputSet(reads.slot.slot, name, input)
-							: sourceOf(reads, name, input)
-					)
-					return {
-						source: { kind: "described", node },
-						reads: { kind: "described", node },
-						heading: node.heading
-					}
-				}
-				switch (reads.kind) {
-					case "slot":
-						return {
-							source: { kind: reads.slot.transport, slot: reads.slot.slot },
-							reads,
-							heading: carried
-						}
-					case "described": {
-						const [first, ...more] = reads.roots
-						const node =
-							reads.slot === undefined && more.length === 0
-								? first
-								: sourceOf(reads, relation.name, carried)
+		built: drafts.map(
+			({ act, relation, carried, reads, entry, claims, removes, loc, computed }): Built => {
+				/** The source, what it reads and the heading it delivers: the slot alone; one described member's query alone;
+				 * or the Union of the slot's InputSet and of every described member's query. A query entry's sources, in its
+				 * facts, fill its fill's relation parameter, and the fill is the source. */
+				const read = ((): {
+					readonly source: ActionSource
+					readonly reads: SourceReads
+					readonly heading: Heading
+				} => {
+					if (entry.kind === "entry") {
+						const name = entry.entry.entry
+						const node = substitute(entry.fill, entryRowsParam, (input) =>
+							reads.kind === "slot"
+								? glue.inputSet(reads.slot.slot, name, input)
+								: sourceOf(reads, name, input)
+						)
 						return {
 							source: { kind: "described", node },
 							reads: { kind: "described", node },
 							heading: node.heading
 						}
 					}
-				}
-			})()
-			const info: ActionInfo = Object.freeze({
-				relation,
-				reads: read.reads,
-				heading: read.heading,
-				stamps: stampsOf(
-					laws.theory.instants,
+					switch (reads.kind) {
+						case "slot":
+							return {
+								source: { kind: reads.slot.transport, slot: reads.slot.slot },
+								reads,
+								heading: carried
+							}
+						case "described": {
+							const [first, ...more] = reads.roots
+							const node =
+								reads.slot === undefined && more.length === 0
+									? first
+									: sourceOf(reads, relation.name, carried)
+							return {
+								source: { kind: "described", node },
+								reads: { kind: "described", node },
+								heading: node.heading
+							}
+						}
+					}
+				})()
+				const info: ActionInfo = Object.freeze({
 					relation,
-					act.op,
-					removes,
-					read.heading,
-					entry.kind === "whole"
-						? managed(relation.name) || nests(relation.name)
-							? { kind: "family" }
-							: { kind: "own" }
-						: { kind: "entry" },
-					loc,
-					computed
-				),
-				entry: entry.kind === "entry" ? Object.freeze({ kind: "entry", entry: entry.entry }) : entry
-			})
-			return { action: { ...act, relation: relation.name, source: read.source }, info, loc }
-		})
+					reads: read.reads,
+					heading: read.heading,
+					stamps: stampsOf(
+						laws.theory.instants,
+						relation,
+						act.op,
+						removes,
+						read.heading,
+						entry.kind === "whole"
+							? managed(relation.name) || nests(relation.name)
+								? { kind: "family" }
+								: { kind: "own" }
+							: { kind: "entry" },
+						loc,
+						computed
+					),
+					entry:
+						entry.kind === "entry" ? Object.freeze({ kind: "entry", entry: entry.entry }) : entry,
+					claims: heldClaims(claims, read.reads.kind === "described" ? read.reads.node : undefined)
+				})
+				return { action: { ...act, relation: relation.name, source: read.source }, info, loc }
+			}
+		)
 	}))
 	/** Each action's stamps by its stratum, which a ChangeSet stamps each clock in one stratum of, every reference beside
 	 * its clock's insert (write/frontend/instants.ts refuseStampsApart). */
@@ -2649,7 +2761,7 @@ const compile = (
 		units: units.map((unit): UnitDelete => {
 			refuseUnitPlace(laws.theory.instants, unit.relation, unit.removes, unit.loc)
 			const [firstRoot, ...moreRoots] = unit.roots
-			const source: UnitSource =
+			const source: FamilySource =
 				firstRoot === undefined
 					? {
 							kind: "slot",
@@ -2663,12 +2775,13 @@ const compile = (
 								unit.heading
 							)
 						}
+			precheckMember(stratum, unit.relation, source, unit.claims)
 			const stated = keyFirst(unit.relation).filter((f) =>
 				unit.heading.some((c) => c.name === f.name)
 			)
 			const [firstField, ...moreFields] = stated
 			if (firstField === undefined) {
-				throw defect(`the fields a delete of ${unit.relation.name}'s units states`)
+				defect(`the fields a delete of ${unit.relation.name}'s units states`)
 			}
 			const match: UnitMatch = unitTreeOf(unit.relation.name) ?? {
 				kind: "facts",
@@ -2741,7 +2854,7 @@ const compile = (
 			}
 			const law = lawColumns.find((c) => c.column === name)
 			if (law === undefined) {
-				throw defect(`the column ${name} a generated column of ${relation} reads`)
+				defect(`the column ${name} a generated column of ${relation} reads`)
 			}
 			return columnKey({ kind: "law", column: law.column })
 		}
@@ -3420,18 +3533,7 @@ const compile = (
 
 	/** 5. Evidence: the transaction context. */
 	const analyzed = (structure: ValidDag): LogicalAnalysis =>
-		unwrap(
-			analyzeLogical(
-				structure,
-				{
-					context: "transaction",
-					containments: immediateEvidence(laws.theory.evidence).containments,
-					/** A derived or world relation a member or read-back matches is keyed by its definition's keys. */
-					keyedViews: true
-				},
-				keptNodes([])
-			)
-		)
+		unwrap(analyzeLogical(structure, transactionEvidence(laws), keptNodes([])))
 	const reads: ReadonlyArray<ReadBack> = readBacks.map((r) =>
 		Object.freeze({
 			name: r.name,
@@ -3464,7 +3566,7 @@ const compile = (
 		}
 	}
 	type DeltaOf =
-		| { readonly kind: "relation"; readonly relation: string; readonly via: DeltaVia }
+		| { readonly kind: "relation"; readonly relation: string; readonly via: Via }
 		| { readonly kind: "empty"; readonly name: string }
 	const deltaOf = (name: string): DeltaOf => {
 		const world = checked.world
@@ -3472,7 +3574,7 @@ const compile = (
 			return { kind: "relation", relation: name, via: wholeVia }
 		}
 		const held = world.role.relations[name]
-		if (held === undefined || held.kind === "whole" || world.writes.get(name)?.kind === "scoped") {
+		if (held === undefined || held.kind === "whole") {
 			return { kind: "relation", relation: name, via: wholeVia }
 		}
 		const moving = (relations: Iterable<string>): string | undefined =>
@@ -3663,11 +3765,16 @@ const compile = (
 	 * none of the relations the ChangeSet writes, through its definition otherwise, whose rows the write's own earlier
 	 * statements change before its COMMIT's upkeep replaces that table.
 	 */
-	const { dag, queries } = analyzedQueries(
-		drafted,
-		structural,
-		checked.rows(writtenRelations),
-		analyzed
+	const rows = checked.rows(writtenRelations)
+	const { dag, queries } = analyzedQueries(drafted, structural, rows, analyzed, (served) =>
+		servedDerivations({
+			schema: checked,
+			rows,
+			checked: structural,
+			served,
+			imports: merger.imports,
+			member: "a served ChangeSet"
+		})
 	)
 	/** The DAG the optimized artifact lowers: every take correlated through bind restated with its correlation explicit,
 	 * as a query's is, so the take policy sees its parent set, and analyzed alike. The rewrite reads the analyzed DAG's
@@ -3775,6 +3882,13 @@ const compile = (
 		references: Object.freeze(references),
 		deltaEntries,
 		codes,
-		evaluate
+		evaluate,
+		computed: Object.freeze(
+			occupiedStrata.flatMap(([stratum, s]) =>
+				[...defined(strataComputed[s], "a writing stratum's computed records")].map(
+					([relation, record]) => Object.freeze({ stratum, relation, record })
+				)
+			)
+		)
 	})
 }

@@ -4,16 +4,7 @@ import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { assert } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
-import {
-	Array as Arr,
-	DateTime,
-	Effect,
-	Exit,
-	Option,
-	Order,
-	Record as Rec,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Exit, Option, Order, Record as Rec, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
 import { identifierOf, identity, maxIdentifierBytes } from "#compiler/core/identity.ts"
@@ -29,7 +20,7 @@ import {
 	workspace
 } from "#test/pg/cli/support.ts"
 import { writeAnswerOf, oneOf } from "#test/support/calls.ts"
-import { Id, type IdValue } from "#test/support/ids.ts"
+import { type IdValue, toId } from "#test/support/ids.ts"
 import { decodersIn, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { clusterConnection, clusterPool, freshDatabase } from "#test/support/pg.ts"
 import { uniqueSchemaName } from "#test/support/substrate/names.ts"
@@ -60,16 +51,6 @@ const notesOf = (s: Spaces): ReadonlyArray<SpaceFeature> => [
 	s.second === "prefixed" ? "the second under another prefix" : "the second under no prefix",
 	...(s.heldElsewhere ? (["an uninstall refused, then done"] as const) : [])
 ]
-
-const at = DateTime.makeUnsafe({
-	year: 2026,
-	month: 11,
-	day: 11,
-	hour: 12,
-	minute: 0,
-	second: 0,
-	millisecond: 0
-})
 
 /** An installation: its database and its role prefix, none for the stems'. */
 interface Installation {
@@ -115,6 +96,7 @@ export const spaceCase = (s: Spaces, c: Case<SpaceFeature>) =>
 			)
 			const configFor = (i: Installation) =>
 				defineConfig({
+					contracts: [],
 					schemas: [shop.schema],
 					logins: [shop.server],
 					migrations: "migrations",
@@ -125,7 +107,7 @@ export const spaceCase = (s: Spaces, c: Case<SpaceFeature>) =>
 					})
 				})
 			const run = (i: Installation, command: string) =>
-				cliOver(dir, configFor(i), [command, configName], at)
+				cliOver(dir, configFor(i), [command, configName])
 			for (const command of ["generate", "check"]) {
 				const ran = yield* run(first, command)
 				assert.equal(ran.code, 0, `grizzle ${command}: ${ran.stderr}`)
@@ -184,7 +166,7 @@ export const spaceCase = (s: Spaces, c: Case<SpaceFeature>) =>
 						verify: testVerify
 					})
 				)
-			const idOf = (n: number): IdValue => Id(`00000000-0000-4000-8000-00000000000${n}`)
+			const idOf = (n: number): IdValue => toId(`00000000-0000-4000-8000-00000000000${n}`)
 			const write = (i: Installation, n: number) =>
 				Effect.flatMap(layerOver(i, i.database), (l) =>
 					Effect.scoped(

@@ -363,7 +363,7 @@ const siteOf = (member: MemberFacts, p: PlacedRead): SiteRead => {
 	const s = member.statements[p.statement]
 	const body = s === undefined ? undefined : bodyAt(s, p.at.cte)
 	if (body === undefined) {
-		throw defect("a placed read stands in a body of its member's statement")
+		defect("a placed read stands in a body of its member's statement")
 	}
 	return { read: p.read, reads: body.reads }
 }
@@ -609,7 +609,7 @@ const siteUnder = (
 	mapNonEmpty(under.fields, (f) => {
 		const source = site.key.find((k) => k.field === f.field)?.source
 		if (source === undefined) {
-			throw defect("a held site's lookup binds its unit's whole key")
+			defect("a held site's lookup binds its unit's whole key")
 		}
 		return { field: f.key, source }
 	})
@@ -736,7 +736,7 @@ const cycleAmong = (
 		if (seen >= 0) {
 			const cycle = back.slice(seen).toReversed()
 			if (!isNonEmpty(cycle)) {
-				throw defect("a lock met again closes a cycle of one edge at least")
+				defect("a lock met again closes a cycle of one edge at least")
 			}
 			return cycle
 		}
@@ -745,12 +745,12 @@ const cycleAmong = (
 			.filter(([name]) => unplaced.has(name))
 			.toSorted(([a], [b]) => compareStrings(a, b))[0]
 		if (from === undefined) {
-			throw defect("a lock no order places has an edge from another such lock")
+			defect("a lock no order places has an edge from another such lock")
 		}
 		back.push(from[1])
 		at = from[0]
 	}
-	throw defect("the locks no order places are some")
+	defect("the locks no order places are some")
 }
 
 /** Faults each once, in their order. */

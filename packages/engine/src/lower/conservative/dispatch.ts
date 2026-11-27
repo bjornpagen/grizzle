@@ -38,6 +38,7 @@ import { takeLowering } from "#compiler/lower/conservative/take/index.ts"
 import { unionLowering } from "#compiler/lower/conservative/union/index.ts"
 import { approximateNearestLowering } from "#compiler/lower/conservative/vector/index.ts"
 import { windowLowering } from "#compiler/lower/conservative/window/index.ts"
+import { copyClassesOf } from "#compiler/lower/optimize/cte-policy/index.ts"
 import type { OperandSelect } from "#compiler/sql/ast.ts"
 
 /**
@@ -170,8 +171,36 @@ const sharedOf = (
 			lowered.set(input, plus(lowered.get(input), times))
 		}
 	}
+	/**
+	 * Copies of one sub-query (cte-policy copyClassesOf), each lowered once, are one node lowered as often as all of them
+	 * are: shared here where every copy may be, one CTE of the class (sharedRead), the first copy's lowering its body.
+	 */
+	const firstOf = copyClassesOf(cx.dag, readsWholeHere)
+	const copies = new Map<RelNode, Array<RelNode>>()
+	for (const node of order) {
+		copies.getOrInsertComputed(firstOf(node), () => []).push(node)
+	}
+	for (const all of copies.values()) {
+		if (
+			all.length > 1 &&
+			all.every(
+				(c) =>
+					c !== root &&
+					lowered.get(c) !== undefined &&
+					defined(open.get(c), "the open recursions of a node in the postorder").size === 0 &&
+					[...cx.scopeOf(c).outer.keys()].every((id) => !inside.has(id))
+			)
+		) {
+			for (const c of all) {
+				shared.add(c)
+			}
+		}
+	}
 	return shared
 }
+
+/** Every node the conservative lowering prints stands behind its set boundary, computed whole at each read. */
+const readsWholeHere = (): "distinct" => "distinct"
 
 /**
  * The query of `node` in a frame of its own inside `outer`, its shared nodes' CTEs leading its WITH. A frame inside
@@ -201,10 +230,18 @@ const framed = (
 const owned = (node: RelNode, cx: LowerContext, env: Env, frame: ShareFrame): OperandSelect =>
 	cx.scopeOf(node).outer.size > 0 ? framed(node, cx, env, frame) : plugIn(node, cx, env)
 
-/** A read of the CTE `home` holds for `node`, defined at its first use, its body lowered where `home`'s root was. */
+/**
+ * A read of the CTE `home` holds for `node`'s class of copies (cte-policy copyClassesOf), defined at the class's first
+ * use, its body lowered where `home`'s root was.
+ */
 const sharedRead = (node: RelNode, cx: LowerContext, home: ShareFrame): OperandSelect =>
-	cteAtFirstUse(cx, node, home.table, node, "MATERIALIZED", () =>
-		owned(node, home.cx.withSharing(home), home.env, home)
+	cteAtFirstUse(
+		cx,
+		node,
+		home.table,
+		copyClassesOf(cx.dag, readsWholeHere)(node),
+		"MATERIALIZED",
+		() => owned(node, home.cx.withSharing(home), home.env, home)
 	)
 
 /**

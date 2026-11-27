@@ -16,7 +16,7 @@ import type { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
  * admission of each str.pattern payload field's distinct values, by the field, made where a checked schema first reads
  * the field, in that schema's table (scalar/regex/patterns.ts CompilePatterns spelling), which keeps each pattern's
  * parse and automaton for what its compile reads of it after. A description is immutable and one value however many
- * schemas hold it, every level of a generate's installation and every slice of it among them, so the checked schemas
+ * schemas hold it, every level of a generate's installation among them, so the checked schemas
  * over it share each pattern's one admission and its language, where each checked schema admitted every pattern again.
  * A WeakMap holds nothing alive and is never enumerated: it is the description's state.
  */

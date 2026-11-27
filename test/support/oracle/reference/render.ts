@@ -78,7 +78,7 @@ const sqlTypeOf = (type: ScalarType, plan: InstallPlan): TypeRef => {
 			const closed = b.roster.closed
 			const r = plan.rosters[closed]
 			if (r === undefined) {
-				throw referenceUnsupported(`the installed domain of roster ${closed}`)
+				referenceUnsupported(`the installed domain of roster ${closed}`)
 			}
 			return namedType(testTypeSchema(r.domain.schema), r.domain.name, [])
 		}
@@ -96,6 +96,8 @@ const sqlTypeOf = (type: ScalarType, plan: InstallPlan): TypeRef => {
 			return b.digits <= 18 ? types.bigint : types.numeric
 		case "exactMoney":
 			return types.numeric
+		case "variant":
+			referenceUnsupported("a variant, which the reference draws none of")
 	}
 }
 
@@ -163,7 +165,7 @@ const valueExpr = (
 const rosterCodec = (type: ScalarType, codes: Codebook): RosterCodec => {
 	const roster = rosterOf(baseOf(type))
 	if (roster === undefined) {
-		throw referenceUnsupported(`a handle of ${baseOf(type).carrier}, a type of no roster`)
+		referenceUnsupported(`a handle of ${baseOf(type).carrier}, a type of no roster`)
 	}
 	return codecOf(codes, roster)
 }

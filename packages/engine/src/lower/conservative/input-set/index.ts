@@ -96,9 +96,11 @@ export const inputSetSource = (node: NodeOf<"InputSet">, cx: LowerContext): Inpu
 /**
  * The carrier of a relation parameter its ChangeSet binds to a query, under a fresh alias (InputSet `bound`): the rows
  * its call evaluated once before the first stratum of the part that bound it, a set of facts by their fill (write/carriers memberRows), each field
- * in the column the write program's carrier holds it in (LowerContext.boundRows):
+ * in the column the write program's carrier holds it in (LowerContext.boundRows), read from the transaction's settings
+ * (write/carriers/carriers.ts carrierRead):
  *
- *   SELECT r2.c1 FROM "pg_temp"."__carrier_1_<digest>" AS r2
+ *   SELECT r2.c1 FROM (SELECT "u"."c1"::uuid AS "c1" FROM ROWS FROM (pg_catalog.unnest(pg_catalog.current_setting(
+ *     'grizzle.__carrier_1_c1')::text[])) AS "u"("c1")) AS r2
  */
 const boundSource = (node: NodeOf<"InputSet">, param: ParamId, cx: LowerContext): InputSource => {
 	const rows = cx.boundRows(param, nodeLabel(node))

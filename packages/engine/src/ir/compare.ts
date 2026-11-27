@@ -1,6 +1,11 @@
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
-import { baseOf, floatCarrierOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import {
+	baseOf,
+	type NonIdentityCarrier,
+	nonIdentityCarrierOf,
+	type ScalarType
+} from "#compiler/ir/scalar.ts"
 import type { Expr, FromItem, SetCore, Target, TypeSchema } from "#compiler/sql/ast.ts"
 import {
 	and,
@@ -56,6 +61,7 @@ export const operatorSchemaOf = (
 		case "tsvector":
 		case "exactInteger":
 		case "exactMoney":
+		case "variant":
 			return undefined
 	}
 }
@@ -133,12 +139,12 @@ const rowEq = <F>(sides: RowSides<F>, names: OperatorNames): Expr => rowCompare(
 /** `(left) <> (right)` over the fields; one field compares as a scalar. */
 const rowNe = <F>(sides: RowSides<F>, names: OperatorNames): Expr => rowCompare("<>", sides, names)
 
-/** Each float field of `sides`, with its carrier. */
+/** Each field of `sides` whose equality is no identity (ir/scalar.ts nonIdentityCarrierOf), a float's, with its carrier. */
 const floatFields = <F>(
 	sides: RowSides<F>
-): ReadonlyArray<{ readonly field: F; readonly carrier: "float4" | "float8" }> =>
+): ReadonlyArray<{ readonly field: F; readonly carrier: NonIdentityCarrier }> =>
 	sides.fields.flatMap((field) => {
-		const carrier = floatCarrierOf(sides.typeOf(field))
+		const carrier = nonIdentityCarrierOf(sides.typeOf(field))
 		return carrier === undefined ? [] : [{ field, carrier }]
 	})
 
@@ -188,7 +194,7 @@ export interface FactColumn {
  */
 const zeroSigns = (columns: ReadonlyArray<FactColumn>): ReadonlyArray<Expr> =>
 	columns.flatMap((c) => {
-		const carrier = floatCarrierOf(c.type)
+		const carrier = nonIdentityCarrierOf(c.type)
 		return carrier === undefined ? [] : [negativeZero(c.target.expr, carrier)]
 	})
 

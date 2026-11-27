@@ -8,7 +8,7 @@ import { planFiles } from "#compiler/deploy/phases/files.ts"
 import { type LawChecks, lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { compileInstallation } from "#compiler/program/install.ts"
 import { Bits, closedId, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {

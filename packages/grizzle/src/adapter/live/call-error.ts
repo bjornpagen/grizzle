@@ -124,7 +124,6 @@ const readReading = {
 	CompileError: "failed",
 	EncodingFailure: "input",
 	InputTooLarge: "input",
-	TemporaryRefused: "failed",
 	CallInputRefused: "input",
 	TransientFailure: "transient",
 	StaleSnapshot: "stale"
@@ -149,7 +148,6 @@ const applyReading = {
 	ParamRejected: "paramRejected",
 	CompileError: "failed",
 	InputTooLarge: "input",
-	TemporaryRefused: "failed",
 	UnreadableAnswer: "failed",
 	EncodingFailure: "input",
 	CallInputRefused: "input",
