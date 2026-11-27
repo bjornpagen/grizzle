@@ -116,13 +116,6 @@ export const optimizer = differentialProperty(
 				replacement:
 					'\tconst correlation = (\n\t\tchild.kind === "Group" ? [...new Map(pairs.map((c) => [c.child, c] as const)).values()] : pairs\n\t).map((c) => ({ column: c.child, value: columnIn(parentMap, c.parent) }))\n',
 				why: "The fold an attachment restricts by its parent's values keeps one equality per key column (lower/shapes/attach/index.ts keyedRows), so a key paired with two parent columns is restricted by one of them and a parent whose two columns differ receives a group."
-			},
-			{
-				file: "packages/engine/src/lower/shapes/attach/index.ts",
-				original: "\tconst pairs = attach.correlation\n",
-				replacement:
-					"\tconst pairs = attach.correlation.filter(\n\t\t(p, i) => attach.correlation.findIndex((q) => q.parent === p.parent) === i\n\t)\n",
-				why: "The co-group keys each parent column by the first child column paired with it (lower/shapes/attach/index.ts coGroupedRows), so a parent column paired with two child columns drops the second pair's equality and a parent receives the child rows that equal it at one of them."
 			}
 		]
 	}

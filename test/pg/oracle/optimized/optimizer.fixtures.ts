@@ -47,9 +47,9 @@ const row = (values: ReadonlyArray<number>) =>
 /**
  * The optimizer population's counterexample at its steered phase's case 411 (seed 0x97ccc399), shrunk by hand: a
  * parent column paired with two child columns, on[b=b, b=c], over a child no declared-key prefix binds at b and c, so
- * the attachment is co-grouped (cte-policy attachmentRead `coGroup`, lower/shapes/attach coGroupedRows). The co-group
- * keyed each parent column by the first child column paired with it, so a parent received every child row at its b
- * whatever its c. The parent is R0's b, 1 and 2; the child is R1's (b, c): (1, 1), (1, 2) and (2, 1). Only (1, 1)
+ * the attachment's child is read whole and joined to its parent keys at every pair (cte-policy attachmentRead `whole`,
+ * lower/shapes/attach pipelinedAttachment), where the co-group it replaced keyed each parent column by the first child
+ * column paired with it, so a parent received every child row at its b whatever its c. The parent is R0's b, 1 and 2; the child is R1's (b, c): (1, 1), (1, 2) and (2, 1). Only (1, 1)
  * equals a parent at both pairs, the parent 1; the parent 2 has no child row.
  */
 const parentPairedTwiceCase = (): QueryCase => {

@@ -320,7 +320,7 @@ export class KeyAnalysis {
 				return this.keysOf(reader)
 			}
 			case "Attach":
-				return reader.child === node && attachmentRead(reader).kind === "coGroup"
+				return reader.child === node && attachmentRead(reader).kind === "whole"
 					? whole
 					: reader.child === node
 						? this.#atLeftRows(

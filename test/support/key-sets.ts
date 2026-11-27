@@ -83,21 +83,8 @@ const keySetCore = (query: OperandSelect, outer: ReadonlyArray<With>): SelectCor
 	return keySetAt(coreOf(query)?.from[0], scope)
 }
 
-/**
- * The key set an attachment core's first FROM item reads (keySetCore): a co-group of the parent keys with the child's
- * rows (lower/shapes/attach coGroupedRows, a grouped core over their tagged union) reads it in the union's first arm,
- * the parent keys' own; any other item as keySetCore reads it.
- */
+/** The key set an attachment core's first FROM item reads (keySetCore). */
 const keySetAt = (first: FromItem | undefined, scope: ReadonlyArray<With>): SelectCore => {
-	const grouped = first?.kind === "derived" ? coreOf(first.query) : undefined
-	const tagged = grouped !== undefined && grouped.groupBy.length > 0 ? grouped.from[0] : undefined
-	const arm =
-		tagged?.kind === "derived" && tagged.query.body.kind === "setOp"
-			? tagged.query.body.arms[0]
-			: undefined
-	if (arm?.kind === "core") {
-		return keySetAt(arm.from[0], scope)
-	}
 	if (first?.kind === "cte") {
 		const recursion = definedIn(first.name, scope).body
 		const seed = recursion.kind === "setOp" ? recursion.arms[0] : undefined

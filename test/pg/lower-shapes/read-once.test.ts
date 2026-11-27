@@ -95,7 +95,7 @@ export const aWorkloadReadDerivesEachDerivedRelationOncePerStatementSoNoScanRead
 		kills: [
 			{
 				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
-				original: '\t\t\t? { kind: "perKey" }\n\t\t\t: { kind: "coGroup" }\n',
+				original: '\t\t\t? { kind: "perKey" }\n\t\t\t: { kind: "whole" }\n',
 				replacement: '\t\t\t? { kind: "perKey" }\n\t\t\t: { kind: "perKey" }\n',
 				why: "A child no declared-key prefix binds is read per parent key: the items attachment reads each term's ItemSet through its purpose's value, which no key of Node leads with, every package's node scanned again for each term."
 			},
@@ -106,6 +106,14 @@ export const aWorkloadReadDerivesEachDerivedRelationOncePerStatementSoNoScanRead
 				replacement:
 					"\t\t\t\t\tconst source = cx.sourceAs(child, env, true)\n\t\t\t\t\treturn { from: [parent.item, source.item], keys: parentMap, child: source.map, where: correlationEqualities(cx, attach, child.heading, source.map, parentMap) }\n",
 				why: "An attachment's child its key proves is joined to its parents' keys beside it: the heads read's classifications, derived beside every head, read 4.61 to 7.15 times the rows stored where read per key they read at most 1.79 times them, and take 4.7 times as long to plan."
+			},
+			{
+				file: "packages/engine/src/lower/shapes/attach/index.ts",
+				original:
+					"\t\t\t\tconst source = cx.source(child, env)\n\t\t\t\treturn {\n\t\t\t\t\tfrom: [parent.item, source.item],\n\t\t\t\t\tkeys: parentMap,\n\t\t\t\t\tchild: source.map,\n\t\t\t\t\twhere: correlationEqualities(cx, attach, child.heading, source.map, parentMap)\n\t\t\t\t}\n",
+				replacement:
+					"\t\t\t\tconst source = cx.wrapAs(keyedRows(cx, attach, env, parentMap, attach.correlation), child.heading, origin, true)\n\t\t\t\treturn { from: [parent.item, source.item], keys: parentMap, child: source.map, where: [] }\n",
+				why: "A child no declared-key prefix binds is read with its correlation pushed in, LATERAL at each parent key: the items attachment derives each term's ItemSet again for every term, through its purpose's value, which no key of Node leads with, every package's node scanned again for each."
 			}
 		]
 	})

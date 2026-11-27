@@ -875,9 +875,9 @@ class Extractor {
 	readonly #reading: RowReading
 	readonly #readers = new Map<RelNode, Set<RelNode>>()
 	/**
-	 * The attachments whose child the lowering reads whole, once for every parent: a co-group's (cte-policy
-	 * attachmentRead `coGroup`, lower/shapes/attach coGroupedRows), its child grouped at its correlation by one GROUP BY
-	 * beside the parent keys, so no statement seeks the child at a parent's values, where a statement of its own reads it;
+	 * The attachments whose child the lowering reads whole, once for every parent (cte-policy attachmentRead `whole`,
+	 * lower/shapes/attach pipelinedAttachment), its child derived once and hashed beside the parent keys, so no statement
+	 * seeks the child at a parent's values, where a statement of its own reads it;
 	 * fused into a statement whose rows read a search (check/approximate/attach.ts fusedAttachments), every child is read
 	 * per parent row.
 	 */
@@ -893,7 +893,7 @@ class Extractor {
 		const fused = new Set(roots.flatMap(fusedAttachments))
 		this.#wholeChildren = new Set(
 			nodes.flatMap((n) =>
-				n.kind === "Attach" && attachmentRead(n).kind === "coGroup" && !fused.has(n) ? [n] : []
+				n.kind === "Attach" && attachmentRead(n).kind === "whole" && !fused.has(n) ? [n] : []
 			)
 		)
 		this.#reading = rowReading(
@@ -1912,8 +1912,8 @@ class Extractor {
  * pass through a Filter, which adds its predicate's atoms (`predicateAtoms`), and through a projection by column reference;
  * they stop at a take, an approximate retrieval and a recursion, whose inputs PostgreSQL does not filter from outside.
  * A take's correlation, an attachment's correlation, the right side of a semi-join, anti-join, intersection or
- * difference, and a group's key columns pass what PostgreSQL can apply below them; a co-grouped attachment's child,
- * read whole beside its parent keys, is passed nothing.
+ * difference, and a group's key columns pass what PostgreSQL can apply below them; a whole-read attachment's child,
+ * derived once and hashed beside its parent keys, is passed nothing.
  *
  * In a match region every occurrence of a stored relation receives probe contexts (ProbeContext), each the columns one
  * probe binds: the base context, its own fixed equalities and ranges, and one context per join partner adding the

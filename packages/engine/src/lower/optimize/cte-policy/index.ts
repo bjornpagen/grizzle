@@ -1559,16 +1559,16 @@ const attachedRows = (child: RelNode): RelNode => {
  *   partition, the attachment's correlated columns, binds its input (take/partition.ts): its input at the key, ranked
  *   there, below its bound, where read beside its parents it was ranked over every key's rows (metis's results page,
  *   each session's latest credit ranked over the credit of every attempt of the database).
- * - `coGroup`: no declared-key prefix binds the correlated columns (keyPrefixBound), so a read at one key would read
- *   other keys' rows: the child derived once, whole, and co-grouped with the parent keys by one GROUP BY
- *   (lower/shapes/attach coGroupedRows). A child that reads its parent row's values itself is read per key, whatever
- *   binds it: no derivation of it holds for every parent at once.
+ * - `whole`: no declared-key prefix binds the correlated columns (keyPrefixBound), so a read at one key would read
+ *   other keys' rows: the child derived once, whole, and joined to the parent keys at its correlation, a set join its
+ *   binding hashes (lower/shapes/attach pipelinedAttachment). A child that reads its parent row's values itself is read
+ *   per key, whatever binds it: no derivation of it holds for every parent at once.
  * - `take`: a take no declared-key prefix binds at its partition, read as its probe per parent (R20,
  *   lower/shapes/take takeShape), beside.
  */
 export type AttachmentRead =
 	| { readonly kind: "perKey" }
-	| { readonly kind: "coGroup" }
+	| { readonly kind: "whole" }
 	| { readonly kind: "take" }
 
 export const attachmentRead = (attach: NodeOf<"Attach">): AttachmentRead => {
@@ -1581,7 +1581,7 @@ export const attachmentRead = (attach: NodeOf<"Attach">): AttachmentRead => {
 		? { kind: "take" }
 		: outerOf(attach.child).length > 0 || keyed
 			? { kind: "perKey" }
-			: { kind: "coGroup" }
+			: { kind: "whole" }
 }
 
 /**
@@ -2449,8 +2449,8 @@ const holderOf = (
  *    moves no restriction into a UNION's arms or below a grouping, so one evaluation of either for the statement read
  *    every row of its arms or its input (learning-commons' crosswalk, two counts of one standard's supports, each a
  *    read of one shared fold). A child no declared-key prefix binds at its correlation, which a read per key would read
- *    other keys' rows of, is derived once and co-grouped with its parents' keys by one GROUP BY (attachmentRead
- *    `coGroup`, lower/shapes/attach coGroupedRows), never joined beside them.
+ *    other keys' rows of, is derived once and joined to its parents' keys at its correlation by a hash (attachmentRead
+ *    `whole`, lower/shapes/attach pipelinedAttachment), the child the join's inner, read once.
  * 5. A node that folds, sorts, bounds, deduplicates a set operation or recurses is expensive. Shared, it is
  *    MATERIALIZED: one evaluation feeds every use.
  * 5d. A shared join the statement's own values restrict (restrictedByValues: every occurrence reached from a
