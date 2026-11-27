@@ -43,7 +43,7 @@
  *
  * Whether the relations it reads are closed decides nothing alone: a definition over closed relations alone that joins
  * rows of two units could lose a fact two writers inserted into the two at once, each blind to the other's, so it is
- * live; one over an open relation inside its unit is kept under the borrow its writers hold; and one whose upkeep
+ * live; one over an open relation inside its unit is kept under the borrow its judge takes; and one whose upkeep
  * re-derives its whole declared unit at every write of it, a learner's whole history at each answer, its delta form no
  * checked one, is live, its readers reading its definition at the keys they bind, with why its delta form is none
  * (core/causes.ts UncheckedDelta). Every other derived relation is live (`LiveReason`). One rule decides it, once, where the checked schema reads its derived relations level by

@@ -5,19 +5,22 @@
  * lockId), by the installation's borrow function (write/borrow/function.ts):
  *
  *   SELECT "<schema>"."__borrow"(pg_catalog.array_agg("r1"."c1" ORDER BY "r1"."c1"),
- *            pg_catalog.array_agg("r1"."c2" ORDER BY "r1"."c1"))::text AS "c3"
- *   FROM (SELECT "r2"."c1", pg_catalog.bool_or("r2"."c2") FROM (<arm> UNION ALL …) AS "r2"("c1", "c2")
- *         GROUP BY "r2"."c1") AS "r1"("c1", "c2")
+ *            pg_catalog.array_agg("r1"."c2" ORDER BY "r1"."c1"))::text AS "c4", "r1"."c3"
+ *   FROM (SELECT "r2"."c1", pg_catalog.bool_or("r2"."c2"), true FROM (<arm> UNION ALL …) AS "r2"("c1", "c2")
+ *         GROUP BY "r2"."c1") AS "r1"("c1", "c2", "c3")
+ *   GROUP BY "r1"."c3"
  *
  * each arm one borrow's ids, `SELECT <lockId> AS c1, <exclusive> AS c2 FROM <its keys' source> [WHERE …]`, a series'
- * of no source. array_agg's ORDER BY fixes each array's order (PostgreSQL 19 documentation, "Aggregate Expressions"),
+ * of no source. The locks are one group, by a carried constant, so a statement whose arms find no key returns no row
+ * and calls the function not at all, never with the NULL arrays an ungrouped aggregate gives over no input.
+ * array_agg's ORDER BY fixes each array's order (PostgreSQL 19 documentation, "Aggregate Expressions"),
  * and the function walks them in it, so the locks are taken in id order whatever plan the statement runs by, and two
  * calls never wait on each other in a cycle. Every key is evaluated at the statement's snapshot, before any of its
  * locks: a key the call learns by reading is read again by the statements after it, at a snapshot that follows every
  * lock, so the certifier admits only a source that reads alike at both, sealed, or held by a lock an earlier borrow
  * statement of the flight took, every one of whose kinds ranks below every kind this one takes (core/certificate.ts
  * KeySite). The flight that sends it carries COMMIT in the same pipeline, so no lock is held across a round trip of the
- * host. Its one row carries nothing to decode.
+ * host. Its one row, or none, carries nothing to decode.
  */
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { BorrowLock } from "#compiler/core/certificate.ts"
@@ -32,8 +35,8 @@ import {
 	lit,
 	operandSelect,
 	operandUnionAll,
-	provedSelect,
 	qualifiedCall,
+	select,
 	target,
 	targetAs,
 	types
@@ -91,9 +94,14 @@ export const borrowQuery = (
 	}
 	const each = names.relation(internal("borrowed locks"))
 	const locks = names.relation(internal("locks"))
+	const carried = names.column(internal("the locks' one group"))
 	const byId = grouped(
 		core(
-			[target(col(each, id)), target(call("bool_or", [col(each, exclusive)]))],
+			[
+				target(col(each, id)),
+				target(call("bool_or", [col(each, exclusive)])),
+				target(lit.bool(true))
+			],
 			[
 				derived(
 					namedQuery(operandSelect(operandUnionAll(mapNonEmpty(arms, arm))), [id, exclusive]),
@@ -109,21 +117,26 @@ export const borrowQuery = (
 		...call("array_agg", [col(locks, column)]),
 		orderBy: [{ expr: col(locks, id), direction: "ASC" }]
 	})
-	return provedSelect(
-		"oneRow",
-		[
-			targetAs(
-				cast(
-					qualifiedCall(
-						{ kind: "qualified", schema, name: borrowFunctionName, volatility: "VOLATILE" },
-						[ordered(id), ordered(exclusive)]
+	return select(
+		grouped(
+			core(
+				[
+					targetAs(
+						cast(
+							qualifiedCall(
+								{ kind: "qualified", schema, name: borrowFunctionName, volatility: "VOLATILE" },
+								[ordered(id), ordered(exclusive)]
+							),
+							types.text
+						),
+						names.column(internal("borrowed"))
 					),
-					types.text
-				),
-				names.column(internal("borrowed"))
-			)
-		],
-		[derived(namedQuery(operandSelect(byId), [id, exclusive]), locks, false)],
-		undefined
+					target(col(locks, carried))
+				],
+				[derived(namedQuery(operandSelect(byId), [id, exclusive, carried]), locks, false)],
+				undefined
+			),
+			[col(locks, carried)]
+		)
 	)
 }

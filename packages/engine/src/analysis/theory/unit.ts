@@ -2500,8 +2500,9 @@ export interface UnitFacts {
  * The unit of a stored derived relation's definition, read live (ir/unit.ts StoredUnit), decided once when the schema
  * compiles, by the one walk a whole rule's discharge reads: unit-local, no field it reads one an immutable relation's
  * rows change in place, every relation it reads sitting in one declared unit whose key leads its own (`declaredOf`), so
- * every write of its rows, a mutable relation's updates and deletes among them, holds that unit exclusively and its
- * upkeep at COMMIT runs under the same borrow, every declared function it calls anywhere, its head's among them,
+ * every write of its rows, a mutable relation's updates and deletes among them, is a write of that unit, which the
+ * judge borrows exclusively at the written keys before its upkeep at COMMIT reads them (physical/ddl/rules.ts
+ * judgeBorrow), every declared function it calls anywhere, its head's among them,
  * immutable throughout (`unfit` names why one is not, none where it is), at the widest unit whose key its head delivers,
  * so its rows at one unit are replaced by that unit's key; or the condition it lacks (core/causes.ts UnitLocality): its
  * unit and its calls first, then, of the narrowest unit, one field wide, the first the walk meets in the definition's

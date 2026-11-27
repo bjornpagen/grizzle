@@ -258,8 +258,10 @@ export type KeySite =
 
 /**
  * One borrow of one compiled write of a change member (its variant), as the certifier proves the write needs it and the
- * lock plan places it: what it locks, how, where, and every site whose keys it locks (none for the series lock). The
- * borrows of a compiled write are complete: its lowering takes no lock of its own.
+ * lock plan places it, or of the judge, which borrows at COMMIT each unit a stored relation is kept under at the keys
+ * its transaction wrote (physical/ddl/rules.ts judgeBorrows): what it locks, how, where, and every site whose keys it
+ * locks (none for the series lock). The borrows of a compiled write are complete: its lowering takes no lock of its
+ * own.
  */
 export interface Borrow {
 	readonly lock: BorrowLock

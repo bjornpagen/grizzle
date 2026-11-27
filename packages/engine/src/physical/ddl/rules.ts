@@ -10,6 +10,7 @@ import {
 	sortNonEmpty
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { lockName } from "#compiler/analysis/isolation/borrows.ts"
 import { definedAt, type QueryColumns } from "#compiler/analysis/theory/columns.ts"
 import { navigateQuery, Navigation, type RegionExtent } from "#compiler/analysis/theory/navigate.ts"
 import {
@@ -33,6 +34,7 @@ import type { CheckedLoss, DeltaForm } from "#compiler/analysis/theory/upkeep.ts
 import { checkQuery } from "#compiler/check/index.ts"
 import { CheckSession } from "#compiler/check/session.ts"
 import { canonicalTextOf, Refusal, unwrap } from "#compiler/core/canonical.ts"
+import type { Borrow, BorrowLock, KeySite } from "#compiler/core/certificate.ts"
 import { unsupported } from "#compiler/core/errors.ts"
 import { type Identity, identifierOf, identity, type UpkeepPart } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -104,7 +106,7 @@ import type {
 	TransitionTable,
 	TypeRef
 } from "#compiler/sql/ast.ts"
-import { transitionTables } from "#compiler/sql/ast.ts"
+import { selectColumns, transitionTables } from "#compiler/sql/ast.ts"
 import {
 	and,
 	col,
@@ -129,11 +131,12 @@ import {
 	whenFound
 } from "#compiler/sql/build.ts"
 import { assignments, ungenerated } from "#compiler/sql/generation.ts"
-import { namedQuery } from "#compiler/sql/naming.ts"
+import { freshNames, NameSupply, namedQuery } from "#compiler/sql/naming.ts"
 import { printObjectName, sessionTablesStanding, stoodApart } from "#compiler/sql/print.ts"
 import { type SeekProgram, seekProgram } from "#compiler/sql/seeks.ts"
 import { type StoredColumns, storedColumns } from "#compiler/sql/stored.ts"
 import { identityHooks, Transform } from "#compiler/sql/transform.ts"
+import { type BorrowArm, borrowQuery } from "#compiler/write/borrow/statement.ts"
 
 /**
  * A compiled judged query: its statement, its outputs unaliased, the names of the columns it delivers in their order,
@@ -1225,6 +1228,17 @@ const rowedName = "__rowed"
 /** A part's `rowedName`. */
 const rowedSet: Expr = { kind: "plVar", name: rowedName }
 
+/**
+ * One borrow of the judge's (core/certificate.ts Borrow `judge`): a unit, exclusively, at the key of each row the
+ * transaction wrote to one holder of a stored relation under it (KeySite `delta`), and the holder's fields that hold the
+ * unit's key, in its heading's order (schema/own.ts UnitMember).
+ */
+interface JudgeBorrow extends Borrow {
+	readonly lock: Extract<BorrowLock, { readonly kind: "unit" }>
+	readonly keys: readonly [Extract<KeySite, { readonly kind: "delta" }>]
+	readonly fields: NonEmptyReadonlyArray<string>
+}
+
 /** The name of an upkeep's variable that holds the tuple id of the stored row its loop deletes (upkeepBlock `removal`). */
 const staleName = "__stale"
 
@@ -1981,7 +1995,7 @@ export const addRules = (
 	 * The judge's block of a stored relation's upkeep, phase A of its part (analysis/theory/unit.ts StoredUpkeep), its
 	 * statements its form's (analysis/theory/upkeep.ts), a unit form's in one call and a delta form's removal and gain in
 	 * a call each, in that order (`partCall`, identity.storedUpkeep), each run where a delta its own statements read holds
-	 * a row, under the borrow every write of those units holds. Each inserts by S's primary key (`inserting`): a fact S already holds is a
+	 * a row, under the judge's borrow of those units (`judgeBorrow`). Each inserts by S's primary key (`inserting`): a fact S already holds is a
 	 * conflict on that key, one probe of its index, never an anti join PostgreSQL may plan as a hash of S whole.
 	 *
 	 * - A unit form's rows at the units the transaction wrote become its definition's rows there, by their set difference:
@@ -2474,6 +2488,127 @@ export const addRules = (
 		stratumOf.set(u.relation, stratum)
 		return { stratum, block: upkeepBlock(u) }
 	})
+	/**
+	 * The judge's borrows (core/certificate.ts Borrow `judge`): each unit a stored relation is kept under (ir/unit.ts
+	 * StoredUnit `declared`), exclusively, at the key of every row the transaction wrote to a holder of it, an ordinary
+	 * relation of that unit, on each side the judge captures of it (KeySite `delta`), each holder once however many
+	 * stored relations it holds: a write of a holder no side of which is captured runs no upkeep. A stored relation
+	 * another reads (`stratumOf`) changes only at the units its own holders' rows name, which the same unit's borrow
+	 * holds, so no stored relation's side is a key site.
+	 */
+	const judgeBorrows = [
+		...new Map(
+			b.model.theory.upkeeps.flatMap((u) =>
+				u.reads.flatMap((r) => {
+					if (
+						b.model.theory.relations[r.relation]?.kind === "stored" ||
+						tableOf(r.relation) === undefined
+					) {
+						return []
+					}
+					const member = b.owned.unitOf.get(r.relation)
+					if (member?.unit !== u.stored.declared.unit) {
+						defect(
+							`${r.relation}, a holder of stored relation ${u.relation}, sits in its unit ${u.stored.declared.unit}`
+						)
+					}
+					return [[r.relation, member] as const]
+				})
+			)
+		).values()
+	]
+		.toSorted((x, y) => compareStrings(x.relation, y.relation))
+		.map((member): JudgeBorrow => ({
+			lock: { kind: "unit", unit: member.unit },
+			mode: "exclusive",
+			at: "judge",
+			keys: [{ kind: "delta", relation: member.relation }],
+			fields: member.fields
+		}))
+	/**
+	 * The judge's borrow statement, the first of phase A, after the sides of news are netted, where any stored relation
+	 * has a captured holder: every lock of its borrows (`judgeBorrows`), each at the key of each row of each side of the
+	 * holder its site names, that side read where the written set names it, taken by the borrow function in the order
+	 * of the locks' ids (write/borrow/statement.ts borrowQuery), its value read whole:
+	 *
+	 *   PERFORM r<n>.c<m> FROM (SELECT <schema>.__borrow(pg_catalog.array_agg(…), …)::text AS c<m>, … FROM (…
+	 *     SELECT <the lock id of the unit at the row's key> AS c1, true AS c2 FROM <a holder's side> AS r<k>
+	 *       WHERE __written @> '{<the side's delta>}' UNION ALL …) GROUP BY …) AS r<n>
+	 *
+	 * So no upkeep reads a stored relation's definition at a unit, or writes its rows there, while another transaction
+	 * that wrote the unit's holders is open: every writer's judge takes its units here before its upkeeps read anything,
+	 * at any level and from any session (a served write, direct SQL, a migration's data step), and at READ COMMITTED
+	 * each statement after this one reads at a snapshot taken once the transaction holds its units, after every earlier
+	 * holder's commit. Two READ COMMITTED writers of one unit's holders, each keeping it at a snapshot that missed the
+	 * other's rows, left the stored relation there the union of two partial definitions, a join's row lost, a negation's
+	 * row kept and a count short (test/pg/isolation/upkeep).
+	 *
+	 * One statement, never one for each upkeep part: a transaction takes every lock of its judge at once, in id order, so
+	 * no two judges wait on each other in a cycle, which parts of two units run in turn would close where another
+	 * transaction's parts take the same units in the other order. A side the written set does not name reads nothing,
+	 * its condition no column of its rows, a filter PostgreSQL evaluates once before it reads the side: a session stands
+	 * up the sides its own writes need, so another holder's may not stand. A lock kind's rank is its place among the
+	 * judge's kinds by name (analysis/isolation/borrows.ts lockName), the installation's lock order (core/certificate.ts
+	 * LockOrder): no change member borrows in flight, so no edge constrains it, and the least by name is lockOrder's.
+	 */
+	const judgeBorrow = ((): ReadonlyArray<PlStatement> => {
+		const names = new NameSupply(freshNames)
+		const kinds = [...new Set(judgeBorrows.map((j) => lockName(j.lock)))].toSorted(compareStrings)
+		const rankOf = (lock: BorrowLock): Expr => lit.int(kinds.indexOf(lockName(lock)), types.integer)
+		const arms = judgeBorrows.flatMap((j) => {
+			const { lock } = j
+			return j.keys.flatMap((site): ReadonlyArray<BorrowArm> => {
+				const t = defined(tableOf(site.relation), `the judged table of holder ${site.relation}`)
+				/** A field of the holder in its delta: the column of its place in the heading (deltas.ts deltaRelation). */
+				const placed = (field: string) => {
+					const at = t.relation.heading.findIndex((f) => f.name === field)
+					return {
+						column: `c${at + 1}`,
+						type: defined(t.relation.heading[at], `the unit field ${field} of ${site.relation}`)
+							.type
+					}
+				}
+				return t.sides.map((s): BorrowArm => {
+					const alias = names.relation({ kind: "internal", purpose: "a holder's written rows" })
+					return {
+						kind: "unit",
+						unit: lock.unit,
+						exclusive: true,
+						keys: {
+							from: [{ kind: "cte", name: s.delta.name, alias }],
+							where: wrote(s.delta.name),
+							fields: mapNonEmpty(j.fields, (field) => {
+								const { column, type } = placed(field)
+								return { expr: col(alias, column), type }
+							})
+						}
+					}
+				})
+			})
+		})
+		if (!isNonEmpty(arms)) {
+			return []
+		}
+		const taken = headed(borrowQuery(b.schema, arms, rankOf, names), reads)
+		const columns = selectColumns(taken)
+		const [borrowed] = columns
+		const alias = names.relation({ kind: "internal", purpose: "the judge's borrow" })
+		return [
+			{
+				kind: "perform",
+				query: {
+					body: core(
+						[{ expr: col(alias, defined(borrowed, "the borrow's column")), alias: undefined }],
+						[derived(namedQuery(taken, columns), alias, false)],
+						undefined
+					),
+					orderBy: [],
+					limit: undefined,
+					offset: undefined
+				}
+			}
+		]
+	})()
 	/** Phase A's blocks stratum by stratum, and phase B's, every rule's blocks in trigger-name order, each stratum and
 	 * the rules in parts of their own (`partsOf`), so every upkeep reads each stored relation below it, and every rule each
 	 * stored relation, as the transaction leaves it: a stored relation read by reference among them, whose upkeep at a
@@ -2686,6 +2821,7 @@ export const addRules = (
 		: [
 				readWritten,
 				...nettingsOf(tables, storedNames, nettedDeltas),
+				...judgeBorrow,
 				...upkeep,
 				consumed,
 				...partsRun(parts.flatMap(({ part }) => (part.pass.kind === "rules" ? [part] : []))),
@@ -2717,7 +2853,15 @@ export const addRules = (
 			reasons,
 			phase: "validate"
 		},
-		[...tablesOf(b.model.rules), ...parts.map((p) => p.node)]
+		[
+			...tablesOf(b.model.rules),
+			...parts.map((p) => p.node),
+			...(isNonEmpty(judgeBorrow) ? [b.borrow] : []),
+			...[...readersCalled(judgeBorrow)].flatMap((name) => {
+				const reader = readers.get(name)
+				return reader === undefined ? [] : [reader]
+			})
+		]
 	)
 	const standings = standingsOf(b, [...upkept.map((x) => x.block), ...ruled], tables)
 	const standUps = addStandUps(b, tables, standings, judge, sentinel, judgeNode, reads)

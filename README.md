@@ -4551,7 +4551,7 @@ definition reads.
 
 Where its rows live is grizzle's to decide, never yours. grizzle stores it, its rows in a table of its own kept equal
 to its definition at every COMMIT for every writer (grizzle's programs, direct SQL and a migration's data steps alike),
-exactly where it can keep it at a written unit by reading only rows that write's borrow covers. That is where its
+exactly where it can keep it at a written unit by reading only rows that unit's borrow covers. That is where its
 definition is unit-local, as a rule judged whole is ([Rules over queries](#rules-over-queries)):
 - every relation it reads leads its primary key with the unit's fields and sits in one declared unit
   ([Units](#units)) whose key leads them, so every write of its rows, a mutable relation's updates and deletes among
@@ -4626,7 +4626,12 @@ definition.
 - **When its rows are written.** At COMMIT, where the rule judge runs: for each unit whose rows a transaction wrote,
   on either side of every relation its definition reads, the judge deletes the stored rows there its definition no
   longer delivers and inserts the ones it delivers anew, two statements over the rows the transaction wrote, its work
-  the written units' and never the table's. A stored row that stays is never touched. A definition that reads another
+  the written units' and never the table's. Before any of them reads a row, the judge borrows each of those units
+  exclusively, one lock a unit key, every one in one statement in the order of their ids ([Units](#units)), so no two
+  transactions keep one unit at once, whatever level they run at and wherever they come from: a READ COMMITTED
+  transaction then reads every row of the unit that any earlier writer committed, and two writers of one learner's
+  rows at once never leave a join's row missing, a count short or a negation's row standing. A stored row that stays
+  is never touched. A definition that reads another
   stored relation reads its table, which the judge keeps first in the same COMMIT: it keeps each stored relation after
   every stored relation it reads, at the units whose rows the transaction wrote or whose stored rows the keeping of
   those below it changed, so no work below is done twice. A query a definition imports is a relation too, stored where
