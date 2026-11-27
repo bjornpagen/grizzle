@@ -518,6 +518,7 @@ class Planning {
 			case "enclosing":
 			case "function":
 			case "table":
+			case "read":
 			case "transition":
 			case "values":
 				return undefined

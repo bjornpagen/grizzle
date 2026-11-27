@@ -41,6 +41,7 @@ import {
 	type OperandSelect,
 	type OrderItem,
 	type PlStatement,
+	readConditions,
 	selectColumns,
 	type SelectCore,
 	type SqlFunction,
@@ -1217,6 +1218,17 @@ class StatementAuditor {
 				this.tableName(item.table, "table")
 				this.defineRelation(item.alias, "alias")
 				return
+			case "read": {
+				this.tableName(item.table, "table")
+				this.defineRelation(item.alias, "alias")
+				const ctx = context("query", pl)
+				this.at("access", () => {
+					for (const condition of readConditions(item)) {
+						this.expr(condition, ctx)
+					}
+				})
+				return
+			}
 			case "probe":
 			case "met": {
 				this.tableName(item.table, "table")
