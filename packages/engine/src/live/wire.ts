@@ -31,8 +31,15 @@ import {
 import { sha256Octets } from "#compiler/core/digest.ts"
 import { isList, isPlainRecord } from "#compiler/core/record.ts"
 import { validateText } from "#compiler/core/text.ts"
-import { int2Max, int2Min, int4Min, int8Max, int8Min } from "#compiler/ir/carriers.ts"
-import { uuidGroups } from "#compiler/ir/carriers.ts"
+import {
+	belowPowerOfTen,
+	int2Max,
+	int2Min,
+	int4Min,
+	int8Max,
+	int8Min,
+	uuidGroups
+} from "#compiler/ir/carriers.ts"
 import { type CalendarDate, convertDate, dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
 import {
@@ -440,14 +447,6 @@ const decimalFits = (
 		? Result.ok(value)
 		: Result.err("range")
 }
-
-/**
- * Whether a coefficient, a natural, lies below 10^`exponent`: it is 0, or it has at most `exponent` decimal digits, so
- * below 10^0 and below a negative exponent's power, a fraction, only 0 does. A per-value hot path read by its digits,
- * never by the power, which at an exact field's or pg.numeric's bound is a number of 131,072 digits.
- */
-const belowPowerOfTen = (coefficient: bigint, exponent: number): boolean =>
-	coefficient === 0n || (exponent > 0 && coefficient.toString().length <= exponent)
 
 /** The integer digits and scale of a decimal type's values (WireNumeric). */
 const numericBounds = (

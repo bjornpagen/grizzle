@@ -19,11 +19,13 @@ import type { IdentityValue } from "#compiler/core/identity.ts"
 import { ExprId, type NodeId, type ParamId } from "#compiler/core/ids.ts"
 import { type Comparator, compareStrings, mapInput, thenBy } from "#compiler/core/order.ts"
 import {
+	belowPowerOfTen,
 	type CanonicalFloat,
 	floatLiteral,
 	integerRanges,
 	isIntegerTypmod,
 	type MoneyValue,
+	moneyMinorUnits,
 	uuidHyphens,
 	uuidTextLength,
 	type VectorText
@@ -52,6 +54,7 @@ import {
 	typeLabel
 } from "#compiler/ir/scalar.ts"
 import * as S from "#compiler/ir/shape.ts"
+import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
 import { cosineNormMax, cosineNormMin } from "#compiler/scalar/values/fault.ts"
 import { type Cidr, type Inet, isCidrText, isInetText } from "#compiler/scalar/values/net.ts"
 
@@ -990,6 +993,22 @@ const numericTypmodProblem = (value: DecimalValue, typmod: NumericTypmod): strin
 	}
 }
 
+/**
+ * Why an exact value, `units` at `scale` fraction digits, is no value of the exact type `type` of `digits` integer
+ * digits, |x| < 10^digits (ir/scalar.ts ExactType), or undefined where it is one: a literal takes an exact type as any
+ * type, its host value a value of it within its digits, and one past them is refused naming the bound.
+ */
+const exactProblem = (
+	units: bigint,
+	scale: number,
+	digits: number,
+	shown: string,
+	type: ScalarType
+): string | undefined =>
+	belowPowerOfTen(units < 0n ? -units : units, digits + scale)
+		? undefined
+		: `${shown} lies outside ${typeLabel(type)}, whose values are below 10^${digits} in magnitude`
+
 /** A literal's identity under PostgreSQL's native equality: two literals are equal exactly when their keys are. */
 export type EqualityKey = string & { readonly [equalityKeyBrand]: true }
 declare const equalityKeyBrand: unique symbol
@@ -1059,6 +1078,9 @@ export const literalProblem = (literal: TypedLiteral, outer: ScalarType): string
 	const { carrier } = type
 	switch (literal.kind) {
 		case "int": {
+			if (type.carrier === "exactInteger") {
+				return exactProblem(literal.value, 0, type.digits, String(literal.value), type)
+			}
 			const range =
 				carrier === "int2" || carrier === "int4" || carrier === "int8"
 					? integerRanges[carrier]
@@ -1090,6 +1112,10 @@ export const literalProblem = (literal: TypedLiteral, outer: ScalarType): string
 				? undefined
 				: `a float literal is not a ${carrier} value`
 		case "money":
+			if (type.carrier === "exactMoney") {
+				const units = moneyMinorUnits(literal.value)
+				return exactProblem(units, moneyFractionDigits, type.digits, `${units} minor units`, type)
+			}
 			return carrier === "money" ? undefined : `a money literal is not a ${carrier} value`
 		case "bool":
 			return carrier === "bool" ? undefined : `a boolean literal is not a ${carrier} value`

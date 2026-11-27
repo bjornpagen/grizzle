@@ -180,7 +180,7 @@ export const anExactFieldIsArithmeticsExactTypeAtNumericsOwnLimitAndHoldsEveryVa
 				why: "Only an exact value at numeric's own limit enters an exact field, so a query's sum or product of a narrower bound is refused where it is written; the typing property fails."
 			},
 			{
-				file: "packages/engine/src/live/wire.ts",
+				file: "packages/engine/src/ir/carriers.ts",
 				original:
 					"\tcoefficient === 0n || (exponent > 0 && coefficient.toString().length <= exponent)",
 				replacement:

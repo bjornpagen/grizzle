@@ -2057,7 +2057,12 @@ Each type has one name, the one PostgreSQL prints for it: `pg.integer`, never `i
   refuses a fraction, another scale (`5.0`, `1.5`), NaN and the infinities from a direct writer with 23514; grizzle's
   own writes are its host values, which hold no other. Its arithmetic is exact at numeric's own limit, PostgreSQL
   refusing a result past it with 22003, as over a `pg.numeric`. A literal or a parameter of its family meets it, a
-  bigint or a `Money` among them, and a parameter of its own type takes any value of it. No key, UNIQUE, containment or family axis holds one, since its widest
+  bigint or a `Money` among them, and a parameter of its own type takes any value of it. A bare literal is a value of
+  it as of any type, a bigint for an exact integer and a `Money` for exact money: where a field of it is written,
+  `V.make("integer", { value: 1n })` over an arm's `exactInteger` field or `Type.literal(exactInteger, 1n)`, it is a
+  value of the field, and opposite an exact value in a comparison or an operation any value of its family, an exact
+  value's digits being what its making proves of it, never a domain the value it meets is held to; it is refused only
+  past numeric's own limit, `MalformedDescription` naming 10^131072. No key, UNIQUE, containment or family axis holds one, since its widest
   value outgrows every index entry: one there is `UnrepresentableKey` naming the precision to declare, `pg.numeric(p, 0)`
   (or `pg.bigint`) for an exact integer, `pg.numeric(p, 2)` (or `pg.money`) for exact money; a lookup leaves one out
   of its index, a filter beside it, as a `pg.numeric` of no typmod ([Keys and indexes](#keys-and-indexes)). No
@@ -2308,7 +2313,8 @@ const Multiple = relation.generated(
   `Multiple` does where an arm holds unbounded text, a query's join or a check.
 - **Case analysis is exhaustive.** `V.cases(value, { boolean: (a) => …, float: (a) => …, … })` takes a handler for
   every arm, each given its arm's fields as terms, and is one term. `V.make("pair", { least, greatest })` is a value of
-  one arm. `r.match(V.arm(value, "string"), { value: text })` is a source, one row of an arm's fields where the value
+  one arm, each field a term that meets its type or a bare literal, which takes the field's type, as
+  `V.make("integer", { value: 3 })` does. `r.match(V.arm(value, "string"), { value: text })` is a source, one row of an arm's fields where the value
   holds that arm and none where it holds another, so a rule reads an arm's fields as columns. Its key is its value: an
   arm of a cell a key fixes is at most one row, to the types as to the engine, so an attachment reading it is an
   Option. A derived relation of that one match is the relation of an arm, which a law may name.
@@ -3526,7 +3532,7 @@ PostgreSQL's scalar operators, functions and casts are typed builders of terms, 
 - **Guards** are `Num.nonzero`, `Num.nonnegative`, `Num.positive`, `Num.isFinite` and `Num.within(x, low, high)`, each a predicate too. A guard's subject is any term, a parameter included: over `d = r.param("d", pg.bigint)`, `Logic.when(Num.nonzero(d), (d) => Num.div(x, d), 0n)` delivers `0n` where `d` is bound to zero, under every plan.
 - **A contract's facts are exactly the ones its `proves` declares.** Compilation proves each from the predicate and refuses one the predicate does not imply. A fact the predicate implies but `proves` leaves out is no fact of its values: `Num.minScale(rate)` over `contract<typeof rateKey>()("Rate", pg.numeric(7, 6), (x) => Logic.between(x, 0n, 1n))` is refused, naming `{ proves: ["finite"] }` to add. A parameter of a contract has its declared facts, its binding checking every value, so `Num.div(x, Type.base(r.param("d", Divisor)))` needs no guard.
 - **Magnitudes are proved by `Num.within`.** A narrowing's range or a power's is proved from `Num.within`'s bounds, or refused as `PartialOperation`: narrow an exact integer into an integer field with `Logic.when(Num.within(x, 0n, 1000000n), (x) => Type.cast(x, pg.integer), 0)`.
-- **Exact and plain values share no type.** An exact value binds at a plain integer or money column, but a ChangeSet member stores one into a plain field only through that cast: a head that writes `Num.add(balance, amount)` into a `pg.bigint` field is a type error. An `exactInteger` or `exactMoney` field holds it as it is ([Tables and types](#tables-and-types)). Where PostgreSQL would widen the plain value implicitly, `Logic.cond`, `Logic.when`, `Logic.least` and `Logic.greatest` refuse an exact value beside a plain one of its family, in either order, naming the cast of the exact one into the plain one's type. A bare literal takes its term's type, an exact one's included, and is refused where it has more digits than that type holds.
+- **Exact and plain values share no type.** An exact value binds at a plain integer or money column, but a ChangeSet member stores one into a plain field only through that cast: a head that writes `Num.add(balance, amount)` into a `pg.bigint` field is a type error. An `exactInteger` or `exactMoney` field holds it as it is ([Tables and types](#tables-and-types)). Where PostgreSQL would widen the plain value implicitly, `Logic.cond`, `Logic.when`, `Logic.least` and `Logic.greatest` refuse an exact value beside a plain one of its family, in either order, naming the cast of the exact one into the plain one's type. A bare literal branch takes its conditional's type, an exact one's included, and is refused where it has more digits than that type holds, `MalformedDescription` naming the bound: beside `Num.add(a, b)` over two `pg.integer` fields, an exact integer of 11 digits, `10n ** 11n` is refused naming 10^11, where compared with it, as any value of its family, it is admitted.
 - **A member writes each field at the field's own type,** as a generated field's term and an accumulator's step do: only a text's pattern and byte bound are left to the field's domain, which refuses a value outside them. A computed numeric, the value of `r.sum`, `r.mean` or a numeric operation, enters a `pg.numeric(p, s)` field only through `Type.cast` under a guard that proves it fits, and a numeric of another precision or scale, or a span of another width, only through `Type.cast`, since a typmod rounds and a sum can pass the field's precision. Compilation refuses any other head as `DescribedHeadingMismatch`.
 
 ### Text

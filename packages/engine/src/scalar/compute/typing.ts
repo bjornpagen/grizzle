@@ -60,7 +60,6 @@ import {
 	type Carrier,
 	type ContractInfo,
 	enteredType,
-	exactDigitsOf,
 	integerTypmodOf,
 	isExactValue,
 	isFloat,
@@ -894,12 +893,15 @@ export type Role = "compare" | "arithmetic" | "operand"
 
 /**
  * The type a bare literal adopts opposite a term of type `t` (see the header): compared with a contract, the contract;
- * otherwise the term's value type, a numeric's any numeric, an exact value's plain family, an operand text's any text,
+ * otherwise the term's value type, a numeric's any numeric, an exact value's its family's, any exact integer or any
+ * exact money at numeric's own limit, an exact field's type, which a bigint or a Money of every digit count but numeric's
+ * past it is a value of (ir/expr.ts literalProblem), since an exact value's digits are what its making proves of it,
+ * never a domain the value it is compared or computed with is held to, an operand text's any text,
  * a closed id's of every handle of its roster, so a literal compared with a closed id of a subset is any handle of the
  * roster and its type one its value is of (ir/expr.ts literalProblem), and a span's its endpoint's, so a literal is
  * typed by the term it meets and never on its own. An arithmetic operand is typed at the base and judged a value of the
  * term's contract beside it (Typing.operand). A conditional's literal branch beside a closed id of a subset is of its
- * own handle's subset instead (Typing.branchOperand).
+ * own handle's subset instead, and beside an exact value of that value's type (Typing.branchOperand).
  */
 export const adoptedType = (t: ScalarType, role: Role): ScalarType => {
 	if (role === "compare" && t.contract !== undefined) {
@@ -912,11 +914,8 @@ export const adoptedType = (t: ScalarType, role: Role): ScalarType => {
 	if (v.carrier === "numeric") {
 		return anyNumeric
 	}
-	if (v.carrier === "exactInteger") {
-		return plainType("int8")
-	}
-	if (v.carrier === "exactMoney") {
-		return plainType("money")
+	if (v.carrier === "exactInteger" || v.carrier === "exactMoney") {
+		return exactType(v.carrier, numericMaxIntegerDigits)
 	}
 	if (role === "operand" && v.carrier === "text") {
 		return wildcardText
@@ -1870,29 +1869,20 @@ class Typing<R extends Refs> {
 
 	/**
 	 * A conditional's branch opposite the term `t`: a term that meets it, or a bare literal of t's own type. Opposite an
-	 * exact value the literal is its family's plain carrier's (adoptedType), converted into t's exact type where its
-	 * value lies within t's digits and refused where it does not, so the conditional is of t's type as its builder typed
-	 * it, never wider. Opposite a closed id of a subset a handle is of its own handle's subset (subsetBranchHandle), so
-	 * the conditional's subset is the branches' union, never a subset a branch's value lies outside.
+	 * exact value the literal is a value of t's exact type itself, refused where it lies past t's digits (ir/expr.ts
+	 * literalProblem), so the conditional is of t's type as its builder typed it, never wider. Opposite a closed id of a
+	 * subset a handle is of its own handle's subset (subsetBranchHandle), so the conditional's subset is the branches'
+	 * union, never a subset a branch's value lies outside.
 	 */
 	branchOperand(desc: ExprDesc<Located, R>, t: Typed, at: SourceLoc): Typed {
 		const handle = subsetBranchHandle(desc, t.nominal)
 		if (handle !== undefined) {
 			return this.literal(handle.value, handle.type, at)
 		}
-		const x = this.operand(desc, t.nominal, "compare", at)
-		const digits = exactDigitsOf(t.nominal)
-		if (!isBareLiteral(desc) || digits === undefined) {
-			return x
+		if (desc.kind === "literal" && desc.type === undefined && isExactValue(t.nominal)) {
+			return this.literal(desc.value, t.nominal, at)
 		}
-		if (this.boundsOf(x, at).digits > digits) {
-			return stop(
-				"MalformedDescription",
-				at,
-				`a literal beside an exact value of ${digits} digits: a value within them, as the exact value's type holds`
-			)
-		}
-		return this.convert(x, t.nominal, at)
+		return this.operand(desc, t.nominal, "compare", at)
 	}
 
 	/**
@@ -2320,8 +2310,8 @@ class Typing<R extends Refs> {
 
 	/**
 	 * An operand opposite a term of the type `against`: a bare literal adopts that type, anything else, a parameter among
-	 * them, is a term that meets it (types.ts meets). Opposite an exact value a bare literal adopts its family's plain
-	 * carrier (bigint, money), which the operation widens exactly (exactPair). A bare literal compared with a term is a
+	 * them, is a term that meets it (types.ts meets). Opposite an exact value a bare literal is any value of its family
+	 * (adoptedType), which the operation reads exactly. A bare literal compared with a term is a
 	 * value of the term's type as written, refused where it has more digits than a numeric(p, s) term holds (literal.ts
 	 * oppositeLiteralProblem), as a match's binding and a side's selector are: the comparison reads it exactly, never
 	 * rounded. A bare literal beside a contract's term in arithmetic is a value opposite that term, so it is a value of

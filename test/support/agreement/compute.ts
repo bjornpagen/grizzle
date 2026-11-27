@@ -2931,7 +2931,7 @@ const decidedBy = (thrown: unknown): DecidedNote | undefined => {
 			? engineDecides.digits
 			: engineDecides.literal
 	}
-	return Str.startsWith("a literal beside an exact value of ")(text)
+	return Str.startsWith("a literal of exact ")(text) && Str.includes(" lies outside exact ")(text)
 		? engineDecides.literal
 		: Str.startsWith("an exact decimal literal")(text)
 			? engineDecides.digits

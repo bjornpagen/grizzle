@@ -102,8 +102,9 @@ const taggedMoney = (value: unknown): Money | undefined => {
  *
  * LiteralOf<T>: a literal over a numeric base is a Decimal, a bigint, or a string holding an exact decimal literal,
  * checked at construction; a JavaScript number is never a numeric literal, because it has already rounded to binary64.
- * Literals over smallint and integer are JavaScript integers, over bigint bigints, over real and double precision
- * JavaScript numbers (NaN and the infinities included), over money a Money, over boolean a boolean, over uuid its
+ * Literals over smallint and integer are JavaScript integers, over bigint and an exact integer bigints, over real and
+ * double precision JavaScript numbers (NaN and the infinities included), over money and exact money a Money, each the
+ * host value of its type (literalOfHost's inverse), over boolean a boolean, over uuid its
  * hyphenated text in either case, over text a storable string, over a closed reference one of its handles, over a set
  * its handles in the roster's declared order, over a span a { start, end } of its endpoint's host type, and over a
  * vector a Vector of its dimensions. A literal never
@@ -116,8 +117,9 @@ const taggedMoney = (value: unknown): Money | undefined => {
  *   description that TypeScript did not check is caught.
  *
  * The typed IR literal of `value` at type `t`, or why it is not a value of t (one line, no value in it). An integer
- * literal must be a JavaScript integer for smallint and integer and a bigint for bigint. A decimal at numeric(p, s) is
- * the value PostgreSQL's coercion stores: rounded to scale s, refused only when it then overflows.
+ * literal must be a JavaScript integer for smallint and integer and a bigint for bigint and an exact integer, which
+ * holds it within its digits as money's exact type holds a Money (literalProblem). A decimal at numeric(p, s) is the
+ * value PostgreSQL's coercion stores: rounded to scale s, refused only when it then overflows.
  */
 export const irLiteral = (value: LiteralDesc, t: ScalarType): Result.Result<TypedLiteral, string> =>
 	Result.flatMap(literalOf(value, t), (literal) => {
@@ -228,8 +230,11 @@ const literalOf = (value: LiteralDesc, t: ScalarType): Result.Result<TypedLitera
 			return Result.ok({ kind: "int", value: BigInt(value) })
 		}
 		case "int8":
+		case "exactInteger":
 			if (typeof value !== "bigint") {
-				return Result.err("a bigint for bigint; a JavaScript number is not a bigint")
+				return Result.err(
+					`a bigint for ${base.carrier === "int8" ? "bigint" : "an exact integer"}; a JavaScript number is not a bigint`
+				)
 			}
 			return Result.ok({ kind: "int", value })
 		case "numeric": {
@@ -290,7 +295,8 @@ const literalOf = (value: LiteralDesc, t: ScalarType): Result.Result<TypedLitera
 			}
 			return Result.ok(floatLiteral(real.value))
 		}
-		case "money": {
+		case "money":
+		case "exactMoney": {
 			if (value instanceof Money) {
 				return Result.ok({ kind: "money", value })
 			}
@@ -378,11 +384,6 @@ const literalOf = (value: LiteralDesc, t: ScalarType): Result.Result<TypedLitera
 				? Result.err("a Vector of the field's dimensions")
 				: Result.ok({ kind: "vector", value: vector })
 		}
-		case "exactInteger":
-		case "exactMoney":
-			return Result.err(
-				"a literal of an exact value's family: opposite an exact integer a bigint literal, opposite exact money a Money"
-			)
 		case "variant":
 			return Result.err(
 				"a variant's value made of its arm's fields, V.make(tag, { …fields }), its one spelling, never a literal"

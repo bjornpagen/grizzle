@@ -123,6 +123,15 @@ export const int4Digits = rangeDigits(BigInt(int4Min), BigInt(int4Max))
  */
 export const int8Digits = rangeDigits(int8Min, int8Max)
 
+/**
+ * Whether a coefficient, a natural, lies below 10^`exponent`: it is 0, or it has at most `exponent` decimal digits, so
+ * below 10^0 and below a negative exponent's power, a fraction, only 0 does. Read by its digits, never by the power,
+ * which at an exact field's or pg.numeric's bound is a number of 131,072 digits: the wire's per-value hot path
+ * (live/wire.ts) and an exact literal's bound (ir/expr.ts literalProblem) alike.
+ */
+export const belowPowerOfTen = (coefficient: bigint, exponent: number): boolean =>
+	coefficient === 0n || (exponent > 0 && coefficient.toString().length <= exponent)
+
 /** The greatest d with 10^d - 1 at most `bound`, a magnitude. */
 const exactDigits = (bound: bigint): number => {
 	const digits = String(bound).length
