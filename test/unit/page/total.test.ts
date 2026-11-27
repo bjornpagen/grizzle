@@ -56,9 +56,7 @@ import {
 export const thePageCompilerAndThePageRuntimeTemplateCompileEveryGeneratedOrderedQueryOrRefuseItWithATypedCompileErrorOfNoMalformedStructure =
 	property.explore(orderedSketchGen, {
 		needs: {},
-		situations: ["heading groups", "attachments", "per-execution form"] satisfies ReadonlyArray<
-			Reached<TotalFeature>
-		>,
+		situations: ["heading groups", "attachments"] satisfies ReadonlyArray<Reached<TotalFeature>>,
 		check: (_, c: Case<TotalFeature>) => (sketch) =>
 			Effect.sync(() => {
 				const o = c.draw(resolveOrdered(sketch))
@@ -121,9 +119,6 @@ export const thePageCompilerAndThePageRuntimeTemplateCompileEveryGeneratedOrdere
 				const first = template.artifact.requests.first.program
 				if (Arr.some(flight(first.roots), (s) => s.role.kind === "attachment")) {
 					c.note("attachments")
-				}
-				if (first.statement.forms.kind === "chosen") {
-					c.note("per-execution form")
 				}
 				const runtime = compiledPageRuntime({
 					page: template,

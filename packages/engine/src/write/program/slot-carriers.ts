@@ -6,7 +6,7 @@
  * and binds its own copy of every one of them. A replace reads its additions twice: the exact deletion excepts them
  * (D EXCEPT A, delete/exact.ts) and the insert writes them, so every added fact, a bytes column's whole values among
  * them, travels once per statement that reads it. The program knows, statement by statement, which slots each reads
- * (the member placeholders of its forms), so it decides which travel once: a slot read by two or more statements is
+ * (its member placeholders), so it decides which travel once: a slot read by two or more statements is
  * staged, and a slot read by one stays that statement's arrays.
  *
  *   SELECT pg_catalog.set_config('grizzle.__carrier_<k>_c1', ...::text, true), ... FROM (SELECT "r1"."c1", "r1"."c2",
@@ -38,7 +38,6 @@ import type {
 	RelationColumn,
 	WriteParamSlot
 } from "#compiler/lower/conservative/types.ts"
-import { oneForm } from "#compiler/runtime/lower/forms.ts"
 import type { ArrayCheck, ArrayColumn, Cte, FromSource, SqlStatement } from "#compiler/sql/ast.ts"
 import {
 	arrays,
@@ -71,9 +70,7 @@ import {
 import type { CarrierResult, WriteStatement } from "#compiler/write/insert/statement.ts"
 import {
 	castsNothing,
-	type FormText,
 	type PlacedStatement,
-	type SentForm,
 	wholeText,
 	writeStatementSpec
 } from "#compiler/write/program/artifact.ts"
@@ -94,20 +91,11 @@ export interface StagedSlots {
 	readonly carriers: ReadonlyArray<WriteCarrier>
 }
 
-/** A placed statement of the program's own. */
-type OwnPlaced = Extract<PlacedStatement, { readonly kind: "own" }>
-
-/** A form of an own statement as the pass reads and rewrites it: its AST and its placeholders. */
+/** An own statement as the pass reads and rewrites it: its AST and its placeholders. */
 interface Formed {
 	readonly ast: SqlStatement
 	readonly params: ReadonlyArray<WriteParamSlot>
 }
-
-/** Every form of an own statement: its spec's, and its whole-relation form where an execution chooses between them. */
-const formsOf = (p: OwnPlaced): ReadonlyArray<Formed> => [
-	{ ast: p.ast, params: p.spec.paramSlots },
-	...(p.forms.kind === "chosen" ? [{ ast: p.forms.large.ast, params: p.forms.large.params }] : [])
-]
 
 const sameCheck = (a: ArrayCheck, b: ArrayCheck): boolean =>
 	a.kind === "base" ? b.kind === "base" : b.kind === "domain" && sameTypeRef(a.domain, b.domain)
@@ -141,19 +129,17 @@ const slotReaders = (
 		if (p.kind !== "own") {
 			continue
 		}
-		for (const form of formsOf(p)) {
-			for (const slot of form.params) {
-				if (slot.kind !== "member") {
-					continue
-				}
-				const known = found.get(slot.slot)
-				if (known === undefined) {
-					found.set(slot.slot, { first: slot, readers: new Set([position]) })
-				} else if (sameHeading(known.first, slot)) {
-					known.readers.add(position)
-				} else {
-					defect(`every statement that reads member slot ${slot.slot} declares its heading alike`)
-				}
+		for (const slot of p.spec.paramSlots) {
+			if (slot.kind !== "member") {
+				continue
+			}
+			const known = found.get(slot.slot)
+			if (known === undefined) {
+				found.set(slot.slot, { first: slot, readers: new Set([position]) })
+			} else if (sameHeading(known.first, slot)) {
+				known.readers.add(position)
+			} else {
+				defect(`every statement that reads member slot ${slot.slot} declares its heading alike`)
 			}
 		}
 	}
@@ -503,7 +489,6 @@ export const withStagedSlots = (
 			spec: writeStatementSpec(fill, []),
 			ast: fill.ast,
 			text: wholeText,
-			forms: oneForm,
 			names: fill.sql.nameMap,
 			riders: []
 		}
@@ -513,20 +498,13 @@ export const withStagedSlots = (
 			return { ...p, spec: Object.freeze({ ...p.spec, dependsOn: p.spec.dependsOn.map(move) }) }
 		}
 		const own = restaged({ ast: p.ast, params: p.spec.paramSlots }, bySlot)
-		const large =
-			p.forms.kind === "chosen"
-				? restaged({ ast: p.forms.large.ast, params: p.forms.large.params }, bySlot)
-				: undefined
 		const names: NameMap = [...p.names, ...own.names]
-		const fills = [...own.reads, ...(large?.reads ?? [])].map((slot) =>
+		const fills = own.reads.map((slot) =>
 			defined(fillAt.get(slot), `the fill of member slot ${slot}`)
 		)
 		const dependsOn = Object.freeze(
 			[...new Set([...p.spec.dependsOn.map(move), ...fills])].toSorted((x, y) => x - y)
 		)
-		/** The large form read through the carriers, its text sent as the form it replaces sends its own. */
-		const largeForm = (form: Formed, text: FormText): SentForm =>
-			Object.freeze({ sql: emitText(form.ast, []).text, params: form.params, ast: form.ast, text })
 		return {
 			...p,
 			ast: own.form.ast,
@@ -536,11 +514,7 @@ export const withStagedSlots = (
 				sql: own.reads.length === 0 ? p.spec.sql : emitText(own.form.ast, names).text,
 				paramSlots: own.form.params,
 				dependsOn
-			}),
-			forms:
-				p.forms.kind === "chosen" && large !== undefined && large.reads.length > 0
-					? Object.freeze({ ...p.forms, large: largeForm(large.form, p.forms.large.text) })
-					: p.forms
+			})
 		}
 	})
 	return {

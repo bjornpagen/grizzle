@@ -299,17 +299,13 @@ export const runAdmitted = (
 			if (insert.kind !== "whole") {
 				return assert.fail("Wide's insert is a statement of its own")
 			}
-			/** Each form Wide's insert may be sent in, by its text's name, with the positions of its admission's placeholders. */
-			const forms = new Map(
-				Arr.map(
-					insert.forms.kind === "chosen" ? [insert.form, insert.forms.large] : [insert.form],
-					(form) =>
-						[
-							form.text.name,
-							Arr.flatMap(form.paramSlots, (slot, at) => (slot.kind === "admission" ? [at] : []))
-						] as const
-				)
-			)
+			/** Wide's insert's form, by its text's name, with the positions of its admission's placeholders. */
+			const forms = new Map([
+				[
+					insert.form.text.name,
+					Arr.flatMap(insert.form.paramSlots, (slot, at) => (slot.kind === "admission" ? [at] : []))
+				] as const
+			])
 			const flights: Array<Flight> = []
 			const ctx = {
 				...db.ctx,
@@ -368,7 +364,7 @@ export const runAdmitted = (
 					[[String(c.facts), String(new Set(c.named).size)]],
 					`${Formatter.format(c)}: Wide holds every fact once and Tag every code once`
 				)
-				const admitted = defined(forms.get(first.text.name), "a form of the insert")
+				const admitted = defined(forms.get(first.text.name), "the insert's form")
 				assert.ok(
 					admitted.length > 0,
 					`${Formatter.format(c)}: Wide's insert carries the admission of named`

@@ -1160,13 +1160,14 @@ interface NeighborResult {
  * attachment's delivered parents and a relation parameter are a bound set, and keep the LATERAL probe under "auto". A
  * region's parents are a relation parameter's when another occurrence of the region is one, or a key lookup, or when
  * every reader of the region's rows is a semi-join against one, which is how the relational rewrites leave a matched
- * parameter that delivers no field (boundRegion). The automatic policy is fixed, not a per-execution choice:
- * R27 keeps the LATERAL take(1) for a relation parameter, as R42 does for a bound parent set.
+ * parameter that delivers no field (boundRegion). The automatic policy is fixed: R27 keeps the LATERAL take(1) for a
+ * relation parameter, as R42 does for a bound parent set.
  * R27 itself has no parent-set condition: its target is LEAD over the window inside the parent statement.
  * The bound form realizes that, the window running over the parent occurrence's own source in the parent's
  * statement. The attached form cannot yet: an attachment's part receives only the delivered parents' heading
  * columns (lower/conservative/deliver.ts), so the parent statement cannot hand it LEAD columns, and the
- * child would have to window all of Q itself, which for a bound parent set is the whole-relation cost R20 forbids.
+ * child would have to window all of Q itself, which for a bound parent set reads the whole input where the probe reads
+ * each parent's rows (R20).
  * So the attached successor takes R27 only where the parents are every row ("whole"), and keeps the LATERAL probe
  * otherwise, until the delivery carries private parent columns to attachments.
  *

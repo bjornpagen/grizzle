@@ -3,7 +3,7 @@
 import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { nodesByLabel, topoOrder } from "#compiler/ir/dag.ts"
+import { topoOrder } from "#compiler/ir/dag.ts"
 import { exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import {
@@ -17,7 +17,6 @@ import { LowerContext } from "#compiler/lower/conservative/context.ts"
 import { emptyCtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { OptimizedDelivery, optimizedDispatch, ShapeState } from "#compiler/lower/shapes/index.ts"
 import { noKeys } from "#compiler/lower/shapes/share/keyed.ts"
-import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
 import type { EmittedSql } from "#compiler/sql/ast.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import { asc, Q, T, Task } from "#test/unit/lower/conservative/fixtures.ts"
@@ -94,7 +93,7 @@ export const lowered = (
 	query: LogicalQuery
 ): { readonly visits: number; readonly regions: number } => {
 	const { facts } = shapedFacts(query.dag, {}, "placement")
-	const state = new ShapeState<RelationInput>("small", emptyCtePlan, noKeys)
+	const state = new ShapeState(emptyCtePlan, noKeys)
 	const dispatching = optimizedDispatch(facts, state)
 	const cx = new LowerContext(
 		query.dag,
@@ -103,7 +102,7 @@ export const lowered = (
 		state.evaluationHolding,
 		dispatching.carrying
 	)
-	new OptimizedDelivery<never, never, EmittedSql>(cx, facts, state, emitText).optimizedProgram(
+	new OptimizedDelivery<never, EmittedSql>(cx, facts, state, emitText).optimizedProgram(
 		query.dag.roots[0]
 	)
 	return {
@@ -115,7 +114,7 @@ export const lowered = (
 /**
  * What the index answers, each by the walk a lowering took for each node before it (the second implementation): a
  * node's readers by filtering the DAG's topological order for the nodes whose inputs hold it, a label's column reads by
- * filtering the closure of every node's expressions, a root by the DAG's roots, a label's node by nodesByLabel.
+ * filtering the closure of every node's expressions, and a root by the DAG's roots.
  */
 export const walked = (
 	dag: ValidDag
@@ -123,7 +122,6 @@ export const walked = (
 	readonly readersOf: (node: RelNode) => ReadonlyArray<RelNode>
 	readonly columnReadsOf: (label: NodeId) => ReadonlyArray<ScalarExpr>
 	readonly isRoot: (node: RelNode) => boolean
-	readonly labeled: (label: NodeId) => RelNode | undefined
 } => ({
 	readersOf: (node) => Arr.filter(topoOrder(dag), (n) => inputsOf(n).includes(node)),
 	columnReadsOf: (label) =>
@@ -131,6 +129,5 @@ export const walked = (
 			exprClosure(Arr.flatMap(topoOrder(dag), (n) => exprsOf(n))),
 			(e) => e.kind === "column" && e.column.node === label
 		),
-	isRoot: (node) => dag.roots.includes(node),
-	labeled: (label) => nodesByLabel(dag).get(label)
+	isRoot: (node) => dag.roots.includes(node)
 })

@@ -162,7 +162,6 @@ export const writeSituations = [
 	"single-statement stratum",
 	"a single statement refused by a law",
 	"sequential stratum of several writes",
-	"take sent in its LATERAL form",
 	"facts reordered on a second reading",
 	"a fact respelled on a second reading",
 	"an unorderable stratum refused",

@@ -368,11 +368,7 @@ const loweredJudged = (
 		)
 	)
 	const parts = program.parts
-	if (
-		parts.kind !== "one" ||
-		parts.delivered.role.kind !== "main" ||
-		program.statement.forms.kind !== "one"
-	) {
+	if (parts.kind !== "one" || parts.delivered.role.kind !== "main") {
 		throw new Refusal(
 			unsupported(loc, `${label}: a judged query that lowers to one main statement`)
 		)

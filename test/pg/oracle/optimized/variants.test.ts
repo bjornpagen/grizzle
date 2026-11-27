@@ -1,16 +1,14 @@
 /**
- * The per-execution take forms, and the one fused attachment, against the conservative lowering: the optimized output
- * equals the conservative output in every form the runtime may execute.
+ * The correlated take, in its one probe form (lower/shapes/take), and the one fused attachment, against the
+ * conservative lowering: the optimized output equals the conservative output.
  *
- * The cases are built over one fixed schema, their shapes and facts generated, so every one of them reaches a
- * per-execution choice and the runner's variant path (support.ts): a take of a relation's first k rows per parent, in a
- * total order, whose parent set is the input of the execution:
+ * The cases are built over one fixed schema, their shapes and facts generated, so every one of them reaches a take of
+ * a relation's first k rows per parent, in a total order, read LATERAL once per parent:
  *
  * - an attachment's delivered parent keys: accounts P(id, a, e) with each one's first k entries C(k, p, v) attached by
  *   p = id, through a narrow child over a region of C, a wide one that also delivers C's further columns, and one that
  *   delivers only the entry's key. Each is pipelined over the parent-key recordset, its parents reading no approximate
- *   search, and its take chooses by the parent count between LATERAL and the whole-relation form (DISTINCT ON for
- *   k = 1, row_number() otherwise);
+ *   search;
  * - the same attachments to the accounts nearest a probe vector by the cosine distance of their embedding e, one
  *   ApproximateNearest search over one rule's projection, which keeps the account's key id or only its group a (so the
  *   search deduplicates its candidates), the entries attached by p equal to that column. This is the one case an
@@ -19,11 +17,10 @@
  *   as text[] and several as jsonb[], which the runner unfuses and compares with the conservative lowering's pipelined
  *   statement. The oracle installation builds no HNSW index, so both lowerings' searches are the exact top k, ties at
  *   the cutoff settled by the heading's other column in both;
- * - a relation parameter: a region binding each id of the parameter to the first k entries with that p, which chooses
- *   by the parameter's row count.
+ * - a relation parameter: a region binding each id of the parameter to the first k entries with that p.
  *
- * Every case runs through the differential (support.ts): the default program, each per-execution variant statement, and
- * the VALUES transport of a small relation parameter, each compared with the conservative run as raw text sets
+ * Every case runs through the differential (support.ts): the program's statement, and the VALUES transport of a small
+ * relation parameter, each compared with the conservative run as raw text sets
  * with no repeated row. Each case installs the schema in its own database (runner.ts installedPlacement), and loads
  * its facts in its own rolled-back transaction.
  *
@@ -40,7 +37,7 @@ import {
 } from "#test/pg/oracle/optimized/variants.fixtures.ts"
 import { installedPlacement } from "#test/support/oracle/runner.ts"
 
-/** Correlated-take cases agree with the conservative lowering in the program and every per-execution variant. */
+/** Correlated-take cases agree with the conservative lowering. */
 export const variants = differentialProperty(sketchGen, resolve, installedPlacement("variants"), {
 	situations: variantSituations satisfies ReadonlyArray<Reached<OptimizedFeature>>,
 	/**

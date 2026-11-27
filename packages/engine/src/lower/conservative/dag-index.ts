@@ -1,27 +1,25 @@
 import type { NodeId } from "#compiler/core/ids.ts"
-import { nodesByLabel, topoOrder } from "#compiler/ir/dag.ts"
+import { topoOrder } from "#compiler/ir/dag.ts"
 import { exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { exprsOf, inputsOf, type RelDag, type RelNode } from "#compiler/ir/rel.ts"
 
 /**
  * What a lowering asks of one DAG about a node beside the node itself: the nodes that take it as an input, the column
- * references that read its heading by its label, whether it is a root, and the node a label names. A lowering asks it
- * of the nodes it lowers alone: a region whose only reader may be a filter (region/index.ts readerComparisons), a union
- * a take alone reads (take/index.ts armBoundable), the regions a correlated take is an occurrence of and the chain
- * that reads each (take/index.ts parentSetOf), and the nodes its correlation names. Each question is answered from the
- * index, where each walked the whole DAG, the closure of all its expressions or both again: work linear in the DAG for
- * every node asked, quadratic over a DAG of many regions and takes.
+ * references that read its heading by its label, and whether it is a root. A lowering asks it of the nodes it lowers
+ * alone: a region whose only reader may be a filter (region/index.ts readerComparisons), and a union a take alone reads
+ * (take/index.ts armBoundable). Each question is answered from the index, where each walked the whole DAG, the closure
+ * of all its expressions or both again: work linear in the DAG for every node asked, quadratic over a DAG of many
+ * regions and takes.
  *
  * Built by one walk of the DAG's nodes in topological order (ir/dag.ts topoOrder), each node's distinct inputs given it
- * as a reader in that order, one closure of every node's expressions (ir/expr.ts exprClosure), each column reference
- * filed under the label it reads, and the DAG's nodes by label (ir/dag.ts nodesByLabel): the reversed adjacency lists
- * of the DAG, the textbook inversion of a graph's edges, in time linear in its nodes, edges and expressions.
+ * as a reader in that order, and one closure of every node's expressions (ir/expr.ts exprClosure), each column
+ * reference filed under the label it reads: the reversed adjacency lists of the DAG, the textbook inversion of a
+ * graph's edges, in time linear in its nodes, edges and expressions.
  */
 export class DagIndex {
 	readonly #readers = new Map<RelNode, Array<RelNode>>()
 	readonly #columnReads = new Map<NodeId, Array<ScalarExpr>>()
 	readonly #roots: ReadonlySet<RelNode>
-	readonly #labels: ReadonlyMap<NodeId, RelNode>
 	/** How many nodes the build visited: each node of the DAG once, the index's whole work. */
 	readonly visited: number
 
@@ -49,7 +47,6 @@ export class DagIndex {
 			}
 		}
 		this.#roots = new Set(dag.roots)
-		this.#labels = nodesByLabel(dag)
 		this.visited = nodes.length
 	}
 
@@ -66,10 +63,5 @@ export class DagIndex {
 	/** Whether `node` is a root of the DAG: a statement delivers its rows. */
 	isRoot(node: RelNode): boolean {
 		return this.#roots.has(node)
-	}
-
-	/** The node `label` names, its first in topological order, read tolerantly as nodesByLabel reads it. */
-	labeled(label: NodeId): RelNode | undefined {
-		return this.#labels.get(label)
 	}
 }

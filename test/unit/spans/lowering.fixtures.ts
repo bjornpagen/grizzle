@@ -20,7 +20,6 @@ import { decodedQuery } from "#test/support/fixtures/ir/desc.ts"
 import { Id } from "#test/support/ids.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
-import { sentForms } from "#test/support/oracle/forms.ts"
 
 const instantKey = Symbol("Instant")
 const Instant = contract<typeof instantKey>()("Instant", pg.bigint)
@@ -130,9 +129,9 @@ export const equatedChecksNeed = {
 		for (const statement of statements(equated)) {
 			assert.ok(has(shapeOf(statement), "predicate = column param"))
 		}
-		for (const st of Arr.appendAll(
-			sentForms(equated.programs.optimized.statement),
-			flight(equated.programs.conservative.roots)
+		for (const st of Arr.prepend(
+			flight(equated.programs.conservative.roots),
+			equated.programs.optimized.statement
 		)) {
 			assert.deepEqual(
 				Arr.map(st.params, (slot) => (slot.kind === "scalar" ? slot.sqlType : undefined)),

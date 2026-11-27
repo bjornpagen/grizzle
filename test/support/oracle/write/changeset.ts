@@ -298,8 +298,7 @@ interface ReadSketch {
  * - "single statement refused": an insert into the keyed relation of a fact repeating a stored candidate key beside an
  *   insert into the parent relation, one statement, refused by the candidate key with its witness;
  * - "take per parent": an insert into the parent relation of the first two child facts by key of each parent a
- *   relation parameter names, a take bound to the parameter's rows, sent in its LATERAL form, since the parameter's
- *   distinct facts are fewer than lateralParentMax;
+ *   relation parameter names, a take bound to the parameter's rows, sent in its one LATERAL probe form;
  * - "take per one parent": the same insert for the first parent alone;
  * - "unorderable stratum": one stratum inserting a marked fact, putting a marker and deleting another marked fact. The
  *   marked facts meet at their projected key, so the deletion runs before the insertion; the marker's put adds after

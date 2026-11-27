@@ -5,7 +5,7 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema } from "#compiler/public/schema.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import type { Substrate } from "#test/support/substrate/substrate.ts"
 
 const Student = relation("Student", { id: pg.integer, cohort: pg.integer }, ["id"])
 const Sitting = relation(
@@ -348,125 +348,6 @@ export const withPriceFor = query(Lab).rule((r) => {
 		.find({ id, pid, amount })
 })
 
-/** R20: the three best-scored sittings per student, over every student and for a relation parameter's students. */
-const bestThree = query(Lab)
-	.rule((r) => {
-		const { id, score } = v(Sitting, "sitting")
-		return r
-			.match(Sitting, { id, student: r.param("st", Sitting.fields.student), score })
-			.find({ id, score })
-	})
-	.orderBy(["score", "desc"], ["id", "asc"])
-	.take(3)
-
-export const bestPerStudent = query(Lab).rule((r) => {
-	const { id: student } = v(Student, "student")
-	const top = bestThree.bind({ st: student })
-	const { id, score } = v(top, "top")
-	return r.match(Student, { id: student }).match(top, { id, score }).find({ student, id, score })
-})
-
-export const bestForStudents = query(Lab).rule((r) => {
-	const wanted = r.relation("students", { id: pg.integer })
-	const { id: student } = v(wanted, "wanted")
-	const top = bestThree.bind({ st: student })
-	const { id, score } = v(top, "top")
-	return r.match(wanted, { id: student }).match(top, { id, score }).find({ student, id, score })
-})
-
-/** R20, k = 1: each student's best sitting. */
-const bestOne = query(Lab)
-	.rule((r) => {
-		const { id, score } = v(Sitting, "sitting")
-		return r
-			.match(Sitting, { id, student: r.param("st", Sitting.fields.student), score })
-			.find({ id, score })
-	})
-	.orderBy(["score", "desc"], ["id", "asc"])
-	.take(1)
-
-export const topPerStudent = query(Lab).rule((r) => {
-	const { id: student } = v(Student, "student")
-	const top = bestOne.bind({ st: student })
-	const { id, score } = v(top, "top")
-	return r.match(Student, { id: student }).match(top, { id, score }).find({ student, id, score })
-})
-
-/** R20 through an attachment: each cohort's students with their three best sittings attached. */
-const cohortCards = query(Lab)
-	.rule((r) => {
-		const { id, cohort } = v(Student, "student")
-		return r
-			.match(Student, { id, cohort })
-			.where(r.eq(cohort, r.param("cohort", pg.integer)))
-			.find({ id })
-	})
-	.attach(
-		"best",
-		(s) =>
-			query(Lab)
-				.rule((r) => {
-					const { id, score } = v(Sitting, "sitting")
-					return r.match(Sitting, { id, student: s.id, score }).find({ id, score })
-				})
-				.orderBy(["score", "desc"], ["id", "asc"])
-				.take(3),
-		"array"
-	)
-
-/**
- * R20 through a pipelined attachment: students with their three best sittings attached, five array fields, over exact
- * parents, so the child is its own statement, which computes its parents' rows itself in the same flight. A
- * pipelined attachment's form is fixed by its parent rows' bound: the parents of a key lookup are bounded at one row,
- * so studentSheetOne's take is the LATERAL form, and a parent statement with no bound, studentSheets', is read for
- * every group. A take chooses its form per execution only by a relation parameter's distinct count or a page's size.
- */
-export const studentSheets = query(Lab)
-	.rule((r) => {
-		const { id } = v(Student, "student")
-		return r
-			.match(Student, { id })
-			.where(r.le(id, r.param("upto", pg.integer)))
-			.find({ id })
-	})
-	.attach(
-		"best",
-		(s) =>
-			query(Lab)
-				.rule((r) => {
-					const { id, day, score, points, room } = v(Sitting, "sitting")
-					return r
-						.match(Sitting, { id, student: s.id, day, score, points, room })
-						.find({ id, day, score, points, room })
-				})
-				.orderBy(["score", "desc"], ["id", "asc"])
-				.take(3),
-		"array"
-	)
-
-export const studentSheetOne = query(Lab)
-	.rule((r) => {
-		const { id } = v(Student, "student")
-		return r
-			.match(Student, { id })
-			.where(r.eq(id, r.param("id", pg.integer)))
-			.find({ id })
-	})
-	.attach(
-		"best",
-		(s) =>
-			query(Lab)
-				.rule((r) => {
-					const { id, day, score, points, room } = v(Sitting, "sitting")
-					return r
-						.match(Sitting, { id, student: s.id, day, score, points, room })
-						.find({ id, day, score, points, room })
-				})
-				.orderBy(["score", "desc"], ["id", "asc"])
-				.take(3),
-		"array"
-	)
-
 /**
  * R08: per cohort, the number of sittings and the sum of their points: the sitting's key is bound, so every sitting
  * contributes.
@@ -512,12 +393,6 @@ export const labPrograms = {
 	withNext,
 	withPrice,
 	withPriceFor,
-	bestPerStudent,
-	bestForStudents,
-	topPerStudent,
-	cohortCards,
-	studentSheets,
-	studentSheetOne,
 	pointsPerCohort,
 	distinctPointsPerCohort
 } as const
@@ -536,12 +411,15 @@ export const labPrices = (size: LabSize): number =>
  * day ties are broken by the key) and dyadic scores from a small set (so scores tie too); student 1 has a single
  * sitting; two prices on each of days 2, 5 and 8 for every student but those whose id is divisible by 7, which have
  * none (so prices tie on the day, sittings fall before, on and after them, and some parents have no as-of row).
+ *
+ * Price is closed, so it is filled with exactly the rows it keeps, never filled whole and deleted from: the j-th of the
+ * `kept` students no multiple of 7 is j + 1 + ⌊j / 6⌋ (each run of seven ids holds six), and its r-th price (r < 6) is
+ * the row whose id the whole fill gave it, r × students + its id, on day 2 + 3⌊r / 2⌋.
  */
 export const loadLab = Effect.fn("loadLab")(function* <S>(
 	fixture: Fixture<S>,
 	size: LabSize
 ): Effect.fn.Return<void, SqlError, Substrate> {
-	const s = yield* Substrate
 	const { students, perStudent: sittingsEach } = size
 	yield* fill(fixture, "Student", students, { id: "g::int4", cohort: "(g % 10)::int4" })
 	yield* fill(fixture, "Sitting", labSittings(size), {
@@ -552,16 +430,15 @@ export const loadLab = Effect.fn("loadLab")(function* <S>(
 		points: "((pg_catalog.hashint8(g + 1) & 2147483647) % 100)::int4",
 		room: "(1 + (g - 1) / 100)::int4"
 	})
-	yield* fill(fixture, "Price", students * 6, {
-		id: "g::int8",
-		student: `(1 + (g - 1) % ${students})::int4`,
-		day: `(2 + 3 * ((g - 1) / ${2 * students}))::int4`,
-		amount: "(100 + (pg_catalog.hashint8(g) & 2147483647) % 900)::int8"
+	const kept = students - Math.floor(students / 7)
+	const keptStudent = `(((g - 1) % ${kept}) + 1 + ((g - 1) % ${kept}) / 6)`
+	const priceId = `(((g - 1) / ${kept}) * ${students} + ${keptStudent})::int8`
+	yield* fill(fixture, "Price", kept * 6, {
+		id: priceId,
+		student: `${keptStudent}::int4`,
+		day: `(2 + 3 * (((g - 1) / ${kept}) / 2))::int4`,
+		amount: `(100 + (pg_catalog.hashint8(${priceId}) & 2147483647) % 900)::int8`
 	})
-	yield* s.admin.query(
-		`DELETE FROM ${fixture.table("Price")} WHERE ${fixture.column("Price", "student")} % 7 = 0`,
-		[]
-	)
 	yield* settle(fixture)
 })
 

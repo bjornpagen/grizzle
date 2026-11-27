@@ -18,10 +18,8 @@ import type {
 } from "#compiler/plan/common.ts"
 import type { Delivery } from "#compiler/plan/decode.ts"
 import type {
-	ChoiceInput,
 	DeclaredParamSlot,
 	FusedTexts,
-	StatementForms,
 	StatementOutput,
 	PartDivision,
 	TaggedPart
@@ -48,7 +46,6 @@ import {
 import type {
 	ServedAttach,
 	ServedAttached,
-	ServedChoice,
 	ServedFused,
 	ServedPart,
 	ServedRoots,
@@ -61,10 +58,8 @@ import type {
 /**
  * One statement execution and the Rows it delivers: what reads, read-backs, pages and a member's explain share.
  *
- * A statement runs in one of two forms: as lowered, or as its whole-relation variant when a per-execution choice
- * selects it. Each form is its lowered statement, the spec emitted from it and its placeholders as an execution binds
- * them, all settled once per program (reader programs in run.ts, page programs in page/template.ts), so an execution
- * looks up no declared parameter, encoder or variant, and checks nothing its program already settled.
+ * A statement runs as lowered: its spec and its placeholders as an execution binds them, settled once per program (reader programs in run.ts, page programs in page/template.ts), so an execution
+ * looks up no declared parameter or encoder, and checks nothing its program already settled.
  *
  * - Placeholders. Every declared parameter of the read is admitted once per execution, whether or not a sent statement
  *   binds it, by one walk of the declarations (relations.ts executionInputs): a scalar's value encoded by its declared
@@ -74,9 +69,6 @@ import type {
  *   (relations.ts), normalized over its slot's columns: its column's array, or the input's count, which every
  *   statement sends as emitted, so equal parameters run equal texts and the planner reads each array's length as its
  *   estimate. A page's own placeholders, its limit, size and boundary values, are its own (page/execute.ts).
- * - Forms. A statement with a variant runs it when one of its choices' inputs exceeds the choice's threshold: a
- *   relation parameter's distinct fact count, or, for a page's attachment, the requested size. Both forms deliver the
- *   same set, so the choice is cost only.
  * - Rows. A statement's answer is PostgreSQL's output texts, which the session admits as texts only, read by the
  *   statement's delivery (codec/delivery.ts): each row its columns' texts, or, where a column is bytes, its chunks
  *   assembled, each bytes value a fresh array. They become Rows (core/decoder.ts): each row's cells, and per
@@ -112,59 +104,22 @@ export type HostParams = Readonly<Record<string, unknown>>
  */
 type LoweredStatement = Pick<ServedPart, "role" | "heading" | "fused">
 
-/** One form of a statement as an execution sends it: the spec emitted from it, and its placeholders in order. */
+/** A statement as an execution sends it: the spec emitted from it, and its placeholders in order. */
 export interface StatementForm<Slot = DeclaredParamSlot> {
 	readonly spec: ServedSpec
 	readonly slots: ReadonlyArray<Slot>
 }
 
-/**
- * A program's statement as it runs: its form, its forms (lower/shapes StatementForms): one, or its whole-relation form
- * with the choices that select it, and how its rows divide into its parts.
- */
-export interface RunStatement<
-	Slot = DeclaredParamSlot,
-	Choice = ReadChoice
-> extends StatementForm<Slot> {
-	readonly forms: StatementForms<Choice, StatementForm<Slot>>
+/** A program's statement as it runs: its spec and placeholders, and how its rows divide into its parts. */
+export interface RunStatement<Slot = DeclaredParamSlot> extends StatementForm<Slot> {
 	readonly parts: PartDivision
 }
 
-/** A read's per-execution choice: by the distinct fact count of a relation parameter. */
-export interface ReadChoice {
-	readonly source: ParamId
-	readonly threshold: number
-}
-
-/** The form of a statement whose placeholders are `statement`'s, sent as `spec`. */
-const readForm = <Slot>(
-	statement: { readonly params: ReadonlyArray<Slot> },
-	spec: ServedSpec
-): StatementForm<Slot> => ({ spec, slots: statement.params })
-
-/**
- * A served program's statement as it runs, its rows dividing into `parts`, each choice of its large form read as
- * `choice` reads it.
- */
-export const runStatement = <Slot, Source extends ChoiceInput, Choice>(
-	statement: ServedSentStatement<Slot, Source>,
-	parts: PartDivision,
-	choice: (served: ServedChoice<Source>) => Choice
-): RunStatement<Slot, Choice> => {
-	const forms = statement.forms
-	return {
-		...readForm(statement, statement.spec),
-		forms:
-			forms.kind === "one"
-				? forms
-				: {
-						kind: "chosen",
-						choices: Arr.map(forms.choices, choice),
-						large: readForm(forms.large.statement, forms.large.spec)
-					},
-		parts
-	}
-}
+/** A served program's statement as it runs, its rows dividing into `parts`. */
+export const runStatement = <Slot>(
+	statement: ServedSentStatement<Slot>,
+	parts: PartDivision
+): RunStatement<Slot> => ({ spec: statement.spec, slots: statement.params, parts })
 
 /**
  * What an execution reads, from one walk of the read's declared parameters (relations.ts executionInputs): the host
@@ -179,7 +134,7 @@ export interface ExecutionInputs {
 
 /**
  * The input an execution admitted for the declared parameter `param`. The one site of the fact that every ParamId a
- * program's placeholder or choice names is a declared parameter of its read or write, which executionInputs admits on
+ * program's placeholder names is a declared parameter of its read or write, which executionInputs admits on
  * every execution: the ParamId comes from the engine's lowered statement and the inputs from one walk of the
  * declarations, two runtime tables no TypeScript type ties together, so a miss is a defect of the compiler.
  */
@@ -194,24 +149,6 @@ const declaredInput = <V>(inputs: ReadonlyMap<ParamId, V>, param: ParamId): V =>
 /** The encoded text of the scalar input `param`. */
 const scalarInput = (inputs: ExecutionInputs, param: ParamId): Param =>
 	declaredInput(inputs.scalars, param)
-
-/** The distinct fact count of the relation input `param`. */
-export const inputCount = (inputs: ExecutionInputs, param: ParamId): number =>
-	declaredInput(inputs.relations, param).normalized.count
-
-/** The form `run` takes in an execution: its large form when one of its choices `exceeds` its threshold. */
-export const formFor = <Slot, Choice>(
-	run: RunStatement<Slot, Choice>,
-	exceeds: (choice: Choice) => boolean
-): StatementForm<Slot> => {
-	const forms = run.forms
-	switch (forms.kind) {
-		case "one":
-			return run
-		case "chosen":
-			return Arr.some(forms.choices, exceeds) ? forms.large : run
-	}
-}
 
 /**
  * The text of a read placeholder in one execution: a scalar's encoded text, or one array of a relation input over the

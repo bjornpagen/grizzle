@@ -19,10 +19,7 @@ export const writeAuditViolations = (
 	Effect.map(observedChange(opened, changes, attemptLabel, { kind: "none" }), (observed) =>
 		Arr.flatMap(observed.statements, (s, i) =>
 			Arr.map(
-				[
-					...auditStatementViolations(s.ast),
-					...Arr.flatMap(s.texts, (text) => auditTextViolations(text, guardedTermsOf(s.ast)))
-				],
+				[...auditStatementViolations(s.ast), ...auditTextViolations(s.sql, guardedTermsOf(s.ast))],
 				(v) => `statement ${i}: ${v.rule} at ${v.where}: ${v.detail}`
 			)
 		)

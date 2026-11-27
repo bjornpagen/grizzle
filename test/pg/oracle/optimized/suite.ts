@@ -36,7 +36,6 @@ import {
 	baselineIsSet,
 	type DifferentialOutcome,
 	differentialCase,
-	type OptimizedForm,
 	plainDifferential,
 	printDifferential
 } from "#test/pg/oracle/optimized/support.ts"
@@ -63,19 +62,15 @@ import { OracleSeat } from "#test/support/oracle/seat.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { type AggregateSpec, Q } from "#test/unit/lower/conservative/fixtures.ts"
 
-/** The kinds of optimized form a case runs (support.ts OptimizedForm). */
-type OptimizedFormKind = OptimizedForm["kind"]
-
 /**
- * What an optimized differential's case reaches: the certificate rules its optimized artifact rests on, the optimized
- * forms that ran, fused and pipelined attachments, heading groups, computed terms, a conservative run that delivered a
+ * What an optimized differential's case reaches: the certificate rules its optimized artifact rests on, fused and
+ * pipelined attachments, heading groups, computed terms, a conservative run that delivered a
  * row, a parent key set read without DISTINCT, the per-evaluation shapes, a fold attached by a key the attachment pairs
  * with two parent columns, a relation parameter named from the parameter-name dictionary, and the shapes of the plans
  * its statements were given.
  */
 export type OptimizedFeature =
 	| CertificateRule
-	| `form:${OptimizedFormKind}`
 	| "fused attachment"
 	| "nonempty"
 	| "pipelined attachment"
@@ -210,9 +205,6 @@ const outcomeFeatures = (o: DifferentialOutcome): ReadonlyArray<OptimizedFeature
 	const features = new Set<OptimizedFeature>()
 	for (const c of o.certificates) {
 		features.add(c.rule)
-	}
-	for (const r of o.optimized) {
-		features.add(`form:${r.form.kind}`)
 	}
 	if (o.fusedAttachments > 0) {
 		features.add("fused attachment")
@@ -572,9 +564,7 @@ export const rewriteFamilies = [
 	"graph.seedPushdown.constant",
 	"graph.seedPushdown.filter",
 	"graph.seedPushdown.region",
-	"R20.distinctOn",
 	"R20.lateral",
-	"R20.rowNumber",
 	"R17.elide.atMostOneRow",
 	"R17.elide.exactDeduplication"
 ] as const satisfies ReadonlyArray<CertificateRule>

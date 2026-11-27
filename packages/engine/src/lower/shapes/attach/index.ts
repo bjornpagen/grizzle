@@ -6,7 +6,6 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { resultTextCasts } from "#compiler/codec/scalar.ts"
-import type { Cardinality } from "#compiler/ir/cardinality.ts"
 import type { Heading, NodeOf, RelNode } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
 import {
@@ -40,7 +39,6 @@ import { resultCast } from "#compiler/lower/delivery.ts"
 import { attachmentPrefix, attachmentRead } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { pushedInto } from "#compiler/lower/shapes/share/keyed.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
-import type { ChoiceInput } from "#compiler/lower/shapes/take/index.ts"
 import { type DeliveryOrder, orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
 import { type FusedColumn, type FusedLayout, fusedElement } from "#compiler/runtime/lower/fused.ts"
 import type {
@@ -265,34 +263,6 @@ export const withFusedAttachments = (
 		},
 		columns: attachments.map((a) => a.name)
 	}
-}
-
-/**
- * How many rows a statement delivers at most, which the parent set of a take in an attachment's child is: a count the
- * facts bound, a factor times the size of an input `I` (a page's requested size, the one input that bounds a delivered
- * statement's rows: none outside a page), or unbounded.
- */
-export type RowsBound<I extends ChoiceInput> =
-	| { readonly kind: "count"; readonly max: bigint }
-	| { readonly kind: "input"; readonly source: I; readonly factor: bigint }
-	| { readonly kind: "unbounded" }
-
-/** The bound of a statement's rows times at most `max` children per row, unbounded when `max` is. */
-export const boundTimes = <I extends ChoiceInput>(
-	bound: RowsBound<I>,
-	max: Cardinality
-): RowsBound<I> => {
-	if (max.kind === "unbounded" || bound.kind === "unbounded") {
-		return { kind: "unbounded" }
-	}
-	return bound.kind === "count"
-		? { kind: "count", max: bound.max * max.rows }
-		: { kind: "input", source: bound.source, factor: bound.factor * max.rows }
-}
-
-/** Delivered rows of a statement: their heading, their key sets (ParentRows), and how many there are at most. */
-export interface DeliveredRows<I extends ChoiceInput> extends ParentRows {
-	readonly bound: RowsBound<I>
 }
 
 /**
@@ -571,13 +541,13 @@ const coGroupedRows = (
  *   PostgreSQL never flattens either: flattened beside its parents' keys, the child was a join PostgreSQL planned as
  *   the child derived whole for each key, with every scan of a many-row table it estimates at one row (edullm's
  *   `versions`, every package's classifications derived for each of 183 heads).
- * - `take`: the take policy's own form (R20, take/index.ts), beside.
+ * - `take`: the take's one form, its probe per parent (R20, take/index.ts takeShape), beside.
  */
 export const pipelinedAttachment = (
 	cx: LowerContext,
 	attach: NodeOf<"Attach">,
 	spine: ReadonlyArray<RelNode>,
-	rows: DeliveredRows<ChoiceInput>,
+	rows: ParentRows,
 	facts: ShapeFacts,
 	parentColumns: Heading
 ): PipelinedAttachment => {

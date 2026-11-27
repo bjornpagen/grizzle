@@ -356,15 +356,12 @@ export const resolve = (s: Sketch): QueryCase => {
 }
 
 /**
- * The features every case population must reach: a per-execution variant ran, each take shape, rows delivered, an
- * attachment pipelined over exact parents, and one fused over the nearest accounts, its search both indexed over
- * candidates the key keeps distinct and deduplicated over candidates that lose it.
+ * The features every case population must reach: a correlated take in its probe form, rows delivered, an attachment
+ * pipelined over exact parents, and one fused over the nearest accounts, its search both indexed over candidates the
+ * key keeps distinct and deduplicated over candidates that lose it.
  */
 export const variantSituations = [
-	"form:optimized variant",
 	"R20.lateral",
-	"R20.distinctOn",
-	"R20.rowNumber",
 	"nonempty",
 	"pipelined attachment",
 	"fused attachment",

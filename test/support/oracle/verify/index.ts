@@ -36,8 +36,8 @@ export interface LoweringUnderCheck {
 }
 
 /**
- * Every problem of a lowering, in a fixed order: the plan's, then the optimized statement's, then its large form's,
- * then the conservative program's as one statement of parts (shapes/index.ts conservativeStatement), then the
+ * Every problem of a lowering, in a fixed order: the plan's, then the optimized statement's, then the conservative
+ * program's as one statement of parts (shapes/index.ts conservativeStatement), then the
  * artifacts' alignment. A failure is the physical analysis refusing the DAG the plan realizes, or the conservative
  * program's statement refused.
  */
@@ -53,14 +53,7 @@ const loweringProblems = (
 	if (!multiplicity.ok) {
 		return multiplicity
 	}
-	const forms = optimized.statement.forms
-	const own = [
-		...multiplicity.value.problems,
-		...channelProblems(optimized, "statement"),
-		...(forms.kind === "chosen"
-			? channelProblems({ ...optimized, statement: forms.large }, "large variant statement")
-			: [])
-	]
+	const own = [...multiplicity.value.problems, ...channelProblems(optimized, "statement")]
 	if (alignment.kind === "readBack") {
 		return Result.ok(own)
 	}
@@ -93,8 +86,8 @@ export const loweringViolations = (lowering: LoweringUnderCheck): ReadonlyArray<
  *
  * - the plan's obligations, recomputed from the DAG under the execution context and the catalog the template is
  *   compiled for, every certificate rebuilt and compared whole (multiplicity.ts);
- * - the sent statement's channels and structural audit, in the optimized artifact, in its per-execution large form,
- *   and in the conservative artifact as one statement of parts (channels.ts, sql.ts);
+ * - the sent statement's channels and structural audit, in the optimized artifact and in the conservative artifact as
+ *   one statement of parts (channels.ts, sql.ts);
  * - the two artifacts decode to the same public result (channels.ts artifactProblems), unless the optimized one is a
  *   read-back, whose conservative artifact is realized with its write and compared by the write oracle.
  *

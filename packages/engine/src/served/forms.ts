@@ -22,7 +22,6 @@ import type { RoleWire, ServedWire } from "#compiler/live/member.ts"
 import type { PageStatementSlot } from "#compiler/lower/conservative/types.ts"
 import type { PageRequestProgram } from "#compiler/lower/shapes/page/compile.ts"
 import type { PageComparator, PageVariant, VariantFill } from "#compiler/lower/shapes/page/seek.ts"
-import type { ChoiceInput } from "#compiler/lower/shapes/take/index.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import type { RecordedGenerated } from "#compiler/runtime/law-entry.ts"
 import type { RecordsLayout } from "#compiler/runtime/records.ts"
@@ -406,13 +405,8 @@ export type ServedRoutes = Readonly<Record<string, string>>
  */
 export type ServedFootprint = Readonly<Record<string, ServedRoutes>>
 
-/**
- * A page's program: a page placeholder is the page's own, a choice a relation parameter's count or the page's size.
- */
-export type ServedPageProgram<F extends PageFill = PageFill> = ServedProgram<
-	PageStatementSlot<F>,
-	ChoiceInput
->
+/** A page's program: a page placeholder is the page's own. */
+export type ServedPageProgram<F extends PageFill = PageFill> = ServedProgram<PageStatementSlot<F>>
 
 /**
  * One window variant of a page (lower/shapes/page/compile.ts PageRequestProgram): its program, with the direction it

@@ -11,13 +11,11 @@ import type {
 	RunProgram
 } from "#adapter/page/template.ts"
 import type { ReadIntake } from "#adapter/reader/run.ts"
-import { countParam, defect, mergeHeadingGroups, runsLargeForm } from "#compiler/plan/runtime.ts"
+import { countParam, defect, mergeHeadingGroups } from "#compiler/plan/runtime.ts"
 
 import {
 	type ExecutionInputs,
 	encodeForm,
-	formFor,
-	inputCount,
 	partRuns,
 	readBinding,
 	recordRowsOf,
@@ -29,20 +27,17 @@ import type { PreparedStatement, RowIntake } from "#adapter/wire/batch.ts"
 import type { Cell, OutputRows, ParamText, Row } from "#compiler/plan/common.ts"
 import type {
 	AnchoredFill,
-	ChoiceInput,
 	PageFill,
 	PageStatementSlot,
 	PositionedFill,
 	SizeFill
 } from "#compiler/plan/read.ts"
-import type { ServedChoice } from "#compiler/plan/serve.ts"
 
 /**
  * One window of a paged member as one statement of one read's flight.
  *
  * The window's statement runs in a read's one flight (reader/stream.ts), its rows taken as they arrive and read once it
- * has answered whole (windowIntake). Its statement binds its parameters, chooses its per-execution form and delivers its
- * parts' records as a read's does (reader/execution.ts), from what the page runtime template settled once
+ * has answered whole (windowIntake). Its statement binds its parameters and delivers its parts' records as a read's does (reader/execution.ts), from what the page runtime template settled once
  * (template.ts).
  *
  * 1. The rows part of the window's template, or one per heading group of a heterogeneous union. Each is take(size) in
@@ -51,9 +46,7 @@ import type { ServedChoice } from "#compiler/plan/serve.ts"
  *    and its attachments' bound alike, each boundary placeholder the anchor's text at that comparator's position, its
  *    comparator column's codec's (window.ts), and its offset placeholder the window's position; every other
  *    placeholder is a declared parameter, encoded by the statement's own encoder, or a relation parameter in the
- *    transport its distinct fact count selected (reader/relations.ts). A statement with a
- *    per-execution form runs that form when one of its choices' inputs exceeds the choice's threshold: a relation
- *    parameter's distinct fact count, or, for an attachment's take over the window, its size.
+ *    transport its distinct fact count selected (reader/relations.ts).
  * 2. Attachments, evaluated over the window's rows only: each part reads the window's delivered rows, which the
  *    statement holds once, a heading group's rows cut by the merge (lower/shapes/page/rows.ts), from the same
  *    placeholders. Children are stitched onto their parents by key, in the attachment's delivered type, exactly as a read
@@ -130,42 +123,22 @@ const positionedBinding =
 		}
 	}
 
-/** The size of a choice's input in one execution: the window's size, or a relation parameter's distinct fact count. */
-const choiceCount = (
-	choice: ServedChoice<ChoiceInput>,
-	inputs: ExecutionInputs,
-	size: number
-): number => {
-	const source = choice.source
-	switch (source.kind) {
-		case "pageSize":
-			return size
-		case "relation":
-			return inputCount(inputs, source.param)
-	}
-}
-
 /**
- * The statement of `run`, in the form the window's size and `inputs` choose, each page placeholder bound by `bind`,
- * which takes every fill the statement holds, its rows going to `intake`.
+ * The statement of `run` for `inputs`, each page placeholder bound by `bind`, which takes every fill the statement
+ * holds, its rows going to `intake`.
  */
 const sending = <F extends PageFill>(
 	run: PageRunStatement<F>,
 	inputs: ExecutionInputs,
-	size: number,
 	bind: (fill: F) => ParamText,
 	intake: RowIntake
-): Effect.Effect<PreparedStatement, InputTooLarge> => {
-	const form = formFor(run, (choice: ServedChoice<ChoiceInput>) =>
-		runsLargeForm(choice, choiceCount(choice, inputs, size))
-	)
-	return encodeForm(
-		form,
+): Effect.Effect<PreparedStatement, InputTooLarge> =>
+	encodeForm(
+		run,
 		(slot: PageStatementSlot<F>) =>
 			slot.kind === "page" ? Result.succeed(bind(slot.fill)) : readBinding(slot, inputs),
 		intake
 	)
-}
 
 /**
  * The statement of window `call` of `runtime`, its rows going to `intake` (see the header, 1 and 2): its variant's
@@ -181,24 +154,17 @@ export const windowStatement = (
 	switch (call.variant) {
 		case "first":
 		case "last":
-			return sending(requests[call.variant].run, inputs, call.size, sizeBinding(call.size), intake)
+			return sending(requests[call.variant].run, inputs, sizeBinding(call.size), intake)
 		case "after":
 		case "before":
 			return sending(
 				requests[call.variant].run,
 				inputs,
-				call.size,
 				anchoredBinding(call.size, call.boundary),
 				intake
 			)
 		case "at":
-			return sending(
-				requests.at.run,
-				inputs,
-				call.size,
-				positionedBinding(call.size, call.position),
-				intake
-			)
+			return sending(requests.at.run, inputs, positionedBinding(call.size, call.position), intake)
 	}
 }
 

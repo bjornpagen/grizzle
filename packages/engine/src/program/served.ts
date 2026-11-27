@@ -8,8 +8,6 @@ import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { PageFill } from "#compiler/ir/products.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
 import type { Footprint } from "#compiler/logical/routes.ts"
-import type { PageStatementSlot } from "#compiler/lower/conservative/types.ts"
-import type { SentStatement } from "#compiler/lower/shapes/index.ts"
 import type {
 	PageProgram,
 	PageRequestProgram,
@@ -108,30 +106,16 @@ export const pageKey = (page: ServedPage): ServedKey => ({
 	fields: page.order.keys.map((k) => k.column)
 })
 
-/**
- * A page's program as the runtime runs it: its statement's spec, and its large form's, emitted under the codes
- * `codes`, and its parts.
- */
+/** A page's program as the runtime runs it: its statement's spec, emitted under the codes `codes`, and its parts. */
 const servedPageProgram = <F extends PageFill>(
 	program: PageProgram<F>,
 	codes: Codebook
 ): ServedPageProgram<F> => {
-	const slotOf = pageStatementSlotOf(codes)
 	const { statement, parts, roots } = program
-	const spec = (form: SentStatement<PageStatementSlot<F>>) => sentSpec(form, parts, roots, slotOf)
-	const forms = statement.forms
 	return servedProgram({
 		statement: {
 			params: statement.params,
-			forms:
-				forms.kind === "one"
-					? forms
-					: {
-							kind: "chosen",
-							choices: forms.choices,
-							large: { statement: { params: forms.large.params }, spec: spec(forms.large) }
-						},
-			spec: spec(statement)
+			spec: sentSpec(statement, parts, roots, pageStatementSlotOf(codes))
 		},
 		parts,
 		roots

@@ -10,14 +10,8 @@ import type {
 	WriteParamSlot
 } from "#compiler/lower/conservative/types.ts"
 import type { TaggedPart } from "#compiler/lower/parts.ts"
-import type {
-	DeliveredPart,
-	FormedStatement,
-	RelationChoice,
-	StatementParts
-} from "#compiler/lower/shapes/index.ts"
+import type { DeliveredPart, SentStatement, StatementParts } from "#compiler/lower/shapes/index.ts"
 import type { SpecifiedArtifact } from "#compiler/lower/template.ts"
-import { oneForm, type StatementForms } from "#compiler/runtime/lower/forms.ts"
 import type { StatementRoots } from "#compiler/runtime/lower/tree.ts"
 import type { AddedTag, RemovedTag } from "#compiler/runtime/write/net.ts"
 import {
@@ -31,7 +25,7 @@ import {
 } from "#compiler/runtime/write/steps.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
-import type { EmittedText, SqlStatement, UnprintedSql } from "#compiler/sql/ast.ts"
+import type { SqlStatement, UnprintedSql } from "#compiler/sql/ast.ts"
 import type { NameMap } from "#compiler/sql/naming.ts"
 import type { WriteCarrier } from "#compiler/write/carriers/carriers.ts"
 import type { WriteStatement } from "#compiler/write/insert/statement.ts"
@@ -83,7 +77,7 @@ const writesOf = (step: WriteStep): ReadonlyArray<RowsStep> => {
 export interface ReadBackOf {
 	readonly name: string
 	readonly query: QueryDesc
-	/** Its statement as the runtime runs it, with its spec as placed and its large form's, and its parts. */
+	/** Its statement as the runtime runs it, with its spec as placed, and its parts. */
 	readonly run: SpecifiedArtifact
 }
 
@@ -97,7 +91,7 @@ export interface ReadBackDelivery {
 
 /**
  * How a read-back's statement reaches the server: `sent`, a statement of the artifact after the writes, as the runtime
- * runs it, with its spec as placed and its large form's (`run`); or `riding`, a part of the write statement at
+ * runs it, with its spec as placed (`run`); or `riding`, a part of the write statement at
  * `statement`, which writes every delta it reads (write/schedule/plan.ts placeReadBacks): its statement, a part of that
  * statement whose rows are its rows behind the part's tag `tag` (write/program/single.ts), and no text of its own
  * (`RiddenArtifact`).
@@ -151,31 +145,15 @@ export type FormText =
 /** A statement sent whole. */
 export const wholeText: FormText = Object.freeze({ kind: "whole" })
 
-/** A form of a statement as one execution sends it: its text, what fills each placeholder ($n is params[n - 1]), its
- * AST, and how its text is sent. */
-export interface SentForm {
-	readonly sql: EmittedText
-	readonly params: ReadonlyArray<WriteParamSlot>
-	readonly ast: SqlStatement
-	readonly text: FormText
-}
-
-/** The forms of a statement, as a query's (`StatementForms`): its one form, the spec's; or, for a statement
- * whose take over the rows of a declared relation parameter is a per-execution choice, the LATERAL form, the spec's,
- * and the whole-relation form `large`, which an execution sends when some choice's parameter holds more distinct facts
- * than the choice's threshold (runsLargeForm). */
-export type ArtifactForms = StatementForms<RelationChoice, SentForm>
-
-/** One statement of an artifact: its position, its step, its spec and its AST, which `spec.sql` prints, and its
- * forms. */
+/** One statement of an artifact: its position, its step, its spec and its AST, which `spec.sql` prints, and how its
+ * text is sent. */
 export interface ArtifactStatement {
 	readonly index: number
 	readonly step: WriteStep
 	readonly spec: StatementSpec<WriteParamSlot>
 	readonly ast: SqlStatement
-	/** How its own form's text, `spec.sql`, is sent. */
+	/** How its text, `spec.sql`, is sent. */
 	readonly text: FormText
-	readonly forms: ArtifactForms
 }
 
 /** One artifact of a WriteProgram: its statements as the runtime binds, runs and converts them, and what each statement's
@@ -220,13 +198,9 @@ export interface WriteArtifact {
 	>
 }
 
-/** A read-back's statement as placed, in its forms: each form the statement a program sends (shapes/index.ts
- * SentStatement), every placeholder a declared parameter's. */
-export type PlacedRun = FormedStatement<RelationChoice>
-
-/** A statement placed in an artifact being built: the write program's own, with its step, its forms and the read-backs
- * riding it; or a read-back's, with its read-back and the statement its program lowered there, which determine its step
- * and its forms, and which statement admits its write's caller parameters as it was lowered (ReadBackAdmission). Each
+/** A statement placed in an artifact being built: the write program's own, with its step, how its text is sent and the
+ * read-backs riding it; or a read-back's, with its read-back and the statement its program lowered there (shapes/index.ts
+ * SentStatement, every placeholder a declared parameter's), which determine its step, and which statement admits its write's caller parameters as it was lowered (ReadBackAdmission). Each
  * holds its spec, its AST, and the generated names its text holds. */
 export type PlacedStatement = {
 	readonly ast: SqlStatement
@@ -237,14 +211,13 @@ export type PlacedStatement = {
 			readonly step: OwnStep
 			readonly spec: StatementSpec<WriteParamSlot>
 			readonly text: FormText
-			readonly forms: ArtifactForms
 			readonly riders: ReadonlyArray<RidingReadBack>
 	  }
 	| {
 			readonly kind: "readBack"
 			readonly of: ReadBackOf
 			readonly spec: StatementSpec<DeclaredParamSlot>
-			readonly run: PlacedRun
+			readonly run: SentStatement
 			readonly admission: ReadBackAdmission
 	  }
 )
@@ -252,26 +225,6 @@ export type PlacedStatement = {
 /** A placed statement's step: its own, or its read-back's. */
 const placedStep = (placed: PlacedStatement): WriteStep =>
 	placed.kind === "own" ? placed.step : Object.freeze({ kind: "readBack", name: placed.of.name })
-
-/** A placed statement's forms: its own, or those its read-back statement sends. */
-const placedForms = (placed: PlacedStatement): ArtifactForms => {
-	if (placed.kind === "own") {
-		return placed.forms
-	}
-	const forms = placed.run.forms
-	return forms.kind === "one"
-		? oneForm
-		: Object.freeze({
-				kind: "chosen",
-				choices: forms.choices,
-				large: Object.freeze({
-					sql: forms.large.sql.text,
-					params: forms.large.params,
-					ast: forms.large.ast,
-					text: wholeText
-				})
-			})
-}
 
 /** The artifact of the statements `placed`, in position order, and its carriers: its strata, deltas, read-backs and
  * name map are the placed statements' (WriteArtifact), each read-back's statements those that name it, in order. */
@@ -285,8 +238,7 @@ export const settledArtifact = (
 			step: placedStep(p),
 			spec: p.spec,
 			ast: p.ast,
-			text: p.kind === "own" ? p.text : wholeText,
-			forms: placedForms(p)
+			text: p.kind === "own" ? p.text : wholeText
 		})
 		return { placed: p, statement }
 	})

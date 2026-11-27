@@ -369,18 +369,12 @@ export const labelText = (label: StatementLabel): string => {
  */
 export interface ObservedStatement {
 	readonly sql: string
-	/** Every text the runtime may send for it: its spec's, and its whole-relation form's when it has one. */
-	readonly texts: ReadonlyArray<string>
 	readonly label: StatementLabel
 	readonly ast: SqlStatement
 }
 
 const observedStatement = (statement: ArtifactStatement): ObservedStatement => ({
 	sql: statement.spec.sql,
-	texts: [
-		statement.spec.sql,
-		...(statement.forms.kind === "chosen" ? [statement.forms.large.sql] : [])
-	],
 	label: statementLabel(statement),
 	ast: statement.ast
 })
@@ -621,18 +615,16 @@ type Noted =
 	| { readonly kind: "unattributed"; readonly sql: string }
 
 /**
- * Attributes a sent query to the program's statement one of whose texts is identical to it, or to COMMIT: a lookup of
- * the program's own texts by identity, never a pattern.
+ * Attributes a sent query to the program's statement whose text is identical to it, or to COMMIT: a lookup of the
+ * program's own texts by identity, never a pattern.
  */
 const attributor = (
 	statements: ReadonlyArray<ObservedStatement>
 ): ((query: WireQuery) => Attributed) => {
 	const bySql = new Map<string, ReadonlyArray<ObservedStatement>>()
 	for (const s of statements) {
-		for (const text of s.texts) {
-			const prior = bySql.get(text)
-			bySql.set(text, prior === undefined ? [s] : [...prior, s])
-		}
+		const prior = bySql.get(s.sql)
+		bySql.set(s.sql, prior === undefined ? [s] : [...prior, s])
 	}
 	return (query) => {
 		if (query._tag === "control") {
@@ -1094,7 +1086,7 @@ export const explainedChange = (
 	Effect.gen(function* () {
 		const observed = yield* observedChange(opened, changes, attemptLabel, { kind: "none" })
 		const texts = new Set(
-			Arr.flatMap(observed.statements, (s) => (explainPlans(s.label) ? s.texts : []))
+			Arr.flatMap(observed.statements, (s) => (explainPlans(s.label) ? [s.sql] : []))
 		)
 		const plans: Array<string> = []
 		const ctx: ServedDbContext = {

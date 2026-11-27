@@ -136,7 +136,7 @@ type PageSize = (typeof pageSizes)[number]
 /**
  * What a case reached: the node kinds of its query, the shapes of its template, a correlated child under a nested
  * attachment (test/support/key-sets.ts), the size of its D, a row past a window whose children it must not read, a
- * per-execution form, a caller's float -0 among a relation parameter's rows, the window size of each walk, and its
+ * caller's float -0 among a relation parameter's rows, the window size of each walk, and its
  * skip.
  */
 type PageFeature =
@@ -160,7 +160,6 @@ type PageFeature =
 	| "empty D"
 	| "more than seven rows"
 	| "a parent past the window with children"
-	| "per-execution form"
 	| "float -0 in a relation parameter"
 	| "a walk of at least 200 windows in one direction"
 	| "several pages by position"
@@ -193,7 +192,6 @@ const situations: ReadonlyArray<Reached<PageFeature>> = [
 	"distinct before the bound",
 	"empty D",
 	"more than seven rows",
-	"per-execution form",
 	"float -0 in a relation parameter",
 	"a walk of at least 200 windows in one direction",
 	"several pages by position",
@@ -1239,7 +1237,7 @@ const checkPositions = (
 
 /**
  * What a case reached besides its skip and its relation parameters: its query's node kinds, the shapes of the template
- * it pages through, among them a per-execution form, and its D, paired with its heading groups where it spans several
+ * it pages through, and its D, paired with its heading groups where it spans several
  * pages by position at the forward size `forward`. A distinct is read from the statements' ASTs, never their text.
  */
 const coverage = (
@@ -1280,9 +1278,6 @@ const coverage = (
 	}
 	if (correlatedChildUnderNestedAttachment(query.dag)) {
 		note("a correlated child under a nested attachment")
-	}
-	if (template.artifact.requests.first.program.statement.forms.kind === "chosen") {
-		note("per-execution form")
 	}
 	if (template.heading.length === 0) {
 		note("unit")
@@ -1362,7 +1357,7 @@ const negativeZeroRelation = (o: OrderedCase): boolean =>
  * Every heterogeneous union is keyed by the fields its heading groups share (`config`), so every case the rare skips
  * leave compiles: a page compiler's refusal fails the case, as two rows of D tying on the page order do. Every case
  * notes what it reached (PageFeature), a skip its reason (PageSkip), and the population must reach every required
- * feature, among them a per-execution form, a relation parameter holding a float -0, which the runtime passes as the
+ * feature, among them a relation parameter holding a float -0, which the runtime passes as the
  * caller's one zero, a walk of at least 200 windows, a heterogeneous union's pages by position, and a correlated
  * child under a nested attachment, the shape where a key within one parent must not stand for a key across parents
  * (lower/conservative/keys.ts). Its escaped counterexample is recorded (recordedPageCases) and replays by its token

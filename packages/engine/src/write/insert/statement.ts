@@ -242,7 +242,7 @@ export interface ReturnedSide {
  * made absent (a deletion's), or both (an update's new facts and the old ones they displaced, a MERGE's by its action);
  * or an insertion's facts it made present beside the stored facts it met and did not refuse (`insertion`, protocol.ts
  * writesMet), each side its verdict rows of one class. The read-backs' deltas are read from it. Its names are the
- * statement's own, so it stays beside the result, which is compared across a statement's per-execution forms. */
+ * statement's own, so it stays beside the result. */
 export type Returning = { readonly cte: string } & (
 	| { readonly kind: "added"; readonly added: ReturnedSide }
 	| { readonly kind: "removed"; readonly removed: ReturnedSide }
@@ -374,9 +374,9 @@ export interface Shared<V> {
 
 const unshared = <V>(): Shared<V> => ({ made: undefined, next: new Map() })
 
-/** The statements one write compilation built, for its other lowerings to share: the optimized artifact, each of its
- * statements in its small and its large per-execution form, and the conservative realization each build the insert
- * protocol, the deletions and the carriers' creation, most over the same inputs. A statement is shared under the
+/** The statements one write compilation built, for its other lowerings to share: the optimized artifact and the
+ * conservative realization each build the insert protocol, the deletions and the carriers' creation, most over the same
+ * inputs. A statement is shared under the
  * request that determines it (Sharing): the installed names, where its generated names start, and its builder's spec.
  * An equal request is answered with the statement already built and emitted; the program charges each statement it
  * sends once (write/program/compile.ts). A share serves one compilation and holds what it built until that compilation
@@ -394,8 +394,7 @@ export class StatementShare<T extends StatementText> {
 
 /** How a statement is built: shared with every equal request of the compilation under `key` in `memo`, its spec's
  * parts, or built as its own. A statement that reads a described member is its own: lowering the member reads the DAG
- * and the dispatch of the lowering context, which differ between the artifacts, and records the lowering's
- * per-execution choices. Any other statement's build reads only the installed names (each type through them), its spec,
+ * and the dispatch of the lowering context, which differ between the artifacts. Any other statement's build reads only the installed names (each type through them), its spec,
  * and the naming and placeholder state that buildStatement begins for it, so the key and where its names start
  * determine it. */
 export type Sharing<B, T extends StatementText> =

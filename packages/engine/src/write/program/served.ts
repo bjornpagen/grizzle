@@ -17,7 +17,6 @@ import type {
 	SlotColumn,
 	WriteParamSlot
 } from "#compiler/lower/conservative/types.ts"
-import { oneForm, type StatementForms } from "#compiler/runtime/lower/forms.ts"
 import type { HostBinding } from "#compiler/runtime/write/bind.ts"
 import { type Binding, prepareBinding } from "#compiler/runtime/write/binding.ts"
 import type { ClosedTable } from "#compiler/runtime/write/fill.ts"
@@ -28,7 +27,6 @@ import {
 	type ServedStandUp,
 	type ServedStatement,
 	type ServedWrite,
-	type ServedWriteChoice,
 	type ServedWriteForm,
 	type WriteExclusion
 } from "#compiler/runtime/write/flight.ts"
@@ -43,12 +41,7 @@ import { type Reach, ReachOf } from "#compiler/sql/reach.ts"
 import { type SeekProgram, seekProgram } from "#compiler/sql/seeks.ts"
 import type { CarrierColumn } from "#compiler/write/carriers/carriers.ts"
 import type { WriteFrontend } from "#compiler/write/frontend/compile.ts"
-import type {
-	ArtifactForms,
-	ArtifactStatement,
-	FormText,
-	SentForm
-} from "#compiler/write/program/artifact.ts"
+import type { ArtifactStatement, FormText } from "#compiler/write/program/artifact.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
 import { decideBinding } from "#compiler/write/program/decide.ts"
 import { partedOf } from "#compiler/write/program/single.ts"
@@ -93,31 +86,15 @@ const servedWriteForm = (form: {
 		params: Object.freeze(form.params.map(servedWriteSlot))
 	})
 
-/** A statement's forms as data: one, or the choices that pick between its own form and its whole-relation one, each
- * form as `served` serves it. */
-const servedForms = <F>(
-	forms: ArtifactForms,
-	served: (large: SentForm) => F
-): StatementForms<ServedWriteChoice, F> =>
-	forms.kind === "one"
-		? oneForm
-		: Object.freeze({
-				kind: "chosen",
-				choices: mapNonEmpty(forms.choices, (c) =>
-					Object.freeze({ source: c.source, threshold: c.threshold })
-				),
-				large: served(forms.large)
-			})
-
 /** A single statement's form as data: its text by its units (write/program/single.ts partedOf), each placeholder's slot
- * as data. A single statement's every form is sent by its units. */
+ * as data. A single statement is sent by its units. */
 const servedPartedForm = (form: {
 	readonly ast: SqlStatement
 	readonly params: ReadonlyArray<WriteParamSlot>
 	readonly text: FormText
 }): ServedPartedForm => {
 	if (form.text.kind !== "parted") {
-		defect("a single statement's every form is sent by its units")
+		defect("a single statement is sent by its units")
 	}
 	const parted = partedOf(form.ast, form.params.map(servedWriteSlot), form.text.units)
 	return Object.freeze({ units: mapNonEmpty(parted.units, (unit) => Object.freeze(unit)) })
@@ -173,8 +150,7 @@ const servedStatements = (
 				Object.freeze({
 					kind: "whole",
 					step: servedStep(step, level),
-					form: servedWriteForm({ sql: s.spec.sql, params: s.spec.paramSlots }),
-					forms: servedForms(s.forms, servedWriteForm)
+					form: servedWriteForm({ sql: s.spec.sql, params: s.spec.paramSlots })
 				})
 			]
 		case "parted":
@@ -182,8 +158,7 @@ const servedStatements = (
 				Object.freeze({
 					kind: "parted",
 					step: servedStep(step, level),
-					form: servedPartedForm({ ast: s.ast, params: s.spec.paramSlots, text: s.text }),
-					forms: servedForms(s.forms, servedPartedForm)
+					form: servedPartedForm({ ast: s.ast, params: s.spec.paramSlots, text: s.text })
 				})
 			]
 	}
@@ -194,7 +169,7 @@ const servedStatements = (
  * (projectWrite, flightOf; adapter/served/project.ts), the installation's grants (program/workload/compile.ts
  * servedCarriers) and its role's classifier (adapter/served/project.ts refusalsOf). Its level and its
  * exclusion; its statements as its application runs them at that level, but the read-backs', which their own programs
- * run, each step with the aborts it meets there, every form its text, parts and slots (ServedStatement); its read-backs
+ * run, each step with the aborts it meets there, each its text, parts and slots (ServedStatement); its read-backs
  * as its served file holds them (served/spine.ts servedReadBacks); its stand-ups, every text named
  * (runtime/write/flight.ts StandUp), and the columns of its program carriers; its declared and clocked
  * parameters, its binding; and of its front end the schema it compiled against, the relations it writes and the codes it reads. A compiled write's
@@ -216,7 +191,7 @@ export interface ServableWrite {
 	readonly frontend: Pick<WriteFrontend, "schema" | "written" | "codes">
 	/**
 	 * What every statement its flight may send seeks (sql/seeks.ts seekProgram), read off each statement's AST before
-	 * the AST goes: each form of each, the read-backs' own and the admission among them, which generate judges at the
+	 * the AST goes: each statement, the read-backs' own and the admission among them, which generate judges at the
 	 * installation's indexes once they are planned (physical/access/seeks.ts judgeSeeks, adapter/served/compile.ts
 	 * servedEntry), so a write's seek no index serves is an internal compiler error of generate's. A staged form is the
 	 * inline form with each FROM item of its nested rows read from a carrier under the same alias, rows no index serves
@@ -226,7 +201,7 @@ export interface ServableWrite {
 	readonly seeks: SeekProgram
 	/**
 	 * What every statement its flight may send reaches as PostgreSQL runs it (sql/reach.ts), read off each statement's
-	 * AST before the AST goes, as `seeks` is: each form of each, the read-backs' own and the admission among them, and its
+	 * AST before the AST goes, as `seeks` is: each statement, the read-backs' own and the admission among them, and its
 	 * stand-ups' calls, which a bound of the queries one call plans follows into the installation (program/planned.ts).
 	 */
 	readonly reach: Reach
@@ -240,9 +215,7 @@ export const servableWrite = (compiled: CompiledWrite): ServableWrite => {
 			Object.freeze({ kind: "judged", call: prepared(emitText(s.call, emptyNameMap).text) })
 		)
 	)
-	const statementAsts = artifact.statements.flatMap((s) =>
-		s.forms.kind === "chosen" ? [s.ast, s.forms.large.ast] : [s.ast]
-	)
+	const statementAsts = artifact.statements.map((s) => s.ast)
 	const reach = new ReachOf()
 	for (const ast of statementAsts) {
 		reach.statement(ast)

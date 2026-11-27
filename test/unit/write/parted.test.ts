@@ -24,7 +24,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
 import { prepared } from "#compiler/core/prepared.ts"
 import { flightOf, servableWrite } from "#compiler/write/program/served.ts"
-import { wholeForms } from "#test/support/whole-forms.ts"
+import { wholeForm } from "#test/support/whole-forms.ts"
 import {
 	boxGen,
 	changesOf,
@@ -72,14 +72,14 @@ export const aSingleStatementSendsExactlyThePartsItsCallsInputsMayGiveRowsAssemb
 					program.artifact.statements[single.index],
 					"the single statement as the artifact holds it"
 				)
-				const [whole] = wholeForms(single)
+				const whole = wholeForm(single)
 				assert.equal(
-					defined(whole, "its whole form").text.sql,
+					whole.text.sql,
 					printed.spec.sql,
 					"every unit assembles into the printed text byte for byte"
 				)
 				assert.equal(
-					defined(whole, "its whole form").text.name,
+					whole.text.name,
 					prepared(printed.spec.sql).name,
 					"under the printed text's name"
 				)

@@ -104,8 +104,6 @@ export {
 	type ServedAttach,
 	type ServedAttached,
 	type ServedCarried,
-	type ServedChoice,
-	type ServedForm,
 	type ServedFused,
 	type ServedPart,
 	type ServedProgram,

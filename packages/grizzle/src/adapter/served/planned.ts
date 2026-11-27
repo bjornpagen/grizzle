@@ -29,13 +29,9 @@ export type { PlannedQueries } from "#compiler/plan/migration.ts"
 /** Each role of a login, by its name, each member of its workload by its name with its bound (PlannedQueries). */
 export type PlannedLogin = ReadonlyMap<string, ReadonlyMap<string, PlannedQueries>>
 
-/** Every form of a read template's statement: its own, and its whole-relation form where a choice picks one. */
-const statementsOf = (compiled: CompiledTemplate): ReadonlyArray<SqlStatement> => {
-	const statement = compiled.template.run.statement
-	return statement.forms.kind === "chosen"
-		? [statement.ast, statement.forms.large.statement.ast]
-		: [statement.ast]
-}
+/** A read template's statement. */
+const statementOf = (compiled: CompiledTemplate): SqlStatement =>
+	compiled.template.run.statement.ast
 
 /** The greater of two bounds: a declared function's on either side, every such function of both, is no bound. */
 const greater = (a: PlannedQueries, b: PlannedQueries): PlannedQueries => {
@@ -73,15 +69,15 @@ export const plannedLogin = (compiled: SnapshotCompiled): PlannedLogin => {
 				switch (form.kind) {
 					case "read":
 					case "key":
-						return [form.name, bound(readCall(statementsOf(form.form.bound.compiled.compiled), 1))]
+						return [form.name, bound(readCall([statementOf(form.form.bound.compiled.compiled)], 1))]
 					case "paged":
 						return [
 							form.name,
 							bound(
 								readCall(
 									[
-										...statementsOf(form.form.bound.compiled.compiled),
-										...statementsOf(form.form.page.compiled)
+										statementOf(form.form.bound.compiled.compiled),
+										statementOf(form.form.page.compiled)
 									],
 									2
 								)

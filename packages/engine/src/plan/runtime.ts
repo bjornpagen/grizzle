@@ -94,7 +94,6 @@ export { namedAbove, namedGenerated, namedLaw } from "#compiler/runtime/law-entr
 export type { WriteText } from "#compiler/runtime/write/parted.ts"
 export { columnPosition, columnType } from "#compiler/runtime/lower/columns.ts"
 export { fusedTexts } from "#compiler/runtime/lower/fused.ts"
-export { runsLargeForm } from "#compiler/runtime/lower/take.ts"
 export { keyColumns, statementOutput } from "#compiler/runtime/lower/tree.ts"
 export { mergeHeadingGroups } from "#compiler/runtime/lower/union.ts"
 export { recordsReader } from "#compiler/runtime/read/record.ts"

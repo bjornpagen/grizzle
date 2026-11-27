@@ -34,7 +34,6 @@ import {
 	OptimizedDelivery,
 	type OptimizedDeliveryProgram,
 	optimizedDispatch,
-	type RelationChoice,
 	ShapeState
 } from "#compiler/lower/shapes/index.ts"
 import {
@@ -47,7 +46,6 @@ import {
 import { noKeys, queryKeys, type StatementKeys } from "#compiler/lower/shapes/share/keyed.ts"
 import { type ShapeFacts, shapeFactsFromPlan } from "#compiler/lower/shapes/share/physical.ts"
 import { everyParentTakes } from "#compiler/lower/shapes/take/decorrelate.ts"
-import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
 import type { EmittedSql, StatementText, UnprintedSql } from "#compiler/sql/ast.ts"
 import { emitText, type TextOf, unprintedText } from "#compiler/sql/emit.ts"
 
@@ -80,13 +78,13 @@ export interface PageLowering {
 }
 
 /**
- * The optimized artifact of a query, a derived relation's definition or a read-back: the one statement it sends, in
- * its forms, and its parts, each statement's text `T`, its print, or none where another statement composes it
+ * The optimized artifact of a query, a derived relation's definition or a read-back: the one statement it sends, and
+ * its parts, each statement's text `T`, its print, or none where another statement composes it
  * (lowerComposed).
  */
 export interface OptimizedProgram<
 	T extends StatementText = EmittedSql
-> extends OptimizedDeliveryProgram<RelationChoice, DeclaredParamSlot, T> {
+> extends OptimizedDeliveryProgram<DeclaredParamSlot, T> {
 	/** The query the rewrites left, whose DAG the statements lower. */
 	readonly query: LogicalQuery
 	readonly plan: DedupPlan
@@ -104,8 +102,8 @@ export interface OptimizedProgram<
 
 /**
  * The query the optimized lowering takes, from a checked one: every take correlated through bind restated with its
- * correlation explicit, so the take policy sees its parent set and lowers it LATERAL, over every group, or per execution
- * by a relation parameter's count (lower/shapes/take/decorrelate.ts), and the restated DAG annotated under `evidence`
+ * correlation explicit, so it is the probe of its parent, partitioned at the parent's columns, as an attachment child's
+ * take is (lower/shapes/take/decorrelate.ts), and the restated DAG annotated under `evidence`
  * (logical/annotate.ts): its logical keys, cardinalities and contexts derived, never stated. The conservative artifact
  * keeps the checked DAG.
  *
@@ -314,8 +312,8 @@ const delivery = <T extends StatementText>(
 	p: Planned,
 	options: OptimizedOptions,
 	text: TextOf<T>
-): OptimizedDelivery<never, never, T> => {
-	const state = new ShapeState<RelationInput>("small", p.cte, p.keys)
+): OptimizedDelivery<never, T> => {
+	const state = new ShapeState(p.cte, p.keys)
 	const lowering: ConservativeOptions = {
 		names: options.names,
 		params: p.query.params,
@@ -342,11 +340,11 @@ const delivery = <T extends StatementText>(
 			p.keys.inPlace.get(node)?.columns ??
 			(state.strategy(node) === "materialized" ? [] : undefined)
 	)
-	return new OptimizedDelivery<never, never, T>(cx, p.facts, state, text)
+	return new OptimizedDelivery<never, T>(cx, p.facts, state, text)
 }
 
 /**
- * The optimized lowering of a checked query, as a pass: its one statement, in its forms, and its parts, each statement's
+ * The optimized lowering of a checked query, as a pass: its one statement and its parts, each statement's
  * text `text`'s.
  */
 const optimizedLowering = <T extends StatementText>(

@@ -61,7 +61,6 @@ import {
 	readRun,
 	type StatementRows
 } from "#test/support/oracle/compare.ts"
-import { sentForms } from "#test/support/oracle/forms.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { printQueryCase } from "#test/support/oracle/gen/print.ts"
 import type { GenParam } from "#test/support/oracle/gen/query.ts"
@@ -685,23 +684,13 @@ export interface DifferentialOptions {
 /** The plain differential: no other lowering. */
 export const plainDifferential: Omit<DifferentialOptions, "placement"> = { others: [] }
 
-/** An optimized form that runs: the program's statement, or its per-execution large form (forms.ts sentForms). */
-export interface OptimizedForm {
-	readonly kind: "optimized" | "optimized variant"
-}
-
-/** A form as the name its run and reports carry. */
-const formLabel = (form: OptimizedForm): string => form.kind
-
 /**
- * One optimized form's verdict against the conservative run: it agrees, and nothing of its rows is kept, or it differs,
- * and its run is kept beside its comparison and order problems for the report. A case holds one form's rows at a time
- * besides the baseline's, however many forms it runs.
+ * The optimized run's verdict against the conservative run: it agrees, and nothing of its rows is kept, or it differs,
+ * and its run is kept beside its comparison and order problems for the report.
  */
 export type OptimizedRun =
-	| { readonly form: OptimizedForm; readonly verdict: "agrees" }
+	| { readonly verdict: "agrees" }
 	| {
-			readonly form: OptimizedForm
 			readonly verdict: "differs"
 			readonly run: Run
 			readonly comparison: Comparison
@@ -715,8 +704,8 @@ export interface DifferentialOutcome {
 	readonly optimizedProgram: OptimizedProgram
 	readonly certificates: ReadonlyArray<Certificate>
 	readonly conservative: Run
-	readonly optimized: ReadonlyArray<OptimizedRun>
-	/** The plan of each statement an optimized form sent, each text once. */
+	readonly optimized: OptimizedRun
+	/** The plan of the optimized statement. */
 	readonly plans: ReadonlyArray<PlanShape>
 	readonly others: ReadonlyArray<{
 		readonly name: string
@@ -724,15 +713,14 @@ export interface DifferentialOutcome {
 	}>
 	readonly fusedAttachments: number
 	/**
-	 * Every parent key set an optimized form read without DISTINCT whose parent rows repeat a key on its columns
-	 * (test/support/key-sets.ts keySetRepeats), each under its form: none where every such set's proof holds.
+	 * Every parent key set the optimized statement read without DISTINCT whose parent rows repeat a key on its columns
+	 * (test/support/key-sets.ts keySetRepeats): none where every such set's proof holds.
 	 */
 	readonly keySetRepeats: ReadonlyArray<string>
 }
 
 /** Whether every optimized run equals the conservative run, repeats no row, and keeps every delivery order. */
-export const agrees = (o: DifferentialOutcome): boolean =>
-	Arr.every(o.optimized, (r) => r.verdict === "agrees")
+export const agrees = (o: DifferentialOutcome): boolean => o.optimized.verdict === "agrees"
 
 /** Whether the conservative run repeats no row: the baseline is a set at every statement. */
 export const baselineIsSet = (o: DifferentialOutcome): boolean =>
@@ -748,7 +736,7 @@ const lowerSide = <A>(side: string, f: () => Engine.Result<A, CompileError>) =>
 		)
 	)
 
-/** Runs one case under both artifacts and every per-execution form of the optimized one. */
+/** Runs one case under both artifacts. */
 const runDifferential = (
 	input: QueryCase,
 	options: DifferentialOptions
@@ -877,60 +865,42 @@ const runDifferential = (
 					const baselineRead = readRun(baseline.run)
 					const optimizedDag = optimizedProgram.query.dag
 					const optimizedOrdered = isOrdered(optimizedDag.roots[0])
-					const forms = Arr.map(
-						sentForms(optimizedProgram.statement),
-						(
-							statement,
-							i
-						): { readonly form: OptimizedForm; readonly statement: SentStatement } => ({
-							form: { kind: i === 0 ? "optimized" : "optimized variant" },
-							statement
-						})
-					)
-					const optimized: Array<OptimizedRun> = []
-					let fusedAttachments = 0
+					const label = "optimized"
 					const keySets = keySetSites(optimizedProgram)
-					const repeats: Array<string> = []
-					for (const f of forms) {
-						const label = formLabel(f.form)
-						const run = yield* executeSent(session, optimizedProgram, f.statement, label, (slot) =>
-							slotValue(c, slot)
-						)
-						const partRows = new Map(
-							Arr.map(run.statements, (s, i) => [s.statement, run.rows[i] ?? []] as const)
-						)
-						const rowsOf = (part: DeliveredPart): ReadonlyArray<RawRow> => {
-							const rows = partRows.get(part)
-							if (rows === undefined) {
-								throw new Error(`${label}: no rows of the part answering ${part.answer}`)
-							}
-							return rows
+					const run = yield* executeSent(
+						session,
+						optimizedProgram,
+						optimizedProgram.statement,
+						label,
+						(slot) => slotValue(c, slot)
+					)
+					const partRows = new Map(
+						Arr.map(run.statements, (s, i) => [s.statement, run.rows[i] ?? []] as const)
+					)
+					const rowsOf = (part: DeliveredPart): ReadonlyArray<RawRow> => {
+						const rows = partRows.get(part)
+						if (rows === undefined) {
+							throw new Error(`${label}: no rows of the part answering ${part.answer}`)
 						}
-						for (const repeat of keySetRepeats(keySets, rowsOf, names.codes)) {
-							repeats.push(`${label}: ${repeat}`)
-						}
-						const d = yield* delivered(optimizedDag, run, label, optimizedOrdered, names.codes)
-						fusedAttachments = Math.max(fusedAttachments, d.fusedAttachments)
-						const comparison = compareRead(baselineRead, readRun(d.run))
-						const order = orderProblems(baseline, d)
-						optimized.push(
-							comparison.equal && order.length === 0
-								? { form: f.form, verdict: "agrees" }
-								: { form: f.form, verdict: "differs", run: d.run, comparison, order }
-						)
+						return rows
 					}
-					/**
-					 * Every statement a form sent, each text planned once: a member's explain plans whichever form an
-					 * execution's inputs select.
-					 */
-					const sent = new Map<string, SentStatement>()
-					for (const f of forms) {
-						if (!sent.has(f.statement.sql.text)) {
-							sent.set(f.statement.sql.text, f.statement)
-						}
-					}
-					const plans = yield* explainStatements(session, [...sent.values()], "optimized", (slot) =>
-						slotValue(c, slot)
+					const repeats = Arr.map(
+						keySetRepeats(keySets, rowsOf, names.codes),
+						(repeat) => `${label}: ${repeat}`
+					)
+					const d = yield* delivered(optimizedDag, run, label, optimizedOrdered, names.codes)
+					const fusedAttachments = d.fusedAttachments
+					const comparison = compareRead(baselineRead, readRun(d.run))
+					const order = orderProblems(baseline, d)
+					const optimized: OptimizedRun =
+						comparison.equal && order.length === 0
+							? { verdict: "agrees" }
+							: { verdict: "differs", run: d.run, comparison, order }
+					const plans = yield* explainStatements(
+						session,
+						[optimizedProgram.statement],
+						"optimized",
+						(slot) => slotValue(c, slot)
 					)
 					const otherRuns: Array<DifferentialOutcome["others"][number]> = []
 					for (const o of others) {
@@ -1074,14 +1044,13 @@ export const typedPlants = (
  * 3. the optimized lowering (lower/optimize/pipeline.ts lowerOptimized), compiled against the installation's own
  *    evidence catalog (laws/model/catalog.ts, the catalog compileQuery uses) for one execution context, checked by
  *    the kernel's verification against the conservative artifact (oracle/verify), sends its one statement, its one
- *    part's columns judged by the type oracle (oracle/verify/types.ts programJudged), and then the per-execution large
- *    form the runtime may choose instead, each statement's rows divided into its parts' as the runtime divides them
- *    (executeSent);
- * 4. every optimized run is compared with the conservative run relation by relation as raw output-function text
+ *    part's columns judged by the type oracle (oracle/verify/types.ts programJudged), its rows divided into its parts'
+ *    as the runtime divides them (executeSent);
+ * 4. the optimized run is compared with the conservative run relation by relation as raw output-function text
  *    multisets (test/support/oracle/compare.ts), its repeated rows are counted, and the order of every ordered
  *    delivery is compared too;
- * 5. every statement an optimized form sent is planned as a member's explain plans it, each text once, and its plan is read as
- *    the plan features the suites note.
+ * 5. the optimized statement is planned as a member's explain plans it, and its plan is read as the plan features the
+ *    suites note.
  *
  * Relation parameters are deduplicated on entry: the runtime normalizes a relation input
  * before it sends it, so both artifacts receive each fact once, as the runtime would send them, and the optimized
@@ -1112,26 +1081,22 @@ export const differentialCase = (
 	)
 
 /**
- * The printable report of an outcome: the case, every failing optimized form's comparison and order problems, both
- * runs, and the optimized program's SQL.
+ * The printable report of an outcome: the case, the optimized run's comparison and order problems where it differs,
+ * both runs, and the optimized program's SQL.
  */
 export const printDifferential = (o: DifferentialOutcome): string => {
 	const lines: Array<string> = []
 	lines.push(printQueryCase(o.case))
-	for (const r of o.optimized) {
-		if (r.verdict === "agrees") {
-			continue
-		}
-		lines.push(printComparison(r.comparison, "conservative", formLabel(r.form)))
+	const r = o.optimized
+	if (r.verdict === "differs") {
+		lines.push(printComparison(r.comparison, "conservative", "optimized"))
 		for (const p of r.order) {
 			lines.push(`  order: ${p}`)
 		}
 		lines.push(printRun(r.run))
 	}
 	lines.push(printRun(o.conservative))
-	for (const [i, s] of sentForms(o.optimizedProgram.statement).entries()) {
-		lines.push(`${i === 0 ? "optimized statement" : "optimized variant"}:\n${s.sql.text}`)
-	}
+	lines.push(`optimized statement:\n${o.optimizedProgram.statement.sql.text}`)
 	for (const [i, s] of flight(o.conservativeProgram.roots).entries()) {
 		lines.push(`conservative statement ${i}:\n${s.sql.text}`)
 	}

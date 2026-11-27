@@ -22,7 +22,6 @@ const ruleIds = [
 	"R14",
 	"R17",
 	"R18",
-	"R20",
 	"R21",
 	"R22",
 	"R24",
@@ -145,13 +144,6 @@ const statedGates: { readonly [K in GateId]: Omit<GateEntry, "id"> } = {
 		owner: "query",
 		gate: stated(
 			"a mismatch between an IR type and the PostgreSQL type of an emitted expression is a preparation error, never a coerced result. Tests diff emitted SQL structurally against the expected renamed and typed form."
-		)
-	},
-	R20: {
-		title: "Choose the bounded-subset shape by the bound parent set",
-		owner: "query",
-		gate: stated(
-			"LATERAL plans show a Limit under the nested loop with an index condition on the correlation key, and total rows read proportional to parents times `k`. Whole-relation plans read the input once. Fix the size threshold between the two families offline."
 		)
 	},
 	R21: {

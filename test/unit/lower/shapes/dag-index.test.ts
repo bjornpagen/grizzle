@@ -1,10 +1,9 @@
 /**
  * What a lowering asks of its DAG about a node beside the node itself, who reads it (lower/conservative/dag-index.ts
  * DagIndex), is answered from one index of the DAG built at the lowering's first question: the nodes that take a node
- * as an input, the column references that read a label's heading, the roots, and the node a label names. Each question
- * walked the whole DAG again before, a region's for its only reader (region/index.ts readerComparisons), a take's for
- * its union's (take/index.ts armBoundable), and a correlated take's for its regions, the chain above each and the nodes
- * its correlation names (parentSetOf): work linear in the DAG for every node asked, quadratic over a DAG of many.
+ * as an input, the column references that read a label's heading, and the roots. Each question walked the whole DAG
+ * again before, a region's for its only reader (region/index.ts readerComparisons) and a take's for its union's
+ * (take/index.ts armBoundable): work linear in the DAG for every node asked, quadratic over a DAG of many.
  *
  * The box, drawn: a union of two to six arms, each a region a filter bounds by a parameter, a region two arms read, a
  * region matching one source twice, or the first row of a union of two regions.
@@ -52,7 +51,6 @@ export const everyAnswerOfADagsIndexIsTheWalksItReplaced = property.explore(arms
 				)
 				assert.equal(index.columnReadsOf(node.id).length, walk.columnReadsOf(node.id).length)
 				assert.equal(index.isRoot(node), walk.isRoot(node), `whether ${node.id} is a root`)
-				assert.equal(index.labeled(node.id), walk.labeled(node.id), `the node ${node.id} names`)
 			}
 			assert.equal(index.visited, nodes.length, "the build visits each node once")
 			if (Arr.some(nodes, (n) => index.readersOf(n).length > 1)) {
@@ -78,7 +76,7 @@ export const everyAnswerOfADagsIndexIsTheWalksItReplaced = property.explore(arms
 			file: "packages/engine/src/lower/conservative/dag-index.ts",
 			original: "\t\t\t\t\treaders.push(node)\n",
 			replacement: "\t\t\t\t\treaders.unshift(node)\n",
-			why: "A node's readers are filed latest first, against topological order: a region two arms read lists its readers in the reverse of the walk's order, where a correlated take reads the first region that reads it (take/index.ts parentSetOf), and the search fails."
+			why: "A node's readers are filed latest first, against topological order: a region two arms read lists its readers in the reverse of the walk's order, and the search fails."
 		}
 	]
 })

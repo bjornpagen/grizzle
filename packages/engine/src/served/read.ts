@@ -3,8 +3,6 @@ import { type Prepared, prepared } from "#compiler/core/prepared.ts"
 import type { Delivered, Heading } from "#compiler/ir/rel.ts"
 import type { DeclaredParamSlot, ProgramDelivery } from "#compiler/lower/conservative/types.ts"
 import type { PartDivision, TaggedPart } from "#compiler/lower/parts.ts"
-import type { ChoiceInput, RelationInput } from "#compiler/lower/shapes/take/index.ts"
-import type { StatementForms } from "#compiler/runtime/lower/forms.ts"
 import type { FusedLayout } from "#compiler/runtime/lower/fused.ts"
 import type { StatementRole } from "#compiler/runtime/lower/tree.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
@@ -48,21 +46,6 @@ export interface EmittedSpec {
 }
 
 /**
- * A statement's form as an execution sends it: its placeholders in number order, and the spec emitted from it, a
- * served one's by default.
- */
-export interface ServedForm<Slot, Spec = ServedSpec> {
-	readonly statement: { readonly params: ReadonlyArray<Slot> }
-	readonly spec: Spec
-}
-
-/** A per-execution choice of a statement's form: an input above its threshold sends the large form. */
-export interface ServedChoice<Source extends ChoiceInput> {
-	readonly source: Source
-	readonly threshold: number
-}
-
-/**
  * A delivered relation of a program as the runtime reads its rows (shapes/index.ts DeliveredPart), the lowered
  * statement's AST and IR left behind: its role (an attachment's with its parent key), the heading of the relation it
  * delivers, its fused attachments, and the position of its rows among the runs of the program's answer.
@@ -76,11 +59,10 @@ export interface ServedPart {
 
 /**
  * The statement a program sends as the runtime runs it, with the spec emitted from it, a served one's by default: its
- * placeholders and its forms.
+ * placeholders and its spec.
  */
-export interface ServedSentStatement<Slot, Source extends ChoiceInput, Spec = ServedSpec> {
+export interface ServedSentStatement<Slot, Spec = ServedSpec> {
 	readonly params: ReadonlyArray<Slot>
-	readonly forms: StatementForms<ServedChoice<Source>, ServedForm<Slot, Spec>>
 	readonly spec: Spec
 }
 
@@ -102,22 +84,17 @@ export type ServedRoots<S> = NonEmptyReadonlyArray<ServedTree<S>>
  * A program as the runtime runs it: the one statement it sends, how its rows divide into parts, and each part's
  * delivered relation, in their tree.
  */
-export interface ServedProgram<Slot, Source extends ChoiceInput, Spec = ServedSpec> {
-	readonly statement: ServedSentStatement<Slot, Source, Spec>
+export interface ServedProgram<Slot, Spec = ServedSpec> {
+	readonly statement: ServedSentStatement<Slot, Spec>
 	readonly parts: PartDivision
 	readonly roots: ServedRoots<ServedPart>
 }
 
 /**
- * A read's artifact as the runtime runs it: its program, every placeholder a declared parameter's and every choice a
- * relation parameter's count, and how its parts' rows are delivered; over the specs the compiler emitted
- * (EmittedSpec), the compiled artifact servedSource serves.
+ * A read's artifact as the runtime runs it: its program, every placeholder a declared parameter's, and how its parts'
+ * rows are delivered; over the specs the compiler emitted (EmittedSpec), the compiled artifact servedSource serves.
  */
-export interface ServedSource<Spec = ServedSpec> extends ServedProgram<
-	DeclaredParamSlot,
-	RelationInput,
-	Spec
-> {
+export interface ServedSource<Spec = ServedSpec> extends ServedProgram<DeclaredParamSlot, Spec> {
 	readonly delivery: ProgramDelivery
 }
 
@@ -232,11 +209,6 @@ const servedSpec = (spec: EmittedSpec): ServedSpec => ({
 	heading: servedHeading(spec.heading)
 })
 
-/** A per-execution choice as the runtime reads it: its input and threshold. */
-const servedChoice = <Source extends ChoiceInput>(
-	choice: ServedChoice<Source>
-): ServedChoice<Source> => ({ source: choice.source, threshold: choice.threshold })
-
 /** A delivered relation as the runtime reads its rows (ServedPart). */
 const servedPart = (part: ServedPart): ServedPart => ({
 	role: servedRole(part.role),
@@ -245,23 +217,10 @@ const servedPart = (part: ServedPart): ServedPart => ({
 	answer: part.answer
 })
 
-/** A program's statement with its spec, each form served. */
-const servedStatement = <Slot, Source extends ChoiceInput>(
-	statement: ServedSentStatement<Slot, Source, EmittedSpec>
-): ServedSentStatement<Slot, Source> => {
-	const forms: StatementForms<ServedChoice<Source>, ServedForm<Slot>> = statement.forms.kind ===
-	"one"
-		? { kind: "one" }
-		: {
-				kind: "chosen",
-				choices: mapNonEmpty(statement.forms.choices, servedChoice),
-				large: {
-					statement: { params: statement.forms.large.statement.params },
-					spec: servedSpec(statement.forms.large.spec)
-				}
-			}
-	return { params: statement.params, forms, spec: servedSpec(statement.spec) }
-}
+/** A program's statement with its spec served. */
+const servedStatement = <Slot>(
+	statement: ServedSentStatement<Slot, EmittedSpec>
+): ServedSentStatement<Slot> => ({ params: statement.params, spec: servedSpec(statement.spec) })
 
 /** How a statement's rows divide into parts, as the runtime reads them. */
 const servedDivision = (parts: PartDivision): PartDivision =>
@@ -274,9 +233,9 @@ const servedParts = (roots: ServedRoots<ServedPart>): ServedRoots<ServedPart> =>
 	mapNonEmpty(roots, (tree) => servedTree(tree, servedPart))
 
 /** A program as the runtime runs it (ServedProgram), over the specs the compiler emitted. */
-export const servedProgram = <Slot, Source extends ChoiceInput>(
-	program: ServedProgram<Slot, Source, EmittedSpec>
-): ServedProgram<Slot, Source> => ({
+export const servedProgram = <Slot>(
+	program: ServedProgram<Slot, EmittedSpec>
+): ServedProgram<Slot> => ({
 	statement: servedStatement(program.statement),
 	parts: servedDivision(program.parts),
 	roots: servedParts(program.roots)

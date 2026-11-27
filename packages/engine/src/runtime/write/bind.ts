@@ -37,7 +37,6 @@ import {
 } from "#compiler/ir/products.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
-import { runsLargeForm } from "#compiler/runtime/lower/take.ts"
 import type {
 	Binding,
 	ComputedFields,
@@ -76,8 +75,6 @@ import {
 	type FlightForm,
 	type FlightStatement,
 	type FlightWrite,
-	sentForm,
-	type ServedWriteChoice,
 	sharedWhole
 } from "#compiler/runtime/write/flight.ts"
 import {
@@ -163,8 +160,8 @@ export interface BoundWrite extends BoundRows {
 	/** The positions of the write's statements the application sends nothing of: their rows need an input that holds no
 	 * fact, or, for a single statement, every part's does (ir/needs.ts, runtime/write/parted.ts). */
 	readonly skip: ReadonlySet<number>
-	/** The form of a statement of the write this application sends (runtime/write/flight.ts sentForm), of the units its
-	 * inputs give rows for a single statement: none of a statement it skips. */
+	/** The form of a statement of the write this application sends, of the units its inputs give rows for a single
+	 * statement: none of a statement it skips. */
 	readonly form: (statement: FlightStatement) => FlightForm
 	/**
 	 * The placeholder values of that form, each a text or a bytes or text column's binary array: none reads another
@@ -286,22 +283,19 @@ export type RowsResult = BoundRows | Rejected
 export type BindResult = BoundWrite | Rejected
 
 /**
- * The form a call sends of `statement`, whose inputs `holdsFact` says hold a fact or none, its per-execution choices
- * run as `runsLarge` says: a whole statement's chosen form, where its step sends it (steps.ts sentWhere), and a single
- * statement's assembled of the units of its chosen form its inputs give rows; none where it sends nothing.
+ * The form a call sends of `statement`, whose inputs `holdsFact` says hold a fact or none: a whole statement's form,
+ * where its step sends it (steps.ts sentWhere), and a single statement's assembled of the units its inputs give rows;
+ * none where it sends nothing.
  */
 const sentFormOf = (
 	statement: FlightStatement,
-	runsLarge: (choice: ServedWriteChoice) => boolean,
 	holdsFact: (input: NeededInput) => boolean
 ): FlightForm | undefined => {
 	switch (statement.kind) {
 		case "whole":
-			return holds(sentWhere(statement.step), holdsFact)
-				? sentForm(statement, runsLarge)
-				: undefined
+			return holds(sentWhere(statement.step), holdsFact) ? statement.form : undefined
 		case "parted":
-			return sentForm(statement, runsLarge).sentFor(holdsFact)
+			return statement.form.sentFor(holdsFact)
 	}
 }
 
@@ -353,12 +347,11 @@ const isStamped = (writing: WitnessField["writing"]["kind"]): boolean => {
 
 /**
  * An application's rows bound on the host (`hostRows`), with what its statements' binding reads of them
- * (`boundStatements`): each relation parameter's normalized input and its distinct fact count, each member slot's
+ * (`boundStatements`): each relation parameter's normalized input, each member slot's
  * normal facts, the rows its statements send, and each counted family's fresh members.
  */
 interface HostRows extends BoundRows {
 	readonly relationInputs: ReadonlyMap<ParamId, NormalizedRelation>
-	readonly counted: ReadonlyArray<{ readonly param: ParamId; readonly count: number }>
 	readonly factsOf: (slot: ParamId) => NormalizedSlot
 	readonly sentRows: WriteRows
 	readonly freshMembersOf: (stratum: StratumAt, family: string) => ReadonlyArray<CellRow>
@@ -415,9 +408,6 @@ const hostRows = (
 	inputs: BindInputs
 ): Result.Result<HostRows | Rejected, EncodingFailure | MessageBound | LiteralBound> => {
 	const { binding, prepared, codes } = host
-	/** The declared parameters' values; each relation parameter's distinct fact count, which chooses the form of a
-	 * statement whose take its rows bound (`sentForm`). */
-	const counted: Array<{ readonly param: ParamId; readonly count: number }> = []
 	/** Each relation parameter's input, normalized once for the application: the one set its count and every statement
 	 * that binds it read. */
 	const relationInputs = new Map<ParamId, NormalizedRelation>()
@@ -440,7 +430,6 @@ const hostRows = (
 			if (!normal.ok) {
 				return Result.err(normal.error)
 			}
-			counted.push({ param: decl.id, count: normal.value.count })
 			relationInputs.set(decl.id, normal.value)
 			continue
 		}
@@ -879,7 +868,6 @@ const hostRows = (
 		stated: statedRowsOf({ kind: "sent", rows: sentRows, drawn: (slot) => fresh.has(slot) }),
 		inserted,
 		relationInputs,
-		counted,
 		factsOf,
 		sentRows,
 		freshMembersOf
@@ -902,7 +890,7 @@ export const bindRows: (
  */
 const boundStatements = (flight: FlightWrite, inputs: BindInputs, host: HostRows): BoundWrite => {
 	const { binding, prepared, codes } = flight
-	const { relationInputs, counted, factsOf, sentRows, freshMembersOf } = host
+	const { relationInputs, factsOf, sentRows, freshMembersOf } = host
 	/** Whether an input a statement's rows need holds a fact: a relation parameter by its normalized input's count, a
 	 * member slot by its normal facts'. */
 	const holdsFact = (input: NeededInput): boolean => {
@@ -1000,18 +988,14 @@ const boundStatements = (flight: FlightWrite, inputs: BindInputs, host: HostRows
 			rows: nestedRows(stratum, relation).map((row) => row.cells)
 		}
 	}
-	/** Whether a choice runs its whole-relation form: the relation parameter it reads, counted above, holds more distinct
-	 * facts than its threshold. Both forms deliver the same rows, so the count decides only which one is sent. */
-	const runsLarge = (choice: ServedWriteChoice): boolean =>
-		counted.some((p) => p.param === choice.source.param && runsLargeForm(choice, p.count))
 	/**
-	 * The form each statement the call sends sends, by its position: a whole statement's chosen form (`sentForm`), where
-	 * its rows' needs hold (ir/needs.ts); a single statement's assembled of the units of its chosen form the call's inputs
-	 * give rows (runtime/write/parted.ts). A statement of none the call skips.
+	 * The form each statement the call sends sends, by its position: a whole statement's form, where its rows' needs hold
+	 * (ir/needs.ts); a single statement's assembled of the units the call's inputs give rows (runtime/write/parted.ts). A
+	 * statement of none the call skips.
 	 */
 	const sentForms = new Map<number, FlightForm>()
 	for (const statement of flight.statements) {
-		const sent = sentFormOf(statement, runsLarge, holdsFact)
+		const sent = sentFormOf(statement, holdsFact)
 		if (sent !== undefined) {
 			sentForms.set(statement.index, sent)
 		}
@@ -1068,7 +1052,7 @@ const boundStatements = (flight: FlightWrite, inputs: BindInputs, host: HostRows
 		if (batching.kind === "whole" || !insertsOnly(statement.step)) {
 			return undefined
 		}
-		if (statement.kind === "parted" && !sentForm(statement, runsLarge).cuttable) {
+		if (statement.kind === "parted" && !statement.form.cuttable) {
 			return undefined
 		}
 		if (!sent.paramSlots.every((slot) => slot.kind === "member" || sharedWhole(slot))) {
@@ -1104,7 +1088,7 @@ const boundStatements = (flight: FlightWrite, inputs: BindInputs, host: HostRows
 				input.kind === "member" && shares.has(input.slot)
 					? defined(shares.get(input.slot), "a member slot's share").count > 0
 					: holdsFact(input)
-			const shareForm = sentFormOf(statement, runsLarge, holdsShare)
+			const shareForm = sentFormOf(statement, holdsShare)
 			if (shareForm === undefined) {
 				continue
 			}

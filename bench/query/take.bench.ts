@@ -1,214 +1,86 @@
-import { Array as Arr, Effect, Option, Predicate } from "effect"
-import { findNodes, type PlanNode } from "#bench/harness/explain.ts"
+import { Array as Arr, Effect } from "effect"
+import type { PlanNode } from "#bench/harness/explain.ts"
 import {
 	type CaseRecord,
 	defineGate,
 	equivalence,
-	type GateCheck,
 	mechanism,
 	type VerdictInput
 } from "#bench/harness/gate.ts"
-import { compareVariants, measureVariant, type VariantOptions } from "#bench/harness/variant.ts"
+import { compareVariants, measureVariant } from "#bench/harness/variant.ts"
 import {
 	agrees,
 	autocommit,
 	type Compiled,
 	compile,
-	deliveredAgree,
-	fill,
-	GateSetupError,
 	handwritten,
 	handwrittenRows,
 	headingOf,
-	installedIndexes,
 	installFixture,
-	judged,
 	type MeasureOptions,
 	measureQuery,
 	optimizedAst,
-	optimizedPartAst,
-	optimizedProgram,
 	plainExplain,
 	queryPhases,
 	rawSession,
-	runtimeSession,
-	settle
+	runtimeSession
 } from "#bench/query/support/kit.ts"
 
-import { indices, maxOf } from "@bjornpagen/grizzle-text/base/array"
+import { indices } from "@bjornpagen/grizzle-text/base/array"
 import {
-	bestForStudents,
-	bestPerStudent,
 	Lab,
 	labData,
 	labPrices,
 	labPrograms,
 	labSittings,
 	loadLab,
-	studentSheetOne,
-	studentSheets,
-	topPerStudent,
 	withNext,
 	withNextPrice,
 	withPrice,
 	withPriceFor
 } from "#bench/query/support/lab.ts"
-import {
-	indexAccessOn,
-	nodeTypes,
-	outline,
-	planOf,
-	rowsReadFrom,
-	scansOf
-} from "#bench/query/support/plans.ts"
-import { lateralParentMax, type DeliveredPart } from "#compiler/lower/shapes/index.ts"
-import type { QueryTemplate } from "#compiler/program/compile.ts"
+import { nodeTypes, outline, planOf, rowsReadFrom, scansOf } from "#bench/query/support/plans.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
-import { labeledStatements } from "#test/support/oracle/compare.ts"
 
 /**
- * R20, R27 and R42: bounded subsets, successors and as-of selections by the parent set.
+ * R27 and R42: successors and as-of selections by the parent set. (R20's take(k) has one form, the probe, whose pages
+ * test/pg/lower-shapes/take-probe.test.ts counts against n × (h + k + 1).)
  *
- * "The correlated shape is right for a few parents and the wrong default for a whole relation". Each
- * gate runs its shape over a small bound parent set and over every group of the Lab fixture (support/lab.ts), the
+ * Each gate runs its shape over a small bound parent set and over every group of the Lab fixture (support/lab.ts), the
  * generated statements against the conservative composition and against handwritten LATERAL and whole-relation SQL:
  *
- * - R20 (:247): a LATERAL plan shows a Limit under the nested loop with an index condition on the correlation key and
- *   reads parents times k rows; a whole-relation plan reads the input once. A pipelined attachment's form is fixed by
- *   its parent rows' bound, since the parent's part shares the child's statement: over a key-lookup parent, bounded at
- *   one row, the take is the LATERAL form, and over a parent part with no bound it reads every group. A form is
- *   chosen per execution only by a relation parameter's distinct count or a page's size. The take also runs through
- *   `bind` over every student, k = 3 and k = 1, which the policy lowers to row_number and DISTINCT ON; through `bind`
- *   to a relation parameter delivered with a few students and with every student, whose count chooses per execution.
- *   The threshold between the two forms, lateralParentMax, is an operating point between two genuinely different shapes that deliver the same rows, so the
- *   gate also runs both over the same input across the sizes it decides by, for its evidence to be read off the
- *   crossover: take(k) by (score desc, id) per parent, k = 1 and k = 3, for a relation parameter's parents sent as the
- *   runtime sends a relation input, one text array per column read by unnest, as the LATERAL probe, LIMIT k per
- *   parent, and as the whole-relation pass over every group, DISTINCT ON for k = 1 and row_number otherwise, joined to
- *   the parents. Parent counts run from one to past the threshold, and group sizes from a few sittings per student to
- *   many, each group size a band of students of a second Lab install; both shapes are written as grizzle emits them,
- *   over that install's tables and access paths, and the gate checks that they agree.
- * - R27 (:313): the strict successor over every sitting agrees with the LATERAL take(1) on groups of one row, on the
- *   last row of each group (which the bound form removes) and on ties of the day broken by the key.
- * - R42 (:462): the latest price at or before each sitting, and the mirror, agree with the LATERAL form on ties at
- *   equal prefixes, on parents before the first price and on groups without prices; the ordered pass over whole inputs
- *   probes no parent; a relation parameter's few students take the LATERAL probe.
+ * - R27: the strict successor over every sitting agrees with the LATERAL take(1) on groups of one row, on the last row
+ *   of each group (which the bound form removes) and on ties of the day broken by the key.
+ * - R42: the latest price at or before each sitting, and the mirror, agree with the LATERAL form on ties at equal
+ *   prefixes, on parents before the first price and on groups without prices; the ordered pass over whole inputs probes
+ *   no parent; a relation parameter's few students take the LATERAL probe.
  */
 interface Options extends Readonly<Record<string, unknown>> {
 	readonly students: number
 	readonly perStudent: number
 	readonly samples: number
-	/** Students in each group-size band of the both-forms measurement of lateralParentMax. */
-	readonly studentsPerBand: number
-	readonly groupSizes: Arr.NonEmptyReadonlyArray<number>
-	readonly parentCounts: Arr.NonEmptyReadonlyArray<number>
 }
 
-type Gates = "R20" | "R27" | "R42"
-
-/** A band of students with `groupSize` sittings each: its first student, and its first sitting's id. */
-interface Band {
-	readonly groupSize: number
-	readonly firstStudent: number
-	readonly firstSitting: number
-}
-
-const bandsOf = (options: Options): ReadonlyArray<Band> => {
-	const bands: Array<Band> = []
-	let student = 1
-	let sitting = 1
-	for (const groupSize of options.groupSizes) {
-		bands.push({ groupSize, firstStudent: student, firstSitting: sitting })
-		student += options.studentsPerBand
-		sitting += options.studentsPerBand * groupSize
-	}
-	return bands
-}
-
-/** The SQL text of an int4 array of `values`, as a relation input's column travels. */
-const intArray = (values: ReadonlyArray<number>): string =>
-	`{${Arr.join(Arr.map(values, String), ",")}}`
-
-/** Whether a template's optimized statement holds a whole-relation form chosen per execution: 1 when it does. */
-const chosenForms = (template: QueryTemplate): number =>
-	template.programs.optimized.statement.forms.kind === "chosen" ? 1 : 0
-
-const k = 3
-
-/** Whether every delivered parent's `best` array is in the take's completed order, score descending, then id. */
-const inTakeOrder = (rows: ReadonlyArray<unknown>): boolean =>
-	Arr.every(rows, (row) => {
-		if (!Predicate.hasProperty(row, "best") || !Arr.isArray(row.best)) {
-			return false
-		}
-		const keys = Arr.map(row.best, (c: unknown) =>
-			Predicate.hasProperty(c, "score") &&
-			Predicate.hasProperty(c, "id") &&
-			typeof c.score === "number" &&
-			typeof c.id === "bigint"
-				? { score: c.score, id: c.id }
-				: undefined
-		)
-		return Arr.every(keys, (x, i) => {
-			const prev = i === 0 ? undefined : keys[i - 1]
-			if (x === undefined) {
-				return false
-			}
-			return (
-				prev === undefined || prev.score > x.score || (prev.score === x.score && prev.id < x.id)
-			)
-		})
-	})
-
-/** The pipelined attachment `name` of a compiled read: a part of its optimized program's statement. */
-const attachmentOf = (compiled: Compiled, name: string): DeliveredPart =>
-	Option.getOrThrowWith(
-		Arr.findFirst(
-			labeledStatements(optimizedProgram(compiled).roots),
-			(s) => s.attach?.name === name
-		),
-		() => new GateSetupError({ what: `the optimized artifact pipelines no attachment ${name}` })
-	).statement
-
-/** The loops of the most often run scan of `table`. */
-const scanLoops = (plan: PlanNode, table: string): number => {
-	const scans = scansOf(plan, table)
-	if (scans.length === 0) {
-		throw new GateSetupError({ what: `the plan scans no ${table}` })
-	}
-	return maxOf(
-		Arr.map(scans, (n) => n.actualLoops),
-		Number.NEGATIVE_INFINITY
-	)
-}
+type Gates = "R27" | "R42"
 
 export default defineGate({
 	name: "query-take",
-	gates: ["R20", "R27", "R42"],
-	title:
-		"Bounded subsets, successors and as-of selections by the parent set against handwritten SQL",
+	gates: ["R27", "R42"],
+	title: "Successors and as-of selections by the parent set against handwritten SQL",
 	scope:
-		"take(k) per parent through an attachment, bind and a relation parameter, for a few parents and for every group, " +
-		"and as the LATERAL probe and the whole-relation pass across parent counts and group sizes, for lateralParentMax " +
-		"(R20); the successor of every sitting (R27); the as-of price of every sitting, its mirror, and of a relation " +
+		"the successor of every sitting (R27); the as-of price of every sitting, its mirror, and of a relation " +
 		"parameter's students (R42). A tutoring timeline is represented by the whole-input as-of over every sitting.",
 	phases: queryPhases,
 	options: {
 		full: {
 			students: 3000,
 			perStudent: 30,
-			samples: 15,
-			studentsPerBand: 20_000,
-			groupSizes: [2, 8, 32, 128],
-			parentCounts: [1, 4, 16, 64, 256, 1024, 4096, 16_384]
+			samples: 15
 		},
 		quick: {
 			students: 400,
 			perStudent: 16,
-			samples: 2,
-			studentsPerBand: 300,
-			groupSizes: [2, 32],
-			parentCounts: [1, 16, 300]
+			samples: 2
 		}
 	} satisfies { readonly full: Options; readonly quick: Options },
 	run: ({ options }) =>
@@ -218,11 +90,9 @@ export default defineGate({
 			yield* loadLab(fx, size)
 			const runtime = yield* runtimeSession(fx, fx.world.app)
 			const raw = yield* rawSession(fx, fx.world.app, "m15b take raw")
-			const indexes = yield* installedIndexes(fx)
 			const sitting = fx.relationName("Sitting")
 			const price = fx.relationName("Price")
 			const S = fx.table("Sitting")
-			const St = fx.table("Student")
 			const P = fx.table("Price")
 			const s = (f: string) => fx.column("Sitting", f)
 			const p = (f: string) => fx.column("Price", f)
@@ -256,425 +126,9 @@ export default defineGate({
 						serverPlans: []
 					}
 				)
-			const studentKey = fx.columnName("Sitting", "student")
-			/**
-			 * The LATERAL take's probe: a Limit under a nested loop, and an Index Cond on the Sitting index whose key leads with
-			 * the correlation key.
-			 */
-			const lateralProbe = (plan: PlanNode): boolean =>
-				Arr.some(findNodes(plan, "Nested Loop"), (loop) => findNodes(loop, "Limit").length > 0) &&
-				Arr.some(
-					indexAccessOn(plan, sitting, indexes),
-					(a) => a.columns[0] === studentKey && a.condition === "index cond"
-				)
 			const wholeOnce = (plan: PlanNode) =>
 				scansOf(plan, sitting).length === 1 &&
 				Arr.every(scansOf(plan, sitting), (n) => n.actualLoops === 1)
-
-			/**
-			 * R20 through a pipelined attachment: a key-lookup parent, then a parent statement with no bound over more than
-			 * lateralParentMax students.
-			 */
-			const sheetOne = compile(fx, studentSheetOne, reading)
-			const oneParent = 7
-			const fewM = yield* measureQuery(runtime, raw, sheetOne, { id: oneParent }, measure)
-			const fewAttachment = attachmentOf(sheetOne, "best")
-			/**
-			 * The read's one statement, whose rows part reads students alone, so every scan of sittings is the
-			 * attachment's.
-			 */
-			const fewChild = planOf(fewM.generated, 0)
-			const sheets = compile(fx, studentSheets, reading)
-			const manyParents = Math.min(options.students, lateralParentMax * 2)
-			const manyM = yield* measureQuery(runtime, raw, sheets, { upto: manyParents }, measure)
-			const manyChild = planOf(manyM.generated, 0)
-			cases.push({
-				name: "a student by key and the students up to an id, each with its three best sittings attached, pipelined",
-				gates: ["R20"],
-				conditions: {
-					workload:
-						"an attachment take(3) by (score desc, id), five array fields, over a key-lookup parent and over a parent " +
-						"statement with no bound",
-					schemaState: installed,
-					dataDistribution: data,
-					parameters: {
-						id: oneParent,
-						many: manyParents,
-						lateralParentMax: lateralParentMax
-					},
-					resultSemantics: "each parent student with its three best sittings",
-					cacheState: warm
-				},
-				phases: {},
-				variants: [fewM.generated, fewM.conservative, manyM.generated, manyM.conservative],
-				comparisons: [],
-				transactions: {},
-				loads: {},
-				measures: {
-					fewRowsRead: rowsReadFrom(fewChild, sitting),
-					/** One parent times k. */
-					fewBound: k,
-					manyRowsRead: rowsReadFrom(manyChild, sitting),
-					manyScanLoops: scanLoops(manyChild, sitting),
-					/**
-					 * Whether the conservative artifact delivers each array in the take's order too: its statement's outer DISTINCT
-					 * does not keep the LATERAL's order, which the runtime's stitching relies on.
-					 */
-					conservativeChildOrder: inTakeOrder(fewM.delivered.conservative.rows),
-					generatedChildOrder: inTakeOrder(fewM.delivered.generated.rows)
-				}
-			})
-
-			/** R20 through bind over every student, k = 3 and k = 1, and to a relation parameter. */
-			const every = compile(fx, bestPerStudent, reading)
-			const everyM = yield* measureQuery(runtime, raw, every, {}, measure)
-			const everyLateral = yield* hand(
-				every,
-				"handwritten LATERAL",
-				`SELECT st.${fx.column("Student", "id")} AS student, b.id, b.score FROM ${St} AS st JOIN LATERAL ` +
-					`(SELECT x.${s("id")} AS id, x.${s("score")} AS score FROM ${S} AS x WHERE x.${s("student")} = st.${fx.column("Student", "id")} ` +
-					`ORDER BY x.${s("score")} DESC, x.${s("id")} LIMIT ${k}) AS b ON true`
-			)
-			const everyWindow = yield* hand(
-				every,
-				"handwritten row_number",
-				`SELECT w.student, w.id, w.score FROM (SELECT x.${s("student")} AS student, x.${s("id")} AS id, x.${s("score")} AS score, ` +
-					`row_number() OVER (PARTITION BY x.${s("student")} ORDER BY x.${s("score")} DESC, x.${s("id")}) AS rn FROM ${S} AS x ` +
-					`JOIN ${St} AS st ON st.${fx.column("Student", "id")} = x.${s("student")}) AS w WHERE w.rn <= ${k}`
-			)
-			const one = compile(fx, topPerStudent, reading)
-			const oneM = yield* measureQuery(runtime, raw, one, {}, measure)
-			const oneDistinctOn = yield* hand(
-				one,
-				"handwritten DISTINCT ON",
-				`SELECT DISTINCT ON (x.${s("student")}) x.${s("student")} AS student, x.${s("id")} AS id, x.${s("score")} AS score FROM ${S} AS x ` +
-					`JOIN ${St} AS st ON st.${fx.column("Student", "id")} = x.${s("student")} ORDER BY x.${s("student")}, x.${s("score")} DESC, x.${s("id")}`
-			)
-			const wanted = Arr.map(indices(8), (i) => ({ id: 2 + i * 3 }))
-			/** Every student: more distinct parents than lateralParentMax at both scales. */
-			const everyone = Arr.map(indices(options.students), (i) => ({ id: i + 1 }))
-			const forParam = compile(fx, bestForStudents, reading)
-			const forParamM = yield* measureQuery(runtime, raw, forParam, { students: wanted }, measure)
-			const forManyM = yield* measureQuery(runtime, raw, forParam, { students: everyone }, measure)
-			const forParamPlan = planOf(forParamM.generated, 0)
-			const forManyPlan = planOf(forManyM.generated, 0)
-			const studentsParam = Option.getOrThrowWith(
-				Arr.findFirst(forParam.compiled.template.params, (d) => d.name === "students"),
-				() => new GateSetupError({ what: "bestForStudents declares no students parameter" })
-			)
-			const forParamForms = optimizedProgram(forParam).statement.forms
-			const choosesByStudents =
-				forParamForms.kind === "chosen" &&
-				Arr.some(forParamForms.choices, (c) => c.source.param === studentsParam.id)
-			const everyPlan = planOf(everyM.generated, 0)
-			const onePlan = planOf(oneM.generated, 0)
-			cases.push(
-				{
-					name: "every student's three best sittings, bound",
-					gates: ["R20"],
-					conditions: {
-						workload: "take(3) by (score desc, id) bound to every Student",
-						schemaState: installed,
-						dataDistribution: data,
-						parameters: {},
-						resultSemantics: "each student with its three best sittings",
-						cacheState: warm
-					},
-					phases: {},
-					variants: [everyM.generated, everyM.conservative, everyLateral, everyWindow],
-					comparisons: [
-						compareVariants(everyM.generated, everyLateral),
-						compareVariants(everyM.generated, everyWindow)
-					],
-					transactions: {},
-					loads: {},
-					measures: {
-						sittingRowsReadGenerated: rowsReadFrom(everyPlan, sitting),
-						sittingRowsReadWindow: rowsReadFrom(planOf(everyWindow, 0), sitting),
-						sittingRowsReadLateral: rowsReadFrom(planOf(everyLateral, 0), sitting),
-						sittings
-					}
-				},
-				{
-					name: "every student's best sitting, bound, k = 1",
-					gates: ["R20"],
-					conditions: {
-						workload: "take(1) by (score desc, id) bound to every Student",
-						schemaState: installed,
-						dataDistribution: data,
-						parameters: {},
-						resultSemantics: "each student with its best sitting",
-						cacheState: warm
-					},
-					phases: {},
-					variants: [oneM.generated, oneM.conservative, oneDistinctOn],
-					comparisons: [],
-					transactions: {},
-					loads: {},
-					measures: { sittingScanLoopsK1: scanLoops(onePlan, sitting) }
-				},
-				{
-					name: "a relation parameter's students with their three best sittings",
-					gates: ["R20"],
-					conditions: {
-						workload:
-							"take(3) bound to the facts of a relation parameter, delivered with a few students and with every student",
-						schemaState: installed,
-						dataDistribution: data,
-						parameters: {
-							fewStudents: Arr.map(wanted, (w) => w.id),
-							manyStudents: everyone.length,
-							lateralParentMax: lateralParentMax
-						},
-						resultSemantics: "each named student with its three best sittings",
-						cacheState: warm
-					},
-					phases: {},
-					variants: [
-						forParamM.generated,
-						forParamM.conservative,
-						forManyM.generated,
-						forManyM.conservative
-					],
-					comparisons: [],
-					transactions: {},
-					loads: {},
-					measures: {
-						variants: chosenForms(forParam.compiled.template),
-						fewParamRowsRead: rowsReadFrom(forParamPlan, sitting),
-						fewParamBound: wanted.length * (k + 1),
-						manyParamRowsRead: rowsReadFrom(forManyPlan, sitting),
-						manyParamScanLoops: scanLoops(forManyPlan, sitting)
-					}
-				}
-			)
-			/**
-			 * R20's threshold, both forms over one input: a second Lab install whose students come in bands of one group size
-			 * each (bandsOf), every count of a band's students read as the LATERAL probe and as the whole-relation pass.
-			 */
-			const forms = yield* installFixture(Lab, labPrograms, {}, "benchtakeforms", () => [])
-			const bands = bandsOf(options)
-			const bandStudents = bands.length * options.studentsPerBand
-			const bandSittings = Arr.reduce(bands, 0, (n, b) => n + options.studentsPerBand * b.groupSize)
-			/**
-			 * Each sitting's student: the band its id falls in, the last band tested first, then its place among the band's
-			 * students.
-			 */
-			const studentOf = Arr.reduce(
-				bands,
-				"NULL::int4",
-				(rest, b) =>
-					`CASE WHEN g >= ${b.firstSitting} THEN (${b.firstStudent} + (g - ${b.firstSitting}) / ${b.groupSize})::int4 ELSE ${rest} END`
-			)
-			yield* fill(forms, "Student", bandStudents, { id: "g::int4", cohort: "(g % 10)::int4" })
-			yield* fill(forms, "Sitting", bandSittings, {
-				id: "g::int8",
-				student: studentOf,
-				day: "(1 + g % 30)::int4",
-				score: "(((pg_catalog.hashint8(g) & 2147483647) % 33)::float8 / 4::float8)",
-				points: "((pg_catalog.hashint8(g + 1) & 2147483647) % 100)::int4",
-				room: "(1 + (g - 1) / 100)::int4"
-			})
-			yield* settle(forms)
-			const formsRaw = yield* rawSession(forms, forms.world.app, "m15b take forms raw")
-			const bandTable = forms.table("Sitting")
-			const bandColumn = (f: string) => forms.column("Sitting", f)
-			const formsVariants: VariantOptions = {
-				samples: options.samples,
-				warmup: 1,
-				explainSamples: 1,
-				explain: plainExplain,
-				serverPlans: []
-			}
-			const formsInstalled =
-				"fresh install of Lab with its workload's access paths; facts loaded in group-size bands, then VACUUM (ANALYZE)"
-			const formsData = `${bandStudents} students in ${bands.length} bands of ${options.studentsPerBand}, each band's students with ${Arr.join(
-				Arr.map(bands, (b) => String(b.groupSize)),
-				", "
-			)} sittings each; dyadic scores`
-			const formChecks: Array<GateCheck> = []
-			for (const band of bands) {
-				for (const perParent of [1, k]) {
-					for (const parents of Arr.filter(
-						options.parentCounts,
-						(n) => n <= options.studentsPerBand
-					)) {
-						const ids = intArray(Arr.map(indices(parents), (i) => band.firstStudent + i))
-						const lateral = yield* measureVariant(
-							formsRaw,
-							handwritten(
-								"LATERAL ... LIMIT k per parent",
-								[
-									{
-										sql:
-											`SELECT p.id::text, b.id::text, b.score::text FROM pg_catalog.unnest($1::int4[]) AS p(id) ` +
-											`CROSS JOIN LATERAL (SELECT x.${bandColumn("id")} AS id, x.${bandColumn("score")} AS score FROM ${bandTable} AS x ` +
-											`WHERE x.${bandColumn("student")} = p.id ORDER BY x.${bandColumn("score")} DESC, x.${bandColumn("id")} LIMIT ${perParent}) AS b`,
-										params: [ids]
-									}
-								],
-								autocommit
-							),
-							formsVariants
-						)
-						const perGroup =
-							perParent === 1
-								? `SELECT DISTINCT ON (x.${bandColumn("student")}) x.${bandColumn("student")} AS student, x.${bandColumn("id")} AS id, x.${bandColumn("score")} AS score ` +
-									`FROM ${bandTable} AS x ORDER BY x.${bandColumn("student")}, x.${bandColumn("score")} DESC, x.${bandColumn("id")}`
-								: `SELECT w.student, w.id, w.score FROM (SELECT x.${bandColumn("student")} AS student, x.${bandColumn("id")} AS id, ` +
-									`x.${bandColumn("score")} AS score, pg_catalog.row_number() OVER (PARTITION BY x.${bandColumn("student")} ` +
-									`ORDER BY x.${bandColumn("score")} DESC, x.${bandColumn("id")}) AS rn FROM ${bandTable} AS x) AS w WHERE w.rn <= ${perParent}`
-						const whole = yield* measureVariant(
-							formsRaw,
-							handwritten(
-								perParent === 1 ? "DISTINCT ON over every group" : "row_number over every group",
-								[
-									{
-										sql:
-											`SELECT p.id::text, d.id::text, d.score::text FROM pg_catalog.unnest($1::int4[]) AS p(id) ` +
-											`JOIN (${perGroup}) AS d ON d.student = p.id`,
-										params: [ids]
-									}
-								],
-								autocommit
-							),
-							formsVariants
-						)
-						const name = `take(${perParent}) for ${parents} parents of ${band.groupSize} sittings each`
-						const comparison = compareVariants(lateral, whole)
-						formChecks.push(
-							equivalence(
-								`${name}: both forms deliver the same rows`,
-								comparison.sameResult,
-								`${lateral.label}: ${lateral.result.digest}; ${whole.label}: ${whole.result.digest}`
-							)
-						)
-						cases.push({
-							name,
-							gates: ["R20"],
-							conditions: {
-								workload: `take(${perParent}) by (score desc, id) bound to a relation parameter's students`,
-								schemaState: formsInstalled,
-								dataDistribution: formsData,
-								parameters: {
-									parents,
-									groupSize: band.groupSize,
-									k: perParent,
-									lateralParentMax: lateralParentMax
-								},
-								resultSemantics: "each named student with its best sittings",
-								cacheState: warm
-							},
-							phases: {},
-							variants: [lateral, whole],
-							comparisons: [comparison],
-							transactions: {},
-							loads: {},
-							measures: { parents, groupSize: band.groupSize, k: perParent }
-						})
-					}
-				}
-			}
-			const r20: VerdictInput = {
-				checks: [
-					mechanism(
-						"both take forms measured at every parent count and group size",
-						formChecks.length > 0,
-						`${formChecks.length} cases`
-					),
-					...formChecks,
-					mechanism(
-						"a key-lookup parent's attachment takes the LATERAL form",
-						has(shapeOf(optimizedPartAst(sheetOne, fewAttachment)), "lateral") &&
-							lateralProbe(fewChild),
-						outline(fewChild, 0)
-					),
-					mechanism(
-						"the LATERAL form reads at most k + 1 rows per parent",
-						rowsReadFrom(fewChild, sitting) <= k + 1,
-						`${rowsReadFrom(fewChild, sitting)} rows for one parent`
-					),
-					mechanism(
-						"a pipelined attachment over a parent statement with no bound reads its input once",
-						wholeOnce(manyChild),
-						outline(manyChild, 0)
-					),
-					mechanism(
-						"a take bound to every student is lowered over every group (row_number), reading the input once",
-						nodeTypes(everyPlan).has("WindowAgg") && wholeOnce(everyPlan),
-						outline(everyPlan, 0)
-					),
-					mechanism(
-						"a take(1) bound to every student is DISTINCT ON, reading the input once",
-						has(shapeOf(optimizedAst(one)), "distinct on") && wholeOnce(onePlan),
-						outline(onePlan, 0)
-					),
-					mechanism(
-						"a take bound to a relation parameter chooses its form per execution by the parameter's count",
-						choosesByStudents &&
-							chosenForms(forParam.compiled.template) > 0 &&
-							lateralProbe(forParamPlan) &&
-							nodeTypes(forManyPlan).has("WindowAgg") &&
-							!lateralProbe(forManyPlan),
-						`${chosenForms(forParam.compiled.template)} variants\n` +
-							`few: ${outline(forParamPlan, 0)}\nmany: ${outline(forManyPlan, 0)}`
-					),
-					mechanism(
-						"a relation parameter's few students take LATERAL: a Limit under the nested loop, an Index Cond on the student",
-						lateralProbe(forParamPlan),
-						outline(forParamPlan, 0)
-					),
-					mechanism(
-						"a relation parameter's few students read rows proportional to parents times k",
-						rowsReadFrom(forParamPlan, sitting) <= wanted.length * (k + 1),
-						`${rowsReadFrom(forParamPlan, sitting)} rows for ${wanted.length} parents`
-					),
-					mechanism(
-						"more than lateralParentMax students in the parameter take row_number, reading the input once",
-						nodeTypes(forManyPlan).has("WindowAgg") && wholeOnce(forManyPlan),
-						outline(forManyPlan, 0)
-					),
-					judged(
-						"the attachment delivers the composition's sets for a key-lookup parent",
-						deliveredAgree("set"),
-						fewM.delivered.generated.rows,
-						fewM.delivered.conservative.rows
-					),
-					judged(
-						"the attachment delivers the composition's sets for many parents",
-						deliveredAgree("set"),
-						manyM.delivered.generated.rows,
-						manyM.delivered.conservative.rows
-					),
-					equivalence(
-						"the generated attachment delivers each parent's subset in the take's completed order",
-						inTakeOrder(fewM.delivered.generated.rows) &&
-							inTakeOrder(manyM.delivered.generated.rows),
-						`${fewM.delivered.generated.rows.length} and ${manyM.delivered.generated.rows.length} parents`
-					),
-					agrees("every student's take agrees with the composition", everyM),
-					equivalence(
-						"every student's take agrees with handwritten LATERAL",
-						compareVariants(everyM.generated, everyLateral).sameResult,
-						`${everyM.generated.result.rows} generated rows, ${everyLateral.result.rows} handwritten`
-					),
-					equivalence(
-						"every student's take agrees with handwritten row_number",
-						compareVariants(everyM.generated, everyWindow).sameResult,
-						`${everyM.generated.result.rows} generated rows, ${everyWindow.result.rows} handwritten`
-					),
-					equivalence(
-						"the take(1) agrees with handwritten DISTINCT ON",
-						compareVariants(oneM.generated, oneDistinctOn).sameResult,
-						`${oneM.generated.result.rows} generated rows, ${oneDistinctOn.result.rows} handwritten`
-					),
-					agrees("the relation parameter's take agrees with the composition", forParamM),
-					agrees(
-						"the relation parameter's take over every student agrees with the composition",
-						forManyM
-					)
-				]
-			}
 
 			/** R27. */
 			const next = compile(fx, withNext, reading)
@@ -884,6 +338,6 @@ export default defineGate({
 					agrees("the bound form agrees with the composition", boundM)
 				]
 			}
-			return { cases, verdicts: { R20: r20, R27: r27, R42: r42 } }
+			return { cases, verdicts: { R27: r27, R42: r42 } }
 		})
 })

@@ -10,7 +10,6 @@ import type { Carrier, Cell, Codebook, Layout, CallerParamDecl } from "#compiler
 import type { ScalarReader } from "#compiler/plan/decode.ts"
 import type {
 	CarrierHost,
-	ChoiceInput,
 	Heading,
 	PageComparator,
 	PageDirection,
@@ -28,7 +27,6 @@ import {
 	scalarReader
 } from "#compiler/plan/runtime.ts"
 import type {
-	ServedChoice,
 	ServedPage,
 	ServedPageProgram,
 	ServedPageRequest,
@@ -40,8 +38,7 @@ import type {
  *
  * The page compiler (lower/shapes/page/compile.ts) produces the order, the comparators and the statements of every
  * template, and its served form (engine program/served.ts servedPage) each statement's spec, its executable text with
- * every delivered column cast to text, and each per-execution variant's beside the statement it replaces, emitted when
- * the page compiles; this module adds what running them needs, once per template, from that served form alone:
+ * every delivered column cast to text, emitted when the page compiles; this module adds what running them needs, once per template, from that served form alone:
  *
  * - each template's statement records (reader/execution.ts programRecords), so the query's decoder binds to the same
  *   layouts on every window of the template, and how its rows statements deliver: each one's comparison tuple read
@@ -50,12 +47,9 @@ import type {
  *   texts its seek binds (window.ts).
  *
  * The statement of a page program as the runtime runs it: its page placeholders, each the page fill the runtime binds
- * (execute.ts), among its read ones, its per-execution form, when it has one, and how its rows divide into its parts.
+ * (execute.ts), among its read ones, and how its rows divide into its parts.
  */
-export type PageRunStatement<F extends PageFill = PageFill> = RunStatement<
-	PageStatementSlot<F>,
-	ServedChoice<ChoiceInput>
->
+export type PageRunStatement<F extends PageFill = PageFill> = RunStatement<PageStatementSlot<F>>
 
 /** A delivered row's comparison tuple, the comparators' values converted from its cells, in order. */
 export type ComparisonTuple = ReadonlyArray<CarrierHost[Carrier]>
@@ -144,9 +138,9 @@ interface PageRuntimeParts {
 	readonly spine: ServedSpine
 }
 
-/** The statement of a page program as it runs: its served spec and placeholders, its large form's, and its parts. */
+/** The statement of a page program as it runs: its served spec and placeholders, and its parts. */
 const pageRun = <F extends PageFill>(program: ServedPageProgram<F>): PageRunStatement<F> =>
-	runStatement(program.statement, program.parts, (choice) => choice)
+	runStatement(program.statement, program.parts)
 
 /**
  * The reading of a rows statement's comparison tuple: each comparator's column, a column of the statement's heading

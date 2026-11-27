@@ -3777,7 +3777,7 @@ const compile = (
 		})
 	)
 	/** The DAG the optimized artifact lowers: every take correlated through bind restated with its correlation explicit,
-	 * as a query's is, so the take policy sees its parent set, and analyzed alike. The rewrite reads the analyzed DAG's
+	 * as a query's is, so each is the probe of its parent (lower/shapes/take/decorrelate.ts), and analyzed alike. The rewrite reads the analyzed DAG's
 	 * roots, every described source and read-back, and keeps every node's label; each node the queries name is read as
 	 * the node standing in its place there. A DAG with no root restates nothing and names no node. Where the rewrite
 	 * restates no take, it answers the query it was given (lower/shapes/take/decorrelate.ts everyParentTakes), whose

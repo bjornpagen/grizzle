@@ -34,12 +34,7 @@ export {
 } from "#compiler/lower/conservative/types.ts"
 export { type FusedAttachment, fusedTexts, type FusedTexts } from "#compiler/runtime/lower/fused.ts"
 export type { PartDivision, TaggedPart } from "#compiler/lower/parts.ts"
-export type {
-	DeliveredPart,
-	FusedStatement,
-	RelationChoice,
-	ShapeChoice
-} from "#compiler/lower/shapes/index.ts"
+export type { DeliveredPart, FusedStatement } from "#compiler/lower/shapes/index.ts"
 export {
 	compilePageOf,
 	type PageArtifact,
@@ -57,7 +52,6 @@ export type {
 	PositionedFill,
 	VariantFill
 } from "#compiler/lower/shapes/page/seek.ts"
-export { type ChoiceInput, type RelationInput } from "#compiler/lower/shapes/take/index.ts"
 export type { SpecifiedStatement } from "#compiler/lower/template.ts"
 export { type QueryTemplate } from "#compiler/program/compile.ts"
 export { queryInput, type QueryInput } from "#compiler/program/input.ts"
@@ -68,7 +62,6 @@ export {
 	servedReadLive,
 	templateKey
 } from "#compiler/program/served.ts"
-export type { StatementForms } from "#compiler/runtime/lower/forms.ts"
 export { pageStatementSlotOf } from "#compiler/runtime/lower/slots.ts"
 export {
 	type CompiledTemplate,
@@ -81,7 +74,6 @@ export { isOrderedValue, isQueryValue } from "#compiler/query/build/index.ts"
 export { keyLookup } from "#compiler/query/build/key.ts"
 export { queryState } from "#compiler/query/build/state.ts"
 export { columnPosition, columnType } from "#compiler/runtime/lower/columns.ts"
-export { runsLargeForm } from "#compiler/runtime/lower/take.ts"
 export {
 	type AttachedTree,
 	keyColumns,

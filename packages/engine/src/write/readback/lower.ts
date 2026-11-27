@@ -29,7 +29,7 @@ import {
 	type OptimizedInput,
 	type OptimizedProgram
 } from "#compiler/lower/optimize/pipeline.ts"
-import type { OptimizedDeliveryProgram, RelationChoice } from "#compiler/lower/shapes/index.ts"
+import type { OptimizedDeliveryProgram } from "#compiler/lower/shapes/index.ts"
 import type { EmittedSql, StatementText, UnprintedSql } from "#compiler/sql/ast.ts"
 import type { NameSupplyStart } from "#compiler/sql/naming.ts"
 import type { CarrierColumn } from "#compiler/write/carriers/carriers.ts"
@@ -122,10 +122,7 @@ export const deltaSourceIn = (
  * change and delta.removed(R) in R before it, and R's immediate keys hold in both. So a read-back that joins a delta to
  * a relation on its key projects no DISTINCT, and PostgreSQL reads the relation through that key for the delta's rows
  * instead of deduplicating the whole relation. The conservative artifact keeps the conservative lowering of the same
- * read-back, over its state-comparison carriers, which is the write oracle's baseline. A statement whose take over a
- * declared relation parameter's rows is a per-execution choice carries its whole-relation variant as its large form
- * (`StatementForms`), which an execution runs when the parameter holds more distinct facts than the choice's
- * threshold, as a query's reader does.
+ * read-back, over its state-comparison carriers, which is the write oracle's baseline.
  *
  * Its results are held until COMMIT succeeds, which the runtime does. Its rows are decoded only after that COMMIT, in
  * the write's one flight, so each statement delivering an attachment bare or as an option checks that type itself and
@@ -163,7 +160,6 @@ const loweredOnce = <T extends StatementText>(
 
 /** A read-back's delivery program, each statement's text `T`: its print, or none where it rides (UnprintedSql). */
 export type ReadBackProgram<T extends StatementText> = OptimizedDeliveryProgram<
-	RelationChoice,
 	DeclaredParamSlot,
 	T
 >

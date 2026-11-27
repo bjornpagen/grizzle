@@ -98,7 +98,7 @@ import { type FullWorld, fullWorld } from "#test/support/worlds.ts"
  *   (packages/engine/src/program/template.ts) and delivered by the runtime's own delivery (packages/grizzle/src/adapter/reader/run.ts
  *   programFlight) on an adapter session logged in as the login of the fixture's full world, in the flights a Db of its
  *   role sends (packages/grizzle/src/adapter/wire/batch.ts readFrame, whose prologue enters the role). The statements that delivery sends, with their parameters exactly as bound (scalar
- *   encoders, the VALUES or recordset transport of a relation parameter, a per-execution variant), are recorded and
+ *   encoders, the VALUES or recordset transport of a relation parameter), are recorded and
  *   become the variant the harness explains and times;
  * - conservative: the conservative artifact of the same template, delivered the same way: the oracle baseline that
  *   deduplicates at every set boundary and uses no certificate;
@@ -112,7 +112,7 @@ import { type FullWorld, fullWorld } from "#test/support/worlds.ts"
  * catalog entries compare keyed numeric texts within a stated tolerance (within).
  *
  * Statement structure is read from the compiled program, never from emitted text: each optimized statement's typed
- * AST (the kernel's shapeOf), its roles and fused attachments, its per-execution choices and the certificates' rules.
+ * AST (the kernel's shapeOf), its roles and fused attachments and the certificates' rules.
  * Plans are read by node, and an index access by the installed index's own key columns (installedIndexes).
  *
  * A failure of the kit that is a defect of the gate file, never a measurement: a query that does not compile, a fixture

@@ -252,12 +252,7 @@ export const sentOf = (program: Program): ReadonlyArray<Sent> => {
 		`the ${program} program compiles`
 	).artifact
 	return [
-		...Arr.flatMap(artifact.statements, (s): ReadonlyArray<Sent> => [
-			{ ast: s.ast, slots: s.spec.paramSlots },
-			...(s.forms.kind === "chosen"
-				? [{ ast: s.forms.large.ast, slots: s.forms.large.params }]
-				: [])
-		]),
+		...Arr.map(artifact.statements, (s): Sent => ({ ast: s.ast, slots: s.spec.paramSlots })),
 		...Arr.flatMap(artifact.readBacks, (r): ReadonlyArray<Sent> =>
 			r.carried.kind === "sent"
 				? [{ ast: r.carried.statement.ast, slots: r.carried.statement.spec.paramSlots }]

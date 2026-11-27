@@ -27,7 +27,7 @@ import { aggregateLowerer } from "#compiler/lower/shapes/aggregate/index.ts"
 import { withBoundary, withoutBoundary } from "#compiler/lower/shapes/index.ts"
 import { inputSetLowerer } from "#compiler/lower/shapes/relparam/index.ts"
 import { type ShapeFacts, shapeFactsFromPlan } from "#compiler/lower/shapes/share/physical.ts"
-import { takeLowerer } from "#compiler/lower/shapes/take/index.ts"
+import { takeShape } from "#compiler/lower/shapes/take/index.ts"
 import { unionLowerer } from "#compiler/lower/shapes/union/index.ts"
 import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
 import { fixtureCodes } from "#test/unit/ir/fixture.ts"
@@ -166,7 +166,7 @@ const passThrough: ReadonlySet<RelNode["kind"]> = new Set(["Attach", "OrderedRes
 
 /** A pass-through plug-in returns its input's query, whose boundary is the input's own to keep or drop. */
 const shapeDispatch = (facts: ShapeFacts): NodeDispatch => {
-	const take = takeLowerer(facts)
+	const take = takeShape(facts)
 	const group = aggregateLowerer(facts)
 	const union = unionLowerer(facts)
 	const input = inputSetLowerer(facts)

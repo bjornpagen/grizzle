@@ -54,16 +54,13 @@ import type { ArtifactStatement } from "#compiler/write/program/artifact.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
 import { refusalFunction } from "#compiler/write/refusal.ts"
 
-/** The forms one statement may be sent in: its own, and its whole-relation form where an execution may choose it. */
-const sentForms = (statement: ArtifactStatement): ReadonlyArray<SentStatement> =>
-	statement.forms.kind === "chosen"
-		? [
-				{ ast: statement.ast, slots: statement.spec.paramSlots },
-				{ ast: statement.forms.large.ast, slots: statement.forms.large.params }
-			]
-		: [{ ast: statement.ast, slots: statement.spec.paramSlots }]
+/** A statement as a flight sends it (SentStatement). */
+const sentStatement = (statement: ArtifactStatement): SentStatement => ({
+	ast: statement.ast,
+	slots: statement.spec.paramSlots
+})
 
-/** One form of a statement a flight may send: its AST, and what fills each of its placeholders, $n the slot n - 1. */
+/** A statement a flight may send: its AST, and what fills each of its placeholders, $n the slot n - 1. */
 interface SentStatement {
 	readonly ast: SqlStatement
 	readonly slots: ReadonlyArray<WriteParamSlot>
@@ -71,15 +68,15 @@ interface SentStatement {
 
 /**
  * Every statement a compiled write's flight may send, in the order it sends them (adapter/apply/run.ts):
- * its write statements, each in every form an execution may send (write/program/served.ts projectWrite), then its
- * read-backs', which run in the change's own transaction at its level: a read-back riding a write statement is parts
- * of that statement's own forms (write/program/artifact.ts ReadBackCarried), and sends nothing of its own. The admission
+ * its write statements (write/program/served.ts projectWrite), then its read-backs', which run in the change's own
+ * transaction at its level: a read-back riding a write statement is parts of that statement (write/program/artifact.ts
+ * ReadBackCarried), and sends nothing of its own. The admission
  * an own statement carries (write/program/admission.ts) reads the call's parameters alone, no relation.
  */
 const flightStatements = (compiled: CompiledWrite): ReadonlyArray<SentStatement> => [
-	...compiled.artifact.statements.filter((s) => s.step.kind !== "readBack").flatMap(sentForms),
+	...compiled.artifact.statements.filter((s) => s.step.kind !== "readBack").map(sentStatement),
 	...compiled.artifact.readBacks.flatMap((r) =>
-		r.carried.kind === "sent" ? sentForms(r.carried.statement) : []
+		r.carried.kind === "sent" ? [sentStatement(r.carried.statement)] : []
 	)
 ]
 

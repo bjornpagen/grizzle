@@ -90,8 +90,6 @@ type ShapeRule =
 	| "share.restricted"
 	| "page.driver"
 	| "R20.lateral"
-	| "R20.distinctOn"
-	| "R20.rowNumber"
 	| "R24.conditionalCount"
 	| "approximateNearest.indexed"
 	| "approximateNearest.deduplicated"

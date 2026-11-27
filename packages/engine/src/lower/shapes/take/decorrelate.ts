@@ -203,25 +203,21 @@ const rewrite = (ed: DagEditor, c: Candidate): void => {
  * The query with every bind-correlated take restated over every parent, or the query itself when there is none, and
  * each node's counterpart in it.
  *
- * A take correlated through `bind`, stated with its correlation explicit for the take policy (lower/shapes/take).
+ * A take correlated through `bind`, stated with its correlation explicit, as an attachment child's is (lower/shapes/take).
  *
- * It is the take policy's own rewrite of the logical DAG, in the lower layer, before any lowering: every compiler that
- * lowers a take restates its DAG through it first, the query compiler (program/compile.ts), a derived relation's
- * definition (physical/derived/definition.ts) and the write front end for the optimized artifact
- * (write/frontend/compile.ts).
+ * It is a rewrite of the logical DAG, in the lower layer, before any lowering: every compiler that lowers a take
+ * restates its DAG through it first, the query compiler (program/compile.ts), a derived relation's definition
+ * (physical/derived/definition.ts) and the write front end for the optimized artifact (write/frontend/compile.ts).
  *
- * The take shapes read a take's correlation from its `correlation` list, which the checker fills for
- * an attachment's child (check/checker.ts take). A take correlated through `bind` instead reaches the lowering with an
- * empty list: the importer's outer value is an occurrence constant inside the take's input, a column of the import's
- * match fixed to a column of the importing region, so the take is lowered as an uncorrelated ORDER BY ... LIMIT and
- * its consumer reads it LATERAL, one LIMIT probe per parent row whatever the parent set, the per-row pathology the take
- * policy exists to rule out over a whole relation.
+ * The lowering reads a take's correlation from its `correlation` list, which the checker fills for an attachment's
+ * child (check/checker.ts take). A take correlated through `bind` instead reaches the lowering with an empty list: the
+ * importer's outer value is an occurrence constant inside the take's input, a column of the import's match fixed to a
+ * column of the importing region, so nothing outside the take's input sees that each evaluation is one parent's: the
+ * take's partition is empty (take/partition.ts), so no restriction of a parent's key passes through it into its input
+ * (share/keys.ts restrictionWalk), and its certificate names no probe.
  *
- * everyParentTakes restates each such take with its correlation explicit, an equivalent DAG the take policy then lowers
- * by its parent set: a query's (program/compile.ts) LATERAL for a small bound set, per execution for a relation
- * parameter's facts, over every group otherwise; a derived-relation definition's (physical/derived/definition.ts),
- * which "always wants every group, so it never takes the correlated form", over every group (DISTINCT ON for k = 1,
- * row_number otherwise); a write's optimized artifact's like a query's:
+ * everyParentTakes restates each such take with its correlation explicit, an equivalent DAG whose take is the probe of
+ * its parent, partitioned at the parent's columns, as an attachment child's take is (R20, take/index.ts takeShape):
  *
  *   region O { ..., occurrence of T binding (h...) }
  *   T = Take(k, order) over (ProjectSet | Filter)* over region R { occurrence s with constant c = <expr over O> }

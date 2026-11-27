@@ -210,11 +210,10 @@ export const derivedReading = (
  * set rule, and producing no NULL: the optimized pipeline over the checked definition, with three settings particular
  * to a stored query:
  *
- * - `derivedDefinition`: a definition always wants every group, so a correlated take takes its whole-relation shape,
- *   DISTINCT ON for one per group and the row_number window otherwise, never a per-parent LATERAL probe, and the
- *   compile-target catalog takes its whole-parent targets. A take correlated through `bind` is
- *   first restated with its correlation explicit, since that is the only way a
- *   correlated take reaches a definition, which admits no attachment;
+ * - `derivedDefinition`: a definition always wants every group, so the compile-target catalog takes its whole-parent
+ *   targets, and no approximate search decides its rows. A take correlated through `bind` is first restated with its
+ *   correlation explicit, since that is the only way a correlated take reaches a definition, which admits no
+ *   attachment, and is read, as every take is, as the probe of its parent (R20, lower/shapes/take);
  * - the `transaction` evidence context: the definition runs inside the owner-run migration that fills a created or
  *   recreated stored table, where a deferred constraint may be temporarily false; so its rewrites rest on descriptor, immediate and query-local evidence only, which holds at
  *   every statement;
@@ -284,8 +283,7 @@ export const lowerDefinition = (
 		parts.delivered.params.length > 0 ||
 		parts.delivered.heading.length === 0 ||
 		parts.delivered.fused.length > 0 ||
-		optimized.delivery.kind !== "rows" ||
-		optimized.statement.forms.kind !== "one"
+		optimized.delivery.kind !== "rows"
 	) {
 		return Result.err(
 			unsupported(at, "a definition that lowers to one main statement with no placeholder")

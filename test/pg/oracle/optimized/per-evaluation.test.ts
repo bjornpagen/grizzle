@@ -5,8 +5,7 @@
  * per-parent take, among them a child that reads its parent with an attachment of its own, whose key set reads children
  * keyed within one parent only. Its facts hold within one evaluation of a correlated subtree only. Each case runs under a plan
  * perturbation drawn with it (test/support/oracle/perturb.ts), under the optimized artifact compiled for the `snapshot`
- * context against the installation's own evidence catalog, in every per-execution form, against the conservative
- * lowering (support.ts). Its escaped counterexamples are recorded beside its population and kept by their tokens
+ * context against the installation's own evidence catalog, against the conservative lowering (support.ts). Its escaped counterexamples are recorded beside its population and kept by their tokens
  * (per-evaluation.fixtures.ts escapedCounterexamples). No
  * generated term raises (every partial operation is guarded, gen/compute.ts), so an execution error of any form is a
  * defect.

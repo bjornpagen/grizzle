@@ -252,8 +252,8 @@ export const servedEntry = (
 
 /**
  * Every read and write a login's served file sends held to the indexes of the installation it is drafted beside, `seeks`
- * (engine physical/access/seeks.ts judgeSeeks): each statement of each read, key and page of every role's workload, both
- * forms of a chosen one, read into its seek program here (engine sql/seeks.ts seekProgram), and each variant of each
+ * (engine physical/access/seeks.ts judgeSeeks): each statement of each read, key and page of every role's workload,
+ * read into its seek program here (engine sql/seeks.ts seekProgram), and each variant of each
  * change member of every role, `changes`, by the program its compile read off its statements before the installation
  * existed (engine write/program/served.ts ServableWrite `seeks`). A read or a write no index serves is an internal
  * compiler error of generate's, never a scan found where the file is served.
@@ -273,14 +273,7 @@ const judgeServedSeeks = (
 					? [form.form.bound.compiled.compiled.template, form.form.page.compiled.template]
 					: [form.form.bound.compiled.compiled.template]
 			judgeSeeks(
-				seekProgram(
-					Arr.flatMap(templates, (t) => {
-						const statement = t.run.statement
-						return statement.forms.kind === "chosen"
-							? [statement.ast, statement.forms.large.statement.ast]
-							: [statement.ast]
-					})
-				),
+				seekProgram(Arr.map(templates, (t) => t.run.statement.ast)),
 				seeks,
 				`the read ${form.name} of role ${role.role.name} of login ${compiled.login.name}`
 			)

@@ -3,8 +3,7 @@
  * (test/pg/oracle/support.ts denseQueryCaseGen): three to six sketched rows for every relation slot, so joins, fanout,
  * groups and projected duplicates meet real rows, each case under a plan perturbation drawn with it
  * (test/support/oracle/perturb.ts). Each case runs under the optimized artifact compiled for the `snapshot` context
- * against the installation's own evidence catalog, in every per-execution form, against the conservative lowering
- * (support.ts).
+ * against the installation's own evidence catalog, against the conservative lowering (support.ts).
  *
  * Oracle: the conservative lowering's raw text sets, no repeated row on the optimized side.
  *

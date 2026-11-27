@@ -10,7 +10,6 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, on, relation, schema, select } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { oneForm } from "#compiler/runtime/lower/forms.ts"
 import type { FlightStatement, FlightWrite } from "#compiler/runtime/write/flight.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { Id } from "#test/support/ids.ts"
@@ -185,18 +184,7 @@ export const wholeChange = (change: LoadedChange): LoadedChange => {
 			kind: "whole",
 			index: statement.index,
 			step: statement.step,
-			form: every,
-			forms:
-				statement.forms.kind === "one"
-					? oneForm
-					: {
-							kind: "chosen",
-							choices: statement.forms.choices,
-							large: defined(
-								statement.forms.large.sentFor(() => true),
-								"every unit of its large form"
-							)
-						}
+			form: every
 		}
 	}
 	const program: FlightWrite = {

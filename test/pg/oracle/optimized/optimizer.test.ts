@@ -10,7 +10,7 @@
  * union, with scalar and relation parameters; and it draws what each rewrite family needs besides: containments to read
  * through, wide payload under takes with stated orders, total computed terms, equations, filters read through regions
  * and rooted closures. Each case runs under the optimized artifact compiled for the `snapshot` context against the
- * installation's own evidence catalog, in every per-execution form, against the conservative lowering (support.ts), and
+ * installation's own evidence catalog, against the conservative lowering (support.ts), and
  * the population must reach every rewrite family (its required features). No generated term raises (every partial
  * operation is guarded, gen/compute.ts), so an execution error of any form is a defect.
  *

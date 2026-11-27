@@ -14,8 +14,6 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import type { NeededInput } from "#compiler/ir/needs.ts"
 import type { CallerParamDecl, WriteSlot } from "#compiler/ir/products.ts"
 import type { ServedSlot, WriteParamSlot } from "#compiler/lower/conservative/types.ts"
-import type { RelationInput } from "#compiler/lower/shapes/take/index.ts"
-import { oneForm, type StatementForms } from "#compiler/runtime/lower/forms.ts"
 import { writeSlotOf } from "#compiler/runtime/lower/slots.ts"
 import {
 	type Binding,
@@ -45,36 +43,16 @@ export interface ServedWriteForm {
 	readonly params: ReadonlyArray<ServedSlot<WriteParamSlot>>
 }
 
-/**
- * A per-execution choice of a statement's form: the relation parameter whose distinct fact count decides it, and the
- * threshold above which the statement's whole-relation form is sent (lower/shapes/take runsLargeForm).
- */
-export interface ServedWriteChoice {
-	readonly source: RelationInput
-	readonly threshold: number
-}
-
 /** A single statement's form as data: its text by its units, each placeholder's slot as data (parted.ts). */
 export type ServedPartedForm = Parted<ServedSlot<WriteParamSlot>>
 
 /**
- * One statement of a write's flight: its step, which says what its rows are and when an application skips it, its own
- * form, and its whole-relation form beside it when per-execution choices pick between the two; each form `whole`, one
- * text, or `parted`, a single statement's by its units, which reads no nested rows (parted.ts).
+ * One statement of a write's flight: its step, which says what its rows are and when an application skips it, and its
+ * form: `whole`, one text, or `parted`, a single statement's by its units, which reads no nested rows (parted.ts).
  */
 export type ServedStatement =
-	| {
-			readonly kind: "whole"
-			readonly step: OwnStep
-			readonly form: ServedWriteForm
-			readonly forms: StatementForms<ServedWriteChoice, ServedWriteForm>
-	  }
-	| {
-			readonly kind: "parted"
-			readonly step: OwnStep
-			readonly form: ServedPartedForm
-			readonly forms: StatementForms<ServedWriteChoice, ServedPartedForm>
-	  }
+	| { readonly kind: "whole"; readonly step: OwnStep; readonly form: ServedWriteForm }
+	| { readonly kind: "parted"; readonly step: OwnStep; readonly form: ServedPartedForm }
 
 /**
  * What a write's transaction locks before any of its statements takes the transaction's snapshot: nothing, or the
@@ -215,21 +193,19 @@ const partedFlight = (parted: Parted<WriteSlot>): PartedFlight => {
 	})
 }
 
-/** A statement of a loaded write: its position in the flight, its step, and its forms with their encoders (ServedStatement). */
+/** A statement of a loaded write: its position in the flight, its step, and its form with its encoders (ServedStatement). */
 export type FlightStatement =
 	| {
 			readonly kind: "whole"
 			readonly index: number
 			readonly step: OwnStep
 			readonly form: FlightForm
-			readonly forms: StatementForms<ServedWriteChoice, FlightForm>
 	  }
 	| {
 			readonly kind: "parted"
 			readonly index: number
 			readonly step: OwnStep
 			readonly form: PartedFlight
-			readonly forms: StatementForms<ServedWriteChoice, PartedFlight>
 	  }
 
 /**
@@ -271,7 +247,7 @@ export const loadWrite = (
 				)
 			})
 		)
-	/** A served statement at `index` of its flight, loaded: its forms with their encoders. */
+	/** A served statement at `index` of its flight, loaded: its form with its encoders. */
 	const loadedStatement = (s: ServedStatement, index: number): FlightStatement => {
 		switch (s.kind) {
 			case "whole":
@@ -279,26 +255,17 @@ export const loadWrite = (
 					kind: "whole",
 					index,
 					step: s.step,
-					form: loaded(s.form),
-					forms: formsOf(s.forms, loaded)
+					form: loaded(s.form)
 				})
 			case "parted":
 				return Object.freeze({
 					kind: "parted",
 					index,
 					step: s.step,
-					form: loadedParted(s.form),
-					forms: formsOf(s.forms, loadedParted)
+					form: loadedParted(s.form)
 				})
 		}
 	}
-	const formsOf = <F, L>(
-		forms: StatementForms<ServedWriteChoice, F>,
-		load: (form: F) => L
-	): StatementForms<ServedWriteChoice, L> =>
-		forms.kind === "one"
-			? oneForm
-			: Object.freeze({ kind: "chosen", choices: forms.choices, large: load(forms.large) })
 	return Object.freeze({
 		params: served.params,
 		binding: served.binding,
@@ -314,16 +281,3 @@ export const loadWrite = (
 		})
 	})
 }
-
-/** The form of a statement an application sends: its whole-relation form when it runs some per-execution choice large
- * (`runsLarge`, by the distinct fact count of the relation parameter the choice reads), its own otherwise. */
-export const sentForm = <F>(
-	statement: {
-		readonly form: F
-		readonly forms: StatementForms<ServedWriteChoice, F>
-	},
-	runsLarge: (choice: ServedWriteChoice) => boolean
-): F =>
-	statement.forms.kind === "chosen" && statement.forms.choices.some((c) => runsLarge(c))
-		? statement.forms.large
-		: statement.form

@@ -72,7 +72,10 @@ export interface ShapeFacts {
 	readonly fixed: (node: RelNode) => ReadonlyMap<string, FixedFacts>
 	/** Why an attachment's child rows are unique per parent binding, or that nothing proves it. */
 	readonly childUniquePerParent: (attach: NodeOf<"Attach">) => ChildUniqueness
-	/** Compiling a derived-relation definition, which always wants every group (R20). */
+	/**
+	 * Compiling a derived-relation definition, whose rows no approximate search may decide (check/approximate/provenance.ts
+	 * approximateMisuse, which the vector shape reads).
+	 */
 	readonly derivedDefinition: boolean
 	/** Where a shape records the certificate of the form it selected. */
 	readonly certify: (certificate: Certificate) => void
@@ -85,7 +88,7 @@ export interface ShapeFacts {
 export const discardCertificates: ShapeFacts["certify"] = () => {}
 
 interface AnalysisFactsOptions {
-	/** Compiling a derived-relation definition, which always wants every group (R20). */
+	/** Compiling a derived-relation definition (ShapeFacts `derivedDefinition`). */
 	readonly derivedDefinition: boolean
 	readonly certify: (certificate: Certificate) => void
 }

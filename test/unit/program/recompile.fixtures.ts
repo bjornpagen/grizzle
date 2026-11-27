@@ -24,16 +24,9 @@ export const request: ExecutionRequest = {
 	source: transactionClock
 }
 
-/** The spec of a template's optimized statement's large form, when it has one. */
-const largeSpecs = (t: QueryTemplate) => {
-	const forms = t.run.statement.forms
-	return forms.kind === "chosen" ? [forms.large.spec] : []
-}
-
 /** The statements a template emits, as text. */
 export const statementsOf = (t: QueryTemplate) => ({
-	optimized: Arr.map(t.optimized, (s) => s.sql),
-	variants: Arr.map(largeSpecs(t), (s) => s.sql)
+	optimized: Arr.map(t.optimized, (s) => s.sql)
 })
 
 /** What a case reaches: a compiled read, and one compiled again after others. */

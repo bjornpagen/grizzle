@@ -6,12 +6,9 @@ import {
 	type ExecutionInputs,
 	encodeForm,
 	type HostParams,
-	formFor,
-	inputCount,
 	outputOf,
 	partRuns,
 	programRecords,
-	type ReadChoice,
 	type RunStatement,
 	readBinding,
 	recordRowsOf,
@@ -44,7 +41,6 @@ import type {
 	GroupOrders,
 	Heading,
 	ProgramDelivery,
-	RelationInput,
 	PartDivision,
 	TakeBound
 } from "#compiler/plan/read.ts"
@@ -57,15 +53,9 @@ import {
 	mergeHeadingGroups,
 	mergeOrder,
 	rowCell,
-	runsLargeForm,
 	scalarReader
 } from "#compiler/plan/runtime.ts"
-import type {
-	ServedChoice,
-	ServedRiddenSource,
-	ServedSource,
-	ServedSpine
-} from "#compiler/plan/serve.ts"
+import type { ServedRiddenSource, ServedSource, ServedSpine } from "#compiler/plan/serve.ts"
 
 /**
  * Running one compiled query template and delivering its public result.
@@ -74,7 +64,7 @@ import type {
  * parts are the main rows or the heading groups, and every attachment beside them, each part over its parent's rows,
  * which the statement holds once (lower/shapes OptimizedDelivery rowsPart). The statement is encoded by its slots when
  * the flight is made, and its rows, texts, divide into its parts' runs (execution.ts partRuns) and become Rows when it
- * answers. How the statement binds its parameters and chooses its per-execution form, and how a part delivers its
+ * answers. How the statement binds its parameters, and how a part delivers its
  * Rows, is execution.ts's, settled once per template and artifact (readProgram), so a read checks nothing its program
  * already settled. The delivered Rows are decoded by the value's decoder, bound to the program's layouts (one per
  * heading group, one for a rows delivery).
@@ -91,8 +81,7 @@ import type {
  *   snapshot are the rows it would deliver, and stitches them under its own name.
  *
  * What a read delivers from: its served source (engine served/read.ts ServedSource), the delivery of the artifact that
- * runs, its statement with the spec emitted from it and its forms, each large form with its spec, and its parts in
- * their tree, each with the run of the answer that holds its rows.
+ * runs, its statement with the spec emitted from it, and its parts in their tree, each with the run of the answer that holds its rows.
  */
 /** How a take bound reads its k: a literal, or a declared parameter's admitted input. */
 type BoundPlan =
@@ -195,12 +184,6 @@ export interface ReadProgram {
 	readonly layouts: Arr.NonEmptyReadonlyArray<Layout>
 	readonly emission: Emission
 }
-
-/** A per-execution choice of a read: by a relation parameter's count. */
-const readChoice = (choice: ServedChoice<RelationInput>): ReadChoice => ({
-	source: choice.source.param,
-	threshold: choice.threshold
-})
 
 /**
  * The orders `orders` over heading groups `groups`, one each, in group order, of headings `headingOf`, under the union's
@@ -357,7 +340,7 @@ export const readProgram = (
 	const { records, delivered } = programRecords(source.roots, spine, codes)
 	const delivery = deliveryPlan(source.delivery, delivered, codes)
 	return {
-		run: runStatement(source.statement, source.parts, readChoice),
+		run: runStatement(source.statement, source.parts),
 		records,
 		delivery,
 		layouts: deliveredLayouts(delivery),
@@ -387,12 +370,6 @@ export const riddenProgram = (
 	const delivery = deliveryPlan(source.delivery, delivered, codes)
 	return { parts: source.parts, delivery, layouts: deliveredLayouts(delivery) }
 }
-
-/** A read statement's choice: a relation parameter's distinct fact count above its threshold. */
-export const readExceeds =
-	(inputs: ExecutionInputs) =>
-	(choice: ReadChoice): boolean =>
-		runsLargeForm(choice, inputCount(inputs, choice.source))
 
 /**
  * A take bound's k: its literal, or its declared parameter's host value, a bigint or a number the parameter's integer
@@ -519,16 +496,13 @@ export const deliveredRows = (
 ): Result.Result<ReadonlyArray<Row>, UnreadableAnswer> =>
 	merged(program.delivery.merge, program.delivery.groups, sent, params, asRow)
 
-/**
- * The statement of one execution of a read program (see the header), in its form for `inputs`, its rows going to
- * `intake`.
- */
+/** The statement of one execution of a read program (see the header) for `inputs`, its rows going to `intake`. */
 export const programStatement = (
 	program: ReadProgram,
 	inputs: ExecutionInputs,
 	intake: RowIntake
 ): Effect.Effect<PreparedStatement, InputTooLarge> =>
-	encodeForm(formFor(program.run, readExceeds(inputs)), (slot) => readBinding(slot, inputs), intake)
+	encodeForm(program.run, (slot) => readBinding(slot, inputs), intake)
 
 /**
  * A read's intake for one call: `take` is handed each of its statement's rows as it arrives (wire/batch.ts RowIntake),

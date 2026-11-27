@@ -52,6 +52,7 @@ import {
 import {
 	ConservativeDelivery,
 	type Delivery,
+	type ParentRows,
 	statementRows
 } from "#compiler/lower/conservative/deliver.ts"
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
@@ -71,14 +72,12 @@ import type {
 import { armCore, setOperation } from "#compiler/lower/conservative/union/arms.ts"
 import type { CtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
 import type { DedupPlan } from "#compiler/lower/optimize/dedup/plan.ts"
-import type { DeliveredRows } from "#compiler/lower/shapes/attach/index.ts"
 import {
 	type DeliveredPart,
 	OptimizedDelivery,
 	optimizedDispatch,
 	type PartedStatement,
 	partedConservative,
-	type ShapeChoice,
 	ShapeState,
 	withBoundary
 } from "#compiler/lower/shapes/index.ts"
@@ -124,7 +123,6 @@ import {
 	type ShapeFacts,
 	shapeFactsFromPlan
 } from "#compiler/lower/shapes/share/physical.ts"
-import type { ChoiceInput, PageInput } from "#compiler/lower/shapes/take/index.ts"
 import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
 import { groupRows } from "#compiler/lower/shapes/union/index.ts"
 import type { AttachedTree, RowsRole, StatementRoots } from "#compiler/runtime/lower/tree.ts"
@@ -141,13 +139,9 @@ import { and, binary, conjunction, keyedSet, select, unitRow } from "#compiler/s
 import { emitText } from "#compiler/sql/emit.ts"
 
 /**
- * A page's program in its optimized artifact: one statement of parts, whose attachments choose by a relation
- * parameter or by the requested size (heldRows), its page placeholders each filled by one of `F`.
+ * A page's program in its optimized artifact: one statement of parts, its page placeholders each filled by one of `F`.
  */
-export type PageProgram<F extends PageFill = PageFill> = PartedStatement<
-	ShapeChoice,
-	PageStatementSlot<F>
->
+export type PageProgram<F extends PageFill = PageFill> = PartedStatement<PageStatementSlot<F>>
 
 /**
  * One window variant: the direction it fetches in, how it delivers its rows, and its program, the rows parts (one, or
@@ -289,7 +283,7 @@ interface Kit<F extends PageFill, S, P> {
 	readonly retained: (retained: () => Select, heading: Heading, origin: RelNode) => Retained
 	/** The parts of `attachments` over the page's rows `rows`. */
 	readonly attach: (
-		rows: DeliveredRows<PageInput>,
+		rows: ParentRows,
 		spine: ReadonlyArray<RelNode>,
 		attachments: ReadonlyArray<NodeOf<"Attach">>
 	) => ReadonlyArray<AttachedTree<S>>
@@ -301,7 +295,7 @@ interface Kit<F extends PageFill, S, P> {
  * in its own statement (`own`, the conservative artifact's, each part a statement of its own).
  */
 interface Retained {
-	readonly rows: DeliveredRows<PageInput>
+	readonly rows: ParentRows
 	readonly part:
 		| { readonly kind: "held"; readonly read: () => OperandSelect }
 		| { readonly kind: "own" }
@@ -330,9 +324,6 @@ const filtered = (
 		? distinctSelect(targets, [input.item], [where])
 		: select(keyedSet(targets, [input.item], where, "a page group's filtered rows"))
 }
-
-/** The bound of a page's delivered rows: at most the requested size of them. */
-const pageBound = { kind: "input", source: { kind: "pageSize" }, factor: 1n } as const
 
 /**
  * The conservative artifact's kit, the page oracle's baseline: each part lowered as a statement of its own, which
@@ -375,7 +366,7 @@ const conservativeKit = <F extends PageFill>(
 		},
 		order: (order, heading, map) => completedOrderItems(order, heading, map),
 		retained: (retained, heading, origin) => ({
-			rows: { ...statementRows(cx, heading, origin, retained, noRowKeys), bound: pageBound },
+			rows: statementRows(cx, heading, origin, retained, noRowKeys),
 			part: { kind: "own" }
 		}),
 		attach: (rows, spine, attachments) => delivery.attachments({ nodes: spine, attachments }, rows)
@@ -387,7 +378,7 @@ const optimizedKit = <F extends PageFill>(
 	facts: ShapeFacts
 ): Kit<F, DeliveredPart, PageProgram<F>> => {
 	const query = input.optimized.query
-	const state = new ShapeState<ChoiceInput>("small", input.optimized.cte, input.optimized.keys)
+	const state = new ShapeState(input.optimized.cte, input.optimized.keys)
 	const options: ConservativeOptions = {
 		names: input.names,
 		params: query.params,
@@ -401,12 +392,7 @@ const optimizedKit = <F extends PageFill>(
 		state.evaluationHolding,
 		dispatching.carrying
 	)
-	const delivery = new OptimizedDelivery<PageInput, PageParamSlot<F>, EmittedSql>(
-		cx,
-		facts,
-		state,
-		emitText
-	)
+	const delivery = new OptimizedDelivery<PageParamSlot<F>, EmittedSql>(cx, facts, state, emitText)
 	return {
 		cx,
 		delivery,
@@ -434,7 +420,7 @@ const optimizedKit = <F extends PageFill>(
 				fixed: []
 			}),
 		retained: (retained, heading, origin) => {
-			const held = delivery.heldRows(retained(), heading, origin, pageBound)
+			const held = delivery.heldRows(retained(), heading, origin)
 			return { rows: held.rows, part: { kind: "held", read: held.read } }
 		},
 		attach: (rows, spine, attachments) =>
@@ -494,7 +480,7 @@ interface PageSource<S> {
 	/** Whether attachments read its rows, which the statement then holds once (Retained). */
 	readonly attached: boolean
 	/** The parts of its attachments, over the page's rows they read. */
-	readonly attachments: (rows: DeliveredRows<PageInput>) => ReadonlyArray<AttachedTree<S>>
+	readonly attachments: (rows: ParentRows) => ReadonlyArray<AttachedTree<S>>
 }
 
 const sourcesOf = <F extends PageFill, S, P>(
@@ -527,7 +513,7 @@ const sourcesOf = <F extends PageFill, S, P>(
 		orderHeading: union.heading,
 		role: { kind: "headingGroup", group: gi },
 		attached: true,
-		attachments: (rows: DeliveredRows<PageInput>) => {
+		attachments: (rows: ParentRows) => {
 			const above = kit.attach(rows, scope, plan.attachments)
 			const [only, ...others] = g.arms
 			if (others.length === 0) {

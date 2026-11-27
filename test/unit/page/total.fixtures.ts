@@ -37,7 +37,6 @@ import { rootedCaseGen } from "#test/support/oracle/mutants/cases.ts"
 export type TotalFeature =
 	| "heading groups"
 	| "attachments"
-	| "per-execution form"
 	| "a case no ordered read stands for"
 	| "a query a lowering refuses"
 

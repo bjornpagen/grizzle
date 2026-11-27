@@ -44,7 +44,7 @@ export type FormattedFile = (typeof formattedFiles)[number]
  */
 export const recordShapes: { readonly [F in FormattedFile]: string } = {
 	snapshot: "d496b58c5fbb2e3f8d9aa704e9d851d51ee67638427313b9439eba6a7fa91300",
-	served: "3d454c427ac33578c94f22c884c60deb766647168bf7ce7d363a0520059249c4",
+	served: "f4bfcccfa9ecb2e7d7bcbe5b9b4c3c501ec341545f3b5faba3fb7d0e6a248ab8",
 	contract: "986dcb6a85c77f5b7164d034318dc1e6f463a3473b6ba15f6409163b9b711f06"
 }
 

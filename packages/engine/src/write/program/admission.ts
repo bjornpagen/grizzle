@@ -56,7 +56,7 @@ import type { Cte, SqlStatement } from "#compiler/sql/ast.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import { namesPast, NameSupply } from "#compiler/sql/naming.ts"
 import { ownStatement } from "#compiler/write/insert/statement.ts"
-import type { FormText, PlacedStatement, SentForm } from "#compiler/write/program/artifact.ts"
+import type { FormText, PlacedStatement } from "#compiler/write/program/artifact.ts"
 import type { UnitShape } from "#compiler/write/program/single.ts"
 import { relationsPast, renumberedStatement } from "#compiler/write/program/slot-carriers.ts"
 
@@ -137,14 +137,7 @@ const widenedText = (text: FormText, needs: Needs): FormText =>
 const widened = (p: OwnPlaced, needs: Needs): OwnPlaced => ({
 	...p,
 	step: p.text.kind === "whole" ? Object.freeze(widenedStep(p.step, needs)) : p.step,
-	text: widenedText(p.text, needs),
-	forms:
-		p.forms.kind === "chosen"
-			? Object.freeze({
-					...p.forms,
-					large: Object.freeze({ ...p.forms.large, text: widenedText(p.forms.large.text, needs) })
-				})
-			: p.forms
+	text: widenedText(p.text, needs)
 })
 
 /** `ast` with `cte` first among its WITH's entries: a write statement is DML, whose WITH leads it. */
@@ -192,8 +185,7 @@ const admissionSlot = (slot: DeclaredParamSlot): AdmissionParamSlot => {
 }
 
 /**
- * `p` carrying the admission of `carried` (see the header): in each of its forms, the admission's CTE first among its
- * WITH's entries under names past every one the statement defines, its placeholders $1 onwards, each an admission's
+ * `p` carrying the admission of `carried` (see the header): the admission's CTE first among its WITH's entries under names past every one the statement defines, its placeholders $1 onwards, each an admission's
  * (`admissionSlot`), and the statement's own numbered after them. The entry is lowered as a statement of declared
  * placeholders alone, which allocates no member slot or nested rows.
  */
@@ -202,12 +194,8 @@ const admittedIn = (
 	cx: LowerContext,
 	carried: NonEmptyReadonlyArray<CallerParamDecl>
 ): OwnPlaced => {
-	const large = p.forms.kind === "chosen" ? p.forms.large : undefined
 	const supply = new NameSupply({
-		relationStart: Math.max(
-			relationsPast(p.ast),
-			large === undefined ? ownStatement.relationStart : relationsPast(large.ast)
-		),
+		relationStart: Math.max(relationsPast(p.ast), ownStatement.relationStart),
 		columnStart: namesPast(p.names, ownStatement).columnStart
 	})
 	const placeholders = new StatementParams<never>()
@@ -215,31 +203,21 @@ const admittedIn = (
 	const cte = admissionCte(cx, carried, "admission of the write's parameters")
 	const slots: ReadonlyArray<AdmissionParamSlot> = placeholders.slots.map(admissionSlot)
 	const count = slots.length
-	/** A form's AST and placeholders with the admission first. */
-	const formed = (
-		ast: SqlStatement,
-		params: ReadonlyArray<WriteParamSlot>
-	): { readonly ast: SqlStatement; readonly params: ReadonlyArray<WriteParamSlot> } => ({
+	const names = [...p.names, ...supply.map()]
+	/** Its AST and placeholders with the admission first. */
+	const own: { readonly ast: SqlStatement; readonly params: ReadonlyArray<WriteParamSlot> } = {
 		ast: leading(
 			renumberedStatement(
-				ast,
+				p.ast,
 				(number) => number + count,
 				() => undefined
 			),
 			cte
 		),
-		params: Object.freeze([...slots, ...params.map((s) => ({ ...s, number: s.number + count }))])
-	})
-	const names = [...p.names, ...supply.map()]
-	const own = formed(p.ast, p.spec.paramSlots)
-	const largeForm = (form: SentForm): SentForm => {
-		const admitted = formed(form.ast, form.params)
-		return Object.freeze({
-			sql: emitText(admitted.ast, []).text,
-			params: admitted.params,
-			ast: admitted.ast,
-			text: admittedText(form.text)
-		})
+		params: Object.freeze([
+			...slots,
+			...p.spec.paramSlots.map((s) => ({ ...s, number: s.number + count }))
+		])
 	}
 	return {
 		...p,
@@ -250,11 +228,7 @@ const admittedIn = (
 			...p.spec,
 			sql: emitText(own.ast, names).text,
 			paramSlots: own.params
-		}),
-		forms:
-			p.forms.kind === "chosen"
-				? Object.freeze({ ...p.forms, large: largeForm(p.forms.large) })
-				: p.forms
+		})
 	}
 }
 

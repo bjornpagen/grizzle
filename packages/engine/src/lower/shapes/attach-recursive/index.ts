@@ -14,16 +14,11 @@ import {
 	type LowerContext,
 	outputNames
 } from "#compiler/lower/conservative/context.ts"
-import { parentKeysSource } from "#compiler/lower/conservative/deliver.ts"
+import { type ParentRows, parentKeysSource } from "#compiler/lower/conservative/deliver.ts"
 import { partialOrder } from "#compiler/lower/conservative/take/order.ts"
 import { carriedFrom, positiveLinear } from "#compiler/lower/shapes/attach-recursive/carried.ts"
-import {
-	attachmentOrder,
-	type DeliveredRows,
-	type PipelinedAttachment
-} from "#compiler/lower/shapes/attach/index.ts"
+import { attachmentOrder, type PipelinedAttachment } from "#compiler/lower/shapes/attach/index.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
-import type { ChoiceInput } from "#compiler/lower/shapes/take/index.ts"
 import { orderIsTotal } from "#compiler/lower/shapes/take/order.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
 import type { Expr, Select, SelectCore, With } from "#compiler/sql/ast.ts"
@@ -170,7 +165,7 @@ export const seededAttachment = (
 	cx: LowerContext,
 	attach: NodeOf<"Attach">,
 	spine: ReadonlyArray<RelNode>,
-	rows: DeliveredRows<ChoiceInput>,
+	rows: ParentRows,
 	facts: ShapeFacts,
 	parentColumns: Heading
 ): PipelinedAttachment | undefined => {

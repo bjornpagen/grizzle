@@ -16,7 +16,6 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { readArrayLiteral } from "#test/support/arrays.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
-import { sentForms } from "#test/support/oracle/forms.ts"
 import { textOfParam } from "#test/support/wire.ts"
 import {
 	Color,
@@ -82,11 +81,10 @@ export const everyDeclaredParameterAdmittedAtTheReadBoundaryRefusesAScalarParame
 						Arr.findFirst(template.params, (d) => d.name === "p"),
 						() => new Error("the read declares p")
 					)
-					/**
-					 * The optimized artifact's statement, its large form included: a rule that is not empty binds p.
-					 */
-					const bound = Arr.some(sentForms(template.programs.optimized.statement), (s) =>
-						Arr.some(s.params, (slot) => slot.kind === "scalar" && slot.param === p.id)
+					/** The optimized artifact's statement: a rule that is not empty binds p. */
+					const bound = Arr.some(
+						template.programs.optimized.statement.params,
+						(slot) => slot.kind === "scalar" && slot.param === p.id
 					)
 					if (inner === outer) {
 						assert.ok(bound, `pinned and matched at ${inner}: its statement binds p`)

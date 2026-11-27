@@ -3,11 +3,8 @@ import type { ReadonlyTupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
 import type { Gen } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
-import { changeCall } from "#adapter/apply/collect.ts"
-import type { CompiledChange } from "#adapter/apply/compile.ts"
-import { type InputFailure, hostInputs } from "#adapter/apply/run.ts"
 import { ExecutionFailure } from "#adapter/errors/execution.ts"
-import { type CallInputRefused, ParamRejected } from "#adapter/errors/failures.ts"
+import { ParamRejected } from "#adapter/errors/failures.ts"
 import type { CompiledProgram } from "#adapter/served/forms.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -15,7 +12,6 @@ import { sameScalarType } from "#compiler/ir/scalar.ts"
 import type { MemberParamSlot } from "#compiler/lower/conservative/types.ts"
 import type { WriteStepResult } from "#compiler/runtime/write/steps.ts"
 import { factIdentity } from "#compiler/scalar/values/identity.ts"
-import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import type { ArtifactStatement, WriteArtifact } from "#compiler/write/program/artifact.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
 import type { PutChoice } from "#compiler/write/put/choose.ts"
@@ -217,7 +213,6 @@ export type WriteOracleFeature =
 	| `outcome ${AppliedOutcome["kind"]}`
 	| `statistics ${Statistics}`
 	| RefusalFeature
-	| `take sent in its ${TakeForm} form`
 	| "single-statement stratum"
 	| "a single statement refused by a law"
 	| "sequential stratum of several writes"
@@ -876,38 +871,6 @@ const inputValues = (
 	})
 
 /**
- * The form each statement of the optimized artifact whose take is a per-execution choice sends in the application
- * (runtime/write/bind.ts BoundWrite.form): its whole-relation form or its LATERAL form, by the parameter's distinct
- * facts. A ChangeSet the host refuses before any SQL sends none, and a statement the call sends nothing of has no form;
- * a single statement's form is the units its inputs give rows, of whichever form, which this note does not tell apart.
- */
-type TakeForm = "LATERAL" | "whole-relation"
-
-const takesOf = (
-	entry: CompiledChange,
-	params: ParamMap
-): Effect.Effect<ReadonlyArray<TakeForm>, InputFailure | CallInputRefused> =>
-	Effect.map(
-		Effect.flatMap(changeCall("the oracle's ChangeSet", entry, params), (call) =>
-			hostInputs(entry, call)
-		),
-		(ready) => {
-			if (ready.kind !== "bound") {
-				return []
-			}
-			return Arr.flatMap(entry.program.statements, (st): ReadonlyArray<TakeForm> =>
-				st.kind === "whole" && st.forms.kind === "chosen" && !ready.bound.skip.has(st.index)
-					? [
-							ready.bound.form(st).text.sql === st.forms.large.text.sql
-								? "whole-relation"
-								: "LATERAL"
-						]
-					: []
-			)
-		}
-	)
-
-/**
  * Whether a staged member slot of `artifact` (write/program/slot-carriers.ts) is read through its carrier by a deletion
  * of `mode` and by an insertion: an exact deletion excepting the slot's facts, its stratum's additions, beside their
  * insert (D EXCEPT A, delete/exact.ts), or a put's displacing deletion beside its insert half.
@@ -1186,15 +1149,6 @@ export const runCase = (
 			if (Result.isFailure(audited)) {
 				problems.push(audited.failure)
 			}
-		}
-		const bound = yield* Effect.result(takesOf(entry.success.entry, params))
-		if (Result.isFailure(bound)) {
-			return yield* new CaseFailed({
-				report: `${header()}\nthe ChangeSet does not bind: ${bound.failure._tag}`
-			})
-		}
-		for (const take of Result.isSuccess(bound) ? bound.success : []) {
-			note(`take sent in its ${take} form`)
 		}
 		for (const realization of realizationsOf(program)) {
 			note(realization)

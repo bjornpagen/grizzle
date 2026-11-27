@@ -61,7 +61,6 @@ import {
 	noDeclarations,
 	type Previous
 } from "#test/support/migrate/kit.ts"
-import { sentForms } from "#test/support/oracle/forms.ts"
 import { defaultGenConfig, type QueryCase, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
 import { schemaCodes, schemaDesc } from "#test/support/oracle/gen/schema.ts"
@@ -270,7 +269,7 @@ type Lowered = ReadonlyArray<{ readonly ast: SqlStatement; readonly text: string
 
 /**
  * Every statement a case lowers to: each conservative statement and its executable form, the conservative program's
- * statement of parts, and the optimized program's statement, its R20 large form, and its one part as lowered.
+ * statement of parts, and the optimized program's statement and its one part as lowered.
  */
 const lowered = (c: QueryCase, context: TemplateContext): Lowered => {
 	const artifacts = testArtifacts(schemaDesc(c.schema), {
@@ -311,7 +310,7 @@ const lowered = (c: QueryCase, context: TemplateContext): Lowered => {
 		throw failure("the optimized lowering", optimized.error)
 	}
 	const program = optimized.value
-	Arr.forEach(sentForms(program.statement), sent)
+	sent(program.statement)
 	if (program.parts.kind === "one") {
 		sent(program.parts.delivered)
 	}

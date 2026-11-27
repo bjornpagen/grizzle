@@ -108,19 +108,13 @@ const partedTexts = (
 	return Math.min(2 ** parts, Math.max(1, 2 * members - 1))
 }
 
-/**
- * The texts one call can send of `statement`: a whole statement's one form, its chosen one (runtime/write/flight.ts
- * sentForm, by the call's counts, one for every execution); a single statement's forms of the chosen family
- * (`partedTexts`).
- */
+/** The texts one call can send of `statement`: a whole statement's one text; a single statement's forms (`partedTexts`). */
 const statementTexts = (statement: ServedStatement): number => {
 	switch (statement.kind) {
 		case "whole":
 			return 1
 		case "parted":
-			return statement.forms.kind === "chosen"
-				? Math.max(partedTexts(statement.form), partedTexts(statement.forms.large))
-				: partedTexts(statement.form)
+			return partedTexts(statement.form)
 	}
 }
 

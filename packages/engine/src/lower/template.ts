@@ -19,11 +19,9 @@ import type {
 	DeliveredPart,
 	FusedStatement,
 	OptimizedDeliveryProgram,
-	RelationChoice,
 	SentStatement,
 	StatementParts
 } from "#compiler/lower/shapes/index.ts"
-import type { StatementForms } from "#compiler/runtime/lower/forms.ts"
 import type { FusedAttachment } from "#compiler/runtime/lower/fused.ts"
 import { declaredSlotOf } from "#compiler/runtime/lower/slots.ts"
 import {
@@ -227,18 +225,11 @@ export const collatedRows = (rows: OperandSelect, heading: Heading): OperandSele
 	orderBy: collatedOrder(rows.orderBy, outputTargets(rows.body), heading)
 })
 
-/** A program statement's large form as a template holds it: the large mode's statement and the spec emitted from it. */
-export interface SpecifiedForm {
-	readonly statement: SentStatement
-	readonly spec: StatementSpec
-}
-
 /**
- * The statement an artifact sends as the runtime binds, sends and decodes it: the program's statement, its large form
- * with its own spec, and the spec emitted from it.
+ * The statement an artifact sends as the runtime binds, sends and decodes it: the program's statement and the spec
+ * emitted from it.
  */
 export interface SpecifiedStatement extends SentStatement {
-	readonly forms: StatementForms<RelationChoice, SpecifiedForm>
 	readonly spec: StatementSpec
 }
 
@@ -292,31 +283,15 @@ export const sentSpec = <Slot extends ConservativeParamSlot, P>(
 	dependsOn: []
 })
 
-/** An optimized program as the runtime runs it: its statement and its large form, each with its spec. */
+/** An optimized program as the runtime runs it: its statement with its spec. */
 export const specifiedProgram = (
-	program: OptimizedDeliveryProgram<RelationChoice>,
+	program: OptimizedDeliveryProgram,
 	codes: Codebook
 ): SpecifiedArtifact => {
-	const slotOf = declaredSlotOf(codes)
 	const { statement, parts, roots } = program
-	const spec = sentSpec(statement, parts, roots, slotOf)
-	const forms = statement.forms
 	return {
 		delivery: program.delivery,
-		statement: {
-			...statement,
-			forms:
-				forms.kind === "one"
-					? forms
-					: {
-							...forms,
-							large: {
-								statement: forms.large,
-								spec: sentSpec(forms.large, parts, roots, slotOf)
-							}
-						},
-			spec
-		},
+		statement: { ...statement, spec: sentSpec(statement, parts, roots, declaredSlotOf(codes)) },
 		parts,
 		roots
 	}

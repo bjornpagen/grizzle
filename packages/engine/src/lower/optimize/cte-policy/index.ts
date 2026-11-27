@@ -1563,8 +1563,8 @@ const attachedRows = (child: RelNode): RelNode => {
  *   other keys' rows: the child derived once, whole, and co-grouped with the parent keys by one GROUP BY
  *   (lower/shapes/attach coGroupedRows). A child that reads its parent row's values itself is read per key, whatever
  *   binds it: no derivation of it holds for every parent at once.
- * - `take`: a take no declared-key prefix binds at its partition, which the take policy reads its own way (R20,
- *   lower/shapes/take), beside.
+ * - `take`: a take no declared-key prefix binds at its partition, read as its probe per parent (R20,
+ *   lower/shapes/take takeShape), beside.
  */
 export type AttachmentRead =
 	| { readonly kind: "perKey" }
