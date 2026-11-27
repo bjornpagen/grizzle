@@ -57,7 +57,7 @@ export const aSessionWithoutPlanAdviceRunsNothing = property.exhaust(finite(advi
 	kills: [
 		{
 			file: "packages/engine/src/physical/ddl/ledger.ts",
-			original: '\t\t\t\t\t\tnot(adviceLoaded("r5")),\n',
+			original: '\t\t\t\t\t\tnot(adviceLoaded("r2")),\n',
 			replacement: "\t\t\t\t\t\tnot(lit.bool(true)),\n",
 			why: "The snapshot guard skips its loaded check, so a Db's read and write on a session without pg_plan_advice run, every statement planned by PostgreSQL's costs and the advice ignored; the property fails, the flight run."
 		},

@@ -5,7 +5,7 @@ import { isList } from "#compiler/core/record.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
-import type { PageFill } from "#compiler/ir/products.ts"
+import type { AccessIndexRequest, PageFill } from "#compiler/ir/products.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
 import type { Footprint } from "#compiler/logical/routes.ts"
 import type {
@@ -38,6 +38,7 @@ import type { EmittedText } from "#compiler/sql/ast.ts"
 import * as C from "#compiler/sql/catalog.ts"
 import { emitCatalog, costChosen, emitText } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
+import type { ReadPlan } from "#compiler/sql/plan.ts"
 
 /**
  * A query compiled for a role's rows, served as one call reads it (served/forms.ts ServedRead): the declared parameters
@@ -63,26 +64,33 @@ export const servedRead = (
 	advice
 })
 
+/** The plan of the one statement a read of `template` sends (served/forms.ts ServedRead). */
+export const readPlans = (template: QueryTemplate): ReadonlyArray<ReadPlan<AccessIndexRequest>> => [
+	template.run.statement.spec.plan
+]
+
+/** The plans of the statements a page of `page` may send, every window variant's, one scope's (served/forms.ts
+ * ServedPage). */
+export const pagePlans = (page: PageTemplate): ReadonlyArray<ReadPlan<AccessIndexRequest>> => {
+	const { requests } = page.artifact
+	return [requests.first, requests.after, requests.last, requests.before, requests.at].map(
+		(r) => r.program.statement.sql.plan
+	)
+}
+
 /**
- * What a read of `template` is planned under (served/forms.ts ServedRead `advice`): its statement's plan, each read
- * resolved by the installation that serves it (`resolve`).
+ * What a read of `template` is planned under (served/forms.ts ServedRead `advice`): its statement's plan (`readPlans`),
+ * each read resolved by the installation that serves it (`resolve`).
  */
 export const readAdvice = (template: QueryTemplate, resolve: IndexResolver): Advice =>
-	transactionAdvice([template.run.statement.spec.plan], resolve)
+	transactionAdvice(readPlans(template), resolve)
 
 /**
  * What a page of `page` is planned under (served/forms.ts ServedPage `advice`): every window variant's statement's
- * plan, one scope's, each read resolved by the installation that serves it (`resolve`).
+ * plan (`pagePlans`), each read resolved by the installation that serves it (`resolve`).
  */
-export const pageAdvice = (page: PageTemplate, resolve: IndexResolver): Advice => {
-	const { requests } = page.artifact
-	return transactionAdvice(
-		[requests.first, requests.after, requests.last, requests.before, requests.at].map(
-			(r) => r.program.statement.sql.plan
-		),
-		resolve
-	)
-}
+export const pageAdvice = (page: PageTemplate, resolve: IndexResolver): Advice =>
+	transactionAdvice(pagePlans(page), resolve)
 
 /**
  * The key a template's rows are delivered under (served/forms.ts ServedKey): the fields of the completed orders of the

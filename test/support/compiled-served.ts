@@ -1,10 +1,11 @@
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { defined } from "@bjornpagen/testing/assert"
 import { Effect } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
 import { compileServed } from "#adapter/public/compile.ts"
 import { atRole, planRefusal, type ServedRefusal } from "#adapter/served/compile.ts"
 import { artifactsOver, type BuiltLogin, builtLogin, ownLoginOver } from "#adapter/served/login.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
+import { CompileError } from "#compiler/core/errors.ts"
 import { silentPhases } from "#compiler/core/phase.ts"
 import {
 	derivedOf,
@@ -15,6 +16,7 @@ import {
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { transactionClock } from "#compiler/ir/clock.ts"
 import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
+import type { AccessIndexRequest, WorkloadAccess } from "#compiler/ir/products.ts"
 import { servedWorkloadExtension } from "#compiler/physical/access/extension.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { namedLogin } from "#compiler/physical/ddl/names.ts"
@@ -23,15 +25,15 @@ import { installBasis, unserved } from "#compiler/physical/install/plan.ts"
 import { installationOver } from "#compiler/program/install.ts"
 import {
 	planWorkload,
+	servedAccess,
 	type ServedWorkloadPlan,
-	servedPrograms,
-	servedWorkload,
-	withProgramAccess
+	servedWorkload
 } from "#compiler/program/workload/compile.ts"
 import { installationsOf, type Owned, rostersOf } from "#compiler/schema/own.ts"
 import type { AnyLogin } from "#compiler/types/schema/world.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { jsonOf } from "#test/support/chunked.ts"
+import { fullWorld } from "#test/support/worlds.ts"
 
 /**
  * The installation `grizzle generate` drafts for `owned`, `login`'s base, serving `login`, under the codes `codes`, with
@@ -98,7 +100,7 @@ export const compiledInstallation = (
 						owned,
 						installationsOf(owned),
 						[ownedLogin],
-						[servedWorkloadExtension({ ...plan, programs: servedPrograms(plan.changes) })],
+						[servedWorkloadExtension(plan)],
 						codes
 					),
 					silentPhases
@@ -129,17 +131,13 @@ export const compiledSnapshot = (
 ): Effect.Effect<unknown, ServedRefusal> =>
 	Effect.gen(function* () {
 		const { installation, plan } = yield* compiledInstallation(login, owned, codes)
-		const indexed = withProgramAccess(
-			plan,
-			installation.programAccess,
-			installation.names.vectorSchema
-		)
+		const { access, requests } = servedAccess(installation)
 		const snapshot = succeeded(
 			finishSnapshot(
 				succeeded(
 					targetState({
 						installation,
-						workload: { access: indexed.access, accessPaths: indexed.requests, live: plan.live },
+						workload: { access, accessPaths: requests, live: plan.live },
 						checks: lawChecks(installation)
 					}),
 					"the base's target state"
@@ -170,5 +168,39 @@ export const compiledServedFile = (login: AnyLogin): unknown => {
 		Effect.flatMap(compiledSnapshot(built, owned, firstCodebook(rostersOf(owned))), (snapshot) =>
 			compileServed(login, snapshot, [...built.workload])
 		)
+	)
+}
+
+/** An installation that serves a workload, with the access its snapshot records (program/workload/compile.ts
+ * servedAccess). */
+export interface ServedInstallation {
+	readonly installation: Installation
+	readonly access: WorkloadAccess
+	readonly requests: ReadonlyArray<AccessIndexRequest>
+}
+
+/**
+ * The installation `grizzle generate` drafts for `base` serving one workload of `programs` through its full world's
+ * login, `server`, whose one role holds and writes every relation whole (test/support/worlds.ts fullWorld,
+ * `compiledInstallation`), under its rosters' first codes, with the access its snapshot records: every program compiled
+ * for the role, and every read its statements make asked an index for; or the compile's refusal.
+ */
+export const servedInstallation = (
+	base: Parameters<typeof fullWorld>[0],
+	programs: Readonly<Record<string, unknown>>
+): Result.Result<ServedInstallation, CompileError> => {
+	const built = defined(builtLogin(fullWorld(base, programs, []).server), "the full world's login")
+	const owned = succeeded(built.base.content.owned(), "the served workload's base")
+	return Effect.runSync(
+		Effect.match(compiledInstallation(built, owned, firstCodebook(rostersOf(owned))), {
+			onFailure: (refusal): Result.Result<ServedInstallation, CompileError> => {
+				if (!(refusal.error instanceof CompileError)) {
+					throw new Error(`a compile refused by a CompileError, not ${refusal.error._tag}`)
+				}
+				return Result.err(refusal.error)
+			},
+			onSuccess: ({ installation }): Result.Result<ServedInstallation, CompileError> =>
+				Result.ok({ installation, ...servedAccess(installation) })
+		})
 	)
 }

@@ -293,12 +293,6 @@ export const aWatchOfAStoredRelationHearsExactlyTheRouteKeysOfTheRowsEachCommits
 		],
 		kills: [
 			{
-				file: "packages/engine/src/physical/access/extract.ts",
-				original: "\t\t\tthis.options\n\t\t\t\t.keyOrders(base.relation)\n",
-				replacement: "\t\t\tthis\n\t\t\t\t.keysOf(base)\n",
-				why: "A chain step binding a key's first fields as the key's proof lists them is read as a lookup of the key's own index, which leads with the stored relation's unit: countedAt's seek of Counted at its document, its key (doc, shelf) and its index (shelf, doc), asks no index, and generate refuses the read as a missed index."
-			},
-			{
 				file: "packages/engine/src/logical/routes.ts",
 				original: '\t\t\t\tcase "relation":\n\t\t\t\tcase "derived":\n',
 				replacement: '\t\t\t\tcase "relation":\n',

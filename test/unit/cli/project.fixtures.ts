@@ -68,6 +68,7 @@ import {
 import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
+import { servedAccess } from "#compiler/program/workload/compile.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { closed, login, type Relation, role, schema } from "#compiler/public/schema.ts"
 import { installationsOf, ownLogin } from "#compiler/schema/own.ts"
@@ -1149,11 +1150,12 @@ const oracleDraft = (
 			)
 		)
 	)
+	const { access, requests } = servedAccess(installation)
 	return succeeded(
 		generateMigration({
 			previous,
 			installation,
-			workload: { access: plan.access, accessPaths: plan.requests, live: plan.live },
+			workload: { access, accessPaths: requests, live: plan.live },
 			declared,
 			naming,
 			timestamp,

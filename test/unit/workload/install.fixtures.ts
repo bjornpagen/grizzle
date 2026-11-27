@@ -1,16 +1,8 @@
 /** What the properties of install.test.ts read: its spaces, models and helpers. */
 
-import type * as Result from "@bjornpagen/grizzle-text/base/result"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { defined, nonEmpty } from "@bjornpagen/testing/assert"
-import {
-	array,
-	boolean,
-	constant,
-	type Gen,
-	int,
-	subarray,
-	weighted
-} from "@bjornpagen/testing/gen"
+import { array, boolean, constant, type Gen, subarray, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
 import type { PhysicalReason } from "#compiler/ir/products.ts"
@@ -29,6 +21,7 @@ import {
 	Board,
 	orderedTasks,
 	planOf,
+	servedOf,
 	tasksForAccount,
 	titlesByPrefix,
 	topThree,
@@ -36,14 +29,21 @@ import {
 	workPrograms
 } from "#test/unit/workload/fixtures.ts"
 
-/** The installation of `schema` with the workload `physical`, under the owner role. */
-export const installWith = (
+/** The installation of `schema` with the workload `physical`, its programs' types alone, under the owner role. */
+const installWith = (
 	schema: FixtureSchema,
 	physical: WorkloadPhysical
 ): Result.Result<Installation, CompileError> => {
 	const owned = owning(schema)
 	return compileInstallation(owned, withWorkload(installOptions(owned), physical))
 }
+
+/** The installation of `schema` serving `programs` as generate drafts it (fixtures.ts servedOf), or its refusal. */
+export const servingWith = (
+	schema: Parameters<typeof servedOf>[0],
+	programs: Readonly<Record<string, unknown>>
+): Result.Result<Installation, CompileError> =>
+	Result.map(servedOf(schema, programs), (served) => served.installation)
 
 /** The installed objects a law or the workload's access must justify: its indexes. */
 export const justified = (i: Installation) =>
@@ -78,17 +78,15 @@ const accessIdents = (i: Installation): ReadonlySet<string> =>
 /** The worked example's programs, each under its name. */
 const named = Object.freeze(Rec.toEntries(workPrograms))
 
-const whole = planOf(W.Work, workPrograms)
-
-/** The worked example's installation with its whole workload. */
+/** The worked example's installation serving its whole workload. */
 export const all = succeeded(
-	installWith(W.Work, whole),
+	servingWith(W.Work, workPrograms),
 	"the worked example installs with its whole workload"
 )
 
-/** The worked example's installation with the empty workload: what its laws alone install. */
+/** The worked example's installation serving the empty workload: what its laws and its login alone install. */
 export const lawsAlone = succeeded(
-	installWith(W.Work, planOf(W.Work, {})),
+	servingWith(W.Work, {}),
 	"the worked example installs with the empty workload"
 )
 
@@ -114,10 +112,7 @@ export const alone: ReadonlyMap<
 	{ readonly access: ReadonlySet<string>; readonly asked: ReadonlySet<string> }
 > = new Map(
 	Arr.map(named, ([name, program]) => {
-		const installed = succeeded(
-			installWith(W.Work, planOf(W.Work, { [name]: program })),
-			`${name} installs alone`
-		)
+		const installed = succeeded(servingWith(W.Work, { [name]: program }), `${name} installs alone`)
 		const access = accessIdents(installed)
 		return [
 			name,
@@ -209,7 +204,6 @@ const prefixSearch = (relation: string, field: string) => {
 type Defect =
 	| { readonly kind: "none" }
 	| { readonly kind: "a workload over another schema" }
-	| { readonly kind: "a path on a relation the schema does not store"; readonly name: number }
 	| { readonly kind: "a prefix search"; readonly field: number }
 
 /** A workload over the worked example or Board, of programs drawn by their picks, with at most one defect. */
@@ -226,10 +220,6 @@ export const installCaseGen: Gen<InstallCase> = (source) => {
 		weighted<Defect>([
 			[2, (): Defect => ({ kind: "none" })],
 			[1, (): Defect => ({ kind: "a workload over another schema" })],
-			[
-				1,
-				(s) => ({ kind: "a path on a relation the schema does not store", name: s.draw(int(0, 9)) })
-			],
 			[2, (s) => ({ kind: "a prefix search", field: s.draw(pickGen) })]
 		])
 	)
@@ -249,12 +239,15 @@ const programsOf = (
 	return Rec.fromEntries(Arr.map(picks, (pick) => pickFrom(entries, pick)))
 }
 
-/** The schema a case installs, the physical workload it installs with, and the refusal the model expects, if any. */
+/**
+ * A case's installation and the refusal the model expects, if any: its schema serving its programs, as generate drafts
+ * it (`servingWith`), and a workload over another schema installed with that schema's types (`installWith`), whose
+ * fingerprint the installation refuses.
+ */
 export const installOf = (
 	c: InstallCase
 ): {
-	readonly schema: FixtureSchema
-	readonly physical: WorkloadPhysical
+	readonly installed: Result.Result<Installation, CompileError>
 	readonly refusal: Option.Option<CompileReasonTag>
 } => {
 	const [installed, programs, other, otherPrograms] = c.work
@@ -263,39 +256,16 @@ export const installOf = (
 	const own = programsOf(programs, c.programs)
 	switch (c.defect.kind) {
 		case "none":
-			return { schema: installed, physical: planOf(installed, own), refusal: Option.none() }
+			return { installed: servingWith(installed, own), refusal: Option.none() }
 		case "a workload over another schema":
 			return {
-				schema: installed,
-				physical: planOf(other, programsOf(otherPrograms, c.programs)),
+				installed: installWith(installed, planOf(other, programsOf(otherPrograms, c.programs))),
 				refusal: Option.some("MalformedDescription")
 			}
-		case "a path on a relation the schema does not store": {
-			const plan = planOf(installed, own)
-			return {
-				schema: installed,
-				physical: {
-					...plan,
-					paths: [
-						...plan.paths,
-						{
-							relation: `Nowhere${c.defect.name}`,
-							derived: false,
-							method: "btree",
-							keys: [{ field: "x", dir: "asc" }],
-							fixed: 0,
-							use: "range"
-						}
-					]
-				},
-				refusal: Option.some("MalformedDescription")
-			}
-		}
 		case "a prefix search": {
 			const text = pickFrom(workTexts, c.defect.field)
 			return {
-				schema: W.Work,
-				physical: planOf(W.Work, {
+				installed: servingWith(W.Work, {
 					...programsOf(workPrograms, c.programs),
 					searched: prefixSearch(text.relation, text.field)
 				}),

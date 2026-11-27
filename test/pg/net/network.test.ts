@@ -465,10 +465,10 @@ export const netContainmentOfAContextsAddressItsDbReadsTheNetworksPostgreSQLsHol
 				why: "Every context, Origin among them, is read from the token's top level, so a token stating Origin's fact reads networks a client chose."
 			},
 			{
-				file: "packages/engine/src/physical/access/extract.ts",
-				original: "\t\t\t\tthis.netContainment(n.input, n.pred)\n",
-				replacement: "",
-				why: "No containment probe requests the network column's GiST index, so the installation holds none."
+				file: "packages/engine/src/sql/bind.ts",
+				original: '\t\tconst network = matched("network")\n',
+				replacement: "\t\tconst network = undefined\n",
+				why: "The binding reads no network containment: the read is a scan its plan states, no containment probe requests the network column's GiST index, and the installation holds none."
 			},
 			{
 				file: "packages/engine/src/ir/desc.ts",

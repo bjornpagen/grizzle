@@ -160,7 +160,7 @@ export interface Installation extends InstallPlan {
 	/**
 	 * Each served program's access paths, by its login and its name, every read its bound statements make
 	 * (physical/access/paths.ts pathOf), which the installation asked an index for: what the snapshot records of a
-	 * ChangeSet (program/workload/compile.ts withProgramAccess), and `grizzle check` compares.
+	 * program (program/workload/compile.ts servedAccess), and `grizzle check` compares.
 	 */
 	readonly programAccess: ReadonlyArray<{
 		readonly login: string

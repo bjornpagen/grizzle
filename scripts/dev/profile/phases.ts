@@ -10,12 +10,13 @@ import { emptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { compileLaws } from "#compiler/laws/model/model.ts"
-import { workloadRequests, withWorkload } from "#compiler/physical/access/extension.ts"
+import { withWorkload } from "#compiler/physical/access/extension.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { lowerQuery } from "#compiler/program/describe.ts"
 import { parseSchemaInput } from "#compiler/program/input.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { schemaArtifacts } from "#compiler/program/schema.ts"
+import { servedAccess } from "#compiler/program/workload/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { natural } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -233,11 +234,9 @@ export const compilePhases = ({ fixture: f, timed, each }: PhasesInput) => {
 	const drafted =
 		plan === undefined
 			? noWorkload
-			: {
-					access: plan.access,
-					accessPaths: workloadRequests(plan, installation.settings.vectorSchema),
-					live: plan.live
-				}
+			: ((served) => ({ access: served.access, accessPaths: served.requests, live: plan.live }))(
+					servedAccess(installation)
+				)
 	const generate = timed(`${f.label} migration`, () =>
 		ok(
 			generateMigration({

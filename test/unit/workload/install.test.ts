@@ -1,18 +1,18 @@
 /**
- * The workload in the installation (physical/access withWorkload): access requests merge with law maintenance against the
- * key and law indexes, every installed index and statistics object stands on a law id or the workload's access, and
- * the installation of any sub-workload of the worked example holds exactly the objects of the whole workload's that the
- * laws alone install or one of its own programs asks for, as installing each of those programs alone asks for it (its
- * access's objects and its parameters' types), and
+ * The served workload in the installation (physical/install/compile.ts, its programs' plans asked an index for):
+ * access requests merge with law maintenance against the key and law indexes, every installed index stands on a law id
+ * or the workload's access, and the installation of any sub-workload of the worked example holds exactly the objects
+ * of the whole workload's that the laws and the login alone install or one of its own programs asks for, as installing
+ * each of those programs alone asks for it (its reads' indexes and its parameters' types), and
  * the laws' own index where the whole workload's serving one is wider for programs the sub-workload drops: a law's
  * request lands on a wider index a program asks for, and on an index of its own without one (physical/indexes/engine.ts
  * planIndexes). It stands on every law the laws alone stand on.
  *
  * A workload that cannot install is refused with its reason. Each case draws the worked example or Board, a workload of
- * drawn programs of its fixtures, and at most one defect: a workload compiled over the other schema, a path on a
- * relation the schema does not store (MalformedDescription), or a prefix search over a drawn text field of the worked
- * example, refused (UnrepresentableKey) exactly where its pattern bounds no length, the wildcard; the healthy workload
- * installs.
+ * drawn programs of its fixtures served through one login, and at most one defect: a workload compiled over the other
+ * schema (MalformedDescription), or a prefix search over a drawn text field of the worked example, which its bound
+ * statement ranges (sql/bind.ts), refused (UnrepresentableKey) exactly where its pattern bounds no length, the
+ * wildcard; the healthy workload installs.
  *
  * Oracles: the installations of the whole workload, of the laws alone and of each program alone (a second
  * implementation of a sub-workload's objects); the specification of each defect's refusal.
@@ -28,7 +28,6 @@ import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, Record as Rec } from "effect"
 import { refused, succeeded } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
-import { planOf } from "#test/unit/workload/fixtures.ts"
 import {
 	all,
 	alone,
@@ -37,11 +36,11 @@ import {
 	type InstallFeature,
 	installCaseGen,
 	installOf,
-	installWith,
 	justified,
 	lawsAlone,
 	lawsAloneIdents,
 	lawsOf,
+	servingWith,
 	type SubFeature,
 	subWorkloadGen,
 	wholeIdents
@@ -66,10 +65,7 @@ export const theWorkedExamplesWorkloadInTheInstallationHoldsExactlyTheObjectsALa
 		] satisfies ReadonlyArray<Reached<SubFeature>>,
 		check: (_, c: Case<SubFeature>) => (kept) =>
 			Effect.sync(() => {
-				const sub = succeeded(
-					installWith(W.Work, planOf(W.Work, Rec.fromEntries(kept))),
-					"a sub-workload installs"
-				)
+				const sub = succeeded(servingWith(W.Work, Rec.fromEntries(kept)), "a sub-workload installs")
 				for (const o of justified(sub)) {
 					assert.ok(hasLaw(o.reasons) || hasAccess(o.reasons), `${o.ident} stands on nothing`)
 				}
@@ -132,9 +128,7 @@ export const theWorkedExamplesWorkloadInTheInstallationHoldsExactlyTheObjectsALa
 				)
 				assert.deepEqual(lawsOf(sub.manifest.objects), lawsOf(lawsAlone.manifest.objects))
 				/** The same workload listed in reverse installs the same statements. */
-				const reversed = succeeded(
-					installWith(W.Work, planOf(W.Work, Rec.fromEntries(Arr.reverse(kept))))
-				)
+				const reversed = succeeded(servingWith(W.Work, Rec.fromEntries(Arr.reverse(kept))))
 				assert.deepEqual(reversed.statements, sub.statements)
 				if (kept.length === 0) {
 					c.note("the empty workload")
@@ -165,19 +159,17 @@ export const theWorkedExamplesWorkloadInTheInstallationHoldsExactlyTheObjectsALa
 	})
 
 /**
- * A workload that cannot install is refused with its reason: another schema's, a path off its schema, an unbounded
- * prefix search.
+ * A workload that cannot install is refused with its reason: another schema's, an unbounded prefix search.
  *
  * Budget: its suite's count before the conversion (unit/workload/install-refused: 40 independent cases and 32 steered,
  * Vitest at grizzle 4ca3036a).
  */
-export const aWorkloadThatCannotInstallIsRefusedWithItsReasonAnotherSchemasAPathOffItsSchemaAnUnboundedPrefixSearch =
+export const aWorkloadThatCannotInstallIsRefusedWithItsReasonAnotherSchemasOrAnUnboundedPrefixSearch =
 	property.explore(installCaseGen, {
 		needs: {},
 		situations: [
 			"none",
 			"a workload over another schema",
-			"a path on a relation the schema does not store",
 			"a prefix search over a bounded text",
 			"a prefix search over the wildcard",
 			"admitted over Board"
@@ -185,7 +177,7 @@ export const aWorkloadThatCannotInstallIsRefusedWithItsReasonAnotherSchemasAPath
 		check: (_, k: Case<InstallFeature>) => (c) =>
 			Effect.sync(() => {
 				k.note(c.defect.kind)
-				const { schema, physical, refusal } = installOf(c)
+				const { installed, refusal } = installOf(c)
 				if (c.defect.kind === "a prefix search") {
 					k.note(
 						Option.isSome(refusal)
@@ -193,7 +185,6 @@ export const aWorkloadThatCannotInstallIsRefusedWithItsReasonAnotherSchemasAPath
 							: "a prefix search over a bounded text"
 					)
 				}
-				const installed = installWith(schema, physical)
 				if (Option.isSome(refusal)) {
 					refused(installed, refusal.value)
 					return
@@ -205,16 +196,16 @@ export const aWorkloadThatCannotInstallIsRefusedWithItsReasonAnotherSchemasAPath
 			}),
 		oracle: {
 			kind: "specification",
-			name: "a workload installs only on its own schema, with paths on relations it stores, and keys whose B-tree entry its patterns bound"
+			name: "a workload installs only on its own schema, and with keys whose B-tree entry its patterns bound"
 		},
 		budget: { runs: 40, steered: 32 },
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/program/workload/compile.ts",
-				original: "\textractAccess(ir.roots, {\n",
-				replacement: "\textractAccess([], {\n",
-				why: "A program's IR asks no path (irAccess): the prefix search over the wildcard text asks no index, nothing refuses its key, and the workload installs where its B-tree entry is unbounded."
+				file: "packages/engine/src/sql/bind.ts",
+				original: "\t\tif (ranged !== undefined) {\n",
+				replacement: "\t\tif (false) {\n",
+				why: "The binder reads no range: a prefix search over the wildcard text binds nothing, a filter of a scan, so its read asks no index, nothing refuses its key, and the workload installs where its B-tree entry is unbounded."
 			}
 		]
 	})

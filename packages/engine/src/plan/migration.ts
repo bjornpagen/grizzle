@@ -139,11 +139,10 @@ export {
 	loginFootprints,
 	planWorkload,
 	type ProgramFootprints,
+	servedAccess,
 	type ServedWorkloadPlan,
-	servedPrograms,
 	servedWorkload,
 	servesRead,
-	withProgramAccess,
 	type WorkloadFootprints,
 	type WorkloadPlanRefused
 } from "#compiler/program/workload/compile.ts"

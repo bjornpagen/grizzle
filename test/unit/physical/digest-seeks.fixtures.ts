@@ -6,8 +6,7 @@ import { generated, pg, sha256 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { planOf } from "#test/unit/workload/fixtures.ts"
-import { installWith } from "#test/unit/workload/install.fixtures.ts"
+import { servingWith } from "#test/unit/workload/install.fixtures.ts"
 
 /**
  * How a case's read states its text equal to a value: a literal or a parameter its match binds the text to, an
@@ -279,7 +278,7 @@ const importedRead = (c: DigestCase) => {
 				.match(Texts, { k: c.keyed ? r.param("k", pg.integer) : k, g, t: r.param("t", Path) })
 				.find({ g })
 		})
-		return installWith(Digests, planOf(Digests, { read }))
+		return servingWith(Digests, { read })
 	}
 	const T = relation("T", { k: pg.integer, g: pg.integer, t: Path }, ["k"])
 	const Digests = schema("DigestSeeks", [S, T], [])
@@ -293,7 +292,7 @@ const importedRead = (c: DigestCase) => {
 			.match(Texts, { k: c.keyed ? r.param("k", pg.integer) : k, g, t: r.param("t", Path) })
 			.find({ g })
 	})
-	return installWith(Digests, planOf(Digests, { read }))
+	return servingWith(Digests, { read })
 }
 
 /** The installation of the case's schema with its read as the workload's one program. */
@@ -302,8 +301,5 @@ export const installDigestCase = (c: DigestCase) => {
 		return importedRead(c)
 	}
 	const built = digestSchemaOf(c)
-	return installWith(
-		built.schema,
-		planOf(built.schema, { read: programOf({ ...c, form: c.form }, built) })
-	)
+	return servingWith(built.schema, { read: programOf({ ...c, form: c.form }, built) })
 }

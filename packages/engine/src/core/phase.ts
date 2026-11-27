@@ -12,7 +12,8 @@
  *   login's, inside that `frontEnd`, each ChangeSet of a role prepared, its front end and put targets, which decide
  *   whether it has a READ COMMITTED form, then `changeSet`, each ChangeSet of the role compiled at the role's level,
  *   READ COMMITTED, or SERIALIZABLE where a member has no READ COMMITTED form, then `certification`, every role's
- *   certificate;
+ *   certificate, then `loginReads`, each login's reads compiled on every role they run on, whose plans the
+ *   installation indexes;
  * - `installation`: the installation drafted (installationOver), inside it `installPlan`, its plan, `judge`, the checks
  *   of its rules over queries, and `indexes`, its index plan;
  * - `draft`: the migration planned from the previous snapshot, with the new snapshot; check renders its folder inside it;
@@ -32,6 +33,7 @@ export const phaseNames = [
 	"frontEnd",
 	"changeSet",
 	"certification",
+	"loginReads",
 	"installation",
 	"installPlan",
 	"judge",

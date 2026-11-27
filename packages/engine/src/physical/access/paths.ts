@@ -45,16 +45,6 @@ const pathOrder: Comparator<AccessPath> = combineAll([
 	mapInput(compareStrings, (p: AccessPath) => p.use)
 ])
 
-/**
- * A path a read asks for and the lookups through it (physical/access/extract.ts extractAccess): each lookup the columns
- * its probe context fixes by equality, its own facts' and its partners', in code point order, each set once; none for a
- * path no probe context asks for, an ordered or a vector one.
- */
-export interface Lookup {
-	readonly path: AccessPath
-	readonly binds: ReadonlyArray<ReadonlyArray<string>>
-}
-
 /** Each path once, in canonical order. */
 export const uniquePaths = (paths: ReadonlyArray<AccessPath>): ReadonlyArray<AccessPath> => {
 	const byKey = new Map<string, AccessPath>()

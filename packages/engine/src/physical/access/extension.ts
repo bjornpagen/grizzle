@@ -4,14 +4,10 @@ import type { RoleIsolation } from "#compiler/core/certificate.ts"
 import { malformedDescription } from "#compiler/core/errors.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import type { AccessIndexRequest, AccessPath } from "#compiler/ir/products.ts"
 import { type LivePlan, noLive } from "#compiler/live/notify.ts"
-import { pathRequest } from "#compiler/physical/access/paths.ts"
-import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import type { ServedTypes } from "#compiler/physical/ddl/domains.ts"
 import type { InstallOptions } from "#compiler/physical/install/compile.ts"
 import {
-	type InstallContribution,
 	type InstallExtension,
 	loginFences,
 	type RoleCarriers,
@@ -28,8 +24,6 @@ import {
 export interface WorkloadPhysical {
 	/** The fingerprint of the schema the workload was compiled against. */
 	readonly schema: SchemaFingerprint
-	/** Each distinct path of the workload's programs and the roles' write filters, once, in canonical order. */
-	readonly paths: ReadonlyArray<AccessPath>
 	/**
 	 * The types its programs name (physical/ddl/domains.ts ServedTypes): each pattern parameter's own pattern domain,
 	 * each contract a parameter is typed by and each text refinement its programs type a value by, so installing the
@@ -38,54 +32,23 @@ export interface WorkloadPhysical {
 	readonly params: ServedTypes
 }
 
-const kindOf = (b: InstallBuilder, relation: string): string | undefined =>
-	b.owned.relations[relation]?.kind ??
-	(b.checked.canonicalNamed(relation) === undefined ? undefined : "derived")
-
-/** The access requests of a workload for an installation whose vector extension lives in `vectorSchema`. */
-export const workloadRequests = (
-	workload: WorkloadPhysical,
-	vectorSchema: string
-): ReadonlyArray<AccessIndexRequest> =>
-	workload.paths.map((path) => pathRequest(path, vectorSchema))
-
-/** The workload in the installation: access-path index requests through the installer's extensions, and the types its
- * programs' parameters are cast to (InstallExtension.params), which the installation plans and installs, so no
- * installation of a workload lacks a domain its statements cast a parameter to.
- * The workload compiler extracts each program's access paths and merges them across programs. This extension hands the
- * paths to the one index engine as IndexRequests with role `access`, beside the law-maintenance requests, so a request
- * lands on a key, enforcement or law index that serves it, adding the access reason to that object's reasons, or
- * becomes `<table>__ix__<cols>` justified by it. A path on a derived relation is planned on its stored table like a
- * table's, where the derived relation extension installs the table, and deferred with the table where none does.
+/** The workload in the installation: the types its programs' parameters are cast to (InstallExtension.params), which
+ * the installation plans and installs, so no installation of a workload lacks a domain its statements cast a parameter
+ * to. What its programs read by index the served workload's extension states, its programs' plans
+ * (`servedWorkloadExtension`), whose requests are the only ones the installation asks an index for a workload's read.
  *
  * The workload must have been compiled against this installation's schema: its schema fingerprint is checked, so a
- * workload never lends its paths to another schema's objects. */
+ * workload never lends its types to another schema's objects. */
 export const workloadExtension = (workload: WorkloadPhysical): InstallExtension => ({
-	contribute: (b) => {
-		if (workload.schema !== b.owned.fingerprint) {
-			return Result.err(
-				malformedDescription(
-					SourceLoc(`workload of schema ${b.owned.name}`, []),
-					`a workload compiled against the installed schema ${b.owned.fingerprint}; this one was compiled against ${workload.schema}`
-				)
-			)
-		}
-		for (const path of workload.paths) {
-			if (kindOf(b, path.relation) !== (path.derived ? "derived" : "relation")) {
-				return Result.err(
+	contribute: (b) =>
+		workload.schema === b.owned.fingerprint
+			? Result.ok(noContribution)
+			: Result.err(
 					malformedDescription(
 						SourceLoc(`workload of schema ${b.owned.name}`, []),
-						`an access path on a ${path.derived ? "derived" : "stored"} relation; ${path.relation} is none`
+						`a workload compiled against the installed schema ${b.owned.fingerprint}; this one was compiled against ${workload.schema}`
 					)
-				)
-			}
-		}
-		const contribution: InstallContribution = {
-			...noContribution,
-			indexRequests: workloadRequests(workload, b.settings.vectorSchema)
-		}
-		return Result.ok(contribution)
-	},
+				),
 	params: () => Result.ok(workload.params),
 	certifies: noCertificates,
 	carriers: noCarriers,
@@ -95,7 +58,9 @@ export const workloadExtension = (workload: WorkloadPhysical): InstallExtension 
 })
 
 /**
- * The served workload's extension: the workload's (workloadExtension), its parameters' types among it; the
+ * The served workload's extension: the workload's (workloadExtension), its parameters' types among it; its programs,
+ * each with the plan of every statement its served file may send, whose reads' requests the installation asks an index
+ * for (physical/install/compile.ts); the
  * certificate of every role of every login its plan certified (program/workload/compile.ts servedWorkload), which the
  * installation's guards follow; the roles whose served ChangeSets fill a carrier, which it grants EXECUTE on what the
  * CHECKs of their columns' domains call; the roles whose served programs reach a declared function, which it grants

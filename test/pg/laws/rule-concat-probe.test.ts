@@ -56,10 +56,12 @@ export const aProbeOfATextAConcatenationNamesReadsItsRowsAsAPointLookup = proper
 				why: "The equation is decided as the old judge did, by the lengths and a prefix test, which no index serves: the same truth, but the probe of a written variable reads Ref by its package alone, every reference of it a loop."
 			},
 			{
-				file: "packages/engine/src/physical/access/atoms.ts",
-				original: '\t\treturn fn === "eq" ? termEqAtoms(l.name, r.reads) : []',
-				replacement: "\t\treturn []",
-				why: "An equality of a column with a term over another match's columns binds nothing: the engine plans no index over the identifier, so the probe reads Ref through its key's package alone, every reference of the package a loop."
+				file: "packages/engine/src/sql/bind.ts",
+				original:
+					'\t\t\treturn { conjunct: c, column: left.column, value: c.right, schema: c.schema, op: "=" }\n',
+				replacement:
+					'\t\t\treturn c.right.kind === "column" || c.right.kind === "param" || c.right.kind === "literal" ? { conjunct: c, column: left.column, value: c.right, schema: c.schema, op: "=" } : undefined\n',
+				why: "An equality of a column with a term over another match's columns binds nothing: the probe's plan asks no index over the identifier, so it reads Ref through its key's package alone, every reference of the package a loop."
 			}
 		]
 	}

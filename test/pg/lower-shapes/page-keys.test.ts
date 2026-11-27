@@ -125,9 +125,9 @@ export const aWindowReadsItsDriversTakeAndEachRowAtItsKey = property.explore(pag
 			why: "No window is driven: the window is a join of every sitting under ORDER BY and LIMIT, and a status tab's rare status reads every newer sitting first, past the bound beside many learners."
 		},
 		{
-			file: "packages/engine/src/physical/access/extract.ts",
-			original: '\t\t\t\tif (window?.kind === "driven") {\n',
-			replacement: "\t\t\t\tif (false) {\n",
+			file: "packages/engine/src/sql/bind.ts",
+			original: '\t\t\t\t: { kind: "ordered", order: [c0, ...cs], use: order.tag.use }\n',
+			replacement: "\t\t\t\t: undefined\n",
 			why: "A page seek resolves to the first occurrence holding the order's columns, the assignment, whose status is restricted beside it: no index of the status then the number is asked, and the driver's take of a rare status reads every newer sitting's status first."
 		},
 		{
@@ -225,8 +225,9 @@ export const aWindowReadsItsDriversTakeAndEachRowAtItsKey = property.explore(pag
 		{
 			file: "packages/engine/src/program/served.ts",
 			original:
-				"\t\t[requests.first, requests.after, requests.last, requests.before, requests.at].map(\n",
-			replacement: "\t\t[requests.first, requests.after, requests.last, requests.before].map(\n",
+				"\treturn [requests.first, requests.after, requests.last, requests.before, requests.at].map(\n",
+			replacement:
+				"\treturn [requests.first, requests.after, requests.last, requests.before].map(\n",
 			why: "A page's served record ships no advice for its positioned window: the transaction it opens holds no item of the `at` variant's statement, which PostgreSQL then plans by its own costs, and the advice in force is not the advice the page's plans carry (Law 1)."
 		}
 	]

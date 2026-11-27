@@ -168,16 +168,17 @@ export const aLookupThatBindsATextOfNoByteBoundByEqualitySeeksByItsDeclaredDiges
 		],
 		kills: [
 			{
+				file: "packages/engine/src/physical/access/catalog.ts",
+				original: '\treturn { kind: carrier === "text" ? "text" : "scalar", field: name, holds }\n',
+				replacement:
+					'\treturn field.desc.kind === "text" ? { kind: "search", field: name } : { kind: carrier === "text" ? "text" : "scalar", field: name, holds }\n',
+				why: "The binding reads a declared text as no B-tree's column, as it read a text of no byte bound: a read binding t by equality alone asks nothing, so the installation refuses nothing, and T is scanned whole at every call though T declares no digest."
+			},
+			{
 				file: "packages/engine/src/lower/optimize/existence/index.ts",
 				original: "\t\t\t(o) => !cx.cells.lateral(o.source) && !joinedAbove(cx, cell, node, o)\n",
 				replacement: "\t\t\t(o) => !cx.cells.lateral(o.source)\n",
 				why: "A match whose text a digest equality joins to T's is an existence test again: the semi-join takes S out of the region and the equality reads T's own text, h = sha256(t), so the read binds t by S's row alone, seeks by no digest and is refused undigestedText, though T declares h (the joined text and the shared variable)."
-			},
-			{
-				file: "packages/engine/src/physical/access/extract.ts",
-				original: "\t\t\t\t\t\trestrictedByValues(n.right)\n",
-				replacement: "\t\t\t\t\t\tfalse\n",
-				why: "A semi-join whose right side a parameter's row of S restricts leaves its left side's pair unfixed: T, read where that row holds its text, asks no path, so a read of a text of no byte bound and no digest installs, T scanned whole at every call."
 			},
 			{
 				file: "packages/engine/src/check/checker.ts",

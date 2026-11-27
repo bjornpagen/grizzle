@@ -125,34 +125,6 @@ export const anInstallationsLivePlanIsExactlyTheUnionOfWhatItsServedReadsRouteBy
 		],
 		kills: [
 			{
-				file: "packages/engine/src/physical/access/extract.ts",
-				original: "\t\t\tconst scalar = [...b.eq.keys()].some(\n",
-				replacement:
-					'\t\t\tconst scalar = [...b.eq].flatMap(([c, k]) => (k === "fixed" ? [c] : [])).some(\n',
-				why: "Beside a key lookup a span predicate is asked only with a scalar a parameter fixes: role0read0's Rel0x0 at fixed_0 = 0, a literal, and at span_40 = $1, reached by its key through a join of many rows, gets no GiST index, and generate refuses the read as a missed index of (fixed_0, span_40)."
-			},
-			{
-				file: "packages/engine/src/physical/access/extract.ts",
-				original:
-					'\t\tconst own = base.kind === "spanned" && isNonEmpty(unkeyed) ? spanned(bound([])) : []\n',
-				replacement: "\t\tconst own: ReadonlyArray<ProbeContext> = []\n",
-				why: "An occurrence bound at a span and a scalar beside a join of many rows asks its span predicate only with the join's columns: role0read2's Rel0x0 at (fixed_0, span_40) gets a GiST index led by the join's tick_0, and generate refuses the read as a missed index."
-			},
-			{
-				file: "packages/engine/src/physical/access/extract.ts",
-				original: "\tconst held = new Set(pushed.eq.keys())\n",
-				replacement:
-					'\tconst held = new Set([...pushed.eq].flatMap(([column, kind]) => (kind === "fixed" ? [column] : [])))\n',
-				why: "A chain step seeks beside the columns the steps before it bind at none a literal the filter over its region states fixes: role0read1's take of Rel0x0 at bool = $1 and tick_0 = 0 asks a lookup at bool, a prefix of the key, and generate refuses the read as a missed index of (bool, tick_0)."
-			},
-			{
-				file: "packages/engine/src/physical/access/extract.ts",
-				original:
-					"\t\t\t\t\t\tthis.#wholeChildren.has(n) ? nothing : fixedOn(n.correlation.map((c) => c.child))\n",
-				replacement: "\t\t\t\t\t\tfixedOn(n.correlation.map((c) => c.child))\n",
-				why: "A co-grouped attachment's child, which its part reads whole beside the parent keys, is read at its correlation as a per-key child is: role0read0's child of Rel0x0 asks (field_2, field_1) where its statement seeks field_1 alone, and generate refuses the read as a missed index."
-			},
-			{
 				file: "packages/engine/src/lower/shapes/region/index.ts",
 				original: "\t\t\t\t\tconst scope = step.key.scope(within, at)\n",
 				replacement: "\t\t\t\t\tconst scope = within\n",

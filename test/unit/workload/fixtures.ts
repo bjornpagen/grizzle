@@ -1,3 +1,5 @@
+import type * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { CompileError } from "#compiler/core/errors.ts"
 import type { WorkloadPlan } from "#compiler/program/workload/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -6,6 +8,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { compileTestWorkload, type FixtureSchema, testCompile } from "#test/support/compile.ts"
+import { type ServedInstallation, servedInstallation } from "#test/support/compiled-served.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { Id } from "#test/support/ids.ts"
 
@@ -140,3 +143,12 @@ export const planOf = (
 	}
 	return r.value
 }
+
+/**
+ * The installation `grizzle generate` drafts for `base` serving one workload of `programs` through `fixtureLogin`
+ * (test/support/compiled-served.ts servedInstallation), or the compile's refusal.
+ */
+export const servedOf = (
+	base: Parameters<typeof servedInstallation>[0],
+	programs: Readonly<Record<string, unknown>>
+): Result.Result<ServedInstallation, CompileError> => servedInstallation(base, programs)

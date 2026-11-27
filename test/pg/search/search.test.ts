@@ -273,10 +273,10 @@ export const atScaleAMatchOfAMarkerWordFewLessonsHoldReadsLessonThroughTheGINInd
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/physical/access/extract.ts",
-				original: "\t\t\t\tthis.textSearch(n.input, n.pred)\n",
-				replacement: "",
-				why: "A match requests no GIN index, so none is installed and PostgreSQL reads Lesson sequentially; the plan check fails."
+				file: "packages/engine/src/sql/bind.ts",
+				original: '\t\tconst search = matched("search")\n',
+				replacement: "\t\tconst search = undefined\n",
+				why: "The binding reads no search document's match: the read of Lesson is a scan its plan states, it asks no GIN index, none is installed, and PostgreSQL reads Lesson sequentially; the plan check fails."
 			},
 			{
 				file: "packages/engine/src/lower/shapes/index.ts",

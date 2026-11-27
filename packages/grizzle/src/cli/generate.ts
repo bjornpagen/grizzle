@@ -95,11 +95,10 @@ import {
 	type PlannedDraft,
 	type ProgramFootprints,
 	renderMigration,
+	servedAccess,
 	type ServedWorkloadPlan,
-	servedPrograms,
 	servedWorkload,
 	servedWorkloadExtension,
-	withProgramAccess,
 	type Spellings,
 	writeRuntimeSnapshot,
 	writeSnapshot
@@ -516,7 +515,7 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 		)
 	}
 	const { changes: _certified, ...installed } = plan
-	return { plan: { ...installed, programs: servedPrograms(plan.changes) }, served: basisOf }
+	return { plan: installed, served: basisOf }
 })
 
 /**
@@ -664,14 +663,8 @@ export const installationUnder = Effect.fn("installationUnder")(function* (
 				: ((indexed) => ({
 						access: indexed.access,
 						accessPaths: indexed.requests,
-						live: indexed.live
-					}))(
-						withProgramAccess(
-							planned.plan,
-							installation.programAccess,
-							installation.names.vectorSchema
-						)
-					),
+						live: planned.plan.live
+					}))(servedAccess(installation)),
 		served: planned === undefined ? { kind: "noLogin" } : { kind: "logins", ...planned.served }
 	}
 })

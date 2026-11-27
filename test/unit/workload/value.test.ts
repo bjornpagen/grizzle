@@ -94,8 +94,8 @@ export const workloadSchemaProgramsRecordsEachProgramsDescriptionUnderItsNameAnd
 						compileTestWorkload(owned(desc), c.schema, testCompile),
 						"its Description compiles"
 					)
-					assert.deepEqual(byDesc.paths, byValue.paths)
-					assert.deepEqual(byDesc.access, byValue.access)
+					assert.deepEqual(byDesc.params, byValue.params)
+					assert.deepEqual(byDesc.footprints, byValue.footprints)
 					refused(
 						compileTestWorkload(owned(desc), other.schema, testCompile),
 						"MalformedDescription",
@@ -150,9 +150,8 @@ export const workloadSchemaProgramsCompilesAChangeSetOverASchemaOfTheSameContent
 					),
 					"the workload over the renamed schema compiles"
 				)
-				const paths = (p: typeof plan) =>
-					Rec.map(defined(p.access[fixtureLogin], "the login's programs' access"), (a) => a.paths)
-				assert.deepEqual(paths(plan), paths(own))
+				assert.deepEqual(plan.params, own.params)
+				assert.deepEqual(plan.footprints, own.footprints)
 				k.note("renamed")
 			}),
 		oracle: {

@@ -1,4 +1,4 @@
-/** What the properties of extract.test.ts read: its spaces, models and helpers. */
+/** What the properties of access.test.ts read: its spaces, models and helpers. */
 
 import { nonEmpty } from "@bjornpagen/testing/assert"
 import { element, uniqueKeys } from "@bjornpagen/testing/gen"
@@ -17,10 +17,6 @@ export const pathLabel = (p: AccessPath): string => {
 	const keys = Arr.map(p.keys, (k) => (k.dir === "desc" ? `${k.field} desc` : k.field))
 	return `${p.relation}(${Arr.join(keys, ", ")}) ${p.method} for ${p.use}`
 }
-
-/** A path's identity: its label and whether it is on a derived relation. */
-export const pathIdentity = (p: AccessPath): string =>
-	`${pathLabel(p)}${p.derived ? " (derived)" : ""}`
 
 export const named = nonEmpty(Rec.toEntries(workPrograms), "the worked example's programs")
 
