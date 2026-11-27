@@ -858,7 +858,16 @@ class Binder {
 			case "read":
 				return defect("a read source the lowering stated, which the binding alone makes")
 			case "enclosing":
-				return rows({ ...source, alias }, "nestedLoop")
+				return rows(
+					{
+						...source,
+						name:
+							here.ctes.get(source.name) ??
+							defect(`a CTE ${source.name} an enclosing statement's WITH in reach binds`),
+						alias
+					},
+					"nestedLoop"
+				)
 			case "transition":
 			case "context":
 				return rows({ ...source, alias }, this.#method(entry, source.alias, where, here, place))
