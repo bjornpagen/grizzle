@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { Array as Arr, Effect, Option, Order, Result, type Scope } from "effect"
 import {
 	driftCheck,
@@ -864,6 +865,30 @@ const brokenLaws = (laws: FolderLaws): ((failure: StatementFailure) => ReadonlyA
 }
 
 /**
+ * Where a statement of a file's transaction stands (apply.ts runFile), which says what its refusal is: `lock`, the
+ * ledger's lock and a guard's dropping before the file's statements, a refusal the ledger left unlocked; `statement`,
+ * the file's statement at `index`, which its laws can break; `laws`, the bracket's statements after them, the deferred
+ * laws made immediate and the re-checks (physical/ddl/immutable.ts dataStepBracket), a refusal the file's laws' as its
+ * COMMIT's is; `record`, the ledger's rows.
+ */
+type FileStage =
+	| { readonly kind: "lock" | "laws" | "record" }
+	| { readonly kind: "statement"; readonly index: number }
+
+const lockStage: FileStage = { kind: "lock" }
+
+/** The stage of the bracket's statements after the file's (FileStage `laws`). */
+const lawsChecked: FileStage = { kind: "laws" }
+
+const recordStage: FileStage = { kind: "record" }
+
+/** A statement of a file's transaction at its stage (FileStage). */
+interface StagedStatement {
+	readonly stage: FileStage
+	readonly statement: BatchStatement
+}
+
+/**
  * Runs one file and records it, a refusal naming the laws it can break (`broken`, brokenLaws), its rows after the ledger
  * statements `redraft` its transaction runs first among them: a redraft's re-record of its folder, or none.
  *
@@ -895,53 +920,74 @@ const runFile = (
 		)
 	const recordFailed = (failure: StatementFailure) =>
 		stopped(new RecordFailed({ schema, at, failure }))
+	/** The file's deferred laws' refusal of it, at its COMMIT or made immediate in its bracket (`lawsChecked`). */
+	const lawsFailed = (failure: StatementFailure) =>
+		stopped(
+			new FileCommitRefused({
+				schema,
+				folder: folder.name,
+				file: file.name,
+				failure,
+				laws: broken(failure)
+			})
+		)
 	/** A COMMIT the server refused, or one the connection was lost during, which may have committed. */
 	const commitFailed = (
 		failure: Extract<BatchFailure, { readonly _tag: "CommitRefused" | "CommitLost" }>
 	) =>
-		stopped(
-			failure._tag === "CommitRefused"
-				? new FileCommitRefused({
-						schema,
-						folder: folder.name,
-						file: file.name,
-						failure: failure.failure,
-						laws: broken(failure.failure)
-					})
-				: new FileCommitLost({ schema, at })
-		)
+		failure._tag === "CommitRefused"
+			? lawsFailed(failure.failure)
+			: stopped(new FileCommitLost({ schema, at }))
 	const record = [
 		...redraft,
 		oneShotStatement(statements.recordFolder.text, folderParams(folder)),
 		oneShotStatement(statements.recordFile.text, fileParams(folder, file))
 	]
+	/** What a refusal of a statement of the file's transaction at `stage` is (FileStage). */
+	const refusedAt = (stage: FileStage, refusal: StatementFailure): MigrateError => {
+		switch (stage.kind) {
+			case "lock":
+				return lockFailed(schema, at, refusal)
+			case "statement":
+				return statementFailed(stage.index)(refusal)
+			case "laws":
+				return lawsFailed(refusal)
+			case "record":
+				return recordFailed(refusal)
+		}
+	}
 	/**
-	 * The file's transaction: the ledger's lock, then, bracketing its statements if it runs them inside it, each guard
-	 * `bracket` drops and creates again (a custom migration's data step's, guardBracket), then its rows. A refusal
-	 * names the lock, the statement or the row that refused it, as the migration states the server's refusal
-	 * (refusalOf), a guard's dropping the lock's and its creating the rows'.
+	 * The file's transaction, each statement at its stage (FileStage): the ledger's lock, then, bracketing its statements
+	 * if it runs them inside it, each guard `bracket` drops (a custom migration's data step's, guardBracket), the
+	 * statements, its deferred laws made immediate and its re-checks with each guard created again (`lawsChecked`), then
+	 * its rows. A refusal is read off the stage of the statement that refused it (`refusedAt`), as the migration states
+	 * the server's refusal (refusalOf).
 	 */
-	const transaction = (count: number, bracket: ReturnType<typeof dataStepBracket>) =>
-		Effect.catch(
-			session.transaction([
-				...fence,
-				...Arr.map(bracket.before, (sql) => oneShotStatement(sql, [])),
-				...Arr.map(file.statements.slice(0, count), (sql) => oneShotStatement(sql, [])),
-				...Arr.map(bracket.after, (sql) => oneShotStatement(sql, [])),
-				...record
-			]),
+	const transaction = (count: number, bracket: ReturnType<typeof dataStepBracket>) => {
+		const staged: ReadonlyArray<StagedStatement> = [
+			...Arr.map(fence, (statement) => ({ stage: lockStage, statement })),
+			...Arr.map(bracket.before, (sql) => ({
+				stage: lockStage,
+				statement: oneShotStatement(sql, [])
+			})),
+			...Arr.map(file.statements.slice(0, count), (sql, index) => ({
+				stage: { kind: "statement" as const, index },
+				statement: oneShotStatement(sql, [])
+			})),
+			...Arr.map(bracket.after, (sql) => ({
+				stage: lawsChecked,
+				statement: oneShotStatement(sql, [])
+			})),
+			...Arr.map(record, (statement) => ({ stage: recordStage, statement }))
+		]
+		return Effect.catch(
+			session.transaction(Arr.map(staged, (s) => s.statement)),
 			(failure: BatchFailure | InputTooLarge) => {
 				switch (failure._tag) {
 					case "BatchRefused": {
-						const index = failure.index - fence.length - bracket.before.length
+						const { stage } = defined(staged[failure.index], "the statement the server refused")
 						return Effect.flatMap(refusalOf(session, failure.failure), (refusal) =>
-							Effect.fail(
-								index < 0
-									? lockFailed(schema, at, refusal)
-									: index < count
-										? statementFailed(index)(refusal)
-										: recordFailed(refusal)
-							)
+							Effect.fail(refusedAt(stage, refusal))
 						)
 					}
 					case "CommitRefused":
@@ -959,6 +1005,7 @@ const runFile = (
 				}
 			}
 		)
+	}
 	if (!file.noTransaction) {
 		return Effect.flatMap(
 			folder.meta.kind === "custom"

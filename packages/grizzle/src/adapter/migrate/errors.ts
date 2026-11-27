@@ -865,19 +865,20 @@ export class RecordFailed extends Data.TaggedError("RecordFailed")<{
 }
 
 /**
- * The COMMIT of `folder`/`file` was refused, so the file rolled back with its ledger row: `laws` every law the
- * deferred constraint the COMMIT checked serves, by the laws of `folder` itself (its meta.json's FolderLaws, apply.ts
- * brokenLaws).
+ * The deferred laws of `folder`/`file` refused it, at its COMMIT or made immediate after its statements in a custom
+ * migration's bracket, beside its re-checks (physical/ddl/immutable.ts dataStepBracket), so the file rolled back with
+ * its ledger row: `laws` every law the deferred constraint that refused it serves, by the laws of `folder` itself (its
+ * meta.json's FolderLaws, apply.ts brokenLaws).
  */
 export class FileCommitRefused extends Data.TaggedError("FileCommitRefused")<{
 	readonly schema: string
 	readonly folder: string
 	readonly file: string
-	readonly failure: ServerError
+	readonly failure: StatementFailure
 	readonly laws: ReadonlyArray<LawId>
 }> {
 	override get message(): string {
-		return `the COMMIT of ${this.folder}/${this.file} failed${lawText(this.laws)}: ${failureText(this.failure)}`
+		return `the deferred laws of ${this.folder}/${this.file} refused it${lawText(this.laws)}: ${failureText(this.failure)}`
 	}
 }
 
