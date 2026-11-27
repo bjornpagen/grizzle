@@ -19,19 +19,12 @@ import { regex } from "arkregex"
 import { Array as Arr, Equivalence, Option, Order } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { defaultOpclass, type NativeColumn } from "#compiler/ir/law.ts"
-import type { AccessUse, IndexRequest } from "#compiler/ir/products.ts"
+import type { AccessIndexRequest, AccessUse, IndexRequest } from "#compiler/ir/products.ts"
 import { keyTermText, type PlannedIndex } from "#compiler/physical/indexes/engine.ts"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { indexMaxKeys } from "#compiler/schema/representability.ts"
-import {
-	contained,
-	f,
-	key,
-	on,
-	relation,
-	type SchemaDesc
-} from "#test/support/fixtures/ir/desc.ts"
+import { contained, f, key, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { lawNamesOf, wild } from "#test/support/kernel/naming.ts"
 import { owning } from "#test/support/policy.ts"
 import { requesting } from "#test/unit/physical/fixtures.ts"
@@ -425,7 +418,8 @@ interface EngineSketch {
 	readonly splits: ReadonlyArray<number>
 }
 
-const engineGen: Gen<EngineSketch> = (source) => ({
+/** Drawn requests over the schema, in a drawn arrival order, beside a request planted to be refused or none. */
+export const engineGen: Gen<EngineSketch> = (source) => ({
 	requests: source.draw(array(requestGen, { min: 0, max: 6 })),
 	arrival: source.draw(array(int(0, 2 ** 31 - 1), { min: 6, max: 6 })),
 	planted: source.draw(plantedGen),
@@ -666,3 +660,24 @@ export const superkeySeekRequest = (seek: SuperkeySeek): IndexRequest => ({
 /** The columns of a superkey seek's relation's key (superkeyRelations). */
 export const superkeyOf = (seek: SuperkeySeek): ReadonlyArray<string> =>
 	superkeyRelations[seek.relation].key
+
+export type ResolveFeature =
+	| "a request resolved to an installed index"
+	| "a request resolved to a created index"
+	| "a request resolved to a GiST index"
+	| "a request resolved to an HNSW index"
+
+/** Whether an index of `method` over the schema's columns returns what it stores: a B-tree and a GiST index over no
+ * network column do, an HNSW index never (physical/indexes/engine.ts returnsOf). */
+export const returnsOver = (method: PlannedIndex["method"]): boolean =>
+	method === "btree" || method === "gist"
+
+/** A request over Event no drawn request asks: its key no column of Event's. */
+export const unplannedRequest: AccessIndexRequest = {
+	relation: "Event",
+	keys: [{ expr: "unplanned", dir: "asc", opclass: defaultOpclass }],
+	method: "btree",
+	fixed: 1,
+	role: "access",
+	use: "equality lookup"
+}

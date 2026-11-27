@@ -62,6 +62,7 @@ import {
 	planIndexes,
 	reverseRequests
 } from "#compiler/physical/indexes/engine.ts"
+import type { IndexResolver } from "#compiler/physical/indexes/ref.ts"
 import { commentsOf } from "#compiler/physical/install/comments.ts"
 import type {
 	InstallExtension,
@@ -121,6 +122,9 @@ export interface Installation extends InstallPlan {
 	readonly statements: ReadonlyArray<SqlStatement>
 	readonly textDomains: ReadonlyArray<TextDomain>
 	readonly indexes: ReadonlyArray<PlannedIndex>
+	/** The index each access request the installation's indexes were planned from resolves to (physical/indexes/engine.ts
+	 * planIndexes), total over them. */
+	readonly resolve: IndexResolver
 	/** The logins and their roles, in name order. */
 	readonly worlds: ReadonlyArray<InstalledLogin>
 	/** Every identity the installation named an object by, ownership's, the law model's and the installer's, each as
@@ -512,7 +516,7 @@ export const installationOfPlan = (
 				p.paths.map((path) => pathRequest(path, b.settings.vectorSchema))
 			)
 		]
-		const indexes = phased(phases, { name: "indexes", of: [] }, () =>
+		const { indexes, resolve } = phased(phases, { name: "indexes", of: [] }, () =>
 			unwrap(planIndexes(b, keyIndexes, requests))
 		)
 
@@ -547,6 +551,7 @@ export const installationOfPlan = (
 			statements,
 			textDomains: plan.textPlans.map((p) => p.domain),
 			indexes,
+			resolve,
 			worlds: worlds.worlds,
 			identities,
 			certification,

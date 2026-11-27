@@ -41,6 +41,7 @@ import { refused, succeeded } from "#test/support/assert.ts"
 import {
 	boundBlocks,
 	boundColumns,
+	engineGen,
 	engineSpace,
 	expectedRefusal,
 	type IndexFeature,
@@ -50,7 +51,9 @@ import {
 	leadsWithBlocks,
 	plantedRequests,
 	requestsOf,
+	type ResolveFeature,
 	restated,
+	returnsOver,
 	sameColumns,
 	shelfColumnsOf,
 	shelfGen,
@@ -58,6 +61,7 @@ import {
 	superkeyOf,
 	superkeySeekGen,
 	superkeySeekRequest,
+	unplannedRequest,
 	valueClass
 } from "#test/unit/physical/indexes.fixtures.ts"
 
@@ -504,6 +508,111 @@ export const aSuperkeySeekLandsOnItsKeyAndTheEngineCreatesNoIndexForIt = propert
 				original: "\t\t\treturn relation === r.relation ? r : { ...r, relation }",
 				replacement: "\t\t\treturn { ...r, relation }",
 				why: "Every request planned as a copy, an alias's or not, as yonvslxs's canonical aliases planned them: the index a request lands on holds a copy of it, and no reader of the plan finds the request it asked among any index's (red at e42937e8b: the seek on Event(id) landed on no index)."
+			}
+		]
+	}
+)
+
+/**
+ * Every access request resolves, by what it asks, to the index it landed on (physical/indexes/engine.ts planIndexes
+ * `resolve`, physical/indexes/ref.ts IndexRef): over the engine's drawn requests, a copy of each, which no index's
+ * requests hold, resolves to the index whose requests hold the request itself, by its schema-qualified name, its access
+ * method, the columns it stores, one for each of its keys, and whether it returns them, which a B-tree and a GiST index
+ * over no network column do and an HNSW index never does; and a request the installation's indexes were not planned
+ * from resolves to none: the resolver refuses it as an internal compiler error, never naming an index that does not
+ * serve it.
+ *
+ * Its budget is the runner's: a new property, with no suite before it to carry a count from.
+ */
+export const everyAccessRequestResolvesByWhatItAsksToTheIndexItLandedOn = property.explore(
+	engineGen,
+	{
+		needs: {},
+		situations: [
+			"a request resolved to an installed index",
+			"a request resolved to a created index",
+			"a request resolved to a GiST index",
+			"a request resolved to an HNSW index"
+		] satisfies ReadonlyArray<Reached<ResolveFeature>>,
+		check: (_, c: Case<ResolveFeature>) => (sketch) =>
+			Effect.sync(() => {
+				const requests = requestsOf(sketch)
+				const installation = succeeded(install(requests))
+				for (const r of requests) {
+					if (r.role !== "access") {
+						continue
+					}
+					const host = defined(
+						Arr.findFirst(installation.indexes, (x) => x.requests.includes(r)).pipe(
+							Option.getOrUndefined
+						),
+						`the index ${r.relation}'s request landed on`
+					)
+					const ref = installation.resolve({ ...r, keys: [...r.keys] })
+					assert.deepEqual(
+						{
+							name: ref.name.name,
+							method: ref.method,
+							stores: ref.stores.length,
+							returns: ref.returns
+						},
+						{
+							name: host.index.name,
+							method: host.method,
+							stores: host.keys.length,
+							returns: returnsOver(host.method)
+						},
+						`a copy of the ${r.use} of ${r.relation} resolves to ${host.index.name}`
+					)
+					c.note(
+						host.index.kind === "installed"
+							? "a request resolved to an installed index"
+							: "a request resolved to a created index"
+					)
+					if (host.method === "gist") {
+						c.note("a request resolved to a GiST index")
+					}
+					if (host.method === "hnsw") {
+						c.note("a request resolved to an HNSW index")
+					}
+				}
+				assert.throwsAny(
+					() => installation.resolve(unplannedRequest),
+					"a request no index was planned from resolves to none"
+				)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "each request's own landing, read off the plan's indexes, and a refusal of a request never planned"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/physical/indexes/engine.ts",
+				original:
+					'\t...r.keys.flatMap((k) => [String(k.expr), k.dir, indexOpclassText(k.opclass) ?? ""])\n',
+				replacement: "",
+				why: "A request resolved by its relation, method, use and fixed count alone: two requests of one relation and use that bind other columns resolve to one index, the first landed, and a copy of the other names an index that does not serve it."
+			},
+			{
+				file: "packages/engine/src/physical/indexes/engine.ts",
+				original:
+					"\t\t\t\tname: { schema: b.names.relation(index.relation).schema, name: index.index.name },",
+				replacement:
+					"\t\t\t\tname: { schema: b.names.relation(index.relation).schema, name: index.relation },",
+				why: "An index named by its table: the advice a plan prints names a relation where it names an index, which pg_plan_advice cannot match."
+			},
+			{
+				file: "packages/engine/src/physical/indexes/engine.ts",
+				original: '\t\tcase "btree":\n\t\t\treturn true\n\t\tcase "gist":',
+				replacement: '\t\tcase "btree":\n\t\t\treturn false\n\t\tcase "gist":',
+				why: "A B-tree held to return nothing: no read through one is ever an index-only scan, though every column it needs is stored."
+			},
+			{
+				file: "packages/engine/src/physical/indexes/engine.ts",
+				original: "\t\t\t\tresolved.get(\n",
+				replacement: "\t\t\t\t[...resolved.values()][0] ?? resolved.get(\n",
+				why: "Every request resolved to the first index any request landed on: a request planned elsewhere names an index that does not serve it, and one never planned names an index all the same."
 			}
 		]
 	}
