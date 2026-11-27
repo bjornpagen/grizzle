@@ -422,6 +422,7 @@ export type Failure =
 	  }
 	| { readonly tag: "CommitRefused" | "PrologueRefused"; readonly sqlstate: string }
 	| { readonly tag: "StaleSnapshot"; readonly reason: FenceFault; readonly sqlstate: string }
+	| { readonly tag: "AdviceUnloaded" }
 	| { readonly tag: "CommitLost" }
 	| { readonly tag: "ConnectionLost"; readonly operation: string; readonly sqlstate: string | null }
 	| { readonly tag: "DriverFailure"; readonly operation: string }
@@ -462,6 +463,8 @@ const failureData = (failure: FlightFailure | ConnectionLost | DriverFailure): F
 				reason: failure.reason._tag === "Migrating" ? "migrating" : "migrated",
 				sqlstate: failure.error.sqlstate
 			}
+		case "AdviceUnloaded":
+			return { tag: "AdviceUnloaded" }
 		case "CommitLost":
 			return { tag: "CommitLost" }
 		case "ConnectionLost":

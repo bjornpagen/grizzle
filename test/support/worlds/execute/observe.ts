@@ -101,6 +101,11 @@ export const applyFailed = (error: ApplyError): Effect.Effect<Observation> => {
 			return Effect.succeed({ kind: "commit-unknown" })
 		case "StaleSnapshot":
 			return Effect.succeed(staleObserved(error.reason))
+		case "AdviceUnloaded":
+			return defect(
+				"a session without pg_plan_advice, which every session of the test cluster loads",
+				error
+			)
 		case "TransportFailure":
 			return defect("a transport failure", error)
 		case "ExecutionFailure": {
@@ -128,6 +133,12 @@ export const readFailed = (error: ReadError): Effect.Effect<Observation> => {
 	}
 	if (error._tag === "StaleSnapshot") {
 		return Effect.succeed(staleObserved(error.reason))
+	}
+	if (error._tag === "AdviceUnloaded") {
+		return defect(
+			"a session without pg_plan_advice, which every session of the test cluster loads",
+			error
+		)
 	}
 	const reason = error.reason
 	switch (reason._tag) {

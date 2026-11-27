@@ -298,7 +298,8 @@ const statementOrigin = (sent: ReadonlyArray<SentStatement>, index: number): Fai
 }
 
 /**
- * What a write's failed stand-up means (stand-up.ts): the fence's refusal as StaleSnapshot; SERIALIZABLE's refusal as the
+ * What a write's failed stand-up means (stand-up.ts): the fence's refusal as StaleSnapshot, and the guard's of a session
+ * without pg_plan_advice as AdviceUnloaded; SERIALIZABLE's refusal as the
  * TransientFailure a statement's is; a lost connection, at COMMIT too, as a TransportFailure, since the write's own
  * statements were never sent; any other refusal as the server's.
  */
@@ -324,13 +325,15 @@ const standUpFailure = (failure: FlightFailure): ApplyError => {
 		case "InputTooLarge":
 			return new ExecutionFailure({ reason: failure })
 		case "StaleSnapshot":
+		case "AdviceUnloaded":
 			return failure
 	}
 }
 
 /**
  * What a write's failed flight means, but a refusal at COMMIT (`commitRefusal`): a refused statement is classified at
- * its origin; the fence's refusal is StaleSnapshot; a refused prologue's deadlock or serialization failure, which a fenced write's lock
+ * its origin; the fence's refusal is StaleSnapshot, and the guard's of a session without pg_plan_advice AdviceUnloaded; a
+ * refused prologue's deadlock or serialization failure, which a fenced write's lock
  * meets where a READ COMMITTED check holds one of its tables and waits for another it locked first, is the
  * TransientFailure a statement's is (errors/execution.ts serializationRefusal); any other refused prologue, which only
  * a login that lost the role's membership or the grant of a fenced table meets, is the server's.
@@ -361,6 +364,7 @@ const flightFailure = <R>(
 				serializationRefusal(failure.failure) ?? new ExecutionFailure({ reason: failure.failure })
 			)
 		case "StaleSnapshot":
+		case "AdviceUnloaded":
 			return Effect.fail(failure)
 	}
 }
@@ -422,8 +426,8 @@ const unmatchedKeyOf = (unmatched: Unmatched, outcomes: ReadonlyArray<BatchOutco
 
 /**
  * What a diagnosis's failure makes of its witness (unmatchedWitness): a refusal of its flight, its fence's or a
- * statement's, met a state another commit changed, `unreproduced`; a lost connection or an answer grizzle cannot read
- * fails the call as the write's own flight would.
+ * statement's, met a state another commit changed, `unreproduced`; a lost connection, an answer grizzle cannot read or
+ * a session without pg_plan_advice fails the call as the write's own flight would.
  */
 const diagnosisFailure = (failure: FlightFailure): Effect.Effect<Witness, ApplyError> => {
 	switch (failure._tag) {
@@ -437,6 +441,8 @@ const diagnosisFailure = (failure: FlightFailure): Effect.Effect<Witness, ApplyE
 		case "UnreadableAnswer":
 		case "InputTooLarge":
 			return Effect.fail(new ExecutionFailure({ reason: failure }))
+		case "AdviceUnloaded":
+			return Effect.fail(failure)
 		case "CommitRefused":
 		case "CommitLost":
 			return Effect.sync(() => defect(`a COMMIT in the diagnosis flight, which ends ROLLBACK`))

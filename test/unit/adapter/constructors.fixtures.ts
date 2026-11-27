@@ -95,6 +95,7 @@ const constructors: {
 		...args: never
 	) => Extract<Failure, { readonly _tag: T }>
 } = {
+	AdviceUnloaded: Execution.AdviceUnloaded,
 	AttestationRefused: Runtime.AttestationRefused,
 	CallInputRefused: Failures.CallInputRefused,
 	ClaimRefused: Runtime.ClaimRefused,

@@ -25,6 +25,7 @@ import {
 } from "#compiler/plan/runtime.ts"
 
 import {
+	AdviceUnloaded,
 	serializationRefusal,
 	type ReadError,
 	ReadFailure,
@@ -244,11 +245,16 @@ class PrologueRefused extends Data.TaggedError("PrologueRefused")<{
 }> {}
 
 /**
- * How a Db call's flight fails: as any flight, at its prologue, or at its fence; or, before anything is sent, with a
- * statement whose Bind message PostgreSQL would not read (bindOverrun), or with a flight longer than one write carries
- * (send).
+ * How a Db call's flight fails: as any flight, at its prologue, at its fence, or at the guard's refusal of a session
+ * that does not load pg_plan_advice; or, before anything is sent, with a statement whose Bind message PostgreSQL would
+ * not read (bindOverrun), or with a flight longer than one write carries (send).
  */
-export type FlightFailure = BatchFailure | PrologueRefused | StaleSnapshot | InputTooLarge
+export type FlightFailure =
+	| BatchFailure
+	| PrologueRefused
+	| StaleSnapshot
+	| AdviceUnloaded
+	| InputTooLarge
 
 /** The prologue's steps: the ledger's lock NOWAIT, a fenced write's lock (Exclusion), and the guard's call. */
 export type FenceStep = "lock" | "exclude" | "guard"
@@ -276,12 +282,14 @@ export const fenceReason = (step: FenceStep, failure: ServerError): Option.Optio
 }
 
 /**
- * How a read surfaces a flight's failure: the fence's refusal as itself, SERIALIZABLE's refusal as the TransientFailure
+ * How a read surfaces a flight's failure: the fence's refusal and the guard's of a session without pg_plan_advice as
+ * themselves, SERIALIZABLE's refusal as the TransientFailure
  * a write meets for it, any other refusal as the server's, and a session's failure as the session's.
  */
 export const asReadFailure = (failure: FlightFailure): ReadError => {
 	switch (failure._tag) {
 		case "StaleSnapshot":
+		case "AdviceUnloaded":
 			return failure
 		case "BatchRefused":
 		case "CommitRefused":
@@ -350,26 +358,37 @@ interface Principal<P, F> {
 const asLogin: Principal<never, never> = { prologue: [], refused: Function.absurd }
 
 /**
+ * Whether the server's refusal of the prologue's `step` is the snapshot guard's first, 55Z04: the session does not load
+ * pg_plan_advice (physical/ddl/ledger.ts adviceLoaded).
+ */
+const unadvisedAt = (step: FenceStep, failure: ServerError): boolean =>
+	step === "guard" && failure.sqlstate === sqlstates.grizzleAdviceUnloaded
+
+/**
  * A Db's role, entered by its prologue's two statements, both run as the login, the fence's lock and the statement
  * that calls the guard and enters the role, with the frame's exclusion, a fenced write's lock, between them, run as the
- * login too, before the snapshot. A refusal the fence explains (fenceReason) is StaleSnapshot, any other
- * PrologueRefused.
+ * login too, before the snapshot. The guard's refusal of a session without pg_plan_advice is AdviceUnloaded, a
+ * refusal the fence explains (fenceReason) StaleSnapshot, any other PrologueRefused.
  */
-const asDb = (frame: Frame): Principal<FenceStep, PrologueRefused | StaleSnapshot> => ({
+const asDb = (
+	frame: Frame
+): Principal<FenceStep, PrologueRefused | StaleSnapshot | AdviceUnloaded> => ({
 	prologue: [
 		{ statement: frame.prologue.fence, step: "lock" },
 		...exclusionSteps(frame.exclusion),
 		{ statement: frame.prologue.enter, step: "guard" }
 	],
 	refused: (step, failure) =>
-		Option.getOrElse(
-			Option.map(
-				fenceReason(step, failure),
-				(reason): PrologueRefused | StaleSnapshot =>
-					new StaleSnapshot({ reason, snapshot: frame.prologue.snapshot, error: failure })
-			),
-			() => new PrologueRefused({ failure })
-		)
+		unadvisedAt(step, failure)
+			? new AdviceUnloaded()
+			: Option.getOrElse(
+					Option.map(
+						fenceReason(step, failure),
+						(reason): PrologueRefused | StaleSnapshot =>
+							new StaleSnapshot({ reason, snapshot: frame.prologue.snapshot, error: failure })
+					),
+					() => new PrologueRefused({ failure })
+				)
 })
 
 /** The prologue step an exclusion sends: its lock, none for an exclusion of nothing. */
@@ -1693,7 +1712,9 @@ export const runFramedFlights = <A, E>(
 			if (Result.isFailure(opened)) {
 				const begun = receivedAt(opening.success.sent.answers, 0)
 				const prologue =
-					opened.failure._tag === "PrologueRefused" || opened.failure._tag === "StaleSnapshot"
+					opened.failure._tag === "PrologueRefused" ||
+					opened.failure._tag === "StaleSnapshot" ||
+					opened.failure._tag === "AdviceUnloaded"
 				return yield* failedAt(
 					prologue ? undefined : first.batch,
 					opened.failure,

@@ -110,7 +110,8 @@ const openReading = {
  * `paramRejected`, naming the parameter; a refusal by laws, PostgreSQL's by a contract's or a pattern's domain
  * (LawRejected) or an explain's of the host's key parse (InputRejected), is `refused` with its laws; a serialization
  * failure or a deadlock is `transient`; the fence's refusal is `stale`; the rest is the server's or the driver's: pg's
- * refusal of a query on a connection still standing (DriverFailure) is no connection broken, so it is `failed`.
+ * refusal of a query on a connection still standing (DriverFailure) is no connection broken, so it is `failed`, and so
+ * is a session that does not load pg_plan_advice (AdviceUnloaded), which every call meets until the database loads it.
  */
 const readReading = {
 	ServerError: "failed",
@@ -126,7 +127,8 @@ const readReading = {
 	InputTooLarge: "input",
 	CallInputRefused: "input",
 	TransientFailure: "transient",
-	StaleSnapshot: "stale"
+	StaleSnapshot: "stale",
+	AdviceUnloaded: "failed"
 } as const satisfies Reading<
 	Exclude<ReadReason["_tag"], AcquireRefusal["_tag"]> | Exclude<ReadError["_tag"], "ReadFailure">,
 	"read"
@@ -139,7 +141,8 @@ const readReading = {
  * pattern as it bound it, `paramRejected`, naming the parameter; a serialization failure or a concurrent writer's
  * change, `transient`; the fence's refusal, `stale`; a COMMIT sent and unanswered, `commitUnknown`; the rest is the
  * server's or the driver's: pg's refusal of a query or a ROLLBACK on a connection still standing (DriverFailure), which
- * broke no connection and leaves the transaction's end unproven, is `failed`.
+ * broke no connection and leaves the transaction's end unproven, is `failed`, and so is a session that does not load
+ * pg_plan_advice (AdviceUnloaded).
  */
 const applyReading = {
 	ConnectionLost: "transport",
@@ -153,6 +156,7 @@ const applyReading = {
 	CallInputRefused: "input",
 	TransientFailure: "transient",
 	StaleSnapshot: "stale",
+	AdviceUnloaded: "failed",
 	CommitUnknown: "commitUnknown"
 } as const satisfies Reading<
 	| Exclude<TransportReason["_tag"], AcquireRefusal["_tag"]>
@@ -517,7 +521,8 @@ export const readCallError = (error: ReadError): FailureOf<"read"> => {
 				reason: error.reason._tag
 			})
 		case "StaleSnapshot":
-			return messageErrors[readReading.StaleSnapshot](error.message)
+		case "AdviceUnloaded":
+			return messageErrors[readReading[error._tag]](error.message)
 	}
 }
 
@@ -542,6 +547,7 @@ export const applyCallError = (error: ApplyError): FailureOf<"apply"> => {
 				reason: error.reason._tag
 			})
 		case "StaleSnapshot":
+		case "AdviceUnloaded":
 		case "CommitUnknown":
 		case "EncodingFailure":
 		case "CallInputRefused":

@@ -1,6 +1,8 @@
 import { isAsciiDigits } from "@bjornpagen/grizzle-text/text"
 import { Array as Arr, Data, Formatter, Option, String as Str } from "effect"
 import type { DriftMismatch } from "#adapter/admission/drift.ts"
+import type { StoredSetting } from "#adapter/admission/roles.ts"
+import type { AdviceUnloaded } from "#adapter/errors/execution.ts"
 import type {
 	CatalogRowRefused,
 	ConnectionLost,
@@ -40,7 +42,9 @@ import type { findMarkers, VariableFault } from "#compiler/plan/migration.ts"
  * The stage says where the apply stopped and so what the database holds:
  *
  * - Before any statement of any folder ran: `connect`, `stack` (the server's max_stack_depth below the default the
- *   pattern limits were measured at), `wal` (the server's wal_level minimal, which no live source decodes at),
+ *   pattern limits were measured at), `advice` (the session does not load pg_plan_advice, or the migration role's own
+ *   session_preload_libraries leaves what the logins' sessions load unknown), `wal` (the server's wal_level minimal,
+ *   which no live source decodes at),
  *   `owner`, `input`, `busy`, `ledger`, `edited`, `order`, `marker`, `decision` and `locks` (the server's lock table
  *   smaller than the apply's largest transaction as its folders state it). Nothing was written; the ledger and
  *   the catalog are as they were. `edited` is an applied
@@ -65,6 +69,7 @@ import type { findMarkers, VariableFault } from "#compiler/plan/migration.ts"
 export type MigrateStage =
 	| "connect"
 	| "stack"
+	| "advice"
 	| "wal"
 	| "owner"
 	| "input"
@@ -93,6 +98,7 @@ export type MigrateOutcome = "nothingRan" | "resumes" | "drifted" | "noVerdict"
 export const stageOutcome: { readonly [S in MigrateStage]: MigrateOutcome } = {
 	connect: "nothingRan",
 	stack: "nothingRan",
+	advice: "nothingRan",
 	wal: "nothingRan",
 	owner: "nothingRan",
 	input: "nothingRan",
@@ -350,6 +356,23 @@ export class StackTooShallow extends Data.TaggedError("StackTooShallow")<{
 }> {
 	override get message(): string {
 		return `the server's max_stack_depth is ${this.observed} kB, below ${this.required}; a superuser raises it`
+	}
+}
+
+/**
+ * The migration identity stores its own session_preload_libraries (ALTER ROLE ... SET, for every database or this one
+ * alone), so the libraries its session loads say nothing of the logins' sessions, whose own settings the drift check
+ * holds to the snapshot's, none of them this: grizzle cannot tell that every session it serves loads pg_plan_advice.
+ * `settings` are the role's own, as pg_db_role_setting stores them.
+ */
+export class MigratorPreloads extends Data.TaggedError("MigratorPreloads")<{
+	readonly settings: Arr.NonEmptyReadonlyArray<StoredSetting>
+}> {
+	override get message(): string {
+		return `the migration role sets its own session_preload_libraries (${Arr.join(
+			Arr.map(this.settings, (s) => `${s.scope} ${s.value}`),
+			", "
+		)}), so its session cannot tell whether the logins' sessions load pg_plan_advice: reset it on the role and load the library for the database or the server`
 	}
 }
 
@@ -969,6 +992,8 @@ export type MigrateReason =
 	| ConnectRefused
 	| SurveyFailed
 	| StackTooShallow
+	| AdviceUnloaded
+	| MigratorPreloads
 	| LockTableShort
 	| RoleUnread
 	| OwnerUnread
@@ -1004,6 +1029,8 @@ const stageOf: { readonly [Tag in MigrateReason["_tag"]]: MigrateStage } = {
 	ConnectRefused: "connect",
 	SurveyFailed: "owner",
 	StackTooShallow: "stack",
+	AdviceUnloaded: "advice",
+	MigratorPreloads: "advice",
 	LockTableShort: "locks",
 	RoleUnread: "owner",
 	OwnerUnread: "owner",
@@ -1054,6 +1081,8 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 			case "ConnectRefused":
 			case "SurveyFailed":
 			case "StackTooShallow":
+			case "AdviceUnloaded":
+			case "MigratorPreloads":
 			case "RoleUnread":
 			case "NamespaceUnread":
 			case "UninstallRefused":
@@ -1126,6 +1155,8 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 			case "ConnectRefused":
 			case "SurveyFailed":
 			case "StackTooShallow":
+			case "AdviceUnloaded":
+			case "MigratorPreloads":
 			case "RoleUnread":
 			case "OwnerUnread":
 			case "OwnedByAnother":
@@ -1167,6 +1198,8 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 			case "ConnectRefused":
 			case "SurveyFailed":
 			case "StackTooShallow":
+			case "AdviceUnloaded":
+			case "MigratorPreloads":
 			case "LockTableShort":
 			case "RoleUnread":
 			case "OwnerUnread":

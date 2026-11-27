@@ -289,7 +289,8 @@ export type BinaryOperator = (typeof binaryOperators)[number]
  * functions of the compile-target catalog, a float's identity image (float8send, ops.ts floatBitsForm), a variant's
  * (boolsend, int2send, int4send, int8send, lower/conservative/expr/variant.ts variantDigest), the exact value of a double's bits (float8send and
  * get_byte, build.ts exactNumericOfDouble), the span functions, the attachment transport, a bytes value's chunks
- * (lower/delivery.ts), the runtime probes, the rule judge's reads of its session tables in the catalog
+ * (lower/delivery.ts), the runtime probes, the libraries a backend loaded (pg_get_loaded_modules, which the snapshot
+ * guard reads pg_plan_advice among, physical/ddl/ledger.ts adviceLoaded), the rule judge's reads of its session tables in the catalog
  * (physical/ddl/rules.ts judged), the database default's
  * statement and the binary comparison of two rows, the function of PostgreSQL's `*<>` (record_image_ne), by which a
  * migration's backfill writes only the rows whose drawn values change (deploy/diff/backfill.ts staged), and full text
@@ -385,6 +386,7 @@ export const builtinFunctions = {
 	current_setting: { reach: "row", volatility: "STABLE" },
 	set_config: { reach: "row", volatility: "VOLATILE" },
 	pg_jit_available: { reach: "row", volatility: "VOLATILE" },
+	pg_get_loaded_modules: { reach: "row", volatility: "VOLATILE" },
 	format: { reach: "row", volatility: "STABLE" },
 	current_database: { reach: "row", volatility: "STABLE" },
 	substring: { reach: "row", volatility: "IMMUTABLE" },

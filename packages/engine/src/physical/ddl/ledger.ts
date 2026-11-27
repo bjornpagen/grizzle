@@ -103,6 +103,62 @@ const folderRowOf = (alias: string): Expr =>
 
 const one = target(lit.int(1n, types.integer))
 
+/**
+ * The library PostgreSQL 19 plans every statement grizzle sends by: contrib's planner module, which enforces the advice
+ * in force where a statement is planned or replanned (pg_plan_advice.advice), by the name its module magic gives it.
+ * Every session grizzle serves loads it (README "Install"), by shared_preload_libraries or by the database's
+ * session_preload_libraries; without it PostgreSQL plans every statement by its own costs.
+ *
+ * @formatConstant pg_plan_advice's module name, PG_MODULE_MAGIC_EXT(.name = "pg_plan_advice")
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/contrib/pg_plan_advice/pg_plan_advice.c#L31)
+ */
+export const planAdviceModule = "pg_plan_advice"
+
+/**
+ * The columns of pg_get_loaded_modules' rows, as pg_proc names its OUT parameters: each loaded file's module name, its
+ * version and its file's name.
+ *
+ * @formatConstant pg_get_loaded_modules' proargnames, {module_name,version,file_name}
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/include/catalog/pg_proc.dat#L6885)
+ */
+export const loadedModuleColumns = ["module_name", "version", "file_name"] as const
+
+/**
+ * Whether the session's backend loaded pg_plan_advice, by the modules it loaded, under `alias`, its columns the
+ * generated names of loadedModuleColumns', c1 the module's name:
+ *
+ *   EXISTS (SELECT 1 FROM pg_catalog.pg_get_loaded_modules() AS <alias>(c1, c2, c3) WHERE <alias>.c1 = 'pg_plan_advice')
+ *
+ * pg_get_loaded_modules reads the backend's own list of the files it loaded, those shared_preload_libraries and
+ * session_preload_libraries name among them, and every role may call it. No setting proves the library loaded: without
+ * it PostgreSQL keeps a pg_plan_advice setting as a placeholder, so a database or role that sets one reads it back
+ * whatever its sessions loaded and plans by none of it.
+ */
+export const adviceLoaded = (alias: string): Expr =>
+	exists(
+		simpleSelect(
+			[one],
+			[
+				{
+					kind: "function",
+					call: call("pg_get_loaded_modules", []),
+					alias,
+					columns: {
+						kind: "named",
+						names: loadedModuleColumns.map((_, at) => `c${at + 1}`),
+						ordinality: false
+					},
+					lateral: false
+				}
+			],
+			eq(col(alias, "c1"), lit.text(planAdviceModule, types.text))
+		)
+	)
+
+/** What the snapshot guard's first refusal says (adviceLoaded): the library and the two ways a database loads it. */
+const adviceUnloadedMessage =
+	"pg_plan_advice is not loaded in this session: a superuser loads it for the database (ALTER DATABASE ... SET session_preload_libraries = 'pg_plan_advice') or for the server (shared_preload_libraries = 'pg_plan_advice')"
+
 const raiseAs = (message: string, state: Sqlstate): PlStatement => ({
 	kind: "raise",
 	message,
@@ -132,8 +188,12 @@ const refuseWhen = (condition: Expr, raise: PlStatement): PlStatement => ({
  *   (`exclusive`), which waits for the Db transactions in flight: the operator's command waits, never the application.
  *   A no-transaction file's folder is recorded unfinished, under that lock, before its first statement runs.
  *
- * The guard, `"<schema>".__require_snapshot(fingerprint text) RETURNS void`, reads the ledger as its owner and refuses:
+ * The guard, `"<schema>".__require_snapshot(fingerprint text) RETURNS void`, reads the session's libraries and the
+ * ledger as its owner and refuses:
  *
+ *   IF NOT EXISTS (pg_plan_advice among the backend's loaded modules) THEN
+ *     RAISE EXCEPTION ... USING ERRCODE = '55Z04';   -- the session plans by no advice (adviceLoaded)
+ *   END IF;
  *   IF EXISTS (a folder row whose file count is not the number of its folder's file rows) THEN
  *     RAISE EXCEPTION ... USING ERRCODE = '55Z02';   -- a migration running or stopped part-way
  *   END IF;
@@ -144,6 +204,8 @@ const refuseWhen = (condition: Expr, raise: PlStatement): PlStatement => ({
  * It is the rule of `ledgerState`, the apply runner's and the drift check's: no folder partial, and the latest folder's
  * target the Db's fingerprint. Folders sort by name in pg_c_utf8, by code point as compareCodePoints does. Admission
  * (`guard`) and every Db transaction (`enter`) call this one function behind the one fence, so they cannot disagree.
+ * The library comes first: a transaction of a session that did not load it runs nothing, and its every statement would
+ * be planned, and replanned, by PostgreSQL's costs alone.
  */
 export const snapshotGuardDdl = (schema: string): readonly [PlFunction, Revoke] => {
 	const fn = snapshotGuardFunction(schema)
@@ -198,6 +260,10 @@ export const snapshotGuardDdl = (schema: string): readonly [PlFunction, Revoke] 
 			body: {
 				declare: [],
 				body: [
+					refuseWhen(
+						not(adviceLoaded("r5")),
+						raiseAs(adviceUnloadedMessage, sqlstates.grizzleAdviceUnloaded)
+					),
 					refuseWhen(
 						unfinished,
 						raiseAs(

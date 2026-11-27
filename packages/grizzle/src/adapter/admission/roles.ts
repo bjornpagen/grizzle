@@ -39,7 +39,7 @@ export const textArray = (values: Iterable<string>): ParamText => textArrayParam
 const settingScopes = ["role", "roleInDatabase"] as const
 export type SettingScope = (typeof settingScopes)[number]
 
-interface StoredSetting {
+export interface StoredSetting {
 	readonly scope: SettingScope
 	readonly parameter: string
 	readonly value: string
@@ -54,9 +54,9 @@ const settingTexts = C.fromFunction(
 	true
 )
 
-/** The stored settings of the role $1, its own and its own in the current database, one `name=value` per row with its
- * scope. */
-export const settingsQuery: CatalogQuery<StoredSetting> = {
+/** The stored settings of the role `role` names, its own and its own in the current database, one `name=value` per row
+ * with its scope. */
+const settingsOf = (role: C.CatalogExpr): CatalogQuery<StoredSetting> => ({
 	sql: emitCatalog(
 		C.query(
 			[
@@ -68,7 +68,7 @@ export const settingsQuery: CatalogQuery<StoredSetting> = {
 			],
 			[C.crossJoin(settingRows.item, settingTexts.item)],
 			C.and([
-				C.eq(settingRows.col("setrole"), C.roleOid(C.param(1, "text"))),
+				C.eq(settingRows.col("setrole"), C.roleOid(role)),
 				C.inList(settingRows.col("setdatabase"), [noOid, C.currentDatabaseOid()])
 			])
 		)
@@ -88,7 +88,16 @@ export const settingsQuery: CatalogQuery<StoredSetting> = {
 				}
 			: undefined
 	}
-}
+})
+
+/** The stored settings of the role $1 (settingsOf): every login's and role's, which the drift check holds to the snapshot's. */
+export const settingsQuery: CatalogQuery<StoredSetting> = settingsOf(C.param(1, "text"))
+
+/**
+ * The stored settings of the session's own role (settingsOf): the migration identity's, whose own
+ * session_preload_libraries decides which libraries its session loads apart from every login's (adapter/migrate/apply.ts).
+ */
+export const ownSettingsQuery: CatalogQuery<StoredSetting> = settingsOf(C.currentUser)
 
 /**
  * A stored setting against the expected ones of its scope: one the scope requires and lacks, one it holds and does

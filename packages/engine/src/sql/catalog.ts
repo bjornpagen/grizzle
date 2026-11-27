@@ -98,6 +98,7 @@ export const catalogFunctions = [
 	"pg_get_expr",
 	"pg_get_function_identity_arguments",
 	"pg_get_functiondef",
+	"pg_get_loaded_modules",
 	"pg_get_indexdef",
 	"pg_get_ruledef",
 	"pg_get_statisticsobjdef_expressions",

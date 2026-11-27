@@ -38,6 +38,7 @@ import {
 	LockTableShort,
 	LockUnread,
 	type MigrateError,
+	MigratorPreloads,
 	OwnedByAnother,
 	OwnerUnread,
 	ProofsUnrecorded,
@@ -62,8 +63,9 @@ import {
 	parseTarget
 } from "#adapter/migrate/input.ts"
 
-import { textArray } from "#adapter/admission/roles.ts"
+import { ownSettingsQuery, textArray } from "#adapter/admission/roles.ts"
 import { toResult } from "#adapter/engine.ts"
+import { AdviceUnloaded } from "#adapter/errors/execution.ts"
 import {
 	fileParams,
 	folderParams,
@@ -131,6 +133,8 @@ import {
 	immutableTriggerName,
 	immutableTruncateTriggerName,
 	type InstallationNames,
+	loadedModuleColumns,
+	planAdviceModule,
 	type ProofStatements,
 	proofStatements,
 	proofsIdent,
@@ -151,8 +155,13 @@ import type { DeploySnapshot, LedgerState, LedgerStatements } from "#compiler/pl
  *
  * 1. Input (input.ts), for every schema, before anything is read: each folder's name, meta.json and files read as
  *    drafted; no file controls the transaction itself.
- * 2. The survey step, one flight for every schema: the session's role, then for each schema its owner, its apply lock
- *    and its ledger, each statement apart. Its answers are judged for each schema in the order given:
+ * 2. The survey step, one flight for every schema: the session's role, the server's settings and whether its backend
+ *    loaded pg_plan_advice, its role's own stored settings, then for each schema its owner, its apply lock and its
+ *    ledger, each statement apart. The session must have loaded the library, by the modules its backend loaded, and its
+ *    role must store no session_preload_libraries of its own, so that every login's session, which takes the
+ *    database's and the server's, loads it too (AdviceUnloaded, MigratorPreloads): a statement the server plans without
+ *    it ignores the advice grizzle carries, and a function's advice is parsed as its CREATE FUNCTION runs only where the
+ *    library is loaded. Its answers are judged for each schema in the order given:
  *    - Identity. Migrations run as the migration identity, which owns the schema: the role that connects, whatever its
  *      name, for neither the snapshot nor the drafted SQL names it. A schema that exists must be the session role's;
  *      one that does not yet is created by the first migration, and so the role's. Anything else is refused.
@@ -254,16 +263,40 @@ const roleName = ([name]: ReadonlyArray<string>): string | undefined => name
 
 /**
  * The session's role, the server's max_stack_depth in kilobytes (admission/expectation.ts stackDepthColumn) and its
- * wal_level (live.ts walLevelOf), and what the session's role may give a decoder login (live.ts ReplicationGrants).
+ * wal_level (live.ts walLevelOf), whether its backend loaded pg_plan_advice (adviceLoadedColumn), and what the session's
+ * role may give a decoder login (live.ts ReplicationGrants).
  */
 interface SessionRow {
 	readonly user: string
 	readonly stackDepth: string
+	readonly adviceLoaded: boolean
 	readonly walLevel: WalLevel
 	readonly grants: ReplicationGrants
 	/** The six settings that size the server's lock table (locks.ts), which the apply's largest transaction must fit. */
 	readonly lockTable: LockTableSettings
 }
+
+const loadedModules = C.fromFunction(
+	C.catalogCall("pg_get_loaded_modules", []),
+	"m",
+	loadedModuleColumns,
+	false
+)
+
+/**
+ * Whether the session's backend loaded pg_plan_advice, by the modules it loaded, as the snapshot guard's first refusal
+ * reads them (engine physical/ddl/ledger.ts adviceLoaded), never by a setting, which a placeholder answers whatever the
+ * session loaded.
+ */
+const adviceLoadedColumn: C.CatalogExpr = C.asText(
+	C.exists(
+		C.query(
+			[C.bool(true)],
+			[loadedModules.item],
+			C.eq(loadedModules.col(loadedModuleColumns[0]), C.text(planAdviceModule))
+		)
+	)
+)
 
 const sessionRead: CatalogQuery<SessionRow> = {
 	sql: emitCatalog(
@@ -271,6 +304,7 @@ const sessionRead: CatalogQuery<SessionRow> = {
 			[
 				C.asText(C.currentUser),
 				stackDepthColumn,
+				adviceLoadedColumn,
 				walLevelColumn,
 				attributeGrantColumn,
 				membershipGrantColumn,
@@ -280,8 +314,8 @@ const sessionRead: CatalogQuery<SessionRow> = {
 			undefined
 		)
 	),
-	what: "a role name, eight settings and two privileges",
-	row: ([user, stackDepth, walLevelText, attribute, membership, ...table]) => {
+	what: "a role name, eight settings, a loaded library and two privileges",
+	row: ([user, stackDepth, loaded, walLevelText, attribute, membership, ...table]) => {
 		const walLevel = Option.getOrUndefined(
 			Option.flatMap(Option.fromNullishOr(walLevelText), walLevelOf)
 		)
@@ -290,12 +324,14 @@ const sessionRead: CatalogQuery<SessionRow> = {
 			stackDepth === undefined ||
 			walLevel === undefined ||
 			lockTable === undefined ||
+			(loaded !== "true" && loaded !== "false") ||
 			(attribute !== "true" && attribute !== "false") ||
 			(membership !== "true" && membership !== "false")
 			? undefined
 			: {
 					user,
 					stackDepth,
+					adviceLoaded: loaded === "true",
 					walLevel,
 					grants: { attribute: attribute === "true", membership: membership === "true" },
 					lockTable
@@ -537,13 +573,31 @@ const schemaReads = (checked: Checked): ReadonlyArray<BatchStatement> => {
 }
 
 /**
- * Each schema with where its answers start in the survey step: behind the session's role, then the reads of the
+ * The survey step's reads of the session, apart, before every schema's: its role, the server's settings and its loaded
+ * libraries (sessionRead), then its role's own stored settings (admission/roles.ts ownSettingsQuery).
+ */
+const sessionReads: Arr.NonEmptyReadonlyArray<BatchStatement> = [
+	oneShotStatement(sessionRead.sql, []),
+	oneShotStatement(ownSettingsQuery.sql, [])
+]
+
+/**
+ * The parameter whose stored setting on the migration role decides which libraries its session loads apart from every
+ * login's (MigratorPreloads).
+ *
+ * @formatConstant PostgreSQL's setting of the libraries a backend loads as it starts
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/misc/guc_parameters.dat#L2704)
+ */
+const sessionPreloads = "session_preload_libraries"
+
+/**
+ * Each schema with where its answers start in the survey step: behind the session's reads, then the reads of the
  * schemas before it.
  */
 const placed = (checked: ReadonlyArray<Checked>): ReadonlyArray<readonly [Checked, number]> =>
 	Arr.zip(
 		checked,
-		Arr.scan(checked, 1, (at, c) => at + schemaReads(c).length)
+		Arr.scan(checked, sessionReads.length, (at, c) => at + schemaReads(c).length)
 	)
 
 /** The answer of a schema's read `read`, its answers starting at `at`. */
@@ -659,12 +713,7 @@ const surveyAll = Effect.fn("surveyAll")(function* (
 	const answers = yield* Effect.mapError(
 		Effect.uninterruptibleMask((restore) =>
 			Effect.tap(
-				restore(
-					session.apart([
-						oneShotStatement(sessionRead.sql, []),
-						...Arr.flatMap(checked, schemaReads)
-					])
-				),
+				restore(session.apart([...sessionReads, ...Arr.flatMap(checked, schemaReads)])),
 				(read) => {
 					const release = releaseOf(schemas, read)
 					return Arr.isReadonlyArrayNonEmpty(release)
@@ -676,8 +725,13 @@ const surveyAll = Effect.fn("surveyAll")(function* (
 		(failure) => stopped(new SurveyFailed({ failure }))
 	)
 	/** The session's role and the server's setting concern no schema. */
-	const { user, stackDepth, walLevel, grants, lockTable } = yield* Effect.fromResult(
+	const { user, stackDepth, adviceLoaded, walLevel, grants, lockTable } = yield* Effect.fromResult(
 		Result.mapError(apartRow(sessionRead, sentAnswer(answers, 0)), (failure) =>
+			stopped(new RoleUnread({ failure }))
+		)
+	)
+	const own = yield* Effect.fromResult(
+		Result.mapError(apartRows(ownSettingsQuery, sentAnswer(answers, 1)), (failure) =>
 			stopped(new RoleUnread({ failure }))
 		)
 	)
@@ -685,6 +739,18 @@ const surveyAll = Effect.fn("surveyAll")(function* (
 		return yield* stopped(
 			new StackTooShallow({ observed: stackDepth, required: stackDepthRequired })
 		)
+	}
+	if (!adviceLoaded) {
+		return yield* stopped(new AdviceUnloaded())
+	}
+	/**
+	 * The migration role's own session_preload_libraries, none where the session speaks for every login's: a login's
+	 * own settings are the snapshot's (admission/roles.ts), none of them this, so its sessions load what the database's
+	 * setting and the server's load, as this one does where its role stores none.
+	 */
+	const preloads = Arr.filter(own, (setting) => setting.parameter === sessionPreloads)
+	if (Arr.isReadonlyArrayNonEmpty(preloads)) {
+		return yield* stopped(new MigratorPreloads({ settings: preloads }))
 	}
 	const [sourced] = Arr.filter(checked, (c) => c.decoder !== undefined)
 	const refused =

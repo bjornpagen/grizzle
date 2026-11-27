@@ -171,29 +171,37 @@ export const clusterNetwork = { kind: "tls", from: 20_000 } as const
  * (~/Documents/beefy-workspace/workbench/parts/postgres), each member listening on localhost at a port it claims from
  * clusterNetwork's over verify-full TLS alone, which grizzle's client demands, the server's certificate the
  * workbench's, signed by the CA PGSSLROOTCERT names; owned by grizzle_dev, the migration identity, its template
- * grizzle_template carrying pgvector in vector_ext, every member preloading pg_stat_statements inert, which a test of
- * what a backend plans turns on in its own clone (test/pg/adapter/second-call.test.ts), the owner setting its three
- * parameters there, throwaway, its members each serving workersPerMember of a run's
- * workers, each member admitting as many connections as the machine's memory holds of busy backends (busyBackendBytes),
- * a replication slot and a WAL sender for each, a live source's leader holding one of each, each worker's largest
- * database in shared buffers, and a predicate lock table of its workers' room (predicateRoomPerWorker). `pnpm pg
- * settle` (toolchain-pg settle, run as a unit) gives the checkout's family this spec; a run only reads it and refuses a
- * member that is not as it states. Nothing admits or queues a run's connections: a member past its capacity refuses
- * one (53300), a problem met, measured and fixed where it happens.
+ * grizzle_template carrying pgvector in vector_ext and pageinspect in pageinspect_ext, whose B-tree metapage a test
+ * of a plan's buffers reads an index's height from as the bootstrap superuser; every member preloading
+ * pg_stat_statements inert, which a test of what a backend plans turns on in its own clone
+ * (test/pg/adapter/second-call.test.ts), the owner setting its three parameters there, and pg_plan_advice, which
+ * every session grizzle serves loads (README "Install"), loaded by each session, so a test of a session without it
+ * sets session_preload_libraries to PostgreSQL's empty list in its own clone, the owner granted that parameter;
+ * throwaway, its members each serving workersPerMember of a run's workers, each member admitting as many connections
+ * as the machine's memory holds of busy backends (busyBackendBytes), a replication slot and a WAL sender for each, a
+ * live source's leader holding one of each, each worker's largest database in shared buffers, and a predicate lock
+ * table of its workers' room (predicateRoomPerWorker). `pnpm pg settle` (toolchain-pg settle, run as a unit) gives
+ * the checkout's family this spec; a run only reads it and refuses a member that is not as it states. Nothing admits
+ * or queues a run's connections: a member past its capacity refuses one (53300), a problem met, measured and fixed
+ * where it happens.
  */
 export default localCluster({
 	unit: "grizzle-test",
 	network: clusterNetwork,
 	owner: "grizzle_dev",
 	template: "grizzle_template",
-	extensions: [{ name: "vector", schema: "vector_ext" }],
-	preload: ["pg_stat_statements"],
+	extensions: [
+		{ name: "vector", schema: "vector_ext" },
+		{ name: "pageinspect", schema: "pageinspect_ext" }
+	],
+	preload: ["pg_stat_statements", "pg_plan_advice"],
 	ownerParameters: [
 		"deadlock_timeout",
 		"session_replication_role",
 		"compute_query_id",
 		"pg_stat_statements.track",
-		"pg_stat_statements.track_planning"
+		"pg_stat_statements.track_planning",
+		"session_preload_libraries"
 	],
 	durability: "throwaway",
 	sizing: {

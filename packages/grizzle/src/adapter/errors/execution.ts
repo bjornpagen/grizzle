@@ -45,9 +45,9 @@ import type {
  * catchReasons and unwrapReason reach it. What follows from a reason (an error's stage) is a getter, never a stored
  * field, and each error's `message` renders a sentence from its reason.
  *
- * Db.open and DbLayer.make fail with OpenError; a read with ReadError (ReadFailure, TransientFailure or StaleSnapshot);
- * a write with ApplyError (the engine's EncodingFailure, TransientFailure, TransportFailure,
- * ExecutionFailure, CommitUnknown or StaleSnapshot); compile with the engine's CompileError. `invariant-rejected` is an
+ * Db.open and DbLayer.make fail with OpenError; a read with ReadError (ReadFailure, TransientFailure, StaleSnapshot or
+ * AdviceUnloaded); a write with ApplyError (the engine's EncodingFailure, TransientFailure, TransportFailure,
+ * ExecutionFailure, CommitUnknown, StaleSnapshot or AdviceUnloaded); compile with the engine's CompileError. `invariant-rejected` is an
  * outcome value, never an error, and a defect stays a defect. A served member's call reads each as its one CallError
  * (live/call-error.ts).
  * Every failure the server raised carries the server's own report (failures.ts ServerError): its SQLSTATE, message,
@@ -312,10 +312,26 @@ export class StaleSnapshot extends Data.TaggedError("StaleSnapshot")<{
 }
 
 /**
- * A failed read: at run time or refused before any SQL (ReadFailure), refused by SERIALIZABLE (40001 or 40P01, which a
- * read-only serializable transaction can meet too), or refused by the fence (StaleSnapshot).
+ * The session does not load pg_plan_advice, the planner module that holds every statement grizzle sends to the plan its
+ * compile proved, so the call ran nothing: the snapshot guard every transaction calls first refused it (55Z04,
+ * physical/ddl/ledger.ts adviceLoaded), since without the library PostgreSQL plans, and replans, every statement by its
+ * own costs alone, the advice it carries silently ignored. `grizzle migrate` refuses such a database too. Not
+ * retryable: every call meets it again until a superuser loads the library for the database
+ * (`ALTER DATABASE ... SET session_preload_libraries = 'pg_plan_advice'`, which each new session reads) or the server
+ * (`shared_preload_libraries = 'pg_plan_advice'`, a restart).
  */
-export type ReadError = ReadFailure | TransientFailure | StaleSnapshot
+export class AdviceUnloaded extends Data.TaggedError("AdviceUnloaded") {
+	override get message(): string {
+		return "the session does not load pg_plan_advice: a superuser loads it for the database (ALTER DATABASE ... SET session_preload_libraries = 'pg_plan_advice') or the server (shared_preload_libraries = 'pg_plan_advice')"
+	}
+}
+
+/**
+ * A failed read: at run time or refused before any SQL (ReadFailure), refused by SERIALIZABLE (40001 or 40P01, which a
+ * read-only serializable transaction can meet too), refused by the fence (StaleSnapshot), or by a session that does not
+ * load pg_plan_advice (AdviceUnloaded).
+ */
+export type ReadError = ReadFailure | TransientFailure | StaleSnapshot | AdviceUnloaded
 
 /**
  * Why a write changed nothing because its session could not be had or broke before COMMIT was sent: the
@@ -385,3 +401,4 @@ export type ApplyError =
 	| ExecutionFailure
 	| CommitUnknown
 	| StaleSnapshot
+	| AdviceUnloaded

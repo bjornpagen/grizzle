@@ -24,7 +24,11 @@ export {
 	type ProofStatements,
 	proofStatements
 } from "#compiler/deploy/ledger/ledger.ts"
-export { proofsTableName } from "#compiler/physical/ddl/ledger.ts"
+export {
+	loadedModuleColumns,
+	planAdviceModule,
+	proofsTableName
+} from "#compiler/physical/ddl/ledger.ts"
 export {
 	dataStepBracket,
 	immutableTriggerName,

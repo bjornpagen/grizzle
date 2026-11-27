@@ -156,7 +156,14 @@ export const sqlstates = {
 	 * write needs (physical/ddl/rules.ts addStandUps), which a served write's session does before its first call of the
 	 * write (runtime/write/flight.ts StandUp). Only a writer outside grizzle meets it.
 	 */
-	grizzleUnstood: brand("55Z03")
+	grizzleUnstood: brand("55Z03"),
+	/**
+	 * grizzle's own, of class 55 (object not in prerequisite state), which the snapshot guard raises first
+	 * (physical/ddl/ledger.ts snapshotGuardDdl): the session's backend has not loaded pg_plan_advice, so PostgreSQL would
+	 * plan every statement of the transaction without the advice it carries. The same call on the same database meets it
+	 * again until the database loads the library.
+	 */
+	grizzleAdviceUnloaded: brand("55Z04")
 } as const
 
 /**
