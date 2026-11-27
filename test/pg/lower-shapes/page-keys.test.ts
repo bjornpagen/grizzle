@@ -15,16 +15,21 @@
  *
  * On PostgreSQL 19, a ledger in small (page-keys.fixtures.ts): learners' sittings with their events, their statuses
  * stored under the learner's unit, gradings and waiting positions, marks and emails; an operator granted teaching,
- * signed in by the claims; a few learners and then a hundred or so more, each newer than any before, under counted
- * statistics or statistics stating each value its own or every row one value (pg_restore_attribute_stats).
+ * signed in by the claims; a few learners and then a hundred or so more, each newer than any before, every table stood
+ * in a pg_class state (test/support/advice.ts PgClassState: never vacuumed, counted empty, analyzed, skewed, large).
+ * The window is paged as a served Db of the ledger's full world pages it, its role's compile for a page under the
+ * advice its served record ships (advice.ts servedPageRead).
  *
  * Oracle: a second implementation, the page oracle's baseline (test/support/conservative.ts conservativePage), read
- * under the store's own statistics, each part's rows the same, the windows of every start at an anchor drawn from the
- * unpaged read; the rule's verdict, the coach dashboard's windows driven and the grade's, the email's and the marked
- * windows not; and a bound on a driven window's generic plan, the one every session grizzle opens runs at any values:
- * its scans read at most 60 rows for each row it holds, 200 more and an offset's skipped entries, and the operator's
- * account once, beside a few learners and beside many, under any statistics the case states, which stand for the
- * optimized window's read alone (page-keys.fixtures.ts underStated).
+ * under the store's own statistics, analyzed, and cost-chosen: the oracle of the rows alone, each part's the same, the
+ * windows of every start at an anchor drawn from the unpaged read; the rule's verdict, the coach dashboard's windows
+ * driven and the grade's, the email's and the marked windows not; the plan laws over the page's five variants
+ * (advice.ts lawsHold: Laws 1 to 3, the advice its record ships the advice its plans carry); its budget, each scan of
+ * the window's plan within the pages that plan gives (advice.ts budgetOfPlan); and a bound on a driven window's plan
+ * under its advice, the generic plan every session grizzle opens runs at any values: its scans read at most 60 rows for
+ * each row it holds, 200 more and an offset's skipped entries, and the operator's account once, beside a few learners
+ * and beside many, in every pg_class state, which stands for the optimized window's read alone
+ * (page-keys.fixtures.ts apart).
  *
  * And a window of one tab of the coach dashboard as metis's coachDashboard (packages/ops/src/coach.ts) in the form its
  * driver reads, over a stored DashboardEntry, in AlphaTest's order: scored, graded and assigned descending, a seek of
@@ -40,7 +45,7 @@
  * a window joining each sitting's marks, several a sitting, each with its tag's definition, not driven.
  *
  * Features: each driven window from each start, each refused window, each driven window over rows it holds, each
- * stored view holding rows, beside a few learners and many, under each statistics.
+ * stored view holding rows, beside a few learners and many, with every table in each pg_class state.
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { property, ReplayToken } from "@bjornpagen/testing/property"
@@ -55,11 +60,12 @@ import {
 	starts,
 	storedViews
 } from "#test/pg/lower-shapes/page-keys.fixtures.ts"
+import { pgClassStates } from "#test/support/advice.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Every driven window from every start, every refused window, each driven window over rows it holds and each stored
- * view holding rows (no run of empty reads alone passes), beside a few learners and many, under each statistics.
+ * view holding rows (no run of empty reads alone passes), beside a few learners and many, in each pg_class state.
  */
 const situations = [
 	...Arr.flatMap(drivenWindows, (w) => Arr.map(starts, (s) => `${w} from ${s}` as const)),
@@ -68,17 +74,15 @@ const situations = [
 	...Arr.map(storedViews, (v) => `${v.name} holds rows` as const),
 	"beside a few learners",
 	"beside many learners",
-	"under counted statistics",
-	"under statistics stating each value its own",
-	"under statistics stating every row one value"
+	...Arr.map(pgClassStates, (s) => `with every table ${s}` as const)
 ] as const satisfies ReadonlyArray<Reached<PageFeature>>
 
 /**
  * A window of the coach dashboard reads its own rows alone however many sittings the store holds beside them, equal to
- * the unpaged read's rows from its start, under any statistics: its driver's take by its index, then each row's
- * assignment, test, guard, email, percent and waiting positions at the row's keys.
+ * the unpaged read's rows from its start, in any pg_class state, planned as the advice it carries: its driver's take by
+ * its index, then each row's assignment, test, guard, email, percent and waiting positions at the row's keys.
  *
- * Its budget is the runner's: its 61 situations, 45 of them drawn alike (a driven window from one start, or a refused
+ * Its budget is the runner's: its 63 situations, 45 of them drawn alike (a driven window from one start, or a refused
  * window from any), and each still pending when the steered phase begins aimed at by a case built at it (pageSpace).
  */
 export const aWindowReadsItsDriversTakeAndEachRowAtItsKey = property.explore(pageSpace, {
@@ -88,12 +92,12 @@ export const aWindowReadsItsDriversTakeAndEachRowAtItsKey = property.explore(pag
 		({ stored }, c) =>
 		(drawn) =>
 			Effect.gen(function* () {
-				const { connection, bare, value } = yield* stored
-				yield* runPage(value.installed, connection, bare, drawn, c)
+				const clone = yield* stored
+				yield* runPage(clone, drawn, c)
 			}),
 	oracle: {
 		kind: "second-implementation",
-		name: "the page oracle's baseline (conservativePage) under the store's own statistics, each part's rows the same, at an anchor drawn from the unpaged read; the rule's verdict, the coach dashboard's windows, the tab by an email and den's queue driven and the others not; and the bound on a driven window's generic plan: its scans read at most 60 rows for each row it holds, 200 more and an offset's skipped entries, and the operator's account once, beside a few learners and beside a hundred or so more, under counted statistics and statistics stating each value its own or every row one value"
+		name: "the page oracle's baseline (conservativePage), analyzed and cost-chosen, the oracle of the rows alone, each part's the same, at an anchor drawn from the unpaged read; the rule's verdict, the coach dashboard's windows, the tab by an email and den's queue driven and the others not; the plan laws over the page's five variants under the advice its served record ships; the window's budget; and the bound on a driven window's generic plan under its advice: its scans read at most 60 rows for each row it holds, 200 more and an offset's skipped entries, and the operator's account once, beside a few learners and beside a hundred or so more, in every pg_class state"
 	},
 	kept: [
 		{
@@ -101,7 +105,7 @@ export const aWindowReadsItsDriversTakeAndEachRowAtItsKey = property.explore(pag
 				"test/pg/lower-shapes/page-keys.test.ts#aWindowReadsItsDriversTakeAndEachRowAtItsKey:1e1fffffff0000.16:1.5.a.4.1.1.1.1.2c.1"
 			),
 			reason:
-				"the coach dashboard's joined window of the tab of every sitting from its last rows, under statistics stating each value its own, beside 1,040 learners and then 1,184: the page oracle's baseline, read under them, priced the tab's 7,280 entries at one row and rescanned a hash join of every assignment for each, in the window's body and in each of its six attachments (53 million rows a copy, 155 s), and the case hung past the runner's 60 s, where the optimized window read 593 buffers in 9 ms; read under the store's own statistics, the baseline's unpaged read takes 1.8 s and each window 0.6 s",
+				"the coach dashboard's joined window of the tab of every sitting from its last rows, beside 1,040 learners and then 1,184, every table counted empty: the page oracle's baseline, read under the statistics the case stated (each value its own, when the case was kept), priced the tab's 7,280 entries at one row and rescanned a hash join of every assignment for each, in the window's body and in each of its six attachments (53 million rows a copy, 155 s), and the case hung past the runner's 60 s, where the optimized window read 593 buffers in 9 ms; the baseline reads its learners analyzed, apart from the optimized window's state (page-keys.fixtures.ts apart), its unpaged read 1.8 s and each window 0.6 s under the store's own counts",
 			since: "2026-11-27"
 		},
 		{
@@ -109,7 +113,7 @@ export const aWindowReadsItsDriversTakeAndEachRowAtItsKey = property.explore(pag
 				"test/pg/lower-shapes/page-keys.test.ts#aWindowReadsItsDriversTakeAndEachRowAtItsKey:-:4.0.0.0.0.0.0.2f.0.0.0"
 			),
 			reason:
-				"every sitting's window at the position 87% of its rows in, of one row, under counted statistics, beside 1,030 learners and then 1,090: judged by the plan PostgreSQL made at the call's position, which no session of grizzle runs, the driver's take of the position's 2,688 entries read the status table whole, a sequential scan where its index in order serves; the generic plan every session runs reads the status index in order, 2,688 entries for any position, then D at the one kept key",
+				"every sitting's window at the position 87% of its rows in, of one row, beside 1,030 learners and then 1,090, every table never vacuumed: judged by the plan PostgreSQL made at the call's position (when the case was kept, under counted statistics and no advice), the driver's take of the position's 2,688 entries read the status table whole, a sequential scan where its index in order serves; the plan its advice carries reads the status index in order, 2,688 entries for any position, then D at the one kept key, a positioned window's bound twice its position past a keyset window's",
 			since: "2026-11-27"
 		}
 	],
@@ -212,15 +216,18 @@ export const aWindowReadsItsDriversTakeAndEachRowAtItsKey = property.explore(pag
 		},
 		{
 			file: "test/pg/lower-shapes/page-keys.fixtures.ts",
-			original: '\t\tyield* bare.query("ROLLBACK TO SAVEPOINT page_keys_stated", [])\n',
-			replacement: "",
-			why: "The statistics a case states outlive its optimized window's read: the page oracle's baseline is planned under them, a tab's every entry priced at one row and a hash join of every assignment rescanned for each, in the window's body and in each attachment's, and the kept case hangs past the runner's 60 s."
+			original:
+				'\t\t\t\tyield* standIn(session, learnersLoad(installed, connection, c, c.learners), "analyzed")\n',
+			replacement:
+				"\t\t\t\tyield* standIn(session, learnersLoad(installed, connection, c, c.learners), c.state)\n",
+			why: "The page oracle's baseline reads its learners in the case's pg_class state, not its own analyzed statistics: counted empty prices every table at about a row, the baseline is planned by that tie, a tab's every entry rescanning a hash join of every assignment in the window's body and in each attachment's, and the kept case hangs past the runner's 60 s."
 		},
 		{
-			file: "test/support/judge.ts",
-			original: '\t\texplainServerStatement({ values }, sql, params, "generic", {\n',
-			replacement: '\t\texplainServerStatement({ values }, sql, params, "custom", {\n',
-			why: "A bound reads the plan PostgreSQL makes at a statement's values, which no session of grizzle runs: at a position most of the rows in, a positioned window reads its driver's table whole, and the kept positioned case reads a table larger than a probe whole."
+			file: "packages/engine/src/program/served.ts",
+			original:
+				"\t\t[requests.first, requests.after, requests.last, requests.before, requests.at].map(\n",
+			replacement: "\t\t[requests.first, requests.after, requests.last, requests.before].map(\n",
+			why: "A page's served record ships no advice for its positioned window: the transaction it opens holds no item of the `at` variant's statement, which PostgreSQL then plans by its own costs, and the advice in force is not the advice the page's plans carry (Law 1)."
 		}
 	]
 })

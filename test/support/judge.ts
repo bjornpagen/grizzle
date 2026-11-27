@@ -3,8 +3,6 @@
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import {
-	explainServerStatement,
-	type MalformedPlan,
 	type PlanNode,
 	parsePlan,
 	planNodes,
@@ -12,7 +10,6 @@ import {
 	rowsRead,
 	scannedRows
 } from "#bench/harness/explain.ts"
-import type { BenchSession } from "#bench/harness/session.ts"
 import { identifierOf, identity, upkeepParts } from "#compiler/core/identity.ts"
 import { temporarySchema } from "#compiler/core/temporary.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
@@ -38,7 +35,6 @@ import { identityHooks, Transform } from "#compiler/sql/transform.ts"
 import { routineAdviceHeld } from "#test/support/advice.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { standUpCallsOf } from "#test/support/kernel/naming.ts"
-import type { SqlError } from "#test/support/pg.ts"
 import { tableOfSource } from "#test/support/sql.ts"
 import type { CaseSession, RawSession } from "#test/support/substrate/session.ts"
 
@@ -810,78 +806,6 @@ export const scannedTableOf = (n: PlanNode): Option.Option<string> =>
 	n.nodeType !== "Bitmap Index Scan" && Str.endsWith(" Scan")(n.nodeType)
 		? n.relation
 		: Option.none()
-
-/**
- * A statement's plan as every session grizzle opens runs it, the plan a bound over it reads: PREPAREd, then run by
- * EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) EXECUTE at `params`, each a parameter's text, under the
- * generic plans every session plans under (physical/ddl/roles.ts genericPlans, bench/harness/explain.ts
- * explainServerStatement), one plan for every value of them. EXPLAIN of the statement with its parameters bound plans
- * it at their values, a plan no session of grizzle runs: page-keys' window at a position most of its rows in read its
- * driver's table whole so, where the generic plan reads the driver's index in order.
- */
-export const planAsRun = (
-	values: BenchSession["values"],
-	sql: string,
-	params: ReadonlyArray<string>
-): Effect.Effect<PlanNode, SqlError | MalformedPlan> =>
-	Effect.map(
-		explainServerStatement({ values }, sql, params, "generic", {
-			serialize: { kind: "off" },
-			wal: false,
-			verbose: false
-		}),
-		(explained) => explained.plan
-	)
-
-/**
- * What an index probe of one row costs PostgreSQL at least, the index's leaf page and the table's page, each a random
- * page (costsize.c cost_index over genericcostestimate): twice random_page_cost, as the session reads it. A table
- * PostgreSQL reads whole for no more than that is a page or two, a read that costs what one probe of it would.
- */
-export const probeCostOf = <E>(
-	values: (sql: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, E>
-): Effect.Effect<number, E> =>
-	Effect.map(
-		values("SELECT pg_catalog.current_setting('random_page_cost')::pg_catalog.float8"),
-		(rows) => 2 * Number(rows[0]?.[0])
-	)
-
-/** Whether `n` reads a table whole for no more than one probe costs (`probeCostOf`): a sequential scan of a page or two. */
-const probeSized = (n: PlanNode, probeCost: number): boolean =>
-	n.nodeType === "Seq Scan" && n.totalCost <= probeCost
-
-/**
- * A plan's keyed work: its work as its scans read it (`scannedWork`), but the rows of each sequential scan of a table
- * no larger than one probe (`probeSized`), which PostgreSQL reads whole where a lookup of a key in it would cost as
- * much, a page or two whatever the key. With no planner setting, PostgreSQL scans a table of a few rows and looks a key
- * up in a larger one, so a bound over a write's keyed work holds at every size, small tables among them, and a read of
- * a table larger than a probe by anything but its key shows as the rows it reads (`wideScans`).
- */
-export const keyedWork = (plan: PlanNode, probeCost: number): number =>
-	scannedWork(plan) -
-	Arr.reduce(Arr.fromIterable(planNodes(plan)), 0, (sum, n) =>
-		probeSized(n, probeCost) ? sum + scannedRows(n) : sum
-	)
-
-/** The tables `plan` reads whole by a sequential scan that costs more than one probe (`probeCostOf`): each a read of a
- * table where a lookup of its key would serve, by its relation's name, once a scan. */
-export const wideScans = (plan: PlanNode, probeCost: number): ReadonlyArray<string> =>
-	Arr.flatMap(Arr.fromIterable(planNodes(plan)), (n) =>
-		n.nodeType === "Seq Scan" && n.totalCost > probeCost ? Option.toArray(n.relation) : []
-	)
-
-/**
- * A read's keyed work: its keyed work (`keyedWork`) and every row each scan of a CTE reads over all of its loops, its
- * output and what its filter removed, where a CTE read at a correlated row's value is scanned whole for each such row.
- * The one measure of a read's work a lowering's bound holds with no planner setting, beside tables larger than a probe.
- */
-export const keyedReadWork = (plan: PlanNode, probeCost: number): number =>
-	keyedWork(plan, probeCost) +
-	Arr.reduce(
-		Arr.filter(Arr.fromIterable(planNodes(plan)), (n) => n.nodeType === "CTE Scan"),
-		0,
-		(sum, n) => sum + scannedRows(n)
-	)
 
 /**
  * A read's work: its work as its scans read it (`scannedWork`) and every row each scan of a CTE reads over all of its

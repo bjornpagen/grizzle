@@ -10,13 +10,11 @@ import type { PageRuntime } from "#adapter/page/template.ts"
 import { windowCall } from "#adapter/page/window.ts"
 import { partRuns } from "#adapter/reader/execution.ts"
 import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
-import { compiledPageRuntime } from "#adapter/served/forms.ts"
 import { keptRows } from "#adapter/wire/batch.ts"
 import { planNodes, scannedRows } from "#bench/harness/explain.ts"
-import { identity } from "#compiler/core/identity.ts"
+import type { BenchSession } from "#bench/harness/session.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { type Anchor, RowKey } from "#compiler/live/index.ts"
-import type { PageTemplate } from "#compiler/lower/shapes/page/compile.ts"
 import { fillStatement } from "#compiler/physical/derived/objects.ts"
 import type { Row as DeliveredRow, Param } from "#compiler/plan/common.ts"
 import { columnPosition, rowCell, scalarReader } from "#compiler/plan/runtime.ts"
@@ -36,27 +34,31 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { answered, paged } from "#compiler/public/workload.ts"
-import { noAdvice } from "#compiler/sql/advice.ts"
 import { printObjectName, printStatement } from "#compiler/sql/print.ts"
+import {
+	advisedExplain,
+	budgetOfPlan,
+	fullWorldRole,
+	lawsHold,
+	type PgClassState,
+	pgClassStates,
+	servedPageRead,
+	type StateLoad,
+	standIn
+} from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { testCompile } from "#test/support/compile.ts"
+import { conservativePageRuntime } from "#test/support/conservative.ts"
 import { sentSql } from "#test/support/flight/scripted.ts"
-import { type Installed } from "#test/support/install-migrate.ts"
+import type { Generated, Installed } from "#test/support/install-migrate.ts"
 import { fullWorldTemplate } from "#test/support/installed.ts"
-import { keyedReadWork, planAsRun, probeCostOf, wideScans } from "#test/support/judge.ts"
-import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { readWork } from "#test/support/judge.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
-import { everyColumnCarried } from "#test/support/spine.ts"
-import {
-	countedAsVacuumed,
-	rowsBeside,
-	rowsPerPage,
-	type StatedDistinct,
-	statedDistinct
-} from "#test/support/substrate/fill.ts"
+import { rowsBeside, rowsPerPage } from "#test/support/substrate/fill.ts"
+import { superuserClient } from "#test/support/substrate/shared.ts"
+import type { RolledBack } from "#test/support/substrate/substrate.ts"
 import { outputRows, textsOfParams } from "#test/support/wire.ts"
-import { compiledPageResult } from "#test/unit/page/fixtures.ts"
 
 /** A Clerk user, as metis's ClerkUser. */
 const Clerk = str.regex("^user_[0-9A-Za-z]{1,64}$")
@@ -998,12 +1000,6 @@ export const pageTemplate = fullWorldTemplate({
 	ambient: ordinarySession
 })
 
-/**
- * How a case's columns' statistics stand where its optimized window is read: as the stored rows' counts leave them, or
- * stated each value its own or every row one value (fill.ts statedDistinct, pg_restore_attribute_stats).
- */
-export type Statistics = "counted" | StatedDistinct
-
 /** Where a window starts: the first rows, past an anchor row, the last rows, before an anchor row, or at a position. */
 export type Start = "first" | "after" | "last" | "before" | "at"
 
@@ -1012,7 +1008,8 @@ export type Start = "first" | "after" | "last" | "before" | "at"
  * events by place (none, a start, a start and a pause, a start and a submission, an abandonment, which only the first
  * two learners' sittings hold: a status rare however many learners the store holds), each submitted sitting's
  * `revisions` gradings, its marks, and an email for every other learner; the anchor's place in the unpaged read, a
- * fraction of its rows; the learners stored beside them before the window is read again; and the statistics.
+ * fraction of its rows; the learners stored beside them before the window is read again; and the pg_class state every
+ * table stands in where its optimized window is read (test/support/advice.ts PgClassState).
  */
 export interface PageCase {
 	readonly window: Window
@@ -1025,7 +1022,7 @@ export interface PageCase {
 	readonly place: number
 	readonly rare: boolean
 	readonly more: number
-	readonly statistics: Statistics
+	readonly state: PgClassState
 }
 
 /** Where a window may start, each a window's own variant of the page. */
@@ -1069,7 +1066,7 @@ const caseAt =
 			place: s.draw(int(0, 100)),
 			rare: s.draw(element([true, false])),
 			more: s.draw(int(60, 160)),
-			statistics: s.draw(element<Statistics>(["counted", "unique", "one value"]))
+			state: s.draw(element<PgClassState>(pgClassStates))
 		}
 	}
 
@@ -1103,9 +1100,7 @@ export type PageFeature =
 	| `${StoredView} holds rows`
 	| "beside a few learners"
 	| "beside many learners"
-	| "under counted statistics"
-	| "under statistics stating each value its own"
-	| "under statistics stating every row one value"
+	| `with every table ${PgClassState}`
 
 /**
  * The learners a case stores beside its own before any of them, numbered past every learner a case stores, each as a
@@ -1220,10 +1215,13 @@ const notedStoredViews = (installed: Installed, connection: PgConnection, k: Cas
 		}
 	})
 
-/** Every stored table a case's statistics stand on, each by its quoted name. */
-const statisticsTables = (installed: Installed): ReadonlyArray<string> => {
+/** Every stored table a case's rows stand in, each by its quoted name. */
+const caseTables = (installed: Installed): Arr.NonEmptyReadonlyArray<string> => {
 	const names = namesOf(installed)
 	return [
+		names.table(AssignmentStatus),
+		names.table(SittingStatusOne),
+		names.table(DashboardEntry),
 		...Arr.map(
 			[
 				People,
@@ -1247,54 +1245,46 @@ const statisticsTables = (installed: Installed): ReadonlyArray<string> => {
 				Grant
 			],
 			(t) => names.table(t)
-		),
-		names.table(AssignmentStatus),
-		names.table(SittingStatusOne),
-		names.table(DashboardEntry)
+		)
 	]
 }
 
 /**
- * The store's own statistics, after the rows of each table are stored: each table's size as a VACUUM of it counts it
- * (fill.ts countedAsVacuumed), its columns' as the installation declares them.
+ * The load of a case's learners 1 to `learners` on `connection` (test/support/advice.ts StateLoad), a learner its unit:
+ * each one's rows (`stored`), then every stored view filled again over what the tables hold (`storedFills`).
  */
-const counted = (installed: Installed): ReadonlyArray<string> =>
-	Arr.map(statisticsTables(installed), countedAsVacuumed)
+const learnersLoad = (
+	installed: Installed,
+	connection: PgConnection,
+	c: PageCase,
+	learners: number
+): StateLoad => ({
+	tables: caseTables(installed),
+	units: learners,
+	load: (from, to) =>
+		Effect.forEach(
+			[...stored(installed, c, from, to), ...storedFills(installed)],
+			(sql) => connection.query(sql, []),
+			{ discard: true }
+		)
+})
 
 /**
- * The statistics a case states of every stored table's columns (fill.ts statedDistinct), none where it counts them:
- * what the optimized window is read and judged under (`underStated`), never the baseline.
+ * `use` in a savepoint `bare` sets (where `connection`'s statements, each its own savepoint released after it, would
+ * end it), rolled back to after it, so what it stored, the statistics it left and the advice it held stand for it alone.
+ * Each read of a case stands its learners in a state of its own this way: the optimized window's in the case's
+ * pg_class state, under the page's advice; the baseline's analyzed, under none. The baseline reads every entry of the
+ * window's tab and each entry's attachments as it stands, which PostgreSQL plans by its statistics: under statistics
+ * stating each value its own it priced the tab of every sitting, 7,280 entries beside 1,040 learners, at one row and
+ * rescanned a hash join of every assignment for each, in the window's body and in each of its six attachments, 53
+ * million rows a copy and 155 s.
  */
-const stated = (installed: Installed, c: PageCase): ReadonlyArray<string> => {
-	const statistics = c.statistics
-	return statistics === "counted"
-		? []
-		: Arr.map(statisticsTables(installed), (t) => statedDistinct(t, statistics))
-}
-
-/**
- * `read` under the statistics `statements` state, which stand for it alone: a savepoint `bare` sets (where
- * `connection`'s statements, each its own savepoint released after it, would end it), the statements, the read, and a
- * rollback to the savepoint, after which the store's own statistics stand again. The statistics are the optimized
- * window's situation. The baseline's rows are the store's whatever any statistics state, and it reads every entry of
- * the window's tab and each entry's attachments as it stands, which PostgreSQL plans by them: under statistics stating
- * each value its own, it priced the tab of every sitting, 7,280 entries beside 1,040 learners, at one row and rescanned
- * a hash join of every assignment for each, in the window's body and in each of its six attachments, 53 million rows a
- * copy and 155 s, where under the store's own its unpaged read takes 1.8 s.
- */
-const underStated = <A, E, R>(
-	bare: PgConnection,
-	statements: ReadonlyArray<string>,
-	read: Effect.Effect<A, E, R>
-) =>
+const apart = <A, E, R>(bare: PgConnection, name: string, use: Effect.Effect<A, E, R>) =>
 	Effect.gen(function* () {
-		yield* bare.query("SAVEPOINT page_keys_stated", [])
-		for (const sql of statements) {
-			yield* bare.query(sql, [])
-		}
-		const value = yield* read
-		yield* bare.query("ROLLBACK TO SAVEPOINT page_keys_stated", [])
-		yield* bare.query("RELEASE SAVEPOINT page_keys_stated", [])
+		yield* bare.query(`SAVEPOINT ${name}`, [])
+		const value = yield* use
+		yield* bare.query(`ROLLBACK TO SAVEPOINT ${name}`, [])
+		yield* bare.query(`RELEASE SAVEPOINT ${name}`, [])
 		return value
 	})
 
@@ -1438,29 +1428,27 @@ const textSet = (rows: ReadonlyArray<ReadonlyArray<string>>): ReadonlyArray<stri
 
 /**
  * One case in its one transaction, which the case's end rolls back: its session's stand-ups called, as a direct writer of
- * a table the rule judge holds calls them (an assignment's containment in the one status a sitting), learners 1 to
- * `learners` stored with their events, gradings, marks and emails, the tests, and an operator granted teaching, each
- * table's size counted, under claims naming the operator's Clerk user, beside the learners a case stores first
- * (`besideLearners`), under no planner setting but the generic plans every session grizzle opens plans under. The
- * case's window is read by its optimized page under the statistics the case states (`underStated`, a savepoint `bare`
- * sets and rolls back to) and by the page oracle's baseline (test/support/conservative.ts conservativePage) under the
- * store's own, each part's rows equal; an anchored window's anchor is the row at the case's place in the unpaged read,
- * and an offset window's position that place. The coach dashboard's windows are driven, the others not; a driven
- * window's generic plan's scans read at most 60 rows for each row the window holds, 200 more and its offset's skipped
- * entries, and the operator's account once; then `more` learners are stored beside them, each newer than the case's
- * own, and the same window, its anchor the same row, is read again, equal to the baseline and within the same bound.
+ * a table the rule judge holds calls them (an assignment's containment in the one status a sitting), the tests, an
+ * operator granted teaching and the learners a case stores beside its own (`besideLearners`), under claims naming the
+ * operator's Clerk user. The case's window is paged as a served Db of the ledger's full world pages it
+ * (test/support/advice.ts servedPageRead: the role's compile, read "page", under the advice its served record ships),
+ * and the page oracle's baseline built beside it (test/support/conservative.ts conservativePageRuntime), cost-chosen,
+ * the oracle of its rows alone. Each read stands learners 1 to `learners` in a savepoint of its own (`apart`): the
+ * baseline's analyzed, the unpaged read and the window at the anchor its place names; the optimized window's in the
+ * case's pg_class state (advice.ts standIn), where the plan laws hold over the page's five variants (lawsHold, which
+ * then holds the advice its record ships in force), the window is read, its plan run under that advice keeps its
+ * budget (budgetOfPlan: each scan within the pages its plan gives), a driven window's scans read at most 60 rows for
+ * each row it holds, 200 more and its offset's skipped entries (judge.ts readWork), and the operator's account is read
+ * once; each part's rows the baseline's. Then `more` learners are stored beside them, each newer than the case's own,
+ * and both are read again, the anchor the same row.
  */
-export const runPage = (
-	installed: Installed,
-	connection: PgConnection,
-	bare: PgConnection,
-	c: PageCase,
-	k: Case<PageFeature>
-) =>
+export const runPage = (clone: RolledBack<Generated>, c: PageCase, k: Case<PageFeature>) =>
 	Effect.gen(function* () {
+		const { connection, bare } = clone
+		const installed = clone.value.installed
 		const names = namesOf(installed)
 		const codes = names.installation.names.codes
-		const probeCost = yield* probeCostOf((sql) => connection.queryValues(sql, []))
+		const session: BenchSession = { values: connection.queryValues }
 		for (const sql of [
 			...names.standUps,
 			`INSERT INTO ${names.table(Test)} SELECT t, 'test ' || t, t FROM generate_series(1, 3) AS t`,
@@ -1469,42 +1457,34 @@ export const runPage = (
 			`INSERT INTO ${names.table(Grant)} VALUES ('staff', ${String(names.code(Capability, "teacher"))})`,
 			...stored(installed, c, besideFirst, besideFirst + besideLearners - 1),
 			`INSERT INTO ${names.table(QueueWorker)} VALUES (1, 1), (1, 2)`,
-			...stored(installed, c, 1, c.learners),
-			...storedFills(installed),
-			...counted(installed),
 			`SELECT pg_catalog.set_config('grizzle.claims', '{"Session":{"sub":"user_staff"}}', true)`
 		]) {
 			yield* connection.query(sql, [])
 		}
-		yield* notedStoredViews(installed, connection, k)
-		const options = {
-			...testCompile,
-			installation: identity.schema(parsedSchemaName(installed.declared))
-		}
-		const compiled = succeeded(compiledPageResult(windows[c.window], options), "the page compiles")
-		const runtimeOf = (page: PageTemplate): PageRuntime =>
-			compiledPageRuntime({
-				advice: noAdvice,
-				page,
-				params: compiled.query.params,
-				codes,
-				spine: everyColumnCarried(compiled.query.programs.checked.dag)
-			})
-		const optimized = runtimeOf(compiled.page)
-		const baseline = runtimeOf({ ...compiled.page, artifact: compiled.baseline })
-		const params = paramsOf(c)
-		/** The unpaged read's rows, the baseline's first window holding every row. */
-		const everyRow = yield* runWindow(
-			baseline,
-			connection,
-			params,
-			codes,
-			{ kind: "start" },
-			100_000
+		const page = yield* servedPageRead(
+			installed,
+			fullWorldRole(installed, Ops, [Session]),
+			windows[c.window],
+			`the ${c.window} window`
 		)
-		const at = Math.floor((c.place / 100) * Math.max(everyRow.keys.length - 1, 0))
-		const anchorKey = Option.fromNullishOr(everyRow.keys[at])
-		const anchor = ((): Anchor | undefined => {
+		const optimized = page.runtime
+		const baseline = succeeded(
+			Result.mapError(
+				conservativePageRuntime(
+					optimized,
+					page.compiled.template,
+					page.compiled.desc,
+					page.artifacts
+				),
+				(e) => String(e)
+			),
+			"the page's baseline compiles"
+		).runtime
+		const params = paramsOf(c)
+		/** The window's anchor in a read of every row: the row at the case's place, or its position. */
+		const anchorIn = (every: Run): Anchor | undefined => {
+			const at = Math.floor((c.place / 100) * Math.max(every.keys.length - 1, 0))
+			const anchorKey = Option.fromNullishOr(every.keys[at])
 			switch (c.start) {
 				case "first":
 					return { kind: "start" }
@@ -1517,106 +1497,130 @@ export const runPage = (
 				case "before":
 					return Option.isSome(anchorKey) ? { kind: "before", key: anchorKey.value } : undefined
 			}
-		})()
-		if (anchor === undefined) {
+		}
+		const first = yield* apart(
+			bare,
+			"page_keys_baseline",
+			Effect.gen(function* () {
+				yield* standIn(session, learnersLoad(installed, connection, c, c.learners), "analyzed")
+				yield* notedStoredViews(installed, connection, k)
+				const every = yield* runWindow(
+					baseline,
+					connection,
+					params,
+					codes,
+					{ kind: "start" },
+					100_000
+				)
+				const anchor = anchorIn(every)
+				if (anchor === undefined) {
+					return { every, at: Option.none() }
+				}
+				const expected = yield* runWindow(baseline, connection, params, codes, anchor, c.size)
+				return { every, at: Option.some({ anchor, expected }) }
+			})
+		)
+		if (Option.isNone(first.at)) {
 			k.note(situationOf(c))
 			return
 		}
+		const { anchor, expected } = first.at.value
 		/**
 		 * The windows a driver drives, and those it must not (`Window`): the rule's verdict, which each refusal's kill
-		 * turns. A driven window's generic plan's scans read at most 60 rows for each row it holds and 200 more, and each
-		 * skipped row of an offset its driver's index entry; it reads the operator's account once, the guard read at the
-		 * claims' key. A position is a rank, the count of rows of the order before the window (README "A key or a
-		 * position"), which no stored fact holds, every row written before another moving its rank, and no B-tree of
-		 * PostgreSQL's counts: its window reads the driver's index in order from its first entry, o + k entries, then D at
-		 * its k keys, at most twice the position past a keyset window's bound.
+		 * turns. A driven window's scans read at most 60 rows for each row it holds and 200 more, and each skipped row of
+		 * an offset its driver's index entry; it reads the operator's account once, the guard read at the claims' key. A
+		 * position is a rank, the count of rows of the order before the window (README "A key or a position"), which no
+		 * stored fact holds, every row written before another moving its rank, and no B-tree of PostgreSQL's counts: its
+		 * window reads the driver's index in order from its first entry, o + k entries, then D at its k keys, at most
+		 * twice the position past a keyset window's bound.
 		 */
 		const driven = Option.isSome(drivenOf(c))
 		assert.equal(
-			compiled.query.programs.optimized.window.kind,
+			page.compiled.template.programs.optimized.window.kind,
 			driven ? "driven" : "asItStands",
 			`${Formatter.format(c)}: the ${c.window} window's driver`
 		)
-		const bound = 60 * c.size + 200 + (c.start === "at" ? 2 * at : 0)
+		const bound = 60 * c.size + 200 + (anchor.kind === "at" ? 2 * anchor.position : 0)
 		/**
-		 * A driven window's plan as every session grizzle opens runs it (judge.ts planAsRun), one plan for every
-		 * position, boundary and size: no table larger than a probe read whole, its scans within the bound, and the
-		 * operator's account read once. A page binds no column's array, the one parameter sent in binary, so each of its
-		 * parameters is a text (wire.ts textsOfParams).
+		 * The window read under the page's advice, its plan run under it (advice.ts advisedExplain, one plan for every
+		 * position, boundary and size: the generic plan every session runs), each of its parameters a text, since a page
+		 * binds no column's array, the one parameter sent in binary (wire.ts textsOfParams): its budget kept, a driven
+		 * window's scans within the bound, and the operator's account read once.
 		 */
-		const bounded = (read: Run, learners: number) =>
-			Effect.gen(function* () {
-				const plan = yield* planAsRun(connection.queryValues, read.sql, textsOfParams(read.params))
-				assert.deepEqual(
-					wideScans(plan, probeCost),
-					[],
-					`${Formatter.format(c)}: the window beside ${String(learners)} learners reads no table larger than a probe whole\n${read.sql}`
-				)
-				const scanned = keyedReadWork(plan, probeCost)
-				assert.ok(
-					scanned <= bound,
-					`${Formatter.format(c)}: the window beside ${String(learners)} learners reads ${String(scanned)} rows, past its bound ${String(bound)}\n${read.sql}`
-				)
-				const accounts = Arr.reduce(
-					Arr.filter(
-						[...planNodes(plan)],
-						(n) => Option.getOrUndefined(n.relation) === "clerk_account"
-					),
-					0,
-					(sum, n) => sum + scannedRows(n)
-				)
-				assert.ok(
-					accounts <= guardAccountReads,
-					`${Formatter.format(c)}: the window reads ${String(accounts)} accounts, the guard once at the claims' Clerk user alone, a probe for each rule of the operator's permissions\n${read.sql}`
-				)
-			})
-		/**
-		 * The optimized window read and, where a driver drives it, judged under the case's statistics (`underStated`);
-		 * then the baseline's window at the same anchor under the store's own, each part's rows the same.
-		 */
-		const compared = (learners: number) =>
-			Effect.gen(function* () {
-				const read = yield* underStated(
-					bare,
-					stated(installed, c),
-					Effect.gen(function* () {
-						const read = yield* runWindow(optimized, connection, params, codes, anchor, c.size)
-						if (driven) {
-							yield* bounded(read, learners)
-						}
-						return read
-					})
-				)
-				const expected = yield* runWindow(baseline, connection, params, codes, anchor, c.size)
-				assert.equal(read.runs.length, expected.runs.length, "one part for each of the baseline's")
-				for (const [i, run] of read.runs.entries()) {
-					assert.deepEqual(
-						textSet(run),
-						textSet(expected.runs[i] ?? []),
-						`${Formatter.format(c)}: part ${String(i)} of the window beside ${String(learners)} learners, the baseline's\n${read.sql}`
+		const judged = (learners: number, expected: Run) =>
+			apart(
+				bare,
+				"page_keys_stated",
+				Effect.gen(function* () {
+					yield* standIn(session, learnersLoad(installed, connection, c, learners), c.state)
+					yield* lawsHold(session, page.scope)
+					const read = yield* runWindow(optimized, connection, params, codes, anchor, c.size)
+					const plan = yield* advisedExplain(session, read.sql, textsOfParams(read.params))
+					const budget = yield* Effect.scoped(
+						Effect.flatMap(
+							superuserClient(clone.cluster, clone.database, "page keys heights"),
+							(superuser) =>
+								budgetOfPlan(
+									session,
+									(sql) => Effect.orDie(superuser.query(sql, [])),
+									`the window beside ${String(learners)} learners`,
+									plan
+								)
+						)
 					)
-				}
-			})
-		yield* compared(c.learners)
-		for (const sql of [
-			...stored(installed, c, c.learners + 1, c.learners + c.more),
-			...storedFills(installed),
-			...counted(installed)
-		]) {
-			yield* connection.query(sql, [])
-		}
-		yield* compared(c.learners + c.more)
+					assert.deepEqual(
+						budget,
+						[],
+						`${Formatter.format(c)}: the window keeps its plan's budget\n${read.sql}`
+					)
+					if (driven) {
+						const scanned = readWork(plan)
+						assert.ok(
+							scanned <= bound,
+							`${Formatter.format(c)}: the window beside ${String(learners)} learners reads ${String(scanned)} rows, past its bound ${String(bound)}\n${read.sql}`
+						)
+						const accounts = Arr.reduce(
+							Arr.filter(
+								[...planNodes(plan)],
+								(n) => Option.getOrUndefined(n.relation) === "clerk_account"
+							),
+							0,
+							(sum, n) => sum + scannedRows(n)
+						)
+						assert.ok(
+							accounts <= guardAccountReads,
+							`${Formatter.format(c)}: the window reads ${String(accounts)} accounts, the guard once at the claims' Clerk user alone, a probe for each rule of the operator's permissions\n${read.sql}`
+						)
+					}
+					assert.equal(
+						read.runs.length,
+						expected.runs.length,
+						"one part for each of the baseline's"
+					)
+					for (const [i, run] of read.runs.entries()) {
+						assert.deepEqual(
+							textSet(run),
+							textSet(expected.runs[i] ?? []),
+							`${Formatter.format(c)}: part ${String(i)} of the window beside ${String(learners)} learners, the baseline's\n${read.sql}`
+						)
+					}
+				})
+			)
+		yield* judged(c.learners, expected)
+		const more = yield* apart(
+			bare,
+			"page_keys_baseline",
+			Effect.andThen(
+				standIn(session, learnersLoad(installed, connection, c, c.learners + c.more), "analyzed"),
+				runWindow(baseline, connection, params, codes, anchor, c.size)
+			)
+		)
+		yield* judged(c.learners + c.more, more)
 		k.note(situationOf(c))
 		const overRows = Option.getOrUndefined(drivenOf(c))
-		if (overRows !== undefined && everyRow.keys.length > 0) {
+		if (overRows !== undefined && first.every.keys.length > 0) {
 			k.note(`${overRows} over rows`)
 		}
 		k.note(c.learners < 12 ? "beside a few learners" : "beside many learners")
-		k.note(
-			c.statistics === "counted"
-				? "under counted statistics"
-				: c.statistics === "unique"
-					? "under statistics stating each value its own"
-					: "under statistics stating every row one value"
-		)
+		k.note(`with every table ${c.state}`)
 	})

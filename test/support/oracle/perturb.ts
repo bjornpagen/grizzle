@@ -53,9 +53,8 @@ export type PlannerSetting = (typeof plannerSettings)[number] | "parallel_setup_
  * A perturbation is the one planner setting a test may set, and it may only widen what an answer is compared under: a
  * perturbed run asserts its answer's equality to the oracle's and nothing else, never a page, a row count, a plan's
  * shape or a cost bound, and no property that bounds a statement's work reads a perturbation. A bound holds under the
- * planner as grizzle's installation leaves it, its declared statistics and no setting (test/support/judge.ts
- * keyedWork, wideScans); a setting that makes a bound pass hides a plan that rests on PostgreSQL's estimates (Bjorn's
- * ruling, 2026-11-26).
+ * plan advice the statement carries and no setting (test/support/advice.ts, judge.ts readWork); a setting that makes a
+ * bound pass hides a plan that rests on PostgreSQL's estimates (Bjorn's ruling, 2026-11-26).
  *
  * Each explored case also draws a perturbation, chosen per case from the stream's seed and shrunk with the case:
  *

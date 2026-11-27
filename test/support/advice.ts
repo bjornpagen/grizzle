@@ -47,6 +47,8 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { regex } from "arkregex"
 import { Array as Arr, Data, Effect, Option, Record as Rec, Result, String as Str } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
+import type { PageRuntime } from "#adapter/page/template.ts"
+import { compiledPageTemplateFor } from "#adapter/served/forms.ts"
 import {
 	explain,
 	explainServerStatement,
@@ -62,11 +64,21 @@ import { trustedJson } from "#compiler/core/trusted.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
 import type { IndexRef, IndexResolver } from "#compiler/physical/indexes/ref.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import { noClock, transactionClock } from "#compiler/plan/common.ts"
-import { type QueryTemplate, queryInput } from "#compiler/plan/read.ts"
+import {
+	type InstalledSource,
+	noClock,
+	type SchemaArtifacts,
+	transactionClock
+} from "#compiler/plan/common.ts"
+import {
+	type CompiledTemplate,
+	type QueryTemplate,
+	queryInput,
+	readAdvice
+} from "#compiler/plan/read.ts"
 import type { AnyContext, AnySchema } from "#compiler/public/schema.ts"
 import { printAdvice } from "#compiler/sql/advice.ts"
-import type { ObjectName } from "#compiler/sql/ast.ts"
+import type { EmittedSql, ObjectName } from "#compiler/sql/ast.ts"
 import { joinPlans, levelItems, type ReadPlan, resolvePlan } from "#compiler/sql/plan.ts"
 import type { AnyLoginRole } from "#compiler/types/schema/world.ts"
 import { paramTexts } from "#test/support/compile.ts"
@@ -668,12 +680,14 @@ function* lawNodes(n: LawNode): Generator<LawNode> {
 
 /**
  * How a scope's advice is in force when PostgreSQL plans its statements, as production carries it: a client flight's,
- * set for its transaction (`set_config('pg_plan_advice.advice', $n, true)`, as the flight's prologue sets it); an
- * installed routine's, its own SET clause, which the harness reads back from the catalog (pg_proc.proconfig) and puts
- * in force the same way, so a routine that lost its clause plans under none.
+ * the advice its served record ships (ServedRead, ServedPage and ServedWrite `advice`), set for its transaction
+ * (`set_config('pg_plan_advice.advice', $n, true)`, as the flight's prologue sets it); an installed routine's, its own
+ * SET clause, which the harness reads back from the catalog (pg_proc.proconfig) and puts in force the same way, so a
+ * routine that lost its clause plans under none. Law 1 holds what the vehicle holds to what the scope's plans carry:
+ * a record that ships less than its transaction may send, or a clause that lost an item, fails it.
  */
 export type Vehicle =
-	| { readonly kind: "flight" }
+	| { readonly kind: "flight"; readonly advice: string }
 	| { readonly kind: "routine"; readonly routine: ObjectName }
 
 /** A read the binding law judges: the alias of its relation's occurrence and the columns its index condition binds. */
@@ -759,25 +773,27 @@ export const routineScopes = (installation: Installation): ReadonlyArray<LawScop
 	})
 
 /**
- * A client flight's scope: the statements `specs` one transaction may send, each bound under the transaction's one
- * scope (sql/emit.ts), their plans' reads resolved by the installation that serves them (`resolve`), and its advice
- * as a served program's record carries it (sql/advice.ts transactionAdvice), which the flight's prologue sets.
+ * A client flight's scope: the statements `sent` one transaction may send, each its text and the plan it was bound with
+ * under the transaction's one scope (sql/emit.ts EmittedSql), their plans' reads resolved by the installation that
+ * serves them (`resolve`), its advice what those plans carry (sql/advice.ts printAdvice), and its vehicle the advice its
+ * served record ships (`shipped`), which the flight's prologue sets.
  */
 export const flightScope = (
 	label: string,
-	specs: Arr.NonEmptyReadonlyArray<StatementSpec>,
-	resolve: IndexResolver
+	sent: Arr.NonEmptyReadonlyArray<Pick<EmittedSql, "text" | "plan">>,
+	resolve: IndexResolver,
+	shipped: string
 ): LawScope => {
-	const plan = resolvePlan(joinPlans(Arr.map(specs, (s) => s.plan)), resolve)
+	const plan = resolvePlan(joinPlans(Arr.map(sent, (s) => s.plan)), resolve)
 	return {
 		label,
 		advice: printAdvice(plan),
 		...planFacts(plan),
-		statements: Arr.map(specs, (s, at): ScopeStatement => ({
+		statements: Arr.map(sent, (s, at): ScopeStatement => ({
 			label: `statement ${at + 1}`,
-			sql: s.sql
+			sql: s.text
 		})),
-		vehicle: { kind: "flight" }
+		vehicle: { kind: "flight", advice: shipped }
 	}
 }
 
@@ -788,7 +804,7 @@ export const flightScope = (
  * clock), over the installation `installed` the role reads: its template, its one statement, the texts of a call's
  * parameters by their names (test/support/compile.ts paramTexts), and the flight scope of its statement
  * (`flightScope`), each read resolved as the role resolves it (RoleContext `resolve`), the installation's own
- * resolutions.
+ * resolutions, its vehicle the advice its served record ships (engine program/served.ts readAdvice).
  */
 export interface ServedRead {
 	readonly template: QueryTemplate
@@ -823,7 +839,73 @@ export const servedRead = (
 			template,
 			statement,
 			params: (values) => paramTexts(statement, values, declared),
-			scope: flightScope(label, [statement], context.resolve)
+			scope: flightScope(
+				label,
+				[{ text: statement.sql, plan: statement.plan }],
+				context.resolve,
+				readAdvice(template, context.resolve)
+			)
+		}
+	})
+
+/**
+ * A page as a served Db of `role` runs it (adapter/served/forms.ts compileReadForm's page): its ordered query compiled
+ * at the call for a page (RoleContext `compile`, read "page"), its page compiled over the role's artifacts and served
+ * with every window's statement under the advice its served record ships (forms.ts compiledPageTemplateFor, engine
+ * program/served.ts pageAdvice); and the flight scope of its five window variants' statements (`flightScope`), one
+ * transaction's, each read resolved as the role resolves it. The compiled template and the artifacts are what a second
+ * implementation of the page is built from (test/support/conservative.ts conservativePageRuntime).
+ */
+export interface ServedPageRead {
+	readonly runtime: PageRuntime
+	readonly compiled: CompiledTemplate
+	readonly artifacts: SchemaArtifacts<InstalledSource>
+	readonly scope: LawScope
+}
+
+/** `query`, an ordered query, paged as a served Db of `role` over `installed` pages it (ServedPageRead). */
+export const servedPageRead = (
+	installed: Installed,
+	role: AnyLoginRole,
+	query: unknown,
+	label: string
+): Effect.Effect<ServedPageRead, CompileError | RoleSetupError> =>
+	Effect.gen(function* () {
+		const context = yield* servedRoleContext(installed, role)
+		const input = yield* fromEngine(queryInput(query))
+		const { compiled, artifacts } = yield* fromEngine(
+			context.compile(input, {
+				context: "snapshot",
+				read: "page",
+				clock: noClock,
+				source: transactionClock
+			})
+		)
+		const page = yield* Effect.fromResult(
+			compiledPageTemplateFor({
+				template: compiled.template,
+				desc: compiled.desc,
+				artifacts,
+				resolve: context.resolve
+			})
+		)
+		const { requests } = page.template.artifact
+		return {
+			runtime: page.runtime,
+			compiled,
+			artifacts,
+			scope: flightScope(
+				label,
+				[
+					requests.first.program.statement.sql,
+					requests.after.program.statement.sql,
+					requests.last.program.statement.sql,
+					requests.before.program.statement.sql,
+					requests.at.program.statement.sql
+				],
+				context.resolve,
+				page.runtime.page.advice
+			)
 		}
 	})
 
@@ -837,7 +919,7 @@ export const servedRun = (
 	read: ServedRead,
 	params: Readonly<Record<string, unknown>>
 ): Effect.Effect<PlanNode, SqlError | MalformedAdvice | MalformedPlan> =>
-	advisedRun(session, read.scope, read.scope.statements[0], read.params(params))
+	advisedRun(session, read.scope, read.scope.statements[0].sql, read.params(params))
 
 /**
  * The role of `fixture`'s full world over `installed` (test/support/worlds.ts fullWorld), declaring `contexts`, those
@@ -1093,15 +1175,16 @@ export const routineAdviceHeld = (fn: ObjectName): string =>
 
 /**
  * The advice `scope`'s vehicle holds (`Vehicle`), put in force for the rest of the transaction `session` holds open: a
- * flight's, the scope's own; a routine's, its SET clause as the catalog stores it.
+ * flight's, the advice its record ships; a routine's, its SET clause as the catalog stores it.
  */
 const holdVehicle = (session: BenchSession, scope: LawScope): Effect.Effect<string, SqlError> =>
 	Effect.gen(function* () {
-		if (scope.vehicle.kind === "flight") {
-			yield* holdAdvice(session, scope.advice)
-			return scope.advice
+		const vehicle = scope.vehicle
+		if (vehicle.kind === "flight") {
+			yield* holdAdvice(session, vehicle.advice)
+			return vehicle.advice
 		}
-		const held = yield* session.values(routineAdviceHeld(scope.vehicle.routine), [])
+		const held = yield* session.values(routineAdviceHeld(vehicle.routine), [])
 		return String(held[0]?.[0])
 	})
 
@@ -1141,28 +1224,37 @@ export const lawsHold = (
 	)
 
 /**
- * A statement of a flight's `scope` run as every session grizzle opens runs it, the plan a budget over it reads: the laws
- * held over its scope first (`lawsHold`), then, under the same advice, PREPAREd and run by EXPLAIN (ANALYZE, BUFFERS,
- * TIMING OFF, SETTINGS, FORMAT JSON) EXECUTE at `params`, each a parameter's text, generic as every session plans it
- * (bench/harness/explain.ts explainServerStatement), in the transaction `session` holds open. EXPLAIN ANALYZE runs the
- * statement: a write writes.
+ * A statement of a flight's `scope`, its text `sql`, run as every session grizzle opens runs it, the plan a budget over
+ * it reads: the laws held over its scope first (`lawsHold`), then, under the same advice, run (`advisedExplain`).
+ * EXPLAIN ANALYZE runs the statement: a write writes.
  */
 export const advisedRun = (
 	session: BenchSession,
 	scope: LawScope,
-	statement: ScopeStatement,
+	sql: string,
 	params: ReadonlyArray<string>
 ): Effect.Effect<PlanNode, SqlError | MalformedAdvice | MalformedPlan> =>
-	Effect.andThen(
-		lawsHold(session, scope),
-		Effect.map(
-			explainServerStatement(session, statement.sql, params, "generic", {
-				serialize: { kind: "off" },
-				wal: false,
-				verbose: false
-			}),
-			(explained) => explained.plan
-		)
+	Effect.andThen(lawsHold(session, scope), advisedExplain(session, sql, params))
+
+/**
+ * `sql` run under the advice in force in the transaction `session` holds open, as every session grizzle opens runs it:
+ * PREPAREd and run by EXPLAIN (ANALYZE, BUFFERS, VERBOSE, TIMING OFF, SETTINGS, FORMAT JSON) EXECUTE at `params`, each
+ * a parameter's text, generic as every session plans it (bench/harness/explain.ts explainServerStatement), one plan for
+ * every value of them. EXPLAIN of the statement with its parameters bound would plan it at their values, a plan no
+ * session of grizzle runs. EXPLAIN ANALYZE runs the statement: a write writes.
+ */
+export const advisedExplain = (
+	session: BenchSession,
+	sql: string,
+	params: ReadonlyArray<string>
+): Effect.Effect<PlanNode, SqlError | MalformedPlan> =>
+	Effect.map(
+		explainServerStatement(session, sql, params, "generic", {
+			serialize: { kind: "off" },
+			wal: false,
+			verbose: true
+		}),
+		(explained) => explained.plan
 	)
 
 /**
@@ -1520,10 +1612,17 @@ export const budgetOver = (
 			onSome: (bound) =>
 				Arr.map(
 					bound({ node: n, heights, pages }),
-					(problem) => `${label}: its ${n.nodeType}${problem}`
+					(problem) => `${label}: its ${scanText(n)}${problem}`
 				)
 		})
 	)
+
+/** A scan as a budget's problem names it: its type, its occurrence's alias, its index and its index condition. */
+const scanText = (n: PlanNode): string =>
+	`${n.nodeType}${Option.match(n.alias, { onNone: () => "", onSome: (a) => ` of ${a}` })}${Option.match(
+		n.index,
+		{ onNone: () => "", onSome: (i) => ` using ${i}` }
+	)}${Option.match(n.indexCond, { onNone: () => "", onSome: (c) => ` (${c})` })}`
 
 /** A scan's relation, qualified by the schema VERBOSE prints beside it, as a regclass reads it. */
 const qualifiedRelation = (n: PlanNode): Option.Option<string> =>
@@ -1540,11 +1639,56 @@ const qualifiedIndex = (n: PlanNode): Option.Option<string> =>
 	)
 
 /**
+ * The budget over `plan`, a statement EXPLAIN (ANALYZE, BUFFERS, VERBOSE) ran on filled data in the transaction
+ * `session` holds open, each problem named after `label`: every index it reads its height (`heightsOf`, by `read`, the
+ * bootstrap superuser's), every table it reads whole its current pages (pg_relation_size), and the problems
+ * `budgetOver` finds.
+ */
+export const budgetOfPlan = (
+	session: BenchSession,
+	read: SuperuserRead,
+	label: string,
+	plan: PlanNode
+): Effect.Effect<ReadonlyArray<string>, SqlError> =>
+	Effect.gen(function* () {
+		const nodes = [...planNodes(plan)]
+		const indexed = Arr.flatMap(nodes, (n) =>
+			Option.match(Option.all({ name: n.index, qualified: qualifiedIndex(n) }), {
+				onNone: () => [],
+				onSome: (i) => [i]
+			})
+		)
+		const heights = yield* heightsOf(read, Arr.dedupe(Arr.map(indexed, (i) => i.qualified)))
+		const tables = Arr.dedupe(
+			Arr.flatMap(nodes, (n) =>
+				n.nodeType === "Seq Scan" ? Option.toArray(qualifiedRelation(n)) : []
+			)
+		)
+		const sized = yield* Effect.forEach(tables, (t) =>
+			Effect.map(
+				session.values(
+					"SELECT (pg_catalog.pg_relation_size($1::text::pg_catalog.regclass) / pg_catalog.current_setting('block_size')::pg_catalog.int8)::pg_catalog.int8",
+					[t]
+				),
+				(rows) => [t, Number(rows[0]?.[0])] as const
+			)
+		)
+		const byName = new Map(
+			Arr.flatMap(indexed, (i) =>
+				Option.match(Option.fromNullishOr(heights.get(i.qualified)), {
+					onNone: () => [],
+					onSome: (h) => [[i.name, h] as const]
+				})
+			)
+		)
+		return budgetOver(label, plan, byName, new Map(sized))
+	})
+
+/**
  * The budget held over each statement of `scope` that reads no parameter, a query (`SELECT`) run on filled data as its
  * vehicle's advice holds it, in the transaction `session` holds open (EXPLAIN (ANALYZE, BUFFERS, VERBOSE, TIMING OFF,
- * SETTINGS, FORMAT JSON), bench/harness/explain.ts explain): every index it reads its height (`heightsOf`, by `read`,
- * the bootstrap superuser's), every table it reads whole its current pages (pg_relation_size), and the problems
- * `budgetOver` finds. A statement that reads parameters waits on the values a caller binds; its budget is its caller's.
+ * SETTINGS, FORMAT JSON), bench/harness/explain.ts explain), each plan's problems `budgetOfPlan` finds. A statement
+ * that reads parameters waits on the values a caller binds; its budget is its caller's.
  */
 export const budgetOfScope = (
 	session: BenchSession,
@@ -1563,38 +1707,12 @@ export const budgetOfScope = (
 				wal: false,
 				verbose: true
 			})
-			const nodes = [...planNodes(run.plan)]
-			const indexed = Arr.flatMap(nodes, (n) =>
-				Option.match(Option.all({ name: n.index, qualified: qualifiedIndex(n) }), {
-					onNone: () => [],
-					onSome: (i) => [i]
-				})
-			)
-			const heights = yield* heightsOf(read, Arr.dedupe(Arr.map(indexed, (i) => i.qualified)))
-			const tables = Arr.dedupe(
-				Arr.flatMap(nodes, (n) =>
-					n.nodeType === "Seq Scan" ? Option.toArray(qualifiedRelation(n)) : []
-				)
-			)
-			const sized = yield* Effect.forEach(tables, (t) =>
-				Effect.map(
-					session.values(
-						"SELECT (pg_catalog.pg_relation_size($1::text::pg_catalog.regclass) / pg_catalog.current_setting('block_size')::pg_catalog.int8)::pg_catalog.int8",
-						[t]
-					),
-					(rows) => [t, Number(rows[0]?.[0])] as const
-				)
-			)
-			const pages = new Map(sized)
-			const byName = new Map(
-				Arr.flatMap(indexed, (i) =>
-					Option.match(Option.fromNullishOr(heights.get(i.qualified)), {
-						onNone: () => [],
-						onSome: (h) => [[i.name, h] as const]
-					})
-				)
-			)
-			for (const problem of budgetOver(`${scope.label}, ${s.label}`, run.plan, byName, pages)) {
+			for (const problem of yield* budgetOfPlan(
+				session,
+				read,
+				`${scope.label}, ${s.label}`,
+				run.plan
+			)) {
 				problems.push(problem)
 			}
 		}

@@ -512,7 +512,7 @@ const flight = (
 	levels,
 	reads,
 	statements: [statement],
-	vehicle: { kind: "flight" }
+	vehicle: { kind: "flight", advice }
 })
 
 const probeAdvice =
@@ -623,7 +623,11 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 					sql: "SELECT r1.v FROM public.node AS r1 WHERE r1.doc = $1::int8 AND r1.f1 = $2::int8 AND r1.f2 = $3::int8"
 				}
 			],
-			vehicle: { kind: "flight" }
+			vehicle: {
+				kind: "flight",
+				advice:
+					"INDEX_SCAN(r1 public.doc_pkey) NO_GATHER(r1) INDEX_SCAN(r1 public.node_pkey) NO_GATHER(r1)"
+			}
 		},
 		{
 			inForce:
@@ -652,7 +656,11 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 					sql: "SELECT r2.doc FROM public.doc AS r2 WHERE r2.owner = $1::int8 AND EXISTS (SELECT FROM (SELECT r3.v FROM public.node AS r3 WHERE r3.doc = r2.doc AND r3.f1 = 1::int8 AND r3.f2 = 2::int8 LIMIT 1) AS r4)"
 				}
 			],
-			vehicle: { kind: "flight" }
+			vehicle: {
+				kind: "flight",
+				advice:
+					"INDEX_SCAN(r1 public.doc_pkey) NO_GATHER(r1) SEQ_SCAN(r2) INDEX_SCAN(r3@r4 public.node_pkey) NO_GATHER(r2) NO_GATHER(r3@r4)"
+			}
 		},
 		{
 			inForce:
