@@ -9,15 +9,19 @@
  * Property: over T(a, b, f, v, d) keyed by a, of a and b of many values, f of few, v a vector keyed by pgvector's B-tree
  * class through its `=`, and d no B-tree holds, and S(k, w) keyed by k: a read of T at its level's top, after S joined
  * at T.b = S.k, beneath S's EXISTS at T.a = S.k, or through a window over T partitioned by a at a reader's equality of
- * a or of b, at a drawn set of literal equalities of a, b, f, v and d: the bound statement reads T once, and the plan's
- * item of the alias it reads T by is what the specification says (bind.fixtures.ts `specified`), its scan, whether a
- * probe's, and its bound columns; and every alias the plan names is the scope's, once.
+ * a or of b, or inside T's groups by b that S is joined to at b, at a drawn set of literal equalities of a, b, f, v and
+ * d: the bound statement reads T once, and the plan's item of the alias it reads T by is what the specification says
+ * (bind.fixtures.ts `specified`), its scan, whether a probe's, and its bound columns; every alias the plan names is the
+ * scope's, once; and groups joined to S are read per row of S at T's key where they group T itself, and where they group
+ * a CTE of T's rows are derived once, no LATERAL, their join's condition left their level's and the level joining them
+ * by a hash, never derived again for each row of S (read-once's CTE scan run 52 times, 1,800 rows each).
  *
  * Oracle: the specification of the contract's binding rules (CARRY-CONTRACT §1).
  *
  * Features: a seek at a literal; a whole read of few values alone; a probe driven by an earlier item; a seek at an
  * enclosing level's column; a seek beneath a window at its partition, and a whole read beneath it at no partition; an
- * extension's equality bound; a column no B-tree holds left a filter.
+ * extension's equality bound; a column no B-tree holds left a filter; a derived table joined to an earlier item by a
+ * hash; a derived table read per earlier row at its stored read's key.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -34,6 +38,7 @@ import {
 	itemOf,
 	specified,
 	statementOf,
+	topJoins,
 	tReadsOf
 } from "#test/unit/sql/bind.fixtures.ts"
 
@@ -104,6 +109,25 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 								: "a whole read beneath a window, at no partition"
 						)
 						break
+					case "joined": {
+						const joins = topJoins(bound.statement, bound.plan)
+						if (drawn.place.over === "stored") {
+							assert.deepEqual(
+								joins,
+								{ lateral: [true], where: false, hashed: false },
+								"T's groups are read per row of S at T's key, the join's condition their read's binding"
+							)
+							c.note("a derived table read per earlier row at its stored read's key")
+						} else {
+							assert.deepEqual(
+								joins,
+								{ lateral: [false], where: true, hashed: true },
+								"the groups of T's rows are derived once, joined to S by a hash at a condition their level keeps"
+							)
+							c.note("a derived table joined to an earlier item by a hash")
+						}
+						break
+					}
 				}
 				if (Arr.contains(held, "v")) {
 					c.note("an extension's equality bound")
@@ -115,6 +139,18 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 		oracle: { kind: "specification", name: "the contract's binding rules (CARRY-CONTRACT §1)" },
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original: "\t\t\tif (joins && !lateral && !this.#keyedBy(query, written, c)) {\n",
+				replacement: "\t\t\tif (false) {\n",
+				why: "A set join's condition pushed into the derived table it joins, which then reads a CTE's rows again at each row of S: the groups are LATERAL and joined by no hash, as read-once's CTE scan ran 52 times for 1,800 rows each."
+			},
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original: "\t\t\tif (joins && !lateral && !this.#keyedBy(query, written, c)) {\n",
+				replacement: "\t\t\tif (joins && !lateral) {\n",
+				why: "No join's condition keys the derived table's stored read: groups of T joined to S at b derive every group and hash them, where each row of S needs its group alone, read at T's key."
+			},
 			{
 				file: "packages/engine/src/sql/bind.ts",
 				original: "\t\tif (table !== undefined && bindings.some((b) => b.driven)) {\n",

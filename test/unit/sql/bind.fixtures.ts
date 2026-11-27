@@ -16,9 +16,13 @@ import {
 	binary,
 	call,
 	col,
+	core,
+	countStar,
+	cteRefAs,
 	derived,
 	eq,
 	exists,
+	grouped,
 	keyedRead,
 	keyedSet,
 	lit,
@@ -46,6 +50,8 @@ export type BindFeature =
 	| "a whole read beneath a window, at no partition"
 	| "an extension's equality bound"
 	| "a column no B-tree holds left a filter"
+	| "a derived table joined to an earlier item by a hash"
+	| "a derived table read per earlier row at its stored read's key"
 
 export const bindFeatures = [
 	"a seek at a literal",
@@ -56,7 +62,9 @@ export const bindFeatures = [
 	"a seek beneath a window, at its partition",
 	"a whole read beneath a window, at no partition",
 	"an extension's equality bound",
-	"a column no B-tree holds left a filter"
+	"a column no B-tree holds left a filter",
+	"a derived table joined to an earlier item by a hash",
+	"a derived table read per earlier row at its stored read's key"
 ] as const
 
 /**
@@ -98,12 +106,16 @@ export const catalog: ReadCatalog = {
 /** The columns a case binds T at by a value its level fixes, each by a conjunct of T's WHERE. */
 export type Fixed = "a" | "b" | "f" | "v" | "d"
 
-/** Where a case reads T: its level's own top; after S, joined to it at b; beneath S's EXISTS at a; or through a window. */
+/**
+ * Where a case reads T: its level's own top; after S, joined to it at b; beneath S's EXISTS at a; through a window; or
+ * inside groups by b, a derived table S is joined to at b, over T itself or over a MATERIALIZED CTE of T's rows.
+ */
 export type Place =
 	| { readonly kind: "top" }
 	| { readonly kind: "driven" }
 	| { readonly kind: "sublink" }
 	| { readonly kind: "window"; readonly at: "a" | "b" }
+	| { readonly kind: "joined"; readonly over: "stored" | "cte" }
 
 export interface BindCase {
 	readonly place: Place
@@ -121,7 +133,9 @@ export const bindCaseGen: Gen<BindCase> = (source) => {
 			{ kind: "driven" },
 			{ kind: "sublink" },
 			{ kind: "window", at: "a" },
-			{ kind: "window", at: "b" }
+			{ kind: "window", at: "b" },
+			{ kind: "joined", over: "stored" },
+			{ kind: "joined", over: "cte" }
 		])
 	)
 	return {
@@ -211,6 +225,71 @@ export const statementOf = (c: BindCase): Select => {
 				)
 			)
 		}
+		case "joined": {
+			const grouping = c.place.over === "stored" ? "t" : "c"
+			const counted: OperandSelect = operandSelect(
+				grouped(
+					core(
+						[target(col(grouping, "b")), targetAs(countStar(), "n")],
+						[c.place.over === "stored" ? tRead : cteRefAs("t_rows", "c")],
+						c.place.over === "stored" ? whereOf(fixed) : undefined
+					),
+					[col(grouping, "b")]
+				)
+			)
+			const joined = select(
+				keyedSet(
+					[target(col("g", "n"))],
+					[sRead, derived(counted, "g", false)],
+					eq(col("g", "b"), col("s", "k")),
+					"a read of S joined to groups by b"
+				)
+			)
+			return c.place.over === "stored"
+				? joined
+				: {
+						...joined,
+						with: {
+							recursive: false,
+							ctes: [
+								{
+									name: "t_rows",
+									materialized: "MATERIALIZED",
+									query: operandSelect(core([target(col("t", "b"))], [tRead], whereOf(fixed)))
+								}
+							]
+						}
+					}
+		}
+	}
+}
+
+/**
+ * How the bound statement joins the derived tables of its top level: each LATERAL or not, the top level's WHERE, which
+ * holds a set join's condition, and whether the top level's plan joins an item that is no stored read by a hash.
+ */
+export const topJoins = (
+	bound: Select,
+	plan: ReadPlan<AccessIndexRequest>
+): {
+	readonly lateral: ReadonlyArray<boolean>
+	readonly where: boolean
+	readonly hashed: boolean
+} => {
+	const body = bound.body
+	const from = body.kind === "core" ? body.from : []
+	const sources = Arr.flatMap(from, (item): ReadonlyArray<FromSource> =>
+		item.kind === "joins" ? [item.first, ...Arr.map(item.steps, (s) => s.source)] : [item]
+	)
+	return {
+		lateral: Arr.flatMap(sources, (s) => (s.kind === "derived" ? [s.lateral] : [])),
+		where: body.kind === "core" && body.where !== undefined,
+		hashed: Arr.some(
+			plan.levels,
+			(level) =>
+				level.name.kind === "top" &&
+				Arr.some(level.joined, (j) => j.join === "hash" && j.item.scan.kind === "rows")
+		)
 	}
 }
 
@@ -260,6 +339,9 @@ export type SpecifiedRead =
  * its bindings hold T's key and one holds many values; else the one range past its bindings, of a column of many values
  * it does not bind, after every binding; else a seek where one bound column holds many values, every binding its
  * index's; else whole. Beneath a window, the reader's equality binds T only at a column every window partitions by.
+ * Inside groups its level joins to an item before it: over T itself, the join binds T at b, the groups read per row of S
+ * at its key, as a probe is; over a CTE of T's rows, it binds none of T's columns, the groups derived once and joined
+ * by a hash.
  */
 export const specified = (c: BindCase): SpecifiedRead => {
 	const held = Arr.filter(c.fixed, (f) => f !== "d")
@@ -267,6 +349,13 @@ export const specified = (c: BindCase): SpecifiedRead => {
 	switch (c.place.kind) {
 		case "driven":
 			return { kind: "index", probe: true, bound: sorted(["b", ...held]) }
+		case "joined": {
+			if (c.place.over === "stored") {
+				return { kind: "index", probe: false, bound: sorted(["b", ...held]) }
+			}
+			const many = Arr.some(held, (f) => f !== "f")
+			return many ? { kind: "index", probe: false, bound: sorted(held) } : { kind: "whole" }
+		}
 		case "sublink":
 			return { kind: "index", probe: false, bound: sorted(["a", ...held]) }
 		case "window":

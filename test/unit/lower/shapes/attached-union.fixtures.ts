@@ -107,7 +107,7 @@ export const wholeUnionCtes = (sql: string): number => unionBodies(sql).length
  * compares one outer reference, the parent key's number, the arms read at it alone.
  */
 export const unionPerParentKey = (sql: string): boolean => {
-	const [, lateral] = Str.split(", LATERAL (SELECT DISTINCT ")(sql)
+	const [, lateral] = Str.split(" CROSS JOIN LATERAL (SELECT DISTINCT ")(sql)
 	if (lateral === undefined) {
 		return false
 	}

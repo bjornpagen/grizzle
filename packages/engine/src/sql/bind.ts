@@ -23,7 +23,9 @@
  * Every other item of a level (a derived table, a CTE's scan, a function's, arrays' or VALUES rows) is planned apart
  * under its alias: a derived table PostgreSQL would pull up is fenced (OFFSET 0), each conjunct of its reader that reads
  * it beside values its place fixes, and that its query takes, pushed into it first, which binds its reads where it
- * fixes their columns. Every sublink and every set operation's arm reads its relations through one item of its own, its
+ * fixes their columns; a conjunct joining it to an earlier item of its level is pushed only where it keys a stored
+ * read of the table's query, the table then read per row at that key, and otherwise stays the level's, a set join's, so
+ * the table is derived once and joined by a hash, never derived again for each row before it. Every sublink and every set operation's arm reads its relations through one item of its own, its
  * whole query a derived table fenced the same way, so no target names a level PostgreSQL names itself (`exists_N`,
  * `expr_N`, `array_N`, `any_N`, `setop_N`). Every alias is minted again from the advice scope (sql/naming.ts
  * AdviceScope). A statement that reads what it reads whole, once (a stored relation's fill, a data step's re-check),
@@ -1718,9 +1720,45 @@ class Binder {
 	}
 
 	/**
-	 * A derived table's entry: each conjunct of its level that reads its columns beside values its place fixes, and that
-	 * its query takes (`pushedInto`), pushed in first, the table then LATERAL where a pushed conjunct reads an earlier
-	 * item; its query bound as a level its alias names, fenced where PostgreSQL would pull it up.
+	 * Whether a conjunct reading the derived table `written`, whose query is `q`, binds a stored read of its query's own
+	 * level, every column of `written` it reads one of a stored table that level reads, a B-tree's of many values: pushed
+	 * in, it is that read's key, so the table read per row before it reads its rows at the key, as a probe does.
+	 */
+	#keyedBy(q: OperandSelect, written: string, c: Expr): boolean {
+		const body = q.body
+		if (body.kind !== "core") {
+			return false
+		}
+		const names = selectColumns(q)
+		const stored = new Map(
+			entriesOf(body.from).flatMap((e) => {
+				const t =
+					e.source.kind === "table" ? this.#catalog.table(nameKey(e.source.table)) : undefined
+				return e.source.kind === "table" && t !== undefined ? [[e.source.alias, t] as const] : []
+			})
+		)
+		let keyed = true
+		eachColumn(c, (table, column) => {
+			if (table !== written) {
+				return
+			}
+			const t = body.targets[names.indexOf(column)]
+			const ref = t === undefined ? undefined : columnOf(t.expr)
+			const read = ref === undefined ? undefined : stored.get(ref.table)
+			keyed &&=
+				ref !== undefined && read !== undefined && btreeColumn(read, ref.column)?.holds === "many"
+		})
+		return keyed
+	}
+
+	/**
+	 * A derived table's entry: each conjunct of its level that reads its columns beside values its place fixes, a
+	 * parameter, a literal or an enclosing level's column, and that its query takes (`pushedInto`), pushed in first; its
+	 * query bound as a level its alias names, fenced where PostgreSQL would pull it up. A conjunct that also reads an
+	 * earlier item of its level is pushed only where it binds a stored read of the table's query (`#keyedBy`), the table
+	 * then LATERAL, read per row before it at the key, as a probe is; any other stays the level's, a set join's
+	 * condition, so the table is derived once and joined by a hash (`#method`), never derived again for each row before
+	 * it, a CTE's scan or a fold over every row read once; one the lowering wrote LATERAL takes those too.
 	 */
 	derivedEntry(
 		entry: Entry,
@@ -1739,11 +1777,19 @@ class Binder {
 			const d = here.relations.get(a)
 			return d?.depth === here.depth && d.place < place
 		}
+		const enclosing = (a: string) => {
+			const d = here.relations.get(a)
+			return d !== undefined && d.depth < here.depth
+		}
 		let query = source.query
 		let lateral = source.lateral
 		for (const c of pool.slice()) {
-			const qualifiers = qualifiersOf(c)
-			if (![...qualifiers].every((a) => a === written || here.relations.has(a))) {
+			const qualifiers = [...qualifiersOf(c)]
+			if (!qualifiers.every((a) => a === written || enclosing(a) || earlier(a))) {
+				continue
+			}
+			const joins = qualifiers.some(earlier)
+			if (joins && !lateral && !this.#keyedBy(query, written, c)) {
 				continue
 			}
 			const pushed = pushedInto(query, written, c)
@@ -1752,7 +1798,7 @@ class Binder {
 			}
 			pool.splice(pool.indexOf(c), 1)
 			query = pushed
-			lateral ||= [...qualifiers].some(earlier)
+			lateral ||= joins
 		}
 		const self = withRelation(here, written, alias, here.depth, place)
 		const step: Step =
