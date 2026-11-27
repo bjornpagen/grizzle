@@ -134,13 +134,14 @@ const catalogOf = (
 		for (const f of r.fields) {
 			const installed = names.column(relation, f.name)
 			viewed.set(installed, installed)
-			if (baseOf(f.type).carrier === "code") {
-				const field = parseDeclaredName(f.name)
-				if (!field.ok) {
-					return defect(`the closed id field ${f.name} of ${relation}, a declared name`)
-				}
-				viewed.set(identifierOf(identity.decodedColumn(field.value)), installed)
+			if (baseOf(f.type).carrier !== "code") {
+				continue
 			}
+			const field = parseDeclaredName(f.name)
+			if (!field.ok) {
+				return defect(`the closed id field ${f.name} of ${relation}, a declared name`)
+			}
+			viewed.set(identifierOf(identity.decodedColumn(field.value)), installed)
 		}
 		const keys = r.keyNames.flatMap((k) =>
 			k.span === undefined ? [k.fields.map((f) => names.column(relation, f.name))] : []

@@ -1350,7 +1350,8 @@ export const planIndexes = (
 /**
  * The indexes `asked` need beside `keyIndexes` and the index each access request resolves to (see `planIndexes`), before
  * the plan is settled against the keys the installation met: a request refused here, or a key refused before, leaves no
- * resolver, since the installation that met it is refused.
+ * resolver, since the installation that met it is refused. Each request lands on the index resolution sends it to
+ * (`hostIn`), the one derivation of both, its reasons added to that index's object.
  */
 const planOver = (
 	b: InstallBuilder,
@@ -1588,8 +1589,6 @@ const planOver = (
 					})
 			)
 		}
-		/** Each request lands on the index resolution sends it to (`hostIn`), the one derivation of both, its reasons added
-		 * to that index's object. */
 		for (const entry of landed) {
 			const host = hostIn(set, entry)
 			const candidate = host === undefined ? undefined : candidates[set.indexes.indexOf(host)]

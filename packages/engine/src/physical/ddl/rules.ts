@@ -43,7 +43,7 @@ import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { noClock } from "#compiler/ir/clock.ts"
 import { servedQuery } from "#compiler/ir/derived.ts"
 import type { InferredQuery } from "#compiler/ir/desc.ts"
-import { type LawIndexKey, type LawIndexRequest, type TheoryTable } from "#compiler/ir/law.ts"
+import type { LawIndexKey, LawIndexRequest, TheoryTable } from "#compiler/ir/law.ts"
 import type { AccessIndexRequest, IndexRequest, PhysicalReason } from "#compiler/ir/products.ts"
 import type { DeltaSide } from "#compiler/ir/rel.ts"
 import type { Unit } from "#compiler/ir/unit.ts"
@@ -1701,8 +1701,6 @@ export const addRules = (
 				guard === undefined
 					? undefined
 					: compileProbe(b, catalog, rule, relation, guard, deltas, reads)
-			if (guarded !== undefined) {
-			}
 			return delta === undefined
 				? []
 				: [
