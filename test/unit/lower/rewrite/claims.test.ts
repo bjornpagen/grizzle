@@ -92,7 +92,7 @@ const passesKeepClaims = (inst: Installed, plan: Plan, c: Case<Feature>): void =
 		})
 		const input = succeeded(optimizedInput(checked.value, queryEvidence))
 		let current: LogicalQuery = input.query
-		for (const [i, pass] of rewritePasses("query", input.analyses).entries()) {
+		for (const [i, pass] of rewritePasses(input.analyses).entries()) {
 			const out = succeeded(pass.run(current, ctx), `${where} (${context}): pass ${i} ${pass.name}`)
 			c.note(
 				out.dag === current.dag ? "a pass that left it as it was" : "a pass that rewrote the DAG"
@@ -228,7 +228,7 @@ export const theClaimsOfACompilesRewritePipelineCostTheNodesItsPassesBuildAtMost
 								const input = succeeded(optimizedInput(checked, queryEvidence))
 								const made: Array<LogicalQuery> = []
 								let current: LogicalQuery = input.query
-								for (const pass of rewritePasses("query", input.analyses)) {
+								for (const pass of rewritePasses(input.analyses)) {
 									const out = succeeded(pass.run(current, ctx))
 									if (out.dag !== current.dag) {
 										c.note("a pass that rewrote the DAG")

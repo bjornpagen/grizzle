@@ -88,7 +88,7 @@ const preserves = (inst: Installed, plan: Plan, c: Case<UniverseFeature>): void 
 		})
 		const input = annotatedInput(query, queryEvidence)
 		const rewritten = Result.flatMap(input, (annotated) =>
-			rewritePipeline("query", annotated.analyses).run(annotated.query, ctx)
+			rewritePipeline(annotated.analyses).run(annotated.query, ctx)
 		)
 		if (!rewritten.ok) {
 			throw new Error(

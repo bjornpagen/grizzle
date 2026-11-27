@@ -170,13 +170,11 @@ export const annotatedInput = (
  * The rewrite passes up to and including specialized lowering, in normative order, under the compilation's catalog
  * (PassContext), then the constant columns over the DAG they leave, and last the prune that narrows the sources, once no
  * rewrite reads two scans of one relation by their whole headings, nor any reference a column the constant columns
- * read as its value. A derived-relation definition always wants every group, so its catalog pass takes the whole input.
+ * read as its value. Its catalog pass decides each correlated take(1)'s form by whether keys bound its parents
+ * (lower/shapes/catalog/neighbor.ts), whatever the subject.
  */
-export const rewritePipeline = (
-	subject: OptimizedSubject["kind"],
-	analyses: SharedAnalyses
-): Pass<LogicalQuery, LogicalQuery> =>
-	sequence("rewrite pipeline", rewritePasses(subject, analyses))
+export const rewritePipeline = (analyses: SharedAnalyses): Pass<LogicalQuery, LogicalQuery> =>
+	sequence("rewrite pipeline", rewritePasses(analyses))
 
 /**
  * The rewrite pipeline's passes, each phase's in order, the one list the pipeline runs (rewritePipeline), each leaving
@@ -186,13 +184,12 @@ export const rewritePipeline = (
  * what the rewrite took away (test/unit/lower/rewrite/claims.test.ts).
  */
 export const rewritePasses = (
-	subject: OptimizedSubject["kind"],
 	analyses: SharedAnalyses
 ): ReadonlyArray<Pass<LogicalQuery, LogicalQuery>> =>
 	[
 		...semanticSimplificationPasses,
 		...relationalRewritePasses,
-		catalogPass(subject === "derivedDefinition" ? "whole" : "auto", analyses),
+		catalogPass(analyses),
 		graphPass,
 		propagatePass,
 		sourcePrunePass
@@ -285,7 +282,7 @@ const planned = (
 	ctx: PassContext,
 	options: OptimizedOptions
 ): Result.Result<Planned, CompileError> => {
-	const rewritten = rewritePipeline(options.subject.kind, input.analyses).run(input.query, ctx)
+	const rewritten = rewritePipeline(input.analyses).run(input.query, ctx)
 	if (!rewritten.ok) {
 		return rewritten
 	}
@@ -404,7 +401,7 @@ export const rewrittenQuery = (
 	input: OptimizedInput,
 	options: CompilationOptions & { readonly subject: OptimizedSubject }
 ): Result.Result<LogicalQuery, CompileError> =>
-	rewritePipeline(options.subject.kind, input.analyses).run(
+	rewritePipeline(input.analyses).run(
 		input.query,
 		makePassContext({ evidenceContext: options.context, catalog: options.catalog })
 	)

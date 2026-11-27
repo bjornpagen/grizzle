@@ -11,8 +11,8 @@
  * - R29 and R30: PERCENTILE_DISC exactly for gated fractions over ordinals joined on the group, PERCENTILE_CONT exactly
  *   for a fraction in [0, 1] of a double precision value.
  * - R31: MODE() exactly for take(1) of an unconditional count tied to the value ascending.
- * - R27 and R42 under the parent-set policy, and an as-of kept where its fields' types differ or its take is ordered
- *   toward the parent.
+ * - R27 and R42 by the parent set, a key's proof: the probe kept where a key bounds the parents, the whole-input
+ *   target otherwise, and an as-of kept where its fields' types differ or its take is ordered toward the parent.
  * - R28: a share kept where its total ranges over another binding set or its join restricts the pairs.
  * - Determinism: two rewrites of one input are byte-identical, DAG and SQL, and the pass records the rewrite's
  *   certificates.
@@ -58,7 +58,6 @@ import {
 	neighborQuery,
 	neighborRules,
 	neighbors,
-	policies,
 	rewrite,
 	rules,
 	selfMatchDag,
@@ -317,49 +316,68 @@ export const r31TheModeTakesMODEExactlyForTake1OfAnUnconditionalCountTiedToTheVa
 		}
 	)
 
-/** R27 and R42: neighbors under the parent-set policy keeps the LATERAL probe for an attachment's bound parents under the automatic policy. */
-export const r27AndR42NeighborsUnderTheParentSetPolicyKeepsTheLATERALProbeForAnAttachmentsBoundParentsUnderTheAutomaticPolicy =
-	property.exhaust(
-		finite((source) => [source.draw(neighbors), source.draw(policies)] as const),
-		{
-			needs: {},
-			situations: [
-				"bound neighbor rewritten",
-				"bound neighbor probed",
-				"attached neighbor rewritten",
-				"attached neighbor probed",
-				"bound as-of rewritten",
-				"bound as-of probed",
-				"attached as-of rewritten",
-				"attached as-of probed"
-			] satisfies ReadonlyArray<Reached<`${Neighbor["kind"]} ${"rewritten" | "probed"}`>>,
-			check:
-				(_, c: Case<`${Neighbor["kind"]} ${"rewritten" | "probed"}`>) =>
-				([n, parents]) =>
-					Effect.sync(() => {
-						const expected = neighborRules(n, parents)
-						c.note(`${n.kind} ${expected.length > 0 ? "rewritten" : "probed"}`)
-						assert.deepEqual(appliedTo(neighborQuery(n), { ...labOptions(), parents }), expected)
-					}),
-			oracle: {
-				kind: "specification",
-				name: "the parent-set rule (context.ts ParentPolicy, neighbor.ts)"
+/**
+ * R27 and R42: a correlated take(1) whose parents a key bounds keeps the LATERAL probe, and one whose parents no key
+ * bounds takes the whole-input target, bound in its region or attached.
+ */
+export const r27AndR42ANeighborWhoseParentsAKeyBoundsKeepsTheLATERALProbeAndAnyOtherTakesTheWholeInputTarget =
+	property.exhaust(finite(neighbors), {
+		needs: {},
+		situations: [
+			"bound neighbor rewritten",
+			"bound neighbor probed",
+			"attached neighbor rewritten",
+			"attached neighbor probed",
+			"bound as-of rewritten",
+			"bound as-of probed",
+			"attached as-of rewritten",
+			"attached as-of probed"
+		] satisfies ReadonlyArray<Reached<`${Neighbor["kind"]} ${"rewritten" | "probed"}`>>,
+		check: (_, c: Case<`${Neighbor["kind"]} ${"rewritten" | "probed"}`>) => (n) =>
+			Effect.sync(() => {
+				const expected = neighborRules(n)
+				c.note(`${n.kind} ${expected.length > 0 ? "rewritten" : "probed"}`)
+				assert.deepEqual(appliedTo(neighborQuery(n), labOptions()), expected)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the parent-set rule (neighbor.ts boundRegion, boundRows): a proof from keys decides each form"
+		},
+		box: "every neighbor and as-of composition, bound or attached, over every sitting, sittings a key bounds, or a match's second occurrence",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/shapes/catalog/neighbor.ts",
+				original:
+					'\t\tdemand(!parent.side.bound, "parents no key bounds; a bound parent set keeps the LATERAL probe")\n',
+				replacement: "",
+				why: "A bound successor takes LEAD's window over every row of Q though a key bounds its parents, the pass where the probe reads n × (h + k + 1) pages; the parent-set search fails at the keyed parents."
 			},
-			box: "every neighbor and as-of composition, bound or attached, under every parent-set policy",
-			kept: [],
-			kills: [
-				{
-					file: "packages/engine/src/lower/shapes/catalog/neighbor.ts",
-					original: '\t\tpolicy === "whole",',
-					replacement: '\t\tpolicy !== "bound",',
-					why: "The attached neighbor (neighbor.ts) takes an attachment's bound parents whole under the automatic policy; the parent-set search fails."
-				}
-			]
-		}
-	)
+			{
+				file: "packages/engine/src/lower/shapes/catalog/neighbor.ts",
+				original:
+					'\tconst key = asOfHolds(cx, t, (ref) => columnTypeOf(parent.side.rows, parentColumn(ref)))\n\tdemand(!parent.side.bound, "parents no key bounds; a bound parent set keeps the LATERAL probe")\n',
+				replacement:
+					"\tconst key = asOfHolds(cx, t, (ref) => columnTypeOf(parent.side.rows, parentColumn(ref)))\n",
+				why: "A bound as-of takes its ordered pass over every parent and every price though a key bounds its parents; the parent-set search fails at the keyed parents."
+			},
+			{
+				file: "packages/engine/src/lower/shapes/catalog/neighbor.ts",
+				original: "\t\t!boundRows(attach.parent),\n",
+				replacement: "\t\ttrue,\n",
+				why: "An attached successor or as-of windows all of Q though a key bounds its delivered parents; the parent-set search fails at the keyed parents."
+			},
+			{
+				file: "packages/engine/src/lower/shapes/catalog/neighbor.ts",
+				original: "\t\t!boundRows(attach.parent),\n",
+				replacement: "\t\tfalse,\n",
+				why: "An attached successor or as-of keeps the probe though no key bounds its delivered parents, every sitting probed at about h times the pass; the parent-set search fails at every sitting."
+			}
+		]
+	})
 
-/** R27 and R42: neighbors under the parent-set policy keeps an as-of comparing fields of different types, or whose take is ordered toward the parent. */
-export const r27AndR42NeighborsUnderTheParentSetPolicyKeepsAnAsOfComparingFieldsOfDifferentTypesOrWhoseTakeIsOrderedTowardTheParent =
+/** R42 keeps an as-of comparing fields of different types, or whose take is ordered toward the parent. */
+export const r42KeepsAnAsOfComparingFieldsOfDifferentTypesOrWhoseTakeIsOrderedTowardTheParent =
 	property.exhaust(
 		finite(
 			(source) =>
@@ -382,7 +400,7 @@ export const r27AndR42NeighborsUnderTheParentSetPolicyKeepsAnAsOfComparingFields
 				([mode, edit]) =>
 					Effect.sync(() => {
 						c.note(edit)
-						const q = checkedQuery(Q.boundAsOf(mode, [], "day"))
+						const q = checkedQuery(Q.boundAsOf(mode, [], "day", "every"))
 						const ed = new CatalogEditor(q.dag)
 						for (const cell of ed.cells()) {
 							const n = cell.current
@@ -498,7 +516,7 @@ export const determinismAndTheCatalogPassProducesByteIdenticalDAGsAndSQLFromIden
 					evidenceContext: "snapshot",
 					catalog: labOptions().catalog
 				})
-				const out = succeeded(catalogPass("auto", labOptions().analyses).run(a.q, ctx))
+				const out = succeeded(catalogPass(labOptions().analyses).run(a.q, ctx))
 				assert.equal(out.dag.roots[0].id, a.q.dag.roots[0].id)
 				assert.deepEqual(
 					Arr.map(ctx.certificates.all(), (x) => x.rule),

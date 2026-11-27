@@ -16,7 +16,7 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import { ConservativeDelivery } from "#compiler/lower/conservative/deliver.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
-import { type CatalogOptions, type ParentPolicy } from "#compiler/lower/shapes/catalog/context.ts"
+import { type CatalogOptions } from "#compiler/lower/shapes/catalog/context.ts"
 import { CatalogEditor } from "#compiler/lower/shapes/catalog/edit.ts"
 import { type CatalogResult, rewriteCatalog } from "#compiler/lower/shapes/catalog/rewrite.ts"
 import { plainType } from "#compiler/scalar/native.ts"
@@ -331,72 +331,92 @@ export const stageOf: Readonly<Record<StageKind, Q.PercentileStage>> = {
 }
 
 /**
- * The neighbor and as-of compositions: a successor or predecessor, bound in a region or attached (to every sitting or
- * to the second occurrence of a match), and an as-of under <=, < or >=, bound or attached.
+ * The neighbor and as-of compositions: a successor or predecessor, bound in a region or attached (to every sitting, to
+ * the second occurrence of a match, or to sittings a key bounds), and an as-of under <=, < or >=, bound or attached,
+ * over every sitting or the sittings a key bounds (queries.ts Parents).
  */
 export type Neighbor =
-	| { readonly kind: "bound neighbor"; readonly direction: "next" | "previous" }
+	| {
+			readonly kind: "bound neighbor"
+			readonly direction: "next" | "previous"
+			readonly parents: Q.Parents
+	  }
 	| {
 			readonly kind: "attached neighbor"
 			readonly direction: "next" | "previous"
-			readonly parents: "sittings" | "pointed"
+			readonly parents: Q.Parents | "pointed"
 	  }
-	| { readonly kind: "bound as-of"; readonly mode: "le" | "lt" | "ge" }
-	| { readonly kind: "attached as-of"; readonly mode: "le" | "lt" | "ge" }
+	| { readonly kind: "bound as-of"; readonly mode: "le" | "lt" | "ge"; readonly parents: Q.Parents }
+	| {
+			readonly kind: "attached as-of"
+			readonly mode: "le" | "lt" | "ge"
+			readonly parents: Q.Parents
+	  }
 
 const neighborSides = element<"next" | "previous">(["next", "previous"])
+
+const parentSets = element<Q.Parents>(["every", "keyed"])
 
 export const modes = element<"le" | "lt" | "ge">(["le", "lt", "ge"])
 
 export const neighbors = oneOf<Neighbor>([
-	map(neighborSides, (direction): Neighbor => ({ kind: "bound neighbor", direction })),
+	map(
+		(source) => [source.draw(neighborSides), source.draw(parentSets)] as const,
+		([direction, parents]): Neighbor => ({ kind: "bound neighbor", direction, parents })
+	),
 	map(
 		(source) =>
 			[
 				source.draw(neighborSides),
-				source.draw(element<"sittings" | "pointed">(["sittings", "pointed"]))
+				source.draw(element<Q.Parents | "pointed">(["every", "keyed", "pointed"]))
 			] as const,
 		([direction, parents]): Neighbor => ({ kind: "attached neighbor", direction, parents })
 	),
-	map(modes, (mode): Neighbor => ({ kind: "bound as-of", mode })),
-	map(modes, (mode): Neighbor => ({ kind: "attached as-of", mode }))
+	map(
+		(source) => [source.draw(modes), source.draw(parentSets)] as const,
+		([mode, parents]): Neighbor => ({ kind: "bound as-of", mode, parents })
+	),
+	map(
+		(source) => [source.draw(modes), source.draw(parentSets)] as const,
+		([mode, parents]): Neighbor => ({ kind: "attached as-of", mode, parents })
+	)
 ])
 
-export const neighborQuery = (n: Neighbor): QueryDesc =>
-	n.kind === "bound neighbor"
-		? Q.boundNeighbor(n.direction, [])
-		: n.kind === "attached neighbor"
-			? Q.attachedNeighbor(n.direction, n.parents)
-			: n.kind === "bound as-of"
-				? Q.boundAsOf(n.mode, [], "day")
-				: Q.attachedAsOf(n.mode, [])
-
-/**
- * The parent-set rule as the oracle (context.ts ParentPolicy, neighbor.ts): "bound" keeps the LATERAL probe of every
- * correlated take(1); a bound successor or as-of otherwise takes its window or pass, since its region's parents are no
- * bound set; an attached successor or as-of takes the whole-input target only where the parents are every row
- * ("whole"), since an attachment's delivered parents are a bound set that keeps the probe under "auto".
- */
-export const neighborRules = (
-	n: Neighbor,
-	parents: ParentPolicy
-): ReadonlyArray<CertificateRule> => {
+export const neighborQuery = (n: Neighbor): QueryDesc => {
 	switch (n.kind) {
 		case "bound neighbor":
-			return parents === "bound" ? [] : ["R27"]
+			return Q.boundNeighbor(n.direction, [], n.parents)
 		case "attached neighbor":
-			return parents === "whole" ? ["R27"] : []
-		case "attached as-of":
-			return parents === "whole" ? ["R42"] : []
+			return Q.attachedNeighbor(n.direction, n.parents)
 		case "bound as-of":
-			return parents === "bound" ? [] : ["R42"]
+			return Q.boundAsOf(n.mode, [], "day", n.parents)
+		case "attached as-of":
+			return Q.attachedAsOf(n.mode, [], n.parents)
 	}
 }
 
-export const policies = element<ParentPolicy>(["auto", "bound", "whole"])
+/**
+ * The parent-set rule as the oracle (neighbor.ts boundRegion, boundRows): a correlated take(1) whose parents a key
+ * bounds keeps the LATERAL probe, n × (h + k + 1) pages for its n parents; any other takes the whole-input target, its
+ * window (R27) or its pass (R42), bound in its region or attached, one read of each input. A proof from keys, never a
+ * count: "keyed" parents are bound, every sitting and the pointed ones are not.
+ */
+export const neighborRules = (n: Neighbor): ReadonlyArray<CertificateRule> => {
+	if (n.parents === "keyed") {
+		return []
+	}
+	switch (n.kind) {
+		case "bound neighbor":
+		case "attached neighbor":
+			return ["R27"]
+		case "bound as-of":
+		case "attached as-of":
+			return ["R42"]
+	}
+}
 
 /**
- * The compositions of every entry, under the automatic policy: the spellings' orders, percentiles, neighbors, shares,
+ * The compositions of every entry: the spellings' orders, percentiles, neighbors, shares,
  * modes.
  */
 export const compositions = oneOf<QueryDesc>([

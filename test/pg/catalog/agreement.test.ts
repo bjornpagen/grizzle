@@ -24,11 +24,10 @@ import {
 	descOf,
 	entryKinds,
 	nativeTargets,
-	optionsOf,
 	rulesOf,
 	selectsNegativeZero
 } from "#test/pg/catalog/agreement.fixtures.ts"
-import { appliedRules, catalogLowering, oracleCase } from "#test/pg/catalog/support.ts"
+import { appliedRules, catalogLowering, labOptions, oracleCase } from "#test/pg/catalog/support.ts"
 import {
 	conservative,
 	defaultRunOptions,
@@ -69,7 +68,7 @@ export const everyCompositionOfTheCatalogAgreesWithItsNativeRewriteWhichAppliesE
 					Effect.provideService(
 						Effect.gen(function* () {
 							const label = Formatter.format(entry)
-							const side = catalogLowering(optionsOf(entry))
+							const side = catalogLowering(labOptions())
 							const outcome = yield* runLabelledOracle(
 								oracleCase(label, descOf(entry), facts),
 								conservative,

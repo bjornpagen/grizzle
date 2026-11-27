@@ -81,12 +81,9 @@ export const lab: GenSchema = {
 	containments: []
 }
 
-/**
- * The catalog rewrites over the lab, in a snapshot read under its own catalog, the parent-set policy decided per take.
- */
+/** The catalog rewrites over the lab, in a snapshot read under its own catalog. */
 export const labOptions = (): CatalogOptions => ({
 	catalog: genCatalog(lab),
-	parents: "auto",
 	analyses: new SharedAnalyses(queryEvidence, () => true)
 })
 

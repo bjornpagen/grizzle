@@ -29,18 +29,9 @@ export interface Held<N> {
 	readonly node: N
 }
 
-/**
- * How the catalog treats a correlated take(1) (R27, R42): "bound" keeps the LATERAL probe
- * per parent, "whole" takes the whole-input target, and "auto" decides by the parent set, LATERAL for a bound set
- * (an attachment's delivered parents, a relation parameter) and the whole-input target otherwise. A derived-relation
- * definition always wants every group, so its compilation passes "whole".
- */
-export type ParentPolicy = "auto" | "bound" | "whole"
-
 export interface CatalogOptions {
 	/** Resolves a stored relation's declared keys to their installed constraints (analysis/physical/evidence.ts). */
 	readonly catalog: EvidenceCatalog
-	readonly parents: ParentPolicy
 	/**
 	 * The compile's analyses (logical/annotate.ts SharedAnalyses), under the evidence its optimized input is annotated
 	 * with (lower/optimize/pipeline.ts OptimizedInput), which every analysis the catalog makes reads: a node an analysis
@@ -60,8 +51,8 @@ export interface KeyGrounds extends Grounds {
 }
 
 /**
- * What every catalog recognizer shares: the DAG being edited, the evidence a total order rests on, the parent-set
- * policy, consumers, and the certificate a rewrite records.
+ * What every catalog recognizer shares: the DAG being edited, the evidence a total order rests on, consumers, and the
+ * certificate a rewrite records.
  */
 export class CatalogContext {
 	readonly ed: CatalogEditor

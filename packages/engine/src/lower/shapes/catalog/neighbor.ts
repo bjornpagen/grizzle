@@ -419,7 +419,7 @@ const boundRows = (cell: Cell): boolean => {
 
 /**
  * Whether the rows of a region the take is an occurrence of are a bound parent set (R27, R42), for
- * which the automatic policy keeps the LATERAL probe: some other occurrence restricts the region to a bound set, or
+ * which the catalog keeps the LATERAL probe: some other occurrence restricts the region to a bound set, or
  * every consumer of the region is a semi-join that keeps only its rows matching a bound set, as the relational
  * rewrites state a relation parameter's match that delivers none of its fields. Each restricts the parents to what
  * it matches, so the whole-input pass would compute for every row of the parent source what the probe computes for a
@@ -1156,20 +1156,19 @@ interface NeighborResult {
  * its tagged union carries the parent rows' positions, and the parent occurrence reads the parent rows
  *   with their as-of fields from the pass, so the parents are never read a second time to join the pass back.
  *
- * The parent set decides between the probe and the whole-input target (context.ts ParentPolicy): an
- * attachment's delivered parents and a relation parameter are a bound set, and keep the LATERAL probe under "auto". A
- * region's parents are a relation parameter's when another occurrence of the region is one, or a key lookup, or when
- * every reader of the region's rows is a semi-join against one, which is how the relational rewrites leave a matched
- * parameter that delivers no field (boundRegion). The automatic policy is fixed: R27 keeps the LATERAL take(1) for a
- * relation parameter, as R42 does for a bound parent set.
+ * Whether the parents are a bound set decides between the probe and the whole-input target, a proof from keys alone,
+ * never a count or a threshold: a bound set's probes read n × (h + k + 1) pages for its n parents, every parent the
+ * pass would read Q for, where the pass reads each input once, O(N), which is the ceiling where no key bounds the
+ * parents, the probes costing about h times as much there. A region's parents are bound when another occurrence of
+ * the region is a relation parameter, a context or a key lookup, or when every reader of the region's rows is a
+ * semi-join against a bound set, which is how the relational rewrites leave a matched parameter that delivers no field
+ * (boundRegion); an attachment's delivered parents are bound when its parent's rows are (boundRows), a relation
+ * parameter's, a key lookup's or a context's. A derived definition reads by the same rule.
  * R27 itself has no parent-set condition: its target is LEAD over the window inside the parent statement.
  * The bound form realizes that, the window running over the parent occurrence's own source in the parent's
- * statement. The attached form cannot yet: an attachment's part receives only the delivered parents' heading
- * columns (lower/conservative/deliver.ts), so the parent statement cannot hand it LEAD columns, and the
- * child would have to window all of Q itself, which for a bound parent set reads the whole input where the probe reads
- * each parent's rows (R20).
- * So the attached successor takes R27 only where the parents are every row ("whole"), and keeps the LATERAL probe
- * otherwise, until the delivery carries private parent columns to attachments.
+ * statement. The attached form windows all of Q itself: an attachment's part receives only the delivered parents'
+ * heading columns (lower/conservative/deliver.ts), so the parent statement cannot hand it LEAD columns, which is the
+ * pass over every parent's Q where no key bounds them, and for a bound parent set it keeps the probe.
  *
  * The variables the take occurrence binds: an own field's own variable, or a parent value's own variable.
  */
@@ -1228,8 +1227,7 @@ const boundNeighbor = (
 		}))
 	)
 	if (succ.kind === "match") {
-		const policy = cx.options.parents
-		demand(policy !== "bound" && !(policy === "auto" && parent.side.bound), "a whole parent set")
+		demand(!parent.side.bound, "parents no key bounds; a bound parent set keeps the LATERAL probe")
 		const built = successorRows(cx, t)
 		/** The parent occurrence reads the successor rows, which are its source's rows with the LEAD columns. */
 		const bindings = [
@@ -1260,8 +1258,7 @@ const boundNeighbor = (
 		}
 	}
 	const key = asOfHolds(cx, t, (ref) => columnTypeOf(parent.side.rows, parentColumn(ref)))
-	const policy = cx.options.parents
-	demand(policy !== "bound" && !(policy === "auto" && parent.side.bound), "a whole parent set")
+	demand(!parent.side.bound, "parents no key bounds; a bound parent set keeps the LATERAL probe")
 	/** The pass carries the parent rows, so the parent occurrence reads them, with Q's delivered fields, from it. */
 	const pass = asOfPass(cx, t, parent.side.rows, parentColumn, true)
 	const bindings = [...outer.bindings]
@@ -1322,10 +1319,9 @@ export const tryAttachedNeighbor = (cx: CatalogContext, cell: Cell): NeighborRes
 			demand(matched, `the child column ${childCol} in the attachment's correlation`)
 		}
 	}
-	const policy = cx.options.parents
 	demand(
-		policy === "whole",
-		"a whole parent set; an attachment's delivered parents keep the LATERAL probe"
+		!boundRows(attach.parent),
+		"delivered parents no key bounds; a bound parent set keeps the LATERAL probe"
 	)
 	const parentColumn = (ref: ColumnRef): string => {
 		demand(ref.node === attach.parent.id, "parent values of the attachment's parent")

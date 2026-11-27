@@ -200,16 +200,31 @@ const neighborQuery = (
 		1
 	)
 
-/** R27, bound: every sitting with its next (or previous) sitting's id and score. */
+/**
+ * Whose rows a neighbor's or an as-of's parents are: every sitting, or the sittings of sitting 1's student, which a
+ * second occurrence of Sitting at its key bounds (lower/shapes/catalog/neighbor.ts boundRegion, boundRows), so the
+ * catalog keeps the probe where every sitting takes the whole-input target.
+ */
+export type Parents = "every" | "keyed"
+
+/** The occurrence that bounds a region of sittings to sitting 1's student's: Sitting at its key, id = 1. */
+const keyedStudent = D.match(D.relationSource("Sitting"), { id: D.lit(1n), student: s("student") })
+
+/** The parents' occurrences beside the region's own Sitting: none for every sitting, the key lookup for keyed ones. */
+const bounding = (parents: Parents) => (parents === "keyed" ? [keyedStudent] : [])
+
+/** R27, bound: each parent sitting with its next (or previous) sitting's id and score. */
 export const boundNeighbor = (
 	direction: "next" | "previous",
-	extra: ReadonlyArray<ExprDesc>
+	extra: ReadonlyArray<ExprDesc>,
+	parents: Parents
 ): QueryDesc =>
 	D.queryDesc(
 		D.rule({
 			vars: [...sVars, D.plainVar("x.nid"), D.plainVar("x.nscore")],
 			matches: [
 				D.match(D.relationSource("Sitting"), { student: s("student"), id: s("id"), day: s("day") }),
+				...bounding(parents),
 				D.match(
 					D.imported(neighborQuery(direction, { id: "nid", day: "nday" }, extra), {
 						st: s("student"),
@@ -226,18 +241,21 @@ export const boundNeighbor = (
 		})
 	)
 
-const parentSittings = D.queryDesc(
-	D.rule({
-		vars: sVars,
-		matches: [
-			D.match(D.relationSource("Sitting"), { student: s("student"), id: s("id"), day: s("day") })
-		],
-		head: { student: s("student"), id: s("id"), day: s("day") },
-		where: [],
-		interiors: [],
-		attach: []
-	})
-)
+/** The parent sittings an attachment attaches to (Parents). */
+const parentSittings = (parents: Parents) =>
+	D.queryDesc(
+		D.rule({
+			vars: sVars,
+			matches: [
+				D.match(D.relationSource("Sitting"), { student: s("student"), id: s("id"), day: s("day") }),
+				...bounding(parents)
+			],
+			head: { student: s("student"), id: s("id"), day: s("day") },
+			where: [],
+			interiors: [],
+			attach: []
+		})
+	)
 
 /** The sittings whose score is some point's x: Sitting is the match's second occurrence, after Point. */
 const pointedSittings = D.queryDesc(
@@ -260,12 +278,13 @@ const pointedSittings = D.queryDesc(
 )
 
 /**
- * R27, attached: each sitting with its next (or previous) sitting as an attachment; over "pointed" the parents are the
- * sittings whose score is some point's x, so each parent value is a column of the match's second occurrence.
+ * R27, attached: each sitting with its next (or previous) sitting as an attachment, over every sitting, the keyed
+ * student's (Parents), or "pointed", the sittings whose score is some point's x, so each parent value is a column of the
+ * match's second occurrence.
  */
 export const attachedNeighbor = (
 	direction: "next" | "previous",
-	parents: "sittings" | "pointed"
+	parents: Parents | "pointed"
 ): QueryDesc => {
 	const child = D.take(
 		D.orderBy(
@@ -301,7 +320,11 @@ export const attachedNeighbor = (
 		),
 		1
 	)
-	return D.attach(parents === "sittings" ? parentSittings : pointedSittings, "neighbor", child)
+	return D.attach(
+		parents === "pointed" ? pointedSittings : parentSittings(parents),
+		"neighbor",
+		child
+	)
 }
 
 /**
@@ -350,19 +373,21 @@ const asOfQuery = (
 }
 
 /**
- * R42, bound: every sitting with the as-of price's id and amount; `extra` restricts the prices alone, and `compared`
- * names the price field compared with the sitting's day.
+ * R42, bound: each parent sitting with the as-of price's id and amount; `extra` restricts the prices alone, and
+ * `compared` names the price field compared with the sitting's day.
  */
 export const boundAsOf = (
 	mode: "le" | "lt" | "ge",
 	extra: ReadonlyArray<ExprDesc>,
-	compared: Compared
+	compared: Compared,
+	parents: Parents
 ): QueryDesc =>
 	D.queryDesc(
 		D.rule({
 			vars: [...sVars, D.plainVar("x.pid"), D.plainVar("x.amount")],
 			matches: [
 				D.match(D.relationSource("Sitting"), { student: s("student"), id: s("id"), day: s("day") }),
+				...bounding(parents),
 				D.match(D.imported(asOfQuery(mode, extra, compared), { st: s("student"), d: s("day") }), {
 					pid: v("x.pid"),
 					amount: v("x.amount")
@@ -375,10 +400,11 @@ export const boundAsOf = (
 		})
 	)
 
-/** R42, attached: each sitting with its as-of price as an attachment. */
+/** R42, attached: each parent sitting with its as-of price as an attachment. */
 export const attachedAsOf = (
 	mode: "le" | "lt" | "ge",
-	extra: ReadonlyArray<ExprDesc>
+	extra: ReadonlyArray<ExprDesc>,
+	parents: Parents
 ): QueryDesc => {
 	const child = D.take(
 		D.orderBy(
@@ -411,7 +437,7 @@ export const attachedAsOf = (
 		),
 		1
 	)
-	return D.attach(parentSittings, "price", child)
+	return D.attach(parentSittings(parents), "price", child)
 }
 
 const perStudent = D.queryDesc(

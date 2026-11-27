@@ -10,11 +10,7 @@ import type { Pass } from "#compiler/ir/pass.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { Cell, RelKind, Roots, ValidDag } from "#compiler/ir/rel.ts"
 import type { SharedAnalyses } from "#compiler/logical/annotate.ts"
-import {
-	CatalogContext,
-	type CatalogOptions,
-	type ParentPolicy
-} from "#compiler/lower/shapes/catalog/context.ts"
+import { CatalogContext, type CatalogOptions } from "#compiler/lower/shapes/catalog/context.ts"
 import { CatalogEditor } from "#compiler/lower/shapes/catalog/edit.ts"
 import { attempt } from "#compiler/lower/shapes/catalog/exprs.ts"
 import { tryMode } from "#compiler/lower/shapes/catalog/mode.ts"
@@ -165,8 +161,8 @@ export interface CatalogResult<R extends Roots = Roots> {
  * | --- | --- | --- | --- |
  * | R26 | inclusive self-match counted | ROW_NUMBER() OVER (PARTITION BY group ORDER BY tuple) | ordinal.ts |
  * | R41 | inclusive self-match folded | <agg> OVER (... ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) | ordinal.ts |
- * | R27 | take(1) under the strict successor | LEAD(f, 1, f) and a ROWS 1 FOLLOWING presence count | neighbor.ts |
- * | R42 | take(1) as-of under <= or < | the LATERAL probe, or one ordered pass over a tagged union | neighbor.ts |
+ * | R27 | take(1) under the strict successor | LEAD(f, 1, f) and a ROWS 1 FOLLOWING presence count, for parents no key bounds | neighbor.ts |
+ * | R42 | take(1) as-of under <= or < | one ordered pass over a tagged union, for parents no key bounds | neighbor.ts |
  * | R28 | count joined to its total or to its input | SUM(count) OVER () or COUNT(*) OVER (PARTITION BY key) | share.ts |
  * | R29 | selection by ordinal ceil(p · n) | PERCENTILE_DISC(p) WITHIN GROUP | percentile.ts |
  * | R30 | interpolation between two ordinals | PERCENTILE_CONT(p) WITHIN GROUP | percentile.ts |
@@ -239,13 +235,10 @@ export const rewriteCatalog = <R extends Roots>(
  * The catalog as a pass of the optimized pipeline: the rewrites, each certificate recorded in the context's log, for
  * the execution context the template is compiled for and under its evidence catalog.
  */
-export const catalogPass = (
-	parents: ParentPolicy,
-	analyses: SharedAnalyses
-): Pass<LogicalQuery, LogicalQuery> => ({
+export const catalogPass = (analyses: SharedAnalyses): Pass<LogicalQuery, LogicalQuery> => ({
 	name: "compileTargetCatalog",
 	run: (query, ctx) => {
-		const options: CatalogOptions = { catalog: ctx.catalog, parents, analyses }
+		const options: CatalogOptions = { catalog: ctx.catalog, analyses }
 		return Result.map(rewriteCatalog(query.dag, options), (result) => {
 			for (const cert of result.certificates) {
 				ctx.certificates.record(cert)

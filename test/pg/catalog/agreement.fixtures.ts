@@ -17,10 +17,9 @@ import { Array as Arr, Option, Order } from "effect"
 import type { Direction } from "#compiler/core/order.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
-import type { CatalogOptions } from "#compiler/lower/shapes/catalog/context.ts"
 import { type CatalogResult } from "#compiler/lower/shapes/catalog/rewrite.ts"
 import * as Q from "#test/pg/catalog/queries.ts"
-import { type Facts, factsGen, labFacts, labOptions } from "#test/pg/catalog/support.ts"
+import { type Facts, factsGen, labFacts } from "#test/pg/catalog/support.ts"
 import { aimedSteered } from "#test/support/aims.ts"
 import type { QueryDesc } from "#test/support/fixtures/ir/desc.ts"
 import * as D from "#test/unit/check/dsl.ts"
@@ -36,9 +35,6 @@ const withPricedSitting = (f: Facts, amount: number): Facts => {
 		prices: [...f.prices, [1001, student, day, amount], [1002, student, day - 1, amount]]
 	}
 }
-
-/** A catalog entry's form over the as-of comparison: the native ordered pass, or the LATERAL probe the composition is. */
-type Path = "ordered" | "lateral"
 
 /** How a running aggregate's self-match is written: plainly, its first occurrence above 3, or one student fixed. */
 type Running = "plain" | "first occurrence above 3" | "student 1 on both occurrences"
@@ -57,19 +53,19 @@ type Entry =
 			readonly kind: "bound neighbor"
 			readonly direction: "next" | "previous"
 			readonly restricted: boolean
+			readonly parents: Q.Parents
 	  }
 	| {
 			readonly kind: "attached neighbor"
 			readonly direction: "next" | "previous"
-			readonly parents: "sittings" | "pointed"
-			readonly path: Path
+			readonly parents: Q.Parents | "pointed"
 	  }
 	| {
 			readonly kind: "as-of"
 			readonly mode: "le" | "lt" | "ge"
 			readonly attached: boolean
 			readonly cheap: boolean
-			readonly path: Path
+			readonly parents: Q.Parents
 	  }
 	| {
 			readonly kind: "grouped share"
@@ -87,7 +83,7 @@ type Entry =
 
 const directionGen: Gen<Direction> = element(["asc", "desc"] as const)
 const neighborGen: Gen<"next" | "previous"> = element(["next", "previous"] as const)
-const pathGen: Gen<Path> = element(["ordered", "lateral"] as const)
+const parentsGen: Gen<Q.Parents> = element(["every", "keyed"] as const)
 
 /** The largest denominator 2^j of a dyadic fraction the discrete rewrite admits (percentile.ts maxDyadicExponent). */
 const admittedDenominator = 2 ** 7
@@ -118,7 +114,8 @@ const entryGen: Gen<Entry> = weighted<Entry>([
 		(source) => ({
 			kind: "bound neighbor",
 			direction: source.draw(neighborGen),
-			restricted: source.draw(boolean)
+			restricted: source.draw(boolean),
+			parents: source.draw(parentsGen)
 		})
 	],
 	[
@@ -126,8 +123,7 @@ const entryGen: Gen<Entry> = weighted<Entry>([
 		(source) => ({
 			kind: "attached neighbor",
 			direction: source.draw(neighborGen),
-			parents: source.draw(element(["sittings", "pointed"] as const)),
-			path: source.draw(pathGen)
+			parents: source.draw(element(["every", "keyed", "pointed"] as const))
 		})
 	],
 	[
@@ -137,7 +133,7 @@ const entryGen: Gen<Entry> = weighted<Entry>([
 			mode: source.draw(element(["le", "lt", "ge"] as const)),
 			attached: source.draw(boolean),
 			cheap: source.draw(boolean),
-			path: source.draw(pathGen)
+			parents: source.draw(parentsGen)
 		})
 	],
 	[
@@ -172,10 +168,6 @@ const entryGen: Gen<Entry> = weighted<Entry>([
 
 const f8 = (value: number) => D.typedLit(value, Q.double)
 
-/** The lab's options with every attachment's parents whole, and with them a bound set. */
-const whole: CatalogOptions = { ...labOptions(), parents: "whole" }
-const bound: CatalogOptions = { ...labOptions(), parents: "bound" }
-
 /** The composition an entry is, as queries.ts writes it. */
 export const descOf = (entry: Entry): QueryDesc => {
 	switch (entry.kind) {
@@ -196,15 +188,16 @@ export const descOf = (entry: Entry): QueryDesc => {
 		case "bound neighbor":
 			return Q.boundNeighbor(
 				entry.direction,
-				entry.restricted ? [D.gt(D.varRef("n.score"), f8(3))] : []
+				entry.restricted ? [D.gt(D.varRef("n.score"), f8(3))] : [],
+				entry.parents
 			)
 		case "attached neighbor":
 			return Q.attachedNeighbor(entry.direction, entry.parents)
 		case "as-of": {
 			const cheap = entry.cheap ? [D.lt(D.varRef("p.amount"), D.lit(105n))] : []
 			return entry.attached
-				? Q.attachedAsOf(entry.mode, cheap)
-				: Q.boundAsOf(entry.mode, cheap, "day")
+				? Q.attachedAsOf(entry.mode, cheap, entry.parents)
+				: Q.boundAsOf(entry.mode, cheap, "day", entry.parents)
 		}
 		case "grouped share":
 			return Q.groupedShare(entry.over, entry.restricted)
@@ -227,45 +220,16 @@ export const descOf = (entry: Entry): QueryDesc => {
 }
 
 /**
- * The catalog options an entry's composition is rewritten under: the lab's, whose recognizers read an attachment's
- * parents as the planner places them, except where an entry's path fixes them. An attached composition's native ordered
- * pass reads whole parents, and its LATERAL probe the bound set the planner places; a bound as-of's LATERAL probe reads
- * a bound parent set, its ordered pass the lab's.
- */
-export const optionsOf = (entry: Entry): CatalogOptions => {
-	switch (entry.kind) {
-		case "attached neighbor":
-			return entry.path === "ordered" ? whole : labOptions()
-		case "as-of":
-			return entry.attached
-				? entry.path === "ordered"
-					? whole
-					: labOptions()
-				: entry.path === "ordered"
-					? labOptions()
-					: bound
-		case "ordinal":
-		case "running":
-		case "bound neighbor":
-		case "grouped share":
-		case "keyed share":
-		case "discrete percentile":
-		case "continuous percentile":
-		case "mode":
-			return labOptions()
-	}
-}
-
-/**
  * The rules the catalog's specification has its rewrite apply to an entry (README's catalog, R26-R42), a shape a
  * recognizer must refuse applying none, so a dropped condition shows as a wrong answer:
  *
  * - R26 rewrites an ordinal's self-join count in every direction; R41 a running aggregate, R26 its ordinal beside it;
- * - R27 a successor or predecessor of the parent's own source, bound, or attached over whole parents; an attachment
- *   over the bound set the planner places keeps the LATERAL probe, which the window's columns cannot reach; a restricted
- *   source is no successor of the parent's, and R42's strict as-of mirror takes it;
- * - R42 an as-of in its ordered pass, bound or attached over whole parents, its Q's own restriction before the union;
- *   its LATERAL probe stays;
+ * - a neighbor or an as-of whose parents a key bounds keeps the LATERAL probe, bound or attached (neighbor.ts
+ *   boundRegion, boundRows), a proof from keys;
+ * - R27 a successor or predecessor of the parent's own source, bound or attached over parents no key bounds; a
+ *   restricted source is no successor of the parent's, and R42's strict as-of mirror takes it;
+ * - R42 an as-of in its ordered pass, bound or attached over parents no key bounds, its Q's own restriction before the
+ *   union;
  * - R28 a share of the total grouped over the same relation, or keyed, unrestricted; a total bound to the count, or
  *   over another relation or a filtered one, is no share;
  * - R29 a discrete percentile of admitted fractions over a joined ordinal, R26 alone over an unjoined one, and R41 alone
@@ -279,11 +243,11 @@ export const rulesOf = (entry: Entry): ReadonlyArray<CertificateRule> => {
 		case "running":
 			return ["R26", "R41"]
 		case "bound neighbor":
-			return entry.restricted ? ["R42"] : ["R27"]
+			return entry.parents === "keyed" ? [] : entry.restricted ? ["R42"] : ["R27"]
 		case "attached neighbor":
-			return entry.path === "ordered" ? ["R27"] : []
+			return entry.parents === "keyed" ? [] : ["R27"]
 		case "as-of":
-			return entry.path === "ordered" ? ["R42"] : []
+			return entry.parents === "keyed" ? [] : ["R42"]
 		case "grouped share":
 			return entry.over === "Sitting" && !entry.restricted ? ["R28"] : []
 		case "keyed share":
@@ -306,12 +270,16 @@ export const rulesOf = (entry: Entry): ReadonlyArray<CertificateRule> => {
 
 /**
  * Whether an entry's answer is empty on most facts, so its cases need not deliver a row: a count bound to another value,
- * parents restricted by a second occurrence, and a selection read through a stage that is no position.
+ * parents restricted by a second occurrence or by sitting 1's key, which drawn facts may hold none of, and a selection
+ * read through a stage that is no position.
  */
 const mayDeliverNone = (entry: Entry): boolean => {
 	switch (entry.kind) {
 		case "attached neighbor":
-			return entry.parents === "pointed"
+			return entry.parents !== "every"
+		case "bound neighbor":
+		case "as-of":
+			return entry.parents === "keyed"
 		case "grouped share":
 		case "keyed share":
 			return entry.restricted
@@ -319,8 +287,6 @@ const mayDeliverNone = (entry: Entry): boolean => {
 			return entry.stage !== "ordinal"
 		case "ordinal":
 		case "running":
-		case "bound neighbor":
-		case "as-of":
 		case "continuous percentile":
 		case "mode":
 			return false
@@ -409,21 +375,22 @@ const keptEntries: Arr.NonEmptyReadonlyArray<Entry> = [
 	{ kind: "running", running: "plain" },
 	{ kind: "running", running: "first occurrence above 3" },
 	{ kind: "running", running: "student 1 on both occurrences" },
-	{ kind: "bound neighbor", direction: "next", restricted: false },
-	{ kind: "bound neighbor", direction: "previous", restricted: false },
-	{ kind: "bound neighbor", direction: "next", restricted: true },
-	{ kind: "attached neighbor", direction: "next", parents: "sittings", path: "ordered" },
-	{ kind: "attached neighbor", direction: "previous", parents: "sittings", path: "ordered" },
-	{ kind: "attached neighbor", direction: "next", parents: "pointed", path: "ordered" },
-	{ kind: "attached neighbor", direction: "next", parents: "sittings", path: "lateral" },
+	{ kind: "bound neighbor", direction: "next", restricted: false, parents: "every" },
+	{ kind: "bound neighbor", direction: "previous", restricted: false, parents: "every" },
+	{ kind: "bound neighbor", direction: "next", restricted: true, parents: "every" },
+	{ kind: "bound neighbor", direction: "next", restricted: false, parents: "keyed" },
+	{ kind: "attached neighbor", direction: "next", parents: "every" },
+	{ kind: "attached neighbor", direction: "previous", parents: "every" },
+	{ kind: "attached neighbor", direction: "next", parents: "pointed" },
+	{ kind: "attached neighbor", direction: "next", parents: "keyed" },
 	...Arr.flatMap(["le", "lt", "ge"] as const, (mode): ReadonlyArray<Entry> => [
-		{ kind: "as-of", mode, attached: false, cheap: false, path: "ordered" },
-		{ kind: "as-of", mode, attached: true, cheap: false, path: "ordered" },
-		{ kind: "as-of", mode, attached: true, cheap: false, path: "lateral" },
-		{ kind: "as-of", mode, attached: false, cheap: false, path: "lateral" },
-		{ kind: "as-of", mode, attached: false, cheap: true, path: "ordered" }
+		{ kind: "as-of", mode, attached: false, cheap: false, parents: "every" },
+		{ kind: "as-of", mode, attached: true, cheap: false, parents: "every" },
+		{ kind: "as-of", mode, attached: true, cheap: false, parents: "keyed" },
+		{ kind: "as-of", mode, attached: false, cheap: false, parents: "keyed" },
+		{ kind: "as-of", mode, attached: false, cheap: true, parents: "every" }
 	]),
-	{ kind: "as-of", mode: "le", attached: true, cheap: true, path: "ordered" },
+	{ kind: "as-of", mode: "le", attached: true, cheap: true, parents: "every" },
 	{ kind: "grouped share", over: "Sitting", restricted: false },
 	{ kind: "keyed share", restricted: false },
 	{ kind: "keyed share", restricted: true },
