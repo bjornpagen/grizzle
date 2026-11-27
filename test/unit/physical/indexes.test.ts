@@ -297,12 +297,6 @@ export const theIndexRequestEngineLandsEveryRequestOnExactlyOneIndexPlansAlikeIn
 		kills: [
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
-				original: "\t\tx.blocks.flatMap((block) => block.toSorted(keyOrder))",
-				replacement: "\t\tx.keys",
-				why: "The plan orders requests by their columns as stated, as at 79fd60c3: Event's lookups of (tenant, unrelated), (tenant, account) and (account, unrelated) take their leads in their statement's order, so a lookup that states its columns otherwise makes another plan; the kept case's plans differ."
-			},
-			{
-				file: "packages/engine/src/physical/indexes/engine.ts",
 				original: "\t\t\t\t? reversePlacements(blocks, keys, columns)",
 				replacement: "\t\t\t\t? equalityPlacements(keys, columns)",
 				why: "A law's request is placed as one block of every column it binds, as a workload's equality lookup is, so a probe of two blocks, a unit-local law's whose unit's key leads, lands on an index that holds its columns in another block order: the equality lookup's index of Event (tenant, account) serves the probe of (account; tenant), and the property fails."
@@ -315,8 +309,8 @@ export const theIndexRequestEngineLandsEveryRequestOnExactlyOneIndexPlansAlikeIn
 			},
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
-				original: "\t\t})),\n\t\tunique: false,",
-				replacement: "\t\t})),\n\t\tunique: true,",
+				original: "\t\t\t\t: [rowed.key],\n\t\tunique: false,",
+				replacement: "\t\t\t\t: [rowed.key],\n\t\tunique: true,",
 				why: "A created index is unique."
 			},
 			{

@@ -85,7 +85,8 @@ const accessShape: Readonly<Record<AccessUse, Shape>> = {
 	"span predicate": "overlap",
 	"approximate vector retrieval": "nearest",
 	"text search": "match",
-	"network containment": "contain"
+	"network containment": "contain",
+	"row equality": "equality"
 }
 
 /**
@@ -217,7 +218,8 @@ const methodOfUse: Readonly<Record<AccessUse, AccessIndexRequest["method"]>> = {
 	"span predicate": "gist",
 	"approximate vector retrieval": "hnsw",
 	"text search": "gin",
-	"network containment": "gist"
+	"network containment": "gist",
+	"row equality": "btree"
 }
 
 /**
@@ -231,6 +233,7 @@ const fixedOfUse = (use: AccessUse, keys: number): number => {
 		case "equality lookup":
 		case "join key":
 		case "write target":
+		case "row equality":
 			return keys
 		case "range":
 		case "prefix search":

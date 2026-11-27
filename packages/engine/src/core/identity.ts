@@ -1892,6 +1892,19 @@ export const identity = Object.freeze({
 			hashed
 		),
 	/**
+	 * The composite type a hash index over several columns of `relation` holds the row of (physical/indexes/engine.ts
+	 * createIndex): its fields, in the index's key order, each an attribute of the type, so one row type serves one index,
+	 * dropped with it.
+	 */
+	hashRow: (relation: string, fields: ReadonlyArray<string>): Identity<"hashRow"> =>
+		mint(
+			"hashRow",
+			[relation, fields],
+			[...nameSegments(relation), "hr", ...fields.flatMap((f) => nameSegments(f))],
+			`hash row ${relation}(${fields.join(", ")})`,
+			hashed
+		),
+	/**
 	 * A derived relation's unique index on a key its definition proves, in the stored table `table` holds its rows in
 	 * (core/identity.ts view, a canonical relation's): minted from the table, so each table's indexes are its own and a
 	 * definition whose new form is a new table names new ones, its name read from the relation's.

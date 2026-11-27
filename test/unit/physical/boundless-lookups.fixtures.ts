@@ -38,14 +38,18 @@ const Noted = schema.extend([Notes], "Noted", [AccountNote], [])
 /** The bytes columns a lookup of AccountNote binds by equality, and nothing else. */
 export const boundlessColumns = ["body", "label"] as const
 
-/** A lookup of AccountNote binding `columns` by equality alone, as a workload's read asks it. */
-export const boundlessLookup = (columns: ReadonlyArray<string>): AccessIndexRequest => ({
+/** A lookup of AccountNote binding `columns` alone, by equality of each, or of their row (AccessUse `row equality`), as
+ * a read asks it. */
+export const boundlessLookup = (
+	columns: ReadonlyArray<string>,
+	use: "equality lookup" | "row equality"
+): AccessIndexRequest => ({
 	relation: "AccountNote",
 	keys: Arr.map(columns, (expr) => ({ expr, dir: "asc" as const, opclass: defaultOpclass })),
 	method: "btree",
 	fixed: columns.length,
 	role: "access",
-	use: "equality lookup"
+	use
 })
 
 /** The installation of the notes with `requests` asked of the index engine. */

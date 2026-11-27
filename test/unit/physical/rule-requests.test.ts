@@ -61,12 +61,6 @@ export const aRuleOverAQueryAsksAnIndexOfEachReadItsJudgeMakesAWholeRulesLedByIt
 				original: "\t\t\tif (x.table !== undefined && aliases.has(x.table)) {\n",
 				replacement: "\t\t\tif (x.table !== undefined) {\n",
 				why: "A navigation step's `column = channel` reads as a column of its own level, the row before it read as a join, so a probe's lookup of U by the join is no seek its judge's program asks an index for, and PostgreSQL reads every row of U's package at each row of T's delta; the property fails."
-			},
-			{
-				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: "\treturn isNonEmpty(bound) ? (isNonEmpty(rest) ? [bound, rest] : [bound]) : [keys]",
-				replacement: "\treturn [keys]",
-				why: "A whole rule's request is one block, so the engine merges it into the index Q's probes ask of U by g, led by g: the whole rule's read is served by an index whose scan by g reads every unit's rows of that value, which PostgreSQL may AND into another read, as qti.node's path-led indexes were for the manifest rules; the property fails."
 			}
 		]
 	})

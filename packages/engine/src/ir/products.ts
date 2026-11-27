@@ -388,6 +388,9 @@ export interface CarrierDecl {
  *   inet's default class, inet_ops.
  * - write target: The key a ChangeSet's statement matches written facts on: exact deletion, put occupants, the
  *   insert arbiter.
+ * - row equality: An equality of every key at once, as one row, `ROW(<keys>)::<its type> = ROW(<values>)::<its type>`,
+ *   its keys in the index's key order, the relation's heading's: a stored table's lookup by several bytes columns of no
+ *   byte bound, which no B-tree entry holds, read through a hash index over their row's composite type.
  */
 const accessUses = [
 	"key lookup",
@@ -401,7 +404,8 @@ const accessUses = [
 	"approximate vector retrieval",
 	"text search",
 	"network containment",
-	"write target"
+	"write target",
+	"row equality"
 ] as const
 export type AccessUse = (typeof accessUses)[number]
 

@@ -12,7 +12,12 @@ import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
-import { type EntryRole, identity, type IndexMethod } from "#compiler/core/identity.ts"
+import {
+	type EntryRole,
+	identifierOf,
+	identity,
+	type IndexMethod
+} from "#compiler/core/identity.ts"
 import type { ConstraintName, IndexName, LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import {
@@ -33,6 +38,7 @@ import {
 	type LawIndexRequest,
 	type NativeColumn
 } from "#compiler/ir/law.ts"
+import { lawColumnType } from "#compiler/ir/physical.ts"
 import {
 	type AccessIndexRequest,
 	type AccessUse,
@@ -66,9 +72,18 @@ import {
 	keyDatums,
 	lookupEntry
 } from "#compiler/schema/representability.ts"
-import type { CreateIndex } from "#compiler/sql/ast.ts"
-import { columnKey, exprKey, tableCol } from "#compiler/sql/build.ts"
+import type { ColumnDefinition, CreateIndex, IndexKey as SqlIndexKey } from "#compiler/sql/ast.ts"
+import {
+	cast,
+	columnKey,
+	exprKey,
+	namedType,
+	objectName,
+	row,
+	tableCol
+} from "#compiler/sql/build.ts"
 import { suffixKeyOf } from "#compiler/sql/suffix.ts"
+import { installationTypes } from "#compiler/sql/type-schemas.ts"
 
 /**
  * What an index key holds: a column by its arm, a field or a law column; or a text field's suffix key,
@@ -525,8 +540,9 @@ const gistPlacements = (keys: Keys, columns: Columns, label: string): Placements
 }
 
 /**
- * An equality probe on one column that no B-tree entry holds, which only a hash index on that column serves: no
- * B-tree, GiST or HNSW request ever lands on a hash index, nor a hash request on another.
+ * An equality probe that no B-tree entry holds, which only a hash index serves: on its one column, or, a row equality,
+ * on the row of its columns (`createIndex`), its one hash code the row's: no B-tree, GiST or HNSW request ever lands on
+ * a hash index, nor a hash request on another.
  */
 const hashPlacements = (keys: Keys): Placements => ({
 	own: { kind: "blocks", method: "hash", blocks: [keys], directed: undefined },
@@ -573,7 +589,8 @@ const btreeNeeds: Readonly<Record<AccessUse, "lookup" | "range" | "order" | "non
 	"span predicate": "none",
 	"approximate vector retrieval": "none",
 	"text search": "none",
-	"network containment": "none"
+	"network containment": "none",
+	"row equality": "none"
 }
 
 /** A workload B-tree request's placements, by what its use asks of a B-tree (btreeNeeds), its first `fixed` keys bound
@@ -598,8 +615,9 @@ const btreeAccessPlacements = (
 }
 
 /** A request's placements, its keys those it states over `columns`, read once from its access method, role and use: a
- * GiST request binds every column, an HNSW request asks the nearest vectors, a law's B-tree probe looks every column up by
- * equality, and a workload B-tree request needs what its use does. */
+ * row equality binds the row of its columns, a GiST request binds every column, an HNSW request asks the nearest
+ * vectors, a law's B-tree probe looks every column up by equality, and a workload B-tree request needs what its use
+ * does. */
 const placementsOf = (
 	request: IndexRequest,
 	keys: Keys,
@@ -607,6 +625,9 @@ const placementsOf = (
 	columns: Columns,
 	label: string
 ): Placements => {
+	if (request.role === "access" && request.use === "row equality") {
+		return hashPlacements(keys)
+	}
 	switch (request.method) {
 		case "gist":
 			return request.role === "access" && request.use === "network containment"
@@ -1257,8 +1278,9 @@ const planOver = (
 		 * bound, which no B-tree entry holds, reads a hash index on it, whose entry is the value's 4-byte hash code, the rows
 		 * it finds the lookup's own (a text of no byte bound is refused before it as undigested, `refusedUndigested`). The
 		 * installation stores the relation by its own inference (analysis/derived/storage.ts), so its table refuses no such
-		 * read for want of a bound; a lookup binding several such columns alone is refused, since a hash index on one of
-		 * them reads every row sharing that one value.
+		 * read for want of a bound; a lookup binding several such columns reads a hash index over their row where it states
+		 * them as one row equality (AccessUse `row equality`, `hashPlacements`), and is refused where it binds an equality of
+		 * each, since a hash index on one of them reads every row sharing that one value.
 		 */
 		const stored = new Set(b.indexedViews().map((view) => view.relation))
 		const plan = requests
@@ -1440,7 +1462,8 @@ const planOver = (
 		}
 		const indexes = candidates.map((c): PlannedIndex => ({ ...c.index, requests: c.requests }))
 		/** The reference a plan names `index` by (physical/indexes/ref.ts): its schema-qualified name, its method, the
-		 * installed columns it stores as themselves in key order, a suffix key storing none, and whether it returns them. */
+		 * installed columns it stores as themselves in key order, a suffix key storing none and a hash index, which holds
+		 * hash codes, none, and whether it returns them. */
 		const refOf = (index: PlannedIndex): IndexRef => {
 			const target = b.target(index.relation)
 			if (target.kind !== "built") {
@@ -1449,9 +1472,12 @@ const planOver = (
 			return indexRef({
 				name: { schema: b.names.relation(index.relation).schema, name: index.index.name },
 				method: index.method,
-				stores: index.keys.flatMap((k) =>
-					k.column.kind === "suffix" ? [] : [target.column(k.column)]
-				),
+				stores:
+					index.method === "hash"
+						? []
+						: index.keys.flatMap((k) =>
+								k.column.kind === "suffix" ? [] : [target.column(k.column)]
+							),
 				returns: returnsOf(
 					index.method,
 					index.keys.map(
@@ -1798,21 +1824,74 @@ const createIndex = (
 		filtered
 	)
 	const name = b.name(named)
+	/**
+	 * The row a hash index over several columns holds the one hash code of, a row equality's (`hashPlacements`): the
+	 * composite type of its columns in its key order, its own object in its relation's level, created before the index
+	 * and dropped with it, PUBLIC holding nothing on it; and the index's one key, `ROW(<columns>)::<type>`, which a read
+	 * states as its row equality's left side. PostgreSQL indexes no anonymous record, a pseudo-type, so the row is cast to
+	 * a type of its own; the type's hash class is the record's (hash_record), each attribute hashed by its own class.
+	 */
+	const hashedRow = (
+		members: NonEmptyReadonlyArray<IndexKey>
+	): { readonly node: Node<"setup">; readonly key: SqlIndexKey } => {
+		const level = b.names.levelOf(request.relation)
+		const typed = identity.hashRow(
+			request.relation,
+			members.map((k) => keyTermText(k.column))
+		)
+		const typeName = objectName(identifierOf(level), b.name(typed))
+		const attributes = mapNonEmpty(members, (k): ColumnDefinition => {
+			const { type, collation } = lawColumnType(b.names, targetField(readColumn(k.column)).type)
+			return { name: o.column(readColumn(k.column)), type, collation }
+		})
+		const node = b.add(
+			{
+				kind: "rowType",
+				ident: { kind: "type", schema: level, name: typed },
+				ddl: [
+					{ kind: "createRowType", name: typeName, attributes },
+					{
+						kind: "revoke",
+						privileges: ["ALL"],
+						on: { kind: "TYPE", names: [typeName] },
+						from: [{ kind: "PUBLIC" }]
+					}
+				],
+				reasons: [reasonOf(request)],
+				phase: "setup"
+			},
+			[b.levelNode(request.relation)]
+		)
+		const columns = mapNonEmpty(members, (k) => tableCol(o.column(readColumn(k.column))))
+		return {
+			node,
+			key: {
+				...exprKey(cast(row(columns), namedType(installationTypes(level), typeName.name, []))),
+				opclass: undefined,
+				direction: "ASC"
+			}
+		}
+	}
+	const [first, ...more] = keys
+	const rowed = method === "hash" && isNonEmpty(more) ? hashedRow([first, ...more]) : undefined
 	const ddl: CreateIndex = {
 		kind: "createIndex",
 		name,
 		table: b.names.relation(request.relation),
 		method,
-		keys: mapNonEmpty(keys, (k) => ({
-			...(k.column.kind === "suffix"
-				? exprKey(suffixKeyOf(tableCol(o.column(k.column.of))))
-				: columnKey(o.column(k.column))),
-			opclass:
-				k.opclass.kind === "default"
-					? undefined
-					: { schema: k.opclass.schema, name: vectorCosineOpclass },
-			direction: k.dir === "desc" ? "DESC" : "ASC"
-		})),
+		keys:
+			rowed === undefined
+				? mapNonEmpty(keys, (k) => ({
+						...(k.column.kind === "suffix"
+							? exprKey(suffixKeyOf(tableCol(o.column(k.column.of))))
+							: columnKey(o.column(k.column))),
+						opclass:
+							k.opclass.kind === "default"
+								? undefined
+								: { schema: k.opclass.schema, name: vectorCosineOpclass },
+						direction: k.dir === "desc" ? "DESC" : "ASC"
+					}))
+				: [rowed.key],
 		unique: false,
 		concurrently: false,
 		include: [],
@@ -1828,6 +1907,7 @@ const createIndex = (
 		},
 		[
 			o.object,
+			...(rowed === undefined ? [] : [rowed.node]),
 			...(method === "gist" && keys.some((k) => planned.columns.holds(k.column) !== "span")
 				? [b.provider("btree_gist")]
 				: [])

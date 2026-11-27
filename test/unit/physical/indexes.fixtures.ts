@@ -141,6 +141,7 @@ const fixedOf = (use: AccessUse, keys: number): number => {
 		case "equality lookup":
 		case "join key":
 		case "write target":
+		case "row equality":
 			return keys
 		case "range":
 		case "prefix search":

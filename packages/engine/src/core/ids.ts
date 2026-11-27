@@ -82,6 +82,7 @@ export type IdentityKind =
 	| "domainCheck"
 	| "foreignKey"
 	| "accessIndex"
+	| "hashRow"
 	| "derivedKey"
 	| "law"
 	| "patternLaw"
