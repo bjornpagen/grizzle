@@ -9,10 +9,12 @@
  *
  * Level by level, as PostgreSQL plans them, each read of a stored table becomes:
  * - a seek (FromSource `read`, LevelAccess `seek`): bound by equalities to values its level fixes, a parameter, a
- *   literal, a PL variable, a column of an enclosing level, and past them by the one range of the least column it
- *   orders against such a value (`<`, `<=`, `>=`, `>`), its request's key after the fixed ones; each moved out of the
- *   level's WHERE or ON into the read, and printed back as one of its level's conjuncts, where PostgreSQL makes it an
- *   index condition of its scan;
+ *   literal, a PL variable, a column of an enclosing level, an `= ANY` of an array sublink that reads nothing of the
+ *   level (an InitPlan, the keys a write holds among them, write/probe.ts amongHeld), and past them by the one range of
+ *   the least column it orders against such a value (`<`, `<=`, `>=`, `>`), its request's key after the fixed ones, a
+ *   field or a law column alike (BindColumn); each moved out of the level's WHERE or ON into the read, an inner join's
+ *   ON conjunct that reads none of its own step a conjunct of the level (`innerHoisted`), and printed back as one of its
+ *   level's conjuncts, where PostgreSQL makes it an index condition of its scan;
  * - a probe (FromSource `probe`): bound by an equality to a column of an earlier item of its level, a keyed read of a
  *   second relation, printed `LATERAL (SELECT … WHERE <bindings> LIMIT 1 | OFFSET 0)`, which PostgreSQL never
  *   flattens, so every bound column is an index condition, never a join filter (CARRY-THE-PLAN finding 5);
@@ -45,7 +47,8 @@ import {
 import { nominal } from "#compiler/core/brand.ts"
 import { compareStrings, type Direction } from "#compiler/core/order.ts"
 import { defaultOpclass, type IndexOpclass } from "#compiler/ir/law.ts"
-import type { AccessIndexRequest, AccessUse } from "#compiler/ir/products.ts"
+import type { AccessIndexRequest, AccessKeyTerm, AccessUse } from "#compiler/ir/products.ts"
+import type { IndexColumn } from "#compiler/physical/ddl/context.ts"
 import {
 	type AccessTag,
 	type BinaryOperator,
@@ -133,8 +136,9 @@ import { identityHooks, Transform, visitLevelExpr } from "#compiler/sql/transfor
 export type Holds = "many" | "few"
 
 /**
- * A column of a stored table an index can serve, by its installed name, `field` the field it is, a request's key, and
- * its kind, which closes the operators a read of it is classified by (`accessOf`):
+ * A column of a stored table an index can serve, by its installed name, `column` the field or the law column it is, a
+ * request's key, by its arm (physical/ddl/context.ts IndexColumn), and its kind, which closes the operators a read of it
+ * is classified by (`accessOf`):
  * - a B-tree's, with what it holds (`holds`): a scalar's, a text's (whose range on both sides is a prefix search), a
  *   network's (an inet or a cidr, whose containment GiST serves under inet_ops), a vector's (whose distance HNSW serves
  *   under the cosine class `cosine`, and whose own `=` pgvector's B-tree class keys); bound by `=`, `IN`, `= ANY` and,
@@ -151,16 +155,20 @@ export type Holds = "many" | "few"
 export type BindColumn =
 	| {
 			readonly kind: "scalar" | "text" | "network" | "bytes"
-			readonly field: string
+			readonly column: IndexColumn
 			readonly holds: Holds
 	  }
 	| {
 			readonly kind: "vector"
-			readonly field: string
+			readonly column: IndexColumn
 			readonly holds: Holds
 			readonly cosine: IndexOpclass
 	  }
-	| { readonly kind: "span" | "search"; readonly field: string }
+	| { readonly kind: "span" | "search"; readonly column: IndexColumn }
+
+/** A column as a request's key names it (AccessKeyTerm): a field by its name, a law column by its identifier. */
+const keyTermOf = (column: IndexColumn): AccessKeyTerm =>
+	column.kind === "field" ? column.field : { law: column.column }
 
 /** A column a B-tree holds (BindColumn). */
 type BTreeColumn = Extract<BindColumn, { readonly holds: Holds }>
@@ -453,6 +461,31 @@ const volatile = (e: Expr): boolean => {
 	return found
 }
 
+/**
+ * The free qualifiers of an expression: those of its column references that name no item a sublink of it binds itself,
+ * so an uncorrelated sublink, which PostgreSQL plans once as an InitPlan, has none, and a correlated one the items of
+ * the levels it reads around it.
+ */
+const freeQualifiersOf = (e: Expr): ReadonlySet<string> => {
+	const read = new Set<string>()
+	const bound = new Set<string>()
+	new (class extends Transform {
+		override readonly expr = (x: Expr): Expr => {
+			if (x.kind === "column" && x.table !== undefined) {
+				read.add(x.table)
+			}
+			return this.exprChildren(x)
+		}
+		override source(s: FromSource): FromSource {
+			if ("alias" in s && s.alias !== undefined) {
+				bound.add(s.alias)
+			}
+			return super.source(s)
+		}
+	})(identityHooks).expr(e)
+	return new Set([...read].filter((a) => !bound.has(a)))
+}
+
 /** Whether an expression holds a sublink or a VOLATILE call, which no binding or pushed conjunct carries. */
 const opaque = (e: Expr): boolean => {
 	let found = false
@@ -509,7 +542,22 @@ interface Binding {
 	readonly op: "=" | "in"
 }
 
+/**
+ * A conjunct as a binding of the read of `alias`: an equality of one of its columns, an IN list, or an `= ANY` of an
+ * array, a sublink's ARRAY(...) among them, whose value its level fixes where the sublink reads nothing of the level
+ * (`freeQualifiersOf`), so a seek reads the rows at the array's values; none for a conjunct holding any other sublink or a
+ * VOLATILE call (`opaque`).
+ */
 const bindingOf = (c: Expr, alias: string): Binding | undefined => {
+	if (c.kind === "equalsAny") {
+		const ref = columnOf(c.expr)
+		return ref?.table === alias &&
+			!opaque(c.expr) &&
+			(c.array.kind === "array" || !opaque(c.array)) &&
+			!freeQualifiersOf(c.array).has(alias)
+			? { conjunct: c, column: ref.column, value: c.array, schema: c.schema, op: "in" }
+			: undefined
+	}
 	if (opaque(c)) {
 		return undefined
 	}
@@ -536,12 +584,6 @@ const bindingOf = (c: Expr, alias: string): Binding | undefined => {
 				}
 			: undefined
 	}
-	if (c.kind === "equalsAny") {
-		const ref = columnOf(c.expr)
-		return ref?.table === alias && !qualifiersOf(c.array).has(alias)
-			? { conjunct: c, column: ref.column, value: c.array, schema: c.schema, op: "in" }
-			: undefined
-	}
 	return undefined
 }
 
@@ -561,7 +603,7 @@ const requestOf = (
 		const column = table.columns.get(c)
 		return column === undefined
 			? defect(`a bound column of ${table.relation} a B-tree holds; ${c} is none`)
-			: { expr: column.field, dir: "asc" as const, opclass: defaultOpclass }
+			: { expr: keyTermOf(column.column), dir: "asc" as const, opclass: defaultOpclass }
 	}),
 	method: "btree",
 	fixed: bound.length,
@@ -839,13 +881,22 @@ const keyedRequest = (
 	relation: table.relation,
 	keys: keys.map((k) => {
 		const column = table.columns.get(k.column)
-		return column === undefined
-			? defect(`a key column of ${table.relation} an index serves; ${k.column} is none`)
-			: {
-					expr: k.term === "column" ? column.field : { suffix: column.field },
-					dir: k.dir,
-					opclass: k.opclass
-				}
+		if (column === undefined) {
+			return defect(`a key column of ${table.relation} an index serves; ${k.column} is none`)
+		}
+		const key = column.column
+		return {
+			expr:
+				k.term === "column"
+					? keyTermOf(key)
+					: key.kind === "field"
+						? { suffix: key.field }
+						: defect(
+								`a suffix key of the law column ${key.column} of ${table.relation}, which no text read ranges`
+							),
+			dir: k.dir,
+			opclass: k.opclass
+		}
 	}),
 	method,
 	fixed,
@@ -951,6 +1002,38 @@ const stepEntry = (step: JoinStep): Entry =>
 	step.kind === "cross"
 		? { join: "cross", source: step.source }
 		: { join: step.kind, source: step.source, on: step.on }
+
+/**
+ * A level's entries with every conjunct of an inner join's ON that reads none of its own step's columns (`writtenOf`,
+ * by its free qualifiers) moved into the level's WHERE, `where`, as PostgreSQL distributes an inner join's quals to the
+ * lowest level that reads them, so the read of an earlier entry an `= ANY` of a held array restricts binds it there; a
+ * step left with no conjunct of its own is a cross join. A LEFT join's ON, and a step whose source names no alias, keep
+ * theirs.
+ */
+const innerHoisted = (entries: ReadonlyArray<Entry>, where: Array<Expr>): ReadonlyArray<Entry> =>
+	entries.map((entry): Entry => {
+		if (entry.join !== "on") {
+			return entry
+		}
+		const own = writtenOf(entry.source)
+		if (own === undefined) {
+			return entry
+		}
+		const conjuncts = conjunctsOf(entry.on)
+		const kept = conjuncts.filter((c) => freeQualifiersOf(c).has(own))
+		if (kept.length === conjuncts.length) {
+			return entry
+		}
+		for (const c of conjuncts) {
+			if (!freeQualifiersOf(c).has(own)) {
+				where.push(c)
+			}
+		}
+		const on = conjunction(kept)
+		return on === undefined
+			? { join: "cross", source: entry.source }
+			: { join: "on", source: entry.source, on }
+	})
 
 /** How a bound entry joins the entries before it, in the join chain of its level: crosswise, or on its ON. */
 type Step = { readonly join: "cross" } | { readonly join: "on" | "left"; readonly on: Expr }
@@ -1832,7 +1915,7 @@ class Binder {
 		let here: Env = { ...env, depth }
 		const bound: Array<BoundEntry> = []
 		const viewed = new Set<Alias>()
-		for (const [place, logical] of entriesOf(c.from).entries()) {
+		for (const [place, logical] of innerHoisted(entriesOf(c.from), where).entries()) {
 			const entry = this.#apart(logical, viewed)
 			const written = writtenOf(entry.source)
 			const alias = this.#alias(written)
@@ -2289,7 +2372,7 @@ class Binder {
 			return d?.depth === here.depth && d.place < place
 		}
 		const fixed = (e: Expr) =>
-			[...qualifiersOf(e)].every((a) => {
+			[...freeQualifiersOf(e)].every((a) => {
 				const d = here.relations.get(a)
 				return d !== undefined && d.depth < here.depth
 			})
@@ -2302,7 +2385,7 @@ class Binder {
 							if (b === undefined || btreeColumn(table, b.column) === undefined) {
 								return []
 							}
-							const driven = b.op === "=" && [...qualifiersOf(b.value)].some(earlier)
+							const driven = b.op === "=" && [...freeQualifiersOf(b.value)].some(earlier)
 							return (driven && !this.#whole) || fixed(b.value) ? [{ ...b, driven }] : []
 						})
 					)
@@ -2953,7 +3036,9 @@ class Binder {
 						const b = bindingOf(c, written)
 						return b !== undefined && btreeColumn(catalogTable, b.column) !== undefined ? [b] : []
 					})
-		const driven = bindings.filter((b) => b.op === "=" && [...qualifiersOf(b.value)].some(earlier))
+		const driven = bindings.filter(
+			(b) => b.op === "=" && [...freeQualifiersOf(b.value)].some(earlier)
+		)
 		if (catalogTable !== undefined && driven.length > 0) {
 			const probeAlias = this.#alias(written)
 			const probed = this.probeEntry(
@@ -3001,7 +3086,7 @@ class Binder {
 			catalogTable !== undefined &&
 			bindings.some((b) => btreeColumn(catalogTable, b.column)?.holds === "many")
 		const fixedBindings = bindings.filter((b) =>
-			[...qualifiersOf(b.value)].every((a) => {
+			[...freeQualifiersOf(b.value)].every((a) => {
 				const d = here.relations.get(a)
 				return d !== undefined && d.depth < depth
 			})

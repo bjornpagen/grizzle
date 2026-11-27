@@ -112,10 +112,18 @@ export const bindFeatures = [
 const tTable: BindTable = {
 	relation: "T",
 	columns: new Map([
-		["a", { kind: "scalar", field: "a", holds: "many" }],
-		["b", { kind: "scalar", field: "b", holds: "many" }],
-		["f", { kind: "scalar", field: "f", holds: "few" }],
-		["v", { kind: "vector", field: "v", holds: "many", cosine: defaultOpclass }]
+		["a", { kind: "scalar", column: { kind: "field", field: "a" }, holds: "many" }],
+		["b", { kind: "scalar", column: { kind: "field", field: "b" }, holds: "many" }],
+		["f", { kind: "scalar", column: { kind: "field", field: "f" }, holds: "few" }],
+		[
+			"v",
+			{
+				kind: "vector",
+				column: { kind: "field", field: "v" },
+				holds: "many",
+				cosine: defaultOpclass
+			}
+		]
 	]),
 	keys: [["a"]],
 	hashRow: { kind: "none" }
@@ -124,8 +132,8 @@ const tTable: BindTable = {
 const sTable: BindTable = {
 	relation: "S",
 	columns: new Map([
-		["k", { kind: "scalar", field: "k", holds: "many" }],
-		["w", { kind: "scalar", field: "w", holds: "many" }]
+		["k", { kind: "scalar", column: { kind: "field", field: "k" }, holds: "many" }],
+		["w", { kind: "scalar", column: { kind: "field", field: "w" }, holds: "many" }]
 	]),
 	keys: [["k"]],
 	hashRow: { kind: "none" }
@@ -138,9 +146,9 @@ const sTable: BindTable = {
 const uTable: BindTable = {
 	relation: "U",
 	columns: new Map([
-		["p", { kind: "bytes", field: "p", holds: "many" }],
-		["q", { kind: "bytes", field: "q", holds: "many" }],
-		["x", { kind: "scalar", field: "x", holds: "many" }]
+		["p", { kind: "bytes", column: { kind: "field", field: "p" }, holds: "many" }],
+		["q", { kind: "bytes", column: { kind: "field", field: "q" }, holds: "many" }],
+		["x", { kind: "scalar", column: { kind: "field", field: "x" }, holds: "many" }]
 	]),
 	keys: [],
 	hashRow: {

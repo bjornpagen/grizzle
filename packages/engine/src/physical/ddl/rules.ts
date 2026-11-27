@@ -444,8 +444,8 @@ const unitLead = (
 
 /**
  * The requests of a routine's plan (sql/plan.ts planRequests) as its requester asks them (`Requester`): each a law's
- * maintenance request by its read's method, its keys the fields the plan's read binds, or a text field's suffix key it
- * ranges (ir/law.ts SuffixColumn), led as its requester leads
+ * maintenance request by its read's method, its keys the fields and law columns the plan's read binds, or a text
+ * field's suffix key it ranges (ir/law.ts SuffixColumn), led as its requester leads
  * (`unitLead`), so every read the routine makes is asked and nothing else is. A read of a closed relation, which no
  * index serves, asks none.
  * The plan is the routine's bound statements' (sql/bind.ts), the one derivation of what each of its reads binds
@@ -462,6 +462,9 @@ export const routineRequests = (
 			return []
 		}
 		const keys = request.keys.flatMap((k): ReadonlyArray<LawIndexKey> => {
+			if (typeof k.expr !== "string" && "law" in k.expr) {
+				return [{ column: { kind: "law", column: k.expr.law }, dir: k.dir, opclass: k.opclass }]
+			}
 			const name = typeof k.expr === "string" ? k.expr : k.expr.suffix
 			const field = target.fields.find((f) => f.name === name)
 			if (field === undefined) {

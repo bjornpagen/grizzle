@@ -12,19 +12,23 @@
  * before its COMMIT) are at most c · log₁₀ n, c the pages at n = 10: a cost of a + b · d(n), d a B-tree's depth, which
  * grows by a level for each power of its fan-out, stays under it at every tenfold, since its constant part does not
  * grow, while a cost with a term in n passes it once that term outgrows the constant: no slack, no threshold, no
- * clock. And the append updates at most one stored member's row, the one whose slot it follows; and a member a direct
- * writer then inserts past the family's last slot, naming its own slot its successor, is refused by the family's
- * foreign keys (23503): the member at the last slot names its own slot its successor, so the one past it has no
- * predecessor it follows.
+ * clock. The rows its statements read of those tables whole, the tuples a sequential scan returns there
+ * (pg_stat_get_xact_tuples_returned, beside the tuples index scans fetch), are the same at every size: no statement of
+ * an append, a sequence's put among them, reads the family's table whole, its stored rows reached at their keys, a
+ * law column's (the counted slot ‹i›) and an `= ANY` of the keys the write holds among them. And the append updates
+ * at most one stored member's row, the one whose slot it follows; and a member a direct writer then inserts past the
+ * family's last slot, naming its own slot its successor, is refused by the family's foreign keys (23503): the member
+ * at the last slot names its own slot its successor, so the one past it has no predecessor it follows.
  *
  * Its red, at 26b4ab22f: every member held its owner's count, ‹n›, and the owner axis's ON UPDATE CASCADE rewrote
  * every stored member at each append, 164, 1,557, 18,351 and 181,342 pages for a sequence's append at 10 to 10,000
  * members and 130, 1,602, 19,254 and 191,274 for a counted family's, n members updated each time. Each member now holds
  * its successor (ir/family.ts Family `next`), and an append updates the one member before its slots: 105, 111, 135 and
- * 134 pages, and 60, 62, 79 and 79, under 26b4ab22f's binding. Its counted case is red again under the binder
- * (40b6352e), whose catalog holds no law column, so the seam's probe binds the group alone, ‹i› a filter: 64, 66, 125
- * and 501 pages at 2dc71d9e; and a sequence's put reads its stored row by `= ANY` of an array whole, a Seq Scan
- * inside its budget.
+ * 134 pages, and 60, 62, 79 and 79, under 26b4ab22f's binding. The binder (40b6352e) read them again past the bound:
+ * its catalog held no law column, so the seam's probe bound the group alone, ‹i› a filter, 64, 66, 125 and 501 pages
+ * at 2dc71d9e; and it read every `= ANY` of a held array whole, a sublink, a sequence's put reading its stored row by a
+ * Seq Scan of Line, 11, 101, 1,001 and 10,001 rows. Bound by their columns and their arrays, the sequence's append reads
+ * 110, 116, 141 and 141 pages and the counted family's 64, 66, 84 and 84, no row of a table whole.
  *
  * The oracle is the law itself; test/pg/fin's other properties and the world model judge the rows the same writes
  * leave.
@@ -46,7 +50,7 @@ import {
 } from "#test/pg/fin/append-cost.fixtures.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
-/** An append of one member to a stored family of n reads at most c · log₁₀ n pages and updates one stored member at most. */
+/** An append of one member to a stored family of n reads at most c · log₁₀ n pages, no table whole, and updates one stored member at most. */
 export const anAppendToAStoredFamilyOfNReadsAtMostCTimesLogNPagesAndUpdatesOneStoredMemberAtMost =
 	property.exhaust(finite(sketchGen), {
 		needs: { substrate: Substrate.fresh(baseSubstrate) },
@@ -70,6 +74,11 @@ export const anAppendToAStoredFamilyOfNReadsAtMostCTimesLogNPagesAndUpdatesOneSt
 								cost.pages <= (base.pages * Math.log10(cost.n)) / Math.log10(base.n),
 								`${sketch.kind}: an append at ${cost.n} members reads more than c · log n pages: ${text}`
 							)
+							assert.equal(
+								cost.rows,
+								base.rows,
+								`${sketch.kind}: an append at ${cost.n} members reads a table whole: ${text}`
+							)
 							assert.ok(
 								cost.membersUpdated <= 1,
 								`${sketch.kind}: the append updates its stored members: ${text}`
@@ -86,11 +95,31 @@ export const anAppendToAStoredFamilyOfNReadsAtMostCTimesLogNPagesAndUpdatesOneSt
 				),
 		oracle: {
 			kind: "specification",
-			name: "logarithmic growth: a cost of a constant part and a part per B-tree level stays under c · log n, c its cost at the smallest size, and a cost with a term in n passes it"
+			name: "logarithmic growth: a cost of a constant part and a part per B-tree level stays under c · log n, c its cost at the smallest size, and a cost with a term in n passes it; a statement reading no table whole reads as many of its rows at every size"
 		},
 		box: "each kind of family at 10, 100, 1,000 and 10,000 stored members, each size on a fresh installation",
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/physical/access/catalog.ts",
+				original:
+					'\t\t\t),\n\t\t\t...(lawColumns.get(r.name) ?? []).map(\n\t\t\t\t(c) =>\n\t\t\t\t\t[\n\t\t\t\t\t\tc.column,\n\t\t\t\t\t\tcolumnOf(c.field, { kind: "law", column: c.column }, names.vectorSchema)\n\t\t\t\t\t] as const\n\t\t\t)\n\t\t])',
+				replacement: "\t\t\t)\n\t\t])",
+				why: "The binding's catalog holds a relation's fields alone, as the binder's did at 40b6352e: an equality on a law column binds nothing, so a counted family's seam probes its group by g alone, its slot ‹i› a filter, and reads every member of the group at each append; the property fails at the larger sizes."
+			},
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original: '\t\t\t(c.array.kind === "array" || !opaque(c.array)) &&\n',
+				replacement: "\t\t\t!opaque(c.array) &&\n",
+				why: "An `= ANY` of an array sublink is opaque again, no binding: a put's read of its stored rows among the keys the write holds (write/probe.ts amongHeld) is a whole read, a Seq Scan of Line returning its every row; the sequence's rows fail at every size past the first."
+			},
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original:
+					"\t\tfor (const [place, logical] of innerHoisted(entriesOf(c.from), where).entries()) {\n",
+				replacement: "\t\tfor (const [place, logical] of entriesOf(c.from).entries()) {\n",
+				why: "An inner join's ON keeps the conjuncts that read none of its own step: the `= ANY` restricting the stored table its chain reads first stands in the next step's ON, which that table's read never sees, so it is read whole; the sequence's rows fail at every size past the first."
+			},
 			{
 				file: "packages/engine/src/write/family/written.ts",
 				original:

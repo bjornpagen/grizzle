@@ -1,7 +1,7 @@
 /**
  * What the binding reads of an installation (sql/bind.ts ReadCatalog): each stored table, its relation, the installed
- * columns an index serves with the field each is and its kind (sql/bind.ts BindColumn), and its keys, each its
- * installed columns; and each role's view. One derivation of these facts, from the law model and the installed names
+ * columns an index serves, its fields and the law columns its laws add, each by its arm and with its kind (sql/bind.ts
+ * BindColumn), and its keys, each its installed columns; and each role's view. One derivation of these facts, from the law model and the installed names
  * (`catalogOf`), serves every statement bound against the installation: its routines', which the installation binds
  * (`installCatalog`), and its served programs', which compile before it plans its indexes (`artifactsCatalog`).
  *
@@ -31,7 +31,7 @@ import {
 	type ScalarType
 } from "#compiler/ir/scalar.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
-import type { InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
+import type { IndexColumn, InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
 import { ledgerHeadTableName } from "#compiler/physical/ddl/ledger.ts"
 import { type NameKey, nameKey, type ObjectName } from "#compiler/sql/ast.ts"
 import type {
@@ -47,34 +47,35 @@ import { type Alias, wholeViewAlias } from "#compiler/sql/naming.ts"
 import { installationTypes } from "#compiler/sql/type-schemas.ts"
 
 /**
- * A field as an index serves it (see the header), by its carrier: a span's and a search document's, which GiST and GIN
- * serve; a B-tree's for every other, of a network, a vector, whose distance HNSW serves under the installation's cosine
- * class, a text or a scalar, holding few values or many, a byte string and a text of no byte bound among them.
+ * A column as an index serves it (see the header), a field or a law column, `field` the field whose values it holds,
+ * by its carrier: a span's and a search document's, which GiST and GIN serve; a B-tree's for every other, of a network,
+ * a vector, whose distance HNSW serves under the installation's cosine class, a text or a scalar, holding few values or
+ * many, a byte string and a text of no byte bound among them.
  */
-const columnOf = (field: TargetField, name: string, vectorSchema: string): BindColumn => {
+const columnOf = (field: TargetField, column: IndexColumn, vectorSchema: string): BindColumn => {
 	const carrier = baseOf(field.type).carrier
 	if (isSpanCarrier(carrier)) {
-		return { kind: "span", field: name }
+		return { kind: "span", column }
 	}
 	if (carrier === "tsvector") {
-		return { kind: "search", field: name }
+		return { kind: "search", column }
 	}
 	const holds = fewValued[carrier] ? "few" : "many"
 	if (carrier === "vector") {
 		return {
 			kind: "vector",
-			field: name,
+			column,
 			holds,
 			cosine: { kind: "vectorCosine", schema: vectorSchema }
 		}
 	}
 	if (carrier === "inet" || carrier === "cidr") {
-		return { kind: "network", field: name, holds }
+		return { kind: "network", column, holds }
 	}
 	if (field.desc.kind === "bytes") {
-		return { kind: "bytes", field: name, holds }
+		return { kind: "bytes", column, holds }
 	}
-	return { kind: carrier === "text" ? "text" : "scalar", field: name, holds }
+	return { kind: carrier === "text" ? "text" : "scalar", column, holds }
 }
 
 /**
@@ -150,15 +151,33 @@ const catalogOf = (
 		worlds.map((view) => [nameKey(view.name), { kind: "world", view }] as const)
 	)
 	const aliases = wholeViewAliases(model)
+	const lawColumns = Map.groupBy(
+		model.natives.flatMap(({ object }) => (object.kind === "LawColumn" ? [object] : [])),
+		(c) => c.relation.name
+	)
 	for (const [relation, r] of Object.entries(model.theory.relations)) {
 		if (r.kind === "closed") {
 			continue
 		}
-		const columns = new Map(
-			r.fields.map(
-				(f) => [names.column(relation, f.name), columnOf(f, f.name, names.vectorSchema)] as const
+		/** Its fields, by their installed names, and the law columns its laws add, each by its identifier, its
+		 * installed name, typed by the field whose values it holds (ir/law.ts NativeObject `LawColumn`): a family's
+		 * index, successor and predecessor, a selected side's term, which every binding reads as it reads a field. */
+		const columns = new Map<string, BindColumn>([
+			...r.fields.map(
+				(f) =>
+					[
+						names.column(relation, f.name),
+						columnOf(f, { kind: "field", field: f.name }, names.vectorSchema)
+					] as const
+			),
+			...(lawColumns.get(r.name) ?? []).map(
+				(c) =>
+					[
+						c.column,
+						columnOf(c.field, { kind: "law", column: c.column }, names.vectorSchema)
+					] as const
 			)
-		)
+		])
 		const viewed = new Map<string, string>()
 		for (const f of r.fields) {
 			const installed = names.column(relation, f.name)
@@ -188,7 +207,12 @@ const catalogOf = (
 								identifierOf(
 									identity.hashRow(
 										relation,
-										bound.map((c) => byName.get(c)?.field ?? defect(`the field of ${c}`))
+										bound.map((c) => {
+											const column = byName.get(c)?.column
+											return column?.kind === "field"
+												? column.field
+												: defect(`the field of ${c}, a byte string the row binds`)
+										})
 									)
 								),
 								[]
@@ -229,10 +253,13 @@ const ledgerHead = (schema: string): ReadonlyMap<NameKey, BindTable> =>
 			{
 				relation: ledgerHeadTableName,
 				columns: new Map<string, BindColumn>([
-					["head", { kind: "scalar", field: "head", holds: "few" }],
-					["folder", { kind: "text", field: "folder", holds: "many" }],
-					["target", { kind: "scalar", field: "target", holds: "many" }],
-					["complete", { kind: "scalar", field: "complete", holds: "few" }]
+					["head", { kind: "scalar", column: { kind: "field", field: "head" }, holds: "few" }],
+					["folder", { kind: "text", column: { kind: "field", field: "folder" }, holds: "many" }],
+					["target", { kind: "scalar", column: { kind: "field", field: "target" }, holds: "many" }],
+					[
+						"complete",
+						{ kind: "scalar", column: { kind: "field", field: "complete" }, holds: "few" }
+					]
 				]),
 				keys: [["head"]],
 				hashRow: { kind: "none" }

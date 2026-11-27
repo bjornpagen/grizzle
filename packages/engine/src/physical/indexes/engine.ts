@@ -337,8 +337,8 @@ function fail(tag: ProseTag, label: string, capability: string): never {
 const requestLabel = (r: IndexRequest): string =>
 	`${r.role} index request on ${r.relation}(${requestColumns(r).map(keyTermText).join(", ")}) for ${r.use}`
 
-/** The keys a request states, in key order, each column a law's by its arm, an access request's its field or the
- * field's suffix key (AccessKeyTerm). */
+/** The keys a request states, in key order, each column by its arm, an access request's its field, its law column or
+ * the field's suffix key (AccessKeyTerm). */
 const statedKeys = (r: IndexRequest): ReadonlyArray<IndexKey> =>
 	r.role === "lawMaintenance"
 		? lawBlocks(r).flat()
@@ -346,7 +346,9 @@ const statedKeys = (r: IndexRequest): ReadonlyArray<IndexKey> =>
 				column:
 					typeof k.expr === "string"
 						? { kind: "field", field: k.expr }
-						: { kind: "suffix", of: { kind: "field", field: k.expr.suffix } },
+						: "law" in k.expr
+							? { kind: "law", column: k.expr.law }
+							: { kind: "suffix", of: { kind: "field", field: k.expr.suffix } },
 				dir: k.dir,
 				opclass: k.opclass
 			}))

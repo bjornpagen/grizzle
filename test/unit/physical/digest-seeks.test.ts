@@ -221,9 +221,9 @@ export const aLookupThatBindsATextOfNoByteBoundByEqualitySeeksByItsDeclaredDiges
 			},
 			{
 				file: "packages/engine/src/physical/access/catalog.ts",
-				original: '\treturn { kind: carrier === "text" ? "text" : "scalar", field: name, holds }\n',
+				original: '\treturn { kind: carrier === "text" ? "text" : "scalar", column, holds }\n',
 				replacement:
-					'\treturn field.desc.kind === "text" ? { kind: "search", field: name } : { kind: carrier === "text" ? "text" : "scalar", field: name, holds }\n',
+					'\treturn field.desc.kind === "text" ? { kind: "search", column } : { kind: carrier === "text" ? "text" : "scalar", column, holds }\n',
 				why: "The binding reads a declared text as no B-tree's column, as it read a text of no byte bound: a read binding t by equality alone asks nothing, so the installation refuses nothing, and T is scanned whole at every call though T declares no digest."
 			},
 			{

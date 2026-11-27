@@ -4,6 +4,7 @@ import type { ClockUnit } from "#compiler/core/clock.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
 import type { IndexMethod } from "#compiler/core/identity.ts"
 import type {
+	ColumnIdent,
 	DomainName,
 	LawId,
 	ParamId,
@@ -474,15 +475,17 @@ export const indexOpclassText = (c: IndexOpclass): string | undefined =>
 	c.kind === "default" ? undefined : `${c.schema}.${vectorCosineOpclass}`
 
 /**
- * What a key of an access request holds: a field, by its name; or the suffix key of a text field (sql/suffix.ts
- * suffixKeyOf), which a judged read's suffix test reads as a range where its suffix is fixed beside the row
- * (physical/indexes/engine.ts KeyTerm `suffix`).
+ * What a key of an access request holds: a field, by its name; a law column a law adds to its relation, by its
+ * identifier, the arm saying which, as an index names it (physical/ddl/context.ts IndexColumn); or the suffix key of a
+ * text field (sql/suffix.ts suffixKeyOf), which a judged read's suffix test reads as a range where its suffix is fixed
+ * beside the row (physical/indexes/engine.ts KeyTerm `suffix`).
  */
-export type AccessKeyTerm = string | { readonly suffix: string }
+export type AccessKeyTerm = string | { readonly law: ColumnIdent } | { readonly suffix: string }
 
-/** A key's term as a path and a snapshot spell it: its field's name, or `suffix(<field>)` (engine.ts keyTermText). */
+/** A key's term as a path and a snapshot spell it: its field's name, a law column's identifier, its installed name, or
+ * `suffix(<field>)` (engine.ts keyTermText). */
 export const accessKeyText = (term: AccessKeyTerm): string =>
-	typeof term === "string" ? term : `suffix(${term.suffix})`
+	typeof term === "string" ? term : "law" in term ? term.law : `suffix(${term.suffix})`
 
 /**
  * An index the workload's programs and the installation's routines ask for, by the access they make: each key a field

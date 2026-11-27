@@ -120,8 +120,9 @@ const appendOne = (s: Schema, kind: Kind, n: number) => {
 }
 
 /**
- * What one append cost: the pages it read of its family's tables and their indexes, and the rows it changed there; and
- * the SQLSTATE PostgreSQL refused a dangling member with after it, a member written past the family's last slot.
+ * What one append cost: the pages it read of its family's tables and their indexes, the rows it read of them and the
+ * rows it changed there; and the SQLSTATE PostgreSQL refused a dangling member with after it, a member written past the
+ * family's last slot.
  */
 export interface Cost {
 	readonly n: number
@@ -129,21 +130,24 @@ export interface Cost {
 	readonly ownersUpdated: number
 	readonly membersUpdated: number
 	readonly membersInserted: number
+	readonly rows: number
 	readonly dangling: string
 }
 
 export const costText = (c: Cost): string =>
-	`${c.pages} pages at ${c.n} members (owner rows updated ${c.ownersUpdated}, member rows updated ${c.membersUpdated}, inserted ${c.membersInserted}; a dangling member ${c.dangling})`
+	`${c.pages} pages and ${c.rows} rows read at ${c.n} members (owner rows updated ${c.ownersUpdated}, member rows updated ${c.membersUpdated}, inserted ${c.membersInserted}; a dangling member ${c.dangling})`
 
 /**
- * The pages a session's transaction has fetched so far of the tables `owner` and `member` and every index on them, shared hits and
- * reads alike (pg_stat_get_xact_blocks_fetched), and the rows it updated and inserted in each: what the backend counts
- * and has not yet reported, its own statements' and the RI queries its foreign keys run in it alike.
+ * The pages a session's transaction has fetched so far of the tables `owner` and `member` and every index on them, shared
+ * hits and reads alike (pg_stat_get_xact_blocks_fetched), the rows it updated and inserted in each, and the rows it read
+ * of both, those its sequential scans returned and its index scans fetched (pg_stat_get_xact_tuples_returned, _fetched):
+ * what the backend counts and has not yet reported, its own statements' and the RI queries its foreign keys run in it
+ * alike.
  */
 const readCost = (session: ProbeSession, owner: string, member: string) =>
 	Effect.map(
 		session.rows(
-			"SELECT (SELECT COALESCE(pg_catalog.sum(pg_catalog.pg_stat_get_xact_blocks_fetched(c.oid)), 0) FROM pg_catalog.pg_class AS c WHERE c.oid IN ($1::pg_catalog.regclass, $2::pg_catalog.regclass) OR c.oid IN (SELECT i.indexrelid FROM pg_catalog.pg_index AS i WHERE i.indrelid IN ($1::pg_catalog.regclass, $2::pg_catalog.regclass)))::text, pg_catalog.pg_stat_get_xact_tuples_updated($1::pg_catalog.regclass)::text, pg_catalog.pg_stat_get_xact_tuples_updated($2::pg_catalog.regclass)::text, pg_catalog.pg_stat_get_xact_tuples_inserted($2::pg_catalog.regclass)::text",
+			"SELECT (SELECT COALESCE(pg_catalog.sum(pg_catalog.pg_stat_get_xact_blocks_fetched(c.oid)), 0) FROM pg_catalog.pg_class AS c WHERE c.oid IN ($1::pg_catalog.regclass, $2::pg_catalog.regclass) OR c.oid IN (SELECT i.indexrelid FROM pg_catalog.pg_index AS i WHERE i.indrelid IN ($1::pg_catalog.regclass, $2::pg_catalog.regclass)))::text, pg_catalog.pg_stat_get_xact_tuples_updated($1::pg_catalog.regclass)::text, pg_catalog.pg_stat_get_xact_tuples_updated($2::pg_catalog.regclass)::text, pg_catalog.pg_stat_get_xact_tuples_inserted($2::pg_catalog.regclass)::text, (pg_catalog.pg_stat_get_xact_tuples_returned($1::pg_catalog.regclass) + pg_catalog.pg_stat_get_xact_tuples_fetched($1::pg_catalog.regclass) + pg_catalog.pg_stat_get_xact_tuples_returned($2::pg_catalog.regclass) + pg_catalog.pg_stat_get_xact_tuples_fetched($2::pg_catalog.regclass))::text",
 			[owner, member]
 		),
 		(rows) => {
@@ -153,7 +157,8 @@ const readCost = (session: ProbeSession, owner: string, member: string) =>
 				pages: cell(0),
 				ownersUpdated: cell(1),
 				membersUpdated: cell(2),
-				membersInserted: cell(3)
+				membersInserted: cell(3),
+				rows: cell(4)
 			}
 		}
 	)

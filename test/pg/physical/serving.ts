@@ -420,9 +420,11 @@ const requestKeys = (
 				column:
 					typeof k.expr === "string"
 						? installation.names.column(request.relation, k.expr)
-						: assert.fail(
-								`a probe of the suffix key of ${request.relation}.${k.expr.suffix}, which no population asks`
-							),
+						: "law" in k.expr
+							? k.expr.law
+							: assert.fail(
+									`a probe of the suffix key of ${request.relation}.${k.expr.suffix}, which no population asks`
+								),
 				dir: k.dir,
 				opclass: k.opclass
 			}))
