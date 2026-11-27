@@ -325,8 +325,8 @@ export const aStatementBrokenAtOneSiteIsRefusedByTheAuditForExactlyTheRuleItBrea
 				},
 				{
 					file: "packages/engine/src/sql/scope.ts",
-					original: "\t\t\t\t\t\tframe.reachFrom(start)\n",
-					replacement: "\t\t\t\t\t\tframe.reachFrom(lo)\n",
+					original: "\t\t\t\t\tframe.reachFrom(start)\n",
+					replacement: "\t\t\t\t\tframe.reachFrom(lo)\n",
 					why: "A join's ON reaches the FROM items before its chain, which PostgreSQL refuses (42P01), and the property fails."
 				},
 				{

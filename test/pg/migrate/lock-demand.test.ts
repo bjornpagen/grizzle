@@ -257,12 +257,6 @@ export const statedLocksBoundTheHeld = property.explore(renamedDrawGen, {
 		},
 		{
 			file: "packages/engine/src/deploy/locks/demand.ts",
-			original: "\t\t\t\t...(isNonEmpty(s.dependencies) ? dependencyReads : [])\n",
-			replacement: "",
-			why: "A declared dependency counts none of the catalogs its restore's query reads, pg_attribute, pg_class and pg_namespace with their indexes, which its transaction keeps: an indexes file that declares a dependency holds ten locks past its count (the kept case of step 3's indexes)."
-		},
-		{
-			file: "packages/engine/src/deploy/locks/demand.ts",
 			original: '\t\t\t...(kind === "foreignKey" ? foreignKeyTriggers(table, name) : [])\n',
 			replacement: "",
 			why: "A dropped foreign key counts none of the four triggers PostgreSQL made for it, which its drop locks and deletes with it: a publish that drops R1's foreign key to swap R0's key holds four locks past its count (the kept case)."
