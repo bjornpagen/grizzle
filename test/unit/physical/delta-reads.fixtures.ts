@@ -36,7 +36,8 @@ import type {
 	OperandSelect,
 	PlStatement
 } from "#compiler/sql/ast.ts"
-import { cUtf8Collation } from "#compiler/sql/build.ts"
+import { readConditions } from "#compiler/sql/ast.ts"
+import { and, cUtf8Collation } from "#compiler/sql/build.ts"
 import { printExpr, printObjectName } from "#compiler/sql/print.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -268,6 +269,29 @@ const fixedA = (where: Expr | undefined): number | undefined => {
  * Each reader of T's deltas in `installation`, by its function's name: the condition its one SELECT of the delta reads
  * the rows it returns under, none for a reader of every row (physical/ddl/deltas.ts addReaders).
  */
+/**
+ * A reader's one read of a table and the conditions it reads its rows under, where its one statement reads one: the
+ * table as the binding reads it (sql/ast.ts FromSource `read`), each condition its access states first
+ * (readConditions), then its level's WHERE, as they print.
+ */
+const readerRead = (
+	query: OperandSelect
+): { readonly table: string; readonly condition: Expr | undefined } | undefined => {
+	if (query.body.kind !== "core") {
+		return undefined
+	}
+	const [from, ...more] = query.body.from
+	if (from?.kind !== "read" || more.length > 0) {
+		return undefined
+	}
+	const where = query.body.where
+	const [first, ...rest] = [...readConditions(from), ...(where === undefined ? [] : [where])]
+	return {
+		table: from.table.name,
+		condition: first === undefined ? undefined : and([first, ...rest])
+	}
+}
+
 const tReadersIn = (installation: Installation): ReadonlyMap<string, Expr | undefined> =>
 	new Map(
 		Arr.flatMap(
@@ -277,15 +301,12 @@ const tReadersIn = (installation: Installation): ReadonlyMap<string, Expr | unde
 					return []
 				}
 				const [only, ...rest] = s.body.body
-				if (only.kind !== "returnQuery" || rest.length > 0 || only.query.body.kind !== "core") {
-					return []
-				}
-				const [from] = only.query.body.from
-				return from?.kind === "table" &&
-					typeof from.table !== "string" &&
-					(Str.startsWith("__delta_news_t_")(from.table.name) ||
-						Str.startsWith("__delta_olds_t_")(from.table.name))
-					? [[s.name.name, only.query.body.where]]
+				const read =
+					only.kind === "returnQuery" && rest.length === 0 ? readerRead(only.query) : undefined
+				return read !== undefined &&
+					(Str.startsWith("__delta_news_t_")(read.table) ||
+						Str.startsWith("__delta_olds_t_")(read.table))
+					? [[s.name.name, read.condition]]
 					: []
 			}
 		)
@@ -390,18 +411,16 @@ const deltaReadersIn = (
 				return []
 			}
 			const [only, ...rest] = s.body.body
-			if (only.kind !== "returnQuery" || rest.length > 0 || only.query.body.kind !== "core") {
-				return []
-			}
-			const [from] = only.query.body.from
-			const where = only.query.body.where
-			return from?.kind === "table" &&
-				typeof from.table !== "string" &&
-				Str.startsWith("__delta_")(from.table.name)
+			const read =
+				only.kind === "returnQuery" && rest.length === 0 ? readerRead(only.query) : undefined
+			return read !== undefined && Str.startsWith("__delta_")(read.table)
 				? [
 						[
 							s.name.name,
-							{ delta: from.table.name, condition: where === undefined ? "" : printExpr(where) }
+							{
+								delta: read.table,
+								condition: read.condition === undefined ? "" : printExpr(read.condition)
+							}
 						] as const
 					]
 				: []

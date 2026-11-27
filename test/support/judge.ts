@@ -1,6 +1,6 @@
 /** The rule judge's PL/pgSQL, as an installation creates it (physical/ddl/rules.ts addRules). */
 
-import { assert } from "@bjornpagen/testing/assert"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import {
 	explainServerStatement,
@@ -20,6 +20,7 @@ import { standUpsOf } from "#compiler/deploy/diff/diff.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type {
+	ObjectName,
 	OperandSelect,
 	PlBlock,
 	PlDeclaration,
@@ -27,8 +28,14 @@ import type {
 	Select
 } from "#compiler/sql/ast.ts"
 import { lit } from "#compiler/sql/build.ts"
-import { printExpr, printObjectName, printStatement } from "#compiler/sql/print.ts"
+import {
+	printExpr,
+	printObjectName,
+	printPlannedQuery,
+	printStatement
+} from "#compiler/sql/print.ts"
 import { identityHooks, Transform } from "#compiler/sql/transform.ts"
+import { routineAdviceHeld } from "#test/support/advice.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { standUpCallsOf } from "#test/support/kernel/naming.ts"
 import type { SqlError } from "#test/support/pg.ts"
@@ -39,13 +46,19 @@ import type { CaseSession, RawSession } from "#test/support/substrate/session.ts
  * holds one of its deltas, and every statement that tests a rule stands in a part. A part is named by its identity's
  * stem, the judge's own followed by its first delta's relation (core/identity.ts ruleJudgePart).
  */
-export const judgeBodiesOf = (installation: Installation): ReadonlyArray<PlStatement> => {
+export const judgeBodiesOf = (installation: Installation): ReadonlyArray<PlStatement> =>
+	Arr.flatMap(judgeFunctionsOf(installation), (f) => f.body)
+
+/** The judge and each of its parts (`judgeBodiesOf`), each by its function's name and its body. */
+const judgeFunctionsOf = (
+	installation: Installation
+): ReadonlyArray<{ readonly fn: ObjectName; readonly body: ReadonlyArray<PlStatement> }> => {
 	const judge = identifierOf(identity.ruleJudge())
 	return Arr.flatMap(installation.statements, (s) =>
 		s.kind === "createFunction" &&
 		s.language === "plpgsql" &&
 		(s.name.name === judge || Str.startsWith(`${judge}_`)(s.name.name))
-			? s.body.body
+			? [{ fn: s.name, body: s.body.body }]
 			: []
 	)
 }
@@ -199,12 +212,6 @@ export const judgedStatementsOf = (installation: Installation): ReadonlyArray<Ju
 /** A statement a PL/pgSQL body runs for its effect (sql/ast.ts PlStatement `modify`). */
 type Modified = Extract<PlStatement, { readonly kind: "modify" }>["statement"]
 
-/** The block of the judge's block function `named` (physical/ddl/rules.ts JudgedCall), none where none is installed. */
-const blocksOf = (installation: Installation, named: string): ReadonlyArray<PlBlock> =>
-	Arr.flatMap(installation.statements, (s): ReadonlyArray<PlBlock> =>
-		s.kind === "createFunction" && s.language === "plpgsql" && s.name.name === named ? [s.body] : []
-	)
-
 /** The statements a PL/pgSQL body runs for their effect, in its order. */
 const modifiedIn = (body: ReadonlyArray<PlStatement>): ReadonlyArray<Modified> =>
 	Arr.flatMap(body, (b): ReadonlyArray<Modified> => (b.kind === "modify" ? [b.statement] : []))
@@ -222,9 +229,21 @@ export const upkeepBodyOf = (
 
 /** The blocks of stored relation `relation`'s upkeep (`upkeepBodyOf`), in their parts' order. */
 const upkeepBlocksOf = (installation: Installation, relation: string): ReadonlyArray<PlBlock> =>
-	Arr.flatMap(upkeepParts, (part) =>
-		blocksOf(installation, identifierOf(identity.storedUpkeep(relation, part)))
-	)
+	Arr.map(upkeepFunctionsOf(installation, relation), (f) => f.block)
+
+/** The functions of stored relation `relation`'s upkeep (`upkeepBlocksOf`), each by its name and its block. */
+const upkeepFunctionsOf = (
+	installation: Installation,
+	relation: string
+): ReadonlyArray<{ readonly fn: ObjectName; readonly block: PlBlock }> =>
+	Arr.flatMap(upkeepParts, (part) => {
+		const named = identifierOf(identity.storedUpkeep(relation, part))
+		return Arr.flatMap(installation.statements, (s) =>
+			s.kind === "createFunction" && s.language === "plpgsql" && s.name.name === named
+				? [{ fn: s.name, block: s.body }]
+				: []
+		)
+	})
 
 /**
  * A statement an upkeep's block runs (physical/ddl/rules.ts upkeepBlock): a write it runs once, its INSERT, or the loop
@@ -248,22 +267,41 @@ export type UpkeepRun =
 const upkeepStatementsOf = (
 	installation: Installation,
 	relation: string
-): ReadonlyArray<UpkeepRun> =>
-	Arr.flatMap(upkeepBlocksOf(installation, relation), (block) =>
-		Arr.flatMap(block.body, (s): ReadonlyArray<UpkeepRun> => {
-			if (s.kind === "modify") {
-				return [s.statement]
+): ReadonlyArray<UpkeepRun> => Arr.map(upkeepRunsOf(installation, relation), (r) => r.run)
+
+/** The statements of the upkeep of stored relation `relation` (`upkeepStatementsOf`), each with its block's routine. */
+const upkeepRunsOf = (
+	installation: Installation,
+	relation: string
+): ReadonlyArray<{ readonly routine: ObjectName; readonly run: UpkeepRun }> =>
+	Arr.flatMap(upkeepFunctionsOf(installation, relation), ({ fn, block }) =>
+		Arr.flatMap(
+			block.body,
+			(s): ReadonlyArray<{ readonly routine: ObjectName; readonly run: UpkeepRun }> => {
+				if (s.kind === "modify") {
+					return [{ routine: fn, run: s.statement }]
+				}
+				if (s.kind !== "forQuery") {
+					return []
+				}
+				const variable = Arr.findFirst(block.declare, (d) => d.name === s.variable)
+				assert.ok(
+					Option.isSome(variable),
+					`an upkeep's loop variable ${s.variable}, declared in its block`
+				)
+				return [
+					{
+						routine: fn,
+						run: {
+							kind: "loop",
+							query: s.query,
+							variable: variable.value,
+							body: modifiedIn(s.body)
+						}
+					}
+				]
 			}
-			if (s.kind !== "forQuery") {
-				return []
-			}
-			const variable = Arr.findFirst(block.declare, (d) => d.name === s.variable)
-			assert.ok(
-				Option.isSome(variable),
-				`an upkeep's loop variable ${s.variable}, declared in its block`
-			)
-			return [{ kind: "loop", query: s.query, variable: variable.value, body: modifiedIn(s.body) }]
-		})
+		)
 	)
 
 /**
@@ -360,7 +398,7 @@ export const upkeepPlans = <E>(
  * (<query>) AS "found"`, for all its rows (pl_exec.c exec_stmt_perform).
  */
 export const plannedQueryOf = (statement: JudgedStatement): string =>
-	`SELECT 1 FROM ${printExpr({ kind: "subquery", query: statement.query })} AS "found"`
+	printPlannedQuery({ kind: "found", query: statement.query })
 
 /**
  * A query whose rows a rule breaks by, a judged statement's or a rule's check over every row (deploy/snapshot
@@ -387,7 +425,7 @@ interface TablesRead {
 
 /**
  * The tables the statement `walk` visits reads, in the order its FROM items name them, at any depth, its subqueries'
- * among them: its deltas, each a table of pg_temp a FROM names or a delta a FROM reads through its reader (`readers`,
+ * among them, each as an unbound FROM names it or as the binding reads it (sql/ast.ts FromSource `read`): its deltas, each a table of pg_temp a FROM names or a delta a FROM reads through its reader (`readers`,
  * `readersOf`), and its stored tables, every other table a FROM names, printed as pg_locks' regclass reads them. A
  * write's target is no FROM of it: an upkeep's DELETE or INSERT reads its stored relation's table only where a FROM of
  * it names the table.
@@ -402,11 +440,15 @@ const tablesReadBy = (
 		new Transform({
 			...identityHooks,
 			fromSource: (source) => {
-				if (source.kind === "table" && typeof source.table !== "string") {
-					if (source.table.schema === temporarySchema) {
-						deltas.push(source.table.name)
+				const table =
+					source.kind === "read" || (source.kind === "table" && typeof source.table !== "string")
+						? source.table
+						: undefined
+				if (table !== undefined && typeof table !== "string") {
+					if (table.schema === temporarySchema) {
+						deltas.push(table.name)
 					} else {
-						stored.push(printObjectName(source.table))
+						stored.push(printObjectName(table))
 					}
 				}
 				if (source.kind === "function" && source.call.fn.kind === "qualified") {
@@ -451,6 +493,7 @@ export const readersOf = (installation: Installation): ReadonlyMap<string, strin
 /** A statement of the judge that tests a rule (`JudgedStatement`), with the tables it reads. */
 export interface RuleStatement {
 	readonly kind: "rule"
+	readonly routine: ObjectName
 	readonly statement: JudgedStatement
 	readonly deltas: ReadonlySet<string>
 	readonly stored: ReadonlySet<string>
@@ -465,6 +508,7 @@ export interface RuleStatement {
  */
 export interface UpkeepStatement {
 	readonly kind: "upkeep"
+	readonly routine: ObjectName
 	readonly relation: string
 	readonly statement: UpkeepRun
 	readonly deltas: ReadonlySet<string>
@@ -493,21 +537,31 @@ const modified = (transform: Transform, statement: Modified): Modified => {
 	}
 }
 
-/** A statement the judge tests a rule by, with the tables it reads (`RuleStatement`). */
+/** A statement the judge tests a rule by in its routine `routine`, with the tables it reads (`RuleStatement`). */
 const ruleStatementOf = (
+	routine: ObjectName,
 	statement: JudgedStatement,
 	readers: ReadonlyMap<string, string>
 ): RuleStatement => {
 	const read = tablesReadBy((t) => t.select(statement.query), readers)
-	return { kind: "rule", statement, deltas: new Set(read.deltas), stored: new Set(read.stored) }
+	return {
+		kind: "rule",
+		routine,
+		statement,
+		deltas: new Set(read.deltas),
+		stored: new Set(read.stored)
+	}
 }
 
-/** Every statement the judge and its parts test a rule by (`judgedStatementsOf`), with the tables it reads. */
+/** Every statement the judge and its parts test a rule by (`judgedStatementsOf`), each in its routine, with the tables
+ * it reads. */
 const ruleStatementsOf = (
 	installation: Installation,
 	readers: ReadonlyMap<string, string>
 ): ReadonlyArray<RuleStatement> =>
-	Arr.map(judgedStatementsOf(installation), (statement) => ruleStatementOf(statement, readers))
+	Arr.flatMap(judgeFunctionsOf(installation), (f) =>
+		Arr.map(judgedStatementsIn(f.body), (statement) => ruleStatementOf(f.fn, statement, readers))
+	)
 
 /**
  * Every statement of every stored relation's upkeep (analysis/theory/unit.ts StoredUpkeep), each relation's in its
@@ -520,13 +574,13 @@ const upkeepJudgeStatementsOf = (
 	readers: ReadonlyMap<string, string>
 ): ReadonlyArray<UpkeepStatement> =>
 	Arr.flatMap(installation.laws.theory.upkeeps, (upkeep) => {
-		const statements = upkeepStatementsOf(installation, upkeep.relation)
+		const statements = upkeepRunsOf(installation, upkeep.relation)
 		assert.ok(
 			Arr.isReadonlyArrayNonEmpty(statements),
 			`the upkeep of stored relation ${upkeep.relation}, its DELETE and its INSERT`
 		)
 		const writes = new Set(Arr.map(capturedDeltasOf(installation, upkeep.relation), (d) => d.name))
-		return Arr.map(statements, (statement): UpkeepStatement => {
+		return Arr.map(statements, ({ routine, run: statement }): UpkeepStatement => {
 			const read = tablesReadBy(
 				(t) =>
 					statement.kind === "loop"
@@ -536,6 +590,7 @@ const upkeepJudgeStatementsOf = (
 			)
 			return {
 				kind: "upkeep",
+				routine,
 				relation: upkeep.relation,
 				statement,
 				deltas: new Set(read.deltas),
@@ -567,20 +622,22 @@ export const judgedDeltaReadsOf = (installation: Installation): ReadonlyArray<Ru
 	ruleStatementsOf(installation, readersOf(installation))
 
 /**
- * Each plan PostgreSQL runs a statement of the judge by, explained with ANALYZE: a rule's test as its PERFORM's SELECT
- * (`plannedQueryOf`), an upkeep's statement as the judge runs it (`explainedRun`).
+ * Each plan PostgreSQL runs a statement of the judge by, explained with ANALYZE under the advice its routine's own SET
+ * clause holds, as every call of it plans it (test/support/advice.ts routineAdviceHeld): a rule's test as its PERFORM's
+ * SELECT (`plannedQueryOf`), an upkeep's statement as the judge runs it (`explainedRun`).
  */
 const plansOf = <E>(
 	values: (sql: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, E>,
 	statement: JudgeStatement
-): Effect.Effect<ReadonlyArray<PlanNode>, E> => {
-	switch (statement.kind) {
-		case "rule":
-			return Effect.map(explained(values, plannedQueryOf(statement.statement)), (plan) => [plan])
-		case "upkeep":
-			return explainedRun(values, statement.statement)
-	}
-}
+): Effect.Effect<ReadonlyArray<PlanNode>, E> =>
+	Effect.andThen(values(routineAdviceHeld(statement.routine)), () => {
+		switch (statement.kind) {
+			case "rule":
+				return Effect.map(explained(values, plannedQueryOf(statement.statement)), (plan) => [plan])
+			case "upkeep":
+				return explainedRun(values, statement.statement)
+		}
+	})
 
 /** The deltas a statement of the judge fills as it runs: an upkeep's `writes`; a rule's test writes nothing. */
 export const filledBy = (statement: JudgeStatement): ReadonlySet<string> => {
@@ -719,11 +776,23 @@ export const judgedPlans = <E>(
 	statements: ReadonlyArray<JudgedStatement>
 ): Effect.Effect<ReadonlyArray<JudgedPlan>, E> => {
 	const readers = readersOf(installation)
+	const functions = judgeFunctionsOf(installation)
+	/** The routine whose body tests a rule by `statement`. */
+	const routineOf = (statement: JudgedStatement): ObjectName =>
+		defined(
+			Arr.findFirst(functions, (f) =>
+				Arr.some(judgedStatementsIn(f.body), (s) => s.query === statement.query)
+			).pipe(
+				Option.map((f) => f.fn),
+				Option.getOrUndefined
+			),
+			"the judge's routine holding a judged statement"
+		)
 	return Effect.map(
 		judgeRun(
 			values,
 			installation,
-			Arr.map(statements, (statement) => ruleStatementOf(statement, readers))
+			Arr.map(statements, (statement) => ruleStatementOf(routineOf(statement), statement, readers))
 		),
 		(plans) =>
 			Arr.map(plans, (p): JudgedPlan => ({ statement: p.statement.statement, plan: p.plan }))
@@ -810,6 +879,20 @@ export const wideScans = (plan: PlanNode, probeCost: number): ReadonlyArray<stri
  */
 export const keyedReadWork = (plan: PlanNode, probeCost: number): number =>
 	keyedWork(plan, probeCost) +
+	Arr.reduce(
+		Arr.filter(Arr.fromIterable(planNodes(plan)), (n) => n.nodeType === "CTE Scan"),
+		0,
+		(sum, n) => sum + scannedRows(n)
+	)
+
+/**
+ * A read's work: its work as its scans read it (`scannedWork`) and every row each scan of a CTE reads over all of its
+ * loops, its output and what its filter removed, where a CTE read at a correlated row's value is scanned whole for each
+ * such row. A table the read's plan reads whole counts every row it reads, as any other read does: under its carried
+ * advice the plan is the compiler's proof, and a whole read is one it proved (test/support/advice.ts).
+ */
+export const readWork = (plan: PlanNode): number =>
+	scannedWork(plan) +
 	Arr.reduce(
 		Arr.filter(Arr.fromIterable(planNodes(plan)), (n) => n.nodeType === "CTE Scan"),
 		0,

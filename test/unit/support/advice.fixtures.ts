@@ -454,6 +454,8 @@ const disabledPlan: unknown = [
  * - `dropped`: the same probe, its scan's INDEX_SCAN item dropped: PostgreSQL breaks the tie by (doc, f1), f2 a filter;
  * - `sibling`: the probe advised through the sibling (doc, f1): obeyed and matched, f2 a filter;
  * - `plain`: the probe's read printed as a plain join under the whole advice: doc in the Join Filter (e3 P1);
+ * - `unclaimed`: the same plain join, its plan claiming the read bound at (f1, f2) alone, as a binder that made the
+ *   keyed read a set join would claim it: only the Join Filter's equality tells the binding lost;
  * - `flattened`: a correlated EXISTS (... LIMIT 1) PostgreSQL flattens into a semi-join (e3 P5);
  * - `qualified`: the probe, its key's equality by an extension's operator, which PostgreSQL prints by its schema
  *   (`OPERATOR("ext".=)`, as a vector key's): bound all the same;
@@ -470,6 +472,7 @@ export const adviceCases = [
 	"dropped",
 	"sibling",
 	"plain",
+	"unclaimed",
 	"flattened",
 	"qualified",
 	"reused",
@@ -553,6 +556,23 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 			["d", "n"],
 			[],
 			[nodeRead],
+			{
+				label: "the plain join",
+				sql: "SELECT n.v FROM doc d JOIN node n ON n.doc = d.doc AND n.f1 = 1 AND n.f2 = $2 WHERE d.owner = $1"
+			}
+		),
+		{
+			inForce:
+				"JOIN_ORDER(d n) NESTED_LOOP_PLAIN(n) SEQ_SCAN(d) INDEX_SCAN(n public.node_pkey) NO_GATHER(d n)",
+			plans: [read(plainPlan)]
+		}
+	],
+	unclaimed: [
+		flight(
+			"JOIN_ORDER(d n) NESTED_LOOP_PLAIN(n) SEQ_SCAN(d) INDEX_SCAN(n public.node_pkey) NO_GATHER(d n)",
+			["d", "n"],
+			[],
+			[{ alias: "n", bound: ["f1", "f2"] }],
 			{
 				label: "the plain join",
 				sql: "SELECT n.v FROM doc d JOIN node n ON n.doc = d.doc AND n.f1 = 1 AND n.f2 = $2 WHERE d.owner = $1"

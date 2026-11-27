@@ -9,12 +9,13 @@
  *   whole advice, nor with its key's equality by an extension's operator, nor for a scope of two statements, a
  *   FROM-less EXISTS over a probe or a write target read by the tuple id a probe found; for the probe's index item
  *   dropped, the tie's index (Laws 1 and 2); for a sibling index named, f2 a filter (Law 2 alone: the advice is obeyed
- *   and round-trips); for the probe printed as a plain join, doc in a join's condition (Law 2); for a correlated EXISTS
- *   PostgreSQL flattens, a join grizzle never named (Laws 1 and 2); for an alias two statements share, its items
- *   conflicting and matched twice (Laws 1 and 3); for an index advised for a read no index condition serves, its seq
- *   scan disabled (Law 1); and for a flight whose advice reached no transaction, a plan under no advice (Law 1).
+ *   and round-trips); for the probe printed as a plain join, doc in a join's condition (Law 2), the Join Filter's
+ *   equality told even where its plan claims the read bound without doc; for a correlated EXISTS PostgreSQL flattens, a
+ *   join grizzle never named (Laws 1 and 2); for an alias two statements share, its items conflicting and matched twice
+ *   (Laws 1 and 3); for an index advised for a read no index condition serves, its seq scan disabled (Law 1); and for a
+ *   flight whose advice reached no transaction, a plan under no advice (Law 1).
  * - **Oracle:** the specification: each plan's problems, stated, from the measurements of e1 to e3 and lane LAWS.
- * - **Box, exhausted:** the twelve plans.
+ * - **Box, exhausted:** the twelve plans, the plain join's under two claims.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -40,13 +41,18 @@ const expected: { readonly [C in AdviceCase]: ReadonlyArray<string> } = {
 		"the flight: n.f2 is bound, read outside its index condition and in its filter of its Index Scan of n using node_doc_f1"
 	],
 	plain: [
+		"the flight: its Nested Loop filters d.doc = n.doc after joining, a binding of a stored read no index condition holds",
 		"the flight: n.doc is bound, read outside its index condition and in a join's condition of its Index Scan of n using node_pkey"
+	],
+	unclaimed: [
+		"the flight: its Nested Loop filters d.doc = n.doc after joining, a binding of a stored read no index condition holds"
 	],
 	flattened: [
 		"the flight, the EXISTS: PostgreSQL planned JOIN_ORDER(d n), which grizzle does not carry",
 		"the flight, the EXISTS: PostgreSQL planned NESTED_LOOP_PLAIN(n), which grizzle does not carry",
 		"the flight, the EXISTS: PostgreSQL planned INDEX_SCAN(n public.node_doc_f1), which grizzle does not carry",
 		"the flight, the EXISTS: PostgreSQL planned NO_GATHER(n), which grizzle does not carry",
+		"the flight: its Nested Loop filters d.doc = n.doc after joining, a binding of a stored read no index condition holds",
 		"the flight: n.doc is bound, read outside its index condition and in a join's condition of its Index Scan of n using node_doc_f1",
 		"the flight: n.f2 is bound, read outside its index condition and in its filter of its Index Scan of n using node_doc_f1",
 		"the flight: INDEX_SCAN(n@exists_1 public.node_pkey) is matched in 0 of its statements",
@@ -130,6 +136,12 @@ export const theLawsFindExactlyTheFailuresOfEachMeasuredPlan = property.exhaust(
 			original: "\t\treturn matchedIn.length === 1",
 			replacement: "\t\treturn matchedIn.length >= 1",
 			why: "An atom matched in two statements of its scope passes Law 3: an alias two statements share goes unseen there."
+		},
+		{
+			file: "test/support/advice.ts",
+			original: "storedAliases.has(a.alias) || storedAliases.has(b.alias)",
+			replacement: "false",
+			why: "An equality a nested loop's Join Filter states between a stored read's column and another's is read as no lost binding: a keyed read printed as a plain join, its binding claimed nowhere, passes Law 2 (e3 P1)."
 		},
 		{
 			file: "test/support/advice.ts",

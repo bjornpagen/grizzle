@@ -10,7 +10,9 @@
  *   every other is a NO_GATHER of a relation at a level PostgreSQL named (a sublink's one item, `"*RESULT*"`). The laws
  *   cover every statement over grizzle's own relations: a read of PostgreSQL's system catalogs (sql/catalog.ts) stays
  *   cost-chosen, with real statistics and no proof of grizzle's, as does a consumer's hand-written migration DML, which
- *   grizzle never binds.
+ *   grizzle never binds, and the migration runner's own bookkeeping of its ledger (`__ledger`'s INSERT ... VALUES and its
+ *   redraft's UPDATE), bounded by the ledger's size, the count of migrations; a drafted data step is bound and advised
+ *   against the indexes in force when its file runs.
  * - **Law 2, binding.** Every column a read binds is in the index condition of its occurrence's scan, never in that
  *   scan's filter and never in a condition a join pairs its sides by: advice pins an index and a join, never which
  *   clauses become index conditions, so the statement's shape (a probe) must carry the binding. A bitmap read (a GIN
@@ -33,16 +35,18 @@
  * pg_plan_advice.always_store_advice_details: the harness sets it on its own observing session there, an observation
  * setting that changes no plan (pgpa_planner.c builds no trove unless advice is supplied). No planner setting is set.
  *
- * The tables a law reads stand in a pg_class state (`PgClassState`), each reached the way production reaches it:
- * never vacuumed, counted empty (vacuumed by another session while its filling transaction is open, so pg_class holds
- * its pages and no row), analyzed, skewed (analyzed over its first rows, then filled), and large (pg_class counting a
- * million rows on its pages, the scale of edullm's 1x tables).
+ * The tables a law reads stand in a pg_class state (`PgClassState`), each as production leaves one: never vacuumed;
+ * counted empty, pg_class holding its pages and no row, as a VACUUM another session runs while its load is open counts
+ * it (e1's tie, stated as that VACUUM states it); analyzed; skewed, analyzed over its first rows, then filled; and large,
+ * pg_class counting a million rows on its pages, the scale of edullm's 1x tables.
  */
 
-import { assert } from "@bjornpagen/testing/assert"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { regex } from "arkregex"
 import { Array as Arr, Data, Effect, Option, Record as Rec, Result, String as Str } from "effect"
+import { fromEngine } from "#adapter/engine.ts"
 import {
+	explain,
 	explainServerStatement,
 	type MalformedPlan,
 	type PlanNode,
@@ -50,10 +54,25 @@ import {
 	underGenericPlans
 } from "#bench/harness/explain.ts"
 import type { BenchSession } from "#bench/harness/session.ts"
-import { quoteString } from "#compiler/core/text.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
+import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
-import { levelItems, type ReadPlan } from "#compiler/sql/plan.ts"
+import type { StatementSpec } from "#compiler/ir/products.ts"
+import type { IndexResolver } from "#compiler/physical/indexes/ref.ts"
+import type { Installation } from "#compiler/physical/install/compile.ts"
+import { noClock, transactionClock } from "#compiler/plan/common.ts"
+import { type QueryTemplate, queryInput } from "#compiler/plan/read.ts"
+import type { AnySchema } from "#compiler/public/schema.ts"
+import { printAdvice } from "#compiler/sql/advice.ts"
+import type { ObjectName } from "#compiler/sql/ast.ts"
+import { joinPlans, levelItems, type ReadPlan, resolvePlan } from "#compiler/sql/plan.ts"
+import type { AnyLoginRole } from "#compiler/types/schema/world.ts"
+import { paramTexts } from "#test/support/compile.ts"
+import type { Installed } from "#test/support/install-migrate.ts"
+import { renamed } from "#test/support/installed.ts"
 import type { SqlError } from "#test/support/pg.ts"
+import { type RoleSetupError, servedRoleContext } from "#test/support/served-role.ts"
+import { fullWorld } from "#test/support/worlds.ts"
 
 /** Advice or a plan PostgreSQL printed that the harness cannot read: a defect of the reader or of the text. */
 export class MalformedAdvice extends Data.TaggedError("MalformedAdvice")<{
@@ -467,23 +486,27 @@ export interface ColumnRef {
 }
 
 /**
- * A condition's lexemes as VERBOSE prints it: a string literal; a cast's `::`; a double-quoted identifier (1); a bare
- * identifier (2); a dot (3); an opening parenthesis (4); and any other character, whitespace among them.
+ * A condition's lexemes as VERBOSE prints it: a string literal; a cast's `::`; an operator of two characters, `<>`,
+ * `<=`, `>=` or `!=`; a double-quoted identifier (1); a bare identifier (2); a dot (3); an opening parenthesis (4); the
+ * equality `=` (5); and any other character, whitespace among them.
  */
 const conditionLexeme = () =>
 	regex(
-		`'(?:[^']|'')*'|::|"((?:[^"]|"")*)"|([A-Za-z\\u0080-\\u00ff_][A-Za-z\\u0080-\\u00ff_0-9$]*)|(\\.)|(\\()|[\\s\\S]`,
+		`'(?:[^']|'')*'|::|<>|<=|>=|!=|"((?:[^"]|"")*)"|([A-Za-z\\u0080-\\u00ff_][A-Za-z\\u0080-\\u00ff_0-9$]*)|(\\.)|(\\()|(=)|[\\s\\S]`,
 		"uy"
 	)
 
-/** A condition's lexeme as `columnsIn` reads it: an identifier, a dot, a cast, a call's parenthesis, or another. */
+/**
+ * A condition's lexeme as `columnsIn` and `equalitiesIn` read it: an identifier, a dot, a cast, a call's parenthesis,
+ * the equality, or another.
+ */
 type ConditionToken =
 	| { readonly kind: "ident"; readonly name: string }
-	| { readonly kind: "dot" | "cast" | "open" | "other" }
+	| { readonly kind: "dot" | "cast" | "open" | "eq" | "other" }
 
 const conditionTokens = (condition: string): ReadonlyArray<ConditionToken> =>
 	Arr.flatMap(lexemes(conditionLexeme(), condition), (m): ReadonlyArray<ConditionToken> => {
-		const [whole, quoted, bare, dot, open] = m
+		const [whole, quoted, bare, dot, open, eq] = m
 		if (quoted !== undefined) {
 			return [{ kind: "ident", name: Str.replaceAll('""', '"')(quoted) }]
 		}
@@ -495,6 +518,9 @@ const conditionTokens = (condition: string): ReadonlyArray<ConditionToken> =>
 		}
 		if (open !== undefined) {
 			return [{ kind: "open" }]
+		}
+		if (eq !== undefined) {
+			return [{ kind: "eq" }]
 		}
 		if (whole === "::") {
 			return [{ kind: "cast" }]
@@ -509,28 +535,44 @@ const conditionTokens = (condition: string): ReadonlyArray<ConditionToken> =>
  */
 const columnsIn = (condition: string): ReadonlyArray<ColumnRef> => {
 	const tokens = conditionTokens(condition)
-	return Arr.flatMap(tokens, (t, at): ReadonlyArray<ColumnRef> => {
-		const dot = tokens[at + 1]
-		const column = tokens[at + 2]
-		const before = tokens[at - 1]
-		const after = tokens[at + 3]
-		return t.kind === "ident" &&
-			dot?.kind === "dot" &&
-			column?.kind === "ident" &&
-			before?.kind !== "cast" &&
-			before?.kind !== "dot" &&
-			after?.kind !== "open"
-			? [{ alias: t.name, column: column.name }]
+	return Arr.flatMap(tokens, (_, at) => Option.toArray(columnAt(tokens, at)))
+}
+
+/** The column `alias.column` the tokens start at `at`, none where they start none (see `columnsIn`). */
+const columnAt = (tokens: ReadonlyArray<ConditionToken>, at: number): Option.Option<ColumnRef> => {
+	const qualifier = tokens[at]
+	const dot = tokens[at + 1]
+	const column = tokens[at + 2]
+	const before = tokens[at - 1]
+	const after = tokens[at + 3]
+	return qualifier?.kind === "ident" &&
+		dot?.kind === "dot" &&
+		column?.kind === "ident" &&
+		before?.kind !== "cast" &&
+		before?.kind !== "dot" &&
+		after?.kind !== "open" &&
+		after?.kind !== "dot"
+		? Option.some({ alias: qualifier.name, column: column.name })
+		: Option.none()
+}
+
+/** Each equality a condition states between two columns, `a.x = b.y`, its two columns. */
+const equalitiesIn = (condition: string): ReadonlyArray<readonly [ColumnRef, ColumnRef]> => {
+	const tokens = conditionTokens(condition)
+	return Arr.flatMap(tokens, (t, at) =>
+		t.kind === "eq"
+			? Option.toArray(Option.all([columnAt(tokens, at - 3), columnAt(tokens, at + 1)] as const))
 			: []
-	})
+	)
 }
 
 /**
  * One node of a plan as the laws read it: its type, the alias of the relation occurrence it scans (none where it scans
  * none), the index it reads, whether the planner disabled it (`Disabled: true`, a path advice forbade that nothing
  * could replace), and its conditions' columns: its index condition's (a TID scan's TID condition among them), its
- * filter's, and a join's, the Join Filter, Hash Cond and Merge Cond it pairs its sides by. A Bitmap Heap Scan's Recheck
- * Cond repeats its Bitmap Index Scan's index condition, and is no filter.
+ * filter's, and a join's, the Join Filter, Hash Cond and Merge Cond it pairs its sides by, with each equality its Join
+ * Filter states between two columns; and whether it scans a stored relation. A Bitmap Heap Scan's Recheck Cond repeats
+ * its Bitmap Index Scan's index condition, and is no filter.
  */
 export interface LawNode {
 	readonly nodeType: string
@@ -540,6 +582,8 @@ export interface LawNode {
 	readonly indexCond: ReadonlyArray<ColumnRef>
 	readonly filter: ReadonlyArray<ColumnRef>
 	readonly joined: ReadonlyArray<ColumnRef>
+	readonly equated: ReadonlyArray<readonly [ColumnRef, ColumnRef]>
+	readonly stored: boolean
 	readonly children: ReadonlyArray<LawNode>
 }
 
@@ -585,6 +629,8 @@ const lawNodeOf = (o: Json): LawNode => ({
 	indexCond: columnsAt(o, ["Index Cond", "TID Cond"]),
 	filter: columnsAt(o, ["Filter"]),
 	joined: columnsAt(o, ["Join Filter", "Hash Cond", "Merge Cond"]),
+	equated: Option.match(textAt(o, "Join Filter"), { onNone: () => [], onSome: equalitiesIn }),
+	stored: o["Relation Name"] !== undefined,
 	children: childrenOf(o)
 })
 
@@ -626,7 +672,7 @@ function* lawNodes(n: LawNode): Generator<LawNode> {
  */
 export type Vehicle =
 	| { readonly kind: "flight" }
-	| { readonly kind: "routine"; readonly schema: string; readonly name: string }
+	| { readonly kind: "routine"; readonly routine: ObjectName }
 
 /** A read the binding law judges: the alias of its relation's occurrence and the columns its index condition binds. */
 export interface BoundRead {
@@ -682,6 +728,120 @@ export const planFacts = <I>(
 		})
 	)
 })
+
+/**
+ * Every installed routine's scope (physical/install/compile.ts Installation `routines`): its function, its plan and its
+ * advice printed from it, which its own SET clause carries (sql/print.ts createFunctionBlock), and each query PL/pgSQL
+ * hands the planner, its PL/pgSQL names typed placeholders (sql/print.ts printPlannedQuery). A routine that plans no
+ * query has no scope.
+ */
+export const routineScopes = (installation: Installation): ReadonlyArray<LawScope> =>
+	Arr.flatMap(installation.routines, (routine) => {
+		const [first, ...rest] = Arr.map(routine.planned, (sql, at): ScopeStatement => ({
+			label: `query ${at + 1}`,
+			sql
+		}))
+		return first === undefined
+			? []
+			: [
+					{
+						label: `the routine ${routine.fn.schema}.${routine.fn.name}`,
+						advice: printAdvice(routine.plan),
+						...planFacts(routine.plan),
+						statements: [first, ...rest],
+						vehicle: { kind: "routine", routine: routine.fn }
+					}
+				]
+	})
+
+/**
+ * A client flight's scope: the statements `specs` one transaction may send, each bound under the transaction's one
+ * scope (sql/emit.ts), their plans' reads resolved by the installation that serves them (`resolve`), and its advice
+ * as a served program's record carries it (sql/advice.ts transactionAdvice), which the flight's prologue sets.
+ */
+export const flightScope = (
+	label: string,
+	specs: Arr.NonEmptyReadonlyArray<StatementSpec>,
+	resolve: IndexResolver
+): LawScope => {
+	const plan = resolvePlan(joinPlans(Arr.map(specs, (s) => s.plan)), resolve)
+	return {
+		label,
+		advice: printAdvice(plan),
+		...planFacts(plan),
+		statements: Arr.map(specs, (s, at): ScopeStatement => ({
+			label: `statement ${at + 1}`,
+			sql: s.sql
+		})),
+		vehicle: { kind: "flight" }
+	}
+}
+
+/**
+ * A read as a served Db of `role` runs it: compiled at the call as the role compiles every read no one compiled ahead
+ * (test/support/served-role.ts servedRoleContext, adapter/served/role.ts RoleContext `compile`), as generate compiles a
+ * workload's rows member (adapter/served/forms.ts compileRowsForm: the snapshot context, rows, the transaction's
+ * clock), over the installation `installed` the role reads: its template, its one statement, the texts of a call's
+ * parameters by their names (test/support/compile.ts paramTexts), and the flight scope of its statement
+ * (`flightScope`), each read resolved as the role resolves it (RoleContext `resolve`), the installation's own
+ * resolutions.
+ */
+export interface ServedRead {
+	readonly template: QueryTemplate
+	readonly statement: StatementSpec
+	readonly params: (values: Readonly<Record<string, unknown>>) => ReadonlyArray<string>
+	readonly scope: LawScope
+}
+
+/** `query` read as a served Db of `role` over `installed` runs it (ServedRead), its flight labelled `label`. */
+export const servedRead = (
+	installed: Installed,
+	role: AnyLoginRole,
+	query: unknown,
+	label: string
+): Effect.Effect<ServedRead, CompileError | RoleSetupError> =>
+	Effect.gen(function* () {
+		const context = yield* servedRoleContext(installed, role)
+		const input = yield* fromEngine(queryInput(query))
+		const { compiled } = yield* fromEngine(
+			context.compile(input, {
+				context: "snapshot",
+				read: "rows",
+				clock: noClock,
+				source: transactionClock
+			})
+		)
+		const template = compiled.template
+		const [statement, ...others] = template.optimized
+		assert.ok(statement !== undefined && others.length === 0, `${label} is one statement`)
+		const declared = { params: template.params, codes: context.artifacts.names.codes }
+		return {
+			template,
+			statement,
+			params: (values) => paramTexts(statement, values, declared),
+			scope: flightScope(label, [statement], context.resolve)
+		}
+	})
+
+/**
+ * The statement `read` sends run at `params`, each parameter a caller's value by its name, under the read's flight
+ * advice once the plan laws hold over it (`advisedRun`), in the transaction `session` holds open: the plan a budget
+ * over it reads.
+ */
+export const servedRun = (
+	session: BenchSession,
+	read: ServedRead,
+	params: Readonly<Record<string, unknown>>
+): Effect.Effect<PlanNode, SqlError | MalformedAdvice | MalformedPlan> =>
+	advisedRun(session, read.scope, read.scope.statements[0], read.params(params))
+
+/**
+ * The role of `fixture`'s full world over `installed` (test/support/worlds.ts fullWorld): `fixture` rebuilt under the
+ * installation's declared name, as a full-world template installs it (test/support/installed.ts fullVersion), and its
+ * login's one role, which every program of the world's workload is served through.
+ */
+export const fullWorldRole = (installed: Installed, fixture: AnySchema): AnyLoginRole =>
+	fullWorld(renamed(fixture, installed.declared), {}).server.roles.app
 
 /** A scope planned: the advice its vehicle held in force, and each statement's plan under it, in the scope's order. */
 export interface PlannedScope {
@@ -779,50 +939,67 @@ const planIdentity = (scope: LawScope, planned: PlannedScope): ReadonlyArray<str
 
 /**
  * Law 2 over `scope`, `planned`: every column each read binds is in the index condition of the one scan of its
- * occurrence among the scope's statements, never in that scan's filter or recheck, and never in a join's condition.
+ * occurrence among the scope's statements, never in that scan's filter and never in a join's condition; and no join's
+ * filter equates a column of a stored read with another's, a binding the statement's shape lost to a plain join, which
+ * the binder makes a probe (sql/bind.ts: a stored table an earlier item binds is never a set join's inner).
  */
 const binding = (scope: LawScope, planned: PlannedScope): ReadonlyArray<string> => {
 	const nodes = Arr.flatMap(planned.plans, (p) => [...lawNodes(p.root)])
 	const names = (refs: ReadonlyArray<ColumnRef>, alias: string, column: string): boolean =>
 		Arr.some(refs, (r) => r.alias === alias && r.column === column)
-	return Arr.flatMap(scope.reads, (read) => {
-		const scans = Arr.filter(
-			nodes,
-			(n) =>
-				Option.contains(n.alias, read.alias) &&
-				Str.endsWith(" Scan")(n.nodeType) &&
-				n.nodeType !== "Subquery Scan"
-		)
-		const [scan, ...more] = scans
-		if (scan === undefined || more.length > 0) {
-			return [`${scope.label}: the read ${read.alias} is scanned ${scans.length} times`]
-		}
-		const bitmaps = Arr.filter(scan.children, (c) => c.nodeType === "Bitmap Index Scan")
-		const [bitmap, ...others] = bitmaps
-		if (
-			scan.nodeType === "Bitmap Heap Scan" &&
-			(bitmap === undefined || others.length > 0 || scan.children.length !== 1)
-		) {
-			return [
-				`${scope.label}: the read ${read.alias} is a ${nodeText(scan)} over ${scan.children.length} nodes, where one Bitmap Index Scan serves it`
-			]
-		}
-		const indexCond = bitmap === undefined ? scan.indexCond : bitmap.indexCond
-		return Arr.flatMap(read.bound, (column) => {
-			const where = [
-				...(names(indexCond, read.alias, column) ? [] : ["outside its index condition"]),
-				...(names(scan.filter, read.alias, column) ? ["in its filter"] : []),
-				...(Arr.some(nodes, (n) => names(n.joined, read.alias, column))
-					? ["in a join's condition"]
-					: [])
-			]
-			return where.length === 0
-				? []
-				: [
-						`${scope.label}: ${read.alias}.${column} is bound, read ${Arr.join(where, " and ")} of its ${nodeText(scan)}`
+	const storedAliases = new Set(
+		Arr.flatMap(nodes, (n) => (n.stored ? Option.toArray(n.alias) : []))
+	)
+	const lost = Arr.flatMap(nodes, (n) =>
+		Arr.flatMap(n.equated, ([a, b]) =>
+			storedAliases.has(a.alias) || storedAliases.has(b.alias)
+				? [
+						`${scope.label}: its ${nodeText(n)} filters ${a.alias}.${a.column} = ${b.alias}.${b.column} after joining, a binding of a stored read no index condition holds`
 					]
+				: []
+		)
+	)
+	return [
+		...lost,
+		...Arr.flatMap(scope.reads, (read) => {
+			const scans = Arr.filter(
+				nodes,
+				(n) =>
+					Option.contains(n.alias, read.alias) &&
+					Str.endsWith(" Scan")(n.nodeType) &&
+					n.nodeType !== "Subquery Scan"
+			)
+			const [scan, ...more] = scans
+			if (scan === undefined || more.length > 0) {
+				return [`${scope.label}: the read ${read.alias} is scanned ${scans.length} times`]
+			}
+			const bitmaps = Arr.filter(scan.children, (c) => c.nodeType === "Bitmap Index Scan")
+			const [bitmap, ...others] = bitmaps
+			if (
+				scan.nodeType === "Bitmap Heap Scan" &&
+				(bitmap === undefined || others.length > 0 || scan.children.length !== 1)
+			) {
+				return [
+					`${scope.label}: the read ${read.alias} is a ${nodeText(scan)} over ${scan.children.length} nodes, where one Bitmap Index Scan serves it`
+				]
+			}
+			const indexCond = bitmap === undefined ? scan.indexCond : bitmap.indexCond
+			return Arr.flatMap(read.bound, (column) => {
+				const where = [
+					...(names(indexCond, read.alias, column) ? [] : ["outside its index condition"]),
+					...(names(scan.filter, read.alias, column) ? ["in its filter"] : []),
+					...(Arr.some(nodes, (n) => names(n.joined, read.alias, column))
+						? ["in a join's condition"]
+						: [])
+				]
+				return where.length === 0
+					? []
+					: [
+							`${scope.label}: ${read.alias}.${column} is bound, read ${Arr.join(where, " and ")} of its ${nodeText(scan)}`
+						]
+			})
 		})
-	})
+	]
 }
 
 /** Each of `names` that `of` holds more than once, the problem it is in `label`'s scope. */
@@ -870,30 +1047,51 @@ export const lawsOver = (scope: LawScope, planned: PlannedScope): ReadonlyArray<
 	...scopeLaw(scope, planned)
 ]
 
-/** The EXPLAIN every law plans a statement by. */
-const lawExplain = (sql: string): string =>
-	`EXPLAIN (GENERIC_PLAN, COSTS OFF, PLAN_ADVICE, VERBOSE, FORMAT JSON) ${sql}`
+/**
+ * The function every law plans a statement through, made in the session's own pg_temp: EXPLAIN (GENERIC_PLAN, COSTS
+ * OFF, PLAN_ADVICE, VERBOSE, FORMAT JSON) of the statement's text, run as dynamic SQL, so its typed placeholders are
+ * the generic plan's own parameters. Sent over the extended protocol, the one every test session speaks, a text with
+ * `$n` in it asks the call for those values, and EXPLAIN (GENERIC_PLAN) plans at them.
+ */
+const lawPlanner =
+	"CREATE OR REPLACE FUNCTION pg_temp.gz_laws_plan(statement text) RETURNS json LANGUAGE plpgsql AS $$ " +
+	"DECLARE plan json; BEGIN EXECUTE 'EXPLAIN (GENERIC_PLAN, COSTS OFF, PLAN_ADVICE, VERBOSE, FORMAT JSON) ' || statement INTO plan; RETURN plan; END $$"
+
+/** A statement's plan for the laws, through the session's planner function (`lawPlanner`). */
+const lawPlan = (session: BenchSession, sql: string) =>
+	Effect.flatMap(session.values("SELECT pg_temp.gz_laws_plan($1::text)::text", [sql]), (rows) =>
+		Effect.fromResult(advisedPlanOf(rows[0]?.[0]))
+	)
 
 /** The advice in force for the rest of the transaction `session` holds open: `advice`, or none where it is empty. */
 const holdAdvice = (session: BenchSession, advice: string) =>
 	session.values("SELECT pg_catalog.set_config('pg_plan_advice.advice', $1::text, true)", [advice])
 
-/** The advice a routine's SET clause holds, as the catalog stores it: empty where it holds none. */
-const routineAdvice = (session: BenchSession, schema: string, name: string) =>
-	Effect.map(
-		session.values(
-			"SELECT pg_catalog.substr(c, pg_catalog.length('pg_plan_advice.advice=') + 1) FROM pg_catalog.pg_proc AS p " +
-				"JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace " +
-				"CROSS JOIN LATERAL pg_catalog.unnest(p.proconfig) AS c " +
-				"WHERE n.nspname = $1::text AND p.proname = $2::text AND pg_catalog.starts_with(c, 'pg_plan_advice.advice=')",
-			[schema, name]
-		),
-		(rows) =>
-			Arr.join(
-				Arr.map(rows, (row) => String(row[0])),
-				" "
-			)
-	)
+/**
+ * The statement that puts the advice routine `fn`'s SET clause holds (pg_proc.proconfig) in force for the rest of the
+ * transaction it runs in, and answers it, none where the routine holds no clause: a routine's vehicle read from the
+ * catalog, as PostgreSQL applies it at each call, for whatever plans a routine's statements outside a call of it.
+ */
+export const routineAdviceHeld = (fn: ObjectName): string =>
+	"SELECT pg_catalog.set_config('pg_plan_advice.advice', COALESCE((SELECT pg_catalog.substr(c, " +
+	"pg_catalog.length('pg_plan_advice.advice=') + 1) FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n " +
+	"ON n.oid = p.pronamespace CROSS JOIN LATERAL pg_catalog.unnest(p.proconfig) AS c " +
+	`WHERE n.nspname = ${quoteString(fn.schema)} AND p.proname = ${quoteString(fn.name)} ` +
+	"AND pg_catalog.starts_with(c, 'pg_plan_advice.advice=')), ''), true)"
+
+/**
+ * The advice `scope`'s vehicle holds (`Vehicle`), put in force for the rest of the transaction `session` holds open: a
+ * flight's, the scope's own; a routine's, its SET clause as the catalog stores it.
+ */
+const holdVehicle = (session: BenchSession, scope: LawScope): Effect.Effect<string, SqlError> =>
+	Effect.gen(function* () {
+		if (scope.vehicle.kind === "flight") {
+			yield* holdAdvice(session, scope.advice)
+			return scope.advice
+		}
+		const held = yield* session.values(routineAdviceHeld(scope.vehicle.routine), [])
+		return String(held[0]?.[0])
+	})
 
 /**
  * Every statement of `scope` planned under the advice its vehicle holds, in the transaction `session` holds open, which
@@ -905,16 +1103,9 @@ export const plannedScope = (
 	scope: LawScope
 ): Effect.Effect<PlannedScope, SqlError | MalformedAdvice> =>
 	Effect.gen(function* () {
-		const inForce =
-			scope.vehicle.kind === "flight"
-				? scope.advice
-				: yield* routineAdvice(session, scope.vehicle.schema, scope.vehicle.name)
-		yield* holdAdvice(session, inForce)
-		const plans = yield* Effect.forEach(scope.statements, (s) =>
-			Effect.flatMap(session.values(lawExplain(s.sql), []), (rows) =>
-				Effect.fromResult(advisedPlanOf(rows[0]?.[0]))
-			)
-		)
+		const inForce = yield* holdVehicle(session, scope)
+		yield* session.values(lawPlanner, [])
+		const plans = yield* Effect.forEach(scope.statements, (s) => lawPlan(session, s.sql))
 		return { inForce, plans }
 	})
 
@@ -927,7 +1118,14 @@ export const lawsHold = (
 	scope: LawScope
 ): Effect.Effect<void, SqlError | MalformedAdvice> =>
 	Effect.map(plannedScope(session, scope), (planned) =>
-		assert.deepEqual(lawsOver(scope, planned), [], `the plan laws hold over ${scope.label}`)
+		assert.deepEqual(
+			lawsOver(scope, planned),
+			[],
+			`the plan laws hold over ${scope.label}, carrying ${scope.advice}\n${Arr.join(
+				Arr.map(scope.statements, (s) => `${s.label}: ${s.sql}`),
+				"\n"
+			)}`
+		)
 	)
 
 /**
@@ -959,8 +1157,8 @@ export const advisedRun = (
  * A pg_class state of a table a law reads, each reached as production reaches it (`standIn`):
  * - `never vacuumed`: its rows inserted, and nothing since (relpages 0, reltuples -1: the planner reads its size off
  *   its file);
- * - `counted empty`: its rows inserted in a transaction another session VACUUMs it while it is open, as autovacuum
- *   meets a long load (relpages its pages, reltuples 0: every path costs about a row, the tie of e1);
+ * - `counted empty`: its rows inserted and counted as a VACUUM another session runs while the load is open counts them,
+ *   as autovacuum meets a long load (relpages its pages, reltuples 0: every path costs about a row, the tie of e1);
  * - `analyzed`: ANALYZEd over its rows;
  * - `skewed`: ANALYZEd over its first hundredth, then filled, its statistics a prefix's;
  * - `large`: pg_class counting `largeRows` rows on its pages, as at scale.
@@ -1008,25 +1206,27 @@ const eachTable = (
 ): Effect.Effect<void, SqlError> =>
 	Effect.forEach(tables, (t) => session.values(of(t), []), { discard: true })
 
-/** The statement that counts a table at `largeRows` rows on its pages (pg_restore_relation_stats). */
-const countedLarge = (quoted: string): string =>
+/**
+ * The statement that counts a table at `rows` rows on the pages it holds now (pg_restore_relation_stats), none of them
+ * all-visible: as a VACUUM counts it, its pages read off its blocks.
+ */
+const countedAt = (quoted: string, rows: number): string =>
 	"SELECT pg_catalog.pg_restore_relation_stats('schemaname', n.nspname::pg_catalog.text, 'relname', c.relname::pg_catalog.text, " +
 	"'relpages', (pg_catalog.pg_relation_size(c.oid) / pg_catalog.current_setting('block_size')::pg_catalog.int8)::pg_catalog.int4, " +
-	`'reltuples', ${largeRows}::pg_catalog.float4, 'relallvisible', 0::pg_catalog.int4) ` +
+	`'reltuples', ${rows}::pg_catalog.float4, 'relallvisible', 0::pg_catalog.int4) ` +
 	"FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace " +
 	`WHERE c.oid = ${quoteString(quoted)}::pg_catalog.regclass`
 
 /**
- * `load` run and its tables stood in `state` (`PgClassState`) on `filling`, whose transaction the case holds open and
- * never commits before the state is read; a counted-empty table is vacuumed by `apart`, a session outside that
- * transaction, while its rows are uncommitted, as autovacuum meets a long load.
+ * `load` run on `session`, in the transaction it holds open, and its tables stood in `state` (`PgClassState`). A
+ * counted-empty table is counted as the VACUUM of e1 counts it, one another session runs while its load is open: its
+ * pages, and no row, the load's rows in progress to that VACUUM; a large one at `largeRows` on its pages.
  */
 export const standIn = (
-	sessions: { readonly filling: BenchSession; readonly apart: BenchSession },
+	session: BenchSession,
 	load: StateLoad,
 	state: PgClassState
 ): Effect.Effect<void, SqlError> => {
-	const { filling, apart } = sessions
 	const all = load.load(1, load.units)
 	switch (state) {
 		case "never vacuumed":
@@ -1034,25 +1234,28 @@ export const standIn = (
 		case "counted empty":
 			return Effect.andThen(
 				all,
-				eachTable(apart, load.tables, (t) => `VACUUM ${t}`)
+				eachTable(session, load.tables, (t) => countedAt(t, 0))
 			)
 		case "analyzed":
 			return Effect.andThen(
 				all,
-				eachTable(filling, load.tables, (t) => `ANALYZE ${t}`)
+				eachTable(session, load.tables, (t) => `ANALYZE ${t}`)
 			)
 		case "skewed": {
 			const prefix = Math.ceil(load.units / 100)
 			return Effect.gen(function* () {
 				yield* load.load(1, prefix)
-				yield* eachTable(filling, load.tables, (t) => `ANALYZE ${t}`)
+				yield* eachTable(session, load.tables, (t) => `ANALYZE ${t}`)
 				if (prefix < load.units) {
 					yield* load.load(prefix + 1, load.units)
 				}
 			})
 		}
 		case "large":
-			return Effect.andThen(all, eachTable(filling, load.tables, countedLarge))
+			return Effect.andThen(
+				all,
+				eachTable(session, load.tables, (t) => countedAt(t, largeRows))
+			)
 	}
 }
 
@@ -1120,6 +1323,13 @@ export const replannedScope = (
 	)
 }
 
+/** A read as the bootstrap superuser (test/support/substrate/substrate.ts SubstrateShape `superuserRead`): its rows. */
+type SuperuserRead = (sql: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<string | null>>>
+
+/** The one cell of a catalog read that answers one row of one column. */
+const cellOf = (rows: ReadonlyArray<ReadonlyArray<string | null>>, what: string): string =>
+	defined(rows[0]?.[0] ?? undefined, what)
+
 /** The little-endian unsigned 16-bit word at byte `at` of a raw page read as hex (get_raw_page). */
 const pageWord = (hex: string, at: number): number =>
 	Number.parseInt(Str.slice(2 * at, 2 * at + 2)(hex), 16) +
@@ -1131,7 +1341,7 @@ const pageWord = (hex: string, at: number): number =>
  * pages, which no other role may. An index of another method has no height, and the budget refuses a scan of it.
  */
 export const heightsOf = (
-	read: (sql: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<string>>>,
+	read: SuperuserRead,
 	indexes: ReadonlyArray<string>
 ): Effect.Effect<ReadonlyMap<string, number>> =>
 	Effect.map(
@@ -1141,7 +1351,7 @@ export const heightsOf = (
 					`SELECT a.amname::text FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_am AS a ON a.oid = c.relam WHERE c.oid = ${quoteString(index)}::pg_catalog.regclass`
 				),
 				(rows) =>
-					Option.match(Rec.get(heightReaders, rows[0]?.[0] ?? ""), {
+					Option.match(Rec.get(heightReaders, cellOf(rows, `the access method of ${index}`)), {
 						onNone: () => Effect.succeed(Arr.empty<readonly [string, number]>()),
 						onSome: (height) => Effect.map(height(read, index), (h) => [[index, h] as const])
 					})
@@ -1159,18 +1369,12 @@ export const heightsOf = (
  *   is at one depth.
  */
 const heightReaders: Readonly<
-	Record<
-		string,
-		(
-			read: (sql: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<string>>>,
-			index: string
-		) => Effect.Effect<number>
-	>
+	Record<string, (read: SuperuserRead, index: string) => Effect.Effect<number>>
 > = {
 	btree: (read, index) =>
 		Effect.map(
 			read(`SELECT (level + 1)::text FROM pageinspect_ext.bt_metap(${quoteString(index)})`),
-			(rows) => Number(rows[0]?.[0])
+			(rows) => Number(cellOf(rows, `the root level of ${index}`))
 		),
 	gin: (read, index) => {
 		const walk = (block: number, above: number): Effect.Effect<number> =>
@@ -1179,7 +1383,7 @@ const heightReaders: Readonly<
 					`SELECT pg_catalog.encode(pageinspect_ext.get_raw_page(${quoteString(index)}, ${block}), 'hex')`
 				),
 				(rows) => {
-					const hex = rows[0]?.[0] ?? ""
+					const hex = cellOf(rows, `page ${block} of ${index}`)
 					const flags = pageWord(hex, Str.length(hex) / 2 - 2)
 					const item = pageWord(hex, 24) & 0x7fff
 					const child = pageWord(hex, item) * 65_536 + pageWord(hex, item + 2)
@@ -1200,7 +1404,7 @@ const ownPages = (n: PlanNode): number =>
 interface BudgetFacts {
 	readonly node: PlanNode
 	readonly heights: ReadonlyMap<string, number>
-	readonly pagesOf: (relation: string) => number
+	readonly pages: ReadonlyMap<string, number>
 }
 
 /** The rows a scan's index condition or table read selected, over all of its loops: those it returned and filtered. */
@@ -1255,15 +1459,20 @@ const scanBudgets: Readonly<Record<string, (facts: BudgetFacts) => ReadonlyArray
 		Option.map(n.heapFetches, (fetched) => rows + fetched + searches)
 	),
 	"Seq Scan": (facts) =>
-		Option.match(facts.node.relation, {
-			onNone: () => [" scans no relation"],
-			onSome: (relation) =>
-				pastBound(
-					facts.node,
-					facts.node.actualLoops * facts.pagesOf(relation),
-					`${facts.node.actualLoops} reads of its table`
-				)
-		}),
+		Option.match(
+			Option.flatMap(qualifiedRelation(facts.node), (relation) =>
+				Option.fromNullishOr(facts.pages.get(relation))
+			),
+			{
+				onNone: () => [" scans a relation of no known pages"],
+				onSome: (pages) =>
+					pastBound(
+						facts.node,
+						facts.node.actualLoops * pages,
+						`${facts.node.actualLoops} reads of its ${pages} pages`
+					)
+			}
+		),
 	"Tid Scan": (facts) =>
 		pastBound(
 			facts.node,
@@ -1291,15 +1500,91 @@ export const budgetOver = (
 	label: string,
 	plan: PlanNode,
 	heights: ReadonlyMap<string, number>,
-	pagesOf: (relation: string) => number
+	pages: ReadonlyMap<string, number>
 ): ReadonlyArray<string> =>
 	Arr.flatMap([...planNodes(plan)], (n) =>
 		Option.match(Rec.get(scanBudgets, n.nodeType), {
 			onNone: () => [],
 			onSome: (bound) =>
 				Arr.map(
-					bound({ node: n, heights, pagesOf }),
+					bound({ node: n, heights, pages }),
 					(problem) => `${label}: its ${n.nodeType}${problem}`
 				)
 		})
 	)
+
+/** A scan's relation, qualified by the schema VERBOSE prints beside it, as a regclass reads it. */
+const qualifiedRelation = (n: PlanNode): Option.Option<string> =>
+	Option.map(
+		Option.all({ schema: n.schema, relation: n.relation }),
+		({ schema, relation }) => `${quoteIdent(schema)}.${quoteIdent(relation)}`
+	)
+
+/** A scan's index, qualified by its relation's schema, as a regclass reads it. */
+const qualifiedIndex = (n: PlanNode): Option.Option<string> =>
+	Option.map(
+		Option.all({ schema: n.schema, index: n.index }),
+		({ schema, index }) => `${quoteIdent(schema)}.${quoteIdent(index)}`
+	)
+
+/**
+ * The budget held over each statement of `scope` that reads no parameter, a query (`SELECT`) run on filled data as its
+ * vehicle's advice holds it, in the transaction `session` holds open (EXPLAIN (ANALYZE, BUFFERS, VERBOSE, TIMING OFF,
+ * SETTINGS, FORMAT JSON), bench/harness/explain.ts explain): every index it reads its height (`heightsOf`, by `read`,
+ * the bootstrap superuser's), every table it reads whole its current pages (pg_relation_size), and the problems
+ * `budgetOver` finds. A statement that reads parameters waits on the values a caller binds; its budget is its caller's.
+ */
+export const budgetOfScope = (
+	session: BenchSession,
+	read: SuperuserRead,
+	scope: LawScope
+): Effect.Effect<ReadonlyArray<string>, SqlError | MalformedPlan> =>
+	Effect.gen(function* () {
+		yield* holdVehicle(session, scope)
+		const problems: Array<string> = []
+		for (const s of scope.statements) {
+			if (Str.includes("$")(s.sql) || !Str.startsWith("SELECT")(s.sql)) {
+				continue
+			}
+			const run = yield* explain(session, s.sql, [], {
+				serialize: { kind: "off" },
+				wal: false,
+				verbose: true
+			})
+			const nodes = [...planNodes(run.plan)]
+			const indexed = Arr.flatMap(nodes, (n) =>
+				Option.match(Option.all({ name: n.index, qualified: qualifiedIndex(n) }), {
+					onNone: () => [],
+					onSome: (i) => [i]
+				})
+			)
+			const heights = yield* heightsOf(read, Arr.dedupe(Arr.map(indexed, (i) => i.qualified)))
+			const tables = Arr.dedupe(
+				Arr.flatMap(nodes, (n) =>
+					n.nodeType === "Seq Scan" ? Option.toArray(qualifiedRelation(n)) : []
+				)
+			)
+			const sized = yield* Effect.forEach(tables, (t) =>
+				Effect.map(
+					session.values(
+						"SELECT (pg_catalog.pg_relation_size($1::text::pg_catalog.regclass) / pg_catalog.current_setting('block_size')::pg_catalog.int8)::pg_catalog.int8",
+						[t]
+					),
+					(rows) => [t, Number(rows[0]?.[0])] as const
+				)
+			)
+			const pages = new Map(sized)
+			const byName = new Map(
+				Arr.flatMap(indexed, (i) =>
+					Option.match(Option.fromNullishOr(heights.get(i.qualified)), {
+						onNone: () => [],
+						onSome: (h) => [[i.name, h] as const]
+					})
+				)
+			)
+			for (const problem of budgetOver(`${scope.label}, ${s.label}`, run.plan, byName, pages)) {
+				problems.push(problem)
+			}
+		}
+		return problems
+	})

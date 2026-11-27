@@ -1,68 +1,35 @@
 /**
- * The plan-shape law (README "Declared statistics"): every statement an installation makes reads each table through
- * the index its binding asks for, in every state a table passes through, because grizzle declares each table's planner
- * statistics from the schema's facts and PostgreSQL plans the statement generically, as every login's role plans the
- * statements it prepares (plan_cache_mode at force_generic_plan).
+ * The plan laws over every routine an installation installs (test/support/advice.ts): each statement grizzle sends is
+ * planned under the plan advice it carries, and PostgreSQL plans exactly that plan, whatever its tables' statistics
+ * hold, because nothing of the plan is PostgreSQL's choice any more (CARRY THE PLAN D1-D6).
  *
  * - **Property:** over drawn shapes (a unit of one or two fields or none; one to three relations, members of the unit
  *   or not, mutable inside it or not, keyed by one or two fields of their own after the unit's, with up to one key more;
- *   the second referencing the first's primary key; up to three equality lookups of a workload, the first relation,
- *   half the time, keyed by two fields of its own with a lookup on the second), installed with the lookups as the
- *   engine's requests, each relation's statements are planned on a copy of its table (copies.ts: its columns,
- *   constraints and indexes, and its declaration as the migration declares it): each key's probe, each lookup, each
- *   foreign key's check from each side as PostgreSQL's own triggers run it (`SELECT 1 FROM ONLY ... FOR KEY SHARE`),
- *   a member's read by its unit, and, where an index of a member is led by a field of its primary key after the unit's,
- *   a coordinate, the key's probe joined from two sides as metis's submit probes processed_attempt's key: its unit's
- *   fields from a carrier of parameters that a row of the table read at that unit joins, every field of the key stated
- *   against that row, as the lowering states a variable a stored relation holds (ACCESS-P3's e5764491), in an anti join.
- *   A member's binding that holds none of the columns that scope its rows, its unit's fields and its keys' first fields,
- *   spans its units, as a staff read of every learner's sittings at a stage does (edullm's Q05): its declaration takes
- *   its index's lead as an anchor paired with the unit's, so PostgreSQL reads it through that index at any size, as it
- *   reads every other binding, and never through the lead's index a read that binds the unit. In each state:
- *   - empty as installed, a table no VACUUM has seen, which PostgreSQL plans at ten pages: a lookup binding a key
- *     reads at most one row by a key, through an index the leading run of whose columns its index condition binds by
- *     equality holds a key (copies.ts readsOneRowByKey), a key's index bound whole or one leading with a key's columns
- *     in another order; nothing else is judged empty (a read of several rows may scan it);
- *   - filled at 2^14 rows and vacuumed: a lookup binding a key reads at most one row by a key, as empty, any other
- *     through indexes whose equalities bind as long a run of its binding as any B-tree of the relation does, and never
- *     scans the table where one binds any, a binding that spans a member's units too; the joined probe binds by its index
- *     condition a column that scopes the rows, so it reads within one scope, never by the coordinates alone (its paths
- *     priced over loops as unlike as the carrier's ten rows and the table's, a prefix bounded within a scope may win
- *     over the key's whole index, which no declaration ranks);
- *   - after ANALYZE, after VACUUM, and, a mutable relation, emptied, vacuumed, refilled and vacuumed (the recovery
- *     autovacuum's insert threshold runs): each lookup reads as filled, and each statement as the
- *     law says;
- *   - ANALYZEd at one row in a hundred of the filled state's, then loaded whole and vacuumed: each lookup reads as
- *     filled, and each statement as the law says;
- *   - loaded over a rolled-back load and never vacuumed (dead pages before the live rows, none of them all-visible),
- *     then vacuumed, the states a production table's aborted writes leave it in: each lookup reads as filled, and each
- *     statement as the law says.
- *   A read reads as filled where its index condition binds by equality the run of its binding the filled state's binds,
- *   so it reads the rows that run selects and no others: which of two indexes binding one run PostgreSQL reads through
- *   is a tie it breaks by their pages, which a rolled-back load moves, and is named in a failure, never judged.
- *   A relation whose keys and indexes cross is refused when it installs, as generate refuses it.
- *   A third of the shapes are two immutable members of the unit, the second's rows contained in fields of the first that
- *   hold none of its keys, a containment no foreign key states, which the rule judge reads: every statement of the judge
- *   is planned over the shape's own tables, filled with their triggers off and vacuumed, then after ANALYZE, and each of
- *   its scans, a scan a SubPlan of another's conditions runs among them, is judged by what its plan offers it, its own
- *   equalities and the conditions of the join that probes its side (plan-bindings.ts), as a probe's scan is: a scan
- *   whose binding holds a key reads at most one row by a key, any other the longest run any B-tree binds; and each scan
- *   of a side of the containment binds every coordinate its delta asks for, the unit's fields and the side's paired
- *   fields, so the judge reads the rows a write changed, never every row of their unit; each read after ANALYZE as
- *   filled.
- * - **Oracle:** PostgreSQL, its generic plans (EXPLAIN EXECUTE under force_generic_plan), judged against the indexes its
- *   catalog holds.
- * - **Kills:** the declarations dropped, so PostgreSQL breaks a key probe's tie with an index on part of its key by the
- *   latest index; the unit's lead declared no anchor, so a member's read by its unit is priced at a share of the table
- *   and scans it; and each column's statistics target left at its default, so an ANALYZE at one row in a hundred
- *   samples the first units and a read by the unit scans the table once it is loaded; and every unit-local containment
- *   judged whole, so the judge reads every row of the contained relation's unit, binding the unit alone (LC-WRITERS'
- *   judge, the first kept case, which once read the container's unit under a Materialize too); and no lead of an index a
- *   binding spanning the units asks declared an anchor, as before, so a lookup of a member's own fields is priced at a
- *   share of the table and scanned. The joined probe of the second kept case states its unit's equality against the
- *   row it joins, as the lowering states it, so its key's index binds it whole parameterized by that row alone and wins
- *   by its rows whatever an index its coordinate leads is declared (PostgreSQL applies no dependency across relations,
- *   and prices a path parameterized by one relation by that relation's loops).
+ *   the second referencing the first's primary key; up to three equality lookups of a workload, each an index beside
+ *   the keys, the first relation, half the time, keyed by two fields of its own with a lookup on the second; a third of
+ *   the shapes two immutable members of the unit, the second's rows contained in fields of the first that hold none of
+ *   its keys, a containment no foreign key states, which the rule judge reads), installed with the lookups as the
+ *   engine's requests, each relation loaded with 2^14 rows and stood in a drawn pg_class state (never vacuumed; counted
+ *   empty, counted as a VACUUM another session runs while its load is open counts it, every path then costing about a
+ *   row, e1's tie;
+ *   analyzed; skewed, analyzed over its first hundredth; large, counted at a million rows), in one transaction the case
+ *   rolls back, the judge stood up: every routine of the installation (physical/install/compile.ts Installation
+ *   `routines`, each query PL/pgSQL hands the planner) is planned under the advice its own SET clause holds, and
+ *   - Law 1: its generated advice is the advice it carries, atom for atom, each atom matched, no node disabled;
+ *   - Law 2: every column a read binds is in its scan's index condition, and no join's filter equates a stored read's
+ *     column with another's;
+ *   - Law 3: no two items of its plan share an alias, no two levels a name, and each atom is matched in exactly one of
+ *     its queries;
+ *   - the budget: each of its queries that reads no parameter, run on the filled tables, reads within the pages its plan
+ *     gives (descents times its index's height, two pages a row its index condition selects, a whole read its table's
+ *     pages), never descending more than once an evaluation.
+ * - **Oracle:** PostgreSQL 19's own plans: its generated advice and its feedback on the supplied (EXPLAIN
+ *   (GENERIC_PLAN, COSTS OFF, PLAN_ADVICE, VERBOSE, FORMAT JSON)), each scan's conditions, and EXPLAIN ANALYZE's buffers.
+ * - **Kills:** a level's first scan atom dropped from the advice, so PostgreSQL's own choice reads it; every request of a
+ *   relation resolved to the relation's last index, a sibling, which leaves a bound column in a filter; a keyed read of
+ *   a second relation printed as a plain join instead of a probe; a sublink's query read at a level PostgreSQL names,
+ *   which it flattens into a join; the advice scope minting one alias over and over, so two relations of a routine
+ *   share it; and the judge of an installation that judges no table reading the sentinel no stand-up makes.
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
@@ -74,78 +41,86 @@ import {
 } from "#test/pg/physical/plan-shape.fixtures.ts"
 import { baseSubstrate, Substrate } from "#test/support/substrate/substrate.ts"
 
-/** Every statement of a drawn shape reads each table through the index its binding asks for, in every law state. */
-export const everyStatementReadsThroughTheIndexItsBindingAsksForInEveryState = property.explore(
-	shapeGen,
-	{
-		needs: { substrate: Substrate.fresh(baseSubstrate) },
-		situations: [
-			"a unit's member read by its unit",
-			"a key probe beside an index on part of its key",
-			"a foreign key checked from each side",
-			"an equality lookup on an index of its own",
-			"a mutable relation emptied, vacuumed and refilled",
-			"a relation in no unit",
-			"a containment the rule judge reads",
-			"a key probed from two sides beside an index led by a coordinate"
-		] satisfies ReadonlyArray<Reached<PlanShapeFeature>>,
-		check:
-			({ substrate }, c: Case<PlanShapeFeature>) =>
-			(sketch) =>
-				Effect.provideServiceEffect(
-					Effect.scoped(shapeCase(sketch, c.note)),
-					Substrate,
-					Effect.map(substrate, (taken) => taken.substrate)
-				),
-		oracle: {
-			kind: "postgresql",
-			name: "PostgreSQL's generic plans over copies of each table in the law's states, judged against its catalog's indexes"
+/** Every routine of a drawn shape plans as the advice it carries, binds every bound column, and keeps its budget, in
+ * every pg_class state. */
+export const everyRoutinePlansAsItsAdviceCarriesInEveryState = property.explore(shapeGen, {
+	needs: { substrate: Substrate.fresh(baseSubstrate) },
+	situations: [
+		"a unit's members",
+		"a relation in no unit",
+		"a mutable member",
+		"a reference between members",
+		"a containment the rule judge reads",
+		"a lookup's index beside a key",
+		"a relation never vacuumed",
+		"a relation counted empty",
+		"a relation analyzed",
+		"a relation skewed",
+		"a relation large",
+		"a routine read through an index"
+	] satisfies ReadonlyArray<Reached<PlanShapeFeature>>,
+	check:
+		({ substrate }, c: Case<PlanShapeFeature>) =>
+		(sketch) =>
+			Effect.provideServiceEffect(
+				Effect.scoped(shapeCase(sketch, c.note)),
+				Substrate,
+				Effect.map(substrate, (taken) => taken.substrate)
+			),
+	oracle: {
+		kind: "postgresql",
+		name: "PostgreSQL 19's generated advice, its feedback on the supplied, its scans' conditions and its buffers, under each routine's own advice in each pg_class state"
+	},
+	budget: { runs: 24, steered: 12 },
+	show: Formatter.format,
+	kept: [
+		{
+			token: ReplayToken(
+				"test/pg/physical/plan-shape.test.ts#everyRoutinePlansAsItsAdviceCarriesInEveryState:-:0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.1.0.0.0"
+			),
+			reason:
+				"two members of a unit and no judged relation (LAWS's run at 6230b6610): the installation held no stand-up, so no session ever stood the sentinel, and its judge's one query, DELETE FROM the sentinel, could not be planned (42P01), a function no capture fires; the judge with no table judged is an empty body (physical/ddl/rules.ts `judging`)",
+			since: "2026-11-27"
+		}
+	],
+	kills: [
+		{
+			file: "packages/engine/src/sql/advice.ts",
+			original: "\t\t...scanned.flatMap((item) => scanAtom(item, at(item))),",
+			replacement: "\t\t...scanned.slice(1).flatMap((item) => scanAtom(item, at(item))),",
+			why: "A level's first scan atom dropped: PostgreSQL chooses that read's scan itself, the counted-empty tie's index among its choices, an atom grizzle does not carry (Law 1)."
 		},
-		/** The fewest rotating cases at which every kill is killed under TEST_SEED=2219874524: at 12, once the judged arm
-		 * took a third of the shapes, the statistics target's kill went unkilled; at 24 all five are. */
-		budget: { runs: 24, steered: 12 },
-		show: Formatter.format,
-		kept: [
-			{
-				token: ReplayToken(
-					"test/pg/physical/plan-shape.test.ts#everyStatementReadsThroughTheIndexItsBindingAsksForInEveryState:54.6:0.0.1.0.0.0.0.0.0.0.0.0.1.0.0.0"
-				),
-				reason:
-					"LC-WRITERS' judge at small scale: R1(doc, q0) contained in R0(doc, f0) within the unit doc, R0 keyed (doc, f0, f1), both immutable; judged whole, the judge read R0's unit under a Materialize and matched f0 in its Join Filter, as LC's outline_start_in_standard_child judge read standard_child's 280,000-row unit for each outline row (23 minutes), and, planned through a correlated SubPlan since, still reads every R1 row of the written units, binding doc alone; judged key by key over its delta's rows, each read binds (doc, q0) or (doc, f0) by its index. Loaded over a rolled-back load and vacuumed, R0's read of its unit went through its key (doc, f0, f1) where filled it went through (doc, f1), both binding the unit: a tie of two indexes binding one run, broken by their pages, which the law reads as the run each binds",
-				since: "2026-11-23"
-			},
-			{
-				token: ReplayToken(
-					"test/pg/physical/plan-shape.test.ts#everyStatementReadsThroughTheIndexItsBindingAsksForInEveryState:-:1.1.0.0.1.0.0.0.0.0.1.0.0.1.0.0.1.0.0"
-				),
-				reason:
-					"metis's processed_attempt at small scale: a member of the unit doc keyed (doc, f0, f1), a workload's lookup of (f0, f1) asking an index led by the coordinate f0, as processed_attempt (child, package, path, n, at) asks (package, path, n, child): declared an anchor for leading that index, f0 was priced at a fixed count of rows a value, and the key's probe joined from its unit's carrier and its own rows read through (f0, f1), filtering doc after, every unit's rows at the item, as metis's submit read 41,208 rows for each of 34 probes at 45785e7c9. f0 now leads the index a spanning lookup asks, an anchor paired with doc: stated against the carrier alone, doc left the key's index a path parameterized by both sides, which PostgreSQL priced by the carrier's ten loops against (f0, f1)'s by the table's, and it read (f0, f1) (67.9 against 216.9 with it dropped); stated against the row it joins too, the key's index binds the probe whole parameterized by that row alone and wins by its rows",
-				since: "2026-11-24"
-			},
-			{
-				token: ReplayToken(
-					"test/pg/physical/plan-shape.test.ts#everyStatementReadsThroughTheIndexItsBindingAsksForInEveryState:-:1.2.0.0.1.0.0.0.0.0.1.1.1.1.1.1.0.1.0.1.0.0"
-				),
-				reason:
-					"edullm's Q05 at small scale: a member of the unit (doc, part) keyed (doc, part, f0, f2), its key (doc, part, f1, f0), and a lookup of f1 alone, which spans the units: priced at a share of the table, f1 was read through the key's index binding none of its columns in the state loaded over a rolled-back load and vacuumed (CONSUMERFIX's 528f3e7d at 0xccd3b823, case 12); f1 leads the index its lookup asks, an anchor paired with doc, and the lookup reads it at any size",
-				since: "2026-11-27"
-			},
-			{
-				token: ReplayToken(
-					"test/pg/physical/plan-shape.test.ts#everyStatementReadsThroughTheIndexItsBindingAsksForInEveryState:-:0.0.1.0.2.0.0.1.0.1.1.1.0.1.0.0.0.1.0.0.0"
-				),
-				reason:
-					"A member of the unit doc keyed (doc, f0), a candidate key (f1, f2) beside it, and a lookup of (doc, f1): loaded over a rolled-back load and never vacuumed, r_0's lookup read the candidate key's index binding f1 alone, where its own (doc, f1) binds both (INDEX-P4's draws at 79fd60c3); the candidate key leads with f2, outside the primary key (physical/ddl/tables.ts candidateOrder), and the lookup reads its own index",
-				since: "2026-11-27"
-			}
-		],
-		kills: [
-			{
-				file: "packages/engine/src/laws/model/plan.ts",
-				original: "\t\t\tmutableSide(d.from) || mutableSide(d.to)\n\t\t\t\t? whole",
-				replacement: "\t\t\ttrue || mutableSide(d.from) || mutableSide(d.to)\n\t\t\t\t? whole",
-				why: "Every unit-local containment judged whole, as before: the judge reads every R1 row of the written units, its scan binding doc alone where its delta asks for (doc, q0) (the kept case, LC-WRITERS' judge)."
-			}
-		]
-	}
-)
+		{
+			file: "packages/engine/src/physical/indexes/engine.ts",
+			original: "\t\treturn hostIn(set, covered.value)?.ref ?? missed(held)\n",
+			replacement:
+				"\t\treturn (set.indexes.findLast((c) => c.relation === relation) ?? hostIn(set, covered.value))?.ref ?? missed(held)\n",
+			why: "Every request of a relation resolved to its last index, a sibling of the one that serves it: the advice is obeyed and matched, and a column the read binds that the sibling does not lead with is a filter (Law 2)."
+		},
+		{
+			file: "packages/engine/src/sql/bind.ts",
+			original: "\t\tif (table !== undefined && bindings.some((b) => b.driven)) {",
+			replacement: "\t\tif (false) {",
+			why: "A keyed read of a second relation printed as a plain join, as before the binder (e3 P1): its binding to the earlier item's column is a join's filter, which no advice makes an index condition (Law 2)."
+		},
+		{
+			file: "packages/engine/src/sql/bind.ts",
+			original: "\tif (!readsAtOwnLevel(q)) {",
+			replacement: "\tif (true) {",
+			why: "A sublink's query read at the level PostgreSQL names itself: a correlated EXISTS is flattened into a semi-join grizzle never planned (e3 P5), its advice targeting a level that no longer exists (Law 1)."
+		},
+		{
+			file: "packages/engine/src/physical/ddl/rules.ts",
+			original: "\tconst judging: ReadonlyArray<PlStatement> = !isNonEmpty(tables)\n\t\t? []\n",
+			replacement:
+				"\tconst judging: ReadonlyArray<PlStatement> = !isNonEmpty(tables)\n\t\t? [consumed]\n",
+			why: "The judge of an installation that judges no table still reads the sentinel, which no stand-up makes: its one query plans over a relation no session ever holds (42P01), a function nothing fires."
+		},
+		{
+			file: "packages/engine/src/sql/naming.ts",
+			original: "\t\tthis.#next += 1",
+			replacement: "\t\tthis.#next += 0",
+			why: "The advice scope mints one alias over and over: two relations of a routine share it, and each item meets both (Law 3)."
+		}
+	]
+})

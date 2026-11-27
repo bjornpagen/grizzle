@@ -1754,7 +1754,8 @@ const nettingsOf = (
  * own, and a write they miss can only withdraw a violation, never add one.
  *
  * The judge lives as long as the installation: every installation holds it, one name (identity.ruleJudge), its rules
- * none or many, and a migration replaces it in place and never drops it, since every session's sentinel's trigger names
+ * none or many, its body empty where no table is judged (no sentinel stands to read, `judging`), and a migration
+ * replaces it in place and never drops it, since every session's sentinel's trigger names
  * it and PostgreSQL refuses to drop a function a trigger of another session runs. Its parts hold no session's trigger,
  * and a part whose deltas change is another function, the old one dropped. A migration that adds an installation's
  * first rule over a query or removes its last one changes only the judge's body, its parts and the captures. Each probe's access paths
@@ -2773,17 +2774,24 @@ export const addRules = (
 			)
 		).values()
 	].toSorted((x, y) => compareStrings(x.name, y.name))
-	const judging: ReadonlyArray<PlStatement> = !isNonEmpty(deltas)
-		? [consumed]
-		: [
-				readWritten,
-				...nettingsOf(tables, storedNames, nettedDeltas),
-				...judgeBorrow,
-				...upkeep,
-				consumed,
-				...partsRun(parts.flatMap(({ part }) => (part.pass.kind === "rules" ? [part] : []))),
-				...upkeptOnly.map(emptiedWhereWritten)
-			]
+	/**
+	 * The judge's run: none where no table is judged, so no stand-up makes the sentinel and no capture arms it, the judge
+	 * an empty container every installation holds that reads nothing and plans no query; the sentinel's row alone where
+	 * a table is judged and no delta is read; else the passes above.
+	 */
+	const judging: ReadonlyArray<PlStatement> = !isNonEmpty(tables)
+		? []
+		: !isNonEmpty(deltas)
+			? [consumed]
+			: [
+					readWritten,
+					...nettingsOf(tables, storedNames, nettedDeltas),
+					...judgeBorrow,
+					...upkeep,
+					consumed,
+					...partsRun(parts.flatMap(({ part }) => (part.pass.kind === "rules" ? [part] : []))),
+					...upkeptOnly.map(emptiedWhereWritten)
+				]
 	const judgeDdl: readonly [PlFunction, Revoke] = [
 		{
 			kind: "createFunction",
