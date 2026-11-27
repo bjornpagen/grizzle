@@ -168,6 +168,11 @@ export interface PlanNode extends NodeKeys {
 	 * The heap pages an Index Only Scan visited for rows its visibility map did not prove visible; none on any other node.
 	 */
 	readonly heapFetches: Option.Option<number>
+	/**
+	 * The heap blocks a Bitmap Heap Scan read, those its bitmap held exactly, by tuple, and those it held lossily, by
+	 * page, each of whose rows it rechecks; none on any other node.
+	 */
+	readonly heapBlocks: Option.Option<{ readonly exact: number; readonly lossy: number }>
 	readonly sort: Option.Option<SortStats>
 	readonly hash: Option.Option<HashStats>
 	readonly cache: Option.Option<CacheStats>
@@ -417,6 +422,10 @@ const parseNode = (o: Json, walCapture: boolean): PlanNode => {
 		rowsRemovedByJoinFilter: removedRows(o, "Rows Removed by Join Filter"),
 		indexSearches: optNum(o, "Index Searches"),
 		heapFetches: optNum(o, "Heap Fetches"),
+		heapBlocks: Option.map(optNum(o, "Exact Heap Blocks"), (exact) => ({
+			exact,
+			lossy: num(o, "Lossy Heap Blocks")
+		})),
 		sort: Option.map(sortMethod, (method) => ({
 			method,
 			spaceUsedKb: num(o, "Sort Space Used"),

@@ -7,17 +7,24 @@
  *   statement's generated advice is the advice grizzle carries for it, atom for atom; every atom it carries is reported
  *   `matched`, with no flag; and no node is disabled. The comparison is CARRY-CONTRACT §3's: a generated atom whose
  *   targets grizzle named (an alias the scope minted, at the top level or a level it minted) is one of the carried, and
- *   every other is a NO_GATHER of a relation at a level PostgreSQL named (a sublink's one item, `"*RESULT*"`).
+ *   every other is a NO_GATHER of a relation at a level PostgreSQL named (a sublink's one item, `"*RESULT*"`). The laws
+ *   cover every statement over grizzle's own relations: a read of PostgreSQL's system catalogs (sql/catalog.ts) stays
+ *   cost-chosen, with real statistics and no proof of grizzle's, as does a consumer's hand-written migration DML, which
+ *   grizzle never binds.
  * - **Law 2, binding.** Every column a read binds is in the index condition of its occurrence's scan, never in that
- *   scan's filter or recheck, and never in a condition a join pairs its sides by: advice pins an index and a join, never
- *   which clauses become index conditions, so the statement's shape (a probe) must carry the binding.
+ *   scan's filter and never in a condition a join pairs its sides by: advice pins an index and a join, never which
+ *   clauses become index conditions, so the statement's shape (a probe) must carry the binding. A bitmap read (a GIN
+ *   search beside its scalar prefix, advised BITMAP_HEAP_SCAN) is a Bitmap Heap Scan over exactly one Bitmap Index Scan,
+ *   whose index condition holds every column it binds and its matched one.
  * - **Law 3, scope.** Every name a scope mints is minted once, and every atom of the scope's advice is matched in exactly
  *   one of its statements: PostgreSQL applies one advice string to every statement it plans under it, so an alias two
  *   statements share meets the other's items.
  * - **The budget.** On filled data a statement reads within the pages its plan gives: each scan of an index its
  *   descents times the index's height, and two pages a row its index condition selects (its leaf entry and its heap
- *   tuple), an index-only scan one and its heap fetches; each whole read its table's pages; and no scan descends more
- *   than once an evaluation. Counted, never timed.
+ *   tuple), an index-only scan one and its heap fetches; a bitmap read's index scan its descents times its GIN's
+ *   height and a posting page a tuple id it returns, its heap scan the heap blocks it read, none of them lossy (a lossy
+ *   block is a bitmap past work_mem, a failure); each whole read its table's pages; and no scan descends more than once
+ *   an evaluation. Counted, never timed.
  *
  * Every plan is PostgreSQL's own: EXPLAIN (GENERIC_PLAN, COSTS OFF, PLAN_ADVICE, VERBOSE, FORMAT JSON) of the statement,
  * planned fresh under the advice in force, generic as every session grizzle opens plans (physical/ddl/roles.ts
@@ -32,9 +39,16 @@
  * million rows on its pages, the scale of edullm's 1x tables).
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import { regex } from "arkregex"
 import { Array as Arr, Data, Effect, Option, Record as Rec, Result, String as Str } from "effect"
-import { type PlanNode, planNodes, underGenericPlans } from "#bench/harness/explain.ts"
+import {
+	explainServerStatement,
+	type MalformedPlan,
+	type PlanNode,
+	planNodes,
+	underGenericPlans
+} from "#bench/harness/explain.ts"
 import type { BenchSession } from "#bench/harness/session.ts"
 import { quoteString } from "#compiler/core/text.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
@@ -515,7 +529,8 @@ const columnsIn = (condition: string): ReadonlyArray<ColumnRef> => {
  * One node of a plan as the laws read it: its type, the alias of the relation occurrence it scans (none where it scans
  * none), the index it reads, whether the planner disabled it (`Disabled: true`, a path advice forbade that nothing
  * could replace), and its conditions' columns: its index condition's (a TID scan's TID condition among them), its
- * filter's and recheck's, and a join's, the Join Filter, Hash Cond and Merge Cond it pairs its sides by.
+ * filter's, and a join's, the Join Filter, Hash Cond and Merge Cond it pairs its sides by. A Bitmap Heap Scan's Recheck
+ * Cond repeats its Bitmap Index Scan's index condition, and is no filter.
  */
 export interface LawNode {
 	readonly nodeType: string
@@ -568,7 +583,7 @@ const lawNodeOf = (o: Json): LawNode => ({
 	index: textAt(o, "Index Name"),
 	disabled: o["Disabled"] === true,
 	indexCond: columnsAt(o, ["Index Cond", "TID Cond"]),
-	filter: columnsAt(o, ["Filter", "Recheck Cond"]),
+	filter: columnsAt(o, ["Filter"]),
 	joined: columnsAt(o, ["Join Filter", "Hash Cond", "Merge Cond"]),
 	children: childrenOf(o)
 })
@@ -781,9 +796,20 @@ const binding = (scope: LawScope, planned: PlannedScope): ReadonlyArray<string> 
 		if (scan === undefined || more.length > 0) {
 			return [`${scope.label}: the read ${read.alias} is scanned ${scans.length} times`]
 		}
+		const bitmaps = Arr.filter(scan.children, (c) => c.nodeType === "Bitmap Index Scan")
+		const [bitmap, ...others] = bitmaps
+		if (
+			scan.nodeType === "Bitmap Heap Scan" &&
+			(bitmap === undefined || others.length > 0 || scan.children.length !== 1)
+		) {
+			return [
+				`${scope.label}: the read ${read.alias} is a ${nodeText(scan)} over ${scan.children.length} nodes, where one Bitmap Index Scan serves it`
+			]
+		}
+		const indexCond = bitmap === undefined ? scan.indexCond : bitmap.indexCond
 		return Arr.flatMap(read.bound, (column) => {
 			const where = [
-				...(names(scan.indexCond, read.alias, column) ? [] : ["outside its index condition"]),
+				...(names(indexCond, read.alias, column) ? [] : ["outside its index condition"]),
 				...(names(scan.filter, read.alias, column) ? ["in its filter"] : []),
 				...(Arr.some(nodes, (n) => names(n.joined, read.alias, column))
 					? ["in a join's condition"]
@@ -890,6 +916,43 @@ export const plannedScope = (
 		)
 		return { inForce, plans }
 	})
+
+/**
+ * The laws over `scope` held in the transaction `session` holds open (`plannedScope`, `lawsOver`): a problem one finds
+ * is the case's failure, with every problem the laws found.
+ */
+export const lawsHold = (
+	session: BenchSession,
+	scope: LawScope
+): Effect.Effect<void, SqlError | MalformedAdvice> =>
+	Effect.map(plannedScope(session, scope), (planned) =>
+		assert.deepEqual(lawsOver(scope, planned), [], `the plan laws hold over ${scope.label}`)
+	)
+
+/**
+ * A statement of a flight's `scope` run as every session grizzle opens runs it, the plan a budget over it reads: the laws
+ * held over its scope first (`lawsHold`), then, under the same advice, PREPAREd and run by EXPLAIN (ANALYZE, BUFFERS,
+ * TIMING OFF, SETTINGS, FORMAT JSON) EXECUTE at `params`, each a parameter's text, generic as every session plans it
+ * (bench/harness/explain.ts explainServerStatement), in the transaction `session` holds open. EXPLAIN ANALYZE runs the
+ * statement: a write writes.
+ */
+export const advisedRun = (
+	session: BenchSession,
+	scope: LawScope,
+	statement: ScopeStatement,
+	params: ReadonlyArray<string>
+): Effect.Effect<PlanNode, SqlError | MalformedAdvice | MalformedPlan> =>
+	Effect.andThen(
+		lawsHold(session, scope),
+		Effect.map(
+			explainServerStatement(session, statement.sql, params, "generic", {
+				serialize: { kind: "off" },
+				wal: false,
+				verbose: false
+			}),
+			(explained) => explained.plan
+		)
+	)
 
 /**
  * A pg_class state of a table a law reads, each reached as production reaches it (`standIn`):
@@ -1056,10 +1119,15 @@ export const replannedScope = (
 	)
 }
 
+/** The little-endian unsigned 16-bit word at byte `at` of a raw page read as hex (get_raw_page). */
+const pageWord = (hex: string, at: number): number =>
+	Number.parseInt(Str.slice(2 * at, 2 * at + 2)(hex), 16) +
+	Number.parseInt(Str.slice(2 * at + 2, 2 * at + 4)(hex), 16) * 256
+
 /**
- * The heights of the B-trees `indexes` names, each qualified and quoted: its levels from root to leaf, the pages one
- * descent reads (pageinspect bt_metap: the root's level, plus one). The read is the bootstrap superuser's: pageinspect
- * reads raw pages, which no other role may.
+ * The heights of the indexes `indexes` names, each qualified and quoted: its levels from root to leaf, the pages one
+ * descent reads, by its access method (`heightReaders`). Each read is the bootstrap superuser's: pageinspect reads raw
+ * pages, which no other role may. An index of another method has no height, and the budget refuses a scan of it.
  */
 export const heightsOf = (
 	read: (sql: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<string>>>,
@@ -1067,13 +1135,59 @@ export const heightsOf = (
 ): Effect.Effect<ReadonlyMap<string, number>> =>
 	Effect.map(
 		Effect.forEach(indexes, (index) =>
-			Effect.map(
-				read(`SELECT (level + 1)::text FROM bt_metap(${quoteString(index)})`),
-				(rows) => [index, Number(rows[0]?.[0])] as const
+			Effect.flatMap(
+				read(
+					`SELECT a.amname::text FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_am AS a ON a.oid = c.relam WHERE c.oid = ${quoteString(index)}::pg_catalog.regclass`
+				),
+				(rows) =>
+					Option.match(Rec.get(heightReaders, rows[0]?.[0] ?? ""), {
+						onNone: () => Effect.succeed(Arr.empty<readonly [string, number]>()),
+						onSome: (height) => Effect.map(height(read, index), (h) => [[index, h] as const])
+					})
 			)
 		),
-		(pairs) => new Map(pairs)
+		(pairs) => new Map(Arr.flatten(pairs))
 	)
+
+/**
+ * How an index's height is read, by its access method:
+ * - `btree`: its metapage's root level plus one (pageinspect's bt_metap, in the template's pageinspect_ext);
+ * - `gin`: its entry tree records no level (ginblock.h GinPageOpaqueData), so its height is the length of its leftmost
+ *   path, walked from its root (GIN_ROOT_BLKNO, block 1) down each internal page's first downlink (its first line
+ *   pointer's entry tuple, whose t_tid block is the child, GinGetDownlink) to a leaf (GIN_LEAF): a B-tree's every leaf
+ *   is at one depth.
+ */
+const heightReaders: Readonly<
+	Record<
+		string,
+		(
+			read: (sql: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<string>>>,
+			index: string
+		) => Effect.Effect<number>
+	>
+> = {
+	btree: (read, index) =>
+		Effect.map(
+			read(`SELECT (level + 1)::text FROM pageinspect_ext.bt_metap(${quoteString(index)})`),
+			(rows) => Number(rows[0]?.[0])
+		),
+	gin: (read, index) => {
+		const walk = (block: number, above: number): Effect.Effect<number> =>
+			Effect.flatMap(
+				read(
+					`SELECT pg_catalog.encode(pageinspect_ext.get_raw_page(${quoteString(index)}, ${block}), 'hex')`
+				),
+				(rows) => {
+					const hex = rows[0]?.[0] ?? ""
+					const flags = pageWord(hex, Str.length(hex) / 2 - 2)
+					const item = pageWord(hex, 24) & 0x7fff
+					const child = pageWord(hex, item) * 65_536 + pageWord(hex, item + 2)
+					return (flags & 0x02) === 0 ? walk(child, above + 1) : Effect.succeed(above + 1)
+				}
+			)
+		return walk(1, 0)
+	}
+}
 
 /** What a node read beyond its children: its own shared buffers. */
 const ownPages = (n: PlanNode): number =>
@@ -1100,7 +1214,8 @@ const pastBound = (n: PlanNode, bound: number, what: string): ReadonlyArray<stri
 /**
  * An index scan's budget: at most one descent an evaluation, unless its index condition binds an array (`= ANY`), each
  * of its index's height; then each row its index condition selected, its leaf entry and its heap tuple for an index
- * scan, its leaf entry for an index-only scan, beside its heap fetches and a visibility map page a descent.
+ * scan, its leaf entry for an index-only scan, beside its heap fetches and a visibility map page a descent, and a
+ * posting page a tuple id a bitmap index scan returns, whose heap its Bitmap Heap Scan reads.
  */
 const indexBudget =
 	(leafAndHeap: (n: PlanNode, rows: number, searches: number) => Option.Option<number>) =>
@@ -1153,7 +1268,16 @@ const scanBudgets: Readonly<Record<string, (facts: BudgetFacts) => ReadonlyArray
 			facts.node,
 			selectedRows(facts.node) + facts.node.actualLoops,
 			`${selectedRows(facts.node)} rows by their ids`
-		)
+		),
+	"Bitmap Index Scan": indexBudget((n) => Option.some(n.actualRows * n.actualLoops)),
+	"Bitmap Heap Scan": (facts) =>
+		Option.match(facts.node.heapBlocks, {
+			onNone: () => [" printed no Heap Blocks"],
+			onSome: ({ exact, lossy }) => [
+				...(lossy === 0 ? [] : [` held ${lossy} heap blocks lossily, its bitmap past work_mem`]),
+				...pastBound(facts.node, exact + lossy, `${exact + lossy} heap blocks`)
+			]
+		})
 }
 
 /**
