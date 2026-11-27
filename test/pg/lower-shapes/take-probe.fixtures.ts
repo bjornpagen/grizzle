@@ -11,14 +11,22 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
-import { fullWorldRole, heightsOf, servedRead, servedRun } from "#test/support/advice.ts"
+import {
+	fullWorldRole,
+	heightsOf,
+	type PgClassState,
+	pgClassStates,
+	type StateLoad,
+	servedRead,
+	servedRun,
+	standIn
+} from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import { fullWorldTemplate } from "#test/support/installed.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 import type { BudgetedCluster } from "#test/support/substrate/budget.ts"
-import { countedAsVacuumed } from "#test/support/substrate/fill.ts"
 import { superuserClient } from "#test/support/substrate/shared.ts"
 
 const i = pg.integer
@@ -118,7 +126,8 @@ export const takeProbeTemplate = fullWorldTemplate({
  * A case: the read's form and k; `parents` parents read, beside `others` no read reaches, each parent with `children`
  * children, more than k, so a probe that read a parent's every child would read more than its k. The parents number
  * more than a heap page holds children (a page of 8 kB holds about 185), so each child of a parent stands on a page of
- * its own, and a row read is a page read.
+ * its own, and a row read is a page read; and the pg_class state both tables stand in (test/support/advice.ts
+ * PgClassState).
  */
 export interface ProbeCase {
 	readonly form: Form
@@ -126,6 +135,7 @@ export interface ProbeCase {
 	readonly parents: number
 	readonly others: number
 	readonly children: number
+	readonly state: PgClassState
 }
 
 export const probeGen: Gen<ProbeCase> = (s) => {
@@ -135,26 +145,40 @@ export const probeGen: Gen<ProbeCase> = (s) => {
 		k,
 		parents: s.draw(int(1, 40)),
 		others: s.draw(int(300, 600)),
-		children: s.draw(int(k + 2, 24))
+		children: s.draw(int(k + 2, 24)),
+		state: s.draw(element<PgClassState>(pgClassStates))
 	}
 }
 
-export type ProbeFeature = Form | "k = 1" | "k = 3" | "one parent" | "several parents"
+export type ProbeFeature =
+	| Form
+	| "k = 1"
+	| "k = 3"
+	| "one parent"
+	| "several parents"
+	| `with every table ${PgClassState}`
 
 /**
- * The statements storing the case: every parent, the read ones first, and the children, every parent's first child,
- * then every parent's second, so no two children of a parent share a heap page; then each table counted as a VACUUM
- * counts it.
+ * The case's load (test/support/advice.ts StateLoad), a parent its unit: parents `from` to `to`, the read ones first,
+ * and their children, every parent's first child, then every parent's second, so no two children of a parent share a
+ * heap page.
  */
-const stored = (installed: Installed, c: ProbeCase): ReadonlyArray<string> => {
+const stored = (connection: PgConnection, installed: Installed, c: ProbeCase): StateLoad => {
 	const names = namesOf(installed)
-	const all = String(c.parents + c.others)
-	return [
-		`INSERT INTO ${names.table(Parent)} (id) SELECT p FROM generate_series(1, ${all}) AS g(p)`,
-		`INSERT INTO ${names.table(Child)} (parent, id, score) SELECT p, q, (pg_catalog.hashint4(p * 1000 + q) & 1023) ` +
-			`FROM generate_series(1, ${String(c.children)}) AS h(q), generate_series(1, ${all}) AS g(p) ORDER BY q, p`,
-		...Arr.map([Parent, Child], (t) => countedAsVacuumed(names.table(t)))
-	]
+	return {
+		tables: [names.table(Parent), names.table(Child)],
+		units: c.parents + c.others,
+		load: (from, to) =>
+			Effect.forEach(
+				[
+					`INSERT INTO ${names.table(Parent)} (id) SELECT p FROM generate_series(${from}, ${to}) AS g(p)`,
+					`INSERT INTO ${names.table(Child)} (parent, id, score) SELECT p, q, (pg_catalog.hashint4(p * 1000 + q) & 1023) ` +
+						`FROM generate_series(1, ${String(c.children)}) AS h(q), generate_series(${from}, ${to}) AS g(p) ORDER BY q, p`
+				],
+				(sql) => connection.query(sql, []),
+				{ discard: true }
+			)
+	}
 }
 
 /** What a scan read itself, beyond its children: its shared buffers, hit or read. */
@@ -164,7 +188,8 @@ const ownPages = (n: PlanNode): number =>
 	Arr.reduce(n.children, 0, (sum, c) => sum + c.buffers.sharedHit + c.buffers.sharedRead)
 
 /**
- * One case in its one transaction, which the case's end rolls back: the parents and their children stored, the read
+ * One case in its one transaction, which the case's end rolls back: the parents and their children stored, both tables
+ * stood in the case's pg_class state (test/support/advice.ts standIn), the read
  * run under its carried advice once the plan laws hold over it (test/support/advice.ts servedRun), and the pages its scans of the children read counted against n × (h + k + 1),
  * n the parents read, h the height of the index the probes descend (test/support/advice.ts heightsOf, read as it stands
  * on the case's clone by the cluster's bootstrap superuser, the one role pageinspect admits, its pages physical, so the
@@ -184,9 +209,7 @@ export const runTakeProbe = (
 ) =>
 	Effect.gen(function* () {
 		const connection = clone.connection
-		for (const sql of stored(installed, c)) {
-			yield* connection.query(sql, [])
-		}
+		yield* standIn({ values: connection.queryValues }, stored(connection, installed, c), c.state)
 		const read = yield* servedRead(
 			installed,
 			fullWorldRole(installed, Probes, []),
@@ -228,4 +251,5 @@ export const runTakeProbe = (
 		k.note(c.form)
 		k.note(c.k === 1 ? "k = 1" : "k = 3")
 		k.note(c.parents === 1 ? "one parent" : "several parents")
+		k.note(`with every table ${c.state}`)
 	})

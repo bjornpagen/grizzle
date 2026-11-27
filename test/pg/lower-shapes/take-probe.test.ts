@@ -16,13 +16,14 @@
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { property } from "@bjornpagen/testing/property"
-import { Effect } from "effect"
+import { Array as Arr, Effect } from "effect"
 import {
 	type ProbeFeature,
 	probeGen,
 	runTakeProbe,
 	takeProbeTemplate
 } from "#test/pg/lower-shapes/take-probe.fixtures.ts"
+import { pgClassStates } from "#test/support/advice.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -39,7 +40,8 @@ export const aTakeReadsEachParentByOneDescentAndItsKRows = property.explore(prob
 		"k = 1",
 		"k = 3",
 		"one parent",
-		"several parents"
+		"several parents",
+		...Arr.map(pgClassStates, (s) => `with every table ${s}` as const)
 	] satisfies ReadonlyArray<Reached<ProbeFeature>>,
 	check:
 		({ stored }, c) =>
