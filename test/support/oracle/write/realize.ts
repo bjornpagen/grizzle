@@ -167,7 +167,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 	const bound = new Map<ParamId, BoundCarrier>()
 	const boundRows: BoundCarrierOf = (param) => bound.get(param)
 	const w: StatementWriting<EmittedSql> = writeContext(ir.dag, {
-		binding: costChosen(),
+		binding: costChosen,
 		templates,
 		level: options.level,
 		names: options.names,
@@ -379,7 +379,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 					statement: Object.freeze({
 						role: "carrier" as const,
 						ast,
-						sql: emitText(ast, emptyNameMap, costChosen()),
+						sql: emitText(ast, emptyNameMap, costChosen),
 						params: [],
 						result: Object.freeze({ kind: "carrier" as const, carrier: carrier.name }),
 						needs: always

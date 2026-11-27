@@ -225,7 +225,7 @@ export const servableWrite = (compiled: CompiledWrite): ServableWrite => {
 		compiled.standUps.map((s): ServedStandUp =>
 			Object.freeze({
 				kind: "judged",
-				call: prepared(emitText(s.call, emptyNameMap, costChosen()).text)
+				call: prepared(emitText(s.call, emptyNameMap, costChosen).text)
 			})
 		)
 	)

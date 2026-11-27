@@ -116,7 +116,7 @@ const exclusionOf = <S extends ParamSource>(
 			exclusion: {
 				kind: "lock",
 				relations: mapNonEmpty(locked, (l) => l.relation),
-				text: prepared(emitText(lock, emptyNameMap, costChosen()).text)
+				text: prepared(emitText(lock, emptyNameMap, costChosen).text)
 			}
 		}
 	}

@@ -116,7 +116,7 @@ export const aDeliveryAtChunkBoundariesReadsBackEveryRowStoredInTheStatementsOrd
 								)
 								const owner = yield* s.session(ownerSession())
 								const values = yield* owner.values(
-									emitText(read, supply.map(), costChosen()).text,
+									emitText(read, supply.map(), costChosen).text,
 									[]
 								)
 								const answer = Arr.map(values, (row) => Arr.map(row, answered))

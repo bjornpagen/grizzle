@@ -117,7 +117,7 @@ export const conservativePageRuntime = (
 						optimized: template.programs.optimized,
 						stated,
 						names: artifacts.reads,
-						binding: costChosen()
+						binding: costChosen
 					},
 					runtime.page
 				)
@@ -271,7 +271,7 @@ const conservativeArtifact = (
 			}
 		}
 	}
-	return finish(b, write.carriers, write.cx, params, costChosen())
+	return finish(b, write.carriers, write.cx, params, costChosen)
 }
 
 /**

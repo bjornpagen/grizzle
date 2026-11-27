@@ -595,7 +595,7 @@ export const channelBreaks: Readonly<
 								present(aliasesOf(s.ast)[0], "an alias"),
 								"x_respelled"
 							)
-							return { ...s, ast, sql: emitText(ast, s.sql.nameMap, costChosen()) }
+							return { ...s, ast, sql: emitText(ast, s.sql.nameMap, costChosen) }
 						})
 					]
 				: []

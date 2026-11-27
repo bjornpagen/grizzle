@@ -428,7 +428,7 @@ const agreeOn = (
 					{ schema, name },
 					() => identity.domainCheck(named).identifier
 				)
-				const ddl = succeeded(emit(statement, emptyNameMap, costChosen())).text
+				const ddl = succeeded(emit(statement, emptyNameMap, costChosen)).text
 				yield* db.query(ddl, [])
 				domainType = `${quoteIdent(schema)}.${quoteIdent(name)}`
 				note("domain enforced")

@@ -786,7 +786,7 @@ const runDifferential = (
 				Engine.flatMap(admitGenerated(query), (q) => optimizedInput(q, checkerEvidence)),
 				(caseInput) =>
 					lowerOptimized(caseInput, {
-						binding: costChosen(),
+						binding: costChosen,
 						names,
 						catalog,
 						subject: { kind: "query" },
@@ -985,7 +985,7 @@ export const typedPlants = (
 				Engine.flatMap(admitGenerated(query), (q) => optimizedInput(q, checkerEvidence)),
 				(caseInput) =>
 					lowerOptimized(caseInput, {
-						binding: costChosen(),
+						binding: costChosen,
 						names,
 						catalog,
 						subject: { kind: "query" },

@@ -1780,11 +1780,11 @@ class Binder {
 				return []
 			}
 			const column = btreeColumn(table, r.key.column)
-			const ranges =
+			const ranging =
 				r.key.term === "column"
 					? column !== undefined && !equal.has(r.key.column)
 					: column?.kind === "text"
-			return ranges ? [{ conjunct: c, ...r }] : []
+			return ranging ? [{ conjunct: c, ...r }] : []
 		})
 		const ranged = ranges
 			.map((r) => r.key)
@@ -2352,9 +2352,9 @@ class Binder {
 }
 
 /** Whether a core is a set, as a UNION ALL's proof requires of each arm. */
-const isSetBodyCore = (core: SelectCore) =>
-	core.distinct !== false || core.rows !== "operand"
-		? core
+const isSetBodyCore = (body: SelectCore) =>
+	body.distinct !== false || body.rows !== "operand"
+		? body
 		: defect("a UNION ALL arm bound a set still, as its proof requires")
 
 /** A MERGE's WHENs, each mapped. */
@@ -2550,16 +2550,38 @@ const plannedOf = (
 	return out
 }
 
+/** A query after its logical rewrites (sql/print-once.ts printedOnce), a query still. */
+const selectOnce = (query: Select): Select => {
+	const once = printedOnce(query)
+	return once.kind === "select" ? once : defect("a query printed once a query still")
+}
+
+/**
+ * A statement no advice holds (sql/emit.ts Emitting `costChosen`), as its logical rewrites leave it: every name its
+ * builder wrote kept and none minted, so no name of it is one an advice scope mints, and its plan empty, PostgreSQL
+ * choosing its plan by cost.
+ */
+const costChosenOf = <S extends SqlStatement>(once: S): BoundStatement<S> =>
+	nominal<
+		{ readonly statement: S; readonly plan: ReadPlan<AccessIndexRequest> },
+		BoundStatement<S>
+	>()({ statement: once, plan: { levels: [] } })
+
+/** The statement `statement` no advice holds (`costChosenOf`), after its logical rewrites (sql/print-once.ts). */
+export const costChosenStatement = (statement: SqlStatement): BoundStatement =>
+	costChosenOf(printedOnce(statement))
+
+/** The query `query` no advice holds (`costChosenOf`), after its logical rewrites, a query still. */
+export const costChosenSelect = (query: Select): BoundStatement<Select> =>
+	costChosenOf(selectOnce(query))
+
 /** The query `query`, bound as a statement is (`bindStatement`), a query still. */
 export const bindSelect = (
 	query: Select,
 	scope: AdviceScope,
 	catalog: ReadCatalog
 ): BoundStatement<Select> => {
-	const once = printedOnce(query)
-	if (once.kind !== "select") {
-		return defect("a query printed once a query still")
-	}
+	const once = selectOnce(query)
 	const binder = new Binder(scope, catalog)
 	const bound = binder.selectOf(once)
 	return nominal<

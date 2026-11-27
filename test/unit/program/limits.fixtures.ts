@@ -110,12 +110,12 @@ export const limits: {
 	},
 	selectList: {
 		limit: selectMaxEntries,
-		compile: (count) => emit(selectOf(count), emptyNameMap, costChosen()),
+		compile: (count) => emit(selectOf(count), emptyNameMap, costChosen),
 		bound: (count) => ({ kind: "selectList", limit: selectMaxEntries, needed: count })
 	},
 	statementParams: {
 		limit: statementMaxParams,
-		compile: (count) => emit(placeholders(count), emptyNameMap, costChosen()),
+		compile: (count) => emit(placeholders(count), emptyNameMap, costChosen),
 		bound: (count) => ({ kind: "statementParams", limit: statementMaxParams, needed: count })
 	}
 }

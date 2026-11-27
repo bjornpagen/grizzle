@@ -71,7 +71,7 @@ export const names = productionNames(
 export const optimize = (q: LogicalQuery): OptimizedProgram =>
 	succeeded(
 		lowerAligned(q, "query", {
-			binding: costChosen(),
+			binding: costChosen,
 			names,
 			context: "snapshot",
 			catalog: graphCatalog

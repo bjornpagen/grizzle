@@ -15,37 +15,32 @@ import {
 	bindSelect,
 	bindStatement,
 	type BoundStatement,
+	costChosenSelect,
+	costChosenStatement,
 	type ReadCatalog
 } from "#compiler/sql/bind.ts"
 import type { CatalogStatement } from "#compiler/sql/catalog.ts"
-import { AdviceScope, type NameMap } from "#compiler/sql/naming.ts"
+import type { AdviceScope, NameMap } from "#compiler/sql/naming.ts"
 import { printCatalogStatement, printCommands, printStatement } from "#compiler/sql/print.ts"
 
 const emitted = nominal<string, EmittedText>()
 
 /**
- * What a statement is bound under where it is emitted (sql/bind.ts): the advice scope of the transaction that sends it,
- * which mints every alias of every statement the transaction may send, and the catalog of the installation it reads.
+ * What a statement is emitted under: `advised`, bound (sql/bind.ts) under the advice scope of the transaction that
+ * sends it, which mints every alias of every statement the transaction may send, over the catalog of the installation
+ * it reads; or `costChosen`, held by no advice, PostgreSQL choosing its plan by cost, bound by nothing: every name its
+ * builder wrote kept and none minted, so it names nothing an advice scope mints, whichever transaction sends it, and its
+ * plan empty (sql/bind.ts costChosenStatement). A transaction's control, a lock, a call, a guard's bracket, a row of the
+ * deploy ledger or of the drift check's proofs, each named by its table's own name, a read of PostgreSQL's system
+ * catalogs, a refused commit's witness (write/unmatched.ts) and an oracle's baseline, which no installation serves, are
+ * cost-chosen.
  */
-export interface Emitting {
-	readonly scope: AdviceScope
-	readonly catalog: ReadCatalog
-}
+export type Emitting =
+	| { readonly kind: "advised"; readonly scope: AdviceScope; readonly catalog: ReadCatalog }
+	| { readonly kind: "costChosen" }
 
-/** The catalog of no installation: a statement that reads no stored relation reads nothing of one. */
-const noCatalog: ReadCatalog = {
-	table: () => undefined,
-	view: () => undefined,
-	fired: () => undefined
-}
-
-/**
- * The binding of a statement no advice holds, PostgreSQL choosing its plan by cost, each read of it whole: a
- * transaction's control, a lock, a call, a guard's bracket, a row of the deploy ledger, a refused commit's witness
- * (write/unmatched.ts), and an oracle's baseline, which no installation serves. Each is its own transaction's scope, as
- * it is sent by itself.
- */
-export const costChosen = (): Emitting => ({ scope: new AdviceScope(), catalog: noCatalog })
+/** The emitting of a statement no advice holds (Emitting `costChosen`). */
+export const costChosen: Emitting = { kind: "costChosen" }
 
 /**
  * Emission: bind and print.
@@ -67,7 +62,13 @@ export const emitText = (
 	nameMap: NameMap,
 	binding: Emitting
 ): EmittedSql =>
-	printedOf(bindStatement(statement, binding.scope, binding.catalog, "keyed"), nameMap, statement)
+	printedOf(
+		binding.kind === "advised"
+			? bindStatement(statement, binding.scope, binding.catalog, "keyed")
+			: costChosenStatement(statement),
+		nameMap,
+		statement
+	)
 
 /** A bound statement's text, the plan it was bound with, its generated-name map, and the statement it was bound from. */
 const printedOf = (bound: BoundStatement, nameMap: NameMap, source: SqlStatement): EmittedSql => ({
@@ -86,7 +87,10 @@ export const emitSelect = (
 	nameMap: NameMap,
 	binding: Emitting
 ): { readonly ast: Select; readonly sql: EmittedSql } => {
-	const bound = bindSelect(query, binding.scope, binding.catalog)
+	const bound =
+		binding.kind === "advised"
+			? bindSelect(query, binding.scope, binding.catalog)
+			: costChosenSelect(query)
 	return { ast: bound.statement, sql: printedOf(bound, nameMap, query) }
 }
 

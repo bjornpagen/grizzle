@@ -115,7 +115,7 @@ const printedStatement = (
 	supply: NameSupply
 ): { readonly ast: Select; readonly sql: EmittedSql } => {
 	const ast = deliveredStatement(query, names, supply)
-	return { ast, sql: unwrap(emit(ast, supply.map(), costChosen())) }
+	return { ast, sql: unwrap(emit(ast, supply.map(), costChosen)) }
 }
 
 const sameOrder = (a: CompletedOrder, b: CompletedOrder): boolean =>

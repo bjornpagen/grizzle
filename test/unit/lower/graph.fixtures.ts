@@ -504,7 +504,7 @@ export const generatedQuery = (c: RecursiveCase): LogicalQuery => ({
 /** The optimized program of a generated case, aligned with its conservative program. */
 export const optimizedOf = (c: RecursiveCase): OptimizedProgram => {
 	const r = lowerAligned(generatedQuery(c), "query", {
-		binding: costChosen(),
+		binding: costChosen,
 		names: caseNames(c.schema),
 		context: "snapshot",
 		catalog: genCatalog(c.schema)

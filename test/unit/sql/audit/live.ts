@@ -306,7 +306,7 @@ const lowered = (c: QueryCase, context: TemplateContext): Lowered => {
 	sent(conservativeStatement(conservative.value).statement)
 	const optimized = Result.flatMap(admitGenerated(query), (q) =>
 		lowerOptimized(succeeded(annotatedInput(q, queryEvidence)), {
-			binding: costChosen(),
+			binding: costChosen,
 			names,
 			catalog: evidenceCatalog(artifacts.value),
 			subject: { kind: "query" },
@@ -320,7 +320,7 @@ const lowered = (c: QueryCase, context: TemplateContext): Lowered => {
 	sent(program.statement)
 	if (program.parts.kind === "one") {
 		const part = program.parts.delivered
-		sent({ ...part, sql: emitText(part.ast, part.sql.nameMap, costChosen()) })
+		sent({ ...part, sql: emitText(part.ast, part.sql.nameMap, costChosen) })
 	}
 	return out
 }

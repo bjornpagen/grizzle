@@ -286,7 +286,7 @@ export const partedConservative = <Slot extends ConservativeParamSlot>(
 		return {
 			statement: {
 				ast,
-				sql: emitText(ast, only.sql.nameMap, costChosen()),
+				sql: emitText(ast, only.sql.nameMap, costChosen),
 				params: only.params
 			},
 			parts: { kind: "one", delivered },
@@ -326,7 +326,7 @@ export const partedConservative = <Slot extends ConservativeParamSlot>(
 	return {
 		statement: {
 			ast,
-			sql: emitText(ast, [...names, ...supply.map()], costChosen()),
+			sql: emitText(ast, [...names, ...supply.map()], costChosen),
 			params
 		},
 		parts: { kind: "tagged", parts: mapNonEmpty(tagged, (p) => p.shape) },

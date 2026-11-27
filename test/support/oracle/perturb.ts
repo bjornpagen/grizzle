@@ -304,7 +304,7 @@ const plannerSelect = (p: Perturbation): EmittedText => {
 			undefined
 		),
 		emptyNameMap,
-		costChosen()
+		costChosen
 	)
 	if (!emitted.ok) {
 		throw emitted.error

@@ -198,7 +198,7 @@ export const compiledPageResult = (
 		const desc = parsed.desc
 		const stated = yield* toResult(statedOrderOf(desc, SourceLoc("query", [])))
 		const input = {
-			binding: costChosen(),
+			binding: costChosen,
 			checked: template.programs.checked,
 			stated,
 			optimized: template.programs.optimized,

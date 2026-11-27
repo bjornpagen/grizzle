@@ -65,7 +65,7 @@ export const programJudged = (
 	if (parts.kind === "one") {
 		const part = parts.delivered
 		return [
-			{ where, statement: { ...part, sql: emitText(part.ast, part.sql.nameMap, costChosen()) } }
+			{ where, statement: { ...part, sql: emitText(part.ast, part.sql.nameMap, costChosen) } }
 		]
 	}
 	const relations = flight(program.roots)

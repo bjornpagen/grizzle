@@ -70,7 +70,7 @@ export const aRefinedOutputTheDeliveryCastsIsOrderedByItsCastTheExpressionTheOut
 					)
 					const program = succeeded(
 						lowerAligned(checked, "query", {
-							binding: costChosen(),
+							binding: costChosen,
 							names: installation.names,
 							context: "snapshot",
 							catalog

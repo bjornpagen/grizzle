@@ -104,7 +104,7 @@ const updateOf = (table: OracleTable, row: DirectRow): SqlStatement => {
 }
 
 const emitted = (statement: SqlStatement): string => {
-	const text = emit(statement, emptyNameMap, costChosen())
+	const text = emit(statement, emptyNameMap, costChosen)
 	if (!text.ok) {
 		throw new Error(`the direct writer's statement does not emit: ${text.error.message}`)
 	}

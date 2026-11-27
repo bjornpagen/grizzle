@@ -118,7 +118,7 @@ const readOf = (schema: string, name: string, chunkLength: number): string => {
 		supply,
 		chunkLength
 	)
-	return emitText(read, supply.map(), costChosen()).text
+	return emitText(read, supply.map(), costChosen).text
 }
 
 const columns = deliveryOfColumns([textColumn, { kind: "bytes" }])

@@ -76,7 +76,7 @@ export const theScalarTypesOfLoweredStatementsAreTheRegistrysEveryPlainOrWildcar
 					const admission = admitGenerated(query)
 					const optimized = admission.ok
 						? lowerOptimized(succeeded(annotatedInput(admission.value, queryEvidence)), {
-								binding: costChosen(),
+								binding: costChosen,
 								names,
 								context: "snapshot",
 								catalog,

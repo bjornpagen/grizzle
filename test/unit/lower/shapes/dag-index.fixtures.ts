@@ -102,12 +102,9 @@ export const lowered = (
 		state.evaluationHolding,
 		dispatching.carrying
 	)
-	new OptimizedDelivery<never, EmittedSql>(
-		cx,
-		facts,
-		state,
-		sentText(costChosen())
-	).optimizedProgram(query.dag.roots[0])
+	new OptimizedDelivery<never, EmittedSql>(cx, facts, state, sentText(costChosen)).optimizedProgram(
+		query.dag.roots[0]
+	)
 	return {
 		visits: cx.indexVisits,
 		regions: Arr.filter(topoOrder(query.dag), (n) => n.kind === "MatchRegion").length

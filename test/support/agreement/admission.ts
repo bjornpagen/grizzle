@@ -474,7 +474,7 @@ const paged = (q: unknown, template: QueryTemplate): Result.Result<unknown, Comp
 		Result.flatMap(queryInput(q), (input) =>
 			Result.flatMap(statedOrderOf(input.desc, SourceLoc("query", [])), (stated) =>
 				compilePage({
-					binding: costChosen(),
+					binding: costChosen,
 					checked: template.programs.checked,
 					stated,
 					optimized: template.programs.optimized,

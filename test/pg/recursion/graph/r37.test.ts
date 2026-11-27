@@ -94,7 +94,7 @@ export const r37ARecursiveAttachmentSeededOnceFromTheParentKeysReadsOnlyTheEdges
 								Effect.gen(function* () {
 									const names = plan.installation.names
 									const optimized = lowerAligned(logicalOf(c), "query", {
-										binding: costChosen(),
+										binding: costChosen,
 										names,
 										context: "snapshot",
 										catalog: installedCatalog(plan.installation)

@@ -190,7 +190,7 @@ const optimizedOf = (
 		Engine.flatMap(admitGenerated(query), (q) => optimizedInput(q, checkerEvidence)),
 		(input) =>
 			lowerOptimized(input, {
-				binding: costChosen(),
+				binding: costChosen,
 				names,
 				catalog,
 				subject: { kind: "query" },
@@ -245,7 +245,7 @@ export const judgeCase = (c: QueryCase, note: (feature: KeySetFeature) => void):
 		return
 	}
 	const page = compilePage({
-		binding: costChosen(),
+		binding: costChosen,
 		checked: ordered,
 		optimized: orderedProgram.value,
 		names,

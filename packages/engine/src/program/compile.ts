@@ -193,6 +193,7 @@ const pageSubject = (
  * through a role's view a view.
  */
 export const readBinding = (artifacts: Pick<SchemaArtifacts, "laws" | "names">): Emitting => ({
+	kind: "advised",
 	scope: new AdviceScope(),
 	catalog: servedCatalog(artifacts.laws, artifacts.names)
 })

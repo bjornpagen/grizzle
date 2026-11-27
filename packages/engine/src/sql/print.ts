@@ -237,6 +237,16 @@ const printDatabase = (): string => `:${quoteIdent(databaseVariable)}`
 export const printObjectName = (name: ObjectName): string =>
 	`${quoteIdent(name.schema)}.${quoteIdent(name.name)}`
 
+/**
+ * A stored relation a statement reads or writes under `alias`: `<schema>.<name> AS <alias>`, the alias left out where
+ * it is the relation's own name, the name PostgreSQL reads an unaliased relation by: a cost-chosen statement's
+ * relation named by its own name (sql/emit.ts Emitting `costChosen`).
+ */
+const aliasedTable = (table: ObjectName, alias: string): string =>
+	alias === table.name
+		? printObjectName(table)
+		: `${printObjectName(table)} AS ${quoteIdent(alias)}`
+
 /** Each isolation level as BEGIN ISOLATION LEVEL spells it. */
 const isolationLevels: { readonly [I in Isolation]: string } = {
 	serializable: "SERIALIZABLE",
@@ -1138,7 +1148,7 @@ const printFromItem = (item: FromItem): string => {
 	switch (item.kind) {
 		case "table":
 		case "read":
-			return `${printObjectName(item.table)} AS ${quoteIdent(item.alias)}`
+			return aliasedTable(item.table, item.alias)
 		case "probe":
 			return printDriven(
 				item.table,
@@ -1286,7 +1296,7 @@ const printDriven = (
 ): string => {
 	const read = columns.map((c) => `${quoteIdent(inner)}.${quoteIdent(c.read)}`).join(", ")
 	const where = conjunction(conditions)
-	return `LATERAL (SELECT ${read} FROM ${printObjectName(table)} AS ${quoteIdent(inner)} ${where === undefined ? "" : `WHERE ${printExpr(where)} `}${tail}) AS ${quoteIdent(alias)}(${printIdentList(mapNonEmpty(columns, (c) => c.as))})`
+	return `LATERAL (SELECT ${read} FROM ${aliasedTable(table, inner)} ${where === undefined ? "" : `WHERE ${printExpr(where)} `}${tail}) AS ${quoteIdent(alias)}(${printIdentList(mapNonEmpty(columns, (c) => c.as))})`
 }
 
 const printFrom = (items: ReadonlyArray<FromItem>): string => items.map(printFromItem).join(", ")
@@ -1688,9 +1698,12 @@ const conflictLines = (out: Lines, conflict: OnConflict): void => {
 }
 
 const insertBlock = (out: Lines, insert: Insert): void => {
-	const alias = insert.alias === undefined ? "" : ` AS ${quoteIdent(insert.alias)}`
+	const target =
+		insert.alias === undefined
+			? printObjectName(insert.table)
+			: aliasedTable(insert.table, insert.alias)
 	const columns = isNonEmpty(insert.columns) ? ` (${printIdentList(insert.columns)})` : ""
-	out.line(`INSERT INTO ${printObjectName(insert.table)}${alias}${columns}`)
+	out.line(`INSERT INTO ${target}${columns}`)
 	out.line(
 		insert.source.kind === "query"
 			? printSelectInline(insert.source.query, "placed")
@@ -1703,7 +1716,7 @@ const insertBlock = (out: Lines, insert: Insert): void => {
 }
 
 const updateBlock = (out: Lines, update: Update): void => {
-	out.line(`UPDATE ${printObjectName(update.table)} AS ${quoteIdent(update.alias)}`)
+	out.line(`UPDATE ${aliasedTable(update.table, update.alias)}`)
 	out.line(`SET ${printAssignments(update.set)}`)
 	if (update.from.length > 0) {
 		out.line(`FROM ${printFrom(update.from)}`)
@@ -1716,7 +1729,7 @@ const updateBlock = (out: Lines, update: Update): void => {
 }
 
 const deleteBlock = (out: Lines, del: Delete): void => {
-	out.line(`DELETE FROM ${printObjectName(del.table)} AS ${quoteIdent(del.alias)}`)
+	out.line(`DELETE FROM ${aliasedTable(del.table, del.alias)}`)
 	if (del.using.length > 0) {
 		out.line(`USING ${printFrom(del.using)}`)
 	}
@@ -1751,7 +1764,7 @@ const mergeWhenLine = (when: MergeWhen): string => {
 }
 
 const mergeBlock = (out: Lines, merge: Merge): void => {
-	out.line(`MERGE INTO ${printObjectName(merge.table)} AS ${quoteIdent(merge.alias)}`)
+	out.line(`MERGE INTO ${aliasedTable(merge.table, merge.alias)}`)
 	if (levelWhere([merge.using], undefined) !== undefined) {
 		defect(
 			"a MERGE's source bound by a seek of its own: the binding pass puts a bound source in a derived table, since an ON condition of the source alone makes its row not matched rather than unread"

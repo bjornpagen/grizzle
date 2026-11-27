@@ -180,7 +180,7 @@ export const servedPage = (page: PageTemplate, codes: Codebook, advice: Advice):
 
 /** A write's BEGIN at `isolation`. */
 const beginWrite = (isolation: Isolation): EmittedText =>
-	emitText({ kind: "beginWrite", isolation }, emptyNameMap, costChosen()).text
+	emitText({ kind: "beginWrite", isolation }, emptyNameMap, costChosen).text
 
 const pgSettings = C.from("pg_settings", "s")
 
@@ -227,11 +227,11 @@ export const servedSession: ServedSession = {
 	startup: loginStartupOptions,
 	ownerStartup: ownerStartupOptions,
 	begin: {
-		read: emitText({ kind: "beginRead" }, emptyNameMap, costChosen()).text,
+		read: emitText({ kind: "beginRead" }, emptyNameMap, costChosen).text,
 		write: { serializable: beginWrite("serializable"), readCommitted: beginWrite("readCommitted") }
 	},
-	commit: emitText({ kind: "commit" }, emptyNameMap, costChosen()).text,
-	rollback: emitText({ kind: "rollback" }, emptyNameMap, costChosen()).text,
+	commit: emitText({ kind: "commit" }, emptyNameMap, costChosen).text,
+	rollback: emitText({ kind: "rollback" }, emptyNameMap, costChosen).text,
 	reapWindow: reapWindowRead
 }
 

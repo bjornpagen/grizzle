@@ -124,7 +124,7 @@ const frameOf = (name: FrameName, prologue: Prologue): Frame => {
 export const fenceSql = (schema: string, grantee: string): ReadonlyArray<PgStatement> => {
 	const [guard, revoke] = snapshotGuardDdl(schema)
 	const text = (statement: SqlStatement): string => {
-		const e = emit(statement, emptyNameMap, costChosen())
+		const e = emit(statement, emptyNameMap, costChosen)
 		if (!e.ok) {
 			throw new Error(`the fence's DDL: ${e.error.message}`)
 		}

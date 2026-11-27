@@ -617,6 +617,7 @@ Applied files, which only `migrate` can check against the ledger:
 | --- | --- |
 | connect | check the configuration's connection: its host, port, database, role, password and CA |
 | stack | have a superuser raise the server's max_stack_depth to at least 2MB, its default |
+| advice | have a superuser load pg_plan_advice for the database (ALTER DATABASE <database> SET session_preload_libraries = 'pg_plan_advice') or the server (shared_preload_libraries = 'pg_plan_advice', a restart), with no role setting its own session_preload_libraries, then run grizzle migrate again |
 | wal | have a superuser set the server's wal_level to replica, its default, or logical, and restart it |
 | owner | connect as the role that owns the schema |
 | input | run grizzle check and fix what it reports |

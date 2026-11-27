@@ -168,7 +168,7 @@ export const optimizedAt = (note: Note, which: 0 | 1): Lowering => ({
 		const dag = rooted([root, ...Arr.filter(c.query.dag.roots, (r) => r !== root)])
 		return Result.map(
 			lowerAligned({ dag, params: genParamDecls(c.query) }, "query", {
-				binding: costChosen(),
+				binding: costChosen,
 				names,
 				context: "snapshot",
 				catalog: genCatalog(c.schema)

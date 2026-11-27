@@ -258,7 +258,7 @@ export const domainBytes = (check: RegexCheck): number =>
 					() => identity.domainCheck(formDomain).identifier
 				),
 				emptyNameMap,
-				costChosen()
+				costChosen
 			),
 			"a text domain prints"
 		).text

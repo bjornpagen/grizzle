@@ -85,7 +85,7 @@ export const thePageCompilerAndThePageRuntimeTemplateCompileEveryGeneratedOrdere
 				const admission = admitGenerated(query)
 				const optimized = admission.ok
 					? lowerOptimized(succeeded(annotatedInput(admission.value, queryEvidence)), {
-							binding: costChosen(),
+							binding: costChosen,
 							names,
 							context: "snapshot",
 							catalog,
@@ -103,7 +103,7 @@ export const thePageCompilerAndThePageRuntimeTemplateCompileEveryGeneratedOrdere
 					catalog
 				})
 				const pageInput = {
-					binding: costChosen(),
+					binding: costChosen,
 					checked: query,
 					optimized: optimized.value,
 					names,

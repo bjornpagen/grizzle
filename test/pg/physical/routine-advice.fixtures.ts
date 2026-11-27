@@ -76,7 +76,7 @@ const cells = (connection: PgConnection, sql: string, params: ReadonlyArray<unkn
  */
 export const runRoutine = (connection: PgConnection, x: RoutineCase) =>
 	Effect.gen(function* () {
-		const created = emit(routineOf(x.own), emptyNameMap, costChosen())
+		const created = emit(routineOf(x.own), emptyNameMap, costChosen)
 		if (!created.ok) {
 			return yield* Effect.die(created.error)
 		}
@@ -133,7 +133,7 @@ const declaredOf: CreateDeclaredFunction = {
  */
 export const runDeclared = (connection: PgConnection, x: DeclaredCase) =>
 	Effect.gen(function* () {
-		const created = emit(declaredOf, emptyNameMap, costChosen())
+		const created = emit(declaredOf, emptyNameMap, costChosen)
 		if (!created.ok) {
 			return yield* Effect.die(created.error)
 		}

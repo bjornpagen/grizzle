@@ -1450,7 +1450,7 @@ export const generatedProperty = (
 			const admission = admitGenerated(query)
 			const optimized = admission.ok
 				? lowerOptimized(succeeded(annotatedInput(admission.value, queryEvidence)), {
-						binding: costChosen(),
+						binding: costChosen,
 						names,
 						context: "snapshot",
 						catalog,
@@ -1476,7 +1476,7 @@ export const generatedProperty = (
 			/** The generated order is stated at a location of its own, which a refusal to complete it names. */
 			const statedAt = SourceLoc("generated orderBy", [])
 			const pageInput = {
-				binding: costChosen(),
+				binding: costChosen,
 				checked: query,
 				optimized: optimized.value,
 				names,

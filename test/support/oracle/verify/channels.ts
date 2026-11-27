@@ -488,7 +488,7 @@ export const channelProblems = (
 	appendAll(out, partProblems(program, label))
 	if (program.parts.kind === "one") {
 		const part = program.parts.delivered
-		const delivered = { ...part, sql: emitText(part.ast, part.sql.nameMap, costChosen()) }
+		const delivered = { ...part, sql: emitText(part.ast, part.sql.nameMap, costChosen) }
 		const where = `${label} part 0`
 		appendAll(out, statementSql(delivered, auditStatementDetailed(delivered.ast), where))
 		appendAll(out, resultProblems(delivered, where))

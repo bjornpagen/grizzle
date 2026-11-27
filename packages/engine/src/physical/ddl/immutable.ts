@@ -82,8 +82,8 @@ export const guardBracketTexts = (
 ): { readonly before: EmittedText; readonly after: EmittedText } => {
 	const { unguard, reguard } = guardBracket(scope)
 	return {
-		before: emitText(unguard, emptyNameMap, costChosen()).text,
-		after: emitText(reguard, emptyNameMap, costChosen()).text
+		before: emitText(unguard, emptyNameMap, costChosen).text,
+		after: emitText(reguard, emptyNameMap, costChosen).text
 	}
 }
 
@@ -112,9 +112,9 @@ export const dataStepBracket = (
 		after: [
 			...(isNonEmpty(rechecks)
 				? [
-						emitText({ kind: "setConstraintsImmediate" }, emptyNameMap, costChosen()).text,
+						emitText({ kind: "setConstraintsImmediate" }, emptyNameMap, costChosen).text,
 						...rechecks.map(
-							(recheck) => emitText(calledAlone(recheck), emptyNameMap, costChosen()).text
+							(recheck) => emitText(calledAlone(recheck), emptyNameMap, costChosen).text
 						)
 					]
 				: []),
@@ -129,7 +129,7 @@ export const dataStepBracket = (
  * transaction, alone before them, each committing its session's tables for every statement after.
  */
 export const standUpCalls = (standUps: ReadonlyArray<ObjectName>): ReadonlyArray<EmittedText> =>
-	standUps.map((standUp) => emitText(calledAlone(standUp), emptyNameMap, costChosen()).text)
+	standUps.map((standUp) => emitText(calledAlone(standUp), emptyNameMap, costChosen).text)
 
 /** The fields of `relation` its guard holds fixed: every field its rows never change in place, but a generated one. */
 const fixedFields = (relation: RelationInfo): ReadonlyArray<string> =>

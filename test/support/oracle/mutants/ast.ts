@@ -479,7 +479,7 @@ export const rewriteProgram = (
 		if (ast === statement.ast) {
 			return Result.ok(statement)
 		}
-		return Result.map(emit(ast, statement.sql.nameMap, costChosen()), (sql) => ({
+		return Result.map(emit(ast, statement.sql.nameMap, costChosen), (sql) => ({
 			...statement,
 			ast,
 			sql

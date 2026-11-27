@@ -384,7 +384,7 @@ export const optimizedLoweringWith = (note: Note, context: TemplateContext): Low
 	lower: ({ case: c, names }) =>
 		Result.map(
 			lowerAligned(logicalOf(c), "query", {
-				binding: costChosen(),
+				binding: costChosen,
 				names,
 				context,
 				catalog: genCatalog(c.schema)

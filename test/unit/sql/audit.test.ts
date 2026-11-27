@@ -37,8 +37,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { bindStatement } from "#compiler/sql/bind.ts"
-import { costChosen } from "#compiler/sql/emit.ts"
+import { costChosenStatement } from "#compiler/sql/bind.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { scopeEscapes } from "#compiler/sql/scope.ts"
 import {
@@ -117,11 +116,10 @@ export const everyLiveStatementPassesBothAuditsPrintsAsItsTwinDoesSurvivesTheSna
 				}
 				c.noteAll(auditLiveFeatures(live))
 				for (const { ast, text } of live.emitted) {
-					const binding = costChosen()
 					assert.equal(
 						text,
-						printStatement(bindStatement(ast, binding.scope, binding.catalog, "keyed").statement),
-						"the emitted text is its AST's print as bound"
+						printStatement(costChosenStatement(ast).statement),
+						"the emitted text is its AST's print as its logical rewrites leave it"
 					)
 				}
 				const [first, ...runs] = live.again()

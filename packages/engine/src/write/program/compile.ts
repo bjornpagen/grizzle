@@ -2029,6 +2029,7 @@ const compileAt = (
 	 * all of them, its statements', its read-backs' and its stand-ups', and the catalog of the installation it writes.
 	 */
 	const binding: Emitting = {
+		kind: "advised",
 		scope: new AdviceScope(),
 		catalog: servedCatalog(options.laws, options.names)
 	}

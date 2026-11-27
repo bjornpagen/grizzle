@@ -3406,7 +3406,7 @@ const pageOf = (spec: QuerySpec): PageVerdict => {
 				Result.flatMap(queryInput(ordered), (input) =>
 					Result.flatMap(statedOrderOf(input.desc, SourceLoc("query", [])), (stated) =>
 						compilePage({
-							binding: costChosen(),
+							binding: costChosen,
 							checked: template.programs.checked,
 							stated,
 							optimized: template.programs.optimized,

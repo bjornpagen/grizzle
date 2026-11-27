@@ -8,7 +8,7 @@ import { Array as Arr, Order, String as Str } from "effect"
 import { decode, encode, everyProperty, noRevivers } from "#compiler/core/canonical.ts"
 import { writeJsonText } from "#compiler/deploy/snapshot/build.ts"
 import type { CteBody, Expr, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
-import { bindStatement } from "#compiler/sql/bind.ts"
+import { costChosenStatement } from "#compiler/sql/bind.ts"
 import { builtinType } from "#compiler/sql/build.ts"
 import { emit, costChosen } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
@@ -154,15 +154,11 @@ export const universal = (t: Twinned): void => {
 		"the snapshot stores the statement as itself and reads it back as itself"
 	)
 	if (s.kind !== "createFunction") {
-		const emitted = succeeded(
-			emit(s, emptyNameMap, costChosen()),
-			"emit emits an admitted statement"
-		)
-		const binding = costChosen()
+		const emitted = succeeded(emit(s, emptyNameMap, costChosen), "emit emits an admitted statement")
 		assert.equal<string>(
 			emitted.text,
-			printStatement(bindStatement(s, binding.scope, binding.catalog, "keyed").statement),
-			"emit prints the statement as it binds it, two bindings of it under fresh scopes alike"
+			printStatement(costChosenStatement(s).statement),
+			"emit prints a cost-chosen statement as its logical rewrites leave it, every name its builder's"
 		)
 	}
 	const order: ReadonlyArray<TypeRef> = auditStatementDetailed(s).params

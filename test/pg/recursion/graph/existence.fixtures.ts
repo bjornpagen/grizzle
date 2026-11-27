@@ -161,7 +161,7 @@ const Existing = query(Network).recursive("Existing", {
 
 /** A case's optimized lowering in `context`, under `names` and the network's deferred catalog. */
 const optimized = (c: QueryCase, names: PhysicalNames, context: TemplateContext) =>
-	lowerAligned(logicalOf(c), "query", { binding: costChosen(), names, context, catalog })
+	lowerAligned(logicalOf(c), "query", { binding: costChosen, names, context, catalog })
 
 export const optimizedIn = (context: TemplateContext): Lowering => ({
 	name: `optimized (${context})`,

@@ -129,7 +129,7 @@ export const aConjunctionOfPatternsECMAScriptHostProductDFAAndPostgreSQLsCHECKAg
 							{ schema, name: named.identifier },
 							() => identity.domainCheck(named).identifier
 						)
-						yield* db.query(succeeded(emit(ddl, emptyNameMap, costChosen())).text, [])
+						yield* db.query(succeeded(emit(ddl, emptyNameMap, costChosen)).text, [])
 					}
 					const all = ["", ...texts]
 					const rows = yield* db.values(

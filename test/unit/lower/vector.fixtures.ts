@@ -87,7 +87,7 @@ export const lowered = (
 	purpose: "query" | "derivedDefinition"
 ): Result.Result<OptimizedProgram, CompileError> =>
 	lowerAligned(q, purpose, {
-		binding: costChosen(),
+		binding: costChosen,
 		names: installation.names,
 		context: "snapshot",
 		catalog

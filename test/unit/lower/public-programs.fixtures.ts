@@ -80,7 +80,7 @@ export const lowered = (schemaValue: FixtureSchema, read: unknown): Lowered => {
 	const rewritten = optimizing.query
 	const catalog = evidenceCatalog(artifacts)
 	const optimized = lowerOptimized(optimizing, {
-		binding: costChosen(),
+		binding: costChosen,
 		names: artifacts.names,
 		subject: { kind: "query" },
 		catalog,

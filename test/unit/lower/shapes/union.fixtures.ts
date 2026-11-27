@@ -92,7 +92,7 @@ export const optimized = (built: LogicalQuery): number => {
 				cx,
 				facts,
 				state,
-				sentText(costChosen())
+				sentText(costChosen)
 			).optimizedProgram(built.dag.roots[0]).roots
 		),
 		0,

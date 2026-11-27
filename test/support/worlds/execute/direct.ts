@@ -113,7 +113,7 @@ export interface DirectSql {
 const none: Reads = { kind: "none" }
 
 const emitted = (ast: SqlStatement): Effect.Effect<string> => {
-	const text = emit(ast, emptyNameMap, costChosen())
+	const text = emit(ast, emptyNameMap, costChosen)
 	return text.ok
 		? Effect.succeed(text.value.text)
 		: Effect.die(new Error(`a direct statement does not emit: ${text.error.message}`))

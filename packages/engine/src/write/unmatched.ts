@@ -179,6 +179,6 @@ export const unmatchedQueryOf = (
 		constraint,
 		owner: key.relation.ident,
 		relation: key.relation.name,
-		sql: emitText(query, emptyNameMap, costChosen()).text
+		sql: emitText(query, emptyNameMap, costChosen).text
 	}
 }

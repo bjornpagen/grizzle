@@ -336,7 +336,7 @@ const rankLiteral =
 const borrowSql = (race: BorrowRace, call: BorrowCall, installedSchema: string): string => {
 	const supply = new NameSupply(ownStatement)
 	const ast = borrowQuery(installedSchema, Arr.map(call.borrows, armOf), rankLiteral(race), supply)
-	return emitText(ast, supply.map(), costChosen()).text
+	return emitText(ast, supply.map(), costChosen).text
 }
 
 /** One statement reading every borrow's lock id (write/borrow/lock.ts lockId), in the race's calls' borrows' order. */
@@ -353,7 +353,7 @@ const idsSql = (race: BorrowRace): string => {
 	return emitText(
 		provedSelect("oneRow", nonEmptyList(targets, "the race's borrows"), [], undefined),
 		supply.map(),
-		costChosen()
+		costChosen
 	).text
 }
 

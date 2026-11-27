@@ -80,7 +80,7 @@ export const lowerCase = (
 	names: LoweringInput["names"]
 ): Result.Result<OptimizedProgram, CompileError> =>
 	lowerAligned({ dag: c.query.dag, params: caseParams(c) }, "query", {
-		binding: costChosen(),
+		binding: costChosen,
 		names,
 		context: "snapshot",
 		catalog: genCatalog(c.schema)
@@ -214,7 +214,7 @@ export const feedbackUnionAll = (
 		),
 		"the I8 rewrite, which rewrites only a recursive CTE"
 	)
-	return Result.map(emit(ast, statement.sql.nameMap, costChosen()), (sql) => ({
+	return Result.map(emit(ast, statement.sql.nameMap, costChosen), (sql) => ({
 		program: { ...program, statement: { ...statement, ast, sql } },
 		sites
 	}))

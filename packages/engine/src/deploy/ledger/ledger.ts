@@ -420,7 +420,7 @@ export const ledgerPublished = (
 })
 
 const emitted = (statement: SqlStatement): EmittedSql => {
-	return unwrap(emit(statement, emptyNameMap, costChosen()))
+	return unwrap(emit(statement, emptyNameMap, costChosen))
 }
 
 /** The INSERT of a ledger row: a folder's row (ordinal 0, file meta.json), if absent; or a file's. */
@@ -503,14 +503,14 @@ const ledgerLock = (
 
 /** The rows of the folder $1 re-recorded under a redraft (LedgerStatements.redraftFolder). */
 const redraftUpdate = (schema: string): Update => {
-	const r1 = "r1"
+	const ledger = ledgerTableName
 	return {
 		kind: "update",
 		with: undefined,
 		table: ledgerName(schema),
-		alias: r1,
+		alias: ledger,
 		/** The ledger table generates no column (physical/ddl/ledger.ts). */
-		set: assignments(ungenerated, r1, [
+		set: assignments(ungenerated, ledger, [
 			{ column: "target", value: digestParam(2) },
 			{
 				column: "digest",
@@ -519,16 +519,16 @@ const redraftUpdate = (schema: string): Update => {
 					operand: undefined,
 					whens: [
 						{
-							when: eq(col(r1, "ordinal"), lit.int(BigInt(folderOrdinal), types.integer)),
+							when: eq(col(ledger, "ordinal"), lit.int(BigInt(folderOrdinal), types.integer)),
 							result: digestParam(3)
 						}
 					],
-					else: col(r1, "digest")
+					else: col(ledger, "digest")
 				}
 			}
 		]),
 		from: [],
-		where: eq(col(r1, "folder"), param(1, types.text)),
+		where: eq(col(ledger, "folder"), param(1, types.text)),
 		returning: []
 	}
 }
@@ -547,17 +547,17 @@ export const runnerStatements = (
 
 /** The proofs' rows by object, each column named c1 to c3 in proofColumns order. */
 const proofRows = (schema: string): Select => {
-	const r1 = "r1"
+	const proofs = proofsTableName
 	return {
 		...provedSelect(
 			"keyed",
 			proofColumns.map((c, i) =>
-				targetAs(isProofDigest(c) ? hexOfDigest(col(r1, c)) : col(r1, c), `c${i + 1}`)
+				targetAs(isProofDigest(c) ? hexOfDigest(col(proofs, c)) : col(proofs, c), `c${i + 1}`)
 			),
-			[table(schema, proofsTableName, r1)],
+			[table(schema, proofsTableName, proofs)],
 			undefined
 		),
-		orderBy: [asc(col(r1, "object"))]
+		orderBy: [asc(col(proofs, "object"))]
 	}
 }
 
@@ -566,7 +566,7 @@ const clearProofs = (schema: string): Delete => ({
 	kind: "delete",
 	with: undefined,
 	table: proofsName(schema),
-	alias: "r1",
+	alias: proofsTableName,
 	using: [],
 	where: undefined,
 	returning: []
@@ -645,15 +645,15 @@ export const enterQuery = (schema: string): Select =>
 export const ledgerStatements = (schema: string): Result.Result<LedgerStatements, CompileError> =>
 	catchRefusal(() => {
 		const name = ledgerName(schema)
-		const r1 = "r1"
+		const ledger = name.name
 		const rows: Select = {
 			...provedSelect(
 				"keyed",
-				ledgerColumns.map((c, i) => targetAs(ledgerText(c, col(r1, c)), `c${i + 1}`)),
-				[table(name.schema, name.name, r1)],
+				ledgerColumns.map((c, i) => targetAs(ledgerText(c, col(ledger, c)), `c${i + 1}`)),
+				[table(name.schema, name.name, ledger)],
 				undefined
 			),
-			orderBy: [asc(col(r1, "folder")), asc(col(r1, "ordinal"))]
+			orderBy: [asc(col(ledger, "folder")), asc(col(ledger, "ordinal"))]
 		}
 		const enter = enterQuery(schema)
 		return {

@@ -182,7 +182,7 @@ const relationStatements = (
 			onConflict: undefined,
 			returning: []
 		}
-		const emitted = emit(insert, emptyNameMap, costChosen())
+		const emitted = emit(insert, emptyNameMap, costChosen)
 		if (!emitted.ok) {
 			return Result.err(emitted.error)
 		}
