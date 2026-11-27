@@ -138,7 +138,7 @@ export const retryOf = (kind: CallErrorKind): "safe" | "never" => {
  */
 export const sessionOf = (c: Case, ctx: Pick<ServedDbContext, "prologue">) => {
 	const fault = c.fault
-	const prologue = new Set<string>([ctx.prologue.fence.text.sql, ctx.prologue.enter.text.sql])
+	const prologue = new Set<string>([ctx.prologue.fence.text.sql, ctx.prologue.enter.sql])
 	const answer = (sql: string): StatementAnswer => {
 		if (prologue.has(sql)) {
 			return fault.kind === "fence refused by a migration" && sql === ctx.prologue.fence.text.sql

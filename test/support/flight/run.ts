@@ -97,7 +97,7 @@ const sessionOf = (c: FlightCase, sqlOf: SqlOf): ScriptedSession => {
 				if (call.kind === "framed" && sql === flightPrologue.fence.text.sql) {
 					return prologueAnswerOf("lock", stepAnswer(call.prologue, "lock"))
 				}
-				if (call.kind === "framed" && sql === flightPrologue.enter.text.sql) {
+				if (call.kind === "framed" && sql === flightPrologue.enter.sql) {
 					return prologueAnswerOf("guard", stepAnswer(call.prologue, "guard"))
 				}
 				throw new Error(`the case sends no statement ${sql}`)
@@ -158,7 +158,7 @@ export const observationsOf = (
 			Arr.map(
 				Arr.filter(
 					session.committed(),
-					(sql) => sql !== flightPrologue.fence.text.sql && sql !== flightPrologue.enter.text.sql
+					(sql) => sql !== flightPrologue.fence.text.sql && sql !== flightPrologue.enter.sql
 				),
 				labelOf
 			),

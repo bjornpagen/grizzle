@@ -24,6 +24,7 @@ import { excludesNothing, oneShotStatement, runFramed, writeFrame } from "#adapt
 import { type EstimatedNode, parsePlanTree } from "#bench/harness/explain.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
+import type { Advice } from "#compiler/sql/advice.ts"
 import { carrierSetting, settingCarrier } from "#compiler/sql/carriers.ts"
 import { lexemesOf } from "#compiler/sql/lexer.ts"
 import { defaultPool, poolFor } from "#test/pg/adapter/support.ts"
@@ -179,13 +180,14 @@ const observed = (
 			})
 		const prologue: ReadonlySet<string> = new Set([
 			ctx.prologue.fence.text.name,
-			ctx.prologue.enter.text.name
+			ctx.prologue.enter.name
 		])
 		const judged: Array<{
 			readonly program: string
 			readonly kind: "read" | "write"
 			readonly stated: number
 			readonly executed: ReadonlyArray<Executed>
+			readonly advice: Advice
 		}> = []
 		const reads = [
 			...Arr.map(s.reads, (read, at) => ({
@@ -201,7 +203,17 @@ const observed = (
 			const executed = yield* executedBy(
 				readOnce(memberCalls(ctx, member(loaded, read.program)))({ params: read.params, facts: {} })
 			)
-			judged.push({ program: read.program, kind: "read", stated: 1, executed })
+			const loadedRead = member(loaded, read.program)
+			judged.push({
+				program: read.program,
+				kind: "read",
+				stated: 1,
+				executed,
+				advice:
+					loadedRead.kind === "change"
+						? assert.fail(`${read.program} loads as one read`)
+						: loadedRead.read.advice
+			})
 		}
 		for (const [at, write] of writeCalls(s).entries()) {
 			const call = (n: number) =>
@@ -213,12 +225,18 @@ const observed = (
 				)
 			yield* executedBy(call(0))
 			const loadedWrite = member(loaded, write.program)
-			const stated =
+			const program =
 				loadedWrite.kind === "change" && loadedWrite.variants.kind === "change"
-					? loadedWrite.variants.change.entry.program.sends
+					? loadedWrite.variants.change.entry.program
 					: assert.fail(`${write.program} loads as one change`)
 			const executed = yield* executedBy(call(1))
-			judged.push({ program: write.program, kind: "write", stated, executed })
+			judged.push({
+				program: write.program,
+				kind: "write",
+				stated: program.sends,
+				executed,
+				advice: program.advice
+			})
 		}
 		const planned = Effect.scoped(
 			Effect.flatMap(Effect.orDie(pool.lease), (session) =>
@@ -227,7 +245,10 @@ const observed = (
 						Effect.orDie(
 							runFramed(
 								session,
-								{ ...writeFrame(ctx.prologue, ctx.isolation, excludesNothing), end: "ROLLBACK" },
+								{
+									...writeFrame(ctx.prologue, ctx.isolation, excludesNothing, j.advice),
+									end: "ROLLBACK"
+								},
 								[
 									...carriersEmptied(Arr.filter(j.executed, (e) => !prologue.has(e.name))),
 									...Arr.map(

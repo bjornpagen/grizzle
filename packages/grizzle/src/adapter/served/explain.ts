@@ -24,7 +24,7 @@ import {
 } from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"
 import type { ExecutionPart, ServedStandUp } from "#compiler/plan/change.ts"
-import { explainAnalyzeOf, explainOf } from "#compiler/plan/runtime.ts"
+import { type Advice, explainAnalyzeOf, explainOf } from "#compiler/plan/runtime.ts"
 import type { ServedTables } from "#compiler/plan/serve.ts"
 
 /**
@@ -100,20 +100,21 @@ const decodedPlans = <P>(
 const plansOf = Effect.fn("plansOf")(function* <P>(
 	ctx: ServedDbContext,
 	frame: Transaction,
+	advice: Advice,
 	standUps: ReadonlyArray<ServedStandUp>,
 	made: (session: Session) => Result.Result<ReadonlyArray<Explained>, ReadFailure>,
 	decode: (name: string, cell: string | undefined) => Result.Result<P, string>
 ): Effect.fn.Return<ReadonlyArray<P>, ReadError, Scope.Scope> {
 	const session = yield* Effect.mapError(ctx.pool.lease, (reason) => new ReadFailure({ reason }))
 	yield* Effect.mapError(
-		standUp(session, writeFrame(ctx.prologue, ctx.isolation, excludesNothing), standUps),
+		standUp(session, writeFrame(ctx.prologue, ctx.isolation, excludesNothing, advice), standUps),
 		asReadFailure
 	)
 	const statements = yield* Effect.fromResult(made(session))
 	const outcomes = yield* Effect.mapError(
 		runFramed(
 			session,
-			{ ...frame, prologue: ctx.prologue, exclusion: excludesNothing },
+			{ ...frame, prologue: ctx.prologue, exclusion: excludesNothing, advice },
 			Arr.map(statements, (e) => e.statement)
 		),
 		asReadFailure
@@ -147,6 +148,7 @@ export const explainRead = (
 		plansOf(
 			ctx,
 			readFrame,
+			call.advice,
 			[],
 			() => Result.succeed([statement]),
 			(name, cell) => Result.map(decodePlan(cell, installed), (plan) => ({ statement: name, plan }))
@@ -166,6 +168,7 @@ export const explainReadAnalyzed = (
 		plansOf(
 			ctx,
 			readFrame,
+			call.advice,
 			[],
 			() => Result.succeed([statement]),
 			(name, cell) =>
@@ -241,6 +244,7 @@ export const explainChange = (
 		return yield* plansOf(
 			ctx,
 			changeFrame,
+			entry.program.advice,
 			entry.program.standUps,
 			explainedOf,
 			(statement, cell) => Result.map(decodePlan(cell, installed), (plan) => ({ statement, plan }))

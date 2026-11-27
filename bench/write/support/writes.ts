@@ -918,7 +918,7 @@ const appliedChange = (
 				(session) =>
 					runWrite(
 						session,
-						dbChangeFrame(ctx, change.entry.program.exclusion),
+						dbChangeFrame(ctx, change.entry.program.exclusion, change.entry.program.advice),
 						change.entry,
 						inputs,
 						change.reads

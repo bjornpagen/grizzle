@@ -48,6 +48,7 @@ import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import type { DeliveredPart } from "#compiler/lower/shapes/index.ts"
 import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
 import type { IndexResolver } from "#compiler/physical/indexes/ref.ts"
+import { readAdvice } from "#compiler/plan/read.ts"
 import { queryInput } from "#compiler/program/input.ts"
 import type { InstalledArtifacts } from "#compiler/program/schema.ts"
 import { servedSession } from "#compiler/program/served.ts"
@@ -57,6 +58,7 @@ import { recordsReader } from "#compiler/runtime/read/record.ts"
 import { bindGroups } from "#compiler/schema/record.ts"
 import { type ServedSpine, servedSource } from "#compiler/served/read.ts"
 import { servedSpine } from "#compiler/served/spine.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import type { Select } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import type { AnyLogin, AnyRole } from "#compiler/types/schema/world.ts"
@@ -530,7 +532,7 @@ export const runtimeSession = Effect.fn("runtimeSession")(function* <S>(
 						return Result.failVoid
 					}
 					const sql = query.text.sql
-					return sql !== prologue.fence.text.sql && sql !== prologue.enter.text.sql
+					return sql !== prologue.fence.text.sql && sql !== prologue.enter.sql
 						? Result.succeed({ sql, params: textsOfParams(query.params) })
 						: Result.failVoid
 				})
@@ -619,7 +621,16 @@ export const deliver = Effect.fn("deliver")(
 		runtime.recorded.length = 0
 		runtime.flights = 0
 		const rows = yield* Effect.flatMap(
-			runFramed(runtime.session, readFrame(runtime.prologue), flight.statements),
+			runFramed(
+				runtime.session,
+				readFrame(
+					runtime.prologue,
+					artifact === "optimized"
+						? readAdvice(compiled.compiled.template, compiled.resolve)
+						: noAdvice
+				),
+				flight.statements
+			),
 			flight.read
 		)
 		return {

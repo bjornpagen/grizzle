@@ -12,6 +12,7 @@ import type { KeyFields } from "#compiler/live/index.ts"
 import { queryDescOf } from "#compiler/schema/protocol.ts"
 import type { ServedFile, ServedMember } from "#compiler/served/forms.ts"
 import { servedSource } from "#compiler/served/read.ts"
+import type { Advice } from "#compiler/sql/advice.ts"
 import { readOnce } from "#test/support/calls.ts"
 import {
 	compileTemplate,
@@ -54,7 +55,7 @@ export interface MemberReader {
 /** `member` read on one side, its statements sent by `send`: a member that is no read is a defect of the run. */
 export const readerOf = (
 	member: LoadedMember,
-	send: (statement: BatchStatement) => Effect.Effect<unknown, ReadError>
+	send: (statement: BatchStatement, advice: Advice) => Effect.Effect<unknown, ReadError>
 ): MemberReader => {
 	const parse = readCallOf(member)
 	if (Option.isNone(parse) || member.kind === "change") {
@@ -209,8 +210,9 @@ export const artifactsAgree = <E>(
 	Effect.gen(function* () {
 		const sideRead = (side: Side) =>
 			read((name) =>
-				readerOf(defined(members[side].get(name), `the ${side} member ${name}`), (statement) =>
-					flown(ctx, statement)
+				readerOf(
+					defined(members[side].get(name), `the ${side} member ${name}`),
+					(statement, advice) => flown(ctx, statement, advice)
 				)
 			)
 		const [optimized, conservative] = yield* Effect.orDie(
@@ -233,7 +235,7 @@ export const onceAgrees = <E>(
 	read: (reader: MemberReader) => Effect.Effect<Delivery, E>
 ): Effect.Effect<boolean> =>
 	Effect.gen(function* () {
-		const flight = readerOf(member, (statement) => flown(ctx, statement))
+		const flight = readerOf(member, (statement, advice) => flown(ctx, statement, advice))
 		const viaFlight = yield* read(flight)
 		const once = readOnce(memberCalls(ctx, member))
 		const viaOnce = yield* read({

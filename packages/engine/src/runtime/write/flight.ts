@@ -231,6 +231,8 @@ export interface FlightWrite {
 	readonly statements: ReadonlyArray<FlightStatement>
 	/** The statements one call sends inside its transaction, its frame aside (ServedWrite `sends`). */
 	readonly sends: number
+	/** What its transaction is planned under (ServedWrite `advice`), which every call's prologue sets. */
+	readonly advice: Advice
 	readonly outcome: OutcomeContext
 }
 
@@ -282,6 +284,7 @@ export const loadWrite = (
 		codes,
 		statements: Object.freeze(served.statements.map(loadedStatement)),
 		sends: served.sends,
+		advice: served.advice,
 		outcome: Object.freeze({
 			written: Object.freeze(served.written.map(writtenOutcome(codes))),
 			codes

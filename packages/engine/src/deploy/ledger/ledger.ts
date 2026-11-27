@@ -61,7 +61,7 @@ import {
 import { costChosen, emit } from "#compiler/sql/emit.ts"
 import { assignments, ungenerated } from "#compiler/sql/generation.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
-import { claimsSettingName } from "#compiler/sql/print.ts"
+import { adviceSettingName, claimsSettingName } from "#compiler/sql/print.ts"
 
 /** The folder row's file. */
 const folderFile = "meta.json"
@@ -484,7 +484,8 @@ export interface LedgerStatements {
 	readonly guard: EmittedSql
 	/**
 	 * A Db transaction's prologue statement, the first that takes its snapshot: the guard of $1, the Db's snapshot
-	 * fingerprint, then the role $2 and the claims setting $3, both local to the transaction.
+	 * fingerprint, then the role $2, the claims setting $3 and the plan advice $4 of everything the transaction sends,
+	 * each local to the transaction.
 	 */
 	readonly enter: EmittedSql
 }
@@ -621,7 +622,10 @@ const localSetting = (name: string, index: number): Expr =>
 
 /**
  * A Db transaction's prologue statement over the ledger of `schema` (LedgerStatements `enter`): the guard's call, then the
- * role and the claims setting, both local to the transaction.
+ * role, the claims setting and the plan advice (sql/print.ts adviceSettingName), each local to the transaction. The
+ * advice is the transaction's, every statement and unit it may send joined (sql/advice.ts joinAdvice), set by every
+ * transaction before its first statement, so each plan and replan of each of them, a prepared statement's cached for
+ * the session included, is made under it in whichever transaction PostgreSQL makes it.
  */
 export const enterQuery = (schema: string): Select =>
 	provedSelect(
@@ -629,7 +633,8 @@ export const enterQuery = (schema: string): Select =>
 		[
 			targetAs(guardCall(schema), "c1"),
 			targetAs(localSetting("role", 2), "c2"),
-			targetAs(localSetting(claimsSettingName, 3), "c3")
+			targetAs(localSetting(claimsSettingName, 3), "c3"),
+			targetAs(localSetting(adviceSettingName, 4), "c4")
 		],
 		[],
 		undefined

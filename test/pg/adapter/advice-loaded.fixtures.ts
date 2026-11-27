@@ -12,6 +12,7 @@ import {
 } from "#adapter/wire/batch.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import { kept, openMigrator, parsedTarget, reviewedSource } from "#test/pg/migrate/support.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { fenceSql, prologueIn } from "#test/support/flight/model.ts"
@@ -169,8 +170,8 @@ export const runCase = (x: AdviceCase) =>
 				const prologue = prologueIn(raw)
 				const frame: Frame =
 					x.path === "read"
-						? readFrame(prologue)
-						: writeFrame(prologue, "serializable", excludesNothing)
+						? readFrame(prologue, noAdvice)
+						: writeFrame(prologue, "serializable", excludesNothing, noAdvice)
 				const statement = oneShotStatement(
 					testSql(
 						x.path === "read"

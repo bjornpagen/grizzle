@@ -403,7 +403,12 @@ export const runAdmitted = (
 							runFramed(
 								session,
 								{
-									...writeFrame(db.ctx.prologue, db.ctx.isolation, excludesNothing),
+									...writeFrame(
+										db.ctx.prologue,
+										db.ctx.isolation,
+										excludesNothing,
+										entry.program.advice
+									),
 									end: "ROLLBACK"
 								},
 								[execution]

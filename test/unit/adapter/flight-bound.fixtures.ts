@@ -48,6 +48,7 @@ import { connectSession, type Session } from "#adapter/wire/session.ts"
 import { prepared } from "#compiler/core/prepared.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import { servedSession } from "#compiler/program/served.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import { flightPrologue } from "#test/support/flight/model.ts"
 import { tlsMaterial } from "#test/support/memory-tls.ts"
 import { noPassword } from "#test/support/pg.ts"
@@ -461,7 +462,7 @@ export const boundCallOf = (
 			return Effect.asVoid(
 				runFramed(
 					session,
-					writeFrame(flightPrologue, "serializable", excludesNothing),
+					writeFrame(flightPrologue, "serializable", excludesNothing, noAdvice),
 					Arr.map(c.first, servedOfSpec)
 				)
 			)

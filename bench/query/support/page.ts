@@ -17,6 +17,8 @@ import {
 } from "#bench/query/support/kit.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { PageArtifact } from "#compiler/lower/shapes/page/compile.ts"
+import { pageAdvice } from "#compiler/plan/read.ts"
+import { type Advice, noAdvice } from "#compiler/sql/advice.ts"
 import type { Select } from "#compiler/sql/ast.ts"
 import { programAsts } from "#test/support/compile.ts"
 import { conservativePageRuntime } from "#test/support/conservative.ts"
@@ -39,6 +41,8 @@ export type BenchPages = PageRuntime & {
 	readonly codes: Codebook
 	/** The compiled page artifact the runtime was served from, whose statements a variant rewrites. */
 	readonly compiled: PageArtifact
+	/** What a window's transaction is planned under, whichever variant it sends (program/served.ts pageAdvice). */
+	readonly advice: Advice
 }
 
 export const pageRuntime = (compiled: Compiled): BenchPages => {
@@ -54,11 +58,15 @@ export const pageRuntime = (compiled: Compiled): BenchPages => {
 	return {
 		...built.success.runtime,
 		codes: compiled.artifacts.names.codes,
-		compiled: built.success.template.artifact
+		compiled: built.success.template.artifact,
+		advice: pageAdvice(built.success.template, compiled.resolve)
 	}
 }
 
-/** The page runtime of `pages`'s query through the page oracle's conservative artifact (test/support/conservative.ts). */
+/**
+ * The page runtime of `pages`'s query through the page oracle's conservative artifact (test/support/conservative.ts),
+ * planned under no advice: the oracle's statements are its baseline, chosen by PostgreSQL's costs.
+ */
 export const conservativePages = (compiled: Compiled, pages: BenchPages): BenchPages => {
 	const built = conservativePageRuntime(
 		pages,
@@ -69,7 +77,12 @@ export const conservativePages = (compiled: Compiled, pages: BenchPages): BenchP
 	if (Result.isFailure(built)) {
 		throw new GateSetupError({ what: `the conservative page template: ${built.failure.message}` })
 	}
-	return { ...built.success.runtime, codes: pages.codes, compiled: built.success.artifact }
+	return {
+		...built.success.runtime,
+		codes: pages.codes,
+		compiled: built.success.artifact,
+		advice: noAdvice
+	}
 }
 
 export interface DeliveredPage {
@@ -106,7 +119,7 @@ export const deliverPage = Effect.fn("deliverPage")(
 		)
 		runtime.recorded.length = 0
 		runtime.flights = 0
-		yield* runFramed(runtime.session, readFrame(runtime.prologue), [statement])
+		yield* runFramed(runtime.session, readFrame(runtime.prologue, pages.advice), [statement])
 		yield* Effect.mapError(Effect.fromResult(intake.end()), (reason) => new ReadFailure({ reason }))
 		const statements = sentStatements(runtime)
 		if (program.delivery.kind !== "concat") {

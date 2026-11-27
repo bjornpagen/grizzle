@@ -5,6 +5,7 @@ import { array, finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { excludesNothing, joinFlights, runFramed, writeFrame } from "#adapter/wire/batch.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import { smallCases } from "#test/support/flight/cases.ts"
 import { type FlightFeature, flightPrologue } from "#test/support/flight/model.ts"
 import {
@@ -179,7 +180,7 @@ export const joinedFlightsSendEveryPartsStatementsInPartOrderAndHandEachPartExac
 				const values = yield* Effect.flatMap(
 					runFramed(
 						session,
-						writeFrame(flightPrologue, "serializable", excludesNothing),
+						writeFrame(flightPrologue, "serializable", excludesNothing, noAdvice),
 						joined.statements
 					),
 					joined.read

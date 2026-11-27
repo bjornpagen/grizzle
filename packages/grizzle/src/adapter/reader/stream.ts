@@ -22,6 +22,7 @@ import {
 	type RowKey
 } from "#compiler/live/index.ts"
 import type { Row } from "#compiler/plan/common.ts"
+import type { Advice } from "#compiler/plan/runtime.ts"
 
 /**
  * A read call as the stream of its events (live/events.ts), the one stream a read's every answer is: a call's once and
@@ -60,6 +61,8 @@ export interface ReadCall {
 	 */
 	readonly open: (emit: (row: Row) => void) => Effect.Effect<OpenedRead, InputTooLarge>
 	readonly decode: (row: Row) => DecodedRow
+	/** What the call's transaction is planned under: its read's, or its page's (served/load.ts LoadedRead, LoadedPage). */
+	readonly advice: Advice
 }
 
 /** A read call's statement and its intake's end (ReadCall.open). */
@@ -143,7 +146,7 @@ const runRead = (
 				(reason) => new ReadFailure({ reason })
 			)
 			yield* Effect.mapError(
-				runFramed(session, dbReadFrame(ctx), [opened.statement]),
+				runFramed(session, dbReadFrame(ctx, call.advice), [opened.statement]),
 				readFailureOf(ctx)
 			)
 			return yield* Effect.mapError(

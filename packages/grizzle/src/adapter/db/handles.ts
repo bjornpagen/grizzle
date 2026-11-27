@@ -158,6 +158,7 @@ const programCall = (
 		call: {
 			fields: read.key.fields,
 			decode: read.read,
+			advice: read.advice,
 			open: (emit) => {
 				const intake = readIntake(read.program, inputs.params, emit)
 				return Effect.map(
@@ -229,6 +230,7 @@ const parseWindow =
 				call: {
 					fields: read.key.fields,
 					decode: page.reads[window.variant],
+					advice: page.advice,
 					open: (emit) => {
 						const intake = windowIntake(
 							page.runtime.artifact.requests[window.variant],
@@ -523,7 +525,7 @@ const applyChange = (
 	host: HostCall
 ): Effect.Effect<ApplyOutcome<unknown>, ApplyError> =>
 	Effect.gen(function* () {
-		const frame = dbChangeFrame(ctx, change.entry.program.exclusion)
+		const frame = dbChangeFrame(ctx, change.entry.program.exclusion, change.entry.program.advice)
 		const lease = Effect.mapError(ctx.pool.lease, (reason) => new TransportFailure({ reason }))
 		const drawn = yield* Effect.mapError(
 			drawnCall(change.entry, host, change.reads),

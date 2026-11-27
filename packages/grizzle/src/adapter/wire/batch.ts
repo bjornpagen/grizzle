@@ -14,6 +14,7 @@ import * as Function from "effect/Function"
 import * as Option from "effect/Option"
 import * as Result from "effect/Result"
 import {
+	type Advice,
 	defect,
 	type ExplainText,
 	type Prepared,
@@ -173,16 +174,17 @@ export type Uncommitting =
 
 /**
  * What every transaction of a Db begins with, at the pipeline positions right after BEGIN, both run as the login (see
- * the header): `fence`, the ledger's ACCESS SHARE lock NOWAIT, and `enter`, the first statement that takes the
- * transaction's snapshot, which calls the snapshot guard with `snapshot`, the fingerprint the Db was admitted at, then
- * takes on `role` and sets the Db's `claims` for the transaction. Built once per Db (prologueOf), at Db.open.
+ * the header): `fence`, the ledger's ACCESS SHARE lock NOWAIT, and `enter`, the text of the first statement that takes
+ * the transaction's snapshot, which calls the snapshot guard with `snapshot`, the fingerprint the Db was admitted at,
+ * then takes on `role`, sets the Db's `claims` and sets the transaction's own advice (Frame `advice`), each for the
+ * transaction. Built once per Db (prologueOf), at Db.open; its `enter` is bound once per transaction (asDb).
  */
 export interface Prologue {
 	readonly role: string
 	readonly claims: string
 	readonly snapshot: SchemaFingerprint
 	readonly fence: PreparedStatement
-	readonly enter: PreparedStatement
+	readonly enter: Prepared<EmittedText>
 }
 
 /**
@@ -205,11 +207,7 @@ export const prologueOf = (
 	claims,
 	snapshot,
 	fence: preparedStatement(statements.fence, []),
-	enter: preparedStatement(statements.enter, [
-		textParam(snapshot),
-		textParam(role),
-		textParam(claims)
-	])
+	enter: statements.enter
 })
 
 /**
@@ -225,8 +223,16 @@ export type Exclusion =
 /** A transaction that locks nothing before its snapshot: every read's, and an unfenced write's. */
 export const excludesNothing: Exclusion = { kind: "none" }
 
-/** A Db's transaction: framed as a transaction is, and begun by the Db's prologue (see the header). */
-export type Frame = Transaction & { readonly prologue: Prologue; readonly exclusion: Exclusion }
+/**
+ * A Db's transaction: framed as a transaction is, begun by the Db's prologue (see the header), and planned under
+ * `advice`, the joined advice of every statement and unit the transaction may send (engine sql/advice.ts), which its
+ * prologue sets for the transaction before any of them is planned, so every plan and replan of each is made under it.
+ */
+export type Frame = Transaction & {
+	readonly prologue: Prologue
+	readonly exclusion: Exclusion
+	readonly advice: Advice
+}
 
 /** A Db's read frame (readFrame): READ ONLY, its flight one statement (FramedStatements). */
 export type ReadFrame = Extract<Frame, { readonly access: "readOnly" }>
@@ -358,6 +364,18 @@ interface Principal<P, F> {
 const asLogin: Principal<never, never> = { prologue: [], refused: Function.absurd }
 
 /**
+ * The statement of `frame`'s prologue that takes its snapshot (Prologue `enter`), bound for its transaction: the Db's
+ * snapshot, role and claims, and the transaction's advice.
+ */
+export const enterOf = (frame: Frame): PreparedStatement =>
+	preparedStatement(frame.prologue.enter, [
+		textParam(frame.prologue.snapshot),
+		textParam(frame.prologue.role),
+		textParam(frame.prologue.claims),
+		textParam(frame.advice)
+	])
+
+/**
  * Whether the server's refusal of the prologue's `step` is the snapshot guard's first, 55Z04: the session does not load
  * pg_plan_advice (physical/ddl/ledger.ts adviceLoaded).
  */
@@ -376,7 +394,7 @@ const asDb = (
 	prologue: [
 		{ statement: frame.prologue.fence, step: "lock" },
 		...exclusionSteps(frame.exclusion),
-		{ statement: frame.prologue.enter, step: "guard" }
+		{ statement: enterOf(frame), step: "guard" }
 	],
 	refused: (step, failure) =>
 		unadvisedAt(step, failure)
@@ -1405,29 +1423,33 @@ export const runAlongside = <A, E>(
 	)
 
 /**
- * A read of a Db: SERIALIZABLE READ ONLY, behind the Db's prologue, its one statement (FramedStatements).
+ * A read of a Db: SERIALIZABLE READ ONLY, behind the Db's prologue, its one statement (FramedStatements), planned under
+ * its program's `advice`.
  */
-export const readFrame = (prologue: Prologue): ReadFrame => ({
+export const readFrame = (prologue: Prologue, advice: Advice): ReadFrame => ({
 	access: "readOnly",
 	end: "COMMIT",
 	prologue,
-	exclusion: excludesNothing
+	exclusion: excludesNothing,
+	advice
 })
 
 /**
  * A write of a Db at `isolation`, behind its prologue and `exclusion`: a change at its role's level, locking what its
- * login fences of what it writes.
+ * login fences of what it writes, every statement it may send planned under `advice`.
  */
 export const writeFrame = (
 	prologue: Prologue,
 	isolation: Isolation,
-	exclusion: Exclusion
+	exclusion: Exclusion,
+	advice: Advice
 ): Frame => ({
 	access: "readWrite",
 	isolation,
 	end: "COMMIT",
 	prologue,
-	exclusion
+	exclusion,
+	advice
 })
 
 /**

@@ -29,6 +29,7 @@ import type {
 } from "#compiler/plan/common.ts"
 import type { PageVariant } from "#compiler/plan/read.ts"
 import {
+	type Advice,
 	codeNames,
 	loadWrite,
 	memberFactsOf,
@@ -74,12 +75,18 @@ export interface LoadedRead {
 	readonly read: (row: Row) => DecodedRow
 	readonly key: ServedKey
 	readonly live: ServedReadLive
+	/** What its transaction is planned under (ServedRead `advice`), which every call's prologue sets. */
+	readonly advice: Advice
 }
 
-/** A paged member's page, loaded: its runtime template, and its decoder bound to each template's layouts. */
+/**
+ * A paged member's page, loaded: its runtime template, its decoder bound to each template's layouts, and what a window's
+ * transaction is planned under, whichever variant it sends (ServedPage `advice`).
+ */
 export interface LoadedPage {
 	readonly runtime: PageRuntime
 	readonly reads: { readonly [V in PageVariant]: (row: Row) => DecodedRow }
+	readonly advice: Advice
 }
 
 /**
@@ -246,7 +253,8 @@ const loadRead = (
 		program,
 		read: reader,
 		key: read.key,
-		live: read.live
+		live: read.live,
+		advice: read.advice
 	}))
 }
 
@@ -269,7 +277,8 @@ const loadPage = (
 				last: yield* variant("last"),
 				before: yield* variant("before"),
 				at: yield* variant("at")
-			}
+			},
+			advice: page.advice
 		}
 	})
 

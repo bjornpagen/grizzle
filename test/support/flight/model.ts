@@ -9,6 +9,7 @@ import {
 	type FenceStep,
 	type FlightFailure,
 	type Frame,
+	enterOf,
 	excludesNothing,
 	oneShotStatement,
 	type Prologue,
@@ -22,6 +23,7 @@ import {
 	writeFrame
 } from "#adapter/wire/batch.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
+import { noAdvice } from "#compiler/sql/advice.ts"
 import type { Interruption } from "#test/support/flight/drive.ts"
 import type { PgStatement } from "#test/support/pg.ts"
 import { textsOfParams } from "#test/support/wire.ts"
@@ -94,18 +96,19 @@ const alongsideTransactions: { readonly [F in AlongsideFrame]: Uncommitting } = 
 const frameOf = (name: FrameName, prologue: Prologue): Frame => {
 	switch (name) {
 		case "read":
-			return readFrame(prologue)
+			return readFrame(prologue, noAdvice)
 		case "write":
-			return writeFrame(prologue, "serializable", excludesNothing)
+			return writeFrame(prologue, "serializable", excludesNothing, noAdvice)
 		case "readCommittedWrite":
-			return writeFrame(prologue, "readCommitted", excludesNothing)
+			return writeFrame(prologue, "readCommitted", excludesNothing, noAdvice)
 		case "rollback":
 			return {
 				access: "readWrite",
 				isolation: "serializable",
 				end: "ROLLBACK",
 				prologue,
-				exclusion: excludesNothing
+				exclusion: excludesNothing,
+				advice: noAdvice
 			}
 	}
 }
@@ -310,7 +313,7 @@ const framedSlot = (frame: Transaction, slot: Slot, sqlOf: SqlOf): Framed => {
 			return {
 				kind: "prologue",
 				params: textsOfParams(
-					slot.step === "lock" ? flightPrologue.fence.params : flightPrologue.enter.params
+					slot.step === "lock" ? flightPrologue.fence.params : enterOf(frames.read).params
 				)
 			}
 		case "end":

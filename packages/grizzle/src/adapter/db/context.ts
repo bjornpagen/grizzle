@@ -12,6 +12,7 @@ import type { SessionPool } from "#adapter/wire/pool.ts"
 import type { InstallationWitness } from "#adapter/witness/index.ts"
 import type { WriteExclusion } from "#compiler/plan/change.ts"
 import type { Isolation } from "#compiler/plan/common.ts"
+import type { Advice } from "#compiler/plan/runtime.ts"
 
 /**
  * What every operation of one opened database shares: what each of its transactions begins with, the contexts its
@@ -43,22 +44,28 @@ export interface ServedDbContext {
 	readonly domain: InstallationWitness["domain"]
 }
 
-/** The frame of a read of the Db: SERIALIZABLE READ ONLY, its one statement (engine core/isolation.ts). */
-export const dbReadFrame = (ctx: Pick<ServedDbContext, "prologue">): Frame =>
-	readFrame(ctx.prologue)
+/**
+ * The frame of a read of the Db: SERIALIZABLE READ ONLY, its one statement (engine core/isolation.ts), planned under its
+ * program's `advice`.
+ */
+export const dbReadFrame = (ctx: Pick<ServedDbContext, "prologue">, advice: Advice): Frame =>
+	readFrame(ctx.prologue, advice)
 
 /**
  * The frame of a change of the Db: read-write at its role's level, locking, before its snapshot, what its write's login
- * fences of what it writes (engine runtime/write/flight.ts WriteExclusion).
+ * fences of what it writes (engine runtime/write/flight.ts WriteExclusion), every statement it may send planned under
+ * its program's `advice`.
  */
 export const dbChangeFrame = (
 	ctx: Pick<ServedDbContext, "prologue" | "isolation">,
-	exclusion: WriteExclusion
+	exclusion: WriteExclusion,
+	advice: Advice
 ): Frame =>
 	writeFrame(
 		ctx.prologue,
 		ctx.isolation,
 		exclusion.kind === "lock"
 			? { kind: "lock", statement: preparedStatement(exclusion.text, []) }
-			: excludesNothing
+			: excludesNothing,
+		advice
 	)
