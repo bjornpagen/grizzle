@@ -12,11 +12,10 @@ import type { Reached } from "@bjornpagen/testing/features"
  * the case's shares, explains the statements over the growth and runs the judge; writes a second seat at the same
  * document and explains the statements again, in one transaction rolled back after.
  *
- * Oracle: no statement reads a table larger than one probe whole (test/support/judge.ts wideScans), and each table's
- * rows read over the second seat equal those over the first, the rows each scan returned and its filter removed over all
- * of its loops, by the table it names, but a table PostgreSQL reads whole for what a probe of it costs (judge.ts
- * keyedWork), with no planner setting. And over the population written at once, the statements' work over the growth,
- * every row their scans and their CTEs' scans read over all of their loops (judge.ts keyedReadWork), is at most its
+ * Oracle: each table's rows read over the second seat equal those over the first, the rows each scan returned and its
+ * filter removed over all of its loops, by the table it names (test/support/judge.ts scannedWork), each statement run
+ * under its routine's advice. And over the population written at once, the statements' work over the growth, every row
+ * their scans and their CTEs' scans read over all of their loops (judge.ts readWork), is at most its
  * shares' count times their work over the first share: each written row's probe reads the rows its keys reach, whatever
  * else the transaction wrote, so a load's judge is linear in the load.
  *
@@ -47,7 +46,7 @@ export const aRulesProbeReadsTheSameRowsOfEachTableAtOneShareOfThePopulationAsAt
 			kind: "specification",
 			name: "the rows each table's scans read over a seat written at sixteen shares of the population equal those over one written at one, and the judge's work over shares written at once is linear in them"
 		},
-		box: "Limited over a union of two content relations read by two rules at the document a seat's test delivers; 483 documents a share, grown to 2, 4, 8 and 16 shares, a seat written at documents 0, 1, 31 and 63",
+		box: "Limited over a union of two content relations read by two rules at the document a seat's test delivers; 226 documents a share, a heap page of Content, grown to 2, 4, 8 and 16 shares, a seat written at documents 0, 1, 31 and 63",
 		kept: [
 			{
 				token: ReplayToken(

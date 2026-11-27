@@ -14,6 +14,7 @@ import { succeeded } from "#test/support/assert.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
 import { judgedDeltaReadsOf } from "#test/support/judge.ts"
 import { owning } from "#test/support/policy.ts"
+import { tableOfSource } from "#test/support/sql.ts"
 
 /**
  * One case, metis's first budget reduced: the limits, a union of `arms` rules over Assignment and Limit, each sitting's
@@ -151,7 +152,7 @@ const schemaOf = (c: Budgets): FixtureSchema => {
 const limitReadsOf = (statement: OperandSelect): number => {
 	let reads = 0
 	const source = (s: FromSource): void => {
-		if (s.kind === "table" && typeof s.table !== "string" && s.table.name === "limit") {
+		if (tableOfSource(s)?.name === "limit") {
 			reads += 1
 		}
 	}

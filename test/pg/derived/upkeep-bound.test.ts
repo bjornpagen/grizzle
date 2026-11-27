@@ -11,16 +11,15 @@
  * containment over each stored one, which the judge probes.
  *
  * Each case enrols learner 1 with a few sessions of answers beside 2,048 other learners of one session and answer each,
- * so every table is larger than one probe of it, committed, and measures the judge's work at a fresh answer's COMMIT:
+ * committed, and measures the judge's work at a fresh answer's COMMIT:
  * every statement the judge runs over the written deltas, SessionCount's upkeep's DELETE and INSERT and each rule's
  * probe, the upkeep's alike, explained with ANALYZE before the judge runs, in a transaction rolled back
- * (test/support/judge.ts judgeRun), with no planner setting and no ANALYZE; then adds more sessions of answers to the
- * same learner, committed, and measures again.
+ * (test/support/judge.ts judgeRun), each under its routine's advice (test/support/advice.ts routineAdviceHeld); then
+ * adds more sessions of answers to the same learner, committed, and measures again.
  *
- * Oracle: a bound and invariance: no statement reads a table larger than one probe whole (judge.ts wideScans), and each
- * does the same keyed work, the rows it reads of stored relations and of the deltas but a table PostgreSQL reads whole
- * for what a probe of it costs (judge.ts keyedWork), beside the few sessions and beside the many, the rows counted over
- * every loop, never a clock. SessionCount's upkeep re-derives the one session the answer touched, and Answered's reads
+ * Oracle: a bound and invariance: each statement does the same work, the rows it reads of stored relations and of the
+ * deltas (judge.ts scannedWork), beside the few sessions and beside the many, the rows counted over every loop, never a
+ * clock. SessionCount's upkeep re-derives the one session the answer touched, and Answered's reads
  * the answer and its row at the learner by key; stored at (child), Tally's upkeep would read every answer of the
  * learner, which the second measure's sessions add to.
  *
@@ -66,7 +65,7 @@ export const aOneRowWritesJudgeWorkAtCommitIsBoundedByItsDeltaHoweverManyRowsIts
 				}).pipe(Effect.scoped),
 		oracle: {
 			kind: "universal",
-			name: "a bound and invariance: each statement the judge runs at a one-row write's COMMIT, a stored relation's upkeep's and a rule's alike, reads no table larger than a probe whole and does the same keyed work beside a few rows of its declared unit and beside many"
+			name: "a bound and invariance: each statement the judge runs at a one-row write's COMMIT, a stored relation's upkeep's and a rule's alike, does the same work beside a few rows of its declared unit and beside many"
 		},
 		box: "one or four sessions of the learner before the write, sixteen or sixty-four added, of one or three answers each",
 		kept: [],
@@ -98,8 +97,8 @@ export const aOneRowWritesJudgeWorkAtCommitIsBoundedByItsDeltaHoweverManyRowsIts
  * with four moments after them, beside 2,048 other learners' sessions, committed, and measures the judge's work at a
  * later moment's COMMIT; then adds sixteen or sixty-four moments more, committed, and measures again.
  *
- * Oracle: a bound and invariance, as above: each statement does the same keyed work beside four moments and beside the
- * many. A fold over
+ * Oracle: a bound and invariance, as above: each statement does the same work beside four moments and beside the many.
+ * A fold over
  * every moment past each item, the rule as written, reads the added moments for every item (ledger's presentedSpans,
  * 180 to 244 pages a write).
  */
@@ -120,7 +119,7 @@ export const aSuccessorsUpkeepReadsOneRowPastTheCutForEachRowBeforeItHoweverMany
 				}).pipe(Effect.scoped),
 		oracle: {
 			kind: "universal",
-			name: "a bound and invariance: each statement the judge runs at a moment's COMMIT reads no table larger than a probe whole and does the same keyed work beside a few moments of the session past its items and beside many"
+			name: "a bound and invariance: each statement the judge runs at a moment's COMMIT does the same work beside a few moments of the session past its items and beside many"
 		},
 		box: "the item matched first or the moment, one or four items shown in the session, sixteen or sixty-four moments added after the first measure",
 		kept: [],
@@ -174,7 +173,7 @@ export const aFoldThatDerivesOneFactAtAUnitReadsOneRowOfItAtItsUpkeepHoweverMany
 				}).pipe(Effect.scoped),
 		oracle: {
 			kind: "universal",
-			name: "a bound and invariance: each statement the judge runs at a moment's COMMIT reads no table larger than a probe whole and does the same keyed work beside a few rows of the session and beside many, each table's fact at the session as its definition states it"
+			name: "a bound and invariance: each statement the judge runs at a moment's COMMIT does the same work beside a few rows of the session and beside many, each table's fact at the session as its definition states it"
 		},
 		box: "the latest moment of a session or a session with an unmoved item, sixteen or sixty-four rows added to the session",
 		kept: [],

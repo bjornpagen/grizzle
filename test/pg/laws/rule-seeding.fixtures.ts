@@ -27,10 +27,8 @@ import {
 	judgedDeltaReadsOf,
 	judgedPlans,
 	type JudgedStatement,
-	keyedWork,
-	probeCostOf,
-	standUpJudge,
-	wideScans
+	scannedWork,
+	standUpJudge
 } from "#test/support/judge.ts"
 import { firstRefusalOf, refusalOf } from "#test/support/substrate.ts"
 import { type RawSession } from "#test/support/substrate/session.ts"
@@ -1034,7 +1032,7 @@ const siReadLocks = (session: RawSession) =>
 
 /**
  * The footprint of the served write that founds key `k` (`foundedKey`, `foundingSql`) on table `table`'s probes,
- * on a fresh session with no planner setting, in two transactions rolled back, each writing the chain alike through the
+ * on a fresh session, in two transactions rolled back, each writing the chain alike through the
  * captures, which fill the deltas as any served write's do. In the first, each probe of the judge over the table is
  * explained while the deltas hold the chain's rows, before the judge reads and deletes them (test/support/judge.ts
  * judgedPlans); in the second, SET CONSTRAINTS ALL IMMEDIATE runs the judge over them and the SIRead locks the
@@ -1045,7 +1043,6 @@ const footprintOf = (seat: Seat, shape: Shape, k: number, table: Table) =>
 		const substrate = yield* Substrate
 		const session = yield* substrate.session({ ...ownerSession(), label: "rule seed locality" })
 		yield* standUpJudge(session, seat.installed.installation)
-		const probeCost = yield* probeCostOf((sql) => session.values(sql, []))
 		const write = foundingSql(seat, shape, foundedKey(k))
 		/** `measured` after the founding write, in a transaction rolled back after it. */
 		const touching = <A, E>(measured: Effect.Effect<A, E>) =>
@@ -1073,21 +1070,15 @@ const footprintOf = (seat: Seat, shape: Shape, k: number, table: Table) =>
 		const locks = yield* touching(
 			Effect.andThen(session.query("SET CONSTRAINTS ALL IMMEDIATE", []), siReadLocks(session))
 		)
-		assert.deepEqual(
-			Arr.flatMap(judged, (p) => wideScans(p.plan, probeCost)),
-			[],
-			`a probe of ${table} reads no table larger than a probe whole`
-		)
-		return { rows: Arr.map(judged, (p) => keyedWork(p.plan, probeCost)), locks } satisfies Footprint
+		return { rows: Arr.map(judged, (p) => scannedWork(p.plan)), locks } satisfies Footprint
 	})
 
 export type LocalityFeature = `${Shape} measured`
 
 /**
  * One locality case: a shape, the keys it holds when first measured, 2,048, and when measured again, 1,024 more, and the
- * key it measures among the first. 2,048 keys' rows make every table larger than one probe of it, so PostgreSQL looks a
- * key up in it with no planner setting, and 1,024 more add pages, so a probe that read every key would read more rows
- * and lock more pages, or a relation, where a probe of the key reads its own.
+ * key it measures among the first. 1,024 keys more add pages, so a probe that read every key would read more rows and
+ * lock more pages, or a relation, where a probe of the key reads its own.
  */
 interface Locality {
 	readonly shape: Shape

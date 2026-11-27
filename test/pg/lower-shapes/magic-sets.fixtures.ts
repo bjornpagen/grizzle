@@ -4,30 +4,20 @@ import { assert } from "@bjornpagen/testing/assert"
 import { boolean, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
-import {
-	type PlanNode,
-	planNodes,
-	rowsGenerated,
-	rowsRead,
-	scannedRows
-} from "#bench/harness/explain.ts"
-import { identity } from "#compiler/core/identity.ts"
+import { type PlanNode, planNodes } from "#bench/harness/explain.ts"
 import { Fn, type Term } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, fn, key, on, relation, rows, schema, unit } from "#compiler/public/schema.ts"
+import { fullWorldRole, servedRead, servedRun } from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { compileTemplate, declaredOf, paramTexts, testCompile } from "#test/support/compile.ts"
 import { type Installed } from "#test/support/install-migrate.ts"
 import { fullWorldTemplate } from "#test/support/installed.ts"
-import { planAsRun } from "#test/support/judge.ts"
-import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { readWork, standUpJudge } from "#test/support/judge.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 import {
 	countedAsVacuumed,
-	rowsBeside,
-	rowsPerPage,
 	type StatedDistinct,
 	statedDistinct
 } from "#test/support/substrate/fill.ts"
@@ -400,11 +390,17 @@ const userOf = (c: number): number => 100_000 + c
 
 /**
  * The children a case stores beside its own before any of them, each of one stage, one item session and one attempt
- * (`beside`, runStage): a store large beside one key's rows, so PostgreSQL reads each stored relation a read binds by
- * its index at its own costs under the installation's declared statistics (fill.ts rowsBeside), each read one probe of
- * the relation at each row it binds. The narrowest table a read binds by key, ChildUser, holds two integers a row.
+ * (`beside`, runStage): a store large beside one key's rows, so a read of any relation whole, or at a prefix every
+ * child shares, reads past the bound of every case.
+ *
+ * @limitKind derived
+ * @owner the stage property (magic-sets.test.ts)
+ * @unit children
+ * @scope the store each stage case reads beside its own children
+ * @derivation The largest bound a case draws is three times a stage's rows at five sessions of four attempts, 3 × (1 +
+ *   5 × (1 + 2 × 4)) = 138 rows, and each child beside adds a row to every relation the reads bind: 139 children pass it.
  */
-const besideChildren = rowsBeside(1, rowsPerPage(8))
+const besideChildren = 139
 
 /** The first child stored beside a case's own: past every child a case stores and every user id (userOf) of one. */
 const besideFirst = 2 * userOf(0) + 1
@@ -452,9 +448,8 @@ export const stageTemplate = fullWorldTemplate({
  * states them (`counted`), or the columns of each relation whose order a read's chain decides stated at one value or
  * each its own (`stated`, fill.ts statedDistinct): the attempts and the item sessions the fold joins, the sittings an
  * existence test of the head's rows reads, and the seats and their grades the slot read joins, so the estimates of a
- * seek by any column of one are all its rows or one: a perturbation of the planner, under which an order its estimates
- * chose is the one the statements lead to, and an order the declared keys and the call's values prove (cte-policy
- * keyedRegionChain) stands.
+ * seek by any column of one are all its rows or one: a perturbation of the planner's estimates, under which the plan a
+ * read carries (cte-policy keyedRegionChain's order, which the declared keys and the call's values prove) stands.
  */
 export type StageStatistics =
 	| { readonly kind: "counted" }
@@ -509,20 +504,6 @@ export type StageFeature =
 	| "under statistics stating each attempt its own and every session one"
 	| "under statistics stating each seat's grade its own and every seat one"
 
-/**
- * The work of a statement's scans, every loop: the rows each scan of a stored relation reads, each read of a function
- * yields, and each scan of a CTE reads, its output and what its filter removed, where a CTE read at a correlated row's
- * value is scanned whole for each such row.
- */
-const work = (plan: PlanNode): number =>
-	rowsRead(plan) +
-	rowsGenerated(plan) +
-	Arr.reduce(
-		Arr.filter([...planNodes(plan)], (n) => n.nodeType === "CTE Scan"),
-		0,
-		(sum, n) => sum + scannedRows(n)
-	)
-
 /** The runs of the scans of `table` a plan made, each scan's loops summed: a Bitmap Index Scan's are its heap scan's. */
 const runsOf = (plan: PlanNode, table: string): number =>
 	Arr.reduce(
@@ -537,21 +518,19 @@ const runsOf = (plan: PlanNode, table: string): number =>
 /**
  * One case in its one transaction, which the case's end rolls back: the children beside (besideChildren) stored, then
  * children 1 to `children`, child c's sitting of each stage, its item session n at stage n mod `stages`, each with
- * `attempts` attempts and a mark each, counted as a VACUUM counts them; the read of child 1's stage 0 (`by` its
- * sitting, or at the parameters) explained under no planner setting; then `more` children stored beside them alike, and
- * the read explained again. Both times its scans read at most three times the stage's stored rows, its sitting where
+ * `attempts` attempts and a mark each, counted as a VACUUM counts them, under the case's statistics; the read of child
+ * 1's stage 0 (`by` its sitting, or at the parameters) run under its carried advice once the plan laws hold over it
+ * (test/support/advice.ts servedRun); then `more` children stored beside them alike, and the read run again. Both times
+ * its scans read at most three times the stage's stored rows (test/support/judge.ts readWork), its sitting where
  * the read reaches the stage through it, its sessions, their attempts and marks: the head's fold at the sitting's child
  * and stage (a statement site, one evaluation of the fold LATERAL per key) or at the parameters, and the attachment's
  * at the head's rows, each read the stage's sessions by (child, stage), the chain's lead, and each session's attempts
  * by its key, the attachment each latest attempt's mark by its key, and each CTE row is the key or one of the stage's
  * latest attempts, read at most once by each reader (6 rows a session and 2 an attempt at most, within three times the
- * stage's 1 and 2). Every attempt of the child, its other stages', read first, as an order PostgreSQL's estimates chose
- * did, passes the bound at four stages; a fold derived whole reads every child's rows, ten times at least; and an
+ * stage's 1 and 2). Every attempt of the child, its other stages', read first, passes the bound at four stages; a fold derived whole reads every child's rows, ten times at least; and an
  * attachment whose correlation the parameters hold, co-grouped as if no declared-key prefix bound it, joins every mark
  * of the child, its other stages', by the child alone. The pairs read's plan derives its fold once besides
- * (`derivations`), at the sitting's one key, however many reads of it the pairs make. The bound, not the rows themselves, holds: PostgreSQL plans what
- * it reads of the stage by its estimates, which the children beside move (a mark read by the child, or by its latest
- * attempt's key).
+ * (`derivations`), at the sitting's one key, however many reads of it the pairs make.
  */
 export const runStage = (
 	installed: Installed,
@@ -603,6 +582,7 @@ export const runStage = (
 						statedDistinct(names.table(Seat), c.statistics.seat),
 						statedDistinct(names.table(SeatGrade), c.statistics.grade)
 					]
+		yield* standUpJudge(connection, installed.installation)
 		for (const sql of [
 			`INSERT INTO ${names.table(Flag)} VALUES (true), (false)`,
 			`INSERT INTO ${names.table(Course)} SELECT s, s, 0, s FROM generate_series(0, ${String(c.stages - 1)}) AS t(s)`,
@@ -613,16 +593,14 @@ export const runStage = (
 		]) {
 			yield* connection.query(sql, [])
 		}
-		const options = {
-			...testCompile,
-			installation: identity.schema(parsedSchemaName(installed.declared))
-		}
-		const { read, params: at } = stageReads(c.stages)[by]
-		const template = succeeded(compileTemplate(read, undefined, options), "the read compiles")
-		const [statement, ...others] = template.optimized
-		assert.ok(statement !== undefined && others.length === 0, "the read is one statement")
-		const params = paramTexts(statement, at, declaredOf(template, read, undefined, options))
-		const explained = planAsRun(connection.queryValues, statement.sql, params)
+		const { read: program, params: at } = stageReads(c.stages)[by]
+		const read = yield* servedRead(
+			installed,
+			fullWorldRole(installed, Ledger),
+			program,
+			`the read of child 1's stage by ${by}`
+		)
+		const explained = servedRun({ values: connection.queryValues }, read, at)
 		/**
 		 * The stage's stored rows: child 1's sitting of stage 0 where the read reaches it, its sessions, their attempts and
 		 * marks; for the slot read, the course, child 1's seats and their grades; for the grade read, child 1's seats and
@@ -654,7 +632,7 @@ export const runStage = (
 			Math.min(runsOf(plan, names.tableIdent(ItemSession)), runsOf(plan, names.tableIdent(Attempt)))
 		const bounded = (children: number) =>
 			Effect.map(explained, (plan) => {
-				const scanned = work(plan)
+				const scanned = readWork(plan)
 				assert.ok(
 					scanned <= bound,
 					`${Formatter.format(c)}: the read of child 1's stage beside ${String(children)} children reads ${String(scanned)} rows, past its bound ${String(bound)} (the stage's ${String(own)})`

@@ -20,6 +20,7 @@ import type {
 	ColumnDef,
 	EmittedText,
 	Expr,
+	FromSource,
 	ObjectName,
 	OperandSelect,
 	TypeRef,
@@ -539,3 +540,11 @@ export const rosterDomainSql = (
 			}
 		]
 	})
+
+/**
+ * The table a FROM source reads, one spelling for each side of the binding (sql/bind.ts): an unbound FROM's table, as a
+ * lowering prints it, or a bound read's, as every statement an installation holds or a served program sends reads it
+ * (sql/ast.ts FromSource `table`, `read`); none for any other source.
+ */
+export const tableOfSource = (source: FromSource): ObjectName | undefined =>
+	source.kind === "table" || source.kind === "read" ? source.table : undefined

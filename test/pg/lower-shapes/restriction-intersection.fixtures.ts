@@ -3,37 +3,26 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter } from "effect"
-import { identity } from "#compiler/core/identity.ts"
-import type { AccessIndexRequest } from "#compiler/ir/products.ts"
-import { workload } from "#compiler/program/workload/value.ts"
+import { Effect, Formatter } from "effect"
+import type { BenchSession } from "#bench/harness/session.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { key, on, relation, schema } from "#compiler/public/schema.ts"
-import { planRequests, type ReadPlan } from "#compiler/sql/plan.ts"
-import { ordinarySession } from "#test/support/ambient.ts"
-import { succeeded } from "#test/support/assert.ts"
 import {
-	compileTemplate,
-	compileTestWorkload,
-	declaredOf,
-	paramTexts,
-	type TestNaming,
-	testCompile
-} from "#test/support/compile.ts"
+	fullWorldRole,
+	type PgClassState,
+	pgClassStates,
+	servedRead,
+	servedRun,
+	type StateLoad,
+	standIn
+} from "#test/support/advice.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed } from "#test/support/install-migrate.ts"
 import { fullWorldTemplate } from "#test/support/installed.ts"
-import { keyedReadWork, planAsRun, probeCostOf, wideScans } from "#test/support/judge.ts"
-import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { readWork } from "#test/support/judge.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
-import { unprintedPaths } from "#test/support/read-indexes.ts"
-import {
-	countedAsVacuumed,
-	rowsBeside,
-	rowsPerPage,
-	type StatedDistinct,
-	statedDistinct
-} from "#test/support/substrate/fill.ts"
 
 const i = pg.integer
 
@@ -171,12 +160,10 @@ export const intersectionTemplate = fullWorldTemplate({
 	ambient: ordinarySession
 })
 
-/** How a case's columns' statistics stand: as the stored rows' counts leave them, or stated (fill.ts statedDistinct). */
-export type Statistics = "counted" | StatedDistinct
-
 /**
  * A case: the children stored, each with `stages` stages of `sessions` item sessions, each session `controls` holds and
- * `controls` pauses; the children stored beside them before the read is explained again; the columns' statistics.
+ * `controls` pauses; the children stored beside them before the read is run again; the pg_class state its tables
+ * stand in as each load ends (test/support/advice.ts PgClassState).
  */
 export interface IntersectionCase {
 	readonly children: number
@@ -184,7 +171,7 @@ export interface IntersectionCase {
 	readonly sessions: number
 	readonly controls: number
 	readonly more: number
-	readonly statistics: Statistics
+	readonly state: PgClassState
 }
 
 export const intersectionGen: Gen<IntersectionCase> = (s) => ({
@@ -193,20 +180,17 @@ export const intersectionGen: Gen<IntersectionCase> = (s) => ({
 	sessions: s.draw(int(3, 8)),
 	controls: s.draw(int(1, 3)),
 	more: s.draw(int(60, 160)),
-	statistics: s.draw(element<Statistics>(["counted", "unique", "one value"]))
+	state: s.draw(element(pgClassStates))
 })
 
 export type IntersectionFeature =
 	| "beside a few children"
 	| "beside many children"
-	| "under counted statistics"
-	| "under statistics stating each value its own"
-	| "under statistics stating every row one value"
+	| `its tables ${PgClassState}`
 
 /**
  * The statements storing children `from` to `to`: child c's sitting of each stage, its item session n at stage n mod
- * `stages`, each with `controls` holds and `controls` pauses; then each table counted as a VACUUM counts it, and its
- * columns' statistics as the case states them.
+ * `stages`, each with `controls` holds and `controls` pauses.
  */
 const stored = (
 	installed: Installed,
@@ -218,91 +202,47 @@ const stored = (
 	const children = `generate_series(${String(from)}, ${String(to)}) AS g(c)`
 	const sessions = `FROM ${children}, generate_series(1, ${String(c.stages * c.sessions)}) AS h(n)`
 	const controls = `${sessions}, generate_series(1, ${String(c.controls)}) AS k(held)`
-	const tables = Arr.map([ItemSession, Hold, Pause, Sitting], (t) => names.table(t))
-	const statistics = c.statistics
 	return [
 		`INSERT INTO ${names.table(Sitting)} SELECT c * ${String(c.stages)} + s, c, s FROM ${children}, generate_series(0, ${String(c.stages - 1)}) AS t(s)`,
 		`INSERT INTO ${names.table(ItemSession)} SELECT c, n, n % ${String(c.stages)} ${sessions}`,
 		`INSERT INTO ${names.table(Hold)} SELECT c, n % ${String(c.stages)}, n, held ${controls}`,
-		`INSERT INTO ${names.table(Pause)} SELECT c, n % ${String(c.stages)}, n, held ${controls}`,
-		...Arr.map(tables, countedAsVacuumed),
-		...(statistics === "counted" ? [] : Arr.map(tables, (t) => statedDistinct(t, statistics)))
+		`INSERT INTO ${names.table(Pause)} SELECT c, n % ${String(c.stages)}, n, held ${controls}`
 	]
 }
 
-/** The case's children `from` to `to` stored (`stored`). */
-const store = (
+/** The case's children `first` on, `units` of them, stored as one load (`stored`, test/support/advice.ts standIn). */
+const storing = (
 	installed: Installed,
 	connection: PgConnection,
 	c: IntersectionCase,
-	from: number,
-	to: number
-) =>
-	Effect.forEach(stored(installed, c, from, to), (sql) => connection.query(sql, []), {
-		discard: true
-	})
-
-/**
- * Every equality path the workload's access asks of `program`'s statement at a binding it prints (read-indexes.ts
- * unprintedPaths): a path the extraction asks of a chain no statement prints builds an index no plan reads, a B-tree
- * insert on every write bought for nothing.
- */
-const everyPathPrinted = (
-	options: TestNaming,
-	statement: { readonly spec: { readonly plan: ReadPlan<AccessIndexRequest> } },
-	c: object
-): void => {
-	const planned = succeeded(
-		compileTestWorkload(
-			[{ login: "reader", workloads: [workload(Ledger, { controlRead, probeRead })] }],
-			Ledger,
-			options
-		),
-		"the workload plans"
-	)
-	const relations = new Set(Arr.map(planRequests(statement.spec.plan), (r) => r.relation))
-	assert.equal(
-		Arr.join(
-			unprintedPaths(
-				Arr.filter(planned.requests, (r) => relations.has(r.relation)),
-				[statement.spec.plan]
-			),
-			", "
-		),
-		"",
-		`${Formatter.format(c)}: paths the workload's access asks at a binding no statement of the read prints`
-	)
+	first: number,
+	units: number
+): StateLoad => {
+	const names = namesOf(installed)
+	return {
+		tables: [names.table(ItemSession), names.table(Hold), names.table(Pause), names.table(Sitting)],
+		units,
+		load: (from, to) =>
+			Effect.forEach(
+				stored(installed, c, first + from - 1, first + to - 1),
+				(sql) => connection.query(sql, []),
+				{ discard: true }
+			)
+	}
 }
 
 /**
- * A statement explained with ANALYZE on `connection`, under no planner setting: its keyed work, and the tables it reads
- * whole by a scan that costs more than a probe, `probeCost` (test/support/judge.ts keyedReadWork, wideScans).
- */
-const explainedWork = (
-	connection: PgConnection,
-	sql: string,
-	params: ReadonlyArray<string>,
-	probeCost: number
-) =>
-	Effect.map(planAsRun(connection.queryValues, sql, params), (plan) => ({
-		work: keyedReadWork(plan, probeCost),
-		wide: wideScans(plan, probeCost)
-	}))
-
-/**
  * The children a controls case stores beside its own before any of them, each of one sitting at stage 0, one item
- * session, one hold and one pause, numbered past every child a case stores (`besideFirst`): a store large beside the
- * read's rows, so PostgreSQL reads each relation the read binds by key through its index, as a store worth planning is
- * read, under no planner setting (fill.ts rowsBeside), at `probes` probes of each table, the narrowest four integers a
- * row.
+ * session, one hold and one pause, numbered past every child a case stores (`besideFirst`): `rows` children, one past
+ * the read's bound, so a read of any relation whole, or at a prefix every child shares, reads past it.
  */
 const besideControls = (
 	installed: Installed,
 	c: IntersectionCase,
-	probes: number
+	rows: number
 ): ReadonlyArray<string> => {
 	const names = namesOf(installed)
-	const children = `FROM generate_series(${String(besideFirst)}, ${String(besideFirst + rowsBeside(probes, rowsPerPage(4 * 4)) - 1)}) AS g(c)`
+	const children = `FROM generate_series(${String(besideFirst)}, ${String(besideFirst + rows - 1)}) AS g(c)`
 	return [
 		`INSERT INTO ${names.table(Sitting)} SELECT c * ${String(c.stages)}, c, 0 ${children}`,
 		`INSERT INTO ${names.table(ItemSession)} SELECT c, 1, 1 % ${String(c.stages)} ${children}`,
@@ -316,10 +256,10 @@ const besideFirst = 1_000_000
 
 /**
  * One case in its one transaction, which the case's end rolls back: the children beside (`besideControls`) stored, then
- * children 1 to `children`, the read of child 1's stage 0 through its sitting explained under no planner setting; then
- * `more` children stored beside them, and the read explained again. Both times it reads no table larger than a probe
- * whole, and its keyed work (test/support/judge.ts keyedReadWork) is at most four times what each of the stage's
- * sessions delivers, the stage's controls, and its sitting and sessions: each session's attachment derives the union once
+ * children 1 to `children`, its tables stood in the case's pg_class state, the read of child 1's stage 0 through its
+ * sitting run under its carried advice once the plan laws hold over it (test/support/advice.ts servedRun); then `more`
+ * children stored beside them, stood again, and the read run again. Both times its work (test/support/judge.ts
+ * readWork) is at most four times what each of the stage's sessions delivers, the stage's controls, and its sitting and sessions: each session's attachment derives the union once
  * at the session's child and stage, the part both its rules' reads share, and each rule scans those held rows once. A
  * union reached by neither read, the statement's CTE derived for every child stored and scanned twice for each session,
  * reads every child's controls, past the bound with ten children stored.
@@ -331,59 +271,39 @@ export const runControls = (
 	k: Case<IntersectionFeature>
 ) =>
 	Effect.gen(function* () {
-		const probeCost = yield* probeCostOf((sql) => connection.queryValues(sql, []))
-		for (const sql of besideControls(installed, c, c.sessions)) {
-			yield* connection.query(sql, [])
-		}
-		yield* store(installed, connection, c, 1, c.children)
-		const options = {
-			...testCompile,
-			installation: identity.schema(parsedSchemaName(installed.declared))
-		}
-		const template = succeeded(
-			compileTemplate(controlRead, undefined, options),
-			"the read compiles"
-		)
-		const [statement, ...others] = template.optimized
-		assert.ok(statement !== undefined && others.length === 0, "the read is one statement")
-		const params = paramTexts(
-			statement,
-			{ sitting: c.stages },
-			declaredOf(template, controlRead, undefined, options)
-		)
+		const session: BenchSession = { values: connection.queryValues }
 		/** The stage's controls, its sessions' holds and pauses, which each of its sessions delivers; and its sitting and sessions. */
 		const stageControls = 2 * c.sessions * c.controls
 		const bound = 4 * (c.sessions * stageControls + 1 + c.sessions)
+		for (const sql of besideControls(installed, c, bound + 1)) {
+			yield* connection.query(sql, [])
+		}
+		yield* standIn(session, storing(installed, connection, c, 1, c.children), c.state)
+		const read = yield* servedRead(
+			installed,
+			fullWorldRole(installed, Ledger),
+			controlRead,
+			"the read of child 1's stage"
+		)
 		const bounded = (children: number) =>
-			Effect.map(explainedWork(connection, statement.sql, params, probeCost), ({ work, wide }) => {
-				assert.deepEqual(
-					wide,
-					[],
-					`${Formatter.format(c)}: the read of child 1's stage beside ${String(children)} children reads no table larger than a probe whole\n${statement.sql}`
-				)
+			Effect.map(servedRun(session, read, { sitting: c.stages }), (plan) => {
+				const work = readWork(plan)
 				assert.ok(
 					work <= bound,
-					`${Formatter.format(c)}: the read of child 1's stage beside ${String(children)} children reads ${String(work)} rows, past its bound ${String(bound)}\n${statement.sql}`
+					`${Formatter.format(c)}: the read of child 1's stage beside ${String(children)} children reads ${String(work)} rows, past its bound ${String(bound)}\n${read.statement.sql}`
 				)
 			})
-		everyPathPrinted(options, template.run.statement, c)
 		yield* bounded(c.children)
-		yield* store(installed, connection, c, c.children + 1, c.children + c.more)
+		yield* standIn(session, storing(installed, connection, c, c.children + 1, c.more), c.state)
 		yield* bounded(c.children + c.more)
 		k.note(c.children < 20 ? "beside a few children" : "beside many children")
-		k.note(
-			c.statistics === "counted"
-				? "under counted statistics"
-				: c.statistics === "unique"
-					? "under statistics stating each value its own"
-					: "under statistics stating every row one value"
-		)
+		k.note(`its tables ${c.state}`)
 	})
 
 /**
  * A probe case: `xs` x values and `ys` y values scored at each of `stages` stages, both kinds; a batch of `probes`
- * probes at stage 0, probe p at x p and y p; then `more` stages scored beside them before the read is explained again;
- * and how the columns' statistics stand.
+ * probes at stage 0, probe p at x p and y p; then `more` stages scored beside them before the read is run again; and
+ * the pg_class state its tables stand in as each load ends (test/support/advice.ts PgClassState).
  */
 export interface ProbeCase {
 	readonly stages: number
@@ -391,7 +311,7 @@ export interface ProbeCase {
 	readonly ys: number
 	readonly probes: number
 	readonly more: number
-	readonly statistics: Statistics
+	readonly state: PgClassState
 }
 
 export const probeGen: Gen<ProbeCase> = (s) => {
@@ -403,20 +323,15 @@ export const probeGen: Gen<ProbeCase> = (s) => {
 		ys,
 		probes: s.draw(int(1, Math.min(xs, ys))),
 		more: s.draw(int(10, 40)),
-		statistics: s.draw(element<Statistics>(["counted", "unique", "one value"]))
+		state: s.draw(element(pgClassStates))
 	}
 }
 
-export type ProbeFeature =
-	| "beside few stages"
-	| "beside many stages"
-	| "under counted statistics"
-	| "under statistics stating each value its own"
-	| "under statistics stating every row one value"
+export type ProbeFeature = "beside few stages" | "beside many stages" | `its tables ${PgClassState}`
 
 /**
- * The statements storing stages `from` to `to`: each x's and y's score of both kinds, then each table counted as a VACUUM
- * counts it, and its columns' statistics as the case states them; the batch's probes with the first stages.
+ * The statements storing stages `from` to `to`: each x's and y's score of both kinds; the batch's probes with the
+ * first stages.
  */
 const storedScores = (
 	installed: Installed,
@@ -426,8 +341,6 @@ const storedScores = (
 ): ReadonlyArray<string> => {
 	const names = namesOf(installed)
 	const grid = `FROM generate_series(1, ${String(c.xs)}) AS a(x), generate_series(1, ${String(c.ys)}) AS b(y), generate_series(${String(from)}, ${String(to)}) AS t(s)`
-	const tables = Arr.map([Score, Grade, Probe], (t) => names.table(t))
-	const statistics = c.statistics
 	return [
 		`INSERT INTO ${names.table(Score)} SELECT x, y, s, x * 10 + y ${grid}`,
 		`INSERT INTO ${names.table(Grade)} SELECT x, y, s, x * 10 + y + 1 ${grid}`,
@@ -435,21 +348,19 @@ const storedScores = (
 			? [
 					`INSERT INTO ${names.table(Probe)} SELECT 1, p, p, p, 0 FROM generate_series(1, ${String(c.probes)}) AS g(p)`
 				]
-			: []),
-		...Arr.map(tables, countedAsVacuumed),
-		...(statistics === "counted" ? [] : Arr.map(tables, (t) => statedDistinct(t, statistics)))
+			: [])
 	]
 }
 
 /**
  * The stages a probe case scores beside its own before any of them, numbered past every stage a case scores
  * (`besideFirst`), each one score and one grade of x 1 and y 1, and as many batches of one probe each: a store large
- * beside the read's rows, so PostgreSQL reads each relation the read binds by key through its index under no planner
- * setting (fill.ts rowsBeside), at `probes` probes of each table, the narrowest four integers a row.
+ * beside the read's rows: `rows` stages, one past the read's bound, so a read of any relation whole, or at a prefix
+ * every stage shares, reads past it.
  */
-const besideScores = (installed: Installed, probes: number): ReadonlyArray<string> => {
+const besideScores = (installed: Installed, rows: number): ReadonlyArray<string> => {
 	const names = namesOf(installed)
-	const stages = `FROM generate_series(${String(besideFirst)}, ${String(besideFirst + rowsBeside(probes, rowsPerPage(4 * 4)) - 1)}) AS t(s)`
+	const stages = `FROM generate_series(${String(besideFirst)}, ${String(besideFirst + rows - 1)}) AS t(s)`
 	return [
 		`INSERT INTO ${names.table(Score)} SELECT 1, 1, s, 11 ${stages}`,
 		`INSERT INTO ${names.table(Grade)} SELECT 1, 1, s, 12 ${stages}`,
@@ -459,9 +370,10 @@ const besideScores = (installed: Installed, probes: number): ReadonlyArray<strin
 
 /**
  * One probe case in its one transaction, which the case's end rolls back: the stages beside (`besideScores`) scored,
- * then stages 0 to `stages` - 1 and the batch's probes stored, the read of the batch explained under no planner setting;
- * then `more` stages scored beside them, and the read explained again. Both times it reads no table larger than a probe
- * whole, and its keyed work (test/support/judge.ts keyedReadWork) is at most four times what its probes' stage holds
+ * then stages 0 to `stages` - 1 and the batch's probes stored, its tables stood in the case's pg_class state, the read
+ * of the batch run under its carried advice once the plan laws hold over it (test/support/advice.ts servedRun); then
+ * `more` stages scored beside them, stood again, and the read run again. Both times its work (test/support/judge.ts
+ * readWork) is at most four times what its probes' stage holds
  * for each probe, and its probes: each probe's attachment derives the scores once at its stage, the part both its
  * rules' reads share, though no key leads with it, and each rule scans those held rows once. The scores reached by
  * neither read, the statement's CTE derived for every stage scored and scanned twice for each probe, read every stage's
@@ -474,52 +386,43 @@ export const runProbes = (
 	k: Case<ProbeFeature>
 ) =>
 	Effect.gen(function* () {
-		const probeCost = yield* probeCostOf((sql) => connection.queryValues(sql, []))
-		for (const sql of [
-			...besideScores(installed, 2 * c.probes),
-			...storedScores(installed, c, 0, c.stages - 1)
-		]) {
-			yield* connection.query(sql, [])
-		}
-		const options = {
-			...testCompile,
-			installation: identity.schema(parsedSchemaName(installed.declared))
-		}
-		const template = succeeded(compileTemplate(probeRead, undefined, options), "the read compiles")
-		const [statement, ...others] = template.optimized
-		assert.ok(statement !== undefined && others.length === 0, "the read is one statement")
-		const params = paramTexts(
-			statement,
-			{ batch: 1 },
-			declaredOf(template, probeRead, undefined, options)
-		)
+		const session: BenchSession = { values: connection.queryValues }
 		/** The probes' stage's scores of both kinds, which each probe's derivation reads. */
 		const stageScores = 2 * c.xs * c.ys
 		const bound = 4 * (c.probes * stageScores + c.probes + 1)
-		const bounded = (stages: number) =>
-			Effect.map(explainedWork(connection, statement.sql, params, probeCost), ({ work, wide }) => {
-				assert.deepEqual(
-					wide,
-					[],
-					`${Formatter.format(c)}: the read of the batch beside ${String(stages)} stages reads no table larger than a probe whole\n${statement.sql}`
+		const names = namesOf(installed)
+		/** Stages `first` on, `units` of them, scored as one load (`storedScores`, test/support/advice.ts standIn). */
+		const scoring = (first: number, units: number): StateLoad => ({
+			tables: [names.table(Score), names.table(Grade), names.table(Probe)],
+			units,
+			load: (from, to) =>
+				Effect.forEach(
+					storedScores(installed, c, first + from - 1, first + to - 1),
+					(sql) => connection.query(sql, []),
+					{ discard: true }
 				)
-				assert.ok(
-					work <= bound,
-					`${Formatter.format(c)}: the read of the batch beside ${String(stages)} stages reads ${String(work)} rows, past its bound ${String(bound)}\n${statement.sql}`
-				)
-			})
-		everyPathPrinted(options, template.run.statement, c)
-		yield* bounded(c.stages)
-		for (const sql of storedScores(installed, c, c.stages, c.stages + c.more - 1)) {
+		})
+		for (const sql of besideScores(installed, bound + 1)) {
 			yield* connection.query(sql, [])
 		}
+		yield* standIn(session, scoring(0, c.stages), c.state)
+		const read = yield* servedRead(
+			installed,
+			fullWorldRole(installed, Ledger),
+			probeRead,
+			"the read of the batch"
+		)
+		const bounded = (stages: number) =>
+			Effect.map(servedRun(session, read, { batch: 1 }), (plan) => {
+				const work = readWork(plan)
+				assert.ok(
+					work <= bound,
+					`${Formatter.format(c)}: the read of the batch beside ${String(stages)} stages reads ${String(work)} rows, past its bound ${String(bound)}\n${read.statement.sql}`
+				)
+			})
+		yield* bounded(c.stages)
+		yield* standIn(session, scoring(c.stages, c.more), c.state)
 		yield* bounded(c.stages + c.more)
 		k.note(c.stages < 3 ? "beside few stages" : "beside many stages")
-		k.note(
-			c.statistics === "counted"
-				? "under counted statistics"
-				: c.statistics === "unique"
-					? "under statistics stating each value its own"
-					: "under statistics stating every row one value"
-		)
+		k.note(`its tables ${c.state}`)
 	})

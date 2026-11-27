@@ -5,7 +5,7 @@ import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { type PlanNode, planNodes, scannedRows } from "#bench/harness/explain.ts"
-import { identity } from "#compiler/core/identity.ts"
+import type { BenchSession } from "#bench/harness/session.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { closedId, natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -21,22 +21,16 @@ import {
 	unit
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { fullWorldRole, servedRead, servedRun } from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { compileTemplate, declaredOf, paramTexts, testCompile } from "#test/support/compile.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { fullWorldTemplate } from "#test/support/installed.ts"
-import { keyedReadWork, planAsRun, probeCostOf, wideScans } from "#test/support/judge.ts"
-import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { readWork } from "#test/support/judge.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 import { indexesRead, plainIndexesOf } from "#test/support/read-indexes.ts"
-import {
-	countedAsVacuumed,
-	misleadingDistinct,
-	rowsBeside,
-	rowsPerPage
-} from "#test/support/substrate/fill.ts"
+import { countedAsVacuumed, misleadingDistinct } from "#test/support/substrate/fill.ts"
 
 /** A Clerk user, as metis's ClerkUser. */
 const Clerk = str.regex("^user_[0-9A-Za-z]{1,64}$")
@@ -527,11 +521,8 @@ export const liveTemplate = templateOf("live", "ready keys live", "ready_keys_li
  * The statistics the planner reads of the ledger: what a VACUUM counts, or misleading ones that state every row one
  * learner's and one sitting's (fill.ts misleadingDistinct), where a column is no anchor the installation declares, so an
  * estimate would read every learner's assignments and every sitting's events as one row each; an anchor keeps its
- * declaration, as no ANALYZE changes it. A sitting's attempts keep their counted round: the attempts at a round are a
- * seek no key holds, which PostgreSQL prices by the column's statistics alone, among indexes it may scan whole, where
- * the installation's declared statistics price it as an anchor (physical/statistics/declared.ts: the first column of
- * many values of the index the workload's access builds over it) and no ANALYZE changes it; every other read here is
- * bound by keys whatever an estimate says.
+ * declaration, as no ANALYZE changes it. A sitting's attempts keep their counted round. Every read stands on the plan
+ * it carries whatever an estimate says.
  */
 export type Statistics = "counted" | "misleading"
 
@@ -572,16 +563,17 @@ export type ReadyFeature = `${Read}, ${Statistics}, beside ${"a few" | "many"} l
 
 /**
  * The learners a ledger stores beside a case's before any of them, numbered past every learner a case stores, each as a
- * case's learner is: a store large beside one learner's rows, so PostgreSQL reads each relation a read binds by key
- * through its index under no planner setting (fill.ts rowsBeside), the narrowest a person's text a row.
+ * case's learner is: a store large beside one learner's rows, so a read of any relation whole, or at a prefix every
+ * learner shares, reads past the bound of every case.
  *
  * @limitKind derived
  * @owner the ready-keys properties (ready-keys.test.ts)
  * @unit learners
  * @scope the background every case's ledger stands beside
- * @derivation fill.ts rowsBeside of one probe over a table of one short text a row, Person's
+ * @derivation The largest bound a case draws (boundOf) is a list's at twelve sittings, 2 × (3 + 13 × 12) = 318 rows,
+ *   and each learner beside adds a row at least to every relation the reads bind: 319 learners pass it.
  */
-const besideLearners = rowsBeside(1, rowsPerPage(16))
+const besideLearners = 319
 
 /** The first learner stored beside a case's own: past every learner a case stores. */
 const besideFirst = 1_000_000
@@ -667,8 +659,9 @@ const paramsOf = (read: Read): Readonly<Record<string, unknown>> => {
  * invalidations, reinstatements and grants, every stored view brought up to them as a commit would (SET CONSTRAINTS ALL
  * IMMEDIATE runs the upkeep the judge defers to COMMIT), counted as a VACUUM counts them, their learners, numbers, Clerk
  * users and grants' people stated misleading where the case draws it (fill.ts misleadingDistinct), beside the learners a
- * ledger stores first (`besideLearners`), under no planner setting, under claims naming `user_1`; with each read's
- * explain and rows, and `more` learners stored beside them alike.
+ * ledger stores first (`besideLearners`), under claims naming `user_1`; with each read as a served Db runs it, run under
+ * its carried advice once the plan laws hold over it (test/support/advice.ts servedRun), and its rows, and `more`
+ * learners stored beside them alike.
  */
 const filled = (
 	storage: Storage,
@@ -772,26 +765,21 @@ const filled = (
 		]) {
 			yield* connection.query(sql, [])
 		}
-		const options = {
-			...testCompile,
-			installation: identity.schema(parsedSchemaName(installed.declared))
-		}
-		/** A read's statement, with its parameters (paramsOf): its explain under ANALYZE, and its rows. */
-		const reading = (read: Read) => {
-			const program = ledger.reads[read]
-			const template = succeeded(compileTemplate(program, undefined, options), "the read compiles")
-			const [statement, ...others] = template.optimized
-			assert.ok(statement !== undefined && others.length === 0, "the read is one statement")
-			const params = paramTexts(
-				statement,
-				paramsOf(read),
-				declaredOf(template, program, undefined, options)
+		const session: BenchSession = { values: connection.queryValues }
+		/** A read's statement, with its parameters (paramsOf): its run under its advice, and its rows. */
+		const reading = (read: Read) =>
+			Effect.map(
+				servedRead(
+					installed,
+					fullWorldRole(installed, ledger.Ops),
+					ledger.reads[read],
+					`learner 1's ${read}`
+				),
+				(served) => ({
+					explained: servedRun(session, served, paramsOf(read)),
+					rows: connection.queryValues(served.statement.sql, served.params(paramsOf(read)))
+				})
 			)
-			return {
-				explained: planAsRun(connection.queryValues, statement.sql, params),
-				rows: connection.queryValues(statement.sql, params)
-			}
-		}
 		const more = Effect.forEach(
 			[
 				...stored(c.learners + 1, c.learners + c.more),
@@ -801,16 +789,16 @@ const filled = (
 			(sql) => connection.query(sql, []),
 			{ discard: true }
 		)
-		const probeCost = yield* probeCostOf((sql) => connection.queryValues(sql, []))
-		return { reading, more, tables, probeCost }
+		return { reading, more, tables }
 	})
 
 /**
  * One case of a read: the ledger filled (`filled`); learner 1's first sitting read (started, valid, of a test no
  * withdrawal names, which its own teaching grant permits its Clerk user to review: a read under no claims reads
- * nothing); the read explained, its scans reading at most its bound (boundOf): the claims drive the list, each sitting's
+ * nothing); the read run under its carried advice, its work (test/support/judge.ts readWork) at most its bound
+ * (boundOf): the claims drive the list, each sitting's
  * status and validity read at its number, and the guard reads the programs the signed-in Clerk user may run at its key;
- * then `more` learners stored beside them, and the read explained again, within the same bound. A read that derives a
+ * then `more` learners stored beside them, and the read run again, within the same bound. A read that derives a
  * view whole reads every learner's rows.
  */
 export const runReady = (
@@ -822,18 +810,13 @@ export const runReady = (
 ) =>
 	Effect.gen(function* () {
 		const ledger = yield* filled(storage, installed, connection, c)
-		const read = ledger.reading(c.read)
+		const read = yield* ledger.reading(c.read)
 		const rows = yield* read.rows
 		assert.ok(rows.length > 0, `${Formatter.format(c)}: learner 1's first sitting is read`)
 		const bound = boundOf(c)
 		const bounded = (learners: number) =>
 			Effect.map(read.explained, (plan) => {
-				assert.deepEqual(
-					wideScans(plan, ledger.probeCost),
-					[],
-					`${Formatter.format(c)}: learner 1's ${c.read} beside ${String(learners)} learners reads no table larger than a probe whole: ${scansOf(plan)}`
-				)
-				const work = keyedReadWork(plan, ledger.probeCost)
+				const work = readWork(plan)
 				assert.ok(
 					work <= bound,
 					`${Formatter.format(c)}: learner 1's ${c.read} beside ${String(learners)} learners reads ${String(work)} rows, past its bound ${String(bound)} (its ${String(c.assignments)} sittings): ${scansOf(plan)}`
@@ -897,14 +880,9 @@ export const runWorkload = (
 		yield* ledger.more
 		const used = new Set<string>()
 		for (const read of reads) {
-			const plan = yield* ledger.reading(read).explained
+			const plan = yield* (yield* ledger.reading(read)).explained
 			const bound = boundOf({ ...c, read, statistics: "counted" })
-			assert.deepEqual(
-				wideScans(plan, ledger.probeCost),
-				[],
-				`${Formatter.format(c)}: learner 1's ${read} beside ${String(c.learners + c.more)} learners reads no table larger than a probe whole: ${scansOf(plan)}`
-			)
-			const work = keyedReadWork(plan, ledger.probeCost)
+			const work = readWork(plan)
 			assert.ok(
 				work <= bound,
 				`${Formatter.format(c)}: learner 1's ${read} beside ${String(c.learners + c.more)} learners reads ${String(work)} rows, past its bound ${String(bound)}: ${scansOf(plan)}`

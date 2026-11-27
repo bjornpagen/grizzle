@@ -5,26 +5,26 @@ import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { type PlanNode, planNodes } from "#bench/harness/explain.ts"
-import { identity } from "#compiler/core/identity.ts"
+import type { BenchSession } from "#bench/harness/session.ts"
 import { Num } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema } from "#compiler/public/schema.ts"
+import {
+	fullWorldRole,
+	type PgClassState,
+	pgClassStates,
+	servedRead,
+	servedRun,
+	type StateLoad,
+	standIn
+} from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { compileTemplate, declaredOf, paramTexts, testCompile } from "#test/support/compile.ts"
 import { type Installed } from "#test/support/install-migrate.ts"
 import { fullWorldTemplate } from "#test/support/installed.ts"
-import { keyedReadWork, planAsRun, probeCostOf, wideScans } from "#test/support/judge.ts"
-import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { readWork } from "#test/support/judge.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
-import {
-	countedAsVacuumed,
-	rowsBeside,
-	rowsPerPage,
-	type StatedDistinct,
-	statedDistinct
-} from "#test/support/substrate/fill.ts"
 
 const i = pg.integer
 
@@ -116,20 +116,17 @@ export const reachTemplate = fullWorldTemplate({
 	ambient: ordinarySession
 })
 
-/** How a case's columns' statistics stand: as the stored rows' counts leave them, or stated (fill.ts statedDistinct). */
-export type Statistics = "counted" | StatedDistinct
-
 /**
  * A case: the read sitting's `sessions` item sessions, of items 1 to `sessions`; `learners` learners' sittings beside it,
- * each of `beside` sessions; then `more` learners stored beside them before the read is explained again; and how the
- * columns' statistics stand.
+ * each of `beside` sessions; then `more` learners stored beside them before the read is run again; and the pg_class
+ * state its tables stand in as each load ends (test/support/advice.ts PgClassState).
  */
 export interface ReachCase {
 	readonly sessions: number
 	readonly learners: number
 	readonly beside: number
 	readonly more: number
-	readonly statistics: Statistics
+	readonly state: PgClassState
 }
 
 export const reachGen: Gen<ReachCase> = (s) => ({
@@ -137,21 +134,18 @@ export const reachGen: Gen<ReachCase> = (s) => ({
 	learners: s.draw(int(1, 4)),
 	beside: s.draw(int(1, 8)),
 	more: s.draw(int(20, 60)),
-	statistics: s.draw(element<Statistics>(["counted", "unique", "one value"]))
+	state: s.draw(element(pgClassStates))
 })
 
 export type ReachFeature =
 	| "beside few learners"
 	| "beside many learners"
-	| "under counted statistics"
-	| "under statistics stating each value its own"
-	| "under statistics stating every row one value"
+	| `its tables ${PgClassState}`
 
 /**
  * The statements storing learners `from` to `to` (learner 1 the read sitting's, its sessions `sessions`, every other's
  * `beside`): each learner's sitting, its item sessions at stage 0, its stage's control, an attempt of each even session,
- * and each item's control; then each table counted as a VACUUM counts it, and its columns' statistics as the case states
- * them.
+ * and each item's control.
  */
 const stored = (
 	installed: Installed,
@@ -162,10 +156,6 @@ const stored = (
 	const names = namesOf(installed)
 	const learners = `generate_series(${String(from)}, ${String(to)}) AS g(child)`
 	const sessions = `generate_series(1, CASE WHEN child = 1 THEN ${String(c.sessions)} ELSE ${String(c.beside)} END) AS h(n)`
-	const tables = Arr.map([Sitting, Session, ItemControl, StageControl, Attempt], (t) =>
-		names.table(t)
-	)
-	const statistics = c.statistics
 	return [
 		`INSERT INTO ${names.table(Sitting)} SELECT child, child, 0 FROM ${learners}`,
 		`INSERT INTO ${names.table(Session)} SELECT child, n, n, 0 FROM ${learners}, ${sessions}`,
@@ -175,26 +165,7 @@ const stored = (
 			? [
 					`INSERT INTO ${names.table(ItemControl)} SELECT item, item % 3 FROM generate_series(1, ${String(Math.max(c.sessions, c.beside))}) AS g(item)`
 				]
-			: []),
-		...Arr.map(tables, countedAsVacuumed),
-		...(statistics === "counted" ? [] : Arr.map(tables, (t) => statedDistinct(t, statistics)))
-	]
-}
-
-/**
- * The learners a case stores beside its own before any of them, numbered past every learner a case stores, each with a
- * sitting, one item session of item 2, its stage's control and an attempt: a store large beside the read sitting's
- * rows, so PostgreSQL reads each relation the read binds by key through its index under no planner setting (fill.ts
- * rowsBeside), at `probes` probes of each table, the narrowest three integers a row.
- */
-const besideLearners = (installed: Installed, probes: number): ReadonlyArray<string> => {
-	const names = namesOf(installed)
-	const learners = `FROM generate_series(1000000, ${String(1_000_000 + rowsBeside(probes, rowsPerPage(3 * 4)) - 1)}) AS g(child)`
-	return [
-		`INSERT INTO ${names.table(Sitting)} SELECT child, child, 0 ${learners}`,
-		`INSERT INTO ${names.table(Session)} SELECT child, 2, 2, 0 ${learners}`,
-		`INSERT INTO ${names.table(StageControl)} SELECT child, 0, 2 ${learners}`,
-		`INSERT INTO ${names.table(Attempt)} SELECT child, 2, 1 ${learners}`
+			: [])
 	]
 }
 
@@ -213,10 +184,10 @@ const readOnce = (plan: PlanNode): ReadonlyArray<string> => {
 }
 
 /**
- * One case in its one transaction, which the case's end rolls back: the learners beside (`besideLearners`) stored, then
- * the read sitting's learner and `learners` beside it, the read of the sitting explained under no planner setting; then
- * `more` learners stored beside them, and the read explained again: it reads no table larger than a probe whole, and
- * its keyed work (test/support/judge.ts keyedReadWork) is no more than before. The sitting's
+ * One case in its one transaction, which the case's end rolls back: the read sitting's learner and `learners` beside it
+ * stored, its tables stood in the case's pg_class state, and the read of the sitting run under its carried advice once
+ * the plan laws hold over it (test/support/advice.ts servedRun); then `more` learners stored beside them, stood again,
+ * and the read run again: its work (test/support/judge.ts readWork) is no more than before. The sitting's
  * rows are the same, and the control's read and the one under it each read Control at the session's key, each arm a
  * seek of the session and of its control, which no other learner's rows enter; where a control read at its key under
  * the head alone, the read under it unreached, left Control the statement's, every learner's sessions' controls derived
@@ -229,59 +200,46 @@ export const runReach = (
 	k: Case<ReachFeature>
 ) =>
 	Effect.gen(function* () {
-		const probeCost = yield* probeCostOf((sql) => connection.queryValues(sql, []))
-		for (const sql of [
-			...besideLearners(installed, 2 * c.sessions),
-			...stored(installed, c, 1, 1 + c.learners)
-		]) {
-			yield* connection.query(sql, [])
-		}
-		const options = {
-			...testCompile,
-			installation: identity.schema(parsedSchemaName(installed.declared))
-		}
-		const template = succeeded(
-			compileTemplate(sittingRead, undefined, options),
-			"the read compiles"
-		)
-		const [statement, ...others] = template.optimized
-		assert.ok(statement !== undefined && others.length === 0, "the read is one statement")
-		const params = paramTexts(
-			statement,
-			{ sitting: 1 },
-			declaredOf(template, sittingRead, undefined, options)
-		)
-		const explained = Effect.map(
-			planAsRun(connection.queryValues, statement.sql, params),
-			(plan) => {
-				const once = readOnce(plan)
-				assert.ok(
-					once.length === 0,
-					`${Formatter.format(c)}: the read holds ${Arr.join(once, ", ")} as a CTE read by one scan\n${statement.sql}`
+		const session: BenchSession = { values: connection.queryValues }
+		const names = namesOf(installed)
+		const storing = (first: number, units: number): StateLoad => ({
+			tables: [
+				names.table(Sitting),
+				names.table(Session),
+				names.table(ItemControl),
+				names.table(StageControl),
+				names.table(Attempt)
+			],
+			units,
+			load: (from, to) =>
+				Effect.forEach(
+					stored(installed, c, first + from - 1, first + to - 1),
+					(sql) => connection.query(sql, []),
+					{ discard: true }
 				)
-				return { work: keyedReadWork(plan, probeCost), wide: wideScans(plan, probeCost) }
-			}
+		})
+		yield* standIn(session, storing(1, 1 + c.learners), c.state)
+		const read = yield* servedRead(
+			installed,
+			fullWorldRole(installed, Controlled),
+			sittingRead,
+			"the read of the sitting"
 		)
+		const explained = Effect.map(servedRun(session, read, { sitting: 1 }), (plan) => {
+			const once = readOnce(plan)
+			assert.ok(
+				once.length === 0,
+				`${Formatter.format(c)}: the read holds ${Arr.join(once, ", ")} as a CTE read by one scan\n${read.statement.sql}`
+			)
+			return readWork(plan)
+		})
 		const few = yield* explained
-		for (const sql of stored(installed, c, 2 + c.learners, 1 + c.learners + c.more)) {
-			yield* connection.query(sql, [])
-		}
+		yield* standIn(session, storing(2 + c.learners, c.more), c.state)
 		const many = yield* explained
-		assert.deepEqual(
-			[...few.wide, ...many.wide],
-			[],
-			`${Formatter.format(c)}: the read of the sitting reads no table larger than a probe whole\n${statement.sql}`
-		)
 		assert.ok(
-			many.work <= few.work,
-			`${Formatter.format(c)}: the read of the sitting reads ${String(few.work)} rows beside ${String(c.learners)} learners and ${String(many.work)} beside ${String(c.learners + c.more)}\n${statement.sql}`
+			many <= few,
+			`${Formatter.format(c)}: the read of the sitting reads ${String(few)} rows beside ${String(c.learners)} learners and ${String(many)} beside ${String(c.learners + c.more)}\n${read.statement.sql}`
 		)
 		k.note(c.learners < 3 ? "beside few learners" : "beside many learners")
-		k.note(
-			c.statistics === "counted"
-				? "under counted statistics"
-				: c.statistics === "unique"
-					? "under statistics stating each value its own"
-					: "under statistics stating every row one value"
-		)
+		k.note(`its tables ${c.state}`)
 	})

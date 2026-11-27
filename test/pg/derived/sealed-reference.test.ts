@@ -32,10 +32,9 @@
  * and more, and learner 1's few attempts at an item, committed, and measures the judge's work at a fresh answer's
  * COMMIT, every statement explained with ANALYZE and BUFFERS before the judge runs, in a transaction rolled back
  * (test/support/judge.ts judgeRun); then founds more packages, adds attempts of learner 1 at another package and other
- * learners' attempts at the item, committed, and measures again; with no planner setting and no ANALYZE. The oracle:
- * no statement reads a table larger than one index probe whole (judge.ts wideScans), and each does the same keyed work
- * both times (judge.ts keyedWork), rows counted over every loop, never a clock; a table of a page PostgreSQL reads whole
- * for what a probe of it costs.
+ * learners' attempts at the item, committed, and measures again; each statement under its routine's advice
+ * (test/support/advice.ts routineAdviceHeld). The oracle: each statement does the same work both times (judge.ts
+ * scannedWork), rows counted over every loop, never a clock.
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
@@ -101,8 +100,7 @@ export const aStoredRelationThatReadsSealedContentByReferenceEqualsItsDefinition
 		]
 	})
 
-/** A learner's answer's judge work at COMMIT reads no table larger than a probe whole and does the same keyed work
- * however many packages, attempts of the learner and other learners' attempts stand, at every table size. */
+/** A learner's answer's judge work at COMMIT does the same work however many packages, attempts of the learner and other learners' attempts stand, at every table size. */
 export const aLearnersAnswerKeepsStoredRelationsOverSealedContentByItsOwnRowsAndTheContentItNames =
 	property.exhaust(finite(boundGen), {
 		needs: { installed: Substrate.fresh(sealedReferenceTemplate) },
@@ -124,7 +122,7 @@ export const aLearnersAnswerKeepsStoredRelationsOverSealedContentByItsOwnRowsAnd
 				}).pipe(Effect.scoped),
 		oracle: {
 			kind: "universal",
-			name: "a bound and invariance: each statement the judge runs at an answer's COMMIT reads no table larger than a probe whole, and does the same keyed work beside a few packages and attempts and beside many, at tables of a page and of many"
+			name: "a bound and invariance: each statement the judge runs at an answer's COMMIT does the same work beside a few packages and attempts and beside many, at tables of a page and of many"
 		},
 		box: "one or four attempts of learner 1 at the item before the first measure, beside no other package and learner or 2,048 of each; sixteen or sixty-four packages, attempts of learner 1 at another package and other learners' attempts at the item added",
 		kept: [],

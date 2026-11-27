@@ -15,6 +15,7 @@ import { succeeded } from "#test/support/assert.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
 import { judgedStatementsOf, raisedRule } from "#test/support/judge.ts"
 import { owning } from "#test/support/policy.ts"
+import { tableOfSource } from "#test/support/sql.ts"
 
 /**
  * One case: the roots a whole rule's recursion is seeded from, a union of `arms` rules over Node, read again beside the
@@ -133,11 +134,8 @@ const schemaOf = (c: Roots): FixtureSchema => {
 const readsStored = (query: OperandSelect): boolean => {
 	let stored = false
 	const source = (s: FromSource): void => {
-		if (
-			(s.kind === "table" || s.kind === "probe") &&
-			typeof s.table !== "string" &&
-			s.table.schema !== "pg_temp"
-		) {
+		const table = s.kind === "probe" ? s.table : tableOfSource(s)
+		if (table !== undefined && table.schema !== "pg_temp") {
 			stored = true
 		}
 	}

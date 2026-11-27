@@ -3,27 +3,27 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter } from "effect"
-import { identity } from "#compiler/core/identity.ts"
+import { Effect, Formatter } from "effect"
+import type { BenchSession } from "#bench/harness/session.ts"
 import { Num, Type } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, key, on, relation, schema, sealed, unit } from "#compiler/public/schema.ts"
+import {
+	fullWorldRole,
+	type PgClassState,
+	pgClassStates,
+	servedRead,
+	servedRun,
+	type StateLoad,
+	standIn
+} from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { compileTemplate, declaredOf, paramTexts, testCompile } from "#test/support/compile.ts"
 import { type Installed } from "#test/support/install-migrate.ts"
 import { fullWorldTemplate } from "#test/support/installed.ts"
-import { keyedReadWork, planAsRun, probeCostOf, wideScans } from "#test/support/judge.ts"
-import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { readWork } from "#test/support/judge.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
-import {
-	countedAsVacuumed,
-	rowsBeside,
-	rowsPerPage,
-	type StatedDistinct,
-	statedDistinct
-} from "#test/support/substrate/fill.ts"
 
 const i = pg.integer
 
@@ -100,13 +100,11 @@ export const keyOrderTemplate = fullWorldTemplate({
 	ambient: ordinarySession
 })
 
-/** How a case's columns' statistics stand: as the stored rows' counts leave them, or stated (fill.ts statedDistinct). */
-export type Statistics = "counted" | StatedDistinct
-
 /**
  * A case: `packages` packages stored, each of `paths` items, each item's `scopes` scopes with an allowance each; the
  * child's `sessions` sessions at stage 0, each of an item of package 1; then `more` packages stored beside them before
- * the read is explained again; and how the columns' statistics stand.
+ * the read is run again; and the pg_class state its tables stand in as each load ends (test/support/advice.ts
+ * PgClassState).
  */
 export interface KeyOrderCase {
 	readonly packages: number
@@ -114,7 +112,7 @@ export interface KeyOrderCase {
 	readonly scopes: number
 	readonly sessions: number
 	readonly more: number
-	readonly statistics: Statistics
+	readonly state: PgClassState
 }
 
 export const keyOrderGen: Gen<KeyOrderCase> = (s) => {
@@ -125,22 +123,19 @@ export const keyOrderGen: Gen<KeyOrderCase> = (s) => {
 		scopes: s.draw(int(1, 3)),
 		sessions: s.draw(int(1, paths)),
 		more: s.draw(int(20, 60)),
-		statistics: s.draw(element<Statistics>(["counted", "unique", "one value"]))
+		state: s.draw(element(pgClassStates))
 	}
 }
 
 export type KeyOrderFeature =
 	| "beside few packages"
 	| "beside many packages"
-	| "under counted statistics"
-	| "under statistics stating each value its own"
-	| "under statistics stating every row one value"
+	| `its tables ${PgClassState}`
 
 /**
  * The statements storing packages `from` to `to`: each item's scopes' allowances, Allowance's table filled as its upkeep
- * fills it from the nodes a publication writes (the read reads the stored table alone), then each table counted as a
- * VACUUM counts it, and its columns' statistics as the case
- * states them; the child's sessions with the first packages.
+ * fills it from the nodes a publication writes (the read reads the stored table alone); the child's sessions with the
+ * first packages.
  */
 const stored = (
 	installed: Installed,
@@ -150,29 +145,25 @@ const stored = (
 ): ReadonlyArray<string> => {
 	const names = namesOf(installed)
 	const grid = `FROM generate_series(${String(from)}, ${String(to)}) AS g(p), generate_series(1, ${String(c.paths)}) AS h(path), generate_series(1, ${String(c.scopes)}) AS k(scope)`
-	const tables = Arr.map([Session, Allowance], (t) => names.table(t))
-	const statistics = c.statistics
 	return [
 		`INSERT INTO ${names.table(Allowance)} (allowance, package, path, scope) SELECT scope * 10 + 1, p, path, scope ${grid}`,
 		...(from === 1
 			? [
 					`INSERT INTO ${names.table(Session)} SELECT 1, n, 1, n, 0 FROM generate_series(1, ${String(c.sessions)}) AS g(n)`
 				]
-			: []),
-		...Arr.map(tables, countedAsVacuumed),
-		...(statistics === "counted" ? [] : Arr.map(tables, (t) => statedDistinct(t, statistics)))
+			: [])
 	]
 }
 
 /**
  * The packages a case stores beside its own before any of them, numbered past every package a case stores, each of one
- * item of one scope's allowance, and as many other children's sessions of them: a store large beside the child's rows,
- * so PostgreSQL reads each relation the read binds by key through its index under no planner setting (fill.ts
- * rowsBeside), at `probes` probes of each table, the narrowest four integers a row.
+ * item of one scope's allowance, and as many other children's sessions of them: `rows` of each, one past the read's
+ * bound, so a read of Allowance or Session whole, or of every package's allowances, reads past it, where a read of the
+ * child's rows alone never meets them.
  */
-const besidePackages = (installed: Installed, probes: number): ReadonlyArray<string> => {
+const besidePackages = (installed: Installed, rows: number): ReadonlyArray<string> => {
 	const names = namesOf(installed)
-	const packages = `FROM generate_series(1000000, ${String(1_000_000 + rowsBeside(probes, rowsPerPage(4 * 4)) - 1)}) AS g(p)`
+	const packages = `FROM generate_series(1000000, ${String(1_000_000 + rows - 1)}) AS g(p)`
 	return [
 		`INSERT INTO ${names.table(Allowance)} (allowance, package, path, scope) SELECT 11, p, 1, 1 ${packages}`,
 		`INSERT INTO ${names.table(Session)} SELECT p, 1, p, 1, 0 ${packages}`
@@ -181,13 +172,13 @@ const besidePackages = (installed: Installed, probes: number): ReadonlyArray<str
 
 /**
  * One case in its one transaction, which the case's end rolls back: the packages beside (`besidePackages`) stored, then
- * packages 1 to `packages` with the child's sessions, the read of the child's stage explained under no planner setting;
- * then `more` packages stored beside them, and the read explained again. Both times it reads no table larger than a
- * probe whole, and its keyed work (test/support/judge.ts keyedReadWork) is at most three times the child's sessions
- * and their items' allowances: each session's attachment seeks Allowance at its package and path, a
- * prefix of its key in key order (analysis/logical/derived.ts inheritedKeys). A key led by the computed allowance binds
- * no prefix: the attachment is co-grouped, Allowance read whole, every package's, past the bound once a few packages
- * stand beside the child's.
+ * packages 1 to `packages` with the child's sessions, its tables stood in the case's pg_class state, and the read of the
+ * child's stage run under its carried advice once the plan laws hold over it (test/support/advice.ts advisedRun); then
+ * `more` packages stored beside them, stood again, and the read run again. Both times its work (test/support/judge.ts
+ * readWork) is at most three times the child's sessions and their items' allowances: each session's attachment seeks
+ * Allowance at its package and path, a prefix of its key in key order (analysis/logical/derived.ts inheritedKeys). A key
+ * led by the computed allowance binds no prefix: the attachment is co-grouped, Allowance read whole, every package's,
+ * past the bound once a few packages stand beside the child's.
  */
 export const runKeyOrder = (
 	installed: Installed,
@@ -196,58 +187,42 @@ export const runKeyOrder = (
 	k: Case<KeyOrderFeature>
 ) =>
 	Effect.gen(function* () {
-		const probeCost = yield* probeCostOf((sql) => connection.queryValues(sql, []))
-		for (const sql of [
-			...besidePackages(installed, 2 * c.sessions),
-			...stored(installed, c, 1, c.packages)
-		]) {
-			yield* connection.query(sql, [])
-		}
-		const options = {
-			...testCompile,
-			installation: identity.schema(parsedSchemaName(installed.declared))
-		}
-		const template = succeeded(
-			compileTemplate(allowanceRead, undefined, options),
-			"the read compiles"
-		)
-		const [statement, ...others] = template.optimized
-		assert.ok(statement !== undefined && others.length === 0, "the read is one statement")
-		const params = paramTexts(
-			statement,
-			{ child: 1, stage: 0 },
-			declaredOf(template, allowanceRead, undefined, options)
-		)
-		const explained = Effect.map(
-			planAsRun(connection.queryValues, statement.sql, params),
-			(plan) => ({ work: keyedReadWork(plan, probeCost), wide: wideScans(plan, probeCost) })
-		)
+		const session: BenchSession = { values: connection.queryValues }
 		/** The child's sessions and their items' allowances. */
 		const own = c.sessions * (1 + c.scopes)
 		const bound = 3 * own
-		const bounded = (packages: number) =>
-			Effect.map(explained, ({ work, wide }) => {
-				assert.deepEqual(
-					wide,
-					[],
-					`${Formatter.format(c)}: the read of the child's stage beside ${String(packages)} packages reads no table larger than a probe whole\n${statement.sql}`
+		const names = namesOf(installed)
+		const storing = (first: number): StateLoad => ({
+			tables: [names.table(Session), names.table(Allowance)],
+			units: first === 1 ? c.packages : c.more,
+			load: (from, to) =>
+				Effect.forEach(
+					stored(installed, c, first + from - 1, first + to - 1),
+					(sql) => connection.query(sql, []),
+					{ discard: true }
 				)
+		})
+		for (const sql of besidePackages(installed, bound + 1)) {
+			yield* connection.query(sql, [])
+		}
+		yield* standIn(session, storing(1), c.state)
+		const read = yield* servedRead(
+			installed,
+			fullWorldRole(installed, Ledger),
+			allowanceRead,
+			"the read of the child's stage"
+		)
+		const bounded = (packages: number) =>
+			Effect.map(servedRun(session, read, { child: 1, stage: 0 }), (plan) => {
+				const work = readWork(plan)
 				assert.ok(
 					work <= bound,
-					`${Formatter.format(c)}: the read of the child's stage beside ${String(packages)} packages reads ${String(work)} rows, past its bound ${String(bound)} (the child's ${String(own)})\n${statement.sql}`
+					`${Formatter.format(c)}: the read of the child's stage beside ${String(packages)} packages reads ${String(work)} rows, past its bound ${String(bound)} (the child's ${String(own)})\n${read.statement.sql}`
 				)
 			})
 		yield* bounded(c.packages)
-		for (const sql of stored(installed, c, c.packages + 1, c.packages + c.more)) {
-			yield* connection.query(sql, [])
-		}
+		yield* standIn(session, storing(c.packages + 1), c.state)
 		yield* bounded(c.packages + c.more)
 		k.note(c.packages < 4 ? "beside few packages" : "beside many packages")
-		k.note(
-			c.statistics === "counted"
-				? "under counted statistics"
-				: c.statistics === "unique"
-					? "under statistics stating each value its own"
-					: "under statistics stating every row one value"
-		)
+		k.note(`its tables ${c.state}`)
 	})

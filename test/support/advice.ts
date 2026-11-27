@@ -13,9 +13,11 @@
  *   grizzle never binds, and the migration runner's own bookkeeping of its ledger (`__ledger`'s INSERT ... VALUES and its
  *   redraft's UPDATE), bounded by the ledger's size, the count of migrations; a drafted data step is bound and advised
  *   against the indexes in force when its file runs.
- * - **Law 2, binding.** Every column a read binds is in the index condition of its occurrence's scan, never in that
- *   scan's filter and never in a condition a join pairs its sides by: advice pins an index and a join, never which
- *   clauses become index conditions, so the statement's shape (a probe) must carry the binding. A bitmap read (a GIN
+ * - **Law 2, binding.** Every column a read binds that its index stores (IndexRef `stores`) is in the index condition
+ *   of its occurrence's scan, never in that scan's filter, and no column it binds is in a condition a join pairs its
+ *   sides by: advice pins an index and a join, never which clauses become index conditions, so the statement's shape (a
+ *   probe) must carry the binding. A bound column the index does not store is a residual filter on what the stored ones
+ *   reach, a key bound in full leaving one row, the rows it reads the budget's to hold (INDEXES' rule). A bitmap read (a GIN
  *   search beside its scalar prefix, advised BITMAP_HEAP_SCAN) is a Bitmap Heap Scan over exactly one Bitmap Index Scan,
  *   whose index condition holds every column it binds and its matched one.
  * - **Law 3, scope.** Every name a scope mints is minted once, and every atom of the scope's advice is matched in exactly
@@ -58,7 +60,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
-import type { IndexResolver } from "#compiler/physical/indexes/ref.ts"
+import type { IndexRef, IndexResolver } from "#compiler/physical/indexes/ref.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { noClock, transactionClock } from "#compiler/plan/common.ts"
 import { type QueryTemplate, queryInput } from "#compiler/plan/read.ts"
@@ -678,6 +680,8 @@ export type Vehicle =
 export interface BoundRead {
 	readonly alias: string
 	readonly bound: ReadonlyArray<string>
+	/** The columns its index stores as themselves (physical/indexes/ref.ts IndexRef `stores`), the tuple id for a tid read. */
+	readonly stores: ReadonlyArray<string>
 }
 
 /** One statement of a scope: its label, and its text, every parameter a typed placeholder (`$n::type`). */
@@ -706,8 +710,8 @@ export interface LawScope {
  * The names and reads of a plan of one scope (sql/plan.ts ReadPlan), as a LawScope holds them: each item's alias, each
  * named level's name, and each read's binding, an index or bitmap read's bound columns and a TID read's ctid.
  */
-export const planFacts = <I>(
-	plan: ReadPlan<I>
+export const planFacts = (
+	plan: ReadPlan<IndexRef>
 ): Pick<LawScope, "aliases" | "levels" | "reads"> => ({
 	aliases: Arr.flatMap(plan.levels, (level) => Arr.map(levelItems(level), (item) => item.alias)),
 	levels: Arr.flatMap(plan.levels, (level) =>
@@ -718,9 +722,9 @@ export const planFacts = <I>(
 			switch (item.scan.kind) {
 				case "index":
 				case "bitmap":
-					return [{ alias: item.alias, bound: item.scan.bound }]
+					return [{ alias: item.alias, bound: item.scan.bound, stores: item.scan.index.stores }]
 				case "tid":
-					return [{ alias: item.alias, bound: ["ctid"] }]
+					return [{ alias: item.alias, bound: ["ctid"], stores: ["ctid"] }]
 				case "seq":
 				case "rows":
 					return []
@@ -938,8 +942,9 @@ const planIdentity = (scope: LawScope, planned: PlannedScope): ReadonlyArray<str
 }
 
 /**
- * Law 2 over `scope`, `planned`: every column each read binds is in the index condition of the one scan of its
- * occurrence among the scope's statements, never in that scan's filter and never in a join's condition; and no join's
+ * Law 2 over `scope`, `planned`: every column each read binds that its index stores is in the index condition of the one
+ * scan of its occurrence among the scope's statements, never in that scan's filter, and none it binds is in a join's
+ * condition; and no join's
  * filter equates a column of a stored read with another's, a binding the statement's shape lost to a plain join, which
  * the binder makes a probe (sql/bind.ts: a stored table an earlier item binds is never a set join's inner).
  */
@@ -985,9 +990,12 @@ const binding = (scope: LawScope, planned: PlannedScope): ReadonlyArray<string> 
 			}
 			const indexCond = bitmap === undefined ? scan.indexCond : bitmap.indexCond
 			return Arr.flatMap(read.bound, (column) => {
+				const stored = read.stores.includes(column)
 				const where = [
-					...(names(indexCond, read.alias, column) ? [] : ["outside its index condition"]),
-					...(names(scan.filter, read.alias, column) ? ["in its filter"] : []),
+					...(!stored || names(indexCond, read.alias, column)
+						? []
+						: ["outside its index condition"]),
+					...(stored && names(scan.filter, read.alias, column) ? ["in its filter"] : []),
 					...(Arr.some(nodes, (n) => names(n.joined, read.alias, column))
 						? ["in a join's condition"]
 						: [])

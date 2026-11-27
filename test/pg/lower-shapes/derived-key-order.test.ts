@@ -9,13 +9,14 @@
  *
  * On PostgreSQL 19, a package's nodes and a derived relation of each scope's allowance, a value computed from a node's raw
  * value, keyed by its whole heading, `allowance` first by name; a child's sessions of a stage, each with its item's
- * allowances attached; a few packages and then a few dozen, under counted statistics or statistics stating each value
- * its own or every row one value (pg_restore_attribute_stats).
+ * allowances attached; a few packages and then a few dozen, its tables in a drawn pg_class state as each load ends
+ * (test/support/advice.ts PgClassState), the read run under its carried advice once the plan laws hold over it
+ * (advisedRun).
  *
- * Oracle: a bound, the read's scans read at most three times the child's sessions and their items' allowances, however
- * many packages stand beside them, under any statistics.
+ * Oracle: the plan laws, and a bound: the read's scans read at most three times the child's sessions and their items' allowances, however
+ * many packages stand beside them, in every pg_class state.
  *
- * Features: a read beside few packages and beside many; each statistics.
+ * Features: a read beside few packages and beside many; each pg_class state.
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { property } from "@bjornpagen/testing/property"
@@ -30,7 +31,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * A child's sessions, each with its item's allowances attached, read that child's sessions and their items' allowances
- * alone however many packages stand beside them, under any statistics: the attachment seeks the stored allowances at its
+ * alone however many packages stand beside them, in every pg_class state: the attachment seeks the stored allowances at its
  * package and path, a prefix of their key.
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
@@ -42,9 +43,11 @@ export const aDerivedRelationsKeyLeadsWithTheColumnsItCarriesFromASourcesKey = p
 		situations: [
 			"beside few packages",
 			"beside many packages",
-			"under counted statistics",
-			"under statistics stating each value its own",
-			"under statistics stating every row one value"
+			"its tables never vacuumed",
+			"its tables counted empty",
+			"its tables analyzed",
+			"its tables skewed",
+			"its tables large"
 		] satisfies ReadonlyArray<Reached<KeyOrderFeature>>,
 		check:
 			({ stored }, c) =>
@@ -55,7 +58,7 @@ export const aDerivedRelationsKeyLeadsWithTheColumnsItCarriesFromASourcesKey = p
 				}),
 		oracle: {
 			kind: "universal",
-			name: "bound: the read's scans read at most three times the child's sessions and their items' allowances, beside a few packages and beside a few dozen, under any statistics"
+			name: "the plan laws over the read under its carried advice, and a bound: the read's scans read at most three times the child's sessions and their items' allowances, beside a few packages and beside a few dozen, in every pg_class state"
 		},
 		kept: [],
 		kills: [

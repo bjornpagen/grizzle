@@ -35,7 +35,7 @@ import {
 } from "#compiler/sql/transform.ts"
 import { textOfHex } from "#test/support/closed/bit-text.ts"
 import type { Placeholder } from "#test/support/migrate/review.ts"
-import { transformOperand, testTypeSchema } from "#test/support/sql.ts"
+import { tableOfSource, transformOperand, testTypeSchema } from "#test/support/sql.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** Where a cell's value came from.
@@ -426,8 +426,9 @@ const readsOf = (
 	transformQuery(query, {
 		...identityHooks,
 		fromSource: (item: FromSource) => {
-			if (item.kind === "table" && typeof item.table !== "string" && item.table.schema === schema) {
-				relations.push(item.table.name)
+			const table = tableOfSource(item)
+			if (table?.schema === schema) {
+				relations.push(table.name)
 			}
 			return item
 		},

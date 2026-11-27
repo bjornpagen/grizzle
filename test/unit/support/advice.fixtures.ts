@@ -452,7 +452,8 @@ const disabledPlan: unknown = [
  * - `probe`: a key read of node per doc row, printed as grizzle's probe (`CROSS JOIN LATERAL (... LIMIT 1) s`), under
  *   its whole advice: every bound column an index condition;
  * - `dropped`: the same probe, its scan's INDEX_SCAN item dropped: PostgreSQL breaks the tie by (doc, f1), f2 a filter;
- * - `sibling`: the probe advised through the sibling (doc, f1): obeyed and matched, f2 a filter;
+ * - `sibling`: the probe advised through the sibling (doc, f1): obeyed and matched, f2, which the sibling does not
+ *   store, a residual filter on what (doc, f1) reach, which Law 2 admits and the budget holds;
  * - `plain`: the probe's read printed as a plain join under the whole advice: doc in the Join Filter (e3 P1);
  * - `unclaimed`: the same plain join, its plan claiming the read bound at (f1, f2) alone, as a binder that made the
  *   keyed read a set join would claim it: only the Join Filter's equality tells the binding lost;
@@ -495,7 +496,7 @@ const probeStatement: ScopeStatement = {
 	label: "the probe",
 	sql: "SELECT s.v FROM doc d CROSS JOIN LATERAL (SELECT n.v FROM node n WHERE n.doc = d.doc AND n.f1 = 1 AND n.f2 = $2 LIMIT 1) s WHERE d.owner = $1"
 }
-const nodeRead: BoundRead = { alias: "n", bound: ["doc", "f1", "f2"] }
+const nodeRead: BoundRead = { alias: "n", bound: ["doc", "f1", "f2"], stores: ["doc", "f1", "f2"] }
 
 /** A flight of one statement, carrying `advice`, its plan's items `aliases` and named levels `levels`, its reads `reads`. */
 const flight = (
@@ -541,7 +542,7 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 			"JOIN_ORDER(d s) NESTED_LOOP_PLAIN(s) SEQ_SCAN(d) INDEX_SCAN(n@s public.node_doc_f1) NO_GATHER(d s n@s)",
 			["d", "s", "n"],
 			["s"],
-			[nodeRead],
+			[{ ...nodeRead, stores: ["doc", "f1"] }],
 			probeStatement
 		),
 		{
@@ -572,7 +573,7 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 			"JOIN_ORDER(d n) NESTED_LOOP_PLAIN(n) SEQ_SCAN(d) INDEX_SCAN(n public.node_pkey) NO_GATHER(d n)",
 			["d", "n"],
 			[],
-			[{ alias: "n", bound: ["f1", "f2"] }],
+			[{ alias: "n", bound: ["f1", "f2"], stores: ["f1", "f2"] }],
 			{
 				label: "the plain join",
 				sql: "SELECT n.v FROM doc d JOIN node n ON n.doc = d.doc AND n.f1 = 1 AND n.f2 = $2 WHERE d.owner = $1"
@@ -589,7 +590,7 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 			"SEQ_SCAN(d) INDEX_SCAN(n@exists_1 public.node_pkey) NO_GATHER(d n@exists_1)",
 			["d", "n"],
 			["exists_1"],
-			[{ alias: "n", bound: ["doc", "f1", "f2"] }],
+			[{ alias: "n", bound: ["doc", "f1", "f2"], stores: ["doc", "f1", "f2"] }],
 			{
 				label: "the EXISTS",
 				sql: "SELECT d.doc FROM doc d WHERE d.owner = $1 AND EXISTS (SELECT FROM node n WHERE n.doc = d.doc AND n.f1 = 1 AND n.f2 = 2 LIMIT 1)"
@@ -611,7 +612,7 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 				"INDEX_SCAN(r1 public.doc_pkey) NO_GATHER(r1) INDEX_SCAN(r1 public.node_pkey) NO_GATHER(r1)",
 			aliases: ["r1", "r1"],
 			levels: [],
-			reads: [{ alias: "r1", bound: ["doc"] }],
+			reads: [{ alias: "r1", bound: ["doc"], stores: ["doc"] }],
 			statements: [
 				{
 					label: "the doc read",
@@ -638,8 +639,8 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 			aliases: ["r1", "r2", "r3", "r4"],
 			levels: ["r4"],
 			reads: [
-				{ alias: "r1", bound: ["doc"] },
-				{ alias: "r3", bound: ["doc", "f1", "f2"] }
+				{ alias: "r1", bound: ["doc"], stores: ["doc"] },
+				{ alias: "r3", bound: ["doc", "f1", "f2"], stores: ["doc", "f1", "f2"] }
 			],
 			statements: [
 				{
@@ -664,7 +665,7 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 			"INDEX_SCAN(r5@r6 public.node_pkey) NO_GATHER(r5@r6)",
 			["r5", "r6"],
 			["r6"],
-			[{ alias: "r5", bound: ["doc", "f1", "f2"] }],
+			[{ alias: "r5", bound: ["doc", "f1", "f2"], stores: ["doc", "f1", "f2"] }],
 			{
 				label: "the EXISTS",
 				sql: "SELECT EXISTS (SELECT FROM (SELECT FROM public.node AS r5 WHERE r5.doc = $1::int8 AND r5.f1 = $2::int8 AND r5.f2 = $3::int8 LIMIT 1) AS r6)"
@@ -678,8 +679,8 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 			["r7", "r8", "r9", "r10"],
 			["r8"],
 			[
-				{ alias: "r10", bound: ["doc", "f1", "f2"] },
-				{ alias: "r9", bound: ["ctid"] }
+				{ alias: "r10", bound: ["doc", "f1", "f2"], stores: ["doc", "f1", "f2"] },
+				{ alias: "r9", bound: ["ctid"], stores: ["ctid"] }
 			],
 			{
 				label: "the delete",
@@ -704,7 +705,7 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 			"INDEX_SCAN(r1 public.doc_pkey) NO_GATHER(r1)",
 			["r1"],
 			[],
-			[{ alias: "r1", bound: ["doc"] }],
+			[{ alias: "r1", bound: ["doc"], stores: ["doc"] }],
 			{
 				label: "the doc read",
 				sql: "SELECT r1.owner FROM public.doc AS r1 WHERE r1.doc = $1::int8"

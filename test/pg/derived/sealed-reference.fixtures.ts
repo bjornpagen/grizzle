@@ -28,13 +28,11 @@ import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/
 import {
 	committedJudged,
 	type JudgePlan,
-	type JudgeStatement,
 	judgeRun,
+	type JudgeStatement,
 	judgeStatementsOf,
-	keyedWork,
-	probeCostOf,
-	standUpJudge,
-	wideScans
+	scannedWork,
+	standUpJudge
 } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -620,21 +618,18 @@ const named = (statement: JudgeStatement): string => {
 	}
 }
 
-/** Each statement measured, named, with its keyed work (test/support/judge.ts keyedWork) and the tables it reads whole
- * by a scan that costs more than a probe (wideScans). */
-const measured = (plans: ReadonlyArray<JudgePlan<JudgeStatement>>, probeCost: number) =>
+/** Each statement measured, named, with its work (test/support/judge.ts scannedWork). */
+const measured = (plans: ReadonlyArray<JudgePlan<JudgeStatement>>) =>
 	Arr.map(plans, (p) => ({
 		statement: named(p.statement),
-		rows: keyedWork(p.plan, probeCost),
-		wide: wideScans(p.plan, probeCost)
+		rows: scannedWork(p.plan)
 	}))
 
 /**
  * One bound case on a fresh clone, in one session: the background and learner 1's `few` attempts committed, the judge's
  * work at a fresh answer's COMMIT measured (`answerWork`); then `more` packages, `more` attempts of learner 1 at another
- * package and `more` other learners' attempts at package 1 committed, and the work measured again. With no planner
- * setting and no ANALYZE, each statement reads no table larger than a probe whole, and its keyed work is the same both
- * times: each upkeep re-derives the one attempt the answer wrote, reading it, its item and its hint by their keys, never
+ * package and `more` other learners' attempts at package 1 committed, and the work measured again, each statement under
+ * its routine's own advice (test/support/judge.ts judgeRun). Its work is the same both times: each upkeep re-derives the one attempt the answer wrote, reading it, its item and its hint by their keys, never
  * another package's content, another attempt of the learner, or another learner's, and its DELETE reads its table's
  * rows at that attempt by a lookup of their own.
  */
@@ -646,7 +641,6 @@ export const runBound = (
 ) =>
 	Effect.gen(function* () {
 		yield* standUpJudge(session, installed.installation)
-		const probeCost = yield* probeCostOf((sql) => session.values(sql, []))
 		const first = d.background + 1
 		yield* committedJudged(session, [
 			...packagesSql(installed, 1, first),
@@ -654,25 +648,18 @@ export const runBound = (
 			...attemptsSql(installed, [1, 1], [1, 1], 1, [1, d.few])
 		])
 		const fewPlans = yield* answerWork(installed, session, d.few + 1)
-		const few = measured(fewPlans, probeCost)
+		const few = measured(fewPlans)
 		yield* committedJudged(session, [
 			...packagesSql(installed, first + 1, first + d.more),
 			...attemptsSql(installed, [1, 1], [2, 2], 1, [1, d.more]),
 			...attemptsSql(installed, [first + 1, first + d.more], [1, 1], 1, [1, 1])
 		])
 		const manyPlans = yield* answerWork(installed, session, d.few + 1)
-		const many = measured(manyPlans, probeCost)
-		for (const m of [...few, ...many]) {
-			assert.deepEqual(
-				m.wide,
-				[],
-				`${Formatter.format(d)}: ${m.statement} reads no table larger than a probe whole`
-			)
-		}
+		const many = measured(manyPlans)
 		assert.deepEqual(
 			many,
 			few,
-			`${Formatter.format(d)}: each statement the judge runs at an answer's COMMIT does the same keyed work beside ${first} packages and learner 1's ${d.few} attempts and beside ${first + d.more} and ${d.few + d.more}`
+			`${Formatter.format(d)}: each statement the judge runs at an answer's COMMIT does the same work beside ${first} packages and learner 1's ${d.few} attempts and beside ${first + d.more} and ${d.few + d.more}`
 		)
 		c.note(d.background === 0 ? "tables of a page" : "tables of many pages")
 		for (const [relation, feature] of [

@@ -20,12 +20,12 @@
  * attempts by its key.
  *
  * Oracle: a bound, the read's scans read at most three times the stage's stored rows however many children stand beside
- * it: stored relations' rows and CTE scans' with what their filters removed.
+ * it: stored relations' rows and CTE scans' with what their filters removed (test/support/judge.ts readWork), the read
+ * run under its carried advice once the plan laws hold over it (test/support/advice.ts servedRun).
  *
  * The bound holds under any planner statistics of the fold's relations: a case states the attempts' and the item
- * sessions' columns at one value or each its own, or none, so a read whose order PostgreSQL's estimates chose reads what
- * those statements lead it to, every attempt of the child first where they state each attempt its own and every session
- * one; a region held at the statement's parameters is chained by its declared keys as a per-key read is.
+ * sessions' columns at one value or each its own, or none, and the read's carried plan stands under each; a region held
+ * at the statement's parameters is chained by its declared keys as a per-key read is.
  *
  * Features: a read beside a few children and beside many, and under statistics stating each attempt its own and every
  * session one.
@@ -44,7 +44,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** The bound every read's property holds (runStage). */
 const boundOracle =
-	"bound: the read's scans read at most three times the stage's stored rows, stored relations' and CTE scans' with what their filters removed, beside a thousand children of one stage and a few dozen of the case's, then a few hundred more, under any statistics and no planner setting"
+	"bound: the read's scans read at most three times the stage's stored rows, stored relations' and CTE scans' with what their filters removed, beside 139 children of one stage and a few dozen of the case's, then a few hundred more, under any statistics and the read's carried advice"
 
 /** The property over one of the reads (StageRead), its oracle `oracle`, with its kills. */
 const stageProperty = (by: StageRead, oracle: string, kills: ReadonlyArray<Kill>) =>

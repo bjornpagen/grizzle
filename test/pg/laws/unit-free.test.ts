@@ -9,15 +9,13 @@
  * number; its Submitted(number), the learner in the heading and unbound by the law; and pantry's value containments,
  * a package's nodes joined to their attributes read by the attribute's base type into a closed roster of them.
  *
- * Each case stores its shape's unit 1 beside 2,048 other units of one row of each relation, so every table is larger
- * than one probe of it, committed, and measures the judge's work at a write that probes the law at the unit-free
+ * Each case stores its shape's unit 1 beside 2,048 other units of one row of each relation, committed, and measures the judge's work at a write that probes the law at the unit-free
  * binding: each statement the judge runs over the written deltas, explained with ANALYZE in a transaction rolled back
- * (test/support/judge.ts judgeRun), with no planner setting and no ANALYZE of the tables; then stores more units beside
- * them, committed, and measures again.
+ * (test/support/judge.ts judgeRun), each under its routine's advice (test/support/advice.ts routineAdviceHeld); then
+ * stores more units beside them, committed, and measures again.
  *
- * Oracle: a bound and invariance: no statement reads a table larger than one probe whole (judge.ts wideScans), and each
- * does the same keyed work beside the 2,048 units and beside the more (judge.ts keyedWork), the rows counted over every
- * loop, never a clock.
+ * Oracle: a bound and invariance: each statement does the same work beside the 2,048 units and beside the more
+ * (judge.ts scannedWork), the rows counted over every loop, never a clock.
  *
  * The box, exhausted: each shape, beside 600 or 900 units more.
  */
@@ -56,7 +54,7 @@ export const aProbedLawOverADerivedRelationReadAtABindingThatLeavesItsUnitFreeRe
 			}).pipe(Effect.scoped),
 		oracle: {
 			kind: "postgresql",
-			name: "the plans PostgreSQL ran each judged statement by, explained with ANALYZE: no table larger than a probe read whole, and the same rows read by keys beside 2,048 units and beside 600 or 900 more"
+			name: "the plans PostgreSQL ran each judged statement by, explained with ANALYZE under its routine's advice: the same rows read beside 2,048 units and beside 600 or 900 more"
 		},
 		box: "PartByBase(number, generation), AwardDemanded(number) over three relations, Submitted(number) with the learner in its heading, and NodeBase's base type into a closed roster, each beside 2,048 units and then 600 or 900 more",
 		kept: [],

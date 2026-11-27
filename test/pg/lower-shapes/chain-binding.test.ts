@@ -9,15 +9,16 @@
  * member read for each pair. metis's sitting under R02 (184cd9a4) read three such derivations of a test's 34 members
  * per item, 39,304 rows for each, 765 ms of CPU where its parent read 197 ms.
  *
- * On PostgreSQL 19, under no planner setting, a learner's sitting of a test of a few members and then of a hundred
- * more, each member's feedback display and time limit in force, each a union of the stated values and a default list
- * of every section member that states none, beside dozens of other packages' tests and learners, so every relation is
- * dozens of pages and a scan of one costs PostgreSQL more than the learner's index probes.
+ * On PostgreSQL 19, a learner's sitting of a test of a few members and then of a hundred more, each member's feedback
+ * display and time limit in force, each a union of the stated values and a default list of every section member that
+ * states none, beside dozens of other packages' tests and learners, so every relation is dozens of pages; its tables in
+ * each pg_class state (test/support/advice.ts PgClassState), the read run under its carried advice once the plan laws
+ * hold over it.
  *
  * Oracle: a bound, the read's scans read at most four times the learner's own rows (the sitting, and each member, its
- * section membership and its stated controls), however many members the test holds, under any statistics.
+ * section membership and its stated controls), however many members the test holds, in any pg_class state.
  *
- * Features: a test of few members and of many; every member stating its controls, or some none; each statistics.
+ * Features: a test of few members and of many; every member stating its controls, or some none; each pg_class state.
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { property } from "@bjornpagen/testing/property"
@@ -46,9 +47,11 @@ export const eachStepOfARegionsChainIsReadAtEveryVariableAStepBeforeItBound = pr
 			"beside many members",
 			"with every member stating its controls",
 			"with some member stating none",
-			"under counted statistics",
-			"under statistics stating each value its own",
-			"under statistics stating every row one value"
+			"its tables never vacuumed",
+			"its tables counted empty",
+			"its tables analyzed",
+			"its tables skewed",
+			"its tables large"
 		] satisfies ReadonlyArray<Reached<ChainFeature>>,
 		check:
 			({ stored }, c) =>
@@ -59,7 +62,7 @@ export const eachStepOfARegionsChainIsReadAtEveryVariableAStepBeforeItBound = pr
 				}),
 		oracle: {
 			kind: "universal",
-			name: "bound: the read's scans read at most four times the learner's own rows, a test of a few members and of a hundred more, under any statistics"
+			name: "bound: the read's scans read at most four times the learner's own rows, a test of a few members and of a hundred more, in any pg_class state"
 		},
 		kept: [],
 		kills: [

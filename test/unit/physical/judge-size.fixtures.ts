@@ -29,6 +29,7 @@ import {
 	judgeStatementsOf
 } from "#test/support/judge.ts"
 import { owning } from "#test/support/policy.ts"
+import { tableOfSource } from "#test/support/sql.ts"
 
 /**
  * One case: a chain of `depth` queries over Node, each the join of `uses` matches of the one before it, every match
@@ -250,10 +251,7 @@ const deltaReadsOf = (
 ): { readonly tables: number; readonly calls: number } => {
 	const sources = sourcesOf((visitor) => visitSelect(statement, visitor))
 	return {
-		tables: Arr.filter(
-			sources,
-			(s) => s.kind === "table" && typeof s.table !== "string" && s.table.schema === "pg_temp"
-		).length,
+		tables: Arr.filter(sources, (s) => tableOfSource(s)?.schema === "pg_temp").length,
 		calls: Arr.filter(sources, (s) => s.kind === "function" && s.call.fn.kind === "qualified")
 			.length
 	}
@@ -296,10 +294,7 @@ export const readsDeltasThroughReaders = (c: Chain, note: (r: Reached) => void):
 
 /** The reads of the table `table` in the statement `visit` walks (`sourcesOf`): each FROM source that names it. */
 const tableReadsIn = (visit: Walk, table: string): number =>
-	Arr.filter(
-		sourcesOf(visit),
-		(s) => s.kind === "table" && typeof s.table !== "string" && s.table.name === table
-	).length
+	Arr.filter(sourcesOf(visit), (s) => tableOfSource(s)?.name === table).length
 
 /** The reads of the table `table` in `statement`, at any depth (`tableReadsIn`). */
 const tableReadsOf = (statement: OperandSelect, table: string): number =>

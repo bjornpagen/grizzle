@@ -5,17 +5,14 @@ import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { type PlanNode, planNodes, scannedRows } from "#bench/harness/explain.ts"
-import { identity } from "#compiler/core/identity.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema } from "#compiler/public/schema.ts"
+import { fullWorldRole, servedRead, servedRun } from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { compileTemplate, declaredOf, paramTexts, testCompile } from "#test/support/compile.ts"
 import { type Installed } from "#test/support/install-migrate.ts"
 import { fullWorldTemplate } from "#test/support/installed.ts"
-import { planAsRun } from "#test/support/judge.ts"
-import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 
 /**
@@ -207,7 +204,8 @@ const rowOf = (row: ReadonlyArray<unknown>): string => {
 
 /**
  * One case in its one transaction, which the case's end rolls back: the standards' supports and the pairs stored, then
- * the read of one standard's crosswalk explained as it runs, and run. It answers the host's pairs with each end's count,
+ * the read of one standard's crosswalk run under its carried advice once the plan laws hold over it
+ * (test/support/advice.ts servedRun), and run. It answers the host's pairs with each end's count,
  * and its scans of Supports read, over every loop, at most the supports of each delivered pair's two ends: each count
  * is the fold of its own standard's supports, read through the index on the standard, never every standard's.
  */
@@ -221,21 +219,15 @@ export const runFoldProbe = (
 		for (const sql of loaded(installed, c)) {
 			yield* connection.query(sql, [])
 		}
-		const options = {
-			...testCompile,
-			installation: identity.schema(parsedSchemaName(installed.declared))
-		}
-		const read = c.order === "pair first" ? crosswalk : countsFirst
-		const template = succeeded(compileTemplate(read, undefined, options), "the read compiles")
-		const [statement, ...others] = template.optimized
-		assert.ok(statement !== undefined && others.length === 0, "the read is one statement")
-		const params = paramTexts(
-			statement,
-			{ standard: askedOf(c) },
-			declaredOf(template, read, undefined, options)
+		const read = yield* servedRead(
+			installed,
+			fullWorldRole(installed, Views),
+			c.order === "pair first" ? crosswalk : countsFirst,
+			`the crosswalk of ${askedOf(c)}`
 		)
-		const plan = yield* planAsRun(connection.queryValues, statement.sql, params)
-		const rows = yield* connection.queryValues(statement.sql, params)
+		const params = { standard: askedOf(c) }
+		const plan = yield* servedRun({ values: connection.queryValues }, read, params)
+		const rows = yield* connection.queryValues(read.statement.sql, read.params(params))
 		const want = expected(c)
 		assert.deepEqual(
 			Arr.sort(Arr.map(rows, rowOf), Order.String),

@@ -10,6 +10,7 @@ import { Num, Type } from "#compiler/public/compute.ts"
 import { natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, mutable, relation, schema, sealed, unit } from "#compiler/public/schema.ts"
+import { lawsHold, routineScopes } from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import {
@@ -218,8 +219,7 @@ const writeSql = (installed: Installed, w: SittingWrite, open: number, per: numb
 /**
  * The judge's work at COMMIT of the write `w` over a sitting whose open session is `open`, measured on `session` in a
  * transaction rolled back, before the judge reads its deltas (test/support/judge.ts judgeRun): each statement Order's
- * upkeep runs over them, with its work (`scannedWork`). No planner setting: the installation's declared statistics rank
- * each lookup's index at any size of a table (physical/statistics/declared.ts).
+ * upkeep runs over them under its routine's advice, with its work (`scannedWork`).
  */
 const writeWork = (
 	installed: Installed,
@@ -714,11 +714,28 @@ export const runLost = (
 				const plans = yield* Effect.onError(
 					Effect.gen(function* () {
 						yield* session.query(lostSql(installed, d.write, open), [])
-						return yield* judgeRun(
+						const run = yield* judgeRun(
 							(sql) => session.values(sql, []),
 							installed.installation,
 							judgeStatementsOf(installed.installation)
 						)
+						/** The routines of the checked upkeeps measured, whose plans the laws hold over. */
+						const routines = new Set(
+							Arr.flatMap(run, (p) =>
+								p.statement.kind === "upkeep" && checked.has(p.statement.relation)
+									? [`${p.statement.routine.schema}.${p.statement.routine.name}`]
+									: []
+							)
+						)
+						for (const scope of routineScopes(installed.installation)) {
+							if (
+								scope.vehicle.kind === "routine" &&
+								routines.has(`${scope.vehicle.routine.schema}.${scope.vehicle.routine.name}`)
+							) {
+								yield* lawsHold(session, scope)
+							}
+						}
+						return run
 					}),
 					() => Effect.ignore(session.rollback)
 				)

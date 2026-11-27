@@ -13,14 +13,12 @@ import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/
 import {
 	committedJudged,
 	type JudgePlan,
-	type JudgeStatement,
 	judgeRun,
+	type JudgeStatement,
 	judgeStatementsOf,
-	keyedWork,
-	probeCostOf,
 	raisedRule,
-	standUpJudge,
-	wideScans
+	scannedWork,
+	standUpJudge
 } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -192,46 +190,39 @@ const named = (statement: JudgeStatement): string => {
 	}
 }
 
-/**
- * Each statement measured, named (`named`), with its keyed work and the tables it reads whole by a scan that costs more
- * than a probe, `probeCost` (test/support/judge.ts keyedWork, wideScans).
- */
-const measured = (plans: ReadonlyArray<JudgePlan<JudgeStatement>>, probeCost: number) =>
+/** Each statement measured, named (`named`), with its work (test/support/judge.ts scannedWork). */
+const measured = (plans: ReadonlyArray<JudgePlan<JudgeStatement>>) =>
 	Arr.map(plans, (p) => ({
 		statement: named(p.statement),
-		rows: keyedWork(p.plan, probeCost),
-		wide: wideScans(p.plan, probeCost)
+		rows: scannedWork(p.plan)
 	}))
 
 /**
- * The other learners every case holds beside learner 1, each with one row of each relation, so every table is larger
- * than one probe of it and PostgreSQL looks a key up in it, as at a production's size, with no planner setting: a
- * table of a page or two it reads whole for what a probe costs (test/support/judge.ts keyedWork).
+ * The other learners every case holds beside learner 1, each with one row of each relation, so a read of a table whole,
+ * or of every learner's rows, reads theirs beside learner 1's, a dozen pages of each table, where a read at learner 1's
+ * keys reads its own alone.
  *
  * @limitKind derived
  * @owner the upkeep bounds (upkeep-bound.test.ts)
  * @unit learners
  * @scope the background each case measures beside
- * @evidence ~/.cache/grizzle/DECLSTATS-work/unitscale/run3.sh, its output unitscale3.log beside it (2026-11-23): a
- *   delta's reader declared at 10 rows is read by a probe of the key at every table from 2^10 rows, a hash over a scan below; at 2,048 rows each table is a dozen pages
+ * @evidence at 2,048 rows each table is a dozen pages (~/.cache/grizzle/DECLSTATS-work/unitscale/unitscale3.log,
+ *   2026-11-23), every measured read of learner 1's few rows a fraction of one, so a read past them is plain in its
+ *   counts
  */
 const background = 2048
 
 /**
- * Holds two measures of one case to the bound: no statement reads a table larger than a probe whole, and each does the
- * same keyed work both times.
+ * Holds two measures of one case to the bound: each statement, run under its routine's own advice (test/support/judge.ts
+ * judgeRun), does the same work both times.
  */
 const heldToTheBound = (
 	few: ReadonlyArray<JudgePlan<JudgeStatement>>,
 	many: ReadonlyArray<JudgePlan<JudgeStatement>>,
-	probeCost: number,
 	what: string
 ) => {
-	const before = measured(few, probeCost)
-	const after = measured(many, probeCost)
-	for (const m of [...before, ...after]) {
-		assert.deepEqual(m.wide, [], `${what}: ${m.statement} reads no table larger than a probe whole`)
-	}
+	const before = measured(few)
+	const after = measured(many)
 	assert.deepEqual(after, before, what)
 }
 
@@ -251,7 +242,6 @@ export const runUpkeep = (
 ) =>
 	Effect.gen(function* () {
 		yield* standUpJudge(session, installed.installation)
-		const probeCost = yield* probeCostOf((sql) => session.values(sql, []))
 		const names = namesOf(installed)
 		const others = `FROM generate_series(2, ${background + 1}) AS g(child)`
 		yield* committedJudged(session, [
@@ -267,8 +257,7 @@ export const runUpkeep = (
 		heldToTheBound(
 			few,
 			many,
-			probeCost,
-			`${Formatter.format(d)}: each statement the judge runs at an answer's COMMIT does the same keyed work beside ${d.few} sessions of the learner and beside ${d.few + d.more}, beside ${background} other learners`
+			`${Formatter.format(d)}: each statement the judge runs at an answer's COMMIT does the same work beside ${d.few} sessions of the learner and beside ${d.few + d.more}, beside ${background} other learners`
 		)
 		if (
 			Arr.some(few, (p) => p.statement.kind === "upkeep" && p.statement.relation === "SessionCount")
@@ -444,7 +433,6 @@ export const runSpan = (
 ) =>
 	Effect.gen(function* () {
 		yield* standUpJudge(session, installed.installation)
-		const probeCost = yield* probeCostOf((sql) => session.values(sql, []))
 		yield* committedJudged(session, [
 			...spanBackgroundSql(installed),
 			`INSERT INTO ${namesOf(installed).table(Shown)} (child, s, at) SELECT 1, 1, 10 * k FROM generate_series(1, ${d.shown}) AS g(k)`,
@@ -458,8 +446,7 @@ export const runSpan = (
 		heldToTheBound(
 			few,
 			many,
-			probeCost,
-			`${Formatter.format(d)}: each statement the judge runs at a moment's COMMIT does the same keyed work beside 4 moments of the session and beside ${4 + d.added}, beside ${background} other learners`
+			`${Formatter.format(d)}: each statement the judge runs at a moment's COMMIT does the same work beside 4 moments of the session and beside ${4 + d.added}, beside ${background} other learners`
 		)
 		if (Arr.some(few, (p) => p.statement.kind === "upkeep" && p.statement.relation === "Span")) {
 			c.note(`the successor's upkeep ran, ${d.order}`)
@@ -583,7 +570,6 @@ export const runFold = (
 		const shown = (from: number, to: number, instant: string) =>
 			`INSERT INTO ${names.table(Shown)} (child, s, at) SELECT 1, 1, ${instant} FROM generate_series(${from}, ${to}) AS g(i)`
 		yield* standUpJudge(session, installed.installation)
-		const probeCost = yield* probeCostOf((sql) => session.values(sql, []))
 		yield* committedJudged(session, [
 			...spanBackgroundSql(installed),
 			shown(1, 4, "10 * i"),
@@ -603,8 +589,7 @@ export const runFold = (
 		heldToTheBound(
 			few,
 			many,
-			probeCost,
-			`${Formatter.format(d)}: each statement the judge runs at a moment's COMMIT does the same keyed work beside four rows of the session and beside ${4 + d.added}, beside ${background} other learners`
+			`${Formatter.format(d)}: each statement the judge runs at a moment's COMMIT does the same work beside four rows of the session and beside ${4 + d.added}, beside ${background} other learners`
 		)
 		const relation = d.shape === "latest" ? "Latest" : "Unmoved"
 		if (Arr.some(few, (p) => p.statement.kind === "upkeep" && p.statement.relation === relation)) {

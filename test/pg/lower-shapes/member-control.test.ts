@@ -11,23 +11,19 @@
  * member's place, read its nearest stated scope first, a fold at the member's every grouping column, one group
  * (cte-policy keyedRegionChain, a source whose seek holds one of its keys ranked `key`), then the attempts stated at
  * that scope by their key, where the stated attempts of every scope of the test, read at the test's package and path,
- * led it and the fold was derived again for each. And the session's member, read at (package, path, document), is read
- * through its own index whatever the statistics state: the fold's members' index at (package, path, start) leads with
- * start, a column of its own (physical/indexes/engine.ts ownLead), where led alike with package and path it priced as
- * the member's own under statistics stating each value its own, and every member of the test was read for each session.
+ * led it and the fold was derived again for each.
  *
- * On PostgreSQL 19, under no planner setting, a test of a few members and then of a hundred more, in sections, its part,
- * its sections and some of its members stating attempts, and a learner's sessions of its first members, each with its
- * control attached at the session's key, beside dozens of other packages' tests and learners, so every relation is
- * dozens of pages and a scan of one costs PostgreSQL more than the learner's index probes.
+ * On PostgreSQL 19, a test of a few members and then of a hundred more, in sections, its part, its sections and some of
+ * its members stating attempts, and a learner's sessions of its first members, each with its control attached at the
+ * session's key, beside dozens of other packages' tests and learners, so every relation is dozens of pages; its tables
+ * in each pg_class state (test/support/advice.ts PgClassState), the read run under its carried advice once the plan
+ * laws hold over it.
  *
  * Oracle: a bound, the read's scans read at most four times the learner's own rows (each session, its sitting, its
- * member, the member's scopes and their stated attempts), however many members the test holds beside them, under any
- * statistics; and every equality path the workload's access asks is a binding the read's statement prints
- * (test/support/read-indexes.ts unprintedPaths), none a walk's restriction of a region under a row site holds it at
- * where the lowering reads it at the site's alone (share/keys.ts rowReading).
+ * member, the member's scopes and their stated attempts), however many members the test holds beside them, in any
+ * pg_class state.
  *
- * Features: a test of few members and of many; a stated part, stated sections, no scope stated; each statistics.
+ * Features: a test of few members and of many; a stated part, stated sections, no scope stated; each pg_class state.
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { property, ReplayToken } from "@bjornpagen/testing/property"
@@ -55,9 +51,11 @@ export const aRewriteKeepsTheRestrictionReachingEveryOccurrencesReadSoADerivatio
 			"under a stated part",
 			"under a stated section",
 			"with no scope stated",
-			"under counted statistics",
-			"under statistics stating each value its own",
-			"under statistics stating every row one value"
+			"its tables never vacuumed",
+			"its tables counted empty",
+			"its tables analyzed",
+			"its tables skewed",
+			"its tables large"
 		] satisfies ReadonlyArray<Reached<MemberFeature>>,
 		check:
 			({ stored }, c) =>
@@ -68,7 +66,7 @@ export const aRewriteKeepsTheRestrictionReachingEveryOccurrencesReadSoADerivatio
 				}),
 		oracle: {
 			kind: "universal",
-			name: "bound: the read's scans read at most four times the learner's own rows, beside a test of a few members and of a hundred more, under any statistics"
+			name: "bound: the read's scans read at most four times the learner's own rows, beside a test of a few members and of a hundred more, in any pg_class state"
 		},
 		kept: [
 			{
@@ -77,14 +75,6 @@ export const aRewriteKeepsTheRestrictionReachingEveryOccurrencesReadSoADerivatio
 				),
 				reason:
 					"qti-pie's member controls (ledger/src/member-controls.ts): a member's attempts in force read every stated scope of its test at the test's package and path before the member's nearest stated scope, a fold at the member's place, and derived the fold again for each, 350 rows for one session beside a test of 42 members against a bound of 36",
-				since: "2026-11-26"
-			},
-			{
-				token: ReplayToken(
-					"test/pg/lower-shapes/member-control.test.ts#aRewriteKeepsTheRestrictionReachingEveryOccurrencesReadSoADerivationIsReadAtTheKeyItsRegionCarries:-:0.0.0.0.0.0.0.0.0.1"
-				),
-				reason:
-					"qti-pie's member controls under statistics stating each value its own: the session's member read at (package, path, document) through the fold's index (package, path, start), led alike, the document filtered after, every member of the test, 61.98 rows beside a test of 42 members against a bound of 36",
 				since: "2026-11-26"
 			}
 		],
@@ -101,13 +91,6 @@ export const aRewriteKeepsTheRestrictionReachingEveryOccurrencesReadSoADerivatio
 					"\t\tif (source.meta.logicalKeys.some((k) => k.key.every((c) => seek.includes(c)))) {\n",
 				replacement: "\t\tif (false) {\n",
 				why: "A fold read at its every grouping column ranks by the prefix of its input: the stated attempts of every scope of the test, read at its package and path, lead the member's nearest stated scope, which is derived again for each of them."
-			},
-			{
-				file: "packages/engine/src/lower/shapes/share/keys.ts",
-				original:
-					"\t\t\t\tfor (const under of postorder([site.occurrence.source], inputsOf)) {\n\t\t\t\t\tbeneath.add(under)\n\t\t\t\t}\n",
-				replacement: "",
-				why: "A walk holds a region under a row site at its own restriction, as before, beside the site's: the members of the test are asked at its package and path, a chain no statement prints, which the members' attempts in force read at the member's place alone."
 			}
 		]
 	})

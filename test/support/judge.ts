@@ -39,6 +39,7 @@ import { routineAdviceHeld } from "#test/support/advice.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { standUpCallsOf } from "#test/support/kernel/naming.ts"
 import type { SqlError } from "#test/support/pg.ts"
+import { tableOfSource } from "#test/support/sql.ts"
 import type { CaseSession, RawSession } from "#test/support/substrate/session.ts"
 
 /**
@@ -425,7 +426,7 @@ interface TablesRead {
 
 /**
  * The tables the statement `walk` visits reads, in the order its FROM items name them, at any depth, its subqueries'
- * among them, each as an unbound FROM names it or as the binding reads it (sql/ast.ts FromSource `read`): its deltas, each a table of pg_temp a FROM names or a delta a FROM reads through its reader (`readers`,
+ * among them, each the table of its source (`tableOfSource`): its deltas, each a table of pg_temp a FROM names or a delta a FROM reads through its reader (`readers`,
  * `readersOf`), and its stored tables, every other table a FROM names, printed as pg_locks' regclass reads them. A
  * write's target is no FROM of it: an upkeep's DELETE or INSERT reads its stored relation's table only where a FROM of
  * it names the table.
@@ -440,11 +441,8 @@ const tablesReadBy = (
 		new Transform({
 			...identityHooks,
 			fromSource: (source) => {
-				const table =
-					source.kind === "read" || (source.kind === "table" && typeof source.table !== "string")
-						? source.table
-						: undefined
-				if (table !== undefined && typeof table !== "string") {
+				const table = tableOfSource(source)
+				if (table !== undefined) {
 					if (table.schema === temporarySchema) {
 						deltas.push(table.name)
 					} else {

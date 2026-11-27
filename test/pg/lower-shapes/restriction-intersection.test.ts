@@ -6,28 +6,25 @@
  * for each row of the driver (edullm's session control, read three times in controlOf at a session's stage and at the
  * session; metis's review reads its session control and pending external scorings so).
  *
- * On PostgreSQL 19, under no planner setting, a ledger in small (restriction-intersection.fixtures.ts): each child's
- * sittings of its stages, its item sessions, and each session's holds and pauses, a union of the two; a few dozen
- * children and then a few hundred, beside children stored first, as many as make a scan of each relation cost
- * PostgreSQL more than the read's index probes (fill.ts rowsBeside); under counted statistics or statistics stating each
- * value its own or every row one value (pg_restore_attribute_stats). The read: a sitting's sessions, each with its
+ * On PostgreSQL 19, a ledger in small (restriction-intersection.fixtures.ts): each child's sittings of its stages, its
+ * item sessions, and each session's holds and pauses, a union of the two; a few dozen children and then a few hundred,
+ * beside children stored first, one past the read's bound; its tables in each pg_class state (test/support/advice.ts
+ * PgClassState), the read run under its carried advice once the plan laws hold over it. The read: a sitting's sessions, each with its
  * stage's controls and its own attached, the union read by two rules of the attachment's child, at the session's child
  * and stage and at its child, stage and place.
  *
  * A second read shares no key's prefix: a batch's probes, each with its stage's scores of its x and of its y attached, the
- * scores keyed by x first and by y first, the two reads sharing the stage alone, beside stages scored first, as many as
- * make a scan of each kind of score cost more than the probes.
+ * scores keyed by x first and by y first, the two reads sharing the stage alone, beside stages scored first, one past
+ * the read's bound.
  * The scores are derived once per probe at the stage, so their arms are read at the stage alone, which the index engine
  * serves by an index of the stage (physical/access/extract.ts `chained`, share/keys.ts rowReading `held`): asked at each
  * read's own columns, the x's and the y's, the indexes were ones no plan reads, and the stage's none.
  *
- * Oracle: a bound, the read reads no table larger than a probe whole, and its keyed work (test/support/judge.ts
- * keyedReadWork) is at most four times what the stage's sessions deliver, and the stage's sitting and sessions, however
- * many children stand beside it, under any statistics; and at most four times what the probes' stage holds for each
- * probe, and the probes, however many stages are scored beside it. And every equality path the
- * workload's access asks of the read is a binding its statement prints (test/support/read-indexes.ts unprintedPaths).
+ * Oracle: a bound, the read's work (test/support/judge.ts readWork) is at most four times what the stage's sessions
+ * deliver, and the stage's sitting and sessions, however many children stand beside it, in any pg_class state; and at
+ * most four times what the probes' stage holds for each probe, and the probes, however many stages are scored beside it.
  *
- * Features: a read beside a few children and beside many; beside few stages and many; each statistics.
+ * Features: a read beside a few children and beside many; beside few stages and many; each pg_class state.
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { property } from "@bjornpagen/testing/property"
@@ -57,9 +54,11 @@ export const aNodeReadAtRestrictionsSharingAKeyPartIsDerivedOncePerRowAtThatPart
 		situations: [
 			"beside a few children",
 			"beside many children",
-			"under counted statistics",
-			"under statistics stating each value its own",
-			"under statistics stating every row one value"
+			"its tables never vacuumed",
+			"its tables counted empty",
+			"its tables analyzed",
+			"its tables skewed",
+			"its tables large"
 		] satisfies ReadonlyArray<Reached<IntersectionFeature>>,
 		check:
 			({ stored }, c) =>
@@ -70,7 +69,7 @@ export const aNodeReadAtRestrictionsSharingAKeyPartIsDerivedOncePerRowAtThatPart
 				}),
 		oracle: {
 			kind: "universal",
-			name: "bound: the read's scans read at most four times what the stage's sessions deliver, and its sitting and sessions, beside a few dozen children and beside a few hundred, under any statistics"
+			name: "bound: the read's scans read at most four times what the stage's sessions deliver, and its sitting and sessions, beside a few dozen children and beside a few hundred, in any pg_class state"
 		},
 		kept: [],
 		kills: [
@@ -88,7 +87,7 @@ export const aNodeReadAtRestrictionsSharingAKeyPartIsDerivedOncePerRowAtThatPart
 
 /**
  * A batch's probes, each with its stage's scores of its x and of its y attached, read that stage's scores alone however
- * many stages are scored beside it, under any statistics: each probe's union is derived once at the stage both its reads
+ * many stages are scored beside it, in any pg_class state: each probe's union is derived once at the stage both its reads
  * hold, though no key of the scores leads with it.
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
@@ -99,9 +98,11 @@ export const aNodeReadAtRestrictionsSharingAPartNoKeyLeadsWithIsDerivedOncePerRo
 		situations: [
 			"beside few stages",
 			"beside many stages",
-			"under counted statistics",
-			"under statistics stating each value its own",
-			"under statistics stating every row one value"
+			"its tables never vacuumed",
+			"its tables counted empty",
+			"its tables analyzed",
+			"its tables skewed",
+			"its tables large"
 		] satisfies ReadonlyArray<Reached<ProbeFeature>>,
 		check:
 			({ stored }, c) =>
@@ -112,7 +113,7 @@ export const aNodeReadAtRestrictionsSharingAPartNoKeyLeadsWithIsDerivedOncePerRo
 				}),
 		oracle: {
 			kind: "universal",
-			name: "bound: the read's scans read at most four times what the probes' stage holds for each probe, and the probes, beside few stages and beside many, under any statistics"
+			name: "bound: the read's scans read at most four times what the probes' stage holds for each probe, and the probes, beside few stages and beside many, in any pg_class state"
 		},
 		kept: [],
 		kills: [
@@ -123,12 +124,6 @@ export const aNodeReadAtRestrictionsSharingAPartNoKeyLeadsWithIsDerivedOncePerRo
 				replacement:
 					"\t\trest.every((r) => r.length === first.length && r.every((x) => first.some((y) => y.column === x.column && y.value === x.value)))\n",
 				why: "A node read at restrictions that differ is reached at none, as before: the scores stay the statement's CTE, derived for every stage scored and scanned twice for each probe."
-			},
-			{
-				file: "packages/engine/src/physical/access/extract.ts",
-				original: "\t\t\tfor (const restriction of this.#reading.held.get(source) ?? [at]) {\n",
-				replacement: "\t\t\tfor (const restriction of [at]) {\n",
-				why: "A chain step over a node a row site's root holds once visits it at the step's own columns, as before: the scores' arms are asked at (stage, x) and at (stage, y), which no statement prints, each an index no plan reads, and the stage the union is derived at, which every plan reads, asks none."
 			}
 		]
 	})

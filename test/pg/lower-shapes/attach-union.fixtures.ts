@@ -5,17 +5,14 @@ import { type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { descentsOf, type PlanNode, planNodes, scannedRows } from "#bench/harness/explain.ts"
-import { identity } from "#compiler/core/identity.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
+import { fullWorldRole, servedRead, servedRun } from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { compileTemplate, declaredOf, paramTexts, testCompile } from "#test/support/compile.ts"
 import { type Installed } from "#test/support/install-migrate.ts"
 import { fullWorldTemplate } from "#test/support/installed.ts"
-import { planAsRun } from "#test/support/judge.ts"
-import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 import { beginSerializable } from "#test/support/substrate/session.ts"
 
@@ -196,25 +193,19 @@ const shared = (c: Corpus): boolean =>
 	)
 
 /**
- * The read's one statement for package `p` explained as it runs, and its answer: each part's rows as the delivery
- * sends them.
+ * The read's one statement for package `p` run under its carried advice once the plan laws hold over it
+ * (test/support/advice.ts servedRun), and its answer: each part's rows as the delivery sends them.
  */
 const measured = (installed: Installed, connection: PgConnection, p: number) =>
 	Effect.gen(function* () {
-		const options = {
-			...testCompile,
-			installation: identity.schema(parsedSchemaName(installed.declared))
-		}
-		const template = succeeded(compileTemplate(documents, undefined, options), "the read compiles")
-		const [statement, ...others] = template.optimized
-		assert.ok(statement !== undefined && others.length === 0, "the read is one statement")
-		const params = paramTexts(
-			statement,
-			{ pkg: p },
-			declaredOf(template, documents, undefined, options)
+		const read = yield* servedRead(
+			installed,
+			fullWorldRole(installed, Files),
+			documents,
+			`the read of package ${p}'s files`
 		)
-		const plan = yield* planAsRun(connection.queryValues, statement.sql, params)
-		const rows = yield* connection.queryValues(statement.sql, params)
+		const plan = yield* servedRun({ values: connection.queryValues }, read, { pkg: p })
+		const rows = yield* connection.queryValues(read.statement.sql, read.params({ pkg: p }))
 		return { plan, rows }
 	})
 
@@ -276,7 +267,7 @@ const scaledLess = (before: Read, after: Read, growth: number): boolean =>
  * package's files for each document in each of the two arms. The buffers each arm's relations' scans touch do not grow
  * with what else is stored (scaledLess): never by half as much as the corpus grows, as a scan reading every package's
  * rows would. They are no exact count: an Index Scan touches a heap page once for each row it holds and a Bitmap Heap
- * Scan once, the planner choosing at each size by its estimates; the leaf pages a scan walks are where the load's page
+ * Scan once, the scan the read's advice names at each size; the leaf pages a scan walks are where the load's page
  * splits fell; and a larger relation's B-tree may add a level above the same leaves, one more buffer a descent.
  */
 export const runAttachUnion = (

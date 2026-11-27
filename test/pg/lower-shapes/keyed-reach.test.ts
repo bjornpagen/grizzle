@@ -13,15 +13,12 @@
  * submissions of a save of their own, each instant's values; the read of child 1's answer or submission, its instant
  * alone or its values; then a few hundred children more.
  *
- * Oracle: the law on the read's generic plan (prepared under force_generic_plan, as every login's role prepares its
- * statements):
- * every scan of a stored relation is a seek whose Index Cond binds every column of the relation's key the read binds,
- * the learner among them, inside a CTE as anywhere; and the bound, the read's scans, explained with ANALYZE, read at most
- * twice the rows its key reaches, beside a few children and beside a few hundred, under any statistics and no planner
- * setting but the generic planning every login's role sets.
+ * Oracle: the plan laws over the read under its carried advice (test/support/advice.ts), Law 2 among them: every column
+ * of a relation's key the read binds, the learner among them, is its scan's index condition, inside a CTE as anywhere;
+ * and the bound, the read's scans, explained with ANALYZE, read at most twice the rows its key reaches, beside a few
+ * children and beside a few hundred, in any pg_class state.
  *
- * Features: an answer's instant and a submission's save's, the values at the instant, and each way of stating the
- * columns' statistics.
+ * Features: an answer's instant and a submission's save's, the values at the instant, and each pg_class state.
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { property } from "@bjornpagen/testing/property"
@@ -48,9 +45,11 @@ export const aDerivedRelationReadByItsWholeKeySeeksEachRuleAndEachRelationJoined
 			"an answer's instant",
 			"a submission's save's instant",
 			"the values at the instant",
-			"under counted statistics",
-			"under statistics stating each value its own",
-			"under statistics stating every row one value"
+			"its tables never vacuumed",
+			"its tables counted empty",
+			"its tables analyzed",
+			"its tables skewed",
+			"its tables large"
 		] satisfies ReadonlyArray<Reached<KeyedReachFeature>>,
 		check:
 			({ stored }, c) =>
@@ -61,7 +60,7 @@ export const aDerivedRelationReadByItsWholeKeySeeksEachRuleAndEachRelationJoined
 				}),
 		oracle: {
 			kind: "universal",
-			name: "the law on the generic plan, every scan of a stored relation a seek binding every key column the read binds, inside a CTE as anywhere; and the bound, the read's scans read at most twice the rows its key reaches, beside a few children and a few hundred more, under any statistics and no planner setting but the generic planning every login's role sets"
+			name: "the plan laws under the read's carried advice, Law 2's every key column the read binds an index condition, inside a CTE as anywhere; and the bound, the read's scans read at most twice the rows its key reaches, beside a few children and a few hundred more, in any pg_class state"
 		},
 		kept: [],
 		kills: [

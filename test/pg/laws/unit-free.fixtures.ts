@@ -17,13 +17,11 @@ import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/
 import {
 	committedJudged,
 	type JudgePlan,
-	type JudgeStatement,
 	judgeRun,
+	type JudgeStatement,
 	judgeStatementsOf,
-	keyedWork,
-	probeCostOf,
-	standUpJudge,
-	wideScans
+	scannedWork,
+	standUpJudge
 } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -223,9 +221,9 @@ export const unitFreeGen: Gen<UnitFreeCase> = (s) => ({
 export type UnitFreeFeature = `${UnitFreeShape} measured`
 
 /**
- * The units every case stores beside its own, each with one row of each of the shape's relations of a unit, so every
- * table is larger than one probe of it and PostgreSQL looks a key up in it, as at a production's size, with no planner
- * setting (test/support/judge.ts keyedWork).
+ * The units every case stores beside its own, each with one row of each of the shape's relations of a unit, so a read
+ * of a table whole, or of every unit's rows, reads past the rows at the touched binding, which a read at its keys reads
+ * alone.
  *
  * @limitKind derived
  * @owner the unit-free locality (unit-free.test.ts)
@@ -325,17 +323,17 @@ const touchedWork = (shape: UnitFreeShape, installed: Installed, session: RawSes
 		return work
 	})
 
-/** Each statement measured: its keyed work and the tables it reads whole by a scan that costs more than a probe. */
-const measured = (plans: ReadonlyArray<JudgePlan<JudgeStatement>>, probeCost: number) =>
+/** Each statement measured: its work (test/support/judge.ts scannedWork). */
+const measured = (plans: ReadonlyArray<JudgePlan<JudgeStatement>>) =>
 	Arr.map(plans, (p) => ({
-		rows: keyedWork(p.plan, probeCost),
-		wide: wideScans(p.plan, probeCost)
+		rows: scannedWork(p.plan)
 	}))
 
 /**
  * One case on a fresh clone, in one session: the shape's unit 1 stored after `background` units, so a scan of a table
- * reaches its rows last, committed, and the judge's work at the touch measured; then `more` units stored beside them, committed, and the work measured again. No
- * statement reads a table larger than a probe whole, and each does the same keyed work both times: the probe of the
+ * reaches its rows last, committed, and the judge's work at the touch measured, each statement under its routine's own
+ * advice (test/support/judge.ts judgeRun); then `more` units stored beside them, committed, and the work measured
+ * again. Each statement does the same work both times (test/support/judge.ts scannedWork): the probe of the
  * derived relation at its unit-free binding reads the rows at that binding alone, a chain of keyed reads from the
  * binding, never the units beside them.
  */
@@ -347,7 +345,6 @@ export const runUnitFree = (
 ) =>
 	Effect.gen(function* () {
 		yield* standUpJudge(session, installed.installation)
-		const probeCost = yield* probeCostOf((sql) => session.values(sql, []))
 		yield* committedJudged(session, [
 			...fixedSql(d.shape, installed),
 			...unitsSql(d.shape, installed, 2, background + 1),
@@ -359,23 +356,16 @@ export const runUnitFree = (
 			unitsSql(d.shape, installed, background + 2, background + 1 + d.more)
 		)
 		const manyPlans = yield* touchedWork(d.shape, installed, session)
-		const few = measured(fewPlans, probeCost)
-		const many = measured(manyPlans, probeCost)
+		const few = measured(fewPlans)
+		const many = measured(manyPlans)
 		assert.ok(
 			Arr.some(few, (w) => w.rows > 0),
 			`${Formatter.format(d)}: some judged statement reads the touched rows`
 		)
-		for (const w of [...few, ...many]) {
-			assert.deepEqual(
-				w.wide,
-				[],
-				`${Formatter.format(d)}: no judged statement reads a table larger than a probe whole`
-			)
-		}
 		assert.deepEqual(
 			many,
 			few,
-			`${Formatter.format(d)}: each judged statement does the same keyed work beside ${background} units and beside ${background + d.more}`
+			`${Formatter.format(d)}: each judged statement does the same work beside ${background} units and beside ${background + d.more}`
 		)
 		c.note(`${d.shape} measured`)
 	})

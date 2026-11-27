@@ -4,25 +4,18 @@ import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { identity } from "#compiler/core/identity.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { fullWorldRole, servedRead, servedRun } from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { compileTemplate, declaredOf, paramTexts, testCompile } from "#test/support/compile.ts"
 import { type Installed } from "#test/support/install-migrate.ts"
 import { fullWorldTemplate } from "#test/support/installed.ts"
-import { keyedReadWork, planAsRun, probeCostOf, wideScans } from "#test/support/judge.ts"
-import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { readWork } from "#test/support/judge.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
-import {
-	countedAsVacuumed,
-	misleadingDistinct,
-	rowsBeside,
-	rowsPerPage
-} from "#test/support/substrate/fill.ts"
+import { countedAsVacuumed, misleadingDistinct } from "#test/support/substrate/fill.ts"
 
 /** A learner's id as the ledger keys it, a text of a byte bound, as metis's LearnerId. */
 const Learner = str.bytes(69, str.regex("^.+$", "su"))
@@ -110,7 +103,7 @@ export const durationsTemplate = fullWorldTemplate({
 /**
  * The statistics the planner reads of the ledger: what a VACUUM counts, or misleading ones that state every row one
  * learner's and every stage distinct (pg_restore_attribute_stats), so an estimate would read a stage's rows as one
- * learner's and a learner's as every row.
+ * learner's and a learner's as every row, under which the read's carried plan stands.
  */
 export type Statistics = "counted" | "misleading"
 
@@ -137,12 +130,12 @@ export type DurationsFeature = `${Statistics}, beside ${"a few" | "many"} learne
 /**
  * The learners a case stores beside its own before any of them, numbered past every learner a case stores, each with a
  * claim, a sitting at stage 0 of the test, one presentation of its first item and one moment after it: a store large
- * beside the sitting's rows, so PostgreSQL reads each relation the read binds by key through its index under no planner
- * setting (fill.ts rowsBeside), at `probes` probes of each table, the narrowest a learner's text and two bigints a row.
+ * beside the sitting's rows: `rows` learners, one past the read's bound, so a read of any relation whole, or at a
+ * prefix every learner shares, reads past it.
  */
-const besideLearners = (installed: Installed, probes: number): ReadonlyArray<string> => {
+const besideLearners = (installed: Installed, rows: number): ReadonlyArray<string> => {
 	const names = namesOf(installed)
-	const learners = `FROM generate_series(1000000, ${String(1_000_000 + rowsBeside(probes, rowsPerPage(4 * 8)) - 1)}) AS g(c)`
+	const learners = `FROM generate_series(1000000, ${String(1_000_000 + rows - 1)}) AS g(c)`
 	return [
 		`INSERT INTO ${names.table(Claim)} SELECT c, 'learner ' || c, 0 ${learners}`,
 		`INSERT INTO ${names.table(Session)} SELECT 'learner ' || c, 0, 'package', 'test' ${learners}`,
@@ -162,9 +155,9 @@ const misleadingOf = (table: string): ReadonlyArray<string> =>
  * One case in its one transaction, which the case's end rolls back: learners 1 to `learners` stored, each's claim and
  * sitting at stage 0 of one test, each of its `items` items presented at 10 j with a moment at 10 j + 5, counted as a
  * VACUUM counts them beside the learners a case stores first (`besideLearners`), their learner and stage stated
- * misleading where the case draws it; the read of learner 1's claimed sitting explained under no planner setting; then
- * `more` learners stored beside them alike, and the read explained again. Both times it reads no table larger than a
- * probe whole, and its keyed work (test/support/judge.ts keyedReadWork) is at most three times the sitting's own rows
+ * misleading where the case draws it; the read of learner 1's claimed sitting run under its carried advice once the
+ * plan laws hold over it (test/support/advice.ts servedRun); then `more` learners stored beside them alike, and the read
+ * run again. Both times its work (test/support/judge.ts readWork) is at most three times the sitting's own rows
  * (its claim, its sitting, its test's items, its presentations, and for each presentation the sitting's moments): the
  * folds keyed at the learner, the item and the stage, each presentation's moments read by the learner's key. A fold keyed
  * at the item and the stage alone reads every learner's presentations of the stage, and each one's moments, ten times
@@ -195,41 +188,29 @@ export const runDurations = (
 				? Arr.flatMap([Claim, Session, Presented, Moment], (t) => misleadingOf(names.table(t)))
 				: [])
 		]
-		const probeCost = yield* probeCostOf((sql) => connection.queryValues(sql, []))
+		/** The sitting's own rows: its claim, its sitting, its test's items, its presentations, and for each the moments. */
+		const own = 2 + 2 * c.items + c.items * c.items
+		const bound = 3 * own
 		for (const sql of [
 			`INSERT INTO ${names.table(Member)} SELECT 'package', 'test', 'item ' || j FROM generate_series(1, ${String(c.items)}) AS h(j)`,
-			...besideLearners(installed, 2 * c.items + 3),
+			...besideLearners(installed, bound + 1),
 			...stored(1, c.learners),
 			...statistics()
 		]) {
 			yield* connection.query(sql, [])
 		}
-		const options = {
-			...testCompile,
-			installation: identity.schema(parsedSchemaName(installed.declared))
-		}
-		const template = succeeded(compileTemplate(durations, undefined, options), "the read compiles")
-		const [statement, ...others] = template.optimized
-		assert.ok(statement !== undefined && others.length === 0, "the read is one statement")
-		const params = paramTexts(
-			statement,
-			{ claim: 1n },
-			declaredOf(template, durations, undefined, options)
+		const read = yield* servedRead(
+			installed,
+			fullWorldRole(installed, Ledger),
+			durations,
+			"the read of learner 1's sitting"
 		)
 		const explained = Effect.map(
-			planAsRun(connection.queryValues, statement.sql, params),
-			(plan) => ({ work: keyedReadWork(plan, probeCost), wide: wideScans(plan, probeCost) })
+			servedRun({ values: connection.queryValues }, read, { claim: 1n }),
+			readWork
 		)
-		/** The sitting's own rows: its claim, its sitting, its test's items, its presentations, and for each the moments. */
-		const own = 2 + 2 * c.items + c.items * c.items
-		const bound = 3 * own
 		const bounded = (learners: number) =>
-			Effect.map(explained, ({ work, wide }) => {
-				assert.deepEqual(
-					wide,
-					[],
-					`${Formatter.format(c)}: the read of learner 1's sitting beside ${String(learners)} learners reads no table larger than a probe whole\n${statement.sql}`
-				)
+			Effect.map(explained, (work) => {
 				assert.ok(
 					work <= bound,
 					`${Formatter.format(c)}: the read of learner 1's sitting beside ${String(learners)} learners reads ${String(work)} rows, past its bound ${String(bound)} (the sitting's ${String(own)})`

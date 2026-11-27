@@ -4,31 +4,26 @@ import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
-import {
-	type PlanNode,
-	planNodes,
-	rowsGenerated,
-	rowsRead,
-	scannedRows
-} from "#bench/harness/explain.ts"
-import { identity } from "#compiler/core/identity.ts"
+import type { BenchSession } from "#bench/harness/session.ts"
 import { Type } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
+import {
+	fullWorldRole,
+	type PgClassState,
+	pgClassStates,
+	servedRead,
+	servedRun,
+	type StateLoad,
+	standIn
+} from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { compileTemplate, declaredOf, paramTexts, testCompile } from "#test/support/compile.ts"
 import { type Installed } from "#test/support/install-migrate.ts"
 import { fullWorldTemplate } from "#test/support/installed.ts"
-import { planAsRun } from "#test/support/judge.ts"
-import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { readWork } from "#test/support/judge.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
-import {
-	countedAsVacuumed,
-	type StatedDistinct,
-	statedDistinct
-} from "#test/support/substrate/fill.ts"
 
 const i = pg.integer
 
@@ -144,14 +139,12 @@ export const chainBindingTemplate = fullWorldTemplate({
 	ambient: ordinarySession
 })
 
-/** How a case's columns' statistics stand: as the stored rows' counts leave them, or stated (fill.ts statedDistinct). */
-export type Statistics = "counted" | StatedDistinct
-
 /**
  * A case: the learner's test of `members` members in `sections` sections, every `shownEvery`-th member stating its
  * feedback display and every `limitEvery`-th its time limit, and the learner's sitting of it at stage 0; `beside`
  * packages stored beside it, each a test of `besideMembers` members; then `more` members stored in the learner's test
- * before the read is explained again; and how the columns' statistics stand.
+ * before the read is run again; and the pg_class state its tables stand in as each load ends (test/support/advice.ts
+ * PgClassState).
  */
 export interface ChainCase {
 	readonly members: number
@@ -161,7 +154,7 @@ export interface ChainCase {
 	readonly more: number
 	readonly beside: number
 	readonly besideMembers: number
-	readonly statistics: Statistics
+	readonly state: PgClassState
 }
 
 export const chainGen: Gen<ChainCase> = (s) => ({
@@ -172,7 +165,7 @@ export const chainGen: Gen<ChainCase> = (s) => ({
 	more: s.draw(int(40, 120)),
 	beside: s.draw(int(30, 60)),
 	besideMembers: s.draw(int(40, 80)),
-	statistics: s.draw(element<Statistics>(["counted", "unique", "one value"]))
+	state: s.draw(element(pgClassStates))
 })
 
 export type ChainFeature =
@@ -180,9 +173,7 @@ export type ChainFeature =
 	| "beside many members"
 	| "with every member stating its controls"
 	| "with some member stating none"
-	| "under counted statistics"
-	| "under statistics stating each value its own"
-	| "under statistics stating every row one value"
+	| `its tables ${PgClassState}`
 
 /** The learner's test's package and path, and its part's place, past every member's and section's. */
 const pkg = 1
@@ -190,17 +181,22 @@ const test = 1
 const part = 100_000
 
 /** The case's tables, quoted. */
-const tablesOf = (installed: Installed): ReadonlyArray<string> => {
+const tablesOf = (installed: Installed): Arr.NonEmptyReadonlyArray<string> => {
 	const names = namesOf(installed)
-	return Arr.map([TestMember, ItemRefSection, Shown, Limit, TestSession], (t) => names.table(t))
+	return [
+		names.table(TestMember),
+		names.table(ItemRefSection),
+		names.table(Shown),
+		names.table(Limit),
+		names.table(TestSession)
+	]
 }
 
 /**
  * The packages stored beside the learner's, 2 to `beside` + 1: each a test of `besideMembers` members in three sections,
  * every other member stating its controls, and twenty learners of its own sitting it. They make each relation dozens of
  * pages, as a store of many tests and learners is, so a read of the learner's rows that scans a relation, or reads one
- * at a prefix every package shares, reads every package's, past the bound, and no index probe of the learner's rows
- * costs PostgreSQL more than such a scan.
+ * at a prefix every package shares, reads every package's, past the bound.
  */
 const beside = (installed: Installed, c: ChainCase): ReadonlyArray<string> => {
 	const names = namesOf(installed)
@@ -218,8 +214,7 @@ const beside = (installed: Installed, c: ChainCase): ReadonlyArray<string> => {
 /**
  * The statements storing the learner's test's members `from` to `to` (each its own item document, the member's place its
  * number, in section `start mod sections`), the controls the case states; at the first, the learner's sitting and the
- * packages beside it; then each table counted as a VACUUM counts it, and its columns' statistics as the case states
- * them.
+ * packages beside it.
  */
 const stored = (
 	installed: Installed,
@@ -230,8 +225,6 @@ const stored = (
 	const names = namesOf(installed)
 	const members = `FROM generate_series(${String(from)}, ${String(to)}) AS g(m)`
 	const section = `(${String(part)} + 1 + m % ${String(c.sections)})`
-	const tables = tablesOf(installed)
-	const statistics = c.statistics
 	return [
 		`INSERT INTO ${names.table(TestMember)} (package, path, start, document, part) SELECT ${String(pkg)}, ${String(test)}, m, m, ${String(part)} ${members}`,
 		`INSERT INTO ${names.table(ItemRefSection)} (package, path, section, start) SELECT ${String(pkg)}, ${String(test)}, ${section}, m ${members}`,
@@ -242,29 +235,16 @@ const stored = (
 					`INSERT INTO ${names.table(TestSession)} (child, package, path, stage) VALUES (1, ${String(pkg)}, ${String(test)}, 0)`,
 					...beside(installed, c)
 				]
-			: []),
-		...Arr.map(tables, countedAsVacuumed),
-		...(statistics === "counted" ? [] : Arr.map(tables, (t) => statedDistinct(t, statistics)))
+			: [])
 	]
 }
 
 /**
- * The work of a statement's scans, every loop: the rows each scan of a stored relation reads, each read of a function
- * yields, and each scan of a CTE reads, its output and what its filter removed.
- */
-const work = (plan: PlanNode): number =>
-	rowsRead(plan) +
-	rowsGenerated(plan) +
-	Arr.reduce(
-		Arr.filter([...planNodes(plan)], (n) => n.nodeType === "CTE Scan"),
-		0,
-		(sum, n) => sum + scannedRows(n)
-	)
-
-/**
  * One case in its one transaction, which the case's end rolls back: the learner's test stored with its sitting and the
- * packages beside it, the read of the learner's stage explained, under no planner setting; then `more` members stored
- * in the test, and the read explained again. Both times its scans read at most four times the learner's own rows: the
+ * packages beside it, its tables stood in the case's pg_class state, and the read of the learner's stage run under its
+ * carried advice once the plan laws hold over it (test/support/advice.ts servedRun); then `more` members stored in the
+ * test, stood again, and the read run again. Both times its scans read at most four times the learner's own rows
+ * (test/support/judge.ts readWork): the
  * sitting, and each member, its section membership and its stated controls. The control that leads the chain binds
  * each member's place, and the other control is read at it, as the member is. Where the place joins the second control
  * only at the member's step, last, the second control meets the first at the test's package and path alone, every
@@ -277,25 +257,25 @@ export const runChainBinding = (
 	k: Case<ChainFeature>
 ) =>
 	Effect.gen(function* () {
-		for (const sql of stored(installed, c, 1, c.members)) {
-			yield* connection.query(sql, [])
-		}
-		const options = {
-			...testCompile,
-			installation: identity.schema(parsedSchemaName(installed.declared))
-		}
-		const template = succeeded(
-			compileTemplate(membersRead, undefined, options),
-			"the read compiles"
+		const session: BenchSession = { values: connection.queryValues }
+		const storing = (first: number, units: number): StateLoad => ({
+			tables: tablesOf(installed),
+			units,
+			load: (from, to) =>
+				Effect.forEach(
+					stored(installed, c, first + from - 1, first + to - 1),
+					(sql) => connection.query(sql, []),
+					{ discard: true }
+				)
+		})
+		yield* standIn(session, storing(1, c.members), c.state)
+		const read = yield* servedRead(
+			installed,
+			fullWorldRole(installed, Content),
+			membersRead,
+			"the read of the learner's stage"
 		)
-		const [statement, ...others] = template.optimized
-		assert.ok(statement !== undefined && others.length === 0, "the read is one statement")
-		const params = paramTexts(
-			statement,
-			{ child: 1, stage: 0 },
-			declaredOf(template, membersRead, undefined, options)
-		)
-		const explained = Effect.map(planAsRun(connection.queryValues, statement.sql, params), work)
+		const explained = Effect.map(servedRun(session, read, { child: 1, stage: 0 }), readWork)
 		const bounded = (members: number) =>
 			Effect.map(explained, (scanned) => {
 				/** The learner's own rows: the sitting, and each member, its section membership and its two controls. */
@@ -303,13 +283,11 @@ export const runChainBinding = (
 				const bound = 4 * own
 				assert.ok(
 					scanned <= bound,
-					`${Formatter.format(c)}: the read of the learner's sitting of a test of ${String(members)} members reads ${String(scanned)} rows, past its bound ${String(bound)} (the learner's ${String(own)})\n${statement.sql}`
+					`${Formatter.format(c)}: the read of the learner's sitting of a test of ${String(members)} members reads ${String(scanned)} rows, past its bound ${String(bound)} (the learner's ${String(own)})\n${read.statement.sql}`
 				)
 			})
 		yield* bounded(c.members)
-		for (const sql of stored(installed, c, c.members + 1, c.members + c.more)) {
-			yield* connection.query(sql, [])
-		}
+		yield* standIn(session, storing(c.members + 1, c.more), c.state)
 		yield* bounded(c.members + c.more)
 		k.note(c.members + c.more < 60 ? "beside few members" : "beside many members")
 		k.note(
@@ -317,11 +295,5 @@ export const runChainBinding = (
 				? "with every member stating its controls"
 				: "with some member stating none"
 		)
-		k.note(
-			c.statistics === "counted"
-				? "under counted statistics"
-				: c.statistics === "unique"
-					? "under statistics stating each value its own"
-					: "under statistics stating every row one value"
-		)
+		k.note(`its tables ${c.state}`)
 	})

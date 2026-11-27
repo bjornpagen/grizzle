@@ -10,10 +10,10 @@
  * hundred more, each node with its attributes.
  *
  * Oracle: a bound, the read descends the attributes' indexes at most once for each served document, however many
- * nodes each holds, under any statistics.
+ * nodes each holds, in any pg_class state.
  *
  * Features: the attributes in one region with the nodes, and attached to each node (metis's form); one document and
- * several; each statistics.
+ * several; each pg_class state.
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { property } from "@bjornpagen/testing/property"
@@ -34,9 +34,11 @@ export const aKeySetOfEveryKeyAtAPrefixIsReadOnceAPrefixAsARange = property.expl
 		"attached to each node",
 		"one document",
 		"several documents",
-		"under counted statistics",
-		"under statistics stating each value its own",
-		"under statistics stating every row one value"
+		"its tables never vacuumed",
+		"its tables counted empty",
+		"its tables analyzed",
+		"its tables skewed",
+		"its tables large"
 	] satisfies ReadonlyArray<Reached<PrefixFeature>>,
 	check:
 		({ stored }, c) =>
@@ -47,7 +49,7 @@ export const aKeySetOfEveryKeyAtAPrefixIsReadOnceAPrefixAsARange = property.expl
 			}),
 	oracle: {
 		kind: "universal",
-		name: "bound: the read descends the attributes' indexes at most once for each served document, at a few nodes a document and at a hundred more, under any statistics"
+		name: "bound: the read descends the attributes' indexes at most once for each served document, at a few nodes a document and at a hundred more, in any pg_class state"
 	},
 	kept: [],
 	kills: [

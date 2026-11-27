@@ -3,33 +3,29 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter } from "effect"
-import { genericPlanOf, type PlanNode, parsePlanTree, rowsRead } from "#bench/harness/explain.ts"
-import { identity } from "#compiler/core/identity.ts"
+import { Effect, Formatter } from "effect"
+import { rowsRead } from "#bench/harness/explain.ts"
+import type { BenchSession } from "#bench/harness/session.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema, unit } from "#compiler/public/schema.ts"
-import { scanBindings } from "#test/pg/physical/plan-bindings.ts"
+import {
+	fullWorldRole,
+	type PgClassState,
+	pgClassStates,
+	servedRead,
+	servedRun,
+	type StateLoad,
+	standIn
+} from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { compileTemplate, declaredOf, paramTexts, testCompile } from "#test/support/compile.ts"
 import { type Installed } from "#test/support/install-migrate.ts"
 import { fullWorldTemplate } from "#test/support/installed.ts"
-import { planAsRun } from "#test/support/judge.ts"
-import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { standUpJudge } from "#test/support/judge.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
-import {
-	countedAsVacuumed,
-	rowsBeside,
-	rowsPerPage,
-	type StatedDistinct,
-	statedDistinct
-} from "#test/support/substrate/fill.ts"
 
 const i = pg.integer
-
-/** The seeks a read of an attempt makes at most: its answer, or its submission and save, and the values at its instant. */
-const probes = 4
 
 /**
  * A learner's attempts as edullm's ledger holds them: an answer attempt at its own instant, a submission naming the save
@@ -102,14 +98,11 @@ export const keyedReachTemplate = fullWorldTemplate({
 	ambient: ordinarySession
 })
 
-/** How a case's columns' statistics stand: as the stored rows' counts leave them, or stated (fill.ts statedDistinct). */
-export type Statistics = "counted" | StatedDistinct
-
 /**
  * A case: the read; the attempt asked, an answer or a submission, of child 1; `children` children stored, each of
  * `attempts` attempts, the odd ones answers and the even ones submissions of a save of their own, each instant with
- * `values` values; then `more` children stored beside them before the read is explained again; and how the columns'
- * statistics stand.
+ * `values` values; then `more` children stored beside them before the read is run again; and the pg_class state its
+ * tables stand in as each load ends (test/support/advice.ts PgClassState).
  */
 export interface KeyedReachCase {
 	readonly read: KeyedRead
@@ -118,7 +111,7 @@ export interface KeyedReachCase {
 	readonly attempts: number
 	readonly values: number
 	readonly more: number
-	readonly statistics: Statistics
+	readonly state: PgClassState
 }
 
 export const keyedReachGen: Gen<KeyedReachCase> = (s) => ({
@@ -128,37 +121,19 @@ export const keyedReachGen: Gen<KeyedReachCase> = (s) => ({
 	attempts: s.draw(int(2, 6)),
 	values: s.draw(int(1, 4)),
 	more: s.draw(int(200, 600)),
-	statistics: s.draw(element<Statistics>(["counted", "unique", "one value"]))
+	state: s.draw(element(pgClassStates))
 })
 
 export type KeyedReachFeature =
 	| "an answer's instant"
 	| "a submission's save's instant"
 	| "the values at the instant"
-	| "under counted statistics"
-	| "under statistics stating each value its own"
-	| "under statistics stating every row one value"
-
-/** Each relation's key columns a read of an attempt by its key binds wherever it is read: every one of its key. */
-const boundKeys = (installed: Installed): ReadonlyMap<string, ReadonlyArray<string>> => {
-	const names = installed.installation.names
-	const holding = installed.installation.checked.holdings.get(AttemptValueAt.name)
-	return new Map([
-		[names.relation(Answer.name).name, ["child", "attempt"]],
-		[names.relation(Submit.name).name, ["child", "attempt"]],
-		[names.relation(Save.name).name, ["child", "save"]],
-		[names.relation(Value.name).name, ["child", "at"]],
-		...(holding?.kind === "stored"
-			? [[names.relation(AttemptValueAt.name).name, ["child", "attempt"]] as const]
-			: [])
-	])
-}
+	| `its tables ${PgClassState}`
 
 /**
  * The statements storing children `from` to `to`: each child's attempts, the odd ones answers at instant 10a and the
  * even ones submissions of save a at instant 10a + 1, each instant's values; AttemptValueAt's table, where the
- * installation stores it, filled as its upkeep fills it; then each table counted as a VACUUM counts it, and its
- * columns' statistics as the case states them.
+ * installation stores it, filled as its upkeep fills it.
  */
 const stored = (
 	installed: Installed,
@@ -170,11 +145,6 @@ const stored = (
 	const grid = `FROM generate_series(${String(from)}, ${String(to)}) AS g(c), generate_series(1, ${String(c.attempts)}) AS h(a)`
 	const instants = `${grid}, generate_series(1, ${String(c.values)}) AS k(n)`
 	const holding = installed.installation.checked.holdings.get(AttemptValueAt.name)
-	const statistics = c.statistics
-	const tables = [
-		...Arr.map([Answer, Submit, Save, Value], (t) => names.table(t)),
-		...(holding?.kind === "stored" ? [names.table(AttemptValueAt)] : [])
-	]
 	return [
 		`INSERT INTO ${names.table(Answer)} SELECT c, a, 10 * a ${grid} WHERE a % 2 = 1`,
 		`INSERT INTO ${names.table(Save)} SELECT c, a, 10 * a + 1 ${grid} WHERE a % 2 = 0`,
@@ -184,43 +154,19 @@ const stored = (
 			? [
 					`INSERT INTO ${names.table(AttemptValueAt)} (child, attempt, at) SELECT c, a, 10 * a + 1 - a % 2 ${grid}`
 				]
-			: []),
-		...Arr.map(tables, countedAsVacuumed),
-		...(statistics === "counted" ? [] : Arr.map(tables, (t) => statedDistinct(t, statistics)))
+			: [])
 	]
 }
 
 /**
- * The law on the read's generic plan (prepared and explained under force_generic_plan, as every login's role plans the
- * statements it prepares):
- * every scan of a stored relation is a seek whose Index Cond binds every column of the relation's key the read binds
- * (`boundKeys`), the learner among them, never a scan of it whole or by a prefix the read could bind further, inside a
- * CTE of the statement as anywhere: the union of the two rules is derived at the key in each arm, never whole.
- */
-const keyedReach = (
-	installed: Installed,
-	tree: Parameters<typeof scanBindings>[0],
-	what: string
-): void => {
-	const keys = boundKeys(installed)
-	for (const scan of scanBindings(tree)) {
-		const key = keys.get(scan.relation)
-		assert.ok(
-			key !== undefined && scan.nodeType !== "Seq Scan" && Arr.every(key, (k) => scan.bound.has(k)),
-			`${what}: ${scan.relation} (${scan.alias}) is read by ${scan.nodeType} binding ${Formatter.format([...scan.bound])}, where the read binds ${Formatter.format(key ?? [])}`
-		)
-	}
-}
-
-/**
  * One case in its one transaction, which the case's end rolls back: children 1 to `children` stored, then `more`
- * children beside them and as many again as make each table worth planning (fill.ts rowsBeside), so PostgreSQL reads a
- * table through an index wherever a statement binds its key, under no planner setting; the read of child 1's asked
- * attempt explained with ANALYZE, reading at most twice the rows its key reaches: the asked attempt's answer, or its
- * submission and the save it names, and, for `valuesOf`, the values at its instant; then planned generically, as
- * every session grizzle opens plans the statements it prepares (bench/harness/explain.ts genericPlanOf), and held to
- * the law (`keyedReach`). A union derived whole for every
- * learner reads each learner's attempts and saves, past the bound and the law.
+ * children beside them, its tables stood in the case's pg_class state as each load ends; the read of child 1's asked
+ * attempt run under its carried advice once the plan laws hold over it (test/support/advice.ts servedRun), Law 2 among
+ * them: every column the read binds of each relation, its key, the learner among them, is its scan's index condition,
+ * inside a CTE of the statement as anywhere, so the union of the two rules is derived at the key in each arm, never
+ * whole. It reads at most twice the rows its key reaches: the asked attempt's answer, or its submission and the save it
+ * names, and, for `valuesOf`, the values at its instant. A union derived whole for every learner reads each learner's
+ * attempts and saves, past the bound and the law.
  */
 export const runKeyedReach = (
 	installed: Installed,
@@ -229,65 +175,47 @@ export const runKeyedReach = (
 	k: Case<KeyedReachFeature>
 ) =>
 	Effect.gen(function* () {
-		for (const sql of stored(installed, c, 1, c.children)) {
-			yield* connection.query(sql, [])
-		}
-		const options = {
-			...testCompile,
-			installation: identity.schema(parsedSchemaName(installed.declared))
-		}
-		const read = keyedReads[c.read]
-		const template = succeeded(compileTemplate(read, undefined, options), "the read compiles")
-		const [statement, ...others] = template.optimized
-		assert.ok(statement !== undefined && others.length === 0, "the read is one statement")
-		const attempt = c.asked === "answer" ? 1 : 2
-		const params = paramTexts(
-			statement,
-			{ child: 1, attempt },
-			declaredOf(template, read, undefined, options)
+		const session: BenchSession = { values: connection.queryValues }
+		const names = namesOf(installed)
+		const holding = installed.installation.checked.holdings.get(AttemptValueAt.name)
+		const storing = (first: number, units: number): StateLoad => ({
+			tables: [
+				names.table(Answer),
+				names.table(Submit),
+				names.table(Save),
+				names.table(Value),
+				...(holding?.kind === "stored" ? [names.table(AttemptValueAt)] : [])
+			],
+			units,
+			load: (from, to) =>
+				Effect.forEach(
+					stored(installed, c, first + from - 1, first + to - 1),
+					(sql) => connection.query(sql, []),
+					{ discard: true }
+				)
+		})
+		yield* standUpJudge(connection, installed.installation)
+		yield* standIn(session, storing(1, c.children), c.state)
+		const read = yield* servedRead(
+			installed,
+			fullWorldRole(installed, Ledger),
+			keyedReads[c.read],
+			`${Formatter.format(c)}: ${c.read}`
 		)
-		const what = `${Formatter.format(c)}: ${c.read}`
+		const attempt = c.asked === "answer" ? 1 : 2
 		/** The rows the key reaches: the answer, or the submission and its save, and the values at the instant. */
 		const own = (c.asked === "answer" ? 1 : 2) + (c.read === "valuesOf" ? c.values : 0)
 		const bound = 2 * own
-		const bounded = (children: number) =>
-			Effect.gen(function* () {
-				const plan: PlanNode = yield* planAsRun(connection.queryValues, statement.sql, params)
-				const read = rowsRead(plan)
-				assert.ok(
-					read <= bound,
-					`${what} beside ${String(children)} children reads ${String(read)} rows, past its bound ${String(bound)} (the key reaches ${String(own)})\n${statement.sql}`
-				)
-			})
-		/**
-		 * Children enough beside the case's that a scan of each table prices past its probes (fill.ts rowsBeside), so the
-		 * generic plan is judged where PostgreSQL reads a table worth planning, never one of a page or two it scans whole.
-		 */
-		const beside =
-			c.more + Math.ceil(rowsBeside(probes, rowsPerPage(4 * 4)) / Math.floor(c.attempts / 2))
-		for (const sql of stored(installed, c, c.children + 1, c.children + beside)) {
-			yield* connection.query(sql, [])
-		}
-		yield* bounded(c.children + beside)
-		const generic = yield* genericPlanOf(
-			{ values: connection.queryValues },
-			statement.sql,
-			params.length
-		)
-		keyedReach(
-			installed,
-			succeeded(parsePlanTree(generic[0]?.[0]), "one generic plan"),
-			`${what}'s generic plan\n${statement.sql}`
+		yield* standIn(session, storing(c.children + 1, c.more), c.state)
+		const plan = yield* servedRun(session, read, { child: 1, attempt })
+		const scanned = rowsRead(plan)
+		assert.ok(
+			scanned <= bound,
+			`${read.scope.label} beside ${String(c.children + c.more)} children reads ${String(scanned)} rows, past its bound ${String(bound)} (the key reaches ${String(own)})\n${read.statement.sql}`
 		)
 		k.note(c.asked === "answer" ? "an answer's instant" : "a submission's save's instant")
 		if (c.read === "valuesOf") {
 			k.note("the values at the instant")
 		}
-		k.note(
-			c.statistics === "counted"
-				? "under counted statistics"
-				: c.statistics === "unique"
-					? "under statistics stating each value its own"
-					: "under statistics stating every row one value"
-		)
+		k.note(`its tables ${c.state}`)
 	})

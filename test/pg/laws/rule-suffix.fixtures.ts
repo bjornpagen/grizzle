@@ -6,7 +6,7 @@
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
-import { parsePlan, planNodes } from "#bench/harness/explain.ts"
+import { explainServerStatement, planNodes } from "#bench/harness/explain.ts"
 import { Logic, Text } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -16,16 +16,8 @@ import { param, tableCol, types } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
 import { suffixRange } from "#compiler/sql/suffix.ts"
 import { type Seat, type SeatTemplate, seatTemplate } from "#test/pg/fin/installed.ts"
-import { succeeded } from "#test/support/assert.ts"
-import {
-	judgedDeltaReadsOf,
-	keyedWork,
-	planAsRun,
-	plannedQueryOf,
-	probeCostOf,
-	standUpJudge,
-	wideScans
-} from "#test/support/judge.ts"
+import { lawsHold, routineScopes } from "#test/support/advice.ts"
+import { judgedDeltaReadsOf, judgedPlans, scannedWork, standUpJudge } from "#test/support/judge.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -90,10 +82,9 @@ export interface Locality {
 	readonly key: number
 }
 
-/** 2,048 to 2,200 keys, so every table is larger than one probe of it, then 600 to 900 more, so the references fill more
- * heap and index pages each time. */
+/** 250 to 400 keys, then 600 to 900 more, so the references fill more heap and index pages each time. */
 export const localityGen: Gen<Locality> = (s) => {
-	const before = s.draw(int(2048, 2200))
+	const before = s.draw(int(250, 400))
 	return { before, after: s.draw(int(before + 600, before + 900)), key: s.draw(int(1, before)) }
 }
 
@@ -114,21 +105,29 @@ const siReadLocks = (session: RawSession) =>
 	)
 
 /**
- * The footprint of forbidding `.z<key>`, on a fresh session with no planner setting, in one transaction rolled back:
- * the INSERT, its judge deferred, each judged statement over Forbidden's side of news explained while the delta holds
- * the row, then SET CONSTRAINTS ALL IMMEDIATE, which runs the judge, the forbidden suffix ending only a reference of
- * kind 0, and the SIRead locks the transaction holds.
+ * The footprint of forbidding `.z<key>`, on a fresh session, in one transaction rolled back: the INSERT, its judge
+ * deferred, each judged statement over Forbidden's side of news explained while the delta holds the row, under its
+ * routine's advice (judge.ts judgedPlans), then SET CONSTRAINTS ALL IMMEDIATE, which runs the judge, the forbidden
+ * suffix ending only a reference of kind 0, and the SIRead locks the transaction holds.
  */
 const footprintOf = (seat: Seat, key: number) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const session = yield* substrate.session({ ...ownerSession(), label: "rule suffix locality" })
 		yield* standUpJudge(session, seat.installed.installation)
-		const probeCost = yield* probeCostOf((sql) => session.values(sql, []))
-		const probes = Arr.flatMap(judgedDeltaReadsOf(seat.installed.installation), (r) =>
-			Arr.some([...r.deltas], Str.startsWith("__delta_news_forbidden_")) ? [r.statement] : []
+		const reads = Arr.filter(judgedDeltaReadsOf(seat.installed.installation), (r) =>
+			Arr.some([...r.deltas], Str.startsWith("__delta_news_forbidden_"))
 		)
-		assert.ok(probes.length > 0, "a judged statement reads Forbidden's side of news")
+		assert.ok(reads.length > 0, "a judged statement reads Forbidden's side of news")
+		const probes = Arr.map(reads, (r) => r.statement)
+		/** The routines the probes are judged in, whose plans the laws hold over (Law 2: the range an index condition). */
+		const routines = new Set(Arr.map(reads, (r) => `${r.routine.schema}.${r.routine.name}`))
+		const scopes = Arr.filter(
+			routineScopes(seat.installed.installation),
+			(scope) =>
+				scope.vehicle.kind === "routine" &&
+				routines.has(`${scope.vehicle.routine.schema}.${scope.vehicle.routine.name}`)
+		)
 		yield* session.begin
 		const footprint = yield* Effect.onError(
 			Effect.gen(function* () {
@@ -136,19 +135,14 @@ const footprintOf = (seat: Seat, key: number) =>
 					`INSERT INTO ${seat.table("Forbidden")} (${seat.column("Forbidden", "suffix")}) VALUES ('.z${key}')`,
 					[]
 				)
-				const rows: Array<number> = []
-				for (const probe of probes) {
-					const explained = yield* session.values(
-						`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${plannedQueryOf(probe)}`,
-						[]
-					)
-					const plan = succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan
-					assert.deepEqual(
-						wideScans(plan, probeCost),
-						[],
-						"a probe of a forbidden suffix reads no table larger than a probe whole"
-					)
-					rows.push(keyedWork(plan, probeCost))
+				const plans = yield* judgedPlans(
+					(sql) => session.values(sql, []),
+					seat.installed.installation,
+					probes
+				)
+				const rows = Arr.map(plans, ({ plan }) => scannedWork(plan))
+				for (const scope of scopes) {
+					yield* lawsHold(session, scope)
 				}
 				yield* session.query("SET CONSTRAINTS ALL IMMEDIATE", [])
 				return { rows, locks: yield* siReadLocks(session) } satisfies Footprint
@@ -163,7 +157,6 @@ const footprintOf = (seat: Seat, key: number) =>
 export const footprintBeside = (seat: Seat, key: number, from: number, to: number) =>
 	Effect.gen(function* () {
 		yield* seat.session.query(referencesSql(seat, from, to), [])
-		yield* seat.session.query(`ANALYZE ${seat.table("Ref")}`, [])
 		return yield* footprintOf(seat, key)
 	})
 
@@ -232,16 +225,17 @@ const textLiteral = (text: string): string =>
 			)
 
 /**
- * The references a seek case stores beside its targets, each `k<i>q`, of letters no drawn suffix holds, so the table is
- * larger than one probe of it and PostgreSQL seeks a range of the key in it rather than read it whole, with no planner
- * setting: a table of a page or two it reads whole for what a probe costs.
+ * The references a seek case stores beside its targets, each `k<i>q`, of letters no drawn suffix holds: more than one
+ * leaf of the B-tree on the suffix key, so a range read by its index condition seeks its own leaves among others, and
+ * every range but the empty suffix's leaves them out.
  *
  * @limitKind derived
- * @owner the suffix seek property (rule-suffix.test.ts)
+ * @owner PostgreSQL 19's B-tree leaf layout (nbtree.h, bufpage.h)
  * @unit references
  * @scope the background each seek case reads beside its targets
- * @evidence ~/.cache/grizzle/DECLSTATS-work/unitscale/run3.sh, its output unitscale3.log beside it (2026-11-23): a
- *   probe of a key at every table from 2^10 rows
+ * @derivation A suffix key entry of `k<i>q` is an 8-byte index tuple header and a short varlena of at most 7 bytes,
+ *   MAXALIGNed to 16, and a 4-byte line pointer, 20 bytes, so a leaf's 8,192 bytes less its 24-byte header and 16-byte
+ *   special space hold at most 407 entries: 2,048 fill five leaves or more beneath a root.
  */
 const seekBackground = 2048
 
@@ -251,9 +245,10 @@ const backgroundId = 1000
 /**
  * Over `seek`'s targets stored as references beside a background of others (`seekBackground`), each suffix's
  * references read two ways, by its suffix key's range (sql/suffix.ts suffixRange, printed as a judged read states it)
- * and by the suffix test, `right(target, char_length(suffix)) = suffix`, with no planner setting: the two find the same
- * ids, the host's endsWith's, and the range of every suffix but the empty one, whose range is every reference, is read
- * as an index condition of the B-tree on the key, by an index scan or a bitmap of one.
+ * and by the suffix test, `right(target, char_length(suffix)) = suffix`: the two find the same ids, the host's
+ * endsWith's; and the range of every suffix, planned under the advice that reads Ref by its suffix key's B-tree, as a
+ * judged read's carries, is that scan's index condition, never its filter (the plan laws' Law 2,
+ * test/support/advice.ts), at every code point the range turns on.
  */
 export const runSeek = (seat: Seat, seek: Seek, note: (f: SeekFeature) => void) =>
 	Effect.gen(function* () {
@@ -276,6 +271,16 @@ export const runSeek = (seat: Seat, seek: Seek, note: (f: SeekFeature) => void) 
 				seat.session.values(`SELECT ${id} FROM ${ref} WHERE ${where} ORDER BY 1`, [suffix]),
 				(rows) => Arr.map(rows, (r) => Number(r[0]))
 			)
+		/** The B-tree on Ref's suffix key, schema-qualified, as advice names an index: Ref's one expression index. */
+		const expressionIndexes = yield* seat.session.values(
+			"SELECT pg_catalog.quote_ident(n.nspname) || '.' || pg_catalog.quote_ident(c.relname) FROM pg_catalog.pg_index AS i JOIN pg_catalog.pg_class AS c ON c.oid = i.indexrelid JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace WHERE i.indrelid = $1::regclass AND i.indexprs IS NOT NULL",
+			[ref]
+		)
+		const [suffixIndex, ...others] = Arr.map(expressionIndexes, (row) => String(row[0]))
+		assert.ok(
+			suffixIndex !== undefined && others.length === 0,
+			"Ref has one expression index, its suffix key's"
+		)
 		/** The range of the suffix `$1`, as a judged read states it. */
 		const range = printExpr(
 			suffixRange(
@@ -298,26 +303,34 @@ export const runSeek = (seat: Seat, seek: Seek, note: (f: SeekFeature) => void) 
 			)
 			assert.deepEqual(bySeek, host, `${at}: the range finds the references that end with it`)
 			assert.deepEqual(byTest, host, `${at}: the suffix test finds them too`)
-			const plan = yield* planAsRun(
-				seat.session.values,
-				`SELECT ${id} FROM ${ref} WHERE ${range}`,
-				[suffix]
+			yield* seat.session.begin
+			const plan = yield* Effect.ensuring(
+				Effect.andThen(
+					seat.session.query(
+						"SELECT pg_catalog.set_config('pg_plan_advice.advice', $1::text, true)",
+						[`INDEX_SCAN(r1 ${suffixIndex})`]
+					),
+					explainServerStatement(
+						seat.session,
+						`SELECT ${id} FROM ${ref} AS r1 WHERE ${range}`,
+						[suffix],
+						"generic",
+						{ serialize: { kind: "off" }, wal: false, verbose: false }
+					)
+				),
+				Effect.ignore(seat.session.rollback)
 			)
-			const scans = Arr.filter(Arr.fromIterable(planNodes(plan)), (n) => Option.isSome(n.relation))
+			const scans = Arr.filter(Arr.fromIterable(planNodes(plan.plan)), (n) =>
+				Option.isSome(n.relation)
+			)
 			assert.ok(
-				suffix === "" ||
-					(Arr.isReadonlyArrayNonEmpty(scans) &&
-						Arr.every(
-							scans,
-							(n) =>
-								(n.nodeType === "Index Scan" && Option.isSome(n.indexCond)) ||
-								(n.nodeType === "Bitmap Heap Scan" &&
-									Arr.every(
-										n.children,
-										(c) => c.nodeType === "Bitmap Index Scan" && Option.isSome(c.indexCond)
-									))
-						)),
-				`${at}: the range seeks the B-tree on the suffix key, ${Formatter.format(Arr.map(scans, (n) => n.nodeType))}`
+				Arr.isReadonlyArrayNonEmpty(scans) &&
+					Arr.every(
+						scans,
+						(n) =>
+							n.nodeType === "Index Scan" && Option.isSome(n.indexCond) && Option.isNone(n.filter)
+					),
+				`${at}: the range is the index condition of a scan of the B-tree on the suffix key, ${Formatter.format(Arr.map(scans, (n) => [n.nodeType, n.indexCond, n.filter]))}`
 			)
 			note(host.length > 0 ? "a suffix some target ends with" : "a suffix no target ends with")
 			const points = Array.from(suffix)

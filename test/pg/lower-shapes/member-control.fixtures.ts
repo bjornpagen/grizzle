@@ -4,39 +4,26 @@ import { assert } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
-import {
-	type PlanNode,
-	planNodes,
-	rowsGenerated,
-	rowsRead,
-	scannedRows
-} from "#bench/harness/explain.ts"
-import { identity } from "#compiler/core/identity.ts"
-import { workload } from "#compiler/program/workload/value.ts"
+import type { BenchSession } from "#bench/harness/session.ts"
 import { Type } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema } from "#compiler/public/schema.ts"
-import { ordinarySession } from "#test/support/ambient.ts"
-import { succeeded } from "#test/support/assert.ts"
 import {
-	compileTemplate,
-	compileTestWorkload,
-	declaredOf,
-	paramTexts,
-	testCompile
-} from "#test/support/compile.ts"
+	fullWorldRole,
+	type PgClassState,
+	pgClassStates,
+	servedRead,
+	servedRun,
+	type StateLoad,
+	standIn
+} from "#test/support/advice.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed } from "#test/support/install-migrate.ts"
 import { fullWorldTemplate } from "#test/support/installed.ts"
-import { planAsRun } from "#test/support/judge.ts"
-import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { readWork } from "#test/support/judge.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
-import { unprintedPaths } from "#test/support/read-indexes.ts"
-import {
-	countedAsVacuumed,
-	type StatedDistinct,
-	statedDistinct
-} from "#test/support/substrate/fill.ts"
 
 const i = pg.integer
 
@@ -214,14 +201,12 @@ export const memberControlTemplate = fullWorldTemplate({
 	ambient: ordinarySession
 })
 
-/** How a case's columns' statistics stand: as the stored rows' counts leave them, or stated (fill.ts statedDistinct). */
-export type Statistics = "counted" | StatedDistinct
-
 /**
  * A case: the learner's test of `members` members in `sections` sections, its part stating a `max-attempts` where
  * `partStated`, each section where `sectionStated`, every `ownEvery`-th member at its own scope; the learner's
  * `sessions` item sessions of the test's first members at stage 0; then `more` members stored beside them in the same
- * test before the read is explained again; and how the columns' statistics stand.
+ * test before the read is run again; and the pg_class state its tables stand in as each load ends
+ * (test/support/advice.ts PgClassState).
  */
 export interface MemberCase {
 	readonly members: number
@@ -233,7 +218,7 @@ export interface MemberCase {
 	readonly more: number
 	readonly beside: number
 	readonly besideMembers: number
-	readonly statistics: Statistics
+	readonly state: PgClassState
 }
 
 export const memberGen: Gen<MemberCase> = (s) => {
@@ -248,7 +233,7 @@ export const memberGen: Gen<MemberCase> = (s) => {
 		more: s.draw(int(40, 120)),
 		beside: s.draw(int(30, 60)),
 		besideMembers: s.draw(int(40, 80)),
-		statistics: s.draw(element<Statistics>(["counted", "unique", "one value"]))
+		state: s.draw(element(pgClassStates))
 	}
 }
 
@@ -258,9 +243,7 @@ export type MemberFeature =
 	| "under a stated part"
 	| "under a stated section"
 	| "with no scope stated"
-	| "under counted statistics"
-	| "under statistics stating each value its own"
-	| "under statistics stating every row one value"
+	| `its tables ${PgClassState}`
 
 /** The test's package and path, and its part's place, past every member's and section's. */
 const pkg = 1
@@ -270,15 +253,18 @@ const part = 100_000
 /**
  * The statements storing the test's members `from` to `to` (each its own item document, the member's place its
  * number, in section `start mod sections`), the sections' and the part's stated attempts where the case states them and
- * every `ownEvery`-th member's own; the learner's sitting and sessions with the first members; then each table counted as
- * a VACUUM counts it, and its columns' statistics as the case states them.
+ * every `ownEvery`-th member's own; the learner's sitting and sessions with the first members.
  */
 /** The case's tables, quoted. */
-const tablesOf = (installed: Installed): ReadonlyArray<string> => {
+const tablesOf = (installed: Installed): Arr.NonEmptyReadonlyArray<string> => {
 	const names = namesOf(installed)
-	return Arr.map([TestMember, ItemRefSection, Stated, ItemSession, TestSession], (t) =>
-		names.table(t)
-	)
+	return [
+		names.table(TestMember),
+		names.table(ItemRefSection),
+		names.table(Stated),
+		names.table(ItemSession),
+		names.table(TestSession)
+	]
 }
 
 /**
@@ -286,7 +272,7 @@ const tablesOf = (installed: Installed): ReadonlyArray<string> => {
  * every other member and every other part stating attempts, and twenty learners of its own, each sitting it with sessions
  * of its first five members. They make each relation dozens of pages, as a store of many tests and learners is, so a
  * read of the learner's rows that scans a relation, or reads one at a prefix every package shares, reads every
- * package's, past the bound, and no index probe of the learner's rows costs PostgreSQL more than such a scan.
+ * package's, past the bound.
  */
 const beside = (installed: Installed, c: MemberCase): ReadonlyArray<string> => {
 	const names = namesOf(installed)
@@ -311,8 +297,6 @@ const stored = (
 	const names = namesOf(installed)
 	const members = `FROM generate_series(${String(from)}, ${String(to)}) AS g(m)`
 	const section = `(${String(part)} + 1 + m % ${String(c.sections)})`
-	const tables = tablesOf(installed)
-	const statistics = c.statistics
 	const first = from === 1
 	return [
 		`INSERT INTO ${names.table(TestMember)} (package, path, start, document, part) SELECT ${String(pkg)}, ${String(test)}, m, m, ${String(part)} ${members}`,
@@ -334,30 +318,16 @@ const stored = (
 					`INSERT INTO ${names.table(ItemSession)} (child, n, package, path, stage) SELECT 1, 1, ${String(pkg)}, m, 0 FROM generate_series(1, ${String(c.sessions)}) AS g(m)`,
 					...beside(installed, c)
 				]
-			: []),
-		...Arr.map(tables, countedAsVacuumed),
-		...(statistics === "counted" ? [] : Arr.map(tables, (t) => statedDistinct(t, statistics)))
+			: [])
 	]
 }
 
 /**
- * The work of a statement's scans, every loop: the rows each scan of a stored relation reads, each read of a function
- * yields, and each scan of a CTE reads, its output and what its filter removed.
- */
-const work = (plan: PlanNode): number =>
-	rowsRead(plan) +
-	rowsGenerated(plan) +
-	Arr.reduce(
-		Arr.filter([...planNodes(plan)], (n) => n.nodeType === "CTE Scan"),
-		0,
-		(sum, n) => sum + scannedRows(n)
-	)
-
-/**
  * One case in its one transaction, which the case's end rolls back: the test's members stored with the learner's
- * sessions and the packages beside them, the read of the learner's stage explained, under no planner setting;
- * then `more` members stored beside them in the same test, and the read explained again. Both times its scans read at
- * most four times the learner's own rows: each session, its sitting, the member that refers to its item, the member's
+ * sessions and the packages beside them, its tables stood in the case's pg_class state, the read of the learner's stage
+ * run under its carried advice once the plan laws hold over it (test/support/advice.ts servedRun); then `more` members
+ * stored beside them in the same test, stood again, and the read run again. Both times its scans read at most four
+ * times the learner's own rows (test/support/judge.ts readWork): each session, its sitting, the member that refers to its item, the member's
  * scopes and their stated attempts. Each session's control reads its member's attempts in force at the member's place,
  * the place the member carries from the session's item. Where the member is an existence test over the session and the
  * attempts in force (R02), the attempts are derived for every member of the test, the member's test applied to each.
@@ -369,53 +339,38 @@ export const runMemberControl = (
 	k: Case<MemberFeature>
 ) =>
 	Effect.gen(function* () {
-		for (const sql of stored(installed, c, 1, c.members)) {
-			yield* connection.query(sql, [])
-		}
-		const options = {
-			...testCompile,
-			installation: identity.schema(parsedSchemaName(installed.declared))
-		}
-		const template = succeeded(
-			compileTemplate(controlRead, undefined, options),
-			"the read compiles"
+		const session: BenchSession = { values: connection.queryValues }
+		const storing = (first: number, units: number): StateLoad => ({
+			tables: tablesOf(installed),
+			units,
+			load: (from, to) =>
+				Effect.forEach(
+					stored(installed, c, first + from - 1, first + to - 1),
+					(sql) => connection.query(sql, []),
+					{ discard: true }
+				)
+		})
+		yield* standIn(session, storing(1, c.members), c.state)
+		const read = yield* servedRead(
+			installed,
+			fullWorldRole(installed, Ledger),
+			controlRead,
+			"the read of the learner's stage"
 		)
-		const [statement, ...others] = template.optimized
-		assert.ok(statement !== undefined && others.length === 0, "the read is one statement")
-		const params = paramTexts(
-			statement,
-			{ child: 1, stage: 0 },
-			declaredOf(template, controlRead, undefined, options)
-		)
-		const explained = planAsRun(connection.queryValues, statement.sql, params)
+		const explained = servedRun(session, read, { child: 1, stage: 0 })
 		/** Each session's own rows: the session, its sitting, its member, the member's three scopes and their statements. */
 		const own = c.sessions * (3 + 3 + 3)
 		const bound = 4 * own
 		const bounded = (members: number) =>
 			Effect.map(explained, (plan) => {
-				const scanned = work(plan)
+				const scanned = readWork(plan)
 				assert.ok(
 					scanned <= bound,
-					`${Formatter.format(c)}: the read of the learner's stage beside a test of ${String(members)} members reads ${String(scanned)} rows, past its bound ${String(bound)} (the learner's ${String(own)})\n${statement.sql}`
+					`${Formatter.format(c)}: the read of the learner's stage beside a test of ${String(members)} members reads ${String(scanned)} rows, past its bound ${String(bound)} (the learner's ${String(own)})\n${read.statement.sql}`
 				)
 			})
-		const planned = succeeded(
-			compileTestWorkload(
-				[{ login: "reader", workloads: [workload(Ledger, { controlRead })] }],
-				Ledger,
-				options
-			),
-			"the workload plans"
-		)
-		assert.equal(
-			Arr.join(unprintedPaths(planned.requests, [template.run.statement.spec.plan]), ", "),
-			"",
-			`${Formatter.format(c)}: paths the workload's access asks at a binding no statement of the read prints`
-		)
 		yield* bounded(c.members)
-		for (const sql of stored(installed, c, c.members + 1, c.members + c.more)) {
-			yield* connection.query(sql, [])
-		}
+		yield* standIn(session, storing(c.members + 1, c.more), c.state)
 		yield* bounded(c.members + c.more)
 		k.note(c.members + c.more < 60 ? "beside few members" : "beside many members")
 		if (c.partStated) {
@@ -427,11 +382,5 @@ export const runMemberControl = (
 		if (!c.partStated && !c.sectionStated) {
 			k.note("with no scope stated")
 		}
-		k.note(
-			c.statistics === "counted"
-				? "under counted statistics"
-				: c.statistics === "unique"
-					? "under statistics stating each value its own"
-					: "under statistics stating every row one value"
-		)
+		k.note(`its tables ${c.state}`)
 	})

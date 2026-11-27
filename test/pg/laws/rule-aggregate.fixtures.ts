@@ -39,10 +39,8 @@ import {
 	committedJudged,
 	judgeRun,
 	judgeStatementsOf,
-	keyedWork,
-	probeCostOf,
-	standUpJudge,
-	wideScans
+	scannedWork,
+	standUpJudge
 } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { argumentsOf } from "#test/support/list.ts"
@@ -1615,20 +1613,13 @@ const touch: Op = { kind: "insert", relation: "Attempt", row: [1, 1, 1, 2, 0] }
 
 /**
  * The work of each statement the judge runs over the touch, explained on `session` while the deltas hold the touch's
- * rows, before the judge reads them, in a transaction rolled back (test/support/judge.ts judgeRun), with no planner
- * setting: each statement of the judge, a stored relation's upkeep's or a rule's, over a delta holding a row,
+ * rows, before the judge reads them, in a transaction rolled back (test/support/judge.ts judgeRun), each under its
+ * routine's own advice: each statement of the judge, a stored relation's upkeep's or a rule's, over a delta holding a row,
  * Attempt's side of news, which the touch writes, or one an upkeep's write filled, a stored aggregate's, in the judge's
  * order, each upkeep's DELETE and INSERT run as phase A runs them, before the rules over what they wrote; each with its
- * keyed work and the tables it reads whole by a scan that costs more than a probe, `probeCost` (judge.ts keyedWork,
- * wideScans).
+ * work (judge.ts scannedWork).
  */
-const touchedWork = (
-	shape: Shape,
-	installed: Installed,
-	built: Built,
-	session: RawSession,
-	probeCost: number
-) =>
+const touchedWork = (shape: Shape, installed: Installed, built: Built, session: RawSession) =>
 	Effect.gen(function* () {
 		yield* session.begin
 		const work = yield* Effect.onError(
@@ -1640,8 +1631,7 @@ const touchedWork = (
 					judgeStatementsOf(installed.installation)
 				)
 				return Arr.map(plans, (p) => ({
-					rows: keyedWork(p.plan, probeCost),
-					wide: wideScans(p.plan, probeCost)
+					rows: scannedWork(p.plan)
 				}))
 			}),
 			() => Effect.ignore(session.rollback)
@@ -1651,16 +1641,15 @@ const touchedWork = (
 	})
 
 /**
- * The untouched groups every locality case stores beside the ones it draws, so each table is larger than one probe of it
- * and PostgreSQL looks a key up in it, as at a production's size, with no planner setting: a table of a page or two it
- * reads whole for what a probe costs (test/support/judge.ts keyedWork).
+ * The untouched groups every locality case stores beside the ones it draws, so a read of a table whole, or of every
+ * group's rows, reads theirs beside the touched group's, where a read at the touched keys reads its own alone.
  *
  * @limitKind derived
  * @owner the locality property (rule-aggregate.test.ts)
  * @unit groups
  * @scope the background each locality case measures beside
- * @evidence ~/.cache/grizzle/DECLSTATS-work/unitscale/run3.sh, its output unitscale3.log beside it (2026-11-23): a
- *   delta's reader declared at 10 rows is read by a probe of the key at every table from 2^10 rows, a hash over a scan below
+ * @evidence at 2,048 rows each table is a dozen pages (~/.cache/grizzle/DECLSTATS-work/unitscale/unitscale3.log,
+ *   2026-11-23), the touched group's rows a fraction of one, so a read past them is plain in its counts
  */
 const backgroundGroups = 2048
 
@@ -1672,8 +1661,8 @@ export type LocalityFeature = "measured" | typeof refusedAcrossUnits
  * (`installedWithinUnits`); any other
  * installed, the touched group's first attempt stored beside `before` untouched groups and
  * a background of more (`backgroundGroups`), and the touch's work measured; `more` untouched groups stored beside them,
- * and the touch's work measured again. No judged statement reads a table larger than a probe whole, and each one's
- * keyed work is the same both times: a stored relation's upkeep at the touched group's unit, and a probe of the groups a
+ * and the touch's work measured again, each judged statement under its routine's own advice. Each one's work is the same
+ * both times: a stored relation's upkeep at the touched group's unit, and a probe of the groups a
  * write touched, read those groups alone, however many groups stand beside them, each in a learner's unit of its own.
  */
 export const runLocality = (d: LocalityCase, note: Case<LocalityFeature>["note"]) =>
@@ -1698,34 +1687,26 @@ export const runLocality = (d: LocalityCase, note: Case<LocalityFeature>["note"]
 			label: "rule aggregate locality"
 		})
 		yield* standUpJudge(session, done.installation)
-		const probeCost = yield* probeCostOf((sql) => session.values(sql, []))
 		const past = d.before + d.more
 		yield* committedJudged(session, [
 			...Arr.map(touchedBase(shape), (op) => insertSql(shape, done, built, op)),
 			...untouchedSql(shape, done, built, 0, d.before - 1),
 			...untouchedSql(shape, done, built, past, past + backgroundGroups - 1)
 		])
-		const few = yield* touchedWork(shape, done, built, session, probeCost)
+		const few = yield* touchedWork(shape, done, built, session)
 		yield* committedJudged(
 			session,
 			untouchedSql(shape, done, built, d.before, d.before + d.more - 1)
 		)
-		const many = yield* touchedWork(shape, done, built, session, probeCost)
+		const many = yield* touchedWork(shape, done, built, session)
 		assert.ok(
 			Arr.some(few, (w) => w.rows > 0),
 			`${Formatter.format(d)}: some judged statement reads the touched group`
 		)
-		for (const w of [...few, ...many]) {
-			assert.deepEqual(
-				w.wide,
-				[],
-				`${Formatter.format(d)}: no judged statement reads a table larger than a probe whole`
-			)
-		}
 		assert.deepEqual(
 			many,
 			few,
-			`${Formatter.format(d)}: each judged statement does the same keyed work beside ${d.before + backgroundGroups} untouched groups and beside ${d.before + d.more + backgroundGroups}`
+			`${Formatter.format(d)}: each judged statement does the same work beside ${d.before + backgroundGroups} untouched groups and beside ${d.before + d.more + backgroundGroups}`
 		)
 		note("measured")
 	})

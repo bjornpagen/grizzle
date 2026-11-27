@@ -4,17 +4,15 @@ import { assert } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order, Struct } from "effect"
-import { type PlanNode, parsePlan, rowsRead } from "#bench/harness/explain.ts"
-import { identity } from "#compiler/core/identity.ts"
+import { type PlanNode, rowsRead } from "#bench/harness/explain.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema } from "#compiler/public/schema.ts"
+import { fullWorldRole, servedRead, servedRun } from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { type Installed } from "#test/support/install-migrate.ts"
 import { fullWorldTemplate } from "#test/support/installed.ts"
-import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 import { countedAsVacuumed } from "#test/support/substrate/fill.ts"
 
@@ -490,28 +488,24 @@ const reported = (r: Rerun) => ({
 })
 
 /**
- * The read's one statement explained as it runs, and its answer: each part's rows as the delivery sends them, the
+ * The read's one statement run under its carried advice once the plan laws hold over it (test/support/advice.ts
+ * servedRun), and its answer: each part's rows as the delivery sends them, the
  * statement's terms with their counts read back by their place.
  */
 const measured = (
 	installed: Installed,
 	connection: PgConnection,
-	read: typeof sets | typeof versions
+	program: typeof sets | typeof versions
 ) =>
 	Effect.gen(function* () {
-		const options = {
-			...testCompile,
-			installation: identity.schema(parsedSchemaName(installed.declared))
-		}
-		const template = succeeded(compileTemplate(read, undefined, options), "the read compiles")
-		const [statement, ...others] = template.optimized
-		assert.ok(statement !== undefined && others.length === 0, "the read is one statement")
-		const explained = yield* connection.queryValues(
-			`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${statement.sql}`,
-			[]
+		const read = yield* servedRead(
+			installed,
+			fullWorldRole(installed, Ledger),
+			program,
+			program === sets ? "the read of the terms" : "the read of the versions"
 		)
-		const plan = succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan
-		const rows = yield* connection.queryValues(statement.sql, [])
+		const plan = yield* servedRun({ values: connection.queryValues }, read, {})
+		const rows = yield* connection.queryValues(read.statement.sql, read.params({}))
 		return { plan, rows }
 	})
 

@@ -21,13 +21,11 @@ import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/
 import {
 	committedJudged,
 	type JudgePlan,
-	type JudgeStatement,
 	judgeRun,
+	type JudgeStatement,
 	judgeStatementsOf,
-	keyedWork,
-	probeCostOf,
-	standUpJudge,
-	wideScans
+	scannedWork,
+	standUpJudge
 } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -1350,22 +1348,19 @@ const named = (statement: JudgeStatement): string => {
 	}
 }
 
-/** Each statement measured, named, with its keyed work (test/support/judge.ts keyedWork) and the tables it reads whole
- * by a scan that costs more than a probe (wideScans). */
-const measured = (plans: ReadonlyArray<JudgePlan<JudgeStatement>>, probeCost: number) =>
+/** Each statement measured, named, with its work (test/support/judge.ts scannedWork). */
+const measured = (plans: ReadonlyArray<JudgePlan<JudgeStatement>>) =>
 	Arr.map(plans, (p) => ({
 		statement: named(p.statement),
-		rows: keyedWork(p.plan, probeCost),
-		wide: wideScans(p.plan, probeCost)
+		rows: scannedWork(p.plan)
 	}))
 
 /**
  * One bound case on a fresh clone, in one session: the content founded, the background, learner 1's enrolment, the
  * measured sittings of learners 1 and 0 at stage 1 and their ended sittings at stage 2 committed, and the judge's work
  * at each write of `writes` measured (`writeWork`); then `more` other learners and `more` other sittings of learners 1
- * and 0 committed, and the work measured again. With no planner setting and no ANALYZE, each statement reads no table
- * larger than a probe whole, and its keyed work is the same both times: a write's upkeep reads the rows it wrote outward,
- * each stored relation beneath it by an index of its own at the keys the rows bind, the sitting's snapshots at a
+ * and 0 committed, and the work measured again, each statement under its routine's own advice (test/support/judge.ts
+ * judgeRun). Its work is the same both times: a write's upkeep reads the rows it wrote outward, each stored relation beneath it by an index of its own at the keys the rows bind, the sitting's snapshots at a
  * suspension or an end, and each fact it withdraws at the fact or from its own table at the fields the fact's candidate
  * binds, a removed snapshot's facts at the snapshot; never another sitting of the learner or another learner's.
  */
@@ -1378,7 +1373,6 @@ export const runBound = (
 	Effect.gen(function* () {
 		const names = namesOf(installed)
 		yield* standUpJudge(session, installed.installation)
-		const probeCost = yield* probeCostOf((sql) => session.values(sql, []))
 		yield* committedJudged(session, contentSql(installed))
 		yield* committedJudged(session, [
 			...(d.background > 0
@@ -1399,7 +1393,7 @@ export const runBound = (
 				Effect.map(writeWork(installed, session, write), (plans) => ({
 					write,
 					plans,
-					work: measured(plans, probeCost)
+					work: measured(plans)
 				}))
 			)
 		const few = yield* measure()
@@ -1409,19 +1403,10 @@ export const runBound = (
 			...sittingsSql(installed, [0, 1], [3, d.more + 2], 100, 2, true)
 		])
 		const many = yield* measure()
-		for (const w of [...few, ...many]) {
-			for (const m of w.work) {
-				assert.deepEqual(
-					m.wide,
-					[],
-					`${Formatter.format(d)}: at a ${w.write}, ${m.statement} reads no table larger than a probe whole`
-				)
-			}
-		}
 		assert.deepEqual(
 			Arr.map(many, (w) => ({ write: w.write, work: w.work })),
 			Arr.map(few, (w) => ({ write: w.write, work: w.work })),
-			`${Formatter.format(d)}: each statement the judge runs at each measured write does the same keyed work beside ${d.background} other learners and the measured learner's two sittings and beside ${d.background + d.more} and ${d.more + 2}`
+			`${Formatter.format(d)}: each statement the judge runs at each measured write does the same work beside ${d.background} other learners and the measured learner's two sittings and beside ${d.background + d.more} and ${d.more + 2}`
 		)
 		c.note(d.background === 0 ? "tables of a page" : "tables of many pages")
 		for (const relation of [

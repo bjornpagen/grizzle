@@ -37,17 +37,15 @@
  *   an attempt of its own that is a group of its own under any grouping, in a learner's unit of its own, and then
  *   beside 600 to 900 more; each time a second attempt of the touched group written in a transaction rolled back, and
  *   every statement the judge runs over the touch explained while the deltas hold it (test/support/judge.ts judgeRun),
- *   under no planner setting, beside a background of untouched groups that makes every table larger than a probe: a
- *   stored aggregate's upkeep's DELETE and
- *   INSERT, run as the judge's phase A runs them, and each rule's statement over a delta holding a row, Attempt's side
+ *   under its routine's advice (test/support/advice.ts routineAdviceHeld), beside a background of untouched groups: a
+ *   stored aggregate's upkeep's DELETE and INSERT, run as the judge's phase A runs them, and each rule's statement over a delta holding a row, Attempt's side
  *   of news or one the upkeep's writes filled. Where Read's definition groups by the child and more, (child, item, n)
  *   or the like, Read is stored (analysis/derived/storage.ts), its unit wider than the learner's, so a rule over it
  *   reads its table and its deltas, and only its upkeep reads Attempt's: the upkeep's work is the touched group's, as
  *   a probe's is where Read is live. Each
- *   statement reads no table larger than a probe whole and does the same keyed work both times
- *   (test/support/judge.ts keyedWork): a stored aggregate's upkeep, a probe of a touched group, or a unit-local
- *   shape's whole statement of its unit, reads that group alone, never the groups beside it, as PostgreSQL plans it
- *   under the installation's declared statistics.
+ *   statement does the same work both times (test/support/judge.ts scannedWork): a stored aggregate's upkeep, a
+ *   probe of a touched group, or a unit-local shape's whole statement of its unit, reads that group alone, never the
+ *   groups beside it, as the plan it carries reads it.
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { aimed, recorded } from "@bjornpagen/testing/gen"
@@ -186,7 +184,7 @@ export const aProbeOfTheGroupsAWriteTouchedReadsThoseGroupsAloneHoweverManyGroup
 				),
 		oracle: {
 			kind: "universal",
-			name: "a bound and invariance: each statement the judge runs over a write of one group, a stored aggregate's upkeep's and a rule's alike, reads no table larger than a probe whole and does the same keyed work, the rows it reads of stored relations and of the deltas but a table read whole for what its probe costs, beside a few hundred untouched groups and beside a thousand more, beside a background of 2,048"
+			name: "a bound and invariance: each statement the judge runs over a write of one group, a stored aggregate's upkeep's and a rule's alike, does the same work, the rows it reads of stored relations and of the deltas, beside a few hundred untouched groups and beside a thousand more, beside a background of 2,048"
 		},
 		show: Formatter.format,
 		kept: [

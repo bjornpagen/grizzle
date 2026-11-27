@@ -28,9 +28,9 @@
  * learners, so the tables are a page or a dozen and more, the measured sittings with one or four snapshots and their
  * ended ones, measures each write in a transaction rolled back, every statement explained with ANALYZE and BUFFERS before
  * the judge runs (test/support/judge.ts judgeRun); then adds sixteen or sixty-four other learners and as many other
- * sittings of learners 1 and 0, each with its snapshots, and measures again; with no planner setting and no ANALYZE. The
- * oracle: no statement reads a table larger than one index probe whole (judge.ts wideScans), and each does the same
- * keyed work both times (judge.ts keyedWork), rows counted over every loop, never a clock.
+ * sittings of learners 1 and 0, each with its snapshots, and measures again; each statement under its routine's advice
+ * (test/support/advice.ts routineAdviceHeld). The oracle: each statement does the same work both times (judge.ts
+ * scannedWork), rows counted over every loop, never a clock.
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
@@ -119,7 +119,7 @@ export const aLearnersWriteKeepsRelationsStoredByTheirDeltaFormsAtTheSittingItWr
 				}).pipe(Effect.scoped),
 		oracle: {
 			kind: "universal",
-			name: "a bound and invariance: each statement the judge runs at each of learner 1's writes reads no table larger than a probe whole, and does the same keyed work beside few learners and sittings of learner 1 and beside many, at tables of a page and of many"
+			name: "a bound and invariance: each statement the judge runs at each of learner 1's writes does the same work beside few learners and sittings of learner 1 and beside many, at tables of a page and of many"
 		},
 		box: "learner 1's measured sitting with one or four snapshots and its ended sitting, beside no other learner or 2,048; sixteen or sixty-four other learners and as many other sittings of learner 1 added",
 		kept: [

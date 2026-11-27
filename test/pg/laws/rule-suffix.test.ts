@@ -11,13 +11,14 @@
  *   its own rolled back, the judged statements over Forbidden's side of news explained while it holds the row: the rows
  *   they read, as EXPLAIN ANALYZE counts them, and the SIRead locks the transaction holds once SET CONSTRAINTS ALL
  *   IMMEDIATE has run the judge, by lock type and relation, are the same beside every key as beside the first, and no
- *   SIRead lock is on a whole relation, under the planner settings of large tables. A probe that read every reference
- *   would read more rows beside more keys and lock Ref whole.
+ *   SIRead lock is on a whole relation, each statement run under its routine's advice, and the plan laws hold over
+ *   those routines (test/support/advice.ts), the range the index condition of Ref's read. A probe that read every
+ *   reference would read more rows beside more keys and lock Ref whole.
  * - **Seek:** each case draws up to twelve targets and up to six suffixes, each a target's tail or drawn apart, over the
  *   code points the range turns on (the sentinel, the edges of UTF-8's sequences, U+D7FF and U+E000, the first astral
  *   code point, U+10FFFE and U+10FFFF): the range, as a judged read states it with the suffix a parameter, and the
- *   suffix test find exactly the references the host's endsWith does, and the range is an index condition of an Index
- *   Scan of the B-tree on the key.
+ *   suffix test find exactly the references the host's endsWith does, and under the advice that reads Ref by the
+ *   B-tree on the key the range is that Index Scan's index condition, never its filter.
  */
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"

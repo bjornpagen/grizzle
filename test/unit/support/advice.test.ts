@@ -8,8 +8,8 @@
  *   (advice.fixtures.ts), Laws 1 to 3 find, for each, the problems the specification states: none for a probe under its
  *   whole advice, nor with its key's equality by an extension's operator, nor for a scope of two statements, a
  *   FROM-less EXISTS over a probe or a write target read by the tuple id a probe found; for the probe's index item
- *   dropped, the tie's index (Laws 1 and 2); for a sibling index named, f2 a filter (Law 2 alone: the advice is obeyed
- *   and round-trips); for the probe printed as a plain join, doc in a join's condition (Law 2), the Join Filter's
+ *   dropped, the tie's index (Laws 1 and 2); none for a sibling index named, f2, which it does not store, a residual
+ *   filter Law 2 admits (INDEXES' rule: the budget holds the rows it reads); for the probe printed as a plain join, doc in a join's condition (Law 2), the Join Filter's
  *   equality told even where its plan claims the read bound without doc; for a correlated EXISTS PostgreSQL flattens, a
  *   join grizzle never named (Laws 1 and 2); for an alias two statements share, its items conflicting and matched twice
  *   (Laws 1 and 3); for an index advised for a read no index condition serves, its seq scan disabled (Law 1); and for a
@@ -37,9 +37,7 @@ const expected: { readonly [C in AdviceCase]: ReadonlyArray<string> } = {
 		"the flight, the probe: PostgreSQL planned INDEX_SCAN(n@s public.node_doc_f1), which grizzle does not carry",
 		"the flight: n.f2 is bound, read outside its index condition and in its filter of its Index Scan of n using node_doc_f1"
 	],
-	sibling: [
-		"the flight: n.f2 is bound, read outside its index condition and in its filter of its Index Scan of n using node_doc_f1"
-	],
+	sibling: [],
 	plain: [
 		"the flight: its Nested Loop filters d.doc = n.doc after joining, a binding of a stored read no index condition holds",
 		"the flight: n.doc is bound, read outside its index condition and in a join's condition of its Index Scan of n using node_pkey"
@@ -142,6 +140,12 @@ export const theLawsFindExactlyTheFailuresOfEachMeasuredPlan = property.exhaust(
 			original: "storedAliases.has(a.alias) || storedAliases.has(b.alias)",
 			replacement: "false",
 			why: "An equality a nested loop's Join Filter states between a stored read's column and another's is read as no lost binding: a keyed read printed as a plain join, its binding claimed nowhere, passes Law 2 (e3 P1)."
+		},
+		{
+			file: "test/support/advice.ts",
+			original: "const stored = read.stores.includes(column)",
+			replacement: "const stored = true",
+			why: "Every column a read binds held to its index condition, one its index does not store among them: the sibling's f2, a residual filter on the rows (doc, f1) reach, is refused, where Law 2 admits it and the budget holds the rows (INDEXES' rule)."
 		},
 		{
 			file: "test/support/advice.ts",

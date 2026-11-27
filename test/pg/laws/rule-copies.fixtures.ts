@@ -4,27 +4,17 @@ import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
-import {
-	type PlanNode,
-	planNodes,
-	rowsGenerated,
-	rowsRead,
-	scannedRows
-} from "#bench/harness/explain.ts"
-import { identity } from "#compiler/core/identity.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, type Rule, v } from "#compiler/public/query.ts"
 import { check, derived, relation, schema } from "#compiler/public/schema.ts"
+import { fullWorldRole, servedRead, servedRun } from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { compileTemplate, declaredOf, paramTexts, testCompile } from "#test/support/compile.ts"
 import { type Installed, seededTemplate } from "#test/support/install-migrate.ts"
 import { fullWorldTemplate } from "#test/support/installed.ts"
-import { judgedPlans, judgedStatementsOf, planAsRun, standUpJudge } from "#test/support/judge.ts"
-import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { judgedPlans, judgedStatementsOf, readWork, standUpJudge } from "#test/support/judge.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 import { storedSeed } from "#test/support/stored.ts"
-import { countedAsVacuumed, rowsBeside, rowsPerPage } from "#test/support/substrate/fill.ts"
 import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -134,27 +124,18 @@ const seconds = 60
 const touchedMost = 60
 
 /**
- * The sittings a copies case stores beside its own, each with its assignment and a fact of each rule (runCopies): a
- * store large beside the budgets a write touches, so PostgreSQL reads each relation the judge binds by key through its
- * index at its own costs (fill.ts rowsBeside), a write of `touchedMost` budgets one probe of each at each budget. The
- * relations it binds hold three integers a row.
- */
-const copiesBeside = rowsBeside(touchedMost, rowsPerPage(12))
-
-/**
- * The stored rows of the sittings over `shape`, `sittings` and copiesBeside more: sitting n child n's assignment of
- * test n mod 7, each test's limit of each kind, and each fact a rule stands beside.
+ * The stored rows of the sittings over `shape`, `sittings` of them: sitting n child n's assignment of test n mod 7, each
+ * test's limit of each kind, and each fact a rule stands beside.
  */
 const storedRows = (installed: Installed, shape: Shape): ReadonlyArray<string> => {
 	const names = namesOf(installed)
 	const facts = Arr.take([names.table(Used), names.table(Left), names.table(Paused)], shape.rules)
 	return [
-		`INSERT INTO ${names.table(Assignment)} SELECT n, n, n % ${String(tests)} FROM generate_series(1, ${String(sittings + copiesBeside)}) AS g(n)`,
+		`INSERT INTO ${names.table(Assignment)} SELECT n, n, n % ${String(tests)} FROM generate_series(1, ${String(sittings)}) AS g(n)`,
 		`INSERT INTO ${names.table(Limit)} SELECT t, k, ${String(seconds)} FROM generate_series(0, ${String(tests - 1)}) AS t(t), generate_series(1, ${String(shape.arms)}) AS k(k)`,
 		...Arr.map(
 			facts,
-			(f) =>
-				`INSERT INTO ${f} SELECT n, n, 1 FROM generate_series(1, ${String(sittings + copiesBeside)}) AS g(n)`
+			(f) => `INSERT INTO ${f} SELECT n, n, 1 FROM generate_series(1, ${String(sittings)}) AS g(n)`
 		)
 	]
 }
@@ -215,27 +196,12 @@ export type CopiesFeature =
 	| "limits of three arms"
 
 /**
- * The work of a judged statement's scans, every loop: the rows each scan of a stored relation reads, each read of a
- * delta through its reader yields (rule-aggregate.fixtures.ts scannedWork), and each scan of a CTE reads, its output and
- * what its filter removed, where a CTE read at a correlated row's value is scanned whole for each such row.
- */
-const work = (plan: PlanNode): number =>
-	rowsRead(plan) +
-	rowsGenerated(plan) +
-	Arr.reduce(
-		Arr.filter([...planNodes(plan)], (n) => n.nodeType === "CTE Scan"),
-		0,
-		(sum, n) => sum + scannedRows(n)
-	)
-
-/**
  * One case in its one transaction over a clone of its shape's template (copiesTemplates), which the case's end rolls
- * back: the template's committed sittings, `sittings` and copiesBeside more, sitting n child n's assignment of test n
- * mod 7, each test's limit of each kind, and each fact a rule stands beside, counted as a VACUUM counts them (fill.ts
- * countedAsVacuumed); then, through the captures, the budget of sitting 1, its remaining the limits' seconds, and the
- * judge's statements explained over it before the judge runs (test/support/judge.ts judgedPlans) under no planner
- * setting, every relation it binds by key large enough beside the budgets that PostgreSQL reads it through its index at
- * any count of them; then the budget of sitting 2, and the budgets of sittings 3 to `touched`, each explained again.
+ * back: the template's committed sittings, `sittings` of them, sitting n child n's assignment of test n mod 7, each
+ * test's limit of each kind, and each fact a rule stands beside; then, through the captures, the budget of sitting 1,
+ * its remaining the limits' seconds, and the judge's statements explained over it before the judge runs, each under its
+ * routine's advice (test/support/judge.ts judgedPlans, their work judge.ts readWork); then the budget of sitting 2, and
+ * the budgets of sittings 3 to `touched`, each explained again.
  * Each copy of the limits a rule reads at its budget's sitting is computed once for each touched sitting and read there
  * by every rule, so the judge's work at k budgets is at most k times its work at one, c * k at every k: it grows with
  * the budgets, never with their square, and stands at none of the stored sittings beside them. A copy read at each
@@ -253,12 +219,7 @@ export const runCopies = (
 		yield* standUpJudge(connection, installed.installation)
 		const names = namesOf(installed)
 		const shape = shapes[c.shape]
-		const facts = Arr.take([names.table(Used), names.table(Left), names.table(Paused)], shape.rules)
-		const stored = [names.table(Assignment), names.table(Limit), ...facts]
-		const loaded = [...Arr.map(stored, countedAsVacuumed), "SET CONSTRAINTS ALL DEFERRED"]
-		for (const sql of loaded) {
-			yield* connection.query(sql, [])
-		}
+		yield* connection.query("SET CONSTRAINTS ALL DEFERRED", [])
 		/** The judge's work over the budgets of sittings `from` to `to`, written through the captures. */
 		const written = (from: number, to: number) =>
 			Effect.gen(function* () {
@@ -271,7 +232,7 @@ export const runCopies = (
 					installed.installation,
 					judgedStatementsOf(installed.installation)
 				)
-				return Arr.reduce(judged, 0, (sum, { plan }) => sum + work(plan))
+				return Arr.reduce(judged, 0, (sum, { plan }) => sum + readWork(plan))
 			})
 		const one = yield* written(1, 1)
 		const two = yield* written(2, 2)
@@ -366,22 +327,14 @@ export const readGen: Gen<Read> = (s) => ({
 	more: s.draw(int(100, readChildrenMost - 60))
 })
 
-/**
- * The children a read case stores beside its own before any of them, each with one budget, its assignment and its
- * facts (runRead), from past every child a case stores: a store large beside one child's budgets, so PostgreSQL reads
- * each relation the read binds by key through its index at its own costs (fill.ts rowsBeside), the read one probe of
- * each at each of the child's `eachMost` budgets at most. The relations it binds hold three integers a row.
- */
-const readBeside = rowsBeside(eachMost, rowsPerPage(12))
-
 export type ReadFeature = "read beside a few children" | "read beside many children"
 
 /**
- * One read case in its one transaction, which the case's end rolls back: the children beside (readBeside) stored with
- * one budget each, then children 1 to `children` with `each` budgets each, child c's budget j at stage c * 10 + j, each
- * stage's assignment of test stage mod 7, each test's limits and each budget's facts, counted as a VACUUM counts them;
- * the read of child 1's budgets explained under no planner setting; then `more` children stored beside them alike, and
- * the read explained again. Its scans read the same rows both times: each rule reads its copy of the limits at its own
+ * One read case in its one transaction, which the case's end rolls back: children 1 to `children` with `each` budgets
+ * each, child c's budget j at stage c * 10 + j, each stage's assignment of test stage mod 7, each test's limits and each
+ * budget's facts; the read of child 1's budgets run under its carried advice once the plan laws hold over it
+ * (test/support/advice.ts servedRun, its work test/support/judge.ts readWork); then `more` children stored beside them
+ * alike, and the read run again. Its scans read the same rows both times: each rule reads its copy of the limits at its own
  * budget's stage, never beside every stored budget, whose rows the statement does not hold.
  */
 export const runRead = (
@@ -402,36 +355,24 @@ export const runRead = (
 				`INSERT INTO ${names.table(Left)} SELECT c, ${stage}, 1 ${budgets}`
 			]
 		}
-		const tables = Arr.map([Assignment, Limit, Budget, Used, Left], (t) => names.table(t))
 		for (const sql of [
 			`INSERT INTO ${names.table(Limit)} SELECT t, k, ${String(seconds)} FROM generate_series(0, ${String(tests - 1)}) AS t(t), generate_series(1, 2) AS k(k)`,
-			...stored(readChildrenMost + 1, readChildrenMost + readBeside, 1),
-			...stored(1, c.children, c.each),
-			...Arr.map(tables, countedAsVacuumed)
+			...stored(1, c.children, c.each)
 		]) {
 			yield* connection.query(sql, [])
 		}
-		const options = {
-			...testCompile,
-			installation: identity.schema(parsedSchemaName(installed.declared))
-		}
-		const template = succeeded(
-			compileTemplate(childsBudgets, undefined, options),
-			"the read compiles"
+		const read = yield* servedRead(
+			installed,
+			fullWorldRole(installed, Base),
+			childsBudgets,
+			"the read of child 1's budgets"
 		)
-		const [statement, ...others] = template.optimized
-		assert.ok(statement !== undefined && others.length === 0, "the read is one statement")
-		const params = paramTexts(
-			statement,
-			{ child: 1 },
-			declaredOf(template, childsBudgets, undefined, options)
+		const explained = Effect.map(
+			servedRun({ values: connection.queryValues }, read, { child: 1 }),
+			readWork
 		)
-		const explained = Effect.map(planAsRun(connection.queryValues, statement.sql, params), work)
 		const few = yield* explained
-		for (const sql of [
-			...stored(c.children + 1, c.children + c.more, c.each),
-			...Arr.map(tables, countedAsVacuumed)
-		]) {
+		for (const sql of stored(c.children + 1, c.children + c.more, c.each)) {
 			yield* connection.query(sql, [])
 		}
 		const many = yield* explained
