@@ -595,6 +595,24 @@ const viewsPlan: unknown = [
 	}
 ]
 
+/** A read of a system catalog, pg_class by its oid, which grizzle carries nothing for (PostgreSQL 19.0, EXPLAIN (GENERIC_PLAN, COSTS OFF, PLAN_ADVICE, VERBOSE, RANGE_TABLE, FORMAT JSON), lane LAWS2). */
+const catalogPlan: unknown = [
+	{
+		Plan: {
+			"Node Type": "Index Scan",
+			"Index Name": "pg_class_oid_index",
+			"Relation Name": "pg_class",
+			Schema: "pg_catalog",
+			Alias: "r1",
+			"Scan RTI": 1,
+			Disabled: false,
+			"Index Cond": "(r1.oid = $1)"
+		},
+		"Generated Plan Advice": "INDEX_SCAN(r1 pg_catalog.pg_class_oid_index)\nNO_GATHER(r1)",
+		"Range Table": [{ RTI: 1, Alias: "r1 ()" }]
+	}
+]
+
 /**
  * A case of the box: a plan, or the plans of a scope, of a shape grizzle prints or a mutant of it:
  * - `probe`: a key read of node per doc row, printed as grizzle's probe (`CROSS JOIN LATERAL (... LIMIT 1) s`), under
@@ -615,6 +633,7 @@ const viewsPlan: unknown = [
  * - `tid`: a DELETE whose target a probe found, read by its tuple id;
  * - `disabled`: an index advised for a read by a column no index holds: PostgreSQL disables the one path left;
  * - `views`: a whole view read at two levels, its body's one alias at each, apart by their levels alone;
+ * - `catalog`: a read of a system catalog, which PostgreSQL plans by its own costs, grizzle carrying nothing for it;
  * - `unadvised`: a flight that carried its advice to no transaction.
  */
 export const adviceCases = [
@@ -631,6 +650,7 @@ export const adviceCases = [
 	"tid",
 	"disabled",
 	"views",
+	"catalog",
 	"unadvised"
 ] as const
 
@@ -917,6 +937,13 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 				"SEQ_SCAN(r1) INDEX_SCAN(v1@r4 public.node_doc_f1) INDEX_SCAN(v1@r6 public.node_pkey) NO_GATHER(r1 v1@r4 v1@r6)",
 			plans: [read(viewsPlan)]
 		}
+	],
+	catalog: [
+		flight("", ["r1"], ["r1"], [], [], {
+			label: "the catalog read",
+			sql: "SELECT r1.relname FROM pg_catalog.pg_class AS r1 WHERE r1.oid = $1::oid"
+		}),
+		{ inForce: "", plans: [read(catalogPlan)] }
 	],
 	unadvised: [
 		flight(

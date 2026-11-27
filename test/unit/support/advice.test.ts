@@ -14,10 +14,11 @@
  *   join grizzle never named (Laws 1 and 2); for an alias two statements share, its items conflicting and matched twice
  *   (Laws 1 and 3); for an index advised for a read no index condition serves, its seq scan disabled (Law 1); none for a
  *   whole view read at two levels, its body's one alias at each, each read judged by its own scan's range table entry
- *   (Laws 2 and 3); and for a flight whose advice reached no transaction, a plan under no advice (Law 1).
+ *   (Laws 2 and 3); none for a read of a system catalog, which grizzle carries nothing for; and for a flight whose
+ *   advice reached no transaction, a plan under no advice (Law 1).
  * - **Oracle:** the specification: each plan's problems, stated, from the measurements of e1 to e3 and lanes LAWS and
  *   LAWS2.
- * - **Box, exhausted:** the thirteen plans, the plain join's under two claims.
+ * - **Box, exhausted:** the fifteen cases, the plain join's plan under two claims.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -85,6 +86,7 @@ const expected: { readonly [C in AdviceCase]: ReadonlyArray<string> } = {
 		"the flight, the read by v: its Seq Scan of n is disabled"
 	],
 	views: [],
+	catalog: [],
 	unadvised: [
 		"the flight: its vehicle holds no INDEX_SCAN(r1 public.doc_pkey)",
 		"the flight: its vehicle holds no NO_GATHER(r1)",
@@ -110,7 +112,7 @@ export const theLawsFindExactlyTheFailuresOfEachMeasuredPlan = property.exhaust(
 		kind: "specification",
 		name: "each measured plan's problems under Laws 1 to 3, stated"
 	},
-	box: "the plans PostgreSQL 19.0 made for a probe, its mutants, a scope of two statements, a FROM-less EXISTS, a tuple-id target, a disabled scan, a whole view read at two levels and a flight under no advice",
+	box: "the plans PostgreSQL 19.0 made for a probe, its mutants, a scope of two statements, a FROM-less EXISTS, a tuple-id target, a disabled scan, a whole view read at two levels, a catalog read and a flight under no advice",
 	kept: [],
 	kills: [
 		{
@@ -160,6 +162,12 @@ export const theLawsFindExactlyTheFailuresOfEachMeasuredPlan = property.exhaust(
 			original: '\t...repeated(scope.label, "items", scope.targets),',
 			replacement: '\t...repeated(scope.label, "items", scope.aliases),',
 			why: "Two items sharing an alias counted as one target: a whole view read at two levels, v1@r4 and v1@r6, its body's one alias at each, fails Law 3."
+		},
+		{
+			file: "test/support/advice.ts",
+			original: "\t\t\t\t(a) => !Arr.some(a.relations, (r) => catalog.has(targetText(r)))\n",
+			replacement: "\t\t\t\t() => true\n",
+			why: "A system catalog's read is held to advice grizzle never carries for it: PostgreSQL's own index of pg_class fails Law 1 for a catalog read sql/catalog.ts states, which stays cost-chosen."
 		},
 		{
 			file: "test/support/advice.ts",

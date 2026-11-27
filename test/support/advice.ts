@@ -1170,6 +1170,22 @@ const nodeText = (n: LawNode): string =>
  * the scope's advice; a statement's own atoms (those of the scope's advice it reports `matched`) are its generated
  * atoms grizzle named, each matched with no flag; every other generated atom is a NO_GATHER; and no node is disabled.
  */
+/** A relation target's text as a LawNode's target holds it: its alias, `@` its plan where it names one. */
+const targetText = (r: RelationTarget): string =>
+	Option.match(r.plan, { onNone: () => r.alias, onSome: (p) => `${r.alias}@${p}` })
+
+/**
+ * The targets of `plan`'s scans of PostgreSQL's system catalogs (`pg_catalog`'s relations, sql/catalog.ts's reads),
+ * which grizzle binds to no index and carries nothing for: PostgreSQL plans them by its own costs over real
+ * statistics, so Law 1 leaves every atom on one to it.
+ */
+const catalogTargets = (plan: AdvisedPlan): ReadonlySet<string> =>
+	new Set(
+		Arr.flatMap([...lawNodes(plan.root)], (n) =>
+			Option.exists(n.relation, Str.startsWith("pg_catalog.")) ? Option.toArray(n.target) : []
+		)
+	)
+
 const planIdentity = (scope: LawScope, planned: PlannedScope): ReadonlyArray<string> => {
 	const minted = new Set([...scope.aliases, ...scope.levels])
 	const carried = new Set(Arr.map(carriedAtoms(scope.advice), (a) => a.text))
@@ -1190,7 +1206,12 @@ const planIdentity = (scope: LawScope, planned: PlannedScope): ReadonlyArray<str
 			const own = new Set(
 				Arr.flatMap(supplied, (x) => (x.feedback.match === "matched" ? [x.atom.text] : []))
 			)
-			const ours = Arr.filter(plan.generated, (a) => namedBy(minted, a))
+			const catalog = catalogTargets(plan)
+			const generated = Arr.filter(
+				plan.generated,
+				(a) => !Arr.some(a.relations, (r) => catalog.has(targetText(r)))
+			)
+			const ours = Arr.filter(generated, (a) => namedBy(minted, a))
 			const oursText = new Set(Arr.map(ours, (a) => a.text))
 			return [
 				...(carried.size > 0 && Option.isNone(plan.supplied)
@@ -1210,7 +1231,7 @@ const planIdentity = (scope: LawScope, planned: PlannedScope): ReadonlyArray<str
 				...Arr.flatMap([...own], (t) =>
 					oursText.has(t) ? [] : [`${label}: grizzle carries ${t}, which PostgreSQL did not plan`]
 				),
-				...Arr.flatMap(plan.generated, (a) =>
+				...Arr.flatMap(generated, (a) =>
 					namedBy(minted, a) || a.tag === "NO_GATHER"
 						? []
 						: [`${label}: PostgreSQL planned ${a.text} at a level grizzle did not name`]
