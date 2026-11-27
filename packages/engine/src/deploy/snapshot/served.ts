@@ -11,6 +11,7 @@ import {
 import { formatKey, isFormatOf } from "#compiler/core/format.ts"
 import type { HeldName } from "#compiler/core/identity.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
+import type { Isolation } from "#compiler/core/isolation.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type {
@@ -32,6 +33,7 @@ import type { NamedClosed } from "#compiler/physical/ddl/constants.ts"
 import type { InstalledParams, TextDomainNames } from "#compiler/physical/ddl/domains.ts"
 import { type IndexSet, resolverOf } from "#compiler/physical/indexes/engine.ts"
 import type { IndexResolver } from "#compiler/physical/indexes/ref.ts"
+import type { CertifiedRole } from "#compiler/physical/install/compile.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import type { PlannedGraph } from "#compiler/physical/planned/graph.ts"
 
@@ -86,6 +88,7 @@ const servedDerived = (derived: unknown): Result.Result<SnapshotDerived, Compile
 	const proved = derived["proved"]
 	const planned = derived["planned"]
 	const indexSet = derived["indexSet"]
+	const certification = derived["certification"]
 	if (!isRecord(closed)) {
 		return Result.err(underived(["derived", "closed"]))
 	}
@@ -125,6 +128,9 @@ const servedDerived = (derived: unknown): Result.Result<SnapshotDerived, Compile
 	if (!isRecord(indexSet)) {
 		return Result.err(underived(["derived", "indexSet"]))
 	}
+	if (!isList(certification)) {
+		return Result.err(underived(["derived", "certification"]))
+	}
 	return Result.ok({
 		closed: new Map(Object.entries(trusted<Readonly<Record<string, NamedClosed>>>(closed))),
 		fkCycles: trusted<FkCycles>(fkCycles),
@@ -138,7 +144,8 @@ const servedDerived = (derived: unknown): Result.Result<SnapshotDerived, Compile
 		liveDerived: trusted<Readonly<Record<string, LiveDerived>>>(liveDerived),
 		proved: trusted<Readonly<Record<string, NonEmptyReadonlyArray<ProvedRelation>>>>(proved),
 		planned: trusted<PlannedGraph>(planned),
-		indexSet: trusted<IndexSet>(indexSet)
+		indexSet: trusted<IndexSet>(indexSet),
+		certification: trusted<ReadonlyArray<CertifiedRole>>(certification)
 	})
 }
 
@@ -244,3 +251,33 @@ export const snapshotResolver = (
 	schema: Pick<CheckedSchema, "installedAs">
 ): IndexResolver =>
 	resolverOf(snapshot.derived.indexSet, (relation) => schema.installedAs(relation))
+
+/**
+ * The level each of `roles`, the roles of `login`, runs its writes at in the installation `snapshot` records, by the
+ * role's name (SnapshotDerived `certification`): what a served compile from the snapshot compiles each role's ChangeSets
+ * at, as generate's served file serves them. A role it records no certificate of is one the installation does not
+ * install, whose compile is refused.
+ */
+export const certifiedLevels = (
+	snapshot: ServedSnapshot,
+	login: string,
+	roles: ReadonlyArray<string>
+): Result.Result<ReadonlyMap<string, Isolation>, CompileError> => {
+	const levels = new Map<string, Isolation>()
+	for (const role of roles) {
+		const certified = snapshot.derived.certification.find(
+			(c) => c.login === login && c.role === role
+		)
+		if (certified === undefined) {
+			return Result.err(
+				malformedArtifact(
+					"snapshot",
+					["derived", "certification"],
+					`a certificate of the role ${role} of the login ${login}, which the installation snapshot.json records installs: compile a login its installation installs`
+				)
+			)
+		}
+		levels.set(role, certified.certificate.level)
+	}
+	return Result.ok(levels)
+}

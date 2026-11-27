@@ -26,6 +26,7 @@ export {
 	spellingsOf
 } from "#compiler/deploy/snapshot/build.ts"
 export {
+	certifiedLevels,
 	type InstalledIndexes,
 	servedSnapshot,
 	snapshotIndexes,

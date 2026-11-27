@@ -1,4 +1,5 @@
 import { openApiText } from "@bjornpagen/grizzle-openapi/openapi"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import type { TextChunks } from "@bjornpagen/grizzle-text/chunks"
 import { Array as Arr, Effect, Option } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
@@ -40,6 +41,7 @@ import {
 	type WorkloadPlanRefused
 } from "#compiler/plan/migration.ts"
 import {
+	certifiedLevels,
 	type ServedRecords,
 	type ServedSnapshot,
 	servedSnapshot,
@@ -249,11 +251,14 @@ export const servedEntry = (
  * The compile of `login` under `snapshot` alone, no installation compiled beside it: the installation's artifacts
  * compiled from what the snapshot records (its codes, its closed relations' constant names, its text domains, its
  * foreign key graph's cycles and the types it casts its served parameters to) over every relation, the law model
- * generate compiles from the schema, then the login over them (compileServed), its query programs' footprints as its
- * workload's plan reads them (loginFootprints, which plans no ChangeSet: the login's compile compiled them), every reading of the clock its clocked reads and ChangeSets make counting from
- * `clock`: its roles, each with its workload's programs compiled, which a test reads beside the file they project (a
- * change form's compiled entry, its put choices among it). A program that casts a parameter to a type the snapshot's
- * installation does not install is refused at its role and program as UninstalledDomain.
+ * generate compiles from the schema, then the login over them (compileServed), each role's ChangeSets compiled at the
+ * level its certificate states, which the snapshot records (deploy/snapshot/served.ts certifiedLevels), as generate's
+ * served file serves them, its query programs' footprints as its workload's plan reads them (loginFootprints, which
+ * plans no ChangeSet: the login's compile compiled them), every reading of the clock its clocked reads and ChangeSets
+ * make counting from `clock`: its roles, each with its workload's programs compiled, which a test reads beside the file
+ * they project (a change form's compiled entry, its put choices among it). A role the snapshot records no certificate of
+ * is refused at the login; a program that casts a parameter to a type the snapshot's installation does not install is
+ * refused at its role and program as UninstalledDomain.
  */
 export const snapshotCompiled = Effect.fn("snapshotCompiled")(function* (
 	login: ServedInput,
@@ -279,8 +284,24 @@ export const snapshotCompiled = Effect.fn("snapshotCompiled")(function* (
 		),
 		atLogin
 	)
+	const levels = yield* Effect.mapError(
+		fromEngine(
+			certifiedLevels(
+				served,
+				login.login.desc.name,
+				Arr.map(login.login.roles, (r) => r.desc.name)
+			)
+		),
+		atLogin
+	)
 	const changes = yield* Effect.mapError(
-		loginChangesOver(login.login, login.owned, artifacts, "serializable", clock),
+		loginChangesOver(
+			login.login,
+			login.owned,
+			artifacts,
+			(role) => defined(levels.get(role), "the certified level of each role of the login"),
+			clock
+		),
 		atRole
 	)
 	const footprints = yield* Effect.mapError(

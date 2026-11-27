@@ -479,14 +479,15 @@ const namedOver = (
 
 /**
  * Every role of a login, each named under the login's artifacts `artifacts` (namedOver) and then with its change members
- * compiled over them at `level`, their readings of the clock counting from `clock` (program/workload/change.ts
- * loginChanges), by its name in the login: what the login's compile reads of each role (plannedLoginRoles).
+ * compiled over them at the level `levelOf` gives it by its name, their readings of the clock counting from `clock`
+ * (program/workload/change.ts loginChanges), by its name in the login: what the login's compile reads of each role
+ * (plannedLoginRoles).
  */
 export const loginChangesOver = <L extends Isolation, S extends ParamSource>(
 	login: LoginInput,
 	owned: OwnedLogin,
 	artifacts: SchemaArtifacts<S>,
-	level: L,
+	levelOf: (role: string) => L,
 	clock: ClockSource
 ): Effect.Effect<ReadonlyMap<string, RoleChanges<L, S>>, WorkloadRefused> =>
 	Effect.flatMap(namedOver(owned, artifacts), (named) =>
@@ -501,7 +502,7 @@ export const loginChangesOver = <L extends Isolation, S extends ParamSource>(
 						clock,
 						planned: noPlannedFrontends
 					},
-					level
+					levelOf
 				)
 			),
 			changeRefused
@@ -548,7 +549,7 @@ export const loginRoles = (
 	resolve: IndexResolver
 ): Effect.Effect<ReadonlyArray<LayerRole>, WorkloadRefused> =>
 	Effect.flatMap(
-		loginChangesOver(login, owned, artifacts, "serializable", transactionClock),
+		loginChangesOver(login, owned, artifacts, () => "serializable", transactionClock),
 		(changes) =>
 			plannedLoginRoles(login, servableRoles(changes), artifacts, above, transactionClock, resolve)
 	)

@@ -19,6 +19,7 @@ import type { LivePlan, LiveSource } from "#compiler/live/notify.ts"
 import type { ClosedNames } from "#compiler/physical/ddl/constants.ts"
 import type { InstalledParams, TextDomainNames } from "#compiler/physical/ddl/domains.ts"
 import type { IndexSet } from "#compiler/physical/indexes/engine.ts"
+import type { CertifiedRole } from "#compiler/physical/install/compile.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import type { PlannedGraph } from "#compiler/physical/planned/graph.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
@@ -391,6 +392,13 @@ export interface SnapshotDerived extends CompileFacts {
 	 * compile binds it, and a read no index serves is the asker's internal compiler error, never an index guessed.
 	 */
 	readonly indexSet: IndexSet
+	/**
+	 * Each role of each login with the level its certificate states (physical/install/compile.ts Installation
+	 * `certification`), the level its writes begin at: what a served compile from the snapshot alone compiles each role's
+	 * ChangeSets at (program/workload/change.ts loginChanges), as generate's served file serves them, so a compile from the
+	 * snapshot runs the forms production runs.
+	 */
+	readonly certification: ReadonlyArray<CertifiedRole>
 }
 
 /**

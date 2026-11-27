@@ -942,7 +942,8 @@ const indexesCreatedBy = (
  * each closed relation's constants as readers address them, the installation's plan's, the foreign key graph's
  * cycles, its law model's, which planned them from every law, every table it installs with its
  * indexes (snapshotTablesOf), its live source, the types its plan casts its served parameters to
- * (InstallPlan.installedParams), and its indexes as coverage reads them (Installation `indexSet`). */
+ * (InstallPlan.installedParams), its indexes as coverage reads them (Installation `indexSet`), and each role's certified
+ * level (Installation `certification`). */
 export const derivedOf = (installation: Installation): SnapshotDerived => ({
 	...derivedFacts(
 		installation.closed,
@@ -956,7 +957,8 @@ export const derivedOf = (installation: Installation): SnapshotDerived => ({
 	liveDerived: liveDerivedOf(installation),
 	proved: provedOf(installation),
 	planned: plannedGraph(installation.statements),
-	indexSet: installation.indexSet
+	indexSet: installation.indexSet,
+	certification: installation.certification
 })
 
 /**
@@ -1603,6 +1605,11 @@ const derivedForm = <S>(d: SnapshotDerived, units: Units<S>): RecordOf<S> => ({
 			])
 		)
 	},
+	certification: d.certification.map((c) => ({
+		login: c.login,
+		role: c.role,
+		certificate: { level: c.certificate.level }
+	})),
 	proved: Object.fromEntries(
 		Object.entries(d.proved).map(([law, relations]) => [
 			law,

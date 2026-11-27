@@ -88,6 +88,7 @@ export type Feature =
 	| "a role certified SERIALIZABLE for its own statements"
 	| "a role with no change member"
 	| "a direct writer of a relation the writer writes"
+	| "a READ COMMITTED role served from the snapshot alone"
 
 export const file = `${repoRoot}app/grizzle.config.ts`
 

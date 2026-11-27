@@ -744,17 +744,20 @@ const readCommittedRole = <S extends ParamSource>(
 
 /**
  * Every role of a login, by its name in the login, in its order, each with the ChangeSets of the login's workloads that
- * run on it compiled once over its artifacts at `level` (RoleChanges): SERIALIZABLE for a compile no certificate covers;
- * certification compiles for READ COMMITTED through readCommittedChanges, which reads whether each member has a READ
- * COMMITTED form before it compiles any. A role or program that does not compile is ChangeRefused.
+ * run on it compiled once over its artifacts at the level `levelOf` gives it by its name (RoleChanges): the level its
+ * certificate states, which the installation its snapshot records holds (deploy/snapshot/types.ts SnapshotDerived
+ * `certification`), for a served compile from the snapshot, which so compiles each role as generate serves it;
+ * SERIALIZABLE for a compile no certificate covers. Certification compiles for READ COMMITTED through
+ * readCommittedChanges, which reads whether each member has a READ COMMITTED form before it compiles any. A role or
+ * program that does not compile is ChangeRefused.
  */
 export const loginChanges = <L extends Isolation, S extends ParamSource>(
 	login: ChangeLogin<S>,
-	level: L
+	levelOf: (role: string) => L
 ): Result.Result<ReadonlyMap<string, RoleChanges<L, S>>, ChangeRefused> => {
 	const roles = new Map<string, RoleChanges<L, S>>()
 	for (const parsed of login.roles) {
-		const role = roleChanges(parsed, login, level)
+		const role = roleChanges(parsed, login, levelOf(parsed.desc.name))
 		if (!role.ok) {
 			return role
 		}

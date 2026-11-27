@@ -129,6 +129,7 @@ const derivedMembers: { readonly [K in keyof SnapshotDerived]: K } = {
 	library: "library",
 	tables: "tables",
 	indexSet: "indexSet",
+	certification: "certification",
 	live: "live",
 	params: "params",
 	liveDerived: "liveDerived",

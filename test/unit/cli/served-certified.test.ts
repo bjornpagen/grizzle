@@ -24,17 +24,23 @@
  *   (physical/ddl/isolation.ts readCommittedRelations), so none of its writes is refused below SERIALIZABLE: a role
  *   writing a relation a SERIALIZABLE role writes too is SERIALIZABLE. Kept: an inserter of Tag beside a direct
  *   inserter of Tag, which certified READ COMMITTED while Tag kept its guard.
+ * - The snapshot: each login compiled from the runtime snapshot alone (adapter/served/compile.ts snapshotServedEntry),
+ *   as an application's test compiles it, is generate's served file byte for byte, a READ COMMITTED role's writes at
+ *   that level among it: the snapshot records each role's certificate, which that compile compiles its ChangeSets at,
+ *   so a test runs the forms production runs. Kept: the snapshot-only compile compiled every role at SERIALIZABLE, so
+ *   its writes read what generate's did not (second-call's put of Fixed, batched's insert of Wide).
  */
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
 import { served as servedLogin } from "#adapter/public/layer.ts"
+import { snapshotServedEntry } from "#adapter/served/compile.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, eachServedFile } from "#cli/generate.ts"
 import { reasonsOf } from "#compiler/core/certificate.ts"
 import { silentPhases } from "#compiler/core/phase.ts"
-import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
+import { emptySnapshot, writeRuntimeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { isolationTrigger } from "#compiler/physical/ddl/isolation.ts"
 import { grantedPrivileges } from "#compiler/physical/ddl/roles.ts"
 import { workload } from "#compiler/program/workload/value.ts"
@@ -44,7 +50,8 @@ import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
 import { Work } from "#test/support/agreement/changeset-schema.ts"
-import { jsonOf } from "#test/support/chunked.ts"
+import { succeeded } from "#test/support/assert.ts"
+import { joined, jsonOf } from "#test/support/chunked.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import {
 	caseGen,
@@ -72,7 +79,8 @@ export const aRolesIsolationLevelIsDecidedOnceFromTheStatementsItsWritesSendEver
 			"a role certified READ COMMITTED",
 			"a role certified SERIALIZABLE for its own statements",
 			"a role with no change member",
-			"a direct writer of a relation the writer writes"
+			"a direct writer of a relation the writer writes",
+			"a READ COMMITTED role served from the snapshot alone"
 		] satisfies ReadonlyArray<Reached<Feature>>,
 		check: (_, notes: Case<Feature>) => (c) =>
 			Effect.gen(function* () {
@@ -206,6 +214,26 @@ export const aRolesIsolationLevelIsDecidedOnceFromTheStatementsItsWritesSendEver
 						}
 					}
 				}
+				const snapshot = jsonOf(
+					succeeded(writeRuntimeSnapshot(draft.snapshot, draft.derived), "snapshot.json")
+				)
+				for (const [i, l] of compiled.logins.entries()) {
+					const planned = defined(entries[i], `the planned file of login ${i}`)
+					const alone = yield* snapshotServedEntry(l, snapshot)
+					assert.equal(
+						joined(alone.text),
+						joined(planned.text),
+						`login ${planned.login}: its served file from the snapshot alone is generate's`
+					)
+					if (
+						Arr.some(
+							served.certification,
+							(r) => r.login === planned.login && r.certificate.level === "readCommitted"
+						)
+					) {
+						notes.note("a READ COMMITTED role served from the snapshot alone")
+					}
+				}
 				const logins: ReadonlyArray<AnyLogin> = [app, ...psql]
 				for (const l of logins) {
 					assert.deepEqual(
@@ -245,6 +273,13 @@ export const aRolesIsolationLevelIsDecidedOnceFromTheStatementsItsWritesSendEver
 			}
 		],
 		kills: [
+			{
+				file: "packages/grizzle/src/adapter/served/compile.ts",
+				original:
+					'\t\t\t(role) => defined(levels.get(role), "the certified level of each role of the login"),\n',
+				replacement: '\t\t\t() => "serializable",\n',
+				why: "The snapshot-only compile compiles every role at SERIALIZABLE whatever its certificate: a READ COMMITTED role's served file from the snapshot is no longer generate's, its writes compiled at another level than production runs them."
+			},
 			{
 				file: "packages/engine/src/program/workload/roles.ts",
 				original: "\t\tif (levelSchema(state.schema, role, loc).ok) {",
