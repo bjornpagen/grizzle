@@ -100,7 +100,7 @@ import type {
 	PlanName,
 	ReadPlan
 } from "#compiler/sql/plan.ts"
-import { printedOnce } from "#compiler/sql/print-once.ts"
+import { printedBlock, printedOnce } from "#compiler/sql/print-once.ts"
 import { foldedCore, printPlannedQuery, printStatement } from "#compiler/sql/print.ts"
 import { simpleQuery } from "#compiler/sql/pull-up.ts"
 import { identityHooks, Transform, visitLevelExpr } from "#compiler/sql/transform.ts"
@@ -253,16 +253,22 @@ const opaque = (e: Expr): boolean => {
  * Every column each written alias of a statement is read at, anywhere in it, by the alias: what a probe made of a table
  * delivers, and what a read's index-only scan must store. An alias two items declare reads the columns of both.
  */
-const neededColumns = (statement: SqlStatement): ReadonlyMap<string, ReadonlySet<string>> => {
+const neededColumns = (statement: SqlStatement): ReadonlyMap<string, ReadonlySet<string>> =>
+	neededBy((t) => t.statement(statement))
+
+/** Every column each relation of `walk`'s walk is read at (neededColumns), by its alias. */
+const neededBy = (walk: (t: Transform) => unknown): ReadonlyMap<string, ReadonlySet<string>> => {
 	const out = new Map<string, Set<string>>()
-	new (class extends Transform {
-		override readonly expr = (x: Expr): Expr => {
-			if (x.kind === "column" && x.table !== undefined) {
-				out.getOrInsertComputed(x.table, () => new Set<string>()).add(x.column)
+	walk(
+		new (class extends Transform {
+			override readonly expr = (x: Expr): Expr => {
+				if (x.kind === "column" && x.table !== undefined) {
+					out.getOrInsertComputed(x.table, () => new Set<string>()).add(x.column)
+				}
+				return this.exprChildren(x)
 			}
-			return this.exprChildren(x)
-		}
-	})(identityHooks).statement(statement)
+		})(identityHooks)
+	)
 	return out
 }
 
@@ -1555,6 +1561,13 @@ class Binder {
 		return this.routine(fn)
 	}
 
+	/** A DO block's body bound (bindBlock), its columns' needs read off it first; a whole one's reads joined by hash. */
+	blockOf(b: PlBlock, whole: boolean): PlBlock {
+		this.#needs = neededBy((t) => t.plBlock(b))
+		this.#whole = whole
+		return this.block(b)
+	}
+
 	/**
 	 * A routine bound under the scope (sql/naming.ts AdviceScope `routine`): each statement PL/pgSQL hands the planner
 	 * its own top level, a PL variable and a record's field a value it fixes; a SQL function's body one SELECT of it.
@@ -1874,16 +1887,39 @@ export const bindSelect = (
 }
 
 /**
+ * How a statement's reads of a second relation are bound: `keyed`, each by the outer row that binds it, a probe; or
+ * `whole`, each read whole or at the values it fixes and joined by a hash, as a statement that runs once over every row
+ * reads them: a migration's data step, O(n + m) by a hash where n probes cost n descents.
+ */
+export type BoundReads = "keyed" | "whole"
+
+/**
+ * A DO block's body (sql/print.ts writeDoBlock), bound under `scope` over `catalog` as a routine's statements are, every
+ * read by `reads`, after its logical rewrites (sql/print-once.ts printedBlock): a migration's violation check.
+ */
+export const bindBlock = (
+	block: PlBlock,
+	scope: AdviceScope,
+	catalog: ReadCatalog,
+	reads: BoundReads
+): { readonly block: PlBlock; readonly plan: ReadPlan<AccessIndexRequest> } => {
+	const binder = new Binder(scope, catalog)
+	const bound = binder.blockOf(printedBlock(block), reads === "whole")
+	return { block: bound, plan: binder.plan() }
+}
+
+/**
  * The statement `statement`, bound under `scope` over `catalog` (see the header), after its logical rewrites
  * (sql/print-once.ts printedOnce): the only form anything prints or plans from.
  */
 export const bindStatement = (
 	statement: SqlStatement,
 	scope: AdviceScope,
-	catalog: ReadCatalog
+	catalog: ReadCatalog,
+	reads: BoundReads
 ): BoundStatement => {
 	const binder = new Binder(scope, catalog)
-	const bound = binder.statement(printedOnce(statement), false)
+	const bound = binder.statement(printedOnce(statement), reads === "whole")
 	return nominal<
 		{ readonly statement: SqlStatement; readonly plan: ReadPlan<AccessIndexRequest> },
 		BoundStatement

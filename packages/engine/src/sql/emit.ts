@@ -63,7 +63,7 @@ export const emitText = (
 	nameMap: NameMap,
 	binding: Emitting
 ): EmittedSql =>
-	printedOf(bindStatement(statement, binding.scope, binding.catalog), nameMap, statement)
+	printedOf(bindStatement(statement, binding.scope, binding.catalog, "keyed"), nameMap, statement)
 
 /** A bound statement's text, the plan it was bound with, its generated-name map, and the statement it was bound from. */
 const printedOf = (bound: BoundStatement, nameMap: NameMap, source: SqlStatement): EmittedSql => ({

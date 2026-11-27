@@ -77,7 +77,7 @@ import { type Owned, ownedIdentities, rostersOf } from "#compiler/schema/own.ts"
 import { printAdvice } from "#compiler/sql/advice.ts"
 import type { ObjectName, OperandSelect, SqlStatement } from "#compiler/sql/ast.ts"
 import { nameKey } from "#compiler/sql/ast.ts"
-import { bindRoutine } from "#compiler/sql/bind.ts"
+import { bindRoutine, type ReadCatalog } from "#compiler/sql/bind.ts"
 import { AdviceScope } from "#compiler/sql/naming.ts"
 import { planRequests, type ReadPlan, resolvePlan } from "#compiler/sql/plan.ts"
 
@@ -123,6 +123,12 @@ export interface Installation extends InstallPlan {
 	 * planIndexes), total over them, as data (ref.ts IndexResolutions), which its snapshot records, and its resolver. */
 	readonly resolutions: IndexResolutions
 	readonly resolve: IndexResolver
+	/**
+	 * What a statement bound against the installation reads of it (sql/bind.ts ReadCatalog): each stored table, its keys
+	 * and the columns a B-tree holds, each role's view; the one catalog its routines are bound over, and a migration's
+	 * data steps.
+	 */
+	readonly catalog: ReadCatalog
 	/**
 	 * Every routine the installation installs, each bound under a scope of its own (sql/bind.ts bindRoutine): its name;
 	 * the plan of its statements, every index it reads through resolved, which its advice is printed from (CreateFunction
@@ -604,6 +610,7 @@ export const installationOfPlan = (
 			indexes,
 			resolutions,
 			resolve,
+			catalog,
 			routines: [...advised.values()].map((r) => ({
 				fn: r.fn.name,
 				plan: r.plan,

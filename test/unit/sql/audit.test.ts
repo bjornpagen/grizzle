@@ -120,7 +120,7 @@ export const everyLiveStatementPassesBothAuditsPrintsAsItsTwinDoesSurvivesTheSna
 					const binding = costChosen()
 					assert.equal(
 						text,
-						printStatement(bindStatement(ast, binding.scope, binding.catalog).statement),
+						printStatement(bindStatement(ast, binding.scope, binding.catalog, "keyed").statement),
 						"the emitted text is its AST's print as bound"
 					)
 				}

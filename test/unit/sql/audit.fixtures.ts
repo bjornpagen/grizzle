@@ -161,7 +161,7 @@ export const universal = (t: Twinned): void => {
 		const binding = costChosen()
 		assert.equal<string>(
 			emitted.text,
-			printStatement(bindStatement(s, binding.scope, binding.catalog).statement),
+			printStatement(bindStatement(s, binding.scope, binding.catalog, "keyed").statement),
 			"emit prints the statement as it binds it, two bindings of it under fresh scopes alike"
 		)
 	}
