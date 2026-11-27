@@ -61,8 +61,8 @@ export const aHeldNodeRestrictedBelowAtAChainStepsValuesIsReadInPlace = property
 		({ stored }, c) =>
 		(drawn) =>
 			Effect.gen(function* () {
-				const { connection, value } = yield* stored
-				yield* runScope(value, connection, drawn, c)
+				const clone = yield* stored
+				yield* runScope(clone, drawn, c)
 			}),
 	oracle: {
 		kind: "universal",
@@ -98,8 +98,8 @@ export const aChainStepIsPrintedAfterEveryOccurrenceItsCorrelationReads = proper
 			({ stored }, c) =>
 			(drawn) =>
 				Effect.gen(function* () {
-					const { connection, value } = yield* stored
-					yield* runOrder(value, connection, drawn, c)
+					const clone = yield* stored
+					yield* runOrder(clone, drawn, c)
 				}),
 		oracle: {
 			kind: "universal",

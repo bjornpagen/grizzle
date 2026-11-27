@@ -4,19 +4,25 @@ import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
-import { type PlanNode, parsePlan, planNodes, scannedRows } from "#bench/harness/explain.ts"
-import { identity } from "#compiler/core/identity.ts"
-import { compileInstallation } from "#compiler/program/install.ts"
+import { type PlanNode, planNodes, scannedRows } from "#bench/harness/explain.ts"
+import type { BenchSession } from "#bench/harness/session.ts"
 import { natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
+import {
+	fullWorldRole,
+	type PgClassState,
+	pgClassStates,
+	type StateLoad,
+	servedRead,
+	servedRun,
+	standIn
+} from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { compileTemplate, testCompile } from "#test/support/compile.ts"
-import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
-import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { noDeclarations } from "#test/support/migrate/kit.ts"
-import type { PgConnection } from "#test/support/pg.ts"
+import type { Generated, Installed } from "#test/support/install-migrate.ts"
+import { fullWorldTemplate } from "#test/support/installed.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
+import type { RolledBack } from "#test/support/substrate/substrate.ts"
 
 /** The left side's rows, a few keys and a count each. */
 const Asked = relation("Asked", { k1: pg.integer, k2: pg.integer, v: natural }, ["k1", "k2"])
@@ -64,32 +70,35 @@ const negated = (shape: Shape) =>
 		}
 	})
 
-/** The schema installed through its first migration. */
-export const existenceWitnessTemplate = migratedTemplate({
+/**
+ * The schema installed through its first migration as `grizzle generate` drafts and serves it, with its full world's
+ * login, whose workload reads each shape's negation: the indexes those reads ask are the installation's.
+ */
+export const existenceWitnessTemplate = fullWorldTemplate({
 	declaredIn: import.meta,
 	name: "existence witness",
-	content: { schema: Stored.name, logins: [] },
-	versions: [{ schema: Stored, declarations: noDeclarations }],
-	options: {
-		label: "existence_witness",
-		extensions: [],
-		compile: compileInstallation,
-		ambient: ordinarySession,
-		review: noPlaceholders
-	}
+	fixture: Stored,
+	programs: {
+		joined: negated("the join by the key"),
+		folded: negated("the fold by the key"),
+		counted: negated("the fold by its count")
+	},
+	contexts: [],
+	label: "existence_witness",
+	ambient: ordinarySession
 })
 
 /**
  * A case: the shape negated, how many keys the store holds (key i is (i, i mod 7)), how many facts Held holds at each
- * and how many keys are asked, every third at a key Marked holds, and whether the tables are analyzed, as autovacuum
- * would.
+ * and how many keys are asked, every third at a key Marked holds, and the pg_class state every table stands in
+ * (test/support/advice.ts PgClassState).
  */
 export interface Witness {
 	readonly shape: Shape
 	readonly keys: number
 	readonly each: number
 	readonly asked: number
-	readonly statistics: "none" | "analyzed"
+	readonly state: PgClassState
 }
 
 export const witnessGen: Gen<Witness> = (s) => ({
@@ -99,10 +108,10 @@ export const witnessGen: Gen<Witness> = (s) => ({
 	keys: s.draw(int(2000, 4000)),
 	each: s.draw(int(1, 4)),
 	asked: s.draw(int(2, 6)),
-	statistics: s.draw(element(["none", "analyzed"] as const))
+	state: s.draw(element<PgClassState>(pgClassStates))
 })
 
-export type WitnessFeature = Shape | "statistics read"
+export type WitnessFeature = Shape | `with every table ${PgClassState}`
 
 /** The asked keys: i * 97 mod keys for i < asked, a key of the store each. */
 const askedKeys = (c: Witness): ReadonlyArray<number> =>
@@ -126,22 +135,33 @@ const expected = (c: Witness): ReadonlyArray<string> =>
 		return kept ? [`${i} ${i % 7}`] : []
 	})
 
-/** The statements storing the case's rows by ordinary writes, then ANALYZE where the case draws it. */
-const loaded = (installed: Installed, c: Witness): ReadonlyArray<string> => {
+/**
+ * The case's rows stored by ordinary writes (test/support/advice.ts StateLoad), a key its unit: keys `from` to `to` of
+ * Held, each with its facts, of Marked, every third, and of Asked, those asked.
+ */
+const loaded = (session: BenchSession, installed: Installed, c: Witness): StateLoad => {
 	const names = namesOf(installed)
 	const asked = names.table(Asked)
 	const held = names.table(Held)
 	const markedTable = names.table(Marked)
-	const tables = [asked, held, markedTable]
-	return [
-		`INSERT INTO ${held} SELECT i, i % 7, x FROM generate_series(1, ${c.keys}) AS g(i), generate_series(1, ${c.each}) AS h(x)`,
-		`INSERT INTO ${markedTable} SELECT i, i % 7, 1 FROM generate_series(3, ${c.keys}, 3) AS g(i)`,
-		...Arr.map(
-			askedKeys(c),
-			(i, at) => `INSERT INTO ${asked} VALUES (${i}, ${i % 7}, ${countOf(c, at)})`
-		),
-		...(c.statistics === "analyzed" ? Arr.map(tables, (t) => `ANALYZE ${t}`) : [])
-	]
+	return {
+		tables: [asked, held, markedTable],
+		units: c.keys,
+		load: (from, to) =>
+			Effect.forEach(
+				[
+					`INSERT INTO ${held} SELECT i, i % 7, x FROM generate_series(${from}, ${to}) AS g(i), generate_series(1, ${c.each}) AS h(x)`,
+					`INSERT INTO ${markedTable} SELECT i, i % 7, 1 FROM generate_series(${from}, ${to}) AS g(i) WHERE i % 3 = 0`,
+					...Arr.flatMap(askedKeys(c), (i, at) =>
+						i >= from && i <= to
+							? [`INSERT INTO ${asked} VALUES (${i}, ${i % 7}, ${countOf(c, at)})`]
+							: []
+					)
+				],
+				(sql) => session.values(sql, []),
+				{ discard: true }
+			)
+	}
 }
 
 /** The rows a plan's scans of `table` read over every loop, and the most PostgreSQL's rounding may add to the sum. */
@@ -171,37 +191,27 @@ const rowOf = (row: ReadonlyArray<unknown>): string =>
 	)
 
 /**
- * One case in its one transaction, which the case's end rolls back: the store and the asked keys stored, then the
- * conservative read of the asked keys the shape's right side does not match explained as it runs, and run. It answers the
- * host's keys, and its scans of Held read at most the facts at the asked keys where the right side is read per left
- * row, however many keys the store holds, and the whole fold once, never once per asked key, where a count is bound.
+ * One case in its one transaction, which the case's end rolls back: the store and the asked keys stored, every table
+ * stood in the case's pg_class state (test/support/advice.ts standIn), then the read of the asked keys the shape's right
+ * side does not match as a served Db of the full world runs it (servedRead), run under its carried advice once the plan
+ * laws hold over it (servedRun), and read. It answers the host's keys, and its scans of Held read at most the facts at
+ * the asked keys where the right side is read per left row, however many keys the store holds, and the whole fold once,
+ * never once per asked key, where a count is bound.
  */
-export const runWitness = (
-	installed: Installed,
-	connection: PgConnection,
-	c: Witness,
-	k: Case<WitnessFeature>
-) =>
+export const runWitness = (clone: RolledBack<Generated>, c: Witness, k: Case<WitnessFeature>) =>
 	Effect.gen(function* () {
-		for (const sql of loaded(installed, c)) {
-			yield* connection.query(sql, [])
-		}
-		const options = {
-			...testCompile,
-			installation: identity.schema(parsedSchemaName(installed.declared))
-		}
-		const template = succeeded(
-			compileTemplate(negated(c.shape), undefined, options),
-			"the read compiles"
+		const { connection } = clone
+		const installed = clone.value.installed
+		const session: BenchSession = { values: connection.queryValues }
+		yield* standIn(session, loaded(session, installed, c), c.state)
+		const read = yield* servedRead(
+			installed,
+			fullWorldRole(installed, Stored, []),
+			negated(c.shape),
+			`the asked keys ${c.shape} does not match`
 		)
-		const [statement, ...others] = template.conservative
-		assert.ok(statement !== undefined && others.length === 0, "the read is one statement")
-		const explained = yield* connection.queryValues(
-			`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${statement.sql}`,
-			[]
-		)
-		const plan = succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan
-		const rows = yield* connection.queryValues(statement.sql, [])
+		const plan = yield* servedRun(session, read, {})
+		const rows = yield* connection.queryValues(read.statement.sql, read.params({}))
 		assert.deepEqual(
 			Arr.sort(Arr.map(rows, rowOf), Order.String),
 			Arr.sort(expected(c), Order.String),
@@ -211,10 +221,8 @@ export const runWitness = (
 		const scanned = readOf(plan, namesOf(installed).tableIdent(Held))
 		assert.ok(
 			scanned.rows <= bound + scanned.slack,
-			`${Formatter.format(c)}: the read's scans of Held read ${scanned.rows} rows, at most ${bound}, of the ${c.keys * c.each} stored\n${statement.sql}`
+			`${Formatter.format(c)}: the read's scans of Held read ${scanned.rows} rows, at most ${bound}, of the ${c.keys * c.each} stored\n${read.statement.sql}`
 		)
 		k.note(c.shape)
-		if (c.statistics === "analyzed") {
-			k.note("statistics read")
-		}
+		k.note(`with every table ${c.state}`)
 	})

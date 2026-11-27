@@ -4,18 +4,16 @@ import { assert } from "@bjornpagen/testing/assert"
 import { type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { identity } from "#compiler/core/identity.ts"
-import { compileInstallation } from "#compiler/program/install.ts"
+import type { BenchSession } from "#bench/harness/session.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { key, on, relation, schema, unit } from "#compiler/public/schema.ts"
+import { fullWorldRole, servedRead, servedRun } from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { compileTemplate, declaredOf, paramTexts, testCompile } from "#test/support/compile.ts"
-import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
-import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { noDeclarations } from "#test/support/migrate/kit.ts"
-import type { PgConnection } from "#test/support/pg.ts"
+import type { Generated, Installed } from "#test/support/install-migrate.ts"
+import { fullWorldTemplate } from "#test/support/installed.ts"
+import { namesOf } from "#test/support/kernel/naming.ts"
+import type { RolledBack } from "#test/support/substrate/substrate.ts"
 
 const i = pg.integer
 
@@ -77,18 +75,18 @@ const pairsRead = query(Ledger)
 		"array"
 	)
 
-export const heldScopeTemplate = migratedTemplate({
+/**
+ * The ledger installed through its first migration as `grizzle generate` drafts and serves it, with its full world's
+ * login, whose workload reads the sitting's pairs: the indexes that read asks are the installation's.
+ */
+export const heldScopeTemplate = fullWorldTemplate({
 	declaredIn: import.meta,
 	name: "held scope",
-	content: { schema: Ledger.name, logins: [] },
-	versions: [{ schema: Ledger, declarations: noDeclarations }],
-	options: {
-		label: "held_scope",
-		extensions: [],
-		compile: compileInstallation,
-		ambient: ordinarySession,
-		review: noPlaceholders
-	}
+	fixture: Ledger,
+	programs: { pairs: pairsRead },
+	contexts: [],
+	label: "held_scope",
+	ambient: ordinarySession
 })
 
 /** A case: the sitting's stage's sessions, each session's attempts, and the instants they fall at. */
@@ -158,33 +156,29 @@ const stored = (installed: Installed, c: ScopeCase): ReadonlyArray<string> => {
 }
 
 /**
- * One case in its one transaction, which the case's end rolls back: the stored rows, then the read of sitting 1 run at
- * PostgreSQL, its attachment holding exactly the pairs of learner 1's sessions that share an instant. A held join's CTE
- * that names a relation of the root's own FROM is refused by PostgreSQL (42P01) before a row is read.
+ * One case in its one transaction, which the case's end rolls back: its session's stand-ups called, as a direct writer
+ * of a table the rule judge holds calls them, the stored rows, then the read of sitting 1 as a served Db of the full
+ * world runs it (test/support/advice.ts servedRead), under its carried advice once the plan laws
+ * hold over it (servedRun), its attachment holding exactly the pairs of learner 1's sessions that share an instant. A
+ * held join's CTE that names a relation of the root's own FROM is refused by PostgreSQL (42P01) before a row is read.
  */
-export const runScope = (
-	installed: Installed,
-	connection: PgConnection,
-	c: ScopeCase,
-	k: Case<ScopeFeature>
-) =>
+export const runScope = (clone: RolledBack<Generated>, c: ScopeCase, k: Case<ScopeFeature>) =>
 	Effect.gen(function* () {
-		for (const sql of stored(installed, c)) {
+		const { connection } = clone
+		const installed = clone.value.installed
+		for (const sql of [...namesOf(installed).standUps, ...stored(installed, c)]) {
 			yield* connection.query(sql, [])
 		}
-		const options = {
-			...testCompile,
-			installation: identity.schema(parsedSchemaName(installed.declared))
-		}
-		const template = succeeded(compileTemplate(pairsRead, undefined, options), "the read compiles")
-		const [statement, ...others] = template.optimized
-		assert.ok(statement !== undefined && others.length === 0, "the read is one statement")
-		const params = paramTexts(
-			statement,
-			{ sitting: 1 },
-			declaredOf(template, pairsRead, undefined, options)
+		const session: BenchSession = { values: connection.queryValues }
+		const read = yield* servedRead(
+			installed,
+			fullWorldRole(installed, Ledger, []),
+			pairsRead,
+			"the sitting's pairs"
 		)
-		const rows = yield* connection.queryValues(statement.sql, params)
+		yield* servedRun(session, read, { sitting: 1 })
+		const statement = read.statement
+		const rows = yield* connection.queryValues(statement.sql, read.params({ sitting: 1 }))
 		const pairs = Arr.filter(rows, (row) => row[0] === "1").length
 		const expected = pairsOf(c)
 		assert.equal(
@@ -242,18 +236,18 @@ const suspendedRead = query(Suspensions).rule((r) => {
 		.find({ child, item, n, at, k })
 })
 
-export const heldOrderTemplate = migratedTemplate({
+/**
+ * The suspensions installed through their first migration as `grizzle generate` drafts and serves them, with their full
+ * world's login, whose workload reads the suspended snapshots.
+ */
+export const heldOrderTemplate = fullWorldTemplate({
 	declaredIn: import.meta,
 	name: "held order",
-	content: { schema: Suspensions.name, logins: [] },
-	versions: [{ schema: Suspensions, declarations: noDeclarations }],
-	options: {
-		label: "held_order",
-		extensions: [],
-		compile: compileInstallation,
-		ambient: ordinarySession,
-		review: noPlaceholders
-	}
+	fixture: Suspensions,
+	programs: { suspended: suspendedRead },
+	contexts: [],
+	label: "held_order",
+	ambient: ordinarySession
 })
 
 /**
@@ -299,40 +293,32 @@ const storedOrder = (installed: Installed, c: OrderCase): ReadonlyArray<string> 
 
 /**
  * One case in its one transaction, which the case's end rolls back: the stored rows, then the read of learner 1's
- * moments run at PostgreSQL, holding exactly the snapshots at the moments beside the suspensions at or after them. A
- * chain step whose correlation reads an occurrence placed after it is refused by the lowering's statement audit before
- * the read is sent (a relation not in scope), as PostgreSQL would refuse it (42P01).
+ * moments as a served Db of the full world runs it (test/support/advice.ts servedRead), under its carried advice once
+ * the plan laws hold over it (servedRun), holding exactly the snapshots at the moments beside the suspensions at or
+ * after them. A chain step whose correlation reads an occurrence placed after it is refused by the lowering's statement
+ * audit before the read is sent (a relation not in scope), as PostgreSQL would refuse it (42P01).
  */
-export const runOrder = (
-	installed: Installed,
-	connection: PgConnection,
-	c: OrderCase,
-	k: Case<OrderFeature>
-) =>
+export const runOrder = (clone: RolledBack<Generated>, c: OrderCase, k: Case<OrderFeature>) =>
 	Effect.gen(function* () {
+		const { connection } = clone
+		const installed = clone.value.installed
 		for (const sql of storedOrder(installed, c)) {
 			yield* connection.query(sql, [])
 		}
-		const options = {
-			...testCompile,
-			installation: identity.schema(parsedSchemaName(installed.declared))
-		}
-		const template = succeeded(
-			compileTemplate(suspendedRead, undefined, options),
-			"the read compiles"
+		const session: BenchSession = { values: connection.queryValues }
+		const read = yield* servedRead(
+			installed,
+			fullWorldRole(installed, Suspensions, []),
+			suspendedRead,
+			"the suspended snapshots"
 		)
-		const [statement, ...others] = template.optimized
-		assert.ok(statement !== undefined && others.length === 0, "the read is one statement")
 		const moments = Arr.map(
 			Array.from({ length: c.moments }, (_, i) => i + 2),
 			(at) => ({ child: 1, stage: 0, at })
 		)
-		const params = paramTexts(
-			statement,
-			{ moments },
-			declaredOf(template, suspendedRead, undefined, options)
-		)
-		const rows = yield* connection.queryValues(statement.sql, params)
+		yield* servedRun(session, read, { moments })
+		const statement = read.statement
+		const rows = yield* connection.queryValues(statement.sql, read.params({ moments }))
 		const expected = suspendedRowsOf(c)
 		assert.equal(
 			rows.length,

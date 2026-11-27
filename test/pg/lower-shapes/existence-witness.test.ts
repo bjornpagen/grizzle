@@ -11,22 +11,25 @@
  *
  * On PostgreSQL 19, over a store of 2,000 to 4,000 keys of one to four facts each, two to six asked keys: the asked keys
  * no fact of the right side matches, the right side a join of two stores by the key, a fold by the key, or a fold whose
- * count the test binds, with statistics or none.
+ * count the test binds, every table in each pg_class state (test/support/advice.ts PgClassState), the read as a served
+ * Db of the full world runs it, under the advice it carries.
  *
  * Oracle: the host's keys, and a bound: the read's scans of the store read at most the facts at the asked keys, and one
  * more for each witness's probe of a key it does not hold, where the right side is read per left row; and the whole fold
- * once, never once per asked key, where the test binds the fold's count, which restricts no relation it reads.
+ * once, never once per asked key, where the test binds the fold's count, which restricts no relation it reads; and the
+ * plan laws over the read's flight (test/support/advice.ts servedRun).
  *
- * Features: each shape; statistics read.
+ * Features: each shape; every table in each pg_class state.
  */
 import { property } from "@bjornpagen/testing/property"
-import { Effect } from "effect"
+import { Array as Arr, Effect } from "effect"
 import {
 	existenceWitnessTemplate,
 	runWitness,
 	type WitnessFeature,
 	witnessGen
 } from "#test/pg/lower-shapes/existence-witness.fixtures.ts"
+import { pgClassStates } from "#test/support/advice.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -63,12 +66,12 @@ export const aReadThatTestsAJoinOrAFoldByTheTestsKeysReadsTheStoreAtTheAskedKeys
 			"the join by the key",
 			"the fold by the key",
 			"the fold by its count",
-			"statistics read"
+			...Arr.map(pgClassStates, (s) => `with every table ${s}` as const)
 		] satisfies ReadonlyArray<WitnessFeature>,
 		check:
 			({ stored }, c) =>
 			(drawn) =>
-				Effect.flatMap(stored, ({ connection, value }) => runWitness(value, connection, drawn, c)),
+				Effect.flatMap(stored, (clone) => runWitness(clone, drawn, c)),
 		oracle: {
 			kind: "universal",
 			name: "the host's asked keys the right side does not match, and bound: the read's scans of the store read at most the facts at the asked keys where the right side is read per left row, and the whole fold once where its count is bound"
