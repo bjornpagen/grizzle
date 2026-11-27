@@ -1361,7 +1361,7 @@ export const lawPlanOf = "SELECT pg_temp.gz_laws_plan($1::text)::text"
 
 /** The query that answers the advice in force where it runs: one cell, the empty text where none is. */
 export const adviceInForce =
-	"SELECT pg_catalog.coalesce(pg_catalog.current_setting('pg_plan_advice.advice', true), '')"
+	"SELECT COALESCE(pg_catalog.current_setting('pg_plan_advice.advice', true), '')"
 
 /** A statement's plan for the laws, through the session's planner function (`lawPlanner`). */
 const lawPlan = (session: BenchSession, sql: string) =>
@@ -1708,6 +1708,12 @@ type SuperuserRead = (sql: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<
 const cellOf = (rows: ReadonlyArray<ReadonlyArray<string | null>>, what: string): string =>
 	defined(rows[0]?.[0] ?? undefined, what)
 
+/**
+ * The block number no page has, which ends a hash bucket's overflow chain as its last page's next block (PostgreSQL
+ * 19.0, storage/block.h InvalidBlockNumber, `((BlockNumber) 0xFFFFFFFF)`), as hash_page_stats answers it.
+ */
+const invalidBlockNumber = 0xffffffff
+
 /** The little-endian unsigned 16-bit word at byte `at` of a raw page read as hex (get_raw_page). */
 const pageWord = (hex: string, at: number): number =>
 	Number.parseInt(Str.slice(2 * at, 2 * at + 2)(hex), 16) +
@@ -1744,7 +1750,11 @@ export const heightsOf = (
  * - `gin`: its entry tree records no level (ginblock.h GinPageOpaqueData), so its height is the length of its leftmost
  *   path, walked from its root (GIN_ROOT_BLKNO, block 1) down each internal page's first downlink (its first line
  *   pointer's entry tuple, whose t_tid block is the child, GinGetDownlink) to a leaf (GIN_LEAF): a B-tree's every leaf
- *   is at one depth.
+ *   is at one depth;
+ * - `hash`: a lookup reads its metapage and its key's bucket page, then that bucket's overflow pages one by one, each
+ *   page's next its special space's hasho_nextblkno (hash.h HashPageOpaqueData), InvalidBlockNumber ending the chain:
+ *   its height is two and the longest overflow chain of any bucket, walked from each bucket page (pageinspect's
+ *   hash_page_type and hash_page_stats, in the template's pageinspect_ext), the pages a lookup of the worst key reads.
  */
 const heightReaders: Readonly<
 	Record<string, (read: SuperuserRead, index: string) => Effect.Effect<number>>
@@ -1754,6 +1764,22 @@ const heightReaders: Readonly<
 			read(`SELECT (level + 1)::text FROM pageinspect_ext.bt_metap(${quoteString(index)})`),
 			(rows) => Number(cellOf(rows, `the root level of ${index}`))
 		),
+	hash: (read, index) => {
+		const page = (block: string) =>
+			`pageinspect_ext.get_raw_page(${quoteString(index)}, (${block})::pg_catalog.int8)`
+		return Effect.map(
+			read(
+				"WITH RECURSIVE buckets AS (SELECT b FROM pg_catalog.generate_series(1::pg_catalog.int8, " +
+					`pg_catalog.pg_relation_size(${quoteString(index)}::pg_catalog.regclass) / pg_catalog.current_setting('block_size')::pg_catalog.int8 - 1) AS b ` +
+					`WHERE pageinspect_ext.hash_page_type(${page("b")}) = 'bucket'), ` +
+					`chain(next, overflow) AS (SELECT (pageinspect_ext.hash_page_stats(${page("b")})).hasho_nextblkno, 0 FROM buckets ` +
+					`UNION ALL SELECT (pageinspect_ext.hash_page_stats(${page("next")})).hasho_nextblkno, overflow + 1 FROM chain ` +
+					`WHERE next <> ${String(invalidBlockNumber)}) ` +
+					"SELECT (2 + COALESCE(pg_catalog.max(overflow), 0))::text FROM chain"
+			),
+			(rows) => Number(cellOf(rows, `the longest overflow chain of ${index}`))
+		)
+	},
 	gin: (read, index) => {
 		const walk = (block: number, above: number): Effect.Effect<number> =>
 			Effect.flatMap(
