@@ -269,7 +269,8 @@ interface ReadSketch {
  *   at the same b, refused by the projected key;
  * - "scoped merge": a put of a relation parameter beside the deletion of every fact of the mutable relation in a scope
  *   whose key is not in that parameter, which the compiler realizes as one MERGE; the stored facts hold a fact the put
- *   changes and one the deletion removes;
+ *   changes and one the deletion removes, and the put adds a fact at a key none holds, which only the MERGE's WHEN NOT
+ *   MATCHED inserts;
  * - "toast repeat": the same MERGE putting a stored fact holding a TOAST-sized text, exactly as stored, beside the
  *   deletion of a scope no fact holds, which changes nothing;
  * - "toast change": an enumerated put on the mutable relation alone, an ON CONFLICT DO UPDATE, of a stored fact's key
@@ -786,7 +787,13 @@ export const plantedChangeSet = (group: WGroup, arm: PlantedArm): WChangeSet => 
 				{}
 			)
 		case "scoped merge":
-			return scopedMerge([{ a: armKey, b: armKey, c: "x" }], armKey)
+			return scopedMerge(
+				[
+					{ a: armKey, b: armKey, c: "x" },
+					{ a: thirdKey, b: armKey, c: "y" }
+				],
+				armKey
+			)
 		case "toast repeat":
 			return scopedMerge([{ a: armKey, b: armKey, c: planted.toastSized }], otherKey)
 		case "toast change":

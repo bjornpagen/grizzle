@@ -38,7 +38,7 @@
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
-import { property } from "@bjornpagen/testing/property"
+import { property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
 	type BoundFeature,
@@ -75,8 +75,25 @@ export const aStoredRelationThatReadsSealedContentByReferenceEqualsItsDefinition
 			kind: "second-implementation",
 			name: "the host's model: after each COMMIT each stored relation holds exactly its definition's rows over the rows the host wrote, its content's revisions among them"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/derived/sealed-reference.test.ts#aStoredRelationThatReadsSealedContentByReferenceEqualsItsDefinitionAfterEveryCommit:1f.2:2.0.1.0.0.0.0.2.0"
+				),
+				reason:
+					"Learner 1's answer at package 1's adaptive item 0, its founding in the same transaction, then a data step's revision of the item, no longer adaptive: the bracket's re-check refills Open, whose definition now derives the attempt, by a MERGE the binding read its table through at the tuple id a probe found, `USING <its definition> CROSS JOIN LATERAL (<Open at the key> LIMIT 1) ON ctid`, an inner join that dropped every row of the definition Open did not yet hold before its WHEN NOT MATCHED could insert it, so Open lacked (1,1,0,1) while Credit's, Scored's, Tried's and Noted's raised maximums, rows they held, were updated (main f9cb21bb, since the binding's cutover 2d024bca)",
+				since: "2026-11-27"
+			}
+		],
 		kills: [
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original:
+					'\t\tconst depth = inner.depth + 1\n\t\tconst level: Env = { ...inner, depth }\n\t\tconst [entry, ...others] = entriesOf([s.using])\n\t\tif (entry === undefined || others.length > 0) {\n\t\t\treturn defect("a MERGE\'s one source, one item")\n\t\t}\n\t\tconst sourceWritten = writtenOf(entry.source)\n\t\tconst sourceAlias = this.#alias(sourceWritten)\n\t\tconst source = this.entry(entry, 1, [], level, inner, sourceAlias, undefined)\n\t\tconst alias = this.#alias(s.alias)\n\t\tconst withTarget = withRelation(level, s.alias, alias, depth, 0)\n\t\tconst here =\n\t\t\tsourceWritten === undefined\n\t\t\t\t? withTarget\n\t\t\t\t: withRelation(withTarget, sourceWritten, sourceAlias, depth, 1)\n\t\tthis.#level(name, [\n\t\t\t{\n\t\t\t\tsource: { kind: "read", table: s.table, alias, access: { kind: "whole" } },\n\t\t\t\tstep: { join: "cross" },\n\t\t\t\titem: {\n\t\t\t\t\talias,\n\t\t\t\t\tscan: catalogTable === undefined ? { kind: "rows" } : { kind: "seq" }\n\t\t\t\t},\n\t\t\t\tmethod: "nestedLoop"\n\t\t\t},\n\t\t\t{ ...source, method: "hash" }\n\t\t])\n\t\tconst [using] = fromOf([source])\n\t\tif (using === undefined) {\n\t\t\treturn defect("a MERGE\'s one source, bound as one item")\n\t\t}\n\t\tconst rename = this.renamer(here)\n\t\treturn {\n\t\t\t...s,\n\t\t\twith: w,\n\t\t\talias,\n\t\t\tusing,\n\t\t\ton: rename.expr(s.on),\n',
+				replacement:
+					'\t\tconst t = this.written(s.table, s.alias, [s.using], s.on, inner, name)\n\t\tconst [using] = t.items\n\t\tif (using === undefined || t.items.length !== 1) {\n\t\t\treturn defect("a MERGE\'s one source, bound as one item")\n\t\t}\n\t\tconst rename = this.renamer(t.env)\n\t\treturn {\n\t\t\t...s,\n\t\t\twith: w,\n\t\t\talias: t.alias,\n\t\t\tusing,\n\t\t\ton: t.where ?? lit.bool(true),\n',
+				why: "A MERGE's target read at the tuple id an inner probe of it at its ON's key finds, as an UPDATE's or a DELETE's target is: a data step's revision of an item no longer adaptive re-checks Open by a MERGE whose definition's rows Open does not hold never reach its WHEN NOT MATCHED, so the attempt's fact stays underived (the binding's cutover, 2d024bca)."
+			},
 			{
 				file: "packages/engine/src/physical/ddl/recheck.ts",
 				original: "\t\tif (!overClosed(u)) {\n",

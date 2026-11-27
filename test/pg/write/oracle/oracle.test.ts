@@ -74,6 +74,14 @@ export const writeOracle = property.explore(perturbedRunGen, {
 	kept: [
 		{
 			token: ReplayToken(
+				"test/pg/write/oracle/oracle.test.ts#writeOracle:1fffffffffffffffff.0:1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+			),
+			reason:
+				'The planted scoped merge, `put G1R3 $rp0` beside `delete G1R3 scoped where b = $p1 and key not in $rp0` over G1R3 {-1, -1, ""} and {-2, -1, ""}, rp0 {-1, -1, "x"} and {-3, -1, "y"}: one MERGE, whose target the binding read at the tuple id an inner probe at its key found, `USING <rp0> CROSS JOIN LATERAL (<G1R3 at the key> LIMIT 1) ON ctid`, which dropped -3, a key G1R3 did not hold, before WHEN NOT MATCHED could insert it; the optimized program committed {-1, -1, "x"} alone (main f9cb21bb, since the binding\'s cutover 2d024bca)',
+			since: "2026-11-27"
+		},
+		{
+			token: ReplayToken(
 				"test/pg/write/oracle/oracle.test.ts#writeOracle:1fffffffffffffffff.d:1.2.cn4.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.3.2.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.1.0.0.1.0.1.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
 			),
 			reason:
@@ -90,6 +98,14 @@ export const writeOracle = property.explore(perturbedRunGen, {
 		}
 	],
 	kills: [
+		{
+			file: "packages/engine/src/sql/bind.ts",
+			original:
+				'\t\tconst depth = inner.depth + 1\n\t\tconst level: Env = { ...inner, depth }\n\t\tconst [entry, ...others] = entriesOf([s.using])\n\t\tif (entry === undefined || others.length > 0) {\n\t\t\treturn defect("a MERGE\'s one source, one item")\n\t\t}\n\t\tconst sourceWritten = writtenOf(entry.source)\n\t\tconst sourceAlias = this.#alias(sourceWritten)\n\t\tconst source = this.entry(entry, 1, [], level, inner, sourceAlias, undefined)\n\t\tconst alias = this.#alias(s.alias)\n\t\tconst withTarget = withRelation(level, s.alias, alias, depth, 0)\n\t\tconst here =\n\t\t\tsourceWritten === undefined\n\t\t\t\t? withTarget\n\t\t\t\t: withRelation(withTarget, sourceWritten, sourceAlias, depth, 1)\n\t\tthis.#level(name, [\n\t\t\t{\n\t\t\t\tsource: { kind: "read", table: s.table, alias, access: { kind: "whole" } },\n\t\t\t\tstep: { join: "cross" },\n\t\t\t\titem: {\n\t\t\t\t\talias,\n\t\t\t\t\tscan: catalogTable === undefined ? { kind: "rows" } : { kind: "seq" }\n\t\t\t\t},\n\t\t\t\tmethod: "nestedLoop"\n\t\t\t},\n\t\t\t{ ...source, method: "hash" }\n\t\t])\n\t\tconst [using] = fromOf([source])\n\t\tif (using === undefined) {\n\t\t\treturn defect("a MERGE\'s one source, bound as one item")\n\t\t}\n\t\tconst rename = this.renamer(here)\n\t\treturn {\n\t\t\t...s,\n\t\t\twith: w,\n\t\t\talias,\n\t\t\tusing,\n\t\t\ton: rename.expr(s.on),\n',
+			replacement:
+				'\t\tconst t = this.written(s.table, s.alias, [s.using], s.on, inner, name)\n\t\tconst [using] = t.items\n\t\tif (using === undefined || t.items.length !== 1) {\n\t\t\treturn defect("a MERGE\'s one source, bound as one item")\n\t\t}\n\t\tconst rename = this.renamer(t.env)\n\t\treturn {\n\t\t\t...s,\n\t\t\twith: w,\n\t\t\talias: t.alias,\n\t\t\tusing,\n\t\t\ton: t.where ?? lit.bool(true),\n',
+			why: "A MERGE's target read at the tuple id an inner probe of it at its ON's key finds, as an UPDATE's or a DELETE's target is: a scoped replace put's fact at a key its relation does not hold never reaches the MERGE's WHEN NOT MATCHED, so the put drops it (the binding's cutover, 2d024bca)."
+		},
 		{
 			file: "packages/engine/src/write/put/statement.ts",
 			original: "\t\t\tneeds: either([inputNeeds(input), spec.scope.deleted]),",

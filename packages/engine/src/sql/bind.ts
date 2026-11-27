@@ -2224,21 +2224,69 @@ class Binder {
 		}
 	}
 
-	/** A MERGE: its source an item of the MERGE's level, its target joined to it on its ON, read by its ON's bindings. */
+	/**
+	 * A MERGE: its ON is the condition of the outer join of its target to its source, which decides each row's WHEN (a
+	 * source row no target row matches takes WHEN NOT MATCHED, a target row no source row matches WHEN NOT MATCHED BY
+	 * SOURCE), so it stays as it was written: no conjunct of it binds a read or moves, and the target is never read
+	 * through an inner join with the source, which would drop every source row that matches no target row before its
+	 * WHEN NOT MATCHED could insert it. Its target is read whole, first, and its source, the level's one other item,
+	 * bound with no conjunct of the ON, is joined to it by a hash. Every MERGE grizzle sends of a stored table has a
+	 * WHEN NOT MATCHED BY SOURCE (a scoped put's absorbed deletion, write/put/statement.ts buildMerge; a data step's
+	 * refill, physical/ddl/recheck.ts), which PostgreSQL plans as a FULL join, reading every row of the target whatever
+	 * reads it, so that is its plan. A keyed MERGE of a stored table without one joins its target to its source alone,
+	 * which an outer probe of it at the ON's key would read at the tuple id it finds; no MERGE needs that form, so none
+	 * is bound: it is an internal compiler error, never a whole read where a probe stands.
+	 */
 	merge(s: Merge, env: Env, name: PlanName): Merge {
+		const catalogTable = this.#catalog.table(nameKey(s.table))
+		if (
+			catalogTable !== undefined &&
+			!this.#whole &&
+			!s.whens.some((when) => when.match === "NOT MATCHED BY SOURCE")
+		) {
+			return defect(
+				`a keyed MERGE of ${catalogTable.relation} without WHEN NOT MATCHED BY SOURCE, whose target an outer tid probe at its ON's key would read, a form no MERGE needs and none is bound in`
+			)
+		}
 		const { with: w, env: inner } = this.with(s.with, env)
-		const t = this.written(s.table, s.alias, [s.using], s.on, inner, name)
-		const [using] = t.items
-		if (using === undefined || t.items.length !== 1) {
+		const depth = inner.depth + 1
+		const level: Env = { ...inner, depth }
+		const [entry, ...others] = entriesOf([s.using])
+		if (entry === undefined || others.length > 0) {
+			return defect("a MERGE's one source, one item")
+		}
+		const sourceWritten = writtenOf(entry.source)
+		const sourceAlias = this.#alias(sourceWritten)
+		const source = this.entry(entry, 1, [], level, inner, sourceAlias, undefined)
+		const alias = this.#alias(s.alias)
+		const withTarget = withRelation(level, s.alias, alias, depth, 0)
+		const here =
+			sourceWritten === undefined
+				? withTarget
+				: withRelation(withTarget, sourceWritten, sourceAlias, depth, 1)
+		this.#level(name, [
+			{
+				source: { kind: "read", table: s.table, alias, access: { kind: "whole" } },
+				step: { join: "cross" },
+				item: {
+					alias,
+					scan: catalogTable === undefined ? { kind: "rows" } : { kind: "seq" }
+				},
+				method: "nestedLoop"
+			},
+			{ ...source, method: "hash" }
+		])
+		const [using] = fromOf([source])
+		if (using === undefined) {
 			return defect("a MERGE's one source, bound as one item")
 		}
-		const rename = this.renamer(t.env)
+		const rename = this.renamer(here)
 		return {
 			...s,
 			with: w,
-			alias: t.alias,
+			alias,
 			using,
-			on: t.where ?? lit.bool(true),
+			on: rename.expr(s.on),
 			whens: mapWhens(s.whens, (when) => rename.mergeWhen(when)),
 			returning: rename.targets(s.returning)
 		}
