@@ -74,6 +74,9 @@ export interface WriteNames extends PhysicalNames {
 	 * (write/insert/stamp.ts placeReleases). */
 	readonly head: (head: HeadName) => ObjectName
 	readonly primaryKey: (relation: string) => ConstraintName
+	/** The whole view of a stored relation (physical/ddl/names.ts InstallNames `wholeView`), which the binding reads a
+	 * role's read of it through (physical/access/catalog.ts servedCatalog). */
+	readonly wholeView: (relation: string) => ObjectName
 }
 
 /**

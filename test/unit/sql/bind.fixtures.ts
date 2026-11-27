@@ -9,7 +9,7 @@ import { defaultOpclass } from "#compiler/ir/law.ts"
 import type { AccessIndexRequest } from "#compiler/ir/products.ts"
 import type { Expr, FromSource, OperandSelect, Select } from "#compiler/sql/ast.ts"
 import { nameKey } from "#compiler/sql/ast.ts"
-import type { BindTable, ReadCatalog } from "#compiler/sql/bind.ts"
+import type { BindTable, BindView, ReadCatalog } from "#compiler/sql/bind.ts"
 import {
 	and,
 	asc,
@@ -35,6 +35,7 @@ import {
 	types,
 	windowOf
 } from "#compiler/sql/build.ts"
+import { wholeViewAlias } from "#compiler/sql/naming.ts"
 import type { PlanItem, ReadPlan } from "#compiler/sql/plan.ts"
 import { levelItems } from "#compiler/sql/plan.ts"
 import { identityHooks, Transform } from "#compiler/sql/transform.ts"
@@ -52,6 +53,8 @@ export type BindFeature =
 	| "a column no B-tree holds left a filter"
 	| "a derived table joined to an earlier item by a hash"
 	| "a derived table read per earlier row at its stored read's key"
+	| "a whole view's read named by its body's alias"
+	| "a whole view read twice at one level, the second a level of its own"
 
 export const bindFeatures = [
 	"a seek at a literal",
@@ -64,7 +67,9 @@ export const bindFeatures = [
 	"an extension's equality bound",
 	"a column no B-tree holds left a filter",
 	"a derived table joined to an earlier item by a hash",
-	"a derived table read per earlier row at its stored read's key"
+	"a derived table read per earlier row at its stored read's key",
+	"a whole view's read named by its body's alias",
+	"a whole view read twice at one level, the second a level of its own"
 ] as const
 
 /**
@@ -91,7 +96,18 @@ const sTable: BindTable = {
 	keys: [["k"]]
 }
 
-/** The catalog of T and S, of the schema `app`, no view, and no trigger function. */
+/** The alias T's whole view's body names T by, which PostgreSQL plans T under where it flattens the view. */
+export const tViewAlias = wholeViewAlias(1)
+
+/** T's whole view, `app.t_whole`, every column of T as itself (sql/bind.ts BindView `whole`). */
+const tWhole: BindView = {
+	kind: "whole",
+	table: tTable,
+	alias: tViewAlias,
+	columns: new Map(Arr.map(["a", "b", "f", "v", "d"], (c) => [c, c] as const))
+}
+
+/** The catalog of T and S, of the schema `app`, T's whole view `app.t_whole`, and no trigger function. */
 export const catalog: ReadCatalog = {
 	table: (key) =>
 		key === nameKey({ schema: "app", name: "t" })
@@ -99,7 +115,7 @@ export const catalog: ReadCatalog = {
 			: key === nameKey({ schema: "app", name: "s" })
 				? sTable
 				: undefined,
-	view: () => false,
+	view: (key) => (key === nameKey({ schema: "app", name: "t_whole" }) ? tWhole : undefined),
 	fired: () => undefined
 }
 
@@ -107,8 +123,9 @@ export const catalog: ReadCatalog = {
 export type Fixed = "a" | "b" | "f" | "v" | "d"
 
 /**
- * Where a case reads T: its level's own top; after S, joined to it at b; beneath S's EXISTS at a; through a window; or
- * inside groups by b, a derived table S is joined to at b, over T itself or over a MATERIALIZED CTE of T's rows.
+ * Where a case reads T: its level's own top; after S, joined to it at b; beneath S's EXISTS at a; through a window;
+ * inside groups by b, a derived table S is joined to at b, over T itself or over a MATERIALIZED CTE of T's rows; or
+ * through T's whole view at its level's top, once, or twice, the second read whole beside the first.
  */
 export type Place =
 	| { readonly kind: "top" }
@@ -116,6 +133,7 @@ export type Place =
 	| { readonly kind: "sublink" }
 	| { readonly kind: "window"; readonly at: "a" | "b" }
 	| { readonly kind: "joined"; readonly over: "stored" | "cte" }
+	| { readonly kind: "viewed"; readonly reads: 1 | 2 }
 
 export interface BindCase {
 	readonly place: Place
@@ -135,7 +153,9 @@ export const bindCaseGen: Gen<BindCase> = (source) => {
 			{ kind: "window", at: "a" },
 			{ kind: "window", at: "b" },
 			{ kind: "joined", over: "stored" },
-			{ kind: "joined", over: "cte" }
+			{ kind: "joined", over: "cte" },
+			{ kind: "viewed", reads: 1 },
+			{ kind: "viewed", reads: 2 }
 		])
 	)
 	return {
@@ -225,6 +245,17 @@ export const statementOf = (c: BindCase): Select => {
 				)
 			)
 		}
+		case "viewed": {
+			const viewRead = table("app", "t_whole", "t")
+			return select(
+				keyedSet(
+					[target(col("t", "b"))],
+					c.place.reads === 1 ? [viewRead] : [viewRead, table("app", "t_whole", "u")],
+					whereOf(fixed),
+					"a read of T through its whole view"
+				)
+			)
+		}
 		case "joined": {
 			const grouping = c.place.over === "stored" ? "t" : "c"
 			const counted: OperandSelect = operandSelect(
@@ -308,6 +339,7 @@ export const tReadsOf = (bound: Select): ReadonlyArray<TRead> => {
 			if (s.kind === "read" && typeof s.table !== "string" && s.table.name === "t") {
 				found.push({ alias: s.alias, probe: false })
 			}
+
 			if (s.kind === "probe" && typeof s.table !== "string" && s.table.name === "t") {
 				found.push({ alias: s.inner, probe: true })
 			}
@@ -349,6 +381,10 @@ export const specified = (c: BindCase): SpecifiedRead => {
 	switch (c.place.kind) {
 		case "driven":
 			return { kind: "index", probe: true, bound: sorted(["b", ...held]) }
+		case "viewed": {
+			const many = Arr.some(held, (f) => f !== "f")
+			return many ? { kind: "index", probe: false, bound: sorted(held) } : { kind: "whole" }
+		}
 		case "joined": {
 			if (c.place.over === "stored") {
 				return { kind: "index", probe: false, bound: sorted(["b", ...held]) }
@@ -372,3 +408,19 @@ export const specified = (c: BindCase): SpecifiedRead => {
 		}
 	}
 }
+
+/**
+ * How the plan of a read through T's whole view names it: the top level's items, by alias, and the items of every level
+ * the scope named, each level's aliases in order.
+ */
+export const viewedLevels = (
+	plan: ReadPlan<AccessIndexRequest>
+): {
+	readonly top: ReadonlyArray<PlanItem<AccessIndexRequest>>
+	readonly named: ReadonlyArray<ReadonlyArray<string>>
+} => ({
+	top: Arr.flatMap(plan.levels, (level) => (level.name.kind === "top" ? levelItems(level) : [])),
+	named: Arr.flatMap(plan.levels, (level) =>
+		level.name.kind === "named" ? [Arr.map(levelItems(level), (i) => i.alias)] : []
+	)
+})

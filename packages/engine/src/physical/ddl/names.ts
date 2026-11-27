@@ -90,6 +90,12 @@ export interface InstallNames extends PhysicalNames {
 		relation: string
 	) => Extract<RoleViewName, { readonly kind: "whole" }>
 	/**
+	 * The whole view of a stored relation, as every role holding it whole reads it (RoleViewName `whole`): a declared
+	 * relation's in its level's schema of whole views (`wholeViewName`, nameRole's own), an anonymous canonical relation's
+	 * by its form (`canonicalWholeView`).
+	 */
+	readonly wholeView: (relation: string) => ObjectName
+	/**
 	 * The identity of a contract's domain, by the contract's declared name: the digest of the domain's physical definition,
 	 * so contracts of one definition share one domain. Its CHECK is `identity.domainCheck` of it.
 	 */
@@ -240,6 +246,30 @@ export interface NamedLogin {
 	readonly roles: ReadonlyArray<NamedRole>
 }
 
+/**
+ * The whole view of the declared relation `relation` among the installation's `levels`, `<wholeSchema>.<relation>` in
+ * its level's schema of whole views, which `reader` reads it through, declared at `at`: the one name of it every role
+ * holding it whole reads and the installation creates (InstallNames `wholeView`).
+ */
+const wholeViewName = (
+	levels: NonEmptyReadonlyArray<Identity<"schema">>,
+	relation: OwnedRelation,
+	reader: string,
+	at: SourceLoc
+): Extract<RoleViewName, { readonly kind: "whole" }> => {
+	const level =
+		levels[relation.level] ?? missing(`physical: no installed level for relation ${relation.name}`)
+	return {
+		kind: "whole",
+		schema: wholeSchemaIdentity(
+			level,
+			`the whole views' schema of ${level.display}, which ${reader} reads ${relation.name} through`,
+			at
+		),
+		name: wholeViewOf(relation)
+	}
+}
+
 /** `role` named under the installation's `levels`, its refusal thrown (namedRole). */
 const nameRole = (
 	role: OwnedRole,
@@ -249,20 +279,8 @@ const nameRole = (
 	const schema = identity.roleSchema(theory)
 	const views = new Map<string, RoleViewName>()
 	/** The whole view of `relation`, declared at `at`, in its level's schema of whole views. */
-	const whole = (relation: OwnedRelation, at: SourceLoc): RoleViewName => {
-		const level =
-			levels[relation.level] ??
-			missing(`physical: no installed level for relation ${relation.name}`)
-		return {
-			kind: "whole",
-			schema: wholeSchemaIdentity(
-				level,
-				`the whole views' schema of ${level.display}, which role ${role.name} reads ${relation.name} through`,
-				at
-			),
-			name: wholeViewOf(relation)
-		}
-	}
+	const whole = (relation: OwnedRelation, at: SourceLoc): RoleViewName =>
+		wholeViewName(levels, relation, `role ${role.name}`, at)
 	for (const [relation, e] of Object.entries(role.relations)) {
 		views.set(
 			relation,
@@ -661,6 +679,20 @@ export const installNames = (input: NamesInput): InstallNames => {
 	const bitsNamed = (roster: HeldName): Identity<"bitsDomain"> =>
 		bits.get(roster) ?? missing(`physical: no codes for roster ${roster}`)
 	const library: ReadonlySet<LibraryFn> = new Set(input.library)
+	const canonicalWholeView = (
+		relation: string
+	): Extract<RoleViewName, { readonly kind: "whole" }> => {
+		const level = levelOf(relation)
+		return {
+			kind: "whole",
+			schema: wholeSchemaIdentity(
+				level,
+				`the whole views' schema of ${level.display}, which a role reads ${relation} through`,
+				SourceLoc(`stored canonical relation ${relation}`, [])
+			),
+			name: identity.canonicalWholeView(input.canonical(relation).digest)
+		}
+	}
 	const names: InstallNames = {
 		installation,
 		schema,
@@ -759,17 +791,14 @@ export const installNames = (input: NamesInput): InstallNames => {
 			return key.constraint
 		},
 		relationNamed: (relation) => installedOf(owned, input.canonical, relation).named,
-		canonicalWholeView: (relation) => {
-			const level = levelOf(relation)
-			return {
-				kind: "whole",
-				schema: wholeSchemaIdentity(
-					level,
-					`the whole views' schema of ${level.display}, which a role reads ${relation} through`,
-					SourceLoc(`stored canonical relation ${relation}`, [])
-				),
-				name: identity.canonicalWholeView(input.canonical(relation).digest)
-			}
+		canonicalWholeView,
+		wholeView: (relation) => {
+			const declared = owned.relations[relation]
+			const view =
+				declared === undefined
+					? canonicalWholeView(relation)
+					: wholeViewName(levels, declared, "a role", declared.loc)
+			return { schema: identifierOf(view.schema), name: identifierOf(view.name) }
 		}
 	}
 	return names

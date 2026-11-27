@@ -154,14 +154,23 @@ export class NameSupply {
 declare const aliasBrand: unique symbol
 
 /**
- * An alias an advice scope minted (AdviceScope): `r<n>`, n from 1, the only spelling one takes. So no scope mints `x`,
- * the alias PostgreSQL's own foreign key queries plan under (ri_triggers.c) whatever advice is in force, nor
- * `*RESULT*`, `*SELECT*`, `unnamed_subquery`, `ANY_subquery`, nor any `<word>_<n>` the planner names a sublink's or a
- * set operation's level by (planner.c choose_plan_name): impossible by the spelling, never refused by a check.
+ * An alias a plan names a relation or a level by: one an advice scope minted (AdviceScope), `r<n>`, n from 1; or one a
+ * role's view's body names its relation by (`wholeViewAlias`), `v<n>`, which PostgreSQL plans the relation under once it
+ * flattens the view into the level that reads it, a spelling no scope mints, so a statement's own aliases and its views'
+ * never meet. So no plan names `x`, the alias PostgreSQL's own foreign key queries plan under (ri_triggers.c) whatever
+ * advice is in force, nor `*RESULT*`, `*SELECT*`, `unnamed_subquery`, `ANY_subquery`, nor any `<word>_<n>` the planner
+ * names a sublink's or a set operation's level by (planner.c choose_plan_name): impossible by the spelling, never
+ * refused by a check.
  */
-export type Alias = `r${number}` & { readonly [aliasBrand]: true }
+export type Alias = (`r${number}` | `v${number}`) & { readonly [aliasBrand]: true }
 
-const mintAlias = nominal<`r${number}`, Alias>()
+const mintAlias = nominal<`r${number}` | `v${number}`, Alias>()
+
+/**
+ * The alias the body of the whole view of the `ordinal`-th stored relation, from 1, names its table by (physical/ddl/
+ * roles.ts wholeView, physical/access/catalog.ts wholeViewAliases): `v<ordinal>`, a spelling no advice scope mints.
+ */
+export const wholeViewAlias = (ordinal: number): Alias => mintAlias(`v${ordinal}`)
 
 /**
  * One advice scope (sql/advice.ts): every alias of every statement bound in it, a relation's, a sub-query's, a probe's

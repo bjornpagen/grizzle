@@ -12,7 +12,10 @@
  * a or of b, or inside T's groups by b that S is joined to at b, at a drawn set of literal equalities of a, b, f, v and
  * d: the bound statement reads T once, and the plan's item of the alias it reads T by is what the specification says
  * (bind.fixtures.ts `specified`), its scan, whether a probe's, and its bound columns; every alias the plan names is the
- * scope's, once; and groups joined to S are read per row of S at T's key where they group T itself, and where they group
+ * scope's, once; a read through T's whole view is planned under the alias its body names T by (sql/naming.ts
+ * wholeViewAlias), which PostgreSQL plans T under once it flattens the view, bound as T's, and a second read of the view
+ * at its level is a level of its own, T planned there under that alias; and groups joined to S are read per row of S at
+ * T's key where they group T itself, and where they group
  * a CTE of T's rows are derived once, no LATERAL, their join's condition left their level's and the level joining them
  * by a hash, never derived again for each row of S (read-once's CTE scan run 52 times, 1,800 rows each).
  *
@@ -21,15 +24,25 @@
  * Features: a seek at a literal; a whole read of few values alone; a probe driven by an earlier item; a seek at an
  * enclosing level's column; a seek beneath a window at its partition, and a whole read beneath it at no partition; an
  * extension's equality bound; a column no B-tree holds left a filter; a derived table joined to an earlier item by a
- * hash; a derived table read per earlier row at its stored read's key.
+ * hash; a derived table read per earlier row at its stored read's key; a whole view's read named by its body's alias;
+ * a whole view read twice at one level, the second a level of its own.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
+import { nameKey } from "#compiler/sql/ast.ts"
 import { bindSelect } from "#compiler/sql/bind.ts"
 import { AdviceScope } from "#compiler/sql/naming.ts"
 import { levelItems } from "#compiler/sql/plan.ts"
+import { codebookOfStates } from "#test/support/closed/generate.ts"
+import { owning } from "#test/support/policy.ts"
+import {
+	installationOf,
+	schemaOf,
+	states,
+	worldGen
+} from "#test/unit/physical/constants.fixtures.ts"
 import {
 	type BindFeature,
 	bindCaseGen,
@@ -39,7 +52,9 @@ import {
 	specified,
 	statementOf,
 	topJoins,
-	tReadsOf
+	tReadsOf,
+	tViewAlias,
+	viewedLevels
 } from "#test/unit/sql/bind.fixtures.ts"
 
 /** Every read of T is bound as its level fixes it, where it stands, under the scope's one alias. */
@@ -50,6 +65,44 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 		check: (_, c: Case<BindFeature>) => (drawn) =>
 			Effect.sync(() => {
 				const bound = bindSelect(statementOf(drawn), new AdviceScope(), catalog)
+				if (drawn.place.kind === "viewed") {
+					const { top, named } = viewedLevels(bound.plan)
+					const [first, ...rest] = top
+					const spec = specified(drawn)
+					assert.deepEqual(
+						first === undefined
+							? undefined
+							: {
+									alias: first.alias,
+									scan:
+										first.scan.kind === "index"
+											? { kind: "index", probe: false, bound: [...first.scan.bound] }
+											: { kind: first.scan.kind === "seq" ? "whole" : first.scan.kind }
+								},
+						{
+							alias: tViewAlias,
+							scan:
+								spec.kind === "index"
+									? { kind: "index", probe: false, bound: [...spec.bound] }
+									: { kind: spec.kind }
+						},
+						"T's read through its whole view is planned under its body's alias, bound as T's"
+					)
+					c.note("a whole view's read named by its body's alias")
+					if (spec.kind === "whole" && Arr.contains(drawn.fixed, "f")) {
+						c.note("a whole read of few values alone")
+					}
+					if (drawn.place.reads === 2) {
+						assert.ok(
+							rest.length === 1 &&
+								Arr.every(rest, (i) => i.alias !== tViewAlias && i.scan.kind === "rows") &&
+								Arr.some(named, (aliases) => aliases[0] === tViewAlias && aliases.length === 1),
+							"the second read of T's whole view at its level is a level of its own, T planned there under its body's alias"
+						)
+						c.note("a whole view read twice at one level, the second a level of its own")
+					}
+					return
+				}
 				const [read, ...others] = tReadsOf(bound.statement)
 				if (read === undefined || others.length > 0) {
 					assert.fail("the bound statement reads T once")
@@ -141,6 +194,19 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 		kills: [
 			{
 				file: "packages/engine/src/sql/bind.ts",
+				original:
+					"\t\t\titem: { alias: stored === undefined ? alias : itemAlias(stored, alias), scan: bound.scan },\n",
+				replacement: "\t\t\titem: { alias, scan: bound.scan },\n",
+				why: "A read through a whole view planned under the reference's alias, which PostgreSQL names no relation by once it flattens the view: the advice's scan of it matches nothing, and the table is planned by cost (LAWS' Law 1 on cross-step's served read: no scan atom for any of its four view reads)."
+			},
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original: '\t\tif (stored?.kind !== "view" || !viewed.has(stored.view.alias)) {\n',
+				replacement: "\t\tif (true) {\n",
+				why: "A whole view read twice at one level is read there twice: PostgreSQL plans its table under one alias twice, an occurrence it numbers, and the advice names both reads by one target."
+			},
+			{
+				file: "packages/engine/src/sql/bind.ts",
 				original: "\t\t\tif (joins && !lateral && !this.#keyedBy(query, written, c)) {\n",
 				replacement: "\t\t\tif (false) {\n",
 				why: "A set join's condition pushed into the derived table it joins, which then reads a CTE's rows again at each row of S: the groups are LATERAL and joined by no hash, as read-once's CTE scan ran 52 times for 1,800 rows each."
@@ -153,9 +219,9 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 			},
 			{
 				file: "packages/engine/src/sql/bind.ts",
-				original: "\t\tif (table !== undefined && bindings.some((b) => b.driven)) {\n",
+				original: "\t\tif (stored !== undefined && bindings.some((b) => b.driven)) {\n",
 				replacement:
-					'\t\tif (table !== undefined && bindings.some((b) => b.driven && b.op === "in")) {\n',
+					'\t\tif (stored !== undefined && bindings.some((b) => b.driven && b.op === "in")) {\n',
 				why: "A read bound to a column of an item before it is read as a seek of its fixed columns or whole, a join filter where PostgreSQL could read its index at each row before it."
 			},
 			{
@@ -197,3 +263,51 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 			}
 		]
 	})
+
+/**
+ * Every whole view an installation creates names its table, in its body, by the alias the binding's catalog reads it
+ * under (physical/ddl/roles.ts wholeView, physical/access/catalog.ts wholeViewAliases, sql/bind.ts BindView `whole`): the
+ * one name PostgreSQL plans the table under once it flattens the view into the level that reads it, so the advice a
+ * read of the view carries names the relation PostgreSQL plans. Over the constants world's installations
+ * (test/unit/physical/constants.fixtures.ts): a login whose full role, reader and tagger hold Item and Tags whole.
+ *
+ * Its budget is the runner's: a new property, with no suite before it to carry a count from.
+ */
+export const everyWholeViewNamesItsTableByTheAliasTheBindingReadsItUnder = property.explore(
+	worldGen,
+	{
+		needs: {},
+		situations: ["a whole view read through its body's alias"],
+		check: (_, c: Case<"a whole view read through its body's alias">) => (w) =>
+			Effect.sync(() => {
+				const i = installationOf(owning(schemaOf(w)), codebookOfStates(states(w)))
+				for (const view of i.statements) {
+					if (view.kind !== "createView" || view.barrier) {
+						continue
+					}
+					const body = view.query.body
+					const from = body.kind === "core" ? body.from : []
+					const read = i.catalog.view(nameKey(view.name))
+					assert.deepEqual(
+						Arr.map(from, (item) => (item.kind === "table" ? item.alias : item.kind)),
+						[read?.kind === "whole" ? read.alias : "no whole view the catalog reads"],
+						`the whole view ${view.name.name} names its table by the alias the binding reads it under`
+					)
+					c.note("a whole view read through its body's alias")
+				}
+			}),
+		oracle: {
+			kind: "second-implementation",
+			name: "the binding's catalog of the installation, which reads each whole view's table under its alias"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/physical/ddl/roles.ts",
+				original: "\t\t\t\t[table(source.schema, source.name, alias)],\n",
+				replacement: '\t\t\t\t[table(source.schema, source.name, "r1")],\n',
+				why: "A whole view's body names its table by a scope's `r1`, which PostgreSQL plans the table under once it flattens the view: every read of the view carries advice naming the view's alias, which matches no relation (LAWS' Law 1 on cross-step's served read)."
+			}
+		]
+	}
+)

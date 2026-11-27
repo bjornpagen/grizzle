@@ -1,4 +1,3 @@
-import type { PhysicalNames } from "#compiler/ir/physical.ts"
 /**
  * What the binding reads of an installation (sql/bind.ts ReadCatalog): each stored table, its relation, the installed
  * columns an index serves with the field each is and its kind (sql/bind.ts BindColumn), and its keys, each its
@@ -14,6 +13,10 @@ import type { PhysicalNames } from "#compiler/ir/physical.ts"
  * asks for it, and the index engine decides what serves it, a hash index for a byte string, an undigested text refused
  * UnrepresentableKey (physical/indexes/engine.ts refusedUndigested), so the rule of what no entry holds has one place.
  */
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { identifierOf, identity, parseDeclaredName } from "#compiler/core/identity.ts"
+import { compareNumbers, compareStrings } from "#compiler/core/order.ts"
+import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import {
 	baseOf,
 	fewValued,
@@ -23,8 +26,9 @@ import {
 } from "#compiler/ir/scalar.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import type { InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
-import { type NameKey, nameKey } from "#compiler/sql/ast.ts"
-import type { BindColumn, BindTable, ReadCatalog } from "#compiler/sql/bind.ts"
+import { type NameKey, nameKey, type ObjectName } from "#compiler/sql/ast.ts"
+import type { BindColumn, BindTable, BindView, ReadCatalog } from "#compiler/sql/bind.ts"
+import { type Alias, wholeViewAlias } from "#compiler/sql/naming.ts"
 
 /**
  * A field as an index serves it (see the header), by its carrier: a span's and a search document's, which GiST and GIN
@@ -79,17 +83,44 @@ export const leakyEquality = (type: ScalarType): boolean =>
 	leakyTypes.has(nativeNames[baseOf(type).carrier])
 
 /**
+ * The alias the body of each stored relation's whole view names its table by (sql/naming.ts wholeViewAlias), by the
+ * relation's name: `v<n>`, n its place, from 1, among the stored relations of the law model `model`, ordered by the
+ * level that declares each, then by name. A login's compile reads the model of its base, which holds every relation of
+ * the levels it stands on, each at the place the installation's model gives it, so the installation's views
+ * (physical/ddl/roles.ts wholeView) and every compile that reads one name each relation alike.
+ */
+export const wholeViewAliases = (model: LawModel): ReadonlyMap<string, Alias> =>
+	new Map(
+		Object.values(model.theory.relations)
+			.filter((r) => r.kind !== "closed")
+			.toSorted((a, b) => compareNumbers(a.level, b.level) || compareStrings(a.name, b.name))
+			.map((r, at) => [r.name, wholeViewAlias(at + 1)] as const)
+	)
+
+/** A view PostgreSQL plans apart under the reference's alias, a world view's (sql/bind.ts BindView). */
+const worldView: BindView = { kind: "world" }
+
+/** The installed names the binding's catalog reads (`catalogOf`): a table's and its columns', and a whole view's. */
+type CatalogNames = Pick<PhysicalNames, "relation" | "column" | "vectorSchema"> & {
+	readonly wholeView: (relation: string) => ObjectName
+}
+
+/**
  * The stored tables of the law model `model` under the installed names `names` (see the header), each by its name's
- * key: an ordinary relation's and a stored derived relation's, each column by its installed name, each
- * key of no span by its installed columns; and which names are views, `view`.
+ * key: an ordinary relation's and a stored derived relation's, each column by its installed name, each key of no span by
+ * its installed columns; each one's whole view (InstallNames `wholeView`), its table read under the alias its body names
+ * it by (`wholeViewAliases`), each of its columns the table's column it reads, a closed id's decoded column its code's
+ * (physical/ddl/roles.ts viewColumns); and which other names are views PostgreSQL plans apart, `world`.
  */
 const catalogOf = (
 	model: LawModel,
-	names: PhysicalNames,
-	view: (key: NameKey, tables: ReadonlyMap<NameKey, BindTable>) => boolean,
+	names: CatalogNames,
+	world: (key: NameKey, tables: ReadonlyMap<NameKey, BindTable>) => boolean,
 	fired: ReadCatalog["fired"]
 ): ReadCatalog => {
 	const tables = new Map<NameKey, BindTable>()
+	const views = new Map<NameKey, BindView>()
+	const aliases = wholeViewAliases(model)
 	for (const [relation, r] of Object.entries(model.theory.relations)) {
 		if (r.kind === "closed") {
 			continue
@@ -99,17 +130,40 @@ const catalogOf = (
 				(f) => [names.column(relation, f.name), columnOf(f, f.name, names.vectorSchema)] as const
 			)
 		)
+		const viewed = new Map<string, string>()
+		for (const f of r.fields) {
+			const installed = names.column(relation, f.name)
+			viewed.set(installed, installed)
+			if (baseOf(f.type).carrier === "code") {
+				const field = parseDeclaredName(f.name)
+				if (!field.ok) {
+					return defect(`the closed id field ${f.name} of ${relation}, a declared name`)
+				}
+				viewed.set(identifierOf(identity.decodedColumn(field.value)), installed)
+			}
+		}
 		const keys = r.keyNames.flatMap((k) =>
 			k.span === undefined ? [k.fields.map((f) => names.column(relation, f.name))] : []
 		)
-		tables.set(nameKey(names.relation(relation)), { relation, columns, keys })
+		const table: BindTable = { relation, columns, keys }
+		tables.set(nameKey(names.relation(relation)), table)
+		views.set(nameKey(names.wholeView(relation)), {
+			kind: "whole",
+			table,
+			alias: aliases.get(relation) ?? defect(`the whole view alias of ${relation}`),
+			columns: viewed
+		})
 	}
-	return { table: (key) => tables.get(key), view: (key) => view(key, tables), fired }
+	return {
+		table: (key) => tables.get(key),
+		view: (key) => views.get(key) ?? (world(key, tables) ? worldView : undefined),
+		fired
+	}
 }
 
 /**
- * The catalog of the installation `b` builds (see the header), its views every view its statements create, and each
- * trigger function's table's columns, each its type, by the function every trigger the statements create on a table
+ * The catalog of the installation `b` builds (see the header), every other view its statements create one PostgreSQL
+ * plans apart, as a world view is, and each trigger function's table's columns, each its type, by the function every trigger the statements create on a table
  * calls.
  */
 export const installCatalog = (b: InstallBuilder): ReadCatalog => {
@@ -156,7 +210,7 @@ const noViews: ReadonlySet<string> = new Set(["pg_temp", "pg_catalog"])
  * session's and the catalog's schemas, a role's view, as a role's programs read every relation through one
  * (physical/ddl/names.ts roleReadNames).
  */
-export const servedCatalog = (model: LawModel, names: PhysicalNames): ReadCatalog =>
+export const servedCatalog = (model: LawModel, names: CatalogNames): ReadCatalog =>
 	catalogOf(
 		model,
 		names,

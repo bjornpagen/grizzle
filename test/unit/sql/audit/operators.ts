@@ -635,7 +635,7 @@ const holdsNullOnEmpty = (e: Expr): boolean => {
 const arrayTypes = (type: TypeRef): ReadonlyArray<TypeRef> =>
 	type.kind === "builtin" && type.name === "bit" ? [] : [{ ...type, array: true }]
 
-const aliasNearMisses = ["v1", "r01", "R1", "r1a", "r-1", "c1", "r"] as const
+const aliasNearMisses = ["w1", "r01", "v01", "R1", "r1a", "r-1", "c1", "r"] as const
 
 const refusedIdentifiers = [Str.repeat(64)("t"), "", "a\u0000b", "\ud800"] as const
 

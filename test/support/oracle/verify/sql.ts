@@ -59,9 +59,12 @@ import { types } from "#compiler/sql/build.ts"
 import { type Lexed, lex, type Token } from "#compiler/sql/lexer.ts"
 import { placeholderToken, printType, storedSettingValue } from "#compiler/sql/print.ts"
 
-/** r<n>: the generated alias of a relation occurrence or a stage. */
+/**
+ * r<n>: the generated alias of a relation occurrence or a stage; or v<n>, the alias a whole view's body names its table
+ * by (sql/naming.ts wholeViewAlias), which PostgreSQL plans the table under once it flattens the view.
+ */
 const isGeneratedRelationName = (name: string): boolean =>
-	Str.startsWith("r")(name) && isDecimal(Str.slice(1)(name))
+	(Str.startsWith("r")(name) || Str.startsWith("v")(name)) && isDecimal(Str.slice(1)(name))
 
 /** c<n>: the generated name of a column a stage defines. */
 const isGeneratedColumnName = (name: string): boolean =>
@@ -409,7 +412,7 @@ class StatementAuditor {
 	defineRelation(name: string, at: string | number): void {
 		this.ident(name, "relation alias", at)
 		if (!isGeneratedRelationName(name)) {
-			this.report("naming", `relation alias "${name}" is not a generated r<n>`, at)
+			this.report("naming", `relation alias "${name}" is not a generated r<n> or v<n>`, at)
 		}
 		if (this.#defined.has(name)) {
 			this.report("naming", `relation alias "${name}" is defined twice`, at)

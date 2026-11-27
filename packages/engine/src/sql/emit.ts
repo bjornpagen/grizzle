@@ -33,7 +33,11 @@ export interface Emitting {
 }
 
 /** The catalog of no installation: a statement that reads no stored relation reads nothing of one. */
-const noCatalog: ReadCatalog = { table: () => undefined, view: () => false, fired: () => undefined }
+const noCatalog: ReadCatalog = {
+	table: () => undefined,
+	view: () => undefined,
+	fired: () => undefined
+}
 
 /**
  * The binding of a statement no advice holds, PostgreSQL choosing its plan by cost, each read of it whole: a

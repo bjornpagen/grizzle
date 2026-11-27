@@ -92,6 +92,7 @@ import {
 	builtinType,
 	col,
 	conjunction,
+	core,
 	derived,
 	eq,
 	keyedRead,
@@ -169,15 +170,55 @@ export interface BindTable {
 }
 
 /**
+ * A role's view as the binding reads it (ReadCatalog `view`):
+ * - `whole`: a whole entry's, every row and column of its relation's table, which PostgreSQL flattens into the level
+ *   that reads it, the table then planned there under the alias the view's body names it by (`alias`, a spelling no
+ *   advice scope mints, sql/naming.ts wholeViewAlias), so a read of it is bound as a read of its table, its plan's item
+ *   named by that alias; each column of the view by the table's column it reads (`columns`), a closed id's decoded
+ *   column its code's;
+ * - `world`: a query entry's, behind a security barrier, which PostgreSQL plans apart under the reference's alias.
+ */
+export type BindView =
+	| {
+			readonly kind: "whole"
+			readonly table: BindTable
+			readonly alias: Alias
+			readonly columns: ReadonlyMap<string, string>
+	  }
+	| { readonly kind: "world" }
+
+/**
+ * A stored relation a FROM source names, as the binding reads it (Binder `#stored`): its table, read as itself, under the
+ * source's own alias, its columns its own; or through a whole view (BindView `whole`), its plan item named by the alias
+ * the view's body names the table by, each column of the view the table's column it reads.
+ */
+type Stored =
+	| { readonly kind: "table"; readonly table: BindTable }
+	| {
+			readonly kind: "view"
+			readonly table: BindTable
+			readonly view: Extract<BindView, { readonly kind: "whole" }>
+	  }
+
+/** The alias a stored read's plan item takes: a whole view's body's, else the read's own, `own`. */
+const itemAlias = (stored: Stored, own: Alias): Alias =>
+	stored.kind === "view" ? stored.view.alias : own
+
+/** The table's columns a stored read reads, for the columns `read` the statement reads of it, in name order. */
+const tableColumns = (stored: Stored, read: ReadonlyArray<string>): ReadonlyArray<string> =>
+	stored.kind === "view"
+		? [...new Set(read.map((c) => stored.view.columns.get(c) ?? c))].toSorted()
+		: read
+
+/**
  * What the binding reads of an installation, by the keys of the names a statement reads (sql/ast.ts nameKey): each
- * stored table, and whether a name is a role's view, which PostgreSQL expands into the statement under the reference's
- * alias. A relation of neither, a session's table of a judge or one of the catalog's, is read as it is written, at
- * no binding, and its plan states no scan of it, PostgreSQL's choice, since no index of the installation's serves it
- * and only the session or the catalog knows the indexes it holds.
+ * stored table, and each role's view (BindView). A relation of neither, a session's table of a judge or one of the
+ * catalog's, is read as it is written, at no binding, and its plan states no scan of it, PostgreSQL's choice, since no
+ * index of the installation's serves it and only the session or the catalog knows the indexes it holds.
  */
 export interface ReadCatalog {
 	readonly table: (key: NameKey) => BindTable | undefined
-	readonly view: (key: NameKey) => boolean
+	readonly view: (key: NameKey) => BindView | undefined
 	/**
 	 * The columns of the table a trigger function fires on, by the key of the function's name, each its type: what its
 	 * NEW and OLD fields are as PL/pgSQL hands a query reading them to the planner (`plannedOf`). None for a function
@@ -901,6 +942,51 @@ class Binder {
 		return [...(this.#needs.get(alias) ?? [])].toSorted()
 	}
 
+	/**
+	 * The stored relation the name `name` a FROM source reads is (Stored): a table, or a whole view's table; none for a
+	 * world view, a session's or the catalog's relation.
+	 */
+	#stored(name: ObjectName): Stored | undefined {
+		const key = nameKey(name)
+		const table = this.#catalog.table(key)
+		if (table !== undefined) {
+			return { kind: "table", table }
+		}
+		const view = this.#catalog.view(key)
+		return view?.kind === "whole" ? { kind: "view", table: view.table, view } : undefined
+	}
+
+	/**
+	 * `entry` as its level reads it, a whole view's read a level of its own where the level reads that view already,
+	 * by its body's alias among `viewed`: a fenced derived table under the read's written alias delivering every column
+	 * the statement reads of it, its read of the view under the same written alias, so the view's table is planned once
+	 * at each level, never as an occurrence PostgreSQL numbers.
+	 */
+	#apart(entry: Entry, viewed: ReadonlySet<Alias>): Entry {
+		const source = entry.source
+		if (source.kind !== "table") {
+			return entry
+		}
+		const stored = this.#stored(source.table)
+		if (stored?.kind !== "view" || !viewed.has(stored.view.alias)) {
+			return entry
+		}
+		const read = this.#needed(source.alias)
+		const [t0, ...ts] = read.map((c) => targetAs(col(source.alias, c), c))
+		const wrapper = derived(
+			operandSelect(
+				core(
+					t0 === undefined ? [targetAs(lit.int(1, types.integer), "one")] : [t0, ...ts],
+					[source],
+					undefined
+				)
+			),
+			source.alias,
+			false
+		)
+		return { ...entry, source: wrapper }
+	}
+
 	/** A transform under `env`: each column reference read at its relation's new alias, each sublink bound. */
 	renamer(env: Env): Transform {
 		const sublink = (q: OperandSelect) => this.sublink(q, env)
@@ -1087,10 +1173,24 @@ class Binder {
 		const where: Array<Expr> = [...conjunctsOf(c.where)]
 		let here: Env = { ...env, depth }
 		const bound: Array<BoundEntry> = []
-		for (const [place, entry] of entriesOf(c.from).entries()) {
+		const viewed = new Set<Alias>()
+		for (const [place, logical] of entriesOf(c.from).entries()) {
+			const entry = this.#apart(logical, viewed)
 			const written = writtenOf(entry.source)
 			const alias = this.#alias(written)
-			bound.push(this.entry(entry, place, where, here, env, alias, place === 0 ? order : undefined))
+			const read = this.entry(
+				entry,
+				place,
+				where,
+				here,
+				env,
+				alias,
+				place === 0 ? order : undefined
+			)
+			bound.push(read)
+			if (read.item.alias !== alias) {
+				viewed.add(read.item.alias)
+			}
 			if (written !== undefined) {
 				here = withRelation(here, written, alias, depth, place)
 			}
@@ -1162,7 +1262,7 @@ class Binder {
 		})
 		switch (source.kind) {
 			case "table":
-				return this.#catalog.view(nameKey(source.table))
+				return this.#catalog.view(nameKey(source.table))?.kind === "world"
 					? rows({ ...source, alias }, this.#method(entry, source.alias, where, here, place))
 					: this.tableEntry(entry, source, place, where, here, alias, order)
 			case "derived":
@@ -1260,7 +1360,8 @@ class Binder {
 		alias: Alias
 	): { readonly inner: Alias; readonly inside: (env: Env) => Env } {
 		const inner = this.#alias(written)
-		const catalogTable = this.#catalog.table(nameKey(table))
+		const stored = this.#stored(table)
+		const catalogTable = stored?.table
 		const held =
 			catalogTable === undefined
 				? []
@@ -1273,20 +1374,20 @@ class Binder {
 		this.#levels.push({
 			name: { kind: "named", name: alias },
 			first: {
-				alias: inner,
+				alias: stored === undefined ? inner : itemAlias(stored, inner),
 				scan:
-					catalogTable === undefined || h0 === undefined || held.length !== bound.length
+					stored === undefined || h0 === undefined || held.length !== bound.length
 						? { kind: "rows" }
 						: {
 								kind: "index",
 								index: requestOf(
-									catalogTable,
+									stored.table,
 									[h0, ...hs],
 									trailing,
 									keyed ? "key lookup" : "join key"
 								),
 								bound: held,
-								needs: [...new Set([...delivered, ...held])].toSorted()
+								needs: tableColumns(stored, [...new Set([...delivered, ...held])].toSorted())
 							}
 			},
 			joined: [],
@@ -1405,7 +1506,8 @@ class Binder {
 		order: OrderIntent | undefined
 	): BoundEntry {
 		const written = source.alias
-		const table = this.#catalog.table(nameKey(source.table))
+		const stored = this.#stored(source.table)
+		const table = stored?.table
 		const ons: Array<Expr> =
 			entry.join === "on" || entry.join === "left" ? [...conjunctsOf(entry.on)] : []
 		const pools: ReadonlyArray<Array<Expr>> = entry.join === "left" ? [ons] : [where, ons]
@@ -1431,7 +1533,8 @@ class Binder {
 							return (driven && !this.#whole) || fixed(b.value) ? [{ ...b, driven }] : []
 						})
 					)
-		const needs = this.#needed(written)
+		const delivers = this.#needed(written)
+		const needs = stored === undefined ? delivers : tableColumns(stored, delivers)
 		const take = (conjunct: Expr) => {
 			for (const pool of pools) {
 				const at = pool.indexOf(conjunct)
@@ -1440,8 +1543,19 @@ class Binder {
 				}
 			}
 		}
-		if (table !== undefined && bindings.some((b) => b.driven)) {
-			return this.probeEntry(entry, source, table, bindings, ons, where, here, alias, needs, take)
+		if (stored !== undefined && bindings.some((b) => b.driven)) {
+			return this.probeEntry(
+				entry,
+				source,
+				stored,
+				bindings,
+				ons,
+				where,
+				here,
+				alias,
+				delivers,
+				take
+			)
 		}
 		const self = withRelation(here, written, alias, here.depth, place)
 		const access =
@@ -1604,7 +1718,7 @@ class Binder {
 		return {
 			source: bound.source,
 			step,
-			item: { alias, scan: bound.scan },
+			item: { alias: stored === undefined ? alias : itemAlias(stored, alias), scan: bound.scan },
 			method: this.#method(entry, written, where, here, place)
 		}
 	}
@@ -1724,7 +1838,7 @@ class Binder {
 	probeEntry(
 		entry: Entry,
 		source: Extract<FromSource, { readonly kind: "table" }>,
-		table: BindTable,
+		stored: Stored,
 		bindings: ReadonlyArray<Binding>,
 		ons: Array<Expr>,
 		where: Array<Expr>,
@@ -1733,6 +1847,7 @@ class Binder {
 		needs: ReadonlyArray<string>,
 		take: (conjunct: Expr) => void
 	): BoundEntry {
+		const table = stored.table
 		const written = source.alias
 		const inner = this.#alias(written)
 		const inside = withRelation(here, written, inner, here.depth + 1, 0)
@@ -1767,12 +1882,12 @@ class Binder {
 		this.#levels.push({
 			name: { kind: "named", name: alias },
 			first: {
-				alias: inner,
+				alias: itemAlias(stored, inner),
 				scan: {
 					kind: "index",
 					index: requestOf(table, [k0, ...ks], [], keyed ? "key lookup" : "join key"),
 					bound,
-					needs: delivered
+					needs: tableColumns(stored, delivered)
 				}
 			},
 			joined: [],
@@ -1807,8 +1922,7 @@ class Binder {
 		const names = selectColumns(q)
 		const stored = new Map(
 			entriesOf(body.from).flatMap((e) => {
-				const t =
-					e.source.kind === "table" ? this.#catalog.table(nameKey(e.source.table)) : undefined
+				const t = e.source.kind === "table" ? this.#stored(e.source.table)?.table : undefined
 				return e.source.kind === "table" && t !== undefined ? [[e.source.alias, t] as const] : []
 			})
 		)
@@ -1985,7 +2099,7 @@ class Binder {
 			const probed = this.probeEntry(
 				{ join: "cross", source: { kind: "table", table, alias: written } },
 				{ kind: "table", table, alias: written },
-				catalogTable,
+				{ kind: "table", table: catalogTable },
 				driven,
 				[],
 				where,

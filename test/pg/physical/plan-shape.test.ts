@@ -99,7 +99,7 @@ export const everyRoutinePlansAsItsAdviceCarriesInEveryState = property.explore(
 		},
 		{
 			file: "packages/engine/src/sql/bind.ts",
-			original: "\t\tif (table !== undefined && bindings.some((b) => b.driven)) {",
+			original: "\t\tif (stored !== undefined && bindings.some((b) => b.driven)) {",
 			replacement: "\t\tif (false) {",
 			why: "A keyed read of a second relation printed as a plain join, as before the binder (e3 P1): its binding to the earlier item's column is a join's filter, which no advice makes an index condition (Law 2)."
 		},

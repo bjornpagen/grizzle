@@ -53,6 +53,7 @@ import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { derivedEvidence, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
+import { wholeViewAliases } from "#compiler/physical/access/catalog.ts"
 import { namesConstant } from "#compiler/physical/ddl/constants.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import {
@@ -135,6 +136,7 @@ import {
 	target
 } from "#compiler/sql/build.ts"
 import { nameOf } from "#compiler/sql/constants.ts"
+import type { Alias } from "#compiler/sql/naming.ts"
 import { printExpr, printStartupOptions } from "#compiler/sql/print.ts"
 import { borrowFunction } from "#compiler/write/borrow/function.ts"
 import { fieldColumns } from "#compiler/write/defined.ts"
@@ -480,20 +482,26 @@ const viewColumns = <C extends HeadingColumn>(
 }
 
 /** The view of a whole entry: every column of its table, in heading order, each closed id with
- * its decoded column after it. */
+ * its decoded column after it, its table named by the alias its relation's whole view's body names it by
+ * (physical/access/catalog.ts wholeViewAliases), under which PostgreSQL plans the table in the level that reads the view
+ * once it flattens it, and the binding names its read (sql/bind.ts BindView `whole`). */
 const wholeView = (
 	b: InstallBuilder,
 	name: ObjectName,
 	relation: string,
 	heading: NonEmptyReadonlyArray<HeadingColumn>,
-	read: Node<"setup" | "structure"> | undefined
+	read: Node<"setup" | "structure"> | undefined,
+	aliases: ReadonlyMap<string, Alias>
 ): ViewPlan => {
 	const source = b.names.relation(relation)
+	const alias =
+		aliases.get(relation) ??
+		missing(`physical: the whole view alias of ${relation}, a stored relation of the law model`)
 	const columns = viewColumns(
 		b,
 		heading,
 		(c) => b.names.column(relation, c.name),
-		(c) => col("r1", b.names.column(relation, c.name))
+		(c) => col(alias, b.names.column(relation, c.name))
 	)
 	return {
 		create: {
@@ -505,7 +513,7 @@ const wholeView = (
 			query: provedSelect(
 				"keyed",
 				columns.map((c) => target(c.value)),
-				[table(source.schema, source.name, "r1")],
+				[table(source.schema, source.name, alias)],
 				undefined
 			)
 		},
@@ -578,17 +586,30 @@ type ViewedWhole = Extract<RoleRelation, { readonly kind: "stored" | "derived" }
 
 /** The whole view of a relation a whole entry holds, named `name`: its table's every row and column, a stored derived
  * relation's table's among them. */
-const wholeViewOf = (b: InstallBuilder, name: ObjectName, r: ViewedWhole): ViewPlan => {
+const wholeViewOf = (
+	b: InstallBuilder,
+	name: ObjectName,
+	r: ViewedWhole,
+	aliases: ReadonlyMap<string, Alias>
+): ViewPlan => {
 	switch (r.kind) {
 		case "stored":
-			return wholeView(b, name, r.relation.name, r.relation.fields, b.readObject(r.relation.name))
+			return wholeView(
+				b,
+				name,
+				r.relation.name,
+				r.relation.fields,
+				b.readObject(r.relation.name),
+				aliases
+			)
 		case "derived":
 			return wholeView(
 				b,
 				name,
 				r.entry.relation.name,
 				r.analysis.heading,
-				b.readObject(r.entry.relation.name)
+				b.readObject(r.entry.relation.name),
+				aliases
 			)
 	}
 }
@@ -615,6 +636,8 @@ const addWholeViews = (
 	b: InstallBuilder,
 	roles: ReadonlyArray<CheckedRole>
 ): ReadonlyMap<string, WholeViewObject> => {
+	/** The alias each whole view's body names its table by, by the relation's name. */
+	const aliases = wholeViewAliases(b.model)
 	/** Each whole view by its relation's name: its name, and its plan under the name it is created by. */
 	const held = new Map<
 		string,
@@ -632,13 +655,13 @@ const addWholeViews = (
 			if (view?.kind !== "whole") {
 				return missing(`physical: the whole entry ${r.entry.name} is named no whole view`)
 			}
-			held.set(r.entry.name, { view, plan: (name) => wholeViewOf(b, name, r) })
+			held.set(r.entry.name, { view, plan: (name) => wholeViewOf(b, name, r, aliases) })
 		}
 		for (const t of anonymousTables(checked)) {
 			if (!held.has(t.name)) {
 				held.set(t.name, {
 					view: b.names.canonicalWholeView(t.name),
-					plan: (name) => wholeView(b, name, t.name, t.heading, b.readObject(t.name))
+					plan: (name) => wholeView(b, name, t.name, t.heading, b.readObject(t.name), aliases)
 				})
 			}
 		}
