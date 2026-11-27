@@ -13,10 +13,10 @@ import { relationBuilder } from "#compiler/schema/relation.ts"
 import { printedOnce } from "#compiler/sql/print-once.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
+import { servableWrite } from "#compiler/write/program/served.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { type AskedName, plannerNamesOf, unaliasedName } from "#test/support/planner-names.ts"
 import { checking, owning } from "#test/support/policy.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { descOf } from "#test/unit/write/changeset/fixtures.ts"
@@ -27,10 +27,14 @@ import { descOf } from "#test/unit/write/changeset/fixtures.ts"
  */
 export const step = int(2, 3)
 
-/** One statement of a compiled write: its AST nodes as it is printed and the names PostgreSQL 19 asks planning it. */
+/**
+ * A compiled write as the box measures it: its statements' AST nodes as each is printed, and the levels its plan names,
+ * each a name PostgreSQL 19 asks planning it (sql/plan.ts ReadPlan: a statement's top level, and each level planned
+ * apart under an alias its transaction's advice scope minted, sql/naming.ts AdviceScope).
+ */
 export interface Planned {
 	readonly nodes: number
-	readonly asked: ReadonlyArray<AskedName>
+	readonly levels: ReadonlyArray<string>
 }
 
 /** The nodes of an AST as plain data: every list, record and value one, a list's and a record's children's beside. */
@@ -44,12 +48,12 @@ const nodesOf = (v: unknown): number =>
 				: 1
 
 /**
- * The statements of one insert of a fact into each of `n` relations R0..R(n-1), each keyed by its integer `id` and
- * keyed again by `ref`, so each relation's part of the write's one statement is the guarded insert of new keys
- * (write/insert/protocol.ts): its rows, the unique probe at `ref` and its refusal, the INSERT of new keys and the
- * outcome rows.
+ * One insert of a fact into each of `n` relations R0..R(n-1), each keyed by its integer `id` and keyed again by `ref`,
+ * so each relation's part of the write's one statement is the guarded insert of new keys (write/insert/protocol.ts):
+ * its rows, the unique probe at `ref` and its refusal, the INSERT of new keys and the outcome rows; as the box measures
+ * it (Planned).
  */
-export const wideInsert = (n: number): ReadonlyArray<Planned> => {
+export const wideInsert = (n: number): Planned => {
 	const relations = upTo(n, (i) =>
 		relationBuilder(`R${i}`, { id: pg.integer, ref: pg.integer, v: pg.integer }, ["id"], [])
 	)
@@ -80,41 +84,10 @@ export const wideInsert = (n: number): ReadonlyArray<Planned> => {
 			source: transactionClock
 		})
 	)
-	return Arr.map(compiled.artifact.statements, (s) => ({
-		nodes: nodesOf(printedOnce(s.ast)),
-		asked: plannerNamesOf(s.ast)
-	}))
+	return {
+		nodes: Arr.reduce(compiled.artifact.statements, 0, (n, s) => n + nodesOf(printedOnce(s.ast))),
+		levels: Arr.flatMap(servableWrite(compiled).plan.levels, (level) =>
+			level.name.kind === "named" ? [level.name.name] : []
+		)
+	}
 }
-
-/** The names `planned` asks under `name`, every statement's. */
-export const asking = (planned: ReadonlyArray<Planned>, name: string): number =>
-	Arr.reduce(planned, 0, (sum, p) => sum + Arr.filter(p.asked, (a) => a.name === name).length)
-
-/** The names `planned` asks, every statement's. */
-export const asked = (planned: ReadonlyArray<Planned>): number =>
-	Arr.reduce(planned, 0, (sum, p) => sum + p.asked.length)
-
-/** The AST nodes of `planned` as printed, every statement's. */
-export const printedNodes = (planned: ReadonlyArray<Planned>): number =>
-	Arr.reduce(planned, 0, (sum, p) => sum + p.nodes)
-
-/**
- * The names `planned` asks under PostgreSQL 19's fixed name for a sub-query without an alias anywhere but at an append
- * relation's leaf: an INSERT's source planned apart, or a sub-query aliased so. None where every INSERT reads its rows
- * under a name of its statement's own.
- */
-export const unaliasedOutsideLeaves = (planned: ReadonlyArray<Planned>): ReadonlyArray<AskedName> =>
-	Arr.flatMap(planned, (p) =>
-		Arr.filter(p.asked, (a) => a.name === unaliasedName && a.site !== "leaf")
-	)
-
-/** The families of names PostgreSQL 19 asks again and again: each always numbered, and the unaliased one. */
-export const families: ReadonlyArray<string> = [
-	unaliasedName,
-	"setop",
-	"exists",
-	"exists_to_any",
-	"array",
-	"expr",
-	"any"
-]
