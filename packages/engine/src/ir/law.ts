@@ -620,7 +620,7 @@ export const defaultOpclass: IndexOpclass = Object.freeze({ kind: "default" })
 
 /**
  * The suffix key of a text field (sql/suffix.ts suffixKeyOf), which a law's probe seeks a suffix it holds fixed through
- * (physical/access/extract.ts SuffixSeek): a key past its request's equalities, a B-tree's range.
+ * (sql/bind.ts, a range of the key; ir/products.ts AccessKeyTerm): a key past its request's equalities, a B-tree's range.
  */
 export interface SuffixColumn {
 	readonly kind: "suffix"

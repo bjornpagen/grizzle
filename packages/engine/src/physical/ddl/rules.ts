@@ -1,4 +1,3 @@
-import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
@@ -44,14 +43,9 @@ import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { noClock } from "#compiler/ir/clock.ts"
 import { servedQuery } from "#compiler/ir/derived.ts"
 import type { InferredQuery } from "#compiler/ir/desc.ts"
-import {
-	defaultOpclass,
-	type LawIndexKey,
-	type LawIndexRequest,
-	type TheoryTable
-} from "#compiler/ir/law.ts"
+import { type LawIndexKey, type LawIndexRequest, type TheoryTable } from "#compiler/ir/law.ts"
 import type { AccessIndexRequest, IndexRequest, PhysicalReason } from "#compiler/ir/products.ts"
-import type { DeltaSide, RelNode } from "#compiler/ir/rel.ts"
+import type { DeltaSide } from "#compiler/ir/rel.ts"
 import type { Unit } from "#compiler/ir/unit.ts"
 import { evidenceCatalog, noViewEvidence } from "#compiler/laws/model/catalog.ts"
 import type { LawModel, RuleTable, RuleTrigger } from "#compiler/laws/model/model.ts"
@@ -59,12 +53,6 @@ import { queryEvidence } from "#compiler/logical/annotate.ts"
 import { fencedRead } from "#compiler/lower/conservative/step/index.ts"
 import type { DeltaRelation } from "#compiler/lower/conservative/types.ts"
 import { lowerComposed, optimizedInput } from "#compiler/lower/optimize/pipeline.ts"
-import {
-	extractJudgedReads,
-	type JudgedReads,
-	keyOrdersOf,
-	noWorlds
-} from "#compiler/physical/access/extract.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import {
 	addReaders,
@@ -131,18 +119,17 @@ import {
 import { assignments, ungenerated } from "#compiler/sql/generation.ts"
 import { freshNames, NameSupply, namedQuery } from "#compiler/sql/naming.ts"
 import { printObjectName, sessionTablesStanding, stoodApart } from "#compiler/sql/print.ts"
-import { type StoredColumns, storedColumns } from "#compiler/sql/stored.ts"
 import { identityHooks, Transform } from "#compiler/sql/transform.ts"
 import { type BorrowArm, borrowQuery } from "#compiler/write/borrow/statement.ts"
 
 /**
- * A compiled judged query: its statement, its outputs unaliased, the names of the columns it delivers in their order,
- * and its index requests.
+ * A compiled judged query: its statement, its outputs unaliased, and the names of the columns it delivers in their
+ * order. What it reads by index its routine's bound plan states (sql/bind.ts bindRoutine), which the installation asks
+ * for (`routineRequests`).
  */
 interface Compiled {
 	readonly statement: OperandSelect
 	readonly heading: ReadonlyArray<string>
-	readonly requests: ReadonlyArray<IndexRequest>
 }
 
 /** The n of a generated relation name r<n>, none for any other name. */
@@ -275,13 +262,13 @@ const modelFieldsOf =
 /**
  * A block's probe (analysis/theory/query.ts probe), the rule's meeting part over every row the transaction's write of
  * `relation` on one side may break the rule at, navigated, checked and lowered as every query the judge reads is
- * (`judgedStatement`), with the index requests of the chains that run.
+ * (`judgedStatement`).
  *
  * Navigation makes each row of the probe one chain of steps from its region, each a lookup of one relation by the columns the steps
  * before it bound, so no estimate PostgreSQL makes, with statistics or none, turns it into a join of every relation the
- * probe reads, and planning it costs a plan of each step. Its index requests are that chain's access paths
- * (`requestsOf`): each step's lookup by the columns it is bound at, so the indexes requested are exactly those the
- * probe's reads use, and the read of the region asks none, its rows the session's delta.
+ * probe reads, and planning it costs a plan of each step. Its routine's plan binds each step's read by the columns it is
+ * bound at (sql/bind.ts), so the indexes requested are exactly those the probe's reads use, and the read of the region
+ * asks none, its rows the session's delta.
  */
 const compileProbe = (
 	b: InstallBuilder,
@@ -295,7 +282,6 @@ const compileProbe = (
 	judgedStatement(
 		b,
 		catalog,
-		(root) => requestsOf(b, ruleRequester(rule), root),
 		query,
 		b.columns,
 		`rule ${rule.law.named.display} on ${relation.name}`,
@@ -316,9 +302,9 @@ const compileProbe = (
  * delta a read of the delta's table, which `judgedStatement` and an upkeep's statements read through readers (deltas.ts
  * headed). It is lowered composed, never printed apart (lower/optimize/pipeline.ts lowerComposed): its
  * reads of a delta name it by a CTE no statement holds, so the statement that reads it through its readers is its one
- * print; with the index requests of `rule` its checked DAG's access
- * paths are (`requestsOf`). It reads each suffix test of a text its requests' indexes hold the suffix key of as the
- * key's range (sql/suffix.ts seekingSuffixes), and of no other. Navigation reads the
+ * print. It reads each suffix test of a stored text as the text's suffix key's range (sql/suffix.ts seekingSuffixes,
+ * InstallBuilder `texts`), which its routine's binding reads as a range of that key where the suffix is fixed beside
+ * the row (sql/bind.ts), and a B-tree on the key serves. Navigation reads the
  * heading of each union it splits in `columns`: the installation's (InstallBuilder `columns`), at the definition a
  * walked copy of it was walked from where the query is a whole rule's violation over its units (WholeRule
  * `definitionOf`).
@@ -326,7 +312,6 @@ const compileProbe = (
 const loweredJudged = (
 	b: InstallBuilder,
 	catalog: ReturnType<typeof evidenceCatalog>,
-	requestsAt: (root: RelNode) => ReadonlyArray<IndexRequest>,
 	query: InferredQuery,
 	columns: QueryColumns,
 	label: string,
@@ -355,11 +340,10 @@ const loweredJudged = (
 		),
 		b.checked.definitionRows()
 	)
-	const requests = requestsAt(checked.dag.roots[0])
 	const program = unwrap(
 		Result.flatMap(optimizedInput(checked, queryEvidence), (annotated) =>
 			lowerComposed(annotated, {
-				names: { ...b.names, suffixed: suffixedBy(b, requests) },
+				names: { ...b.names, suffixed: b.texts },
 				subject: { kind: "ruleRegion", deltas },
 				context: "transaction",
 				catalog
@@ -379,8 +363,7 @@ const loweredJudged = (
 	const statement = main.ast
 	return {
 		statement: { ...statement, body: unaliased(statement.body) },
-		heading: main.heading.map((c) => c.name),
-		requests
+		heading: main.heading.map((c) => c.name)
 	}
 }
 
@@ -391,7 +374,6 @@ const loweredJudged = (
 const judgedStatement = (
 	b: InstallBuilder,
 	catalog: ReturnType<typeof evidenceCatalog>,
-	requestsAt: (root: RelNode) => ReadonlyArray<IndexRequest>,
 	query: InferredQuery,
 	columns: QueryColumns,
 	label: string,
@@ -400,55 +382,12 @@ const judgedStatement = (
 	reads: DeltaReads,
 	extent: RegionExtent
 ): Compiled => {
-	const lowered = loweredJudged(b, catalog, requestsAt, query, columns, label, loc, deltas, extent)
+	const lowered = loweredJudged(b, catalog, query, columns, label, loc, deltas, extent)
 	return { ...lowered, statement: headed(lowered.statement, reads) }
 }
 
 /**
- * The text columns the indexes of law `requests` hold the suffix key of (physical/indexes/engine.ts KeyTerm `suffix`),
- * by its table and column: a judged read reads each suffix test of those its own seeks read through as the key's range
- * (sql/suffix.ts seekingSuffixes), and of no other.
- */
-const suffixedBy = (b: InstallBuilder, requests: ReadonlyArray<IndexRequest>): StoredColumns =>
-	storedColumns(
-		requests.flatMap((r) => {
-			const target = b.target(r.relation)
-			return r.role === "lawMaintenance" && target.kind === "built"
-				? r.blocks.flat().flatMap((k) =>
-						k.column.kind === "suffix"
-							? [
-									{
-										table: b.names.relation(r.relation),
-										column: target.column({ kind: "field", field: k.column.of.field.name })
-									}
-								]
-							: []
-					)
-				: []
-		})
-	)
-
-/**
- * The index requests of a judged query's access paths (physical/access/extract.ts), read from the root of its checked
- * DAG: law-maintenance requests of `rule`, so a judged read reads by index wherever the planner can. Each is one block
- * of its columns (ir/law.ts LawIndexRequest), but a whole rule's (`unitLead`), whose first block is its unit's key; and
- * a suffix seek's (`seekRequestsOf`).
- */
-const requestsOf = (
-	b: InstallBuilder,
-	by: Requester,
-	root: RelNode
-): ReadonlyArray<IndexRequest> => {
-	const reads = extractJudgedReads([root], {
-		pageable: [],
-		keyOrders: keyOrdersOf(b.model.theory.relations),
-		worlds: noWorlds
-	})
-	return [...lookupRequestsOf(b, by, reads), ...seekRequestsOf(b, by, reads)]
-}
-
-/**
- * Who asks a judged read's indexes (`requestsOf`): its justification, a rule's law or a stored relation's enforcement;
+ * Who asks a judged read's indexes (`routineRequests`): its justification, a rule's law or a stored relation's enforcement;
  * the unit its reads stand in, a whole rule's or a stored relation's upkeep's, whose key leads each request's first
  * block (`unitLead`), none for a probed rule; the relations it reads by reference, outside its unit, a stored
  * relation's (ir/unit.ts StoredUnit `references`), each read at the keys its unit's rows name; and how a refusal names
@@ -468,101 +407,6 @@ const ruleRequester = (rule: RuleTrigger): Requester => ({
 	references: [],
 	display: `the whole rule ${rule.law.named.display}`
 })
-
-/**
- * The requests of a judged query's suffix seeks (physical/access/extract.ts SuffixSeek): a B-tree whose first block is
- * the columns the seek's probe fixes by equality, where it fixes any, and whose last key is the suffix key of the text
- * it seeks (ir/law.ts SuffixColumn), which its range reads (sql/suffix.ts).
- */
-const seekRequestsOf = (
-	b: InstallBuilder,
-	by: Requester,
-	reads: JudgedReads
-): ReadonlyArray<IndexRequest> =>
-	reads.seeks.flatMap((seek): ReadonlyArray<IndexRequest> => {
-		const target = b.model.relations.get(seek.relation)?.relation
-		const text = target?.fields.find((f) => f.name === seek.column)
-		if (target === undefined || text === undefined) {
-			return []
-		}
-		const fixed = seek.fixed.flatMap((name): ReadonlyArray<LawIndexKey> =>
-			target.fields.flatMap((f) =>
-				f.name === name
-					? [{ column: { kind: "field", field: f }, dir: "asc", opclass: defaultOpclass }]
-					: []
-			)
-		)
-		const suffix: LawIndexKey = {
-			column: { kind: "suffix", of: { kind: "field", field: text } },
-			dir: "asc",
-			opclass: defaultOpclass
-		}
-		return [
-			{
-				relation: target.name,
-				blocks: isNonEmpty(fixed) ? [fixed, [suffix]] : [[suffix]],
-				method: "btree",
-				role: "lawMaintenance",
-				use: "rule probe",
-				justification: by.justification
-			}
-		]
-	})
-
-/**
- * The requests of a judged query's lookups (`requestsOf`) that bind no equality alone: a join's key, a range, a prefix
- * search, a take's or a page's seek, a span predicate, each of which its statement orders or spans by and no seek
- * program states; none of an approximate retrieval's, a text search's or a network containment's, which a judge reads
- * through its equalities' keys and filters. A lookup by equalities alone is the program's to ask (`programRequests`),
- * from the statement as the judge runs it, never from the query it was lowered from. A stored derived relation's
- * table, which every statement of the judge reads by its name, asks as a table does (physical/indexes/engine.ts
- * planIndexes), here and in its program.
- */
-const lookupRequestsOf = (
-	b: InstallBuilder,
-	by: Requester,
-	reads: JudgedReads
-): ReadonlyArray<IndexRequest> =>
-	reads.lookups.flatMap(({ path }): ReadonlyArray<IndexRequest> => {
-		const known = b.model.theory.relations[path.relation]
-		const target = known?.kind === "relation" || known?.kind === "stored" ? known : undefined
-		if (
-			target === undefined ||
-			path.method === "hnsw" ||
-			path.method === "gin" ||
-			path.use === "network containment" ||
-			path.use === "equality lookup" ||
-			path.use === "key lookup" ||
-			path.use === "write target"
-		) {
-			return []
-		}
-		const keys = path.keys.flatMap((k) =>
-			target.fields.flatMap((f) =>
-				f.name === k.field
-					? [
-							{
-								column: { kind: "field" as const, field: f },
-								dir: k.dir,
-								opclass: defaultOpclass
-							}
-						]
-					: []
-			)
-		)
-		return !isNonEmpty(keys)
-			? []
-			: [
-					{
-						relation: target.name,
-						blocks: unitLead(by, target, keys),
-						method: path.method,
-						role: "lawMaintenance",
-						use: "rule probe",
-						justification: by.justification
-					}
-				]
-	})
 
 /**
  * The blocks of a judged read's request over `relation` by `keys` (ir/law.ts LawIndexRequest): one block of its keys for
@@ -602,7 +446,8 @@ const unitLead = (
 
 /**
  * The requests of a routine's plan (sql/plan.ts planRequests) as its requester asks them (`Requester`): each a law's
- * maintenance request by its read's method, its keys the fields the plan's read binds, led as its requester leads
+ * maintenance request by its read's method, its keys the fields the plan's read binds, or a text field's suffix key it
+ * ranges (ir/law.ts SuffixColumn), led as its requester leads
  * (`unitLead`), so every read the routine makes is asked and nothing else is. A read of a closed relation, which no
  * index serves, asks none.
  * The plan is the routine's bound statements' (sql/bind.ts), the one derivation of what each of its reads binds
@@ -619,10 +464,19 @@ export const routineRequests = (
 			return []
 		}
 		const keys = request.keys.flatMap((k): ReadonlyArray<LawIndexKey> => {
-			const field = target.fields.find((f) => f.name === k.expr)
-			return field === undefined
-				? []
-				: [{ column: { kind: "field", field }, dir: k.dir, opclass: k.opclass }]
+			const name = typeof k.expr === "string" ? k.expr : k.expr.suffix
+			const field = target.fields.find((f) => f.name === name)
+			if (field === undefined) {
+				return []
+			}
+			const column = { kind: "field", field } as const
+			return [
+				{
+					column: typeof k.expr === "string" ? column : { kind: "suffix", of: column },
+					dir: k.dir,
+					opclass: k.opclass
+				}
+			]
 		})
 		if (!isNonEmpty(keys)) {
 			return []
@@ -1758,14 +1612,13 @@ const nettingsOf = (
  * replaces it in place and never drops it, since every session's sentinel's trigger names
  * it and PostgreSQL refuses to drop a function a trigger of another session runs. Its parts hold no session's trigger,
  * and a part whose deltas change is another function, the old one dropped. A migration that adds an installation's
- * first rule over a query or removes its last one changes only the judge's body, its parts and the captures. Each probe's access paths
- * (physical/access/extract.ts) are law-maintenance index requests of the rule, so a probe reads by index wherever the
- * planner can, and its cost follows the write.
+ * first rule over a query or removes its last one changes only the judge's body, its parts and the captures. Each
+ * function's bound plan states what each of its probes reads by index, which the installation asks as law-maintenance
+ * requests of its rule (`requesters`, `routineRequests`), so a probe reads by index and its cost follows the write.
  */
 export const addRules = (
 	b: InstallBuilder
 ): {
-	readonly requests: ReadonlyArray<IndexRequest>
 	/**
 	 * Who asks the indexes each function of the judge reads through (`Requester`), by its name's key: the
 	 * installation asks its plan's requests as it asks them (`routineRequests`), once it has bound the function
@@ -1786,7 +1639,6 @@ export const addRules = (
 	const sentinel = b.name(sentinelIdent)
 	const deltaOf = (t: JudgedTable, side: ProbeSide): SessionDelta | undefined =>
 		t.sides.find((s) => s.side === side)?.delta
-	const requests: Array<IndexRequest> = []
 	const requesters = new Map<NameKey, Requester>()
 	/** What the probes prove a sibling's cover by (analysis/theory/query.ts Proofs): the theory's containments and keys. */
 	const proofs = proofsOf(
@@ -1843,7 +1695,6 @@ export const addRules = (
 				return []
 			}
 			const compiled = compileProbe(b, catalog, rule, relation, query, deltas, reads)
-			appendAll(requests, compiled.requests)
 			const judged = whenFound(compiled.statement, [raise])
 			const guard = probeGuard(probed, relation.name, side, keysOf, fieldsOf, rule.law.loc)
 			const guarded =
@@ -1851,7 +1702,6 @@ export const addRules = (
 					? undefined
 					: compileProbe(b, catalog, rule, relation, guard, deltas, reads)
 			if (guarded !== undefined) {
-				appendAll(requests, guarded.requests)
 			}
 			return delta === undefined
 				? []
@@ -1896,7 +1746,6 @@ export const addRules = (
 		const lowered = judgedStatement(
 			b,
 			catalog,
-			(root) => requestsOf(b, ruleRequester(rule), root),
 			unit.judged,
 			definedAt(b.columns, unit.definitionOf),
 			label,
@@ -1905,7 +1754,6 @@ export const addRules = (
 			reads,
 			"units"
 		)
-		appendAll(requests, lowered.requests)
 		/**
 		 * The table its refusal names: the first, in its unit's order, of the tables whose writes can change it, the
 		 * holders its region reads a side of (RuleTrigger `tables`, WholeRule `sides`), each a table the constraint map
@@ -2112,21 +1960,10 @@ export const addRules = (
 				references: u.stored.references,
 				display
 			}
-			const units = loweredJudged(
-				b,
-				catalog,
-				(root) => requestsOf(b, requester, root),
-				form.region,
-				b.columns,
-				label,
-				u.loc,
-				deltas,
-				"units"
-			)
+			const units = loweredJudged(b, catalog, form.region, b.columns, label, u.loc, deltas, "units")
 			const rows = loweredJudged(
 				b,
 				catalog,
-				(root) => requestsOf(b, requester, root),
 				form.judged,
 				definedAt(b.columns, form.definitionOf),
 				label,
@@ -2134,8 +1971,6 @@ export const addRules = (
 				deltas,
 				"units"
 			)
-			appendAll(requests, units.requests)
-			appendAll(requests, rows.requests)
 			const heading = headingOf(rows)
 			const unitNames = lastNumbered(units.statement)
 			const rowNames = lastNumbered(rows.statement)
@@ -2227,18 +2062,7 @@ export const addRules = (
 		 * So S is read once per lost fact by its key, which leads the fields, whatever PostgreSQL estimates of the facts.
 		 */
 		const checkedBody = (form: CheckedLoss): Asked => {
-			const lost = loweredJudged(
-				b,
-				catalog,
-				(root) => requestsOf(b, deltaRequester, root),
-				form.query,
-				b.columns,
-				label,
-				u.loc,
-				deltas,
-				"units"
-			)
-			appendAll(requests, lost.requests)
+			const lost = loweredJudged(b, catalog, form.query, b.columns, label, u.loc, deltas, "units")
 			const fact = headingOf(lost)
 			const names = lastNumbered(lost.statement)
 			const lostAlias = `r${names + 2}`
@@ -2301,7 +2125,6 @@ export const addRules = (
 			const gained = judgedStatement(
 				b,
 				catalog,
-				(root) => requestsOf(b, deltaRequester, root),
 				form.gained,
 				b.columns,
 				label,
@@ -2310,7 +2133,6 @@ export const addRules = (
 				reads,
 				"units"
 			)
-			appendAll(requests, gained.requests)
 			/** The removal's call, before the gain's; none for a closed loss, whose rows no write removes (ClosedLoss). */
 			const lost = ((loss): ReadonlyArray<JudgedCall> => {
 				switch (loss.kind) {
@@ -2397,7 +2219,6 @@ export const addRules = (
 			judgedStatement(
 				b,
 				catalog,
-				(root) => requestsOf(b, ruleRequester(rule), root),
 				query,
 				b.columns,
 				label,
@@ -2411,7 +2232,6 @@ export const addRules = (
 				? r.everyRow
 				: everyRowProbe(r, (name) => readTable(rule, name) !== undefined, rule.law.loc)
 		)
-		appendAll(requests, compiled.requests)
 		return compiled.statement
 	}
 	const checks = new Map(b.model.rules.map((rule) => [rule.law.id, everyRowCheck(rule)] as const))
@@ -2846,7 +2666,7 @@ export const addRules = (
 	for (const event of events) {
 		b.name(identity.captureTrigger(event))
 	}
-	return { requests, requesters, checks, standUps }
+	return { requesters, checks, standUps }
 }
 
 /** A session's marker of a set of the judge's tables (identity.ruleStood: a closure's, `Closure`, or a table's,

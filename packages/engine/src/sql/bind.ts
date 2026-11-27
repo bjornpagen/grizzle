@@ -46,6 +46,7 @@ import { defaultOpclass, type IndexOpclass } from "#compiler/ir/law.ts"
 import type { AccessIndexRequest, AccessUse } from "#compiler/ir/products.ts"
 import {
 	type AccessTag,
+	type BinaryOperator,
 	builtinFunctions,
 	bodyPositionNames,
 	type CreateFunction,
@@ -112,6 +113,7 @@ import type {
 import { printedBlock, printedOnce } from "#compiler/sql/print-once.ts"
 import { foldedCore, printPlannedQuery, printStatement } from "#compiler/sql/print.ts"
 import { simpleQuery } from "#compiler/sql/pull-up.ts"
+import { suffixKeyText } from "#compiler/sql/suffix.ts"
 import { identityHooks, Transform, visitLevelExpr } from "#compiler/sql/transform.ts"
 
 /** What a B-tree holds of a column: many values, or few (a roster's codes, a boolean), whose share of the rows no index
@@ -225,9 +227,36 @@ const withRelation = (
 	relations: new Map([...env.relations, [written, { alias, depth, place }]])
 })
 
-/** The conjuncts of a condition, each AND's arguments in turn. */
+/**
+ * The negator of each builtin comparison of two scalars (pg_operator `oprnegate`), by which PostgreSQL reads a NOT of
+ * one as the comparison it is (clauses.c negate_clause): `NOT a <> b` is `a = b`, true, false or null alike.
+ */
+const negators: Partial<Readonly<Record<BinaryOperator, BinaryOperator>>> = {
+	"=": "<>",
+	"<>": "=",
+	"<": ">=",
+	">=": "<",
+	">": "<=",
+	"<=": ">"
+}
+
+/**
+ * A conjunct as PostgreSQL reads it: a NOT of a builtin comparison of two scalars, the negated comparison (`negators`),
+ * which an index serves as any comparison; any other itself.
+ */
+const asRead = (e: Expr): Expr => {
+	if (e.kind !== "not" || e.expr.kind !== "binary" || e.expr.schema !== undefined) {
+		return e
+	}
+	const negator = negators[e.expr.op]
+	return negator === undefined || e.expr.left.kind === "row" || e.expr.right.kind === "row"
+		? e
+		: { ...e.expr, op: negator }
+}
+
+/** The conjuncts of a condition, each AND's arguments in turn, each as PostgreSQL reads it (`asRead`). */
 const conjunctsOf = (e: Expr | undefined): ReadonlyArray<Expr> =>
-	e === undefined ? [] : e.kind === "and" ? e.args.flatMap(conjunctsOf) : [e]
+	e === undefined ? [] : e.kind === "and" ? e.args.flatMap(conjunctsOf) : [asRead(e)]
 
 /** A column reference a side of an equality is, through a collation, which keeps the column's order. */
 const columnOf = (e: Expr): { readonly table: string; readonly column: string } | undefined => {
@@ -388,21 +417,45 @@ const requestOf = (
 /** The comparisons PostgreSQL reads as a B-tree's range of one column (nbtree's strategies `<`, `<=`, `>=`, `>`). */
 const rangeOperators: ReadonlySet<string> = new Set(["<", "<=", ">", ">="])
 
-/** A range of `alias`'s column a conjunct states: an ordering comparison of it with a value reading no column of it. */
+/**
+ * A key a range of a read ranges: a column of it, or the suffix key of a text column of it (sql/suffix.ts suffixKeyOf),
+ * which a judged read's suffix test states as a range (sql/suffix.ts seekingSuffixes).
+ */
+interface RangedKey {
+	readonly column: string
+	readonly term: "column" | "suffix"
+}
+
+/** The key of `alias` a side of a range is (RangedKey): its column, through a collation, or its column's suffix key. */
+const rangedKeyOf = (e: Expr, alias: string): RangedKey | undefined => {
+	const ref = columnOf(e)
+	if (ref !== undefined) {
+		return ref.table === alias ? { column: ref.column, term: "column" } : undefined
+	}
+	const text = suffixKeyText(e)
+	const of = text === undefined ? undefined : columnOf(text)
+	return of?.table === alias ? { column: of.column, term: "suffix" } : undefined
+}
+
+/** Whether two ranged keys are one key. */
+const sameRanged = (a: RangedKey, b: RangedKey): boolean =>
+	a.column === b.column && a.term === b.term
+
+/** A range of a key of `alias` a conjunct states: an ordering comparison of it with a value reading no column of it. */
 const rangeOf = (
 	c: Expr,
 	alias: string
-): { readonly conjunct: Expr; readonly column: string; readonly value: Expr } | undefined => {
+): { readonly conjunct: Expr; readonly key: RangedKey; readonly value: Expr } | undefined => {
 	if (c.kind !== "binary" || !rangeOperators.has(c.op) || c.schema !== undefined || opaque(c)) {
 		return undefined
 	}
-	const left = columnOf(c.left)
-	if (left?.table === alias && !qualifiersOf(c.right).has(alias)) {
-		return { conjunct: c, column: left.column, value: c.right }
+	const left = rangedKeyOf(c.left, alias)
+	if (left !== undefined && !qualifiersOf(c.right).has(alias)) {
+		return { conjunct: c, key: left, value: c.right }
 	}
-	const right = columnOf(c.right)
-	return right?.table === alias && !qualifiersOf(c.left).has(alias)
-		? { conjunct: c, column: right.column, value: c.left }
+	const right = rangedKeyOf(c.right, alias)
+	return right !== undefined && !qualifiersOf(c.left).has(alias)
+		? { conjunct: c, key: right, value: c.left }
 		: undefined
 }
 
@@ -412,27 +465,25 @@ type RangeSide = "lower" | "upper" | "both"
 /** The side `op` bounds its left operand on, by nbtree's strategies. */
 const leftSide = (op: string): RangeSide => (op === ">" || op === ">=" ? "lower" : "upper")
 
-/** The side of `alias`'s column a range conjunct bounds (`rangeOf`), or BETWEEN's two, with the column. */
+/** The side of `alias`'s key a range conjunct bounds (`rangeOf`), or BETWEEN's two, with the key. */
 const rangeSideOf = (
 	c: Expr,
 	alias: string
-): { readonly column: string; readonly value: Expr; readonly side: RangeSide } | undefined => {
+): { readonly key: RangedKey; readonly value: Expr; readonly side: RangeSide } | undefined => {
 	if (c.kind === "between" && !c.not && !opaque(c)) {
-		const ref = columnOf(c.expr)
-		return ref?.table === alias &&
-			!qualifiersOf(c.low).has(alias) &&
-			!qualifiersOf(c.high).has(alias)
-			? { column: ref.column, value: { kind: "row", items: [c.low, c.high] }, side: "both" }
+		const key = rangedKeyOf(c.expr, alias)
+		return key !== undefined && !qualifiersOf(c.low).has(alias) && !qualifiersOf(c.high).has(alias)
+			? { key, value: { kind: "row", items: [c.low, c.high] }, side: "both" }
 			: undefined
 	}
 	const r = rangeOf(c, alias)
 	if (r === undefined || c.kind !== "binary") {
 		return undefined
 	}
-	const onLeft = columnOf(c.left)?.table === alias
+	const onLeft = rangedKeyOf(c.left, alias) !== undefined
 	const side = leftSide(c.op)
 	return {
-		column: r.column,
+		key: r.key,
 		value: r.value,
 		side: onLeft ? side : side === "lower" ? "upper" : "lower"
 	}
@@ -514,7 +565,7 @@ type Classified =
 	| {
 			readonly kind: "range"
 			readonly eq: ReadonlyArray<Binding>
-			readonly column: string
+			readonly key: RangedKey
 			readonly conjuncts: NonEmptyReadonlyArray<Expr>
 			readonly use: RangeUse
 	  }
@@ -584,12 +635,16 @@ const orderedOf = (
 	}
 }
 
-/** A request of a read of `table` by `method` at `keys`, its installed columns in key order, `fixed` of them bound. */
+/**
+ * A request of a read of `table` by `method` at `keys`, its installed columns in key order, each the column itself or
+ * its suffix key (RangedKey `term`), `fixed` of them bound.
+ */
 const keyedRequest = (
 	table: BindTable,
 	method: AccessIndexRequest["method"],
 	keys: ReadonlyArray<{
 		readonly column: string
+		readonly term: RangedKey["term"]
 		readonly dir: Direction
 		readonly opclass: IndexOpclass
 	}>,
@@ -601,7 +656,11 @@ const keyedRequest = (
 		const column = table.columns.get(k.column)
 		return column === undefined
 			? defect(`a key column of ${table.relation} an index serves; ${k.column} is none`)
-			: { expr: column.field, dir: k.dir, opclass: k.opclass }
+			: {
+					expr: k.term === "column" ? column.field : { suffix: column.field },
+					dir: k.dir,
+					opclass: k.opclass
+				}
 	}),
 	method,
 	fixed,
@@ -609,14 +668,15 @@ const keyedRequest = (
 	use
 })
 
-/** Keys in ascending order under the default class, of `columns`. */
+/** Keys in ascending order under the default class, of `columns`, each the column itself. */
 const ascending = (
 	columns: ReadonlyArray<string>
 ): ReadonlyArray<{
 	readonly column: string
+	readonly term: RangedKey["term"]
 	readonly dir: Direction
 	readonly opclass: IndexOpclass
-}> => columns.map((column) => ({ column, dir: "asc", opclass: defaultOpclass }))
+}> => columns.map((column) => ({ column, term: "column", dir: "asc", opclass: defaultOpclass }))
 
 /**
  * One entry of a level's FROM, flattened from its items and join chains in order: its source, and how it joins the
@@ -1444,6 +1504,7 @@ class Binder {
 								...ascending(fixedColumns),
 								...access.order.map((o) => ({
 									column: o.column,
+									term: "column" as const,
 									dir: o.dir,
 									opclass: defaultOpclass
 								}))
@@ -1460,7 +1521,7 @@ class Binder {
 						keyedRequest(
 							table,
 							"hnsw",
-							[{ column: access.column, dir: "asc", opclass: access.cosine }],
+							[{ column: access.column, term: "column", dir: "asc", opclass: access.cosine }],
 							0,
 							"approximate vector retrieval"
 						),
@@ -1473,18 +1534,18 @@ class Binder {
 						{
 							kind: "range",
 							bound: sought(access.eq),
-							column: access.column,
+							column: access.key.column,
 							conditions: [moved(c0), ...cs.map(moved)],
 							use: access.use
 						},
 						keyedRequest(
 							table,
 							"btree",
-							ascending([...fixedColumns, access.column]),
+							[...ascending(fixedColumns), { ...access.key, dir: "asc", opclass: defaultOpclass }],
 							fixedColumns.length,
 							access.use
 						),
-						[...fixedColumns, access.column]
+						[...fixedColumns, access.key.column]
 					)
 				}
 				case "span": {
@@ -1601,32 +1662,44 @@ class Binder {
 		}
 		const ranges = conjuncts.flatMap((c) => {
 			const r = rangeSideOf(c, written)
-			return r !== undefined &&
-				btreeColumn(table, r.column) !== undefined &&
-				!equal.has(r.column) &&
-				fixed(r.value)
-				? [{ conjunct: c, ...r }]
-				: []
+			if (r === undefined || !fixed(r.value)) {
+				return []
+			}
+			const column = btreeColumn(table, r.key.column)
+			const ranges =
+				r.key.term === "column"
+					? column !== undefined && !equal.has(r.key.column)
+					: column?.kind === "text"
+			return ranges ? [{ conjunct: c, ...r }] : []
 		})
-		const ranged = [...new Set(ranges.map((r) => r.column))]
-			.map((column) => {
-				const sides = new Set(ranges.filter((r) => r.column === column).map((r) => r.side))
-				return { column, both: sides.has("both") || (sides.has("lower") && sides.has("upper")) }
+		const ranged = ranges
+			.map((r) => r.key)
+			.filter((key, at, keys) => keys.findIndex((k) => sameRanged(k, key)) === at)
+			.map((key) => {
+				const sides = new Set(ranges.filter((r) => sameRanged(r.key, key)).map((r) => r.side))
+				return { key, both: sides.has("both") || (sides.has("lower") && sides.has("upper")) }
 			})
-			.filter((r) => many || holds(r.column) === "many")
+			.filter((r) => many || holds(r.key.column) === "many")
 			.toSorted((x, y) =>
-				x.both === y.both ? compareStrings(x.column, y.column) : x.both ? -1 : 1
+				x.both === y.both
+					? compareStrings(x.key.column, y.key.column) || compareStrings(x.key.term, y.key.term)
+					: x.both
+						? -1
+						: 1
 			)[0]
 		if (ranged !== undefined) {
-			const [c0, ...cs] = ranges.filter((r) => r.column === ranged.column).map((r) => r.conjunct)
+			const [c0, ...cs] = ranges.filter((r) => sameRanged(r.key, ranged.key)).map((r) => r.conjunct)
 			return c0 === undefined
-				? defect("a ranged column of a range conjunct")
+				? defect("a ranged key of a range conjunct")
 				: {
 						kind: "range",
 						eq: bindings,
-						column: ranged.column,
+						key: ranged.key,
 						conjuncts: [c0, ...cs],
-						use: ranged.both && kindOf(ranged.column) === "text" ? "prefix search" : "range"
+						use:
+							ranged.both && ranged.key.term === "column" && kindOf(ranged.key.column) === "text"
+								? "prefix search"
+								: "range"
 					}
 		}
 		if (many && b0 !== undefined) {

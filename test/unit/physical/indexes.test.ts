@@ -35,6 +35,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order } from "effect"
+import { accessKeyText } from "#compiler/ir/products.ts"
 import type { PlannedIndex } from "#compiler/physical/indexes/engine.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { refused, succeeded } from "#test/support/assert.ts"
@@ -169,7 +170,7 @@ export const theIndexRequestEngineLandsEveryRequestOnExactlyOneIndexPlansAlikeIn
 						`one index holds ${r.relation}(${Arr.join(
 							r.role === "lawMaintenance"
 								? Arr.map(r.blocks.flat(), (k) => k.column.kind)
-								: Arr.map(r.keys, (k) => String(k.expr)),
+								: Arr.map(r.keys, (k) => accessKeyText(k.expr)),
 							","
 						)})`
 					)

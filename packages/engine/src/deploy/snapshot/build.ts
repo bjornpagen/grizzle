@@ -80,6 +80,7 @@ import type { Spellings } from "#compiler/ir/pattern.ts"
 import type { LibraryFn } from "#compiler/ir/physical.ts"
 import {
 	type AccessIndexRequest,
+	accessKeyText,
 	type InstallationManifest,
 	indexOpclassText,
 	type PhysicalObject,
@@ -174,7 +175,11 @@ export const emptySnapshot = (input: {
 /** A workload access request as the snapshot records it. */
 const storedRequest = (r: AccessIndexRequest): StoredIndexRequest => ({
 	...r,
-	keys: r.keys.map((k) => ({ expr: k.expr, dir: k.dir, opclass: indexOpclassText(k.opclass) }))
+	keys: r.keys.map((k) => ({
+		expr: accessKeyText(k.expr),
+		dir: k.dir,
+		opclass: indexOpclassText(k.opclass)
+	}))
 })
 
 export const isEmptySnapshot = (s: DeploySnapshot): boolean =>

@@ -23,7 +23,7 @@ import { textDigestsOf } from "#compiler/ir/law.ts"
 import { type LibraryFn, missing } from "#compiler/ir/physical.ts"
 import type { DeployPhase, PhysicalReason } from "#compiler/ir/products.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { LawModel, NamedNative } from "#compiler/laws/model/model.ts"
 import { addIsolation } from "#compiler/physical/ddl/isolation.ts"
 import { digestDomainDdl, snapshotGuardDdl } from "#compiler/physical/ddl/ledger.ts"
@@ -60,6 +60,7 @@ import {
 	type TypeRef
 } from "#compiler/sql/ast.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
+import { type StoredColumns, storedColumns } from "#compiler/sql/stored.ts"
 import {
 	type AstHooks,
 	identityHooks,
@@ -331,6 +332,8 @@ export class InstallBuilder {
 	readonly #columnTypes = new Map<string, Map<string, TypeRef>>()
 	/** The columns each table and view the objects so far create holds, by its qualified name. */
 	readonly #columns = new Map<string, number>()
+	/** Every text column of the installation's stored tables (`texts`), read once on first use. */
+	#texts: StoredColumns | undefined = undefined
 	/** The identifiers of the levels' schemas, where every table of the installation is. */
 
 	constructor(input: {
@@ -865,6 +868,33 @@ export class InstallBuilder {
 	 * registered view, its table, or nothing. The request's relation and the fields it names are resolved here, each
 	 * absent one undefined to the request's own refusal: a stored relation's by its theory relation's field handles, or
 	 * a law column of it by its identifier, which is its installed column. */
+	/**
+	 * Every text column of every stored table of the installation, an ordinary relation's and a stored derived
+	 * relation's, by the table and column a statement reads it through: what a judged read reads each suffix test of as
+	 * its text's suffix key's range (physical/ddl/rules.ts loweredJudged, sql/suffix.ts seekingSuffixes), which its
+	 * routine's binding reads as a range of that key wherever the suffix is fixed beside the row (sql/bind.ts), so the
+	 * B-tree its plan asks for serves it.
+	 */
+	get texts(): StoredColumns {
+		this.#texts ??= storedColumns(
+			Object.entries(this.model.theory.relations).flatMap(([relation, r]) =>
+				r.kind === "closed"
+					? []
+					: r.fields.flatMap((f) =>
+							baseOf(f.type).carrier === "text"
+								? [
+										{
+											table: this.names.relation(relation),
+											column: this.names.column(relation, f.name)
+										}
+									]
+								: []
+						)
+			)
+		)
+		return this.#texts
+	}
+
 	target(relation: string): RelationTarget {
 		const view = this.#viewOf(relation)
 		if (view !== undefined) {

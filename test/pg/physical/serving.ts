@@ -27,7 +27,12 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Direction } from "#compiler/core/order.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { defaultOpclass, type LawField } from "#compiler/ir/law.ts"
-import type { AccessIndexRequest, AccessUse, IndexRequest } from "#compiler/ir/products.ts"
+import {
+	type AccessIndexRequest,
+	accessKeyText,
+	type AccessUse,
+	type IndexRequest
+} from "#compiler/ir/products.ts"
 import { noLive } from "#compiler/live/notify.ts"
 import { keyTermText, type KeyTerm, type PlannedIndex } from "#compiler/physical/indexes/engine.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
@@ -279,7 +284,11 @@ const requestKeys = (
 				dir: k.dir,
 				opclass: k.opclass
 			}))
-		: Arr.map(request.keys, (k) => ({ field: String(k.expr), dir: k.dir, opclass: k.opclass }))
+		: Arr.map(request.keys, (k) => ({
+				field: accessKeyText(k.expr),
+				dir: k.dir,
+				opclass: k.opclass
+			}))
 
 /** An index key's column as text (the engine's keyTermText): a field's name, a law column's identifier, a suffix key's. */
 const keyText = (key: { readonly column: KeyTerm }): string => keyTermText(key.column)
@@ -1648,7 +1657,7 @@ const leadsExactly = (request: IndexRequest, index: PlannedIndex): boolean => {
 						? []
 						: [k.column.kind === "field" ? k.column.field.name : k.column.column]
 				)
-			: Arr.map(Arr.take(request.keys, request.fixed), (k) => String(k.expr))
+			: Arr.map(Arr.take(request.keys, request.fixed), (k) => accessKeyText(k.expr))
 	const keys = Arr.map(index.keys, keyText)
 	return (
 		request.method === "gist" ||

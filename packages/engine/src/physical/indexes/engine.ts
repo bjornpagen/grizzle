@@ -86,8 +86,8 @@ import { installationTypes } from "#compiler/sql/type-schemas.ts"
 /**
  * What an index key holds: a column by its arm, a field or a law column; or a text field's suffix key,
  * `chr(1) || reverse(column)` (sql/suffix.ts suffixKeyOf), which a law's probe seeks a suffix it holds fixed through as a
- * range of the key (physical/access/extract.ts SuffixSeek), every judged read of the field stating the range in place
- * of its suffix test (seekingSuffixes), a key past its request's equalities that only an index holding the same field's
+ * range of the key (sql/bind.ts, ir/products.ts AccessKeyTerm), every judged read of a stored text stating the range in
+ * place of its suffix test (seekingSuffixes), a key past its request's equalities that only an index holding the same field's
  * suffix key serves. No key holds a column by an image: an index holds a column as itself or not at all (README "Keys
  * and indexes").
  *
@@ -96,8 +96,8 @@ import { installationTypes } from "#compiler/sql/type-schemas.ts"
  * for the UTF8 encoding alone, so an installation stands only in a UTF8 database; PostgreSQL's reverse() reverses by
  * code points, a multibyte character kept whole; and the leading U+0001 is a sentinel under which every suffix has a
  * least text above its keys, the key's last code point not U+10FFFF raised by one, U+D7FF to U+E000 past the
- * surrogates, which no text holds. The engine drafts a B-tree on a suffix key only where a law's probe requests one,
- * through the law requests' own path (`planIndexes`), never a workload's, whose statements state no suffix range.
+ * surrogates, which no text holds. The engine drafts a B-tree on a suffix key only where a judged read's plan ranges one
+ * (physical/ddl/rules.ts routineRequests), never a workload's, whose statements state no suffix range.
  */
 export type KeyTerm = IndexColumn | { readonly kind: "suffix"; readonly of: IndexColumn }
 
@@ -331,12 +331,16 @@ function fail(tag: ProseTag, label: string, capability: string): never {
 const requestLabel = (r: IndexRequest): string =>
 	`${r.role} index request on ${r.relation}(${requestColumns(r).map(keyTermText).join(", ")}) for ${r.use}`
 
-/** The keys a request states, in key order, each column a law's by its arm, the workload's by its field's name. */
+/** The keys a request states, in key order, each column a law's by its arm, an access request's its field or the
+ * field's suffix key (AccessKeyTerm). */
 const statedKeys = (r: IndexRequest): ReadonlyArray<IndexKey> =>
 	r.role === "lawMaintenance"
 		? lawBlocks(r).flat()
 		: r.keys.map((k): IndexKey => ({
-				column: { kind: "field", field: String(k.expr) },
+				column:
+					typeof k.expr === "string"
+						? { kind: "field", field: k.expr }
+						: { kind: "suffix", of: { kind: "field", field: k.expr.suffix } },
 				dir: k.dir,
 				opclass: k.opclass
 			}))

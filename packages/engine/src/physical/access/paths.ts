@@ -9,7 +9,12 @@ import {
 } from "#compiler/core/order.ts"
 
 import { defaultOpclass, type IndexOpclass } from "#compiler/ir/law.ts"
-import type { AccessIndexRequest, AccessKey, AccessPath } from "#compiler/ir/products.ts"
+import {
+	type AccessIndexRequest,
+	type AccessKey,
+	type AccessPath,
+	accessKeyText
+} from "#compiler/ir/products.ts"
 
 /** The operator class every key of a path takes, by its access method: the column type's default for a B-tree or a
  * GiST index, pgvector's cosine class for an HNSW one, whose schema is the installation's vector extension schema. */
@@ -41,31 +46,13 @@ const pathOrder: Comparator<AccessPath> = combineAll([
 ])
 
 /**
- * A path a read asks for and the lookups through it (physical/access/extract.ts extractJudgedReads): each lookup the columns
+ * A path a read asks for and the lookups through it (physical/access/extract.ts extractAccess): each lookup the columns
  * its probe context fixes by equality, its own facts' and its partners', in code point order, each set once; none for a
  * path no probe context asks for, an ordered or a vector one.
  */
 export interface Lookup {
 	readonly path: AccessPath
 	readonly binds: ReadonlyArray<ReadonlyArray<string>>
-}
-
-/** Each path once, in canonical order (`uniquePaths`), with every lookup through it. */
-export const uniqueLookups = (lookups: ReadonlyArray<Lookup>): ReadonlyArray<Lookup> => {
-	const through = new Map<string, Map<string, ReadonlyArray<string>>>()
-	for (const { path, binds } of lookups) {
-		const sets = through.getOrInsertComputed(
-			pathKey(path),
-			() => new Map<string, ReadonlyArray<string>>()
-		)
-		for (const columns of binds) {
-			sets.set(columns.join("\u0001"), columns)
-		}
-	}
-	return uniquePaths(lookups.map((l) => l.path)).map((path) => ({
-		path,
-		binds: [...(through.get(pathKey(path))?.values() ?? [])]
-	}))
 }
 
 /** Each path once, in canonical order. */
@@ -109,7 +96,7 @@ export const pathOf = (r: AccessIndexRequest, derived: boolean): AccessPath => (
 	relation: r.relation,
 	derived,
 	method: r.method,
-	keys: r.keys.map((k) => ({ field: k.expr, dir: k.dir })),
+	keys: r.keys.map((k) => ({ field: accessKeyText(k.expr), dir: k.dir })),
 	fixed: r.fixed,
 	use: r.use
 })

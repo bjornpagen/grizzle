@@ -72,20 +72,22 @@ const suffixHigh = (suffix: Expr): Expr => {
 export const suffixRange = (text: Expr, suffix: Expr): Expr =>
 	and([ge(suffixKeyOf(text), suffixLow(suffix)), lt(suffixKeyOf(text), suffixHigh(suffix))])
 
-/**
- * The column of the table an index is on whose suffix key an index key's expression is, when it is one: an expression
- * that prints as the suffix key of the unqualified column it reads (`suffixKeyOf`).
- */
-export const suffixedColumnOf = (e: Expr): string | undefined => {
+/** The text whose suffix key an expression is (`suffixKeyOf`), when it is one: what it reverses, printed back alike. */
+export const suffixKeyText = (e: Expr): Expr | undefined => {
 	if (e.kind !== "binary" || e.op !== "||" || e.right.kind !== "call") {
 		return undefined
 	}
 	const [text] = e.right.args
-	return text?.kind === "column" &&
-		text.table === undefined &&
-		printExpr(e) === printExpr(suffixKeyOf(text))
-		? text.column
-		: undefined
+	return text !== undefined && printExpr(e) === printExpr(suffixKeyOf(text)) ? text : undefined
+}
+
+/**
+ * The column of the table an index is on whose suffix key an index key's expression is, when it is one: an expression
+ * that is the suffix key of the unqualified column it reads (`suffixKeyText`).
+ */
+export const suffixedColumnOf = (e: Expr): string | undefined => {
+	const text = suffixKeyText(e)
+	return text?.kind === "column" && text.table === undefined ? text.column : undefined
 }
 
 /**
@@ -109,12 +111,28 @@ const suffixTestOf = (e: Expr): { readonly text: Expr; readonly suffix: Expr } |
 }
 
 /**
+ * What a condition holds true: `x` of `x = TRUE`, which a condition reads as `x` (PostgreSQL's
+ * simplify_boolean_equality); any other condition itself. A suffix test the lowering states held equal to true
+ * (Logic.eq(Text.endsWith(t, s), true)) is the test, so its range stands as the condition's conjuncts, each a bound of
+ * the key the binding ranges (sql/bind.ts), never one operand of an equality.
+ */
+const heldTrue = (e: Expr): Expr =>
+	e.kind === "binary" &&
+	e.op === "=" &&
+	e.schema === undefined &&
+	e.right.kind === "literal" &&
+	e.right.value.kind === "bool" &&
+	e.right.value.value
+		? e.left
+		: e
+
+/**
  * `e` with every suffix test over a column of `from` that a B-tree holds the suffix key of (`suffixed`) read as that
  * key's range (`suffixRange`), at any depth: the test's value on every row, so PostgreSQL reads the range as an index
  * condition where the suffix is fixed beside the row, a parameter or an outer row's value, and as a filter elsewhere.
  */
 const seekingIn = (e: Expr, from: ReadonlyArray<FromItem>, suffixed: StoredColumns): Expr => {
-	const test = suffixTestOf(e)
+	const test = suffixTestOf(heldTrue(e))
 	if (test !== undefined) {
 		const origin = originIn(from, test.text)
 		return origin !== undefined && suffixed.has(origin) ? suffixRange(test.text, test.suffix) : e

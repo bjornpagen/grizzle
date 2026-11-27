@@ -540,7 +540,6 @@ export const installationOfPlan = (
 		}))
 		const requests = [
 			...reverseRequests(b),
-			...rules.requests,
 			...extensionRequests,
 			...routineAsks,
 			...programs.flatMap((p) => p.plans.flatMap(planRequests))

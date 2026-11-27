@@ -19,7 +19,12 @@ import { regex } from "arkregex"
 import { Array as Arr, Equivalence, Option, Order } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { defaultOpclass, type NativeColumn } from "#compiler/ir/law.ts"
-import type { AccessIndexRequest, AccessUse, IndexRequest } from "#compiler/ir/products.ts"
+import {
+	type AccessIndexRequest,
+	accessKeyText,
+	type AccessUse,
+	type IndexRequest
+} from "#compiler/ir/products.ts"
 import { keyTermText, type PlannedIndex } from "#compiler/physical/indexes/engine.ts"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
@@ -387,7 +392,7 @@ export const boundColumns = (r: IndexRequest): ReadonlyArray<string> =>
 					? []
 					: [k.column.kind === "field" ? k.column.field.name : k.column.column]
 			)
-		: Arr.map(Arr.take(r.keys, r.fixed), (k) => String(k.expr))
+		: Arr.map(Arr.take(r.keys, r.fixed), (k) => accessKeyText(k.expr))
 
 export const install = (requests: ReadonlyArray<IndexRequest>) => {
 	const owned = owning(Indexed)
@@ -493,7 +498,7 @@ export const boundBlocks = (r: IndexRequest): ReadonlyArray<ReadonlyArray<string
 						: [k.column.kind === "field" ? k.column.field.name : k.column.column]
 				)
 			)
-		: [Arr.map(Arr.take(r.keys, r.fixed), (k) => String(k.expr))]
+		: [Arr.map(Arr.take(r.keys, r.fixed), (k) => accessKeyText(k.expr))]
 
 /** Whether an index's keys lead with each block's columns in turn, each block's in any order among themselves. */
 export const leadsWithBlocks = (

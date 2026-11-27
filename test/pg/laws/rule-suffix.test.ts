@@ -1,6 +1,6 @@
 /**
- * A rule whose probe seeks a suffix it holds fixed reads by the B-tree on its text's suffix key (sql/suffix.ts,
- * physical/indexes/engine.ts KeyTerm `suffix`): edullm's Media type in miniature, the references that end with a
+ * A rule whose probe seeks a suffix it holds fixed reads by the B-tree on its text's suffix key (sql/suffix.ts, the
+ * binding's suffix-key range, sql/bind.ts RangedKey, physical/indexes/engine.ts KeyTerm `suffix`): edullm's Media type in miniature, the references that end with a
  * forbidden suffix (rule-suffix.fixtures.ts Ending), a check refusing one of kind 1. A forbidden suffix inserted is
  * judged by a probe of its side of news that reads Ref by the suffix it holds, the suffix test's subject Ref's target:
  * the judged read states the key's range in place of the test, and the installation holds the B-tree its request asks
@@ -93,6 +93,19 @@ export const aForbiddenSuffixIsJudgedByASeekOfItsReferencesBesideAnyNumberOfOthe
 					"\t\treturn origin !== undefined && suffixed.has(origin) ? suffixRange(test.text, test.suffix) : e\n",
 				replacement: "\t\treturn e\n",
 				why: "The suffix test read as it was lowered, right(target, char_length(suffix)) = suffix, which no index condition reads: the probe scans every reference, reads more rows beside more keys and locks Ref whole."
+			},
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original:
+					'\treturn of?.table === alias ? { column: of.column, term: "suffix" } : undefined\n',
+				replacement: "\treturn undefined\n",
+				why: "The binding reads no range of a suffix key: the judged read of Ref is a scan its plan states and its advice forces, its suffix range a filter, so the probe reads every reference, more rows beside more keys, and locks Ref whole."
+			},
+			{
+				file: "packages/engine/src/sql/suffix.ts",
+				original: "\tconst test = suffixTestOf(heldTrue(e))\n",
+				replacement: "\tconst test = suffixTestOf(e)\n",
+				why: "A suffix test held equal to true is read as that equality: its range stands as `(range) = true`, one operand of an equality, which no index condition reads, so Ref is scanned at every probe."
 			}
 		]
 	})

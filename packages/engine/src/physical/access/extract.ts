@@ -55,7 +55,7 @@ import {
 	operandOf,
 	predicateAtoms
 } from "#compiler/physical/access/atoms.ts"
-import { type Lookup, uniqueLookups, uniquePaths } from "#compiler/physical/access/paths.ts"
+import { type Lookup, uniquePaths } from "#compiler/physical/access/paths.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 
 interface ExtractOptions {
@@ -858,8 +858,6 @@ class Extractor {
 	/** Every path asked for, with the columns of the lookup through it (`equalities`), none for an ordered or a vector
 	 * one. */
 	readonly lookups: Array<Lookup> = []
-	/** Every suffix seek a probe context asks for (`SuffixSeek`). */
-	readonly seeks: Array<SuffixSeek> = []
 	/** The pushed facts each node was visited under, by their key: the walk's seen-set. */
 	readonly #visited = new Map<RelNode, Set<string>>()
 	readonly #pageable: ReadonlyMap<RelNode, PageWindow>
@@ -1495,16 +1493,6 @@ class Extractor {
 				this.lookups,
 				contextPaths(ctx).map((p): Lookup => ({ path: p, binds: [binds] }))
 			)
-			if (ctx.kind === "scalar") {
-				const fixed = sorted(
-					[...ctx.eq.keys()].filter((c) => !isSpanColumn(heading, c) && !isVectorColumn(heading, c))
-				)
-				for (const column of sorted(ctx.suffix)) {
-					if (!ctx.eq.has(column) && isTextColumn(heading, column)) {
-						this.seeks.push({ relation: base.relation, fixed, column })
-					}
-				}
-			}
 		}
 	}
 
@@ -1976,43 +1964,6 @@ export const extractAccess = (
 ): ProgramAccess => {
 	const x = extracted(roots, options)
 	return { paths: uniquePaths(x.lookups.map((l) => l.path)) }
-}
-
-/**
- * A read of a stored relation's text column by a suffix its probe holds fixed (atoms.ts `suffix`), the columns its probe
- * fixes by equality, in code point order, leading: what a B-tree on the column's suffix key serves as a range
- * (sql/suffix.ts), which a judged read asks for (physical/ddl/rules.ts requestsOf) and states (seekingSuffixes). No
- * workload path is one: a workload's statements state no suffix key's range, so an index on it would serve none of
- * their reads.
- */
-export interface SuffixSeek {
-	readonly relation: string
-	readonly fixed: ReadonlyArray<string>
-	readonly column: string
-}
-
-/** The suffix seeks of a walk of `roots` (`SuffixSeek`), each once, in their walk's order. */
-/**
- * What a judged read reads by index, read off one walk of its DAG (physical/ddl/rules.ts requestsOf): the paths of
- * `extractAccess`, each with the lookups through it (paths.ts Lookup), and its suffix seeks, each once by its relation,
- * column and fixed columns, where the lookups and the seeks were each read off a walk of their own.
- */
-export interface JudgedReads {
-	readonly lookups: ReadonlyArray<Lookup>
-	readonly seeks: ReadonlyArray<SuffixSeek>
-}
-
-/** The JudgedReads of `roots`, one walk (`extracted`). */
-export const extractJudgedReads = (
-	roots: ReadonlyArray<RelNode>,
-	options: ExtractOptions
-): JudgedReads => {
-	const x = extracted(roots, options)
-	const once = new Map<string, SuffixSeek>()
-	for (const seek of x.seeks) {
-		once.getOrInsert([seek.relation, seek.column, ...seek.fixed].join("\u0000"), seek)
-	}
-	return { lookups: uniqueLookups(x.lookups), seeks: [...once.values()] }
 }
 
 /** The walk of `roots` (see `extractAccess`). */

@@ -1,6 +1,6 @@
 /**
- * A rule over a query asks the index of each read it makes (physical/ddl/rules.ts programRequests, each seek its judge's
- * statements print): a probe's index requests are the seeks of the chain that runs, each step a lookup of one relation
+ * A rule over a query asks the index of each read it makes (physical/ddl/rules.ts routineRequests, each read its judge's
+ * routine's plan binds): a probe's index requests are the seeks of the chain that runs, each step a lookup of one relation
  * by the columns the steps before it bound (analysis/theory/navigate.ts), which a step binds as `column = channel`, the
  * channel correlated with the row before it; and a
  * whole rule's requests lead with its unit's key (ir/law.ts LawIndexRequest), so no index another column leads serves
@@ -50,12 +50,6 @@ export const aRuleOverAQueryAsksAnIndexOfEachReadItsJudgeMakesAWholeRulesLedByIt
 		box: "every containment of D in S over T and U keyed by package, immutable or mutable, D joining them by g, h or both and holding U's w to a literal or not, beside a containment of U's g in Q or not, U keyed by g alone or not",
 		kept: [],
 		kills: [
-			{
-				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: '\t\t\tpath.use === "equality lookup" ||\n',
-				replacement: "",
-				why: "A judged read's equality lookups are asked from its IR again beside its statements' seeks: a whole rule's check over every row asks an index of the scan it starts from, led by the literal it reads U at, w, not by the unit, an index every write of U pays for a read one migration makes."
-			},
 			{
 				file: "packages/engine/src/sql/bind.ts",
 				original: "\t\t\t\treturn d !== undefined && d.depth < here.depth\n",

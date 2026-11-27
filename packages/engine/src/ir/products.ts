@@ -5,7 +5,6 @@ import type { EncodingFailure } from "#compiler/core/errors.ts"
 import type { IndexMethod } from "#compiler/core/identity.ts"
 import type {
 	DomainName,
-	ExprId,
 	LawId,
 	ParamId,
 	RelationIdent,
@@ -475,8 +474,19 @@ export const indexOpclassText = (c: IndexOpclass): string | undefined =>
 	c.kind === "default" ? undefined : `${c.schema}.${vectorCosineOpclass}`
 
 /**
- * An index the workload's programs and the roles' write filters ask for, by the access they make: each key an
- * expression of a program or a field by name, and its operator class. A program's access reads every row of its
+ * What a key of an access request holds: a field, by its name; or the suffix key of a text field (sql/suffix.ts
+ * suffixKeyOf), which a judged read's suffix test reads as a range where its suffix is fixed beside the row
+ * (physical/indexes/engine.ts KeyTerm `suffix`).
+ */
+export type AccessKeyTerm = string | { readonly suffix: string }
+
+/** A key's term as a path and a snapshot spell it: its field's name, or `suffix(<field>)` (engine.ts keyTermText). */
+export const accessKeyText = (term: AccessKeyTerm): string =>
+	typeof term === "string" ? term : `suffix(${term.suffix})`
+
+/**
+ * An index the workload's programs and the installation's routines ask for, by the access they make: each key a field
+ * or a text field's suffix key (AccessKeyTerm), and its operator class. A program's access reads every row of its
  * relation, so its request names none. Which programs make it, the snapshot's workload access records, so a program
  * edit that moves no index changes no request. A key carries no collation: every collatable key is
  * pg_catalog.pg_c_utf8, the closed constant of the SQL AST, so the request carries no option for it.
@@ -484,7 +494,7 @@ export const indexOpclassText = (c: IndexOpclass): string | undefined =>
 export interface AccessIndexRequest {
 	readonly relation: string
 	readonly keys: ReadonlyArray<{
-		readonly expr: ExprId | string
+		readonly expr: AccessKeyTerm
 		readonly dir: Direction
 		readonly opclass: IndexOpclass
 	}>

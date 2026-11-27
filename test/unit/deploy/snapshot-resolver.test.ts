@@ -30,7 +30,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import { derivedOf, emptySnapshot, writeRuntimeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { servedSnapshot, snapshotResolver } from "#compiler/deploy/snapshot/served.ts"
-import type { AccessIndexRequest } from "#compiler/ir/products.ts"
+import { type AccessIndexRequest, accessKeyText } from "#compiler/ir/products.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { jsonOf } from "#test/support/chunked.ts"
 import {
@@ -109,7 +109,7 @@ export const aSnapshotResolvesEveryReadAsTheInstallationItRecordsDoes = property
 						continue
 					}
 					const index = indexNamed(recorded.name.name)
-					const asked = Arr.map(r.keys, (k) => String(k.expr))
+					const asked = Arr.map(r.keys, (k) => accessKeyText(k.expr))
 					const keys = Arr.map(index.keys, keyField)
 					assert.ok(
 						index.relation === r.relation &&
