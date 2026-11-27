@@ -25,7 +25,8 @@ import {
 	planWorkload,
 	type ServedWorkloadPlan,
 	servedPrograms,
-	servedWorkload
+	servedWorkload,
+	withProgramAccess
 } from "#compiler/program/workload/compile.ts"
 import { installationsOf, type Owned, rostersOf } from "#compiler/schema/own.ts"
 import type { AnyLogin } from "#compiler/types/schema/world.ts"
@@ -48,7 +49,7 @@ export const compiledInstallation = (
 		const basis = succeeded(installBasis(owned, codes, new Set()), "the base's basis")
 		const checking = succeeded(artifactsOver(basis, unserved), "the base's artifacts")
 		const ownedLogin = succeeded(ownLoginOver(login, owned), "the login over its base")
-		const options = { artifacts: checking, roles: ownedLogin.roles }
+		const options = { artifacts: checking }
 		const { plan: workload, frontends } = yield* Effect.mapError(
 			fromEngine(
 				planWorkload(
@@ -128,12 +129,17 @@ export const compiledSnapshot = (
 ): Effect.Effect<unknown, ServedRefusal> =>
 	Effect.gen(function* () {
 		const { installation, plan } = yield* compiledInstallation(login, owned, codes)
+		const indexed = withProgramAccess(
+			plan,
+			installation.programAccess,
+			installation.names.vectorSchema
+		)
 		const snapshot = succeeded(
 			finishSnapshot(
 				succeeded(
 					targetState({
 						installation,
-						workload: { access: plan.access, accessPaths: plan.requests, live: plan.live },
+						workload: { access: indexed.access, accessPaths: indexed.requests, live: plan.live },
 						checks: lawChecks(installation)
 					}),
 					"the base's target state"

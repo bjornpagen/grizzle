@@ -387,10 +387,7 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 		fromEngine(artifactsOver(basis, unserved)),
 		refusedAt("workload")
 	)
-	const options = {
-		artifacts: configuredArtifacts,
-		roles: Arr.flatMap(logins, (l) => l.owned.roles)
-	}
+	const options = { artifacts: configuredArtifacts }
 	const { plan: programs, frontends } = yield* Effect.mapError(
 		fromEngine(
 			phased(phases, { name: "workload", of: [] }, () =>

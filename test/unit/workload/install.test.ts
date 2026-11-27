@@ -212,9 +212,9 @@ export const aWorkloadThatCannotInstallIsRefusedWithItsReasonAnotherSchemasAPath
 		kills: [
 			{
 				file: "packages/engine/src/program/workload/compile.ts",
-				original: "\treturn { paths: uniquePaths([...extraction.paths, ...ir.targets]) }",
-				replacement: "\treturn { paths: uniquePaths([...ir.targets]) }",
-				why: "Operator mutant (element) at packages/engine/src/program/workload/compile.ts:355 in irAccess: `[...extraction.paths, ...ir.targets]` becomes `[...ir.targets]`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				original: "\textractAccess(ir.roots, {\n",
+				replacement: "\textractAccess([], {\n",
+				why: "A program's IR asks no path (irAccess): the prefix search over the wildcard text asks no index, nothing refuses its key, and the workload installs where its B-tree entry is unbounded."
 			}
 		]
 	})

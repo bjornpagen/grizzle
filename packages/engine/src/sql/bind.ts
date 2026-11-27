@@ -128,7 +128,9 @@ export type Holds = "many" | "few"
  * - a span's, which no B-tree keys: GiST under range_ops serves its Allen relations, its scalar prefix through
  *   btree_gist;
  * - a search document's, which no B-tree keys: GIN serves its match.
- * A column of no byte bound and a byte string have no kind: an index serves no read of one, which is a filter.
+ * A text of no byte bound and a byte string are a text's and a scalar's like any other: a read binding one asks for it,
+ * and the index engine decides what serves the request or refuses it (physical/indexes/engine.ts refusedUndigested), the
+ * one place of the rule of what no entry holds.
  */
 export type BindColumn =
 	| {

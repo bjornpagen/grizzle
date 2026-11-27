@@ -7,10 +7,12 @@ import type { PhysicalNames } from "#compiler/ir/physical.ts"
  * (`installCatalog`), and its served programs', which compile before it plans its indexes (`artifactsCatalog`).
  *
  * What a column is (`columnOf`): a span and a search document are no B-tree's key, so an equality on one is a filter
- * beside a read's binding, but GiST serves a span's Allen relations and GIN a document's match; a byte string and a text
- * of no byte bound are no index's; of a B-tree's, a roster's handle and a boolean hold few values, the share of the rows
- * they pick bounded whatever the store holds, every other many, a vector among them, which pgvector's B-tree class
- * (vector_ops) keys, as a key of one does, by its own `=`, and whose distance HNSW serves.
+ * beside a read's binding, but GiST serves a span's Allen relations and GIN a document's match; of a B-tree's, a roster's
+ * handle and a boolean hold few values, the share of the rows they pick bounded whatever the store holds, every other
+ * many, a vector among them, which pgvector's B-tree class (vector_ops) keys, as a key of one does, by its own `=`, and
+ * whose distance HNSW serves. A byte string and a text of no byte bound are columns like any other: a read that binds one
+ * asks for it, and the index engine decides what serves it, a hash index for a byte string, an undigested text refused
+ * UnrepresentableKey (physical/indexes/engine.ts refusedUndigested), so the rule of what no entry holds has one place.
  */
 import {
 	baseOf,
@@ -21,29 +23,21 @@ import {
 } from "#compiler/ir/scalar.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import type { InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
-import { datumBound } from "#compiler/schema/representability.ts"
 import { type NameKey, nameKey } from "#compiler/sql/ast.ts"
 import type { BindColumn, BindTable, ReadCatalog } from "#compiler/sql/bind.ts"
 
 /**
  * A field as an index serves it (see the header), by its carrier: a span's and a search document's, which GiST and GIN
- * serve; no index's for a byte string or a text of no byte bound; a B-tree's for every other, of a network, a vector,
- * whose distance HNSW serves under the installation's cosine class, a text or a scalar, holding few values or many.
+ * serve; a B-tree's for every other, of a network, a vector, whose distance HNSW serves under the installation's cosine
+ * class, a text or a scalar, holding few values or many, a byte string and a text of no byte bound among them.
  */
-const columnOf = (
-	field: TargetField,
-	name: string,
-	vectorSchema: string
-): BindColumn | undefined => {
+const columnOf = (field: TargetField, name: string, vectorSchema: string): BindColumn => {
 	const carrier = baseOf(field.type).carrier
 	if (isSpanCarrier(carrier)) {
 		return { kind: "span", field: name }
 	}
 	if (carrier === "tsvector") {
 		return { kind: "search", field: name }
-	}
-	if (field.desc.kind === "bytes" || datumBound(field.desc) === undefined) {
-		return undefined
 	}
 	const holds = fewValued[carrier] ? "few" : "many"
 	if (carrier === "vector") {
@@ -86,7 +80,7 @@ export const leakyEquality = (type: ScalarType): boolean =>
 
 /**
  * The stored tables of the law model `model` under the installed names `names` (see the header), each by its name's
- * key: an ordinary relation's and a stored derived relation's, each column a B-tree holds by its installed name, each
+ * key: an ordinary relation's and a stored derived relation's, each column by its installed name, each
  * key of no span by its installed columns; and which names are views, `view`.
  */
 const catalogOf = (
@@ -100,13 +94,11 @@ const catalogOf = (
 		if (r.kind === "closed") {
 			continue
 		}
-		const columns = new Map<string, BindColumn>()
-		for (const f of r.fields) {
-			const column = columnOf(f, f.name, names.vectorSchema)
-			if (column !== undefined) {
-				columns.set(names.column(relation, f.name), column)
-			}
-		}
+		const columns = new Map(
+			r.fields.map(
+				(f) => [names.column(relation, f.name), columnOf(f, f.name, names.vectorSchema)] as const
+			)
+		)
 		const keys = r.keyNames.flatMap((k) =>
 			k.span === undefined ? [k.fields.map((f) => names.column(relation, f.name))] : []
 		)

@@ -218,8 +218,7 @@ export const aLoginsFootprintsReadAsItsWorkloadsPlanReadsThemCompileNoChangeSets
 				const plan = succeeded(
 					Result.mapError(
 						compileWorkload([{ login: owned.name, workloads: built.workload }], built.base, {
-							artifacts: watched,
-							roles: []
+							artifacts: watched
 						}),
 						(r) => r.error
 					),

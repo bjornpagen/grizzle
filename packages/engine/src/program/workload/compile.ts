@@ -94,7 +94,6 @@ import { hostArguments } from "#compiler/query/build/host.ts"
 import { ownBuiltRole, type OwnedRole } from "#compiler/schema/own.ts"
 import type { ReadPlan } from "#compiler/sql/plan.ts"
 import { compileChangeSet, type WriteFrontend } from "#compiler/write/frontend/compile.ts"
-import { primaryKeyShape } from "#compiler/write/frontend/targets.ts"
 import type { ServableWrite } from "#compiler/write/program/served.ts"
 
 interface WorkloadOptions {
@@ -103,8 +102,6 @@ interface WorkloadOptions {
 	 * HNSW operator class of `requests`.
 	 */
 	readonly artifacts: SchemaArtifacts
-	/** The roles the installation installs over the schema, whose write filters the plan plans. */
-	readonly roles: ReadonlyArray<OwnedRole>
 }
 
 /**
@@ -153,13 +150,12 @@ interface ProgramIr {
 	readonly params: ReadonlyArray<ParamDecl>
 	/** The roots a page may read, an Ordered query's ordered result, each with how its windows read its rows. */
 	readonly pageable: ReadonlyArray<PagedRoot>
-	/** The write targets of a ChangeSet: each written relation's primary key. */
-	readonly targets: ReadonlyArray<AccessPath>
 }
 
 /**
  * One program's plan, as the database would compile it on the workload schema: a query's access and footprint, both
- * read from its one checked IR (queryRead); a ChangeSet's access alone, since no read subscribes to a write; and an
+ * read from its one checked IR (queryRead); a ChangeSet's types alone, since no read subscribes to a write and its
+ * reads' paths are its served write's plans' (servedPrograms, physical/install/compile.ts programAccess); and an
  * answered query, read at its call's instant alone (`answered`, a clocked read's among them), its access alone, since
  * no change wakes it.
  * A ChangeSet over a role is the role's, whose statements write the base's tables. A parameter a member binds to the
@@ -176,7 +172,7 @@ type ProgramPlan = {
 } & (
 	| { readonly kind: "query"; readonly access: ProgramAccess; readonly footprint: Footprint }
 	| { readonly kind: "answered"; readonly access: ProgramAccess }
-	| { readonly kind: "changeSet"; readonly access: ProgramAccess }
+	| { readonly kind: "changeSet" }
 )
 
 /**
@@ -245,11 +241,7 @@ const programPlan = (
 				),
 				({ ir, frontend }): Planned => ({
 					kind: "write",
-					plan: {
-						kind: "changeSet",
-						served: servedTypesOf(name, ir.params, ir.roots),
-						access: changeSetAccess(ir, reads)
-					},
+					plan: { kind: "changeSet", served: servedTypesOf(name, ir.params, ir.roots) },
 					frontend,
 					clock
 				})
@@ -283,8 +275,6 @@ const queryRead = (
 	analyzedQuery(
 		reads.world.kind === "role" ? inlineWorlds(query, reads.world.checked) : query,
 		reads.artifacts.derived.schema,
-		"rows",
-		"query",
 		clock
 	)
 
@@ -366,24 +356,7 @@ const accessRead = (
 	reads: WorkloadReads,
 	clock: ClockBinding
 ): Result.Result<AnalyzedQuery, CompileError> =>
-	reads.world.kind === "role"
-		? analyzedQuery(query, reads.world.checked, "rows", "query", clock)
-		: Result.ok(read)
-
-/**
- * A query's IR over its checked schema, the query read as `reading` names: as rows, or as a write filter's membership,
- * which reads its row (analyzedQuery, then rowsIr).
- */
-const checkedQueryIr = (
-	query: QueryDesc,
-	read: CheckedSchema,
-	reading: "rows" | "membership",
-	label: string,
-	artifacts: SchemaArtifacts
-): Result.Result<ProgramIr, CompileError> =>
-	Result.map(analyzedQuery(query, read, reading, label, noClock), (analyzed) =>
-		rowsIr(analyzed, isOrderedQuery(query), artifacts)
-	)
+	reads.world.kind === "role" ? analyzedQuery(query, reads.world.checked, clock) : Result.ok(read)
 
 /**
  * An analyzed query's IR as its access is extracted: its root with every node's logical metadata (logical/annotate.ts),
@@ -402,8 +375,7 @@ const rowsIr = (
 		pageable:
 			ordered && root.kind === "OrderedResult"
 				? [{ root, window: servedWindow(root, artifacts) }]
-				: [],
-		targets: []
+				: []
 	}
 }
 
@@ -439,7 +411,7 @@ export interface AnalyzedQuery {
 }
 
 /**
- * A query checked over `read`, read as `reading` names, in the normal forms its optimized lowering states it in (its
+ * A query checked over `read`, read as rows, in the normal forms its optimized lowering states it in (its
  * filters in Allen normal form, eliminate/index.ts keyJoinNormalDag folding every two occurrences of a stored relation
  * joined on a key into one), with the logical analysis of that DAG under the checker's evidence: what its access paths
  * (rowsIr) and a read program's footprint (logical/routes.ts footprintOf) are read from.
@@ -447,19 +419,14 @@ export interface AnalyzedQuery {
 const analyzedQuery = (
 	query: QueryDesc,
 	read: CheckedSchema,
-	reading: "rows" | "membership",
-	label: string,
 	clock: ClockBinding
 ): Result.Result<AnalyzedQuery, CompileError> =>
 	Result.flatMap(
-		checkQuery(read, query, { read: reading, label, clock, session: CheckSession.own() }),
+		checkQuery(read, query, { read: "rows", label: "query", clock, session: CheckSession.own() }),
 		(admitted) => {
-			/** Its rows as its lowering reads them (ir/derived.ts servedQuery): a read's stored derived relations by their
-			 * tables, a membership's every derived relation by its definition (write/entry/render.ts renderMembership). */
-			const checked = servedQuery(
-				admitted,
-				reading === "rows" ? read.rows(noneWritten) : read.expanded()
-			)
+			/** Its rows as its lowering reads them (ir/derived.ts servedQuery), its stored derived relations by their
+			 * tables. */
+			const checked = servedQuery(admitted, read.rows(noneWritten))
 			return Result.flatMap(allenNormalDag(checked.dag), (allen) =>
 				Result.flatMap(keyJoinNormalDag(allen), (dag) => {
 					const facts = new Map<RelNode, RouteFacts>()
@@ -504,24 +471,10 @@ const changeSetIr = (
 			clock,
 			source: transactionClock
 		}),
-		(frontend) => {
-			/** Each relation an action writes facts of, whose primary key every action states. */
-			const targeted = new Set(frontend.ir.strata.flatMap((s) => s.actions.map((a) => a.relation)))
-			const targets = frontend.written
-				.filter((r) => targeted.has(r.name))
-				.map((r): AccessPath => ({
-					relation: r.name,
-					derived: false,
-					method: primaryKeyShape(r).kind === "span" ? "gist" : "btree",
-					keys: r.primaryKey.map((field) => ({ field, dir: "asc" as const })),
-					fixed: r.primaryKey.length,
-					use: "write target"
-				}))
-			return {
-				ir: { roots: frontend.ir.dag.roots, params: frontend.params, pageable: [], targets },
-				frontend
-			}
-		}
+		(frontend) => ({
+			ir: { roots: frontend.ir.dag.roots, params: frontend.params, pageable: [] },
+			frontend
+		})
 	)
 }
 
@@ -552,30 +505,16 @@ const loweredIr = (
 					pageable:
 						ordered && root.kind === "OrderedResult"
 							? [{ root, window: servedWindow(root, artifacts) }]
-							: [],
-					targets: []
+							: []
 				}
 			}
 		)
 	)
 
 /**
- * The access paths a ChangeSet's IR gives that its statements' bound reads do not: a join's key, a range, a prefix
- * search, a take's or a page's seek, a span predicate, an approximate retrieval, a text search, a network containment,
- * each of which its statements order, span or match by. A lookup by equalities alone is its served write's plan's to
- * ask (write/program/served.ts ServableWrite `plan`, physical/install/compile.ts programAccess), never its IR's, whose
- * lowering lands a filter's constant, a step's bound column or a computed value on a read the IR does not show.
- */
-const changeSetAccess = (ir: ProgramIr, reads: WorkloadReads): ProgramAccess => ({
-	paths: irAccess(ir, reads.artifacts.laws, reads.worlds).paths.filter(
-		(p) => p.use !== "equality lookup" && p.use !== "key lookup" && p.use !== "write target"
-	)
-})
-
-/**
- * `plan` with each served ChangeSet's paths its served write's seeks ask (physical/install/compile.ts Installation
- * `programAccess`) recorded beside the paths its IR gives (`changeSetAccess`): its programs' access, its paths and its
- * requests, what the snapshot records and `grizzle check` compares.
+ * `plan` with each served ChangeSet's paths, every read its served write's bound statements make
+ * (physical/install/compile.ts Installation `programAccess`), recorded as its access: its programs' access, its paths and
+ * its requests, what the snapshot records and `grizzle check` compares.
  */
 export const withProgramAccess = (
 	plan: WorkloadPlan,
@@ -633,14 +572,12 @@ export const servedPrograms = (
  * The access paths of a program's IR, each key read in its index's order as the law model `laws` installs it, and each
  * world relation it reads beneath its barrier view (`worlds`).
  */
-const irAccess = (ir: ProgramIr, laws: LawModel, worlds: WorldViews): ProgramAccess => {
-	const extraction = extractAccess(ir.roots, {
+const irAccess = (ir: ProgramIr, laws: LawModel, worlds: WorldViews): ProgramAccess =>
+	extractAccess(ir.roots, {
 		pageable: ir.pageable,
 		keyOrders: keyOrdersOf(laws.theory.relations),
 		worlds
 	})
-	return { paths: uniquePaths([...extraction.paths, ...ir.targets]) }
-}
 
 /**
  * A workload input: a workload value, or a WorkloadDesc with the schema it belongs to. A Description carries no content
@@ -869,34 +806,9 @@ export const loginFootprints = (
 	return Result.ok(new Map([...footprints].toSorted(([a], [b]) => compareStrings(a, b))))
 }
 
-/**
- * The access of one role's write filter: the filter query planned over the base as a program of its own, read as a
- * membership, so its row is the one fact it is (schema/entry.ts) and binds every probe of what it joins.
- */
-const filterAccess = (
-	role: OwnedRole,
-	artifacts: SchemaArtifacts
-): Result.Result<ReadonlyArray<ProgramAccess>, CompileError> => {
-	const out: Array<ProgramAccess> = []
-	for (const e of role.writes.values()) {
-		if (e.kind === "whole" || e.writable.filter.kind !== "query") {
-			continue
-		}
-		const label = `write filter ${role.name}.${e.name}`
-		const ir = checkedQueryIr(
-			e.writable.filter.query,
-			artifacts.derived.schema,
-			"membership",
-			label,
-			artifacts
-		)
-		if (!ir.ok) {
-			return ir
-		}
-		out.push(irAccess(ir.value, artifacts.laws, noWorlds))
-	}
-	return Result.ok(out)
-}
+/** A program's access as its plan reads it: a read's paths; none of a ChangeSet's, which its served write's plans ask. */
+const programAccess = (planned: ProgramPlan): ProgramAccess =>
+	planned.kind === "changeSet" ? { paths: [] } : planned.access
 
 /**
  * The live plan of an installation's logins (live/notify.ts LivePlan), the union of `footprints`: none where no login
@@ -939,11 +851,6 @@ const livePlanOf = (footprints: WorkloadFootprints): LivePlan => {
  * The workload installs nothing and gates no execution: a program the checker refuses is refused here with its
  * CompileError, naming the program and its workload (WorkloadPlanRefused), so a broken workload never drafts a
  * migration.
- *
- * Beside the programs, the plan holds every installed role's write filters (schema/entry.ts EntryFilter): a policy and
- * each write's precheck evaluate a query entry's filter at every write of it, so its probes into other relations are
- * planned as a program of their own over the base, `write filter <role>.<entry>`. A schema without a workload plans
- * its roles' filters alone.
  *
  * The plan of `logins` over `schema`, parsed (program/schema.ts parseSchemaInput), under the options' artifacts.
  */
@@ -1006,7 +913,7 @@ const workloadPlanned = (
 			return programs
 		}
 		access[login.login] = Object.fromEntries(
-			programs.value.map(([name, planned]) => [name, planned.access] as const)
+			programs.value.map(([name, planned]) => [name, programAccess(planned)] as const)
 		)
 		appendAll(
 			served,
@@ -1021,17 +928,9 @@ const workloadPlanned = (
 			)
 		)
 	}
-	const planned: Array<ProgramAccess> = Object.values(access).flatMap((programs) =>
-		Object.values(programs)
+	const paths: ReadonlyArray<AccessPath> = uniquePaths(
+		Object.values(access).flatMap((programs) => Object.values(programs).flatMap((p) => p.paths))
 	)
-	for (const role of options.roles.toSorted((a, b) => compareStrings(a.name, b.name))) {
-		const filters = filterAccess(role, artifacts)
-		if (!filters.ok) {
-			return Result.err(planRefused(filters.error))
-		}
-		appendAll(planned, filters.value)
-	}
-	const paths: ReadonlyArray<AccessPath> = uniquePaths(planned.flatMap((p) => p.paths))
 	const physical: WorkloadPhysical = {
 		schema: artifacts.fingerprint,
 		paths,

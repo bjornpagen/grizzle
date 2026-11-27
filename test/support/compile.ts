@@ -430,7 +430,7 @@ export const compileInputWorkload = (
 	naming: TestNaming
 ): Result.Result<WorkloadPlan, CompileError> =>
 	Result.flatMap(inputArtifacts(input, naming), (artifacts) =>
-		Result.mapError(compileWorkload(logins, input, { artifacts, roles: [] }), (r) => r.error)
+		Result.mapError(compileWorkload(logins, input, { artifacts }), (r) => r.error)
 	)
 
 /**

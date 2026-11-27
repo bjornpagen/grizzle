@@ -31,7 +31,7 @@ export const changeLogin = (value: unknown): ChangeLogin => {
 		planWorkload(
 			[{ login: ownedLogin.name, workloads: built.workload }],
 			built.base,
-			{ artifacts: checking, roles: ownedLogin.roles },
+			{ artifacts: checking },
 			silentPhases
 		),
 		"the login's workload plan"
