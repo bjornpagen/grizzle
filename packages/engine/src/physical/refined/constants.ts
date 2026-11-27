@@ -9,6 +9,7 @@ import {
 	noCertificates,
 	noContribution,
 	noFences,
+	noWorldViews,
 	servesNoParams
 } from "#compiler/physical/install/extension.ts"
 
@@ -39,5 +40,6 @@ export const refinedConstantsExtension: InstallExtension = {
 	carriers: noCarriers,
 	calls: noCalls,
 	live: noLive,
-	fences: noFences
+	fences: noFences,
+	worldViews: noWorldViews
 }

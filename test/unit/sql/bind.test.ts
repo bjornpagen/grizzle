@@ -56,7 +56,8 @@ import {
 	topJoins,
 	tReadsOf,
 	tViewAlias,
-	viewedLevels
+	viewedLevels,
+	worldTAlias
 } from "#test/unit/sql/bind.fixtures.ts"
 
 /** Every read of T is bound as its level fixes it, where it stands, under the scope's one alias. */
@@ -78,6 +79,51 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 						`the context's claims row is ${inner}, the scope's, the one item of the level its alias names (${Formatter.format(levels)})`
 					)
 					c.note("a context source's row named by the scope, its level's one item")
+					return
+				}
+				if (drawn.place.kind === "world") {
+					const { top } = viewedLevels(bound.plan)
+					const [reference, ...beside] = top
+					const inner = Arr.flatMap(bound.plan.levels, (level) =>
+						reference !== undefined &&
+						level.name.kind === "named" &&
+						level.name.name === reference.alias
+							? levelItems(level)
+							: []
+					)
+					const spec = specified(drawn)
+					assert.deepEqual(
+						{
+							reference: reference?.scan.kind,
+							beside: beside.length,
+							inner: Arr.map(inner, (i) => ({
+								alias: String(i.alias),
+								scan:
+									i.scan.kind === "index"
+										? { kind: "index", probe: false, bound: [...i.scan.bound] }
+										: { kind: i.scan.kind === "seq" ? "whole" : i.scan.kind }
+							}))
+						},
+						{
+							reference: "rows",
+							beside: 0,
+							inner: [
+								{
+									alias: worldTAlias(),
+									scan:
+										spec.kind === "index"
+											? { kind: "index", probe: false, bound: [...spec.bound] }
+											: { kind: spec.kind }
+								}
+							]
+						},
+						"a read of T's world view plans its body under the reference's alias, T named as its body names it"
+					)
+					c.note(
+						drawn.place.leaky
+							? "a world view's read whose qual its barrier keeps out"
+							: "a world view's read planned under its body's aliases, the reader's qual pushed past its barrier"
+					)
 					return
 				}
 				if (drawn.place.kind === "viewed") {
@@ -213,6 +259,32 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 		oracle: { kind: "specification", name: "the contract's binding rules (CARRY-CONTRACT §1)" },
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original:
+					"\t\tconst scope = new ViewScope(view.ordinal)\n\t\tconst nested = new Binder(scope, this.#catalog, this.#reads)\n",
+				replacement:
+					"\t\tconst scope = new ViewScope(view.ordinal + 1)\n\t\tconst nested = new Binder(scope, this.#catalog, this.#reads)\n",
+				why: "A world view's body planned under another view's scope: its reads are named by aliases its installed body does not hold, and the advice of a read of it names no relation PostgreSQL plans."
+			},
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original: "\t\tlet query: OperandSelect = namedQuery(view.prepared, view.columns)\n",
+				replacement: "\t\tlet query: OperandSelect = view.prepared\n",
+				why: "A reader's qual is pushed into a world view's body by the body's own output names, not the view's: a qual of a view column its definition names otherwise finds no output, stays above the barrier PostgreSQL pushes it past, and the body is planned whole where PostgreSQL reads its table at the key."
+			},
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original: "\t\t\t\t!passesBarrier(c, written, view.leaky) ||\n",
+				replacement: "\t\t\t\ttrue ||\n",
+				why: "No reader's qual passes a world view's barrier: the body is planned whole where PostgreSQL pushes the leakproof equality in and reads its table at the key, so the carried scan is not the one PostgreSQL runs."
+			},
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original: "\t\tpasses &&= table !== written || !leaky.has(column)\n",
+				replacement: "\t\tpasses &&= true\n",
+				why: "A qual of a leaky column pushed past a world view's barrier, which PostgreSQL keeps above it: the body's table is planned at a key PostgreSQL never binds."
+			},
 			{
 				file: "packages/engine/src/sql/bind.ts",
 				original:

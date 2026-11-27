@@ -5,6 +5,7 @@ import { malformedDescription } from "#compiler/core/errors.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type LivePlan, noLive } from "#compiler/live/notify.ts"
+import type { RoleWorldViews } from "#compiler/physical/access/world-views.ts"
 import type { ServedTypes } from "#compiler/physical/ddl/domains.ts"
 import type { InstallOptions } from "#compiler/physical/install/compile.ts"
 import {
@@ -15,6 +16,7 @@ import {
 	noCertificates,
 	noContribution,
 	noFences,
+	noWorldViews,
 	noCalls,
 	type RoleCall,
 	type ServedProgram
@@ -54,7 +56,8 @@ export const workloadExtension = (workload: WorkloadPhysical): InstallExtension 
 	carriers: noCarriers,
 	calls: noCalls,
 	live: noLive,
-	fences: noFences
+	fences: noFences,
+	worldViews: noWorldViews
 })
 
 /**
@@ -74,6 +77,7 @@ export const servedWorkloadExtension = (
 		readonly live: LivePlan
 		readonly fences: ReadonlyArray<Fence>
 		readonly programs: ReadonlyArray<ServedProgram>
+		readonly worldViews: ReadonlyArray<RoleWorldViews>
 	}
 ): InstallExtension => ({
 	...workloadExtension(workload),
@@ -86,7 +90,8 @@ export const servedWorkloadExtension = (
 	carriers: workload.carriers,
 	calls: workload.calls,
 	live: workload.live,
-	fences: loginFences(workload.fences)
+	fences: loginFences(workload.fences),
+	worldViews: workload.worldViews
 })
 
 /** Installer options with the workload extension after the caller's extensions. */

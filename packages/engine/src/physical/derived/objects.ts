@@ -33,6 +33,7 @@ import {
 	noCertificates,
 	noContribution,
 	noFences,
+	noWorldViews,
 	servesNoParams
 } from "#compiler/physical/install/extension.ts"
 
@@ -407,7 +408,8 @@ export const storedTablesExtension: InstallExtension = {
 	carriers: noCarriers,
 	calls: noCalls,
 	live: noLive,
-	fences: noFences
+	fences: noFences,
+	worldViews: noWorldViews
 }
 
 /** A stored relation's fill: every row of its definition, into the table `create` makes (sql/ast.ts FillStored). */

@@ -3,13 +3,14 @@
  * them, each read of T stated where the binding meets it, and the read the specification says each binds.
  */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { type Gen, boolean, element } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order } from "effect"
 import { defaultOpclass } from "#compiler/ir/law.ts"
 import type { AccessIndexRequest } from "#compiler/ir/products.ts"
 import type { Expr, FromSource, OperandSelect, Select } from "#compiler/sql/ast.ts"
 import { nameKey } from "#compiler/sql/ast.ts"
-import type { BindTable, BindView, ReadCatalog } from "#compiler/sql/bind.ts"
+import { type BindTable, type BindView, bindView, type ReadCatalog } from "#compiler/sql/bind.ts"
 import {
 	and,
 	asc,
@@ -59,6 +60,8 @@ export type BindFeature =
 	| "a whole view's read named by its body's alias"
 	| "a whole view read twice at one level, the second a level of its own"
 	| "a context source's row named by the scope, its level's one item"
+	| "a world view's read planned under its body's aliases, the reader's qual pushed past its barrier"
+	| "a world view's read whose qual its barrier keeps out"
 
 export const bindFeatures = [
 	"a seek at a literal",
@@ -74,7 +77,9 @@ export const bindFeatures = [
 	"a derived table read per earlier row at its stored read's key",
 	"a whole view's read named by its body's alias",
 	"a whole view read twice at one level, the second a level of its own",
-	"a context source's row named by the scope, its level's one item"
+	"a context source's row named by the scope, its level's one item",
+	"a world view's read planned under its body's aliases, the reader's qual pushed past its barrier",
+	"a world view's read whose qual its barrier keeps out"
 ] as const
 
 /**
@@ -112,15 +117,59 @@ const tWhole: BindView = {
 	columns: new Map(Arr.map(["a", "b", "f", "v", "d"], (c) => [c, c] as const))
 }
 
-/** The catalog of T and S, of the schema `app`, T's whole view `app.t_whole`, and no trigger function. */
-export const catalog: ReadCatalog = {
+/** The tables of the catalog alone: what a world view's body is bound over. */
+const tablesOnly: ReadCatalog = {
 	table: (key) =>
 		key === nameKey({ schema: "app", name: "t" })
 			? tTable
 			: key === nameKey({ schema: "app", name: "s" })
 				? sTable
 				: undefined,
-	view: (key) => (key === nameKey({ schema: "app", name: "t_whole" }) ? tWhole : undefined),
+	view: () => undefined,
+	fired: () => undefined
+}
+
+/** A world view's definition over T, every row's a and b, and its body bound under its view scope, the first. */
+const worldDefinition = select(
+	keyedSet(
+		[target(col("t", "a")), target(col("t", "b"))],
+		[table("app", "t", "t")],
+		undefined,
+		"T's world"
+	)
+)
+export const worldBody = bindView(worldDefinition, 1, tablesOnly)
+
+/**
+ * T's world view, `app.t_world`, its columns named `wa` and `wb` where its definition delivers T's a and b, and the same
+ * view of wa's equality leaky, `app.t_leaky` (sql/bind.ts WorldBinding).
+ */
+const worldOf = (name: string, leaky: ReadonlyArray<string>): BindView => ({
+	kind: "world",
+	view: {
+		name: { schema: "app", name },
+		prepared: worldBody.prepared,
+		ordinal: 1,
+		minted: worldBody.minted,
+		columns: ["wa", "wb"],
+		leaky: new Set(leaky)
+	}
+})
+
+/**
+ * The catalog of T and S, of the schema `app`, T's whole view `app.t_whole`, its world views `app.t_world` and
+ * `app.t_leaky`, and no trigger function.
+ */
+export const catalog: ReadCatalog = {
+	table: tablesOnly.table,
+	view: (key) =>
+		key === nameKey({ schema: "app", name: "t_whole" })
+			? tWhole
+			: key === nameKey({ schema: "app", name: "t_world" })
+				? worldOf("t_world", [])
+				: key === nameKey({ schema: "app", name: "t_leaky" })
+					? worldOf("t_leaky", ["wa"])
+					: undefined,
 	fired: () => undefined
 }
 
@@ -151,6 +200,7 @@ export type Place =
 	| { readonly kind: "joined"; readonly over: "stored" | "cte" }
 	| { readonly kind: "viewed"; readonly reads: 1 | 2 }
 	| { readonly kind: "context" }
+	| { readonly kind: "world"; readonly leaky: boolean }
 
 export interface BindCase {
 	readonly place: Place
@@ -173,7 +223,9 @@ export const bindCaseGen: Gen<BindCase> = (source) => {
 			{ kind: "joined", over: "cte" },
 			{ kind: "viewed", reads: 1 },
 			{ kind: "viewed", reads: 2 },
-			{ kind: "context" }
+			{ kind: "context" },
+			{ kind: "world", leaky: false },
+			{ kind: "world", leaky: true }
 		])
 	)
 	return {
@@ -267,6 +319,15 @@ export const statementOf = (c: BindCase): Select => {
 		}
 		case "context":
 			return select(provedCore("oneRow", [target(col("x", "c1"))], [contextSource], undefined))
+		case "world":
+			return select(
+				keyedSet(
+					[target(col("w", "wb"))],
+					[table("app", c.place.leaky ? "t_leaky" : "t_world", "w")],
+					eq(col("w", "wa"), lit.int(7, types.integer)),
+					"a read of T's world view"
+				)
+			)
 		case "viewed": {
 			const viewRead = table("app", "t_whole", "t")
 			return select(
@@ -405,6 +466,8 @@ export const specified = (c: BindCase): SpecifiedRead => {
 			return { kind: "index", probe: true, bound: sorted(["b", ...held]) }
 		case "context":
 			return { kind: "whole" }
+		case "world":
+			return c.place.leaky ? { kind: "whole" } : { kind: "index", probe: false, bound: ["a"] }
 		case "viewed": {
 			const many = Arr.some(held, (f) => f !== "f")
 			return many ? { kind: "index", probe: false, bound: sorted(held) } : { kind: "whole" }
@@ -490,3 +553,7 @@ export const seekConditionsOf = (bound: Select): ReadonlyArray<string> => {
 	}).statement(bound)
 	return found
 }
+
+/** The alias the world view's body names T by, which its bound body reads T under. */
+export const worldTAlias = (): string =>
+	defined(tReadsOf(worldBody.bound)[0], "T's read in its world view's body").alias

@@ -16,13 +16,19 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import { derivedEvidence, type ViewEvidence } from "#compiler/laws/model/catalog.ts"
+import {
+	derivedEvidence,
+	evidenceCatalog,
+	type ViewEvidence
+} from "#compiler/laws/model/catalog.ts"
 import {
 	changedBy,
 	compileLaws,
 	type ConstraintLaw,
 	type LawModel
 } from "#compiler/laws/model/model.ts"
+import { servedCatalog } from "#compiler/physical/access/catalog.ts"
+import { roleWorldViews, type WorldView } from "#compiler/physical/access/world-views.ts"
 import { structuralRegex } from "#compiler/physical/ddl/domains.ts"
 import {
 	type InstallNames,
@@ -53,6 +59,7 @@ import type { SchemaLaws } from "#compiler/program/laws.ts"
 import type { FamilyInserts } from "#compiler/program/preview.ts"
 import type { DeclaredEntries } from "#compiler/schema/declared-entries.ts"
 import { type Owned, type OwnedRole, own } from "#compiler/schema/own.ts"
+import type { ReadCatalog } from "#compiler/sql/bind.ts"
 import type { RecordedLaw } from "#compiler/types/changeset/changeset.ts"
 import { type UnmatchedQuery, unmatchedQueryOf } from "#compiler/write/unmatched.ts"
 
@@ -117,7 +124,11 @@ export type InstalledSource = Exclude<ParamSource, { readonly kind: "unserved" }
  */
 export type InstalledArtifacts = SchemaArtifacts<InstalledSource>
 
-/** What a compilation reads as: reality, or a role over its base. */
+/**
+ * What a compilation reads as: reality, or a role over its base, with its world views (physical/access/world-views.ts
+ * roleWorldViews), computed once with the role's artifacts, which every statement of the role reads them by and the
+ * installation creates them from.
+ */
 export type ArtifactsWorld =
 	| { readonly kind: "reality" }
 	| {
@@ -125,7 +136,21 @@ export type ArtifactsWorld =
 			readonly role: OwnedRole
 			readonly checked: CheckedSchema<RoleWorld>
 			readonly names: WorldNames
+			readonly views: ReadonlyArray<WorldView>
 	  }
+
+/**
+ * The catalog the statements compiled over `artifacts` are bound over (sql/bind.ts ReadCatalog): the installation's
+ * tables and whole views, and a role's world views.
+ */
+export const artifactsCatalog = (
+	artifacts: Pick<SchemaArtifacts, "laws" | "names" | "world">
+): ReadCatalog =>
+	servedCatalog(
+		artifacts.laws,
+		artifacts.names,
+		artifacts.world.kind === "role" ? artifacts.world.views.map((v) => v.binding) : []
+	)
 
 interface SchemaArtifactOptions {
 	/**
@@ -282,10 +307,22 @@ export const roleArtifacts = <S extends ParamSource>(
 	if (!reads.ok) {
 		return reads
 	}
+	const views = catchCompileError(() =>
+		roleWorldViews({
+			names: base.names,
+			evidence: evidenceCatalog({ laws: base.laws, views: base.views }),
+			checked: read.value.checked,
+			views: named.views,
+			catalog: servedCatalog(base.laws, base.names, [])
+		})
+	)
+	if (!views.ok) {
+		return views
+	}
 	const artifacts: SchemaArtifacts<S> = {
 		...base,
 		reads: reads.value,
-		world: { kind: "role", role, checked: read.value.checked, names }
+		world: { kind: "role", role, checked: read.value.checked, names, views: views.value }
 	}
 	return Result.ok(artifacts)
 }

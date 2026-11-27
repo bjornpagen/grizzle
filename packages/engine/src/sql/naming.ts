@@ -162,15 +162,48 @@ declare const aliasBrand: unique symbol
  * names a sublink's or a set operation's level by (planner.c choose_plan_name): impossible by the spelling, never
  * refused by a check.
  */
-export type Alias = (`r${number}` | `v${number}`) & { readonly [aliasBrand]: true }
+export type Alias = (`r${number}` | `v${number}` | `v${number}n${number}`) & {
+	readonly [aliasBrand]: true
+}
 
-const mintAlias = nominal<`r${number}` | `v${number}`, Alias>()
+const mintAlias = nominal<`r${number}` | `v${number}` | `v${number}n${number}`, Alias>()
 
 /**
  * The alias the body of the whole view of the `ordinal`-th stored relation, from 1, names its table by (physical/ddl/
  * roles.ts wholeView, physical/access/catalog.ts wholeViewAliases): `v<ordinal>`, a spelling no advice scope mints.
  */
 export const wholeViewAlias = (ordinal: number): Alias => mintAlias(`v${ordinal}`)
+
+/** What a binding mints its aliases from (sql/bind.ts): an advice scope, or a world view's scope. */
+export interface Scope {
+	alias(origin: NameOrigin): Alias
+}
+
+/**
+ * The scope a role's world view's body is bound under (sql/bind.ts bindView), the `ordinal`-th of its role's query
+ * entries by name: `v<ordinal>n<j>`, j from 1, a spelling no advice scope mints. PostgreSQL plans the view apart under
+ * the reference's alias, so a read's targets inside it are `v<ordinal>n<j>@<reference alias>`, and each level of its
+ * own is named `v<ordinal>n<j>`, a name no other view of the role holds. Every binding of one view's body mints the same
+ * names in the same order, its installation's and each reader's alike. Local mutable state owned by one binding.
+ */
+export class ViewScope implements Scope {
+	readonly #ordinal: number
+	#minted = 0
+
+	constructor(ordinal: number) {
+		this.#ordinal = ordinal
+	}
+
+	alias(_origin: NameOrigin): Alias {
+		this.#minted += 1
+		return mintAlias(`v${this.#ordinal}n${this.#minted}`)
+	}
+
+	/** How many aliases the scope minted. */
+	minted(): number {
+		return this.#minted
+	}
+}
 
 /**
  * One advice scope (sql/advice.ts): every alias of every statement bound in it, a relation's, a sub-query's, a probe's
@@ -181,7 +214,7 @@ export const wholeViewAlias = (ordinal: number): Alias => mintAlias(`v${ordinal}
  * by itself. Its numbering is its own, from r1: local mutable state owned by the one binding of the scope
  * (sql/bind.ts).
  */
-export class AdviceScope {
+export class AdviceScope implements Scope {
 	#next = 1
 	readonly #entries: Array<NameEntry> = []
 

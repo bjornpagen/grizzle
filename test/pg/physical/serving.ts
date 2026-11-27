@@ -64,6 +64,7 @@ import {
 	noCertificates,
 	noContribution,
 	noFences,
+	noWorldViews,
 	servesNoParams
 } from "#compiler/physical/install/extension.ts"
 import { printAdvice } from "#compiler/sql/advice.ts"
@@ -268,7 +269,8 @@ export const drawnRequests = (specs: ReadonlyArray<RequestSpec>): InstallExtensi
 	carriers: noCarriers,
 	calls: noCalls,
 	live: noLive,
-	fences: noFences
+	fences: noFences,
+	worldViews: noWorldViews
 })
 
 /** A roster's domain, qualified and quoted, as a cast to a closed id's code names it. */

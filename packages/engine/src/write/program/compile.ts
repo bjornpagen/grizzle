@@ -2031,7 +2031,11 @@ const compileAt = (
 	const binding: Emitting = {
 		kind: "advised",
 		scope: new AdviceScope(),
-		catalog: servedCatalog(options.laws, options.names)
+		catalog: servedCatalog(
+			options.laws,
+			options.names,
+			options.world.kind === "role" ? options.world.views : []
+		)
 	}
 	/** The statements every lowering below builds, shared where their requests are equal. */
 	const share = new StatementShare<EmittedSql>()

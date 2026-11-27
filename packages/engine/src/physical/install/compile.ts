@@ -507,7 +507,8 @@ export const installationOfPlan = (
 				plan,
 				options.extensions.flatMap((e) => e.fences)
 			),
-			rules.standUps
+			rules.standUps,
+			options.extensions.flatMap((e) => e.worldViews)
 		)
 		addLiveSource(b, live)
 		/**

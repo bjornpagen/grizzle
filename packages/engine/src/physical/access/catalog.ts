@@ -29,7 +29,13 @@ import type { LawModel } from "#compiler/laws/model/model.ts"
 import type { InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
 import { ledgerHeadTableName } from "#compiler/physical/ddl/ledger.ts"
 import { type NameKey, nameKey, type ObjectName } from "#compiler/sql/ast.ts"
-import type { BindColumn, BindTable, BindView, ReadCatalog } from "#compiler/sql/bind.ts"
+import type {
+	BindColumn,
+	BindTable,
+	BindView,
+	ReadCatalog,
+	WorldBinding
+} from "#compiler/sql/bind.ts"
 import { type Alias, wholeViewAlias } from "#compiler/sql/naming.ts"
 
 /**
@@ -99,8 +105,8 @@ export const wholeViewAliases = (model: LawModel): ReadonlyMap<string, Alias> =>
 			.map((r, at) => [r.name, wholeViewAlias(at + 1)] as const)
 	)
 
-/** A view PostgreSQL plans apart under the reference's alias, a world view's (sql/bind.ts BindView). */
-const worldView: BindView = { kind: "world" }
+/** A view PostgreSQL plans apart under the reference's alias, whose body no plan names (sql/bind.ts BindView). */
+const apartView: BindView = { kind: "apart" }
 
 /** The installed names the binding's catalog reads (`catalogOf`): a table's and its columns', and a whole view's. */
 type CatalogNames = Pick<PhysicalNames, "relation" | "column" | "vectorSchema"> & {
@@ -112,17 +118,21 @@ type CatalogNames = Pick<PhysicalNames, "relation" | "column" | "vectorSchema"> 
  * key: an ordinary relation's and a stored derived relation's, each column by its installed name, each key of no span by
  * its installed columns; each one's whole view (InstallNames `wholeView`), its table read under the alias its body names
  * it by (`wholeViewAliases`), each of its columns the table's column it reads, a closed id's decoded column its code's
- * (physical/ddl/roles.ts viewColumns); and which other names are views PostgreSQL plans apart, `world`.
+ * (physical/access/world-views.ts viewColumns); each of `worlds`, a role's world views (BindView `world`); and which
+ * other names are views PostgreSQL plans apart, `apart`.
  */
 const catalogOf = (
 	model: LawModel,
 	names: CatalogNames,
-	world: (key: NameKey, tables: ReadonlyMap<NameKey, BindTable>) => boolean,
+	worlds: ReadonlyArray<WorldBinding>,
+	apart: (key: NameKey, tables: ReadonlyMap<NameKey, BindTable>) => boolean,
 	fired: ReadCatalog["fired"],
 	bookkeeping: ReadonlyMap<NameKey, BindTable>
 ): ReadCatalog => {
 	const tables = new Map<NameKey, BindTable>(bookkeeping)
-	const views = new Map<NameKey, BindView>()
+	const views = new Map<NameKey, BindView>(
+		worlds.map((view) => [nameKey(view.name), { kind: "world", view }] as const)
+	)
 	const aliases = wholeViewAliases(model)
 	for (const [relation, r] of Object.entries(model.theory.relations)) {
 		if (r.kind === "closed") {
@@ -165,7 +175,7 @@ const catalogOf = (
 	}
 	return {
 		table: (key) => tables.get(key),
-		view: (key) => views.get(key) ?? (world(key, tables) ? worldView : undefined),
+		view: (key) => views.get(key) ?? (apart(key, tables) ? apartView : undefined),
 		fired
 	}
 }
@@ -228,6 +238,7 @@ export const installCatalog = (b: InstallBuilder): ReadCatalog => {
 	return catalogOf(
 		b.model,
 		b.names,
+		[],
 		(key) => views.has(key),
 		(fn) => fired.get(fn),
 		ledgerHead(b.schema)
@@ -239,14 +250,19 @@ const noViews: ReadonlySet<string> = new Set(["pg_temp", "pg_catalog"])
 
 /**
  * The catalog of the installation a served program compiles against (see the header), before it exists, its law model
- * `model` under its installed names `names`: every name the program reads that is no stored table, outside the
- * session's and the catalog's schemas, a role's view, as a role's programs read every relation through one
- * (physical/ddl/names.ts roleReadNames).
+ * `model` under its installed names `names`, the world views of the role it compiles for `worlds`, none for reality's
+ * (physical/access/world-views.ts roleWorldViews): every other name the program reads that is no stored table and no
+ * whole view, outside the session's and the catalog's schemas, a view PostgreSQL plans apart.
  */
-export const servedCatalog = (model: LawModel, names: CatalogNames): ReadCatalog =>
+export const servedCatalog = (
+	model: LawModel,
+	names: CatalogNames,
+	worlds: ReadonlyArray<WorldBinding>
+): ReadCatalog =>
 	catalogOf(
 		model,
 		names,
+		worlds,
 		(key, tables) => {
 			const schema = key.slice(0, key.indexOf("\u0000"))
 			return !tables.has(key) && !noViews.has(schema)

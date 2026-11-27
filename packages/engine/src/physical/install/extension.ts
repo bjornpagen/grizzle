@@ -7,6 +7,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import type { AccessIndexRequest, IndexRequest } from "#compiler/ir/products.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import type { LivePlan } from "#compiler/live/notify.ts"
+import type { RoleWorldViews } from "#compiler/physical/access/world-views.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { noServedTypes, type ServedTypes } from "#compiler/physical/ddl/domains.ts"
 import type { ReadPlan } from "#compiler/sql/plan.ts"
@@ -87,7 +88,17 @@ export interface InstallExtension {
 	 * certification (program/workload/compile.ts servedWorkload); every other extension's, none (`noFences`).
 	 */
 	readonly fences: ReadonlyArray<LoginFence>
+	/**
+	 * Each role's world views as its compile computed them (physical/access/world-views.ts roleWorldViews), which the
+	 * installation creates from, lowering none of them again (physical/ddl/roles.ts addWorlds): the served workload's,
+	 * from its roles' artifacts (program/workload/compile.ts servedWorldViews); every other extension's, none
+	 * (`noWorldViews`), an installation computing a role's views where no extension hands them over.
+	 */
+	readonly worldViews: ReadonlyArray<RoleWorldViews>
 }
+
+/** No role's world views: what an extension that compiles no role states. */
+export const noWorldViews: ReadonlyArray<RoleWorldViews> = []
 
 /** No parameter type: what an extension that serves no program states. */
 export const servesNoParams = (): Result.Result<ServedTypes, CompileError> =>

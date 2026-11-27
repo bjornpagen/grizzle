@@ -34,6 +34,7 @@
  * The pass is total and exact: it changes no result, and every binding it moves into a read node is an equality that
  * was in a WHERE or an ON. A read it cannot classify is an internal compiler error.
  */
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	isNonEmpty,
@@ -102,7 +103,13 @@ import {
 	targetAs,
 	types
 } from "#compiler/sql/build.ts"
-import { type Alias, type AdviceScope, namedQuery } from "#compiler/sql/naming.ts"
+import {
+	type Alias,
+	type AdviceScope,
+	namedQuery,
+	type Scope,
+	ViewScope
+} from "#compiler/sql/naming.ts"
 import type {
 	JoinedItem,
 	JoinMethod,
@@ -176,7 +183,9 @@ export interface BindTable {
  *   advice scope mints, sql/naming.ts wholeViewAlias), so a read of it is bound as a read of its table, its plan's item
  *   named by that alias; each column of the view by the table's column it reads (`columns`), a closed id's decoded
  *   column its code's;
- * - `world`: a query entry's, behind a security barrier, which PostgreSQL plans apart under the reference's alias.
+ * - `world`: a role's query entry's, behind a security barrier, which PostgreSQL plans apart under the reference's alias,
+ *   its body's relations planned there under the aliases its view scope mints (WorldBinding);
+ * - `apart`: any other view, planned apart under the reference's alias by PostgreSQL's choice, whose body no plan names.
  */
 export type BindView =
 	| {
@@ -185,7 +194,26 @@ export type BindView =
 			readonly alias: Alias
 			readonly columns: ReadonlyMap<string, string>
 	  }
-	| { readonly kind: "world" }
+	| { readonly kind: "world"; readonly view: WorldBinding }
+	| { readonly kind: "apart" }
+
+/**
+ * A role's world view as the binding reads it (BindView `world`): its name; its definition after its logical rewrites
+ * (`prepared`, sql/print-once.ts printedOnce), which its installation binds into the body it creates (`bindView`) and a
+ * reader binds again with the reader's quals PostgreSQL pushes past its barrier; its place among its role's query
+ * entries, whose view scope its body's aliases come from (sql/naming.ts ViewScope); how many that binding mints; its
+ * columns, as the view names them, each its definition's output at its place, which a reader's qual reads; and its
+ * columns whose equality PostgreSQL holds leaky (physical/access/catalog.ts leakyEquality), no qual of which passes its
+ * barrier.
+ */
+export interface WorldBinding {
+	readonly name: ObjectName
+	readonly prepared: Select
+	readonly ordinal: number
+	readonly minted: number
+	readonly columns: NonEmptyReadonlyArray<string>
+	readonly leaky: ReadonlySet<string>
+}
 
 /**
  * A stored relation a FROM source names, as the binding reads it (Binder `#stored`): its table, read as itself, under the
@@ -486,6 +514,30 @@ const requestOf = (
 	role: "access",
 	use
 })
+
+/**
+ * Whether PostgreSQL pushes the conjunct `c` past a security barrier into the view `written` reads (allpaths.c
+ * subquery_push_qual under security_barrier, contain_leaked_vars): a comparison of a column of the view by the builtin
+ * `=`, `<`, `<=`, `>=` or `>`, a list or array membership by `=`, holding no sublink and no VOLATILE call, of no column
+ * whose equality is leaky (`leaky`); the binding reads no other qual past one.
+ */
+const passesBarrier = (c: Expr, written: string, leaky: ReadonlySet<string>): boolean => {
+	if (opaque(c)) {
+		return false
+	}
+	const compares =
+		(c.kind === "binary" && c.schema === undefined && (c.op === "=" || rangeOperators.has(c.op))) ||
+		(c.kind === "inList" && !c.not) ||
+		(c.kind === "equalsAny" && c.schema === undefined)
+	if (!compares) {
+		return false
+	}
+	let passes = true
+	eachColumn(c, (table, column) => {
+		passes &&= table !== written || !leaky.has(column)
+	})
+	return passes
+}
 
 /** The comparisons PostgreSQL reads as a B-tree's range of one column (nbtree's strategies `<`, `<=`, `>=`, `>`). */
 const rangeOperators: ReadonlySet<string> = new Set(["<", "<=", ">", ">="])
@@ -994,14 +1046,16 @@ const pushedInto = (q: OperandSelect, alias: string, c: Expr): OperandSelect | u
  * its reads are bound (BoundReads); and whether the statement reads what it reads whole, once (`#whole`).
  */
 class Binder {
-	readonly #scope: AdviceScope
+	readonly #scope: Scope
 	readonly #catalog: ReadCatalog
 	readonly #reads: BoundReads
 	readonly #levels: Array<PlanLevel<AccessIndexRequest>> = []
 	#needs: ReadonlyMap<string, ReadonlySet<string>> = new Map()
 	#whole = false
+	/** The world views the statement reads whose bodies hold levels of their own, by ordinal (`worldEntry`). */
+	readonly #worlds = new Set<number>()
 
-	constructor(scope: AdviceScope, catalog: ReadCatalog, reads: BoundReads) {
+	constructor(scope: Scope, catalog: ReadCatalog, reads: BoundReads) {
 		this.#scope = scope
 		this.#catalog = catalog
 		this.#reads = reads
@@ -1382,10 +1436,19 @@ class Binder {
 			method
 		})
 		switch (source.kind) {
-			case "table":
-				return this.#catalog.view(nameKey(source.table))?.kind === "world"
-					? rows({ ...source, alias }, this.#method(entry, source.alias, where, here, place))
-					: this.tableEntry(entry, source, place, where, here, alias, order)
+			case "table": {
+				const view = this.#catalog.view(nameKey(source.table))
+				switch (view?.kind) {
+					case "world":
+						this.#world(entry, source.alias, where, outer, alias, view.view)
+						return rows({ ...source, alias }, this.#method(entry, source.alias, where, here, place))
+					case "apart":
+						return rows({ ...source, alias }, this.#method(entry, source.alias, where, here, place))
+					case "whole":
+					case undefined:
+						return this.tableEntry(entry, source, place, where, here, alias, order)
+				}
+			}
 			case "derived":
 				return this.derivedEntry(entry, source, place, where, here, outer, alias)
 			case "cte": {
@@ -2000,6 +2063,62 @@ class Binder {
 			item: { alias, scan: { kind: "rows" } },
 			method: "nestedLoop"
 		}
+	}
+
+	/**
+	 * The plan of a read of the world view `view`, under the reference's alias `alias` (BindView `world`), which
+	 * PostgreSQL plans apart under that alias: its body bound again under its view scope, so every alias it mints is its
+	 * installation's, with each qual of the read's level that PostgreSQL pushes past the barrier pushed in first
+	 * (`passesBarrier`), a leakproof comparison of the view's columns with values the level fixes, its top level named by
+	 * `alias`, each level of its own by the scope's name. A body whose binding mints other names than its installation's,
+	 * or a statement that reads one world view whose body holds levels of its own twice, which PostgreSQL would name twice
+	 * (planner.c choose_plan_name), is an internal compiler error naming the view.
+	 */
+	#world(
+		entry: Entry,
+		written: string,
+		where: ReadonlyArray<Expr>,
+		outer: Env,
+		alias: Alias,
+		view: WorldBinding
+	): void {
+		const ons = entry.join === "on" || entry.join === "left" ? conjunctsOf(entry.on) : []
+		const pool = entry.join === "left" ? ons : [...where, ...ons]
+		const enclosing = (a: string) => {
+			const d = outer.relations.get(a)
+			return d !== undefined && d.depth <= outer.depth
+		}
+		let query: OperandSelect = namedQuery(view.prepared, view.columns)
+		for (const c of pool) {
+			if (
+				!passesBarrier(c, written, view.leaky) ||
+				![...qualifiersOf(c)].every((a) => a === written || enclosing(a))
+			) {
+				continue
+			}
+			query = pushedInto(query, written, c) ?? query
+		}
+		const scope = new ViewScope(view.ordinal)
+		const nested = new Binder(scope, this.#catalog, this.#reads)
+		nested.#needs = neededBy((t) => t.select(query))
+		nested.#whole = this.#whole
+		nested.query(query, { ...outer, ctes: new Map() }, { kind: "named", name: alias })
+		const viewName = `${view.name.schema}.${view.name.name}`
+		if (scope.minted() !== view.minted) {
+			defect(
+				`the world view ${viewName}'s body bound again under its view scope mints ${scope.minted()} names, its installation's ${view.minted}`
+			)
+		}
+		const levels = nested.plan().levels
+		if (levels.length > 1) {
+			if (this.#worlds.has(view.ordinal)) {
+				defect(
+					`a statement that reads the world view ${viewName} twice, whose body holds levels of its own PostgreSQL would name twice: install the view in as many instances as one statement reads it, each read through its own`
+				)
+			}
+			this.#worlds.add(view.ordinal)
+		}
+		appendAll(this.#levels, levels)
 	}
 
 	/**
@@ -2749,6 +2868,23 @@ export const costChosenStatement = (statement: SqlStatement): BoundStatement =>
 /** The query `query` no advice holds (`costChosenOf`), after its logical rewrites, a query still. */
 export const costChosenSelect = (query: Select): BoundStatement<Select> =>
 	costChosenOf(selectOnce(query))
+
+/**
+ * The body of the `ordinal`-th world view of a role, its definition `definition`, bound under its view scope over
+ * `catalog` (sql/naming.ts ViewScope): what its installation creates, its definition after its logical rewrites, which
+ * a reader binds again (WorldBinding), and how many aliases the binding mints. A view's own DDL carries no advice: each
+ * statement that reads it carries the plan of its body (Binder `#world`).
+ */
+export const bindView = (
+	definition: Select,
+	ordinal: number,
+	catalog: ReadCatalog
+): { readonly prepared: Select; readonly bound: Select; readonly minted: number } => {
+	const prepared = selectOnce(definition)
+	const scope = new ViewScope(ordinal)
+	const bound = new Binder(scope, catalog, keyedReads).selectOf(prepared)
+	return { prepared, bound, minted: scope.minted() }
+}
 
 /** The query `query`, bound as a statement is (`bindStatement`), a query still. */
 export const bindSelect = (

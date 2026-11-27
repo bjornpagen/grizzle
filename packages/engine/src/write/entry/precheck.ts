@@ -9,6 +9,7 @@ import { fieldReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { fieldNames, generationOf, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import { witnessFields } from "#compiler/laws/model/uniques.ts"
 import type { Cte, EmittedSql, Expr, FunctionName, TypeRef } from "#compiler/sql/ast.ts"
+import type { WorldBinding } from "#compiler/sql/bind.ts"
 import {
 	cast,
 	col,
@@ -72,6 +73,9 @@ export type WriteWorld =
 			readonly names: CheckNames
 			readonly updates: (relation: string, column: string) => boolean
 			readonly privileges: ReadonlyMap<string, ReadonlySet<TablePrivilege>>
+			/** Its world views as the binding reads them (sql/bind.ts WorldBinding), which its statements' reads of them
+			 * are bound by. */
+			readonly views: ReadonlyArray<WorldBinding>
 	  }
 
 /** What a check reads of a requested fact for one probe, and what it refuses: the fields the probe's arguments are,

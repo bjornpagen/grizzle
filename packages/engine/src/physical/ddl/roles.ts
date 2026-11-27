@@ -31,7 +31,6 @@ import {
 	identifierOf,
 	identity,
 	loginIdentity,
-	nameFaultText,
 	parseDeclaredName
 } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -53,7 +52,13 @@ import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { derivedEvidence, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
-import { wholeViewAliases } from "#compiler/physical/access/catalog.ts"
+import { servedCatalog, wholeViewAliases } from "#compiler/physical/access/catalog.ts"
+import {
+	type RoleWorldViews,
+	roleWorldViews,
+	viewColumns,
+	type WorldView
+} from "#compiler/physical/access/world-views.ts"
 import { namesConstant } from "#compiler/physical/ddl/constants.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import {
@@ -97,16 +102,13 @@ interface Held {
 	readonly called: ReadonlyArray<CalledFunction>
 	readonly released: ReadonlyArray<{ readonly node: Node<"structure">; readonly table: ObjectName }>
 }
-import {
-	derivedReading,
-	type LoweredDefinition,
-	lowerDefinition
-} from "#compiler/physical/derived/definition.ts"
+import { type LoweredDefinition, lowerDefinition } from "#compiler/physical/derived/definition.ts"
 import type { LoginFence, RoleCall, RoleCarriers } from "#compiler/physical/install/extension.ts"
 import { enforcement, type Node, type ObjectSpec } from "#compiler/physical/obligations/graph.ts"
 import type { HeadStanding } from "#compiler/schema/entry.ts"
 import type { OwnedEntry, OwnedLogin, OwnedRole, OwnedWorldEntry } from "#compiler/schema/own.ts"
 
+import { noAdvice } from "#compiler/sql/advice.ts"
 import type {
 	ColumnPrivilege,
 	Expr,
@@ -121,8 +123,7 @@ import type {
 	TextSetting,
 	TypeSchema
 } from "#compiler/sql/ast.ts"
-
-import { noAdvice } from "#compiler/sql/advice.ts"
+import { nameKey } from "#compiler/sql/ast.ts"
 import {
 	col,
 	lit,
@@ -135,7 +136,6 @@ import {
 	table,
 	target
 } from "#compiler/sql/build.ts"
-import { nameOf } from "#compiler/sql/constants.ts"
 import type { Alias } from "#compiler/sql/naming.ts"
 import { printExpr, printStartupOptions } from "#compiler/sql/print.ts"
 import { borrowFunction } from "#compiler/write/borrow/function.ts"
@@ -441,46 +441,6 @@ interface ViewPlan {
 	readonly heading: ReadonlyArray<HeadingColumn>
 }
 
-/** A view's column and what it reads: a heading column's own value, or the decoded name beside a closed id's. */
-interface ViewColumn {
-	readonly name: string
-	readonly value: Expr
-}
-
-/**
- * A view's columns over the heading `heading`, each column `c` read as `read(c)` under its view name `columnName(c)`: each
- * closed id followed by its decoded column, `<field>_name`, the handle its code names, read from its roster's names
- * constant, `(N())[c + 1]::text`. A set has no decoded column.
- */
-const viewColumns = <C extends HeadingColumn>(
-	b: InstallBuilder,
-	heading: NonEmptyReadonlyArray<C>,
-	columnName: (c: C) => string,
-	read: (c: C, position: number) => Expr
-): NonEmptyReadonlyArray<ViewColumn> => {
-	const columns = mapNonEmpty(heading, (c, position): NonEmptyReadonlyArray<ViewColumn> => {
-		const own: ViewColumn = { name: columnName(c), value: read(c, position) }
-		const base = baseOf(c.type)
-		if (base.carrier !== "code") {
-			return [own]
-		}
-		const field = parseDeclaredName(c.name)
-		if (!field.ok) {
-			return missing(
-				`physical: the closed id field ${JSON.stringify(c.name)}, a name ${nameFaultText(field.error)}`
-			)
-		}
-		return [
-			own,
-			{
-				name: b.name(identity.decodedColumn(field.value)),
-				value: nameOf(namesConstant(b, base.roster.closed), own.value)
-			}
-		]
-	})
-	return extendNonEmpty(columns[0], columns.slice(1).flat())
-}
-
 /** The view of a whole entry: every column of its table, in heading order, each closed id with
  * its decoded column after it, its table named by the alias its relation's whole view's body names it by
  * (physical/access/catalog.ts wholeViewAliases), under which PostgreSQL plans the table in the level that reads the view
@@ -498,7 +458,8 @@ const wholeView = (
 		aliases.get(relation) ??
 		missing(`physical: the whole view alias of ${relation}, a stored relation of the law model`)
 	const columns = viewColumns(
-		b,
+		b.names,
+		(of) => b.name(of),
 		heading,
 		(c) => b.names.column(relation, c.name),
 		(c) => col(alias, b.names.column(relation, c.name))
@@ -522,56 +483,34 @@ const wholeView = (
 	}
 }
 
-/** The view of a query entry: its definition, lowered, behind a security barrier. A definition with a closed id in its
- * heading is read as a derived table under generated names (physical/derived/definition.ts derivedReading), whose every
- * column the view passes on, each closed id with its decoded column after it. */
-const worldView = (
-	b: InstallBuilder,
-	cx: WorldsContext,
-	checked: CheckedSchema<RoleWorld>,
-	name: ObjectName,
-	e: OwnedWorldEntry,
-	analysis: WorldAnalysis
-): ViewPlan => {
-	const role = checked.world.role
-	const entry = `${role.name}.${e.name}`
-	/** A query entry's view reads the role's world (analysis/schema.ts CheckedSchema rows): each member of a unit its
-	 * claims bind at its owner's keys alone, as every read of the role does; and it is read inside the role's writes too,
-	 * so a stored derived relation one of them may write the holders of is read through its definition (CheckedSchema
-	 * writable). */
-	const lowered = cx.lower(entry, analysis.query, checked.rows(checked.writable))
+/**
+ * The view of a query entry, named `name`, as its role's world view `view` states it (physical/access/world-views.ts
+ * roleWorldViews): its body bound under its view scope, behind a security barrier, the facts of its definition, which
+ * hides the others, so a barrier keeps a reader's quals after its own. Each identity its name, its columns and its
+ * decoded columns are named by is named at the installation's door here (`b.name`), as every object's is.
+ */
+const worldViewPlan = (b: InstallBuilder, name: ObjectName, view: WorldView): ViewPlan => {
+	if (nameKey(name) !== nameKey(view.binding.name)) {
+		return missing(
+			`physical: the world view ${name.schema}.${name.name}, which its role's compile named ${view.binding.name.schema}.${view.binding.name.name}`
+		)
+	}
+	const analysis = view.analysis
 	const decodes = analysis.heading.some((c) => baseOf(c.type).carrier === "code")
-	const reading = decodes
-		? unwrap(derivedReading(lowered, `the decoded view of ${entry}`))
-		: undefined
-	const columns =
-		reading === undefined
-			? undefined
-			: viewColumns(
-					b,
-					analysis.heading,
-					(c) => b.name(identity.column(c.name)),
-					(_, position) => reading.read(position)
-				)
+	for (const c of analysis.heading) {
+		b.name(identity.column(c.name))
+		const field = parseDeclaredName(c.name)
+		if (decodes && baseOf(c.type).carrier === "code" && field.ok) {
+			b.name(identity.decodedColumn(field.value))
+		}
+	}
 	return {
 		create: {
 			kind: "createView",
 			name,
-			columns:
-				columns === undefined
-					? mapNonEmpty(analysis.heading, (c) => b.name(identity.column(c.name)))
-					: mapNonEmpty(columns, (c) => c.name),
-			/** The facts of its definition, which hides the others: a barrier keeps a reader's quals after its own. */
+			columns: view.binding.columns,
 			barrier: true,
-			query:
-				reading === undefined || columns === undefined
-					? lowered.query
-					: provedSelect(
-							"keyed",
-							columns.map((c) => target(c.value)),
-							[reading.from],
-							undefined
-						)
+			query: view.bound
 		},
 		reads: analysis.reads.flatMap((read) => {
 			const object = b.readObject(read)
@@ -1554,7 +1493,8 @@ const addRole = (
 	whole: ReadonlyMap<string, WholeViewObject>,
 	login: { readonly role: string; readonly object: Node<"publish"> },
 	carried: RoleCarriers | undefined,
-	{ called: held, released }: Held
+	{ called: held, released }: Held,
+	worldViews: ReadonlyArray<WorldView>
 ): RoleOutcome => {
 	const role = checked.world.role
 	const theory = b.name(named)
@@ -1657,13 +1597,13 @@ const addRole = (
 			if (name?.kind !== "query") {
 				return missing(`physical: the query entry ${role.name}.${r.entry.name} is named no view`)
 			}
-			const plan = worldView(
+			const plan = worldViewPlan(
 				b,
-				cx,
-				checked,
 				objectName(schema, b.name(name.name)),
-				r.entry,
-				r.analysis
+				defined(
+					worldViews.find((v) => v.entry === r.entry.name),
+					`the world view of ${role.name}.${r.entry.name}`
+				)
 			)
 			const columns = emptyUse()
 			columnDomains(b, plan.heading, columns)
@@ -1847,7 +1787,8 @@ const addLogin = (
 	whole: ReadonlyMap<string, WholeViewObject>,
 	carriers: ReadonlyArray<RoleCarriers>,
 	fenced: ReadonlyArray<string>,
-	held: (role: CheckedRole) => Held
+	held: (role: CheckedRole) => Held,
+	worldViews: (role: CheckedRole) => ReadonlyArray<WorldView>
 ): {
 	readonly installed: InstalledLogin
 	readonly vector: boolean
@@ -1910,7 +1851,8 @@ const addLogin = (
 				whole,
 				{ role, object: roleObject },
 				carriers.find((c) => c.login === login.name && c.role === r.checked.world.role.name),
-				held(r)
+				held(r),
+				worldViews(r)
 			)
 		)
 	return {
@@ -2129,7 +2071,8 @@ export const addWorlds = (
 		readonly declared: ReadonlyMap<string, InstalledFunction>
 	},
 	fences: ReadonlyArray<LoginFence>,
-	standUps: ReadonlyMap<string, JudgeStandUp>
+	standUps: ReadonlyMap<string, JudgeStandUp>,
+	handed: ReadonlyArray<RoleWorldViews>
 ): WorldsPlan => {
 	const logins = [...checkedLogins].toSorted((x, y) => compareStrings(x.login.name, y.login.name))
 	const cx = worldsContext(b)
@@ -2178,6 +2121,18 @@ export const addWorlds = (
 			)
 			return { called, released }
 		}
+		/** A role's world views: the ones its compile computed, which an extension hands over, else computed here by the
+		 * one function of the role's world (physical/access/world-views.ts roleWorldViews), once. */
+		const worldViews = ({ views, checked }: CheckedRole): ReadonlyArray<WorldView> =>
+			handed.find((h) => h.login === login.login.name && h.role === checked.world.role.name)
+				?.views ??
+			roleWorldViews({
+				names: b.names,
+				evidence: cx.catalog,
+				checked,
+				views,
+				catalog: servedCatalog(b.model, b.names, [])
+			})
 		const added = addLogin(
 			b,
 			cx,
@@ -2185,7 +2140,8 @@ export const addWorlds = (
 			whole,
 			carriers,
 			fences.find((f) => f.login === login.login.name)?.relations ?? [],
-			held
+			held,
+			worldViews
 		)
 		worlds.push(added.installed)
 		appendAll(schemas, added.schemas)

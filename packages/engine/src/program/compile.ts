@@ -32,9 +32,8 @@ import {
 import { completedPageOrder, statedOrderOf } from "#compiler/lower/shapes/page/compile.ts"
 
 import { type SpecifiedArtifact, specifiedProgram } from "#compiler/lower/template.ts"
-import { servedCatalog } from "#compiler/physical/access/catalog.ts"
 import type { QueryInput, SchemaInput } from "#compiler/program/input.ts"
-import { programSchema, type SchemaArtifacts } from "#compiler/program/schema.ts"
+import { artifactsCatalog, programSchema, type SchemaArtifacts } from "#compiler/program/schema.ts"
 import type { Owned } from "#compiler/schema/own.ts"
 import type { Emitting } from "#compiler/sql/emit.ts"
 import { AdviceScope } from "#compiler/sql/naming.ts"
@@ -189,13 +188,14 @@ const pageSubject = (
 
 /**
  * What a read's statements are bound under (sql/emit.ts Emitting): a scope of its own, its transaction's, and the
- * catalog of the installation its artifacts name (physical/access/catalog.ts servedCatalog), each relation it reads
- * through a role's view a view.
+ * catalog of the installation its artifacts name, a role's world views among it (program/schema.ts artifactsCatalog).
  */
-export const readBinding = (artifacts: Pick<SchemaArtifacts, "laws" | "names">): Emitting => ({
+export const readBinding = (
+	artifacts: Pick<SchemaArtifacts, "laws" | "names" | "world">
+): Emitting => ({
 	kind: "advised",
 	scope: new AdviceScope(),
-	catalog: servedCatalog(artifacts.laws, artifacts.names)
+	catalog: artifactsCatalog(artifacts)
 })
 
 /**

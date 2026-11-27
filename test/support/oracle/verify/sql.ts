@@ -60,11 +60,22 @@ import { type Lexed, lex, type Token } from "#compiler/sql/lexer.ts"
 import { placeholderToken, printType, storedSettingValue } from "#compiler/sql/print.ts"
 
 /**
- * r<n>: the generated alias of a relation occurrence or a stage; or v<n>, the alias a whole view's body names its table
- * by (sql/naming.ts wholeViewAlias), which PostgreSQL plans the table under once it flattens the view.
+ * r<n>: the generated alias of a relation occurrence or a stage; v<n>, the alias a whole view's body names its table by
+ * (sql/naming.ts wholeViewAlias), which PostgreSQL plans the table under once it flattens the view; or v<k>n<j>, an
+ * alias the body of a role's k-th world view mints under its view scope (sql/naming.ts ViewScope).
  */
-const isGeneratedRelationName = (name: string): boolean =>
-	(Str.startsWith("r")(name) || Str.startsWith("v")(name)) && isDecimal(Str.slice(1)(name))
+const isGeneratedRelationName = (name: string): boolean => {
+	if (Str.startsWith("r")(name)) {
+		return isDecimal(Str.slice(1)(name))
+	}
+	const [view, within, ...rest] = Str.split("n")(Str.slice(1)(name))
+	return (
+		Str.startsWith("v")(name) &&
+		isDecimal(view) &&
+		(within === undefined || isDecimal(within)) &&
+		rest.length === 0
+	)
+}
 
 /** c<n>: the generated name of a column a stage defines. */
 const isGeneratedColumnName = (name: string): boolean =>

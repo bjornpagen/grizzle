@@ -7,6 +7,7 @@ import {
 	noCertificates,
 	noContribution,
 	noFences,
+	noWorldViews,
 	noCalls,
 	servesNoParams
 } from "#compiler/physical/install/extension.ts"
@@ -20,5 +21,6 @@ export const requesting = (requests: ReadonlyArray<IndexRequest>): InstallExtens
 	carriers: noCarriers,
 	calls: noCalls,
 	live: noLive,
-	fences: noFences
+	fences: noFences,
+	worldViews: noWorldViews
 })

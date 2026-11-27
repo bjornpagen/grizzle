@@ -2,7 +2,7 @@ import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Fence } from "#compiler/analysis/isolation/certify.ts"
-import { checkedRoleOver, type CheckedSchema } from "#compiler/analysis/schema.ts"
+import { checkedRoleOver, type CheckedSchema, type RoleWorld } from "#compiler/analysis/schema.ts"
 import { type AdmittedQuery, checkQuery } from "#compiler/check/index.ts"
 import { CheckSession } from "#compiler/check/session.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
@@ -48,15 +48,16 @@ import { keyJoinNormalDag } from "#compiler/lower/optimize/eliminate/index.ts"
 import { allenNormalDag } from "#compiler/lower/optimize/simplify/allen.ts"
 import type { WorkloadPhysical } from "#compiler/physical/access/extension.ts"
 import { pathRequest, uniquePaths } from "#compiler/physical/access/paths.ts"
+import type { RoleWorldViews } from "#compiler/physical/access/world-views.ts"
 import { type ServedTypes, servedTogether, servedTypesOf } from "#compiler/physical/ddl/domains.ts"
-import { namedRole, worldNames } from "#compiler/physical/ddl/names.ts"
+import { namedRole } from "#compiler/physical/ddl/names.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { RoleCall, RoleCarriers, ServedProgram } from "#compiler/physical/install/extension.ts"
 import type { ParamSource } from "#compiler/physical/install/plan.ts"
 
 import type { SchemaInput } from "#compiler/program/input.ts"
 import { certification } from "#compiler/program/isolation/certification.ts"
-import type { ArtifactsWorld, SchemaArtifacts } from "#compiler/program/schema.ts"
+import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import {
 	type ChangeLogin,
 	type ChangeRefused,
@@ -238,11 +239,23 @@ const queryRead = (
 	)
 
 /**
+ * What a workload's programs are checked as: reality, or a role with its checked schema. Its programs' plans read the
+ * role's world views from their change compiles' artifacts (ArtifactsWorld `role`), so these lower none.
+ */
+type WorkloadWorld =
+	| { readonly kind: "reality" }
+	| {
+			readonly kind: "role"
+			readonly role: OwnedRole
+			readonly checked: CheckedSchema<RoleWorld>
+	  }
+
+/**
  * What every program of a workload is checked and planned over, read once for the workload: its world, and the base's
  * artifacts (its checked schema, derived analysis and law model).
  */
 interface WorkloadReads {
-	readonly world: ArtifactsWorld
+	readonly world: WorkloadWorld
 	readonly artifacts: SchemaArtifacts
 }
 
@@ -252,9 +265,9 @@ const workloadReads = (
 ): Result.Result<WorkloadReads, CompileError> =>
 	schema.kind === "role"
 		? Result.flatMap(ownBuiltRole(schema.desc, artifacts.owned), (role) =>
-				Result.flatMap(namedRole(role, artifacts.names.levels), (named) =>
+				Result.flatMap(namedRole(role, artifacts.names.levels), () =>
 					Result.map(checkedRoleOver(role, artifacts.derived.schema), (checked): WorkloadReads => ({
-						world: { kind: "role", role, checked, names: worldNames(named, artifacts.names) },
+						world: { kind: "role", role, checked },
 						artifacts
 					}))
 				)
@@ -388,6 +401,23 @@ export const servedAccess = (
 		)
 	}
 }
+
+/**
+ * Each role of each login with its world views as its change compile's artifacts hold them (program/schema.ts
+ * ArtifactsWorld `role`), which the installation creates from, lowering none again (physical/install/extension.ts
+ * InstallExtension `worldViews`), by the login's name and the role's, in that order.
+ */
+const servedWorldViews = (changes: ServedWorkloadPlan["changes"]): ReadonlyArray<RoleWorldViews> =>
+	[...changes]
+		.toSorted(([a], [b]) => compareStrings(a, b))
+		.flatMap(([login, roles]) =>
+			[...roles]
+				.toSorted(([a], [b]) => compareStrings(a, b))
+				.flatMap(([role, r]): ReadonlyArray<RoleWorldViews> => {
+					const world = r.artifacts.world
+					return world.kind === "role" ? [{ login, role, views: world.views }] : []
+				})
+		)
 
 /**
  * Each login's served programs as the installation indexes them (physical/install/extension.ts ServedProgram), by the
@@ -789,6 +819,8 @@ export interface ServedWorkloadPlan<S extends ParamSource = ParamSource> extends
 	/** Every program of every login, its plans each statement its served file may send (servedPrograms), whose reads'
 	 * requests the installation asks an index for. */
 	readonly programs: ReadonlyArray<ServedProgram>
+	/** Every role of every login with its world views (servedWorldViews), which the installation creates them from. */
+	readonly worldViews: ReadonlyArray<RoleWorldViews>
 }
 
 /**
@@ -974,7 +1006,8 @@ export const servedWorkload = <S extends ParamSource>(
 				carriers: servedCarriers(certified.served),
 				calls: calls.value,
 				fences: certified.fences,
-				programs
+				programs,
+				worldViews: servedWorldViews(certified.served)
 			})
 		}
 	)

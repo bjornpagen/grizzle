@@ -51,7 +51,8 @@ import {
 	noCalls,
 	noCertificates,
 	noContribution,
-	noFences
+	noFences,
+	noWorldViews
 } from "#compiler/physical/install/extension.ts"
 import { installBasis, type ParamSource, unserved } from "#compiler/physical/install/plan.ts"
 import { noAdvice } from "#compiler/sql/advice.ts"
@@ -460,7 +461,8 @@ export const declaredParams = (
 		carriers: noCarriers,
 		calls: noCalls,
 		live: noLive,
-		fences: noFences
+		fences: noFences,
+		worldViews: noWorldViews
 	}
 }
 
