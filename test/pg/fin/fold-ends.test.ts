@@ -54,7 +54,10 @@ export const everyFoldsEndThroughGrizzlesApplyOnPostgreSQL19StoresExactlyTheREAD
 							const done = taken.value
 							const value = s.value(done.installed.schema)
 							const compiles = yield* ends.compiles
-							const db = yield* compiles.db(done.installed, fullWorld(value, {}).server.roles.app)
+							const db = yield* compiles.db(
+								done.installed,
+								fullWorld(value, {}, []).server.roles.app
+							)
 							const o = { kind: sketch.kind, s, done, value, db } as const
 							let state = emptyState
 							for (const w of sketch.writes) {

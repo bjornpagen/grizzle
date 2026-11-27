@@ -197,6 +197,7 @@ export const memberControlTemplate = fullWorldTemplate({
 	name: "member control",
 	fixture: Ledger,
 	programs: { controlRead },
+	contexts: [],
 	label: "member_control",
 	ambient: ordinarySession
 })
@@ -353,7 +354,7 @@ export const runMemberControl = (
 		yield* standIn(session, storing(1, c.members), c.state)
 		const read = yield* servedRead(
 			installed,
-			fullWorldRole(installed, Ledger),
+			fullWorldRole(installed, Ledger, []),
 			controlRead,
 			"the read of the learner's stage"
 		)

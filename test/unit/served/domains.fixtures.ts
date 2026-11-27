@@ -300,7 +300,7 @@ const loginOf = (c: TextDomainCase) => {
 			}
 		})()
 	}
-	return fullWorld(s, programs).server
+	return fullWorld(s, programs, []).server
 }
 
 /**

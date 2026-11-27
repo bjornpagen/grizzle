@@ -887,9 +887,12 @@ export const checkCase = (
 	Effect.gen(function* () {
 		const built = buildFill(spec)
 		const declared = built.rename("Fill")
-		const done = yield* installFullWorld(declared, {}, { ambient: ordinarySession, label: "fill" })
+		const done = yield* installFullWorld(declared, {}, [], {
+			ambient: ordinarySession,
+			label: "fill"
+		})
 		const value = built.rename(done.schema)
-		const world = fullWorld(value, {})
+		const world = fullWorld(value, {}, [])
 		const relationAtName = (r: number) => defined(built.relations[relationName(r)])
 		const facts = instanceFacts(spec, rows)
 		/** The first insert: every relation a caller writes, each its own array member. */

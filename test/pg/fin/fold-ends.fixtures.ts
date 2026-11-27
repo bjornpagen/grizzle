@@ -904,6 +904,7 @@ const endsTemplate = (kind: FamilyKind): SubstrateTemplate<Generated> => {
 		name: `ends_${kind}`,
 		fixture: declaredKind,
 		programs: {},
+		contexts: [],
 		label: `ends_${kind}`,
 		ambient: ordinarySession
 	})

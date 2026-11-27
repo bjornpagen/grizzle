@@ -135,6 +135,7 @@ export const chainBindingTemplate = fullWorldTemplate({
 	name: "chain binding",
 	fixture: Content,
 	programs: { membersRead },
+	contexts: [],
 	label: "chain_binding",
 	ambient: ordinarySession
 })
@@ -271,7 +272,7 @@ export const runChainBinding = (
 		yield* standIn(session, storing(1, c.members), c.state)
 		const read = yield* servedRead(
 			installed,
-			fullWorldRole(installed, Content),
+			fullWorldRole(installed, Content, []),
 			membersRead,
 			"the read of the learner's stage"
 		)

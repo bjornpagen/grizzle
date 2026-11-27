@@ -586,7 +586,7 @@ const watchedOf = (openness: Openness, name: string) => {
 			return r.match(Unlinked, { doc: r.param("doc", pg.integer), at }).find({ at })
 		})
 	}
-	return { top, world: fullWorld(top, programs) }
+	return { top, world: fullWorld(top, programs, []) }
 }
 
 /** What a case of the watch reached: a stored row's route keys decoded, a commit that changed no stored row, and a
@@ -1163,15 +1163,14 @@ export const servedPlacesGen: Gen<ServedPlaces> = element([
 export const servedLawRun = (places: ServedPlaces, reached: Case<ServedLawFeature>) =>
 	Effect.gen(function* () {
 		const label = "stored_served_law"
-		const done = yield* installFullWorld(
-			lawfulOf("closed", label),
-			{},
-			{ ambient: ordinarySession, label }
-		)
+		const done = yield* installFullWorld(lawfulOf("closed", label), {}, [], {
+			ambient: ordinarySession,
+			label
+		})
 		const top = lawfulOf("closed", done.schema)
 		const values = servedPlaces[places]
 		const facts = Arr.map(values, (value, at) => ({ shelf, doc: 1, at, v: value }))
-		yield* withServedDb(done, fullWorld(top, {}).server.roles.app, {}, ({ serve }) =>
+		yield* withServedDb(done, fullWorld(top, {}, []).server.roles.app, {}, ({ serve }) =>
 			Effect.gen(function* () {
 				const served = yield* serve({ insert: ChangeSet.empty(top).insert(Doc, []) })
 				const outcome = yield* writeAnswerOf(

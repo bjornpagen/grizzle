@@ -165,13 +165,13 @@ const declaredIn = (declared: ReadonlyArray<KeyField>) => (name: string) => {
 /** The installation of a case's schema under `name`: its schema and the login serving its reads. */
 export const installationOf = (declared: ReadonlyArray<KeyField>) => (name: string) => {
 	const built = declaredIn(declared)(name)
-	return { schema: built.schema, logins: [fullWorld(built.schema, built.programs).server] }
+	return { schema: built.schema, logins: [fullWorld(built.schema, built.programs, []).server] }
 }
 
 /** The served world and reads of a case's schema over its installation's declared name. */
 export const servedOf = (declared: ReadonlyArray<KeyField>, name: string) => {
 	const built = declaredIn(declared)(name)
-	return { world: fullWorld(built.schema, built.programs), programs: built.programs }
+	return { world: fullWorld(built.schema, built.programs, []), programs: built.programs }
 }
 
 /**

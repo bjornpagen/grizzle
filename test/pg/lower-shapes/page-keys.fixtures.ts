@@ -993,6 +993,7 @@ export const pageTemplate = fullWorldTemplate({
 		queue: answered(paged(queueWindow(false))),
 		queueAfter: answered(paged(queueWindow(true)))
 	},
+	contexts: [Session],
 	label: "page_keys",
 	ambient: ordinarySession
 })

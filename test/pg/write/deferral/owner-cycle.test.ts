@@ -41,14 +41,13 @@ export const aLawsKeyOnACycleWithAFamilysOwnerAxisIsDeferredSoEveryLawfulWriteOf
 					Effect.gen(function* () {
 						const built = buildOf(c.spec)
 						const declared = built.rename("Cycle")
-						const done = yield* installFullWorld(
-							declared,
-							{},
-							{ ambient: ordinarySession, label: "cycle" }
-						)
+						const done = yield* installFullWorld(declared, {}, [], {
+							ambient: ordinarySession,
+							label: "cycle"
+						})
 						const value = built.rename(done.schema)
 						const names = namesOf(done)
-						const world = fullWorld(value, {})
+						const world = fullWorld(value, {}, [])
 						const lawOf = (s: Statement): LawId => lawIdOf(value, s)
 						const ownerFact = (o: OwnerRow, nested: boolean) => ({
 							id: uuidOf(o.id),

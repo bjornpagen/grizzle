@@ -109,6 +109,7 @@ export const takeProbeTemplate = fullWorldTemplate({
 	name: "take probe",
 	fixture: Probes,
 	programs: reads,
+	contexts: [],
 	label: "take_probe",
 	ambient: ordinarySession
 })
@@ -188,7 +189,7 @@ export const runTakeProbe = (
 		}
 		const read = yield* servedRead(
 			installed,
-			fullWorldRole(installed, Probes),
+			fullWorldRole(installed, Probes, []),
 			readOf(c.form, c.k),
 			"the read of the parents' children"
 		)

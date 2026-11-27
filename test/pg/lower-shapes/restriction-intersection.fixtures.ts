@@ -156,6 +156,7 @@ export const intersectionTemplate = fullWorldTemplate({
 	name: "restriction intersection",
 	fixture: Ledger,
 	programs: { controlRead, probeRead },
+	contexts: [],
 	label: "restriction_intersection",
 	ambient: ordinarySession
 })
@@ -281,7 +282,7 @@ export const runControls = (
 		yield* standIn(session, storing(installed, connection, c, 1, c.children), c.state)
 		const read = yield* servedRead(
 			installed,
-			fullWorldRole(installed, Ledger),
+			fullWorldRole(installed, Ledger, []),
 			controlRead,
 			"the read of child 1's stage"
 		)
@@ -408,7 +409,7 @@ export const runProbes = (
 		yield* standIn(session, scoring(0, c.stages), c.state)
 		const read = yield* servedRead(
 			installed,
-			fullWorldRole(installed, Ledger),
+			fullWorldRole(installed, Ledger, []),
 			probeRead,
 			"the read of the batch"
 		)

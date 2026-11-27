@@ -312,7 +312,7 @@ const wallSchema = (name: string, roster: Arr.NonEmptyReadonlyArray<string>) => 
  */
 export const wallWorld = (name: string, roster: Arr.NonEmptyReadonlyArray<string>) => {
 	const { s, programs } = wallSchema(name, roster)
-	return { s, programs, world: fullWorld(s, programs) }
+	return { s, programs, world: fullWorld(s, programs, []) }
 }
 
 /**
@@ -397,6 +397,6 @@ export const daysSchema = (name: string) => {
 				return r.match(Days, { day, n, epoch, back, ofN }).find({ day, epoch, back, ofN })
 			})
 		},
-		world: fullWorld(s, {})
+		world: fullWorld(s, {}, [])
 	}
 }

@@ -1191,7 +1191,7 @@ const sameVerdict = (
 /** The fields a lowered installation's latest version declares under the declared name `name`, with its full world's login. */
 const lastOf = (shape: Shape, name: string): Version => {
 	const declared = loweringSchema(shape, name)
-	return { schema: declared, logins: [fullWorld(declared, {}).server] }
+	return { schema: declared, logins: [fullWorld(declared, {}, []).server] }
 }
 
 /** The name a shape's fresh installation is planned under to read what it lowers to: it is never installed. */
@@ -1294,7 +1294,7 @@ const loweredIn = (taken: SubstrateCase<Installed>, shape: Shape, order: Order) 
 		Effect.gen(function* () {
 			const installed = taken.value
 			const value = loweringSchema(shape, installed.schema)
-			const served = yield* servedFixture(installed, fullWorld(value, programsOf(value)).server)
+			const served = yield* servedFixture(installed, fullWorld(value, programsOf(value), []).server)
 			const context = yield* Layer.build(served.layer)
 			const db = yield* Db.open(served.login.roles.app, {}).pipe(Effect.provideContext(context))
 			const low: LoweredInstall = {

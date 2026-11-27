@@ -108,6 +108,7 @@ export const crossTemplate = fullWorldTemplate({
 	name: "cross step",
 	fixture: Served_,
 	programs: { filesRead },
+	contexts: [],
 	label: "cross_step",
 	ambient: ordinarySession
 })
@@ -233,7 +234,7 @@ export const runCross = (
 		yield* standIn(session, storing(1), c.state)
 		const read = yield* servedRead(
 			installed,
-			fullWorldRole(installed, Served_),
+			fullWorldRole(installed, Served_, []),
 			filesRead,
 			"the read of the learner's sessions"
 		)

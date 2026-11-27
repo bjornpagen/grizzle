@@ -238,7 +238,7 @@ export const openFull = <F>(
 	fixture: Fixture<F>,
 	value: Parameters<typeof fullWorld>[0]
 ): Effect.Effect<OpenedDb, OpenError, Scope.Scope> =>
-	openDb(fixture, fullWorld(value, {}).server.roles.app)
+	openDb(fixture, fullWorld(value, {}, []).server.roles.app)
 
 /**
  * The login role of the fixture's full world: what pg_stat_activity names a session of it by, the session user of every

@@ -605,7 +605,7 @@ const storedBy = (
 	facts: Readonly<Record<string, ReadonlyArray<unknown>>>
 ) =>
 	Effect.gen(function* () {
-		const world = fullWorld(value, {})
+		const world = fullWorld(value, {}, [])
 		const db = yield* openServedDb(installed, world.server.roles.app, {})
 		const whole = ChangeSet.empty(value).insertAll(
 			Rec.fromEntries(Arr.map(insertable, (name) => [name, []] as const))
@@ -633,7 +633,7 @@ export const previewCase = (k: PreviewCase, c: Case<PreviewFeature>) =>
 		/** The case's schema under `name` with `hues`, and its full world's login over it. */
 		const versionOf = (hues: Parameters<typeof schemaOf>[1], name: string) => {
 			const { value } = schemaOf(k, hues, name)
-			return { schema: value, logins: [fullWorld(value, {}).server] }
+			return { schema: value, logins: [fullWorld(value, {}, []).server] }
 		}
 		const { installed: fresh } = yield* installGenerated((name) => versionOf(secondHues, name), {
 			ambient: ordinarySession,

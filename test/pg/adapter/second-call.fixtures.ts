@@ -161,13 +161,12 @@ export const runCalls = (calls: Calls, c: Case<SecondCallFeature>) =>
 	Effect.gen(function* () {
 		c.note(featureOf(calls))
 		const declared = build("second_call")
-		const done = yield* installFullWorld(
-			declared,
-			{},
-			{ ambient: ordinarySession, label: "second_call" }
-		)
+		const done = yield* installFullWorld(declared, {}, [], {
+			ambient: ordinarySession,
+			label: "second_call"
+		})
 		const built = build(done.schema)
-		const world = fullWorld(built, {})
+		const world = fullWorld(built, {}, [])
 		const substrate = yield* Substrate
 		const names = namesOf(done)
 		yield* standUpJudge(substrate.admin, done.installation)
@@ -330,12 +329,12 @@ export const runBelow = (below: Below, c: Case<BelowFeature>) =>
 	Effect.gen(function* () {
 		const label = "below_rule"
 		const { installed: done } = yield* installGenerated(
-			(name) => ({ schema: build(name), logins: [fullWorld(baseOf(name), {}).server] }),
+			(name) => ({ schema: build(name), logins: [fullWorld(baseOf(name), {}, []).server] }),
 			{ ambient: ordinarySession, label }
 		)
 		const base = baseOf(done.schema)
 		const above = `${done.schema}_1`
-		yield* withServedDb(done, fullWorld(base, {}).server.roles.app, {}, ({ serve }) =>
+		yield* withServedDb(done, fullWorld(base, {}, []).server.roles.app, {}, ({ serve }) =>
 			Effect.gen(function* () {
 				const served = yield* serve({ insert: ChangeSet.empty(base).insert(Fixed, []) })
 				const insert = writeOnce(member(served, "insert"))

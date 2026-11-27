@@ -64,7 +64,7 @@ import type { IndexRef, IndexResolver } from "#compiler/physical/indexes/ref.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { noClock, transactionClock } from "#compiler/plan/common.ts"
 import { type QueryTemplate, queryInput } from "#compiler/plan/read.ts"
-import type { AnySchema } from "#compiler/public/schema.ts"
+import type { AnyContext, AnySchema } from "#compiler/public/schema.ts"
 import { printAdvice } from "#compiler/sql/advice.ts"
 import type { ObjectName } from "#compiler/sql/ast.ts"
 import { joinPlans, levelItems, type ReadPlan, resolvePlan } from "#compiler/sql/plan.ts"
@@ -840,12 +840,16 @@ export const servedRun = (
 	advisedRun(session, read.scope, read.scope.statements[0], read.params(params))
 
 /**
- * The role of `fixture`'s full world over `installed` (test/support/worlds.ts fullWorld): `fixture` rebuilt under the
- * installation's declared name, as a full-world template installs it (test/support/installed.ts fullVersion), and its
- * login's one role, which every program of the world's workload is served through.
+ * The role of `fixture`'s full world over `installed` (test/support/worlds.ts fullWorld), declaring `contexts`, those
+ * the template that installed it declared: `fixture` rebuilt under the installation's declared name, as a full-world
+ * template installs it (test/support/installed.ts fullVersion), and its login's one role, which every program of the
+ * world's workload is served through.
  */
-export const fullWorldRole = (installed: Installed, fixture: AnySchema): AnyLoginRole =>
-	fullWorld(renamed(fixture, installed.declared), {}).server.roles.app
+export const fullWorldRole = (
+	installed: Installed,
+	fixture: AnySchema,
+	contexts: ReadonlyArray<AnyContext>
+): AnyLoginRole => fullWorld(renamed(fixture, installed.declared), {}, contexts).server.roles.app
 
 /** A scope planned: the advice its vehicle held in force, and each statement's plan under it, in the scope's order. */
 export interface PlannedScope {

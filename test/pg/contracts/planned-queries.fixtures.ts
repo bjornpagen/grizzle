@@ -166,7 +166,7 @@ export const builtPlan = (s: PlanSketch, name: string) => {
 				: []
 		)
 	])
-	return { schema: top, programs, world: fullWorld(top, programs) }
+	return { schema: top, programs, world: fullWorld(top, programs, []) }
 }
 
 /** One call of a case: the program it calls, what it sends, and the situation it reaches. */

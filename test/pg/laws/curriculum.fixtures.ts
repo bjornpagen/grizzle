@@ -372,7 +372,7 @@ const curriculumWorld = (name: string, homed: boolean) => {
 		}),
 		join: ChangeSet.empty(level).insert(PackageCourse, []).insert(PackageAssessment, [])
 	}
-	return { level, programs, world: fullWorld(level, programs) }
+	return { level, programs, world: fullWorld(level, programs, []) }
 }
 
 /** The curriculum installed once per member with its writers' login, as `grizzle generate` drafts it. */

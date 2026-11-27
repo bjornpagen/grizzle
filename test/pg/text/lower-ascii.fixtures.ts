@@ -237,7 +237,7 @@ const foldWorld = (name: string) => {
 			return r.match(Folded, { at }).find({ at })
 		})
 	}
-	return { level, rule, world: fullWorld(level, programs) }
+	return { level, rule, world: fullWorld(level, programs, []) }
 }
 
 /** The repro installed once per member with its writer's login, as `grizzle generate` drafts it. */

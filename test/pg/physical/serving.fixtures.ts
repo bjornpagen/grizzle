@@ -147,7 +147,7 @@ export const workloadCase = (
 			}
 		}
 		const installed = yield* Effect.result(
-			installFullWorld(built.schema, programs, {
+			installFullWorld(built.schema, programs, [], {
 				label: "serving_workload",
 				ambient: ordinarySession
 			})

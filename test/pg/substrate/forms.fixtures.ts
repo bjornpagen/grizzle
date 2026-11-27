@@ -79,7 +79,7 @@ const everyAccount = (installed: WorkNamed<string>) =>
 
 /** Work's full world over the schema it is given (test/support/worlds.ts fullWorld), its login reading every account. */
 export const servedWorld = (installed: WorkNamed<string>) =>
-	fullWorld(installed, { accounts: everyAccount(installed) })
+	fullWorld(installed, { accounts: everyAccount(installed) }, [])
 
 /**
  * Work drafted and served as `grizzle generate` does, with its full world's server login (servedWorld), which Served.of

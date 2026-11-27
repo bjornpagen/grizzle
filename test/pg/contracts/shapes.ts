@@ -741,7 +741,7 @@ export const built = (s: ShapeSketch, name: string) => {
 		[carriedWrite, carried] as const,
 		...content
 	])
-	return { schema: top, programs, world: fullWorld(top, programs) }
+	return { schema: top, programs, world: fullWorld(top, programs, []) }
 }
 
 /** The facts a write's call gives, under each op and then each relation. */

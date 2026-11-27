@@ -193,7 +193,7 @@ const declaredIn = (o: KeyOrders) => {
 		const q = v(singles, "single")
 		return r.match(singles, q).find(q)
 	})
-	return { schema: s, login: fullWorld(s, { picked, wrapped }).server }
+	return { schema: s, login: fullWorld(s, { picked, wrapped }, []).server }
 }
 
 /** What grizzle makes of the declarations in `o`'s orders: the installation's statements, printed, and the login's

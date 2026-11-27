@@ -106,6 +106,7 @@ export const prefixRangeTemplate = fullWorldTemplate({
 	name: "prefix range",
 	fixture: Content,
 	programs: { contentRead, attachedRead },
+	contexts: [],
 	label: "prefix_range",
 	ambient: ordinarySession
 })
@@ -208,7 +209,7 @@ export const runPrefixRange = (
 		yield* standIn(session, storing(1, c.nodes), c.state)
 		const read = yield* servedRead(
 			installed,
-			fullWorldRole(installed, Content),
+			fullWorldRole(installed, Content, []),
 			readOf(c.form),
 			"the read of the sitting's content"
 		)

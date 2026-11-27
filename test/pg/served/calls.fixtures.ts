@@ -131,7 +131,7 @@ function templateOf(language: Language): SubstrateTemplate<Generated> {
 		content: { language, programs: ["run"] },
 		build: (name) => {
 			const s = callsSchema(language)(name)
-			return { schema: s, logins: [fullWorld(s, programsOf(language)).server] }
+			return { schema: s, logins: [fullWorld(s, programsOf(language), []).server] }
 		},
 		ambient: ordinarySession
 	})
@@ -139,7 +139,7 @@ function templateOf(language: Language): SubstrateTemplate<Generated> {
 
 /** The served world of a case of `language` over its installation's declared name. */
 export const worldOf = (language: Language, declared: string) =>
-	fullWorld(callsSchema(language)(declared), programsOf(language))
+	fullWorld(callsSchema(language)(declared), programsOf(language), [])
 
 interface LineFact {
 	readonly item: number

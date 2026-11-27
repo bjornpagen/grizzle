@@ -113,6 +113,7 @@ export const partitionTemplate = fullWorldTemplate({
 	name: "take partition",
 	fixture: Ledger,
 	programs: { latestRead, leaderRead },
+	contexts: [],
 	label: "take_partition",
 	ambient: ordinarySession
 })
@@ -259,7 +260,7 @@ export const runLatest = (
 		yield* standIn(session, storing(installed, connection, c, 1, c.children), c.state)
 		const read = yield* servedRead(
 			installed,
-			fullWorldRole(installed, Ledger),
+			fullWorldRole(installed, Ledger, []),
 			latestRead,
 			"the read of child 1's stage"
 		)
@@ -320,7 +321,7 @@ export const runLeaders = (
 		yield* store(installed, connection, c, 1, c.children)
 		const leaders = yield* servedRead(
 			installed,
-			fullWorldRole(installed, Ledger),
+			fullWorldRole(installed, Ledger, []),
 			leaderRead,
 			"the read of a child's total among the leaders"
 		)

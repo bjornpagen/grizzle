@@ -537,7 +537,7 @@ const builtOf = (w: World, declared: string) => {
 		}
 	}
 	const value = schema(declared, values, statements)
-	return { value, relation: valueAt, world: fullWorld(value, {}) }
+	return { value, relation: valueAt, world: fullWorld(value, {}, []) }
 }
 
 /**

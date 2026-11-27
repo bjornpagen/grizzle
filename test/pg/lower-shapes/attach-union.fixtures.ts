@@ -85,6 +85,7 @@ export const attachUnionTemplate = fullWorldTemplate({
 	name: "attach union",
 	fixture: Files,
 	programs: { documents },
+	contexts: [],
 	label: "attach_union",
 	ambient: ordinarySession
 })
@@ -200,7 +201,7 @@ const measured = (installed: Installed, connection: PgConnection, p: number) =>
 	Effect.gen(function* () {
 		const read = yield* servedRead(
 			installed,
-			fullWorldRole(installed, Files),
+			fullWorldRole(installed, Files, []),
 			documents,
 			`the read of package ${p}'s files`
 		)

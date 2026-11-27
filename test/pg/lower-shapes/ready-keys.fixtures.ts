@@ -475,6 +475,7 @@ const templateOf = (storage: Storage, name: string, label: string) => {
 			coachSitting: ledger.reads.guard,
 			responsesOf: ledger.reads.responses
 		},
+		contexts: [Session],
 		label,
 		ambient: ordinarySession
 	})
@@ -771,7 +772,7 @@ const filled = (
 			Effect.map(
 				servedRead(
 					installed,
-					fullWorldRole(installed, ledger.Ops),
+					fullWorldRole(installed, ledger.Ops, [Session]),
 					ledger.reads[read],
 					`learner 1's ${read}`
 				),

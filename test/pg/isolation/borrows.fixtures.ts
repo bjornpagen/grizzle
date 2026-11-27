@@ -53,7 +53,7 @@ const Mark = relation("Mark", { id: pg.integer }, ["id"])
 const Borrows = schema("Borrows", [Mark], [])
 
 /** Borrows' full world, whose role every session of a race takes on. */
-const world = fullWorld(Borrows, {})
+const world = fullWorld(Borrows, {}, [])
 
 /** Borrows installed once per member with its full world's login: the installation and its borrow function. */
 export const borrowsTemplate = fullWorldTemplate({
@@ -61,6 +61,7 @@ export const borrowsTemplate = fullWorldTemplate({
 	name: "borrows",
 	fixture: Borrows,
 	programs: {},
+	contexts: [],
 	label: "borrows",
 	ambient: ordinarySession
 })

@@ -7,6 +7,7 @@ import type { Installation } from "#compiler/physical/install/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import {
 	type AnyClosed,
+	type AnyContext,
 	type AnyDerived,
 	type AnyRelation,
 	type AnyRoster,
@@ -16,7 +17,7 @@ import {
 	wholeWritesOf
 } from "#compiler/public/schema.ts"
 import { loginBuilder as login } from "#compiler/schema/world.ts"
-import type { RoleRelations } from "#compiler/types/schema/world.ts"
+import type { DeclaredContexts, RoleRelations } from "#compiler/types/schema/world.ts"
 import { soleWorldOf } from "#test/support/kernel/naming.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { SubstrateWorld } from "#test/support/substrate/session.ts"
@@ -58,7 +59,8 @@ export type HeldOf<B extends Reality> = {
  *
  * A schema's full world is the role `app` holding every relation of the schema whole but its closed and live derived
  * relations, writing every ordinary relation as the schema declares it, inserting into each closed one and changing
- * each open one (wholeWritesOf), and declaring no context, in the login `server`, whose workload is the test's programs over the
+ * each open one (wholeWritesOf), and declaring the contexts its claims hold (`contexts`, none for a world no program of
+ * which matches a context), in the login `server`, whose workload is the test's programs over the
  * role, each a member a Db of the role runs by its name (`db.workload.<name>`): reality itself, so every program over the
  * schema runs on it. A closed relation has no extent in the database, only its constants, so no role holds it; a roster
  * does, as its code column; a live derived relation's rows are its definition's over the relations the role holds. It is typed by no
@@ -77,25 +79,32 @@ export type HeldOf<B extends Reality> = {
  * run, beneath the public types' checks, which read a program's schema by name and the programs' names off a type P
  * fullWorld holds as a parameter. The one workload of the login, over its one role, is what login(...) admits.
  */
-export const fullWorld = <B extends Reality, const P extends Readonly<Record<string, unknown>>>(
+export const fullWorld = <
+	B extends Reality,
+	const P extends Readonly<Record<string, unknown>>,
+	const C extends ReadonlyArray<AnyContext>
+>(
 	base: B,
-	programs: P
+	programs: P,
+	contexts: C
 ) => {
 	/** Built over any relations, which the role builder checks; the role is then typed by B's own relations (HeldOf). */
 	const reality: Reality = base
 	const relations = trusted<Readonly<Record<string, AnyRelation | AnyRoster | AnyDerived>>>(
 		heldRelations(reality)
 	)
-	const app = trusted<Role<B, "app", RoleRelations<HeldOf<B>>, string, string, never>>(
-		role(reality, "app", relations, wholeWritesOf(reality))
-	)
+	const declared: ReadonlyArray<AnyContext> = contexts
+	const app = trusted<
+		Role<B, "app", RoleRelations<HeldOf<B>>, string, string, DeclaredContexts<C>, C[number]>
+	>(role(reality, "app", relations, { ...wholeWritesOf(reality), contexts: declared }))
 	return { app, server: login(base, "server", [app], [{ workload: [workload(app, programs)] }]) }
 }
 /** The full world of a schema of B's relations whose login's workload holds P, as fullWorld types it. */
 export type FullWorld<
 	B extends Reality = Reality,
-	P extends Readonly<Record<string, unknown>> = Readonly<Record<string, unknown>>
-> = ReturnType<typeof fullWorld<B, P>>
+	P extends Readonly<Record<string, unknown>> = Readonly<Record<string, unknown>>,
+	C extends ReadonlyArray<AnyContext> = readonly []
+> = ReturnType<typeof fullWorld<B, P, C>>
 
 /**
  * The token of a payload's `text`, as every door reads a token (adapter/db/token.ts parseToken, a token68): the text's

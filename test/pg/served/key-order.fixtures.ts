@@ -139,13 +139,16 @@ const declaredIn = (o: KeyOrders) => (name: string) => {
 /** The schema and login of a case's declarations, under `name`, as the installation builds them. */
 export const installationOf = (o: KeyOrders) => (name: string) => {
 	const declared = declaredIn(o)(name)
-	return { schema: declared.schema, logins: [fullWorld(declared.schema, declared.programs).server] }
+	return {
+		schema: declared.schema,
+		logins: [fullWorld(declared.schema, declared.programs, []).server]
+	}
 }
 
 /** The served world and the programs of a case's declarations over its installation's declared name. */
 export const servedOf = (o: KeyOrders, declared: string) => {
 	const built = declaredIn(o)(declared)
-	return { world: fullWorld(built.schema, built.programs), programs: built.programs }
+	return { world: fullWorld(built.schema, built.programs, []), programs: built.programs }
 }
 
 /** A stored seed: its key, a value for each of Single's fields and mix's iy, x and y. */

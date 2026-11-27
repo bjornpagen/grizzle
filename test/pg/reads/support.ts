@@ -27,7 +27,7 @@ type Reality = Parameters<typeof fullWorld>[0]
 
 /** The full world built over `S` itself, its role typed by S's own relations, its login's workload holding P. */
 type WorldOver<S extends Reality, P extends Readonly<Record<string, unknown>>> = ReturnType<
-	typeof fullWorld<S, P>
+	typeof fullWorld<S, P, readonly []>
 >
 
 export interface Opened<S extends Reality, P extends Readonly<Record<string, unknown>>> {
@@ -86,7 +86,7 @@ export const installed = <
 > =>
 	Effect.gen(function* () {
 		const generated = yield* installGenerated(
-			(name) => fullVersion(fixture, options.programs, name),
+			(name) => fullVersion(fixture, options.programs, [], name),
 			{ label: options.label, ambient: ordinarySession }
 		)
 		return yield* openedOver(fixture, facts, options, generated)
@@ -115,7 +115,7 @@ const openedOver = <
 		const done = generated.installed
 		yield* load(done, facts)
 		const rebuilt = rebuild(fixture, done.declared)
-		const world = fullWorld(rebuilt, options.programs)
+		const world = fullWorld(rebuilt, options.programs, [])
 		return {
 			installed: done,
 			schema: rebuilt,
@@ -164,7 +164,7 @@ export const fixtureSpec = <
 		label: options.label,
 		programs: Arr.sort(Rec.keys(options.programs), Str.Order)
 	},
-	build: (name) => fullVersion(fixture, options.programs, name),
+	build: (name) => fullVersion(fixture, options.programs, [], name),
 	ambient: ordinarySession
 })
 

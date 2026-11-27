@@ -200,7 +200,7 @@ const staffWorld = (name: string) => {
 				.find({ at })
 		})
 	}
-	return { S, world: fullWorld(S, programs) }
+	return { S, world: fullWorld(S, programs, []) }
 }
 
 /** The staff search installed once per member with its server's login, as `grizzle generate` drafts it. */

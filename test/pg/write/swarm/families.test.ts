@@ -53,11 +53,10 @@ export const theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRo
 					Effect.gen(function* () {
 						const built = buildSwarm(spec)
 						const declared = built.rename("Swarm")
-						const done = yield* installFullWorld(
-							declared,
-							{},
-							{ ambient: ordinarySession, label: "swarm" }
-						)
+						const done = yield* installFullWorld(declared, {}, [], {
+							ambient: ordinarySession,
+							label: "swarm"
+						})
 						const value = built.rename(done.schema)
 						const names = namesOf(done)
 						const lawNames = lawNamesOf(value)
@@ -67,7 +66,7 @@ export const theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRo
 						}
 						const host = hostSchema(spec, built, laws)
 						const keys = immediateKeysOf(spec, done.installation)
-						const world = fullWorld(value, {})
+						const world = fullWorld(value, {}, [])
 						yield* Effect.gen(function* () {
 							const db = yield* openServedDb(done, world.server.roles.app, {})
 							const flight = yield* oneFlight(db.ctx, done.as(world.server))

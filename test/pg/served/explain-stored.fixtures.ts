@@ -57,13 +57,14 @@ export const keptTemplate: SubstrateTemplate<Generated> = generatedTemplate({
 	content: { programs: ["kept"] },
 	build: (name) => {
 		const { top } = levelsOf(name)
-		return { schema: top, logins: [fullWorld(top, programsOf(name)).server] }
+		return { schema: top, logins: [fullWorld(top, programsOf(name), []).server] }
 	},
 	ambient: ordinarySession
 })
 
 /** The served world over the installation's declared name. */
-export const worldOf = (declared: string) => fullWorld(levelsOf(declared).top, programsOf(declared))
+export const worldOf = (declared: string) =>
+	fullWorld(levelsOf(declared).top, programsOf(declared), [])
 
 /** How many places document 1 holds: none, one or two. */
 export const places = int(0, 2)

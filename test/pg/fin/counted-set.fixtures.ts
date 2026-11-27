@@ -629,6 +629,7 @@ export const countedSetTemplate = fullWorldTemplate({
 	name: "countedset",
 	fixture: declared,
 	programs: {},
+	contexts: [],
 	label: "countedset",
 	ambient: ordinarySession
 })

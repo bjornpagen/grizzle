@@ -178,14 +178,15 @@ export const installFixture = Effect.fn("installFixture")(function* <
 > {
 	const world: FullWorld = fullWorld<
 		Parameters<typeof fullWorld>[0],
-		Readonly<Record<string, unknown>>
-	>(schema, {})
+		Readonly<Record<string, unknown>>,
+		readonly []
+	>(schema, {}, [])
 	const { installed } = yield* installGenerated(
 		(name) => {
 			const named = renamed(schema, name)
 			return {
 				schema: named,
-				logins: [fullWorld(named, { ...programs, ...outside }).server, ...logins(name)]
+				logins: [fullWorld(named, { ...programs, ...outside }, []).server, ...logins(name)]
 			}
 		},
 		{ ambient: ordinarySession, label }

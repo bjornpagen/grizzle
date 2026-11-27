@@ -89,7 +89,7 @@ const draftedVersion = (
 ) => {
 	const value = versionOf(stored)
 	return generatedDraft(
-		{ ...fullVersion(value, { passed: passedOver(value) }, name), declarations },
+		{ ...fullVersion(value, { passed: passedOver(value) }, [], name), declarations },
 		{ installation: identity.schema(parsedSchemaName(name)), previous, step },
 		{ kind: "values", value: keeping("'0'").value }
 	)

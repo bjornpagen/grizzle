@@ -319,9 +319,12 @@ const bench = (scale: Scale) =>
 		const s = yield* Substrate
 		const fs = yield* FileSystem.FileSystem
 		const declared = build("Bulk")
-		const done = yield* installFullWorld(declared, {}, { ambient: ordinarySession, label: "bulk" })
+		const done = yield* installFullWorld(declared, {}, [], {
+			ambient: ordinarySession,
+			label: "bulk"
+		})
 		const world = build(done.declared)
-		const served = fullWorld(world, {})
+		const served = fullWorld(world, {}, [])
 		const login = done.as(served.server).role
 		const db = yield* openServedDb(done, served.server.roles.app, {})
 		const changes = ChangeSet.empty(world).insertAll(

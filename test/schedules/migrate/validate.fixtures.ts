@@ -169,7 +169,7 @@ const withWorld = (
 ) => {
 	const owned = owning(value)
 	const server = succeeded(
-		ownLogin(defined(loginDescOf(fullWorld(value, {}).server), "a login value"))
+		ownLogin(defined(loginDescOf(fullWorld(value, {}, []).server), "a login value"))
 	)
 	return succeeded(
 		compileInstallation(
@@ -243,7 +243,10 @@ export const prepare = (
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const declared = v1("Staff")
-		const done = yield* installFullWorld(declared, {}, { ambient: ordinarySession, label: "real" })
+		const done = yield* installFullWorld(declared, {}, [], {
+			ambient: ordinarySession,
+			label: "real"
+		})
 		const names = namesOf(done)
 		for (const statement of seed(names)) {
 			yield* s.admin.query(statement, [])
@@ -320,7 +323,7 @@ export const prepare = (
 			return out
 		})
 		/** The world a direct writer acts in: the login's credentials and the role `app`. */
-		const writer = done.world(fullWorld(declared, {}).app)
+		const writer = done.world(fullWorld(declared, {}, []).app)
 		/** The names of the version the migration installs, under the installed schema. */
 		const nextNames = installationNamesOf(installation)
 		return {

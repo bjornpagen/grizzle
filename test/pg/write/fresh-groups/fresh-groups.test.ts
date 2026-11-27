@@ -109,9 +109,9 @@ const installed = (k: FreshCase, label: string, byDepth: boolean) =>
 	Effect.gen(function* () {
 		const built = buildFill(k.spec)
 		const declared = built.rename("Fresh")
-		const done = yield* installFullWorld(declared, {}, { ambient: ordinarySession, label })
+		const done = yield* installFullWorld(declared, {}, [], { ambient: ordinarySession, label })
 		const value = built.rename(done.schema)
-		const world = fullWorld(value, {})
+		const world = fullWorld(value, {}, [])
 		const relationAt = (r: number) => defined(built.relations[relationName(r)])
 		const inserting = (relations: ReadonlyArray<number>) =>
 			Arr.reduce(relations, ChangeSet.empty(value), (cs, r) => cs.insert(relationAt(r), []))

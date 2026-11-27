@@ -96,6 +96,7 @@ export const durationsTemplate = fullWorldTemplate({
 	name: "rebound keys durations",
 	fixture: Ledger,
 	programs: { durations },
+	contexts: [],
 	label: "rebound_keys",
 	ambient: ordinarySession
 })
@@ -201,7 +202,7 @@ export const runDurations = (
 		}
 		const read = yield* servedRead(
 			installed,
-			fullWorldRole(installed, Ledger),
+			fullWorldRole(installed, Ledger, []),
 			durations,
 			"the read of learner 1's sitting"
 		)

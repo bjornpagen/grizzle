@@ -84,6 +84,7 @@ export const foldProbeTemplate = fullWorldTemplate({
 	name: "fold probe",
 	fixture: Views,
 	programs: { crosswalk, countsFirst },
+	contexts: [],
 	label: "fold_probe",
 	ambient: ordinarySession
 })
@@ -221,7 +222,7 @@ export const runFoldProbe = (
 		}
 		const read = yield* servedRead(
 			installed,
-			fullWorldRole(installed, Views),
+			fullWorldRole(installed, Views, []),
 			c.order === "pair first" ? crosswalk : countsFirst,
 			`the crosswalk of ${askedOf(c)}`
 		)

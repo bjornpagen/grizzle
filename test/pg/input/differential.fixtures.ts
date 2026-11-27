@@ -111,7 +111,7 @@ const echoed = query(Shop).rule((r) => {
 const shopDraft = (name: string) =>
 	generatedDraft(
 		{
-			...fullVersion(Shop, { bySlug, tagged, byAmount, byRate, echoed }, name),
+			...fullVersion(Shop, { bySlug, tagged, byAmount, byRate, echoed }, [], name),
 			declarations: noDeclarations
 		},
 		{ installation: identity.schema(parsedSchemaName(name)), previous: fromEmpty, step: 0 },

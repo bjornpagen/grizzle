@@ -1427,7 +1427,7 @@ export const runHistory = (c: AggregateCase, note: Case<Feature>["note"]) =>
 	Effect.gen(function* () {
 		const shape = c.shape
 		const installed = yield* installedWithinUnits(shape, (schema) =>
-			installFullWorld(schema, {}, { ambient: ordinarySession, label: "rule_aggregate" })
+			installFullWorld(schema, {}, [], { ambient: ordinarySession, label: "rule_aggregate" })
 		)
 		if (Option.isNone(installed)) {
 			note(refusedAcrossUnits)
@@ -1435,7 +1435,7 @@ export const runHistory = (c: AggregateCase, note: Case<Feature>["note"]) =>
 		}
 		const done = installed.value
 		const built = builtOf(shape, done.schema)
-		const world = fullWorld(built.schema, {})
+		const world = fullWorld(built.schema, {}, [])
 		const state = yield* withServedDb(done, world.server.roles.app, {}, ({ serve }) =>
 			Effect.gen(function* () {
 				const calls = yield* serve({ write: changeSetOf(shape, built) })

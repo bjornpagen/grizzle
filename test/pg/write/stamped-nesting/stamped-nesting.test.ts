@@ -114,13 +114,12 @@ export const everyMemberOfANestedWriteUnderAStampedOwnerStoresExactlyItsOwnersSt
 					Effect.gen(function* () {
 						k.noteAll(featuresOf(c))
 						const declared = stampedSchemaOf(c, "Stamped").schema
-						const done = yield* installFullWorld(
-							declared,
-							{},
-							{ ambient: ordinarySession, label: "stamped" }
-						)
+						const done = yield* installFullWorld(declared, {}, [], {
+							ambient: ordinarySession,
+							label: "stamped"
+						})
 						const built = stampedSchemaOf(c, done.schema)
-						const world = fullWorld(built.schema, {})
+						const world = fullWorld(built.schema, {}, [])
 						const db = yield* openServedDb(done, world.server.roles.app, {})
 						const flight = yield* oneFlight(db.ctx, done.as(world.server))
 						const loaded = yield* db.load({

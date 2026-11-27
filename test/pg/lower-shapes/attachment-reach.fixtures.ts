@@ -112,6 +112,7 @@ export const reachTemplate = fullWorldTemplate({
 	name: "attachment reach",
 	fixture: Controlled,
 	programs: { sittingRead },
+	contexts: [],
 	label: "attachment_reach",
 	ambient: ordinarySession
 })
@@ -221,7 +222,7 @@ export const runReach = (
 		yield* standIn(session, storing(1, 1 + c.learners), c.state)
 		const read = yield* servedRead(
 			installed,
-			fullWorldRole(installed, Controlled),
+			fullWorldRole(installed, Controlled, []),
 			sittingRead,
 			"the read of the sitting"
 		)

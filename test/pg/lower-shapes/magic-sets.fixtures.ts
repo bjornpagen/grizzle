@@ -439,6 +439,7 @@ export const stageTemplate = fullWorldTemplate({
 		nestedRead,
 		pairsRead
 	},
+	contexts: [],
 	label: "magic_sets_stage",
 	ambient: ordinarySession
 })
@@ -596,7 +597,7 @@ export const runStage = (
 		const { read: program, params: at } = stageReads(c.stages)[by]
 		const read = yield* servedRead(
 			installed,
-			fullWorldRole(installed, Ledger),
+			fullWorldRole(installed, Ledger, []),
 			program,
 			`the read of child 1's stage by ${by}`
 		)

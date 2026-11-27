@@ -132,14 +132,14 @@ export const gradingTemplate: SubstrateTemplate<Generated> = generatedTemplate({
 	content: { programs: ["answer"] },
 	build: (name) => {
 		const { level } = gradingSchema(name)
-		return { schema: level, logins: [fullWorld(level, programsOf(name)).server] }
+		return { schema: level, logins: [fullWorld(level, programsOf(name), []).server] }
 	},
 	ambient: ordinarySession
 })
 
 /** The served world of a case over its installation's declared name. */
 export const worldOf = (declared: string) =>
-	fullWorld(gradingSchema(declared).level, programsOf(declared))
+	fullWorld(gradingSchema(declared).level, programsOf(declared), [])
 
 interface LineFact {
 	readonly session: number

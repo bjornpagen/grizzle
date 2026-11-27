@@ -12,6 +12,7 @@ import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import {
 	type AnyClosed,
+	type AnyContext,
 	type AnyRelation,
 	type AnySchema,
 	type Declared,
@@ -155,51 +156,60 @@ export const rebuild = <
 
 /**
  * `fixture` rebuilt under the allocated name `name` (renamed) with its full world's login, whose workload holds
- * `programs` (worlds.ts fullWorld): the version of an installation a test serves programs of, or only installs with a
- * login, as `grizzle generate` drafts it (install-migrate.ts generatedDraft).
+ * `programs` and whose role declares `contexts` (worlds.ts fullWorld): the version of an installation a test serves
+ * programs of, or only installs with a login, as `grizzle generate` drafts it (install-migrate.ts generatedDraft).
  */
 export const fullVersion = (
 	fixture: AnySchema,
 	programs: Readonly<Record<string, unknown>>,
+	contexts: ReadonlyArray<AnyContext>,
 	name: string
 ): Version => {
 	const schema = renamed(fixture, name)
-	return { schema, logins: [fullWorld(schema, programs).server] }
+	return { schema, logins: [fullWorld(schema, programs, contexts).server] }
 }
 
 /**
  * `fixture` installed under a unique schema name in the scope as `grizzle generate` drafts and serves it
- * (install-migrate.ts installGenerated), with its full world's login, whose workload holds `programs` (fullVersion).
+ * (install-migrate.ts installGenerated), with its full world's login, whose workload holds `programs` and whose role
+ * declares `contexts` (fullVersion).
  */
 export const installFullWorld = (
 	fixture: AnySchema,
 	programs: Readonly<Record<string, unknown>>,
+	contexts: ReadonlyArray<AnyContext>,
 	options: { readonly label: string; readonly ambient: AmbientSession }
 ): Effect.Effect<Installed, CompileError | SqlError, Substrate | Scope.Scope> =>
 	Effect.map(
-		installGenerated((name) => fullVersion(fixture, programs, name), options),
+		installGenerated((name) => fullVersion(fixture, programs, contexts, name), options),
 		(generated) => generated.installed
 	)
 
 /**
  * installFullWorld's installation as a template (install-migrate.ts generatedTemplate): `fixture` with its full world's
- * login, whose workload holds `programs`, drafted and served as `grizzle generate` drafts it once per member, each
- * case's Generated the installation in its clone. Its content is the label and the programs' names, which tell it from
- * another template of its declaring module; the module's import closure covers the fixture and the programs' code.
+ * login, whose workload holds `programs` and whose role declares `contexts`, drafted and served as `grizzle generate`
+ * drafts it once per member, each case's Generated the installation in its clone. Its content is the label, the
+ * programs' names and the contexts' names, which tell it from another template of its declaring module; the module's
+ * import closure covers the fixture and the programs' code.
  */
 export const fullWorldTemplate = (spec: {
 	readonly declaredIn: ImportMeta
 	readonly name: string
 	readonly fixture: AnySchema
 	readonly programs: Readonly<Record<string, unknown>>
+	readonly contexts: ReadonlyArray<AnyContext>
 	readonly label: string
 	readonly ambient: AmbientSession
 }): SubstrateTemplate<Generated> =>
 	generatedTemplate({
 		declaredIn: spec.declaredIn,
 		name: spec.name,
-		content: { label: spec.label, programs: Arr.sort(Rec.keys(spec.programs), Str.Order) },
-		build: (name) => fullVersion(spec.fixture, spec.programs, name),
+		content: {
+			label: spec.label,
+			programs: Arr.sort(Rec.keys(spec.programs), Str.Order),
+			contexts: Arr.map(spec.contexts, (c) => c.name)
+		},
+		build: (name) => fullVersion(spec.fixture, spec.programs, spec.contexts, name),
 		ambient: spec.ambient
 	})
 

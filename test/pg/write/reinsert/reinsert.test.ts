@@ -54,13 +54,12 @@ export const aStoredInstanceInsertedAgainAnswersNoChangeWhereEveryStatedRowIsSto
 					Effect.gen(function* () {
 						const built = buildFill(spec)
 						const declared = built.rename("Again")
-						const done = yield* installFullWorld(
-							declared,
-							{},
-							{ ambient: ordinarySession, label: "again" }
-						)
+						const done = yield* installFullWorld(declared, {}, [], {
+							ambient: ordinarySession,
+							label: "again"
+						})
 						const value = built.rename(done.schema)
-						const world = fullWorld(value, {})
+						const world = fullWorld(value, {}, [])
 						const names = namesOf(done)
 						const lawNames = lawNamesOf(value)
 						const laws: Laws = {

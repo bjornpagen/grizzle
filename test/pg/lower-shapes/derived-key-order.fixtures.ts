@@ -96,6 +96,7 @@ export const keyOrderTemplate = fullWorldTemplate({
 	name: "derived key order",
 	fixture: Ledger,
 	programs: { allowanceRead },
+	contexts: [],
 	label: "derived_key_order",
 	ambient: ordinarySession
 })
@@ -208,7 +209,7 @@ export const runKeyOrder = (
 		yield* standIn(session, storing(1), c.state)
 		const read = yield* servedRead(
 			installed,
-			fullWorldRole(installed, Ledger),
+			fullWorldRole(installed, Ledger, []),
 			allowanceRead,
 			"the read of the child's stage"
 		)

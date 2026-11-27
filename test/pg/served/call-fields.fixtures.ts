@@ -241,7 +241,7 @@ export const fieldsTemplate: SubstrateTemplate<Generated> = generatedTemplate({
 	content: { programs: ["alone", "pair", "either", "each", "land", "attached", "eachA", "eachC"] },
 	build: (name) => {
 		const { level, programs } = programsOf(name)
-		return { schema: level, logins: [fullWorld(level, programs).server] }
+		return { schema: level, logins: [fullWorld(level, programs, []).server] }
 	},
 	ambient: ordinarySession
 })
@@ -249,7 +249,7 @@ export const fieldsTemplate: SubstrateTemplate<Generated> = generatedTemplate({
 /** The served world of a case over its installation's declared name. */
 export const worldOf = (declared: string) => {
 	const { level, programs } = programsOf(declared)
-	return fullWorld(level, programs)
+	return fullWorld(level, programs, [])
 }
 
 /** The programs that read, each a query (programsOf). */

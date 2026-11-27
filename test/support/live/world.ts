@@ -541,6 +541,6 @@ export const liveWorld = (c: LiveCase, name: string) => {
 	})
 	programs[familyMembers.owner] = ChangeSet.empty(base).insert(Shelf, [])
 	programs[familyMembers.member] = ChangeSet.empty(base).insert(Book, [])
-	const world = fullWorld(base, programs)
+	const world = fullWorld(base, programs, [])
 	return { schema: base, world, logins: [world.server] }
 }

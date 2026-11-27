@@ -247,6 +247,7 @@ export const readOnceTemplate = fullWorldTemplate({
 	name: "read once",
 	fixture: Ledger,
 	programs: { sets, versions },
+	contexts: [],
 	label: "read_once",
 	ambient: ordinarySession
 })
@@ -500,7 +501,7 @@ const measured = (
 	Effect.gen(function* () {
 		const read = yield* servedRead(
 			installed,
-			fullWorldRole(installed, Ledger),
+			fullWorldRole(installed, Ledger, []),
 			program,
 			program === sets ? "the read of the terms" : "the read of the versions"
 		)

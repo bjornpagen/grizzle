@@ -46,21 +46,25 @@ export const notebook = (name: string) => {
 	const Note = relation("Note", { id: pg.integer, tag: Text }, ["id"])
 	const Probe = relation(probeRelation, { id: pg.integer }, ["id"])
 	const base = schema(name, [Note, Probe], [])
-	const world = fullWorld(base, {
-		tagged: query(base).rule((r) => {
-			const { id } = v(Note, "note")
-			return r.match(Note, { id, tag: r.param("tag", Text) }).find({ id })
-		}),
-		all: query(base).rule((r) => {
-			const { id, tag } = v(Note, "note")
-			return r.match(Note, { id, tag }).find({ id, tag })
-		}),
-		[probeAtMember]: query(base).rule((r) => {
-			const id = r.param("id", pg.integer)
-			return r.match(Probe, { id }).find({ id })
-		}),
-		add: ChangeSet.empty(base).insert(Note, [])
-	})
+	const world = fullWorld(
+		base,
+		{
+			tagged: query(base).rule((r) => {
+				const { id } = v(Note, "note")
+				return r.match(Note, { id, tag: r.param("tag", Text) }).find({ id })
+			}),
+			all: query(base).rule((r) => {
+				const { id, tag } = v(Note, "note")
+				return r.match(Note, { id, tag }).find({ id, tag })
+			}),
+			[probeAtMember]: query(base).rule((r) => {
+				const id = r.param("id", pg.integer)
+				return r.match(Probe, { id }).find({ id })
+			}),
+			add: ChangeSet.empty(base).insert(Note, [])
+		},
+		[]
+	)
 	return { schema: base, world }
 }
 

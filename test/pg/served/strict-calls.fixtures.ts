@@ -258,7 +258,7 @@ const programsOver = (s: ReturnType<typeof strictSchema>) =>
 /** The served world of the box's schema under its installation's declared name. */
 export const worldOf = (declared: string) => {
 	const s = strictSchema(declared)
-	return fullWorld(s, programsOver(s))
+	return fullWorld(s, programsOver(s), [])
 }
 
 /** The box's installation as a template, which every case clones. */
@@ -268,7 +268,7 @@ export const strictTemplate: SubstrateTemplate<Generated> = generatedTemplate({
 	content: { cases: Arr.map(allCases, nameOf) },
 	build: (name) => {
 		const s = strictSchema(name)
-		return { schema: s, logins: [fullWorld(s, programsOver(s)).server] }
+		return { schema: s, logins: [fullWorld(s, programsOver(s), []).server] }
 	},
 	ambient: ordinarySession
 })

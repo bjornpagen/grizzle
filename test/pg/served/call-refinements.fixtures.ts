@@ -155,7 +155,7 @@ const templateOf = (place: Place, body: Body): SubstrateTemplate<Generated> =>
 		content: { place, body, programs: ["rows", "row", "value", "count"] },
 		build: (name) => {
 			const s = refinementsSchema(place, body)(name)
-			return { schema: s, logins: [fullWorld(s, programsOf(place, body, name)).server] }
+			return { schema: s, logins: [fullWorld(s, programsOf(place, body, name), []).server] }
 		},
 		ambient: ordinarySession
 	})
@@ -180,7 +180,7 @@ export const templateKey = (place: Place, body: Body): keyof typeof refinementsT
 
 /** The served world of a case over its installation's declared name. */
 export const worldOf = (place: Place, body: Body, declared: string) =>
-	fullWorld(refinementsSchema(place, body)(declared), programsOf(place, body, declared))
+	fullWorld(refinementsSchema(place, body)(declared), programsOf(place, body, declared), [])
 
 export interface RefinementsCase {
 	readonly place: Place

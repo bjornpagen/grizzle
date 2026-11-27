@@ -301,6 +301,7 @@ export const readTemplate = fullWorldTemplate({
 	name: "rule copies read",
 	fixture: Base,
 	programs: { childsBudgets },
+	contexts: [],
 	label: "rule_copies_read",
 	ambient: ordinarySession
 })
@@ -363,7 +364,7 @@ export const runRead = (
 		}
 		const read = yield* servedRead(
 			installed,
-			fullWorldRole(installed, Base),
+			fullWorldRole(installed, Base, []),
 			childsBudgets,
 			"the read of child 1's budgets"
 		)

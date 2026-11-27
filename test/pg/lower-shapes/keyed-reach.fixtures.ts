@@ -94,6 +94,7 @@ export const keyedReachTemplate = fullWorldTemplate({
 	name: "keyed reach",
 	fixture: Ledger,
 	programs: keyedReads,
+	contexts: [],
 	label: "keyed_reach",
 	ambient: ordinarySession
 })
@@ -198,7 +199,7 @@ export const runKeyedReach = (
 		yield* standIn(session, storing(1, c.children), c.state)
 		const read = yield* servedRead(
 			installed,
-			fullWorldRole(installed, Ledger),
+			fullWorldRole(installed, Ledger, []),
 			keyedReads[c.read],
 			`${Formatter.format(c)}: ${c.read}`
 		)

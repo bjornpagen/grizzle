@@ -74,7 +74,7 @@ export const levelsOf = (name: string, cells: Arr.NonEmptyReadonlyArray<RecordsC
 		Arr.flatMap(found, (f) => f.relations),
 		Arr.flatMap(found, (f) => f.rules)
 	)
-	const world = fullWorld(Den, {})
+	const world = fullWorld(Den, {}, [])
 	return {
 		Den,
 		queries,

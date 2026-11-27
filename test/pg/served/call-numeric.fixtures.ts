@@ -102,14 +102,14 @@ export const numericTemplate: SubstrateTemplate<Generated> = generatedTemplate({
 	content: { programs: ["hold", "record", "fromText", "held", "written", "doubled"] },
 	build: (name) => {
 		const s = numericSchema(name)
-		return { schema: s, logins: [fullWorld(s, programsOf(name)).server] }
+		return { schema: s, logins: [fullWorld(s, programsOf(name), []).server] }
 	},
 	ambient: ordinarySession
 })
 
 /** The served world of a case over its installation's declared name. */
 export const worldOf = (declared: string) =>
-	fullWorld(numericSchema(declared), programsOf(declared))
+	fullWorld(numericSchema(declared), programsOf(declared), [])
 
 /** What a drawn decimal is, by its feature. */
 export type NumericFeature =

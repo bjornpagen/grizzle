@@ -1337,6 +1337,7 @@ export const wholeTemplate = fullWorldTemplate({
 	name: "whole",
 	fixture: declared,
 	programs: {},
+	contexts: [],
 	label: "whole",
 	ambient: ordinarySession
 })

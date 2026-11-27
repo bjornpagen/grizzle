@@ -117,7 +117,7 @@ export const madeOf = (c: DigestCase): Effect.Effect<Made> =>
 			return r.match(Note, { id, text }).find({ id, digest: Fn.call(keyedDigest, { text }) })
 		})
 		const compiled = yield* Effect.orDie(
-			compiledLogin(fullWorld(s, { keys }).server, (owned) => firstCodebook(rostersOf(owned)))
+			compiledLogin(fullWorld(s, { keys }, []).server, (owned) => firstCodebook(rostersOf(owned)))
 		)
 		return {
 			kind: "owned",

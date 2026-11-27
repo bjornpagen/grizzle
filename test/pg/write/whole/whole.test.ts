@@ -103,7 +103,7 @@ export const deletingAGroupWholeAndReplacingItOnPostgreSQL19EveryChangeSetStores
 								asm: lawNames.lawOf(asmPlaces),
 								inst: lawNames.lawOf(instPlaces)
 							}
-							const served = fullWorld(world, {})
+							const served = fullWorld(world, {}, [])
 							return yield* Effect.gen(function* () {
 								const db = yield* openServedDb(done.installed, served.server.roles.app, {})
 								/** Every relation's stored rows equal the model's. */

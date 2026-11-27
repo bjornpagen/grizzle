@@ -182,16 +182,15 @@ class AttachedDisagreed extends Data.TaggedError("AttachedDisagreed")<{
 export const attachedCase = (c: AttachedCase) =>
 	Effect.gen(function* () {
 		const declared = builtAt(c.shape, "Shelves")
-		const installed = yield* installFullWorld(
-			declared.level,
-			{},
-			{ ambient: ordinarySession, label: "records" }
-		)
+		const installed = yield* installFullWorld(declared.level, {}, [], {
+			ambient: ordinarySession,
+			label: "records"
+		})
 		const at = builtAt(c.shape, installed.declared)
 		/** The relations an insert states apart, as the runtime records hold them: a query built at run time types none. */
 		const apart: ReadonlyArray<{ readonly name: string }> = at.kept.apart
 		const keptNames = [at.kept.row.name, ...Arr.map(apart, (r) => r.name)]
-		const db = yield* openServedDb(installed, fullWorld(at.level, {}).server.roles.app, {})
+		const db = yield* openServedDb(installed, fullWorld(at.level, {}, []).server.roles.app, {})
 		const served = yield* db.serve({
 			source: changeSetOver
 				.empty(at.base)

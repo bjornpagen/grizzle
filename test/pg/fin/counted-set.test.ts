@@ -74,7 +74,7 @@ export const aCountedSetKeyedByThreeFieldsAndANameStoresEachOwnersCountAndFoldsO
 					Effect.provideService(
 						Effect.gen(function* () {
 							const value = declaredSchema(done.installed.schema)
-							const world = fullWorld(value, {})
+							const world = fullWorld(value, {}, [])
 							const names = namesOf(done.installed)
 							const lawNames = lawNamesOf(value)
 							const lawOf: { readonly [B in Broken]: LawId } = {

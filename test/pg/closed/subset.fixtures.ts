@@ -44,7 +44,7 @@ export const Marked = relation("Marked", columns, ["id"])
 const Subsets = schema("Subsets", [Mark, Marked], [])
 
 /** Subsets' full world, whose writer each case takes on. */
-export const world = fullWorld(Subsets, {})
+export const world = fullWorld(Subsets, {}, [])
 
 /** Subsets installed once per member with its full world's login (install-migrate.ts installedTemplate). */
 export const subsetsTemplate = fullWorldTemplate({
@@ -52,6 +52,7 @@ export const subsetsTemplate = fullWorldTemplate({
 	name: "subsets",
 	fixture: Subsets,
 	programs: {},
+	contexts: [],
 	label: "subsets",
 	ambient: ordinarySession
 })
