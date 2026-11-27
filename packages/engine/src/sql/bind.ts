@@ -39,9 +39,11 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { nominal } from "#compiler/core/brand.ts"
-import { defaultOpclass } from "#compiler/ir/law.ts"
+import { compareStrings, type Direction } from "#compiler/core/order.ts"
+import { defaultOpclass, type IndexOpclass } from "#compiler/ir/law.ts"
 import type { AccessIndexRequest, AccessUse } from "#compiler/ir/products.ts"
 import {
+	type AccessTag,
 	builtinFunctions,
 	bodyPositionNames,
 	type CreateFunction,
@@ -56,12 +58,17 @@ import {
 	isSetQuery,
 	isValuesTarget,
 	type JoinStep,
+	type LevelAccess,
 	type Merge,
 	type NameKey,
 	nameKey,
 	type OperandBody,
 	type OperandSelect,
+	type OrderedColumn,
+	type OrderedUse,
+	type OrderItem,
 	overRowsOf,
+	type RangeUse,
 	type PlBlock,
 	type PlStatement,
 	type ObjectName,
@@ -106,19 +113,48 @@ import { simpleQuery } from "#compiler/sql/pull-up.ts"
 import { identityHooks, Transform, visitLevelExpr } from "#compiler/sql/transform.ts"
 
 /** What a B-tree holds of a column: many values, or few (a roster's codes, a boolean), whose share of the rows no index
- * bounds, a filter beside a binding. A column of no byte bound, a span, a vector or a search document holds none: the
- * catalog states no BindColumn of it, and an equality on it is a filter beside the read's binding. */
+ * bounds, a filter beside a binding. */
 export type Holds = "many" | "few"
 
-/** A column of a stored table a B-tree holds, by its installed name: the field it is, a request's key, and its holds. */
-export interface BindColumn {
-	readonly field: string
-	readonly holds: Holds
+/**
+ * A column of a stored table an index can serve, by its installed name, `field` the field it is, a request's key, and
+ * its kind, which closes the operators a read of it is classified by (`accessOf`):
+ * - a B-tree's, with what it holds (`holds`): a scalar's, a text's (whose range on both sides is a prefix search), a
+ *   network's (an inet or a cidr, whose containment GiST serves under inet_ops), a vector's (whose distance HNSW serves
+ *   under the cosine class `cosine`, and whose own `=` pgvector's B-tree class keys); bound by `=`, `IN`, `= ANY` and,
+ *   past the equalities, ranged by `<`, `<=`, `>=`, `>` and BETWEEN;
+ * - a span's, which no B-tree keys: GiST under range_ops serves its Allen relations, its scalar prefix through
+ *   btree_gist;
+ * - a search document's, which no B-tree keys: GIN serves its match.
+ * A column of no byte bound and a byte string have no kind: an index serves no read of one, which is a filter.
+ */
+export type BindColumn =
+	| {
+			readonly kind: "scalar" | "text" | "network"
+			readonly field: string
+			readonly holds: Holds
+	  }
+	| {
+			readonly kind: "vector"
+			readonly field: string
+			readonly holds: Holds
+			readonly cosine: IndexOpclass
+	  }
+	| { readonly kind: "span" | "search"; readonly field: string }
+
+/** A column a B-tree holds (BindColumn). */
+type BTreeColumn = Extract<BindColumn, { readonly holds: Holds }>
+
+/** `table`'s column `column` where a B-tree holds it: what an equality binds and a range ranges. */
+const btreeColumn = (table: BindTable, column: string): BTreeColumn | undefined => {
+	const c = table.columns.get(column)
+	return c !== undefined && "holds" in c ? c : undefined
 }
 
 /**
- * A stored table as the binding reads it: its relation, as the installation plans its indexes; each installed column a
- * B-tree holds; and every unique key, each its installed columns, a read binding one whole reaching one row.
+ * A stored table as the binding reads it: its relation, as the installation plans its indexes; each installed column an
+ * index can serve, with its kind (BindColumn); and every unique key, each its installed columns, a read binding one
+ * whole reaching one row.
  */
 export interface BindTable {
 	readonly relation: string
@@ -366,6 +402,218 @@ const rangeOf = (
 		: undefined
 }
 
+/** Which side of a range a conjunct bounds its column on, or both. */
+type RangeSide = "lower" | "upper" | "both"
+
+/** The side `op` bounds its left operand on, by nbtree's strategies. */
+const leftSide = (op: string): RangeSide => (op === ">" || op === ">=" ? "lower" : "upper")
+
+/** The side of `alias`'s column a range conjunct bounds (`rangeOf`), or BETWEEN's two, with the column. */
+const rangeSideOf = (
+	c: Expr,
+	alias: string
+): { readonly column: string; readonly value: Expr; readonly side: RangeSide } | undefined => {
+	if (c.kind === "between" && !c.not && !opaque(c)) {
+		const ref = columnOf(c.expr)
+		return ref?.table === alias &&
+			!qualifiersOf(c.low).has(alias) &&
+			!qualifiersOf(c.high).has(alias)
+			? { column: ref.column, value: { kind: "row", items: [c.low, c.high] }, side: "both" }
+			: undefined
+	}
+	const r = rangeOf(c, alias)
+	if (r === undefined || c.kind !== "binary") {
+		return undefined
+	}
+	const onLeft = columnOf(c.left)?.table === alias
+	const side = leftSide(c.op)
+	return {
+		column: r.column,
+		value: r.value,
+		side: onLeft ? side : side === "lower" ? "upper" : "lower"
+	}
+}
+
+/**
+ * The operators each kind of column but a B-tree's is matched by against a value its level fixes (BindColumn): a
+ * span's Allen relations, the range operators GiST's range_ops serves (pointIn's `@>` among them); a network's
+ * containments, which inet_ops serves on either side; a search document's match. Any other operator on such a column
+ * is a filter, never an access.
+ */
+const matchOperators = {
+	span: new Set(["&&", "@>", "<@", "<<", ">>", "&<", "&>", "-|-", "="]),
+	network: new Set(["<<=", "<<", "&&"]),
+	search: new Set(["@@"])
+} as const satisfies Readonly<Record<"span" | "network" | "search", ReadonlySet<string>>>
+
+/**
+ * A match of `alias`'s column of `kind` a conjunct states (`matchOperators`): the column on one side, through a
+ * collation, and a value reading no column of `alias` on the other; a search document on the left of its query alone.
+ */
+const matchOf = (
+	c: Expr,
+	alias: string,
+	kind: keyof typeof matchOperators,
+	kindOf: (column: string) => BindColumn["kind"] | undefined
+): { readonly column: string; readonly value: Expr } | undefined => {
+	if (
+		c.kind !== "binary" ||
+		c.schema !== undefined ||
+		!matchOperators[kind].has(c.op) ||
+		opaque(c)
+	) {
+		return undefined
+	}
+	const sides =
+		kind === "search"
+			? ([[c.left, c.right]] as const)
+			: ([
+					[c.left, c.right],
+					[c.right, c.left]
+				] as const)
+	for (const [side, other] of sides) {
+		const ref = columnOf(side)
+		if (ref?.table === alias && kindOf(ref.column) === kind && !qualifiersOf(other).has(alias)) {
+			return { column: ref.column, value: other }
+		}
+	}
+	return undefined
+}
+
+/**
+ * The index order a level's LIMIT states of the read its ORDER BY orders (sql/ast.ts AccessTag), with that ORDER BY: the
+ * level's driving read, which the binding reads it into (LevelAccess `ordered`, `nearest`).
+ */
+interface OrderIntent {
+	readonly tag: AccessTag
+	readonly orderBy: ReadonlyArray<OrderItem>
+}
+
+/**
+ * How a stored read reaches its rows, classified (Binder `#classified`): the equalities it binds (`eq`), each a
+ * Binding, then what its LevelAccess states past them, every conjunct it takes the read's own.
+ */
+type Classified =
+	| { readonly kind: "whole" }
+	| {
+			readonly kind: "seek"
+			readonly eq: NonEmptyReadonlyArray<Binding>
+			readonly keyed: boolean
+	  }
+	| {
+			readonly kind: "ordered"
+			readonly eq: ReadonlyArray<Binding>
+			readonly order: NonEmptyReadonlyArray<OrderedColumn>
+			readonly use: OrderedUse
+	  }
+	| { readonly kind: "nearest"; readonly column: string; readonly cosine: IndexOpclass }
+	| {
+			readonly kind: "range"
+			readonly eq: ReadonlyArray<Binding>
+			readonly column: string
+			readonly conjuncts: NonEmptyReadonlyArray<Expr>
+			readonly use: RangeUse
+	  }
+	| {
+			readonly kind: "span"
+			readonly eq: ReadonlyArray<Binding>
+			readonly column: string
+			readonly conjunct: Expr
+	  }
+	| { readonly kind: "network" | "search"; readonly column: string; readonly conjunct: Expr }
+
+/**
+ * The index order a level's LIMIT states of `table`'s read under `written` (OrderIntent), where its ORDER BY orders that
+ * read: an approximate search's distance, `<=>`, of one of its vectors from a fixed one (`nearest`); a take's or a
+ * page's ORDER BY of its B-tree columns, past the ones its equalities `equal` fix (`ordered`). None where the ORDER BY
+ * reads anything else, a sort over rows no index of the read orders.
+ */
+const orderedOf = (
+	table: BindTable,
+	written: string,
+	order: OrderIntent,
+	equal: ReadonlySet<string>,
+	fixed: (e: Expr) => boolean
+):
+	| Extract<Classified, { readonly kind: "nearest" }>
+	| {
+			readonly kind: "ordered"
+			readonly order: NonEmptyReadonlyArray<OrderedColumn>
+			readonly use: OrderedUse
+	  }
+	| undefined => {
+	switch (order.tag.kind) {
+		case "nearest": {
+			const [only, ...more] = order.orderBy
+			const d = only?.expr
+			if (d === undefined || more.length > 0 || d.kind !== "binary" || d.op !== "<=>") {
+				return undefined
+			}
+			for (const [side, other] of [
+				[d.left, d.right],
+				[d.right, d.left]
+			] as const) {
+				const ref = columnOf(side)
+				const column = ref?.table === written ? table.columns.get(ref.column) : undefined
+				if (ref !== undefined && column?.kind === "vector" && fixed(other)) {
+					return { kind: "nearest", column: ref.column, cosine: column.cosine }
+				}
+			}
+			return undefined
+		}
+		case "ordered": {
+			const columns: Array<OrderedColumn> = []
+			for (const item of order.orderBy) {
+				const ref = columnOf(item.expr)
+				if (ref?.table !== written || btreeColumn(table, ref.column) === undefined) {
+					return undefined
+				}
+				if (!equal.has(ref.column) && !columns.some((c) => c.column === ref.column)) {
+					columns.push({ column: ref.column, dir: item.direction === "ASC" ? "asc" : "desc" })
+				}
+			}
+			const [c0, ...cs] = columns
+			return c0 === undefined
+				? undefined
+				: { kind: "ordered", order: [c0, ...cs], use: order.tag.use }
+		}
+	}
+}
+
+/** A request of a read of `table` by `method` at `keys`, its installed columns in key order, `fixed` of them bound. */
+const keyedRequest = (
+	table: BindTable,
+	method: AccessIndexRequest["method"],
+	keys: ReadonlyArray<{
+		readonly column: string
+		readonly dir: Direction
+		readonly opclass: IndexOpclass
+	}>,
+	fixed: number,
+	use: AccessUse
+): AccessIndexRequest => ({
+	relation: table.relation,
+	keys: keys.map((k) => {
+		const column = table.columns.get(k.column)
+		return column === undefined
+			? defect(`a key column of ${table.relation} an index serves; ${k.column} is none`)
+			: { expr: column.field, dir: k.dir, opclass: k.opclass }
+	}),
+	method,
+	fixed,
+	role: "access",
+	use
+})
+
+/** Keys in ascending order under the default class, of `columns`. */
+const ascending = (
+	columns: ReadonlyArray<string>
+): ReadonlyArray<{
+	readonly column: string
+	readonly dir: Direction
+	readonly opclass: IndexOpclass
+}> => columns.map((column) => ({ column, dir: "asc", opclass: defaultOpclass }))
+
 /**
  * One entry of a level's FROM, flattened from its items and join chains in order: its source, and how it joins the
  * entries before it, a FROM list's item or a chain's first (`item`), an inner join on a condition, a LEFT JOIN on one,
@@ -599,6 +847,11 @@ class Binder {
 					const declared = x.table === undefined ? undefined : env.relations.get(x.table)
 					return declared === undefined ? x : { ...x, table: declared.alias }
 				}
+				if (x.kind === "access") {
+					return defect(
+						"an index order stated where no level's LIMIT holds it (sql/ast.ts AccessTag), which the binding reads there alone"
+					)
+				}
 				if (x.kind === "exists" || x.kind === "subquery") {
 					return { ...x, query: sublink(x.query) }
 				}
@@ -686,13 +939,21 @@ class Binder {
 		}
 	}
 
-	/** A query body under `env`, its query's ORDER BY, LIMIT and OFFSET read under the env its body binds. */
+	/**
+	 * A query body under `env`, its query's ORDER BY, LIMIT and OFFSET read under the env its body binds. A LIMIT that
+	 * states its level's index order (sql/ast.ts AccessTag) states it of the core's driving read (`core`), and is read
+	 * as the LIMIT it tags: no bound statement holds a tag.
+	 */
 	body(
 		b: OperandBody,
 		env: Env,
 		name: PlanName | undefined,
-		tail: Tail
+		stated: Tail
 	): { readonly body: OperandBody; readonly tail: Tail } {
+		const limit = stated.limit
+		const order: OrderIntent | undefined =
+			limit?.kind === "access" ? { tag: limit.access, orderBy: stated.orderBy } : undefined
+		const tail: Tail = limit?.kind === "access" ? { ...stated, limit: limit.expr } : stated
 		const tailUnder = (under: Env): Tail => {
 			const rename = this.renamer(under)
 			return {
@@ -704,7 +965,7 @@ class Binder {
 		switch (b.kind) {
 			case "core": {
 				const folded = tail.orderBy.length > 0 ? b : foldedCore(b, true)
-				const bound = this.core(folded, env, name)
+				const bound = this.core(folded, env, name, order)
 				return { body: bound.core, tail: tailUnder(bound.env) }
 			}
 			case "select":
@@ -755,7 +1016,8 @@ class Binder {
 	core(
 		c: SelectCore,
 		env: Env,
-		name: PlanName | undefined
+		name: PlanName | undefined,
+		order: OrderIntent | undefined
 	): { readonly core: SelectCore; readonly env: Env } {
 		const depth = env.depth + 1
 		const where: Array<Expr> = [...conjunctsOf(c.where)]
@@ -764,7 +1026,7 @@ class Binder {
 		for (const [place, entry] of entriesOf(c.from).entries()) {
 			const written = writtenOf(entry.source)
 			const alias = this.#alias(written)
-			bound.push(this.entry(entry, place, where, here, env, alias))
+			bound.push(this.entry(entry, place, where, here, env, alias, place === 0 ? order : undefined))
 			if (written !== undefined) {
 				here = withRelation(here, written, alias, depth, place)
 			}
@@ -817,7 +1079,8 @@ class Binder {
 		where: Array<Expr>,
 		here: Env,
 		outer: Env,
-		alias: Alias
+		alias: Alias,
+		order: OrderIntent | undefined
 	): BoundEntry {
 		const source = entry.source
 		const writtenAlias = writtenOf(source)
@@ -837,7 +1100,7 @@ class Binder {
 			case "table":
 				return this.#catalog.view(nameKey(source.table))
 					? rows({ ...source, alias }, this.#method(entry, source.alias, where, here, place))
-					: this.tableEntry(entry, source, place, where, here, alias)
+					: this.tableEntry(entry, source, place, where, here, alias, order)
 			case "derived":
 				return this.derivedEntry(entry, source, place, where, here, outer, alias)
 			case "cte": {
@@ -934,11 +1197,14 @@ class Binder {
 	): { readonly inner: Alias; readonly inside: (env: Env) => Env } {
 		const inner = this.#alias(written)
 		const catalogTable = this.#catalog.table(nameKey(table))
-		const held = catalogTable === undefined ? [] : bound.filter((c) => catalogTable.columns.has(c))
+		const held =
+			catalogTable === undefined
+				? []
+				: bound.filter((c) => btreeColumn(catalogTable, c) !== undefined)
 		const trailing =
 			catalogTable === undefined
 				? []
-				: order.filter((c) => catalogTable.columns.has(c) && !held.includes(c))
+				: order.filter((c) => btreeColumn(catalogTable, c) !== undefined && !held.includes(c))
 		const [h0, ...hs] = held
 		this.#levels.push({
 			name: { kind: "named", name: alias },
@@ -1071,7 +1337,8 @@ class Binder {
 		place: number,
 		where: Array<Expr>,
 		here: Env,
-		alias: Alias
+		alias: Alias,
+		order: OrderIntent | undefined
 	): BoundEntry {
 		const written = source.alias
 		const table = this.#catalog.table(nameKey(source.table))
@@ -1093,7 +1360,7 @@ class Binder {
 				: pools.flatMap((pool) =>
 						pool.flatMap((c): ReadonlyArray<Binding & { readonly driven: boolean }> => {
 							const b = bindingOf(c, written)
-							if (b === undefined || !table.columns.has(b.column)) {
+							if (b === undefined || btreeColumn(table, b.column) === undefined) {
 								return []
 							}
 							const driven = b.op === "=" && [...qualifiersOf(b.value)].some(earlier)
@@ -1112,37 +1379,156 @@ class Binder {
 		if (table !== undefined && bindings.some((b) => b.driven)) {
 			return this.probeEntry(entry, source, table, bindings, ons, where, here, alias, needs, take)
 		}
-		const many =
-			table !== undefined && bindings.some((b) => table.columns.get(b.column)?.holds === "many")
 		const self = withRelation(here, written, alias, here.depth, place)
-		const seek = many
-			? bindings.map((b): SeekBinding => {
-					take(b.conjunct)
-					return { column: b.column, condition: this.expr(b.conjunct, self) }
-				})
-			: []
-		const equal = new Set(seek.map((b) => b.column))
-		/** The one range a seek reads past its bound columns, of the least column it ranges at a value its level fixes. */
-		const [range] =
-			table === undefined || seek.length === 0
-				? []
-				: pools
-						.flatMap((pool) =>
-							pool.flatMap((c) => {
-								const r = rangeOf(c, written)
-								return r !== undefined &&
-									table.columns.has(r.column) &&
-									!equal.has(r.column) &&
-									fixed(r.value)
-									? [r]
-									: []
-							})
-						)
-						.toSorted((x, y) => (x.column < y.column ? -1 : x.column > y.column ? 1 : 0))
-		if (range !== undefined) {
-			take(range.conjunct)
-			seek.push({ column: range.column, condition: this.expr(range.conjunct, self) })
+		const access =
+			table === undefined
+				? ({ kind: "whole" } as const)
+				: this.#classified(table, written, pools, bindings, fixed, order)
+		/** A conjunct the read binds or matches, moved out of its level into the read, read under the read's alias. */
+		const moved = (conjunct: Expr): Expr => {
+			take(conjunct)
+			return this.expr(conjunct, self)
 		}
+		const sought = (fixing: ReadonlyArray<Binding>): ReadonlyArray<SeekBinding> =>
+			fixing.map((b) => ({ column: b.column, condition: moved(b.conjunct) }))
+		const read = (levelAccess: LevelAccess): FromSource => ({
+			kind: "read",
+			table: source.table,
+			alias,
+			access: levelAccess
+		})
+		const indexed = (
+			levelAccess: LevelAccess,
+			request: AccessIndexRequest,
+			bound: ReadonlyArray<string>
+		): { readonly source: FromSource; readonly scan: PlanItem<AccessIndexRequest>["scan"] } => ({
+			source: read(levelAccess),
+			scan: { kind: "index", index: request, bound, needs }
+		})
+		const columnsOf = (fixing: ReadonlyArray<Binding>): ReadonlyArray<string> =>
+			[...new Set(fixing.map((b) => b.column))].toSorted()
+		const bound = ((): {
+			readonly source: FromSource
+			readonly scan: PlanItem<AccessIndexRequest>["scan"]
+		} => {
+			if (table === undefined) {
+				return { source: read({ kind: "whole" }), scan: { kind: "rows" } }
+			}
+			switch (access.kind) {
+				case "whole":
+					return { source: read({ kind: "whole" }), scan: { kind: "seq" } }
+				case "seek": {
+					const [b0, ...bs] = sought(access.eq)
+					const [c0, ...cs] = columnsOf(access.eq)
+					if (b0 === undefined || c0 === undefined) {
+						return defect("a seek binding a column at least")
+					}
+					return indexed(
+						{ kind: "seek", bound: [b0, ...bs] },
+						requestOf(table, [c0, ...cs], [], access.keyed ? "key lookup" : "equality lookup"),
+						[c0, ...cs]
+					)
+				}
+				case "ordered": {
+					const fixedColumns = columnsOf(access.eq)
+					return indexed(
+						{ kind: "ordered", bound: sought(access.eq), order: access.order, use: access.use },
+						keyedRequest(
+							table,
+							"btree",
+							[
+								...ascending(fixedColumns),
+								...access.order.map((o) => ({
+									column: o.column,
+									dir: o.dir,
+									opclass: defaultOpclass
+								}))
+							],
+							fixedColumns.length,
+							access.use
+						),
+						fixedColumns
+					)
+				}
+				case "nearest":
+					return indexed(
+						{ kind: "nearest", column: access.column },
+						keyedRequest(
+							table,
+							"hnsw",
+							[{ column: access.column, dir: "asc", opclass: access.cosine }],
+							0,
+							"approximate vector retrieval"
+						),
+						[]
+					)
+				case "range": {
+					const fixedColumns = columnsOf(access.eq)
+					const [c0, ...cs] = access.conjuncts
+					return indexed(
+						{
+							kind: "range",
+							bound: sought(access.eq),
+							column: access.column,
+							conditions: [moved(c0), ...cs.map(moved)],
+							use: access.use
+						},
+						keyedRequest(
+							table,
+							"btree",
+							ascending([...fixedColumns, access.column]),
+							fixedColumns.length,
+							access.use
+						),
+						[...fixedColumns, access.column]
+					)
+				}
+				case "span": {
+					const fixedColumns = columnsOf(access.eq)
+					return indexed(
+						{
+							kind: "span",
+							bound: sought(access.eq),
+							column: access.column,
+							condition: moved(access.conjunct)
+						},
+						keyedRequest(
+							table,
+							"gist",
+							ascending([...fixedColumns, access.column]),
+							fixedColumns.length,
+							"span predicate"
+						),
+						[...fixedColumns, access.column]
+					)
+				}
+				case "network":
+					return indexed(
+						{
+							kind: "network",
+							bound: [],
+							column: access.column,
+							condition: moved(access.conjunct)
+						},
+						keyedRequest(table, "gist", ascending([access.column]), 0, "network containment"),
+						[access.column]
+					)
+				case "search":
+					return {
+						source: read({
+							kind: "search",
+							column: access.column,
+							condition: moved(access.conjunct)
+						}),
+						scan: {
+							kind: "bitmap",
+							index: keyedRequest(table, "gin", ascending([access.column]), 0, "text search"),
+							bound: [access.column],
+							needs
+						}
+					}
+			}
+		})()
 		const step: Step =
 			entry.join === "on" || entry.join === "left"
 				? {
@@ -1150,42 +1536,106 @@ class Binder {
 						on: conjunction(ons.map((c) => this.expr(c, self))) ?? lit.bool(true)
 					}
 				: { join: "cross" }
-		const method = this.#method(entry, written, where, here, place)
-		const bound = [...equal].toSorted()
-		const [b0, ...bs] = bound
-		const [s0, ...ss] = seek
-		if (table === undefined || s0 === undefined || b0 === undefined) {
-			return {
-				source: { kind: "read", table: source.table, alias, access: { kind: "whole" } },
-				step,
-				item: { alias, scan: table === undefined ? { kind: "rows" } : { kind: "seq" } },
-				method
+		return {
+			source: bound.source,
+			step,
+			item: { alias, scan: bound.scan },
+			method: this.#method(entry, written, where, here, place)
+		}
+	}
+
+	/**
+	 * How a stored read reaches its rows (`tableEntry`), each conjunct of `pools` classified by its operator and its
+	 * column's kind (BindColumn), against a value its level fixes, its equalities `bindings` among them, and the index
+	 * order its level's LIMIT states of it (`order`), in this order of what reaches the fewest rows by construction:
+	 * - its equalities where they hold a unique key whole, at one row (`seek`, a key lookup);
+	 * - its level's index order: a take's or a page's ORDER BY of its B-tree columns past the ones its equalities fix,
+	 *   after them (`ordered`), or an approximate search's distance from a fixed vector (`nearest`), the equalities then
+	 *   filters;
+	 * - a span's Allen relation, after its equalities through btree_gist (`span`);
+	 * - the one range past its equalities, of the column bounded on both sides first, then the least by name, where a
+	 *   column it or they bind holds many values (`range`, a text column bounded on both sides a prefix search), as the
+	 *   workload's access paths have always ranged a read;
+	 * - its equalities where one holds many values (`seek`);
+	 * - a network's containment (`network`) or a search document's match (`search`), the equalities filters;
+	 * - else whole: no conjunct an index serves, or equalities of few values alone, a roster's share of the rows.
+	 * A conjunct of any other operator is a filter, never an access.
+	 */
+	#classified(
+		table: BindTable,
+		written: string,
+		pools: ReadonlyArray<ReadonlyArray<Expr>>,
+		bindings: ReadonlyArray<Binding>,
+		fixed: (e: Expr) => boolean,
+		order: OrderIntent | undefined
+	): Classified {
+		const conjuncts = pools.flat()
+		const equal = new Set(bindings.map((b) => b.column))
+		const holds = (column: string) => btreeColumn(table, column)?.holds
+		const many = bindings.some((b) => holds(b.column) === "many")
+		const [b0, ...bs] = bindings
+		if (many && b0 !== undefined && holdsKey(table, equal)) {
+			return { kind: "seek", eq: [b0, ...bs], keyed: true }
+		}
+		const kindOf = (column: string) => table.columns.get(column)?.kind
+		if (order !== undefined) {
+			const ordered = orderedOf(table, written, order, equal, fixed)
+			if (ordered !== undefined) {
+				return ordered.kind === "ordered" ? { ...ordered, eq: bindings } : ordered
 			}
 		}
-		return {
-			source: {
-				kind: "read",
-				table: source.table,
-				alias,
-				access: { kind: "seek", bound: [s0, ...ss] }
-			},
-			step,
-			item: {
-				alias,
-				scan: {
-					kind: "index",
-					index: requestOf(
-						table,
-						[b0, ...bs],
-						range === undefined ? [] : [range.column],
-						holdsKey(table, equal) ? "key lookup" : "equality lookup"
-					),
-					bound: range === undefined ? bound : [...bound, range.column],
-					needs
-				}
-			},
-			method
+		const matched = (kind: keyof typeof matchOperators) =>
+			conjuncts
+				.flatMap((c) => {
+					const m = matchOf(c, written, kind, kindOf)
+					return m !== undefined && fixed(m.value) ? [{ conjunct: c, column: m.column }] : []
+				})
+				.toSorted((x, y) => compareStrings(x.column, y.column))[0]
+		const span = matched("span")
+		if (span !== undefined) {
+			return { kind: "span", eq: bindings, column: span.column, conjunct: span.conjunct }
 		}
+		const ranges = conjuncts.flatMap((c) => {
+			const r = rangeSideOf(c, written)
+			return r !== undefined &&
+				btreeColumn(table, r.column) !== undefined &&
+				!equal.has(r.column) &&
+				fixed(r.value)
+				? [{ conjunct: c, ...r }]
+				: []
+		})
+		const ranged = [...new Set(ranges.map((r) => r.column))]
+			.map((column) => {
+				const sides = new Set(ranges.filter((r) => r.column === column).map((r) => r.side))
+				return { column, both: sides.has("both") || (sides.has("lower") && sides.has("upper")) }
+			})
+			.filter((r) => many || holds(r.column) === "many")
+			.toSorted((x, y) =>
+				x.both === y.both ? compareStrings(x.column, y.column) : x.both ? -1 : 1
+			)[0]
+		if (ranged !== undefined) {
+			const [c0, ...cs] = ranges.filter((r) => r.column === ranged.column).map((r) => r.conjunct)
+			return c0 === undefined
+				? defect("a ranged column of a range conjunct")
+				: {
+						kind: "range",
+						eq: bindings,
+						column: ranged.column,
+						conjuncts: [c0, ...cs],
+						use: ranged.both && kindOf(ranged.column) === "text" ? "prefix search" : "range"
+					}
+		}
+		if (many && b0 !== undefined) {
+			return { kind: "seek", eq: [b0, ...bs], keyed: false }
+		}
+		const network = matched("network")
+		if (network !== undefined) {
+			return { kind: "network", column: network.column, conjunct: network.conjunct }
+		}
+		const search = matched("search")
+		return search === undefined
+			? { kind: "whole" }
+			: { kind: "search", column: search.column, conjunct: search.conjunct }
 	}
 
 	/**
@@ -1389,7 +1839,7 @@ class Binder {
 		for (const [place, entry] of entriesOf(items).entries()) {
 			const w = writtenOf(entry.source)
 			const alias = this.#alias(w)
-			bound.push(this.entry(entry, place, where, here, env, alias))
+			bound.push(this.entry(entry, place, where, here, env, alias, undefined))
 			if (w !== undefined) {
 				here = withRelation(here, w, alias, depth, place)
 			}
@@ -1406,7 +1856,7 @@ class Binder {
 				? []
 				: where.flatMap((c) => {
 						const b = bindingOf(c, written)
-						return b !== undefined && catalogTable.columns.has(b.column) ? [b] : []
+						return b !== undefined && btreeColumn(catalogTable, b.column) !== undefined ? [b] : []
 					})
 		const driven = bindings.filter((b) => b.op === "=" && [...qualifiersOf(b.value)].some(earlier))
 		if (catalogTable !== undefined && driven.length > 0) {
@@ -1452,7 +1902,7 @@ class Binder {
 		}
 		const many =
 			catalogTable !== undefined &&
-			bindings.some((b) => catalogTable.columns.get(b.column)?.holds === "many")
+			bindings.some((b) => btreeColumn(catalogTable, b.column)?.holds === "many")
 		const fixedBindings = bindings.filter((b) =>
 			[...qualifiersOf(b.value)].every((a) => {
 				const d = here.relations.get(a)

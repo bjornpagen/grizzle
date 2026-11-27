@@ -36,6 +36,9 @@ export type PlanName = { readonly kind: "top" } | { readonly kind: "named"; read
  * - `index`: a stored relation read through an index, `index` its request or the IndexRef it resolved to, `bound` the
  *   installed columns its binding fixes by equality, each an index condition of its scan (Law 2), and `needs` every
  *   installed column of it the statement reads, its bound ones among them, which an index-only scan must store;
+ * - `bitmap`: a stored relation read through the bitmap of an index, `index`, `bound` and `needs` as an index read's,
+ *   each bound column an index condition of the bitmap's index scan beneath its heap scan (Law 2): a search document's
+ *   match, which a GIN index serves by a bitmap alone;
  * - `tid`: a stored relation read at the tuple ids a probe of it found, each a TID condition of its scan;
  * - `rows`: no stored relation: a probe's or a derived table's rows, a CTE's scan, a function's, arrays' or VALUES rows,
  *   each a range-table entry of the level, which no scan item names.
@@ -44,6 +47,12 @@ export type PlanScan<I> =
 	| { readonly kind: "seq" }
 	| {
 			readonly kind: "index"
+			readonly index: I
+			readonly bound: ReadonlyArray<string>
+			readonly needs: ReadonlyArray<string>
+	  }
+	| {
+			readonly kind: "bitmap"
 			readonly index: I
 			readonly bound: ReadonlyArray<string>
 			readonly needs: ReadonlyArray<string>
@@ -102,7 +111,9 @@ export const planRequests = (
 	plan: ReadPlan<AccessIndexRequest>
 ): ReadonlyArray<AccessIndexRequest> =>
 	plan.levels.flatMap((level) =>
-		scannedItems(level).flatMap((item) => (item.scan.kind === "index" ? [item.scan.index] : []))
+		scannedItems(level).flatMap((item) =>
+			item.scan.kind === "index" || item.scan.kind === "bitmap" ? [item.scan.index] : []
+		)
 	)
 
 /** An item with its index read resolved by `resolve`. */
@@ -113,9 +124,10 @@ const resolvedItem = (
 	const scan = item.scan
 	switch (scan.kind) {
 		case "index":
+		case "bitmap":
 			return {
 				alias: item.alias,
-				scan: { kind: "index", index: resolve(scan.index), bound: scan.bound, needs: scan.needs }
+				scan: { kind: scan.kind, index: resolve(scan.index), bound: scan.bound, needs: scan.needs }
 			}
 		case "seq":
 		case "tid":

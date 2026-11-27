@@ -1,15 +1,16 @@
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 /**
  * What the binding reads of an installation (sql/bind.ts ReadCatalog): each stored table, its relation, the installed
- * columns a B-tree holds with the field each is and how many values it holds, and its keys, each its installed
- * columns; and each role's view. One derivation of these facts, from the law model and the installed names
+ * columns an index serves with the field each is and its kind (sql/bind.ts BindColumn), and its keys, each its
+ * installed columns; and each role's view. One derivation of these facts, from the law model and the installed names
  * (`catalogOf`), serves every statement bound against the installation: its routines', which the installation binds
  * (`installCatalog`), and its served programs', which compile before it plans its indexes (`artifactsCatalog`).
  *
- * What a column holds (`holdsOf`): a span, a search document, a byte string and a text of no byte bound are no
- * B-tree's key, so an equality on one is a filter beside a read's binding; a roster's handle and a boolean hold few
- * values, the share of the rows they pick bounded whatever the store holds; every other column many, a vector among
- * them, which pgvector's B-tree class (vector_ops) keys, as a key of one does, by its own `=`.
+ * What a column is (`columnOf`): a span and a search document are no B-tree's key, so an equality on one is a filter
+ * beside a read's binding, but GiST serves a span's Allen relations and GIN a document's match; a byte string and a text
+ * of no byte bound are no index's; of a B-tree's, a roster's handle and a boolean hold few values, the share of the rows
+ * they pick bounded whatever the store holds, every other many, a vector among them, which pgvector's B-tree class
+ * (vector_ops) keys, as a key of one does, by its own `=`, and whose distance HNSW serves.
  */
 import {
 	baseOf,
@@ -24,18 +25,39 @@ import { datumBound } from "#compiler/schema/representability.ts"
 import { type NameKey, nameKey } from "#compiler/sql/ast.ts"
 import type { BindColumn, BindTable, ReadCatalog } from "#compiler/sql/bind.ts"
 
-/** What a field holds for a B-tree (see the header): many values, few, or none it keys by. */
-const holdsOf = (field: TargetField): BindColumn["holds"] | undefined => {
+/**
+ * A field as an index serves it (see the header), by its carrier: a span's and a search document's, which GiST and GIN
+ * serve; no index's for a byte string or a text of no byte bound; a B-tree's for every other, of a network, a vector,
+ * whose distance HNSW serves under the installation's cosine class, a text or a scalar, holding few values or many.
+ */
+const columnOf = (
+	field: TargetField,
+	name: string,
+	vectorSchema: string
+): BindColumn | undefined => {
 	const carrier = baseOf(field.type).carrier
-	if (
-		isSpanCarrier(carrier) ||
-		carrier === "tsvector" ||
-		field.desc.kind === "bytes" ||
-		datumBound(field.desc) === undefined
-	) {
+	if (isSpanCarrier(carrier)) {
+		return { kind: "span", field: name }
+	}
+	if (carrier === "tsvector") {
+		return { kind: "search", field: name }
+	}
+	if (field.desc.kind === "bytes" || datumBound(field.desc) === undefined) {
 		return undefined
 	}
-	return fewValued[carrier] ? "few" : "many"
+	const holds = fewValued[carrier] ? "few" : "many"
+	if (carrier === "vector") {
+		return {
+			kind: "vector",
+			field: name,
+			holds,
+			cosine: { kind: "vectorCosine", schema: vectorSchema }
+		}
+	}
+	if (carrier === "inet" || carrier === "cidr") {
+		return { kind: "network", field: name, holds }
+	}
+	return { kind: carrier === "text" ? "text" : "scalar", field: name, holds }
 }
 
 /**
@@ -80,9 +102,9 @@ const catalogOf = (
 		}
 		const columns = new Map<string, BindColumn>()
 		for (const f of r.fields) {
-			const holds = holdsOf(f)
-			if (holds !== undefined) {
-				columns.set(names.column(relation, f.name), { field: f.name, holds })
+			const column = columnOf(f, f.name, names.vectorSchema)
+			if (column !== undefined) {
+				columns.set(names.column(relation, f.name), column)
 			}
 		}
 		const keys = r.keyNames.flatMap((k) =>

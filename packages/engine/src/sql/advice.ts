@@ -18,7 +18,9 @@
  *   LATERAL item's and a cross product's, read again per row before it, or `HASH_JOIN(t)`, a set join's;
  * - for each stored relation, its scan: `SEQ_SCAN(t)` read whole; `INDEX_ONLY_SCAN(t <index>)` through an index that
  *   returns what it stores and stores every column the statement reads of it, else `INDEX_SCAN(t <index>)`, each
- *   disabling every other index of the relation and every other scan kind; `TID_SCAN(t)` at tuple ids;
+ *   disabling every other index of the relation and every other scan kind; `BITMAP_HEAP_SCAN(t)` through a bitmap,
+ *   which names no index (pg_plan_advice's README: a bitmap heap scan takes no index specification), so the index set
+ *   gives each bitmap read exactly one index able to serve it; `TID_SCAN(t)` at tuple ids;
  * - `NO_GATHER(t)` for every item, every range-table entry of the level, a UNION ALL's members it flattens into an
  *   append relation among them, so no read runs in parallel.
  * Nothing else: no semi-join item (no sublink the binding leaves is one PostgreSQL flattens), no Memoize or Materialize
@@ -133,6 +135,8 @@ const scanAtom = (item: PlanItem<IndexRef>, at: string): ReadonlyArray<string> =
 			return [
 				`${onlyIndex(scan.index, scan.needs) ? "INDEX_ONLY_SCAN" : "INDEX_SCAN"}(${at} ${indexName(scan.index.name)})`
 			]
+		case "bitmap":
+			return [`BITMAP_HEAP_SCAN(${at})`]
 		case "tid":
 			return [`TID_SCAN(${at})`]
 		case "rows":

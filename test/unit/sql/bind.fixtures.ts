@@ -5,6 +5,7 @@
 
 import { type Gen, boolean, element } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order } from "effect"
+import { defaultOpclass } from "#compiler/ir/law.ts"
 import type { AccessIndexRequest } from "#compiler/ir/products.ts"
 import type { Expr, FromSource, OperandSelect, Select } from "#compiler/sql/ast.ts"
 import { nameKey } from "#compiler/sql/ast.ts"
@@ -65,10 +66,10 @@ export const bindFeatures = [
 const tTable: BindTable = {
 	relation: "T",
 	columns: new Map([
-		["a", { field: "a", holds: "many" }],
-		["b", { field: "b", holds: "many" }],
-		["f", { field: "f", holds: "few" }],
-		["v", { field: "v", holds: "many" }]
+		["a", { kind: "scalar", field: "a", holds: "many" }],
+		["b", { kind: "scalar", field: "b", holds: "many" }],
+		["f", { kind: "scalar", field: "f", holds: "few" }],
+		["v", { kind: "vector", field: "v", holds: "many", cosine: defaultOpclass }]
 	]),
 	keys: [["a"]]
 }
@@ -76,8 +77,8 @@ const tTable: BindTable = {
 const sTable: BindTable = {
 	relation: "S",
 	columns: new Map([
-		["k", { field: "k", holds: "many" }],
-		["w", { field: "w", holds: "many" }]
+		["k", { kind: "scalar", field: "k", holds: "many" }],
+		["w", { kind: "scalar", field: "w", holds: "many" }]
 	]),
 	keys: [["k"]]
 }
@@ -255,9 +256,10 @@ export type SpecifiedRead =
 /**
  * The read of T the specification states (CARRY-CONTRACT §1, sql/bind.ts): its bindings each an equality of a column a
  * B-tree holds with a value its level fixes, a literal, a placeholder, an enclosing level's column, or a column of an
- * item before it; a probe where one binding reads an item before it, every binding its index's; else a seek where one
- * bound column holds many values, every binding its index's; else whole. Beneath a window, the reader's equality binds T
- * only at a column every window partitions by.
+ * item before it; a probe where one binding reads an item before it, every binding its index's; else a key lookup where
+ * its bindings hold T's key and one holds many values; else the one range past its bindings, of a column of many values
+ * it does not bind, after every binding; else a seek where one bound column holds many values, every binding its
+ * index's; else whole. Beneath a window, the reader's equality binds T only at a column every window partitions by.
  */
 export const specified = (c: BindCase): SpecifiedRead => {
 	const held = Arr.filter(c.fixed, (f) => f !== "d")
@@ -269,13 +271,15 @@ export const specified = (c: BindCase): SpecifiedRead => {
 			return { kind: "index", probe: false, bound: sorted(["a", ...held]) }
 		case "window":
 			return c.place.at === "a" ? { kind: "index", probe: false, bound: ["a"] } : { kind: "whole" }
-		case "top":
-			return Arr.some(held, (f) => f !== "f")
-				? {
-						kind: "index",
-						probe: false,
-						bound: c.ranged && !Arr.contains(held, "b") ? [...sorted(held), "b"] : sorted(held)
-					}
-				: { kind: "whole" }
+		case "top": {
+			const many = Arr.some(held, (f) => f !== "f")
+			if (many && Arr.contains(held, "a")) {
+				return { kind: "index", probe: false, bound: sorted(held) }
+			}
+			if (c.ranged && !Arr.contains(held, "b")) {
+				return { kind: "index", probe: false, bound: [...sorted(held), "b"] }
+			}
+			return many ? { kind: "index", probe: false, bound: sorted(held) } : { kind: "whole" }
+		}
 	}
 }

@@ -602,8 +602,9 @@ const unitLead = (
 
 /**
  * The requests of a routine's plan (sql/plan.ts planRequests) as its requester asks them (`Requester`): each a law's
- * maintenance request, its keys the fields the plan's read binds, led as its requester leads (`unitLead`), so every
- * read the routine makes is asked and nothing else is. A read of a closed relation, which no index serves, asks none.
+ * maintenance request by its read's method, its keys the fields the plan's read binds, led as its requester leads
+ * (`unitLead`), so every read the routine makes is asked and nothing else is. A read of a closed relation, which no
+ * index serves, asks none.
  * The plan is the routine's bound statements' (sql/bind.ts), the one derivation of what each of its reads binds
  * (physical/install/compile.ts).
  */
@@ -630,7 +631,7 @@ export const routineRequests = (
 			{
 				relation: target.name,
 				blocks: unitLead(by, target, keys),
-				method: "btree",
+				method: request.method,
 				role: "lawMaintenance",
 				use: "rule probe",
 				justification: by.justification

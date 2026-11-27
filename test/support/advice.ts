@@ -658,7 +658,7 @@ export interface LawScope {
 
 /**
  * The names and reads of a plan of one scope (sql/plan.ts ReadPlan), as a LawScope holds them: each item's alias, each
- * named level's name, and each read's binding, an index read's bound columns and a TID read's ctid.
+ * named level's name, and each read's binding, an index or bitmap read's bound columns and a TID read's ctid.
  */
 export const planFacts = <I>(
 	plan: ReadPlan<I>
@@ -671,6 +671,7 @@ export const planFacts = <I>(
 		Arr.flatMap(levelItems(level), (item): ReadonlyArray<BoundRead> => {
 			switch (item.scan.kind) {
 				case "index":
+				case "bitmap":
 					return [{ alias: item.alias, bound: item.scan.bound }]
 				case "tid":
 					return [{ alias: item.alias, bound: ["ctid"] }]

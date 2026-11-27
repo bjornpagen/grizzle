@@ -84,7 +84,7 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 					case "top":
 						if (spec.kind === "index") {
 							c.note("a seek at a literal")
-							if (drawn.ranged && !Arr.contains(held, "b")) {
+							if (drawn.ranged && !Arr.contains(held, "b") && !Arr.contains(held, "a")) {
 								c.note("a seek's range past its bound columns")
 							}
 						} else if (Arr.contains(held, "f")) {
@@ -148,13 +148,14 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 			},
 			{
 				file: "packages/engine/src/sql/bind.ts",
-				original: "\t\tif (range !== undefined) {\n",
-				replacement: "\t\tif (range === undefined && range !== undefined) {\n",
-				why: "A seek's range is left a filter of its read: the index it asks holds its bound columns alone, and the read reads every row at them, where its range bounds them."
+				original: "\t\tif (ranged !== undefined) {\n",
+				replacement: "\t\tif (ranged === undefined && ranged !== undefined) {\n",
+				why: "A read's range is left a filter: the read is a seek of its bound columns alone, reading every row at them, or whole where it binds none, where its range bounds them."
 			},
 			{
 				file: "packages/engine/src/sql/bind.ts",
-				original: "\t\t\t\t\t\t\tif (b === undefined || !table.columns.has(b.column)) {\n",
+				original:
+					"\t\t\t\t\t\t\tif (b === undefined || btreeColumn(table, b.column) === undefined) {\n",
 				replacement: "\t\t\t\t\t\t\tif (b === undefined) {\n",
 				why: "An equality of a column no B-tree holds is bound: the read asks an index of a column no B-tree keys, an internal compiler error of the binding's."
 			}

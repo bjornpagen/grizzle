@@ -305,6 +305,8 @@ export const statedAtoms = (plan: ReadPlan<IndexRef>): ReadonlyArray<Atom> =>
 					return [one("SEQ_SCAN", item)]
 				case "tid":
 					return [one("TID_SCAN", item)]
+				case "bitmap":
+					return [one("BITMAP_HEAP_SCAN", item)]
 				case "rows":
 					return []
 				case "index": {

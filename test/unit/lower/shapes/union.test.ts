@@ -147,7 +147,11 @@ export const theBoundedUnionConsumedInsideAStatementBoundsEveryArmByKDeduplicati
 							Arr.reduce(union.groups, 0, (n, g) => n + g.arms.length)
 						)
 						for (const arm of arms) {
-							assert.equal(arm.limit, bound)
+							assert.deepEqual(arm.limit, {
+								kind: "access",
+								access: { kind: "ordered", use: "take seek" },
+								expr: bound
+							})
 							assert.equal(arm.body.kind === "core" && arm.body.distinct === true, !keyedArms)
 						}
 						c.note(keyedArms ? "keyed" : "deduplicated")
