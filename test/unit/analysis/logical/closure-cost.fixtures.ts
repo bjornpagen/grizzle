@@ -22,7 +22,7 @@ import {
 } from "#compiler/logical/closure.ts"
 import { Ir, type SchemaModel } from "#test/support/fixtures/ir/build.ts"
 import { workModel } from "#test/support/fixtures/ir/work.ts"
-import type { CountedFunction } from "#test/support/kernel/calls.ts"
+import type { CountedFunction } from "#test/support/kernel/coverage.ts"
 import { int4, type Table, tableGen } from "#test/unit/analysis/logical/keys.fixtures.ts"
 
 /** A drawn dependency table (keys.fixtures.ts tableGen) and a start, the mask of the columns its closure starts from. */

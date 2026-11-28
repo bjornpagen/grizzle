@@ -20,7 +20,9 @@ import { servedPath } from "#compiler/served/forms.ts"
 import { defineConfig } from "#index.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
-import { callCounts, type CountedFunction } from "#test/support/kernel/calls.ts"
+import { callCounts } from "#test/support/kernel/calls.ts"
+import { type ChildWork, countedInChild } from "#test/support/kernel/child-counts.ts"
+import type { CountedFunction } from "#test/support/kernel/coverage.ts"
 import { offlineDecoders, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { clusterPool } from "#test/support/pg.ts"
 import {
@@ -78,8 +80,15 @@ export interface Steps {
 	readonly layer: Counts
 }
 
-/** generate, then the layer over its snapshot, each counted, in a workspace of its own inside the case's directory `dir`. */
-export const stepsAt = (dir: ScratchDir) => (k: number) =>
+/**
+ * generate, then the layer over its snapshot, each counted, in a workspace of its own inside the case's directory `dir`,
+ * each in a window of a counting child (kernel/child-counts.ts), a process that runs nothing else, where generate's
+ * waits on files give their turns to nothing beside it.
+ */
+export const guardedSteps: ChildWork<{ readonly dir: string; readonly k: number }> = (
+	{ dir, k },
+	counts
+) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const fs = yield* FileSystem.FileSystem
@@ -92,7 +101,7 @@ export const stepsAt = (dir: ScratchDir) => (k: number) =>
 				connection: () => offlineOwner
 			})
 			const ws = yield* fs.makeTempDirectoryScoped({ directory: dir, prefix: "guarded-" })
-			const [generated, generate] = yield* callCounts(
+			const [generated, generate] = yield* counts.sites(
 				cliOver(ws, config, ["generate", configName, "--name", "init"]),
 				sites
 			)
@@ -101,7 +110,7 @@ export const stepsAt = (dir: ScratchDir) => (k: number) =>
 			const directory = defined(resolved.schemas[0], "the configured schema").directory
 			const text = yield* fs.readFileString(`${directory}/${servedPath("server")}`)
 			const file = served<typeof server>(trustedJson<unknown>(text), "server")
-			const [, built] = yield* callCounts(
+			const [, built] = yield* counts.sites(
 				Effect.scoped(
 					Layer.build(
 						servedSourcedLayer(offlineDecoders, {
@@ -116,6 +125,13 @@ export const stepsAt = (dir: ScratchDir) => (k: number) =>
 			const steps: Steps = { generate, layer: built }
 			return steps
 		})
+	).pipe(Effect.orDie)
+
+/** generate and the layer at k guarded keys, counted in a counting child (`guardedSteps`), in the case's directory `dir`. */
+export const stepsAt = (dir: ScratchDir) => (k: number) =>
+	countedInChild<Steps>(
+		{ module: "test/unit/startup/guarded-keys.fixtures.ts", name: "guardedSteps" },
+		{ dir, k }
 	)
 
 export const stepNames: ReadonlyArray<keyof Steps> = ["generate", "layer"]

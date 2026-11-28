@@ -947,10 +947,12 @@ export default defineConfig(
 				files: [
 					"bench/cold/probe.ts",
 					"bench/harness/runner.ts",
-					"test/unit/deps/runtime-probe.ts"
+					"test/support/kernel/count-child.ts",
+					"test/unit/deps/runtime-probe.ts",
+					"test/unit/kernel/calls.test.ts"
 				],
 				rules: active({
-					/** The cold probe times a first load, the bench runner loads the bench files it runs, and the runtime probe loads each module under its trap. */
+					/** The cold probe times a first load, the bench runner loads the bench files it runs, the counting child loads the work it is told to count, the runtime probe loads each module under its trap, and the call counter's test evaluates a stray module beside a count. */
 					"devtools/no-dynamic-imports": "off"
 				})
 			},

@@ -18,7 +18,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { Agree, Item, Owned, Slot } from "#test/support/agreement/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { keyConstraintName } from "#test/support/evidence.ts"
-import type { CountedFunction } from "#test/support/kernel/calls.ts"
+import type { CountedFunction } from "#test/support/kernel/coverage.ts"
 import {
 	Account as AccountRelation,
 	Edge,

@@ -14,7 +14,7 @@ import { fusePass } from "#compiler/lower/optimize/fuse/index.ts"
 import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
 import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { rebuildDag } from "#test/support/dag.ts"
-import type { CountedFunction } from "#test/support/kernel/calls.ts"
+import type { CountedFunction } from "#test/support/kernel/coverage.ts"
 
 /** Where the rewritten root sits among a DAG's roots: first, the query's own, or after it. */
 export type RootPosition = "the query's root" | "a later root"

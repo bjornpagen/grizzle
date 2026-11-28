@@ -30,7 +30,8 @@ import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, AnyRelation, Relation } from "#compiler/types/schema/relation.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"
 import { defineConfig } from "#index.ts"
-import { callCounts, type CountedFunction } from "#test/support/kernel/calls.ts"
+import { type ChildWork, countedInChild } from "#test/support/kernel/child-counts.ts"
+import type { CountedFunction } from "#test/support/kernel/coverage.ts"
 import { offlineDecoders, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { clusterPool } from "#test/support/pg.ts"
@@ -97,8 +98,9 @@ export const pointGen: Gen<Point> = (s) => ({
 	half: 1
 })
 
-/** The size of a generated installation: its relations, its closed relation's rows, its roles and its programs. */
-interface Size {
+/** The size of a generated installation: its relations, its closed relation's rows, its roles and its programs, a JSON
+ * value a counting child takes (kernel/child-counts.ts). */
+type Size = {
 	readonly relations: number
 	readonly rows: number
 	readonly roles: number
@@ -204,18 +206,23 @@ export interface Steps {
 
 /**
  * Each step at a size, counted, in a workspace of its own inside the case's directory `dir`: the builders, generate,
- * check, migrate, drift, the layer.
+ * check, migrate, drift, the layer, each in a window of a counting child (kernel/child-counts.ts), a process that runs
+ * nothing else, where the commands' waits on files and sockets give their turns to nothing beside them. The steps run in
+ * the one child over one schema value, as the exact counts read them (`exactly`).
  */
-export const stepsAt = (dir: ScratchDir) => (size: Size) =>
+export const workSteps: ChildWork<{ readonly dir: string; readonly size: Size }> = (
+	{ dir, size },
+	counts
+) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const fs = yield* FileSystem.FileSystem
 			const made = schemaOf(size)
-			const [base, schemaCounts] = yield* callCounts(
+			const [base, schemaCounts] = yield* counts.sites(
 				Effect.sync((): AnySchema => schema("Guard", Rec.values(made.declared), made.statements)),
 				sites
 			)
-			const [server, builders] = yield* callCounts(
+			const [server, builders] = yield* counts.sites(
 				Effect.sync(() => loginOf(size, base, made)),
 				sites
 			)
@@ -228,8 +235,8 @@ export const stepsAt = (dir: ScratchDir) => (size: Size) =>
 			})
 			const ws = yield* fs.makeTempDirectoryScoped({ directory: dir, prefix: "startup-" })
 			const command = (name: "check" | "migrate" | "drift") =>
-				callCounts(cliOver(ws, config, [name, configName]), sites)
-			const [generated, generate] = yield* callCounts(
+				counts.sites(cliOver(ws, config, [name, configName]), sites)
+			const [generated, generate] = yield* counts.sites(
 				cliOver(ws, config, ["generate", configName, "--name", "init"]),
 				sites
 			)
@@ -242,7 +249,7 @@ export const stepsAt = (dir: ScratchDir) => (size: Size) =>
 			const directory = defined(resolved.schemas[0], "the configured schema").directory
 			const text = yield* fs.readFileString(`${directory}/${servedPath("server")}`)
 			const file = served<typeof server>(trustedJson<unknown>(text), "server")
-			const [, layer] = yield* callCounts(
+			const [, layer] = yield* counts.sites(
 				Effect.scoped(
 					Layer.build(
 						servedSourcedLayer(offlineDecoders, {
@@ -265,6 +272,13 @@ export const stepsAt = (dir: ScratchDir) => (size: Size) =>
 			}
 			return steps
 		})
+	).pipe(Effect.orDie)
+
+/** Each step at a size, counted in a counting child (`workSteps`), in the case's directory `dir`. */
+export const stepsAt = (dir: ScratchDir) => (size: Size) =>
+	countedInChild<Steps>(
+		{ module: "test/unit/startup/work.fixtures.ts", name: "workSteps" },
+		{ dir, size }
 	)
 
 /**

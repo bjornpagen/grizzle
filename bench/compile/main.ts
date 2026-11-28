@@ -1,6 +1,4 @@
 #!/usr/bin/env -S node
-import net from "node:net"
-import { nonEmpty } from "@bjornpagen/testing/assert"
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import {
@@ -9,53 +7,21 @@ import {
 	Data,
 	DateTime,
 	Effect,
-	FileSystem,
-	Layer,
 	Option,
 	Order,
 	pipe,
-	Record as Rec,
-	Redacted,
 	Result,
 	String as Str
 } from "effect"
-import pgDriver from "pg"
-import { defineConfig } from "#adapter/config/define.ts"
-import { served } from "#adapter/public/layer.ts"
-import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
-import type { DbConnection, PoolBounds } from "#adapter/types/layer.ts"
 import {
 	type RunIdentity,
 	runIdentity,
 	sourceIdentity,
 	writeRunRecord
 } from "#bench/cold/identity.ts"
-import { elapsed } from "#bench/cold/stats.ts"
-import {
-	assembledSchema,
-	domainOf,
-	type Generated,
-	ordinaryOf,
-	pairsAt,
-	rostersAt,
-	type Scale,
-	statementsOf
-} from "#bench/compile/schema.ts"
-import { checkFiles } from "#cli/check.ts"
-import { resolveConfig } from "#cli/config.ts"
-import { processMeter } from "#cli/main.ts"
-import { readTargets } from "#cli/migrate.ts"
-import { type ConfigLoader, runCli } from "#cli/run.ts"
-import { trustedJson } from "#compiler/core/trusted.ts"
-import { login } from "#compiler/program/workload/login.ts"
-import { workload } from "#compiler/program/workload/value.ts"
-import type { AnySchema } from "#compiler/public/schema.ts"
-import { roleBuilder as role, wholeWritesOf } from "#compiler/schema/world.ts"
-import { servedPath } from "#compiler/served/forms.ts"
-import type { EntryValue } from "#compiler/types/schema/world.ts"
-import { everyCallCount } from "#test/support/kernel/calls.ts"
-import { offlineDecoders, servedSourcedLayer } from "#test/support/live-layer.ts"
-import { upTo } from "#test/support/up-to.ts"
+import { type Measured, type MeasuredCalls, type Phase, phases } from "#bench/compile/measure.ts"
+import type { Scale } from "#bench/compile/schema.ts"
+import { countedInChild } from "#test/support/kernel/child-counts.ts"
 
 /**
  * The compile benchmark, `pnpm bench compile`: what a large schema costs to build and to compile, with no database, and
@@ -70,9 +36,9 @@ import { upTo } from "#test/support/up-to.ts"
  * twice it, so a phase whose work is linear in the schema spends about twice the CPU, and one that redoes per statement
  * work that a roster's size measures spends about four times.
  *
- * Each phase runs once per scale, in this one process, in order, each timed by performance.now and process.cpuUsage
- * around it, after one unmeasured run of every phase at the scale, so neither scale's times hold the code's first
- * compilation:
+ * Each phase runs once per scale, in one counting child (test/support/kernel/child-counts.ts, bench/compile/measure.ts
+ * measuredCalls), a process that runs nothing else, in order, each timed by performance.now and process.cpuUsage around
+ * it, after one unmeasured run of every phase at the scale, so neither scale's times hold the code's first compilation:
  *
  * - the builders: the rosters, the closed relations, the domains, the ordinary relations, the statements, schema(...),
  *   role(...), the workloads and login(...);
@@ -84,9 +50,9 @@ import { upTo } from "#test/support/up-to.ts"
  *
  * The record, with its full identity, goes to bench/results/compile/compile-<time>.json, one file a run, and a table is
  * printed with each phase's ratio from the scale to twice it, information on this machine. The verdict counts work,
- * never time (test/support/kernel/calls.ts): every grizzle function's calls are counted over each scale's phases, and
- * the exit status is 1 when a phase failed, and when a function's calls at twice the scale are past superlinear over
- * its calls at the scale, the growth work redone per statement over a roster's handles shows.
+ * never time (test/support/kernel/child-counts.ts): every grizzle function's calls are counted over each scale's phases,
+ * and the run fails when a phase failed, its child's failure, and exits 1 when a function's calls at twice the scale are
+ * past superlinear over its calls at the scale, the growth work redone per statement over a roster's handles shows.
  */
 
 /** The scale a full run measures, about half a downstream grammar's at twice it, and the quick one. */
@@ -107,31 +73,6 @@ const doubled = (scale: Scale): Scale => ({
  */
 const superlinear = 2 * Math.SQRT2
 
-/** The phases each scale times, in the order they run. */
-const phases = [
-	"rosters",
-	"closed",
-	"domains",
-	"relations",
-	"statements",
-	"schema",
-	"role",
-	"workload",
-	"login",
-	"generate",
-	"check",
-	"migrate",
-	"layer"
-] as const
-
-type Phase = (typeof phases)[number]
-
-/** A phase that refused or failed, and why. */
-class PhaseFailed extends Data.TaggedError("PhaseFailed")<{
-	readonly phase: Phase
-	readonly reason: string
-}> {}
-
 /** A grizzle function whose calls grew past superlinear from the scale to twice it: its calls at each. */
 interface Grown {
 	readonly fn: string
@@ -147,194 +88,6 @@ class SuperlinearGrowth extends Data.TaggedError("SuperlinearGrowth")<{
 /** A command line the benchmark cannot read. */
 class CompileUsage extends Data.TaggedError("CompileUsage")<{ readonly reason: string }> {}
 
-/** How many relations the workload looks up by key. */
-const lookedUp = 12
-
-/** The keyed lookups of the first relations, each under its relation's name, as a workload's programs. */
-const lookups = (relations: ReadonlyArray<Generated>): Readonly<Record<string, Generated>> =>
-	Rec.fromEntries(Arr.map(Arr.take(relations, lookedUp), (r) => [`by${r.name}`, r] as const))
-
-/**
- * What a phase spent: its wall time, and the process's CPU time, user and system over every thread, which load from
- * other processes on a shared machine inflates far less than it inflates wall time.
- */
-interface Spent {
-	readonly wallMs: number
-	readonly cpuMs: number
-}
-
-/** The microseconds process.cpuUsage counts in a millisecond. */
-const microsPerMilli = 1_000
-
-/** The process's CPU time so far, in milliseconds. */
-const cpuNow = (): number => {
-	const usage = process.cpuUsage()
-	return (usage.user + usage.system) / microsPerMilli
-}
-
-/** A phase's start: its wall clock and its CPU time. */
-const startOf = () => ({ wall: performance.now(), cpu: cpuNow() })
-
-const spentSince = (start: ReturnType<typeof startOf>): Spent => ({
-	wallMs: elapsed(start.wall),
-	cpuMs: Math.round((cpuNow() - start.cpu) * microsPerMilli) / microsPerMilli
-})
-
-/** What a synchronous step spends, with what it made; a step that throws is the phase's failure. */
-const timed = <A>(phase: Phase, step: () => A): Effect.Effect<readonly [A, Spent], PhaseFailed> =>
-	Effect.try({
-		try: () => {
-			const start = startOf()
-			const value = step()
-			return [value, spentSince(start)] as const
-		},
-		catch: (cause) => new PhaseFailed({ phase, reason: String(cause) })
-	})
-
-/** What an Effect spends, with what it made. */
-const timedEffect = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-	Effect.gen(function* () {
-		const start = yield* Effect.sync(startOf)
-		const value = yield* effect
-		const spent = yield* Effect.sync(() => spentSince(start))
-		return [value, spent] as const
-	})
-
-/** Every builder at `scale`, each timed. */
-const build = Effect.fn("build")(function* (scale: Scale) {
-	const [rosters, rostersSpent] = yield* timed("rosters", () => rostersAt(scale))
-	const [pairs, closedSpent] = yield* timed("closed", () => pairsAt(rosters, scale))
-	const [domains, domainsSpent] = yield* timed("domains", () =>
-		nonEmpty(upTo(scale.patterns, domainOf), "a scale holds one pattern at least")
-	)
-	const [ordinary, relationsSpent] = yield* timed("relations", () =>
-		upTo(scale.relations, (i) => ordinaryOf(i, domains, rosters))
-	)
-	const [statements, statementsSpent] = yield* timed("statements", () =>
-		Arr.flatMap(ordinary, (r, i) =>
-			statementsOf(r, i, i === 0 ? undefined : ordinary[i - 1], rosters, pairs)
-		)
-	)
-	const [base, schemaSpent] = yield* timed("schema", (): AnySchema =>
-		assembledSchema(rosters, pairs, ordinary, statements)
-	)
-	const [app, roleSpent] = yield* timed("role", () => {
-		const entries: Record<string, EntryValue> = {}
-		for (const r of [...ordinary, ...Arr.map(rosters, ({ roster }) => roster)]) {
-			entries[r.name] = r
-		}
-		return role(base, "app", entries, wholeWritesOf(base))
-	})
-	const [programs, workloadSpent] = yield* timed("workload", () => workload(app, lookups(ordinary)))
-	const [web, loginSpent] = yield* timed("login", () =>
-		login(base, "web", [app], { workload: [programs] })
-	)
-	return {
-		base,
-		web,
-		times: {
-			rosters: rostersSpent,
-			closed: closedSpent,
-			domains: domainsSpent,
-			relations: relationsSpent,
-			statements: statementsSpent,
-			schema: schemaSpent,
-			role: roleSpent,
-			workload: workloadSpent,
-			login: loginSpent
-		}
-	}
-})
-
-/** Where no session of the layer connects: the layer builds without connecting, and nothing here opens a Db. */
-const offline: DbConnection = {
-	driver: pgDriver,
-	transport: {
-		kind: "sslRequest",
-		host: "localhost",
-		port: 5432,
-		open: () => new net.Socket(),
-		ca: "-----BEGIN CERTIFICATE-----\nAA==\n-----END CERTIFICATE-----\n",
-		servername: "localhost"
-	},
-	database: "offline",
-	password: Redacted.make("offline")
-}
-
-const owner: MigrationConnectionConfig = { ...offline, role: "bench_owner" }
-
-const pool: PoolBounds = { max: 1 }
-
-/** A command line's run in process over the configuration, refused unless it ended with status 0. */
-const command = (phase: Phase, argv: ReadonlyArray<string>, cwd: string, load: ConfigLoader) =>
-	Effect.flatMap(
-		timedEffect(runCli(argv, cwd, process.version, load, processMeter)),
-		([report, spent]) =>
-			report.code === 0
-				? Effect.succeed(spent)
-				: Effect.fail(
-						new PhaseFailed({ phase, reason: Arr.join([...report.stdout, ...report.stderr], "\n") })
-					)
-	)
-
-/** Every phase at one scale, in a scratch directory removed when it ends. */
-const measure = Effect.fn("measure")(function* (scale: Scale) {
-	const made = yield* build(scale)
-	const fs = yield* FileSystem.FileSystem
-	const dir = yield* fs.makeTempDirectoryScoped({ prefix: "grizzle-bench-compile-" })
-	const file = `${dir}/grizzle.config.ts`
-	const config = defineConfig({
-		schemas: [made.base],
-		logins: [made.web],
-		migrations: "migrations",
-		rolePrefixBytes: 0,
-		connection: () => owner
-	})
-	const load: ConfigLoader = (at) => Effect.succeed({ file: at, value: config, closure: [] })
-	const generate = yield* command("generate", ["generate", file, "--name", "init"], dir, load)
-	const check = yield* command("check", ["check", file], dir, load)
-	const [resolved, migrate] = yield* timedEffect(
-		Effect.gen(function* () {
-			const resolved = yield* resolveConfig(config, file)
-			const checks = yield* checkFiles(resolved, dir)
-			yield* readTargets(resolved)
-			return { resolved, findings: Arr.flatMap(checks, (c) => c.findings) }
-		})
-	)
-	if (Arr.isReadonlyArrayNonEmpty(resolved.findings)) {
-		return yield* new PhaseFailed({
-			phase: "migrate",
-			reason: `the committed files have ${resolved.findings.length} findings`
-		})
-	}
-	const directory = Option.getOrUndefined(Arr.head(resolved.resolved.schemas))?.directory
-	if (directory === undefined) {
-		return yield* new PhaseFailed({ phase: "layer", reason: "the configuration lists no schema" })
-	}
-	const text = yield* fs.readFileString(`${directory}/${servedPath(made.web.name)}`)
-	const [, layer] = yield* timedEffect(
-		Effect.scoped(
-			Layer.build(
-				servedSourcedLayer(offlineDecoders, {
-					...offline,
-					login: served<typeof made.web>(trustedJson<unknown>(text), made.web.name),
-					pool
-				})
-			)
-		)
-	)
-	const times: Readonly<Record<Phase, Spent>> = {
-		...made.times,
-		generate,
-		check,
-		migrate,
-		layer
-	}
-	return { scale, times }
-}, Effect.scoped)
-
-type Measured = Effect.Success<ReturnType<typeof measure>>
-
 interface CompileRecord {
 	readonly identity: RunIdentity
 	readonly scales: ReadonlyArray<Measured>
@@ -342,10 +95,6 @@ interface CompileRecord {
 
 const scope =
 	"each phase once per scale in one process, its wall time by performance.now and its CPU time by process.cpuUsage around it, every thread's: the builders, grizzle generate and grizzle check in process, migrate's work before it connects (the configuration resolved, the committed files checked, the targets read) and DbLayer.make built and closed in a scope without connecting; the scratch directory's writes are inside generate's time, and memory is not measured"
-
-/** Whether a module, by its path from the packages' directory, is grizzle's own, the engine's or the shell's. */
-const isGrizzle = (file: string): boolean =>
-	Str.startsWith("packages/engine/src/")(file) || Str.startsWith("packages/grizzle/src/")(file)
 
 /**
  * The grizzle functions whose calls at twice the scale are past superlinear over their calls at the scale, most grown
@@ -398,9 +147,14 @@ const main = Effect.gen(function* () {
 	const scale = Arr.contains(args, "--quick") ? quickScale : fullScale
 	const source = yield* sourceIdentity
 	const startedAt = yield* DateTime.now
-	yield* measure(scale)
-	const [at, calls] = yield* everyCallCount(measure(scale), isGrizzle)
-	const [twice, twiceCalls] = yield* everyCallCount(measure(doubled(scale)), isGrizzle)
+	const measured = yield* countedInChild<MeasuredCalls>(
+		{ module: "bench/compile/measure.ts", name: "measuredCalls" },
+		{ scale, twice: doubled(scale) }
+	)
+	const at = measured.at
+	const twice = measured.twice
+	const calls = new Map(measured.calls)
+	const twiceCalls = new Map(measured.twiceCalls)
 	yield* Console.info(
 		`  phase       ${pipe(`${scale.relations} relations: wall, cpu`, Str.padStart(28))}  ${pipe(`${2 * scale.relations} relations: wall, cpu`, Str.padStart(28))}  cpu ratio`
 	)
@@ -429,7 +183,6 @@ NodeRuntime.runMain(
 	main.pipe(
 		Effect.catchTags({
 			CompileUsage: (e) => Effect.andThen(Console.error(e.reason), setStatus(2)),
-			PhaseFailed: (e) => Effect.andThen(Console.error(`${e.phase}: ${e.reason}`), setStatus(1)),
 			SuperlinearGrowth: (e) =>
 				Effect.andThen(
 					Console.error(

@@ -22,7 +22,7 @@ import {
 } from "#compiler/lower/optimize/demand/frame.ts"
 import { allenNormalForm, simplificationRules } from "#compiler/lower/optimize/simplify/rules.ts"
 import { succeeded } from "#test/support/assert.ts"
-import type { CountedFunction } from "#test/support/kernel/calls.ts"
+import type { CountedFunction } from "#test/support/kernel/coverage.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { Posting, Q, T } from "#test/support/unit/lower/conservative/fixtures.ts"
 

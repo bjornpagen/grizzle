@@ -39,7 +39,8 @@ import { inputsOf, type RelNode } from "#compiler/ir/rel.ts"
 import { analyzeLogical, everyNode, queryEvidence } from "#compiler/logical/annotate.ts"
 import { optimizedInput, rewritePasses } from "#compiler/lower/optimize/pipeline.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { callCounts, type CountedFunction } from "#test/support/kernel/calls.ts"
+import { callCounts } from "#test/support/kernel/calls.ts"
+import type { CountedFunction } from "#test/support/kernel/coverage.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import {
 	coreGrammar,

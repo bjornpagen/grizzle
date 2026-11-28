@@ -40,7 +40,8 @@ import { topoOrder } from "#compiler/ir/dag.ts"
 import { analyzeLogical, everyNode } from "#compiler/logical/annotate.ts"
 import { type FixedNames, fixedNamesOf } from "#compiler/logical/props.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { callCounts, type CountedFunction } from "#test/support/kernel/calls.ts"
+import { callCounts } from "#test/support/kernel/calls.ts"
+import type { CountedFunction } from "#test/support/kernel/coverage.ts"
 import {
 	chainGen,
 	chainDag,

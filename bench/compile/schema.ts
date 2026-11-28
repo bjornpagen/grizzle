@@ -25,8 +25,9 @@ import { upTo } from "#test/support/up-to.ts"
 /**
  * The size of a generated schema: the handles of each roster, the ordinary relations, the rows of each closed relation,
  * and the regex domains. The rosters and the closed relations over them are a fixed set, so their sizes are what grows.
+ * A JSON value, which the counting child that measures it takes (bench/compile/measure.ts measuredCalls).
  */
-export interface Scale {
+export type Scale = {
 	readonly handles: number
 	readonly relations: number
 	readonly rows: number

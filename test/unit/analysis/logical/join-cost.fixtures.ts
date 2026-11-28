@@ -7,7 +7,7 @@ import { makeIdSupply } from "#compiler/core/ids.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import { conservativeMeta, type ValidDag, type VarDecl } from "#compiler/ir/rel.ts"
 import { plainType } from "#compiler/scalar/native.ts"
-import type { CountedFunction } from "#test/support/kernel/calls.ts"
+import type { CountedFunction } from "#test/support/kernel/coverage.ts"
 
 const int4 = plainType("int4")
 
