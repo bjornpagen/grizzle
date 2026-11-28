@@ -13,18 +13,21 @@
  * The bound: an upkeep's read of the source row a stored row copies is one probe of the digest's index, O(log n), the
  * text rechecked on the rows of its digest.
  *
- * Oracle: the specification. The installation compiles, and an index of Attr holds valueDigest where none holds value.
+ * Oracle: the specification. The installation compiles, and an index of the relation the upkeep reads by the copied
+ * value, Attr or Carrier, holds valueDigest where none holds value.
  *
- * Features: a stored relation naming its rows by a token, and by its element's kind.
+ * Features: a stored relation naming its rows by a token, by its element's kind, and by a token over a stored relation
+ * that carries the value's digest by lineage (ir/law.ts digestsOf, StoredDerivedRelation `digests`).
  */
 import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import {
-	attrIndexes,
+	indexesOf,
 	installationOf,
 	type Naming,
+	readOf,
 	shapeGen
 } from "#test/unit/derived/upkeep-digests.fixtures.ts"
 
@@ -33,7 +36,11 @@ type Feature = `named by a ${Naming}`
 /** An upkeep that finds a source row by a copied text seeks its declared digest. */
 export const anUpkeepFindingASourceRowByACopiedTextSeeksItsDigest = property.exhaust(shapeGen, {
 	needs: {},
-	situations: ["named by a token", "named by a holder"] satisfies ReadonlyArray<Reached<Feature>>,
+	situations: [
+		"named by a token",
+		"named by a holder",
+		"named by a carried"
+	] satisfies ReadonlyArray<Reached<Feature>>,
 	check: (_, notes: Case<Feature>) => (shape) =>
 		Effect.sync(() => {
 			notes.note(`named by a ${shape.naming}`)
@@ -42,15 +49,16 @@ export const anUpkeepFindingASourceRowByACopiedTextSeeksItsDigest = property.exh
 				installation.ok,
 				`the installation compiles: ${installation.ok ? "" : String(installation.error)}`
 			)
-			const indexes = attrIndexes(installation.value)
+			const read = readOf(shape)
+			const indexes = indexesOf(installation.value, read)
 			assert.deepEqual(
 				Arr.filter(indexes, (keys) => Arr.contains(keys, "value")),
 				[],
-				"no index of Attr holds its value, a text no B-tree entry holds"
+				`no index of ${read} holds its value, a text no B-tree entry holds`
 			)
 			assert.ok(
 				Arr.some(indexes, (keys) => Arr.contains(keys, "valueDigest")),
-				`an index of Attr holds valueDigest, which the upkeep seeks: ${Arr.join(
+				`an index of ${read} holds valueDigest, which the upkeep seeks: ${Arr.join(
 					Arr.map(indexes, (keys) => `(${Arr.join(keys, ", ")})`),
 					" "
 				)}`
@@ -58,9 +66,9 @@ export const anUpkeepFindingASourceRowByACopiedTextSeeksItsDigest = property.exh
 		}),
 	oracle: {
 		kind: "specification",
-		name: "the installation compiles, and an index of Attr holds valueDigest where none holds value"
+		name: "the installation compiles, and an index of the relation the upkeep reads by the copied value holds valueDigest where none holds value"
 	},
-	box: "a stored relation copying Attr's value under a token or under its element's kind, Attr and Node open",
+	box: "a stored relation copying Attr's value under a token or under its element's kind, or under a token over a stored relation carrying the value's digest, Attr and Node open",
 	kept: [
 		{
 			token: ReplayToken(
@@ -77,9 +85,23 @@ export const anUpkeepFindingASourceRowByACopiedTextSeeksItsDigest = property.exh
 			reason:
 				"Copied names its rows by its element's kind, whose holder names the attribute, as the ledger's declared values (__canonical_66855312) do: refused alike",
 			since: "2026-11-28"
+		},
+		{
+			token: ReplayToken(
+				"test/unit/derived/upkeep-digests.test.ts#anUpkeepFindingASourceRowByACopiedTextSeeksItsDigest:-:2"
+			),
+			reason:
+				"Copied names its rows by a graded token over Carrier, a stored relation whose head carries Attr's value and its valueDigest by lineage, as qti-pie's __canonical_6b70a001 and __canonical_6c66061f carry them: a stored derived relation's carried digest was no digest of its value (its table's digests none), so the upkeep's read of Carrier at its value was refused as UnrepresentableKey (qti-pie ededff69 at grizzle 9cce8750)",
+			since: "2026-11-28"
 		}
 	],
 	kills: [
+		{
+			file: "packages/engine/src/analysis/derived/storage.ts",
+			original: "\t\t].filter(([text, digest]) => heading.has(text) && heading.has(digest))\n",
+			replacement: "\t\t].filter(() => false)\n",
+			why: "A stored derived relation's head carries no digest of its own: Carrier, whose head copies Attr's value and its valueDigest, holds its value undigested, and Copied's upkeep, which reads Carrier at the value, is refused as UnrepresentableKey on Carrier(package, start, value)."
+		},
 		{
 			file: "packages/engine/src/sql/bind.ts",
 			original:

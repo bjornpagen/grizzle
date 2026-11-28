@@ -170,6 +170,24 @@ export const textDigestsOf = (
 }
 
 /**
+ * Each text field of a relation the theory reads with the field that holds its SHA-256, one per text: an ordinary
+ * relation's generated digests (`textDigestsOf`), a stored derived relation's carried by lineage (StoredDerivedRelation
+ * `digests`), a closed relation's none. The one answer of what a text's digest column is, which every read that binds
+ * the text binds beside it (sql/bind.ts owedDigests) and index planning seeks by (physical/indexes/engine.ts
+ * refusedUndigested).
+ */
+export const digestsOf = (relation: TheoryRelation): ReadonlyMap<string, string> => {
+	switch (relation.kind) {
+		case "relation":
+			return textDigestsOf(relation.fields)
+		case "stored":
+			return relation.digests
+		case "closed":
+			return new Map()
+	}
+}
+
+/**
  * A stored or closed relation, resolved once where the theory types it: its declared name and its fields in declared
  * order. A law that names the relation carries this handle. A closed relation installs nothing by its name, so only a
  * stored relation's handle has an installed identifier (TableRelation).
@@ -392,6 +410,12 @@ export interface StoredDerivedRelation
 	readonly unit: StoredHolding
 	/** How a Base over its table reads it: its heading and its proven keys narrowest first, each resting on its index. */
 	readonly read: ViewRead
+	/**
+	 * Each text field of its heading with the field its definition's every arm delivers the text's SHA-256 under, a
+	 * digest a relation it reads declares, carried by lineage (ir/digest-lineage.ts lineageDigests): its own digests
+	 * (`digestsOf`), as a relation's generated ones are its.
+	 */
+	readonly digests: ReadonlyMap<string, string>
 }
 
 /**

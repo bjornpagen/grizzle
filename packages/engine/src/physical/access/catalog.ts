@@ -22,7 +22,7 @@ import {
 	parseDeclaredName
 } from "#compiler/core/identity.ts"
 import { compareNumbers, compareStrings } from "#compiler/core/order.ts"
-import { textDigestsOf } from "#compiler/ir/law.ts"
+import { digestsOf } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import {
 	baseOf,
@@ -226,10 +226,11 @@ const catalogOf = (
 							)
 					}
 				: { kind: "none" }
-		/** Each text field whose digest field holds its SHA-256 (ir/law.ts textDigestsOf), both by installed name, its
-		 * digest computed by the library's textDigest, which its generation calls, so the installation installs it. */
+		/** Each text field whose digest field holds its SHA-256 (ir/law.ts digestsOf), generated or carried by lineage,
+		 * both by installed name, its digest computed by the library's textDigest, which the digest's generation calls, so
+		 * the installation installs it. */
 		const digests = new Map(
-			[...textDigestsOf(r.fields)].map(
+			[...digestsOf(r)].map(
 				([text, digest]) =>
 					[
 						names.column(relation, text),

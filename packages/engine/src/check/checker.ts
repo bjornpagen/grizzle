@@ -98,6 +98,7 @@ import {
 	type ScalarExpr,
 	storedColumn
 } from "#compiler/ir/expr.ts"
+import { lineageDigests } from "#compiler/ir/digest-lineage.ts"
 import { headingColumns, textDigestsOf } from "#compiler/ir/law.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import {
@@ -3718,94 +3719,24 @@ export class Checker {
 	}
 
 	/**
-	 * The text digests `node` delivers, each text column by its name with the column that is its SHA-256: a stored
-	 * relation's declared digests (ir/law.ts textDigestsOf); its input's through a node that delivers its input's
-	 * columns as they are, a step, a filter, a take, an order, a window, and a semi- or anti-join's left; a projection's
-	 * that delivers a text and its digest as they are; a match region's variables one occurrence binds to a text and to
-	 * its digest; a union's that every arm delivers; none of any other node, which computes what it delivers. So a rule that matches a query delivering a text
-	 * and its digest, a navigation step's import among them, states the digest's equality where it states the text's
-	 * (RuleCheck `#stateDigests`), as it does over the stored relation.
+	 * The text digests `node` delivers by lineage (ir/digest-lineage.ts lineageDigests), each text column by its name with
+	 * the column that is its SHA-256, a stored relation's declared digests (ir/law.ts textDigestsOf) its source's, each
+	 * node's once for the compile. So a rule that matches a query delivering a text and its digest, a navigation step's
+	 * import among them, states the digest's equality where it states the text's (RuleCheck `#stateDigests`), as it does
+	 * over the stored relation.
 	 */
 	digestColumns(node: RelNode, loc: SourceLoc): ReadonlyMap<string, string> {
-		const known = this.#digests.get(node)
-		if (known !== undefined) {
-			return known
-		}
-		const found = this.#digestColumnsOf(node, loc)
-		this.#digests.set(node, found)
-		return found
-	}
-
-	#digestColumnsOf(node: RelNode, loc: SourceLoc): ReadonlyMap<string, string> {
-		switch (node.kind) {
-			case "Base": {
-				if (node.relationKind !== "relation") {
+		return lineageDigests(
+			node,
+			(base) => {
+				if (base.relationKind !== "relation") {
 					return new Map()
 				}
-				const info = this.schema.relation(node.relation, loc)
+				const info = this.schema.relation(base.relation, loc)
 				return info.kind === "relation" ? textDigestsOf(info.fields) : new Map()
-			}
-			case "Step":
-			case "Filter":
-			case "Take":
-			case "OrderedResult":
-			case "Window":
-				return this.digestColumns(node.input, loc)
-			case "SemiJoin":
-			case "AntiJoin":
-				return this.digestColumns(node.left, loc)
-			case "ProjectSet": {
-				const input = this.digestColumns(node.input, loc)
-				const read = (e: ScalarExpr): string | undefined =>
-					e.kind === "column" && e.column.node === node.input.id ? e.column.name : undefined
-				const pairs = new Map<string, string>()
-				for (const text of node.out) {
-					const digest = input.get(read(text.expr) ?? "")
-					const out = node.out.find((d) => digest !== undefined && read(d.expr) === digest)
-					if (out !== undefined) {
-						pairs.set(text.name, out.name)
-					}
-				}
-				return pairs
-			}
-			case "MatchRegion": {
-				const pairs = new Map<string, string>()
-				for (const o of node.occurrences) {
-					const digests = this.digestColumns(o.source, loc)
-					for (const b of o.bindings) {
-						const digest = o.bindings.find((d) => d.column === digests.get(b.column))
-						if (digest !== undefined && !pairs.has(b.var.name)) {
-							pairs.set(b.var.name, digest.var.name)
-						}
-					}
-				}
-				return pairs
-			}
-			case "Union": {
-				const [first, ...rest] = mapNonEmpty(unionArms(node.groups), (a) =>
-					this.digestColumns(a, loc)
-				)
-				return new Map(
-					[...first].filter(([text, digest]) => rest.every((m) => m.get(text) === digest))
-				)
-			}
-			case "ApproximateNearest":
-			case "Attach":
-			case "Call":
-			case "Closed":
-			case "Context":
-			case "Delta":
-			case "Difference":
-			case "Forbid":
-			case "Group":
-			case "InputSet":
-			case "Intersect":
-			case "OrderedSetAggregate":
-			case "Produce":
-			case "Recursive":
-			case "SelfRef":
-				return new Map()
-		}
+			},
+			this.#digests
+		)
 	}
 
 	/**

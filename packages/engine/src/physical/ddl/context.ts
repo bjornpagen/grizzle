@@ -19,7 +19,7 @@ import type { ColumnIdent, ConstraintName, Identifier, IdentityKind } from "#com
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
-import { textDigestsOf } from "#compiler/ir/law.ts"
+import { digestsOf } from "#compiler/ir/law.ts"
 import { type LibraryFn, missing } from "#compiler/ir/physical.ts"
 import type { DeployPhase, PhysicalReason } from "#compiler/ir/products.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
@@ -873,6 +873,14 @@ export class InstallBuilder {
 		return this.#views.get(this.checked.installedAs(relation))
 	}
 
+	/** The digests the stored derived relation `relation`'s head carries by lineage (ir/law.ts digestsOf), each text
+	 * field with its digest field, as its theory states them. */
+	#storedDigests(relation: string): ReadonlyMap<string, string> {
+		const relations = this.model.theory.relations
+		const stored = Object.hasOwn(relations, relation) ? relations[relation] : undefined
+		return stored === undefined ? new Map() : digestsOf(stored)
+	}
+
 	/** The stored table of the derived relation `relation` (`#viewOf`); none when no extension installs it. */
 	storedTable(relation: string): Node<"structure"> | undefined {
 		return this.#viewOf(relation)?.object
@@ -934,7 +942,7 @@ export class InstallBuilder {
 				fields: [...view.fields],
 				column: (c) => (c.kind === "field" ? this.names.column(relation, c.field) : c.column),
 				place: (c) => (c.kind === "field" ? heading.indexOf(c.field) : heading.length),
-				digests: new Map(),
+				digests: this.#storedDigests(view.relation),
 				after: () => [view.object]
 			}
 		}
@@ -958,7 +966,7 @@ export class InstallBuilder {
 					c.kind === "field"
 						? stored.fields.findIndex((field) => field.name === c.field)
 						: stored.fields.length + lawOrder.indexOf(c.column),
-				digests: textDigestsOf(stored.fields),
+				digests: digestsOf(stored),
 				after: (columns) => [
 					this.table(relation),
 					...new Set(

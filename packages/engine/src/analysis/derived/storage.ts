@@ -68,7 +68,13 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { type RelationIdent, StoredRelationName } from "#compiler/core/ids.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { InferredQuery, InferredRule, QueryDesc } from "#compiler/ir/desc.ts"
-import type { LawField, StoredDerivedRelation, TheoryRelation } from "#compiler/ir/law.ts"
+import { lineageDigests } from "#compiler/ir/digest-lineage.ts"
+import {
+	digestsOf,
+	type LawField,
+	type StoredDerivedRelation,
+	type TheoryRelation
+} from "#compiler/ir/law.ts"
 import type { StoredHolding, StoredUnit } from "#compiler/ir/unit.ts"
 import type { Owned } from "#compiler/schema/own.ts"
 
@@ -262,7 +268,10 @@ const keptHolding = (
 	return Object.freeze({
 		kind: "stored",
 		analysis: analyzed.value,
-		relation: storedRelationOf(analyzed.value, subject.ident, subject.level, unit),
+		relation: storedRelationOf(analyzed.value, subject.ident, subject.level, unit, (relation) => {
+			const known = input.known.get(relation)
+			return known === undefined ? new Map() : digestsOf(known)
+		}),
 		rows,
 		bound: bound.kind
 	})
@@ -475,13 +484,15 @@ export const storedSecondaryKeys = (
  * A stored derived relation as the theory reads it (ir/law.ts StoredDerivedRelation): its analysis `a`'s heading as its
  * fields, each named as its table's column (physical/ddl/names.ts viewColumn) and written by its upkeep alone; its
  * primary key led by its unit (`storedPrimaryKey`), and every other proven key, each named by its index; its table
- * `ident`, its level and its admitted unit.
+ * `ident`, its level and its admitted unit; and the digests its definition's head carries by lineage from the relations
+ * it reads, each relation's by `relationDigests` (ir/law.ts digestsOf), a text of its heading with its digest field.
  */
 const storedRelationOf = (
 	a: DerivedRelationAnalysis,
 	ident: RelationIdent,
 	level: number,
-	unit: StoredHolding
+	unit: StoredHolding,
+	relationDigests: (relation: string) => ReadonlyMap<string, string>
 ): StoredDerivedRelation => {
 	const fields = mapNonEmpty(a.heading, (c, position): LawField => ({
 		name: c.name,
@@ -501,12 +512,23 @@ const storedRelationOf = (
 	const primaryKey = primary.fields
 	const primaryFields = mapNonEmpty(primaryKey, field)
 	const keyFields = secondary.map((k) => mapNonEmpty(k.fields, field))
+	const heading = new Set(fields.map((f) => f.name))
+	const digests = new Map(
+		[
+			...lineageDigests(
+				defined(a.query.dag.roots[0], `the root of ${a.name}'s definition`),
+				(base) => relationDigests(base.relation),
+				new Map()
+			)
+		].filter(([text, digest]) => heading.has(text) && heading.has(digest))
+	)
 	return Object.freeze({
 		kind: "stored",
 		name: StoredRelationName(a.name),
 		ident,
 		fields,
 		heading: fields,
+		digests,
 		primaryKey,
 		keys: secondary.map((k) => k.fields),
 		primaryFields,

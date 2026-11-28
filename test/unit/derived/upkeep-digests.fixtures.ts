@@ -12,7 +12,8 @@ import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { Crypto } from "#compiler/public/compute.ts"
 import { closedId, generated, int4, sha256 } from "#compiler/public/fields.ts"
-import { closed, mutable, relation, schema, unit } from "#compiler/public/schema.ts"
+import { query, v } from "#compiler/public/query.ts"
+import { closed, derived, mutable, relation, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -22,9 +23,11 @@ import { ownedInput } from "#test/support/policy.ts"
 /**
  * How the stored relation names the attribute it copies the value of: by a token a graded name maps the attribute's
  * name to (`token`, qti-pie's DeclarationAttribute through GradedAttributeName), or by the kind of its element, whose
- * holder names the attribute (`holder`, the ledger's declared values through ValueHolder).
+ * holder names the attribute (`holder`, the ledger's declared values through ValueHolder); or by a token, read from a
+ * stored relation that carries the value's digest beside it by lineage (`carried`, qti-pie's __canonical_6b70a001 and
+ * __canonical_6c66061f).
  */
-export type Naming = "token" | "holder"
+export type Naming = "token" | "holder" | "carried"
 
 /** A case: how the stored relation names the attribute. */
 export interface Shape {
@@ -32,7 +35,7 @@ export interface Shape {
 }
 
 export const shapeGen: FiniteSpace<Shape> = finite((source) => ({
-	naming: source.draw(element<Naming>(["token", "holder"]))
+	naming: source.draw(element<Naming>(["token", "holder", "carried"]))
 }))
 
 /** An attribute's value: a text of no byte bound, which no B-tree entry holds. */
@@ -90,6 +93,36 @@ export const installationOf = (shape: Shape): Result.Result<Installation, Compil
 		[Names, Kinds, Attr, Node, Graded, Holder],
 		[Pkg, mutable(Attr), mutable(Node)]
 	)
+	if (shape.naming === "carried") {
+		/** Each node's attribute with its value and the value's digest, as qti-pie's canonical attribute values carry
+		 * valueDigest beside value: a stored relation whose head carries the digest by lineage. */
+		const Carrier = derived(
+			"Carrier",
+			query(base).rule((r) => {
+				const { package: pkg, start, name, value, valueDigest } = v(Attr, "attr")
+				const { kind } = v(Node, "node")
+				return r
+					.match(Node, { package: pkg, start, kind })
+					.match(Attr, { package: pkg, start, name, value, valueDigest })
+					.find({ package: pkg, start, name, value, valueDigest })
+			})
+		)
+		const middle = schema.extend([base], "Middle", [Carrier], [])
+		const copiedOnce = derived(
+			"Copied",
+			query(middle).rule((r) => {
+				const { package: pkg, start, name, value } = v(Carrier, "carrier")
+				const { token } = v(Graded, "graded")
+				return r
+					.match(Carrier, { package: pkg, start, name, value })
+					.match(Graded, { name, token })
+					.find({ package: pkg, start, by: token, value })
+			})
+		)
+		return Result.flatMap(ownedInput(schema.extend([middle], "Top", [copiedOnce], [])), (owned) =>
+			compileInstallation(owned, installOptions(owned))
+		)
+	}
 	const copied = queryOver(base).rule((r: RuleValue) => {
 		const { package: pkg, start, name, value } = varsOver(Attr, "attr")
 		const { kind } = varsOver(Node, "node")
@@ -108,9 +141,15 @@ export const installationOf = (shape: Shape): Result.Result<Installation, Compil
 	)
 }
 
-/** Every index of Attr the installation plans, by its keys' columns. */
-export const attrIndexes = (installation: Installation): ReadonlyArray<ReadonlyArray<string>> =>
+/** The relation whose rows the case's upkeep finds by the copied value: Attr, or Carrier, which carries its digest. */
+export const readOf = (shape: Shape): string => (shape.naming === "carried" ? "Carrier" : "Attr")
+
+/** Every index of `relation` the installation plans, by its keys' columns. */
+export const indexesOf = (
+	installation: Installation,
+	relation: string
+): ReadonlyArray<ReadonlyArray<string>> =>
 	Arr.map(
-		Arr.filter(installation.indexes, (i) => i.relation === "Attr"),
+		Arr.filter(installation.indexes, (i) => i.relation === relation),
 		(i) => Arr.map(i.keys, (k) => (k.column.kind === "field" ? k.column.field : k.column.kind))
 	)
