@@ -1,3 +1,6 @@
+import { Option } from "effect"
+import { BlockSizeMismatched } from "#adapter/migrate/errors.ts"
+import { blockSize } from "#compiler/core/page.ts"
 import { C } from "#compiler/plan/catalog.ts"
 import { maxStackDepth } from "#compiler/plan/common.ts"
 
@@ -25,3 +28,22 @@ export const stackTooShallow = (reported: string): boolean => {
 
 /** What a server's max_stack_depth must be at least, as a refusal states it. */
 export const stackDepthRequired = `${maxStackDepth} kB, the default PostgreSQL's regex compiler was measured at`
+
+/**
+ * The server's block size, BLCKSZ, as current_setting reports it, in bytes, the unit it has none of: a column of grizzle
+ * migrate's first read.
+ */
+export const blockSizeColumn: C.CatalogExpr = C.catalogCall("current_setting", [
+	C.text("block_size")
+])
+
+/**
+ * The refusal of a server whose block size, as blockSizeColumn reads it, is not the one every page bound grizzle holds a
+ * key, a row and an index entry to was derived from (core/page.ts blockSize: BTMaxItemSize, MaxHeapTupleSize, the key
+ * texts' bounds): a server built with smaller pages refuses keys and rows grizzle admits, one built with larger pages
+ * admits what grizzle refuses. None at that size.
+ */
+export const blockSizeRefusal = (reported: string): Option.Option<BlockSizeMismatched> =>
+	reported === String(blockSize)
+		? Option.none()
+		: Option.some(new BlockSizeMismatched({ observed: reported, required: blockSize }))

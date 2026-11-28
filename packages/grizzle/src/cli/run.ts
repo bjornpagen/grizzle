@@ -345,6 +345,7 @@ const reasonLines = (e: MigrateError): ReadonlyArray<string> => {
 		case "ConnectRefused":
 		case "SurveyFailed":
 		case "StackTooShallow":
+		case "BlockSizeMismatched":
 		case "AdviceUnloaded":
 		case "MigratorPreloads":
 		case "LockTableShort":

@@ -42,7 +42,8 @@ import type { findMarkers, VariableFault } from "#compiler/plan/migration.ts"
  * The stage says where the apply stopped and so what the database holds:
  *
  * - Before any statement of any folder ran: `connect`, `stack` (the server's max_stack_depth below the default the
- *   pattern limits were measured at), `advice` (the session does not load pg_plan_advice, or the migration role's own
+ *   pattern limits were measured at), `blocks` (the server's block size other than the one grizzle's page bounds were
+ *   derived from), `advice` (the session does not load pg_plan_advice, or the migration role's own
  *   session_preload_libraries leaves what the logins' sessions load unknown), `wal` (the server's wal_level minimal,
  *   which no live source decodes at),
  *   `owner`, `input`, `busy`, `ledger`, `edited`, `order`, `marker`, `decision` and `locks` (the server's lock table
@@ -69,6 +70,7 @@ import type { findMarkers, VariableFault } from "#compiler/plan/migration.ts"
 export type MigrateStage =
 	| "connect"
 	| "stack"
+	| "blocks"
 	| "advice"
 	| "wal"
 	| "owner"
@@ -98,6 +100,7 @@ export type MigrateOutcome = "nothingRan" | "resumes" | "drifted" | "noVerdict"
 export const stageOutcome: { readonly [S in MigrateStage]: MigrateOutcome } = {
 	connect: "nothingRan",
 	stack: "nothingRan",
+	blocks: "nothingRan",
 	advice: "nothingRan",
 	wal: "nothingRan",
 	owner: "nothingRan",
@@ -356,6 +359,21 @@ export class StackTooShallow extends Data.TaggedError("StackTooShallow")<{
 }> {
 	override get message(): string {
 		return `the server's max_stack_depth is ${this.observed} kB, below ${this.required}; a superuser raises it`
+	}
+}
+
+/**
+ * The server's block size, `observed` bytes as current_setting reports it, is not `required`, PostgreSQL's default,
+ * which every bound grizzle holds a key, a row and an index entry to was derived from (core/page.ts blockSize), so the
+ * server would refuse keys and rows grizzle admits, or admit what it refuses. A server's block size is fixed when it is
+ * built.
+ */
+export class BlockSizeMismatched extends Data.TaggedError("BlockSizeMismatched")<{
+	readonly observed: string
+	readonly required: number
+}> {
+	override get message(): string {
+		return `the server's block_size is ${this.observed} bytes, where every bound grizzle holds a key and a row to was derived from ${String(this.required)}, PostgreSQL's default`
 	}
 }
 
@@ -1007,6 +1025,7 @@ export type MigrateReason =
 	| ConnectRefused
 	| SurveyFailed
 	| StackTooShallow
+	| BlockSizeMismatched
 	| AdviceUnloaded
 	| MigratorPreloads
 	| LockTableShort
@@ -1045,6 +1064,7 @@ const stageOf: { readonly [Tag in MigrateReason["_tag"]]: MigrateStage } = {
 	ConnectRefused: "connect",
 	SurveyFailed: "owner",
 	StackTooShallow: "stack",
+	BlockSizeMismatched: "blocks",
 	AdviceUnloaded: "advice",
 	MigratorPreloads: "advice",
 	LockTableShort: "locks",
@@ -1098,6 +1118,7 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 			case "ConnectRefused":
 			case "SurveyFailed":
 			case "StackTooShallow":
+			case "BlockSizeMismatched":
 			case "AdviceUnloaded":
 			case "MigratorPreloads":
 			case "RoleUnread":
@@ -1174,6 +1195,7 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 			case "ConnectRefused":
 			case "SurveyFailed":
 			case "StackTooShallow":
+			case "BlockSizeMismatched":
 			case "AdviceUnloaded":
 			case "MigratorPreloads":
 			case "RoleUnread":
@@ -1218,6 +1240,7 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 			case "ConnectRefused":
 			case "SurveyFailed":
 			case "StackTooShallow":
+			case "BlockSizeMismatched":
 			case "AdviceUnloaded":
 			case "MigratorPreloads":
 			case "LockTableShort":

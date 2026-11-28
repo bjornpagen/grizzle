@@ -72,6 +72,12 @@ export const aSessionWithoutPlanAdviceRunsNothing = property.exhaust(finite(advi
 			original: "\tif (Arr.isReadonlyArrayNonEmpty(preloads)) {\n",
 			replacement: "\tif (Arr.isReadonlyArrayNonEmpty(preloads) && preloads.length < 0) {\n",
 			why: "grizzle migrate takes its own session for the logins' though its role's own session_preload_libraries loads the library where no login's settings would; the property fails, the migration applied."
+		},
+		{
+			file: "packages/grizzle/src/adapter/admission/expectation.ts",
+			original: '\tC.text("block_size")\n',
+			replacement: '\tC.text("wal_segment_size")\n',
+			why: "The survey's one query reads another setting as the server's block size, 16 MB where its pages are 8192 bytes: shopV1's first migration on a session that loaded pg_plan_advice is refused (BlockSizeMismatched) where it runs whole; the property fails, nothing applied."
 		}
 	]
 })

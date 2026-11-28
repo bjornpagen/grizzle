@@ -6432,7 +6432,10 @@ checks (below). `grizzle migrate`, which runs the drift check after every apply,
 
 - **The server:** PostgreSQL 19, the database UTF8 with the builtin `C.UTF-8` locale, and the server's
   `max_stack_depth` at least its default, 2MB, which the limits grizzle holds every pattern to rest on
-  ([Limits](#limits)); `grizzle migrate` refuses a server below it. The extensions the schema needs are the
+  ([Limits](#limits)); `grizzle migrate` refuses a server below it. The server is built with PostgreSQL's default
+  `block_size`, 8192 bytes, from which grizzle derives the bound of every key, row and index entry it admits;
+  `grizzle migrate` refuses a server built with other pages at stage `blocks` (`BlockSizeMismatched`), in the same
+  first read, before anything runs. The extensions the schema needs are the
   migration's to install.
 - **Settings:** the login's and the role's settings exactly as the snapshot installs them; the database's own defaults
   are its owner's, none of them grizzle's. Every login's own defaults pin its sessions, each a setting a grizzle guarantee rests on:

@@ -14,6 +14,8 @@ import {
 	type ReplaySpan
 } from "#adapter/admission/drift.ts"
 import {
+	blockSizeColumn,
+	blockSizeRefusal,
 	stackDepthColumn,
 	stackDepthRequired,
 	stackTooShallow
@@ -268,13 +270,14 @@ const applyLock = (schema: string): ApplyLock => {
 const roleName = ([name]: ReadonlyArray<string>): string | undefined => name
 
 /**
- * The session's role, the server's max_stack_depth in kilobytes (admission/expectation.ts stackDepthColumn) and its
- * wal_level (live.ts walLevelOf), whether its backend loaded pg_plan_advice (adviceLoadedColumn), and what the session's
- * role may give a decoder login (live.ts ReplicationGrants).
+ * The session's role, the server's max_stack_depth in kilobytes (admission/expectation.ts stackDepthColumn), its block
+ * size in bytes (blockSizeColumn) and its wal_level (live.ts walLevelOf), whether its backend loaded pg_plan_advice
+ * (adviceLoadedColumn), and what the session's role may give a decoder login (live.ts ReplicationGrants).
  */
 interface SessionRow {
 	readonly user: string
 	readonly stackDepth: string
+	readonly blockSize: string
 	readonly adviceLoaded: boolean
 	readonly walLevel: WalLevel
 	readonly grants: ReplicationGrants
@@ -310,6 +313,7 @@ const sessionRead: CatalogQuery<SessionRow> = {
 			[
 				C.asText(C.currentUser),
 				stackDepthColumn,
+				blockSizeColumn,
 				adviceLoadedColumn,
 				walLevelColumn,
 				attributeGrantColumn,
@@ -320,14 +324,15 @@ const sessionRead: CatalogQuery<SessionRow> = {
 			undefined
 		)
 	),
-	what: "a role name, eight settings, a loaded library and two privileges",
-	row: ([user, stackDepth, loaded, walLevelText, attribute, membership, ...table]) => {
+	what: "a role name, nine settings, a loaded library and two privileges",
+	row: ([user, stackDepth, pageBytes, loaded, walLevelText, attribute, membership, ...table]) => {
 		const walLevel = Option.getOrUndefined(
 			Option.flatMap(Option.fromNullishOr(walLevelText), walLevelOf)
 		)
 		const lockTable = Option.getOrUndefined(lockTableOf(table))
 		return user === undefined ||
 			stackDepth === undefined ||
+			pageBytes === undefined ||
 			walLevel === undefined ||
 			lockTable === undefined ||
 			(loaded !== "true" && loaded !== "false") ||
@@ -337,6 +342,7 @@ const sessionRead: CatalogQuery<SessionRow> = {
 			: {
 					user,
 					stackDepth,
+					blockSize: pageBytes,
 					adviceLoaded: loaded === "true",
 					walLevel,
 					grants: { attribute: attribute === "true", membership: membership === "true" },
@@ -731,11 +737,12 @@ const surveyAll = Effect.fn("surveyAll")(function* (
 		(failure) => stopped(new SurveyFailed({ failure }))
 	)
 	/** The session's role and the server's setting concern no schema. */
-	const { user, stackDepth, adviceLoaded, walLevel, grants, lockTable } = yield* Effect.fromResult(
-		Result.mapError(apartRow(sessionRead, sentAnswer(answers, 0)), (failure) =>
-			stopped(new RoleUnread({ failure }))
+	const { user, stackDepth, blockSize, adviceLoaded, walLevel, grants, lockTable } =
+		yield* Effect.fromResult(
+			Result.mapError(apartRow(sessionRead, sentAnswer(answers, 0)), (failure) =>
+				stopped(new RoleUnread({ failure }))
+			)
 		)
-	)
 	const own = yield* Effect.fromResult(
 		Result.mapError(apartRows(ownSettingsQuery, sentAnswer(answers, 1)), (failure) =>
 			stopped(new RoleUnread({ failure }))
@@ -745,6 +752,10 @@ const surveyAll = Effect.fn("surveyAll")(function* (
 		return yield* stopped(
 			new StackTooShallow({ observed: stackDepth, required: stackDepthRequired })
 		)
+	}
+	const pages = blockSizeRefusal(blockSize)
+	if (Option.isSome(pages)) {
+		return yield* stopped(pages.value)
 	}
 	if (!adviceLoaded) {
 		return yield* stopped(new AdviceUnloaded())

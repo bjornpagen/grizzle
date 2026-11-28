@@ -4,18 +4,19 @@
  * so its fix names the setting or the right it found wanting, and what the database holds as the report's outcome says.
  *
  * Over drawn refusals of each such reason (refusalGen): the server's max_stack_depth below the default the pattern
- * limits were measured at, its wal_level minimal under a live source, a decoder login with no replication right once
+ * limits were measured at, its block size other than the one grizzle's page bounds rest on, its wal_level minimal under a live source, a decoder login with no replication right once
  * every folder applied, and a lock table smaller than the apply's largest transaction's lock demand. Oracle: the specification each arm states beside its reason: the server's setting or the
  * role's right it names, and the outcome of the stage it stops at.
  */
 
 import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
-import { characterOf, type Gen, int, string, weighted } from "@bjornpagen/testing/gen"
+import { characterOf, element, type Gen, int, string, weighted } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, String as Str } from "effect"
 import { stackDepthRequired } from "#adapter/admission/expectation.ts"
 import {
+	BlockSizeMismatched,
 	DecoderUnreplicated,
 	MigrateError,
 	type MigrateOutcome,
@@ -25,9 +26,15 @@ import {
 	WalLevelMinimal
 } from "#adapter/migrate/errors.ts"
 import { migrateStageFix } from "#cli/refusals.ts"
+import { blockSize } from "#compiler/core/page.ts"
 
 /** A reason a superuser fixes on the server, by its tag. */
-type ServerReason = "StackTooShallow" | "WalLevelMinimal" | "DecoderUnreplicated" | "LockTableShort"
+type ServerReason =
+	| "StackTooShallow"
+	| "BlockSizeMismatched"
+	| "WalLevelMinimal"
+	| "DecoderUnreplicated"
+	| "LockTableShort"
 
 /**
  * A refused migrate whose reason a superuser fixes on the server, beside the specification of it: the reason, what its
@@ -46,7 +53,8 @@ const lowercase = nonEmpty(Arr.fromIterable("abcdefghijklmnopqrstuvwxyz"), "lowe
 const identifierGen: Gen<string> = string(characterOf(lowercase), { min: 1, max: 12 })
 
 /**
- * Each reason a superuser fixes on the server, its fields drawn: a max_stack_depth below 2048 kB, a live source's schema
+ * Each reason a superuser fixes on the server, its fields drawn: a max_stack_depth below 2048 kB, a block size of 1 to
+ * 32 kB other than 8 kB, a live source's schema
  * at wal_level minimal, or a decoder login and its schema left with no replication right.
  */
 const refusalGen: Gen<Refused> = weighted<Refused>([
@@ -61,6 +69,20 @@ const refusalGen: Gen<Refused> = weighted<Refused>([
 			}),
 			found: "StackTooShallow",
 			names: "max_stack_depth",
+			outcome: "nothingRan"
+		})
+	],
+	[
+		1,
+		(source) => ({
+			error: new MigrateError({
+				reason: new BlockSizeMismatched({
+					observed: String(2 ** source.draw(element([10, 11, 12, 14, 15]))),
+					required: blockSize
+				})
+			}),
+			found: "BlockSizeMismatched",
+			names: "block_size",
 			outcome: "nothingRan"
 		})
 	],
@@ -121,6 +143,7 @@ export const aRefusedMigratesFixNamesTheServerSettingOrRightItsReasonFoundWantin
 		needs: {},
 		situations: [
 			"StackTooShallow",
+			"BlockSizeMismatched",
 			"WalLevelMinimal",
 			"DecoderUnreplicated",
 			"LockTableShort"

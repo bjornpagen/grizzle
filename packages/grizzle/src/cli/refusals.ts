@@ -152,6 +152,8 @@ export const refusalText = {
 export const migrateStageFix: Readonly<Record<MigrateStage, string>> = {
 	connect: "check the configuration's connection: its host, port, database, role, password and CA",
 	stack: "have a superuser raise the server's max_stack_depth to at least 2MB, its default",
+	blocks:
+		"run grizzle migrate against a server built with PostgreSQL's default block_size, 8192 bytes: a server's block size is fixed when it is built",
 	advice:
 		"have a superuser load pg_plan_advice for the database (ALTER DATABASE <database> SET session_preload_libraries = 'pg_plan_advice') or the server (shared_preload_libraries = 'pg_plan_advice', a restart), with no role setting its own session_preload_libraries, then run grizzle migrate again",
 	wal: "have a superuser set the server's wal_level to replica, its default, or logical, and restart it",
