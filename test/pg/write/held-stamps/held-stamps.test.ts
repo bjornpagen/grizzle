@@ -77,8 +77,12 @@ const runAt = (due: Due, scale: number) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const s = yield* Substrate
-			const fx = yield* installWrites(build("HeldStamps").schema, "heldstamps", {
-				programs: {},
+			const fixture = build("HeldStamps")
+			/** The installation's login's workload holds the call's write, so it holds every index the write reads
+			 * through, Assignment's by its user and expiresAt among them, as generate plans an application's (a served
+			 * compile under its snapshot refuses a read through one it does not hold, UninstalledIndex). */
+			const fx = yield* installWrites(fixture.schema, "heldstamps", {
+				programs: { stamp: changeOf(fixture, due) },
 				logins: () => []
 			})
 			const S = build(fx.installed.declared)

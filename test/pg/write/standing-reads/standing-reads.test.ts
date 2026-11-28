@@ -89,8 +89,12 @@ const rowsOf = (
 const runAt = (earlier: Earlier, scale: number) =>
 	Effect.scoped(
 		Effect.gen(function* () {
-			const fx = yield* installWrites(build("StandingReads").schema, "standingreads", {
-				programs: {},
+			const fixture = build("StandingReads")
+			/** The installation's login's workload holds the call's write, so it holds every index the write reads
+			 * through, SittingEvent's by its child, kind and number among them, as generate plans an application's (a
+			 * served compile under its snapshot refuses a read through one it does not hold, UninstalledIndex). */
+			const fx = yield* installWrites(fixture.schema, "standingreads", {
+				programs: { sit: changeOf(fixture) },
 				logins: () => []
 			})
 			const B = build(fx.installed.declared)
