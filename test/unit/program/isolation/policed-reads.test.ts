@@ -200,16 +200,16 @@ export const aWriteThroughAPolicedEntryIsReadOverItsRowSecurity = property.exhau
 			},
 			{
 				file: "packages/engine/src/program/isolation/member-facts.ts",
-				original: "\t\tdefinitions.set([view.schema, view.name], {",
-				replacement: "\t\tdefinitions.set([view.schema, view.name.toUpperCase()], {",
+				original: "\t\tdefinitions.set([named.schema, named.name], {",
+				replacement: "\t\tdefinitions.set([named.schema, named.name.toUpperCase()], {",
 				why: 'The entry\'s view read as a table no relation is, as at 1d105e86c: a delete through it reads `?"policed_reads__writer"."mine"`; the property fails.'
 			},
 			{
-				file: "packages/engine/src/program/isolation/member-facts.ts",
+				file: "packages/engine/src/physical/derived/definition.ts",
 				original:
-					"\t\t\t\t\trows: {\n\t\t\t\t\t\t...world.checked.world.base.rows(world.checked.writable),\n\t\t\t\t\t\tworld: world.checked.worldRows()\n\t\t\t\t\t}\n",
-				replacement: "\t\t\t\t\trows: world.checked.world.base.rows(world.checked.writable)\n",
-				why: "The certifier's model of a scoped writer's view reads T in reality's world, as at 3a53e9d9: the read of the view's numbers reads T alone, Holder only by its absence in the insert's precheck, never the scope owner's rows the installed view reads; the property fails."
+					"\t\trows: {\n\t\t\t...options.role.world.base.rows(options.role.writable),\n\t\t\tworld: options.role.worldRows()\n\t\t}\n",
+				replacement: "\t\trows: options.role.world.base.rows(options.role.writable)\n",
+				why: "A scoped writer's view, the one the installation creates and the certifier reads, read in reality's world, as at 3a53e9d9: the read of the view's numbers reads T alone, Holder only by its absence in the insert's precheck, never the scope owner's rows the installed view reads; the property fails."
 			}
 		]
 	}

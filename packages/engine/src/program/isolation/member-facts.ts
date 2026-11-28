@@ -11,7 +11,7 @@ import { type ReadonlyTupleMap, TupleMap, TupleSet } from "@bjornpagen/grizzle-t
 import type { MemberFacts } from "#compiler/analysis/isolation/facts.ts"
 import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { identifierOf } from "#compiler/core/identity.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import { headNameOf, headsOf } from "#compiler/ir/instant.ts"
 import type { NativeColumn, NativeObject } from "#compiler/ir/law.ts"
@@ -34,7 +34,6 @@ import {
 	ownerHolds,
 	roleWrites
 } from "#compiler/physical/ddl/roles.ts"
-import { lowerDefinition } from "#compiler/physical/derived/definition.ts"
 import {
 	argumentColumn,
 	argumentsRow,
@@ -271,9 +270,10 @@ const noWorld: RoleWorldReads = {
  * - each table the role's row policy narrows, its own writable entry's target (physical/ddl/roles.ts entryMembership)
  *   and the owner of each family whose member it writes through no entry of the owner (holdMembership), with the
  *   policy's predicate over its row (extract.ts policyRow);
- * - each query entry's view, by its name in the role's schema, with its definition (physical/derived/definition.ts
- *   lowerDefinition) and its columns, each a heading column's: the view's every row is its definition's, the decoded
- *   name of a closed id beside its code read from a constant, which reads no table.
+ * - each query entry's view, by its name in the role's schema, with its definition before the binding pass and its
+ *   columns, the role's world view (physical/access/world-views.ts roleWorldViews, ArtifactsWorld `views`), the one
+ *   derivation of it, whose binding the installation creates the view from: the view's every row is its definition's,
+ *   the decoded name of a closed id beside its code read from a constant, which reads no table.
  */
 const roleWorld = (
 	named: NamedRole,
@@ -354,23 +354,11 @@ const roleWorld = (
 		}
 	}
 	const definitions = new TupleMap<Qualified, Definition>()
-	for (const e of world.checked.entries) {
-		if (e.kind !== "world") {
-			continue
-		}
-		const view = world.names.view(e.entry.name)
-		definitions.set([view.schema, view.name], {
-			query: unwrap(
-				lowerDefinition(`${role.name}.${e.entry.name}`, e.analysis.query, {
-					names,
-					catalog: cx.catalog,
-					rows: {
-						...world.checked.world.base.rows(world.checked.writable),
-						world: world.checked.worldRows()
-					}
-				})
-			).query,
-			columns: e.analysis.heading.map((c) => identifierOf(identity.column(c.name)))
+	for (const view of world.views) {
+		const named = world.names.view(view.entry)
+		definitions.set([named.schema, named.name], {
+			query: view.definition,
+			columns: view.binding.columns
 		})
 	}
 	return { functions, policies, definitions }

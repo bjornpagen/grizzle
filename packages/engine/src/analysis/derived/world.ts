@@ -10,6 +10,7 @@ import { viewDependencies } from "#compiler/analysis/derived/drawn.ts"
 import { type InheritedKey, inheritedKeys } from "#compiler/analysis/logical/derived.ts"
 import type { AdmittedQuery } from "#compiler/check/index.ts"
 import type { SchemaReading } from "#compiler/check/schema.ts"
+import { nominal } from "#compiler/core/brand.ts"
 import { type CompileError, ruleRefused } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
@@ -17,6 +18,21 @@ import { topoOrder } from "#compiler/ir/dag.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import { classMembers, type ViewRead, viewAlternatives } from "#compiler/ir/keys.ts"
 import type { WholeKey } from "#compiler/logical/props.ts"
+
+declare const worldQueryBrand: unique symbol
+
+/**
+ * A query entry's checked definition (WorldAnalysis `query`), which its role's world alone lowers
+ * (physical/derived/definition.ts lowerWorldView): its every read of a member of a unit the role's scope binds is a read
+ * at the claims' keys, so no lowering of it under reality's world, which reads every row, can be stated
+ * (lowerDefinition takes no WorldQuery).
+ */
+export type WorldQuery = AdmittedQuery & { readonly [worldQueryBrand]: true }
+
+/** A checked definition that is no query entry's (WorldQuery), which lowerDefinition lowers under the rows it is given. */
+export type RowsQuery = AdmittedQuery & { readonly [worldQueryBrand]?: never }
+
+const worldQuery = nominal<AdmittedQuery, WorldQuery>()
 
 /** A query entry of a role, as the role's Description records it. */
 export interface WorldEntry {
@@ -28,8 +44,8 @@ export interface WorldEntry {
 export interface WorldAnalysis {
 	readonly name: string
 	readonly loc: SourceLoc
-	/** The checked definition, annotated with the base's derived keys. */
-	readonly query: AdmittedQuery
+	/** The checked definition, annotated with the base's derived keys, which its role's world alone lowers (WorldQuery). */
+	readonly query: WorldQuery
 	/** The definition's heading: the view's columns, in canonical order, each a declared name of the view. */
 	readonly heading: NonEmptyReadonlyArray<DeclaredColumn>
 	/** The keys, narrowest first, each with its proof; the first is the primary one. */
@@ -122,7 +138,7 @@ export const analyzeWorld = (
 	return Result.ok({
 		name: entry.name,
 		loc: entry.loc,
-		query: { ...checked, dag: analyzed.dag },
+		query: worldQuery({ ...checked, dag: analyzed.dag }),
 		heading: declared,
 		keys,
 		reads: [...reads].toSorted(compareStrings),

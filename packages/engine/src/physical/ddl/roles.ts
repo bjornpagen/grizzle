@@ -22,7 +22,6 @@ import {
 import { refuse } from "#compiler/analysis/theory/build.ts"
 import { withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
 import { hnswPolicy } from "#compiler/check/approximate/policy.ts"
-import type { AdmittedQuery } from "#compiler/check/index.ts"
 import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import {
@@ -36,7 +35,7 @@ import {
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
-import { type DerivedRows, noneWritten } from "#compiler/ir/derived.ts"
+import { noneWritten } from "#compiler/ir/derived.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import type { Family } from "#compiler/ir/family.ts"
@@ -102,7 +101,6 @@ interface Held {
 	readonly called: ReadonlyArray<CalledFunction>
 	readonly released: ReadonlyArray<{ readonly node: Node<"structure">; readonly table: ObjectName }>
 }
-import { type LoweredDefinition, lowerDefinition } from "#compiler/physical/derived/definition.ts"
 import type { LoginFence, RoleCall, RoleCarriers } from "#compiler/physical/install/extension.ts"
 import { enforcement, type Node, type ObjectSpec } from "#compiler/physical/obligations/graph.ts"
 import type { HeadStanding } from "#compiler/schema/entry.ts"
@@ -346,14 +344,13 @@ export const worldTextDomainUses = (
 	return uses
 }
 
-/** What the installation of a base's worlds shares: the base checked, the catalog a query entry's definition and a
- * writable entry's membership are lowered against, and the definition's lowering. */
+/** What the installation of a base's worlds shares: the base checked, and the catalog a writable entry's membership and
+ * a role's world views are lowered against. */
 interface WorldsContext {
 	readonly checked: CheckedSchema
 	/** The schema's installed keys and containments, as every compilation sees them, with the derived relations'
 	 * inherited keys; the transaction evidence context both lowerings run in admits only what holds at every statement. */
 	readonly catalog: EvidenceCatalog
-	readonly lower: (relation: string, query: AdmittedQuery, rows: DerivedRows) => LoweredDefinition
 }
 
 const worldsContext = (b: InstallBuilder): WorldsContext => {
@@ -362,12 +359,7 @@ const worldsContext = (b: InstallBuilder): WorldsContext => {
 		laws: b.model,
 		views: derivedEvidence(derivedAnalysis(checked), b.model.existence)
 	})
-	return {
-		checked,
-		catalog,
-		lower: (relation, query, rows) =>
-			unwrap(lowerDefinition(relation, query, { names: b.names, catalog, rows }))
-	}
+	return { checked, catalog }
 }
 
 type WholeEntry = Extract<OwnedEntry, { readonly kind: "whole" }>
@@ -1979,7 +1971,7 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
  * - `CREATE ROLE <role> NOLOGIN`, its theory role, and `GRANT <role> TO <login> WITH INHERIT FALSE, SET
  *   TRUE`: the login acts as the role only after SET ROLE, which each of the role's transactions does first;
  * - where it holds a query entry, its schema, `CREATE SCHEMA <role schema>`, owned by the owner, and in it one view per
- *   query entry, owned by the owner: its definition, lowered by the derived definition lowering (`lowerDefinition`),
+ *   query entry, owned by the owner: its body, the role's world view (physical/access/world-views.ts), lowered as its role's view reads it (`lowerWorldView`),
  *   which reads a context where it stands, `CREATE VIEW ... WITH (security_barrier)`, so no qual a reader adds runs
  *   before its own and no error such a qual raises shows a row outside it. Every closed id column of a view, a whole
  *   view's or a query entry's, is followed by its decoded column, `<field>_name`, its roster's names constant's element

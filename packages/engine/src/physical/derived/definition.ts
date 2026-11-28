@@ -1,5 +1,7 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { RowsQuery, WorldQuery } from "#compiler/analysis/derived/world.ts"
+import type { CheckedSchema, RoleWorld } from "#compiler/analysis/schema.ts"
 import type { AdmittedQuery } from "#compiler/check/index.ts"
 import { type CompileError, malformedDescription, unsupported } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -253,6 +255,41 @@ export const derivedReading = (
  *   builtin-text column is collated `pg_catalog.pg_c_utf8` explicitly, the closed constant every collatable column
  *   names. */
 export const lowerDefinition = (
+	relation: string,
+	query: RowsQuery,
+	options: DefinitionOptions
+): Result.Result<LoweredDefinition, CompileError> => loweredDefinition(relation, query, options)
+
+/**
+ * A query entry's definition lowered as its role's view reads it (lowerDefinition), the one lowering of it: over the
+ * base's definitions, against which it is checked, so it reads every relation of the base, one the role holds none of
+ * whole, as the view, created with its owner's rights behind a security barrier, hands the role its rows; each stored
+ * relation as the role's world holds it (CheckedSchema `worldRows`), each member of a unit its scope binds at the claims'
+ * keys alone, as every read of the role reads it (docs/access.md "The scope of a role": every query entry's view is the
+ * world's); and each stored derived relation the role's writes write the holders of through its definition
+ * (CheckedSchema `writable`), as the view is read inside those writes too. It is given the role, never rows, so no
+ * lowering of a view under reality's world can be stated.
+ */
+export const lowerWorldView = (
+	relation: string,
+	query: WorldQuery,
+	options: {
+		readonly names: PhysicalNames
+		readonly catalog: EvidenceCatalog
+		readonly role: CheckedSchema<RoleWorld>
+	}
+): Result.Result<LoweredDefinition, CompileError> =>
+	loweredDefinition(relation, query, {
+		names: options.names,
+		catalog: options.catalog,
+		rows: {
+			...options.role.world.base.rows(options.role.writable),
+			world: options.role.worldRows()
+		}
+	})
+
+/** The lowering of a definition, a query entry's or another's, under the rows it is given (lowerDefinition). */
+const loweredDefinition = (
 	relation: string,
 	query: AdmittedQuery,
 	options: DefinitionOptions

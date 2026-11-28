@@ -31,7 +31,7 @@ import { baseOf } from "#compiler/ir/scalar.ts"
 import { leakyEquality } from "#compiler/physical/access/catalog.ts"
 import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
 import type { InstallNames, NamedRole } from "#compiler/physical/ddl/names.ts"
-import { derivedReading, lowerDefinition } from "#compiler/physical/derived/definition.ts"
+import { derivedReading, lowerWorldView } from "#compiler/physical/derived/definition.ts"
 import type { Expr, ObjectName, Select } from "#compiler/sql/ast.ts"
 import { bindView, type ReadCatalog, type WorldBinding } from "#compiler/sql/bind.ts"
 import { provedSelect, target } from "#compiler/sql/build.ts"
@@ -92,6 +92,9 @@ export const viewColumns = <C extends HeadingColumn>(
 export interface WorldView {
 	readonly entry: string
 	readonly binding: WorldBinding
+	/** Its body as the lowering states it, before the binding pass, which the isolation facts read
+	 * (program/isolation/member-facts.ts roleWorld), each target the view's column of `binding` at its place. */
+	readonly definition: Select
 	readonly bound: Select
 	readonly analysis: WorldAnalysis
 }
@@ -116,13 +119,8 @@ export interface WorldViewsInput {
 
 /**
  * The world views of a role (see the header), one per query entry, in the order of the entries' names, the `k`-th's
- * body bound under the view scope `k` (sql/naming.ts ViewScope): each definition lowered over the role's base, against
- * which it is checked (analysis/schema.ts), so it reads every relation of the base, those the role holds none of among
- * them, as the view, created with its owner's rights behind a security barrier, hands the role its rows; each stored
- * relation as the role's world holds it (CheckedSchema `worldRows`), each member of a unit its claims bind at its
- * owner's keys alone, as every read of the role reads it (docs/access.md "The scope of a role": every query entry's view
- * is the world's); each stored derived relation the role's writes write the holders of read through its definition
- * (CheckedSchema `writable`), as the view is read inside those writes too.
+ * body bound under the view scope `k` (sql/naming.ts ViewScope): each definition lowered as its role's view reads it
+ * (physical/derived/definition.ts lowerWorldView), the role's world over the base it is checked against.
  */
 export const roleWorldViews = (input: WorldViewsInput): ReadonlyArray<WorldView> => {
 	const { names, evidence, checked } = input
@@ -141,11 +139,7 @@ export const roleWorldViews = (input: WorldViewsInput): ReadonlyArray<WorldView>
 		}
 		const label = `${role.name}.${entry.name}`
 		const lowered = unwrap(
-			lowerDefinition(label, analysis.query, {
-				names,
-				catalog: evidence,
-				rows: { ...checked.world.base.rows(checked.writable), world: checked.worldRows() }
-			})
+			lowerWorldView(label, analysis.query, { names, catalog: evidence, role: checked })
 		)
 		const decodes = analysis.heading.some((c) => baseOf(c.type).carrier === "code")
 		const reading = decodes
@@ -190,6 +184,7 @@ export const roleWorldViews = (input: WorldViewsInput): ReadonlyArray<WorldView>
 					)
 				)
 			},
+			definition,
 			bound: body.bound,
 			analysis
 		}

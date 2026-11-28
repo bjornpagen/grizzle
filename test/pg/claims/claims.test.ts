@@ -575,10 +575,10 @@ export const aRoleWithAScopeReadsAndWritesItsWorldEveryLawOverEveryRow = propert
 				why: "A write whose child a relation of no unit gives is proven inside the claims: an assign of a class's children writes another child's assignment where it is outsideWorld."
 			},
 			{
-				file: "packages/engine/src/physical/access/world-views.ts",
+				file: "packages/engine/src/physical/derived/definition.ts",
 				original:
-					"\t\t\t\trows: { ...checked.world.base.rows(checked.writable), world: checked.worldRows() }\n",
-				replacement: "\t\t\t\trows: checked.world.base.rows(checked.writable)\n",
+					"\t\trows: {\n\t\t\t...options.role.world.base.rows(options.role.writable),\n\t\t\tworld: options.role.worldRows()\n\t\t}\n",
+				replacement: "\t\trows: options.role.world.base.rows(options.role.writable)\n",
 				why: "A query entry's view reads its member in reality's world, every child's rows: a student's Firsts holds another child's first mark."
 			}
 		]
