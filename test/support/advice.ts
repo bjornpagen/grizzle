@@ -1665,6 +1665,26 @@ export const standIn = <E, R>(
 }
 
 /**
+ * `use` in a savepoint of the transaction `bare` holds open, set by `bare` itself, whose statements no savepoint of their
+ * own wraps (a case's connection, test/support/substrate/substrate.ts RolledBack `connection`, releases one after each
+ * statement, which would end it: RolledBack `bare`), rolled back to and released after it, so the rows it wrote, the
+ * pg_class state it stood them in (`standIn`) and the advice it held stand for it alone: each state of a case's tables
+ * held apart from the others.
+ */
+export const apart = <A, E, R>(
+	bare: BenchSession,
+	name: string,
+	use: Effect.Effect<A, E, R>
+): Effect.Effect<A, E | SqlError, R> =>
+	Effect.gen(function* () {
+		yield* bare.values(`SAVEPOINT ${name}`, [])
+		const value = yield* use
+		yield* bare.values(`ROLLBACK TO SAVEPOINT ${name}`, [])
+		yield* bare.values(`RELEASE SAVEPOINT ${name}`, [])
+		return value
+	})
+
+/**
  * The replan case (e2 finding 3): each statement of `scope` PREPAREd and planned, its generic plan cached, in one
  * transaction `frame` opens as its vehicle would; then `invalidate`, which moves a table's statistics and so every plan
  * over it; then explained again by EXECUTE in a later transaction `frame` opens, as the next flight's or call's would:

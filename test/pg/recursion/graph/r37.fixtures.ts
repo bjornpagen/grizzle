@@ -10,8 +10,8 @@ import { query, type Rule, type SelfSource, v } from "#compiler/public/query.ts"
 import { contained, schema as declareSchema, on, relation } from "#compiler/public/schema.ts"
 import { publicCase } from "#test/pg/recursion/graph/support.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
+import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import type { GenContainment } from "#test/support/oracle/gen/schema.ts"
-import { rowsBeside, rowsPerPage } from "#test/support/substrate/fill.ts"
 
 /**
  * R37: a recursive attachment seeded once from the parent keys.
@@ -22,7 +22,8 @@ import { rowsBeside, rowsPerPage } from "#test/support/substrate/fill.ts"
  * base is every edge and the pipelined statement computes the closure of every root and keeps the delivered parents'
  * (the conservative artifact). The optimized artifact seeds one recursive statement from the delivered parents' key
  * recordset: its states are exactly the page's closures, its rows read from the edge relation, probed, are edges of
- * the page's chains alone (pageEdges), never the forest's, and one Recursive Union runs once for the page.
+ * the page's chains alone (pageEdges), never the forest's, and one Recursive Union runs once for the page, under the
+ * advice the statement carries and with its tables in every pg_class state (test/support/advice.ts PgClassState).
  *
  * That the seeded statement delivers exactly the pipelined closures is the graph suite's (equivalence.test.ts, the
  * attachment population against the conservative lowering) and the recursion oracle's (consumer:attach against the
@@ -78,29 +79,20 @@ export const forestGen: Gen<Forest> = (source) => ({
 
 const int4 = (n: number): TypedLiteral => ({ kind: "int", value: BigInt(n) })
 
-/**
- * The roots a forest holds beside its own, each heading a chain of one edge, after every root it draws: so many that a
- * sequential scan of the edges prices past the page's probes of each step (fill.ts rowsBeside, the edge relation two
- * integers a row), and PostgreSQL reads the edges a step binds by the key's index under no planner setting, as at a
- * production's size, where a forest of a few dozen edges on one heap page it reads whole for what a probe costs.
- */
-const besideRoots = (f: Forest): number => rowsBeside(f.page.length, rowsPerPage(2 * 4))
+/** Each root's id and its chain's depth, the page's roots first. */
+const chainsOf = (f: Forest): ReadonlyArray<readonly [root: number, depth: number]> =>
+	Arr.map(indices(f.roots), (i) => [10 * i, f.page[i] ?? f.depth] as const)
 
-/** Each root's id and its chain's depth: the forest's own, then those beside them (`besideRoots`). */
-const chainsOf = (f: Forest): ReadonlyArray<readonly [root: number, depth: number]> => [
-	...Arr.map(indices(f.roots), (i) => [10 * i, f.page[i] ?? f.depth] as const),
-	...Arr.map(indices(besideRoots(f)), (j) => [10 * (f.roots + j), 1] as const)
-]
-
-const edgesOf = (f: Forest): ReadonlyArray<readonly [number, number]> =>
-	Arr.flatMap(chainsOf(f), ([r, d]) => Arr.map(indices(d), (k) => [r + k, r + k + 1] as const))
-
-const factsOf = (f: Forest) => ({
-	V: Arr.flatMap(chainsOf(f), ([r, d]) => Arr.map(indices(d + 1), (k) => [int4(r + k)])),
-	E: Arr.map(edgesOf(f), ([a, b]) => [int4(a), int4(b)]),
-	Root: Arr.map(chainsOf(f), ([r]) => [int4(r)]),
-	Pair: []
-})
+/** The facts of chains `from` to `to` of `f` (`chainsOf`), from 1, both included: each one's vertices, edges and root. */
+const factsOf = (f: Forest, from: number, to: number) => {
+	const chains = chainsOf(f).slice(from - 1, to)
+	return {
+		V: Arr.flatMap(chains, ([r, d]) => Arr.map(indices(d + 1), (k) => [int4(r + k)])),
+		E: Arr.flatMap(chains, ([r, d]) => Arr.map(indices(d), (k) => [int4(r + k), int4(r + k + 1)])),
+		Root: Arr.map(chains, ([r]) => [int4(r)]),
+		Pair: []
+	}
+}
 
 export const caseOf = (
 	label: string,
@@ -113,11 +105,20 @@ export const caseOf = (
 		name: "Net",
 		relations: ["V", "E", "Root", "Pair"],
 		containments,
-		facts: factsOf(f),
+		facts: factsOf(f, 1, f.roots),
 		label,
 		query: q,
 		params
 	})
+
+/**
+ * `c`, the case of `f`, holding the facts of its chains `from` to `to` alone (`factsOf`): one load of the case's facts a
+ * chain at a time (test/support/advice.ts StateLoad), each chain's vertices and edges apart from every other's.
+ */
+export const chainsCase = (c: QueryCase, f: Forest, from: number, to: number): QueryCase => ({
+	...c,
+	facts: canonicalFacts(factsOf(f, from, to))
+})
 
 export type ForestFeature =
 	| "a page of one root"
@@ -162,11 +163,11 @@ const below = (from: Term<number, unknown, unknown, "integer">) =>
 	})
 
 /**
- * The rows the seeded attachment may read from E while it probes: E's key index is on (from, to), so under the
- * probing settings every scan of E is a probe of it on `from`, the seed's at each page root and the step's at each state,
- * and every row a probe reads, returned or removed by a filter, has that `from`, a page root or a vertex below one. Each
- * such row is an edge of a page root's chain, and each of those edges leads to one vertex below its root, so they number
- * the page's closures: the sum of its chains' depths. The forest's other edges are never read.
+ * The rows the seeded attachment may read from E while it probes: E's key index is on (from, to), and under the advice
+ * the statement carries every scan of E is a probe of it on `from`, the seed's at each page root and the step's at each
+ * state, and every row a probe reads, returned or removed by a filter, has that `from`, a page root or a vertex below
+ * one. Each such row is an edge of a page root's chain, and each of those edges leads to one vertex below its root, so
+ * they number the page's closures: the sum of its chains' depths. The forest's other edges are never read.
  */
 export const pageEdges = (f: Forest): number => Arr.reduce(f.page, 0, (sum, depth) => sum + depth)
 

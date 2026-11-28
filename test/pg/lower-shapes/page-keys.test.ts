@@ -29,7 +29,7 @@
  * under its advice, the generic plan every session grizzle opens runs at any values: its scans read at most 60 rows for
  * each row it holds, 200 more and an offset's skipped entries, and the operator's account once, beside a few learners
  * and beside many, in every pg_class state, which stands for the optimized window's read alone
- * (page-keys.fixtures.ts apart).
+ * (test/support/advice.ts apart).
  *
  * And a window of one tab of the coach dashboard as metis's coachDashboard (packages/ops/src/coach.ts) in the form its
  * driver reads, over a stored DashboardEntry, in AlphaTest's order: scored, graded and assigned descending, a seek of
@@ -105,7 +105,7 @@ export const aWindowReadsItsDriversTakeAndEachRowAtItsKey = property.explore(pag
 				"test/pg/lower-shapes/page-keys.test.ts#aWindowReadsItsDriversTakeAndEachRowAtItsKey:1e1fffffff0000.16:1.5.a.4.1.1.1.1.2c.1"
 			),
 			reason:
-				"the coach dashboard's joined window of the tab of every sitting from its last rows, beside 1,040 learners and then 1,184, every table counted empty: the page oracle's baseline, read under the statistics the case stated (each value its own, when the case was kept), priced the tab's 7,280 entries at one row and rescanned a hash join of every assignment for each, in the window's body and in each of its six attachments (53 million rows a copy, 155 s), and the case hung past the runner's 60 s, where the optimized window read 593 buffers in 9 ms; the baseline reads its learners analyzed, apart from the optimized window's state (page-keys.fixtures.ts apart), its unpaged read 1.8 s and each window 0.6 s under the store's own counts",
+				"the coach dashboard's joined window of the tab of every sitting from its last rows, beside 1,040 learners and then 1,184 (1,024 of them the store a case then held beside its own, gone with fill.ts rowsBeside: it replays beside 16 and then 160), every table counted empty: the page oracle's baseline, read under the statistics the case stated (each value its own, when the case was kept), priced the tab's 7,280 entries at one row and rescanned a hash join of every assignment for each, in the window's body and in each of its six attachments (53 million rows a copy, 155 s), and the case hung past the runner's 60 s, where the optimized window read 593 buffers in 9 ms; the baseline reads its learners analyzed, apart from the optimized window's state (test/support/advice.ts apart), its unpaged read 1.8 s and each window 0.6 s under the store's own counts",
 			since: "2026-11-27"
 		},
 		{
@@ -113,7 +113,7 @@ export const aWindowReadsItsDriversTakeAndEachRowAtItsKey = property.explore(pag
 				"test/pg/lower-shapes/page-keys.test.ts#aWindowReadsItsDriversTakeAndEachRowAtItsKey:-:4.0.0.0.0.0.0.2f.0.0.0"
 			),
 			reason:
-				"every sitting's window at the position 87% of its rows in, of one row, beside 1,030 learners and then 1,090, every table never vacuumed: judged by the plan PostgreSQL made at the call's position (when the case was kept, under counted statistics and no advice), the driver's take of the position's 2,688 entries read the status table whole, a sequential scan where its index in order serves; the plan its advice carries reads the status index in order, 2,688 entries for any position, then D at the one kept key, a positioned window's bound twice its position past a keyset window's",
+				"every sitting's window at the position 87% of its rows in, of one row, beside 1,030 learners and then 1,090 (1,024 of them the store a case then held beside its own, gone with fill.ts rowsBeside: it replays beside 6 and then 66), every table never vacuumed: judged by the plan PostgreSQL made at the call's position (when the case was kept, under counted statistics and no advice), the driver's take of the position's 2,688 entries read the status table whole, a sequential scan where its index in order serves; the plan its advice carries reads the status index in order, 2,688 entries for any position, then D at the one kept key, a positioned window's bound twice its position past a keyset window's",
 			since: "2026-11-27"
 		}
 	],

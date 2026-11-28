@@ -1,4 +1,4 @@
-import { Array as Arr, Data, Effect, Option, Predicate } from "effect"
+import { Array as Arr, Data, Effect, Predicate } from "effect"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 
 /**
@@ -254,43 +254,3 @@ export const volumeFill = (
 			return filled.chunks
 		})
 	)
-
-/**
- * PostgreSQL 19's default costs (postgresql.conf, costsize.c), which every store a case stands beside is sized against
- * (`rowsBeside`): a page read in sequence, a page read at random, a row a scan examines, and an operator it evaluates.
- */
-const defaultCosts = { seqPage: 1, randomPage: 4, cpuTuple: 0.01, cpuOperator: 0.0025 } as const
-
-/** `bytes` rounded up to PostgreSQL's MAXALIGN, 8 on this machine's arm64. */
-const maxAligned = (bytes: number): number => Math.ceil(bytes / 8) * 8
-
-/**
- * The rows a heap page holds of `bytes` bytes of data a row, none null: the page's 8192 bytes past its 24-byte header,
- * over each row's 23-byte tuple header and its data, each aligned, and its 4-byte line pointer (bufpage.h, htup_details.h).
- */
-export const rowsPerPage = (bytes: number): number =>
-	Math.floor((8192 - 24) / (maxAligned(23) + maxAligned(bytes) + 4))
-
-/**
- * The rows a table holds beside a case's own so that PostgreSQL reads it through an index wherever a statement binds its
- * key, as a store worth planning is read, under no planner setting: the least power of two at which a sequential scan of
- * the table, `perPage` rows a page (rowsPerPage) and one equality evaluated on each, prices past twice `probes` index
- * probes of one row each, a leaf page and a heap page each read at random (cost_seqscan against cost_index at the
- * default costs). A table of a page or two prices cheaper scanned whole, and the scan reads every row, so a bound on a
- * statement's rows over such a table judges PostgreSQL's choice of a scan, never the statement.
- *
- * @limitKind derived
- * @owner test/support/substrate/fill.ts
- * @unit rows
- * @scope the rows of one table a case stands beside, at `perPage` rows a page, for a statement of `probes` probes of it
- * @derivation PostgreSQL 19's cost_seqscan and cost_index at their default costs, the scan past twice the probes
- * @from defaultCosts, rowsPerPage
- */
-export const rowsBeside = (probes: number, perPage: number): number => {
-	const scan = (rows: number): number =>
-		Math.ceil(rows / perPage) * defaultCosts.seqPage +
-		rows * (defaultCosts.cpuTuple + defaultCosts.cpuOperator)
-	const probed = probes * 2 * defaultCosts.randomPage
-	const exponent = Arr.findFirst(Arr.range(0, 30), (k) => scan(2 ** k) > 2 * probed)
-	return 2 ** Option.getOrThrow(exponent)
-}

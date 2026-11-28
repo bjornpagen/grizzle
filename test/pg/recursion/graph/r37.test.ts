@@ -4,26 +4,38 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { planNodes } from "#bench/harness/explain.ts"
+import type { BenchSession } from "#bench/harness/session.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
-import { costChosen } from "#compiler/sql/emit.ts"
-import { printStatement } from "#compiler/sql/print.ts"
+import { printAdvice } from "#compiler/sql/advice.ts"
+import { AdviceScope } from "#compiler/sql/naming.ts"
+import { resolvePlan } from "#compiler/sql/plan.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
 import {
 	caseOf,
+	chainsCase,
 	type ForestFeature,
 	forestGen,
 	pageBelow,
 	pageEdges
 } from "#test/pg/recursion/graph/r37.fixtures.ts"
 import {
-	executedPlan,
 	inInstalledCase,
 	logicalOf,
 	rowsOverLoops,
 	statementParams,
 	tableRowsRead
 } from "#test/pg/recursion/graph/support.ts"
-import { lowerAligned, partStatement } from "#test/support/compile.ts"
+import {
+	advisedExplain,
+	apart,
+	flightScope,
+	lawsHold,
+	type PgClassState,
+	pgClassStates,
+	standIn
+} from "#test/support/advice.ts"
+import { lowerAligned } from "#test/support/compile.ts"
 import { installedCatalog } from "#test/support/evidence.ts"
 import { everyRow } from "#test/support/oracle/install/capture.ts"
 import { runProgram, sentConservative, type SentProgram } from "#test/support/oracle/runner.ts"
@@ -83,25 +95,24 @@ export const r37ARecursiveAttachmentSeededOnceFromTheParentKeysReadsOnlyTheEdges
 							const seat = yield* OracleSeat
 							const schema = yield* seat.schema("seededx")
 							const c = caseOf("PageBelow", pageBelow(f.page.length), {}, f)
-							/**
-							 * Under no planner setting, beside the roots the forest holds besides its own (r37.fixtures.ts
-							 * besideRoots), an edge table worth planning: each step of the seeded recursion probes the edge
-							 * relation's key index at the working table's vertices, so the rows read are those of the
-							 * traversal itself, where over a forest of a few dozen edges on one heap page the planner read the
-							 * table whole for what a probe costs.
-							 */
-							const measured = yield* inInstalledCase(c, schema, (session, plan) =>
+							/** The page's closures, every vertex below each of its roots. */
+							const closures = Arr.reduce(f.page, 0, (a, b) => a + b)
+							yield* inInstalledCase(c, schema, (session, plan, load) =>
 								Effect.gen(function* () {
-									const names = plan.installation.names
+									const installation = plan.installation
 									const optimized = lowerAligned(logicalOf(c), "query", {
-										binding: costChosen,
-										names,
+										binding: {
+											kind: "advised",
+											scope: new AdviceScope(),
+											catalog: installation.catalog
+										},
+										names: installation.names,
 										context: "snapshot",
-										catalog: installedCatalog(plan.installation)
+										catalog: installedCatalog(installation)
 									})
 									const baseline = Result.flatMap(
 										lowerConservative(conservativeInput(logicalOf(c)), {
-											names,
+											names: installation.names,
 											params: logicalOf(c).params,
 											subject: { kind: "query" }
 										}),
@@ -110,17 +121,28 @@ export const r37ARecursiveAttachmentSeededOnceFromTheParentKeysReadsOnlyTheEdges
 									if (!optimized.ok || !baseline.ok) {
 										throw new Error("lowering failed")
 									}
-									const edgeTable = plan.tables["E"]?.name.name
-									if (edgeTable === undefined) {
-										throw new Error("no installed table for E")
-									}
+									const edgeTable = defined(plan.tables["E"], "the installed table of E").name.name
+									const bench: BenchSession = { values: session.queryValues }
 									/**
-									 * One side's attachment: its program run whole, and its part alone executed under EXPLAIN
-									 * (test/support/compile.ts partStatement), the CTEs it reads with it.
+									 * The case's facts written a chain at a time, every table stood in `state`
+									 * (test/support/advice.ts standIn).
 									 */
-									const measure = (program: SentProgram, side: string) =>
-										Effect.gen(function* () {
-											const run = yield* runProgram(session, c, program, side, everyRow)
+									const stood = (state: PgClassState) =>
+										standIn(
+											bench,
+											{
+												tables: Arr.map(
+													[plan.tables["V"], plan.tables["E"], plan.tables["Root"]] as const,
+													(t) => printObjectName(defined(t, "an installed table of Net").name)
+												),
+												units: f.roots,
+												load: (from, to) => load(chainsCase(c, f, from, to))
+											},
+											state
+										)
+									/** The rows a program delivers for its attachment part, run in full. */
+									const delivered = (program: SentProgram, side: string) =>
+										Effect.map(runProgram(session, c, program, side, everyRow), (run) => {
 											const index = Option.getOrThrowWith(
 												Arr.findFirstIndex(
 													flight(program.roots),
@@ -128,55 +150,70 @@ export const r37ARecursiveAttachmentSeededOnceFromTheParentKeysReadsOnlyTheEdges
 												),
 												() => new Error(`${side}: no attachment part`)
 											)
-											const part = flight(program.roots)[index]
-											if (part === undefined) {
-												throw new Error(`${side}: no attachment part`)
-											}
-											const root = yield* executedPlan(
-												session,
-												printStatement(partStatement(program, part.answer)),
-												statementParams(c, program.statement)
-											)
-											const nodes = [...planNodes(root)]
-											return {
-												read: tableRowsRead(root, edgeTable),
-												/**
-												 * The distinct states the recursion computed, and the working-table rows its iterations
-												 * fed back, over all of them.
-												 */
-												states: Arr.map(
-													Arr.filter(nodes, (n) => n.nodeType === "Recursive Union"),
-													rowsOverLoops
-												),
-												unionLoops: Arr.map(
-													Arr.filter(nodes, (n) => n.nodeType === "Recursive Union"),
-													(n) => n.actualLoops
-												),
-												feedback: Arr.reduce(
-													Arr.filter(nodes, (n) => n.nodeType === "WorkTable Scan"),
-													0,
-													(sum, n) => sum + rowsOverLoops(n)
-												),
-												delivered: defined(run.statements[index], `${side}: the attachment run`)
-													.rows.length
-											}
+											return defined(run.statements[index], `${side}: the attachment run`).rows
+												.length
 										})
-									return {
-										seeded: yield* measure(optimized.value, "optimized"),
-										pipelined: yield* measure(baseline.value, "conservative")
+									const pipelined = yield* apart(
+										bench,
+										"r37_pipelined",
+										Effect.andThen(stood("analyzed"), delivered(baseline.value, "conservative"))
+									)
+									assert.equal(pipelined, closures)
+									const statement = optimized.value.statement
+									const resolve = installation.resolve
+									const scope = flightScope(
+										"the seeded attachment",
+										[statement.sql],
+										resolve,
+										printAdvice(resolvePlan(statement.sql.plan, resolve))
+									)
+									/**
+									 * The seeded statement in `state`, under the advice it carries once the plan laws
+									 * hold over it (test/support/advice.ts lawsHold), run in full and explained
+									 * (advisedExplain), its attachment's part the one that reads the edges: the distinct
+									 * states its recursion computed, the working-table rows its iterations fed back, and the
+									 * edges it read.
+									 */
+									const seeded = (state: PgClassState) =>
+										apart(
+											bench,
+											"r37_seeded",
+											Effect.gen(function* () {
+												yield* stood(state)
+												yield* lawsHold(bench, scope)
+												const rows = yield* delivered(optimized.value, "optimized")
+												const root = yield* advisedExplain(
+													bench,
+													statement.sql.text,
+													statementParams(c, statement)
+												)
+												const nodes = [...planNodes(root)]
+												const unions = Arr.filter(nodes, (n) => n.nodeType === "Recursive Union")
+												const measured = {
+													state,
+													delivered: rows,
+													read: tableRowsRead(root, edgeTable),
+													states: Arr.map(unions, rowsOverLoops),
+													unionLoops: Arr.map(unions, (n) => n.actualLoops),
+													feedback: Arr.reduce(
+														Arr.filter(nodes, (n) => n.nodeType === "WorkTable Scan"),
+														0,
+														(sum, n) => sum + rowsOverLoops(n)
+													)
+												}
+												const detail = Formatter.format(measured)
+												assert.equal(measured.delivered, closures, detail)
+												assert.deepEqual(measured.unionLoops, [1], detail)
+												assert.deepEqual(measured.states, [closures], detail)
+												assert.ok(measured.feedback <= closures, detail)
+												assert.ok(measured.read <= pageEdges(f), detail)
+											})
+										)
+									for (const state of pgClassStates) {
+										yield* seeded(state)
 									}
 								})
 							)
-							const planned = measured
-							/** The page's closures, every vertex below each of its roots, and the forest's, every root's. */
-							const closures = Arr.reduce(f.page, 0, (a, b) => a + b)
-							const detail = Formatter.format(measured)
-							assert.equal(planned.seeded.delivered, closures)
-							assert.equal(planned.pipelined.delivered, closures)
-							assert.deepEqual(planned.seeded.unionLoops, [1], detail)
-							assert.deepEqual(planned.seeded.states, [closures], detail)
-							assert.ok(planned.seeded.feedback <= closures, detail)
-							assert.ok(planned.seeded.read <= pageEdges(f), detail)
 							k.note(f.page.length === 1 ? "a page of one root" : "a page of several roots")
 							if (new Set(f.page).size > 1) {
 								k.note("a page of chains of two depths")
@@ -196,7 +233,7 @@ export const r37ARecursiveAttachmentSeededOnceFromTheParentKeysReadsOnlyTheEdges
 					"test/pg/recursion/graph/r37.test.ts#r37ARecursiveAttachmentSeededOnceFromTheParentKeysReadsOnlyTheEdgesOfTheDeliveredParentsChainsInOneRecursiveUnionForThePage:-:0.0.1.2.0.0"
 				),
 				reason:
-					"a page of two roots of one edge each, over 40 edges on one heap page, which PostgreSQL reads whole through a nested loop over the page materialized rather than probe the key index twice; under no planner setting, beside 2,048 edges more (r37.fixtures.ts besideRoots), the step joined the working table to the edges by a hash of all 2,088, until the feedback started its chain (cte-policy heldSet), each state's edges a fenced seek",
+					"a page of two roots of one edge each, over 40 edges on one heap page, which PostgreSQL read whole by its own costs, through a nested loop over the page materialized, rather than probe the key index twice; and the step joined the working table to the edges by a hash of all of them, until the feedback started its chain (cte-policy heldSet), each state's edges a fenced seek, which the statement's advice reads by the key index in every pg_class state",
 				since: "2026-11-17"
 			},
 			{
@@ -209,12 +246,6 @@ export const r37ARecursiveAttachmentSeededOnceFromTheParentKeysReadsOnlyTheEdges
 			}
 		],
 		kills: [
-			{
-				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
-				original: '\tnode.kind === "Closed" || node.kind === "SelfRef" || restrictedByValues(node)',
-				replacement: '\tnode.kind === "Closed" || restrictedByValues(node)',
-				why: "The feedback starts no chain, so the seeded recursion's step joins the working table to the edges by PostgreSQL's estimate of it, a hash of every edge at each iteration: the page of two one-edge chains reads all 2,088 edges."
-			},
 			{
 				file: "packages/engine/src/lower/shapes/attach-recursive/index.ts",
 				original: "\tif (cx.feedback.has(child.id)) {",

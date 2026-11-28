@@ -21,7 +21,6 @@ import type { DeliveredPart } from "#compiler/lower/shapes/index.ts"
 import { queryValueDesc } from "#compiler/query/build/query.ts"
 import type { OperandSelect } from "#compiler/sql/ast.ts"
 import { costChosen } from "#compiler/sql/emit.ts"
-import { printObjectName } from "#compiler/sql/print.ts"
 import {
 	type FixtureSchema,
 	lowerAligned,
@@ -264,15 +263,20 @@ export const publicCase = (input: {
 class HarnessFailure extends Data.TaggedError("HarnessFailure")<{ readonly message: string }> {}
 
 /**
- * The case installed and loaded the way the oracle runner installs it (runner.ts runOracle): the real installer's plan
- * under `schema`, with the oracle's login whose full role writes every relation, the facts, ANALYZE, all in one
- * transaction on a pinned owner session that is rolled back. `body` runs inside it, with the installation's physical
- * names.
+ * The case installed the way the oracle runner installs it (runner.ts runOracle): the real installer's plan under
+ * `schema`, with the oracle's login whose full role writes every relation, its tables empty, in one transaction on a
+ * pinned owner session that is rolled back. `body` runs inside it, with the installation's physical names and `load`,
+ * which writes the facts of a case over the same schema (factStatements), so the body writes its facts as it stands its
+ * tables in a pg_class state (test/support/advice.ts standIn).
  */
 export const inInstalledCase = <A, E>(
 	c: QueryCase,
 	schema: string,
-	body: (session: PgConnection, plan: RealInstallPlan) => Effect.Effect<A, E>
+	body: (
+		session: PgConnection,
+		plan: RealInstallPlan,
+		load: (facts: QueryCase) => Effect.Effect<void, HarnessFailure>
+	) => Effect.Effect<A, E>
 ): Effect.Effect<A, E | HarnessFailure, OracleSeat> =>
 	Effect.scoped(
 		Effect.gen(function* () {
@@ -288,16 +292,18 @@ export const inInstalledCase = <A, E>(
 				return yield* new HarnessFailure({ message: planned.error.message })
 			}
 			const plan = planned.value
-			const facts = factStatements(plan, factSet(c))
-			if (!facts.ok) {
-				return yield* new HarnessFailure({ message: facts.error.message })
-			}
 			const reading = yield* seat.reading
 			const session = reading.connection
 			const exec = (sql: string) =>
 				session
 					.query(sql, [])
 					.pipe(Effect.mapError((e) => new HarnessFailure({ message: `${String(e)}\n${sql}` })))
+			const load = (facts: QueryCase) => {
+				const statements = factStatements(plan, factSet(facts))
+				return statements.ok
+					? Effect.forEach(statements.value, exec, { discard: true })
+					: Effect.fail(new HarnessFailure({ message: statements.error.message }))
+			}
 			for (const sql of reading.open) {
 				yield* exec(sql)
 			}
@@ -305,14 +311,7 @@ export const inInstalledCase = <A, E>(
 				for (const sql of filledSql(plan.drafted, seat.database)) {
 					yield* exec(sql)
 				}
-				for (const sql of facts.value) {
-					yield* exec(sql)
-				}
-				const tables = Arr.map(Rec.values(plan.tables), (t) => printObjectName(t.name))
-				if (tables.length > 0) {
-					yield* exec(`ANALYZE ${Arr.join(tables, ", ")}`)
-				}
-				return yield* body(session, plan)
+				return yield* body(session, plan, load)
 			}).pipe(Effect.ensuring(Effect.ignore(session.pipeline(reading.close))))
 		})
 	)

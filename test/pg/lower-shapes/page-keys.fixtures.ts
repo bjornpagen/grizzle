@@ -37,6 +37,7 @@ import { answered, paged } from "#compiler/public/workload.ts"
 import { printObjectName, printStatement } from "#compiler/sql/print.ts"
 import {
 	advisedExplain,
+	apart,
 	budgetOfPlan,
 	fullWorldRole,
 	lawsHold,
@@ -55,7 +56,6 @@ import { fullWorldTemplate } from "#test/support/installed.ts"
 import { readWork } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
-import { rowsBeside, rowsPerPage } from "#test/support/substrate/fill.ts"
 import { superuserClient } from "#test/support/substrate/shared.ts"
 import type { RolledBack } from "#test/support/substrate/substrate.ts"
 import { outputRows, textsOfParams } from "#test/support/wire.ts"
@@ -1103,23 +1103,6 @@ export type PageFeature =
 	| `with every table ${PgClassState}`
 
 /**
- * The learners a case stores beside its own before any of them, numbered past every learner a case stores, each as a
- * case's learner is (`stored`), newer than all of them: a store large beside one learner's rows, so PostgreSQL reads
- * each relation a window binds by key through its index under no planner setting (fill.ts rowsBeside), the narrowest a
- * person's text a row.
- *
- * @limitKind derived
- * @owner the page-keys property (page-keys.test.ts)
- * @unit learners
- * @scope the background every case's windows stand beside
- * @derivation fill.ts rowsBeside of one probe over a table of one short text a row, People's
- */
-const besideLearners = rowsBeside(1, rowsPerPage(16))
-
-/** The first learner stored beside a case's own: past every learner a case stores. */
-const besideFirst = 1_000_000
-
-/**
  * The statements storing learners `from` to `to` (learner c the person `person c`): each one's sittings, numbered so a
  * later learner's are newer, of the case's tests in turn, each assigned to one of the learner's two user ids in turn;
  * their events by place, every fifth sitting abandoned where its learner is one of the first two (the rare status);
@@ -1269,25 +1252,6 @@ const learnersLoad = (
 		)
 })
 
-/**
- * `use` in a savepoint `bare` sets (where `connection`'s statements, each its own savepoint released after it, would
- * end it), rolled back to after it, so what it stored, the statistics it left and the advice it held stand for it alone.
- * Each read of a case stands its learners in a state of its own this way: the optimized window's in the case's
- * pg_class state, under the page's advice; the baseline's analyzed, under none. The baseline reads every entry of the
- * window's tab and each entry's attachments as it stands, which PostgreSQL plans by its statistics: under statistics
- * stating each value its own it priced the tab of every sitting, 7,280 entries beside 1,040 learners, at one row and
- * rescanned a hash join of every assignment for each, in the window's body and in each of its six attachments, 53
- * million rows a copy and 155 s.
- */
-const apart = <A, E, R>(bare: PgConnection, name: string, use: Effect.Effect<A, E, R>) =>
-	Effect.gen(function* () {
-		yield* bare.query(`SAVEPOINT ${name}`, [])
-		const value = yield* use
-		yield* bare.query(`ROLLBACK TO SAVEPOINT ${name}`, [])
-		yield* bare.query(`RELEASE SAVEPOINT ${name}`, [])
-		return value
-	})
-
 /** A case's window where a driver drives it. */
 const drivenOf = (c: PageCase): Option.Option<DrivenWindow> =>
 	Arr.findFirst(drivenWindows, (w) => w === c.window)
@@ -1427,24 +1391,28 @@ const textSet = (rows: ReadonlyArray<ReadonlyArray<string>>): ReadonlyArray<stri
 	)
 
 /**
- * One case in its one transaction, which the case's end rolls back: its session's stand-ups called, as a direct writer of
- * a table the rule judge holds calls them (an assignment's containment in the one status a sitting), the tests, an
- * operator granted teaching and the learners a case stores beside its own (`besideLearners`), under claims naming the
- * operator's Clerk user. The case's window is paged as a served Db of the ledger's full world pages it
- * (test/support/advice.ts servedPageRead: the role's compile, read "page", under the advice its served record ships),
- * and the page oracle's baseline built beside it (test/support/conservative.ts conservativePageRuntime), cost-chosen,
- * the oracle of its rows alone. Each read stands learners 1 to `learners` in a savepoint of its own (`apart`): the
- * baseline's analyzed, the unpaged read and the window at the anchor its place names; the optimized window's in the
- * case's pg_class state (advice.ts standIn), where the plan laws hold over the page's five variants (lawsHold, which
- * then holds the advice its record ships in force), the window is read, its plan run under that advice keeps its
- * budget (budgetOfPlan: each scan within the pages its plan gives), a driven window's scans read at most 60 rows for
- * each row it holds, 200 more and its offset's skipped entries (judge.ts readWork), and the operator's account is read
- * once; each part's rows the baseline's. Then `more` learners are stored beside them, each newer than the case's own,
- * and both are read again, the anchor the same row.
+ * One case in its one transaction, which the case's end rolls back: its session's stand-ups called, as a direct writer
+ * of a table the rule judge holds calls them (an assignment's containment in the one status a sitting), the tests and
+ * an operator granted teaching, under claims naming the operator's Clerk user. The case's window is paged as a served
+ * Db of the ledger's full world pages it (test/support/advice.ts servedPageRead: the role's compile, read "page", under
+ * the advice its served record ships), and the page oracle's baseline built beside it (test/support/conservative.ts
+ * conservativePageRuntime), cost-chosen, the oracle of its rows alone. Each read stands learners 1 to `learners` in a
+ * savepoint of its own (`apart`): the baseline's analyzed, the unpaged read and the window at the anchor its place
+ * names; the optimized window's in the case's pg_class state (advice.ts standIn), where the plan laws hold over the
+ * page's five variants (lawsHold, which then holds the advice its record ships in force), the window is read, its plan
+ * run under that advice keeps its budget (budgetOfPlan: each scan within the pages its plan gives), a driven window's
+ * scans read at most 60 rows for each row it holds, 200 more and its offset's skipped entries (judge.ts readWork), and
+ * the operator's account is read once; each part's rows the baseline's. Then `more` learners are stored beside them,
+ * each newer than the case's own, and both are read again, the anchor the same row. The baseline reads every entry of
+ * the window's tab and each entry's attachments as it stands, which PostgreSQL plans by its statistics, so its reads
+ * stand analyzed: under statistics stating each value its own it priced the tab of every sitting, 7,280 entries beside
+ * 1,040 learners, at one row and rescanned a hash join of every assignment for each, in the window's body and in each of
+ * its six attachments, 53 million rows a copy and 155 s.
  */
 export const runPage = (clone: RolledBack<Generated>, c: PageCase, k: Case<PageFeature>) =>
 	Effect.gen(function* () {
 		const { connection, bare } = clone
+		const held: BenchSession = { values: bare.queryValues }
 		const installed = clone.value.installed
 		const names = namesOf(installed)
 		const codes = names.installation.names.codes
@@ -1455,7 +1423,6 @@ export const runPage = (clone: RolledBack<Generated>, c: PageCase, k: Case<PageF
 			`INSERT INTO ${names.table(People)} VALUES ('staff')`,
 			`INSERT INTO ${names.table(ClerkAccount)} VALUES ('user_staff', 'staff')`,
 			`INSERT INTO ${names.table(Grant)} VALUES ('staff', ${String(names.code(Capability, "teacher"))})`,
-			...stored(installed, c, besideFirst, besideFirst + besideLearners - 1),
 			`INSERT INTO ${names.table(QueueWorker)} VALUES (1, 1), (1, 2)`,
 			`SELECT pg_catalog.set_config('grizzle.claims', '{"Session":{"sub":"user_staff"}}', true)`
 		]) {
@@ -1499,7 +1466,7 @@ export const runPage = (clone: RolledBack<Generated>, c: PageCase, k: Case<PageF
 			}
 		}
 		const first = yield* apart(
-			bare,
+			held,
 			"page_keys_baseline",
 			Effect.gen(function* () {
 				yield* standIn(session, learnersLoad(installed, connection, c, c.learners), "analyzed")
@@ -1549,7 +1516,7 @@ export const runPage = (clone: RolledBack<Generated>, c: PageCase, k: Case<PageF
 		 */
 		const judged = (learners: number, expected: Run) =>
 			apart(
-				bare,
+				held,
 				"page_keys_stated",
 				Effect.gen(function* () {
 					yield* standIn(session, learnersLoad(installed, connection, c, learners), c.state)
@@ -1608,7 +1575,7 @@ export const runPage = (clone: RolledBack<Generated>, c: PageCase, k: Case<PageF
 			)
 		yield* judged(c.learners, expected)
 		const more = yield* apart(
-			bare,
+			held,
 			"page_keys_baseline",
 			Effect.andThen(
 				standIn(session, learnersLoad(installed, connection, c, c.learners + c.more), "analyzed"),
