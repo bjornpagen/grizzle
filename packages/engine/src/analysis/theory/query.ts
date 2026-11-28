@@ -315,7 +315,7 @@ const foreignReads: { readonly [K in InferredExpr["kind"]]: string | undefined }
 	exists: "reads a relation's existence below a disjunction, a negation or a scalar expression",
 	param: "reads a parameter",
 	parent: "reads a parent's column",
-	value: "reads a contract's VALUE",
+	value: "reads a domain's VALUE",
 	var: undefined,
 	field: undefined,
 	literal: undefined,

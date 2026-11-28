@@ -54,7 +54,7 @@ const signatureType = (t: FieldDesc): boolean => {
 		case "sha256":
 		case "variant":
 			return true
-		case "contract":
+		case "domain":
 			return signatureType(t.base)
 		case "exact":
 		case "computedNumeric":
@@ -84,13 +84,13 @@ const headingsOf = (t: FunctionTypeDesc): ReadonlyArray<HeadingDesc> =>
  * subset is its domain's, which the call casts the function's value to (physical/ddl/variants.ts).
  */
 const subsetId = (t: FieldDesc): boolean =>
-	t.kind === "closedId" ? t.only !== undefined : t.kind === "contract" && subsetId(t.base)
+	t.kind === "closedId" ? t.only !== undefined : t.kind === "domain" && subsetId(t.base)
 
 /** The refusal of a signature over a type no declared function takes (signatureType), as the types name it. */
 const signatureRefused = (loc: SourceLoc): CompileError =>
 	ruleRefused(
 		loc,
-		"a declared function takes and returns values of a base type, a closed id, a digest, a contract or a refined text over one, or a variant: no serial, money, exact value, bytes, set, range or vector"
+		"a declared function takes and returns values of a base type, a closed id, a digest, a domain or a refined text over one, or a variant: no serial, money, exact value, bytes, set, range or vector"
 	)
 
 /**

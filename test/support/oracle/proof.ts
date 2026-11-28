@@ -61,7 +61,7 @@ const checkProof = (
 			)
 		case "integral":
 		case "fits":
-		case "contract":
+		case "domain":
 		case "language":
 		case "powerDomain":
 		case "powerRange":
@@ -130,7 +130,7 @@ const proofHolds = (
 							) === "included")
 				)
 			}
-			case "contract": {
+			case "domain": {
 				if (Arr.some(premises, (p) => p.kind === "checked")) {
 					return true
 				}

@@ -104,7 +104,7 @@ export const spanParts = (endpoint: unknown, rest: ReadonlyArray<unknown>): Span
 	if (instantEnd) {
 		throw unsupported(
 			loc,
-			"spanEndpoint: an instant is the database's alone, stamped by an insert or read from a stored row, and a range's ends are values a caller states; ranges are over integer, bigint and contracts over them"
+			"spanEndpoint: an instant is the database's alone, stamped by an insert or read from a stored row, and a range's ends are values a caller states; ranges are over integer, bigint and domains over them"
 		)
 	}
 	const unchecked = spanType(described.scalar, undefined, loc)

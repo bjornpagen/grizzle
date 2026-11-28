@@ -71,7 +71,7 @@ const drawable = (kind: DrawnKind): boolean =>
 	kind === "natural" || kind === "int2" || kind === "int4" || kind === "int8"
 
 const drawnTypes: Refused =
-	"drawn(type): natural or a contract over an integer, the types a family's index and count are of"
+	"drawn(type): natural or a domain over an integer, the types a family's index and count are of"
 const indexOfCount: Refused = "an ordered family's index is of its count's type"
 const countedNatural: Refused =
 	"a counted family's count is a drawn natural, as its hidden index is"
@@ -146,15 +146,15 @@ const orderedLines = (
  */
 const drawnTypesHeader = (): ReadonlyArray<string> => [
 	'export const smallKey = Symbol("Small")',
-	'export const Small = contract<typeof smallKey>()("Small", int2, (n) => Logic.ge(n, 0))',
+	'export const Small = domain<typeof smallKey>()("Small", int2, (n) => Logic.ge(n, 0))',
 	'export const wholeKey = Symbol("Whole")',
-	'export const Whole = contract<typeof wholeKey>()("Whole", int4, (n) => Logic.and([Logic.ge(n, 0), Logic.le(n, 2147483647)]))',
+	'export const Whole = domain<typeof wholeKey>()("Whole", int4, (n) => Logic.and([Logic.ge(n, 0), Logic.le(n, 2147483647)]))',
 	'export const bigKey = Symbol("Big")',
-	'export const Big = contract<typeof bigKey>()("Big", int8, (n) => Logic.ge(n, 0n))',
+	'export const Big = domain<typeof bigKey>()("Big", int8, (n) => Logic.ge(n, 0n))',
 	'export const exactKey = Symbol("Exact")',
-	'export const Exact = contract<typeof exactKey>()("Exact", numeric(9, 0), (n) => Logic.ge(n, 0n))',
+	'export const Exact = domain<typeof exactKey>()("Exact", numeric(9, 0), (n) => Logic.ge(n, 0n))',
 	'export const namedKey = Symbol("Named")',
-	'export const Named = contract<typeof namedKey>()("Named", str.regex("^[0-9]+$", "u"), (n) => Logic.ne(n, "0"))',
+	'export const Named = domain<typeof namedKey>()("Named", str.regex("^[0-9]+$", "u"), (n) => Logic.ne(n, "0"))',
 	""
 ]
 

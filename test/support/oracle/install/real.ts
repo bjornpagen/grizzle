@@ -462,7 +462,7 @@ const build = (input: FixtureSchema, options: RealPlanOptions): RealInstallPlan 
 	}
 }
 
-/** The contract named `contract` along a type's contract chain, outermost first. */
+/** The domain named `contract` along a type's contract chain, outermost first. */
 const contractAlong = (type: ScalarType, contract: string): Option.Option<ContractInfo> => {
 	for (let c = type.contract; c !== undefined; c = c.base.contract) {
 		if (c.name === contract) {

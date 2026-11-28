@@ -10,7 +10,7 @@ export {
 	clocked,
 	closed,
 	closedId,
-	contract,
+	domain,
 	date,
 	drawn,
 	float4,

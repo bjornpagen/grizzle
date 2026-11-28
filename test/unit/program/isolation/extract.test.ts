@@ -352,7 +352,7 @@ export const aChangeMembersFactsNameEveryReadByItsModeItsOwnItsGroupAndItsBindin
 				file: "packages/engine/src/program/isolation/extract.ts",
 				original: `\t\t\t\tthis.#opaque(\`?every:\${printObjectName(table)}\`, c)`,
 				replacement: `\t\t\t\tthis.#opaque(\`?every:\${table.schema}.\${table.name}\`, c)`,
-				why: 'An ON CONFLICT with no target read at READ COMMITTED named by its table\'s dotted text, `?every:<schema>.<name>`, as extract.ts spelled it, which "a.b"."c" and "a"."b.c" share; the read is not the one the contract names.'
+				why: 'An ON CONFLICT with no target read at READ COMMITTED named by its table\'s dotted text, `?every:<schema>.<name>`, as extract.ts spelled it, which "a.b"."c" and "a"."b.c" share; the read is not the one the domain names.'
 			},
 			{
 				file: "packages/engine/src/program/isolation/extract.ts",

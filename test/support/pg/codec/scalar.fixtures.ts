@@ -106,7 +106,7 @@ const scalars = Object.freeze({
 	vector16: scalarOf({ kind: "vector", dimensions: 16 }, {}),
 	cents: scalarOf(
 		{
-			kind: "contract",
+			kind: "domain",
 			name: "Cents",
 			base: { kind: "pg", type: "int8" },
 			predicate: undefined,

@@ -9,7 +9,7 @@ import { Array as Arr, Option } from "effect"
 import type { UncheckedDelta } from "#compiler/core/causes.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import { Type } from "#compiler/public/compute.ts"
-import { contract, bool, int4, int8 } from "#compiler/public/fields.ts"
+import { domain, bool, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -24,10 +24,10 @@ import {
 
 const childKey = Symbol("Child")
 /** A learner, by a number of its own type, so no package's number leads a learner's key. */
-const Child = contract<typeof childKey>()("Child", int4)
+const Child = domain<typeof childKey>()("Child", int4)
 const packageNoKey = Symbol("PackageNo")
 /** A package, by a number of its own type. */
-const PackageNo = contract<typeof packageNoKey>()("PackageNo", int4)
+const PackageNo = domain<typeof packageNoKey>()("PackageNo", int4)
 
 /** A package's test. */
 const Test = relation("Test", { package: PackageNo, test: int4 }, ["package", "test"])

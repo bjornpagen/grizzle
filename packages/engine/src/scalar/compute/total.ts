@@ -39,7 +39,7 @@ const refuseLeaf = (what: string) => (desc: LeafDesc, loc: SourceLoc) =>
 	Result.err(malformedDescription(loc, `${what}, not a ${desc.kind} reference`))
 
 /**
- * Contract predicates.
+ * Domain predicates.
  *
  * A contract predicate reads only the domain's VALUE, lowered in lower.ts's "check" mode, whose every operation is
  * total as every expression's is (registry.ts Totality), so it never raises and a refused value is always a constraint
@@ -72,10 +72,10 @@ export const contractPredicateTable = (
 		leaf: (desc, at) =>
 			desc.kind === "value"
 				? Result.ok({ kind: "value", args: [], type: base, nonNull: "storage" })
-				: refuseLeaf("a contract predicate reads only its VALUE")(desc, at),
+				: refuseLeaf("a domain predicate reads only its VALUE")(desc, at),
 		params: noParams,
 		fieldType: options.fieldType,
-		closed: noClosedRelations("a contract predicate reads no closed relation of the schema"),
+		closed: noClosedRelations("a domain predicate reads no closed relation of the schema"),
 		patterns: options.patterns
 	}
 	return Result.flatMap(lowerPredicate(predicate, env), (root) => {
@@ -91,7 +91,7 @@ export const contractPredicateTable = (
 			: Result.err(
 					malformedDescription(
 						childLoc(options.loc, "proves"),
-						`a predicate that proves the declared fact ${unproved} (${factPredicate[unproved]}): contract ${contract} declares it, and its predicate does not state it`
+						`a predicate that proves the declared fact ${unproved} (${factPredicate[unproved]}): domain ${contract} declares it, and its predicate does not state it`
 					)
 				)
 	})
@@ -103,7 +103,7 @@ export const contractPredicateTable = (
  * field of the contract types it (contractPredicateTable), by `patterns`, its compile's table, each literal in it typed
  * by this environment; `declared` the tables its compile lowered once already, by contract name, read before any
  * contract's predicate is lowered again. The one environment a schema's fields (analysis/schema.ts) and a contract's
- * host parse (contract/parser.ts contractParserOf) are typed by.
+ * host parse (contract/parser.ts domainParserOf) are typed by.
  */
 export const schemaEnvOf = (
 	roster: RosterLookup,
@@ -116,7 +116,7 @@ export const schemaEnvOf = (
 		contractPredicate: (predicate, base, contract, facts) =>
 			declared.get(contract) ??
 			contractPredicateTable(predicate, base, contract, facts, {
-				loc: SourceLoc(`contract ${contract}`, []),
+				loc: SourceLoc(`domain ${contract}`, []),
 				fieldType: (d, at) => scalarTypeOf(d, env, at),
 				patterns
 			})

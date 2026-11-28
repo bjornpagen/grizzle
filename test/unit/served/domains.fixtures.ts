@@ -12,7 +12,7 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import { fieldColumnType } from "#compiler/ir/physical.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Fn, Type } from "#compiler/public/compute.ts"
-import { contract, int4, numeric } from "#compiler/public/fields.ts"
+import { domain, int4, numeric } from "#compiler/public/fields.ts"
 import { param, query, v } from "#compiler/public/query.ts"
 import { derived, fn, mutable, relation, row, rows, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -93,11 +93,11 @@ const Word = str.bytes(64, str.regex("^.*$", "su"))
 
 const countKey = Symbol("Count")
 /** A contract the functions' results carry: grizzle's exact integer of QTI's range, edullm's QtiInteger. */
-const Count = contract<typeof countKey>()("Count", numeric(613, 0))
+const Count = domain<typeof countKey>()("Count", numeric(613, 0))
 
 const rankKey = Symbol("Rank")
 /** A contract only a query declares, the target of its checked cast. */
-const Rank = contract<typeof rankKey>()("Rank", int4)
+const Rank = domain<typeof rankKey>()("Rank", int4)
 
 /**
  * The case's login: Item(item), the items a function is called at; Doc(doc, list), lists of tokens; Out(item, value),

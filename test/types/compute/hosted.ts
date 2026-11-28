@@ -12,7 +12,7 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/support/t
  * type batch checks.
  *
  * The oracle is the roster the compiler refuses by (scalar/compute/typing.ts compute reads computeSpecs[fn].check): a
- * contract predicate, a row check of a stored relation and a generated field are evaluated on the host, so a term
+ * domain predicate, a row check of a stored relation and a generated field are evaluated on the host, so a term
  * computed by a function marked check false is refused there, under the types' Refusal (types/core/phantom.ts
  * Hosted); a row check of a derived relation and a selection are read in SQL, and admit it. Each function's term is
  * written as its own typing admits it, a precondition guarded where it has one, so a refused cell is refused for the
@@ -169,7 +169,7 @@ export const hostedBoxItems: Arr.NonEmptyReadonlyArray<HostedCase> = [
 ]
 
 const hostedRefusal: Refused =
-	"an operation the host evaluates: a contract predicate, a row check and a generated field compute no quot, rem, round, trunc, ceil, floor, gcd, lcm, power, sqrt, widthBucket, minScale, numeric, cosineDistance, textMatches, textRank or textRankCd, and call no declared function"
+	"an operation the host evaluates: a domain predicate, a row check and a generated field compute no quot, rem, round, trunc, ceil, floor, gcd, lcm, power, sqrt, widthBucket, minScale, numeric, cosineDistance, textMatches, textRank or textRankCd, and call no declared function"
 
 /**
  * The roster's verdict on a cell: refused where the host evaluates the position and computeSpecs marks the function,
@@ -187,7 +187,7 @@ const statementOf = (c: HostedCase, index: number): string => {
 		case "check":
 			return `check("C${index}", Cell, (r) => ${compared(`r.${field}`)})`
 		case "contract":
-			return `contract<typeof probeKey>()("K${index}", ${familyBase[family]}, (c) => ${compared("c")}, undefined)`
+			return `domain<typeof probeKey>()("K${index}", ${familyBase[family]}, (c) => ${compared("c")}, undefined)`
 		case "generated":
 			return `relation.generated("G${index}", { id: Id, ${field}: ${familyBase[family]} }, ["id"], (r) => ({ g: generated(${stored}, ${term(`r.${field}`)}) }))`
 		case "derivedCheck":

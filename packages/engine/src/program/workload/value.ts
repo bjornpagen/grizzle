@@ -231,7 +231,7 @@ const admitClockKeys = (binding: ClockBinding, rest: ReadonlyArray<unknown>): vo
 	) {
 		throw malformed(
 			"clocked",
-			"clocked(program, binding, keys): keys holds the key of each consumer's contract the binding binds a parameter of, by the parameter's name"
+			"clocked(program, binding, keys): keys holds the key of each consumer's domain the binding binds a parameter of, by the parameter's name"
 		)
 	}
 	for (const name of Object.keys(keys)) {

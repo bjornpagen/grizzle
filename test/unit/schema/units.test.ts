@@ -64,7 +64,7 @@ export const aUnitHoldsExactlyTheRelationsWhoseKeyLeadsWithItsHeadingOneUnitARel
 					const { reason } = throwsRefused(() => schemaOf(c), "Refused", caseText(c))
 					assert.equal(
 						reason._tag === "Refused" ? reason.refusal : undefined,
-						"a series' relation is keyed by one field alone, the series' numbers, of a type grizzle draws: natural or a contract over an integer",
+						"a series' relation is keyed by one field alone, the series' numbers, of a type grizzle draws: natural or a domain over an integer",
 						"series(S)'s refusal"
 					)
 					return
@@ -186,8 +186,8 @@ export const aUnitHoldsExactlyTheRelationsWhoseKeyLeadsWithItsHeadingOneUnitARel
 			},
 			{
 				file: "packages/engine/src/scalar/natural.ts",
-				original: 'desc.kind === "contract" && !isInstantDesc(desc) && isIntegerDesc(desc.base)',
-				replacement: 'desc.kind === "contract" && !isInstantDesc(desc)',
+				original: 'desc.kind === "domain" && !isInstantDesc(desc) && isIntegerDesc(desc.base)',
+				replacement: 'desc.kind === "domain" && !isInstantDesc(desc)',
 				why: "A drawn type any contract but instant (scalar/natural.ts isDrawnType), so a series keyed by a contract over a uuid is admitted."
 			},
 			{

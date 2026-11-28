@@ -107,7 +107,7 @@ export const carrierOf = (desc: FieldDesc): string => {
 		case "text":
 		case "pattern":
 			return desc.kind
-		case "contract":
+		case "domain":
 			return carrierOf(desc.base)
 		case "closedId":
 		case "bits":
@@ -125,7 +125,7 @@ export const carrierOf = (desc: FieldDesc): string => {
 
 /** A span's endpoint as its SQL type names it: a contract's name over its base, which a span over its base is not. */
 const endpointOf = (desc: FieldDesc): string =>
-	desc.kind === "contract" ? `contract ${desc.name} over ${endpointOf(desc.base)}` : carrierOf(desc)
+	desc.kind === "domain" ? `contract ${desc.name} over ${endpointOf(desc.base)}` : carrierOf(desc)
 
 /**
  * A drawn type's names, each a side's own: a contract `C<side><depth>` but natural, the builtin, and a roster `R<side>`,
@@ -134,7 +134,7 @@ const endpointOf = (desc: FieldDesc): string =>
 export const sided = (sketch: DeclaredSketch, side: string): DeclaredSketch => {
 	const rename = (desc: FieldDesc, depth: number): FieldDesc => {
 		switch (desc.kind) {
-			case "contract":
+			case "domain":
 				return isNaturalDesc(desc)
 					? desc
 					: { ...desc, name: `C${side}${depth}`, base: rename(desc.base, depth + 1) }
@@ -179,13 +179,13 @@ type Pairing =
  * is over; undefined for a set, which no contract is over.
  */
 const refinementOf = (a: DeclaredSketch): DeclaredSketch | undefined => {
-	if (a.desc.kind === "contract") {
+	if (a.desc.kind === "domain") {
 		return { desc: a.desc.base, rosters: a.rosters }
 	}
 	return a.desc.kind === "bits"
 		? undefined
 		: {
-				desc: { kind: "contract", name: "Cb", base: a.desc, predicate: undefined, facts: [] },
+				desc: { kind: "domain", name: "Cb", base: a.desc, predicate: undefined, facts: [] },
 				rosters: a.rosters
 			}
 }
@@ -223,7 +223,7 @@ export const pairedGen = (a: DeclaredSketch): Gen<readonly [Pairing, DeclaredSke
 					case "sha256":
 					case "uuid":
 					case "pattern":
-					case "contract":
+					case "domain":
 					case "span":
 					case "vector":
 					case "search":

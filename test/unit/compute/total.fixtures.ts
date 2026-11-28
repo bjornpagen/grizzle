@@ -21,7 +21,7 @@ import {
 } from "#test/support/unit/compute/support.ts"
 
 /**
- * A contract predicate is lowered in the "check" mode, which differs from the "query" mode only in what it reads and
+ * A domain predicate is lowered in the "check" mode, which differs from the "query" mode only in what it reads and
  * admits (scalar/compute/lower.ts): it reads only the domain's VALUE, refusing a parameter (Refused, "a schema predicate
  * reads no parameter") and a variable (MalformedDescription); its operations are those the host evaluates for the
  * ContractLiteral check, so it refuses round (UnsupportedOperation); and it refuses float and money arithmetic, which no CHECK holds
@@ -305,7 +305,7 @@ const predicateOf = (c: PredicateCase, leaf: ExprDesc): ExprDesc => ({
 	right: literalExpr(c.right)
 })
 
-/** The contract predicate table of the case, its VALUE read as the case reads it. */
+/** The domain predicate table of the case, its VALUE read as the case reads it. */
 export const checkMode = (c: PredicateCase) => {
 	const base = fieldOf(c.base)
 	const leaf: ExprDesc =

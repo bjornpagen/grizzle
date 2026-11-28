@@ -107,7 +107,7 @@ export const mergedDeclared = (
 		patterns: byField((e) => e.patterns, "pattern"),
 		contracts: keyed(
 			(e) => e.contracts,
-			(c) => `the contract ${c}`
+			(c) => `the domain ${c}`
 		)
 	})
 }

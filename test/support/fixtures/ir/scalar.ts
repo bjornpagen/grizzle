@@ -90,7 +90,7 @@ export const closedIdTypeOf = (
 }
 
 /**
- * A contract predicate's table renamed to its normal form (ir/expr.ts predicateTable), unreachable entries dropped. A
+ * A domain predicate's table renamed to its normal form (ir/expr.ts predicateTable), unreachable entries dropped. A
  * dangling argument is MalformedDescription.
  */
 export const normalizeExprTable = (table: ExprTable): Result.Result<ExprTable, CompileError> =>

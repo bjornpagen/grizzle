@@ -13,7 +13,7 @@ import { instantsProgram } from "#test/types/changeset/instants.ts"
 
 /** Admits every write of an instant the rule admits, and refuses every other with the refusal its directive names. */
 export const instants = boxAgreement(finite(word(instantsBox)), {
-	box: "an insert, a put and a delete of host rows and of a query's, the rows insertAll's record types and factsDecoder decodes inserted, insertAll'd and served, an instant stated from a stored one, a stored instant (instant.stored) stated from a read's instant and refused a bigint, an evaluator's rows stating instants as bigints and delivering none as a read's, a parameter, a relation parameter's column, a literal, a typed constant and a cast of its type, a contract named instant or over one, a span of instants, and instants compared with a literal and with instants",
+	box: "an insert, a put and a delete of host rows and of a query's, the rows insertAll's record types and factsDecoder decodes inserted, insertAll'd and served, an instant stated from a stored one, a stored instant (instant.stored) stated from a read's instant and refused a bigint, an evaluator's rows stating instants as bigints and delivering none as a read's, a parameter, a relation parameter's column, a literal, a typed constant and a cast of its type, a domain named instant or over one, a span of instants, and instants compared with a literal and with instants",
 	situations: [],
 	notes: () => [],
 	checking: "disarmed",

@@ -23,7 +23,7 @@ import {
 	String as Str
 } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { contract, natural, int4 } from "#compiler/public/fields.ts"
+import { domain, natural, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, login, mutable, relation, role, schema, unit } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
@@ -46,7 +46,7 @@ import { upTo } from "#test/support/up-to.ts"
 
 const learnerIdKey = Symbol("LearnerId")
 /** A learner's number, the key of the learner's unit. */
-const LearnerId = contract<typeof learnerIdKey>()("LearnerId", int4)
+const LearnerId = domain<typeof learnerIdKey>()("LearnerId", int4)
 
 /** A learner's answer to item n of sitting s, in the learner's unit. */
 const Answer = relation("Answer", { child: LearnerId, s: natural, n: natural }, ["child", "s", "n"])

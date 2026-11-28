@@ -3,6 +3,6 @@
  * the program imports these alone, each through this module.
  */
 export { Logic } from "#compiler/public/compute.ts"
-export { contract, drawn, int2, int4, int8, natural, numeric } from "#compiler/public/fields.ts"
+export { domain, drawn, int2, int4, int8, natural, numeric } from "#compiler/public/fields.ts"
 export { contained, counted, fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 export { str } from "#compiler/public/text.ts"

@@ -29,7 +29,7 @@ interface InstantsCase {
 const admitted = { kind: "admitted" } as const
 
 const inputRefusal: Refused =
-	"an instant is the database's clock's alone: no parameter, literal, constant, cast, contract or range is of its type"
+	"an instant is the database's clock's alone: no parameter, literal, constant, cast, domain or range is of its type"
 
 const boxCases: ReadonlyArray<InstantsCase> = [
 	{
@@ -120,16 +120,16 @@ const boxCases: ReadonlyArray<InstantsCase> = [
 		verdict: { kind: "refusal", refusal: inputRefusal }
 	},
 	{
-		what: "a contract named instant",
-		statement: 'contract<typeof probeKey>()("instant", int8)',
+		what: "a domain named instant",
+		statement: 'domain<typeof probeKey>()("instant", int8)',
 		verdict: {
 			kind: "refusal",
-			refusal: "a contract's name is apart from natural and instant, grizzle's own types"
+			refusal: "a domain's name is apart from natural and instant, grizzle's own types"
 		}
 	},
 	{
 		what: "a contract over an instant",
-		statement: 'contract<typeof probeKey>()("Stamp", instant)',
+		statement: 'domain<typeof probeKey>()("Stamp", instant)',
 		verdict: { kind: "refusal", refusal: inputRefusal }
 	},
 	{

@@ -2,7 +2,7 @@ import { Record as Rec } from "effect"
 import { Logic } from "#compiler/public/compute.ts"
 import {
 	closedId,
-	contract,
+	domain,
 	date,
 	mintOf,
 	natural,
@@ -75,7 +75,7 @@ import { Id } from "#test/support/ids.ts"
 export const Tone = closed.ordered("Tone", ["low", "mid", "high"])
 export const Shade = closed.ordered("Shade", ["low", "dark"])
 const centsKey = Symbol("Cents")
-export const Cents = contract<typeof centsKey>()("Cents", int8, (x) => Logic.ge(x, 0n), {
+export const Cents = domain<typeof centsKey>()("Cents", int8, (x) => Logic.ge(x, 0n), {
 	proves: ["nonnegative"]
 })
 export const toCents = mintOf(centsKey)

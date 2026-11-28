@@ -493,8 +493,8 @@ const descriptorOf = (type: FieldType): FieldDesc => {
 /** The name the natural contract is declared under, which its domain's law is named by. */
 const naturalName = (): string => {
 	const desc = naturalDescriptor.desc
-	if (desc.kind !== "contract") {
-		throw new Error("natural is a contract")
+	if (desc.kind !== "domain") {
+		throw new Error("natural is a domain")
 	}
 	return desc.name
 }

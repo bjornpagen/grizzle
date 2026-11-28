@@ -3,7 +3,7 @@
  * it is, so a fact written twice is one fact and a key names the same row in every database that holds it.
  */
 export const mintedRefusal =
-	"grizzle mints no ids: key a row by its natural identity, its parent's key and its own name or place, a content digest, a published name and version, or an outside system's id under a contract of its own" as const
+	"grizzle mints no ids: key a row by its natural identity, its parent's key and its own name or place, a content digest, a published name and version, or an outside system's id under a domain of its own" as const
 
 /**
  * Why no column is a bare uuid: an id is some system's, and a contract over uuid says whose, so a Clerk user's id is
@@ -11,7 +11,7 @@ export const mintedRefusal =
  * the types where it is written (types/fields/field.ts NamedIds).
  */
 export const unnamedIdRefusal =
-	'say whose id this is: contract<typeof key>()("ClerkUserId", uuid)' as const
+	'say whose id this is: domain<typeof key>()("ClerkUserId", uuid)' as const
 
 /**
  * What smallserial, serial, bigserial and uuidv7 are: no field descriptor but the refusal of one, a value

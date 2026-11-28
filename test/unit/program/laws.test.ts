@@ -27,7 +27,7 @@
  * root texts, on its relation and on the members of a family it owns, among them: fill.ts rootTextFieldsOf), then the
  * variant law of every variant field, which its variant's domain and every domain of its arms' fields report at its
  * column, then the law of every generated field, each by relation name and each relation's fields in declared order, then the sealed unit's
- * seal law; between them every contract's law follows every statement's, by contract name; and the same schema declared in another order of its
+ * seal law; between them every contract's law follows every statement's, by domain name; and the same schema declared in another order of its
  * relations and statements lists the same laws in the same order. Planted in a scratch copy, lawsOf leaving out the
  * primary keys, the pattern laws or the generated laws, listing a law twice, or ordering the pattern laws by declaration
  * each fail it.
@@ -336,7 +336,7 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 					Arr.map(Arr.sort(contracts, Order.String), (contract): OwnLaw =>
 						derivedLaw({ kind: "contract", contract })
 					),
-					"every contract's law follows every statement's, by contract name"
+					"every contract's law follows every statement's, by domain name"
 				)
 				const twin = subjectOf(c, (items) => reordered(items, c.reorder))
 				assert.deepEqual(

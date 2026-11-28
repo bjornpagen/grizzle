@@ -22,7 +22,7 @@ import { identity, type ParamPlace } from "#compiler/core/identity.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { paramDomainsOf } from "#compiler/physical/ddl/domains.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { contract, int8, numeric } from "#compiler/public/fields.ts"
+import { domain, int8, numeric } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -49,10 +49,10 @@ const Slug = str.regex("^[a-z]{1,8}$", "u")
 const Tag = str.regex("^#[0-9]{1,3}$", "u")
 
 const centsKey = Symbol("Cents")
-const Cents = contract<typeof centsKey>()("Cents", int8, (x) => Logic.between(x, 0n, 10_000n))
+const Cents = domain<typeof centsKey>()("Cents", int8, (x) => Logic.between(x, 0n, 10_000n))
 
 const rateKey = Symbol("Rate")
-const Rate = contract<typeof rateKey>()("Rate", numeric(7, 6), (x) => Logic.between(x, 0n, 1n))
+const Rate = domain<typeof rateKey>()("Rate", numeric(7, 6), (x) => Logic.between(x, 0n, 1n))
 
 const Article = relation("Article", { id: Id, slug: Slug }, ["id"])
 

@@ -165,7 +165,7 @@ export type FieldDesc =
 	  }
 	| { readonly kind: "pattern" }
 	| {
-			readonly kind: "contract"
+			readonly kind: "domain"
 			readonly name: string
 			readonly base: FieldDesc
 			readonly predicate: ExprDesc | undefined
@@ -208,7 +208,7 @@ export interface VariantArmDesc {
 }
 
 /** A contract's descriptor, as a field declares it: its name, its base, its predicate and the facts it proves. */
-export type ContractFieldDesc = Extract<FieldDesc, { readonly kind: "contract" }>
+export type ContractFieldDesc = Extract<FieldDesc, { readonly kind: "domain" }>
 
 /** A variant's descriptor, as a field declares it: its name, its roster and its arms, each with its check. */
 export type VariantFieldDesc = Extract<FieldDesc, { readonly kind: "variant" }>
@@ -216,7 +216,7 @@ export type VariantFieldDesc = Extract<FieldDesc, { readonly kind: "variant" }>
 /** Visits every descriptor inside `desc`: itself, then a contract's base's, a span's endpoint's and each variant arm field's, depth first. */
 export const nestedFields = (desc: FieldDesc, visit: (d: FieldDesc) => void): void => {
 	visit(desc)
-	if (desc.kind === "contract") {
+	if (desc.kind === "domain") {
 		nestedFields(desc.base, visit)
 	} else if (desc.kind === "span") {
 		nestedFields(desc.endpoint, visit)
@@ -1229,7 +1229,7 @@ export const contextFieldAdmits = (desc: FieldDesc): boolean => {
 		case "text":
 		case "closedId":
 			return true
-		case "contract":
+		case "domain":
 			return desc.name !== "instant" && contextFieldAdmits(desc.base)
 		case "numeric":
 		case "exact":
@@ -3451,14 +3451,14 @@ const fieldDescBody: S.Shape<FieldDesc> = S.tagged<FieldDesc>()("kind", {
 		"a text's byte bound, the one its language enforces"
 	),
 	pattern: S.struct({}),
-	contract: S.structStated(
+	domain: S.structStated(
 		{
 			name,
 			base: fieldDescShape,
 			facts: S.refine(
 				S.uniqueArray(S.literalsShape(factNames), (f) => f, "facts"),
 				factsSorted,
-				"a contract's facts sorted, each once"
+				"a domain's facts sorted, each once"
 			)
 		},
 		{ predicate: exprDescShape },
@@ -3532,7 +3532,7 @@ const fieldMapShape = S.recordShape(fieldDescShape, name)
 
 /** What a context's fields must be: at least one, each a type a context admits (contextFieldAdmits). */
 const contextFieldsCapability =
-	"a context of at least one field, each text, uuid, bool, int2, int4 or int8, inet, cidr, a contract over one, or a closed handle"
+	"a context of at least one field, each text, uuid, bool, int2, int4 or int8, inet, cidr, a domain over one, or a closed handle"
 
 /**
  * A context's source (ContextFactSource): a token's, with the nested claim object its fields are read from, or
@@ -3889,7 +3889,7 @@ const closedFieldAdmits = (desc: FieldDesc): boolean => {
 		case "pattern":
 		case "closedId":
 			return true
-		case "contract":
+		case "domain":
 			return desc.name !== "instant" && closedFieldAdmits(desc.base)
 		case "exact":
 		case "bytes":
@@ -4522,7 +4522,7 @@ export const builtNode = <N extends Located>(node: N): N =>
 export const closedIdBase = (
 	desc: FieldDesc
 ): (FieldDesc & { readonly kind: "closedId" }) | undefined =>
-	desc.kind === "closedId" ? desc : desc.kind === "contract" ? closedIdBase(desc.base) : undefined
+	desc.kind === "closedId" ? desc : desc.kind === "domain" ? closedIdBase(desc.base) : undefined
 
 /**
  * An ordinary relation's Description over its name, its naming and its fields' declarations, each a registered

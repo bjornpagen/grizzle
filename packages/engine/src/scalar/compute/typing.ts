@@ -1779,7 +1779,7 @@ export const sameNode = (a: TypedNode, b: TypedNode): boolean => {
  * through numeric, a STABLE cast, where a CHECK is immutable.
  */
 const floatArithmeticText = (fn: string, t: ScalarType): string =>
-	`${fn} over ${typeLabel(t)} in a contract predicate or row check: float arithmetic renders through a scalar subquery and money arithmetic through money's STABLE cast to numeric, and a CHECK holds neither`
+	`${fn} over ${typeLabel(t)} in a domain predicate or row check: float arithmetic renders through a scalar subquery and money arithmetic through money's STABLE cast to numeric, and a CHECK holds neither`
 
 /**
  * The closed relation `relation` a read `read` applies, or its refusal: UnsupportedOperation where the expression
@@ -2661,7 +2661,7 @@ class Typing<R extends Refs> {
 			this.refusedAt(
 				"query",
 				at,
-				`concat in a query over texts whose patterns bound the concatenation within ${byteaMaxLength} bytes: it allocates its result, which PostgreSQL refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "an operand's pattern bounds no length" : `the operands' patterns bound it at ${bytes} bytes`}, so bound them, compare a text with the concatenation, which a query decides over texts of any length, or concatenate in a contract predicate, row check, generated field or fold`
+				`concat in a query over texts whose patterns bound the concatenation within ${byteaMaxLength} bytes: it allocates its result, which PostgreSQL refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "an operand's pattern bounds no length" : `the operands' patterns bound it at ${bytes} bytes`}, so bound them, compare a text with the concatenation, which a query decides over texts of any length, or concatenate in a domain predicate, row check, generated field or fold`
 			)
 		}
 		return this.restate(node, this.textWithinBytes(bytes, at), node.actual, node.facts)
@@ -2703,7 +2703,7 @@ class Typing<R extends Refs> {
 			this.refusedAt(
 				"query",
 				at,
-				`resolveReference in a query over texts whose patterns bound the target within ${byteaMaxLength} bytes: its target is built by concatenation, which PostgreSQL refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "an operand's pattern bounds no length" : `the operands' patterns bound it at ${bytes} bytes`}, so bound them, or resolve in a contract predicate, row check or generated field`
+				`resolveReference in a query over texts whose patterns bound the target within ${byteaMaxLength} bytes: its target is built by concatenation, which PostgreSQL refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "an operand's pattern bounds no length" : `the operands' patterns bound it at ${bytes} bytes`}, so bound them, or resolve in a domain predicate, row check or generated field`
 			)
 		}
 		return this.restate(node, this.textWithinBytes(bytes, at), node.actual, node.facts)
@@ -2764,7 +2764,7 @@ class Typing<R extends Refs> {
 			this.refusedAt(
 				"query",
 				at,
-				`replace in a query over texts whose patterns bound its result within ${byteaMaxLength} bytes: it allocates its result, which PostgreSQL refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "the subject's or the replacement's pattern bounds no length" : `the operands' patterns bound it at ${bytes} bytes`}, so bound them, or replace in a contract predicate, row check or generated field`
+				`replace in a query over texts whose patterns bound its result within ${byteaMaxLength} bytes: it allocates its result, which PostgreSQL refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "the subject's or the replacement's pattern bounds no length" : `the operands' patterns bound it at ${bytes} bytes`}, so bound them, or replace in a domain predicate, row check or generated field`
 			)
 		}
 		return this.restate(node, this.textWithinBytes(bytes, at), node.actual, node.facts)
@@ -3023,7 +3023,7 @@ class Typing<R extends Refs> {
 			this.refusedAt(
 				"query",
 				at,
-				`translate in a query over a text whose pattern bounds it within ${translateMaxBytes} bytes: PostgreSQL's translate allocates four bytes for every byte of its operand and refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "the operand's pattern bounds no length" : `the operand's pattern bounds it at ${bytes} bytes`}, so bound it, or translate in a contract predicate, row check or generated field`
+				`translate in a query over a text whose pattern bounds it within ${translateMaxBytes} bytes: PostgreSQL's translate allocates four bytes for every byte of its operand and refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "the operand's pattern bounds no length" : `the operand's pattern bounds it at ${bytes} bytes`}, so bound it, or translate in a domain predicate, row check or generated field`
 			)
 		}
 		const f = this.literal(from, wildcardText, childLoc(at, 1))
@@ -3201,7 +3201,7 @@ class Typing<R extends Refs> {
 		this.refusedAt(
 			"query",
 			at,
-			"utf16Length in a query: it exists only in contract predicates and row checks, because queries have no text functions"
+			"utf16Length in a query: it exists only in domain predicates and row checks, because queries have no text functions"
 		)
 		const x = this.term(subjectDesc, childLoc(at, 0))
 		if (baseOf(x.actual).carrier !== "text") {
@@ -4560,7 +4560,7 @@ class Typing<R extends Refs> {
 			this.refusedAt(
 				"check",
 				here,
-				`${fn} in a contract predicate or row check: a check admits the operations the host evaluates for the ContractLiteral check, which are comparisons, between, in, boolean composition, abs, sign, arithmetic, Logic.cond, Logic.when, casts, charLength, octetLength, utf16Length, range endpoints, greatest and the set algebra`
+				`${fn} in a domain predicate or row check: a check admits the operations the host evaluates for the ContractLiteral check, which are comparisons, between, in, boolean composition, abs, sign, arithmetic, Logic.cond, Logic.when, casts, charLength, octetLength, utf16Length, range endpoints, greatest and the set algebra`
 			)
 		}
 		const expected = computeSpecs[fn].arity
@@ -4796,7 +4796,7 @@ class Typing<R extends Refs> {
 					this.refusedAt(
 						"query",
 						here,
-						"charLength in a query: it exists only in contract predicates and row checks, because queries have no text functions"
+						"charLength in a query: it exists only in domain predicates and row checks, because queries have no text functions"
 					)
 				}
 				const a = this.term(arg(0), here)

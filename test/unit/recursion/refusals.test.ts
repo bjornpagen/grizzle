@@ -302,7 +302,7 @@ export const theStateHeadingAdmitsAColumnOfTheDeclaredTypeCastsAnExactConversion
 								/**
 								 * The author's cast is a cast where it changes the type; a cast to the type the term has already
 								 * restates it. A type the declared one subsumes stands as it is, with no node of its own (ir/scalar.ts
-								 * subsumes, bbfa4eca06: a refined text where the state declares text, a contract's value where it
+								 * subsumes, bbfa4eca06: a refined text where the state declares text, a domain's value where it
 								 * declares its base), since the IR builds no cast up to a type that subsumes its operand's
 								 * (ir/expr.ts builtExpr).
 								 */

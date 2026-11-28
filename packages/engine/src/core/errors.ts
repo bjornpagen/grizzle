@@ -232,7 +232,7 @@ export type CompileBound =
 const boundText = (bound: CompileBound): string => {
 	switch (bound.kind) {
 		case "regexCompileSpace":
-			return `${bound.pattern} ${regexSpaceText(bound.measure)}: past a limit of PostgreSQL's regex compiler (REG_MAX_COMPILE_SPACE, MAX_COLOR, max_stack_depth or MaxAllocSize), beyond which PostgreSQL refuses a pattern as "regular expression is too complex" or "too many colors", or fails each match with "invalid memory alloc request size"; write a smaller pattern, or bound the text's length with Text.charLength or Text.octetLength in a contract predicate`
+			return `${bound.pattern} ${regexSpaceText(bound.measure)}: past a limit of PostgreSQL's regex compiler (REG_MAX_COMPILE_SPACE, MAX_COLOR, max_stack_depth or MaxAllocSize), beyond which PostgreSQL refuses a pattern as "regular expression is too complex" or "too many colors", or fails each match with "invalid memory alloc request size"; write a smaller pattern, or bound the text's length with Text.charLength or Text.octetLength in a domain predicate`
 		case "stringLength":
 			return `a text of at most ${bound.limit} UTF-16 code units, V8's longest string (needed ${bound.needed})`
 		case "stringLengthAtLeast":
@@ -272,7 +272,7 @@ export type PreconditionKind =
 	| "finite"
 	| "integral"
 	| "fits"
-	| "contract"
+	| "domain"
 	| "language"
 	| "powerDomain"
 	| "powerRange"
@@ -336,8 +336,8 @@ const preconditionText = (kind: PreconditionKind, operand: string): string => {
 			return `${operand} has no fraction digits, so no cast rounds it`
 		case "fits":
 			return `${operand} fits its target`
-		case "contract":
-			return `${operand} satisfies its target's contract`
+		case "domain":
+			return `${operand} satisfies its target's domain`
 		case "language":
 			return `${operand}'s language lies inside its target's pattern`
 		case "powerDomain":
@@ -398,7 +398,7 @@ export type Duplicate =
 	| { readonly kind: "relation"; readonly name: string; readonly earlier: SourceLoc }
 	| { readonly kind: "function"; readonly name: string; readonly earlier: SourceLoc }
 	| { readonly kind: "scope"; readonly name: string; readonly earlier: SourceLoc }
-	| { readonly kind: "contract"; readonly name: string; readonly earlier: SourceLoc }
+	| { readonly kind: "domain"; readonly name: string; readonly earlier: SourceLoc }
 	| { readonly kind: "variant"; readonly name: string; readonly earlier: SourceLoc }
 	| { readonly kind: "context"; readonly name: string; readonly earlier: SourceLoc }
 
@@ -410,8 +410,8 @@ const duplicateText = (duplicate: Duplicate): string => {
 			return `one declaration per function name; function ${duplicate.name} is also declared differently at ${formatLoc(duplicate.earlier)}`
 		case "scope":
 			return `one scope per name in a rule; scope ${JSON.stringify(duplicate.name)} is also minted at ${formatLoc(duplicate.earlier)}, so give each v call of the rule its own name`
-		case "contract":
-			return `one descriptor per contract name; contract ${duplicate.name} is also declared differently at ${formatLoc(duplicate.earlier)}`
+		case "domain":
+			return `one descriptor per domain name; domain ${duplicate.name} is also declared differently at ${formatLoc(duplicate.earlier)}`
 		case "variant":
 			return `one declaration per variant name; variant ${duplicate.name} is also declared differently at ${formatLoc(duplicate.earlier)}`
 		case "context":
@@ -808,7 +808,7 @@ export type UninstalledType =
 const uninstalledText = (domain: UninstalledType): string => {
 	switch (domain.kind) {
 		case "contract":
-			return `the installation installs no domain of contract ${domain.contract}, which none of its artifacts and no program of its served workload types a value by: serve the program from a workload of a login of the installation and run grizzle generate`
+			return `the installation installs no domain of domain ${domain.contract}, which none of its artifacts and no program of its served workload types a value by: serve the program from a workload of a login of the installation and run grizzle generate`
 		case "param":
 			return `the installation installs no pattern domain of parameter ${domain.param} over ${domain.pattern}, which no program of its served workload declares: serve the program from a workload of a login of the installation and run grizzle generate`
 		case "text":

@@ -4,7 +4,7 @@ import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { boolean, constant, element, type Gen, map, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { Logic } from "#compiler/public/compute.ts"
-import { closedId, contract, int4, int8 } from "#compiler/public/fields.ts"
+import { closedId, domain, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	closed,
@@ -42,7 +42,7 @@ const Session = context("Session", { sub: Sub })
 const capKey = Symbol("Cap")
 /** The version `k` under the declared name `name`. */
 export const versionOf = (name: string, k: Knobs) => {
-	const Cap = contract<typeof capKey>()("Cap", int4, (x) => Logic.ge(x, k.capLeast))
+	const Cap = domain<typeof capKey>()("Cap", int4, (x) => Logic.ge(x, k.capLeast))
 	const Quota = context("Quota", { cap: Cap }, { claim: "q" })
 	const Tier = closed.ordered("Tier", k.tiers)
 	const Org = relation("Org", { id: Id, tier: closedId(Tier) }, ["id"])

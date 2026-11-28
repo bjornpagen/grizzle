@@ -2,14 +2,14 @@
 
 import { type Gen, int } from "@bjornpagen/testing/gen"
 import { Logic, Num, Type } from "#compiler/public/compute.ts"
-import { contract, int4, int8 } from "#compiler/public/fields.ts"
+import { domain, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 const smallKey = Symbol("Small")
 /** The contract a series' element is cast into: within [-20, 20]. */
-const Small = contract<typeof smallKey>()("Small", int8, (x) => Num.within(x, -20n, 20n))
+const Small = domain<typeof smallKey>()("Small", int8, (x) => Num.within(x, -20n, 20n))
 
 /** A relation holding a Small, so the installation installs its domain, which the element's cast is into. */
 const Held = relation("Held", { id: int4, small: Small }, ["id"])

@@ -213,7 +213,7 @@ const endpointSpellings = nonEmpty(
 const spellingOf = (names: Arr.NonEmptyReadonlyArray<Spelling>): Gen<DescriptorSketch> =>
 	map(element(names), (name): DescriptorSketch => ({ kind: "spelling", name }))
 
-/** A contract named by a drawn name over a base `base` draws. */
+/** A domain named by a drawn name over a base `base` draws. */
 const contractOf =
 	(base: Gen<DescriptorSketch>): Gen<DescriptorSketch> =>
 	(source) => ({

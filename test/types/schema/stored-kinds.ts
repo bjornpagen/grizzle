@@ -29,7 +29,7 @@ const admitted = { kind: "admitted" } as const
 const notAFact: Refused = "a member fact is not a fact of the relation"
 
 const searchRefusal: Refused =
-	"a search document is PostgreSQL's parse of texts, which a field holds as a read delivered it: no parameter or contract is of its type"
+	"a search document is PostgreSQL's parse of texts, which a field holds as a read delivered it: no parameter or domain is of its type"
 
 const boxCases: ReadonlyArray<StoredKindsCase> = [
 	{
@@ -61,7 +61,7 @@ const boxCases: ReadonlyArray<StoredKindsCase> = [
 	},
 	{
 		what: "a contract over a search document",
-		statement: 'contract<typeof probeKey>()("Doc", tsvector("english"))',
+		statement: 'domain<typeof probeKey>()("Doc", tsvector("english"))',
 		verdict: { kind: "refusal", refusal: searchRefusal }
 	},
 	{

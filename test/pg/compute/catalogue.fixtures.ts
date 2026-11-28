@@ -923,7 +923,7 @@ export const justified = (
 			return Arr.some(read, (o) => isSpecial(o.value))
 		case "integral":
 		case "fits":
-		case "contract":
+		case "domain":
 		case "language":
 		case "powerDomain":
 		case "powerRange":

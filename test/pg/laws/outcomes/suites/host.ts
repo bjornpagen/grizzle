@@ -19,7 +19,7 @@ import { ChangeSet, type Law } from "#compiler/public/changeset.ts"
 import { Logic, Type } from "#compiler/public/compute.ts"
 import {
 	closedId,
-	contract,
+	domain,
 	generated,
 	mintOf,
 	Uuid,
@@ -62,7 +62,7 @@ const Rate = closed.relation(
 	]
 )
 const unitsKey = Symbol("Units")
-const Units = contract<typeof unitsKey>()("Units", int4, (x) => Logic.le(x, 1000))
+const Units = domain<typeof unitsKey>()("Units", int4, (x) => Logic.le(x, 1000))
 const toUnits = mintOf(unitsKey)
 /** The pattern an account's code and its alias share, so one domain types both columns, each field its own law. */
 const codeSource = "^[a-z]{1,8}$"

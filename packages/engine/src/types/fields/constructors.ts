@@ -6,7 +6,7 @@ import type {
 	Facts,
 	InputTerm,
 	IsOneLiteral,
-	ContractValueOrigin,
+	DomainValueOrigin,
 	Hosted,
 	OriginOfTerm,
 	Parameterless,
@@ -20,7 +20,7 @@ import type {
 	BitField,
 	ClosedIdField,
 	ClosedSubset,
-	Contract,
+	Domain,
 	DrawnField,
 	DrawnType,
 	FieldBase,
@@ -77,7 +77,7 @@ import type { VectorField } from "#compiler/types/vector/vector.ts"
  * of its values, so a divisor of the contract needs no guard; compilation proves each from the predicate, else refuses
  * the declaration: `contract<typeof divisorKey>()("Divisor", int8, (v) => Logic.ne(v, 0n), { proves: ["nonzero"] })`.
  */
-export type ContractConstructor = <K extends symbol>() => <
+export type DomainConstructor = <K extends symbol>() => <
 	const Name extends string,
 	B extends FieldBase,
 	Pr extends Predicate<never> = Predicate,
@@ -93,24 +93,24 @@ export type ContractConstructor = <K extends symbol>() => <
 		NotInstantBase<B> &
 		UniqueKey<K> &
 		KeyApart<K, B> &
-		OneContractName<NoInfer<Name>>,
+		OneDomainName<NoInfer<Name>>,
 	predicate?: (
-		v: Scalar<DomainOf<B>, unknown, ContractValueOrigin, B["sql"], Infer<B>>
+		v: Scalar<DomainOf<B>, unknown, DomainValueOrigin, B["sql"], Infer<B>>
 	) => Pr & Parameterless<Pr> & Hosted<Pr>,
 	declared?: { readonly proves: Proved }
-) => Contract<Name, B, K, Proved>
+) => Domain<Name, B, K, Proved>
 
 /**
  * A contract's name is one literal: a union of names would give its values every one of them as their identity, and a
  * wider string would make every contract over a base with such a name one type. It is apart from natural and instant,
  * grizzle's own, so every contract of another name is its consumer's (scalar/contract.ts isOwnedName).
  */
-export type OneContractName<Name extends string> =
+export type OneDomainName<Name extends string> =
 	IsOneLiteral<Name> extends true
 		? [Name] extends ["natural"] | ["instant"]
-			? Refusal<"a contract's name is apart from natural and instant, grizzle's own types">
+			? Refusal<"a domain's name is apart from natural and instant, grizzle's own types">
 			: unknown
-		: Refusal<"a contract's name is one literal, the brand of its values">
+		: Refusal<"a domain's name is one literal, the brand of its values">
 
 /**
  * mintOf(key): the mint of the host types under `key`, a unique symbol of its module's own, `const graded =
@@ -126,7 +126,7 @@ export type MintOfConstructor = <const K extends symbol>(key: K & UniqueKey<K>) 
  * its base's on the host, and a mint into it would take one key for two contracts (MintKeys).
  */
 export type KeyApart<K extends symbol, B> = [K] extends [HostKeysOf<Infer<B>>]
-	? Refusal<"a contract over another is under a key of its own, apart from its base's">
+	? Refusal<"a domain over another is under a key of its own, apart from its base's">
 	: unknown
 
 /** The refusal of a key K that is no unique symbol: `symbol`, which any symbol is, a registered one's among them. */
@@ -139,7 +139,7 @@ export type UniqueKey<K extends symbol> = symbol extends K
  * contract is over: a contract bounds an integer or an amount over int8, numeric(p, s) or money.
  */
 export type NotExactBase<Sql> = [Sql] extends ["exact integer" | "exact money"]
-	? Refusal<"no contract is over an exact value of any size: declare it over int8, numeric(p, s) or money">
+	? Refusal<"no domain is over an exact value of any size: declare it over int8, numeric(p, s) or money">
 	: unknown
 
 /** A contract's base or a span's endpoint that is no instant, which no caller brands (NotInstant). */

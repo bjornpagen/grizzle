@@ -23,7 +23,7 @@ import { type Json, json } from "@bjornpagen/testing/values"
 import { regex } from "arkregex"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
-import { contract, natural, range, variant } from "#compiler/public/fields.ts"
+import { domain, natural, range, variant } from "#compiler/public/fields.ts"
 import { param, query } from "#compiler/public/query.ts"
 import { closed, fn, row, rows, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -216,7 +216,7 @@ export const mintSpace: Gen<MintCase> = (source) => {
 
 const amountKey = Symbol("Amount")
 /** A consumer's contract over bigint, the one a mint into a consumer's contract makes. */
-const Amount = contract<typeof amountKey>()("Amount", int8)
+const Amount = domain<typeof amountKey>()("Amount", int8)
 
 /** Each target's descriptor. */
 const mintTargets: { readonly [T in MintTarget]: unknown } = {
@@ -339,7 +339,7 @@ export const heldSpace: Gen<HeldCase> = weighted<HeldCase>([
 
 const outerKey = Symbol("Outer")
 /** A consumer's contract over a consumer's contract, Amount, under a key of its own. */
-const Outer = contract<typeof outerKey>()("Outer", Amount)
+const Outer = domain<typeof outerKey>()("Outer", Amount)
 
 /** Each held target's descriptor. */
 const heldDescriptors: { readonly [T in HeldTarget]: unknown } = {

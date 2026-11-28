@@ -7,7 +7,7 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Logic, Num, Type } from "#compiler/public/compute.ts"
 import {
 	closedId,
-	contract,
+	domain,
 	generated,
 	instant,
 	mintOf,
@@ -113,7 +113,7 @@ const ReplyKind = closed.unordered("ReplyKind", ["replied", "span", "word", "sil
 
 const replyScoreKey = Symbol("ReplyScore")
 /** A score: finite and at least zero, every NaN and either infinity outside it, -0 within it as PostgreSQL holds it 0. */
-const ReplyScore = contract<typeof replyScoreKey>()("ReplyScore", float8, (s) =>
+const ReplyScore = domain<typeof replyScoreKey>()("ReplyScore", float8, (s) =>
 	Logic.and([Logic.ge(s, 0), Logic.lt(s, Number.POSITIVE_INFINITY)])
 )
 const toReplyScore = mintOf(replyScoreKey)
@@ -123,7 +123,7 @@ const Word = str.regex("^[a-z]{1,8}$")
 
 const tallyKey = Symbol("Tally")
 /** A tally: an integer at least zero. */
-const Tally = contract<typeof tallyKey>()("Tally", int4, (n) => Logic.ge(n, 0))
+const Tally = domain<typeof tallyKey>()("Tally", int4, (n) => Logic.ge(n, 0))
 const toTally = mintOf(tallyKey)
 
 /**

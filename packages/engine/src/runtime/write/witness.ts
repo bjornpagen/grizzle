@@ -1504,7 +1504,7 @@ export const outsideDomain = <F extends JudgedField>(
 			field.type
 		)
 		if (member === undefined) {
-			defect(`the domain of ${field.name}, a contract and a pattern the host evaluates`)
+			defect(`the domain of ${field.name}, a domain and a pattern the host evaluates`)
 		}
 		if (!member) {
 			return field.name

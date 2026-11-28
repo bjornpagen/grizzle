@@ -436,7 +436,7 @@ const within = (carrier: ScalarType["carrier"], v: bigint) => {
 }
 
 /**
- * Whether the literal is a value of the type, by the rules restated: a contract's value is its base's; each literal
+ * Whether the literal is a value of the type, by the rules restated: a domain's value is its base's; each literal
  * kind meets its own carriers only; an integer lies in its carrier's range; a float4 is exactly a float32; NaN and
  * the infinities are floats; a numeric literal is one numeric(p, s) stores unchanged; text is well-formed UTF-16
  * without NUL; a uuid is lowercase 8-4-4-4-12 hex; a handle is one of its code's roster's; a set's handles are its
@@ -606,7 +606,7 @@ const withoutEntry = (table: ExprTable, key: string): ExprTable => ({
 })
 
 /**
- * The rules of a contract predicate (expr.ts predicateProblems), each broken once on VALUE >= 0, and no other rule
+ * The rules of a domain predicate (expr.ts predicateProblems), each broken once on VALUE >= 0, and no other rule
  * with it (a dangling argument leaves no entry unreachable): the table is in normal form, so its canonical text cannot
  * depend on allocation; its root and every argument resolve, every entry is reachable and none is its own argument;
  * it reads only VALUE, of the base type, and literals, with no column, no parameter and no dependency; it is
@@ -677,7 +677,7 @@ export const broken: Arr.NonEmptyReadonlyArray<readonly [string, ExprTable]> = [
 			nonNull: "strict",
 			proof: [
 				{
-					precondition: { kind: "contract" },
+					precondition: { kind: "domain" },
 					premises: [{ kind: "checked", operand: 0, by: "literal" }]
 				}
 			]

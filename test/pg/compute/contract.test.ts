@@ -1,5 +1,5 @@
 /**
- * Contract predicates against PostgreSQL 19 domains: a contract over numeric(7, 6), its predicate the installed domain's
+ * Domain predicates against PostgreSQL 19 domains: a contract over numeric(7, 6), its predicate the installed domain's
  * CHECK.
  *
  * A literal stated as a value of a numeric contract is rounded to its scale before its predicate, as the domain cast does
@@ -34,7 +34,7 @@ import {
 } from "#test/support/unit/compute/support.ts"
 
 /**
- * Contract predicates against PostgreSQL 19 domains round a literal stated as a value of the contract to its scale
+ * Domain predicates against PostgreSQL 19 domains round a literal stated as a value of the contract to its scale
  * before its predicate, as PostgreSQL's domain cast does, and refuse a literal compared with one that the cast would
  * round.
  *

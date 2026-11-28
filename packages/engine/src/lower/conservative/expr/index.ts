@@ -567,7 +567,7 @@ const querySite = (cx: LowerContext, env: Env): ScalarSite => ({
 					)
 				)
 			case "value":
-				return refuse("MalformedDescription", at, "VALUE only inside a contract predicate")
+				return refuse("MalformedDescription", at, "VALUE only inside a domain predicate")
 			case "param":
 				return cx.scalarParam(expr.param, expr.type, at)
 		}

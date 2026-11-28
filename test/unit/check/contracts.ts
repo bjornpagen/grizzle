@@ -66,7 +66,7 @@ const baseDesc = (base: DeclaredContract["base"]): FieldDesc =>
 
 /** The descriptor a declaration states. */
 const descriptorOf = (d: DeclaredContract): FieldDesc => ({
-	kind: "contract",
+	kind: "domain",
 	name: d.name,
 	base: baseDesc(d.base),
 	predicate: d.nonnegative ? ge(value, literal(d.base === "int4" ? 0 : 0n)) : undefined,

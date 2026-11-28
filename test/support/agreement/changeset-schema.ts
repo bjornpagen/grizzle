@@ -3,7 +3,7 @@ import {
 	accumulated,
 	bit,
 	closedId,
-	contract,
+	domain,
 	drawn,
 	generated,
 	mintOf,
@@ -46,7 +46,7 @@ const centsKey = Symbol("Cents")
  * an extension of it, a level above it, and two schemas of which neither is a level of Work, one of its name; and
  * Work's worlds.
  */
-export const Cents = contract<typeof centsKey>()("Cents", int8, (x) => Logic.ge(x, 0n))
+export const Cents = domain<typeof centsKey>()("Cents", int8, (x) => Logic.ge(x, 0n))
 export const toCents = mintOf(centsKey)
 export const Kind = closed.ordered("Kind", ["Automatic", "Manual"])
 export const Task = relation("Task", { id: Id, account: Id, kind: closedId(Kind) }, ["id"])

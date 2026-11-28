@@ -1986,7 +1986,7 @@ const expressions: ReadonlyArray<DagCorruption> = [
 			})
 	},
 	{
-		rule: "VALUE appears only in a contract predicate",
+		rule: "VALUE appears only in a domain predicate",
 		from: "wild",
 		weight: 1,
 		sites: (dag) =>

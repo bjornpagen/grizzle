@@ -166,7 +166,7 @@ const parameterHeader: ReadonlyArray<string> = [
 	"export type Expect<T extends true> = T",
 	"",
 	'export const idKey = Symbol("Id")',
-	'export const Id = contract<typeof idKey>()("Id", uuid)',
+	'export const Id = domain<typeof idKey>()("Id", uuid)',
 	"export type IdDomain = DomainOf<typeof Id>",
 	"export type IdValue = Infer<typeof Id>",
 	'export const Doc = relation("Doc", { id: Id }, ["id"])',

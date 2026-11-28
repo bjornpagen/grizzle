@@ -499,9 +499,9 @@ export const everyLawCarriesTheCatalogEntryItsDeclarationStatesToEveryPlaceThatN
 			{
 				file: "packages/engine/src/scalar/registry.ts",
 				original:
-					'\townedText.has(value) || (isOwnedDescriptor(value) && value.desc.kind === "contract")',
+					'\townedText.has(value) || (isOwnedDescriptor(value) && value.desc.kind === "domain")',
 				replacement:
-					'\townedText.has(value) || (typeof value === "function" && isOwnedDescriptor(value) && value.desc.kind === "contract")',
+					'\townedText.has(value) || (typeof value === "function" && isOwnedDescriptor(value) && value.desc.kind === "domain")',
 				why: "A contract that is no brand constructor, grizzle's own natural, takes no entry: law(...) of it is refused."
 			},
 			{

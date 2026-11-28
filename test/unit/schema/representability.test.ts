@@ -191,7 +191,7 @@ export const patternByteBoundsBoundsAPatternsKeyByAtLeastItsLongestMatchInUTF8By
 		]
 	})
 
-/** Length bounds reads a charLength bound, four bytes a code point, and an octetLength bound, exact bytes, from a contract predicate. Its budget is its suite's before it was a property (test/unit/schema/representability.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
+/** Length bounds reads a charLength bound, four bytes a code point, and an octetLength bound, exact bytes, from a domain predicate. Its budget is its suite's before it was a property (test/unit/schema/representability.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const lengthBoundsReadsACharLengthBoundFourBytesACodePointAndAnOctetLengthBoundExactBytesFromAContractPredicate =
 	property.explore(
 		(source) => ({
@@ -265,7 +265,7 @@ export const lengthBoundsReadsACharLengthBoundFourBytesACodePointAndAnOctetLengt
 						c.note("octetLength tighter")
 					}
 					assert.equal(
-						textByteBound({ kind: "contract", name: "Memo", base, predicate, facts: [] }),
+						textByteBound({ kind: "domain", name: "Memo", base, predicate, facts: [] }),
 						expected
 					)
 				}),

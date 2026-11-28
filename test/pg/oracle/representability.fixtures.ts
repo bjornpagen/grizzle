@@ -78,7 +78,7 @@ export const keyGen: Gen<KeySketch> = (source) => ({
 
 /** A contract over the wildcard pattern bounding its value's `measure` at `length`. */
 const lengthContract = (measure: "charLength" | "octetLength", length: number): FieldDesc => ({
-	kind: "contract",
+	kind: "domain",
 	name: "Bounded",
 	base: textDesc(wildcardPattern.source, wildcardPattern.flags),
 	predicate: {

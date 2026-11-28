@@ -7,7 +7,7 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Logic, Num, Type } from "#compiler/public/compute.ts"
 import {
 	accumulated,
-	contract,
+	domain,
 	drawn,
 	generated,
 	mintOf,
@@ -22,7 +22,7 @@ import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 const spanKey = Symbol("Span")
 /** A span of time a call adds to its clock's reading, bounded, so the sum fits a bigint under its guard. */
-const Span = contract<typeof spanKey>()("Span", int8, (d) =>
+const Span = domain<typeof spanKey>()("Span", int8, (d) =>
 	Logic.and([Logic.ge(d, 0n), Logic.le(d, 10n ** 12n)])
 )
 export const toSpan = mintOf(spanKey)

@@ -45,7 +45,7 @@ import type { StoredHolding } from "#compiler/ir/unit.ts"
 const lawShapes = [
 	"pk",
 	"key",
-	"contract",
+	"domain",
 	"check",
 	"contained",
 	"spanKey",
@@ -441,7 +441,7 @@ export interface LawSource {
 	readonly kind:
 		| "relation"
 		| "key"
-		| "contract"
+		| "domain"
 		| "check"
 		| "contained"
 		| "family"

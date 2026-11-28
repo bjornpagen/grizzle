@@ -87,14 +87,14 @@ export interface ValueRefused<R> {
 }
 
 /**
- * A value the contract `contract` refuses on the host (contract/parser.ts contractParserOf), as PostgreSQL refuses it
+ * A value the contract `contract` refuses on the host (contract/parser.ts domainParserOf), as PostgreSQL refuses it
  * before it stores it: one of no value of its base's type, which the type's input function refuses, by the codec's fault
  * (ValueRefused's); or one outside its domain, its predicate or its base's refinements, a pattern or a contract below
  * it, which the domain's CHECK refuses (23514, DomainRefused's).
  */
-export type ContractRefused<Name extends string> =
-	| { readonly _tag: "ValueRefused"; readonly contract: Name; readonly fault: CodecFault }
-	| { readonly _tag: "DomainRefused"; readonly contract: Name }
+export type DomainParseRefused<Name extends string> =
+	| { readonly _tag: "ValueRefused"; readonly domain: Name; readonly fault: CodecFault }
+	| { readonly _tag: "DomainRefused"; readonly domain: Name }
 
 /**
  * A row's evaluation over S: each generated field of its relation, its value or NULL, null; each row check of its

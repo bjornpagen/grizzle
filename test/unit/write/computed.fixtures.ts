@@ -2,7 +2,7 @@
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Logic, Num, Type } from "#compiler/public/compute.ts"
-import { contract, drawn, natural, int4, int8 } from "#compiler/public/fields.ts"
+import { domain, drawn, natural, int4, int8 } from "#compiler/public/fields.ts"
 import { param } from "#compiler/public/query.ts"
 import { fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
@@ -11,7 +11,7 @@ import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 const spanKey = Symbol("Span")
 /** A span a call adds to its clock's reading, bounded by its predicate, so a millis reading plus it fits a bigint with no
  * guard (core/clock.ts clockReadingRange). */
-const Span = contract<typeof spanKey>()("Span", int8, (d) =>
+const Span = domain<typeof spanKey>()("Span", int8, (d) =>
 	Logic.and([Logic.ge(d, 0n), Logic.le(d, 10n ** 12n)])
 )
 

@@ -5,7 +5,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { parseBuiltSchema } from "#compiler/program/input.ts"
 import { recordsBuilder } from "#compiler/program/records.ts"
 import { compiledSchema } from "#compiler/program/schema.ts"
-import { contract, natural, int4 } from "#compiler/public/fields.ts"
+import { domain, natural, int4 } from "#compiler/public/fields.ts"
 import { relation, role, schema } from "#compiler/public/schema.ts"
 import { queryOver, v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -59,7 +59,7 @@ const scoreKey = Symbol("Score")
  * first, and the role over the top one, if any.
  */
 const builtOf = (shape: Shape) => {
-	const Score = contract<typeof scoreKey>()("Score", int4)
+	const Score = domain<typeof scoreKey>()("Score", int4)
 	const Unit = relation("Unit", { id: int4, score: Score }, ["id"])
 	const Base = schema("OwnedBase", [Unit], [])
 	const Extra = relation("Extra", { id: int4, score: Score }, ["id"])

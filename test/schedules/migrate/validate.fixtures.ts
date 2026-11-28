@@ -18,7 +18,7 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { guardBracketTexts } from "#compiler/physical/ddl/immutable.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { closedId, contract, bool, int4 } from "#compiler/public/fields.ts"
+import { closedId, domain, bool, int4 } from "#compiler/public/fields.ts"
 import {
 	check,
 	closed,
@@ -75,7 +75,7 @@ const rateKey = Symbol("Rate")
  * each version's pattern a domain of its own.
  */
 const domains = (tightened: boolean) => {
-	const Rate = contract<typeof rateKey>()("Rate", int4, (v) => Logic.le(v, tightened ? 100 : 1000))
+	const Rate = domain<typeof rateKey>()("Rate", int4, (v) => Logic.le(v, tightened ? 100 : 1000))
 	const code = tightened ? str.regex("^[a-z]{0,3}$") : str.regex("^[a-z]{0,7}$")
 	const Worker = relation("Worker", { id: int4, name: label }, ["id"])
 	const Assignment = relation(

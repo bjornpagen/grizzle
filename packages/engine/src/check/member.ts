@@ -61,7 +61,7 @@ const writtenOnly = (value: ScalarType, field: ScalarType): string => {
 		return "a computed numeric is written into a field only by Type.cast under a guard that proves it fits"
 	}
 	if (value.contract !== undefined || field.contract !== undefined) {
-		return "a value re-enters a contract only by Type.cast"
+		return "a value re-enters a domain only by Type.cast"
 	}
 	return "a value is written into a field of another type only by Type.cast"
 }

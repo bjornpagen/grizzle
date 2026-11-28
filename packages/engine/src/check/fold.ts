@@ -37,7 +37,7 @@ export interface FoldTyping {
 
 /** A fold's field of another type than its plane's, a rule the types name too. */
 export const foldPlane: Refused =
-	"a fold's accumulators and ends are of its plane's type: another integer width, numeric typmod or contract is another type"
+	"a fold's accumulators and ends are of its plane's type: another integer width, numeric typmod or domain is another type"
 
 /**
  * Why a fold's fields are not its monoid's, as the rule they break (RuleBreach), or undefined when they are. In order:

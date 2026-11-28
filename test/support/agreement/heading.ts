@@ -145,7 +145,7 @@ const branded = (type: ScalarType, host: string): string => {
 
 /**
  * A host type under its contract's name, where the type is a contract's, the identity its domain carries
- * (types/fields/field.ts Contract): natural's is the bigint it is.
+ * (types/fields/field.ts Domain): natural's is the bigint it is.
  */
 const named = (type: ScalarType, host: string): string => {
 	const { contract } = type
@@ -216,7 +216,7 @@ const declaredFacts = (type: ScalarType): ReadonlyArray<Fact> => {
 
 /**
  * A type's identity as the types state it, a domain: its host under its contract's name, with one Declares per fact its
- * contracts declare (types/fields/field.ts Contract).
+ * contracts declare (types/fields/field.ts Domain).
  */
 const domainOf = (type: ScalarType, host: string): string =>
 	Arr.join(

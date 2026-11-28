@@ -651,7 +651,7 @@ export const textByteBound = (desc: FieldDesc): number => {
 	if (desc.kind === "text") {
 		return languageByteBound(desc.language)
 	}
-	if (desc.kind === "contract") {
+	if (desc.kind === "domain") {
 		return Math.min(
 			textByteBound(desc.base),
 			desc.predicate === undefined ? Number.POSITIVE_INFINITY : predicateByteBound(desc.predicate)
@@ -661,15 +661,15 @@ export const textByteBound = (desc: FieldDesc): number => {
 }
 
 const isTextDesc = (desc: FieldDesc): boolean =>
-	desc.kind === "text" || (desc.kind === "contract" && isTextDesc(desc.base))
+	desc.kind === "text" || (desc.kind === "domain" && isTextDesc(desc.base))
 
 /** Whether a span's endpoint is a date, date itself or a contract over it: a daterange's, of 4-byte bounds. */
 const isDateEndpoint = (desc: FieldDesc): boolean =>
-	desc.kind === "contract" ? isDateEndpoint(desc.base) : desc.kind === "pg" && desc.type === "date"
+	desc.kind === "domain" ? isDateEndpoint(desc.base) : desc.kind === "pg" && desc.type === "date"
 
 const integerFamily = (desc: FieldDesc): "int4" | "int8" | undefined => {
 	switch (desc.kind) {
-		case "contract":
+		case "domain":
 			return integerFamily(desc.base)
 		case "pg":
 			return desc.type === "int4" ? "int4" : desc.type === "int8" ? "int8" : undefined
@@ -760,7 +760,7 @@ const rangeBytes = (endpoint: number): number =>
  */
 export const datumBound = (desc: FieldDesc): DatumBound | undefined => {
 	switch (desc.kind) {
-		case "contract":
+		case "domain":
 			if (isTextDesc(desc)) {
 				break
 			}
@@ -981,7 +981,7 @@ export interface KeyLayout {
 }
 
 const isSpanDesc = (desc: FieldDesc): boolean =>
-	desc.kind === "span" || (desc.kind === "contract" && isSpanDesc(desc.base))
+	desc.kind === "span" || (desc.kind === "domain" && isSpanDesc(desc.base))
 
 /**
  * A key's fields with their descriptors, each a field of the keyed relation: a declared key's, or a derived relation's

@@ -68,7 +68,7 @@ export const declaredDescOf = (
 ): Result.Result<FieldDesc, Undeclared> => {
 	const { contract } = type
 	if (contract !== undefined) {
-		return declaration("contract", contract.name, declared.contract(contract.name))
+		return declaration("domain", contract.name, declared.contract(contract.name))
 	}
 	switch (type.carrier) {
 		case "int2":

@@ -25,7 +25,7 @@ export const kinds: Arr.NonEmptyReadonlyArray<PreconditionKind> = [
 	"finite",
 	"integral",
 	"fits",
-	"contract",
+	"domain",
 	"language",
 	"powerDomain",
 	"powerRange",
@@ -244,7 +244,7 @@ export const plants: { readonly [K in PreconditionKind]: Arr.NonEmptyReadonlyArr
 		fits(testPg.numeric, testPg.numericOf(5, 2)),
 		fits(testPg.computedNumeric, testPg.numericOf(5, 2))
 	],
-	contract: [
+	domain: [
 		numberContract(testPg.integer, Positive, 1),
 		numberContract(testPg.numericOf(5, 2), Fraction, Numeric.of("0")),
 		typedContract(testPg.text, Named),
@@ -321,7 +321,7 @@ export const plants: { readonly [K in PreconditionKind]: Arr.NonEmptyReadonlyArr
 
 /**
  * Where each kind's plant is lowered: a query's, whose operations are the widest, or a check's for a text's UTF-16
- * units, which only a check, a contract predicate or a generated field reads.
+ * units, which only a check, a domain predicate or a generated field reads.
  */
 const modeOf: { readonly [K in PreconditionKind]: "query" | "check" } = {
 	nonzero: "query",
@@ -329,7 +329,7 @@ const modeOf: { readonly [K in PreconditionKind]: "query" | "check" } = {
 	finite: "query",
 	integral: "query",
 	fits: "query",
-	contract: "query",
+	domain: "query",
 	language: "query",
 	powerDomain: "query",
 	powerRange: "query",

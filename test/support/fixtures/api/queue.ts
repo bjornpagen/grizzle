@@ -1,6 +1,6 @@
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Logic, Num, Type } from "#compiler/public/compute.ts"
-import { closedId, contract, mintOf, int4, int8 } from "#compiler/public/fields.ts"
+import { closedId, domain, mintOf, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	closed,
@@ -29,13 +29,13 @@ export const Resource = closed.ordered("Resource", ["gpu", "cpu"])
 export const Outcome = closed.ordered("Outcome", ["succeeded", "failed"])
 export const Reason = closed.ordered("Reason", ["malformed", "unsupported"])
 const digestKey = Symbol("Digest")
-export const Digest = contract<typeof digestKey>()("Digest", str.regex("^[0-9a-f]{64}$"))
+export const Digest = domain<typeof digestKey>()("Digest", str.regex("^[0-9a-f]{64}$"))
 export const toDigest = mintOf(digestKey)
 const slotKey = Symbol("Slot")
-export const Slot = contract<typeof slotKey>()("Slot", int4, (x) => Logic.ge(x, 0))
+export const Slot = domain<typeof slotKey>()("Slot", int4, (x) => Logic.ge(x, 0))
 export const toSlot = mintOf(slotKey)
 const seatNoKey = Symbol("SeatNo")
-export const SeatNo = contract<typeof seatNoKey>()("SeatNo", int4, (x) => Logic.ge(x, 0))
+export const SeatNo = domain<typeof seatNoKey>()("SeatNo", int4, (x) => Logic.ge(x, 0))
 export const toSeatNo = mintOf(seatNoKey)
 
 export const Standing = closed.ordered("Standing", ["wanted", "leased", "done", "denied"])

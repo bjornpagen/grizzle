@@ -138,7 +138,7 @@ const descRoster = (t: FieldDesc): string | undefined => {
 		case "closedId":
 		case "bits":
 			return t.roster
-		case "contract":
+		case "domain":
 			return descRoster(t.base)
 		case "pg":
 		case "numeric":
@@ -263,7 +263,7 @@ const restatedType = (t: FieldDesc, names: PreviousNames): FieldDesc | undefined
 			const endpoint = restatedType(t.endpoint, names)
 			return endpoint === undefined ? undefined : { ...t, endpoint }
 		}
-		case "contract": {
+		case "domain": {
 			const base = restatedType(t.base, names)
 			const scope: Scope = {
 				field: () => undefined,

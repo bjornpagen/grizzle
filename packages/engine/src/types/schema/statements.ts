@@ -628,7 +628,7 @@ export type FoldEnd<Fa, M, OC, K, E, C, T> = E extends readonly [
 ]
 	? {
 			readonly held: unknown
-			readonly type: Refusal<"a fold's accumulators and ends are of its plane's type: another integer width, numeric typmod or contract is another type">
+			readonly type: Refusal<"a fold's accumulators and ends are of its plane's type: another integer width, numeric typmod or domain is another type">
 			readonly absent: Refusal<"a fold's end names one accumulated field of the owner per plane">
 		}[EndsHeld<OC, Ends, StepType<Fa, M, C, T>, PlanesOf<M>>]
 	: Refusal<"a fold's end names one accumulated field of the owner per plane">

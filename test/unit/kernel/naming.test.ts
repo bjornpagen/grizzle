@@ -218,7 +218,7 @@ export const productionNamesFromSrcAgreeWithSrcsRecordsAtEveryNamedNativeKeyAlte
 					} else {
 						for (const use of stored) {
 							const typed = declaredColumn(N.model.owned, use.table, use.column)
-							if (typed.desc.kind !== "contract") {
+							if (typed.desc.kind !== "domain") {
 								return assert.fail(
 									`${typed.relation}.${typed.field} uses ${contract.domain} with no contract`
 								)

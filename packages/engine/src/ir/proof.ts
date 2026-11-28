@@ -47,7 +47,7 @@ export type Precondition =
 	| { readonly kind: "finite"; readonly operand: OperandIndex }
 	| { readonly kind: "integral"; readonly operand: OperandIndex }
 	| { readonly kind: "fits" }
-	| { readonly kind: "contract" }
+	| { readonly kind: "domain" }
 	| { readonly kind: "language" }
 	| { readonly kind: "powerDomain" }
 	| { readonly kind: "powerRange" }

@@ -18,7 +18,7 @@ export {
 	Type,
 	Xml
 } from "#compiler/public/compute.ts"
-export { contract, instant, int4, int8, natural, range } from "#compiler/public/fields.ts"
+export { domain, instant, int4, int8, natural, range } from "#compiler/public/fields.ts"
 export type { Instant } from "#compiler/public/fields.ts"
 export { query, v } from "#compiler/public/query.ts"
 export type { HeadOf, ResultOf } from "#compiler/public/query.ts"

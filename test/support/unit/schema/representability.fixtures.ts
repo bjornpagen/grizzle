@@ -486,7 +486,7 @@ export const hasItem = (items: RegexSequence, holds: (item: RegexItem) => boolea
 	)
 
 /**
- * A conjunct of a contract predicate over one length of VALUE, `measure`, its char_length or its octet_length =: L, as
+ * A conjunct of a domain predicate over one length of VALUE, `measure`, its char_length or its octet_length =: L, as
  * drawn: a comparison with a literal on either side (a number or a bigint), between (low <= high), in (a nonempty
  * list), a disjunction of two upper bounds, which bounds L but is no form the reader recognizes, or a test of the value
  * that leaves L free.

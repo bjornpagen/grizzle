@@ -9,7 +9,7 @@
 import { defined } from "@bjornpagen/testing/assert"
 import { element, finite, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, Record as Rec } from "effect"
-import { contract, range, variant, bool, int4, int8 } from "#compiler/public/fields.ts"
+import { domain, range, variant, bool, int4, int8 } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { levelOf } from "#compiler/schema/level.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
@@ -42,9 +42,9 @@ const scoreKey = Symbol("Score")
 const tickKey = Symbol("Tick")
 /** A program of the place, built fresh: its schema values, root first. */
 const programOf = (place: ContractPlace): Arr.NonEmptyReadonlyArray<AnySchema> => {
-	const Score = contract<typeof scoreKey>()("Score", int4, undefined, undefined)
-	const Tick = contract<typeof tickKey>()("Tick", int8, undefined, undefined)
-	const Outer = contract<typeof outerKey>()("Outer", Score, undefined, undefined)
+	const Score = domain<typeof scoreKey>()("Score", int4, undefined, undefined)
+	const Tick = domain<typeof tickKey>()("Tick", int8, undefined, undefined)
+	const Outer = domain<typeof outerKey>()("Outer", Score, undefined, undefined)
 	const Side = closed.unordered("Side", ["least", "most"])
 	/** A variant of an arm's check, qti-pie's QtiValue's shape: a level's content holds it with its check. */
 	const Mark = variant(

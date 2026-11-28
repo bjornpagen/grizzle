@@ -292,13 +292,13 @@ export type FingerprintFeature =
 export const Level = closed("Level", [...levelHandles], "ordered", [])
 
 export type Conflict =
-	| "a contract name over another base"
-	| "a contract name with another predicate"
+	| "a domain name over another base"
+	| "a domain name with another predicate"
 	| "a relation name across levels"
 
 export const conflicts: Arr.NonEmptyReadonlyArray<Conflict> = [
-	"a contract name over another base",
-	"a contract name with another predicate",
+	"a domain name over another base",
+	"a domain name with another predicate",
 	"a relation name across levels"
 ]
 

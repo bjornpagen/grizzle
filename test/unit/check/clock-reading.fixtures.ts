@@ -3,7 +3,7 @@
 import { int as between, type Gen, map } from "@bjornpagen/testing/gen"
 import { clockReadingRange, type ClockUnit } from "#compiler/core/clock.ts"
 import { Logic, Num, Type } from "#compiler/public/compute.ts"
-import { contract, int4, int8 } from "#compiler/public/fields.ts"
+import { domain, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
@@ -59,13 +59,13 @@ const dueKey = Symbol("Due")
 const instantKey = Symbol("DenInstant")
 /** The case's schema and its clocked write's ChangeSet, built as a JavaScript caller builds them. */
 export const deadlineOf = (d: Deadline) => {
-	const Instant = contract<typeof instantKey>()("DenInstant", int8)
+	const Instant = domain<typeof instantKey>()("DenInstant", int8)
 	const Due =
 		d.due === "unbounded"
-			? contract<typeof dueKey>()("Due", int8)
-			: contract<typeof dueKey>()("Due", int8, (t) => Logic.le(t, 10n ** 16n))
+			? domain<typeof dueKey>()("Due", int8)
+			: domain<typeof dueKey>()("Due", int8, (t) => Logic.le(t, 10n ** 16n))
 	const bound = 10n ** BigInt(d.exponent)
-	const Delay = contract<typeof delayKey>()("Delay", int8, (t) =>
+	const Delay = domain<typeof delayKey>()("Delay", int8, (t) =>
 		Logic.and([Logic.ge(t, 0n), Logic.le(t, bound)])
 	)
 	const Step = relation("Step", { step: int4, at: Instant, delay: Delay, due: Due }, ["step"])

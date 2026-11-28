@@ -25,7 +25,7 @@ import {
 } from "#compiler/ir/desc.ts"
 
 /** A contract's field descriptor. */
-type ContractFieldDesc = Extract<FieldDesc, { readonly kind: "contract" }>
+type ContractFieldDesc = Extract<FieldDesc, { readonly kind: "domain" }>
 
 interface QueryUses {
 	/** The stored, closed, derived and world relations the query reads, by name. */
@@ -245,7 +245,7 @@ class Collector {
 	/** Each contract `type` names, at any depth. */
 	#typed(type: FieldDesc): void {
 		nestedFields(type, (d) => {
-			if (d.kind === "contract") {
+			if (d.kind === "domain") {
 				this.contracts.push(d)
 			}
 		})

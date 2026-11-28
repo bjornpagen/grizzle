@@ -1,14 +1,14 @@
 /** What the properties of integration.test.ts read: its spaces, models and helpers. */
 
 import { Logic } from "#compiler/public/compute.ts"
-import { closedId, contract, int4, int8 } from "#compiler/public/fields.ts"
+import { closedId, domain, int4, int8 } from "#compiler/public/fields.ts"
 import { closed, relation, type RowScalars } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 
 const Slug = str.regex("^[a-z]{1,20}$")
 
 const centsKey = Symbol("Cents")
-export const Cents = contract<typeof centsKey>()("Cents", int8, (v) => Logic.ge(v, 0n))
+export const Cents = domain<typeof centsKey>()("Cents", int8, (v) => Logic.ge(v, 0n))
 
 export const Kind = closed.ordered("Kind", ["a", "b"])
 

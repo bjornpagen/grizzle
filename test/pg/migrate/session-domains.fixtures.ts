@@ -10,7 +10,7 @@ import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { contract, int4, int8 } from "#compiler/public/fields.ts"
+import { domain, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -88,7 +88,7 @@ const wordsKey = Symbol("Words")
  * (physical/ddl/deltas.ts sessionDeltaOf).
  */
 const firstBase = (name: string) => {
-	const Words = contract<typeof wordsKey>()("Words", int4, (x) => Logic.ge(x, 0))
+	const Words = domain<typeof wordsKey>()("Words", int4, (x) => Logic.ge(x, 0))
 	const Note = relation("Note", { k: int4, n: Words }, ["k"])
 	return schema(
 		name,
@@ -128,7 +128,7 @@ const secondOf =
 	(name: string): Version => {
 		switch (change) {
 			case "tightened": {
-				const Words = contract<typeof wordsKey2>()("Words", int4, (x) => Logic.ge(x, 1))
+				const Words = domain<typeof wordsKey2>()("Words", int4, (x) => Logic.ge(x, 1))
 				const Note = relation("Note", { k: int4, n: Words }, ["k"])
 				const base = schema(
 					name,
@@ -141,7 +141,7 @@ const secondOf =
 				}
 			}
 			case "retyped": {
-				const Words = contract<typeof wordsKey3>()("Words", int8, (x) => Logic.ge(x, 0n))
+				const Words = domain<typeof wordsKey3>()("Words", int8, (x) => Logic.ge(x, 0n))
 				const Note = relation("Note", { k: int4, n: Words }, ["k"])
 				const base = schema(
 					name,

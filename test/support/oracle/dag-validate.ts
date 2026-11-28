@@ -183,7 +183,7 @@ export type DagRule =
 	| "an expression's dependencies are the computed ones"
 	| "an expression is stable when an argument is"
 	| "a conditional has a boolean condition and branches of its type"
-	| "VALUE appears only in a contract predicate"
+	| "VALUE appears only in a domain predicate"
 	| "a column reference keeps its column's type"
 	| "a partial operation stands with a proof the kernel re-derives"
 	| "every precondition of a partial operation stands with a proof of its own"
@@ -1053,8 +1053,8 @@ class Checker {
 			case "value":
 				return [
 					{
-						rule: "VALUE appears only in a contract predicate",
-						message: "VALUE only inside a contract predicate, never in a query DAG"
+						rule: "VALUE appears only in a domain predicate",
+						message: "VALUE only inside a domain predicate, never in a query DAG"
 					}
 				]
 			case "param":
@@ -1078,7 +1078,7 @@ class Checker {
 								message: "a contract or regex-refined target for a domain cast"
 							}
 						]
-					: operationProofHolds(expr.proof, [{ kind: "contract" }], {
+					: operationProofHolds(expr.proof, [{ kind: "domain" }], {
 								type: expr.type,
 								operand: args[0]?.type
 						  })

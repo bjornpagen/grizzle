@@ -1,6 +1,6 @@
 /**
  * Fingerprints (core/fingerprint.ts): SHA-256 over the domain-separated canonical text, blind to source locations,
- * covering every part the contract names.
+ * covering every part the domain names.
  *
  * - Parts: a schema level's fingerprint changes with its content and with a "loc" member that holds no SourceLoc, and
  *   not with its SourceLocs moved; stripping every SourceLoc leaves it as it was; and a level over a base is the text
@@ -65,7 +65,7 @@ import {
 	stripped
 } from "#test/unit/core/fingerprint.fixtures.ts"
 
-/** Fingerprints cover every part the contract names and nothing else. Its budget is its suite's before it was a property (test/unit/core/fingerprint.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
+/** Fingerprints cover every part the domain names and nothing else. Its budget is its suite's before it was a property (test/unit/core/fingerprint.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const fingerprintsCoverEveryPartTheContractNamesAndNothingElse = property.explore(partsGen, {
 	needs: {},
 	budget: { runs: 400, steered: 400 },
@@ -101,7 +101,7 @@ export const fingerprintsCoverEveryPartTheContractNamesAndNothingElse = property
 				)
 				c.note(change)
 			}),
-	oracle: { kind: "specification", name: "the parts the fingerprint's contract names" },
+	oracle: { kind: "specification", name: "the parts the fingerprint's domain names" },
 	kept: [],
 	kills: [
 		{

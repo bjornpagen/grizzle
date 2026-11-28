@@ -34,7 +34,7 @@ import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Record as Rec, String as Str } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { Logic, Text } from "#compiler/public/compute.ts"
-import { contract } from "#compiler/public/fields.ts"
+import { domain } from "#compiler/public/fields.ts"
 import { keyTextBytes, str } from "#compiler/public/text.ts"
 import { relationBuilder as relation } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
@@ -118,7 +118,7 @@ export const exactlyKeyTextBytes = property.explore(caseSpace, {
 			Effect.provideServiceEffect(
 				Effect.gen(function* () {
 					const budget = keyTextBytes(Arr.map(c.companions, fieldOf))
-					const KeyText = contract<typeof keyTextKey>()("KeyText", str.regex("^.*$", "su"), (v) =>
+					const KeyText = domain<typeof keyTextKey>()("KeyText", str.regex("^.*$", "su"), (v) =>
 						Logic.le(Text.octetLength(v), budget)
 					)
 					const names = [...Arr.map(indices(c.companions.length), (i) => `c${i}`), "t"]
@@ -217,11 +217,11 @@ export const exactlyKeyTextBytes = property.explore(caseSpace, {
 						session.query(`INSERT INTO ${table} (${columns}) VALUES (${values(past)})`, [])
 					)
 					const error = refused._tag === "Failure" ? pgErrorFields(refused.failure) : undefined
-					const domain = namesOf(installed).contract("KeyText")
+					const keyTextDomain = namesOf(installed).contract("KeyText")
 					assert.equal(error?.code, "23514", "one byte past the budget is the domain's to refuse")
 					assert.equal(
 						error?.constraint,
-						domain.kind === "checked" ? domain.constraint : undefined,
+						keyTextDomain.kind === "checked" ? keyTextDomain.constraint : undefined,
 						"the contract's domain CHECK refuses it"
 					)
 				}),

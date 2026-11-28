@@ -1337,7 +1337,7 @@ const compiledTable = (exprs: Readonly<Record<ExprId, TableExpr>>, root: ExprId)
 		}
 		switch (expr.kind) {
 			case "value": {
-				const stop = unsupported("a contract's VALUE outside a contract predicate")
+				const stop = unsupported("a domain's VALUE outside a domain predicate")
 				return (leaves) => (leaves.value === undefined ? stop : Result.ok(leaves.value))
 			}
 			case "column": {

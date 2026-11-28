@@ -86,8 +86,8 @@ export const aProgramOverEachRuntimeEntryLoadsModulesOfTheRuntimeZonesAloneNoCom
 				file: "packages/grizzle/src/runtime.ts",
 				original: 'export * from "#adapter/public/db.ts"\n',
 				replacement:
-					'export * from "#adapter/public/contract.ts"\nexport * from "#adapter/public/db.ts"\n',
-				why: "The runtime entry re-exports the contract parser again, as it did: every process that serves a login loads the text-language analysis and the predicate lowering a contract's checker is derived by, whether it parses a contract's values or not."
+					'export * from "#adapter/public/domain.ts"\nexport * from "#adapter/public/db.ts"\n',
+				why: "The runtime entry re-exports the contract parser again, as it did: every process that serves a login loads the text-language analysis and the predicate lowering a contract's checker is derived by, whether it parses a domain's values or not."
 			},
 			{
 				file: ".fallowrc.json",

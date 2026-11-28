@@ -299,14 +299,14 @@ export const conflictingDeclarationsRefusesANameClaimedTwiceWithConflictingMeani
 					c.note(`${s.conflict}: ${s.agree ? "one declaration" : "refused"}`)
 					const owned = (() => {
 						switch (s.conflict) {
-							case "a contract name over another base":
-							case "a contract name with another predicate": {
+							case "a domain name over another base":
+							case "a domain name with another predicate": {
 								const first = rawContract(s.name, rawPg.bigint, atLeast(s.n))
 								const second: FieldBase = s.agree
 									? s.swapped
 										? rawSpan(rawContract(s.name, rawPg.bigint, atLeast(s.n)))
 										: rawContract(s.name, rawPg.bigint, atLeast(s.n))
-									: s.conflict === "a contract name over another base"
+									: s.conflict === "a domain name over another base"
 										? rawContract(s.name, rawPg.integer, atLeast(s.n))
 										: rawContract(s.name, rawPg.bigint, atLeast(s.n + 1n))
 								const A = relation("A", { id: Id, amount: first }, ["id"], [])

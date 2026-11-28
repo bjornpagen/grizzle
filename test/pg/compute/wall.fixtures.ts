@@ -8,7 +8,7 @@ import { Array as Arr, Option } from "effect"
 import { clockReadingRange, millisPerDay, wallCycle } from "#compiler/core/clock.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Logic, Num, Time, Type } from "#compiler/public/compute.ts"
-import { closedId, contract, date, generated, int4, int8 } from "#compiler/public/fields.ts"
+import { closedId, domain, date, generated, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { daysFromCivil, floorDiv } from "#test/support/oracle/reference/calendar.ts"
@@ -286,7 +286,7 @@ const millisKey = Symbol("Millis")
  */
 const wallSchema = (name: string, roster: Arr.NonEmptyReadonlyArray<string>) => {
 	const Zone = closed.zones("Zone", roster)
-	const Millis = contract<typeof millisKey>()("Millis", int8, (x) =>
+	const Millis = domain<typeof millisKey>()("Millis", int8, (x) =>
 		Logic.and([
 			Logic.ge(x, clockReadingRange.millis.low),
 			Logic.le(x, clockReadingRange.millis.high)

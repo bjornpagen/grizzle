@@ -70,7 +70,7 @@ import {
 import type { BitApi } from "#compiler/types/compute/compute.ts"
 import type { Scalar } from "#compiler/types/compute/scalar.ts"
 import type {
-	ContractValueOrigin,
+	DomainValueOrigin,
 	DomainOf,
 	Facts,
 	OriginOfTerm,
@@ -83,14 +83,14 @@ import type {
 	ArmsAdmitted,
 	BitConstructor,
 	ClosedIdConstructor,
-	ContractConstructor,
+	DomainConstructor,
 	VariantConstructor,
 	DrawnConstructor,
 	GeneratedConstructor,
 	MintOfConstructor,
 	NotInstantBase,
 	KeyApart,
-	OneContractName,
+	OneDomainName,
 	UniqueKey,
 	RangeConstructor
 } from "#compiler/types/fields/constructors.ts"
@@ -103,7 +103,7 @@ import type {
 	ByteaField,
 	ClosedIdField,
 	ClosedSubset,
-	Contract,
+	Domain,
 	DateField,
 	DrawnField,
 	DrawnType,
@@ -166,13 +166,13 @@ export type { DomainOf } from "#compiler/types/core/phantom.ts"
 export { Sha256 } from "#compiler/scalar/values/sha256.ts"
 export type {
 	AccumulatedField,
-	AnyContract,
+	AnyDomain,
 	BitField,
 	ByteaField,
 	CalendarDate,
 	ClosedIdField,
 	ClosedSubset,
-	Contract,
+	Domain,
 	DateField,
 	DrawnField,
 	DrawnType,
@@ -346,7 +346,7 @@ export const tsvector: <const C extends TextSearchConfiguration>(
 	configuration: C
 ) => SearchDocumentField<C> = storedSearchDescriptor
 
-export const contract: ContractConstructor = <K extends symbol>(...first: ReadonlyArray<never>) => {
+export const domain: DomainConstructor = <K extends symbol>(...first: ReadonlyArray<never>) => {
 	admitContractCall(first)
 	return <
 		const Name extends string,
@@ -360,15 +360,15 @@ export const contract: ContractConstructor = <K extends symbol>(...first: Readon
 			NotInstantBase<B> &
 			UniqueKey<K> &
 			KeyApart<K, B> &
-			OneContractName<NoInfer<Name>>,
+			OneDomainName<NoInfer<Name>>,
 		predicate:
 			| ((
-					v: Scalar<DomainOf<B>, unknown, ContractValueOrigin, B["sql"], Infer<B>>
+					v: Scalar<DomainOf<B>, unknown, DomainValueOrigin, B["sql"], Infer<B>>
 			  ) => Pr & Parameterless<Pr>)
 			| undefined,
 		declared: { readonly proves: Proved } | undefined,
 		...extra: ReadonlyArray<never>
-	): Contract<Name, B, K, Proved> => {
+	): Domain<Name, B, K, Proved> => {
 		const parts = callerContractParts(name, base, [predicate, declared, ...extra])
 		const column: Column<Marked<Infer<B>, K>> = hostColumn(base.column)
 		const members =

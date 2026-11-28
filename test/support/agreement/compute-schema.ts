@@ -2,7 +2,7 @@ import { Logic, Type } from "#compiler/public/compute.ts"
 import {
 	bit,
 	closedId,
-	contract,
+	domain,
 	date,
 	Numeric,
 	mintOf,
@@ -27,19 +27,19 @@ const Shade = closed.ordered("Shade", ["low", "dark"])
 /** Tone's handles in a roster whose order means nothing: a closed id of it has no order, which no ordered operation reads. */
 export const Hue = closed.unordered("Hue", ["low", "high"])
 export const centsKey = Symbol("Cents")
-const Cents = contract<typeof centsKey>()("Cents", int8, (x) => Logic.ge(x, 0n), {
+const Cents = domain<typeof centsKey>()("Cents", int8, (x) => Logic.ge(x, 0n), {
 	proves: ["nonnegative"]
 })
 export const epochDayKey = Symbol("EpochDay")
-const EpochDay = contract<typeof epochDayKey>()("EpochDay", int8)
+const EpochDay = domain<typeof epochDayKey>()("EpochDay", int8)
 export const rateKey = Symbol("Rate")
-const Rate = contract<typeof rateKey>()("Rate", numeric(7, 6), (x) => Logic.between(x, 0n, 1n))
+const Rate = domain<typeof rateKey>()("Rate", numeric(7, 6), (x) => Logic.between(x, 0n, 1n))
 export const divisorKey = Symbol("Divisor")
-const Divisor = contract<typeof divisorKey>()("Divisor", int4, (x) => Logic.ne(x, 0), {
+const Divisor = domain<typeof divisorKey>()("Divisor", int4, (x) => Logic.ne(x, 0), {
 	proves: ["nonzero"]
 })
 export const bodyKey = Symbol("Body")
-const Body = contract<typeof bodyKey>()("Body", str.regex("^.*$", "su"))
+const Body = domain<typeof bodyKey>()("Body", str.regex("^.*$", "su"))
 
 /**
  * The mints of Cell's contracts' values, which a program's typed constant and a conditional's literal arm of a contract
@@ -184,7 +184,7 @@ export const Heads = headsOver(Cells, Cell)
  * declared facts already. Where the engine refuses a case for a contract's predicate (ContractLiteral), the population
  * judges it over this schema too: a refusal here is one the types decide, and any other is theirs to state.
  */
-const RateAsTyped = contract<typeof rateKey>()("Rate", numeric(7, 6))
+const RateAsTyped = domain<typeof rateKey>()("Rate", numeric(7, 6))
 const CellAsTyped = cellOver(RateAsTyped)
 const CellsAsTyped = schema("Cells", [Tone, Shade, Hue, CellAsTyped], [])
 

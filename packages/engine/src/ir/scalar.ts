@@ -1375,7 +1375,7 @@ const refinementText = (regex: RegexRef): string => {
  */
 export const typeLabel = (t: ScalarType): string => {
 	if (t.contract !== undefined) {
-		return `contract ${t.contract.name} over ${typeLabel(t.contract.base)}`
+		return `domain ${t.contract.name} over ${typeLabel(t.contract.base)}`
 	}
 	switch (t.carrier) {
 		case "int2":

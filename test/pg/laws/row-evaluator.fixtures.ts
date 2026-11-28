@@ -13,7 +13,7 @@ import { rowEvaluator } from "#adapter/public/host.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { constraintNamesOf } from "#compiler/program/laws.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { closedId, contract, mintOf, int4 } from "#compiler/public/fields.ts"
+import { closedId, domain, mintOf, int4 } from "#compiler/public/fields.ts"
 import { closed, derived, relation, schema, type RelationName } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { query, v } from "#compiler/query/build/query.ts"
@@ -142,7 +142,7 @@ export const required: NonEmptyReadonlyArray<Feature> = [
 
 const Short = str.regex("^[a-c]{0,3}$")
 const unitsKey = Symbol("Units")
-const Units = contract<typeof unitsKey>()("Units", int4, (x) => Logic.le(x, 5))
+const Units = domain<typeof unitsKey>()("Units", int4, (x) => Logic.le(x, 5))
 const toUnits = mintOf(unitsKey)
 
 const letters = (spelled: string) => characterOf(nonEmpty(Arr.fromIterable(spelled), spelled))

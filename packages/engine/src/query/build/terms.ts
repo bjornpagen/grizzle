@@ -371,7 +371,7 @@ const spanTerm = (value: unknown, label: string): TermOf => {
 	if (t.typing.kind === "typed" && spanCarrierOf(t.typing.type) === undefined) {
 		throw malformed(
 			label,
-			"a range term: range(int4), range(int8) or a range over a contract on them"
+			"a range term: range(int4), range(int8) or a range over a domain on them"
 		)
 	}
 	return t
@@ -512,7 +512,7 @@ export const spanFromEnds = <T, S extends SqlTag>(
 		if (!spanned.ok || isInstantType(s.typing.type)) {
 			throw malformed(
 				"r.range",
-				`a start of a range endpoint's type, int4, int8, date or a contract over one, not ${typeLabel(s.typing.type)}`
+				`a start of a range endpoint's type, int4, int8, date or a domain over one, not ${typeLabel(s.typing.type)}`
 			)
 		}
 		return typed(spanned.value)

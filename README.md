@@ -360,8 +360,8 @@ export const tokenless =
 const microsKey = Symbol("Micros")
 const millisKey = Symbol("Millis")
 /** Millionths of a dollar, never negative; milliseconds since the epoch. */
-const Micros = contract<typeof microsKey>()("Micros", int8, (m) => Logic.ge(m, 0n))
-const Millis = contract<typeof millisKey>()("Millis", int8)
+const Micros = domain<typeof microsKey>()("Micros", int8, (m) => Logic.ge(m, 0n))
+const Millis = domain<typeof millisKey>()("Millis", int8)
 const RequestId = str.regex("^req_[0-9A-Za-z]{1,64}$")
 const Workspace = str.regex("^ws_[0-9a-z]{1,32}$")
 const Model = str.regex("^[a-z0-9.-]{1,64}$")
@@ -496,7 +496,7 @@ one aggregate, in a single statement.
 ```ts
 const minuteKey = Symbol("Minute")
 /** Minutes since the epoch. */
-const Minute = contract<typeof minuteKey>()("Minute", int8)
+const Minute = domain<typeof minuteKey>()("Minute", int8)
 const RoomName = str.regex("^[A-Za-z0-9 -]{1,64}$")
 
 export const Room = relation("Room", { name: RoomName }, ["name"])
@@ -830,7 +830,7 @@ export const calls = (workspace: string) =>
 `Micros` above is a `contract`: a type of its own over `int8`, with a check, whose values only the holder of
 `microsKey` can make, through `mintOf(microsKey)`. Two systems' ids, or cents and micros, never mix.
 
-`contractParser(Micros, microsKey)`, from `@bjornpagen/grizzle/contract`, is the checked mint: it parses a value from
+`domainParser(Micros, microsKey)`, from `@bjornpagen/grizzle/domain`, is the checked mint: it parses a value from
 outside, a request's or a step input's, and refuses one PostgreSQL would refuse to store, `ValueRefused` or
 `DomainRefused`. It derives its checker from the contract where it is built, so no generated file holds one. Your
 configuration never imports a file `grizzle generate` writes: one that does is refused (`ConfigReadsGenerated`), since

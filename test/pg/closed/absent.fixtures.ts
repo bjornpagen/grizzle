@@ -24,7 +24,7 @@ import {
 	Bit,
 	bit,
 	closedId,
-	contract,
+	domain,
 	Numeric,
 	drawn as drawnField,
 	generated,
@@ -647,7 +647,7 @@ const handlesOf = (n: number, h: (code: number) => string): NonEmptyReadonlyArra
 ]
 
 const unitsKey = Symbol("Units")
-const Units = contract<typeof unitsKey>()("Units", int4, (x) => Logic.le(x, 5))
+const Units = domain<typeof unitsKey>()("Units", int4, (x) => Logic.le(x, 5))
 const toUnits = mintOf(unitsKey)
 
 const Wild = str.regex("^.*$", "su")

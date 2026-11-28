@@ -18,7 +18,7 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./runtime": "./src/runtime.ts",
-		"./contract": "./src/contract.ts",
+		"./domain": "./src/domain.ts",
 		"./client": "./src/client.ts",
 		"./compile": "./src/compile.ts",
 		"./dynamic": "./src/dynamic.ts",

@@ -139,7 +139,7 @@ export const descriptorIdentityMakesTwoDescriptorsOneTypeExactlyWhenTheirPartsNa
 				}),
 		oracle: {
 			kind: "specification",
-			name: "a type is its SQL type, typmod, roster, endpoint, width and contract name"
+			name: "a type is its SQL type, typmod, roster, endpoint, width and domain name"
 		},
 		budget: { runs: 1000, steered: 0 },
 		kept: [],

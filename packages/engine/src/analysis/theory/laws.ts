@@ -1189,8 +1189,8 @@ export class Normalizer {
 		this.#push(
 			{
 				identity: {
-					shape: "contract",
-					source: { statement: index, kind: "contract" },
+					shape: "domain",
+					source: { statement: index, kind: "domain" },
 					reads: new Set(uses.map((u) => u.relation)),
 					detail: { kind: "contract", contract: name, owned, uses }
 				},
@@ -2439,7 +2439,7 @@ const contractViolation = (
 			return refuse(
 				"MalformedDescription",
 				loc,
-				`${use.relation}.${use.field.name} of the contract ${name}`
+				`${use.relation}.${use.field.name} of the domain ${name}`
 			)
 		}
 		/**
@@ -2460,7 +2460,7 @@ const contractViolation = (
 							: refuse(
 									"MalformedDescription",
 									at,
-									`a contract predicate reads only its VALUE, not ${desc.kind}`
+									`a domain predicate reads only its VALUE, not ${desc.kind}`
 								)
 					)
 		const refused = b.filter(region, b.not(pred))

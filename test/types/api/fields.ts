@@ -27,7 +27,7 @@ const readers = {
 		'relation.generated("T", { id: Id, n: int8 }, ["id"], (r) => ({ g: generated(term, r.n) }))',
 		"TS2345"
 	],
-	"a contract's base": ['contract<typeof probeKey>()("C", term, (v) => Logic.gt(v, 0n))', "TS2345"],
+	"a contract's base": ['domain<typeof probeKey>()("C", term, (v) => Logic.gt(v, 0n))', "TS2345"],
 	"codecText's field": ["codecText(term)", "TS2345"],
 	"lexicalForm's type": ["lexicalForm(term)", "TS2741"],
 	"lexical's type": ["lexical(term)", "TS2741"]

@@ -200,7 +200,7 @@ const connective =
 	}
 
 const isTextDesc = (desc: FieldDesc): boolean =>
-	desc.kind === "text" || (desc.kind === "contract" && isTextDesc(desc.base))
+	desc.kind === "text" || (desc.kind === "domain" && isTextDesc(desc.base))
 
 const integerDesc: FieldDesc = { kind: "pg", type: "int4" }
 const integerType: TermType = {
@@ -400,7 +400,7 @@ const rowExpr = (expr: OpenExpr): ExprDesc | ForeignInput => {
 		case "parent":
 			return foreign("a parent column")
 		case "value":
-			return foreign("a contract's value")
+			return foreign("a domain's value")
 		case "absent":
 			return foreign("a relational negation")
 		case "exists":
@@ -533,7 +533,7 @@ const rowForeign: { readonly [K in ExprDesc["kind"]]: string | undefined } = {
 	var: "a query variable",
 	param: "a parameter",
 	parent: "a parent column",
-	value: "a contract's value",
+	value: "a domain's value",
 	absent: "a relational negation",
 	exists: "a relational existence",
 	call: "a declared function's call, which PostgreSQL alone evaluates",

@@ -11,7 +11,7 @@ import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { clockedMember, workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Num, Type } from "#compiler/public/compute.ts"
-import { contract, int4, int8 } from "#compiler/public/fields.ts"
+import { domain, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -32,7 +32,7 @@ import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { offlineOwner } from "#test/support/pg/cli/support.ts"
 
 const instantKey = Symbol("Instant")
-const Instant = contract<typeof instantKey>()("Instant", int8)
+const Instant = domain<typeof instantKey>()("Instant", int8)
 
 const Step = relation("Step", { id: int4 }, ["id"])
 

@@ -404,7 +404,7 @@ const verdictOf = (
 		: { kind: "resumes" }
 }
 
-/** Each refusal at `order` the contract names, by its verdict: the folder's refusal and the feature it reaches. */
+/** Each refusal at `order` the domain names, by its verdict: the folder's refusal and the feature it reaches. */
 const orderRefusals = {
 	source: { refusal: "moved", feature: "a regeneration of another source refused" },
 	count: { refusal: "resized", feature: "a regeneration of another file count refused" },

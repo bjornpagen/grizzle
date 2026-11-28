@@ -1,7 +1,7 @@
 /**
- * A contract predicate's check mode (scalar/compute/lower.ts, scalar/compute/total.ts), and the ContractLiteral check.
+ * A domain predicate's check mode (scalar/compute/lower.ts, scalar/compute/total.ts), and the ContractLiteral check.
  *
- * - The check fragment: a contract predicate lowered in the check mode reads only its VALUE and admits only the
+ * - The check fragment: a domain predicate lowered in the check mode reads only its VALUE and admits only the
  *   operations the host evaluates for the ContractLiteral check; every other verdict is the query mode's over a column
  *   of the base. Oracle: a differential, the same predicate lowered in the query mode.
  * - ContractLiteral: a literal opposite a contract's term, compared with it or beside it in arithmetic, is admitted
@@ -37,7 +37,7 @@ import {
 	verdictOf
 } from "#test/unit/compute/total.fixtures.ts"
 
-/** Contract predicate tables agree with the query mode's lowering of the same predicate, but for the reads, round and the float and money arithmetic a check refuses. Its budget is its suite's before it was a property (test/unit/compute/total.test.ts at 4ca3036a): 400 runs and 1200 steered cases. */
+/** Domain predicate tables agree with the query mode's lowering of the same predicate, but for the reads, round and the float and money arithmetic a check refuses. Its budget is its suite's before it was a property (test/unit/compute/total.test.ts at 4ca3036a): 400 runs and 1200 steered cases. */
 export const contractPredicateTablesAgreeWithTheQueryModesLoweringOfTheSamePredicateButForTheReadsRoundAndTheFloatAndMoneyArithmeticACheckRefuses =
 	property.explore(predicateSpace, {
 		needs: {},

@@ -2,7 +2,7 @@ import { failWith } from "#compiler/check/fail.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 
 /** What a query declares once by name (DuplicateIdentity): a contract a descriptor it carries states, a context it matches. */
-type DeclarationKind = "contract" | "context"
+type DeclarationKind = "domain" | "context"
 
 /** A name's declaration: its descriptor's canonical text, and where it stands. */
 interface Declaration {
@@ -25,7 +25,7 @@ export interface Declared {
  */
 export class DeclarationTable {
 	readonly #declared: Readonly<Record<DeclarationKind, Map<string, Declaration>>> = {
-		contract: new Map(),
+		domain: new Map(),
 		context: new Map()
 	}
 	/**

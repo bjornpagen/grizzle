@@ -265,7 +265,7 @@ const typingEnvOf = <R extends Refs>(env: LowerEnv<R>): TypingEnv<R> => ({
 			? { kind: "schema", of: env.functions }
 			: {
 					kind: "none",
-					why: "PostgreSQL alone evaluates a declared function, and the host evaluates a check, a contract predicate and a generated field"
+					why: "PostgreSQL alone evaluates a declared function, and the host evaluates a check, a domain predicate and a generated field"
 				},
 	held: env.mode === "query" ? env.held : [],
 	analysis: { kind: "analyzed", patterns: env.patterns }
@@ -425,7 +425,7 @@ const guardTest = (
 			return { kind: "integral" }
 		case "powerDomain":
 			return { kind: "positive" }
-		case "contract":
+		case "domain":
 			return withinGuards(valueType(operand.nominal).carrier)
 				? { kind: "within" }
 				: { kind: "typed" }
@@ -527,7 +527,7 @@ const guardOf = (
 		case "proves":
 			return {
 				remedy,
-				text: `contract ${remedy.contract}'s predicate implies it, and a contract's facts are the ones it declares: contract("${remedy.contract}", <base>, <predicate>, { proves: [..., "${precondition}"] })`
+				text: `domain ${remedy.contract}'s predicate implies it, and a domain's facts are the ones it declares: domain("${remedy.contract}", <base>, <predicate>, { proves: [..., "${precondition}"] })`
 			}
 		case "nonzero":
 			return { remedy, text: when(`Num.nonzero(${operand})`) }
@@ -581,7 +581,7 @@ const guardOf = (
 		case "typed":
 			return {
 				remedy,
-				text: `a value of the target's type, a parameter its binding checks or a literal its admission judges: no scalar test over ${operand}'s type proves the target's contract`
+				text: `a value of the target's type, a parameter its binding checks or a literal its admission judges: no scalar test over ${operand}'s type proves the target's domain`
 			}
 	}
 }
@@ -742,7 +742,7 @@ class Lowering<R extends Refs> {
 	domainProof(node: Extract<TypedNode, { readonly kind: "domainCast" }>): OperationProof {
 		const { value, target: to, checked, at } = node
 		const precondition: Precondition =
-			refinementOf(to) === undefined ? { kind: "contract" } : { kind: "language" }
+			refinementOf(to) === undefined ? { kind: "domain" } : { kind: "language" }
 		return [
 			checked === undefined || !this.checkedAgainst(value, to, checked, at)
 				? this.prove(precondition, [value], to, at, castSpelling(nodeText(value.node), to))
@@ -871,7 +871,7 @@ class Lowering<R extends Refs> {
 							)
 				return premise === undefined ? refuse(0) : { precondition, premises: [premise] }
 			}
-			case "contract": {
+			case "domain": {
 				const a = args[0]
 				const interval = a?.bounds === undefined ? undefined : finitePremise(0, a.bounds)
 				if (
@@ -945,7 +945,7 @@ class Lowering<R extends Refs> {
 			stop(
 				"UnsupportedOperation",
 				at,
-				`${what} in a query over a text whose pattern bounds it within ${regexTextMaxBytes} bytes: PostgreSQL's regex engine widens its subject to four bytes for every byte and refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "the subject's pattern bounds no length" : `the subject's pattern bounds it at ${bytes} bytes`}, so bound it, or read it in a contract predicate, row check or generated field`
+				`${what} in a query over a text whose pattern bounds it within ${regexTextMaxBytes} bytes: PostgreSQL's regex engine widens its subject to four bytes for every byte and refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "the subject's pattern bounds no length" : `the subject's pattern bounds it at ${bytes} bytes`}, so bound it, or read it in a domain predicate, row check or generated field`
 			)
 		}
 	}
@@ -1327,7 +1327,7 @@ export const intervalCastProof = (
 			case "fits":
 				return fitsTarget(to, interval) ? { precondition, premises: [interval] } : undefined
 			case "integral":
-			case "contract":
+			case "domain":
 			case "language":
 			case "powerDomain":
 			case "powerRange":

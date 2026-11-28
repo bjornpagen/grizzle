@@ -35,7 +35,7 @@ import {
 	same
 } from "#test/unit/physical/domain-dedup.fixtures.ts"
 
-/** Contract domains by definition (W6.Q10) share one domain exactly when their definitions are equal. */
+/** Domain domains by definition (W6.Q10) share one domain exactly when their definitions are equal. */
 export const contractDomainsByDefinitionW6Q10ShareOneDomainExactlyWhenTheirDefinitionsAreEqual =
 	property.exhaust(finite(pairGen), {
 		needs: {},

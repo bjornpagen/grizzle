@@ -156,7 +156,7 @@ const admitMints = (
 	) {
 		throw malformed(
 			label,
-			`fn(name, definition, mints): its result holds ${names.join(", ")}, a consumer's contract its body makes values of, so mints holds each one's key by its name, { ${first}: key }`
+			`fn(name, definition, mints): its result holds ${names.join(", ")}, a consumer's domain its body makes values of, so mints holds each one's key by its name, { ${first}: key }`
 		)
 	}
 	for (const name of names) {

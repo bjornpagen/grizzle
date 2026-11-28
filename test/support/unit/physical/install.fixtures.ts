@@ -59,7 +59,7 @@ export const installed = (desc: SchemaDesc): Installation => {
 
 /** The descriptor a field's values have: a contract's base, through every contract. */
 const valueDesc = (desc: FieldDesc): FieldDesc =>
-	desc.kind === "contract" ? valueDesc(desc.base) : desc
+	desc.kind === "domain" ? valueDesc(desc.base) : desc
 
 /** The CHECKs that enforce a column's own type declaration, as manifest idents named through the door: a span column's
  * shape and, with a fixed width, its width; a vector column's cosine domain. */

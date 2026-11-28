@@ -608,8 +608,8 @@ const levelsOf = (installation: Installation): ReadonlyArray<SnapshotLevel> => {
 	const declaredAt = (law: (typeof theory.laws)[number]): number => {
 		switch (law.source.kind) {
 			case "relation":
-			case "contract":
-				return defined(undeclared.get(law.id), "a primary key's and a contract's law have a level")
+			case "domain":
+				return defined(undeclared.get(law.id), "a primary key's and a domain's law have a level")
 			case "key":
 			case "check":
 			case "contained":

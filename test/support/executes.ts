@@ -5,7 +5,7 @@ import { Array as Arr, Option, Record as Rec } from "effect"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { Bit, bit, closedId, contract, int4 } from "#compiler/public/fields.ts"
+import { Bit, bit, closedId, domain, int4 } from "#compiler/public/fields.ts"
 import { check, contained, login, on, select } from "#compiler/public/schema.ts"
 import { closedBuilder, relationBuilder } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
@@ -285,7 +285,7 @@ const countName = "Count"
 
 const countKey = Symbol("Count")
 /** The contract every count field is typed by: an integer above zero. */
-const Count = contract<typeof countKey>()(countName, int4, (x) => Logic.gt(x, 0))
+const Count = domain<typeof countKey>()(countName, int4, (x) => Logic.gt(x, 0))
 
 /**
  * The world built through the public builders under the declared name `name`: its schema and its login `desk`, whose

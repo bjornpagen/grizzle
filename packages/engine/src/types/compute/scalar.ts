@@ -260,7 +260,7 @@ export type Refutes<F, V> =
  */
 export type ContractAdmits<Taken extends boolean, F, V> = [Taken] extends [true]
 	? Refutes<F, V> extends true
-		? Refusal<"a value its contract refuses: it lacks a fact the contract declares">
+		? Refusal<"a value its domain refuses: it lacks a fact the domain declares">
 		: unknown
 	: unknown
 

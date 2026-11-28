@@ -11,7 +11,7 @@ import {
 import { noSpellings } from "#compiler/ir/pattern.ts"
 import { Roster, type RosterOrder } from "#compiler/ir/scalar.ts"
 import { Logic, Type } from "#compiler/public/compute.ts"
-import { bit, closedId, contract, generated, int4 } from "#compiler/public/fields.ts"
+import { bit, closedId, domain, generated, int4 } from "#compiler/public/fields.ts"
 import { check, type RowScalars, type Statement } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -155,8 +155,8 @@ export const lawsOf = (s: ProgramSchema, built: BuiltSchema, level: LawLevel): L
 	)
 	const kindName = fresh("LawKind", taken)
 	const Kind = closedBuilder(kindName, live, level.order, [])
-	const Count = contract<typeof countKey>()("LawCount", int4, (x) => Logic.ge(x, level.least[0]))
-	const Tally = contract<typeof tallyKey>()("LawTally", int4, (x) => Logic.ge(x, level.least[1]))
+	const Count = domain<typeof countKey>()("LawCount", int4, (x) => Logic.ge(x, level.least[0]))
+	const Tally = domain<typeof tallyKey>()("LawTally", int4, (x) => Logic.ge(x, level.least[1]))
 	const holderName = fresh("LawHolder", taken)
 	const holderFields = { id: Id, code: closedId(Kind), marks: bit(Kind), count: Count }
 	const Holder =

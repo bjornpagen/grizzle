@@ -3,7 +3,7 @@
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { SideDesc } from "#compiler/ir/desc.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { contract, natural, uuid, bool, int4, int8 } from "#compiler/public/fields.ts"
+import { domain, natural, uuid, bool, int4, int8 } from "#compiler/public/fields.ts"
 import { mutable, relation, schema, sealed, series, unit } from "#compiler/public/schema.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
@@ -90,11 +90,11 @@ export const caseText = (c: UnitCase): UnitFeature => {
 
 const otherIdKey = Symbol("OtherId")
 /** An id of another type than Id, by its own contract over the same base. */
-const OtherId = contract<typeof otherIdKey>()("OtherId", uuid)
+const OtherId = domain<typeof otherIdKey>()("OtherId", uuid)
 
 const testNumberKey = Symbol("TestNumber")
 /** A number kept in an int4, bounded below the int4 serial's greatest value, as a test's number is. */
-const TestNumber = contract<typeof testNumberKey>()("TestNumber", int4, (n) =>
+const TestNumber = domain<typeof testNumberKey>()("TestNumber", int4, (n) =>
 	Logic.and([Logic.ge(n, 0), Logic.le(n, 2147483646)])
 )
 

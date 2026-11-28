@@ -1064,13 +1064,13 @@ const castTo = (v: ModelValue, from: ScalarType, to: ScalarType): CatalogResult 
  * reference's own reading of PostgreSQL's total orders (compareCarried), never by src's. A regex refinement's
  * membership is the text package's NFA, which the caller supplies.
  *
- * Evaluates the expression tree `root` (a DAG's expression, or a contract predicate parsed from its table) under `env`,
+ * Evaluates the expression tree `root` (a DAG's expression, or a domain predicate parsed from its table) under `env`,
  * over the whole catalogue.
  */
 export const evaluate = (root: ScalarExpr, env: EvalEnv): CatalogResult =>
 	evaluateOver(root, env, unsupported("a VALUE"))
 
-/** `root` under `env`, the VALUE (a contract predicate's only read) evaluating to `value`. */
+/** `root` under `env`, the VALUE (a domain predicate's only read) evaluating to `value`. */
 const evaluateOver = (root: ScalarExpr, env: EvalEnv, value: CatalogResult): CatalogResult => {
 	/** An AND (`decisive` false) or an OR (`decisive` true), its operands evaluated in order until one decides it. */
 	const connective = (decisive: boolean, args: ReadonlyArray<ScalarExpr>): CatalogResult => {
@@ -1177,7 +1177,7 @@ const evaluateOver = (root: ScalarExpr, env: EvalEnv, value: CatalogResult): Cat
 
 /**
  * Whether a value of a domain cast's target satisfies it at every level: each level's base refinement (a regex), then
- * its contract predicate, innermost first, as PostgreSQL checks a domain over a domain. Each predicate reads its VALUE,
+ * its domain predicate, innermost first, as PostgreSQL checks a domain over a domain. Each predicate reads its VALUE,
  * and regex membership as `env` reads it.
  */
 const membership = (
@@ -1206,7 +1206,7 @@ const membership = (
 		if (!tree.ok) {
 			return Result.fail({
 				kind: "unsupported",
-				what: `the contract predicate of ${contract.name}`
+				what: `the domain predicate of ${contract.name}`
 			})
 		}
 		const holds = evaluateOver(tree.value, env, Result.succeed(v))

@@ -278,7 +278,7 @@ class Structure {
 			return fail(
 				"MalformedDescription",
 				loc,
-				`a rule variable, parameter or literal; a ${e.kind} reference belongs to a row check or a contract predicate`
+				`a rule variable, parameter or literal; a ${e.kind} reference belongs to a row check or a domain predicate`
 			)
 		}
 		if (e.kind === "absent" || e.kind === "exists") {

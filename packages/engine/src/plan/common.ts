@@ -114,7 +114,7 @@ export {
 } from "#compiler/core/phantom.ts"
 export { hasProperties, isList, isRecord } from "#compiler/core/record.ts"
 export * as Engine from "@bjornpagen/grizzle-text/base/result"
-export type { AnyContract, Contract, FieldBase } from "#compiler/types/fields/field.ts"
+export type { AnyDomain, Domain, FieldBase } from "#compiler/types/fields/field.ts"
 export { rowEvaluatorOver } from "#compiler/program/evaluate.ts"
 export { codecTextOver, rowTextOver, type TextedField } from "#compiler/program/text.ts"
 export type { Isolation } from "#compiler/core/isolation.ts"
@@ -263,7 +263,7 @@ export type {
 	AdmittedRow,
 	CheckNameOf,
 	CheckVerdict,
-	ContractRefused,
+	DomainParseRefused,
 	DomainRefused,
 	EvaluatedRow,
 	GeneratedFieldOf,

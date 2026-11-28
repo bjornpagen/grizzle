@@ -10,7 +10,7 @@ import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
 import { compileInstallation } from "#compiler/program/install.ts"
-import { contract, bool, int4 } from "#compiler/public/fields.ts"
+import { domain, bool, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -40,10 +40,10 @@ import type { RawSession } from "#test/support/substrate/session.ts"
 
 const childKey = Symbol("Child")
 /** A learner, by a number of its own type, so no package's number leads a learner's key. */
-const Child = contract<typeof childKey>()("Child", int4)
+const Child = domain<typeof childKey>()("Child", int4)
 const packageNoKey = Symbol("PackageNo")
 /** A package, by a number of its own type, so no learner's number leads a package's key. */
-const PackageNo = contract<typeof packageNoKey>()("PackageNo", int4)
+const PackageNo = domain<typeof packageNoKey>()("PackageNo", int4)
 
 /** A package, the root of its content. */
 const Package = relation("Package", { package: PackageNo }, ["package"])

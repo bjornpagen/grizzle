@@ -78,7 +78,7 @@ import {
 } from "#test/unit/scalar/contract.fixtures.ts"
 
 /**
- * Contract identity is a domain over its base and its own brand, one identity per equal declaration, distinct by name.
+ * Domain identity is a domain over its base and its own brand, one identity per equal declaration, distinct by name.
  *
  * Budget: its suite's count before the conversion (unit/scalar/contract-identity: 300 independent cases and 0 steered,
  * Vitest at grizzle 4ca3036a).
@@ -242,7 +242,7 @@ export const contractIdentityIsADomainOverItsBaseAndItsOwnBrandOneIdentityPerEqu
 	)
 
 /**
- * Contract admission builds exactly from a declared name, a descriptor and no extra argument, and refuses the rest as
+ * Domain admission builds exactly from a declared name, a descriptor and no extra argument, and refuses the rest as
  * malformed.
  *
  * Budget: its suite's count before the conversion (unit/scalar/contract-admission: 1000 independent cases and 0
@@ -399,7 +399,7 @@ export const aMintTakesOnlyItsModulesOwnKeyAndReturnsEveryValueAsItIs = property
 
 /** The rule a clock bound to a contract over another consumer's contract is refused by. */
 const clockRule: Refused =
-	"clocked binds only parameters of the program whose values are bigints: int8, natural, or one consumer's contract over either, under its key"
+	"clocked binds only parameters of the program whose values are bigints: int8, natural, or one consumer's domain over either, under its key"
 
 /** The rule a registered key is refused by, at mintOf and at every database-side mint. */
 const hostKeyRule: Refused =
@@ -606,9 +606,9 @@ export const aClockOrADeclaredFunctionMakesAConsumersContractsValuesUnderItsKeys
 			{
 				file: "packages/engine/src/scalar/contract.ts",
 				original:
-					'\t\tif (d.kind === "contract" && isOwnedName(d.name) && !names.includes(d.name)) {',
+					'\t\tif (d.kind === "domain" && isOwnedName(d.name) && !names.includes(d.name)) {',
 				replacement:
-					'\t\tif (d === desc && d.kind === "contract" && isOwnedName(d.name) && !names.includes(d.name)) {',
+					'\t\tif (d === desc && d.kind === "domain" && isOwnedName(d.name) && !names.includes(d.name)) {',
 				why: "Only a result's own contract is read, never its base's or a variant arm's, so a contract over a consumer's and a variant's arm take too few keys; the property fails there."
 			}
 		]

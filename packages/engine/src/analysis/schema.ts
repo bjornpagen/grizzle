@@ -540,7 +540,7 @@ const leafText = (leaf: LeafDesc): string => {
 		case "var":
 			return `variable ${leaf.var}`
 		case "value":
-			return "a contract's value"
+			return "a domain's value"
 		case "parent":
 			return `parent column ${leaf.column}`
 	}
@@ -1627,7 +1627,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 					return fail(
 						"MalformedDescription",
 						at,
-						`a drawn field of type natural or a contract over an integer, the index, count, start or end grizzle draws; ${r.name}.${f.name} is ${typeLabel(type)}`
+						`a drawn field of type natural or a domain over an integer, the index, count, start or end grizzle draws; ${r.name}.${f.name} is ${typeLabel(type)}`
 					)
 				}
 				return drawnWriting
@@ -2021,7 +2021,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			if (isInstantDesc(d)) {
 				fail("MalformedDescription", loc, instantInputText("value a query carries"))
 			}
-			if (d.kind !== "contract") {
+			if (d.kind !== "domain") {
 				return
 			}
 			const text = unwrap(descText(d))
@@ -2031,12 +2031,12 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 					failWith({
 						_tag: "DuplicateIdentity",
 						at: loc,
-						duplicate: { kind: "contract", name: d.name, earlier: declared.loc }
+						duplicate: { kind: "domain", name: d.name, earlier: declared.loc }
 					})
 				}
 				return
 			}
-			declarations.declare("contract", d.name, { text, loc })
+			declarations.declare("domain", d.name, { text, loc })
 		})
 		return this.#typeOf(desc, loc, patterns)
 	}

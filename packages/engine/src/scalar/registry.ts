@@ -133,7 +133,7 @@ const spanEndpointDetail = (t: ScalarType): string => {
 	if (base.carrier === "money") {
 		return "is money, for which no range is admitted"
 	}
-	return "is not an admitted range endpoint; ranges are over int4, int8, date and contracts over them"
+	return "is not an admitted range endpoint; ranges are over int4, int8, date and domains over them"
 }
 
 /** The PostgreSQL type names of descriptors, the `sql` member of each. */
@@ -459,7 +459,7 @@ export const registerWrittenField = (value: object, type: unknown): void => {
  * text, its pattern law, or a contract, grizzle's own (natural) as any other, its contract's law.
  */
 const statesLaw = (value: object): boolean =>
-	ownedText.has(value) || (isOwnedDescriptor(value) && value.desc.kind === "contract")
+	ownedText.has(value) || (isOwnedDescriptor(value) && value.desc.kind === "domain")
 
 /**
  * A copy of a descriptor that states a law (statesLaw), registered wherever the descriptor it copies is, so every
@@ -553,7 +553,7 @@ const brandedText = (b: Branded): string => {
 		case "copy":
 			return "a field descriptor a builder made: a copy of one (an object spread) is none, because a descriptor's host type is its builder's"
 		case "unbranded":
-			return "a field descriptor a builder made: int2, int4, int8, numeric, float4, float8, money, bool, inet, cidr, uuid, bytea, exactInteger, exactMoney, str.regex, contract, range, closedId or vector"
+			return "a field descriptor a builder made: int2, int4, int8, numeric, float4, float8, money, bool, inet, cidr, uuid, bytea, exactInteger, exactMoney, str.regex, domain, range, closedId or vector"
 	}
 }
 
@@ -763,7 +763,7 @@ const scalarAt = (
 			return Result.flatMap(scalarAt(desc.endpoint, env, childLoc(loc, "endpoint")), (endpoint) =>
 				spanType(endpoint, desc.width, loc)
 			)
-		case "contract":
+		case "domain":
 			return Result.map(contractInfoOf(desc, env, loc), withContract)
 		case "variant":
 			return variantAt(desc, env, loc)
@@ -995,7 +995,7 @@ const subsetIn = (
 
 /** A span's endpoint through its contracts: the declaration its carrier is read off. */
 const endpointBase = (desc: FieldDesc): FieldDesc =>
-	desc.kind === "contract" ? endpointBase(desc.base) : desc
+	desc.kind === "domain" ? endpointBase(desc.base) : desc
 
 /**
  * The capability set of the type a FieldDesc declares, read off its carrier alone, before its rosters or a contract's
@@ -1038,7 +1038,7 @@ export const descCapabilities = (desc: FieldDesc): CapabilitySet => {
 						: "range4"
 			)
 		}
-		case "contract":
+		case "domain":
 			return descCapabilities(desc.base)
 		case "variant":
 			return capabilitiesOf("variant")
@@ -1136,7 +1136,7 @@ const contractOver = (
 		return Result.err(
 			unsupported(
 				loc,
-				`contractBase: ${typeLabel(base)} is a set over a roster, whose hole and padding bits no predicate keeps apart; no contract is over one`
+				`contractBase: ${typeLabel(base)} is a set over a roster, whose hole and padding bits no predicate keeps apart; no domain is over one`
 			)
 		)
 	}
@@ -1145,7 +1145,7 @@ const contractOver = (
 			capabilityError(
 				loc,
 				"equality",
-				`${typeLabel(base)} is stored only, so no predicate reads it; no contract is over bytea`
+				`${typeLabel(base)} is stored only, so no predicate reads it; no domain is over bytea`
 			)
 		)
 	}
@@ -1153,7 +1153,7 @@ const contractOver = (
 		return Result.err(
 			unsupported(
 				loc,
-				`contractBase: ${typeLabel(base)} is a digest, whose one predicate is its length, which its domain holds; no contract is over one`
+				`contractBase: ${typeLabel(base)} is a digest, whose one predicate is its length, which its domain holds; no domain is over one`
 			)
 		)
 	}
@@ -1162,7 +1162,7 @@ const contractOver = (
 			capabilityError(
 				loc,
 				"textSearch",
-				`${typeLabel(base)} is a search document, PostgreSQL's parse of its row's texts, which no predicate reads; no contract is over one`
+				`${typeLabel(base)} is a search document, PostgreSQL's parse of its row's texts, which no predicate reads; no domain is over one`
 			)
 		)
 	}
@@ -1170,7 +1170,7 @@ const contractOver = (
 		return Result.err(
 			ruleRefused(
 				loc,
-				"no contract is over an exact value of any size: declare it over int8, numeric(p, s) or money"
+				"no domain is over an exact value of any size: declare it over int8, numeric(p, s) or money"
 			)
 		)
 	}
@@ -1178,7 +1178,7 @@ const contractOver = (
 		return Result.err(
 			ruleRefused(
 				loc,
-				"no contract is over a variant: its domain holds its arms, and each arm field's type holds its own predicate"
+				"no domain is over a variant: its domain holds its arms, and each arm field's type holds its own predicate"
 			)
 		)
 	}
@@ -1195,7 +1195,7 @@ export const contractInfoOf = (
 	env: ScalarEnv,
 	loc: SourceLoc
 ): Result.Result<ContractInfo, CompileError> => {
-	const name = admitDeclaredName(desc.name, `contract name ${JSON.stringify(desc.name)}`, loc)
+	const name = admitDeclaredName(desc.name, `domain name ${JSON.stringify(desc.name)}`, loc)
 	if (!name.ok) {
 		return name
 	}

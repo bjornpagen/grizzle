@@ -8,7 +8,7 @@ import type { Installation } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { lawModel } from "#compiler/program/laws.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { accumulated, contract, drawn, natural, int4, int8 } from "#compiler/public/fields.ts"
+import { accumulated, domain, drawn, natural, int4, int8 } from "#compiler/public/fields.ts"
 import {
 	type AnyRelation,
 	fin,
@@ -145,7 +145,7 @@ const cataloguedOf = (
 	const text = declaredAs(c.text, regexField(cataloguedPattern.source, [cataloguedPattern.flags]))
 	const units = declaredAs(
 		c.contract,
-		contract<typeof contractKey>()(cataloguedContract, int8, (u) => Logic.ge(u, 0n))
+		domain<typeof contractKey>()(cataloguedContract, int8, (u) => Logic.ge(u, 0n))
 	)
 	const count = declaredAs(c.natural, natural)
 	const joined = declaredAs(

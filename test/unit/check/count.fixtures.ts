@@ -245,7 +245,7 @@ export const observedOf = (c: CountCase): Observed =>
 					return {
 						kind: "typed",
 						type:
-							desc.kind === "contract" && desc.name === "natural"
+							desc.kind === "domain" && desc.name === "natural"
 								? "natural"
 								: desc.kind === "pg" && desc.type === "int8"
 									? "int8"

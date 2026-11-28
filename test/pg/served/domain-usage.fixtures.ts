@@ -9,7 +9,7 @@ import { identifierOf } from "#compiler/core/identity.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { Bit, bit, closedId, contract, int4 } from "#compiler/public/fields.ts"
+import { Bit, bit, closedId, domain, int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	closed,
@@ -51,7 +51,7 @@ const wordsKey = Symbol("Words")
  */
 const builtOf = (name: string) => {
 	const Tier = closed.ordered("Tier", ["Free", "Pro"])
-	const Words = contract<typeof wordsKey>()("Words", int4, (x) => Logic.ge(x, 0))
+	const Words = domain<typeof wordsKey>()("Words", int4, (x) => Logic.ge(x, 0))
 	const Note = relation(
 		"Note",
 		{ k: int4, n: Words, tier: closedId(Tier, undefined), tags: bit(Tier) },

@@ -7,7 +7,7 @@ import { isRecord } from "#compiler/core/record.ts"
 import { clockedMember } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { contract, int4, int8 } from "#compiler/public/fields.ts"
+import { domain, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import type { Generated } from "#test/support/install-migrate.ts"
@@ -35,17 +35,15 @@ import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 
 const instantKey = Symbol("Instant")
 /** An instant, and the instants on either side of 2100-01-01 in milliseconds since the epoch. */
-const Instant = contract<typeof instantKey>()("Instant", int8)
+const Instant = domain<typeof instantKey>()("Instant", int8)
 
 const year2100 = 4_102_444_800_000n
 
 const before2100Key = Symbol("Before2100")
-const Before2100 = contract<typeof before2100Key>()("Before2100", int8, (x) =>
-	Logic.le(x, year2100)
-)
+const Before2100 = domain<typeof before2100Key>()("Before2100", int8, (x) => Logic.le(x, year2100))
 
 const after2100Key = Symbol("After2100")
-const After2100 = contract<typeof after2100Key>()("After2100", int8, (x) => Logic.ge(x, year2100))
+const After2100 = domain<typeof after2100Key>()("After2100", int8, (x) => Logic.ge(x, year2100))
 
 const Wanted = relation("Wanted", { key: int4, due: Instant }, ["key"])
 

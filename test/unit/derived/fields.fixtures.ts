@@ -22,7 +22,7 @@ import {
 } from "#test/support/unit/schema/field-sketch.ts"
 import { upTo } from "#test/support/up-to.ts"
 
-/** A relation of drawn fields: each roster's handle count, and its fields' types, each contract named by its field. */
+/** A relation of drawn fields: each roster's handle count, and its fields' types, each domain named by its field. */
 interface DeclaredCase {
 	readonly rosters: Arr.NonEmptyReadonlyArray<number>
 	readonly fields: Arr.NonEmptyReadonlyArray<SketchedField>
@@ -75,7 +75,7 @@ interface ContractCase {
 	readonly site: CastSite
 }
 
-/** A contract predicate VALUE >= 0, as Logic.ge records it. */
+/** A domain predicate VALUE >= 0, as Logic.ge records it. */
 export const nonNegative: OpenExpr = {
 	kind: "compare",
 	op: "ge",

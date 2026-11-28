@@ -136,7 +136,7 @@ const fieldDescFor = (t: ScalarType): FieldDesc => {
 	const { contract } = t
 	if (contract !== undefined) {
 		return {
-			kind: "contract",
+			kind: "domain",
 			name: contract.name,
 			base: fieldDescFor(contract.base),
 			predicate: undefined,
@@ -213,10 +213,10 @@ export const contentFeatures: Arr.NonEmptyReadonlyArray<ContentFeature> = [
 	"kind bits",
 	"kind vector",
 	"kind span",
-	"kind contract"
+	"kind domain"
 ]
 
-/** A contract predicate over a bigint VALUE. */
+/** A domain predicate over a bigint VALUE. */
 const nonNegative: ExprDesc = defined(
 	contractDescriptor("Cents", int8, (v: ScalarTerm) => computeCore.ge(v, 0n)).predicate,
 	"a contract's predicate"
@@ -273,7 +273,7 @@ const readingDescGen: Gen<FieldDesc> = weighted([
 	[
 		1,
 		(source) => ({
-			kind: "contract" as const,
+			kind: "domain" as const,
 			name: source.draw(element(["Cents", "Euros"])),
 			base: source.draw(endpointGen),
 			predicate: undefined,
@@ -283,7 +283,7 @@ const readingDescGen: Gen<FieldDesc> = weighted([
 	[
 		1,
 		(source) => ({
-			kind: "contract" as const,
+			kind: "domain" as const,
 			name: source.draw(element(["Cents", "Euros"])),
 			base: source.draw(constant<FieldDesc>({ kind: "pg", type: "int8" })),
 			predicate: nonNegative,
@@ -463,7 +463,7 @@ export const describes = (t: ScalarType, desc: FieldDesc, env: ScalarEnv, at: st
 			describes(s.endpoint, desc.endpoint, env, `${at} endpoint`)
 			return
 		}
-		case "contract": {
+		case "domain": {
 			const c = defined(t.contract, at)
 			assert.equal<string>(c.name, desc.name, at)
 			assert.equal(
@@ -532,7 +532,7 @@ type Content =
 	| { readonly kind: "search"; readonly configuration: string }
 	| { readonly kind: "span"; readonly endpoint: Content; readonly width: bigint | undefined }
 	| {
-			readonly kind: "contract"
+			readonly kind: "domain"
 			readonly name: string
 			readonly base: Content
 			readonly predicate: boolean
@@ -569,9 +569,9 @@ export const contentOf = (desc: FieldDesc, env: ScalarEnv): Content => {
 			return { kind: "search", configuration: desc.configuration }
 		case "span":
 			return { kind: "span", endpoint: contentOf(desc.endpoint, env), width: desc.width }
-		case "contract":
+		case "domain":
 			return {
-				kind: "contract",
+				kind: "domain",
 				name: desc.name,
 				base: contentOf(desc.base, env),
 				predicate: env.kind === "schema" && desc.predicate !== undefined

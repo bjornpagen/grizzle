@@ -5,7 +5,7 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import { installOptions } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { Logic, Type } from "#compiler/public/compute.ts"
-import { contract, natural, int4, int8 } from "#compiler/public/fields.ts"
+import { domain, natural, int4, int8 } from "#compiler/public/fields.ts"
 import { query, type Rule, v } from "#compiler/public/query.ts"
 import { check, derived, relation, schema } from "#compiler/public/schema.ts"
 import { owning } from "#test/support/policy.ts"
@@ -40,7 +40,7 @@ export type Feature =
 
 const stageKey = Symbol("Stage")
 /** A sitting's stage, a contract over int8, as qti-pie's SittingKey is. */
-const Stage = contract<typeof stageKey>()("Stage", int8, (s) => Logic.ge(s, 0n))
+const Stage = domain<typeof stageKey>()("Stage", int8, (s) => Logic.ge(s, 0n))
 
 const Assignment = relation("Assignment", { child: int4, number: natural }, ["child", "number"])
 const Budget = relation("Budget", { child: int4, stage: Stage, remaining: int8 }, [

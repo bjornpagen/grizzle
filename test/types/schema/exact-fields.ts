@@ -26,7 +26,7 @@ interface ExactCase {
 const admitted = { kind: "admitted" } as const
 
 const contractRefusal: Refused =
-	"no contract is over an exact value of any size: declare it over int8, numeric(p, s) or money"
+	"no domain is over an exact value of any size: declare it over int8, numeric(p, s) or money"
 
 const boxCases: ReadonlyArray<ExactCase> = [
 	{
@@ -104,12 +104,12 @@ const boxCases: ReadonlyArray<ExactCase> = [
 	},
 	{
 		what: "a contract over the exact integer",
-		statement: 'contract<typeof probeKey>()("Huge", exactInteger)',
+		statement: 'domain<typeof probeKey>()("Huge", exactInteger)',
 		verdict: { kind: "refusal", refusal: contractRefusal }
 	},
 	{
 		what: "a contract over the exact money",
-		statement: 'contract<typeof probeKey>()("Total", exactMoney)',
+		statement: 'domain<typeof probeKey>()("Total", exactMoney)',
 		verdict: { kind: "refusal", refusal: contractRefusal }
 	}
 ]

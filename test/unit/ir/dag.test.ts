@@ -10,7 +10,7 @@
  * - Digest: it ignores allocation order, label spelling and source locations, and changes with a literal, the domain or
  *   the roots' order. Oracle: universal, the digest is a function of the DAG's meaning.
  * - Normal form: positional names, the same whatever the labels' spelling, a table the re-reader accepts; a region's
- *   variables allocated in either order give one digest and normal form; a contract predicate's spellings give one
+ *   variables allocated in either order give one digest and normal form; a domain predicate's spellings give one
  *   digest, and one not in normal form is refused at decode. Oracle: universal invariances.
  *
  * Features: a shared input, a closure past its arguments; a chain a recursion holds and one past it; two nodes and two
@@ -770,7 +770,7 @@ export const normalizeDagIgnoresTheAllocationOrderOfARegionsVariablesAndFindsThe
 		]
 	})
 
-/** NormalizeDag gives one digest to DAGs whose contract predicates were allocated differently. */
+/** NormalizeDag gives one digest to DAGs whose domain predicates were allocated differently. */
 export const normalizeDagGivesOneDigestToDAGsWhoseContractPredicatesWereAllocatedDifferently =
 	property.exhaust(
 		finite(

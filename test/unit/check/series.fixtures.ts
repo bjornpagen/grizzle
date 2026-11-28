@@ -3,7 +3,7 @@
 import { element, type FiniteSpace, finite, int } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { Logic, Num, Time, Type } from "#compiler/public/compute.ts"
-import { contract, int4, int8 } from "#compiler/public/fields.ts"
+import { domain, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
@@ -44,13 +44,13 @@ const targetKey = Symbol("Target")
  * so the cast stands only on the element's interval.
  */
 export const compilesCast = (k: ElementCase): boolean => {
-	const Lo = contract<typeof loKey>()("Lo", int8, (x) =>
+	const Lo = domain<typeof loKey>()("Lo", int8, (x) =>
 		Logic.and([Logic.ge(x, BigInt(k.a)), Logic.le(x, BigInt(k.b))])
 	)
-	const Hi = contract<typeof hiKey>()("Hi", int8, (x) =>
+	const Hi = domain<typeof hiKey>()("Hi", int8, (x) =>
 		Logic.and([Logic.ge(x, BigInt(k.c)), Logic.le(x, BigInt(k.d))])
 	)
-	const Target = contract<typeof targetKey>()("Target", int8, (x) =>
+	const Target = domain<typeof targetKey>()("Target", int8, (x) =>
 		Logic.and([Logic.ge(x, BigInt(k.l)), Logic.le(x, BigInt(k.h))])
 	)
 	const Ends = relation("Ends", { id: int4, lo: Lo, hi: Hi, target: Target }, ["id"])
@@ -84,13 +84,13 @@ const dayMicros = 86_400_000_000n
 
 const momentKey = Symbol("Moment")
 /** The ledger's clock: an instant before 10000-01-01, the instant after which no day a date holds begins. */
-const Moment = contract<typeof momentKey>()("Moment", int8, (t) =>
+const Moment = domain<typeof momentKey>()("Moment", int8, (t) =>
 	Num.within(t, 0n, 253_402_300_800_000_000n - 1n)
 )
 
 const stampKey = Symbol("Stamp")
 /** An instant a candidate's application stamps, on a clock wider than the ledger's. */
-const Stamp = contract<typeof stampKey>()("Stamp", int8, (t) => Num.within(t, 0n, 2n ** 62n))
+const Stamp = domain<typeof stampKey>()("Stamp", int8, (t) => Num.within(t, 0n, 2n ** 62n))
 
 /**
  * The ledger's piece of presence (qti-pie ledger delivery.ts presentPieces and PresentTime): a window's credit, from

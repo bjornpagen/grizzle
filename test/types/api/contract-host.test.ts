@@ -38,7 +38,7 @@ export const contractHost = boxAgreement(finite(word(contractHostBox)), {
 	program: contractHostProgram,
 	oracle: {
 		kind: "specification",
-		name: "a contract's values are its key's mint's: its host type is its base's under the key, which every write takes alone and every read delivers"
+		name: "a domain's values are its key's mint's: its host type is its base's under the key, which every write takes alone and every read delivers"
 	},
 	kept: [],
 	kills: [
@@ -131,7 +131,7 @@ export const contractKey = boxAgreement(finite(word(contractKeyBox)), {
  * holds a contract takes each contract's key by its name; a contract over another is under a key of its own.
  */
 export const contractMint = boxAgreement(finite(word(contractMintBox)), {
-	box: "every position the database makes a contract's values at: a cast, a drawn field and an accumulated field, into a consumer's contract, a contract over another, natural and bigint, under its keys, none, another contract's, or one of a chain's alone; a clock of bigint, natural, a contract and a contract over another, under its key, none or another's; a declared function's result of its base, a contract and a contract over another, as a value, rows, one row and a variant's arm, under its keys, none, another's or one of a chain's alone; and a contract over another under a key of its own and under its base's",
+	box: "every position the database makes a domain's values at: a cast, a drawn field and an accumulated field, into a consumer's contract, a contract over another, natural and bigint, under its keys, none, another contract's, or one of a chain's alone; a clock of bigint, natural, a contract and a contract over another, under its key, none or another's; a declared function's result of its base, a contract and a contract over another, as a value, rows, one row and a variant's arm, under its keys, none, another's or one of a chain's alone; and a contract over another under a key of its own and under its base's",
 	situations: [],
 	notes: () => [],
 	checking: "disarmed",
@@ -188,7 +188,7 @@ export const contractMint = boxAgreement(finite(word(contractMintBox)), {
 		{
 			file: "packages/engine/src/types/fields/constructors.ts",
 			original:
-				'export type KeyApart<K extends symbol, B> = [K] extends [HostKeysOf<Infer<B>>]\n\t? Refusal<"a contract over another is under a key of its own, apart from its base\'s">\n\t: unknown',
+				'export type KeyApart<K extends symbol, B> = [K] extends [HostKeysOf<Infer<B>>]\n\t? Refusal<"a domain over another is under a key of its own, apart from its base\'s">\n\t: unknown',
 			replacement: "export type KeyApart<K extends symbol, B> = unknown",
 			why: "A contract over another is declared under its base's key, so its values are its base's on the host and one key mints both: the cell under the base's key is admitted, its directive unused; the program fails."
 		}

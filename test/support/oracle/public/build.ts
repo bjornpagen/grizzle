@@ -6,7 +6,7 @@ import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import {
 	closedId,
-	contract,
+	domain,
 	date,
 	exactInteger,
 	exactMoney,
@@ -107,7 +107,7 @@ type RelationValue = Relation<
 
 const tickKey = Symbol("Tick")
 /** The contract a tick field declares: one value, so every relation's tick field is one domain. */
-const tick = contract<typeof tickKey>()("Tick", int8)
+const tick = domain<typeof tickKey>()("Tick", int8)
 
 const descriptor = (kind: FieldKind, roster: RosterValue): FieldBase => {
 	switch (kind) {

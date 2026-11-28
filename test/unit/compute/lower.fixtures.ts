@@ -184,7 +184,7 @@ export const checkCasts = (exprs: ReadonlyArray<ScalarExpr>, c: Case<CastFeature
 		assert.equal(e.kind, "domainCast", `a cast into ${typeLabel(e.type)} is a domain cast`)
 		if (e.kind === "domainCast") {
 			assert.ok(
-				operationProofHolds(e.proof, [{ kind: "contract" }], {
+				operationProofHolds(e.proof, [{ kind: "domain" }], {
 					type: e.type,
 					operand: e.args[0].type
 				}),

@@ -255,7 +255,7 @@ export const namingCaseGen: Gen<NamingCase> = (source) => ({
 	extended: source.draw(boolean)
 })
 
-/** A contract predicate VALUE >= 0 or VALUE <= 100, as Logic's comparisons record them. */
+/** A domain predicate VALUE >= 0 or VALUE <= 100, as Logic's comparisons record them. */
 const boundOf = (atLeastZero: boolean): OpenExpr => ({
 	kind: "compare",
 	op: atLeastZero ? "ge" : "le",

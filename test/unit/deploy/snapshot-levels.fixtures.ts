@@ -7,7 +7,7 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { closedId, contract, bool, int8 } from "#compiler/public/fields.ts"
+import { closedId, domain, bool, int8 } from "#compiler/public/fields.ts"
 import { closed, contained, key, on, relation, schema, select } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { installationsOf, own, rostersOf } from "#compiler/schema/own.ts"
@@ -110,7 +110,7 @@ export const schemaOf = (c: Case): AnySchema => {
 	}
 }
 
-/** Where a contract's values are held: by a relation of the root, by one of the level over it, or by one of each. */
+/** Where a domain's values are held: by a relation of the root, by one of the level over it, or by one of each. */
 const uses = ["root", "level", "both"] as const
 
 export type Use = (typeof uses)[number]
@@ -141,7 +141,7 @@ export const leveledGen: Gen<LeveledCase> = (source) => ({
 })
 
 const centsKey = Symbol("Cents")
-const Cents = contract<typeof centsKey>()("Cents", int8, (v) => Logic.ge(v, 0n))
+const Cents = domain<typeof centsKey>()("Cents", int8, (v) => Logic.ge(v, 0n))
 
 /**
  * The case's two schemas, the root alone and the level over it: Z at the root, A at the level, A contained in Z by its

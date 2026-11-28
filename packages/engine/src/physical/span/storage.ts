@@ -190,7 +190,7 @@ const spanEndpointPredicate = (
 		return lowerPersistent(b.names, substituted, {
 			reads: { kind: "row", column: (ref) => (ref.name === field ? tableCol(column) : undefined) },
 			loc: SourceLoc(
-				`the ${bound} endpoint check of ${relation}.${field} over contract ${contract.name}`,
+				`the ${bound} endpoint check of ${relation}.${field} over domain ${contract.name}`,
 				[]
 			)
 		})
@@ -338,7 +338,7 @@ const spanColumnConstraints = (b: InstallBuilder, c: SpanColumn): ReadonlyArray<
 			reasons:
 				e.laws.length > 0
 					? lawReasons(e.laws)
-					: [enforcement(`range endpoints of ${label} in contract ${e.contract.name}`)]
+					: [enforcement(`range endpoints of ${label} in domain ${e.contract.name}`)]
 		}))
 	]
 }

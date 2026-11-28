@@ -4,7 +4,7 @@ import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import { Logic } from "#compiler/public/compute.ts"
 import {
 	closedId,
-	contract,
+	domain,
 	natural,
 	bool,
 	float8,
@@ -210,7 +210,7 @@ const condColumn = "p"
 
 const Color = closed("Color", ["red", "green", "blue"], "ordered", [])
 const centsKey = Symbol("Cents")
-const Cents = contract<typeof centsKey>()("Cents", int8, (x) => Logic.ge(x, 0n))
+const Cents = domain<typeof centsKey>()("Cents", int8, (x) => Logic.ge(x, 0n))
 const Word = str.regex("^[a-z]{0,4}$")
 
 const descriptor = (k: BaseKind): FieldBase => {

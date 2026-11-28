@@ -260,7 +260,7 @@ export interface EvidencedTheory extends Theory {
 const contractStatement = (contract: string): LawStatement => ({
 	parts: ["contract", contract],
 	stem: [contract],
-	display: `contract ${contract}`
+	display: `domain ${contract}`
 })
 
 /**

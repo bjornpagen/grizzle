@@ -1,5 +1,5 @@
 /**
- * A contract's checked mint (contract/parser.ts contractParserOf, the contract entry's contractParser), its checker
+ * A contract's checked mint (contract/parser.ts domainParserOf, the contract entry's domainParser), its checker
  * derived from the contract where the parser is built: a value of its base is read as its base's type, then held to the
  * contract's type as a schema's compile types it, its predicate and its base's refinements, and minted under its key
  * where both hold it, else refused by the contract's refusal: ValueRefused by the codec's fault, DomainRefused outside
@@ -19,7 +19,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Effect, Result } from "effect"
 import type { CodecFault } from "#compiler/core/errors.ts"
-import type { ContractRefused } from "#compiler/types/schema/evaluation.ts"
+import type { DomainParseRefused } from "#compiler/types/schema/evaluation.ts"
 import {
 	evaluator,
 	Handles,
@@ -41,7 +41,7 @@ type Verdict =
 
 /** A parse's verdict: the value it minted, or its refusal at its contract. */
 const verdictOf = <N extends string>(
-	parsed: Result.Result<bigint | string, ContractRefused<N>>
+	parsed: Result.Result<bigint | string, DomainParseRefused<N>>
 ): Verdict => {
 	if (Result.isSuccess(parsed)) {
 		return { verdict: "minted", value: parsed.success }
@@ -49,9 +49,9 @@ const verdictOf = <N extends string>(
 	const refusal = parsed.failure
 	switch (refusal._tag) {
 		case "ValueRefused":
-			return { verdict: "ValueRefused", contract: refusal.contract, fault: refusal.fault }
+			return { verdict: "ValueRefused", contract: refusal.domain, fault: refusal.fault }
 		case "DomainRefused":
-			return { verdict: "DomainRefused", contract: refusal.contract }
+			return { verdict: "DomainRefused", contract: refusal.domain }
 	}
 }
 

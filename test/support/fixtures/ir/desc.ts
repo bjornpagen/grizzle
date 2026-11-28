@@ -134,7 +134,7 @@ export const textDesc = (
 
 /** natural: the builtin contract over bigint, never below zero, that pred reads (scalar/natural.ts). */
 const naturalDesc: FieldDesc = {
-	kind: "contract",
+	kind: "domain",
 	name: "natural",
 	base: { kind: "pg", type: "int8" },
 	predicate: {
@@ -181,7 +181,7 @@ export const f = {
 	wildcard: fieldDesc(textDesc("^.*$", "su")),
 	/** A contract that declares no fact its predicate proves, as contract(name, base, predicate) without `proves`. */
 	contract: (name: string, base: FieldDesc, predicate: ExprDesc | undefined): FieldDesc => ({
-		kind: "contract",
+		kind: "domain",
 		name,
 		base,
 		predicate,
@@ -195,7 +195,7 @@ export const f = {
 	closedId: (roster: string): FieldDesc => ({ kind: "closedId", roster, only: undefined })
 } as const
 
-/** Contract predicate terms: the domain's VALUE and typed literals. */
+/** Domain predicate terms: the domain's VALUE and typed literals. */
 export const value: ExprDesc = { kind: "value" }
 export const literal = (v: LiteralDesc): ExprDesc => ({
 	kind: "literal",
@@ -203,8 +203,8 @@ export const literal = (v: LiteralDesc): ExprDesc => ({
 })
 
 /**
- * The comparisons a contract predicate, a law and a filter share, in the form of their operands: located, as a
- * contract predicate's field descriptor holds them, or authored to be decoded, as the checker's tests state a filter.
+ * The comparisons a domain predicate, a law and a filter share, in the form of their operands: located, as a
+ * domain predicate's field descriptor holds them, or authored to be decoded, as the checker's tests state a filter.
  */
 export const ge = <L>(left: ExprOf<L>, right: ExprOf<L>): ExprOf<L> => ({
 	kind: "compare",

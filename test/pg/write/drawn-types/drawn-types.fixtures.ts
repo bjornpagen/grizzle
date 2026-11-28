@@ -9,7 +9,7 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Logic } from "#compiler/public/compute.ts"
 import {
 	closedId,
-	contract,
+	domain,
 	drawn,
 	mintOf,
 	natural,
@@ -39,29 +39,29 @@ const Issue = closed.unordered("DrawnIssue", ["held", "unused"])
 
 const smallKey = Symbol("DrawnSmall")
 /** A count from 0 to 3 over each integer width, which a family of four members passes. */
-const Small = contract<typeof smallKey>()("DrawnSmall", int2, (n) =>
+const Small = domain<typeof smallKey>()("DrawnSmall", int2, (n) =>
 	Logic.and([Logic.ge(n, 0), Logic.le(n, 3)])
 )
 export const toSmall = mintOf(smallKey)
 const wholeKey = Symbol("DrawnWhole")
-const Whole = contract<typeof wholeKey>()("DrawnWhole", int4, (n) =>
+const Whole = domain<typeof wholeKey>()("DrawnWhole", int4, (n) =>
 	Logic.and([Logic.ge(n, 0), Logic.le(n, 3)])
 )
 export const toWhole = mintOf(wholeKey)
 const bigKey = Symbol("DrawnBig")
-const Big = contract<typeof bigKey>()("DrawnBig", int8, (n) =>
+const Big = domain<typeof bigKey>()("DrawnBig", int8, (n) =>
 	Logic.and([Logic.ge(n, 0n), Logic.le(n, 3n)])
 )
 export const toBig = mintOf(bigKey)
 const wideKey = Symbol("DrawnWide")
 /** metis's test number: every int4 from 0, its bound its carrier's. */
-const Wide = contract<typeof wideKey>()("DrawnWide", int4, (n) =>
+const Wide = domain<typeof wideKey>()("DrawnWide", int4, (n) =>
 	Logic.and([Logic.ge(n, 0), Logic.le(n, 2147483647)])
 )
 export const toWide = mintOf(wideKey)
 const tallKey = Symbol("DrawnTall")
 /** A count over int2 bounded by its carrier alone, 32767, which no CHECK states. */
-const Tall = contract<typeof tallKey>()("DrawnTall", int2, (n) => Logic.ge(n, 0))
+const Tall = domain<typeof tallKey>()("DrawnTall", int2, (n) => Logic.ge(n, 0))
 export const toTall = mintOf(tallKey)
 
 /**

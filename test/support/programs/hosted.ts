@@ -15,7 +15,7 @@ export {
 	Xml
 } from "#compiler/public/compute.ts"
 export {
-	contract,
+	domain,
 	float8,
 	generated,
 	int4,

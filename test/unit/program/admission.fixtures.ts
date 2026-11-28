@@ -4,16 +4,7 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import { Logic, Text } from "#compiler/public/compute.ts"
 import { relation } from "#compiler/public/dynamic.ts"
-import {
-	bytea,
-	contract,
-	date,
-	Numeric,
-	int2,
-	int4,
-	int8,
-	numeric
-} from "#compiler/public/fields.ts"
+import { bytea, domain, date, Numeric, int2, int4, int8, numeric } from "#compiler/public/fields.ts"
 import { schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Id, toId } from "#test/support/ids.ts"
@@ -38,9 +29,9 @@ export const cellFields = {
 	d: date,
 	n: numeric(5, 2),
 	b: bytea,
-	ci4: contract<typeof slotKey>()("Slot", int4, (v) => Logic.ge(v, 0)),
-	ci8: contract<typeof tallyKey>()("Tally", int8, (v) => Logic.ge(v, 0n)),
-	ct: contract<typeof shortKey>()("Short", anyText, (v) => Logic.le(Text.charLength(v), 8))
+	ci4: domain<typeof slotKey>()("Slot", int4, (v) => Logic.ge(v, 0)),
+	ci8: domain<typeof tallyKey>()("Tally", int8, (v) => Logic.ge(v, 0n)),
+	ct: domain<typeof shortKey>()("Short", anyText, (v) => Logic.le(Text.charLength(v), 8))
 } as const
 
 /**

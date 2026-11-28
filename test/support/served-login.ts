@@ -15,7 +15,7 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import { contextFieldAdmits, type FieldDecl, type SchemaDesc } from "#compiler/ir/desc.ts"
 import { clockedMember, workload } from "#compiler/program/workload/value.ts"
 import { Logic, Type } from "#compiler/public/compute.ts"
-import { contract, mintOf, int8 } from "#compiler/public/fields.ts"
+import { domain, mintOf, int8 } from "#compiler/public/fields.ts"
 import { context, login, role, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { paged } from "#compiler/public/workload.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -145,7 +145,7 @@ const instantKey = Symbol("Instant")
  * The type of a clocked read's `now` (see the header): a checked contract over bigint, an instant in milliseconds, never
  * negative, whose domain's CHECK a reading cast to it meets.
  */
-const Instant = contract<typeof instantKey>()("Instant", int8, (m) => Logic.ge(m, 0n))
+const Instant = domain<typeof instantKey>()("Instant", int8, (m) => Logic.ge(m, 0n))
 const toInstant = mintOf(instantKey)
 
 /** The name of a role's clocked read, by the role's place. */
@@ -204,7 +204,7 @@ const claimFields = (drawn: DrawnSchema): ReadonlyArray<FieldAt> =>
 
 /** Whether a field's type is a checked contract, whose domain holds its predicate as a CHECK. */
 const checkedContract = (f: DeclaredField): boolean =>
-	f.decl.type.kind === "contract" && f.decl.type.predicate !== undefined
+	f.decl.type.kind === "domain" && f.decl.type.predicate !== undefined
 
 /**
  * A role writing through its query entry alone, its `held` claim typed as a checked contract and the entry's target a

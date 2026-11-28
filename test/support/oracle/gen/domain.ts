@@ -140,7 +140,7 @@ const specDesc = (spec: TypeSpec): FieldDesc => {
 			return { kind: "pg", type: spec.carrier }
 		case "uuid":
 			return {
-				kind: "contract",
+				kind: "domain",
 				name: "Id",
 				base: { kind: "uuid" },
 				predicate: undefined,
@@ -155,14 +155,14 @@ const specDesc = (spec: TypeSpec): FieldDesc => {
 		case "contract":
 			return spec.name === "Tick"
 				? {
-						kind: "contract",
+						kind: "domain",
 						name: "Tick",
 						base: { kind: "pg", type: "int8" },
 						predicate: undefined,
 						facts: []
 					}
 				: {
-						kind: "contract",
+						kind: "domain",
 						name: "Code",
 						base: textDesc(codeSource, "u"),
 						predicate: undefined,
@@ -413,7 +413,7 @@ export const fieldDescOf = (type: ScalarType): FieldDesc => {
 	const { contract } = type
 	if (contract !== undefined) {
 		return {
-			kind: "contract",
+			kind: "domain",
 			name: contract.name,
 			base: fieldDescOf(contract.base),
 			predicate: undefined,

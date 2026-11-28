@@ -7,7 +7,7 @@ import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { contract, natural, int4, int8 } from "#compiler/public/fields.ts"
+import { domain, natural, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	contained,
@@ -24,11 +24,11 @@ import { attempt } from "#test/support/substrate.ts"
 
 const lowKey = Symbol("Low")
 /** A contract over int8 of the values at most 1, a sibling of natural: neither refines the other. */
-const Low = contract<typeof lowKey>()("Low", int8, (x) => Logic.le(x, 1n))
+const Low = domain<typeof lowKey>()("Low", int8, (x) => Logic.le(x, 1n))
 
 const unitKey = Symbol("Unit")
 /** A contract over natural of the values at most 1: a refinement of natural, and through it of int8. */
-const Unit = contract<typeof unitKey>()("Unit", natural, (x) => Logic.le(x, 1n))
+const Unit = domain<typeof unitKey>()("Unit", natural, (x) => Logic.le(x, 1n))
 
 /** The types the schema's fields are of, each of the base carrier int8: int8, natural, Low and Unit. */
 const types = ["Big", "Natural", "Low", "Unit"] as const

@@ -1,6 +1,6 @@
 /**
  * A computed text a law reads or a persistent expression casts installs with the domain of every refinement it is typed
- * by, and with every library function it calls, whatever stored field, check or contract names them, and none need. One rule holds: the installation holds the domain
+ * by, and with every library function it calls, whatever stored field, check or domain names them, and none need. One rule holds: the installation holds the domain
  * of every refinement any artifact over it types a value by (physical/install/plan.ts artifactDomains), so a
  * containment of a stored text into a derived relation's computed text, whose sides the law relabels to their common
  * type, and a generated field that casts a computed text into a text type no stored field declares (a domain cast the

@@ -5,7 +5,7 @@
  */
 export {
 	accumulated,
-	contract,
+	domain,
 	generated,
 	int8,
 	lexical,

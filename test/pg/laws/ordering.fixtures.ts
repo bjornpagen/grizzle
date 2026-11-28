@@ -6,7 +6,7 @@ import { Array as Arr, Data, Effect, Equivalence, Formatter, Option, Order, Resu
 import { rowEvaluator } from "#adapter/public/host.ts"
 import { constraintNamesOf } from "#compiler/program/laws.ts"
 import { Range } from "#compiler/public/compute.ts"
-import { contract, mintOf, range, int4, int8 } from "#compiler/public/fields.ts"
+import { domain, mintOf, range, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, derived, relation, schema } from "#compiler/public/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -23,7 +23,7 @@ import { firstRefusalOf, refusalOf } from "#test/support/substrate.ts"
 
 const secondsKey = Symbol("Seconds")
 /** A point of a sitting's timeline, whole seconds. */
-const Seconds = contract<typeof secondsKey>()("Seconds", int8)
+const Seconds = domain<typeof secondsKey>()("Seconds", int8)
 const toSeconds = mintOf(secondsKey)
 
 /** A sitting's start, at most one. */

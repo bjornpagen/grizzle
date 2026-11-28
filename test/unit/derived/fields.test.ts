@@ -270,7 +270,7 @@ export const aContractADerivedFieldIsCastToIsTheSchemasWhetherARelationOrTheCast
 			},
 			{
 				file: "packages/engine/src/schema/walk.ts",
-				original: '\t\t\tif (d.kind === "contract") {\n\t\t\t\tthis.contracts.push(d)',
+				original: '\t\t\tif (d.kind === "domain") {\n\t\t\t\tthis.contracts.push(d)',
 				replacement: '\t\t\tif (d.kind === "bits") {\n\t\t\t\tthis.contracts.push(d)',
 				why: "A query's casts and typed literals type no value by a contract any more (schema/walk.ts queryUses): the cast-alone situation's contract is undeclared, and the property fails."
 			},

@@ -374,7 +374,7 @@ const admitSeries = (relation: unknown): StatementDesc => {
 	if (field === undefined || rest.length > 0 || !isDrawnType(fieldOf(rel, field, label))) {
 		throw builderRefusal(
 			label,
-			"a series' relation is keyed by one field alone, the series' numbers, of a type grizzle draws: natural or a contract over an integer"
+			"a series' relation is keyed by one field alone, the series' numbers, of a type grizzle draws: natural or a domain over an integer"
 		)
 	}
 	return admitted({

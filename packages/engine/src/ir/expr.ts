@@ -1376,14 +1376,14 @@ export const predicateTree = (table: ExprTable): Result.Result<ScalarExpr, Compi
 		const cycle = firstArgumentCycle(table.exprs, [table.root])
 		if (cycle !== undefined) {
 			throw new Refusal(
-				S.malformedAt("contract predicate", ["exprs", cycle], "acyclic predicate arguments")
+				S.malformedAt("domain predicate", ["exprs", cycle], "acyclic predicate arguments")
 			)
 		}
 		const parsed = new Fold<ExprId, ScalarExpr>(function* (id) {
 			const entry = tableAt(table.exprs, id)
 			if (entry === undefined) {
 				throw new Refusal(
-					S.malformedAt("contract predicate", ["exprs"], `an expression named ${id} in the table`)
+					S.malformedAt("domain predicate", ["exprs"], `an expression named ${id} in the table`)
 				)
 			}
 			const spec = yield* mapArgs<TableArgs, LiveArgs>(entry)
@@ -1458,7 +1458,7 @@ const kindProblems = (
 ): ReadonlyArray<string> => {
 	switch (expr.kind) {
 		case "value":
-			return sameScalarType(expr.type, base) ? [] : ["VALUE at the contract's base type"]
+			return sameScalarType(expr.type, base) ? [] : ["VALUE at the domain's base type"]
 		case "literal": {
 			const problem = literalProblem(expr.value, expr.type)
 			return problem === undefined ? [] : [problem]

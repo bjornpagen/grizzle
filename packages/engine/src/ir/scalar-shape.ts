@@ -116,7 +116,7 @@ const factShape: S.Shape<Fact> = S.literalsShape(factNames)
 const factListShape: S.Shape<ReadonlyArray<Fact>> = S.refine(
 	S.uniqueArray(factShape, (f) => f, "facts"),
 	factsSorted,
-	"a contract's facts sorted, each once"
+	"a domain's facts sorted, each once"
 )
 
 interface WireTypmod {
@@ -386,41 +386,41 @@ const narrowContract = (t: WireScalarType, contract: WireContract): ScalarType |
 		t.bound !== undefined ||
 		t.variant !== undefined
 	) {
-		return "a contract's descriptor holds its carrier and the contract alone; its base holds the rest"
+		return "a domain's descriptor holds its carrier and the domain alone; its base holds the rest"
 	}
 	const { base } = contract
 	if (base.carrier !== t.carrier) {
-		return "a contract has its base's carrier"
+		return "a domain has its base's carrier"
 	}
 	if (
 		isNumericValue(base) &&
 		(base.bound.digits !== numericOwnBound.digits || base.bound.scale !== numericOwnBound.scale)
 	) {
-		return "a contract is over numeric(p, s) or numeric of no typmod at numeric's own limits, never a computed numeric's narrower bound"
+		return "a domain is over numeric(p, s) or numeric of no typmod at numeric's own limits, never a computed numeric's narrower bound"
 	}
 	if (isExactValue(base)) {
-		return `${base.carrier} is an arithmetic result, never a contract's base`
+		return `${base.carrier} is an arithmetic result, never a domain's base`
 	}
 	if (base.carrier === "bits") {
-		return "a set over a roster is never a contract's base"
+		return "a set over a roster is never a domain's base"
 	}
 	if (base.carrier === "bytes") {
-		return "bytea is never a contract's base"
+		return "bytea is never a domain's base"
 	}
 	if (base.carrier === "sha256") {
-		return "a digest is never a contract's base"
+		return "a digest is never a domain's base"
 	}
 	if (base.carrier === "tsvector") {
-		return "a search document is never a contract's base"
+		return "a search document is never a domain's base"
 	}
 	if (base.carrier === "variant") {
-		return "a variant is never a contract's base"
+		return "a variant is never a domain's base"
 	}
 	const { name, predicate } = contract
 	if (predicate !== undefined) {
 		const [problem] = predicateProblems(predicate, base)
 		if (problem !== undefined) {
-			return `contract ${name}: ${problem}`
+			return `domain ${name}: ${problem}`
 		}
 	}
 	return Object.freeze({
@@ -730,7 +730,7 @@ const preconditionShape: S.Shape<Precondition> = S.tagged<Precondition>()("kind"
 	finite: S.struct({ operand: operandIndexShape }),
 	integral: S.struct({ operand: operandIndexShape }),
 	fits: S.struct({}),
-	contract: S.struct({}),
+	domain: S.struct({}),
 	language: S.struct({}),
 	powerDomain: S.struct({}),
 	powerRange: S.struct({}),

@@ -5,7 +5,7 @@ import { Logic, Num, Range, Text, Type } from "#compiler/public/compute.ts"
 import {
 	accumulated,
 	closedId,
-	contract,
+	domain,
 	Numeric,
 	drawn,
 	generated,
@@ -45,21 +45,17 @@ import { Cents, centsKey, Instant, toCents } from "#test/support/fixtures/api/co
 import { Id } from "#test/support/ids.ts"
 
 const rateKey = Symbol("Rate")
-export const Rate = contract<typeof rateKey>()("Rate", numeric(7, 6), (x) =>
-	Logic.between(x, 0n, 1n)
-)
+export const Rate = domain<typeof rateKey>()("Rate", numeric(7, 6), (x) => Logic.between(x, 0n, 1n))
 export const toRate = mintOf(rateKey)
 const microsKey = Symbol("Micros")
-export const Micros = contract<typeof microsKey>()("Micros", int8, (x) => Logic.ge(x, 0n))
+export const Micros = domain<typeof microsKey>()("Micros", int8, (x) => Logic.ge(x, 0n))
 const weekKey = Symbol("Week")
-export const Week = contract<typeof weekKey>()("Week", int8)
+export const Week = domain<typeof weekKey>()("Week", int8)
 const einKey = Symbol("Ein")
-export const Ein = contract<typeof einKey>()("Ein", str.regex("^[0-9]{2}-[0-9]{7}$"))
+export const Ein = domain<typeof einKey>()("Ein", str.regex("^[0-9]{2}-[0-9]{7}$"))
 const legalNameKey = Symbol("LegalName")
-export const LegalName = contract<typeof legalNameKey>()(
-	"LegalName",
-	str.regex("^.+$", "su"),
-	(x) => Logic.le(Text.charLength(x), 300)
+export const LegalName = domain<typeof legalNameKey>()("LegalName", str.regex("^.+$", "su"), (x) =>
+	Logic.le(Text.charLength(x), 300)
 )
 
 const EmployeeCode = str.regex("^E[0-9]{6}$")

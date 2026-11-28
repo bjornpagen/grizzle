@@ -7,7 +7,7 @@ import { type CompareOp, type ComputeFn, computeFns } from "#compiler/ir/desc.ts
 import type { NumericBound } from "#compiler/ir/scalar.ts"
 import { Logic, Type } from "#compiler/public/compute.ts"
 import {
-	contract,
+	domain,
 	bool,
 	float4,
 	float8,
@@ -156,15 +156,15 @@ const kept_smallintKey = Symbol("Kept_smallint")
 const kept_textKey = Symbol("Kept_text")
 /** A contract over each type min, max, LEAST and GREATEST are defined on. */
 export const kept = [
-	contract<typeof kept_smallintKey>()("Kept_smallint", int2),
-	contract<typeof kept_integerKey>()("Kept_integer", int4),
-	contract<typeof kept_bigintKey>()("Kept_bigint", int8),
-	contract<typeof kept_numericKey>()("Kept_numeric", numeric(7, 2)),
-	contract<typeof kept_realKey>()("Kept_real", float4),
-	contract<typeof kept_doubleKey>()("Kept_double", float8),
-	contract<typeof kept_moneyKey>()("Kept_money", money),
-	contract<typeof kept_booleanKey>()("Kept_boolean", bool),
-	contract<typeof kept_textKey>()("Kept_text", str.regex("^.*$", "su"))
+	domain<typeof kept_smallintKey>()("Kept_smallint", int2),
+	domain<typeof kept_integerKey>()("Kept_integer", int4),
+	domain<typeof kept_bigintKey>()("Kept_bigint", int8),
+	domain<typeof kept_numericKey>()("Kept_numeric", numeric(7, 2)),
+	domain<typeof kept_realKey>()("Kept_real", float4),
+	domain<typeof kept_doubleKey>()("Kept_double", float8),
+	domain<typeof kept_moneyKey>()("Kept_money", money),
+	domain<typeof kept_booleanKey>()("Kept_boolean", bool),
+	domain<typeof kept_textKey>()("Kept_text", str.regex("^.*$", "su"))
 ] as const
 
 type Kept = (typeof kept)[number]

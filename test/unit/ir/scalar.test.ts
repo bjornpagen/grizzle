@@ -6,7 +6,7 @@
  *   it breaks. Oracle: universal, decode ∘ build = id, and each rule's refusal under the type's label.
  * - Literals: each type admits exactly the literals it holds, a contract's by its base, and numeric(p, s) exactly the
  *   values it stores unchanged. Oracle: each literal domain restated as a checker.
- * - Contract predicates: any allocation of a predicate normalizes to the one table numbered from the root, and every
+ * - Domain predicates: any allocation of a predicate normalizes to the one table numbered from the root, and every
  *   predicate broken at one rule is refused. Oracle: the normal form and each rule a table keeps.
  * - Payloads: the IR's money, vector and decimal payload grammars agree with the carriers that write and revive them.
  *   Oracle: the carriers as second implementations.
@@ -298,7 +298,7 @@ export const literalsNumericLiteralsUnderATypmodAdmitsExactlyTheValuesNumericPSS
 		}
 	)
 
-/** Contract predicates normalizes any allocation to the one table numbered from the root, and refuses every predicate that breaks a rule. */
+/** Domain predicates normalizes any allocation to the one table numbered from the root, and refuses every predicate that breaks a rule. */
 export const contractPredicatesNormalizesAnyAllocationToTheOneTableNumberedFromTheRootAndRefusesEveryPredicateThatBreaksARule =
 	property.exhaust(
 		finite(
@@ -351,7 +351,7 @@ export const contractPredicatesNormalizesAnyAllocationToTheOneTableNumberedFromT
 					file: "packages/engine/src/ir/expr.ts",
 					original: `\tfor (const id of dangling) {\n\t\tif (id !== table.root) {\n\t\t\tproblems.push(\`an argument named \${id} in the predicate table\`)\n\t\t}\n\t}\n`,
 					replacement: "",
-					why: "A contract predicate naming an argument its table lacks is admitted; the contract predicates property fails."
+					why: "A domain predicate naming an argument its table lacks is admitted; the domain predicates property fails."
 				}
 			]
 		}

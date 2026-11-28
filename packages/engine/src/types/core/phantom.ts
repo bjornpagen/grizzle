@@ -218,11 +218,11 @@ export interface UnhostedOrigin<out Operands> extends ComputedOrigin<Operands> {
 }
 
 /**
- * The origin of the value a contract's predicate judges (types/fields/constructors.ts ContractConstructor): one value of
+ * The origin of the value a contract's predicate judges (types/fields/constructors.ts DomainConstructor): one value of
  * the base, which no relation's field states and nothing binds. It is an origin of its own, never `unknown`, which a
  * union of origins absorbs, so a computation over it keeps every mark its other operands carry (UnhostedOrigin).
  */
-export interface ContractValueOrigin {
+export interface DomainValueOrigin {
 	readonly contractValue: true
 }
 
@@ -1109,7 +1109,7 @@ export type Parameterless<X> = [keyof ParamsOfTerm<X>] extends [never]
  */
 export type Hosted<X> =
 	true extends ReadsUnhosted<OriginOfTerm<X>>
-		? Refusal<"an operation the host evaluates: a contract predicate, a row check and a generated field compute no quot, rem, round, trunc, ceil, floor, gcd, lcm, power, sqrt, widthBucket, minScale, numeric, cosineDistance, textMatches, textRank or textRankCd, and call no declared function">
+		? Refusal<"an operation the host evaluates: a domain predicate, a row check and a generated field compute no quot, rem, round, trunc, ceil, floor, gcd, lcm, power, sqrt, widthBucket, minScale, numeric, cosineDistance, textMatches, textRank or textRankCd, and call no declared function">
 		: unknown
 
 /**

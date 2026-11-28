@@ -3068,7 +3068,7 @@ const integerDomainOf = (desc: FieldDesc): IntegerDomain | undefined => {
 		const carrier = integerCarriers.get(desc.type)
 		return carrier === undefined ? undefined : { carrier, least: integerRanges[carrier][0] }
 	}
-	if (desc.kind !== "contract") {
+	if (desc.kind !== "domain") {
 		return undefined
 	}
 	const base = integerDomainOf(desc.base)

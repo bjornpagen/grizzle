@@ -98,7 +98,7 @@ const endpointGen: Gen<FieldDesc> = (source) => {
 	const base: FieldDesc = { kind: "pg", type: source.draw(boolean) ? "int8" : "int4" }
 	return source.draw(boolean)
 		? base
-		: { kind: "contract", name: source.draw(nameGen), base, predicate: undefined, facts: [] }
+		: { kind: "domain", name: source.draw(nameGen), base, predicate: undefined, facts: [] }
 }
 
 /** A declared type of no contract and no set: the kinds a contract's base may be. */
@@ -144,7 +144,7 @@ export const declaredGen: Gen<DeclaredSketch> = weighted<DeclaredSketch>([
 			const base = source.draw(contractBaseGen)
 			return {
 				desc: {
-					kind: "contract",
+					kind: "domain",
 					name: source.draw(nameGen),
 					base: base.desc,
 					predicate: undefined,

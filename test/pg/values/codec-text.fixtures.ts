@@ -19,7 +19,7 @@ import {
 	accumulated,
 	bit,
 	closedId,
-	contract,
+	domain,
 	date,
 	drawn,
 	type Field,
@@ -186,7 +186,7 @@ const declaredCarriers: Arr.NonEmptyReadonlyArray<DeclaredCarrier> = [
 	declaredOf("vector(16)", vector(16)),
 	contractOf(
 		"contract Cents",
-		contract<typeof centsKey>()("Cents", int8, undefined, undefined),
+		domain<typeof centsKey>()("Cents", int8, undefined, undefined),
 		centsKey
 	),
 	declaredOf("date", date),

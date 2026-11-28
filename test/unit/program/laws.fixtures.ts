@@ -22,7 +22,7 @@ import type { ConstraintOwner } from "#compiler/ir/products.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { sameLaw } from "#compiler/public/changeset.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { closedId, contract, range, variant, int4, int8 } from "#compiler/public/fields.ts"
+import { closedId, domain, range, variant, int4, int8 } from "#compiler/public/fields.ts"
 import {
 	type AnyRelation,
 	type AnySchema,
@@ -445,15 +445,15 @@ const nonnegKey = Symbol("Nonneg")
 const posKey = Symbol("Pos")
 /** The contracts of one definition, `>= 0` over a bigint: the counts and the span's endpoint. */
 const counts: Readonly<Record<Count, FieldBase>> = {
-	Pos: contract<typeof posKey>()("Pos", int8, (c) => Logic.ge(c, 0n)),
-	Nonneg: contract<typeof nonnegKey>()("Nonneg", int8, (c) => Logic.ge(c, 0n))
+	Pos: domain<typeof posKey>()("Pos", int8, (c) => Logic.ge(c, 0n)),
+	Nonneg: domain<typeof nonnegKey>()("Nonneg", int8, (c) => Logic.ge(c, 0n))
 }
 
 const minuteKey = Symbol("Minute")
-const Minute = contract<typeof minuteKey>()("Minute", int8, (m) => Logic.ge(m, 0n))
+const Minute = domain<typeof minuteKey>()("Minute", int8, (m) => Logic.ge(m, 0n))
 
 const brandKey = Symbol("Brand")
-const Brand = contract<typeof brandKey>()("Brand", int8)
+const Brand = domain<typeof brandKey>()("Brand", int8)
 
 /** The arms of every variant a table's field holds: a text of a pattern, or a count. */
 const Arm = closed.unordered("Arm", ["word", "count"])

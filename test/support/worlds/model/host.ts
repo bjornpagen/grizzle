@@ -52,7 +52,7 @@ import type {
  * which rows a role relation holds (entryRows), whether a fact of a writable entry's target is in the entry (isMember),
  * and a base's laws as the host law model's (hostSchemaOf, test/support/laws/model.ts).
  *
- * Values are as PostgreSQL outputs them: a uuid in lowercase, an integer (a contract's value included) as a number, a
+ * Values are as PostgreSQL outputs them: a uuid in lowercase, an integer (a domain's value included) as a number, a
  * handle as its member's name, a span by its endpoints. Values of one kind are equal when they are the same value,
  * spans by their endpoints; values of two kinds are never equal. Values order as the database does: numbers
  * numerically, text and uuid by code point (the builtin C.UTF-8 collation), false before true, a handle by its

@@ -38,7 +38,7 @@ import { BatchRefused, CommitRefused, type ServerError } from "#adapter/errors/f
  */
 export const isSqlstateSpec = (code: string): boolean => regex("^[0-9A-Z]{5}$").test(code)
 
-/** The conditions the contract names, by PostgreSQL's codes. */
+/** The conditions the domain names, by PostgreSQL's codes. */
 export const serialization = "40001"
 
 export const deadlock = "40P01"

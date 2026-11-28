@@ -54,7 +54,7 @@ import { trusted } from "#compiler/core/trusted.ts"
 import type { ConservativeParamSlot } from "#compiler/lower/conservative/types.ts"
 import type { SentStatement } from "#compiler/lower/shapes/index.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { closedId, contract, int8 } from "#compiler/public/fields.ts"
+import { closedId, domain, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -76,7 +76,7 @@ import type { Substrate } from "#test/support/substrate/substrate.ts"
 
 const Kind = closed.ordered("Kind", ["Open", "Done", "Held"])
 const centsKey = Symbol("Cents")
-const Cents = contract<typeof centsKey>()("Cents", int8, (x) => Logic.ge(x, 0n))
+const Cents = domain<typeof centsKey>()("Cents", int8, (x) => Logic.ge(x, 0n))
 const Entry = relation(
 	"Entry",
 	{

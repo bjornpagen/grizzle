@@ -175,7 +175,7 @@ export class GlueBuilder {
 							nonNull: "strict",
 							proof: [
 								{
-									precondition: { kind: "contract" },
+									precondition: { kind: "domain" },
 									premises: [{ kind: "checked", operand: 0, by: "write" }]
 								}
 							]

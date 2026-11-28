@@ -906,7 +906,7 @@ const contractDefinition = (
 				return [
 					lowerPersistent(names, unwrap(predicateTree(t.predicate)), {
 						reads: { kind: "domain" },
-						loc: SourceLoc(`the predicate of contract ${contract.name}`, [])
+						loc: SourceLoc(`the predicate of domain ${contract.name}`, [])
 					})
 				]
 		}
@@ -1060,7 +1060,7 @@ export const outsideContracts = (
 	catchRefusal(() => {
 		const context: Array<OutsideContract> = []
 		const planned = new Map<string, string>()
-		const types = DeclaredNamespace.of("relation, roster and contract")
+		const types = DeclaredNamespace.of("relation, roster and domain")
 		for (const r of Object.values(owned.relations)) {
 			unwrap(declareRelation(types, r, r.kind === "closed" ? "closed relation" : "relation", r.loc))
 		}
@@ -1074,7 +1074,7 @@ export const outsideContracts = (
 			what: string
 		): void => {
 			const baseContract = info.base.contract
-			if (desc.base.kind === "contract" && baseContract !== undefined) {
+			if (desc.base.kind === "domain" && baseContract !== undefined) {
 				plan(desc.base, baseContract, loc, what)
 			}
 			const text = unwrap(descText(desc))
@@ -1086,7 +1086,7 @@ export const outsideContracts = (
 					throw new Refusal(
 						malformedDescription(
 							loc,
-							`${what}: one definition per contract name; contract ${info.name} is defined otherwise ${declared === undefined ? "by another context field" : "by the base"}`
+							`${what}: one definition per domain name; domain ${info.name} is defined otherwise ${declared === undefined ? "by another context field" : "by the base"}`
 						)
 					)
 				}
@@ -1101,7 +1101,7 @@ export const outsideContracts = (
 		}
 		for (const f of fields) {
 			const info = f.type.contract
-			if (f.desc.kind === "contract" && info !== undefined) {
+			if (f.desc.kind === "domain" && info !== undefined) {
 				plan(f.desc, info, f.loc, `context field ${f.context}.${f.field}`)
 			}
 		}
@@ -1151,7 +1151,7 @@ export const paramContractsDefined = (
 			return Result.err(
 				malformedDescription(
 					loc,
-					`one definition per contract name; contract ${contract.name} is defined otherwise ${by}`
+					`one definition per domain name; domain ${contract.name} is defined otherwise ${by}`
 				)
 			)
 		}
@@ -1167,12 +1167,12 @@ export const addOutsideContractDomains = (
 ): ReadonlyArray<ObjectName> => [
 	...contracts.context.map((c) =>
 		addContractDomain(b, { name: c.name, base: c.contract.base, check: c.check }, [
-			enforcement(`contract ${c.name} of a context field`)
+			enforcement(`domain ${c.name} of a context field`)
 		])
 	),
 	...contracts.params.map((c) =>
 		addContractDomain(b, { name: c.name, base: c.contract.base, check: c.check }, [
-			enforcement(`contract ${c.name} of a served parameter`)
+			enforcement(`domain ${c.name} of a served parameter`)
 		])
 	)
 ]

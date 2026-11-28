@@ -62,7 +62,7 @@ const boxCases: ReadonlyArray<TimeCase> = [
 		verdict: {
 			kind: "refusal",
 			refusal:
-				"an instant is the database's clock's alone: no parameter, literal, constant, cast, contract or range is of its type"
+				"an instant is the database's clock's alone: no parameter, literal, constant, cast, domain or range is of its type"
 		}
 	},
 	{

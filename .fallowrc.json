@@ -24,6 +24,10 @@
 		// The one-list connectives' codemod, which a consumer runs by path, and the oxlint plugin it hands its rewrites to.
 		"scripts/dev/connective-list.ts",
 		"scripts/dev/connective-list-plugin.ts",
+		// The star imports' and PostgreSQL names' codemod, which a consumer runs by path at its repin, and the oxlint plugin
+		// its rename pass loads by path.
+		"scripts/dev/star-imports.ts",
+		"scripts/dev/star-imports-plugin.ts",
 		"oxlint.ast.config.ts",
 		// The runner config, which toolchain-test loads by its path at the package root, and the test modules it includes.
 		"test.config.ts",
@@ -534,9 +538,9 @@
 				"patterns": ["packages/engine/src/plan/**"]
 			},
 			{
-				// The shell's contract parser (adapter/public/contract.ts), the contract entry's one module.
-				"name": "adapter-contract",
-				"patterns": ["packages/grizzle/src/adapter/public/contract.ts"]
+				// The shell's contract parser (adapter/public/domain.ts), the contract entry's one module.
+				"name": "adapter-domain",
+				"patterns": ["packages/grizzle/src/adapter/public/domain.ts"]
 			},
 			{
 				"name": "adapter",
@@ -551,9 +555,9 @@
 				"patterns": ["packages/grizzle/src/runtime.ts"]
 			},
 			{
-				// @bjornpagen/grizzle/contract: a consumer's contract's checked mint, apart from the runtime entry.
-				"name": "contract-entry",
-				"patterns": ["packages/grizzle/src/contract.ts"]
+				// @bjornpagen/grizzle/domain: a consumer's contract's checked mint, apart from the runtime entry.
+				"name": "domain-entry",
+				"patterns": ["packages/grizzle/src/domain.ts"]
 			},
 			{
 				// @bjornpagen/grizzle/dynamic: the door for a generated schema, the engine's constructors of relations whose
@@ -1770,11 +1774,11 @@
 				"allow": ["adapter-runtime", "grizzle-text"]
 			},
 			{
-				"from": "contract-entry",
-				"allow": ["adapter-contract", "grizzle-text"]
+				"from": "domain-entry",
+				"allow": ["adapter-domain", "grizzle-text"]
 			},
 			{
-				"from": "adapter-contract",
+				"from": "adapter-domain",
 				"allow": ["adapter-runtime", "contract", "grizzle-text", "plan-contract"],
 				"allowTypeOnly": ["types"]
 			},

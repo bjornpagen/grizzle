@@ -9,7 +9,7 @@ import {
 	closedId,
 	contained,
 	context,
-	contract,
+	domain,
 	counted,
 	CredentialError,
 	type Numeric,
@@ -214,8 +214,8 @@ export const TrackerApp = login(Tracker, "tracker", [Teammate], {
 const microsKey = Symbol("Micros")
 const millisKey = Symbol("Millis")
 /** Millionths of a dollar, never negative; milliseconds since the epoch. */
-const Micros = contract<typeof microsKey>()("Micros", int8, (m) => Logic.ge(m, 0n))
-const Millis = contract<typeof millisKey>()("Millis", int8)
+const Micros = domain<typeof microsKey>()("Micros", int8, (m) => Logic.ge(m, 0n))
+const Millis = domain<typeof millisKey>()("Millis", int8)
 const RequestId = str.regex("^req_[0-9A-Za-z]{1,64}$")
 const Workspace = str.regex("^ws_[0-9a-z]{1,32}$")
 const Model = str.regex("^[a-z0-9.-]{1,64}$")
@@ -339,7 +339,7 @@ export type FolderSizesParams = Expect<
 
 const minuteKey = Symbol("Minute")
 /** Minutes since the epoch. */
-const Minute = contract<typeof minuteKey>()("Minute", int8)
+const Minute = domain<typeof minuteKey>()("Minute", int8)
 const RoomName = str.regex("^[A-Za-z0-9 -]{1,64}$")
 
 export const Room = relation("Room", { name: RoomName }, ["name"])

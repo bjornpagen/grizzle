@@ -6,7 +6,7 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Logic } from "#compiler/public/compute.ts"
 import {
 	closedId,
-	contract,
+	domain,
 	Numeric,
 	type Infer,
 	mintOf,
@@ -39,11 +39,11 @@ const accountKey = Symbol("Account")
  * converted by its carrier, a pattern's text, read as its cell, a closed id, read by its roster's names, and a uuid.
  * The amount is never negative, which the database checks of every write.
  */
-const Amount = contract<typeof amountKey>()("Amount", int8, (a) => Logic.ge(a, 0n))
-const Code = contract<typeof codeKey>()("Code", codeBase)
-const Price = contract<typeof priceKey>()("Price", numeric(9, 2))
-const Tone = contract<typeof toneKey>()("Tone", closedId(Tones))
-const Account = contract<typeof accountKey>()("Account", uuid)
+const Amount = domain<typeof amountKey>()("Amount", int8, (a) => Logic.ge(a, 0n))
+const Code = domain<typeof codeKey>()("Code", codeBase)
+const Price = domain<typeof priceKey>()("Price", numeric(9, 2))
+const Tone = domain<typeof toneKey>()("Tone", closedId(Tones))
+const Account = domain<typeof accountKey>()("Account", uuid)
 
 /** The mints of the contracts' values, each from a value of its base. */
 const toAmount: (amount: bigint) => Infer<typeof Amount> = mintOf(amountKey)
@@ -63,7 +63,7 @@ export const Holdings = schema("Holdings", [Tones, Held], [])
 
 /**
  * The full world's workload: holdings written with the facts each call gives, every holding read back, and the ids
- * whose amount a parameter of the contract names.
+ * whose amount a parameter of the domain names.
  */
 const programs = Object.freeze({
 	store: ChangeSet.empty(Holdings).insert(Held, []),

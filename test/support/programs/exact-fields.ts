@@ -5,7 +5,7 @@
 export { ChangeSet } from "#compiler/public/changeset.ts"
 export { Num, Type } from "#compiler/public/compute.ts"
 export {
-	contract,
+	domain,
 	exactInteger,
 	exactMoney,
 	generated,

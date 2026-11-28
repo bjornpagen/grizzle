@@ -99,13 +99,13 @@ const cellLines = (c: RefiningCell, at: number): ReadonlyArray<string> => [
 /** The types and relations every cell reads: each kind's relation, keyed by `o` and its field `v`. */
 const header = (): ReadonlyArray<string> => [
 	'export const momentKey = Symbol("Moment")',
-	'export const Moment = contract<typeof momentKey>()("Moment", int8, (t) => Logic.ge(t, 0n))',
+	'export const Moment = domain<typeof momentKey>()("Moment", int8, (t) => Logic.ge(t, 0n))',
 	'export const onesKey = Symbol("Ones")',
-	'export const Ones = contract<typeof onesKey>()("Ones", natural, (n) => Logic.le(n, 1n))',
+	'export const Ones = domain<typeof onesKey>()("Ones", natural, (n) => Logic.le(n, 1n))',
 	'export const Hue = closed.ordered("Hue", ["red", "blue"])',
 	'export const Tint = closed.ordered("Tint", ["red", "blue"])',
 	'export const litKey = Symbol("Lit")',
-	'export const Lit = contract<typeof litKey>()("Lit", closedId(Hue), (h) => Logic.ne(h, Hue.handle("blue")))',
+	'export const Lit = domain<typeof litKey>()("Lit", closedId(Hue), (h) => Logic.ne(h, Hue.handle("blue")))',
 	'export const Big = relation("Big", { o: int4, v: int8 }, ["o", "v"])',
 	'export const Count = relation("Count", { o: int4, v: natural }, ["o", "v"])',
 	'export const Moments = relation("Moments", { o: int4, v: Moment }, ["o", "v"])',

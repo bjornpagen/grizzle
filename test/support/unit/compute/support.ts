@@ -133,7 +133,7 @@ export const scalarOfDesc = (desc: FieldDesc): ScalarType =>
 
 /**
  * The column of a FieldDesc, as its descriptor builder makes it: its carrier's conversion, its roster's handles, a
- * span's over its endpoint's, a contract's base's (unbranded: no test decodes a contract's values).
+ * span's over its endpoint's, a contract's base's (unbranded: no test decodes a domain's values).
  */
 const columnOf = (desc: FieldDesc): Column<unknown> => {
 	switch (desc.kind) {
@@ -169,7 +169,7 @@ const columnOf = (desc: FieldDesc): Column<unknown> => {
 			return plainColumns.text
 		case "span":
 			return spanColumn(columnOf(desc.endpoint))
-		case "contract":
+		case "domain":
 			return columnOf(desc.base)
 		case "variant":
 			throw new Error("no compute case declares a variant")
@@ -249,7 +249,7 @@ export const testDeclaringContract = (
 	const built = predicate?.(scalarTerm({ kind: "value" }, base.scalar, base)).expr
 	return field(
 		{
-			kind: "contract",
+			kind: "domain",
 			name,
 			base: base.desc,
 			predicate: built === undefined ? undefined : spelledExpr(built),
@@ -548,7 +548,7 @@ const builtinNames: Readonly<Partial<Record<Carrier, TypeRef>>> = {
 }
 
 export interface RenderOptions {
-	/** The domain a contract lowers to, by contract name, or undefined where no contract is rendered. */
+	/** The domain a contract lowers to, by domain name, or undefined where no contract is rendered. */
 	readonly domain:
 		| ((testContract: string) => { readonly schema: string; readonly name: string })
 		| undefined
@@ -757,7 +757,7 @@ export const sqlOf = (root: ScalarExpr, options: RenderOptions): Expr => {
 	return go(root)
 }
 
-/** The SQL text of the expression tree `root`; a contract predicate's table is parsed first (ir/expr.ts predicateTree). */
+/** The SQL text of the expression tree `root`; a domain predicate's table is parsed first (ir/expr.ts predicateTree). */
 export const renderSql = (root: ScalarExpr, options: RenderOptions): string =>
 	printExpr(sqlOf(root, options))
 

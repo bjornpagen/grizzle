@@ -325,7 +325,7 @@ const pgNumericTypes: Arr.NonEmptyReadonlyArray<ScalarType> = [
 	scalarOf({ kind: "pg", type: "numeric" }, {}),
 	scalarOf(
 		{
-			kind: "contract",
+			kind: "domain",
 			name: "Amount",
 			base: { kind: "pg", type: "numeric" },
 			predicate: undefined,

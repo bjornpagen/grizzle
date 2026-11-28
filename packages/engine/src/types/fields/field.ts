@@ -124,7 +124,7 @@ export type NotStoredOnly<Sql> = [Sql] extends [StoredOnlySql]
 
 /** A contract's base that is no digest, whose one predicate is its length, which its domain holds (ir/scalar.ts DigestType). */
 export type NotDigest<Sql> = [Sql] extends ["sha256"]
-	? Refusal<"a digest is never a contract's base: its one predicate is its length, which its domain holds">
+	? Refusal<"a digest is never a domain's base: its one predicate is its length, which its domain holds">
 	: unknown
 
 /**
@@ -133,12 +133,12 @@ export type NotDigest<Sql> = [Sql] extends ["sha256"]
  * base is of it; nothing for any other.
  */
 export type NotSearchDocument<Sql> = [Sql] extends ["tsvector"]
-	? Refusal<"a search document is PostgreSQL's parse of texts, which a field holds as a read delivered it: no parameter or contract is of its type">
+	? Refusal<"a search document is PostgreSQL's parse of texts, which a field holds as a read delivered it: no parameter or domain is of its type">
 	: unknown
 
 /**
  * Whether a column's type is a bare uuid: of SQL type uuid, its values every Uuid, with no brand, which a contract over
- * uuid gives them (Contract), so no contract names whose id it holds.
+ * uuid gives them (Domain), so no contract names whose id it holds.
  */
 type BareUuid<F> = [F] extends [{ readonly sql: "uuid" }]
 	? [Uuid] extends [FieldHost<F>]
@@ -153,14 +153,14 @@ type BareUuid<F> = [F] extends [{ readonly sql: "uuid" }]
  */
 export type NamedIds<Fields> = {
 	readonly [K in keyof Fields]: BareUuid<Fields[K]> extends true
-		? Refusal<'say whose id this is: contract<typeof key>()("ClerkUserId", uuid)'>
+		? Refusal<'say whose id this is: domain<typeof key>()("ClerkUserId", uuid)'>
 		: unknown
 }
 
 /** The refusal of a column type that is a bare uuid (BareUuid), nothing for any other. */
 export type NamedId<F> =
 	BareUuid<F> extends true
-		? Refusal<'say whose id this is: contract<typeof key>()("ClerkUserId", uuid)'>
+		? Refusal<'say whose id this is: domain<typeof key>()("ClerkUserId", uuid)'>
 		: unknown
 
 /**
@@ -265,7 +265,7 @@ export type { Instant } from "#compiler/scalar/instant.ts"
 
 /**
  * The identity an instant's terms meet at: a bigint of the database's clock, the domain of the builtin contract
- * `instant` over int8, proved nonnegative, a name no other contract takes (OneContractName), so an instant meets
+ * `instant` over int8, proved nonnegative, a name no other contract takes (OneDomainName), so an instant meets
  * only instants, never a count, a caller's bigint or a contract over one. Its values are Instant, the bigints a read
  * delivers (InstantField).
  */
@@ -282,7 +282,7 @@ export type NotInstant<D> = [D] extends [never]
 	: 0 extends 1 & D
 		? unknown
 		: [D] extends [InstantDomain]
-			? Refusal<"an instant is the database's clock's alone: no parameter, literal, constant, cast, contract or range is of its type">
+			? Refusal<"an instant is the database's clock's alone: no parameter, literal, constant, cast, domain or range is of its type">
 			: unknown
 
 /**
@@ -363,7 +363,7 @@ export type Infer<F> = FieldHost<F>
 export type SqlOf<F> = F extends Field<unknown, infer Sql> ? Sql : never
 
 /**
- * The key a consumer's contract F holds beyond its base's, its own (Contract K), which a contract over another holds
+ * The key a consumer's contract F holds beyond its base's, its own (Domain K), which a contract over another holds
  * apart from its base's (types/fields KeyApart); never for any other type, natural and instant among them, whose values
  * no consumer owns.
  */
@@ -416,7 +416,7 @@ type DeclaredDomain<Proved extends ReadonlyArray<keyof Facts>> = [Proved[number]
  * contracts over one base are distinct types and every value of its type has its facts, read from a query's heading
  * too.
  */
-export interface Contract<
+export interface Domain<
 	Name extends string,
 	B extends FieldBase,
 	K extends symbol,
@@ -432,12 +432,12 @@ export interface Contract<
 }
 
 /** Any consumer's contract, whatever its name, base, key and declared facts. */
-export type AnyContract = Contract<string, FieldBase, symbol>
+export type AnyDomain = Domain<string, FieldBase, symbol>
 
 /**
  * Not a field of a writing of its own. A caller's descriptor carries no `writing` member, so an absent optional `never`
  * admits it and refuses a drawn field's, an accumulated field's and a generated field's. A
- * contract's base is one (types/fields ContractConstructor), so no contract's chain holds a field of a writing of its
+ * contract's base is one (types/fields DomainConstructor), so no contract's chain holds a field of a writing of its
  * own.
  */
 export interface NoWriting {
@@ -723,7 +723,7 @@ export type DrawnType<F> = [F] extends [NaturalField]
 				}
 		  ]
 		? unknown
-		: Refusal<"drawn(type): natural or a contract over an integer, the types a family's index and count are of">
+		: Refusal<"drawn(type): natural or a domain over an integer, the types a family's index and count are of">
 
 /**
  * A value of the type F grizzle draws, natural or a contract over an integer (DrawnType): a family's index or count, or

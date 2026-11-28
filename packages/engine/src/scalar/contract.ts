@@ -46,7 +46,7 @@ const baseEnv = (base: ScalarType): ScalarEnv => {
 const buildPredicate = (predicate: unknown, base: Described, name: string): ExprDesc => {
 	if (typeof predicate !== "function") {
 		throw malformedDescription(
-			captureLoc(`contract ${name} predicate`, []),
+			captureLoc(`domain ${name} predicate`, []),
 			"a predicate callback (v) => predicate over the value"
 		)
 	}
@@ -56,7 +56,7 @@ const buildPredicate = (predicate: unknown, base: Described, name: string): Expr
 	const expr = predicateExpr(built)
 	if (expr === undefined) {
 		throw malformedDescription(
-			captureLoc(`contract ${name} predicate`, []),
+			captureLoc(`domain ${name} predicate`, []),
 			"a predicate built from Logic's comparisons over the value"
 		)
 	}
@@ -80,7 +80,7 @@ const declaredFacts = (
 	if (declared === undefined) {
 		return []
 	}
-	const loc = captureLoc(`contract ${contract} proves`, [])
+	const loc = captureLoc(`domain ${contract} proves`, [])
 	const proves = hasProperties(declared) ? declared["proves"] : undefined
 	if (!isList(proves)) {
 		throw malformedDescription(loc, "{ proves: [...] }, the facts the predicate proves")
@@ -122,7 +122,7 @@ export const admitContractCall = (first: ReadonlyArray<unknown>): void => {
 	if (first.length > 0) {
 		throw malformedDescription(
 			captureLoc("contract", []),
-			"contract<typeof key>()(name, base), contract<typeof key>()(name, base, predicate) or contract<typeof key>()(name, base, predicate, { proves }): the type of its key is the first call's type argument, and the first call takes no value"
+			"domain<typeof key>()(name, base), domain<typeof key>()(name, base, predicate) or domain<typeof key>()(name, base, predicate, { proves }): the type of its key is the first call's type argument, and the first call takes no value"
 		)
 	}
 }
@@ -176,8 +176,8 @@ export const callerContractParts = (
 ): ContractParts => {
 	if (name === naturalName || name === instantName) {
 		throw ruleRefused(
-			captureLoc(`contract ${name}`, []),
-			"a contract's name is apart from natural and instant, grizzle's own types"
+			captureLoc(`domain ${name}`, []),
+			"a domain's name is apart from natural and instant, grizzle's own types"
 		)
 	}
 	return contractParts(name, base, rest)
@@ -197,7 +197,7 @@ const isOwnedName = (name: string): boolean => name !== naturalName && name !== 
 export const ownedContractNames = (desc: FieldDesc): ReadonlyArray<string> => {
 	const names: Array<string> = []
 	nestedFields(desc, (d) => {
-		if (d.kind === "contract" && isOwnedName(d.name) && !names.includes(d.name)) {
+		if (d.kind === "domain" && isOwnedName(d.name) && !names.includes(d.name)) {
 			names.push(d.name)
 		}
 	})
@@ -248,7 +248,7 @@ export const admitMintKey = (
 	if (rest.length !== levels) {
 		throw malformedDescription(
 			loc,
-			`${keyed}: a contract's values are its consumer's, made only under the keys its modules hold, one for each consumer's contract of its chain, its own first`
+			`${keyed}: a domain's values are its consumer's, made only under the keys its modules hold, one for each consumer's domain of its chain, its own first`
 		)
 	}
 	for (const key of rest) {
@@ -261,14 +261,14 @@ export const contractParts = (
 	base: unknown,
 	rest: ReadonlyArray<unknown>
 ): ContractParts => {
-	const nameLoc = captureLoc("contract name", [])
+	const nameLoc = captureLoc("domain name", [])
 	if (typeof name !== "string") {
 		throw malformedDescription(
 			nameLoc,
-			"a contract name: a declared name, the contract's identity; a name given as a string"
+			"a domain name: a declared name, the domain's identity; a name given as a string"
 		)
 	}
-	const declared = admitDeclaredName(name, `contract name ${JSON.stringify(name)}`, nameLoc)
+	const declared = admitDeclaredName(name, `domain name ${JSON.stringify(name)}`, nameLoc)
 	if (!declared.ok) {
 		throw declared.error
 	}
@@ -276,16 +276,16 @@ export const contractParts = (
 	const [predicate, declaration, ...extra] = rest
 	if (extra.length > 0) {
 		throw malformedDescription(
-			captureLoc(`contract ${contract}`, []),
-			"contract<typeof key>()(name, base), contract<typeof key>()(name, base, predicate) or contract<typeof key>()(name, base, predicate, { proves })"
+			captureLoc(`domain ${contract}`, []),
+			"domain<typeof key>()(name, base), domain<typeof key>()(name, base, predicate) or domain<typeof key>()(name, base, predicate, { proves })"
 		)
 	}
-	const described = describeFieldOrThrow(base, SourceLoc(`contract ${contract} base`, []))
-	const loc = captureLoc(`contract ${contract}`, [])
+	const described = describeFieldOrThrow(base, SourceLoc(`domain ${contract} base`, []))
+	const loc = captureLoc(`domain ${contract}`, [])
 	if (isInstantType(described.scalar)) {
 		throw ruleRefused(
 			loc,
-			"a contract is over a value a caller brands; an instant is the database's clock's alone, so no contract is over one"
+			"a domain is over a value a caller brands; an instant is the database's clock's alone, so no domain is over one"
 		)
 	}
 	const domain = contractType(contract, described.scalar, loc, undefined, [])
@@ -298,7 +298,7 @@ export const contractParts = (
 		name: contract,
 		sql: described.sql,
 		base: described,
-		desc: { kind: "contract", name: contract, base: described.desc, facts, predicate: built },
+		desc: { kind: "domain", name: contract, base: described.desc, facts, predicate: built },
 		predicate: built,
 		loc,
 		env: baseEnv(described.scalar)

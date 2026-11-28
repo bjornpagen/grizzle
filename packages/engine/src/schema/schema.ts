@@ -199,7 +199,7 @@ const levelFunctions = (desc: SchemaDesc): Map<string, FunctionDesc> => {
 const closedIdRoster = (desc: FieldDesc): string | undefined =>
 	desc.kind === "closedId"
 		? desc.roster
-		: desc.kind === "contract"
+		: desc.kind === "domain"
 			? closedIdRoster(desc.base)
 			: undefined
 

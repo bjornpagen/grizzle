@@ -139,8 +139,8 @@ Each type has one name, the one PostgreSQL prints for it: `int4`, never `int4`; 
   `Marked<Numeric, typeof gradedKey>`, and a write of a grade takes nothing else. A key is a unique symbol, one per
   contract: a key of type `symbol` is a type error, and `mintOf` refuses a registered one, which `Symbol.for` gives any
   module by its name.
-- **A contract's checked mint parses a value from outside.** `contractParser(Cents, centsKey)`
-  (`@bjornpagen/grizzle/contract`) derives the contract's checker from the contract itself, once, where it is built:
+- **A contract's checked mint parses a value from outside.** `domainParser(Cents, centsKey)`
+  (`@bjornpagen/grizzle/domain`) derives the contract's checker from the contract itself, once, where it is built:
   its type as a schema's compile types it, its predicate a table the host evaluates and the automata of its patterns.
   It reads a value of the base as PostgreSQL does before it stores it: a value of no value of the base's type is
   `ValueRefused` by the codec's fault (a bigint past int8), one outside the contract's predicate or its base's

@@ -11,7 +11,7 @@ import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { sameScalarType, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
 import { Logic, Text } from "#compiler/public/compute.ts"
-import { closedId, contract, mintOf, int8, numeric } from "#compiler/public/fields.ts"
+import { closedId, domain, mintOf, int8, numeric } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
@@ -53,15 +53,15 @@ const Code = str.regex("^[A-Z]+$")
 const Prose = str.regex("^.*$", "su")
 
 const centsKey = Symbol("Cents")
-const Cents = contract<typeof centsKey>()("Cents", int8, (x) => Logic.ge(x, 0n))
+const Cents = domain<typeof centsKey>()("Cents", int8, (x) => Logic.ge(x, 0n))
 const toCents = mintOf(centsKey)
 
 const brandKey = Symbol("Brand")
-const Brand = contract<typeof brandKey>()("Brand", int8)
+const Brand = domain<typeof brandKey>()("Brand", int8)
 const toBrand = mintOf(brandKey)
 
 const handleKey = Symbol("Handle")
-const Handle = contract<typeof handleKey>()("Handle", Slug, (x) => Logic.le(Text.charLength(x), 20))
+const Handle = domain<typeof handleKey>()("Handle", Slug, (x) => Logic.le(Text.charLength(x), 20))
 const toHandle = mintOf(handleKey)
 
 const Tier = closed.ordered("Tier", ["Free", "Pro"])

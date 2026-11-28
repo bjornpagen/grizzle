@@ -15,7 +15,7 @@ import { Array as Arr, Effect, Exit, Fiber, Option, Record as Rec, String as Str
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { contract, instant, natural, place, int4 } from "#compiler/public/fields.ts"
+import { domain, instant, natural, place, int4 } from "#compiler/public/fields.ts"
 import { query } from "#compiler/public/query.ts"
 import { login, mutable, relation, role, schema, unit } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
@@ -37,7 +37,7 @@ import { upTo } from "#test/support/up-to.ts"
 
 const kidNoKey = Symbol("KidNo")
 /** A kid's number, the unit Kid's key: a contract of its own, so Tick's natural child sits in no unit. */
-const KidNo = contract<typeof kidNoKey>()("KidNo", int4)
+const KidNo = domain<typeof kidNoKey>()("KidNo", int4)
 
 /** A kid's fact at the database's instant: its clock's child is (kid, part), its scope the unit Kid's. */
 const Event = relation("Event", { kid: KidNo, part: natural, at: instant, kind: natural }, [

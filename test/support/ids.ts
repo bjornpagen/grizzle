@@ -1,5 +1,5 @@
 import type { FieldDesc } from "#compiler/ir/desc.ts"
-import { contract, type Marked, mintOf, uuid } from "#compiler/public/fields.ts"
+import { domain, type Marked, mintOf, uuid } from "#compiler/public/fields.ts"
 import type { Uuid } from "#compiler/scalar/values/uuid.ts"
 import { describedDesc } from "#compiler/schema/protocol.ts"
 
@@ -22,7 +22,7 @@ export type IdValue = Marked<Uuid, IdKey>
  * A test's entity id: no column is a bare uuid (docs/schema.md "Identity: natural keys"), so a test relation keyed by a uuid
  * names it by this contract, one type every such test relation shares, its values `toId(uuid)`.
  */
-export const Id = contract<typeof idKey>()(idName, uuid)
+export const Id = domain<typeof idKey>()(idName, uuid)
 
 /** The mint of an Id's value from its uuid. */
 export const toId: (uuid: Uuid) => IdValue = mintOf(idKey)

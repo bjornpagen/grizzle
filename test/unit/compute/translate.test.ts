@@ -506,7 +506,7 @@ export const computesTranslateAndLowerAsciiProvesACastIntoARefinedTextExactlyByT
 							? textTypeOf(target.source, "u")
 							: target.kind === "a contract over a text type"
 								? {
-										kind: "contract",
+										kind: "domain",
 										name: "Short",
 										base: textTypeOf(target.source, "u"),
 										predicate: {

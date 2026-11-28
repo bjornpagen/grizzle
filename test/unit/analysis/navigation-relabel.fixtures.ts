@@ -10,7 +10,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import type { InferredExpr, InferredQuery, InferredRule } from "#compiler/ir/desc.ts"
 import { queryInput } from "#compiler/program/input.ts"
 import { Logic, Type } from "#compiler/public/compute.ts"
-import { contract, int4, int8 } from "#compiler/public/fields.ts"
+import { domain, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { key, on, relation, schema } from "#compiler/public/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -43,7 +43,7 @@ export type Reached =
 
 const placingKey = Symbol("Placing")
 /** A place in a sitting's order: a whole number from 1, a domain over bigint as qti-pie's `natural` is. */
-const Placing = contract<typeof placingKey>()("Placing", int8, (x) => Logic.ge(x, 1n))
+const Placing = domain<typeof placingKey>()("Placing", int8, (x) => Logic.ge(x, 1n))
 
 const Presented = relation("Presented", { child: int4, stage: int4, path: int4, at: int8 }, [
 	"child",

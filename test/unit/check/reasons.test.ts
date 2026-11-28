@@ -129,7 +129,7 @@ export const aQuerysContractsAreOneDescriptorPerNameAcrossTheQueryAndItsSchemaAN
 				}
 				const reason = refused(result, "DuplicateIdentity").reason
 				const duplicate = reason._tag === "DuplicateIdentity" ? reason.duplicate : undefined
-				const named = duplicate?.kind === "contract" ? duplicate.name : undefined
+				const named = duplicate?.kind === "domain" ? duplicate.name : undefined
 				assert.ok(
 					named !== undefined && Arr.some(clash, (name) => name === named),
 					`a contract of the names ${Arr.join(clash, ", ")}, not ${Formatter.format(duplicate)}`

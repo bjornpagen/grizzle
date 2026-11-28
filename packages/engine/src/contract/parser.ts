@@ -1,5 +1,5 @@
 /**
- * A consumer's contract parsed on the host (contractParserOf): its checked mint, the one parse of a value of its base
+ * A consumer's contract parsed on the host (domainParserOf): its checked mint, the one parse of a value of its base
  * into its host type at a boundary, where mintOf(key) is the unchecked one. Its checker is a fact of the contract value
  * alone, derived where the parser is built: the contract's type as a schema's compile types it, every level's predicate
  * a host-evaluable table (scalar/compute/total.ts schemaEnvOf, over the roster a closed id below it reads and a pattern
@@ -24,27 +24,27 @@ import { describeFieldOrThrow, scalarTypeOf } from "#compiler/scalar/registry.ts
 import { admitValue } from "#compiler/scalar/values/identity.ts"
 import { AnalyzedPatterns } from "#compiler/text/refinement.ts"
 import type { Facts } from "#compiler/types/core/phantom.ts"
-import type { Contract, FieldBase, Infer } from "#compiler/types/fields/field.ts"
-import type { ContractRefused } from "#compiler/types/schema/evaluation.ts"
+import type { Domain, FieldBase, Infer } from "#compiler/types/fields/field.ts"
+import type { DomainParseRefused } from "#compiler/types/schema/evaluation.ts"
 
 /**
- * A contract's checked mint (contractParserOf): the contract itself, the descriptor a field of it is declared by, so
+ * A contract's checked mint (domainParserOf): the contract itself, the descriptor a field of it is declared by, so
  * a consumer that stores what it parses (den's step inputs) types its column by the contract, whose domain PostgreSQL
  * holds every write to and whose column delivers the host type; and its parse, a value of its base B as its host value
- * under the key K where the contract holds it, else the contract Name's refusal (ContractRefused).
+ * under the key K where the contract holds it, else the contract Name's refusal (DomainParseRefused).
  */
-export interface ContractParser<
+export interface DomainParser<
 	Name extends string,
 	B extends FieldBase,
 	K extends symbol,
 	Proved extends ReadonlyArray<keyof Facts>
 > {
-	readonly contract: Contract<Name, B, K, Proved>
-	readonly parse: (value: Infer<B>) => Public.Result<Marked<Infer<B>, K>, ContractRefused<Name>>
+	readonly domain: Domain<Name, B, K, Proved>
+	readonly parse: (value: Infer<B>) => Public.Result<Marked<Infer<B>, K>, DomainParseRefused<Name>>
 }
 
 /**
- * contractParser(contract, key), the shell's runtime entry's, over `answer`, its spelling of a caller's Result: the
+ * domainParser(contract, key), the shell's runtime entry's, over `answer`, its spelling of a caller's Result: the
  * contract's checked mint, its checker derived once, here (see the header). `parse(value)` reads the value as its
  * base's type by the admission every caller's value of a field meets (scalar/values/identity.ts admitValue), under the
  * codes of the roster a closed id below it reads, holds it to the contract's type by the one judgment of a value's
@@ -55,22 +55,22 @@ export interface ContractParser<
  * caller may pass, is refused as MalformedDescription, as a builder refuses one, and a contract whose predicate does not
  * type, as its schema's compile refuses it.
  */
-export const contractParserOf = <
+export const domainParserOf = <
 	Name extends string,
 	B extends FieldBase,
 	K extends symbol,
 	Proved extends ReadonlyArray<keyof Facts>
 >(
-	contract: Contract<Name, B, K, Proved>,
+	contract: Domain<Name, B, K, Proved>,
 	key: NoInfer<K>,
 	answer: PublicResult
-): ContractParser<Name, B, K, Proved> => {
-	const loc = captureLoc("contractParser", [])
+): DomainParser<Name, B, K, Proved> => {
+	const loc = captureLoc("domainParser", [])
 	const mint = hostMintOf(key)
 	const described = describeFieldOrThrow(contract, loc)
 	const { desc } = described
-	if (desc.kind !== "contract") {
-		throw malformedDescription(loc, "a contract, contract<typeof key>()(name, base, predicate)")
+	if (desc.kind !== "domain") {
+		throw malformedDescription(loc, "a domain, domain<typeof key>()(name, base, predicate)")
 	}
 	const roster = rosterOf(described.scalar)
 	const patterns = new AnalyzedPatterns()
@@ -86,14 +86,16 @@ export const contractParserOf = <
 	const spec = carrierSpecOf(type, firstCodebook(roster === undefined ? [] : [roster]))
 	const judge = judgeOf(new Map(), patterns)
 	const judged = [{ name: contract.name, type, writing: { kind: "caller" } }] as const
-	const parsed = (value: Infer<B>): Result.Result<Marked<Infer<B>, K>, ContractRefused<Name>> => {
+	const parsed = (
+		value: Infer<B>
+	): Result.Result<Marked<Infer<B>, K>, DomainParseRefused<Name>> => {
 		const read = admitValue(spec, value)
 		if (!read.ok) {
-			return Result.err({ _tag: "ValueRefused", contract: contract.name, fault: read.error })
+			return Result.err({ _tag: "ValueRefused", domain: contract.name, fault: read.error })
 		}
 		return outsideDomain(judge, judged, () => read.value) === undefined
 			? Result.ok(mint(value))
-			: Result.err({ _tag: "DomainRefused", contract: contract.name })
+			: Result.err({ _tag: "DomainRefused", domain: contract.name })
 	}
-	return Object.freeze({ contract, parse: (value: Infer<B>) => answer(parsed(value)) })
+	return Object.freeze({ domain: contract, parse: (value: Infer<B>) => answer(parsed(value)) })
 }

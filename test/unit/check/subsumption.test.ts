@@ -31,7 +31,7 @@ import { exprsOf, type RelNode } from "#compiler/ir/rel.ts"
 import { baseOf, subsumes } from "#compiler/ir/scalar.ts"
 import { queryInput } from "#compiler/program/input.ts"
 import { Logic, Type } from "#compiler/public/compute.ts"
-import { contract, natural, int4, int8 } from "#compiler/public/fields.ts"
+import { domain, natural, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { binaryCoercion } from "#compiler/scalar/compute/registry.ts"
@@ -275,7 +275,7 @@ export const aContractsPredicateReadsAStoredValueBareAtItsBaseAndALiteralOpposit
 			situations: [],
 			check: () => (bounds) =>
 				Effect.sync(() => {
-					const Minutes = contract<typeof minutesKey>()("Minutes", int4, (n) =>
+					const Minutes = domain<typeof minutesKey>()("Minutes", int4, (n) =>
 						bounds === "lower"
 							? Logic.gt(n, 0)
 							: bounds === "upper"

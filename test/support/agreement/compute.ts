@@ -271,8 +271,7 @@ const refusalNotes = {
 		"refused: a literal first",
 	"the range's own endpoint descriptor: a descriptor of another type is no endpoint of the range":
 		"refused: an endpoint",
-	"a value its contract refuses: it lacks a fact the contract declares":
-		"refused: a contract's value",
+	"a value its domain refuses: it lacks a fact the domain declares": "refused: a domain's value",
 	"operands of one type: an exact value beside a plain value of its family; Type.cast the exact one into the plain one's type":
 		"refused: an exact value beside a plain one",
 	"a closed id of a closed.unordered roster has no order: declare its roster closed.ordered to compare or order by its handles":
@@ -1697,7 +1696,7 @@ type TermRoot =
 	| { readonly kind: "cast"; readonly aim: CastAim }
 	| { readonly kind: "when"; readonly branch: Branch }
 	| { readonly kind: "heading" }
-	| { readonly kind: "contract" }
+	| { readonly kind: "domain" }
 	| { readonly kind: "exact literal" }
 	| { readonly kind: "term"; readonly root: Exclude<TermKind, "cast" | "when"> }
 
@@ -1718,7 +1717,7 @@ const termRootName = (root: TermRoot): { readonly feature: TermKind; readonly na
 			return { feature: "when", name: `when: ${root.branch}` }
 		case "heading":
 			return { feature: "div", name: headingNote }
-		case "contract":
+		case "domain":
 			return { feature: "sqrt", name: "a partial operation over a value its contract refuses" }
 		case "exact literal":
 			return { feature: "cond", name: "a literal beside an exact branch" }
@@ -1758,7 +1757,7 @@ const termOf = (d: Drawing, root: TermRoot): TermSpec => {
 				otherwise: { kind: "literal", lit: d.from(exactLiterals) }
 			}
 		}
-		case "contract": {
+		case "domain": {
 			const fn = d.from(["sqrt", "power", "quot"] as const)
 			d.note(fn)
 			const refused = Arr.filter(baseDecimals(), (l) => literalRefused(written, "rate", l.value))
@@ -1894,7 +1893,7 @@ const termRoots: Arr.NonEmptyReadonlyArray<TermRoot> = [
 	...Arr.map(castAims, (aim): TermRoot => ({ kind: "cast", aim })),
 	...Arr.map(branches, (branch): TermRoot => ({ kind: "when", branch })),
 	{ kind: "heading" },
-	{ kind: "contract" },
+	{ kind: "domain" },
 	{ kind: "exact literal" },
 	...Arr.flatMap(termKinds, (root): ReadonlyArray<TermRoot> =>
 		root === "cast" || root === "when" ? [] : [{ kind: "term", root }]
@@ -2853,7 +2852,7 @@ interface Admitted {
  */
 const engineDecides = {
 	fits: "decided: a fit",
-	contract: "decided: a contract",
+	domain: "decided: a domain",
 	language: "decided: a language",
 	lexical: "decided: a lexical form",
 	bucketDomain: "decided: a bucket's domain",
@@ -2868,7 +2867,7 @@ const engineDecides = {
 type DecidedNote = (typeof engineDecides)[keyof typeof engineDecides]
 const computeDecided: Arr.NonEmptyReadonlyArray<DecidedNote> = [
 	"decided: a fit",
-	"decided: a contract",
+	"decided: a domain",
 	"decided: a lexical form",
 	"decided: a language",
 	"decided: a power's range",
@@ -2884,7 +2883,7 @@ const computeDecided: Arr.NonEmptyReadonlyArray<DecidedNote> = [
  * is refused for once the predicate is read as the facts the contract declares (contractVerdict): a declared class,
  * whose two messages differ.
  */
-const contestedNote = "decided: a contract's value"
+const contestedNote = "decided: a domain's value"
 type ContestedNote = typeof contestedNote
 
 /**
@@ -2903,7 +2902,7 @@ const decidedBy = (thrown: unknown): DecidedNote | undefined => {
 	const reason = thrown.reason
 	if (reason._tag === "PartialOperation") {
 		return reason.precondition === "fits" ||
-			reason.precondition === "contract" ||
+			reason.precondition === "domain" ||
 			reason.precondition === "language" ||
 			reason.precondition === "lexical" ||
 			reason.precondition === "bucketDomain" ||
@@ -2988,7 +2987,7 @@ const isContractLiteral = (thrown: unknown): boolean =>
 
 /** The Refusal the types state of a value its contract refuses where they decide it (scalar.ts Refutes). */
 const contractRefusal: ComputeRefusal =
-	"a value its contract refuses: it lacks a fact the contract declares"
+	"a value its domain refuses: it lacks a fact the domain declares"
 
 /**
  * The verdict on a case the engine refuses for a contract's predicate (ContractLiteral), by the engine's verdict on the
@@ -4168,8 +4167,8 @@ const notesOfRoot = (root: Root): ReadonlyArray<ComputeNote> => {
 	switch (root.root.kind) {
 		case "heading":
 			return [headingNote]
-		case "contract":
-			return [...contractNotes, "decided: a contract's value", "decided: a literal's value"]
+		case "domain":
+			return [...contractNotes, "decided: a domain's value", "decided: a literal's value"]
 		case "exact literal":
 			return exactLiteralNotes
 		case "cast":
@@ -4195,7 +4194,7 @@ const constructsOf: { readonly [N in ComputeNote]?: ReadonlyArray<ComputeFeature
 	"exact money": ["add", "sub"],
 	"a guarded partial operation": ["when"],
 	"a guarded parameter": ["when"],
-	"decided: a contract": ["cast"],
+	"decided: a domain": ["cast"],
 	"decided: a lexical form": ["cast"],
 	"decided: a language": ["byte guard"],
 	"decided: a power's range": ["power", "when"],

@@ -1019,7 +1019,7 @@ const spanFromEnds = (
 		return fail(
 			"MalformedDescription",
 			childLoc(at, 0),
-			`a range endpoint for range, int4, int8, date or a contract over one, not ${typeLabel(first.nominal)}`
+			`a range endpoint for range, int4, int8, date or a domain over one, not ${typeLabel(first.nominal)}`
 		)
 	}
 	if (!compatible(last.nominal, first.nominal)) {
@@ -4989,7 +4989,7 @@ class RuleCheck {
 				return fail(
 					"MalformedDescription",
 					loc,
-					`a rule variable, parameter or literal here; a ${desc.kind} reference belongs to a contract predicate or a row check`
+					`a rule variable, parameter or literal here; a ${desc.kind} reference belongs to a domain predicate or a row check`
 				)
 		}
 	}

@@ -187,7 +187,7 @@ export function refusedKey(error: CompileError, ...why: Why): KeyRefusal {
 }
 
 /**
- * Where a location is, as a refusal's contract names it: its label and its path, never its call site, which is where a
+ * Where a location is, as a refusal's domain names it: its label and its path, never its call site, which is where a
  * builder happened to run, and never its printed text (core/loc.ts formatLoc), which formats all three.
  */
 export type Place = Readonly<{ label: string; path: ReadonlyArray<string | number> }>

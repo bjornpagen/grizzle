@@ -116,7 +116,7 @@ import { upTo } from "#test/support/up-to.ts"
  * call, so every fault an insert's member carries, planted at an insertAll key, is refused there by the engine and by
  * the types alike.
  *
- * One equivalence, brands being type-only: a contract's value written as its bare base value (`cents: 5n`), which the
+ * One equivalence, brands being type-only: a domain's value written as its bare base value (`cents: 5n`), which the
  * engine checks by value and admits, the types refuse for its missing brand, as the head no fact of its relation.
  *
  * The engine plans a ChangeSet by its strata, which the types hold too (types/changeset Stratum): an append to an
@@ -143,7 +143,7 @@ interface Lit {
 }
 
 /**
- * The nth uuid as the tests' Id, its key's mint's (test/support/ids.ts toId): a contract's value is wider than one
+ * The nth uuid as the tests' Id, its key's mint's (test/support/ids.ts toId): a domain's value is wider than one
  * literal (types/fields/field.ts contract), so no Id value claims a key the types read; a key the types judge is a
  * bigint's.
  */
@@ -1973,7 +1973,7 @@ class Rendering {
 		| "Type"
 		| "Stream"
 		| "Money"
-		| "pg"
+		| "int8"
 		| Level
 		| RelName
 		| FamilyRel
@@ -2047,7 +2047,7 @@ class Rendering {
 				this.uses.add("Logic")
 				this.uses.add("Num")
 				this.uses.add("Type")
-				this.uses.add("pg")
+				this.uses.add("int8")
 				return `Logic.when(Num.within(Num.add(s.${t.field}, ${t.param}), -9223372036854775808n, 9223372036854775807n), (g) => Type.cast(g, int8), s.${t.field})`
 		}
 	}
@@ -2082,7 +2082,7 @@ class Rendering {
 			case "query": {
 				const params = Arr.map(p.params, (param) => {
 					if (param.field === undefined) {
-						this.uses.add("pg")
+						this.uses.add("int8")
 					}
 					return `const ${param.name} = r.param(${jsonText(param.name)}, ${param.field === undefined ? "int8" : `${p.relation}.fields.${param.field}`}); `
 				})
@@ -2549,7 +2549,7 @@ const hostText = (t: ScalarType): string => {
 /**
  * The ParamType a parameter of the engine's type has, as the program spells it: a closed id's domain is its handles,
  * each branded by its roster, and its language the handles alone; a contract's domain is its base's under its name and
- * its language its host type, its key's mint's (types/fields/field.ts Contract); any other's language is its domain.
+ * its language its host type, its key's mint's (types/fields/field.ts Domain); any other's language is its domain.
  */
 const paramText = (t: ScalarType): string => {
 	const b = baseOf(t)
@@ -3689,7 +3689,7 @@ export const changeSetProgram = (
 						...(uses.has("bigintOf") ? ["declare const bigintOf: (n: number) => bigint"] : []),
 						"export const widen = <R>(_relation: R, facts: ReadonlyArray<Addition<R>>): ReadonlyArray<Addition<R>> => facts",
 						"export type SchemaOf<C> = C extends Phantom<{ readonly schema: Invariant<infer S> }> ? S : never",
-						'export type Hosts = [CalendarDate, Numeric, Money, Uuid, Infer<typeof Cents>, typeof pg, BitsOf<typeof Flag>, Rostered<"Kind">, RegexInfer<"", "u">]',
+						'export type Hosts = [CalendarDate, Numeric, Money, Uuid, Infer<typeof Cents>, typeof int8, BitsOf<typeof Flag>, Rostered<"Kind">, RegexInfer<"", "u">]',
 						""
 					]
 				},

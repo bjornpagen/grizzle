@@ -8,7 +8,7 @@ import { flight } from "#compiler/lower/conservative/types.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Logic } from "#compiler/public/compute.ts"
 import {
-	contract,
+	domain,
 	float4,
 	float8,
 	int2,
@@ -298,11 +298,11 @@ export const argumentCaseGen: Gen<ArgumentCase> = (source) => ({
 })
 
 const aboveZeroKey = Symbol("AboveZero")
-const AboveZero = contract<typeof aboveZeroKey>()("AboveZero", float8, (v) => Logic.gt(v, 0))
+const AboveZero = domain<typeof aboveZeroKey>()("AboveZero", float8, (v) => Logic.gt(v, 0))
 const neverZeroKey = Symbol("NeverZero")
-const NeverZero = contract<typeof neverZeroKey>()("NeverZero", float8, (v) => Logic.ne(v, 0))
+const NeverZero = domain<typeof neverZeroKey>()("NeverZero", float8, (v) => Logic.ne(v, 0))
 const atOrAboveZeroKey = Symbol("AtOrAboveZero")
-const AtOrAboveZero = contract<typeof atOrAboveZeroKey>()("AtOrAboveZero", float8, (v) =>
+const AtOrAboveZero = domain<typeof atOrAboveZeroKey>()("AtOrAboveZero", float8, (v) =>
 	Logic.ge(v, 0)
 )
 

@@ -20,7 +20,7 @@ const anEntry = "a catalog entry { name, source }, each a nonempty storable text
 
 /** What law(...) takes for the declaration it names. */
 const aDeclaration =
-	"a declaration a law comes from: a statement built by key, check, contained, mirrors, series, ordered, counted, tree or fold, a relation, a field generated(type, term) made, a str.regex, str.and or str.bytes type, or a contract"
+	"a declaration a law comes from: a statement built by key, check, contained, mirrors, series, ordered, counted, tree or fold, a relation, a field generated(type, term) made, a str.regex, str.and or str.bytes type, or a domain"
 
 /** A catalog entry its author declares, read once, here: a plain record of a name and a source, nonempty texts. */
 const admitEntry = (entry: unknown): DeclaredEntry => {
@@ -189,7 +189,7 @@ export const declaredEntriesOf = (
 			}
 			for (
 				let at: unknown = type;
-				isOwnedDescriptor(at) && at.desc.kind === "contract";
+				isOwnedDescriptor(at) && at.desc.kind === "domain";
 				at = membersOf(at)?.["base"]
 			) {
 				const entry = declaredAt(declaredTypes, at)
@@ -199,7 +199,7 @@ export const declaredEntriesOf = (
 				}
 				const known = contracts.get(contract)
 				if (known !== undefined && mergedEntry(known, entry) === undefined) {
-					conflict(`the contract ${contract}`)
+					conflict(`the domain ${contract}`)
 				}
 				contracts.set(contract, entry)
 			}

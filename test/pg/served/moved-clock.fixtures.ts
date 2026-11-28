@@ -4,7 +4,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Logic, Num, Type } from "#compiler/public/compute.ts"
-import { contract, instant, mintOf, int4, int8 } from "#compiler/public/fields.ts"
+import { domain, instant, mintOf, int4, int8 } from "#compiler/public/fields.ts"
 import { param, query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { clocked } from "#compiler/public/workload.ts"
@@ -12,7 +12,7 @@ import { fixtureTemplate } from "#test/support/pg/reads/support.ts"
 
 const spanKey = Symbol("Span")
 /** A lease's budget, bounded, so a reading plus it fits a bigint under its guard. */
-const Span = contract<typeof spanKey>()("Span", int8, (d) =>
+const Span = domain<typeof spanKey>()("Span", int8, (d) =>
 	Logic.and([Logic.ge(d, 0n), Logic.le(d, 10n ** 12n)])
 )
 export const toSpan = mintOf(spanKey)

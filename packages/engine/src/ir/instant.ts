@@ -50,7 +50,7 @@ export const instantInputText = (what: string): string =>
 
 /** Whether a descriptor is instant's, by its contract's name, which no other contract takes. */
 export const isInstantDesc = (desc: FieldDesc): boolean =>
-	desc.kind === "contract" && desc.name === instantName
+	desc.kind === "domain" && desc.name === instantName
 
 /** Whether a type is instant's, by its contract's name, which no other contract takes. */
 export const isInstantType = (t: ScalarType): boolean => t.contract?.name === instantName

@@ -775,8 +775,8 @@ const naturalOwned = ((): {
 	readonly loc: SourceLoc
 } => {
 	const desc = naturalDescriptor.desc
-	if (desc.kind !== "contract") {
-		defect("natural is a contract")
+	if (desc.kind !== "domain") {
+		defect("natural is a domain")
 	}
 	return { desc, text: textOf(desc), loc: SourceLoc("natural", []) }
 })()
@@ -1270,7 +1270,7 @@ const fixedField = (e: ExprDesc): string | undefined => {
 
 /** Whether a field is a span, through any depth of contracts: a containment pairing one is a coverage law. */
 const spanned = (desc: FieldDesc | undefined): boolean =>
-	desc?.kind === "span" || (desc?.kind === "contract" && spanned(desc.base))
+	desc?.kind === "span" || (desc?.kind === "domain" && spanned(desc.base))
 
 /**
  * Whether a side of an ordinary relation reads its facts by fields of no span, every fact or a selection of them: the
@@ -1601,7 +1601,7 @@ class Owner {
 	 * level that declares it.
 	 */
 	#ownContract(
-		d: Extract<FieldDesc, { readonly kind: "contract" }>,
+		d: Extract<FieldDesc, { readonly kind: "domain" }>,
 		loc: SourceLoc,
 		level: number
 	): void {
@@ -1612,7 +1612,7 @@ class Owner {
 			failWith({
 				_tag: "DuplicateIdentity",
 				at: loc,
-				duplicate: { kind: "contract", name: d.name, earlier: prior.loc }
+				duplicate: { kind: "domain", name: d.name, earlier: prior.loc }
 			})
 		} else if (level < prior.level) {
 			this.#contracts.set(d.name, { ...prior, level })
@@ -1668,7 +1668,7 @@ class Owner {
 						this.#variants.set(d.name, { ...prior, level: entry.level })
 					}
 				}
-				if (d.kind === "contract") {
+				if (d.kind === "domain") {
 					this.#ownContract(d, locOf(field), entry.level)
 				}
 			})
@@ -2288,7 +2288,7 @@ class Owner {
 						_tag: "Refused",
 						at: d.loc,
 						refusal:
-							"a series' relation is keyed by one field alone, the series' numbers, of a type grizzle draws: natural or a contract over an integer"
+							"a series' relation is keyed by one field alone, the series' numbers, of a type grizzle draws: natural or a domain over an integer"
 					})
 				}
 				return d
@@ -2469,7 +2469,7 @@ class Owner {
 
 	/** The schema's one namespace of relations, derived relations, rosters, contracts and variants (PostgreSQL's relation
 	 * and type namespaces, which grizzle treats as one). */
-	readonly #schemaNames = DeclaredNamespace.of("relation, roster, contract and variant")
+	readonly #schemaNames = DeclaredNamespace.of("relation, roster, domain and variant")
 
 	/** The relations, each owning the keys and checks `statements` state over it, read off them once by relation. */
 	#ownRelations(

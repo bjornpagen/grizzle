@@ -4,7 +4,7 @@ import { Logic, Num, Range, Type } from "#compiler/public/compute.ts"
 import {
 	accumulated,
 	closedId,
-	contract,
+	domain,
 	drawn,
 	type Infer,
 	mintOf,
@@ -42,21 +42,21 @@ import { paged, workload } from "#compiler/public/workload.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
 
 const instantKey = Symbol("Instant")
-export const Instant = contract<typeof instantKey>()("Instant", int8)
+export const Instant = domain<typeof instantKey>()("Instant", int8)
 export const toInstant = mintOf(instantKey)
 const microsKey = Symbol("Micros")
-export const Micros = contract<typeof microsKey>()("Micros", int8, (x) => Logic.ge(x, 0n))
+export const Micros = domain<typeof microsKey>()("Micros", int8, (x) => Logic.ge(x, 0n))
 export const toMicros = mintOf(microsKey)
 const tokensKey = Symbol("Tokens")
-export const Tokens = contract<typeof tokensKey>()("Tokens", int8, (x) => Logic.ge(x, 0n))
+export const Tokens = domain<typeof tokensKey>()("Tokens", int8, (x) => Logic.ge(x, 0n))
 export const toTokens = mintOf(tokensKey)
 const rateKey = Symbol("Rate")
-export const Rate = contract<typeof rateKey>()("Rate", int8, (x) => Logic.ge(x, 0n))
+export const Rate = domain<typeof rateKey>()("Rate", int8, (x) => Logic.ge(x, 0n))
 export const toRate = mintOf(rateKey)
 const dayNoKey = Symbol("DayNo")
-export const DayNo = contract<typeof dayNoKey>()("DayNo", int4)
+export const DayNo = domain<typeof dayNoKey>()("DayNo", int4)
 const monthNoKey = Symbol("MonthNo")
-export const MonthNo = contract<typeof monthNoKey>()("MonthNo", int4)
+export const MonthNo = domain<typeof monthNoKey>()("MonthNo", int4)
 export const toMonthNo = mintOf(monthNoKey)
 
 const TokenKind = closed.ordered("TokenKind", [

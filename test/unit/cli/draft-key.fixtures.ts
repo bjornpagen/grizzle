@@ -58,7 +58,7 @@ const schemaModule = "schema.ts"
 const schemaText = (version: 1 | 2): string => `import {
 	ChangeSet,
 	contained,
-	contract,
+	domain,
 	login,
 	on,
 	query,
@@ -76,7 +76,7 @@ const schemaText = (version: 1 | 2): string => `import {
 } from "@bjornpagen/grizzle"
 
 const idKey = Symbol("Id")
-const Id = contract<typeof idKey>()("Id", uuid)
+const Id = domain<typeof idKey>()("Id", uuid)
 const Customer = relation(
 	"Customer",
 	{ id: Id, name: str.regex("^[a-z]{1,40}$")${version === 2 ? ", tier: int4" : ""} },

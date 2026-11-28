@@ -104,7 +104,7 @@ const endpointFieldDesc = (endpoint: SpanEndpointKind): FieldDesc => {
 			return { kind: "pg", type: "date" }
 		case "contract":
 			return {
-				kind: "contract",
+				kind: "domain",
 				name: tickContract.name,
 				base: { kind: "pg", type: "int8" },
 				predicate: {

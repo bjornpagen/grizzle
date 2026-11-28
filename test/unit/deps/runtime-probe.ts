@@ -312,7 +312,7 @@ const floatsDecoded = Arr.map(["1.5", "-0", "3.4028235e+38", "1e-45", "1e+00"], 
 const { Logic, Type } = await import("#compiler/public/compute.ts")
 const {
 	bool,
-	contract,
+	domain,
 	int4,
 	int8,
 	numeric,
@@ -327,7 +327,7 @@ const { compileTemplate, testCompile } = await import("#test/support/compile.ts"
 const flagIdKey = Symbol("FlagId")
 const Flagged = relation(
 	"Flagged",
-	{ id: contract<typeof flagIdKey>()("FlagId", uuid), flag: bool },
+	{ id: domain<typeof flagIdKey>()("FlagId", uuid), flag: bool },
 	["id"]
 )
 const Flags = schema("Flags", [Flagged], [])

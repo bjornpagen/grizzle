@@ -249,7 +249,7 @@ const describedField = (value: unknown, loc: SourceLoc): DescribedField => {
 		case "none":
 			return malformed(
 				loc,
-				"a field descriptor: int2, int4, int8, numeric, float4, float8, money, bool, inet, cidr, uuid, str.regex, contract, range, closedId or vector"
+				"a field descriptor: int2, int4, int8, numeric, float4, float8, money, bool, inet, cidr, uuid, str.regex, domain, range, closedId or vector"
 			)
 	}
 }

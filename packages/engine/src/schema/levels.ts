@@ -176,7 +176,7 @@ const declarationsOver = (
 	const addedVariants = new Map<string, VariantFieldDesc>()
 	for (const r of relations.toSorted((a, b) => (a.name < b.name ? -1 : 1))) {
 		visitDeclaredFields(r.desc, (_field, nested) => {
-			if (nested.kind === "contract") {
+			if (nested.kind === "domain") {
 				addFirst(contracts, addedContracts, nested)
 			}
 			if (nested.kind === "variant") {

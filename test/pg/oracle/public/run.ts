@@ -118,7 +118,7 @@ import { outputText } from "#test/support/wire.ts"
 
 /**
  * Which check of the case disagreed: a public answer with the reference's, a cell or a delivered field with its strict
- * reading, a refusal with the one the contract names, the case's setup (install, layer, open, store), the reference and
+ * reading, a refusal with the one the domain names, the case's setup (install, layer, open, store), the reference and
  * the language's own proofs, or a root delivered in an order whose statements state none.
  */
 type DisagreementCheck = "answer" | "cell" | "refusal" | "setup" | "reference" | "order"
@@ -809,7 +809,7 @@ const refused = (
 	return Effect.fail(
 		new Disagreement({
 			check: "refusal",
-			report: `${what} was not refused as the contract names: ${got}\n${printCase(c)}`
+			report: `${what} was not refused as the domain names: ${got}\n${printCase(c)}`
 		})
 	)
 }

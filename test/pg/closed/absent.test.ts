@@ -52,7 +52,7 @@
  * an absent key or a NULL argument. A lawful row is accepted; an unlawful one is `invariant-rejected` naming its
  * relation's one law; and every stored generated value is the read's, a set its exact bits. A domain's refusal of a
  * NULL is a 23514 on a roster's or a set's domain, which grizzle's writer dies with as its own defect, or names a
- * contract's or a pattern's law: neither is what the contract names.
+ * contract's or a pattern's law: neither is what the domain names.
  *
  * The planted bugs: a domain CHECK that refuses NULL refuses the downstream case and every generated closed id, set,
  * contract or pattern field at an absent key; a C.row of a prefix completed nowhere read as NULL refuses a subset

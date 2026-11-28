@@ -32,7 +32,7 @@ export {
 	accumulated,
 	Bit,
 	closedId,
-	contract,
+	domain,
 	drawn,
 	generated,
 	int4,

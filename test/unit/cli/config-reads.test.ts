@@ -1,8 +1,8 @@
 /**
  * A configuration loads whatever its migrations directory holds, and one that reads it is refused the first time it
  * does. A consumer's configuration reaches its flows' modules through its logins and their workloads, and a flow decodes
- * a contract's values through the key holder's checked mint where it is declared; the mint's checker is derived from the
- * contract itself (contract/parser.ts contractParserOf), so nothing the configuration imports is a file `grizzle
+ * a domain's values through the key holder's checked mint where it is declared; the mint's checker is derived from the
+ * contract itself (contract/parser.ts domainParserOf), so nothing the configuration imports is a file `grizzle
  * generate` writes, and a generate that rewrites every file, whatever state a repin or a hand left them in, always runs.
  * A configuration whose modules import such a file is refused at its first stage, naming each file
  * (ConfigReadsGenerated), while the file still reads, never left to stop loading at the next format change.
@@ -105,10 +105,10 @@ export const aConfigurationLoadsWhateverItsMigrationsHoldAndOneThatReadsThemIsRe
 		kills: [
 			{
 				file: "test/unit/cli/config-reads.fixtures.ts",
-				original: "export const centsParser = contractParser(Cents, centsKey)\n",
+				original: "export const centsParser = domainParser(Cents, centsKey)\n",
 				replacement:
-					'import checker from "./migrations/contract-checks/Cents.json" with { type: "json" }\nexport const centsParser = [contractParser(Cents, centsKey), checker][0]\n',
-				why: "The key holder's mint reads a file generate writes again, as contractParser(file, contract, key) read the contract's checker file: the first draft's configuration does not load, the file not yet written, and no corruption of the migrations directory leaves it loading."
+					'import checker from "./migrations/contract-checks/Cents.json" with { type: "json" }\nexport const centsParser = [domainParser(Cents, centsKey), checker][0]\n',
+				why: "The key holder's mint reads a file generate writes again, as domainParser(file, contract, key) read the contract's checker file: the first draft's configuration does not load, the file not yet written, and no corruption of the migrations directory leaves it loading."
 			},
 			{
 				file: "packages/grizzle/src/cli/config.ts",

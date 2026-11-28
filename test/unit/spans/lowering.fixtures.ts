@@ -7,7 +7,7 @@ import { identity } from "#compiler/core/identity.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import { ALLEN } from "#compiler/public/allen.ts"
-import { contract, range, int4, int8 } from "#compiler/public/fields.ts"
+import { domain, range, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
@@ -22,7 +22,7 @@ import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
 
 const instantKey = Symbol("Instant")
-const Instant = contract<typeof instantKey>()("Instant", int8)
+const Instant = domain<typeof instantKey>()("Instant", int8)
 
 export const Slot = relation("Slot", { id: int4, room: Id, during: range(int4), at: int4 }, ["id"])
 

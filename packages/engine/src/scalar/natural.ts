@@ -77,7 +77,7 @@ export const isNaturalDesc = (desc: FieldDesc): boolean => fieldText(desc) === n
  * bounds every value drawn into it.
  */
 export const drawnTypes: Refused =
-	"drawn(type): natural or a contract over an integer, the types a family's index and count are of"
+	"drawn(type): natural or a domain over an integer, the types a family's index and count are of"
 
 /**
  * Whether grizzle draws values of a type, by its descriptor: a contract over an integer, int2, int4 or int8, at its last
@@ -87,12 +87,12 @@ export const drawnTypes: Refused =
  * series' key's (schema/statements.ts admitSeries, schema/own.ts).
  */
 export const isDrawnType = (desc: FieldDesc): boolean =>
-	desc.kind === "contract" && !isInstantDesc(desc) && isIntegerDesc(desc.base)
+	desc.kind === "domain" && !isInstantDesc(desc) && isIntegerDesc(desc.base)
 
 /** Whether a descriptor is of an integer at its last level: smallint, integer or bigint, through every contract over it. */
 const isIntegerDesc = (desc: FieldDesc): boolean => {
 	switch (desc.kind) {
-		case "contract":
+		case "domain":
 			return isIntegerDesc(desc.base)
 		case "pg":
 			return desc.type === "int2" || desc.type === "int4" || desc.type === "int8"
@@ -129,7 +129,7 @@ export const drawnNarrowing = (type: ScalarType): DrawnNarrowing | undefined => 
 	return carrier === "int2" || carrier === "int4"
 		? {
 				greatest: integerRanges[carrier][1],
-				contract: defined(type.contract, "a drawn type below int8 is a contract").name
+				contract: defined(type.contract, "a drawn type below int8 is a domain").name
 			}
 		: undefined
 }

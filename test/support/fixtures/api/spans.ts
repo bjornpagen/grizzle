@@ -1,5 +1,5 @@
 import { ALLEN } from "#compiler/public/allen.ts"
-import { closedId, contract, range, int8 } from "#compiler/public/fields.ts"
+import { closedId, domain, range, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { Id } from "#test/support/ids.ts"
@@ -46,11 +46,11 @@ export const strictlyInside = query(Schedule).rule((r) => {
 
 const instantKey = Symbol("Instant")
 /** A calendar as a span relation, its days keyed and its spans a nonoverlap key. */
-const Instant = contract<typeof instantKey>()("Instant", int8)
+const Instant = domain<typeof instantKey>()("Instant", int8)
 const chicagoDayKey = Symbol("ChicagoDay")
-const ChicagoDay = contract<typeof chicagoDayKey>()("ChicagoDay", int8)
+const ChicagoDay = domain<typeof chicagoDayKey>()("ChicagoDay", int8)
 const chicagoWeekKey = Symbol("ChicagoWeek")
-const ChicagoWeek = contract<typeof chicagoWeekKey>()("ChicagoWeek", int8)
+const ChicagoWeek = domain<typeof chicagoWeekKey>()("ChicagoWeek", int8)
 const Weekday = closed.ordered("Weekday", ["mon", "tue", "wed", "thu", "fri", "sat", "sun"])
 export const ChicagoCalendar = relation(
 	"ChicagoCalendar",

@@ -576,7 +576,7 @@ const refusals: { readonly [F in SchemaFault | KeptFault]: Refusing } = {
 		"a tree is a family of T over itself, on(T, parent, at), keyed by its root fields then start, with drawn parent, start and end"
 	),
 	drawnUndrawable: named(
-		"drawn(type): natural or a contract over an integer, the types a family's index and count are of"
+		"drawn(type): natural or a domain over an integer, the types a family's index and count are of"
 	),
 	accumulatedWriting: named(
 		"an accumulated field is of a value type: no range, vector or field of a writing of its own"
@@ -729,7 +729,7 @@ const refusals: { readonly [F in SchemaFault | KeptFault]: Refusing } = {
 		"a concat fold names its (before, after) pair after its value: its law reads each member's running value"
 	),
 	contractEnd: named(
-		"a fold's accumulators and ends are of its plane's type: another integer width, numeric typmod or contract is another type"
+		"a fold's accumulators and ends are of its plane's type: another integer width, numeric typmod or domain is another type"
 	),
 	countedSide: named("a family's slots are fin(owner, count), the owner's count"),
 	finOverDerived: structural(
@@ -780,7 +780,7 @@ const refusals: { readonly [F in SchemaFault | KeptFault]: Refusing } = {
 		{ tag: "MalformedDescription" },
 		"a key term is of its key field's roster, whatever its handles' spellings"
 	),
-	contractName: typed("a contract's name is one literal, the brand of its values", {
+	contractName: typed("a domain's name is one literal, the brand of its values", {
 		identity: "several"
 	}),
 	selectedCounted: named(wholeMember),
@@ -793,7 +793,7 @@ const refusals: { readonly [F in SchemaFault | KeptFault]: Refusing } = {
 /**
  * The reason a fault's refusal is, as the oracle states it, structured data and never its prose: the engine's
  * CompileError by its tag and, for a role's refusal, the rule it names; a host value's refusal by its ValueFault; or a
- * contract name the engine would build contracts of several identities from.
+ * domain name the engine would build contracts of several identities from.
  */
 type Expected =
 	| {
@@ -1457,7 +1457,7 @@ const contractsOf = (
 		(made: ReadonlyArray<ContractSpec>, i) => [
 			...made,
 			{
-				name: defined(contractNames[i], "a contract name"),
+				name: defined(contractNames[i], "a domain name"),
 				base: contractBaseOf(d, d.from(rosters), made)
 			}
 		]
@@ -2484,7 +2484,7 @@ const numericHost = (typmod: NumericTypmod): string =>
 
 /**
  * The host type of a field as the engine describes it (ir/desc.ts FieldDesc), as TypeScript: what its column delivers,
- * a contract's values its base's branded with its name, a closed id one of its roster's handles, a set the roster's
+ * a domain's values its base's branded with its name, a closed id one of its roster's handles, a set the roster's
  * Bits, natural an unbranded bigint.
  */
 const hostOfDesc = (desc: FieldDesc, base: Base, ids: Ids): string => {
@@ -2509,7 +2509,7 @@ const hostOfDesc = (desc: FieldDesc, base: Base, ids: Ids): string => {
 				Arr.map(desc.patterns, (p) => `Tx.RegexInfer<${jsonText(p.source)}, ${jsonText(p.flags)}>`),
 				" & "
 			)
-		case "contract":
+		case "domain":
 			return builtinDesc(desc)
 				? hostOfDesc(desc.base, base, ids)
 				: `Fi.Marked<${hostOfDesc(desc.base, base, ids)}, ${keyText(desc.name)}>`
@@ -2629,7 +2629,7 @@ const keysOf = (artifacts: SchemaArtifacts, name: string): ReadonlyArray<Readonl
 		})
 	]
 }
-/** The pool's contract names (`contractNames`), each declared under a key of its own (`keyName`). */
+/** The pool's domain names (`contractNames`), each declared under a key of its own (`keyName`). */
 const poolNames: ReadonlySet<string> = new Set(contractNames)
 
 /**
@@ -2881,7 +2881,7 @@ const fieldSource = (t: FieldType, ids: Ids): string => {
  * The key the engine's reading passes for the program's own contracts, which its admission builds keyless as a
  * JavaScript caller does (scalar/contract.ts admitMintKey reads a key's kind, never whose it is).
  */
-const programKey = Symbol("Contract")
+const programKey = Symbol("Domain")
 
 /**
  * What a field grizzle fills of type `t` takes after its own arguments, as the program spells it (types/fields
@@ -4085,7 +4085,7 @@ const parameterizedDefinition = (spec: DerivedSpec, base: Base, env: Env) => {
 type PredicateSite = "check" | "select" | "contract"
 
 /**
- * A row check, a selection or a contract predicate inside a rule, reading the rule's parameter, a planted fault, or
+ * A row check, a selection or a domain predicate inside a rule, reading the rule's parameter, a planted fault, or
  * reading its row alone. The predicate compares the relation's key field.
  */
 const predicateProbe = (d: Drawing, base: Base): Probe => {
@@ -4107,7 +4107,7 @@ const predicateProbe = (d: Drawing, base: Base): Probe => {
 			case "select":
 				return `Sc.select(${ids(r.name)}, (row) => row.eq(row.${field.name}, ${operand(ids, `row.${field.name}`)}))`
 			case "contract":
-				return `Fi.contract<typeof Key>()("Probe", ${ids(r.name)}.fields.${field.name}, (x) => Cp.Logic.eq(x, ${operand(ids, "x")}))`
+				return `Fi.domain<typeof Key>()("Probe", ${ids(r.name)}.fields.${field.name}, (x) => Cp.Logic.eq(x, ${operand(ids, "x")}))`
 		}
 	}
 	return {
@@ -4274,7 +4274,7 @@ const literalProbe = (d: Drawing, base: Base): Probe => {
 					}
 				case "contract":
 					return oneLine(
-						`export const ${own} = Fi.contract<typeof Key>()("Probe", ${field}, (x) => Cp.Logic.eq(x, ${literal.source}))`
+						`export const ${own} = Fi.domain<typeof Key>()("Probe", ${field}, (x) => Cp.Logic.eq(x, ${literal.source}))`
 					)
 			}
 		},
@@ -4588,7 +4588,7 @@ const foldProbe = (d: Drawing, base: Base, { fault, refined, order, monoid }: Fo
 			const declarations = [
 				...(fault === "contractEnd"
 					? [
-							`export const ${own}_${tallyName} = Fi.contract<typeof Key>()(${jsonText(tallyName)}, Fi.int8)`
+							`export const ${own}_${tallyName} = Fi.domain<typeof Key>()(${jsonText(tallyName)}, Fi.int8)`
 						]
 					: []),
 				`export const ${own}_O = ${relationSource(owner, mine, quoted(owner.key))}`,
@@ -4863,7 +4863,7 @@ const fieldCallSource = (call: FieldCall, ids: Ids): string => {
 				? `Fi.accumulated(Fi.drawn(Fi.natural), ${startSource(call.start, ids)})`
 				: `Fi.accumulated(${fieldSource(call.type, ids)}, ${startSource(call.start, ids)}${mintKeySource(call.type)})`
 		case "contract":
-			return `Fi.contract<typeof Key>()("Probe", ${fieldSource(call.base, ids)})`
+			return `Fi.domain<typeof Key>()("Probe", ${fieldSource(call.base, ids)})`
 		case "span":
 			return `Fi.range(${fieldSource(call.endpoint, ids)}${call.width === "none" ? "" : call.width === "number" ? ", 7" : ", 7n"})`
 		case "numeric":
@@ -5290,7 +5290,7 @@ const baseDeclarations = (base: Base, ids: Ids): ReadonlyArray<readonly [string,
 			(c) =>
 				[
 					c.name,
-					`Fi.contract<${keyText(c.name)}>()(${jsonText(c.name)}, ${fieldSource(c.base, ids)})`
+					`Fi.domain<${keyText(c.name)}>()(${jsonText(c.name)}, ${fieldSource(c.base, ids)})`
 				] as const
 		),
 		...Arr.map(base.relations, (r) => [r.name, relationSource(r, ids, quoted(r.key))] as const),
@@ -5487,13 +5487,13 @@ const valueDescriptorType = (desc: FieldDesc, base: Base, ids: Ids): string => {
 			return `Tx.RegexText<${hostOfDesc(desc, base, ids)}>`
 		case "pattern":
 			return "Fi.PatternField"
-		case "contract": {
+		case "domain": {
 			if (builtinDesc(desc)) {
 				return desc.base.kind === "pg" && desc.base.type === "date"
 					? "Fi.DateField"
 					: "Fi.NaturalField"
 			}
-			return `Fi.Contract<${jsonText(desc.name)}, ${valueDescriptorType(desc.base, base, ids)}, ${keyText(desc.name)}>`
+			return `Fi.Domain<${jsonText(desc.name)}, ${valueDescriptorType(desc.base, base, ids)}, ${keyText(desc.name)}>`
 		}
 		case "span":
 			return `Fi.RangeField<${hostOfDesc(desc.endpoint, base, ids)}, Ph.DomainOf<${valueDescriptorType(desc.endpoint, base, ids)}>>`
@@ -5522,7 +5522,7 @@ const literalType = (
 	ids: Ids
 ): string => {
 	switch (desc.kind) {
-		case "contract":
+		case "domain":
 			return desc.base.kind === "vector"
 				? hostOfDesc(desc, base, ids)
 				: literalType(desc.base, base, ids)
@@ -6252,7 +6252,7 @@ const bitsProbe = (d: Drawing, base: Base): Probe => {
 }
 
 /**
- * A contract named by a constant whose type is one literal, or, a planted fault, a union of literals, a string or a
+ * A domain named by a constant whose type is one literal, or, a planted fault, a union of literals, a string or a
  * template. The engine names a contract's identity by its name (ir/scalar.ts sameScalarType): every literal the
  * name's type admits builds a contract of its own identity, so a name of more than one literal names no one
  * contract, and its descriptor no one type.
@@ -6271,7 +6271,7 @@ const contractNameProbe = (d: Drawing): Probe => {
 		refused: several ? "contractName" : undefined,
 		text: (_ids, own) => ({
 			head: [`export declare const ${own}_name: ${type}`],
-			line: `export const ${own} = Fi.contract<typeof Key>()(${own}_name, Fi.int8)`,
+			line: `export const ${own} = Fi.domain<typeof Key>()(${own}_name, Fi.int8)`,
 			tail: []
 		}),
 		judge: () => {
@@ -6285,7 +6285,7 @@ const contractNameProbe = (d: Drawing): Probe => {
 			const types = Arr.map(
 				names,
 				(name) =>
-					describeFieldOrThrow(admitContract(name, int8, []), SourceLoc("contract name", [])).scalar
+					describeFieldOrThrow(admitContract(name, int8, []), SourceLoc("domain name", [])).scalar
 			)
 			const [first, ...rest] = types
 			return first !== undefined && Arr.every(rest, (t) => sameScalarType(first, t))
@@ -6514,7 +6514,7 @@ const generatedProbe = (d: Drawing, base: Base): Probe => {
 			return {
 				head:
 					form === "generatedContract"
-						? [`export const ${tally} = Fi.contract<typeof Key>()(${jsonText(tallyName)}, Fi.int8)`]
+						? [`export const ${tally} = Fi.domain<typeof Key>()(${jsonText(tallyName)}, Fi.int8)`]
 						: [],
 				line: `export const ${own} = Sc.relation.generated("Generated", { id: Fi.Id, depth: Fi.int4, w: ${set}${form === "refinedGenerated" ? `, word: Tx.str.regex(${jsonText(wordPattern)})` : ""} }, ["id"], (r) => (${callbackSource(set, tally)}))`,
 				tail: []
@@ -6775,7 +6775,7 @@ const mintedProbe = (d: Drawing): Probe => {
 				site === "field"
 					? `export const ${own} = Sc.relation("Minted", { id: Fi.${spelling} }, ["id"])`
 					: site === "contract"
-						? `export const ${own} = Fi.contract<typeof Key>()("Minted", Fi.${spelling})`
+						? `export const ${own} = Fi.domain<typeof Key>()("Minted", Fi.${spelling})`
 						: `export const ${own} = Fi.range(Fi.${spelling})`
 			),
 		judge: () =>
@@ -6898,7 +6898,7 @@ const ruleProbe = (d: Drawing, base: Base): Probe => {
 		text: (ids, own) => {
 			const lit = `${own}_Lit`
 			const head = [
-				`export const ${own}_Cents = Fi.contract<${keyText("Cents")}>()("Cents", Fi.int8)`,
+				`export const ${own}_Cents = Fi.domain<${keyText("Cents")}>()("Cents", Fi.int8)`,
 				`export const ${lit} = Sc.relation("Lit", { id: Fi.Id, f: ${fieldSource(type, ids)}, n: Fi.int8, c: ${own}_Cents, i: Fi.int4 }, ["id"])`,
 				`export const ${own}_P = Sc.schema("P", [${Arr.join(
 					[...Arr.map(base.rosters, (r) => ids(r.name)), lit],
@@ -7883,7 +7883,7 @@ export const schemaProgram = (
 		"export type WritableNames<S> = Cs.WritableOf<S> extends infer R ? (R extends { readonly name: infer N } ? N : never) : never",
 		"export type { Brand, Cd, Cp, Ph, Rf, Er, Rs, Cs, Ff, Fi, Q, Sc, St, Tx }",
 		"/** The key every probe's contract is under, and its mint, which makes their values. */",
-		'export const Key = Symbol("Contract")',
+		'export const Key = Symbol("Domain")',
 		"export const toKey = Fi.mintOf(Key)",
 		"/** The key each contract of the pool is under, its own (types/fields KeyApart). */",
 		...Arr.map(contractNames, (n) => `export const ${keyName(n)} = Symbol(${jsonText(n)})`),

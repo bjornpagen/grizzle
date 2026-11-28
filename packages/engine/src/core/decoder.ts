@@ -189,11 +189,11 @@ export const hostColumn = <A, H extends A>(base: Column<A>): Column<H> => {
 				base.handles.map((handle) => claim(handle))
 			)
 		case "bits":
-			defect("no contract is over a set over a roster")
+			defect("no domain is over a set over a roster")
 		case "bytes":
-			defect("no contract is over bytea")
+			defect("no domain is over bytea")
 		case "variant":
-			defect("no contract is over a variant")
+			defect("no domain is over a variant")
 		case "text":
 			return Object.freeze({ ...builtMark, kind: "text" })
 		case "constant":

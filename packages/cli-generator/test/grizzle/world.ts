@@ -13,7 +13,7 @@ import {
 	ChangeSet,
 	check,
 	clocked,
-	contract,
+	domain,
 	date,
 	login,
 	mutable,
@@ -42,7 +42,7 @@ const Name = str.regex("^[a-z]{1,8}$")
 const itemTag = Symbol("ItemTag")
 
 /** An item's tag: a uuid, under a contract that says whose id it is, as grizzle takes every uuid. */
-const Tag = contract<typeof itemTag>()("ItemTag", uuid)
+const Tag = domain<typeof itemTag>()("ItemTag", uuid)
 
 const Item = relation(
 	"Item",

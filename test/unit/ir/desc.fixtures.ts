@@ -78,7 +78,7 @@ const dec = (text: string) => defined(DecimalText.parse(text))
 
 /** Budget: a contract over numeric(12, 2). */
 const budget: FieldDesc = {
-	kind: "contract",
+	kind: "domain",
 	name: "Budget",
 	base: { kind: "numeric", precision: 12, scale: 2 },
 	predicate: {

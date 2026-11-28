@@ -96,14 +96,14 @@ export const caseGen: Gen<BoxCase> = (source) => ({
  * view (schema/own.ts OwnedRole `wholeDerived`).
  *
  * The public signatures take a relation's, a roster's, a contract's and a derived relation's name as one literal
- * (types/schema/relation.ts RelationName, types/fields/constructors.ts OneContractName) and hold a role's whole
+ * (types/schema/relation.ts RelationName, types/fields/constructors.ts OneDomainName) and hold a role's whole
  * entries to the relations its level's type names (types/schema/world.ts EntriesCheck), which a level of names known
  * only at run time names none of; the box's names are drawn. So those values are
  * built on the builders' runtime paths, as a JavaScript caller's are (schema/relation.ts relationBuilder, closedBuilder
  * and derivedBuilder, schema/statements.ts unitBuilder, schema/world.ts roleBuilder,
  * test/support/fixtures/descriptors.ts contractDescriptor): the public builders' own cores, which admit the same
  * values. Every other value is the public builders'. Its uuids are Id's (ids.ts), a contract over pg_catalog's uuid,
- * which a drawn Uuid shadows: the builders refuse a bare uuid whose owner no contract names, at run time as in the types
+ * which a drawn Uuid shadows: the builders refuse a bare uuid whose owner no domain names, at run time as in the types
  * (types/fields/field.ts NamedIds), as they refuse a consumer's.
  */
 export const versionOf = (names: Names, name: string): Version => {

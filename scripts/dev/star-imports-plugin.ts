@@ -7,7 +7,7 @@ import { Option, Record, String as Str } from "effect"
  * gave another to the name it has, wherever a module reads it off a namespace of an entry (`g.x`, `gRuntime.x`, `g.X` in a
  * type). PostgreSQL's plain types are read off the root by their pg_type names (`g.pg.integer` is `g.int4`,
  * `g.pg["double precision"]` `g.float8`); bytea, range and bit are the bytes, span and bits descriptors and Range, Bit and
- * Numeric their companions; Text's float8 and numeric parses are parseFloat8 and parseNumeric; and a type's SQL tag, a
+ * Numeric their companions; domain is contract, PostgreSQL's DOMAIN, with Domain, AnyDomain and domainParser; Text's float8 and numeric parses are parseFloat8 and parseNumeric; and a type's SQL tag, a
  * string literal among a namespace type's arguments (`g.Term<D, unknown, O, "bigint">`), is its typname. A read of the
  * old pg namespace that names no member of it (`g.pg` alone) is reported and left as it is, for its author to rewrite.
  */
@@ -28,7 +28,13 @@ const NAMES: Readonly<Record<string, string>> = {
 	Decimal: "Numeric",
 	decimalText: "numericText",
 	decimalTextMaxBytes: "numericTextMaxBytes",
-	doubleText: "float8Text"
+	doubleText: "float8Text",
+	contract: "domain",
+	Contract: "Domain",
+	AnyContract: "AnyDomain",
+	contractParser: "domainParser",
+	ContractParser: "DomainParser",
+	ContractRefused: "DomainParseRefused"
 }
 
 /** The members of the old pg namespace, each by the root export that is it now. */

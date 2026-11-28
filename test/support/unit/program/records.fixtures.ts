@@ -19,7 +19,7 @@ import {
 	bit,
 	bytea,
 	closedId,
-	contract,
+	domain,
 	date,
 	Numeric,
 	instant,
@@ -61,9 +61,9 @@ export const Tier = closed.ordered("Tier", ["Low", "Mid", "High"])
 
 const accountKey = Symbol("Account")
 /** A contract over a uuid, and one over a bigint: a column's brand and check are its contract's. */
-const Account = contract<typeof accountKey>()("Account", uuid)
+const Account = domain<typeof accountKey>()("Account", uuid)
 const centsKey = Symbol("Cents")
-const Cents = contract<typeof centsKey>()("Cents", int8)
+const Cents = domain<typeof centsKey>()("Cents", int8)
 
 /**
  * A typed sum over the roster, qti-pie's value cell's shape (its ledger's QtiValue, which metis's essay flow reads): a

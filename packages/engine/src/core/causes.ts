@@ -268,7 +268,7 @@ export interface UnitLocality {
  * of the type holds as the schema declares it (schema/field-desc.ts declaredDescOf).
  */
 export interface Undeclared {
-	readonly kind: "contract" | "variant"
+	readonly kind: "domain" | "variant"
 	readonly name: string
 }
 
@@ -656,7 +656,7 @@ const rowInputWords: {
 	var: "a query variable",
 	param: "a parameter",
 	parent: "a parent column",
-	value: "a contract's value",
+	value: "a domain's value",
 	absent: "a relational negation",
 	exists: "a relational existence",
 	call: "a declared function's call, which PostgreSQL alone evaluates"
@@ -820,7 +820,7 @@ export const scopeRuleText = (rule: ScopeRule): string => {
 
 /** A claim rule's sentence. */
 export const claimRuleText = (rule: ClaimRule): string =>
-	`a claim of text, uuid, bool, int2, int4 or int8, a contract over one, or a closed handle; field ${rule.field} is none`
+	`a claim of text, uuid, bool, int2, int4 or int8, a domain over one, or a closed handle; field ${rule.field} is none`
 
 /** A family as a refusal names it: its owner and its count, fin(owner, count). */
 export interface FamilyName {
