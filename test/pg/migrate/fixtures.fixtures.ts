@@ -1,7 +1,7 @@
 /** What the properties of fixtures.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
-import { assert, defined } from "@bjornpagen/testing/assert"
+import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { element, type Gen, int, type Steered } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Layer, Option, Record as Rec } from "effect"
@@ -12,24 +12,14 @@ import { compileServed } from "#adapter/public/compile.ts"
 import { Db } from "#adapter/public/db.ts"
 import { served } from "#adapter/public/layer.ts"
 import type { Named } from "#compiler/core/errors.ts"
+import { identity } from "#compiler/core/identity.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { completedFiles } from "#compiler/deploy/ledger/ledger.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
-import { codebookOf } from "#compiler/deploy/snapshot/build.ts"
-import { noWorkload, writeRuntimeSnapshot } from "#compiler/deploy/snapshot/build.ts"
-import type { Codebook } from "#compiler/ir/codes.ts"
-import type { SchemaDesc } from "#compiler/ir/desc.ts"
-import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import type { Installation } from "#compiler/physical/install/compile.ts"
-import { compileInstallation } from "#compiler/program/install.ts"
+import { writeRuntimeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import type { AnyLogin, AnySchema } from "#compiler/public/schema.ts"
-import { ownLogin } from "#compiler/schema/own.ts"
-import { installationsOf } from "#compiler/schema/own.ts"
-import { schemaDescOf } from "#compiler/schema/schema.ts"
-import { loginDescOf } from "#compiler/schema/world.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { allocatedDesc } from "#test/support/compile.ts"
 import { installationSql } from "#test/support/compile.ts"
 import * as graphApi from "#test/support/fixtures/api/graph.ts"
 import * as ledgerApi from "#test/support/fixtures/api/ledger.ts"
@@ -38,17 +28,16 @@ import * as queueApi from "#test/support/fixtures/api/queue.ts"
 import * as searchApi from "#test/support/fixtures/api/search.ts"
 import * as spansApi from "#test/support/fixtures/api/spans.ts"
 import * as workApi from "#test/support/fixtures/api/work.ts"
-import { installGenerated, runsInstallScript } from "#test/support/install-migrate.ts"
-import { rebuild, renamed as renamedSchema } from "#test/support/installed.ts"
-import { parsedName } from "#test/support/kernel/naming.ts"
-import { decodersIn, servedSourcedLayer } from "#test/support/live-layer.ts"
 import {
-	draftCodes,
-	draftedAt,
-	fromEmpty,
-	fromSnapshot,
-	generate
-} from "#test/support/migrate/kit.ts"
+	type GeneratedDraft,
+	generatedDrafting,
+	installGenerated,
+	runsInstallScript
+} from "#test/support/install-migrate.ts"
+import { rebuild, renamed as renamedSchema } from "#test/support/installed.ts"
+import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { decodersIn, servedSourcedLayer } from "#test/support/live-layer.ts"
+import { fromEmpty, fromSnapshot, type Previous } from "#test/support/migrate/kit.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
@@ -61,42 +50,24 @@ import {
 	reviewedSource,
 	sameCatalog
 } from "#test/support/pg/migrate/support.ts"
-import { owning } from "#test/support/policy.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { testVerify, tokenOf } from "#test/support/worlds.ts"
 
-/** One version of a history: a schema or an extension, its value and its description, every level renamed with it,
- * and the logins of its worlds over the version declared under a name (none for a fixture that declares no worlds). */
+/** One version of a history: a schema or an extension, its value, every level renamed with it, and the logins of its
+ * worlds over the version declared under a name (none for a fixture that declares no worlds). */
 interface Version {
 	readonly fixture: AnySchema
-	readonly desc: SchemaDesc
 	readonly logins: (name: string) => ReadonlyArray<AnyLogin>
-}
-
-const descOf = (fixture: unknown): SchemaDesc => {
-	const desc = schemaDescOf(fixture)
-	if (desc === undefined) {
-		throw new Error("a fixture is a schema value")
-	}
-	return desc
 }
 
 const versionOf = (
 	fixture: AnySchema,
 	logins: (name: string) => ReadonlyArray<AnyLogin>
-): Version => ({
-	fixture,
-	desc: descOf(fixture),
-	logins
-})
+): Version => ({ fixture, logins })
 
 const noLogins = (): ReadonlyArray<AnyLogin> => []
-
-/** The description with every level declared under its allocated name (test/support/compile.ts allocatedDesc), so the
- * declared schema is the installed one. */
-const renamed = (desc: SchemaDesc, name: string): SchemaDesc => allocatedDesc(desc, name)
 
 /** The fixture families, by name. */
 type HistoryLabel =
@@ -226,20 +197,37 @@ export const historySteered: Steered<History, FixtureFeature>["under"] = (steeri
 	return historyFrom(Arr.isReadonlyArrayNonEmpty(aimed) ? aimed : families)
 }
 
-/** A version's installation under `name`, owned by `owner`, with its logins: the complete installation, its derived
- * relations included, as `grizzle generate` compiles it. */
-const compiledAt = (version: Version, name: string, codes: Codebook): Installation => {
-	const owned = owning(renamed(version.desc, name))
-	const logins = Arr.map(version.logins(name), (l) =>
-		succeeded(ownLogin(defined(loginDescOf(l), "a login value")))
-	)
-	return succeeded(
-		compileInstallation(
-			owned,
-			completeInstallOptions(owned, installationsOf(owned), logins, [], codes)
-		)
-	)
-}
+/**
+ * Each version of `history` under `name` as `grizzle generate` drafts and serves it (install-migrate.ts
+ * generatedDrafting), the first from the empty snapshot, each later one from the snapshot the one before it reached,
+ * declaring what it drops (declaredFrom): its schema renamed, its logins serving their workloads, so its installation
+ * holds every index their programs read through, and its draft before any review. A history drafted under two names
+ * holds the same codes at every version, as both draft each version from the one before.
+ */
+const draftsAt = (
+	history: { readonly versions: Arr.NonEmptyReadonlyArray<Version> },
+	name: string
+) =>
+	Effect.gen(function* () {
+		const installation = identity.schema(parsedSchemaName(name))
+		const drafts: Array<Omit<GeneratedDraft, "folder" | "snapshot">> = []
+		let previous: Previous = fromEmpty
+		for (const [i, version] of history.versions.entries()) {
+			const drafted = yield* Effect.orDie(
+				generatedDrafting(
+					{
+						schema: renamedSchema(version.fixture, name),
+						logins: version.logins(name),
+						declarations: declaredFrom(i === 0 ? undefined : history.versions[i - 1], version, name)
+					},
+					{ installation, previous, step: i + 1 }
+				)
+			)
+			drafts.push(drafted)
+			previous = fromSnapshot(drafted.generated.snapshot)
+		}
+		return nonEmpty(drafts, "a history has its first version")
+	})
 
 /**
  * What a step from `before` to `version` declares (`--drop`): each login `before` holds that `version` no longer does,
@@ -272,25 +260,9 @@ export const migrates = (h: History) =>
 		const m = yield* openMigrator(substrate, substrate.owner)
 		const folders: Array<FolderTexts> = []
 		const drafted: Array<GenerateResult> = []
-		let previous = fromEmpty
-		for (const [i, version] of history.versions.entries()) {
-			const declared = declaredFrom(i === 0 ? undefined : history.versions[i - 1], version, name)
-			const installation = compiledAt(
-				version,
-				name,
-				succeeded(draftCodes(renamed(version.desc, name), previous, declared))
-			)
-			const g: GenerateResult = succeeded(
-				generate({
-					previous,
-					installation,
-					name: `step_${i + 1}`,
-					timestamp: draftedAt(i + 1),
-					workload: noWorkload,
-					declared
-				})
-			)
-			if (i > 0 && history.versions[i - 1] === version) {
+		const drafts = yield* draftsAt(history, name)
+		for (const [i, { generated: g, plan }] of drafts.entries()) {
+			if (i > 0 && history.versions[i - 1] === history.versions[i]) {
 				assert.equal(g.change, "none", `step ${i + 1} drafts the version again`)
 			}
 			if (g.change !== "none") {
@@ -299,15 +271,16 @@ export const migrates = (h: History) =>
 				yield* apply(
 					m,
 					{ snapshot: g.snapshot, folders: [...folders] },
-					checkedAdmission(installation, substrate.admin)
+					checkedAdmission(plan.installation, substrate.admin)
 				)
 			}
-			previous = fromSnapshot(g.snapshot)
 		}
-		const last = history.versions[history.versions.length - 1]
+		const last = Arr.lastNonEmpty(history.versions)
+		/** The last version's installation, as the history drafted it. */
+		const migrated = Arr.lastNonEmpty(drafts).plan.installation
 		/** The committed snapshot.json: the last folder's, which a draft that changes nothing keeps. */
 		const committed = drafted[drafted.length - 1]
-		if (last === undefined || committed === undefined) {
+		if (committed === undefined) {
 			throw new Error(`the history of ${history.label} drafts a folder`)
 		}
 		const snapshot = committed.snapshot
@@ -315,10 +288,13 @@ export const migrates = (h: History) =>
 		yield* Effect.scoped(
 			Effect.gen(function* () {
 				const schema = yield* substrate.schema({ create: false, label: `${history.label}_fresh` })
-				const fresh = compiledAt(last, schema, codebookOf(snapshot))
+				/** The last version's installation as the same history drafts it under another name, so its codes are the
+				 * history's. */
+				const again = yield* draftsAt(history, schema)
+				const fresh = Arr.lastNonEmpty(again).plan.installation
 				yield* transaction(substrate.admin, installationSql(fresh, substrate.database))
 				yield* sameCatalog(
-					compiledAt(last, name, codebookOf(snapshot)),
+					migrated,
 					fresh,
 					`${history.label}: the migrated history against a fresh install`
 				)
@@ -356,12 +332,11 @@ export const migrates = (h: History) =>
 		 * Db.open of every role of the last version's logins, each login served from its file compiled under the committed
 		 * snapshot.
 		 */
-		const installation = compiledAt(last, name, codebookOf(snapshot))
 		const scope = yield* Effect.scope
 		const decoderOf = yield* decodersIn(substrate, scope)
 		for (const login of last.logins(name)) {
 			const installedLogin = Option.getOrThrowWith(
-				Arr.findFirst(installation.worlds, (l) => l.name === login.name),
+				Arr.findFirst(migrated.worlds, (l) => l.name === login.name),
 				() => new Error(`the installation's login ${login.name}`)
 			)
 			const credentials = yield* substrate.login(installedLogin.role)
