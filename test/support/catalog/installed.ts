@@ -378,9 +378,12 @@ export const installedScope = (
 			const barrierViews = Arr.flatMap(Rec.values(r.relations), (e) =>
 				e.kind === "world" ? [`${roleSchema}.${identifierOf(roleView(theory, e))}`] : []
 			)
-			/** The whole view of `relation`, in its level's schema of whole views, by the naming door. */
-			const wholeView = (relation: string): string =>
-				`${identifierOf(identity.wholeSchema(identifierOf(installation.names.levelOf(relation))))}.${identifierOf(identity.wholeView(parsedName(relation)))}`
+			/** The whole view of `relation`, in its level's schema of whole views, as the installation names it where it
+			 * creates it (physical/ddl/names.ts InstallNames `wholeView`, the relation's naming: a derived name's hashed). */
+			const wholeView = (relation: string): string => {
+				const view = installation.names.wholeView(relation)
+				return `${view.schema}.${view.name}`
+			}
 			/** Each whole view it reads: a whole entry's over a stored relation, each stored derived relation's it reads
 			 * in full (schema/own.ts OwnedRole `wholeDerived`), and each stored canonical relation's its base names
 			 * nowhere, an anonymous one's or a level's above its base, whose definition reads only relations it sees whole
