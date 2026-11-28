@@ -286,7 +286,7 @@ const castKeeps = (node: RelNode, relation: RelationInfo, field: string): boolea
  *   inserted, so the UPDATE realizes the put's insertion completely. Each field of `kept` must come from that same
  *   occurrence too, so a row carries the value the stored fact at its key holds there and the UPDATE leaves it as it
  *   stands: a field a unique object outside the primary key reads, whose value an UPDATE that moved it could carry
- *   from one fact to another (write/put/choose.ts uniqueFieldsOutsideKey).
+ *   from one fact to another (write/put/choose.ts movingFields).
  *
  * Every proof is structural and conservative: a shape it does not recognize proves nothing, and the put falls back to
  * the DELETE-then-insert pair, which is always admissible. */

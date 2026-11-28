@@ -1,7 +1,8 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { StoredRelationName } from "#compiler/core/ids.ts"
-import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
+import { fieldReads } from "#compiler/ir/expr.ts"
+import { generationOf, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import type { Action, PutAction } from "#compiler/ir/write.ts"
@@ -64,8 +65,8 @@ export type PutChoice = {
 			readonly target: "uniqueSplit"
 			readonly reason: "candidateKey"
 			readonly inPlace: InPlace
-			/** The fields a unique object outside the key reads (`uniqueFieldsOutsideKey`): a row whose value differs at
-			 * one moves it. */
+			/** The payload fields that decide a unique object's value outside the key (`movingFields`), each one a
+			 * fact carries: a row whose value differs at one moves it. */
 			readonly moved: NonEmptyReadonlyArray<LawField>
 	  }
 	| {
@@ -121,16 +122,26 @@ export interface ChosenTargets {
 	readonly choices: ReadonlyArray<PutChoice>
 }
 
-/** The fields every non-deferrable unique object of the relation reads outside its primary key, each once: an update in
- * place that changed one could move a unique value from one fact to another, or, through a partial index's predicate,
- * move one fact into the index while another of the same compared values still occupies it. */
-const uniqueFieldsOutsideKey = (relation: WrittenRelation): ReadonlyArray<LawField> => {
-	const key: ReadonlyArray<LawField> = relation.primaryFields
-	return [
-		...new Set(
-			relation.uniques.others.flatMap((u) => readFields(u).filter((f) => !key.includes(f)))
+/** The fields of the payload `payload`, those an update in place sets, that decide a value of a non-deferrable unique
+ * object of the relation outside its primary key, in payload order: each such field the object reads, and each a
+ * generated field it reads is computed from (law.ts generationOf, fieldReads), which PostgreSQL computes again from the
+ * row the update leaves. An update in place that changed one could move a unique value from one fact to another, or,
+ * through a partial index's predicate, move one fact into the index while another of the same compared values still
+ * occupies it; a field the update leaves as it stands, a key field or one grizzle draws, accumulates or stamps, moves
+ * none. Each is a field a fact carries, so the split's displacing deletion compares a fact at its input's column. */
+const movingFields = (
+	relation: WrittenRelation,
+	payload: NonEmptyReadonlyArray<LawField>
+): ReadonlyArray<LawField> => {
+	const decided = new Set(
+		relation.uniques.others.flatMap((u) =>
+			readFields(u).flatMap((f) => {
+				const generation = generationOf(f)
+				return generation === undefined ? [f.name] : fieldReads([generation])
+			})
 		)
-	]
+	)
+	return payload.filter((f) => decided.has(f.name))
 }
 
 /** The fields an owner's put sets in place: those its facts carry outside its key (`payloadOf`), and through a query
@@ -202,7 +213,8 @@ export const inPlaceOf = (info: ActionInfo, payload: Payload): ReadonlyArray<Law
  *   the primary key still reaches outside it, even when every field it compares lies in the key: at most one active
  *   Duty per worker, key(on(select(Duty, active), worker)) over the primary key (worker, task), meets the update that
  *   makes (w, 1) active while (w, 2), made inactive by the same statement, is still active. Only a row whose value
- *   differs at a field such an object reads outside the key (`uniqueFieldsOutsideKey`) can move one, so the pair is
+ *   differs at a payload field that decides such an object's value outside the key, one it reads or one a generated
+ *   field it reads is computed from (`movingFields`), can move one, so the pair is
  *   that row's alone: where the key is scalars, the put is split by it (uniqueSplit), its displacing deletion removing
  *   each occupant whose such field differs from its fact's, then UPDATE ... FROM updating in place every occupant that
  *   stays, and the insert half inserting each fact no row holds, the moved rows' and the new keys'. A row that keeps its
@@ -287,7 +299,7 @@ export const choosePutTargets = (frontend: WriteFrontend): ChosenTargets => {
 					)
 					const deletions = others.flatMap((o) => (o.action.op === "delete" ? [o] : []))
 					const reads = info.reads
-					const moved = uniqueFieldsOutsideKey(relation)
+					const moved = movingFields(relation, inPlace.payload)
 					const kept = moved.map((f) => f.name)
 					if (
 						isNonEmpty(moved) &&

@@ -100,7 +100,23 @@ export const aWriteMeetsAKeyOverGeneratedFieldsAtTheValuesPostgreSQLStoresInside
 				reason:
 					"qti-pie's typed map key: two spellings of one integer in one mapping, the second against the stored first",
 				since: "2026-11-07"
+			},
+			{
+				token: ReplayToken(
+					"test/pg/write/generated-key/generated-key.test.ts#aWriteMeetsAKeyOverGeneratedFieldsAtTheValuesPostgreSQLStoresInsideItAndAgainstEveryStoredRow:3fff.8:0.0.0.0.0.1.1.1.0.0.0.0.0"
+				),
+				reason:
+					"a put of one Tag, whose key on its positive values reads its generated value outside the primary key: the put's split handed its displacing deletion the generated field to compare, which no fact carries, an internal compiler error at the served compile (lane REDS7's census of main 29a4d30c)",
+				since: "2026-11-28"
 			}
 		],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/write/put/choose.ts",
+				original: "\treturn payload.filter((f) => decided.has(f.name))\n",
+				replacement:
+					"\treturn relation.heading.filter((f) => !relation.primaryFields.includes(f) && relation.uniques.others.some((u) => readFields(u).includes(f)))\n",
+				why: "A put's split compares the fields its unique objects read outside the key as they stand, a generated one among them, as bf6aefcc split it: Tag's put hands its displacing deletion Tag's generated value, which no fact carries, and the served compile is an internal compiler error."
+			}
+		]
 	})
