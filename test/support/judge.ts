@@ -16,15 +16,7 @@ import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { standUpsOf } from "#compiler/deploy/diff/diff.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import type {
-	ObjectName,
-	OperandSelect,
-	PlBlock,
-	PlDeclaration,
-	PlStatement,
-	Select
-} from "#compiler/sql/ast.ts"
-import { lit } from "#compiler/sql/build.ts"
+import type { ObjectName, OperandSelect, PlBlock, PlStatement } from "#compiler/sql/ast.ts"
 import {
 	printExpr,
 	printObjectName,
@@ -207,11 +199,11 @@ export const judgedStatementsOf = (installation: Installation): ReadonlyArray<Ju
 	judgedStatementsIn(judgeBodiesOf(installation))
 
 /** A statement a PL/pgSQL body runs for its effect (sql/ast.ts PlStatement `modify`). */
+/**
+ * A statement a PL/pgSQL body runs for its effect: an upkeep's (physical/ddl/rules.ts upkeepBlock), a write it runs
+ * once, the DELETE of its removal, its target read at the tuple ids its USING's query returns, or its INSERT.
+ */
 type Modified = Extract<PlStatement, { readonly kind: "modify" }>["statement"]
-
-/** The statements a PL/pgSQL body runs for their effect, in its order. */
-const modifiedIn = (body: ReadonlyArray<PlStatement>): ReadonlyArray<Modified> =>
-	Arr.flatMap(body, (b): ReadonlyArray<Modified> => (b.kind === "modify" ? [b.statement] : []))
 
 /**
  * The bodies of stored relation `relation`'s upkeep blocks (physical/ddl/rules.ts upkeepBlock, identity.storedUpkeep),
@@ -243,20 +235,6 @@ const upkeepFunctionsOf = (
 	})
 
 /**
- * A statement an upkeep's block runs (physical/ddl/rules.ts upkeepBlock): a write it runs once, its INSERT, or the loop
- * of its removal, which runs its body's writes, each DELETE of one row by its tuple id, once for each row its query
- * returns, `variable`, declared in the block, holding the row's value.
- */
-export type UpkeepRun =
-	| Modified
-	| {
-			readonly kind: "loop"
-			readonly query: Select
-			readonly variable: PlDeclaration
-			readonly body: ReadonlyArray<Modified>
-	  }
-
-/**
  * The statements of the upkeep of stored relation `relation` (`upkeepBlocksOf`), in its blocks' order: each removal of
  * its rows its definition no longer holds, before the INSERT of its block, a unit form's of those it derives at the
  * written units, a delta form's of those it gained.
@@ -264,55 +242,33 @@ export type UpkeepRun =
 const upkeepStatementsOf = (
 	installation: Installation,
 	relation: string
-): ReadonlyArray<UpkeepRun> => Arr.map(upkeepRunsOf(installation, relation), (r) => r.run)
+): ReadonlyArray<Modified> => Arr.map(upkeepRunsOf(installation, relation), (r) => r.run)
 
 /** The statements of the upkeep of stored relation `relation` (`upkeepStatementsOf`), each with its block's routine. */
 const upkeepRunsOf = (
 	installation: Installation,
 	relation: string
-): ReadonlyArray<{ readonly routine: ObjectName; readonly run: UpkeepRun }> =>
+): ReadonlyArray<{ readonly routine: ObjectName; readonly run: Modified }> =>
 	Arr.flatMap(upkeepFunctionsOf(installation, relation), ({ fn, block }) =>
 		Arr.flatMap(
 			block.body,
-			(s): ReadonlyArray<{ readonly routine: ObjectName; readonly run: UpkeepRun }> => {
-				if (s.kind === "modify") {
-					return [{ routine: fn, run: s.statement }]
-				}
-				if (s.kind !== "forQuery") {
-					return []
-				}
-				const variable = Arr.findFirst(block.declare, (d) => d.name === s.variable)
-				assert.ok(
-					Option.isSome(variable),
-					`an upkeep's loop variable ${s.variable}, declared in its block`
-				)
-				return [
-					{
-						routine: fn,
-						run: {
-							kind: "loop",
-							query: s.query,
-							variable: variable.value,
-							body: modifiedIn(s.body)
-						}
-					}
-				]
-			}
+			(s): ReadonlyArray<{ readonly routine: ObjectName; readonly run: Modified }> =>
+				s.kind === "modify" ? [{ routine: fn, run: s.statement }] : []
 		)
 	)
 
 /**
  * The reads of each statement of the upkeep of stored relation `relation` (`upkeepStatementsOf`), each as the query of
- * the rows it reads: a loop's, its query, whose rows its DELETEs read the table at by their ids alone; an INSERT's, the
- * query its rows come from.
+ * the rows it reads: a DELETE's, the query of its USING, whose rows it reads the table at by their ids alone; an
+ * INSERT's, the query its rows come from.
  */
 export const upkeepReadsOf = (
 	installation: Installation,
 	relation: string
 ): ReadonlyArray<OperandSelect> =>
 	Arr.flatMap(upkeepStatementsOf(installation, relation), (m): ReadonlyArray<OperandSelect> => {
-		if (m.kind === "loop") {
-			return [m.query]
+		if (m.kind === "delete") {
+			return Arr.flatMap(m.using, (u) => (u.kind === "derived" ? [u.query] : []))
 		}
 		return m.kind === "insert" && m.source.kind === "query" ? [m.source.query] : []
 	})
@@ -328,52 +284,30 @@ const explained = <E>(
 	)
 
 /**
- * Each plan PostgreSQL runs `run` by, explained with ANALYZE in its order, as the judge's PL/pgSQL runs it: a write's
- * one; a loop's query's, then each write of its body once for each row its query returns, the loop's variable read as
- * the row's value cast to its declared type. The query's rows are the ones the loop reads, its snapshot taken before any
- * DELETE of its body runs, as PL/pgSQL's FOR over a query reads them.
+ * The plan PostgreSQL runs `sql`, a statement of the routine `routine`, by, explained with ANALYZE under the advice the
+ * routine's own SET clause holds, as every call of it plans it (test/support/advice.ts routineAdviceHeld), which stays
+ * in force for the rest of the transaction.
  */
-export const explainedRun = <E>(
+const heldPlan = <E>(
 	values: (sql: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, E>,
-	run: UpkeepRun
-): Effect.Effect<ReadonlyArray<PlanNode>, E> =>
-	Effect.gen(function* () {
-		if (run.kind !== "loop") {
-			return [yield* explained(values, printStatement(run))]
-		}
-		const text = printStatement(run.query)
-		const read = yield* explained(values, text)
-		const rows = yield* values(text)
-		const each = yield* Effect.forEach(rows, (row) => {
-			const at = new Transform({
-				...identityHooks,
-				expr: (e) =>
-					e.kind === "plVar" && e.name === run.variable.name
-						? lit.text(String(row[0]), run.variable.type)
-						: e
-			})
-			return Effect.forEach(run.body, (m) => explained(values, printStatement(modified(at, m))))
-		})
-		return [read, ...Arr.flatten(each)]
-	})
+	routine: ObjectName,
+	sql: string
+): Effect.Effect<PlanNode, E> =>
+	Effect.andThen(values(routineAdviceHeld(routine)), () => explained(values, sql))
 
 /**
  * Each statement of the upkeep of stored relation `relation` (`upkeepRunsOf`) explained (EXPLAIN ANALYZE) over the
- * transaction's deltas as the judge would run it (`explainedRun`), under the advice its routine's own SET clause holds,
- * as every call of it plans it (test/support/advice.ts routineAdviceHeld), in its body's order, the removal's effect
- * before the INSERT, its writes standing after: what a case whose transaction rolls back whole explains itself, before
- * anything runs the judge, SET CONSTRAINTS ALL IMMEDIATE or COMMIT, which empties the deltas.
+ * transaction's deltas as the judge would run it, under its routine's advice (`heldPlan`), in its body's order, the
+ * removal's effect before the INSERT, its writes standing after: what a case whose transaction rolls back whole
+ * explains itself, before anything runs the judge, SET CONSTRAINTS ALL IMMEDIATE or COMMIT, which empties the deltas.
  */
 export const upkeepRuns = <E>(
 	values: (sql: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, E>,
 	installation: Installation,
 	relation: string
 ): Effect.Effect<ReadonlyArray<PlanNode>, E> =>
-	Effect.map(
-		Effect.forEach(upkeepRunsOf(installation, relation), ({ routine, run }) =>
-			Effect.andThen(values(routineAdviceHeld(routine)), () => explainedRun(values, run))
-		),
-		Arr.flatten
+	Effect.forEach(upkeepRunsOf(installation, relation), ({ routine, run }) =>
+		heldPlan(values, routine, printStatement(run))
 	)
 
 /**
@@ -497,8 +431,8 @@ export interface RuleStatement {
 }
 
 /**
- * A statement of a stored relation's upkeep (physical/ddl/rules.ts upkeepBlock, `UpkeepRun`), `relation` the stored
- * relation whose table it writes: its loop deleting the rows the relation's definition no longer derives at the units
+ * A statement of a stored relation's upkeep (physical/ddl/rules.ts upkeepBlock, `Modified`), `relation` the stored
+ * relation whose table it writes: its DELETE of the rows the relation's definition no longer derives at the units
  * the transaction wrote, or its INSERT of those it newly derives there, with the tables it reads, and `writes`, the
  * deltas its stored table's capture writes where a rule or an upkeep reads the relation (`capturedDeltasOf`), which the
  * upkeep's writes fill inside the judge, before every statement over them runs.
@@ -507,7 +441,7 @@ export interface UpkeepStatement {
 	readonly kind: "upkeep"
 	readonly routine: ObjectName
 	readonly relation: string
-	readonly statement: UpkeepRun
+	readonly statement: Modified
 	readonly deltas: ReadonlySet<string>
 	readonly stored: ReadonlySet<string>
 	readonly writes: ReadonlySet<string>
@@ -578,13 +512,7 @@ const upkeepJudgeStatementsOf = (
 		)
 		const writes = new Set(Arr.map(capturedDeltasOf(installation, upkeep.relation), (d) => d.name))
 		return Arr.map(statements, ({ routine, run: statement }): UpkeepStatement => {
-			const read = tablesReadBy(
-				(t) =>
-					statement.kind === "loop"
-						? [t.setQuery(statement.query), ...Arr.map(statement.body, (m) => modified(t, m))]
-						: modified(t, statement),
-				readers
-			)
+			const read = tablesReadBy((t) => modified(t, statement), readers)
 			return {
 				kind: "upkeep",
 				routine,
@@ -619,22 +547,20 @@ export const judgedDeltaReadsOf = (installation: Installation): ReadonlyArray<Ru
 	ruleStatementsOf(installation, readersOf(installation))
 
 /**
- * Each plan PostgreSQL runs a statement of the judge by, explained with ANALYZE under the advice its routine's own SET
- * clause holds, as every call of it plans it (test/support/advice.ts routineAdviceHeld): a rule's test as its PERFORM's
- * SELECT (`plannedQueryOf`), an upkeep's statement as the judge runs it (`explainedRun`).
+ * The plan PostgreSQL runs a statement of the judge by, under its routine's advice (`heldPlan`): a rule's test as its
+ * PERFORM's SELECT (`plannedQueryOf`), an upkeep's statement as the judge runs it.
  */
-const plansOf = <E>(
+const planOf = <E>(
 	values: (sql: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, E>,
 	statement: JudgeStatement
-): Effect.Effect<ReadonlyArray<PlanNode>, E> =>
-	Effect.andThen(values(routineAdviceHeld(statement.routine)), () => {
-		switch (statement.kind) {
-			case "rule":
-				return Effect.map(explained(values, plannedQueryOf(statement.statement)), (plan) => [plan])
-			case "upkeep":
-				return explainedRun(values, statement.statement)
-		}
-	})
+): Effect.Effect<PlanNode, E> =>
+	heldPlan(
+		values,
+		statement.routine,
+		statement.kind === "rule"
+			? plannedQueryOf(statement.statement)
+			: printStatement(statement.statement)
+	)
 
 /** The deltas a statement of the judge fills as it runs: an upkeep's `writes`; a rule's test writes nothing. */
 export const filledBy = (statement: JudgeStatement): ReadonlySet<string> => {
@@ -653,9 +579,8 @@ export interface JudgedPlan {
 }
 
 /**
- * A statement of the judge explained as the judge runs it (`judgeRun`): the statement and a plan PostgreSQL ran it by,
- * one of a write or a rule's test, and of an upkeep's loop one of its query and one of each run of its body
- * (`explainedRun`).
+ * A statement of the judge explained as the judge runs it (`judgeRun`): the statement and the plan PostgreSQL ran it by
+ * (`planOf`).
  */
 export interface JudgePlan<S extends JudgeStatement> {
 	readonly statement: S
@@ -738,9 +663,7 @@ export const judgeRun = <S extends JudgeStatement, E>(
 			if (!Arr.some([...statement.deltas], (d) => holding.has(d))) {
 				continue
 			}
-			for (const plan of yield* plansOf(values, statement)) {
-				plans.push({ statement, plan })
-			}
+			plans.push({ statement, plan: yield* planOf(values, statement) })
 			const filled = yield* holdingOf(filledBy(statement))
 			for (const d of filled) {
 				holding.add(d)

@@ -50,7 +50,6 @@ import type { Unit } from "#compiler/ir/unit.ts"
 import { evidenceCatalog, noViewEvidence } from "#compiler/laws/model/catalog.ts"
 import type { LawModel, RuleTable, RuleTrigger } from "#compiler/laws/model/model.ts"
 import { queryEvidence } from "#compiler/logical/annotate.ts"
-import { fencedRead } from "#compiler/lower/conservative/step/index.ts"
 import type { DeltaRelation } from "#compiler/lower/conservative/types.ts"
 import { lowerComposed, optimizedInput } from "#compiler/lower/optimize/pipeline.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
@@ -110,7 +109,6 @@ import {
 	qualifiedCall,
 	select,
 	setOperation,
-	setQueryOf,
 	simpleSelect,
 	types,
 	whenExists,
@@ -1044,9 +1042,6 @@ interface JudgeBorrow extends Borrow {
 	readonly fields: NonEmptyReadonlyArray<string>
 }
 
-/** The name of an upkeep's variable that holds the tuple id of the stored row its loop deletes (upkeepBlock `removal`). */
-const staleName = "__stale"
-
 /** Whether any of `deltas` holds a row once netted: the condition a block runs on, and a delta is stood up on. */
 const anyRowed = (deltas: NonEmptyReadonlyArray<SessionDelta>): Expr => ({
 	kind: "binary",
@@ -1803,14 +1798,13 @@ export const addRules = (
 	 * conflict on that key, one probe of its index, never an anti join PostgreSQL may plan as a hash of S whole.
 	 *
 	 * - A unit form's rows at the units the transaction wrote become its definition's rows there, by their set difference:
-	 *   S's rows at the units, each found by a seek of S's unit key at a unit, that no row of the definition there agrees
-	 *   with, each deleted by its tuple id (`removal`), then the definition's rows inserted:
+	 *   S's rows at the units, each found by a probe of S's unit key at a unit (the binding's), that no row of the
+	 *   definition there agrees with, deleted at their tuple ids (`removal`), then the definition's rows inserted:
 	 *
-	 *     FOR __stale IN SELECT DISTINCT r<s>.c1 FROM (<the written units' keys>) AS r2 (c1, …),
-	 *         LATERAL (SELECT r<k>.ctid AS c1, r<k>.<f0> AS c2, … FROM <S> AS r<k> WHERE r<k>.<u0> = r2.c1 AND … OFFSET 0)
-	 *           AS r<s>
-	 *         WHERE NOT EXISTS (SELECT FROM (<its definition there>) AS r<d> WHERE r<s>.c2 = r<d>.c1 AND …)
-	 *       LOOP DELETE FROM <S> AS r1 WHERE r1.ctid = __stale; END LOOP
+	 *     DELETE FROM <S> AS r1 USING (SELECT DISTINCT r<k>.ctid FROM (<the written units' keys>) AS r2 (c1, …),
+	 *         <S> AS r<k> WHERE r<k>.<u0> = r2.c1 AND … AND NOT EXISTS (SELECT FROM (<its definition there>) AS r<d>
+	 *           WHERE r<k>.<f0> = r<d>.c1 AND …)) AS r<i> (c1)
+	 *       WHERE r1.ctid = r<i>.c1
 	 *     INSERT INTO <S> (<columns>) SELECT r3.* FROM (<its definition there>) AS r3 ON CONFLICT (<S's key>) DO NOTHING
 	 *
 	 *   So S's rows that stay are never touched: its indexes keep them, and its deltas, where a rule reads it, hold only
@@ -1832,8 +1826,8 @@ export const addRules = (
 	 *   write may withdraw checked at the fact against the definition as it stands, by its whole heading, which S's key
 	 *   leads, one probe of its index:
 	 *
-	 *     FOR __stale IN <S's row at each fact lost, by a lookup of its own>
-	 *       LOOP DELETE FROM <S> AS r1 WHERE r1.ctid = __stale; END LOOP
+	 *     DELETE FROM <S> AS r1 USING (<S's row at each fact lost, by a probe of its key>) AS r<i> (c1)
+	 *       WHERE r1.ctid = r<i>.c1
 	 *
 	 *   A monotone form re-derives, as a unit form does, the units the rows the transaction removed of a mutable holder
 	 *   touch; over closed holders alone it reads no removed row, which only a data step has, whose bracket refills S
@@ -1908,46 +1902,36 @@ export const addRules = (
 			return heading
 		}
 		/**
-		 * The removal of S's rows at the tuple ids `tids` selects, its query read as every judged statement reads a
-		 * delta (`headed`), each id once (`unitBody`, `checkedBody`): a loop over the ids, deleting S's row at each by
-		 * itself,
+		 * The removal of S's rows at the tuple ids `tids` selects, its query read as every judged statement reads a delta
+		 * (`headed`), each id once (`unitBody`, `checkedBody`), under `ids`: one DELETE of S at each id,
 		 *
-		 *   FOR __stale IN <tids> LOOP DELETE FROM <S> AS r1 WHERE r1.ctid = __stale; END LOOP
+		 *   DELETE FROM <S> AS r1 USING (<tids>) AS <ids> (c1) WHERE r1.ctid = <ids>.c1
 		 *
-		 * Per row, since no one statement over the ids is planned by them. The DELETE at one id is a TID scan of that one
-		 * row, its one random page, cheaper than a read of S whole of more than a page or two, which PostgreSQL plans once
-		 * for the function and keeps, whatever it estimates of the ids; a DELETE of them all is planned by its estimate of
-		 * how many there are: a self-join on ctid as a Hash Join over a Seq Scan of S, and `r1.ctid = ANY (ARRAY(<tids>))`
-		 * as a Seq Scan of S filtered by the array, an InitPlan's whose length PostgreSQL cannot count before it runs and
-		 * guesses (selfuncs.c estimate_array_length), each id priced as a random page past S's pages read in order: all
-		 * 1,370 rows of Forward's table read beside 1,370 packages at a founding write whose bound is 12
+		 * whose target the binding reads at the tid its condition states, one heap fetch a row by a TID condition of its
+		 * scan, nested in the ids' read (sql/bind.ts Binder `written`), as its advice holds it, so its plan is the ids'
+		 * rows each fetched, whatever PostgreSQL estimates of how many there are: never a Hash Join over a Seq Scan of S,
+		 * nor `r1.ctid = ANY (ARRAY(<tids>))` as a Seq Scan of S filtered by an array whose length it guesses, all 1,370
+		 * rows of Forward's table read beside 1,370 packages at a founding write whose bound is 12
 		 * (test/pg/lower-shapes/import-upkeep).
 		 *
 		 * What bounds it: the ids are those of S's rows at the write's units (or at the facts it withdraws), each found by
-		 * a seek of S's key fenced per row of the delta (fencedRead), so the loop runs a DELETE for each such row and
-		 * each reads one, the rows the write's delta reaches and no other, however many S holds.
+		 * a probe of S's key at a row of the delta (the binding's), so the DELETE fetches each such row and no other,
+		 * however many S holds.
 		 */
-		const removal = (tids: Select): PlBlock => ({
-			declare: [{ name: staleName, type: types.tid }],
+		const removal = (tids: Select, ids: string): PlBlock => ({
+			declare: [],
 			body: [
 				{
-					kind: "forQuery",
-					variable: staleName,
-					query: setQueryOf(headed(tids, reads), "the stale ids' query headed"),
-					body: [
-						{
-							kind: "modify",
-							statement: {
-								kind: "delete",
-								with: undefined,
-								table,
-								alias: "r1",
-								using: [],
-								where: eq(col("r1", "ctid"), { kind: "plVar", name: staleName }),
-								returning: []
-							}
-						}
-					]
+					kind: "modify",
+					statement: {
+						kind: "delete",
+						with: undefined,
+						table,
+						alias: "r1",
+						using: [derived(namedQuery(headed(tids, reads), columnsAt(1)), ids, false)],
+						where: eq(col("r1", "ctid"), col(ids, "c1")),
+						returning: []
+					}
 				}
 			]
 		})
@@ -1973,64 +1957,53 @@ export const addRules = (
 			const unitNames = lastNumbered(units.statement)
 			const rowNames = lastNumbered(rows.statement)
 			/** The DELETE's names: S r1, the region's own past it, the region r<u+2>, the definition's past that, then
-			 * its rows r<u+r+3>, S's row at a unit r<u+r+4>, the seek r<u+r+5>. */
+			 * its rows r<u+r+3>, S at a unit r<u+r+4>, the ids r<u+r+5>. */
 			const regionAlias = `r${unitNames + 2}`
 			const foundAlias = `r${unitNames + rowNames + 3}`
 			const seekAlias = `r${unitNames + rowNames + 4}`
-			const atAlias = `r${unitNames + rowNames + 5}`
+			const idsAlias = `r${unitNames + rowNames + 5}`
 			/**
-			 * The stored rows at each written unit, a seek of the table's unit key at the unit's values, fenced so it is
-			 * read per unit whatever PostgreSQL estimates of the units (each delta's reader a function it prices at ten
-			 * rows), its tuple id and its fields: the rows the write's units reach and no other.
+			 * The tuple ids of the stored rows at the units that no row of the definition there agrees with at every
+			 * field, each once: S read at each written unit's values of its unit key, which the binding makes a probe of
+			 * S's key per unit (sql/bind.ts Binder `probeEntry`, a read driven by the region's row), whatever PostgreSQL
+			 * estimates of the units, the rows the write's units reach and no other.
 			 */
-			const seek = fencedRead(
-				[
-					{ expr: col(seekAlias, "ctid"), alias: "c1" },
-					...heading.map((field, i) => ({
-						expr: col(seekAlias, columnOf(field)),
-						alias: `c${i + 2}`
-					}))
-				],
-				{ kind: "table", table, alias: seekAlias },
-				and(
-					mapNonEmpty(u.stored.fields, (field, j) =>
-						eq(col(seekAlias, columnOf(field)), col(regionAlias, `c${j + 1}`))
-					)
-				)
-			)
-			/** The tuple ids of the stored rows at the units that no row of the definition there agrees with at every
-			 * field, each once. */
 			const stale = select(
 				distinctCore(
-					[{ expr: col(atAlias, "c1"), alias: undefined }],
+					[{ expr: col(seekAlias, "ctid"), alias: undefined }],
 					[
 						derived(
 							namedQuery(shifted(units.statement, 1), columnsAt(units.heading.length)),
 							regionAlias,
 							false
 						),
-						derived(namedQuery(seek, columnsAt(heading.length + 1)), atAlias, true)
+						{ kind: "table", table, alias: seekAlias }
 					],
-					notExists(
-						simpleSelect(
-							[],
-							[
-								derived(
-									namedQuery(shifted(rows.statement, unitNames + 2), columnsAt(heading.length)),
-									foundAlias,
-									false
-								)
-							],
-							and(
-								mapNonEmpty(heading, (_, i) =>
-									eq(col(atAlias, `c${i + 2}`), col(foundAlias, `c${i + 1}`))
+					and([
+						...mapNonEmpty(u.stored.fields, (field, j) =>
+							eq(col(seekAlias, columnOf(field)), col(regionAlias, `c${j + 1}`))
+						),
+						notExists(
+							simpleSelect(
+								[],
+								[
+									derived(
+										namedQuery(shifted(rows.statement, unitNames + 2), columnsAt(heading.length)),
+										foundAlias,
+										false
+									)
+								],
+								and(
+									mapNonEmpty(heading, (field, i) =>
+										eq(col(seekAlias, columnOf(field)), col(foundAlias, `c${i + 1}`))
+									)
 								)
 							)
 						)
-					)
+					])
 				)
 			)
-			const removed = removal(stale)
+			const removed = removal(stale, idsAlias)
 			return {
 				by: requester,
 				body: {
@@ -2048,14 +2021,13 @@ export const addRules = (
 		}
 		/**
 		 * A checked form's removal of the facts a write withdraws (analysis/theory/upkeep.ts CheckedLoss), each lost
-		 * rule's row a fact of S's heading, S's row at each found by a lookup of its own by every field, a step PostgreSQL
-		 * reads LATERAL once per fact, read apart as every step is (lower/conservative/step fencedRead: OFFSET 0, never
-		 * pulled up into a join it could plan as a hash of S whole), and the rows deleted by their tuple ids, each by a
-		 * TID scan of its one row (`removal`); its names, the facts r<l+2>, S's row at one r<l+3>, the lookup r<l+4>:
+		 * rule's row a fact of S's heading, S's row at each read by every field, which the binding makes a probe of S's
+		 * key per fact (sql/bind.ts Binder `probeEntry`), and the rows deleted at their tuple ids (`removal`); its names,
+		 * the facts r<l+2>, S r<l+3>, the ids r<l+4>:
 		 *
-		 *   FOR __stale IN SELECT DISTINCT r4.c1 FROM (<the facts lost>) AS r2 (c1, …),
-		 *       LATERAL (SELECT r3.ctid AS c1 FROM <S> AS r3 WHERE r3.<f1> = r2.c1 AND … OFFSET 0) AS r4 (c1)
-		 *     LOOP DELETE FROM <S> AS r1 WHERE r1.ctid = __stale; END LOOP
+		 *   DELETE FROM <S> AS r1 USING (SELECT DISTINCT r3.ctid FROM (<the facts lost>) AS r2 (c1, …), <S> AS r3
+		 *       WHERE r3.<f1> = r2.c1 AND …) AS r4 (c1)
+		 *     WHERE r1.ctid = r4.c1
 		 *
 		 * So S is read once per lost fact by its key, which leads the fields, whatever PostgreSQL estimates of the facts.
 		 */
@@ -2065,32 +2037,29 @@ export const addRules = (
 			const names = lastNumbered(lost.statement)
 			const lostAlias = `r${names + 2}`
 			const rowAlias = `r${names + 3}`
-			const atAlias = `r${names + 4}`
-			const rowAt = fencedRead(
-				[{ expr: col(rowAlias, "ctid"), alias: "c1" }],
-				{ kind: "table", table, alias: rowAlias },
-				and(
-					mapNonEmpty(fact, (field, i) =>
-						eq(col(rowAlias, columnOf(field)), col(lostAlias, `c${i + 1}`))
-					)
-				)
-			)
-			/** The tuple ids of S's rows at the facts lost, each once: two candidates of one fact find one row. */
+			const idsAlias = `r${names + 4}`
+			/** The tuple ids of S's rows at the facts lost, each once (two candidates of one fact find one row): S read at
+			 * each fact by every field, which the binding makes a probe of S's key per fact (sql/bind.ts Binder
+			 * `probeEntry`). */
 			const rows = select(
 				distinctCore(
-					[{ expr: col(atAlias, "c1"), alias: undefined }],
+					[{ expr: col(rowAlias, "ctid"), alias: undefined }],
 					[
 						derived(
 							namedQuery(shifted(lost.statement, 1), columnsAt(fact.length)),
 							lostAlias,
 							false
 						),
-						derived(rowAt, atAlias, true)
+						{ kind: "table", table, alias: rowAlias }
 					],
-					undefined
+					and(
+						mapNonEmpty(fact, (field, i) =>
+							eq(col(rowAlias, columnOf(field)), col(lostAlias, `c${i + 1}`))
+						)
+					)
 				)
 			)
-			return { by: deltaRequester, body: removal(rows) }
+			return { by: deltaRequester, body: removal(rows, idsAlias) }
 		}
 		/**
 		 * The call of the upkeep's `part` (identity.storedUpkeep) over `asked`'s statements, in their order, its reads the

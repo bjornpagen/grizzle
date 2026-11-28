@@ -85,7 +85,7 @@ export const aOneRowWritesUpkeepReadsTheSameRowsHoweverManyRowsItsStoredUnitHold
  * 19, over FoundFlat (upkeep-flat.fixtures.ts): a package's nodes and their attributes, closed, in the package's sealed
  * unit, and Named, each attribute beside its node's kind, stored at the package's nodes.
  *
- * Oracle: the plan's shape: Named's upkeep is one removal loop and one INSERT, and the INSERT's source produces exactly the
+ * Oracle: the plan's shape: Named's upkeep is one removal DELETE and one INSERT, and the INSERT's source produces exactly the
  * rows of Named's facts, each once, counted over every loop, never a clock.
  *
  * The box, exhausted: one or eight nodes, one or three attributes each.
@@ -107,7 +107,7 @@ export const aPublishsUpkeepOfAStoredRelationOverASealedUnitDerivesEachOfItsFact
 				}).pipe(Effect.scoped),
 		oracle: {
 			kind: "universal",
-			name: "the plan's shape: a publish's upkeep of a stored relation over a sealed unit is one removal loop and one INSERT whose source produces each of its facts once"
+			name: "the plan's shape: a publish's upkeep of a stored relation over a sealed unit is one removal DELETE and one INSERT whose source produces each of its facts once"
 		},
 		box: "one or eight nodes, one or three attributes each",
 		kept: [],

@@ -66,17 +66,15 @@ export const anUpkeepReadsAClosedImportAtTheUnitsItsWriteWrote = property.explor
 	kills: [
 		{
 			file: "packages/engine/src/physical/ddl/rules.ts",
-			original:
-				'\t\t\tdeclare: [{ name: staleName, type: types.tid }],\n\t\t\tbody: [\n\t\t\t\t{\n\t\t\t\t\tkind: "forQuery",\n\t\t\t\t\tvariable: staleName,\n\t\t\t\t\tquery: setQueryOf(headed(tids, reads), "the stale ids\' query headed"),\n\t\t\t\t\tbody: [\n\t\t\t\t\t\t{\n\t\t\t\t\t\t\tkind: "modify",\n\t\t\t\t\t\t\tstatement: {\n\t\t\t\t\t\t\t\tkind: "delete",\n\t\t\t\t\t\t\t\twith: undefined,\n\t\t\t\t\t\t\t\ttable,\n\t\t\t\t\t\t\t\talias: "r1",\n\t\t\t\t\t\t\t\tusing: [],\n\t\t\t\t\t\t\t\twhere: eq(col("r1", "ctid"), { kind: "plVar", name: staleName }),\n\t\t\t\t\t\t\t\treturning: []\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t]\n\t\t\t\t}\n\t\t\t]\n',
+			original: '\t\t\t\t\t\twhere: eq(col("r1", "ctid"), col(ids, "c1")),\n',
 			replacement:
-				'\t\t\tdeclare: [],\n\t\t\tbody: [\n\t\t\t\t{\n\t\t\t\t\tkind: "modify",\n\t\t\t\t\tstatement: {\n\t\t\t\t\t\tkind: "delete",\n\t\t\t\t\t\twith: undefined,\n\t\t\t\t\t\ttable,\n\t\t\t\t\t\talias: "r1",\n\t\t\t\t\t\tusing: [],\n\t\t\t\t\t\twhere: {\n\t\t\t\t\t\t\tkind: "equalsAny",\n\t\t\t\t\t\t\texpr: col("r1", "ctid"),\n\t\t\t\t\t\t\tarray: { kind: "array", query: setQueryOf(headed(tids, reads), "the stale ids\' query headed") },\n\t\t\t\t\t\t\tschema: undefined\n\t\t\t\t\t\t},\n\t\t\t\t\t\treturning: []\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t]\n',
-			why: "The removal as one DELETE of every stale row, r1.ctid = ANY (ARRAY(<the ids>)): PostgreSQL guesses the InitPlan array's length and plans a Seq Scan of Forward's table filtered by it, every package's row read at a founding write, past four times the founded package's nodes."
+				'\t\t\t\t\t\twhere: eq({ kind: "cast", expr: col("r1", "ctid"), type: types.tid }, col(ids, "c1")),\n',
+			why: "The removal's condition states no tid the binding reads its target at, the same rows by a cast of its own ctid: the DELETE reads Forward's table whole, advised a Seq Scan joined to the stale ids, every package's row read at a founding write, past four times the founded package's nodes."
 		},
 		{
 			file: "packages/engine/src/physical/ddl/rules.ts",
-			original: "\t\t\t\tand(\n\t\t\t\t\tmapNonEmpty(u.stored.fields, (field, j) =>\n",
-			replacement:
-				"\t\t\t\tundefined && and(\n\t\t\t\t\tmapNonEmpty(u.stored.fields, (field, j) =>\n",
+			original: `\t\t\t\t\t\t...mapNonEmpty(u.stored.fields, (field, j) =>\n\t\t\t\t\t\t\teq(col(seekAlias, columnOf(field)), col(regionAlias, \`c\${j + 1}\`))\n\t\t\t\t\t\t),\n`,
+			replacement: "",
 			why: "The upkeep's DELETE reads its stored rows apart from the units the write wrote: every package's rows of Forward's table read at each founding write, past four times the founded package's nodes."
 		}
 	]

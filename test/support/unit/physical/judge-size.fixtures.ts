@@ -304,8 +304,8 @@ const tableReadsOf = (statement: OperandSelect, table: string): number =>
 const nodeReadsOf = (statement: OperandSelect): number => tableReadsOf(statement, "node")
 
 /**
- * The reads of Node's table in a statement the judge runs (`tableReadsIn`): a rule's query, an upkeep's write, or an
- * upkeep's removal loop, its query and each write of its body (support/judge.ts UpkeepRun).
+ * The reads of Node's table in a statement the judge runs (`tableReadsIn`): a rule's query, or an upkeep's write, its
+ * removal's DELETE among them (support/judge.ts UpkeepStatement).
  */
 const judgeNodeReads = (statement: JudgeStatement): number => {
 	switch (statement.kind) {
@@ -313,16 +313,7 @@ const judgeNodeReads = (statement: JudgeStatement): number => {
 			return nodeReadsOf(statement.statement.query)
 		case "upkeep": {
 			const run = statement.statement
-			return tableReadsIn((visitor) => {
-				if (run.kind !== "loop") {
-					visitDml(run, visitor)
-					return
-				}
-				visitSelect(run.query, visitor)
-				for (const m of run.body) {
-					visitDml(m, visitor)
-				}
-			}, "node")
+			return tableReadsIn((visitor) => visitDml(run, visitor), "node")
 		}
 	}
 }

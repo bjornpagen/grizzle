@@ -410,7 +410,7 @@ const insertedRows = (plan: PlanNode): number =>
 /**
  * One case on a fresh clone: the package's publish, every node and attribute of it in one transaction, and the judge's
  * work at its COMMIT measured in that transaction, rolled back (test/support/judge.ts judgeRun). Named's upkeep is the
- * unit form's, the loop of its removal and an INSERT of its definition at the package's nodes, and the INSERT's source derives each of
+ * unit form's, the DELETE of its removal and an INSERT of its definition at the package's nodes, and the INSERT's source derives each of
  * Named's facts once, `nodes × per` rows: no gained rule of each occurrence reads the publish's rows again, which would
  * derive every fact once from the nodes' delta and once more from the attributes'.
  */
@@ -451,8 +451,8 @@ export const runFound = (
 			Arr.dedupeAdjacent(
 				Arr.map(upkept, (p) => (p.statement.kind === "upkeep" ? p.statement.statement.kind : ""))
 			),
-			["loop", "insert"],
-			`${Formatter.format(d)}: Named's upkeep at a publish is the unit form's removal loop and INSERT`
+			["delete", "insert"],
+			`${Formatter.format(d)}: Named's upkeep at a publish is the unit form's removal DELETE and INSERT`
 		)
 		const inserted = Arr.reduce(
 			Arr.filter(
@@ -760,7 +760,7 @@ export const runLost = (
 		])
 		const more = yield* work(many - 1)
 		for (const p of [...few, ...more]) {
-			if (p.statement.kind === "upkeep" && p.statement.statement.kind === "loop") {
+			if (p.statement.kind === "upkeep" && p.statement.statement.kind === "delete") {
 				assert.deepEqual(
 					overProbes(p.plan),
 					[],
