@@ -3,7 +3,7 @@
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Option } from "effect"
+import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import type { Fixture } from "#bench/query/support/kit.ts"
 import {
 	attemptLabel,
@@ -333,7 +333,9 @@ const expected = (form: Form): number =>
 				: items.length
 
 /**
- * One scale's run: the rows the write read of each counted relation, each its sequential scans' rows and its indexes'
+ * One scale's run, on an installation whose workload holds each form's write, so it plans the index every read of
+ * theirs asks for (a write served under a snapshot reads only through the indexes it holds, deploy/snapshot/served.ts
+ * snapshotResolver): the rows the write read of each counted relation, each its sequential scans' rows and its indexes'
  * entries returned (pg_stat_get_xact_tuples_returned of the table and of each index on it), an index-only scan's among
  * them, which fetch no heap row (idx_tup_fetch counts none of an attempt's, its key every column it holds); and the rows
  * its first target holds after.
@@ -342,8 +344,9 @@ const runAt = (c: HeldCase, learners: number) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const s0 = yield* Substrate
-			const fx = yield* installWrites(build("HeldDrives"), "helddrives", {
-				programs: {},
+			const base = build("HeldDrives")
+			const fx = yield* installWrites(base, "helddrives", {
+				programs: Rec.fromEntries(Arr.map(forms, (f) => [f, changeOf(base, f)] as const)),
 				logins: () => []
 			})
 			const S = build(fx.installed.declared)
