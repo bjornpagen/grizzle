@@ -24,17 +24,7 @@ import {
 	numeric,
 	vector
 } from "#compiler/public/fields.ts"
-import {
-	key,
-	login,
-	on,
-	type Relation,
-	role,
-	type Statement,
-	schema,
-	wholeEntriesOf,
-	wholeWritesOf
-} from "#compiler/public/schema.ts"
+import { key, on, type Relation, type Statement, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import {
 	type OrderedValue,
@@ -221,16 +211,6 @@ const schemaOf = (
 export type SchemaValue = ReturnType<typeof schemaOf>
 
 /**
- * The world every case opens its Db as: the full role `app`, reading every relation and writing every stored one, in
- * its login `server`.
- */
-const worldOf = (value: SchemaValue) => {
-	const app = role(value, "app", wholeEntriesOf(value), wholeWritesOf(value))
-	return { app, server: login(value, "server", [app]) }
-}
-export type WorldValue = ReturnType<typeof worldOf>
-
-/**
  * The schema name every generated program is built under: its production name "generated" is no reserved schema
  * (a schema named Public would share public with the extension schema, which the installer refuses).
  */
@@ -244,12 +224,6 @@ export const generatedSchemaName = "Generated"
 export interface BuiltSchema {
 	readonly schema: SchemaValue
 	readonly installedAs: (installed: string) => SchemaValue
-	/**
-	 * The world over the schema under its production name, which the installation carries, and over the installed one,
-	 * which a Db opens.
-	 */
-	readonly world: WorldValue
-	readonly worldAs: (installed: string) => WorldValue
 	readonly roster: RosterValue
 	/** A stored or roster source; a derived one is built in the rule that matches it. */
 	readonly source: (source: ProgramSource) => RosterValue | RelationValue
@@ -298,8 +272,6 @@ export const buildSchema = (s: ProgramSchema): BuiltSchema => {
 	return {
 		schema: schemaValue,
 		installedAs: (installed) => schemaOf(installed, declared, statements),
-		world: worldOf(schemaValue),
-		worldAs: (installed) => worldOf(schemaOf(installed, declared, statements)),
 		roster,
 		source: (source) => {
 			switch (source.kind) {

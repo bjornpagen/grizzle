@@ -14,7 +14,6 @@ import {
 	type Scope
 } from "effect"
 import { memberCalls, type WrittenOutcome } from "#adapter/db/handles.ts"
-import { login } from "#compiler/public/schema.ts"
 import type { StatementRoots, StatementTree } from "#compiler/runtime/lower/tree.ts"
 import { type ValueIdentity, sameIdentity } from "#test/support/kernel/identity.ts"
 import { type ReferenceObserver, unobserved } from "#test/support/oracle/reference/evaluate.ts"
@@ -30,7 +29,7 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import { nativeEqualityKey } from "#compiler/ir/expr.ts"
 import { baseOf, numericTypmodOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { Anchor, CallError, CallErrorKind, Entry } from "#compiler/live/index.ts"
-import { pagedMember, workload } from "#compiler/program/workload/value.ts"
+import { pagedMember } from "#compiler/program/workload/value.ts"
 import type { AnyRole } from "#compiler/types/schema/world.ts"
 import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import {
@@ -115,6 +114,7 @@ import { member, withServedDb } from "#test/support/served-db.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { claimsOfNoFact, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { outputText } from "#test/support/wire.ts"
+import { fullWorld } from "#test/support/worlds.ts"
 
 /**
  * Which check of the case disagreed: a public answer with the reference's, a cell or a delivered field with its strict
@@ -1716,14 +1716,9 @@ export const runCase = (
 			installGenerated(
 				(name) => {
 					const value = built.installedAs(name)
-					const { app } = built.worldAs(name)
 					return {
 						schema: value,
-						logins: [
-							login(value, "server", [app], {
-								workload: [workload(app, casePrograms(c, built, value))]
-							})
-						]
+						logins: [fullWorld(value, casePrograms(c, built, value), []).server]
 					}
 				},
 				{ ambient: c.ambient, label: "real" }
@@ -1731,7 +1726,8 @@ export const runCase = (
 			unready("the schema did not install")
 		)
 		const value = built.installedAs(done.schema)
-		const world = built.worldAs(done.schema)
+		/** The world the Db opens as, its programs loaded by the Db itself (ServedDb `load`). */
+		const world = fullWorld(value, {}, [])
 		const refused = (what: string) => (e: unknown) =>
 			e instanceof Disagreement ? e : servedRefusal(c, what, e)
 		yield* Effect.mapError(
