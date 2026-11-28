@@ -25,9 +25,11 @@ import type { RawSession } from "#test/support/substrate/session.ts"
 /**
  * A learner's sittings in the unit of the sitting, every relation mutable: Assignment, keyed by (child, number); Event,
  * a sitting's one event, keyed the same way, of a kind, 1 a start; and Log, a sitting's notes at instants, keyed by
- * (child, number, at), which no write here fills, read so that every definition over it reads a holder at fields its
- * unit binds no key of, and is read live, never stored (analysis/derived/storage.ts unboundedUpkeep), as metis's
- * AssignmentStatus is. Over them, as AssignmentStatus reads its sittings:
+ * (child, number, at), which no write here fills, and Noted, each sitting's latest note: an aggregate, which no checked
+ * delta form holds, over a holder its unit binds no key of, so neither its upkeep nor a checked delta form bounds it and
+ * every definition over it is read live, never stored (analysis/derived/storage.ts: unboundedUpkeep, and an aggregate's
+ * delta form no checked one, UncheckedDelta), as metis's AssignmentStatus is. Over them, as AssignmentStatus reads its
+ * sittings:
  *
  * - Status, each sitting's status: 0 where the assignment has no event, which reads Assignment at its key, its event's
  *   kind, and 2 for a note;
@@ -54,9 +56,20 @@ const Base = schema(
 	]
 )
 
+/** Each sitting's latest note, an aggregate over Log at the sitting's key, a prefix of Log's. */
+const Noted = derived(
+	"Noted",
+	query(Base).rule((r) => {
+		const { child, number, at } = v(Log, "log")
+		return r.match(Log, { child, number, at }).find({ child, number, last: r.max(at) })
+	})
+)
+
+const Notes = schema.extend([Base], "Withdrawn_notes", [Noted], [])
+
 const Status = derived(
 	"Status",
-	query(Base)
+	query(Notes)
 		.rule((r) => {
 			const { child, number } = v(Assignment, "assignment")
 			return r
@@ -69,26 +82,26 @@ const Status = derived(
 			return r.match(Event, { child, number, kind }).find({ child, number, kind })
 		})
 		.rule((r) => {
-			const { child, number, at } = v(Log, "log")
-			return r.match(Log, { child, number, at }).find({ child, number, kind: 2 })
+			const { child, number, last } = v(Noted, "noted")
+			return r.match(Noted, { child, number, last }).find({ child, number, kind: 2 })
 		})
 )
 
 const Started = derived(
 	"Started",
-	query(Base)
+	query(Notes)
 		.rule((r) => {
 			const { child, number } = v(Event, "event")
 			return r.match(Event, { child, number, kind: 1 }).find({ child, number })
 		})
 		.rule((r) => {
-			const { child, number, at } = v(Log, "log")
-			return r.match(Log, { child, number, at }).find({ child, number })
+			const { child, number, last } = v(Noted, "noted")
+			return r.match(Noted, { child, number, last }).find({ child, number })
 		})
 )
 
 const Withdrawn = schema.extend(
-	[Base],
+	[Notes],
 	"Withdrawn_top",
 	[Status, Started],
 	[
@@ -300,7 +313,7 @@ export const coverage = (installed: Installed) => {
 		assert.equal(
 			installation.checked.holdings.get(name)?.kind,
 			"live",
-			`${name} is read live: its rule reads Log at fields its unit binds no key of`
+			`${name} is read live: it reads Noted, an aggregate over Log at fields its unit binds no key of`
 		)
 	}
 	const sidesOf = (target: string) => {

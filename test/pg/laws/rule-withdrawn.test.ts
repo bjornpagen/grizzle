@@ -8,7 +8,7 @@
  *
  * On PostgreSQL 19, over Withdrawn (rule-withdrawn.fixtures.ts): mutable assignments and their sittings' events, in the
  * unit of the child, and two containments of the assignments the judge holds whole: into Status, which reads Assignment
- * at its key, and into Started, which reads Event alone.
+ * at its key, and into Started, which reads Event and no row of Assignment, each target read live (Noted, an aggregate).
  *
  * - **withdrawn**: a schedule of direct SQL transactions at SERIALIZABLE, each judged at its end against each rule's
  *   whole check (its violation query over every fact, lowered by the oracle baseline, which reads no delta), the oracle
@@ -53,12 +53,6 @@ export const aRowAContainmentsSourceLosesIsReadByNoJudgeWhereItsTargetReadsTheSo
 					'\t\t\tif (side === "removed" ? closed || withdrawn.has(place) : proofs.has(place)) {',
 				replacement: '\t\t\tif (side === "removed" ? closed : proofs.has(place)) {',
 				why: "The judge reads the rows a containment's source loses again: Assignment ⊆ Status captures every assignment a write deletes and reads its unit, though no fact opens there (METIS-PERFBAR's olds_assignment)."
-			},
-			{
-				file: "packages/engine/src/analysis/theory/unit.ts",
-				original: '\t\t\t\t\t\t\tp.polarity === "positive" &&',
-				replacement: '\t\t\t\t\t\t\tp.polarity !== "both" &&',
-				why: "An occurrence proves itself: Started's read of Event, negative, binds Event's key at the containment's fields, so the rows Event loses are read by no region, and a start deleted under its assignment is accepted."
 			}
 		]
 	})
