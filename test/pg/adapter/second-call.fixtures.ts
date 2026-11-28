@@ -5,6 +5,7 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { memberCalls } from "#adapter/db/handles.ts"
+import type { BenchSession } from "#bench/harness/session.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { int4 } from "#compiler/public/fields.ts"
@@ -19,6 +20,8 @@ import {
 	schema,
 	unit
 } from "#compiler/public/schema.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
+import { autovacuumIdle, statsStood, storedOnce } from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { pgCluster } from "#test/support/env.ts"
@@ -168,12 +171,45 @@ export const runCalls = (calls: Calls, c: Case<SecondCallFeature>) =>
 		const world = fullWorld(built, {}, [])
 		const substrate = yield* Substrate
 		const names = namesOf(done)
-		yield* substrate.admin.query("BEGIN", [])
-		yield* substrate.admin.query(
-			`INSERT INTO ${names.table(Fixed)} (${names.column(Fixed, "id")}, ${names.column(Fixed, "w")}) SELECT g, g FROM pg_catalog.generate_series(1, $1::int4) AS g`,
-			[calls.keys]
+		const admin: BenchSession = { values: substrate.admin.queryValues }
+		/**
+		 * Every permanent table a call writes: Fixed, and each stored relation the installation keeps of it, each written
+		 * as Fixed is, its rows counted large (advice.ts statsStood) so autovacuum has nothing to do with it while the
+		 * calls run (autovacuumIdle), every call's put deleting its keys' facts and inserting its own.
+		 */
+		const written: Arr.NonEmptyReadonlyArray<string> = [
+			names.table(Fixed),
+			...Arr.flatMap(done.installation.statements, (statement) =>
+				statement.kind === "createStoredTable" ? [printObjectName(statement.name)] : []
+			)
+		]
+		const stored = yield* storedOnce(
+			admin,
+			{
+				tables: written,
+				units: calls.keys,
+				load: (from, to) =>
+					Effect.forEach(
+						[
+							"BEGIN",
+							`INSERT INTO ${names.table(Fixed)} (${names.column(Fixed, "id")}, ${names.column(Fixed, "w")}) SELECT g, g FROM pg_catalog.generate_series(${String(from)}, ${String(to)}) AS g`,
+							"COMMIT"
+						],
+						(sql) => substrate.admin.query(sql, []),
+						{ discard: true }
+					)
+			},
+			["large"]
 		)
-		yield* substrate.admin.query("COMMIT", [])
+		yield* statsStood(admin, stored, "large")
+		yield* autovacuumIdle(
+			admin,
+			Arr.map(written, (table) => ({
+				table,
+				inserted: 2 * callsMade * calls.keys,
+				deleted: 2 * callsMade * calls.keys
+			}))
+		)
 		for (const setting of tracked) {
 			yield* substrate.admin.query(
 				`ALTER DATABASE ${quoteIdent(substrate.database)} SET ${setting}`,

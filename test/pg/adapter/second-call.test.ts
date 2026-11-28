@@ -22,7 +22,12 @@
  *
  * Oracle: PostgreSQL's pg_stat_statements, track all, its plans and calls of the clone's statements before and after
  * each call after a backend's first, the query ids the second backend's calls add, none, the client's statements each
- * call runs, and the catalog rows of the sessions' own relations and functions around every call.
+ * call runs, and the catalog rows of the sessions' own relations and functions around every call. Every plan counted is
+ * grizzle's: each permanent table the calls write stands counted large before them (test/support/advice.ts statsStood),
+ * so autovacuum, whose vacuum or analyze would rewrite its counts in place and make every plan over it again, has
+ * nothing to do with it while they run, as its own decision over the server's settings, the table's reloptions,
+ * pg_stat's counts and every call's writes says (advice.ts autovacuumIdle), where under load it analyzed Fixed between
+ * two calls and a judge statement planned again (CARRIERS).
  *
  * And a login below a rule's level has each write of a table the rule reads judged: the judge captures the table
  * whichever login writes it, so metis's assignment level's login, which wrote BoundLineItem, which only a rule of its xp
@@ -69,6 +74,12 @@ export const aServedStatementIsPlannedOnceASessionAndIsOneStatementInEverySessio
 		box: "a put of one key, sixteen and four hundred of a candidate-keyed relation a rule over a query reads, four calls on each of two brand-new backends of two served Dbs",
 		kept: [],
 		kills: [
+			{
+				file: "test/pg/adapter/second-call.fixtures.ts",
+				original: '\t\tyield* statsStood(admin, stored, "large")\n',
+				replacement: "",
+				why: "Fixed stands at the counts its rows' insert left: sixteen keys' calls modify 512 rows past autovacuum's analyze threshold of 50 and some, so it may analyze Fixed between two calls, which plans every statement over it again, and the harness refuses the window."
+			},
 			{
 				file: "packages/engine/src/sql/print.ts",
 				original: '\tout.line("BEGIN")\n\tconst statements = out.nested()',

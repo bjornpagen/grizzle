@@ -1942,6 +1942,109 @@ export const inState = <S extends PgClassState, A, E, R, E2, R2>(
 	apart(bare, name, stored.tables, Effect.andThen(statsStood(session, stored, state), use))
 
 /**
+ * Writes a measured window adds to a permanent table, by its quoted, qualified name: the rows it inserts and deletes, as
+ * autovacuum counts them (pgstat: each insert and each delete a modification since the last analyze, each insert a row
+ * since the last vacuum, each delete a dead tuple).
+ */
+export interface WindowWrites {
+	readonly table: string
+	readonly inserted: number
+	readonly deleted: number
+}
+
+/** The autovacuum settings a table's decision reads, each its reloption where the table states one, else the server's. */
+const autovacuumSettings = [
+	"autovacuum_vacuum_threshold",
+	"autovacuum_vacuum_scale_factor",
+	"autovacuum_vacuum_max_threshold",
+	"autovacuum_vacuum_insert_threshold",
+	"autovacuum_vacuum_insert_scale_factor",
+	"autovacuum_analyze_threshold",
+	"autovacuum_analyze_scale_factor"
+] as const
+
+/**
+ * Asserts autovacuum has nothing to do with any table of `writes` once its window's writes land, as `session` reads the
+ * table now: neither a vacuum nor an analyze, either of which rewrites the table's pg_class counts in place and so makes
+ * every plan over it again (PostgreSQL 19 vacuum.c vac_update_relstats, a relcache invalidation the plan cache drops its
+ * plans by), a count of plans that would move with the autovacuum launcher's timing, not with grizzle's. Autovacuum's
+ * own decision (autovacuum.c relation_needs_vacanalyze), each threshold read off the table's reloptions or the server's
+ * settings (`autovacuumSettings`), never off constants: a vacuum where its dead tuples pass the vacuum threshold, its base
+ * and its scale factor times its counted rows, capped at the maximum where one is set, or where its rows inserted since
+ * its last vacuum pass the insert threshold, its base and its scale factor times its counted rows' unfrozen part, where
+ * insert vacuums are on; an analyze where its modifications since its last analyze pass the analyze threshold, its base
+ * and its scale factor times its counted rows; the counts pg_stat's (n_dead_tup, n_ins_since_vacuum,
+ * n_mod_since_analyze), each with the window's writes beside it.
+ */
+export const autovacuumIdle = (
+	session: BenchSession,
+	writes: ReadonlyArray<WindowWrites>
+): Effect.Effect<void, SqlError> =>
+	Effect.forEach(
+		writes,
+		(w) =>
+			Effect.map(
+				session.values(
+					"WITH o AS (SELECT r.option_name, r.option_value FROM pg_catalog.pg_class AS c " +
+						"CROSS JOIN LATERAL pg_catalog.pg_options_to_table(c.reloptions) AS r " +
+						"WHERE c.oid = $1::pg_catalog.text::pg_catalog.regclass) SELECT " +
+						Arr.join(
+							Arr.map(
+								autovacuumSettings,
+								(setting) =>
+									`COALESCE((SELECT o.option_value FROM o WHERE o.option_name = '${setting}'), pg_catalog.current_setting('${setting}'))::pg_catalog.float8::pg_catalog.text`
+							),
+							", "
+						) +
+						", GREATEST(c.reltuples, 0::pg_catalog.float4)::pg_catalog.text, c.relpages::pg_catalog.text, c.relallfrozen::pg_catalog.text, " +
+						"COALESCE(s.n_dead_tup, 0)::pg_catalog.text, COALESCE(s.n_ins_since_vacuum, 0)::pg_catalog.text, " +
+						"COALESCE(s.n_mod_since_analyze, 0)::pg_catalog.text " +
+						"FROM pg_catalog.pg_class AS c LEFT JOIN pg_catalog.pg_stat_all_tables AS s ON s.relid = c.oid " +
+						"WHERE c.oid = $1::pg_catalog.text::pg_catalog.regclass",
+					[w.table]
+				),
+				(rows) => {
+					const row = defined(rows[0], `the autovacuum counts of ${w.table}`)
+					const at = (i: number): number => Number(defined(row[i], `count ${i} of ${w.table}`))
+					const [vacBase, vacScale, vacMax, insBase, insScale, anlBase, anlScale] = [
+						at(0),
+						at(1),
+						at(2),
+						at(3),
+						at(4),
+						at(5),
+						at(6)
+					] as const
+					const reltuples = at(7)
+					const relpages = at(8)
+					const relallfrozen = at(9)
+					const unfrozen =
+						relpages > 0 && relallfrozen > 0 ? 1 - Math.min(relallfrozen, relpages) / relpages : 1
+					const scaled = vacBase + vacScale * reltuples
+					const vacuumThreshold = vacMax >= 0 ? Math.min(scaled, vacMax) : scaled
+					const insertThreshold = insBase + insScale * reltuples * unfrozen
+					const analyzeThreshold = anlBase + anlScale * reltuples
+					const dead = at(10) + w.deleted
+					const inserted = at(11) + w.inserted
+					const modified = at(12) + w.inserted + w.deleted
+					assert.ok(
+						dead <= vacuumThreshold,
+						`autovacuum vacuums ${w.table} in the window: ${dead} dead tuples past its threshold ${vacuumThreshold}`
+					)
+					assert.ok(
+						insBase < 0 || inserted <= insertThreshold,
+						`autovacuum vacuums ${w.table} in the window: ${inserted} rows inserted since its last vacuum past its threshold ${insertThreshold}`
+					)
+					assert.ok(
+						modified <= analyzeThreshold,
+						`autovacuum analyzes ${w.table} in the window: ${modified} modifications since its last analyze past its threshold ${analyzeThreshold}`
+					)
+				}
+			),
+		{ discard: true }
+	)
+
+/**
  * The replan case (e2 finding 3): each statement of `scope` PREPAREd and planned, its generic plan cached, in one
  * transaction `frame` opens as its vehicle would; then `invalidate`, which moves a table's statistics and so every plan
  * over it; then explained again by EXECUTE in a later transaction `frame` opens, as the next flight's or call's would:
