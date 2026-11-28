@@ -1,6 +1,7 @@
 /** What the properties of claims.test.ts read: their schema, roles and template, their space of states, sessions and
  * writes, and their models. */
 
+import { deepEquals } from "@bjornpagen/testing/assert"
 import { element, type Gen, int, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -1063,13 +1064,88 @@ const closedOver = (
 	}
 }
 
+/** A fact a write states, the child it is of, and whether the state stores it as stated, at every field it states. */
+interface StatedFact {
+	readonly child: Child
+	readonly stored: boolean
+}
+
+/**
+ * What a write states (statedBy): the facts an insert states, each whole, a session with its Visits in order, since a
+ * sequence's owner states its members, and never its ItemSessions' count, which grizzle draws from the rows the write
+ * leaves; or a deletion, which states no fact and names the rows it removes.
+ */
+type Stated =
+	| { readonly kind: "facts"; readonly facts: ReadonlyArray<StatedFact> }
+	| { readonly kind: "deletion" }
+
+/** `fact`, of `child`, stored as stated among `stored`: a stored fact equal to it at every field (StatedFact). */
+const statedAmong = <A extends { readonly child: Child }>(
+	fact: A,
+	stored: ReadonlyArray<A>
+): StatedFact => ({ child: fact.child, stored: Arr.some(stored, (x) => deepEquals(x, fact)) })
+
+/** The facts a write under the claims `claimed` states over `state` (Stated). */
+const statedBy = (c: ClaimsCase, claimed: ReadonlySet<Child>): Stated => {
+	const { state } = c
+	switch (c.write.kind) {
+		case "addAssignment":
+			return { kind: "facts", facts: [statedAmong(c.write.row, state.assignments)] }
+		case "addEvent":
+			return { kind: "facts", facts: [statedAmong(c.write.row, state.events)] }
+		case "openSession":
+			return { kind: "facts", facts: [statedAmong(c.write.row, state.sessions)] }
+		case "addItem":
+			return { kind: "facts", facts: [statedAmong(c.write.row, state.items)] }
+		case "startEventless":
+			return {
+				kind: "facts",
+				facts: Arr.map(startedOf(state, claimed), (e) => statedAmong(e, state.events))
+			}
+		case "assignClass": {
+			const { number, test } = c.write
+			return {
+				kind: "facts",
+				facts: Arr.map(state.enrolled, (child) =>
+					statedAmong({ child, number, test }, state.assignments)
+				)
+			}
+		}
+		case "present":
+			return { kind: "facts", facts: [statedAmong({ ...c.write.row, k: 0n }, state.presented)] }
+		case "removeInvalidation":
+		case "closeSession":
+		case "dropItem":
+		case "closeClass":
+			return { kind: "deletion" }
+	}
+}
+
+/** The start event of each assignment of a child the claims `claimed` bind that has no event, as startEventless writes. */
+const startedOf = (state: State, claimed: ReadonlySet<Child>): ReadonlyArray<EventRow> =>
+	Arr.flatMap(state.assignments, (a) =>
+		claimed.has(a.child) &&
+		!Arr.some(state.events, (e) => e.child === a.child && e.number === a.number)
+			? [{ child: a.child, number: a.number, step: 0n, kind: "start" as const }]
+			: []
+	)
+
 /**
  * The model of a write under the claims `claimed` binds: a fact of a member at a child outside them is outsideWorld,
  * its laws judged over every row, so a number another child's assignment holds refuses an assignment on Assignment's
- * number key, and the state after it.
+ * number key, and the state after it. grizzle's laws are over states, and a write whose every stated fact is stored as
+ * stated changes nothing (statedBy; docs/reads-and-writes.md "A relation's rows are a set", the reinsert rule of
+ * test/support/families/again.ts), so it is unchanged before any law is judged, outsideWorld where a fact is of a child
+ * outside the claims; every case below states a fact the state does not store as stated.
  */
 export const writeOutcome = (c: ClaimsCase, claimed: ReadonlySet<Child>): Expected => {
 	const { state } = c
+	const stated = statedBy(c, claimed)
+	if (stated.kind === "facts" && Arr.every(stated.facts, (f) => f.stored)) {
+		return Arr.some(stated.facts, (f) => !claimed.has(f.child))
+			? { kind: "outsideWorld" }
+			: { kind: "unchanged" }
+	}
 	const holder = (number: bigint) =>
 		Option.getOrUndefined(Arr.findFirst(state.assignments, (a) => a.number === number))
 	const accepted = (after: State): Expected => ({ kind: "accepted", after })
@@ -1079,9 +1155,6 @@ export const writeOutcome = (c: ClaimsCase, claimed: ReadonlySet<Child>): Expect
 			const held = holder(row.number)
 			const outside = !claimed.has(row.child)
 			if (held !== undefined) {
-				if (held.child === row.child && held.test === row.test) {
-					return outside ? { kind: "outsideWorld" } : { kind: "unchanged" }
-				}
 				return outside
 					? { kind: "either" }
 					: {
@@ -1106,15 +1179,9 @@ export const writeOutcome = (c: ClaimsCase, claimed: ReadonlySet<Child>): Expect
 			if (outside) {
 				return { kind: "outsideWorld" }
 			}
-			const held = Option.getOrUndefined(
-				Arr.findFirst(state.events, (e) => eventKey(e) === eventKey(row))
-			)
-			if (held !== undefined) {
-				return held.kind === row.kind
-					? { kind: "unchanged" }
-					: { kind: "refused", law: "primary", relation: SittingEvent }
-			}
-			return accepted({ ...state, events: [...state.events, row] })
+			return Arr.some(state.events, (e) => eventKey(e) === eventKey(row))
+				? { kind: "refused", law: "primary", relation: SittingEvent }
+				: accepted({ ...state, events: [...state.events, row] })
 		}
 		case "openSession": {
 			const row = c.write.row
@@ -1131,12 +1198,9 @@ export const writeOutcome = (c: ClaimsCase, claimed: ReadonlySet<Child>): Expect
 			if (!claimed.has(row.child)) {
 				return owner ? { kind: "outsideWorld" } : { kind: "either" }
 			}
-			if (!owner) {
-				return { kind: "refused", law: "other", relation: ItemSession }
-			}
-			return Arr.some(state.items, (x) => itemKey(x) === itemKey(row))
-				? { kind: "unchanged" }
-				: accepted({ ...state, items: [...state.items, row] })
+			return owner
+				? accepted({ ...state, items: [...state.items, row] })
+				: { kind: "refused", law: "other", relation: ItemSession }
 		}
 		case "removeInvalidation": {
 			const row = c.write.row
@@ -1151,31 +1215,19 @@ export const writeOutcome = (c: ClaimsCase, claimed: ReadonlySet<Child>): Expect
 				? { kind: "unchanged" }
 				: accepted({ ...state, invalidations: left })
 		}
-		case "startEventless": {
-			const started = Arr.flatMap(state.assignments, (a) =>
-				claimed.has(a.child) &&
-				!Arr.some(state.events, (e) => e.child === a.child && e.number === a.number)
-					? [{ child: a.child, number: a.number, step: 0n, kind: "start" as const }]
-					: []
-			)
-			return Arr.isReadonlyArrayNonEmpty(started)
-				? accepted({ ...state, events: [...state.events, ...started] })
-				: { kind: "unchanged" }
-		}
+		case "startEventless":
+			return accepted({ ...state, events: [...state.events, ...startedOf(state, claimed)] })
 		case "assignClass": {
 			const { number, test } = c.write
 			const rows = Arr.map(state.enrolled, (child) => ({ child, number, test }))
-			if (!Arr.isReadonlyArrayNonEmpty(rows)) {
-				return { kind: "unchanged" }
-			}
 			const outside = Arr.some(rows, (r) => !claimed.has(r.child))
 			const held = holder(number)
 			/** Two children at one number, or the number another child's: the number's key; the child's own number
-			 * of another test: the primary key. */
+			 * of another test, where a held number restates no row as stored: the primary key. */
 			const clash: Extract<Expected, { readonly kind: "refused" }>["law"] | undefined =
-				rows.length > 1 || (held !== undefined && held.child !== rows[0].child)
+				rows.length > 1 || (held !== undefined && held.child !== rows[0]?.child)
 					? "number"
-					: held !== undefined && held.test !== test
+					: held !== undefined
 						? "primary"
 						: undefined
 			if (outside) {
@@ -1184,21 +1236,13 @@ export const writeOutcome = (c: ClaimsCase, claimed: ReadonlySet<Child>): Expect
 			if (clash !== undefined) {
 				return { kind: "refused", law: clash, relation: Assignment }
 			}
-			return held === undefined
-				? accepted({ ...state, assignments: [...state.assignments, rows[0]] })
-				: { kind: "unchanged" }
+			return accepted({ ...state, assignments: [...state.assignments, ...rows] })
 		}
 		case "present": {
 			/** The entry fills k, its first mark; a presentation at the place of another mark is outside the entry. */
 			const row = { ...c.write.row, k: 0n }
 			const outside = !claimed.has(row.child)
-			const held = Option.getOrUndefined(
-				Arr.findFirst(state.presented, (p) => momentKey(p) === momentKey(row))
-			)
-			if (held !== undefined) {
-				if (held.k === row.k) {
-					return outside ? { kind: "outsideWorld" } : { kind: "unchanged" }
-				}
+			if (Arr.some(state.presented, (p) => momentKey(p) === momentKey(row))) {
 				return outside
 					? { kind: "either" }
 					: { kind: "refused", law: "primary", relation: Presented }

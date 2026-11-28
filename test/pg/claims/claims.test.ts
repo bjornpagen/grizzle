@@ -34,7 +34,7 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, Record as Rec, Result } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
@@ -527,7 +527,16 @@ export const aRoleWithAScopeReadsAndWritesItsWorldEveryLawOverEveryRow = propert
 			kind: "specification",
 			name: "the world the claims bind, each read's second implementation over it, and the laws over every row"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/claims/claims.test.ts#aRoleWithAScopeReadsAndWritesItsWorldEveryLawOverEveryRow:-:2.0.0.0.0.1.0.2.0.0.0.0.0.0.2.0.0.0.0.0.0.1.0.1.0.0.2.0.0.0.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.1.0.0"
+				),
+				reason:
+					"ann opens her TestSession at stage 2 of pkg a with no Visits exactly as it is stored, while an ItemSession of it stands: every stated fact is stored as stated, so the write is unchanged before any law is judged (its ItemSessions' count is drawn, never stated), where the model refused it on TestSession's primary key",
+				since: "2026-11-28"
+			}
+		],
 		kills: [
 			{
 				file: "packages/engine/src/ir/derived.ts",
