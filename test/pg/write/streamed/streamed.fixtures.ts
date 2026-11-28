@@ -328,7 +328,7 @@ export const runStreamed = (c: Streamed, k: Case<StreamedFeature>) =>
 			const marks = Arr.flatMap(docs, (_, d) => marksOf(c, d, d === docs.length - 1))
 			const none = yield* load({ Wide: [], Area: [], Member: [], Doc: [], Node: [], Mark: [] })
 			assert.ok(
-				"kind" in none && none.kind === "unchanged",
+				"_tag" in none && none._tag === "unchanged",
 				`${Formatter.format({ ...c })}: a call of no facts changes nothing, ${Formatter.format(none)}`
 			)
 			if (c.shape === "stored") {
@@ -340,7 +340,7 @@ export const runStreamed = (c: Streamed, k: Case<StreamedFeature>) =>
 					Node: [],
 					Mark: []
 				})
-				assert.ok("kind" in first && first.kind === "accepted", "the stored fact is stored first")
+				assert.ok("_tag" in first && first._tag === "accepted", "the stored fact is stored first")
 			}
 			/** An unmatched case's wide node of a document the call states no Doc of, which the deferred containment refuses
 			 * at COMMIT. */
@@ -366,7 +366,7 @@ export const runStreamed = (c: Streamed, k: Case<StreamedFeature>) =>
 				c.shape === "short"
 			) {
 				assert.ok(
-					"kind" in outcome && outcome.kind !== "accepted" && outcome.kind !== "unchanged",
+					"_tag" in outcome && outcome._tag !== "accepted" && outcome._tag !== "unchanged",
 					`${Formatter.format({ ...c })}: the call is refused, ${Formatter.format(outcome)}`
 				)
 				assert.deepEqual(
@@ -411,7 +411,7 @@ export const runStreamed = (c: Streamed, k: Case<StreamedFeature>) =>
 			const addedOf = (relation: string) =>
 				Option.getOrUndefined(Arr.findFirst(counts, (n) => n.relation === relation))?.added
 			assert.ok(
-				"kind" in outcome && outcome.kind === "accepted",
+				"_tag" in outcome && outcome._tag === "accepted",
 				`${Formatter.format({ ...c })}: the call is accepted, ${Formatter.format(outcome)}`
 			)
 			assert.deepEqual(

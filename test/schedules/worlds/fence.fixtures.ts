@@ -8,7 +8,7 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import type { LockWait } from "#test/support/substrate/barrier.ts"
+import { blockedBefore, type LockWait } from "#test/support/substrate/barrier.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { checkStart, judged, runStep } from "#test/support/worlds/drive/index.ts"
 import { drawAction, unnoted } from "#test/support/worlds/drive/suite.ts"
@@ -209,19 +209,6 @@ const holding = (
 	}
 }
 
-/**
- * A migration that ended before it waited behind the transaction in flight, a failure of the schedule rather than a
- * barrier awaited until the case's hang guard: its exit, whatever it was.
- */
-const endedUnblocked = <A, E>(migration: Fiber.Fiber<A, E>): Effect.Effect<never> =>
-	Effect.flatMap(Fiber.await(migration), (exit) =>
-		Effect.die(
-			new Error(
-				`the migration ended before it waited behind the transaction in flight: ${Formatter.format(exit)}`
-			)
-		)
-	)
-
 export const fenced = (fc: FenceCase, c: Case<FenceFeature>) =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
@@ -247,9 +234,15 @@ export const fenced = (fc: FenceCase, c: Case<FenceFeature>) =>
 			{ startImmediately: true }
 		)
 		const pid = held.backend.pid
-		const migrator = yield* Effect.raceFirst(
-			s.awaitBlockedBy(pid, world.migrator),
-			endedUnblocked(migration)
+		const migrator = yield* Effect.catchTag(
+			blockedBefore(s.awaitBlockedBy(pid, world.migrator), migration),
+			"EndedUnblocked",
+			(ended) =>
+				Effect.die(
+					new Error(
+						`the migration ended before it waited behind the transaction in flight: ${ended.exit}`
+					)
+				)
 		)
 		const during = running(before, to)
 		/**

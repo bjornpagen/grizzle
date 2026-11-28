@@ -3397,8 +3397,12 @@ class Binder {
 
 	/**
 	 * A write's target and the items it reads beside it (an UPDATE's FROM, a DELETE's USING), at the write's level: the
-	 * items first, in order, which never see the target; then the target, read at the tuple ids a probe of it at its
-	 * bindings to those items finds where they bind it, else at its own bindings or whole.
+	 * items first, in order, which never see the target; then the target: at the tuple id its own condition states it at
+	 * (an owner's routine's, which holds the table's privileges); where those items bind it, through the index its
+	 * bindings lead, the inner of a nested loop over them, each binding an index condition of its scan, so a statement
+	 * served under a role reads no column its grants leave out, a tuple id, which PostgreSQL checks against the table's
+	 * SELECT alone, among them (a column-granted query entry's writer, test/pg/live/errors); else at its own bindings or
+	 * whole.
 	 */
 	written(
 		table: Extract<FromSource, { readonly kind: "table" }>["table"],
@@ -3472,31 +3476,14 @@ class Binder {
 			(b) => b.op === "=" && [...freeQualifiersOf(b.value)].some(earlier)
 		)
 		if (catalogTable !== undefined && driven.length > 0) {
-			const probeAlias = this.#alias(written)
-			const probed = this.probeEntry(
-				{ join: "cross", source: { kind: "table", table, alias: written } },
-				{ kind: "table", table, alias: written },
-				{ kind: "table", table: catalogTable },
-				driven,
-				[],
-				where,
-				here,
-				probeAlias,
-				[tupleId],
-				(conjunct) => {
-					const at = where.indexOf(conjunct)
-					if (at >= 0) {
-						where.splice(at, 1)
-					}
-				}
-			)
-			bound.push(probed)
-			here = withRelation(here, written, alias, depth, place + 1)
+			const boundColumns = [...new Set(bindings.map((b) => b.column))].toSorted()
+			const [b0, ...bs] = boundColumns
+			if (b0 === undefined) {
+				return defect("a write's target its driven bindings bind no column of")
+			}
+			here = withRelation(here, written, alias, depth, place)
 			const rename = this.renamer(here)
-			const probedWhere = conjunction([
-				eq(col(alias, tupleId), col(probeAlias, tupleId)),
-				...where.map((x) => rename.expr(x))
-			])
+			const drivenWhere = conjunction(where.map((x) => rename.expr(x)))
 			this.#level(
 				name,
 				[
@@ -3504,15 +3491,30 @@ class Binder {
 					{
 						source: { kind: "read", table, alias, access: { kind: "whole" } },
 						step: { join: "cross" },
-						item: { alias, scan: { kind: "tid" } },
+						item: {
+							alias,
+							scan: {
+								kind: "index",
+								index: requestOf(
+									catalogTable,
+									[b0, ...bs],
+									[],
+									holdsKey(catalogTable, new Set(driven.map((b) => b.column)))
+										? "key lookup"
+										: "join key"
+								),
+								bound: boundColumns,
+								needs: this.#needed(written)
+							}
+						},
 						method: "nestedLoop",
 						appended: []
 					}
 				],
-				probedWhere,
+				drivenWhere,
 				[]
 			)
-			return { alias, items: fromOf(bound), where: probedWhere, env: here }
+			return { alias, items: fromOf(bound), where: drivenWhere, env: here }
 		}
 		const many =
 			catalogTable !== undefined &&

@@ -1,5 +1,5 @@
 import { defined } from "@bjornpagen/testing/assert"
-import { Array as Arr, Effect, Option, String as Str } from "effect"
+import { Array as Arr, Data, Effect, Fiber, Formatter, Option, String as Str } from "effect"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 
@@ -148,3 +148,24 @@ export const awaitBlockedBy = (
 			yield* Effect.yieldNow
 		}
 	})
+
+/** A call a barrier awaited ended before the barrier saw it blocked, with how it ended (`blockedBefore`). */
+export class EndedUnblocked extends Data.TaggedError("EndedUnblocked")<{ readonly exit: string }> {}
+
+/**
+ * `barrier`, a lock-wait barrier awaiting the backend of `call`, raced against the call's own end: the wait it sees,
+ * or EndedUnblocked with the call's exit where the call ends first. A barrier polls until it sees the wait, so one that
+ * awaited a call that already ended, refused or answered before it ever reached the lock, would poll until the case's
+ * hang guard: a call that ends unblocked fails the case at once with its outcome, never by a hang (test/pg/live/errors,
+ * whose edit was refused 42501 before it reached the row the direct writer held).
+ */
+export const blockedBefore = <E, A, E2>(
+	barrier: Effect.Effect<LockWait, E>,
+	call: Fiber.Fiber<A, E2>
+): Effect.Effect<LockWait, E | EndedUnblocked> =>
+	Effect.raceFirst(
+		barrier,
+		Effect.flatMap(Fiber.await(call), (exit) =>
+			Effect.fail(new EndedUnblocked({ exit: Formatter.format(exit) }))
+		)
+	)

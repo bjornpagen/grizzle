@@ -60,6 +60,7 @@ import { sourcedDbLayer } from "#test/support/live-layer.ts"
 import { liveSurfaces, wireOf } from "#test/support/live/calls.ts"
 import { commitDirectly, insertRow, updateRow } from "#test/support/live/direct.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
+import { blockedBefore } from "#test/support/substrate/barrier.ts"
 import {
 	baseSubstrate,
 	claimsOfNoFact,
@@ -272,7 +273,17 @@ export const aFailingLiveCallEndsWithItsClasssCallErrorWhoseRetryHoldsWhenTheCal
 									[]
 								)
 								const edit = yield* Effect.forkChild(call())
-								yield* substrate.awaitBlockedBy(directWriter.pid, installed.as(built.app).role)
+								yield* Effect.catchTag(
+									blockedBefore(
+										substrate.awaitBlockedBy(directWriter.pid, installed.as(built.app).role),
+										edit
+									),
+									"EndedUnblocked",
+									(ended) =>
+										new Misclassified({
+											report: `${p.fault} ended before it waited behind the direct writer's transaction: ${ended.exit}`
+										})
+								)
 								yield* directWriter.commit
 								const kind = yield* Fiber.join(edit)
 								yield* judge(kind)
