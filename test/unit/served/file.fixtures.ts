@@ -379,14 +379,14 @@ const readsBackWhole = (dir: ScratchDir, file: ServedFile, pick: number, printed
 	})
 
 /**
- * `c` as a served call supplies it: every array member's facts the call's, none written in the ChangeSet and none a
- * Stream, every other member a query, and its parameters the call's.
+ * `c` as a served call supplies it: every array member's facts the call's, none written in the ChangeSet, every other
+ * member a query, and its parameters the call's.
  */
 export const servedShape = (c: WChangeSet): WChangeSet => ({
 	...c,
 	strata: Arr.map(c.strata, (stratum) =>
 		Arr.map(stratum, (m): WChangeSet["strata"][number][number] =>
-			m.source.kind === "array" ? { ...m, source: { kind: "array", facts: [], stream: false } } : m
+			m.source.kind === "array" ? { ...m, source: { kind: "array", facts: [] } } : m
 		)
 	),
 	binding: "passed"

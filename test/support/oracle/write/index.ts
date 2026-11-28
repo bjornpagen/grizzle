@@ -17,6 +17,9 @@ import {
 	plantedCasesGen,
 	type ResolvedCase,
 	runCase,
+	offlineCompile,
+	type SettledCase,
+	settledCase,
 	type WriteCase,
 	type WriteOracleFeature,
 	writeCaseGen
@@ -30,9 +33,11 @@ import {
 	withTarget
 } from "#test/support/oracle/write/run.ts"
 import {
+	buildWSchema,
 	printSchema,
 	relationIn,
 	resolveSchema,
+	type WBuiltSchema,
 	type SchemaSketch,
 	schemaSketchGen,
 	type WGroup,
@@ -90,7 +95,7 @@ export const resolveRun =
  * The features every write suite's population must reach: each member kind under every op, one to three strata, each
  * read-back source, every put target, refusals by every kind of law, each schema shape, TOAST-sized payloads, numeric
  * casts between typmods, a run that reads back, on one Db, relations sharing field names with other types, references
- * into candidate keys, Stream members, bound parameters, db.compile, a described member reading a wider text
+ * into candidate keys, bound parameters, db.compile, a described member reading a wider text
  * into a narrower field (a deletion among them) refused by the domain,
  * second readings over facts stored in another order and with a value respelled, a stratum whose writes the keys order
  * in a cycle refused as it compiles, a deletion where facts meet nowhere left unordered beside an addition, which
@@ -142,9 +147,7 @@ export const writeSituations = [
 	"statistics none",
 	"delta read-backs of one heading's field names over other types",
 	"reference into a candidate key",
-	"stream member",
 	"parameters bound",
-	"parameters bound as streams",
 	"described member wider than its field",
 	"a deletion described wider than its field",
 	"outcome outside a domain",
@@ -224,23 +227,32 @@ export const runWrite = (
 		)
 	})
 
-/** A resolved run's cases in order: its drawn cases, then, where its schema holds the planted group, the planted arms. */
-const casesOf = (run: WriteRun, resolved: ResolvedRun): ReadonlyArray<ResolvedCase> => {
+/**
+ * A resolved run's cases in order, each settled over the run's declared schema `built` (harness.ts settledCase): its
+ * drawn cases, then, where its schema holds the planted group, the planted arms.
+ */
+const casesOf = (
+	run: WriteRun,
+	resolved: ResolvedRun,
+	built: WBuiltSchema
+): ReadonlyArray<SettledCase> => {
 	const planted = Arr.findFirst(resolved.schema.groups, (g) => g.role === "planted")
-	return [
+	const cases: ReadonlyArray<ResolvedCase> = [
 		...resolved.drawn,
 		...Option.match(planted, {
 			onNone: () => [],
 			onSome: (group) => Arr.map(plantedArms, (arm) => plantedCase(group, arm, run.planted.facts))
 		})
 	]
+	const compile = offlineCompile(built)
+	return Arr.map(cases, (rc) => settledCase(built, compile, rc))
 }
 
 /**
  * A resolved run's schema installed, in the scope, its privileges checked. The installation installs the parameter
- * types of every ChangeSet the run applies (run.ts installTarget): a ChangeSet whose stratum the keys order in a cycle
- * is refused as it compiles (expect.ts unorderableStrata), so its case applies nothing and the installation leaves it
- * out.
+ * types of every ChangeSet the run applies (run.ts installTarget), each settled (harness.ts settledCase), so it holds no
+ * read-back its compile refuses as crossing statements: a ChangeSet whose stratum the keys order in a cycle is refused
+ * as it compiles (expect.ts unorderableStrata), so its case applies nothing and the installation leaves it out.
  */
 export const installRun = (
 	run: WriteRun,
@@ -256,7 +268,7 @@ export const installRun = (
 			run.statistics,
 			run.ambient,
 			Arr.filter(
-				casesOf(run, resolved),
+				casesOf(run, resolved, buildWSchema(resolved.schema, "Wo")),
 				(rc) => unorderableStrata(rc.group, rc.changes).length === 0
 			)
 		)
@@ -277,7 +289,7 @@ export const runCases = (
 	note: Case<WriteOracleFeature>["note"]
 ): Effect.Effect<void, CaseFailed | CompileError | SqlError | TransactionRolledBack, Substrate> =>
 	Effect.gen(function* () {
-		const cases = casesOf(run, resolved)
+		const cases = casesOf(run, resolved, t.built)
 		const reads: Array<{ readonly group: WGroup; readonly relation: string }> = []
 		for (const [i, rc] of cases.entries()) {
 			const ran = yield* runCase(t, rc, note).pipe(

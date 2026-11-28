@@ -2,7 +2,7 @@ import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { nonEmpty } from "@bjornpagen/testing/assert"
 import { array, boolean, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { keep, type Swarm, swarm as swarmOf, weightOf } from "@bjornpagen/testing/swarm"
-import { Array as Arr, Option, Order, Record as Rec, Stream } from "effect"
+import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import { param, query, v } from "#compiler/public/query.ts"
 import type { Fact as RelationFact } from "#compiler/public/schema.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -76,7 +76,7 @@ type HeadTerm =
 	| { readonly kind: "param"; readonly param: string }
 
 type WSource =
-	| { readonly kind: "array"; readonly facts: ReadonlyArray<Fact>; readonly stream: boolean }
+	| { readonly kind: "array"; readonly facts: ReadonlyArray<Fact> }
 	| {
 			readonly kind: "project"
 			readonly from: string
@@ -140,9 +140,9 @@ interface WRead {
 
 /**
  * How the ChangeSet's parameters reach its statements: passed to the call, or closed by ChangeSet.bind with each
- * relation parameter as its array or as a Stream of its facts.
+ * relation parameter as its array of facts.
  */
-export type WBinding = "passed" | "bound" | "bound as streams"
+export type WBinding = "passed" | "bound"
 
 /**
  * Generated ChangeSets of one group.
@@ -152,7 +152,10 @@ export type WBinding = "passed" | "bound" | "bound as streams"
  * mutable inside a unit (schema.ts), and an insert of any: a closed relation's facts are inserted, never changed or
  * deleted. A member is one of:
  *
- * - an array of facts, the enumerated member that is a relation parameter. Its facts are biased toward
+ * - an array of facts, the enumerated member that is a relation parameter, which a served call supplies under its op
+ *   and relation, so a ChangeSet holds one array of each op and relation: a later stratum's array of an op and
+ *   relation an earlier stratum holds one of is drawn as the parameter member of those facts, the member a served
+ *   file holds in its place (write/program/served-members.ts servedMembers). Its facts are biased toward
  *   the cases add-wins and the counts must get right: exact copies of stored facts,
  *   a stored key with a fresh payload, copies and key variants of facts an earlier member names (a fact both added and
  *   deleted, two puts of one key, a put and an insert of one key), fresh facts and repeats within one member;
@@ -176,9 +179,10 @@ export type WBinding = "passed" | "bound" | "bound as streams"
  * Every choice among a list is a pick (test/support/pick.ts), an integer in 0..0xffff that selects without modulo
  * skew and shrinks toward the list's first element.
  *
- * An enumerated member may be given as a Stream of its facts instead of an array, the ChangeSet may close its
- * parameters with ChangeSet.bind (its relation parameters as arrays or as Streams) and be applied with no parameters
- * of the caller's: each means the same ChangeSet, so the expectation is the same.
+ * The ChangeSet may close its parameters with ChangeSet.bind (its relation parameters as arrays) and be applied with no
+ * parameters of the caller's: it means the same ChangeSet, so the expectation is the same. Every ChangeSet drawn is one
+ * a served file holds (write/program/served-members.ts servedMembers), since a Db runs only its login's served
+ * workload, which the run's installation drafts from them (run.ts installTarget).
  *
  * A read-back of a relation with a deferred containment out of it may attach, stated "one", the containment's target
  * fact to each row, which a read inside the write's transaction reads back as an Option: it runs
@@ -360,7 +364,7 @@ export interface ChangeSetSketch {
 /**
  * The features a ChangeSet's swarm turns on, off or thins: each kind of member source beyond an enumerated array, more
  * than one stratum, read-backs, the near misses of the reread pair, a projection's parameter
- * spelling a text longer than its field's domain admits, Stream members and parameters, ChangeSet.bind, db.compile,
+ * spelling a text longer than its field's domain admits, ChangeSet.bind, db.compile,
  * and field-equality deletions.
  */
 const writeFeatures = [
@@ -371,7 +375,6 @@ const writeFeatures = [
 	"strata",
 	"reads",
 	"outsideDomain",
-	"streams",
 	"bind",
 	"compiled",
 	"equalities"
@@ -628,7 +631,7 @@ const fromParam = (op: MemberOp, relation: WRelation, param: string): WMember =>
 const enumerated = (op: MemberOp, relation: WRelation, facts: ReadonlyArray<Fact>): WMember => ({
 	op,
 	relation: relation.name,
-	source: { kind: "array", facts, stream: false }
+	source: { kind: "array", facts }
 })
 
 /** The value a cast head term takes outside its kind's range: the kind's first value (HeadTerm cast). */
@@ -1053,35 +1056,46 @@ export const resolveChangeSet =
 			appendAll(list, facts)
 			named.set(relation.name, list)
 		}
-		/** A near miss's further fact of `relation` beside the put, as an enumerated insert. */
-		const nearMissInsert = (relation: WRelation, m: MemberSketch): ReadonlyArray<WMember> => {
-			const extra = Arr.map(m.facts, (p) => factOf(relation, { ...p, mode: 7 }))
-			remember(relation, extra)
-			return [
-				{
-					op: "insert",
-					relation: relation.name,
-					source: { kind: "array", facts: extra, stream: kept("streams") }
-				}
-			]
+		/** `facts` with distinct keys, each key's first, as a relation parameter carries them: no same-key pair of its own. */
+		const distinctKeys = (relation: WRelation, facts: ReadonlyArray<Fact>): ReadonlyArray<Fact> => {
+			const keys = new Set<string>()
+			return Arr.filter(facts, (f) => {
+				const k = factKey(relation, f)
+				const fresh = !keys.has(k)
+				keys.add(k)
+				return fresh
+			})
 		}
 		/** The facts of a relation parameter: distinct keys, so the parameter carries no same-key pair of its own. */
-		const paramFacts = (
+		const paramFacts = (relation: WRelation, picks: ReadonlyArray<FactPick>): ReadonlyArray<Fact> =>
+			distinctKeys(
+				relation,
+				Arr.map(picks, (p) => factOf(relation, p))
+			)
+		/** The stratum of each op and relation's array member, its first: the one array a served call supplies for it. */
+		const arrayStratum = new Map<string, number>()
+		/**
+		 * An enumerated member of `facts` in `stratum`: their array, where no earlier stratum holds an array of its op and
+		 * relation, or else the member of a relation parameter holding them (see the header).
+		 */
+		const enumeratedIn = (
+			stratum: number,
+			op: MemberOp,
 			relation: WRelation,
-			picks: ReadonlyArray<FactPick>
-		): ReadonlyArray<Fact> => {
-			const out: Array<Fact> = []
-			const keys = new Set<string>()
-			for (const p of picks) {
-				const f = factOf(relation, p)
-				const k = factKey(relation, f)
-				if (keys.has(k)) {
-					continue
-				}
-				keys.add(k)
-				out.push(f)
-			}
-			return out
+			facts: ReadonlyArray<Fact>
+		): WMember =>
+			arrayStratum.getOrInsert(`${op} ${relation.name}`, stratum) < stratum
+				? fromParam(op, relation, relationParam(distinctKeys(relation, facts)))
+				: enumerated(op, relation, facts)
+		/** A near miss's further fact of `relation` beside the put in `stratum`, as an enumerated insert. */
+		const nearMissInsert = (
+			stratum: number,
+			relation: WRelation,
+			m: MemberSketch
+		): ReadonlyArray<WMember> => {
+			const extra = Arr.map(m.facts, (p) => factOf(relation, { ...p, mode: 7 }))
+			remember(relation, extra)
+			return [enumeratedIn(stratum, "insert", relation, extra)]
 		}
 		/**
 		 * A projection member. One `outside` its target's domain gives every text field outside a put's kept key a value
@@ -1167,7 +1181,7 @@ export const resolveChangeSet =
 		 * the member inserts into the relation it draws, as every member of a closed relation does.
 		 */
 		const open = Arr.filter(group.relations, (r) => r.mutable)
-		const strata: Arr.NonEmptyArray<Array<WMember>> = Arr.map(drawn, (members) => {
+		const strata: Arr.NonEmptyArray<Array<WMember>> = Arr.map(drawn, (members, stratum) => {
 			const out: Array<WMember> = []
 			for (const m of members) {
 				const drawnOp = elementAt(ops, m.op, "the member ops")
@@ -1203,7 +1217,7 @@ export const resolveChangeSet =
 						relation: relation.name,
 						source: { kind: "scoped", scope, exclude: other }
 					})
-					appendAll(out, miss === 2 ? nearMissInsert(relation, m) : [])
+					appendAll(out, miss === 2 ? nearMissInsert(stratum, relation, m) : [])
 					continue
 				}
 				if (m.source === 8 && kept("paramMembers")) {
@@ -1253,11 +1267,7 @@ export const resolveChangeSet =
 				}
 				const facts = Arr.map(m.facts, (p) => factOf(relation, p))
 				remember(relation, facts)
-				out.push({
-					op,
-					relation: relation.name,
-					source: { kind: "array", facts, stream: kept("streams") }
-				})
+				out.push(enumeratedIn(stratum, op, relation, facts))
 			}
 			return out
 		})
@@ -1316,11 +1326,7 @@ export const resolveChangeSet =
 		for (const r of weightOf(swarm, "reads") > 0 ? sketch.reads : []) {
 			addRead(r)
 		}
-		const binding: WBinding = kept("bind")
-			? kept("streams")
-				? "bound as streams"
-				: "bound"
-			: "passed"
+		const binding: WBinding = kept("bind") ? "bound" : "passed"
 		return {
 			group: group.index,
 			strata,
@@ -1382,7 +1388,7 @@ export const buildChangeSet = (
 	): MemberInput => {
 		switch (source.kind) {
 			case "array":
-				return source.stream ? Stream.fromIterable(source.facts) : source.facts
+				return source.facts
 			case "project": {
 				const from = relationIn(group, source.from)
 				const filter = source.filter
@@ -1547,14 +1553,12 @@ export const buildChangeSet = (
 				: (d) => attachedReadBack(schema, rel, group, relation, sourceOf(d), parent.containment)
 		value = value.read(read.name, readBack)
 	}
-	if (c.binding === "passed") {
-		return { changes: value, params: c.params }
+	switch (c.binding) {
+		case "passed":
+			return { changes: value, params: c.params }
+		case "bound":
+			return { changes: value.bind(c.params), params: {} }
 	}
-	const bound: Record<string, unknown> = {}
-	for (const [name, x] of Rec.toEntries(c.params)) {
-		bound[name] = c.binding === "bound as streams" && isList(x) ? Stream.fromIterable(x) : x
-	}
-	return { changes: value.bind(bound), params: {} }
 }
 
 /**
@@ -1752,7 +1756,7 @@ export const printFact = (fact: Fact): string =>
 const printSource = (s: WSource): string => {
 	switch (s.kind) {
 		case "array":
-			return `${s.stream ? "Stream " : ""}[${Arr.join(Arr.map(s.facts, printFact), ", ")}]`
+			return `[${Arr.join(Arr.map(s.facts, printFact), ", ")}]`
 		case "project":
 			return `project ${s.from}${s.filter === undefined ? "" : ` where ${s.filter.column} = $${s.filter.param}`} find { ${Arr.join(
 				Arr.map(Rec.toEntries(s.head), ([k, t]) => `${k}: ${printHead(t)}`),

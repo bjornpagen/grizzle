@@ -74,7 +74,7 @@ export const writeOracle = property.explore(perturbedRunGen, {
 	kept: [
 		{
 			token: ReplayToken(
-				"test/pg/write/oracle/oracle.test.ts#writeOracle:fffffffffffffffff.0:1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+				"test/pg/write/oracle/oracle.test.ts#writeOracle:3ffffffffffffffff.0:1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
 			),
 			reason:
 				'The planted scoped merge, `put G1R3 $rp0` beside `delete G1R3 scoped where b = $p1 and key not in $rp0` over G1R3 {-1, -1, ""} and {-2, -1, ""}, rp0 {-1, -1, "x"} and {-3, -1, "y"}: one MERGE, whose target the binding read at the tuple id an inner probe at its key found, `USING <rp0> CROSS JOIN LATERAL (<G1R3 at the key> LIMIT 1) ON ctid`, which dropped -3, a key G1R3 did not hold, before WHEN NOT MATCHED could insert it; the optimized program committed {-1, -1, "x"} alone (main f9cb21bb, since the binding\'s cutover 2d024bca)',
@@ -82,7 +82,7 @@ export const writeOracle = property.explore(perturbedRunGen, {
 		},
 		{
 			token: ReplayToken(
-				"test/pg/write/oracle/oracle.test.ts#writeOracle:fffffffffffffffff.d:1.2.cn4.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.3.2.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.1.0.0.1.0.1.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+				"test/pg/write/oracle/oracle.test.ts#writeOracle:3ffffffffffffffff.d:1.2.cn4.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.3.2.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.1.0.0.1.0.1.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
 			),
 			reason:
 				"a read-back of G0R1's removed facts attaching G0R0, both deleted in one stratum their containment orders, runs after the writes over its delta carried out of G0R1's deletion, whose carrier's fill is a data-modifying CTE no part of the statement reads, with no RETURNING",
@@ -90,7 +90,7 @@ export const writeOracle = property.explore(perturbedRunGen, {
 		},
 		{
 			token: ReplayToken(
-				"test/pg/write/oracle/oracle.test.ts#writeOracle:-:1.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.cn4.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.4.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.1.0.0.0.0.0.0.0.1.0.0.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.2.0.1.0.0.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.1.0.0.0.0.0.1.0.0.0.0.0.1.2.1.0.0.9.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.1"
+				"test/pg/write/oracle/oracle.test.ts#writeOracle:-:1.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.cn4.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.4.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.1.0.0.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.2.0.1.0.0.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.1.0.0.0.0.0.1.0.0.0.0.0.1.2.1.0.0.9.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.1"
 			),
 			reason:
 				"a put of no fact beside the deletion of its scope's absent keys, `put G0R2 $rp0` and `delete G0R2 scoped where a = $p1 and key not in $rp0` over G0R2 {0, 0}, rp0 empty and p1 0: the deletion removes {0, 0}, which the MERGE absorbing it left, sent only where its put input held a fact, the optimized program answering no-change where the conservative one deletes",

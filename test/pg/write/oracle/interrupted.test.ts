@@ -102,7 +102,7 @@ export const anInterruptedWriteRunAWriteRunInterruptedMidCaseLeavesNoSessionOfIt
 		kept: [
 			{
 				token: ReplayToken(
-					"test/pg/write/oracle/interrupted.test.ts#anInterruptedWriteRunAWriteRunInterruptedMidCaseLeavesNoSessionOfItsWriterOpen:1.0:1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+					"test/pg/write/oracle/interrupted.test.ts#anInterruptedWriteRunAWriteRunInterruptedMidCaseLeavesNoSessionOfItsWriterOpen:1.0:1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
 				),
 				reason:
 					"5374a0575: a write run interrupted after its first commit, its Db's one session idle, whose pool's release returned with that session's connection open (found again by the kill's mutant over the drawn write runs' open relations, 2026-11-23)",

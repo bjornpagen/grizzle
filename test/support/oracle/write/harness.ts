@@ -1,4 +1,5 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import * as EngineResult from "@bjornpagen/grizzle-text/base/result"
 import type { ReadonlyTupleSet } from "@bjornpagen/grizzle-text/base/tuple-map"
 import type { Gen } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
@@ -8,14 +9,19 @@ import { ParamRejected } from "#adapter/errors/failures.ts"
 import type { CompiledProgram } from "#adapter/served/forms.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
+import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
 import type { MemberParamSlot } from "#compiler/lower/conservative/types.ts"
+import { compileParsed, parsedChange } from "#compiler/plan/change.ts"
+import { parseRole, SourceLoc } from "#compiler/plan/common.ts"
+import { role, wholeEntriesOf, wholeWritesOf } from "#compiler/public/schema.ts"
 import type { WriteStepResult } from "#compiler/runtime/write/steps.ts"
 import { factIdentity } from "#compiler/scalar/values/identity.ts"
 import type { ArtifactStatement, WriteArtifact } from "#compiler/write/program/artifact.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
 import type { PutChoice } from "#compiler/write/put/choose.ts"
 import type { AmbientFeature } from "#test/support/ambient.ts"
+import { inputArtifacts, testCompile } from "#test/support/compile.ts"
 import { conservativeChange } from "#test/support/conservative.ts"
 import { messageOf } from "#test/support/message.ts"
 import type { AppliedOutcome, Fact, OracleState } from "#test/support/oracle/addwins.ts"
@@ -97,6 +103,7 @@ import {
 	isImmediate,
 	printGroup,
 	relationIn,
+	type WBuiltSchema,
 	type WContainment,
 	type WGroup,
 	type WSchema
@@ -149,6 +156,14 @@ export interface ResolvedCase {
 	readonly group: WGroup
 	readonly facts: WFacts
 	readonly changes: WChangeSet
+}
+
+/**
+ * A resolved case as its run applies it (`settledCase`): its ChangeSet with every read-back its compile refuses as
+ * crossing statements left out, and whether one was.
+ */
+export interface SettledCase extends ResolvedCase {
+	readonly dropped: boolean
 }
 
 /**
@@ -230,7 +245,6 @@ export type WriteOracleFeature =
 	| "immediate containment"
 	| "deferred containment"
 	| "reference into a candidate key"
-	| "stream member"
 	| "projected key"
 	| "flight logged"
 	| "outcome invariant-rejected"
@@ -827,9 +841,6 @@ const noteShapes = (group: WGroup, c: WChangeSet, note: Case<WriteOracleFeature>
 			note("reference into a candidate key")
 		}
 	}
-	if (Arr.some(c.strata, (s) => Arr.some(s, (m) => m.source.kind === "array" && m.source.stream))) {
-		note("stream member")
-	}
 	note(`parameters ${c.binding}`)
 	if (group.projectedKeys.length > 0) {
 		note("projected key")
@@ -1014,9 +1025,8 @@ export interface Ran {
  * stratum's keys, and the case ends there, noting that refusal alone, since none of the shapes it drew ran.
  *
  * The optimized side is applied as the compiled ChangeSet's one transaction on a served Db's context (test/support/
- * served-role.ts runEntry), with the parameters passed to the call or closed by ChangeSet.bind, and enumerated members
- * given as arrays or Streams (changeset.ts): each is the same ChangeSet, so all of them must give the oracle's
- * outcome.
+ * served-role.ts runEntry), with the parameters passed to the call or closed by ChangeSet.bind (changeset.ts): each is
+ * the same ChangeSet, so both must give the oracle's outcome.
  *
  * Each database side starts from the same reset state and must give the oracle's outcome: `accepted` with the netted
  * counts per written relation or `no-change`, each with every read-back equal as a set to its definition over the final
@@ -1049,32 +1059,66 @@ export interface Ran {
  * vacuous.
  */
 /**
- * `changes` with every read-back its compile refuses as crossing statements (ReadBackCrossesStatements) left out, and
- * whether one was: a read-back reads each delta side inside the one statement that makes it whole, or carried out of
- * that statement to the end of the write (write/schedule/plan.ts placeReadBacks), so one naming a side no one statement
- * makes whole is refused; the conservative realization's state comparison, the oracle, knows no statement, so the case
- * judges every other read-back, riding or carried.
+ * `rc` with every read-back its compile refuses as crossing statements (ReadBackCrossesStatements) left out, and whether
+ * one was (SettledCase): a read-back reads each delta side inside the one statement that makes it whole, or carried out
+ * of that statement to the end of the write (write/schedule/plan.ts placeReadBacks), so one naming a side no one
+ * statement makes whole is refused; the conservative realization's state comparison, the oracle, knows no statement, so
+ * the case judges every other read-back, riding or carried. Each ChangeSet is compiled as a served compile compiles it,
+ * over the run's declared schema `built` (its artifacts as a fresh installation's, test/support/compile.ts
+ * testArtifacts), before any installation: the run's installation drafts its login's workload from the settled
+ * ChangeSets as `grizzle generate` drafts it, which refuses a crossing read-back as the case's own compile does, so no
+ * ChangeSet the workload holds is one generate refuses (run.ts installTarget).
  */
-const settledReads = (
-	t: WriteTarget,
-	group: WGroup,
-	changes: WChangeSet
-): { readonly changes: WChangeSet; readonly dropped: boolean } => {
-	const entry = programOf(t, buildChangeSet(t.value, t.built.relations, group, changes).changes)
-	if (Result.isSuccess(entry) || entry.failure.reason._tag !== "ReadBackCrossesStatements") {
-		return { changes, dropped: false }
+export const settledCase = (
+	built: WBuiltSchema,
+	compile: OfflineCompile,
+	rc: ResolvedCase
+): SettledCase => {
+	const settle = (changes: WChangeSet, dropped: boolean): SettledCase => {
+		const compiled = compile(
+			buildChangeSet(built.value, built.relations, rc.group, changes).changes
+		)
+		if (compiled.ok || compiled.error.reason._tag !== "ReadBackCrossesStatements") {
+			return { ...rc, changes, dropped }
+		}
+		const read = compiled.error.reason.read
+		return settle({ ...changes, reads: Arr.filter(changes.reads, (r) => r.name !== read) }, true)
 	}
-	const read = entry.failure.reason.read
-	const rest = settledReads(t, group, {
-		...changes,
-		reads: Arr.filter(changes.reads, (r) => r.name !== read)
-	})
-	return { changes: rest.changes, dropped: true }
+	return settle(rc.changes, false)
+}
+
+/** A ChangeSet value compiled before any installation, its refusal or none (`offlineCompile`). */
+export type OfflineCompile = (changes: unknown) => EngineResult.Result<unknown, CompileError>
+
+/**
+ * The run's writer over its declared schema `built`, the role the run's login serves (run.ts installTarget), compiling a
+ * ChangeSet as a served compile compiles it, over the role's artifacts as a fresh installation's (test/support/compile.ts
+ * inputArtifacts), at SERIALIZABLE, the level its compile states (adapter/served/forms.ts writeEntry), for no context:
+ * what settles a case's read-backs before its run is installed (`settledCase`).
+ */
+export const offlineCompile = (built: WBuiltSchema): OfflineCompile => {
+	const writer = role(
+		built.value,
+		"writer",
+		wholeEntriesOf(built.value),
+		wholeWritesOf(built.value)
+	)
+	const prepared = EngineResult.flatMap(
+		parseRole(writer, SourceLoc("the write oracle's writer", [])),
+		(input) =>
+			EngineResult.map(inputArtifacts(input, testCompile), (artifacts) => ({ input, artifacts }))
+	)
+	return (changes) =>
+		EngineResult.flatMap(prepared, ({ input, artifacts }) =>
+			EngineResult.flatMap(parsedChange(input, changes), (change) =>
+				compileParsed(artifacts, change, new Set(), "serializable", noClock, transactionClock)
+			)
+		)
 }
 
 export const runCase = (
 	t: WriteTarget,
-	rc: ResolvedCase,
+	rc: SettledCase,
 	note: Case<WriteOracleFeature>["note"]
 ): Effect.Effect<Ran, CaseFailed | CompileError | SqlError | TransactionRolledBack, Substrate> =>
 	Effect.gen(function* () {
@@ -1091,9 +1135,8 @@ export const runCase = (
 		 */
 		const perturbation = yield* CurrentPerturbation
 		const facts: WFacts = multiplyWriteFacts(group, drawn, perturbation.multiplier)
-		const settled = settledReads(t, group, rc.changes)
-		const c = settled.changes
-		noteIf(settled.dropped, "a read-back refused as crossing statements")
+		const c = rc.changes
+		noteIf(rc.dropped, "a read-back refused as crossing statements")
 		const { changes, params } = buildChangeSet(t.value, t.built.relations, group, c)
 		const header = () =>
 			Arr.join(
