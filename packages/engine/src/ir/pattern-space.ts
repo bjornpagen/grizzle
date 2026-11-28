@@ -114,28 +114,29 @@ export const regexMaxHeldStates =
  * @owner grizzle's text refinement (ir/pattern-space.ts pastCompileSpace)
  * @unit NFA arcs
  * @scope the longest path of one pattern's raw NFA, which PostgreSQL's regex compiler recurses along
- * @evidence a one-off bisection over each shape's count against PostgreSQL, a fresh backend per probe, recorded in
- *   out/idle/regex/regex-edges-2026-11-14T080636.949Z.json by the uncommitted probe .scratch/regex-edges.ts, both in
- *   the clone the bisection ran in, which went with them; test/pg/text/differential.test.ts "compiles the largest
- *   pattern the limits admit along a drawn shape, at each limit's edge" re-verifies that what the limits admit compiles
- * @observed 2026-11-14 08:06:36 to 08:10:19 UTC, one bisection per shape and every count of the anchors' shapes at
- *   once
- * @environment PostgreSQL 19.0's regex compiler, measured on 19rc2 as scripts/pg/pin.env then built it with three
- *   patches (gcc 15.2.0), whose regex code 19.0 keeps (git diff REL_19_RC2 REL_19_0 -- src/backend/regex
- *   src/include/regex src/backend/utils/adt/regexp.c is empty) and none of whose patches touched it, on the local
- *   cluster CONTRIBUTING.md sets up, max_stack_depth 2048 kB, its default; cassowary, Ubuntu 26.04 on an AWS Graviton3
- *   (Neoverse-V1, arm64) instance with every logical CPU nproc reports and 247 GiB, Node 26.13.1; grizzle 01cc8dda;
- *   load average 5.0 to 10.3, no other session active on the cluster
- * @workload each pattern's ARE compiled by `SELECT 'x' COLLATE pg_catalog.pg_c_utf8 ~ $1::text`, and again inside an
- *   INSERT in a PL/pgSQL function two PL/pgSQL calls deep, over three shapes: a chain of plain code points in counted
- *   runs, nested optional groups `(?:a(?:a…)?)?`, and nested + groups `(?:(?:a)+b)+b…`; the chain again at
- *   max_stack_depth 1MB
- * @result the longest path compiled and the shortest refused, in arcs: the chain 43,523 and 43,524, two PL/pgSQL calls
- *   deep 43,407 and 43,408, and 21,677 and 21,678 at 1MB, so the edge follows the setting; nested optional groups
- *   38,406 and 38,411, two PL/pgSQL calls deep 38,301 and 38,306; nested + groups 43,520 and 43,527, two calls deep
- *   43,401 and 43,408; every refusal "regular expression is too complex" at under 90,000 states held, far inside the
- *   compile space; every compile near an edge within 6 s
- * @decision 16,000: below half the shallowest edge measured, 38,301 arcs two PL/pgSQL calls deep, leaving more than
+ * @evidence ~/.cache/grizzle-release/GATE-evidence/regex/ on cassowary: edges-2026-11-28T124452Z.json, every probe's
+ *   count, the model's counts of its pattern and PostgreSQL's answer, and edges-2026-11-28T124452Z.log, its console
+ *   output with the machine, PostgreSQL and the revisions and the uptime before and after, written by probe.ts and
+ *   run.sh beside them (`pg-held grizzle-m-gate-regex -- bench/results/regex-probe/run.sh <out.json>` from a grizzle
+ *   tree's root, the probe placed there); test/pg/text/differential.test.ts "compiles the largest pattern the limits
+ *   admit along a drawn shape, at each limit's edge" re-verifies that what the limits admit compiles. The bisection of
+ *   2026-11-14 on 19rc2 went with the clone it ran in, and found the same edges to within six arcs
+ * @observed 2026-11-28 12:44:58 to 13:06:58 UTC, one exponential search and bisection a shape, each probe a psql
+ *   process of its own, so a fresh backend
+ * @environment PostgreSQL 19.0 (REL_19_0, gcc 15.2.0) on a cluster of its own in memory (pg-held
+ *   grizzle-m-gate-regex), max_stack_depth 2MB, its default; cassowary, Ubuntu 26.04 (Linux 7.0.0-1018-aws) on an AWS
+ *   Graviton3 (Neoverse-V1, arm64) instance with 64 logical CPUs and 247 GiB, Node 26.13.1; grizzle 8a65c8c2 with
+ *   vendor/toolchain abbb18c7; load average 565 to 767 from other sessions
+ * @workload each pattern's ARE compiled by `SELECT 'x' COLLATE pg_catalog.pg_c_utf8 ~ <the ARE>`, and again inside an
+ *   INSERT in a PL/pgSQL function two PL/pgSQL calls deep, over three shapes grown a count at a time: a chain of n
+ *   plain code points in counted runs of 255, k nested optional groups `(?:a(?:a…)?)?`, and k nested + groups
+ *   `(?:(?:a)+b)+b…`; the chain again at max_stack_depth 1MB
+ * @result the longest path compiled and the shortest refused, in arcs as the model counts them: the chain 43,520 and
+ *   43,521, two PL/pgSQL calls deep 43,402 and 43,403, and 21,675 and 21,676 at 1MB, so the edge follows the setting;
+ *   nested optional groups 38,400 and 38,405, two calls deep 38,295 and 38,300; nested + groups 43,520 and 43,527, two
+ *   calls deep 43,401 and 43,408; every refusal "regular expression is too complex"; every compile near an edge within
+ *   11 s
+ * @decision 16,000: below half the shallowest edge measured, 38,295 arcs two PL/pgSQL calls deep, leaving more than
  *   1MB of the 2MB stack for a call path deeper than the measured one when a pattern is first compiled; the two calls
  *   cost the shallowest shape 105 arcs
  * @revalidate a PostgreSQL repin; a change of max_stack_depth's default or of the platform's stack frames; a change to
@@ -155,24 +156,25 @@ export const regexMaxDepth = 16_000
  * @owner grizzle's text refinement (ir/pattern-space.ts pastCompileSpace)
  * @unit NFA states
  * @scope the states of the compacted NFA one pattern's match reads, as its model counts them
- * @evidence a one-off bisection over each shape's count against PostgreSQL, a fresh backend per probe, recorded in
- *   out/idle/regex/regex-edges-2026-11-14T080636.949Z.json by the uncommitted probe .scratch/regex-edges.ts, both in
- *   the clone the bisection ran in, which went with them; test/pg/text/differential.test.ts "compiles the largest
- *   pattern the limits admit along a drawn shape, at each limit's edge" re-verifies that what the limits admit compiles
- * @observed 2026-11-14 08:06:36 to 08:10:19 UTC, one bisection per shape and every count of the anchors' shapes at
- *   once
- * @environment PostgreSQL 19.0's regex compiler, measured on 19rc2 as scripts/pg/pin.env then built it with three
- *   patches (gcc 15.2.0), whose regex code 19.0 keeps (git diff REL_19_RC2 REL_19_0 -- src/backend/regex
- *   src/include/regex src/backend/utils/adt/regexp.c is empty) and none of whose patches touched it, on the local
- *   cluster CONTRIBUTING.md sets up, max_stack_depth 2048 kB, its default; cassowary, Ubuntu 26.04 on an AWS Graviton3
- *   (Neoverse-V1, arm64) instance with every logical CPU nproc reports and 247 GiB, Node 26.13.1; grizzle 01cc8dda;
- *   load average 5.0 to 10.3, no other session active on the cluster
- * @workload each pattern's ARE matched by `SELECT 'x' COLLATE pg_catalog.pg_c_utf8 ~ $1::text`: an anchored union of k
- *   words of four letters, digits and underscores, and the same union repeated by +
+ * @evidence ~/.cache/grizzle-release/GATE-evidence/regex/ on cassowary: edges-2026-11-28T124452Z.json, every probe's
+ *   count, the model's counts of its pattern and PostgreSQL's answer, and edges-2026-11-28T124452Z.log, its console
+ *   output with the machine, PostgreSQL and the revisions and the uptime before and after, written by probe.ts and
+ *   run.sh beside them (`pg-held grizzle-m-gate-regex -- bench/results/regex-probe/run.sh <out.json>` from a grizzle
+ *   tree's root, the probe placed there); test/pg/text/differential.test.ts "compiles the largest pattern the limits
+ *   admit along a drawn shape, at each limit's edge" re-verifies that what the limits admit compiles. The bisection of
+ *   2026-11-14 on 19rc2 went with the clone it ran in, and found the same edges to within six arcs
+ * @observed 2026-11-28 12:44:58 to 13:06:58 UTC, one exponential search and bisection a shape, each probe a psql
+ *   process of its own, so a fresh backend
+ * @environment PostgreSQL 19.0 (REL_19_0, gcc 15.2.0) on a cluster of its own in memory (pg-held
+ *   grizzle-m-gate-regex), max_stack_depth 2MB, its default; cassowary, Ubuntu 26.04 (Linux 7.0.0-1018-aws) on an AWS
+ *   Graviton3 (Neoverse-V1, arm64) instance with 64 logical CPUs and 247 GiB, Node 26.13.1; grizzle 8a65c8c2 with
+ *   vendor/toolchain abbb18c7; load average 565 to 767 from other sessions
+ * @workload each pattern's ARE matched by `SELECT 'x' COLLATE pg_catalog.pg_c_utf8 ~ <the ARE>`: an anchored union of
+ *   k words of four letters, digits and underscores, and the same union repeated by +
  * @result the union matched at 21,843 words, 65,535 states as the model counts them, and failed at 21,844 words,
  *   65,538 states, with "invalid memory alloc request size 1073750016", the state sets' bit vectors, (2S + 1) words of
  *   ⌈S/32⌉ four-byte words for PostgreSQL's S = 65,536 states, the first count past MaxAllocSize; the repeated union
- *   matched at 21,843 words and failed at 21,844 alike
+ *   matched at 21,843 words and failed at 21,844 alike ("invalid memory alloc request size 1074290700")
  * @decision 64,000: below the 65,536 states at which the bit vectors pass MaxAllocSize, the measured edge, with 1,535
  *   states, about 2%, of headroom; the model counts each state makesearch may split twice
  * @revalidate a PostgreSQL repin; a change of max_stack_depth's default or of the platform's stack frames; a change to
@@ -191,24 +193,26 @@ export const regexMaxMatchStates = 64_000
  * @owner grizzle's text refinement (ir/pattern-space.ts pastCompileSpace)
  * @unit NFA states times colors
  * @scope the states of the compacted NFA one pattern's match reads times its colors, as its model counts them
- * @evidence a one-off bisection over each shape's count against PostgreSQL, a fresh backend per probe, recorded in
- *   out/idle/regex/regex-edges-2026-11-14T080636.949Z.json by the uncommitted probe .scratch/regex-edges.ts, both in
- *   the clone the bisection ran in, which went with them; test/pg/text/differential.test.ts "compiles the largest
- *   pattern the limits admit along a drawn shape, at each limit's edge" re-verifies that what the limits admit compiles
- * @observed 2026-11-14 08:06:36 to 08:10:19 UTC, one bisection per shape and every count of the anchors' shapes at
- *   once
- * @environment PostgreSQL 19.0's regex compiler, measured on 19rc2 as scripts/pg/pin.env then built it with three
- *   patches (gcc 15.2.0), whose regex code 19.0 keeps (git diff REL_19_RC2 REL_19_0 -- src/backend/regex
- *   src/include/regex src/backend/utils/adt/regexp.c is empty) and none of whose patches touched it, on the local
- *   cluster CONTRIBUTING.md sets up, max_stack_depth 2048 kB, its default; cassowary, Ubuntu 26.04 on an AWS Graviton3
- *   (Neoverse-V1, arm64) instance with every logical CPU nproc reports and 247 GiB, Node 26.13.1; grizzle 01cc8dda;
- *   load average 5.0 to 10.3, no other session active on the cluster
- * @workload each pattern's ARE matched by `SELECT 'x' COLLATE pg_catalog.pg_c_utf8 ~ $1::text`: an anchored union of k
- *   words of a code point of their own and a common one, and the same union repeated by * before a last code point
+ * @evidence ~/.cache/grizzle-release/GATE-evidence/regex/ on cassowary: edges-2026-11-28T124452Z.json, every probe's
+ *   count, the model's counts of its pattern and PostgreSQL's answer, and edges-2026-11-28T124452Z.log, its console
+ *   output with the machine, PostgreSQL and the revisions and the uptime before and after, written by probe.ts and
+ *   run.sh beside them (`pg-held grizzle-m-gate-regex -- bench/results/regex-probe/run.sh <out.json>` from a grizzle
+ *   tree's root, the probe placed there); test/pg/text/differential.test.ts "compiles the largest pattern the limits
+ *   admit along a drawn shape, at each limit's edge" re-verifies that what the limits admit compiles. The bisection of
+ *   2026-11-14 on 19rc2 went with the clone it ran in, and found the same edges to within six arcs
+ * @observed 2026-11-28 12:44:58 to 13:06:58 UTC, one exponential search and bisection a shape, each probe a psql
+ *   process of its own, so a fresh backend
+ * @environment PostgreSQL 19.0 (REL_19_0, gcc 15.2.0) on a cluster of its own in memory (pg-held
+ *   grizzle-m-gate-regex), max_stack_depth 2MB, its default; cassowary, Ubuntu 26.04 (Linux 7.0.0-1018-aws) on an AWS
+ *   Graviton3 (Neoverse-V1, arm64) instance with 64 logical CPUs and 247 GiB, Node 26.13.1; grizzle 8a65c8c2 with
+ *   vendor/toolchain abbb18c7; load average 565 to 767 from other sessions
+ * @workload each pattern's ARE matched by `SELECT 'x' COLLATE pg_catalog.pg_c_utf8 ~ <the ARE>`: an anchored union of
+ *   k words of a code point of their own and a common one, and the same union repeated by * before a last code point
  * @result the union matched at 5,787 words, 33,535,677 states times colors as the model counts them, and failed at
  *   5,788, 33,547,260, with "invalid memory alloc request size 1073883136", the entries of 16 bytes, which first pass
- *   MaxAllocSize at 33,554,432 states times colors: PostgreSQL's map held two colors more than the model counts, 5,792
- *   against 5,790 at 5,794 states; the repeated union matched at 5,786 words and failed at 5,787 alike
+ *   MaxAllocSize at 33,554,432 states times colors: 67,117,696 entries, twice 5,794 states times 5,792 colors, so
+ *   PostgreSQL's map held two colors more than the model's 5,790; the repeated union matched at 5,786 words and failed
+ *   at 5,787 alike
  * @decision 16,000,000: about half the measured edge, since freeing the colors a set empties can leave a color map up
  *   to twice a pattern's colors (regexMaxColors), and the arrays count the map's colors
  * @revalidate a PostgreSQL repin; a change of max_stack_depth's default or of the platform's stack frames; a change to
@@ -227,25 +231,26 @@ export const regexMaxMatchCells = 16_000_000
  * @owner grizzle's text refinement (ir/pattern-space.ts pastCompileSpace)
  * @unit anchors
  * @scope the anchors of one pattern's raw NFA that constraint elimination moves
- * @evidence a one-off bisection over each shape's count against PostgreSQL, a fresh backend per probe, recorded in
- *   out/idle/regex/regex-edges-2026-11-14T080636.949Z.json by the uncommitted probe .scratch/regex-edges.ts, both in
- *   the clone the bisection ran in, which went with them; test/pg/text/differential.test.ts "compiles the largest
- *   pattern the limits admit along a drawn shape, at each limit's edge" re-verifies that what the limits admit compiles
- * @observed 2026-11-14 08:06:36 to 08:10:19 UTC, one bisection per shape and every count of the anchors' shapes at
- *   once
- * @environment PostgreSQL 19.0's regex compiler, measured on 19rc2 as scripts/pg/pin.env then built it with three
- *   patches (gcc 15.2.0), whose regex code 19.0 keeps (git diff REL_19_RC2 REL_19_0 -- src/backend/regex
- *   src/include/regex src/backend/utils/adt/regexp.c is empty) and none of whose patches touched it, on the local
- *   cluster CONTRIBUTING.md sets up, max_stack_depth 2048 kB, its default; cassowary, Ubuntu 26.04 on an AWS Graviton3
- *   (Neoverse-V1, arm64) instance with every logical CPU nproc reports and 247 GiB, Node 26.13.1; grizzle 01cc8dda;
- *   load average 5.0 to 10.3, no other session active on the cluster
- * @workload each pattern's ARE compiled by `SELECT 'x' COLLATE pg_catalog.pg_c_utf8 ~ $1::text`, over two shapes: k
- *   optional `$` before 256 code points of their own and four runs of 255 copies of a class of them, and
- *   `(?:^|.{1,255}|$){k}b`, an anchor on either side of a wide run, each count k from 1 to 64
- * @result the first shape compiled at every k, 64 anchors to move over a raw NFA of 261,848 arcs in 1.4 s; the second,
- *   two anchors to move for each k past the first, compiled 15 in 22 s, 19 in 162 s and 21 in 220 s, inside the
- *   probe's 300 s statement_timeout, and refused 23 after 42 s, 31 after 22 s and 63 after 148 s as "regular
- *   expression is too complex"
+ * @evidence ~/.cache/grizzle-release/GATE-evidence/regex/ on cassowary: edges-2026-11-28T124452Z.json, every probe's
+ *   count, the model's counts of its pattern and PostgreSQL's answer, and edges-2026-11-28T124452Z.log, its console
+ *   output with the machine, PostgreSQL and the revisions and the uptime before and after, written by probe.ts and
+ *   run.sh beside them (`pg-held grizzle-m-gate-regex -- bench/results/regex-probe/run.sh <out.json>` from a grizzle
+ *   tree's root, the probe placed there); test/pg/text/differential.test.ts "compiles the largest pattern the limits
+ *   admit along a drawn shape, at each limit's edge" re-verifies that what the limits admit compiles. The bisection of
+ *   2026-11-14 on 19rc2 went with the clone it ran in, and found the same edges to within six arcs
+ * @observed 2026-11-28 12:44:58 to 13:06:58 UTC, one exponential search and bisection a shape, each probe a psql
+ *   process of its own, so a fresh backend
+ * @environment PostgreSQL 19.0 (REL_19_0, gcc 15.2.0) on a cluster of its own in memory (pg-held
+ *   grizzle-m-gate-regex), max_stack_depth 2MB, its default; cassowary, Ubuntu 26.04 (Linux 7.0.0-1018-aws) on an AWS
+ *   Graviton3 (Neoverse-V1, arm64) instance with 64 logical CPUs and 247 GiB, Node 26.13.1; grizzle 8a65c8c2 with
+ *   vendor/toolchain abbb18c7; load average 565 to 767 from other sessions
+ * @workload each pattern's ARE compiled by `SELECT 'x' COLLATE pg_catalog.pg_c_utf8 ~ <the ARE>` under a 600 s
+ *   statement_timeout: `(?:^|.{1,255}|$){k}b`, an anchor on either side of a wide run, two anchors to move for each k
+ *   past the first, k from 1 by doubling and then bisection. The record of 2026-11-14 also compiled k optional `$`
+ *   before 256 code points of their own and four runs of 255 copies of a class of them at every k to 64, 64 anchors in
+ *   1.4 s, binding nothing; that shape was not run again
+ * @result 15 anchors to move compiled in 5 s, 19 in 73 s and 21 in 328 s; 23 were refused after 18 s and 31 after
+ *   15 s as "regular expression is too complex"
  * @decision 8: below half the most anchors the binding shape compiled, 21, whose compile already took minutes; the
  *   arcs an anchor crosses bind nothing measured, so no measure weighs them
  * @revalidate a PostgreSQL repin; a change of max_stack_depth's default or of the platform's stack frames; a change to

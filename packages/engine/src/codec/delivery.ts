@@ -26,32 +26,28 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
  * @owner grizzle's bytes delivery (codec/delivery.ts, lower/delivery.ts)
  * @unit bytes
  * @scope one chunk of one bytes value in one result row
- * @evidence ~/.cache/grizzle-release/LIMITS/out/evidence/bytes/ on cassowary: bytes-2026-11-16T075151.json, the
- *   uncommitted record of `pnpm bench bytes` (bench/bytes/main.ts), and run.log, its console output with the machine's
- *   uptime before and after it. The first record, of 2026-11-14 08:03:32 to 08:06:35 UTC at grizzle 01cc8dda
- *   (bench/results/bytes/bytes-2026-11-14T080336.json in the clone it ran in), went with that clone
- * @observed 2026-11-16 07:51:46 to 07:56:04 UTC, one run
- * @environment cassowary, Ubuntu 26.04 on an AWS Graviton3 (Neoverse-V1, arm64) instance with 64 logical CPUs and 247
- *   GiB, Node 26.13.1, pg 8.23.1, PostgreSQL 19.0's TOAST slicing, lz4 and bytea functions, measured on the local
- *   19rc2 cluster family with scripts/pg/pin.env's three patches then, whose read path 19.0 keeps (git diff REL_19_RC2
- *   REL_19_0 -- src/backend/access/common src/backend/utils/adt/varlena.c src/backend/utils/adt/encode.c src/common
- *   src/backend/libpq is empty) and none of whose patches touched it, default_toast_compression lz4, grizzle ac71cfbb
- *   with lane LIMITS's move of the limits, which changes no delivery; load average 182 to 253 over the 64 CPUs from
- *   other sessions
+ * @evidence ~/.cache/grizzle-release/GATE-evidence/bytes/ on cassowary: bytes-2026-11-28T123451.json, the uncommitted
+ *   record of `pnpm bench bytes` (bench/bytes/main.ts), and run.log, its console output with the machine, Node,
+ *   PostgreSQL and the revisions, and its uptime before and after. The records of 2026-11-14 and 2026-11-16, at
+ *   grizzle 01cc8dda and ac71cfbb, went with the clone and the folder they ran in, and found the same shape
+ * @observed 2026-11-28 12:31:43 to 12:50:44 UTC, one run
+ * @environment cassowary, Ubuntu 26.04 (Linux 7.0.0-1018-aws) on an AWS Graviton3 (Neoverse-V1, arm64) instance with
+ *   64 logical CPUs and 247 GiB, Node 26.13.1, pg 8.23.1, PostgreSQL 19.0 (gcc 15.2.0) on the local cluster family,
+ *   default_toast_compression lz4, grizzle 8a65c8c2 with vendor/toolchain abbb18c7; load average 503 to 650 over the
+ *   64 CPUs from other sessions, so every time is a few times the unloaded one
  * @workload one row of one 256 MiB bytes value, once xorshift bytes, which PostgreSQL stores uncompressed, and once a
  *   repeating sentence, which it compresses, read back through its delivered SQL on one session and assembled, three
  *   runs a chunk length: 64 KiB to 64 MiB by factors of four for the random value, 1 MiB to 64 MiB for the repeating
  *   one
- * @result p50 of read and assembly in ms, random: 2,308 at 64 KiB, 1,588 at 256 KiB, 1,638 at 1 MiB, 1,538 at 4 MiB,
- *   1,637 at 16 MiB, 1,548 at 64 MiB; repeating: 15,845 at 1 MiB, 4,778 at 4 MiB, 2,487 at 16 MiB, 1,972 at 64 MiB,
- *   the square of the chunks since every chunk's substring decompresses the value from its start. Process rss after a
- *   case 2,067 to 3,984 MiB: 3,277 and 3,298 MiB at 16 MiB, 3,645 and 3,984 MiB at 64 MiB. Every value read back
- *   whole; no errors. The run of 2026-11-14 at load 5 to 8.5 found the same shape: random flat from 1 MiB, repeating
- *   1,544 ms at 16 MiB and 959 ms at 64 MiB
- * @decision 16 MiB: the random value's time is flat from 256 KiB on and no faster at 64 MiB, and the compressed
- *   value's falls with the square of the chunks to 2.5 s of 256 MiB at 16 MiB; 64 MiB saves the compressed value about
- *   0.5 s of 256 MiB for 350 to 700 MiB more rss, and a result row holds a base64url chunk of 4/3 of this for each
- *   bytes column its statement delivers within MaxAllocSize, which admits 47 such columns at 16 MiB and 11 at 64 MiB
+ * @result p50 of read and assembly in ms, random: 4,732 at 64 KiB, 6,248 at 256 KiB, 10,834 at 1 MiB, 8,362 at 4 MiB,
+ *   9,727 at 16 MiB, 7,080 at 64 MiB, flat within the load's noise; repeating: 91,476 at 1 MiB, 27,900 at 4 MiB,
+ *   13,056 at 16 MiB, 14,436 at 64 MiB, the square of the chunks down to 16 MiB, since every chunk's substring
+ *   decompresses the value from its start, and no faster past it. Process rss after a case 1,646 to 3,003 MiB: 2,577
+ *   and 3,003 MiB at 16 MiB, 2,941 and 2,993 MiB at 64 MiB. Every value read back whole; no errors
+ * @decision 16 MiB: the random value's time is flat across every length, and the compressed value's falls with the
+ *   square of the chunks to 16 MiB and no further at 64 MiB, which holds about 400 MiB more rss; a result row holds a
+ *   base64url chunk of 4/3 of this for each bytes column its statement delivers within MaxAllocSize, which admits 47
+ *   such columns at 16 MiB and 11 at 64 MiB
  * @revalidate a PostgreSQL upgrade that changes TOAST slicing or the default compression; a driver or Node upgrade
  *   that changes how a result cell is read; a bytes value bound past 1 GiB
  */
