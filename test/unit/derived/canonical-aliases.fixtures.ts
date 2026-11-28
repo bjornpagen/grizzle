@@ -162,7 +162,8 @@ const installed = (
 			] as const
 		})
 	)
-	return succeeded(servedInstallation(top, programs), "the aliases' served installation").installation
+	return succeeded(servedInstallation(top, programs), "the aliases' served installation")
+		.installation
 }
 
 /** The installation with every alias, each read over its own. */

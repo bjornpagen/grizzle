@@ -375,12 +375,16 @@ export const statementOf = (c: BindCase): Select => {
 					)
 		}
 		case "met": {
-			const rowsOfT = operandSelect(core([target(col("t", "a")), target(col("t", "b"))], [tRead], undefined))
+			const rowsOfT = operandSelect(
+				core([target(col("t", "a")), target(col("t", "b"))], [tRead], undefined)
+			)
 			const rowsOfP = operandSelect(
 				core([target(col("q", "a")), target(col("q", "b"))], [cteRefAs("p", "q")], undefined)
 			)
 			return {
-				...select(keyedSet([target(col("m", "b"))], [metSource], undefined, "an INSERT's met rows")),
+				...select(
+					keyedSet([target(col("m", "b"))], [metSource], undefined, "an INSERT's met rows")
+				),
 				with: { recursive: false, ctes: [cte("p", rowsOfT), cte("i", rowsOfP)] }
 			}
 		}
@@ -503,10 +507,7 @@ export const itemOf = (
 	plan: ReadPlan<AccessIndexRequest>,
 	alias: string
 ): Option.Option<PlanItem<AccessIndexRequest>> =>
-	Arr.findFirst(
-		Arr.flatMap(plan.levels, scannedItems),
-		(item) => item.alias === alias
-	)
+	Arr.findFirst(Arr.flatMap(plan.levels, scannedItems), (item) => item.alias === alias)
 
 /** How the specification reads T: through an index at `bound`, a probe's or a seek's, or whole. */
 export type SpecifiedRead =

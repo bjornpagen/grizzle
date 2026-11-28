@@ -65,9 +65,7 @@ const stepReads = (installation: Installation): BoundReads => ({
 /** Every index request a plan's reads make, in its order. */
 const requestsOf = (plan: ReadPlan<AccessIndexRequest>): ReadonlyArray<AccessIndexRequest> =>
 	plan.levels.flatMap((level) =>
-		scannedItems(level).flatMap((item) =>
-			item.scan.kind === "index" ? [item.scan.index] : []
-		)
+		scannedItems(level).flatMap((item) => (item.scan.kind === "index" ? [item.scan.index] : []))
 	)
 
 /**

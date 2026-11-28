@@ -151,20 +151,19 @@ export const resolvePlan = (
 	plan: ReadPlan<AccessIndexRequest>,
 	resolve: (request: AccessIndexRequest) => IndexRef
 ): ReadPlan<IndexRef> => ({
-	levels: plan.levels.map(
-		(level): PlanLevel<IndexRef> =>
-			level.kind === "joins"
-				? {
-						kind: "joins",
-						name: level.name,
-						first: resolvedItem(level.first, resolve),
-						joined: level.joined.map((j) => ({ item: resolvedItem(j.item, resolve), join: j.join })),
-						appended: level.appended.map((item) => resolvedItem(item, resolve))
-					}
-				: {
-						kind: "append",
-						name: level.name,
-						members: mapNonEmpty(level.members, (item) => resolvedItem(item, resolve))
-					}
+	levels: plan.levels.map((level): PlanLevel<IndexRef> =>
+		level.kind === "joins"
+			? {
+					kind: "joins",
+					name: level.name,
+					first: resolvedItem(level.first, resolve),
+					joined: level.joined.map((j) => ({ item: resolvedItem(j.item, resolve), join: j.join })),
+					appended: level.appended.map((item) => resolvedItem(item, resolve))
+				}
+			: {
+					kind: "append",
+					name: level.name,
+					members: mapNonEmpty(level.members, (item) => resolvedItem(item, resolve))
+				}
 	)
 })

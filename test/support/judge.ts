@@ -358,9 +358,10 @@ export const explainedRun = <E>(
 	})
 
 /**
- * Each statement of the upkeep of stored relation `relation` (`upkeepStatementsOf`) explained (EXPLAIN ANALYZE) over
- * the transaction's deltas as the judge would run it (`explainedRun`), in its body's order, the removal's effect before
- * the INSERT, its writes standing after: what a case whose transaction rolls back whole explains itself, before
+ * Each statement of the upkeep of stored relation `relation` (`upkeepRunsOf`) explained (EXPLAIN ANALYZE) over the
+ * transaction's deltas as the judge would run it (`explainedRun`), under the advice its routine's own SET clause holds,
+ * as every call of it plans it (test/support/advice.ts routineAdviceHeld), in its body's order, the removal's effect
+ * before the INSERT, its writes standing after: what a case whose transaction rolls back whole explains itself, before
  * anything runs the judge, SET CONSTRAINTS ALL IMMEDIATE or COMMIT, which empties the deltas.
  */
 export const upkeepRuns = <E>(
@@ -369,7 +370,9 @@ export const upkeepRuns = <E>(
 	relation: string
 ): Effect.Effect<ReadonlyArray<PlanNode>, E> =>
 	Effect.map(
-		Effect.forEach(upkeepStatementsOf(installation, relation), (m) => explainedRun(values, m)),
+		Effect.forEach(upkeepRunsOf(installation, relation), ({ routine, run }) =>
+			Effect.andThen(values(routineAdviceHeld(routine)), () => explainedRun(values, run))
+		),
 		Arr.flatten
 	)
 

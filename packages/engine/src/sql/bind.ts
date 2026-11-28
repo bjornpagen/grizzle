@@ -1346,7 +1346,7 @@ class Binder {
 		}
 		const read = this.#needed(source.alias)
 		const [t0, ...ts] = read.map((c) => targetAs(col(source.alias, c), c))
-		const wrapper = derived(
+		const viewRead = derived(
 			operandSelect(
 				core(
 					t0 === undefined ? [targetAs(lit.int(1, types.integer), "one")] : [t0, ...ts],
@@ -1357,7 +1357,7 @@ class Binder {
 			source.alias,
 			false
 		)
-		return { ...entry, source: wrapper }
+		return { ...entry, source: viewRead }
 	}
 
 	/** A transform under `env`: each column reference read at its relation's new alias, each sublink bound. */
@@ -1425,7 +1425,10 @@ class Binder {
 		q: OperandSelect,
 		env: Env,
 		name: PlanName | undefined
-	): { readonly query: OperandSelect; readonly items: ReadonlyArray<PlanItem<AccessIndexRequest>> } {
+	): {
+		readonly query: OperandSelect
+		readonly items: ReadonlyArray<PlanItem<AccessIndexRequest>>
+	} {
 		const { with: w, env: inner } = this.with(q.with, env)
 		const body = this.body(q.body, inner, name, {
 			orderBy: q.orderBy,

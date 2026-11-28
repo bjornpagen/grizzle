@@ -87,10 +87,14 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 					if (met === undefined) {
 						assert.fail("the bound statement reads its met rows at its top")
 					}
-					const marked: ReadonlyArray<ReadonlyArray<string>> = Arr.flatMap(bound.plan.levels, (level) =>
-						level.kind === "joins" && level.name.kind === "named" && level.name.name === met.marked
-							? [[level.first.alias, ...Arr.map(level.appended, (i) => i.alias)]]
-							: []
+					const marked: ReadonlyArray<ReadonlyArray<string>> = Arr.flatMap(
+						bound.plan.levels,
+						(level) =>
+							level.kind === "joins" &&
+							level.name.kind === "named" &&
+							level.name.name === met.marked
+								? [[level.first.alias, ...Arr.map(level.appended, (i) => i.alias)]]
+								: []
 					)
 					const top: ReadonlyArray<string> = Arr.map(viewedLevels(bound.plan).top, (i) => i.alias)
 					assert.deepEqual(
@@ -208,10 +212,7 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 						: spec,
 					"T's read is bound as the specification says"
 				)
-				const aliases = Arr.map(
-					Arr.flatMap(bound.plan.levels, scannedItems),
-					(i) => i.alias
-				)
+				const aliases = Arr.map(Arr.flatMap(bound.plan.levels, scannedItems), (i) => i.alias)
 				assert.deepEqual(
 					Arr.sort(Arr.dedupe(aliases), Order.String),
 					Arr.sort(aliases, Order.String),
@@ -337,7 +338,7 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 			},
 			{
 				file: "packages/engine/src/sql/bind.ts",
-				original: "\t\t\t\treturn { ...read, item: { alias: marked, scan: { kind: \"rows\" } } }\n",
+				original: '\t\t\t\treturn { ...read, item: { alias: marked, scan: { kind: "rows" } } }\n',
 				replacement: "\t\t\t\treturn read\n",
 				why: "The met rows' reader's item named by their source's alias, a query PostgreSQL pulls up into the reader's level: the level's join order and NO_GATHER name a relation PostgreSQL never plans there, and the marked rows it plans in its place go unadvised (LAWS' Law 1 on key-reach's writeWhole, NO_GATHER(r10#2@r3))."
 			},
