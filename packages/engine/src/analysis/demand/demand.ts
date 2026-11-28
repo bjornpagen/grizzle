@@ -47,7 +47,9 @@ export interface DemandAnalysis {
  *
  * - a root delivers its whole heading;
  * - a Filter needs what its readers need plus the columns of its predicate; a ProjectSet only the columns its
- *   demanded outputs read (a set's projection onto fewer columns depends on fewer input columns);
+ *   demanded outputs read (a set's projection onto fewer columns depends on fewer input columns); a Step what its
+ *   readers need of it, its rows its input's unchanged, so a column a navigation's step delivers is live only where a
+ *   reader of the step reads it (a later step's outer value among them, read laterally), never by the step itself;
  * - a MatchRegion keeps a variable live when it is demanded, joins two bindings, is equated or correlated, or is read
  *   by an outer reference; each occurrence's source then needs the columns bound to live variables and the columns
  *   its constants fix. A column bound to a dead variable is an existential witness;
@@ -184,6 +186,8 @@ const need = (
 	switch (reader.kind) {
 		case "Filter":
 			return new Set([...demanded, ...exprColumns([reader.pred], input.id)])
+		case "Step":
+			return demanded
 		case "ProjectSet":
 			return new Set(
 				exprColumns(
@@ -238,7 +242,6 @@ const need = (
 		case "Forbid":
 		case "Window":
 		case "OrderedSetAggregate":
-		case "Step":
 		case "Call":
 			return all(input)
 	}

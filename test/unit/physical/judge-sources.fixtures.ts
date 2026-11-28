@@ -1,6 +1,6 @@
 /** What the property of judge-sources.test.ts reads: its space, its schemas and the judge's scans. */
 
-import { assert } from "@bjornpagen/testing/assert"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
 import { type Installation, installOptions } from "#compiler/physical/install/compile.ts"
@@ -20,15 +20,17 @@ import {
 } from "#compiler/public/schema.ts"
 import {
 	cteColumns,
+	type Expr,
 	type FromItem,
 	type FromSource,
 	functionColumnNames,
 	type OperandSelect,
+	readConditions,
 	selectColumns
 } from "#compiler/sql/ast.ts"
-import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
+import { inertVisitor, visitExpr, visitSelect } from "#compiler/sql/transform.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { judgedStatementsOf } from "#test/support/judge.ts"
+import { judgedDeltaReadsOf } from "#test/support/judge.ts"
 import { owning } from "#test/support/policy.ts"
 
 /** A rule's law over D: a containment of S into it, a check over its facts, or a key over a projection of them. */
@@ -56,6 +58,7 @@ export type Reached =
 	| "a probe's statement"
 	| "a stored scan narrowed"
 	| "a delta narrowed"
+	| "an existence read index-only"
 
 /**
  * T and S, each keyed by its document first, and each with a field no rule reads, `pay` and `note`; D, T's facts by
@@ -169,7 +172,7 @@ interface Reader {
 }
 
 /** Each delta's reader in `installation`, by its function's name: a PL/pgSQL function whose one statement returns the
- * columns of one table of pg_temp, the delta. */
+ * columns of one table of pg_temp, the delta, read as the binding reads a stored table (sql/ast.ts FromSource `read`). */
 const readersIn = (installation: Installation): ReadonlyMap<string, Reader> =>
 	new Map(
 		Arr.flatMap(installation.statements, (s): ReadonlyArray<readonly [string, Reader]> => {
@@ -181,7 +184,7 @@ const readersIn = (installation: Installation): ReadonlyMap<string, Reader> =>
 				return []
 			}
 			const [from, ...more] = only.query.body.from
-			if (from?.kind !== "table" || typeof from.table === "string" || more.length > 0) {
+			if (from?.kind !== "read" || more.length > 0) {
 				return []
 			}
 			const columns = Arr.flatMap(only.query.body.targets, (t) =>
@@ -249,8 +252,9 @@ const headsOf = (
 }
 
 /**
- * The table a FROM source reads, where it reads one of the installation's, or a session's delta of one, which a judged
- * statement reads through a call of its reader or a CTE over one (`heads`).
+ * The table a FROM source reads, where it reads one of the installation's, bound as every stored read of a statement the
+ * judge sends is (sql/ast.ts FromSource `read`), or a session's delta of one, which a judged statement reads through a
+ * call of its reader or a CTE over one (`heads`).
  */
 const scannedBy = (
 	source: FromSource,
@@ -265,7 +269,7 @@ const scannedBy = (
 		const head = calledHead(source, functionColumnNames(source.columns), readers)
 		return head === undefined ? undefined : { kind: "delta", table: head.table }
 	}
-	if (source.kind !== "table" || typeof source.table === "string") {
+	if (source.kind !== "read" && source.kind !== "probe") {
 		return undefined
 	}
 	const { schema: holder, name } = source.table
@@ -275,6 +279,35 @@ const scannedBy = (
 		: undefined
 }
 
+/** The conjuncts of a WHERE, none where it states none. */
+const conjunctsIn = (where: Expr | undefined): ReadonlyArray<Expr> =>
+	where === undefined ? [] : where.kind === "and" ? Arr.flatMap(where.args, conjunctsIn) : [where]
+
+/**
+ * The column of the table a scan reads under `alias` that one of its conditions equates to `value`, a column of a source
+ * outside the scan, which the scan delivers in that column's place, as the binding delivers a column its read binds by
+ * equality to a value its level fixes: the column it reads, none where no condition equates one to it.
+ */
+const equatedColumn = (
+	conditions: ReadonlyArray<Expr>,
+	alias: string,
+	value: Extract<Expr, { readonly kind: "column" }>
+): string | undefined => {
+	const isValue = (e: Expr): boolean =>
+		e.kind === "column" && e.table === value.table && e.column === value.column
+	const ownColumn = (e: Expr): string | undefined =>
+		e.kind === "column" && e.table === alias ? e.column : undefined
+	return Option.getOrUndefined(
+		Arr.findFirst(conditions, (c) =>
+			c.kind !== "binary" || c.op !== "="
+				? Option.none()
+				: Option.fromUndefinedOr(
+						isValue(c.right) ? ownColumn(c.left) : isValue(c.left) ? ownColumn(c.right) : undefined
+					)
+		)
+	)
+}
+
 /** One column a scan reads of its table, and the output of its derived table that delivers it. */
 interface ScanColumn {
 	readonly read: string
@@ -282,13 +315,24 @@ interface ScanColumn {
 }
 
 /**
- * A scan of a table: a derived table whose query reads that table alone, each of its targets a column of it; its alias
- * and its columns.
+ * A scan of a table: a derived table whose query reads that table alone, each of its targets a column of it, or a probe
+ * of a stored table (sql/ast.ts FromSource `probe`), each of its columns one it reads; its alias, its columns, and the
+ * columns of its table its own conditions read, a conjunct of the statement's the binding pushed into it among them
+ * (sql/bind.ts), where the statement reads them in no reference to its outputs.
  */
 interface Scan {
 	readonly scanned: Scanned
 	readonly alias: string
 	readonly columns: ReadonlyArray<ScanColumn>
+	/** The columns of its table the values it computes over it read, a group's aggregates' arguments. */
+	readonly computed: ReadonlySet<string>
+	readonly conditioned: ReadonlySet<string>
+	/**
+	 * The advice target of the stored read an existence test makes (`<alias>@<level>`, sql/advice.ts), a derived table
+	 * whose every target is a literal, which reads its table only for whether a row its conditions hold stands, where
+	 * those conditions read no column but those its seek binds, which the seek's index holds; none for any other scan.
+	 */
+	readonly existence: string | undefined
 }
 
 /** Each scan of a table in `statement`, at any depth, each column a delta's CTE delivers read as the delta's own. */
@@ -299,6 +343,20 @@ const scansOf = (
 ): ReadonlyArray<Scan> => {
 	const scans: Array<Scan> = []
 	const source = (item: FromSource): void => {
+		if (item.kind === "probe") {
+			const scanned = scannedBy(item, heads, readers)
+			if (scanned !== undefined) {
+				scans.push({
+					scanned,
+					alias: item.alias,
+					columns: Arr.map(item.columns, (c) => ({ read: c.read, output: c.as })),
+					computed: new Set(),
+					conditioned: new Set(),
+					existence: undefined
+				})
+			}
+			return
+		}
 		if (item.kind !== "derived" || item.query.body.kind !== "core") {
 			return
 		}
@@ -306,7 +364,7 @@ const scansOf = (
 		if (
 			from === undefined ||
 			more.length > 0 ||
-			(from.kind !== "table" && from.kind !== "cte" && from.kind !== "function")
+			(from.kind !== "read" && from.kind !== "cte" && from.kind !== "function")
 		) {
 			return
 		}
@@ -322,27 +380,78 @@ const scansOf = (
 					? calledHead(from, functionColumnNames(from.columns), readers)?.columnOf
 					: undefined
 		const outputs = selectColumns(item.query)
-		const columns = Arr.flatMap(item.query.body.targets, (t, i) => {
+		const conditions = [...readConditions(from), ...conjunctsIn(item.query.body.where)]
+		const targets = item.query.body.targets
+		const literals = Arr.filter(targets, (t) => t.expr.kind === "literal").length
+		/** The columns of the table each target that is no column reads, an aggregate's arguments, none of a literal. */
+		const computed = new Set<string>()
+		for (const t of targets) {
+			if (t.expr.kind === "column") {
+				continue
+			}
+			visitExpr(t.expr, {
+				...inertVisitor,
+				expr: (e) => {
+					if (e.kind !== "column") {
+						return
+					}
+					assert.equal(e.table, alias, `the scan ${item.alias} computes over its table alone`)
+					const column = columnOf === undefined ? e.column : columnOf.get(e.column)
+					if (column !== undefined) {
+						computed.add(column)
+					}
+				}
+			})
+		}
+		const columns = Arr.flatMap(targets, (t, i) => {
 			const output = outputs[i]
-			const read =
+			const own =
 				t.expr.kind !== "column"
 					? undefined
-					: columnOf === undefined
+					: t.expr.table === alias
 						? t.expr.column
-						: columnOf.get(t.expr.column)
-			return output !== undefined &&
-				read !== undefined &&
-				t.expr.kind === "column" &&
-				t.expr.table === alias
-				? [{ read, output }]
-				: []
+						: equatedColumn(conditions, alias, t.expr)
+			const read = own === undefined ? undefined : columnOf === undefined ? own : columnOf.get(own)
+			return output !== undefined && read !== undefined ? [{ read, output }] : []
 		})
 		assert.equal(
-			columns.length,
+			columns.length + Arr.filter(targets, (t) => t.expr.kind !== "column").length,
 			outputs.length,
-			`the scan ${item.alias} reads columns of its table alone`
+			`the scan ${item.alias} delivers columns of its table, values it computes over it and literals alone`
 		)
-		scans.push({ scanned, alias: item.alias, columns })
+		const conditioned = new Set<string>()
+		for (const condition of conditions) {
+			visitExpr(condition, {
+				...inertVisitor,
+				expr: (e) => {
+					const column =
+						e.kind !== "column" || e.table !== alias
+							? undefined
+							: columnOf === undefined
+								? e.column
+								: columnOf.get(e.column)
+					if (column !== undefined) {
+						conditioned.add(column)
+					}
+				}
+			})
+		}
+		scans.push({
+			scanned,
+			alias: item.alias,
+			columns,
+			computed,
+			conditioned,
+			existence:
+				from.kind === "read" &&
+				from.access.kind === "seek" &&
+				literals === targets.length &&
+				Arr.every([...conditioned], (c) =>
+					Arr.some(from.access.kind === "seek" ? from.access.bound : [], (b) => b.column === c)
+				)
+					? `${from.alias}@${item.alias}`
+					: undefined
+		})
 	}
 	const item = (i: FromItem): void => {
 		if (i.kind === "joins") {
@@ -372,10 +481,21 @@ const referencesOf = (statement: OperandSelect): ReadonlySet<string> => {
 	return out
 }
 
+/** The plan advice each routine of `installation` carries (sql/ast.ts CreateFunction `advice`), by its name. */
+const advicesIn = (installation: Installation): ReadonlyMap<string, string> =>
+	new Map(
+		Arr.flatMap(installation.statements, (s): ReadonlyArray<readonly [string, string]> =>
+			s.kind === "createFunction" ? [[s.name.name, s.advice]] : []
+		)
+	)
+
 /**
  * Judges the scans of each statement of the judge of `shape`'s installation, the judge's and its parts', where its rules
- * stand (support/judge.ts judgedStatementsOf): each reads only fields its rule binds of its relation (`readFields`), and
- * delivers each column it reads to some reference of the statement but a stored table's key, which its scan keeps.
+ * stand (support/judge.ts judgedDeltaReadsOf): each reads only fields its rule binds of its relation (`readFields`), and
+ * delivers each column it reads to some reference of the statement, reads it in a condition of its own, or keeps it as a
+ * stored table's key; and each read an existence test makes, which needs no column but those its seek binds, all of
+ * which the seek's index holds, is advised as an index-only scan in the routine that runs it (sql/advice.ts), never as
+ * an index scan that fetches the rows a column it reads for nothing would need.
  */
 export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 	const owned = owning(schemaOf(shape))
@@ -391,11 +511,28 @@ export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 			)
 		}
 	}
-	for (const { query: statement } of judgedStatementsOf(installation)) {
+	const advices = advicesIn(installation)
+	for (const { routine, statement: judgedStatement } of judgedDeltaReadsOf(installation)) {
+		const statement = judgedStatement.query
 		note(shape.judge === "whole" ? "a whole rule's statement" : "a probe's statement")
 		const references = referencesOf(statement)
+		const advice = defined(advices.get(routine.name), `the advice of ${routine.name}`)
 		for (const scan of scansOf(statement, headsOf(statement, readers), readers)) {
 			const { kind, table } = scan.scanned
+			if (scan.existence !== undefined) {
+				const target = scan.existence
+				assert.ok(
+					Str.includes(`INDEX_ONLY_SCAN(${target} `)(advice),
+					`the existence read ${target} of ${table} is advised an index-only scan in ${routine.name}: ${advice}`
+				)
+				note("an existence read index-only")
+			}
+			for (const column of scan.computed) {
+				assert.ok(
+					read[table].has(column),
+					`a scan of ${table} computes over ${column}, a field its rule binds`
+				)
+			}
 			for (const { read: column, output } of scan.columns) {
 				assert.ok(
 					read[table].has(column),
@@ -403,8 +540,9 @@ export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 				)
 				assert.ok(
 					references.has(`${scan.alias}.${output}`) ||
+						scan.conditioned.has(column) ||
 						(kind === "stored" && declared[table].key.has(column)),
-					`a scan of ${table} delivers ${column} to a reference of the statement, or keeps it as its key`
+					`a scan of ${table} delivers ${column} to a reference of the statement, reads it in a condition of its own, or keeps it as its key`
 				)
 			}
 			if (scan.columns.length < declared[table].width) {

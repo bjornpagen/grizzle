@@ -154,9 +154,11 @@ const step = (cx: RewriteCx, reach: Reach): void => {
 				return { ...node, aggs, heading: restrict(node.heading, (n) => names.has(n)) }
 			}
 			case "Filter":
+			case "Step":
 			case "SemiJoin":
 			case "AntiJoin": {
-				const below = (node.kind === "Filter" ? node.input : node.left).current.heading
+				const below = (node.kind === "Filter" || node.kind === "Step" ? node.input : node.left)
+					.current.heading
 				if (below.length === node.heading.length) {
 					return undefined
 				}
@@ -217,7 +219,6 @@ const step = (cx: RewriteCx, reach: Reach): void => {
 			case "Forbid":
 			case "Window":
 			case "OrderedSetAggregate":
-			case "Step":
 			case "Call":
 				return undefined
 		}
@@ -261,7 +262,8 @@ const step = (cx: RewriteCx, reach: Reach): void => {
  *   matched;
  * - a projection drops its undemanded outputs, and a group its undemanded aggregates, never a key: a group's key and
  *   its whole bound tuple B are its contribution identity, which demand analysis keeps demanded;
- * - a filter, semi-join or anti-join takes its (left) input's narrowed heading;
+ * - a filter, a navigation's step, a semi-join or an anti-join takes its (left) input's narrowed heading, a step's
+ *   rows being its input's, unchanged;
  * - a single-heading union's arms are narrowed to its demanded columns and its literal discriminant; an arm that keeps
  *   wider columns for another reader is read through a projection onto exactly those;
  * - in the last prune (`sourcePrunePass`), a scan of a stored relation and a delta are narrowed to the columns their
