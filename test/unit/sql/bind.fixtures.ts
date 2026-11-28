@@ -323,43 +323,71 @@ export interface BindCase {
 
 const fixedColumns = ["a", "b", "f", "v", "d"] as const satisfies ReadonlyArray<Fixed>
 
-export const bindCaseGen: Gen<BindCase> = (source) => {
-	const place = source.draw(
-		element<Place>([
-			{ kind: "top" },
-			{ kind: "driven" },
-			{ kind: "sublink" },
-			{ kind: "window", at: "a" },
-			{ kind: "window", at: "b" },
-			{ kind: "joined", over: "stored" },
-			{ kind: "joined", over: "cte" },
-			{ kind: "viewed", reads: 1 },
-			{ kind: "viewed", reads: 2 },
-			{ kind: "context" },
-			{ kind: "world", leaky: false },
-			{ kind: "world", leaky: true },
-			{ kind: "met" },
-			{ kind: "union", at: "top" },
-			{ kind: "union", at: "derived" },
-			{ kind: "union", at: "parenthesized" },
-			{ kind: "exists", not: true, over: "cte" },
-			{ kind: "exists", not: false, over: "cte" },
-			{ kind: "exists", not: true, over: "values" },
-			{ kind: "fenced" },
-			{ kind: "nested" },
-			{ kind: "hashed", both: true },
-			{ kind: "hashed", both: false },
-			{ kind: "ordered", how: "group", order: "a" },
-			{ kind: "ordered", how: "last", order: "a" },
-			{ kind: "ordered", how: "last", order: "d" }
-		])
-	)
-	return {
+/** Every place a case reads T at (Place), each its own arm of the box. */
+const places: Arr.NonEmptyReadonlyArray<Place> = [
+	{ kind: "top" },
+	{ kind: "driven" },
+	{ kind: "sublink" },
+	{ kind: "window", at: "a" },
+	{ kind: "window", at: "b" },
+	{ kind: "joined", over: "stored" },
+	{ kind: "joined", over: "cte" },
+	{ kind: "viewed", reads: 1 },
+	{ kind: "viewed", reads: 2 },
+	{ kind: "context" },
+	{ kind: "world", leaky: false },
+	{ kind: "world", leaky: true },
+	{ kind: "met" },
+	{ kind: "union", at: "top" },
+	{ kind: "union", at: "derived" },
+	{ kind: "union", at: "parenthesized" },
+	{ kind: "exists", not: true, over: "cte" },
+	{ kind: "exists", not: false, over: "cte" },
+	{ kind: "exists", not: true, over: "values" },
+	{ kind: "fenced" },
+	{ kind: "nested" },
+	{ kind: "hashed", both: true },
+	{ kind: "hashed", both: false },
+	{ kind: "ordered", how: "group", order: "a" },
+	{ kind: "ordered", how: "last", order: "a" },
+	{ kind: "ordered", how: "last", order: "d" }
+]
+
+/** A case reading T at `place`, its literal equalities drawn (BindCase). */
+const caseAt =
+	(place: Place): Gen<BindCase> =>
+	(source) => ({
 		place,
 		fixed: place.kind === "window" ? [] : Arr.filter(fixedColumns, () => source.draw(boolean)),
 		ranged: place.kind === "top" && source.draw(boolean)
-	}
-}
+	})
+
+export const bindCaseGen: Gen<BindCase> = (source) =>
+	source.draw(caseAt(source.draw(element(places))))
+
+/**
+ * The places only one arm of the box reaches, each aimed at by a case of that arm alone, so the floor stream and the
+ * steered phase reach their situations whatever the box holds beside them: a probe's ordered seek, of its group or its
+ * last row, its internal error, and the nested fenced UNION's pushed conjunct.
+ */
+export const bindAims: ReadonlyArray<readonly [BindFeature, Gen<BindCase>]> = [
+	[
+		"a probe of a group in its order, an ordered seek of its group then its order",
+		caseAt({ kind: "ordered", how: "group", order: "a" })
+	],
+	[
+		"a probe of a group's last row, an ordered seek of its group then its order",
+		caseAt({ kind: "ordered", how: "last", order: "a" })
+	],
+	[
+		"a probe in an order no B-tree holds, an internal compiler error",
+		caseAt({ kind: "ordered", how: "last", order: "d" })
+	],
+	[
+		"a reader's conjunct moved through every arm of a fenced UNION nested in another's arm, binding the read there",
+		caseAt({ kind: "nested" })
+	]
+]
 
 /** The conjunct of T's WHERE fixing `column`: a literal's, a placeholder's, and v's through pgvector's `=`. */
 const fixing = (column: Fixed): Expr =>

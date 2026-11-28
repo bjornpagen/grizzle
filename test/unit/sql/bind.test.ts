@@ -33,6 +33,7 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import { element, finite } from "@bjornpagen/testing/gen"
+import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { nameKey } from "#compiler/sql/ast.ts"
@@ -51,6 +52,7 @@ import {
 } from "#test/support/unit/physical/constants.fixtures.ts"
 import {
 	type BindFeature,
+	bindAims,
 	bindCaseGen,
 	bindFeatures,
 	boundAccess,
@@ -76,7 +78,7 @@ import {
 
 /** Every read of T is bound as its level fixes it, where it stands, under the scope's one alias. */
 export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlias =
-	property.explore(bindCaseGen, {
+	property.explore(aimed(bindCaseGen, bindAims), {
 		needs: {},
 		situations: bindFeatures,
 		check: (_, c: Case<BindFeature>) => (drawn) =>
