@@ -48,7 +48,7 @@ export const lexicographic = (
 		}
 		return first.dir === "asc" ? D.le(first.t, first.s) : D.ge(first.t, first.s)
 	}
-	return D.or(strict, D.and(D.eq(first.t, first.s), lexicographic(rest, inclusive)))
+	return D.or([strict, D.and([D.eq(first.t, first.s), lexicographic(rest, inclusive)])])
 }
 
 /**
@@ -173,20 +173,20 @@ const neighborQuery = (
 					],
 					where: [
 						direction === "next"
-							? D.or(
+							? D.or([
 									D.gt(v("n.day"), D.param("d", integer)),
-									D.and(
+									D.and([
 										D.eq(v("n.day"), D.param("d", integer)),
 										D.gt(v("n.id"), D.param("i", bigint))
-									)
-								)
-							: D.or(
+									])
+								])
+							: D.or([
 									D.lt(v("n.day"), D.param("d", integer)),
-									D.and(
+									D.and([
 										D.eq(v("n.day"), D.param("d", integer)),
 										D.lt(v("n.id"), D.param("i", bigint))
-									)
-								),
+									])
+								]),
 						...extra
 					],
 					head: { [heading.id]: v("n.id"), [heading.day]: v("n.day"), nscore: v("n.score") },
@@ -301,14 +301,14 @@ export const attachedNeighbor = (
 					],
 					where: [
 						direction === "next"
-							? D.or(
+							? D.or([
 									D.gt(v("n.day"), D.parent("day")),
-									D.and(D.eq(v("n.day"), D.parent("day")), D.gt(v("n.id"), D.parent("id")))
-								)
-							: D.or(
+									D.and([D.eq(v("n.day"), D.parent("day")), D.gt(v("n.id"), D.parent("id"))])
+								])
+							: D.or([
 									D.lt(v("n.day"), D.parent("day")),
-									D.and(D.eq(v("n.day"), D.parent("day")), D.lt(v("n.id"), D.parent("id")))
-								)
+									D.and([D.eq(v("n.day"), D.parent("day")), D.lt(v("n.id"), D.parent("id"))])
+								])
 					],
 					head: { nid: v("n.id"), nday: v("n.day"), nscore: v("n.score") },
 					interiors: [],

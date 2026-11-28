@@ -1,8 +1,13 @@
 import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
-import { type SideDesc, type SlotsDesc, type TermDesc, termText } from "#compiler/ir/desc.ts"
+import {
+	connectiveExpr,
+	type SideDesc,
+	type SlotsDesc,
+	type TermDesc,
+	termText
+} from "#compiler/ir/desc.ts"
 import type { GeneratedLaw } from "#compiler/ir/law.ts"
 import { predicateSource, spelledPattern } from "#compiler/scalar/compute/predicate-source.ts"
-import { spelling } from "#compiler/scalar/compute/spelling.ts"
 import type {
 	AboveLaw,
 	DeclaredEntry,
@@ -28,13 +33,9 @@ const quoted = (name: string): string => JSON.stringify(name)
 const conjunctNames = (side: SideDesc): ReadonlyArray<string> =>
 	side.selection.conjuncts.map((c) => predicateSource(c, (f) => f, spelledPattern))
 
-/** A side's selection as select(R, …) takes it: one predicate of the row `r`, its conjuncts' Logic.and of several. */
-const selectionSource = (side: SideDesc): string => {
-	const conjuncts = side.selection.conjuncts.map((c) =>
-		predicateSource(c, (f) => `r.${f}`, spelledPattern)
-	)
-	return `(r) => ${conjuncts.length === 1 ? conjuncts.join("") : `${spelling.and}(${conjuncts.join(", ")})`}`
-}
+/** A side's selection as select(R, …) takes it: one predicate of the row `r`, its conjuncts' conjunction. */
+const selectionSource = (side: SideDesc): string =>
+	`(r) => ${predicateSource(connectiveExpr("and", side.selection.conjuncts), (f) => `r.${f}`, spelledPattern)}`
 
 /** A side as a law's name spells it: R(t…), and `where` each conjunct of its selection as its author writes it. */
 const sideName = (side: SideDesc): string => {

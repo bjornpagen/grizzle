@@ -12,6 +12,9 @@ import { floatText } from "#compiler/scalar/values/float.ts"
 /** A text as a statement writes it: a JSON string. */
 const quoted = (text: string): string => JSON.stringify(text)
 
+/** A list as a statement writes it, its items in order: a set's handles, an IN's values, a connective's operands. */
+const listed = (items: ReadonlyArray<string>): string => `[${items.join(", ")}]`
+
 /** How a printing writes a pattern: Text.pattern of something that names its language. */
 export type PatternPrinting = (pattern: PatternValue) => string
 
@@ -48,7 +51,7 @@ const literalSource = (value: LiteralDesc, pattern: PatternPrinting): string => 
 		return value[canonicalTag]().payload
 	}
 	if ("handles" in value) {
-		return `[${value.handles.map(quoted).join(", ")}]`
+		return listed(value.handles.map(quoted))
 	}
 	if ("float" in value) {
 		return value.float
@@ -112,7 +115,8 @@ const guardSource = (guard: GuardDesc, subject: string, pattern: PatternPrinting
 
 /**
  * A row predicate as its author writes it, each field read as `field` spells it: each scalar builder by its public
- * spelling (scalar/compute/spelling.ts), each closed read as its relation's method, each literal as written. A
+ * spelling (scalar/compute/spelling.ts), a connective over the one list of its operands, `Logic.or([p, q])`, each
+ * closed read as its relation's method, each literal as written. A
  * Logic.when branch's parameter prints as the subject it stands in for. A node no row predicate an author writes holds
  * (a rule's existence, a variable, a parent column, a parameter, a span relation, which only a query states) keeps its
  * canonical text.
@@ -165,14 +169,11 @@ export const predicateSource = (
 		case "between":
 			return call(spelling.between, [go(e.arg), go(e.low), go(e.high)])
 		case "in":
-			return call(spelling.in, [
-				go(e.arg),
-				`[${e.values.map((v) => literalSource(v, pattern)).join(", ")}]`
-			])
+			return call(spelling.in, [go(e.arg), listed(e.values.map((v) => literalSource(v, pattern)))])
 		case "and":
-			return call(spelling.and, e.args.map(go))
+			return call(spelling.and, [listed(e.args.map(go))])
 		case "or":
-			return call(spelling.or, e.args.map(go))
+			return call(spelling.or, [listed(e.args.map(go))])
 		case "not":
 			return call(spelling.not, [go(e.arg)])
 		case "call":

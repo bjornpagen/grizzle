@@ -636,7 +636,7 @@ export const unboundedComputedStateAdmitsOnlyACounterOverAnIntegerCarrierBounded
 								: bound === "current above"
 									? gt(hops, k(4))
 									: bound === "either of two"
-										? or(lt(hops, k(4)), lt(hops, k(5)))
+										? or([lt(hops, k(4)), lt(hops, k(5))])
 										: lt(compute("add", hops, k(1)), k(4))
 						const desc = recursive(
 							"Walks",

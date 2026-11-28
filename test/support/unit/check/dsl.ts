@@ -1,6 +1,7 @@
 import { Array as Arr } from "effect"
 import {
 	type ComputeFn,
+	connectiveExpr,
 	type FieldDesc,
 	type GuardDesc,
 	guardedExpr,
@@ -78,14 +79,9 @@ const compare =
 export const eq = compare("eq")
 export const lt = compare("lt")
 export const gt = compare("gt")
-export const and = (...args: Arr.NonEmptyReadonlyArray<ExprDesc>): ExprDesc => ({
-	kind: "and",
-	args
-})
-export const or = (...args: Arr.NonEmptyReadonlyArray<ExprDesc>): ExprDesc => ({
-	kind: "or",
-	args
-})
+/** A conjunction and a disjunction over one list of operands, as the builders make them (connectiveExpr). */
+export const and = (args: ReadonlyArray<ExprDesc>): ExprDesc => connectiveExpr("and", args)
+export const or = (args: ReadonlyArray<ExprDesc>): ExprDesc => connectiveExpr("or", args)
 export const not = (source: SourceDesc, bindings: BindingsDesc): ExprDesc => ({
 	kind: "absent",
 	source,

@@ -138,24 +138,27 @@ export const spelled = (
 			return Q.lexicographic([first, second], inclusive)
 		case "disjunctive normal form":
 			return inclusive
-				? D.or(
+				? D.or([
 						precedes(first, false),
-						D.and(D.eq(first.t, first.s), precedes(second, false)),
-						D.and(D.eq(first.t, first.s), D.eq(second.t, second.s))
-					)
-				: D.or(precedes(first, false), D.and(D.eq(first.t, first.s), precedes(second, false)))
+						D.and([D.eq(first.t, first.s), precedes(second, false)]),
+						D.and([D.eq(first.t, first.s), D.eq(second.t, second.s)])
+					])
+				: D.or([precedes(first, false), D.and([D.eq(first.t, first.s), precedes(second, false)])])
 		case "operands swapped":
-			return D.or(
+			return D.or([
 				precedesSwapped(first, false),
-				D.and(D.eq(first.s, first.t), precedesSwapped(second, inclusive))
-			)
+				D.and([D.eq(first.s, first.t), precedesSwapped(second, inclusive)])
+			])
 		case "negated successor":
 			return {
 				kind: "not",
-				arg: D.or(follows(first, false), D.and(D.eq(first.t, first.s), follows(second, !inclusive)))
+				arg: D.or([
+					follows(first, false),
+					D.and([D.eq(first.t, first.s), follows(second, !inclusive)])
+				])
 			}
 		case "conjunctive":
-			return D.and(precedes(first, inclusive), precedes(second, inclusive))
+			return D.and([precedes(first, inclusive), precedes(second, inclusive)])
 	}
 }
 

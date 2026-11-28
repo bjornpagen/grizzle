@@ -116,8 +116,8 @@ const written = (shape: Shape, n: string): ReadonlyArray<string> => {
 		case "or":
 			return Arr.flatMap(written(shape.left, n), (l) =>
 				Arr.flatMap(written(shape.right, n), (r) => [
-					`Logic.or(${l}, ${r})`,
-					`Logic.or(${r}, ${l})`
+					`Logic.or([${l}, ${r}])`,
+					`Logic.or([${r}, ${l}])`
 				])
 			)
 	}
