@@ -12,6 +12,7 @@ import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
 import type { MigrationSession } from "#adapter/migrate/session.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { once } from "#compiler/core/lazy.ts"
 import { sha256ChunksHex } from "#compiler/core/sha256.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { AbandonedSchema, Declarations } from "#compiler/deploy/diff/plan.ts"
@@ -233,52 +234,72 @@ export type Feature =
 	| "a regeneration resuming at a no-transaction file refused"
 
 /**
+ * A case of the folder at `folder` and its regeneration at `regeneration` whose completed files stop just before the
+ * regeneration's first no-transaction file after its first, so the apply resumes at that file: its point read off the
+ * drafts (draftsOf, under a name of its own, which names no file and decides no statement), drafted once on the first
+ * draw. Its regeneration's files are the folder's own in count, as runCase reads the point over the folder that ran.
+ */
+const resumingAtNoTransaction = (folder: number, regeneration: number): Gen<RedraftCase> => {
+	const point = once(() => {
+		const step = defined(folders[folder])
+		const r = defined(step.regenerations[regeneration])
+		const { original, regeneration: drafted } = draftsOf("redraft_aim", folder, r)
+		const files = reviewedSource(drafted.g, kept).files
+		assert.equal(
+			files.length,
+			reviewedSource(original, kept).files.length,
+			`${r.name} of folder ${folder} holds as many files as the folder`
+		)
+		const at = Option.getOrThrowWith(
+			Arr.findFirstIndex(files, (f, i) => i > 0 && isNoTransaction(new ChunkView(f.text))),
+			() => new Error(`${r.name} of folder ${folder} holds a no-transaction file after its first`)
+		)
+		return at - 1
+	})
+	return () => ({ folder, regeneration, completed: point(), added: false, failNext: false })
+}
+
+/**
  * The case the generator draws for a turn aiming at a feature (aimed): a folder, a regeneration and a point the drafts
  * reach it at, as the drafts stand (Shop v1's and v2's first files are drafted alike under a key, a check or a mutable
  * declaration more or less, and every file of v2 alike with AutomaticTask's budget a contract of another name, where
  * without Task's mutable declaration the kinds' arms' containments are the rule judge's and its files differ, and with
  * Account declared mutable too its immutability guard is dropped; v2 drafted toward from v1 declared mutable holds v2's
- * files; v2's seven files are Setup, Structure, Indexes in a transaction, the tables' declared statistics, Indexes
- * outside one, Validate, Publish and Validate again, so its fourth runs outside a transaction). The features noted are still the outcome's, so a note never claims what the case
- * did not reach.
+ * files). A point at a no-transaction file is read off the folder's drafted files (resumingAtNoTransaction), never
+ * assumed, since which of v2's files runs outside a transaction is the draft's to decide. The features noted are still
+ * the outcome's, so a note never claims what the case did not reach.
  */
-export const aims: ReadonlyArray<readonly [Feature, RedraftCase]> = [
+export const aims: ReadonlyArray<readonly [Feature, Gen<RedraftCase>]> = [
 	[
 		"a regeneration resumed",
-		{ folder: 0, regeneration: 1, completed: 0, added: false, failNext: false }
+		constant({ folder: 0, regeneration: 1, completed: 0, added: false, failNext: false })
 	],
 	[
 		"a regeneration alike in files resumed",
-		{ folder: 1, regeneration: 8, completed: 3, added: false, failNext: false }
+		constant({ folder: 1, regeneration: 8, completed: 3, added: false, failNext: false })
 	],
 	[
 		"the started draft resumed",
-		{ folder: 2, regeneration: 0, completed: 1, added: false, failNext: false }
+		constant({ folder: 2, regeneration: 0, completed: 1, added: false, failNext: false })
 	],
-	[
-		"a resume whose next file runs outside a transaction",
-		{ folder: 1, regeneration: 0, completed: 2, added: false, failNext: false }
-	],
+	["a resume whose next file runs outside a transaction", resumingAtNoTransaction(1, 0)],
 	[
 		"a regeneration's next file refused, its re-record rolled back",
-		{ folder: 1, regeneration: 1, completed: 0, added: false, failNext: true }
+		constant({ folder: 1, regeneration: 1, completed: 0, added: false, failNext: true })
 	],
 	[
 		"a completed file the regeneration changes refused",
-		{ folder: 0, regeneration: 4, completed: 0, added: false, failNext: false }
+		constant({ folder: 0, regeneration: 4, completed: 0, added: false, failNext: false })
 	],
 	[
 		"a regeneration of another source refused",
-		{ folder: 1, regeneration: 7, completed: 0, added: false, failNext: false }
+		constant({ folder: 1, regeneration: 7, completed: 0, added: false, failNext: false })
 	],
 	[
 		"a regeneration of another file count refused",
-		{ folder: 0, regeneration: 0, completed: 0, added: true, failNext: false }
+		constant({ folder: 0, regeneration: 0, completed: 0, added: true, failNext: false })
 	],
-	[
-		"a regeneration resuming at a no-transaction file refused",
-		{ folder: 1, regeneration: 8, completed: 2, added: false, failNext: false }
-	]
+	["a regeneration resuming at a no-transaction file refused", resumingAtNoTransaction(1, 8)]
 ]
 
 /** A statement that fails when it runs (22012). */

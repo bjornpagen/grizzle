@@ -29,88 +29,82 @@
  */
 
 import type { Reached } from "@bjornpagen/testing/features"
-import { aimed, constant } from "@bjornpagen/testing/gen"
+import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect } from "effect"
+import { Effect } from "effect"
 import { aims, caseGen, type Feature, runCase } from "#test/pg/migrate/redraft.fixtures.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
 /** A partial folder resumed under a regeneration cases of the rotating stream, steered until every feature is reached: the regeneration resumes exactly when it keeps the folder's source, file count and completed files, its re-record rides its next file, and the result is a fresh install's. */
-export const redraft = property.explore(
-	aimed(
-		caseGen,
-		Arr.map(aims, ([feature, c]) => [feature, constant(c)] as const)
-	),
-	{
-		needs: { substrate: Substrate.fresh(baseSubstrate) },
-		situations: [
-			"a regeneration resumed",
-			"a regeneration alike in files resumed",
-			"the started draft resumed",
-			"a resume whose next file runs outside a transaction",
-			"a regeneration's next file refused, its re-record rolled back",
-			"a completed file the regeneration changes refused",
-			"a regeneration of another source refused",
-			"a regeneration of another file count refused",
-			"a regeneration resuming at a no-transaction file refused"
-		] satisfies ReadonlyArray<Reached<Feature>>,
-		/** Its pre-conversion budget: runs 12, coverage cases 72 (redraft.test.ts at bf4f43bb). */
-		budget: { runs: 12, steered: 72 },
-		check:
-			({ substrate }, c2: Case<Feature>) =>
-			(value) =>
-				Effect.provideServiceEffect(
-					runCase(value, c2),
-					Substrate,
-					Effect.map(substrate, (taken) => taken.substrate)
-				),
-		oracle: {
-			kind: "specification",
-			name: "the resume's documented contract, restated over the drafts' texts, against the database read back and a fresh install"
+export const redraft = property.explore(aimed(caseGen, aims), {
+	needs: { substrate: Substrate.fresh(baseSubstrate) },
+	situations: [
+		"a regeneration resumed",
+		"a regeneration alike in files resumed",
+		"the started draft resumed",
+		"a resume whose next file runs outside a transaction",
+		"a regeneration's next file refused, its re-record rolled back",
+		"a completed file the regeneration changes refused",
+		"a regeneration of another source refused",
+		"a regeneration of another file count refused",
+		"a regeneration resuming at a no-transaction file refused"
+	] satisfies ReadonlyArray<Reached<Feature>>,
+	/** Its pre-conversion budget: runs 12, coverage cases 72 (redraft.test.ts at bf4f43bb). */
+	budget: { runs: 12, steered: 72 },
+	check:
+		({ substrate }, c2: Case<Feature>) =>
+		(value) =>
+			Effect.provideServiceEffect(
+				runCase(value, c2),
+				Substrate,
+				Effect.map(substrate, (taken) => taken.substrate)
+			),
+	oracle: {
+		kind: "specification",
+		name: "the resume's documented contract, restated over the drafts' texts, against the database read back and a fresh install"
+	},
+	kept: [
+		{
+			token: ReplayToken("test/pg/migrate/redraft.test.ts#redraft:-:1.29m.0.0.0"),
+			reason:
+				"Shop v2's folder regenerated toward v2 with Task closed again: the regeneration leaves out openTask whole, its unit and the mutable declaration that needs it, where the removal of v2's statement at index 4, once the mutable declaration and now the unit since openTask became two statements, left Task mutable under no unit and the schema refused at its admission",
+			since: "2026-11-26"
+		}
+	],
+	kills: [
+		{
+			file: "test/pg/migrate/redraft.fixtures.ts",
+			original: '\t\tpart === "open" ? openTask.includes(s) : s.kind === part',
+			replacement: '\t\tpart === "open" ? s === openTask[0] : s.kind === part',
+			why: "Task open is left out by its first statement alone, the unit, as the removal by index left it out: Task stays mutable under no unit, the regeneration toward v2 immutable is refused at its schema's admission, and the kept case fails."
 		},
-		kept: [
-			{
-				token: ReplayToken("test/pg/migrate/redraft.test.ts#redraft:-:1.29m.0.0.0"),
-				reason:
-					"Shop v2's folder regenerated toward v2 with Task closed again: the regeneration leaves out openTask whole, its unit and the mutable declaration that needs it, where the removal of v2's statement at index 4, once the mutable declaration and now the unit since openTask became two statements, left Task mutable under no unit and the schema refused at its admission",
-				since: "2026-11-26"
-			}
-		],
-		kills: [
-			{
-				file: "test/pg/migrate/redraft.fixtures.ts",
-				original: '\t\tpart === "open" ? openTask.includes(s) : s.kind === part',
-				replacement: '\t\tpart === "open" ? s === openTask[0] : s.kind === part',
-				why: "Task open is left out by its first statement alone, the unit, as the removal by index left it out: Task stays mutable under no unit, the regeneration toward v2 immutable is refused at its schema's admission, and the kept case fails."
-			},
-			{
-				file: "packages/grizzle/src/adapter/migrate/apply.ts",
-				original: "\t\t\t\t: []",
-				replacement:
-					"\t\t\t\t: []\n\t\tif (redraft.length > 0) {\n\t\t\tyield* Effect.orDie(session.transaction([...fenceOf(statements, ledger), ...redraft]))\n\t\t\tredraft = []\n\t\t}",
-				why: "The re-record runs in a transaction of its own before the next file, so a refused next file leaves the regeneration recorded."
-			},
-			{
-				file: "packages/grizzle/src/adapter/migrate/plan.ts",
-				original: "\t\t...(state.partial === undefined ? [] : editsOf(state.partial, () => []))",
-				replacement:
-					"\t\t...(state.partial === undefined ? [] : editsOf({ ...state.partial, completed: [] }, () => []))",
-				why: "The partial folder's completed files are not compared with the texts that ran, so a regeneration that changed one resumes where it must be refused at `edited`."
-			},
-			{
-				file: "packages/engine/src/deploy/ledger/decide.ts",
-				original: "\treturn next?.noTransaction === true",
-				replacement: '\treturn next?.noTransaction === true && next.name === ""',
-				why: "A regeneration resumes at a no-transaction file, which may have partly run under the started draft, where it must be refused at `order`."
-			},
-			{
-				file: "packages/engine/src/deploy/render/sql.ts",
-				original:
-					"\treturn [{ above, write: first }, ...rest.map((write): Spelled => ({ above: [], write }))]",
-				replacement:
-					"\treturn [\n\t\t{\n\t\t\tabove,\n\t\t\twrite: (out) => {\n\t\t\t\tlet pending = first\n\t\t\t\tfor (const next of rest) {\n\t\t\t\t\tterminated(out, pending)\n\t\t\t\t\tpending = next\n\t\t\t\t}\n\t\t\t\tpending(out)\n\t\t\t}\n\t\t}\n\t]",
-				why: "A file's statements are recorded as one text, as before 3e9bbb2c, so a resume under a regeneration is refused: the folder does not record 01-setup.sql as it ran."
-			}
-		]
-	}
-)
+		{
+			file: "packages/grizzle/src/adapter/migrate/apply.ts",
+			original: "\t\t\t\t: []",
+			replacement:
+				"\t\t\t\t: []\n\t\tif (redraft.length > 0) {\n\t\t\tyield* Effect.orDie(session.transaction([...fenceOf(statements, ledger), ...redraft]))\n\t\t\tredraft = []\n\t\t}",
+			why: "The re-record runs in a transaction of its own before the next file, so a refused next file leaves the regeneration recorded."
+		},
+		{
+			file: "packages/grizzle/src/adapter/migrate/plan.ts",
+			original: "\t\t...(state.partial === undefined ? [] : editsOf(state.partial, () => []))",
+			replacement:
+				"\t\t...(state.partial === undefined ? [] : editsOf({ ...state.partial, completed: [] }, () => []))",
+			why: "The partial folder's completed files are not compared with the texts that ran, so a regeneration that changed one resumes where it must be refused at `edited`."
+		},
+		{
+			file: "packages/engine/src/deploy/ledger/decide.ts",
+			original: "\treturn next?.noTransaction === true",
+			replacement: '\treturn next?.noTransaction === true && next.name === ""',
+			why: "A regeneration resumes at a no-transaction file, which may have partly run under the started draft, where it must be refused at `order`."
+		},
+		{
+			file: "packages/engine/src/deploy/render/sql.ts",
+			original:
+				"\treturn [{ above, write: first }, ...rest.map((write): Spelled => ({ above: [], write }))]",
+			replacement:
+				"\treturn [\n\t\t{\n\t\t\tabove,\n\t\t\twrite: (out) => {\n\t\t\t\tlet pending = first\n\t\t\t\tfor (const next of rest) {\n\t\t\t\t\tterminated(out, pending)\n\t\t\t\t\tpending = next\n\t\t\t\t}\n\t\t\t\tpending(out)\n\t\t\t}\n\t\t}\n\t]",
+			why: "A file's statements are recorded as one text, as before 3e9bbb2c, so a resume under a regeneration is refused: the folder does not record 01-setup.sql as it ran."
+		}
+	]
+})
