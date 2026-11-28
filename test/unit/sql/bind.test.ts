@@ -32,11 +32,12 @@
  */
 
 import { assert } from "@bjornpagen/testing/assert"
-import { finite } from "@bjornpagen/testing/gen"
+import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { nameKey } from "#compiler/sql/ast.ts"
 import { bindSelect } from "#compiler/sql/bind.ts"
+import { col, keyedSet, select, table, target } from "#compiler/sql/build.ts"
 import { AdviceScope } from "#compiler/sql/naming.ts"
 import { levelItems, planRequests, scannedItems } from "#compiler/sql/plan.ts"
 import { printStatement } from "#compiler/sql/print.ts"
@@ -727,3 +728,74 @@ export const aReadPrintedTwiceInOneStatementIsAnInternalCompilerErrorOfItsBindin
 			}
 		]
 	})
+
+/**
+ * A read of PostgreSQL's system catalog is planned as one (sql/plan.ts PlanScan `catalog`), alone at its level: the
+ * session tables' standing and overgrowth (sql/print.ts sessionTablesStanding, sessionTableOvergrown) read pg_class, the
+ * live source's slot drop pg_replication_slots, each by PostgreSQL's costs over the catalog's real statistics, which no
+ * advice holds; a level joining a catalog's relation to another, a join no plan of grizzle's states, is an internal
+ * compiler error. Over pg_class read alone and read beside T.
+ *
+ * Its budget is the runner's: a new property, with no suite before it to carry a count from.
+ */
+export const aReadOfTheSystemCatalogIsPlannedAsOneAloneAtItsLevel = property.exhaust(
+	finite((source) => source.draw(element(["alone", "beside T"] as const))),
+	{
+		needs: {},
+		situations: ["a catalog's relation read alone", "a catalog's relation joined to another"],
+		check:
+			(_, c: Case<"a catalog's relation read alone" | "a catalog's relation joined to another">) =>
+			(place) =>
+				Effect.sync(() => {
+					const statement = select(
+						keyedSet(
+							[target(col("c", "relname"))],
+							place === "alone"
+								? [table("pg_catalog", "pg_class", "c")]
+								: [table("pg_catalog", "pg_class", "c"), table("app", "t", "t")],
+							undefined,
+							"a read of pg_class"
+						)
+					)
+					if (place === "beside T") {
+						c.note("a catalog's relation joined to another")
+						assert.throws(
+							() => bindSelect(statement, new AdviceScope(), catalog),
+							(e: unknown) => Str.includes("system catalog")(String(e)),
+							"a level joining pg_class to T is an internal compiler error"
+						)
+						return
+					}
+					c.note("a catalog's relation read alone")
+					const bound = bindSelect(statement, new AdviceScope(), catalog)
+					assert.deepEqual(
+						Arr.flatMap(bound.plan.levels, (level) =>
+							Arr.map(scannedItems(level), (i) => i.scan.kind)
+						),
+						["catalog"],
+						"pg_class is read as a catalog's relation, the level's one item"
+					)
+				}),
+		oracle: {
+			kind: "specification",
+			name: "a system catalog's relation, its schema pg_catalog's, is PostgreSQL's to plan, alone at its level"
+		},
+		box: "pg_class read alone and beside T",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original:
+					'\t\t\t\t\tscan: systemCatalog(source.table) ? { kind: "catalog" } : { kind: "rows" }\n',
+				replacement: '\t\t\t\t\tscan: { kind: "rows" }\n',
+				why: "A read of the system catalog is planned as a session table's rows: its advice holds a NO_GATHER of it, and Law 1 and the budget judge PostgreSQL's cost choice of a relation grizzle proves no plan of."
+			},
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original: "\t\tif (catalog !== undefined && bound.length + antis.length > 1) {\n",
+				replacement: "\t\tif (false) {\n",
+				why: "A level joins a catalog's relation to another: the join stands in a plan grizzle carries advice for, of a relation PostgreSQL chooses the plan of."
+			}
+		]
+	}
+)

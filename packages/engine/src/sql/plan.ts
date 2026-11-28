@@ -46,7 +46,12 @@ export type PlanName = { readonly kind: "top" } | { readonly kind: "named"; read
  *   match, which a GIN index serves by a bitmap alone;
  * - `tid`: a stored relation read at the tuple ids a probe of it found, each a TID condition of its scan;
  * - `rows`: no stored relation: a probe's or a derived table's rows, a CTE's scan, a function's, arrays' or VALUES rows,
- *   each a range-table entry of the level, which no scan item names.
+ *   each a range-table entry of the level, which no scan item names;
+ * - `catalog`: a relation of PostgreSQL's system catalogs, its schema pg_catalog's, which PostgreSQL reads as its costs
+ *   choose over the catalog's real statistics: no index of the installation's serves it and grizzle proves no plan of
+ *   it, so the advice holds no item of it, neither a scan nor a NO_GATHER, and the budget bounds no scan of it. Its
+ *   level reads it alone (sql/bind.ts levelJoins): a join of it to another relation would be a join no plan of
+ *   grizzle's states, an internal compiler error.
  */
 export type PlanScan<I> =
 	| { readonly kind: "seq" }
@@ -64,6 +69,7 @@ export type PlanScan<I> =
 	  }
 	| { readonly kind: "tid" }
 	| { readonly kind: "rows" }
+	| { readonly kind: "catalog" }
 
 /** One item of a level: its alias, the scope's, and how it is read. */
 export interface PlanItem<I> {
@@ -178,6 +184,7 @@ const resolvedItem = (
 		case "seq":
 		case "tid":
 		case "rows":
+		case "catalog":
 			return { alias: item.alias, scan }
 	}
 }

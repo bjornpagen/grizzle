@@ -99,6 +99,7 @@ export const statementScope = (label: string, sql: string, set: string): LawScop
 	targets: [],
 	levels: [],
 	reads: [],
+	catalog: [],
 	statements: [{ label, sql }],
 	vehicle: { kind: "flight", advice: set }
 })
@@ -144,6 +145,7 @@ export const rowsScope = (
 	targets: [],
 	levels: [],
 	reads: [],
+	catalog: [],
 	statements: Arr.map(
 		[ledger.recordFolder, ledger.recordFile, ledger.recordHead, ledger.redraftFolder] as const,
 		(e, at): ScopeStatement => ({ label: `row ${at + 1}`, sql: String(e.text) })

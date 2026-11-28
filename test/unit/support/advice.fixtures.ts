@@ -633,7 +633,8 @@ const catalogPlan: unknown = [
  * - `tid`: a DELETE whose target a probe found, read by its tuple id;
  * - `disabled`: an index advised for a read by a column no index holds: PostgreSQL disables the one path left;
  * - `views`: a whole view read at two levels, its body's one alias at each, apart by their levels alone;
- * - `catalog`: a read of a system catalog, which PostgreSQL plans by its own costs, grizzle carrying nothing for it;
+ * - `catalog`: a read of a system catalog, its plan item `catalog` (the scope's `catalog`), which PostgreSQL plans by its own
+ *   costs, grizzle carrying nothing for it;
  * - `unadvised`: a flight that carried its advice to no transaction.
  */
 export const adviceCases = [
@@ -692,6 +693,7 @@ const flight = (
 	targets,
 	levels,
 	reads,
+	catalog: [],
 	statements: [statement],
 	vehicle: { kind: "flight", advice }
 })
@@ -808,6 +810,7 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 			targets: ["r1", "r1"],
 			levels: [],
 			reads: [{ alias: "r1", target: "r1", bound: ["doc"], stores: ["doc"] }],
+			catalog: [],
 			statements: [
 				{
 					label: "the doc read",
@@ -843,6 +846,7 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 				{ alias: "r1", target: "r1", bound: ["doc"], stores: ["doc"] },
 				{ alias: "r3", target: "r3@r4", bound: ["doc", "f1", "f2"], stores: ["doc", "f1", "f2"] }
 			],
+			catalog: [],
 			statements: [
 				{
 					label: "the doc read",
@@ -920,6 +924,7 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 				{ alias: "v1", target: "v1@r4", bound: ["doc", "f1"], stores: ["doc", "f1"] },
 				{ alias: "v1", target: "v1@r6", bound: ["doc", "f1", "f2"], stores: ["doc", "f1", "f2"] }
 			],
+			catalog: [],
 			statements: [
 				{
 					label: "the owner's docs",
@@ -939,10 +944,13 @@ const cases: { readonly [C in AdviceCase]: readonly [LawScope, PlannedScope] } =
 		}
 	],
 	catalog: [
-		flight("", ["r1"], ["r1"], [], [], {
-			label: "the catalog read",
-			sql: "SELECT r1.relname FROM pg_catalog.pg_class AS r1 WHERE r1.oid = $1::oid"
-		}),
+		{
+			...flight("", ["r1"], ["r1"], [], [], {
+				label: "the catalog read",
+				sql: "SELECT r1.relname FROM pg_catalog.pg_class AS r1 WHERE r1.oid = $1::oid"
+			}),
+			catalog: ["r1"]
+		},
 		{ inForce: "", plans: [read(catalogPlan)] }
 	],
 	unadvised: [

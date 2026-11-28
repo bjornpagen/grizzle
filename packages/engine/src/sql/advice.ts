@@ -27,7 +27,8 @@
  *   which names no index (pg_plan_advice's README: a bitmap heap scan takes no index specification), so the index set
  *   gives each bitmap read exactly one index able to serve it; `TID_SCAN(t)` at tuple ids;
  * - `NO_GATHER(t)` for every item, every range-table entry of the level, a UNION ALL's members it flattens into an
- *   append relation among them, so no read runs in parallel.
+ *   append relation among them, so no read runs in parallel; but for a relation of PostgreSQL's system catalogs, whose
+ *   read the advice holds no item of (sql/plan.ts PlanScan `catalog`).
  * Nothing else: no semi-join item (no sublink the binding leaves is one PostgreSQL flattens), no Memoize or Materialize
  * (a nested loop is plain), no Gather.
  *
@@ -142,6 +143,7 @@ const scanAtom = (item: PlanItem<IndexRef>, at: string): ReadonlyArray<string> =
 		case "tid":
 			return [`TID_SCAN(${at})`]
 		case "rows":
+		case "catalog":
 			return []
 	}
 }
@@ -193,7 +195,7 @@ const levelAtoms = (level: PlanLevel<IndexRef>): ReadonlyArray<string> => {
 			? [`JOIN_ORDER(${treeOrder(problem.tree, at)})`, ...methodAtoms(problem.tree, at, named)]
 			: []),
 		...scanned.flatMap((item) => scanAtom(item, at(item))),
-		...scanned.map((item) => noGather(at(item)))
+		...scanned.flatMap((item) => (item.scan.kind === "catalog" ? [] : [noGather(at(item))]))
 	]
 }
 

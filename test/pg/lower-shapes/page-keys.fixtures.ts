@@ -1668,7 +1668,8 @@ export const runPage = (clone: RolledBack<Generated>, c: PageCase, k: Case<PageF
 									session,
 									(sql) => Effect.orDie(superuser.query(sql, [])),
 									`the window beside ${String(learners)} learners`,
-									plan
+									plan,
+									new Set(page.scope.catalog)
 								)
 						)
 					)

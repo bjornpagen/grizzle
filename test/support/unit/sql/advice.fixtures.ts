@@ -37,6 +37,7 @@ export type AdviceFeature =
 	| "a UNION ALL's append level"
 	| "a member joining several items, nested"
 	| "a nested member on a join's inner side, named as its set"
+	| "a read of the system catalog, no atom"
 
 export const adviceFeatures = [
 	"join order",
@@ -52,7 +53,8 @@ export const adviceFeatures = [
 	"an append member",
 	"a UNION ALL's append level",
 	"a member joining several items, nested",
-	"a nested member on a join's inner side, named as its set"
+	"a nested member on a join's inner side, named as its set",
+	"a read of the system catalog, no atom"
 ] as const satisfies ReadonlyArray<Reached<AdviceFeature>>
 
 /** The columns an index stores and a read needs, from one small pool, so covering is often met and often missed. */
@@ -83,9 +85,11 @@ const indexGen: Gen<IndexRef> = (source) =>
 	})
 
 const scanGen: Gen<PlanScan<IndexRef>> = (source) => {
-	switch (source.draw(int(0, 4))) {
+	switch (source.draw(int(0, 5))) {
 		case 0:
 			return { kind: "seq" }
+		case 5:
+			return { kind: "catalog" }
 		case 1:
 			return { kind: "tid" }
 		case 2:
@@ -241,7 +245,7 @@ const tags: ReadonlySet<string> = new Set([
  * scan's targets in pairs with their indexes, `schema.name`. A string it cannot read is a failure of the printer's.
  */
 export const parsedAtoms = (advice: string): ReadonlyArray<Atom> => {
-	const chars = Str.split(advice, "")
+	const chars = advice === "" ? [] : Str.split(advice, "")
 	const at = (k: number): string => chars[k] ?? ""
 	const tokens: Array<string> = []
 	let i = 0
@@ -426,6 +430,7 @@ export const statedAtoms = (plan: ReadPlan<IndexRef>): ReadonlyArray<Atom> =>
 				case "bitmap":
 					return [one("BITMAP_HEAP_SCAN", item)]
 				case "rows":
+				case "catalog":
 					return []
 				case "index": {
 					const covered = Arr.every(scan.needs, (c) => Arr.contains(scan.index.stores, c))
@@ -451,6 +456,8 @@ export const statedAtoms = (plan: ReadPlan<IndexRef>): ReadonlyArray<Atom> =>
 					]
 				: []),
 			...scans,
-			...Arr.map(scanned, (item) => one("NO_GATHER", item))
+			...Arr.flatMap(scanned, (item) =>
+				item.scan.kind === "catalog" ? [] : [one("NO_GATHER", item)]
+			)
 		]
 	})

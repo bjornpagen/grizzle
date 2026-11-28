@@ -716,7 +716,7 @@ const probeProblems = (judging: Judging, request: IndexRequest, host: IndexRef) 
 		const laws = lawsOver(scope, planned)
 		yield* session.values(probe.sql, probe.values)
 		const run = yield* advisedExplain(session, probe.sql, probe.values)
-		const budget = yield* budgetOfPlan(session, judging.read, label, run)
+		const budget = yield* budgetOfPlan(session, judging.read, label, run, new Set(scope.catalog))
 		const sorted =
 			(probe.shape === "ordered" || probe.shape === "nearest") &&
 			Arr.some(

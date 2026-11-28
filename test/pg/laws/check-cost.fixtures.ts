@@ -626,7 +626,8 @@ const lawfulRuns = (clone: RolledBack<Installed>, steps: Steps, label: string) =
 						session,
 						(sql) => Effect.orDie(superuser.query(sql, [])),
 						what,
-						plan
+						plan,
+						new Set(file.scope.catalog)
 					)
 					assert.deepEqual(budget, [], `${what} keeps its plan's budget\n${s.planned}`)
 					if (s.step.kind === "check") {

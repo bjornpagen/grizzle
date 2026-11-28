@@ -53,6 +53,7 @@ import {
 	type AccessTag,
 	type BinaryOperator,
 	builtinFunctions,
+	closedSearchPath,
 	bodyPositionNames,
 	type CreateFunction,
 	type Cte,
@@ -256,6 +257,13 @@ type Stored =
 			readonly view: Extract<BindView, { readonly kind: "whole" }>
 	  }
 
+/**
+ * Whether a relation is one of PostgreSQL's system catalogs, of its schema pg_catalog (sql/ast.ts closedSearchPath's
+ * first): a read of it is planned by PostgreSQL's costs over the catalog's real statistics (sql/plan.ts PlanScan
+ * `catalog`).
+ */
+const systemCatalog = (name: ObjectName): boolean => name.schema === closedSearchPath[0]
+
 /** The alias a stored read's plan item takes: a whole view's body's, else the read's own, `own`. */
 const itemAlias = (stored: Stored, own: Alias): Alias =>
 	stored.kind === "view" ? stored.view.alias : own
@@ -270,7 +278,8 @@ const tableColumns = (stored: Stored, read: ReadonlyArray<string>): ReadonlyArra
  * What the binding reads of an installation, by the keys of the names a statement reads (sql/ast.ts nameKey): each
  * stored table, and each role's view (BindView). A relation of neither, a session's table of a judge or one of the
  * catalog's, is read as it is written, at no binding, and its plan states no scan of it, PostgreSQL's choice, since no
- * index of the installation's serves it and only the session or the catalog knows the indexes it holds.
+ * index of the installation's serves it and only the session or the catalog knows the indexes it holds; a catalog's
+ * relation its plan states no NO_GATHER of either (`systemCatalog`).
  */
 export interface ReadCatalog {
 	readonly table: (key: NameKey) => BindTable | undefined
@@ -2399,6 +2408,12 @@ class Binder {
 		where: Expr | undefined,
 		antis: ReadonlyArray<AntiJoin>
 	): void {
+		const [catalog] = bound.flatMap((b) => (b.item.scan.kind === "catalog" ? [b.item.alias] : []))
+		if (catalog !== undefined && bound.length + antis.length > 1) {
+			return defect(
+				`a level reading the system catalog's relation ${catalog} alone, which no plan of grizzle's joins to another; it joins ${bound.length + antis.length - 1} more`
+			)
+		}
 		if (name === undefined || !isNonEmpty(bound)) {
 			return
 		}
@@ -2850,7 +2865,10 @@ class Binder {
 			readonly scan: PlanItem<AccessIndexRequest>["scan"]
 		} => {
 			if (table === undefined) {
-				return { source: read({ kind: "whole" }), scan: { kind: "rows" } }
+				return {
+					source: read({ kind: "whole" }),
+					scan: systemCatalog(source.table) ? { kind: "catalog" } : { kind: "rows" }
+				}
 			}
 			switch (access.kind) {
 				case "whole":

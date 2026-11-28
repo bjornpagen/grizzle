@@ -103,6 +103,9 @@ export const aPlansAdviceParsesAsPgPlanAdviceReadsItAndHoldsExactlyTheAtomsThePl
 								break
 							case "rows":
 								break
+							case "catalog":
+								c.note("a read of the system catalog, no atom")
+								break
 							case "index": {
 								const covered = Arr.every(scan.needs, (col) => Arr.contains(scan.index.stores, col))
 								if (covered && scan.index.returns) {
@@ -151,9 +154,18 @@ export const aPlansAdviceParsesAsPgPlanAdviceReadsItAndHoldsExactlyTheAtomsThePl
 			},
 			{
 				file: "packages/engine/src/sql/advice.ts",
-				original: "\t\t...scanned.map((item) => noGather(at(item)))",
-				replacement: "\t\t...scanned.slice(0, 1).map((item) => noGather(at(item)))",
+				original:
+					'\t\t...scanned.flatMap((item) => (item.scan.kind === "catalog" ? [] : [noGather(at(item))]))',
+				replacement:
+					'\t\t...scanned.slice(0, 1).flatMap((item) => (item.scan.kind === "catalog" ? [] : [noGather(at(item))]))',
 				why: "A joined item or an append member may run under a Gather; its NO_GATHER atom is missing."
+			},
+			{
+				file: "packages/engine/src/sql/advice.ts",
+				original:
+					'\t\t...scanned.flatMap((item) => (item.scan.kind === "catalog" ? [] : [noGather(at(item))]))',
+				replacement: "\t\t...scanned.map((item) => noGather(at(item)))",
+				why: "A read of the system catalog carries a NO_GATHER, an atom of a relation PostgreSQL plans by its own costs, which the advice holds none of."
 			},
 			{
 				file: "packages/engine/src/sql/advice.ts",

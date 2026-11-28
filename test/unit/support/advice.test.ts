@@ -165,9 +165,9 @@ export const theLawsFindExactlyTheFailuresOfEachMeasuredPlan = property.exhaust(
 		},
 		{
 			file: "test/support/advice.ts",
-			original: "\t\t\t\t(a) => !Arr.some(a.relations, (r) => catalog.has(targetText(r)))\n",
+			original: "\t\t\t\t(a) => !Arr.some(a.relations, (r) => catalog.has(r.alias))\n",
 			replacement: "\t\t\t\t() => true\n",
-			why: "A system catalog's read is held to advice grizzle never carries for it: PostgreSQL's own index of pg_class fails Law 1 for a catalog read sql/catalog.ts states, which stays cost-chosen."
+			why: "A system catalog's read, its plan item's scan `catalog`, is held to advice grizzle never carries for it: PostgreSQL's own index of pg_class fails Law 1 for a catalog read, which stays cost-chosen."
 		},
 		{
 			file: "test/support/advice.ts",

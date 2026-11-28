@@ -8,8 +8,9 @@
  *   `matched`, with no flag; and no node is disabled. The comparison is CARRY-CONTRACT §3's: a generated atom whose
  *   targets grizzle named (an alias the scope minted, at the top level or a level it minted) is one of the carried, and
  *   every other is a NO_GATHER of a relation at a level PostgreSQL named (a sublink's one item, `"*RESULT*"`). The laws
- *   cover every statement over grizzle's own relations: a read of PostgreSQL's system catalogs (sql/catalog.ts) stays
- *   cost-chosen, with real statistics and no proof of grizzle's, as does a consumer's hand-written migration DML, which
+ *   cover every statement over grizzle's own relations: a read of PostgreSQL's system catalogs stays cost-chosen, with
+ *   real statistics and no proof of grizzle's, its plan item's scan `catalog` (sql/plan.ts PlanScan), which the
+ *   advice holds no atom of and the budget bounds no scan of, as does a consumer's hand-written migration DML, which
  *   grizzle never binds, and the migration runner's own bookkeeping of its ledger (`__ledger`'s INSERT ... VALUES, its
  *   redraft's UPDATE and its head's one-row upsert), bounded by the ledger's size, the count of migrations; a drafted
  *   data step is bound and advised against the indexes in force when its file runs.
@@ -827,8 +828,9 @@ export type ScopeSends = (typeof scopeSends)[number]
  * An advice scope as the laws read it (CARRY-CONTRACT §4, sql/naming.ts AdviceScope): its label; the advice grizzle
  * carries for it; its plan's names, each item's alias and its target once for each item it scans (a whole view's alias,
  * the view body's, stands at each level that reads it, its targets apart by their levels) and each level it named once
- * for each level; its reads, each by its target with the columns its index condition binds, a TID scan's its ctid; its
- * statements; and its vehicle.
+ * for each level; its reads, each by its target with the columns its index condition binds, a TID scan's its ctid; the
+ * aliases of its reads of PostgreSQL's system catalogs (PlanScan `catalog`), which Law 1 and the budget leave to
+ * PostgreSQL's costs; its statements; and its vehicle.
  */
 export interface LawScope {
 	readonly label: string
@@ -838,6 +840,7 @@ export interface LawScope {
 	readonly targets: ReadonlyArray<string>
 	readonly levels: ReadonlyArray<string>
 	readonly reads: ReadonlyArray<BoundRead>
+	readonly catalog: ReadonlyArray<string>
 	readonly statements: Arr.NonEmptyReadonlyArray<ScopeStatement>
 	readonly vehicle: Vehicle
 }
@@ -853,7 +856,7 @@ const targetAt = (level: PlanLevel<IndexRef>, alias: string): string =>
  */
 export const planFacts = (
 	plan: ReadPlan<IndexRef>
-): Pick<LawScope, "aliases" | "targets" | "levels" | "reads"> => ({
+): Pick<LawScope, "aliases" | "targets" | "levels" | "reads" | "catalog"> => ({
 	aliases: Arr.flatMap(plan.levels, (level) => Arr.map(scannedItems(level), (item) => item.alias)),
 	targets: Arr.flatMap(plan.levels, (level) =>
 		Arr.map(scannedItems(level), (item) => targetAt(level, item.alias))
@@ -874,9 +877,13 @@ export const planFacts = (
 					return [{ alias: item.alias, target, bound: ["ctid"], stores: ["ctid"] }]
 				case "seq":
 				case "rows":
+				case "catalog":
 					return []
 			}
 		})
+	),
+	catalog: Arr.flatMap(plan.levels, (level) =>
+		Arr.flatMap(scannedItems(level), (item) => (item.scan.kind === "catalog" ? [item.alias] : []))
 	)
 })
 
@@ -1233,24 +1240,9 @@ const nodeText = (n: LawNode): string =>
  * the scope's advice; a statement's own atoms (those of the scope's advice it reports `matched`) are its generated
  * atoms grizzle named, each matched with no flag; every other generated atom is a NO_GATHER; and no node is disabled.
  */
-/** A relation target's text as a LawNode's target holds it: its alias, `@` its plan where it names one. */
-const targetText = (r: RelationTarget): string =>
-	Option.match(r.plan, { onNone: () => r.alias, onSome: (p) => `${r.alias}@${p}` })
-
-/**
- * The targets of `plan`'s scans of PostgreSQL's system catalogs (`pg_catalog`'s relations, sql/catalog.ts's reads),
- * which grizzle binds to no index and carries nothing for: PostgreSQL plans them by its own costs over real
- * statistics, so Law 1 leaves every atom on one to it.
- */
-const catalogTargets = (plan: AdvisedPlan): ReadonlySet<string> =>
-	new Set(
-		Arr.flatMap([...lawNodes(plan.root)], (n) =>
-			Option.exists(n.relation, Str.startsWith("pg_catalog.")) ? Option.toArray(n.target) : []
-		)
-	)
-
 const planIdentity = (scope: LawScope, planned: PlannedScope): ReadonlyArray<string> => {
 	const minted = new Set([...scope.aliases, ...scope.levels])
+	const catalog = new Set(scope.catalog)
 	const carried = new Set(Arr.map(carriedAtoms(scope.advice), (a) => a.text))
 	const held = new Set(Arr.map(carriedAtoms(planned.inForce), (a) => a.text))
 	const vehicle = [
@@ -1269,10 +1261,9 @@ const planIdentity = (scope: LawScope, planned: PlannedScope): ReadonlyArray<str
 			const own = new Set(
 				Arr.flatMap(supplied, (x) => (x.feedback.match === "matched" ? [x.atom.text] : []))
 			)
-			const catalog = catalogTargets(plan)
 			const generated = Arr.filter(
 				plan.generated,
-				(a) => !Arr.some(a.relations, (r) => catalog.has(targetText(r)))
+				(a) => !Arr.some(a.relations, (r) => catalog.has(r.alias))
 			)
 			const ours = Arr.filter(generated, (a) => namedBy(minted, a))
 			const oursText = new Set(Arr.map(ours, (a) => a.text))
@@ -2111,17 +2102,20 @@ export const budgetOver = (
 	label: string,
 	plan: PlanNode,
 	heights: ReadonlyMap<string, number>,
-	pages: ReadonlyMap<string, number>
+	pages: ReadonlyMap<string, number>,
+	catalog: ReadonlySet<string>
 ): ReadonlyArray<string> =>
 	Arr.flatMap([...planNodes(plan)], (n) =>
-		Option.match(Rec.get(scanBudgets, n.nodeType), {
-			onNone: () => [],
-			onSome: (bound) =>
-				Arr.map(
-					bound({ node: n, heights, pages }),
-					(problem) => `${label}: its ${scanText(n)}${problem}`
-				)
-		})
+		Option.exists(n.alias, (a) => catalog.has(a))
+			? []
+			: Option.match(Rec.get(scanBudgets, n.nodeType), {
+					onNone: () => [],
+					onSome: (bound) =>
+						Arr.map(
+							bound({ node: n, heights, pages }),
+							(problem) => `${label}: its ${scanText(n)}${problem}`
+						)
+				})
 	)
 
 /** A scan as a budget's problem names it: its type, its occurrence's alias, its index and its index condition. */
@@ -2155,7 +2149,8 @@ export const budgetOfPlan = (
 	session: BenchSession,
 	read: SuperuserRead,
 	label: string,
-	plan: PlanNode
+	plan: PlanNode,
+	catalog: ReadonlySet<string>
 ): Effect.Effect<ReadonlyArray<string>, SqlError> =>
 	Effect.gen(function* () {
 		const nodes = [...planNodes(plan)]
@@ -2188,7 +2183,7 @@ export const budgetOfPlan = (
 				})
 			)
 		)
-		return budgetOver(label, plan, byName, new Map(sized))
+		return budgetOver(label, plan, byName, new Map(sized), catalog)
 	})
 
 /**
@@ -2223,7 +2218,8 @@ export const budgetOfScope = (
 				session,
 				read,
 				`${scope.label}, ${s.label}`,
-				run.plan
+				run.plan,
+				new Set(scope.catalog)
 			)) {
 				problems.push(problem)
 			}
