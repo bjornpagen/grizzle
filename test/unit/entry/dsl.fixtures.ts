@@ -90,29 +90,6 @@ export const besideTheDsl: ReadonlyArray<string> = [
 	"values"
 ]
 
-/**
- * The one part of the compiler the DSL loads, the SQL printer, in code point order: a str.regex descriptor's admission
- * (text/refinement.ts analyzeText) analyzes its patterns once and chooses its CHECK, `VALUE IN (...)` or
- * `VALUE ~ 'ARE'`, by which prints shorter, so building the descriptor prints both; and the CHECK it keeps is part of
- * the text domain's identity digest, so the choice cannot wait for the compiler.
- */
-export const printer: ReadonlyArray<string> = Arr.sort(
-	[
-		"packages/engine/src/sql/ast.ts",
-		"packages/engine/src/sql/build.ts",
-		"packages/engine/src/sql/catalog.ts",
-		"packages/engine/src/sql/escape.ts",
-		"packages/engine/src/sql/generation.ts",
-		"packages/engine/src/sql/lexer.ts",
-		"packages/engine/src/sql/print.ts",
-		"packages/engine/src/sql/print-once.ts",
-		"packages/engine/src/sql/pull-up.ts",
-		"packages/engine/src/sql/scope.ts",
-		"packages/engine/src/sql/transform.ts"
-	],
-	Order.String
-)
-
 /** Every TypeScript source of the checkout's packages, by its path in the checkout, in code point order. */
 export const packageSources = (checkout: string) =>
 	Effect.gen(function* () {

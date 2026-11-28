@@ -19,7 +19,8 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import { formSource } from "#compiler/scalar/lexical.ts"
 import { printExpr } from "#compiler/sql/print.ts"
 import { regexField } from "#compiler/text/field.ts"
-import { domainValue, membership, type TextRefinement } from "#compiler/text/refinement.ts"
+import { domainValue, membership } from "#compiler/text/membership.ts"
+import type { TextRefinement } from "#compiler/text/refinement.ts"
 import { Id } from "#test/support/ids.ts"
 import { jsMatcher } from "#test/support/regex.ts"
 import {
@@ -260,8 +261,8 @@ export type GuardFeature =
 	| "refused"
 	| "admitted where neither pattern alone lies inside the form"
 
-/** The bytes a check's predicate over VALUE prints in. */
-export const predicateBytes = (r: TextRefinement): number =>
+/** The bytes the printer prints a check's predicate over VALUE in, its own text measured. */
+export const printedBytes = (r: TextRefinement): number =>
 	r.check.kind === "tautology" ? 0 : utf8Length(printExpr(membership(r.check, domainValue)))
 
 /** The bytes each member's own test prints in, `VALUE ~ '<ARE>'`, the test a conjunction's CHECK joins by AND. */

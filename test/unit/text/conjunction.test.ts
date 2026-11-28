@@ -67,7 +67,7 @@ import {
 	loc,
 	memberBytes,
 	nfaOf,
-	predicateBytes,
+	printedBytes,
 	reversed,
 	shortTexts,
 	sizeCaseGen,
@@ -404,8 +404,8 @@ export const aConjunctionsCHECKPrintsInNoMoreBytesThanItsMembersOwnTestsJoinedBy
 						k.note("more than four patterns")
 					}
 					assert.ok(
-						predicateBytes(r) <= memberBytes(r) + andBytes * (patterns.length - 1),
-						`${Formatter.format(patterns)}: ${predicateBytes(r)} bytes`
+						printedBytes(r) <= memberBytes(r) + andBytes * (patterns.length - 1),
+						`${Formatter.format(patterns)}: ${printedBytes(r)} bytes`
 					)
 				}),
 		oracle: {

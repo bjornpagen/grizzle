@@ -12,11 +12,8 @@ import type { RegexCheck } from "#compiler/ir/scalar.ts"
 import { createDomain } from "#compiler/physical/ddl/domains.ts"
 import { emit, costChosen } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
-import {
-	analyzeText,
-	textDomainDefinition,
-	type TextRefinement
-} from "#compiler/text/refinement.ts"
+import { textDomainDefinition } from "#compiler/text/membership.ts"
+import { analyzeText, type TextRefinement } from "#compiler/text/refinement.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { refinementBounds } from "#test/support/text.ts"
 import {

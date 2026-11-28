@@ -1,5 +1,3 @@
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
-import { readJson } from "@bjornpagen/grizzle-text/chunks"
 import type { Result } from "effect"
 import { rowOptions, toResult } from "#adapter/engine.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
@@ -11,15 +9,11 @@ import {
 	insertPreviewOver
 } from "#compiler/plan/change.ts"
 import {
-	type AnyContract,
 	type AnySchema,
 	type CodecFault,
 	type CompileError,
 	codecTextOver,
-	contractFileOf,
-	contractText,
 	type Decoders,
-	Engine,
 	type HeadOf,
 	type RowEvaluator,
 	rowEvaluatorOver,
@@ -29,9 +23,8 @@ import {
 
 /**
  * Public barrel: the host's readings of a schema's values, which send no SQL: insertPreview, factsDecoder,
- * rowEvaluator, codecText, rowText and contractCheck. packages/grizzle/src/compile.ts re-exports it, beside lawsOf,
- * lawsByStatement and constraintNamesOf: each compiles the schema or the contract it is given, so none is the authoring
- * entry's. Each answers Effect's
+ * rowEvaluator, codecText and rowText. packages/grizzle/src/compile.ts re-exports it, beside lawsOf,
+ * lawsByStatement and constraintNamesOf: each compiles the schema it is given, so none is the authoring entry's. Each answers Effect's
  * Result, the one Result a caller reads:
  * the engine computes each answer in its own (core/result.ts) and spells it through toResult (adapter/engine.ts), the
  * PublicResult each takes, where the answer is made, so an item computed where it is first read stays so.
@@ -81,27 +74,6 @@ export const rowEvaluator = <S extends AnySchema>(
 export const codecText = <V>(
 	field: TextedField<V>
 ): ((value: V) => Result.Result<string, CodecFault>) => codecTextOver(field, toResult)
-
-/**
- * contractCheck(contract): the JSON value of the contract's checker file, exactly what `grizzle generate` writes for a
- * configuration that names it (its `contracts`, `<migrations>/contract-checks/<name>.json`) and what an import of that
- * file yields (engine program/contract.ts contractFileOf, served/json.ts contractText): the contract compiled once, as a
- * Result whose error is the CompileError of a contract that does not compile. A test builds the contract's checked mint
- * over it, @bjornpagen/grizzle/runtime's contractParser, as an application does over the committed file, with no
- * generate run.
- */
-export const contractCheck = (contract: AnyContract): Result.Result<unknown, CompileError> =>
-	toResult(
-		Engine.flatMap(contractFileOf(contract), (file) =>
-			Engine.map(contractText(file), (text) => {
-				const read = readJson(text)
-				if (!read.ok) {
-					defect("a contract's checker file's text, which grizzle writes, is JSON")
-				}
-				return read.value
-			})
-		)
-	)
 
 /**
  * rowText(query): the one text of each row the query delivers, its decoder read once (engine program/text.ts), as a

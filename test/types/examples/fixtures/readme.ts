@@ -142,7 +142,6 @@ ChangeSet.empty(Member).insert(OrgPost, [])
 export default defineConfig({
 	schemas: [Blog],
 	logins: [Web],
-	contracts: [],
 	migrations: "migrations",
 	rolePrefixBytes: 0,
 	/** Where `grizzle migrate` connects, as the role that owns the schema. */

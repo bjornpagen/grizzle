@@ -778,8 +778,12 @@ export default defineConfig(
 				})
 			},
 			{
-				/** A package's entry points are its public surface, each the modules it re-exports: its index, and grizzle's runtime entry, @bjornpagen/grizzle/runtime. */
-				files: ["packages/*/src/index.ts", "packages/grizzle/src/runtime.ts"],
+				/** A package's entry points are its public surface, each the modules it re-exports: its index, grizzle's runtime entry, @bjornpagen/grizzle/runtime, and its contract entry, @bjornpagen/grizzle/contract. */
+				files: [
+					"packages/*/src/index.ts",
+					"packages/grizzle/src/runtime.ts",
+					"packages/grizzle/src/contract.ts"
+				],
 				rules: active({ "oxc/no-barrel-file": "off" })
 			},
 			{

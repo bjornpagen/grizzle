@@ -77,18 +77,17 @@ export const aProgramOverEachRuntimeEntryLoadsModulesOfTheRuntimeZonesAloneNoCom
 		kills: [
 			{
 				file: "packages/engine/src/plan/runtime.ts",
-				original: 'export { contractFile, servedFile } from "#compiler/served/json.ts"\n',
+				original: 'export { servedFile } from "#compiler/served/json.ts"\n',
 				replacement:
-					'export { contractFile, servedFile } from "#compiler/served/json.ts"\nexport { compiledSchema } from "#compiler/program/schema.ts"\n',
+					'export { servedFile } from "#compiler/served/json.ts"\nexport { compiledSchema } from "#compiler/program/schema.ts"\n',
 				why: "The runtime facade re-exports the schema's compile: every process that serves a login loads the law model, the checker and the lowering beneath it."
 			},
 			{
-				file: "packages/engine/src/plan/runtime.ts",
-				original:
-					'export { type ContractParser, contractParserOver } from "#compiler/runtime/contract.ts"\n',
+				file: "packages/grizzle/src/runtime.ts",
+				original: 'export * from "#adapter/public/db.ts"\n',
 				replacement:
-					'export { type ContractParser, contractParserOver } from "#compiler/runtime/contract.ts"\nexport { contractFileOf } from "#compiler/program/contract.ts"\n',
-				why: "The runtime's contract parser comes with the contract's compile beside it: every process that parses a contract's values at a boundary loads the checker, the schema's reading of a field and the predicate's lowering, where it reads the checker file generate compiled."
+					'export * from "#adapter/public/contract.ts"\nexport * from "#adapter/public/db.ts"\n',
+				why: "The runtime entry re-exports the contract parser again, as it did: every process that serves a login loads the text-language analysis and the predicate lowering a contract's checker is derived by, whether it parses a contract's values or not."
 			},
 			{
 				file: ".fallowrc.json",

@@ -95,7 +95,6 @@ export const drift = property.explore(steered(aimedPlantsGen), {
 					const w = worlds(name)
 					const ws = yield* workspace("drift")
 					const config = defineConfig({
-						contracts: [],
 						schemas: [w.schema],
 						logins: [w.desk],
 						migrations: "migrations",

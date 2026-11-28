@@ -81,7 +81,6 @@ export const aLoginsServedFileIsTheSameTextFromTheDraftsWorkloadPlanAndFromTheCo
 				})
 				const config = yield* resolveConfig(
 					defineConfig({
-						contracts: [],
 						schemas: [Reports],
 						logins: [below, above],
 						migrations: "migrations",

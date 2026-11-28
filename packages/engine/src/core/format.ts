@@ -18,11 +18,8 @@ export const artifactFormat = 9
 /** The member of a snapshot.json or a served file that records its format (artifactFormat). */
 export const formatKey = "format"
 
-/**
- * The files that record their format: a committed snapshot, by its snapshot.json, a login's served file, and a
- * contract's checker file (runtime/contract.ts ContractFile), the served files' artifact kind.
- */
-export const formattedFiles = ["snapshot", "served", "contract"] as const
+/** The files that record their format: a committed snapshot, by its snapshot.json, and a login's served file. */
+export const formattedFiles = ["snapshot", "served"] as const
 
 /** A file that records its format (formattedFiles). */
 export type FormattedFile = (typeof formattedFiles)[number]
@@ -44,8 +41,7 @@ export type FormattedFile = (typeof formattedFiles)[number]
  */
 export const recordShapes: { readonly [F in FormattedFile]: string } = {
 	snapshot: "daa8e8007aacbd82b73b18923e5f49eede49ad72517215ee77970f9e4480d4a9",
-	served: "ddc884232e40fe7411c4291ffd4e944202cee92e100b3ccbb5553627e43c1a0d",
-	contract: "986dcb6a85c77f5b7164d034318dc1e6f463a3473b6ba15f6409163b9b711f06"
+	served: "ddc884232e40fe7411c4291ffd4e944202cee92e100b3ccbb5553627e43c1a0d"
 }
 
 /**
@@ -54,8 +50,7 @@ export const recordShapes: { readonly [F in FormattedFile]: string } = {
  */
 export const formatOf: { readonly [F in FormattedFile]: string } = {
 	snapshot: `${artifactFormat}:${recordShapes.snapshot}`,
-	served: `${artifactFormat}:${recordShapes.served}`,
-	contract: `${artifactFormat}:${recordShapes.contract}`
+	served: `${artifactFormat}:${recordShapes.served}`
 }
 
 /** Whether `file`'s recorded format, as read, is this grizzle's (formatOf). */
@@ -94,10 +89,6 @@ export const formatRefusal: {
 	served: {
 		problem: "the served file records another format than this grizzle's",
 		fix: servedFileFix
-	},
-	contract: {
-		problem: "the contract's checker file records another format than this grizzle's",
-		fix: "run grizzle generate over the configuration that names the contract, which writes its file again under this grizzle's format"
 	}
 }
 

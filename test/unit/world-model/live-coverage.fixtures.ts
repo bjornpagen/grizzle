@@ -177,7 +177,6 @@ export const coveredWhereMigrated = (install: InstallSpec, c: Case<Feature>) =>
 		const config = yield* Effect.orDie(
 			resolveConfig(
 				defineConfig({
-					contracts: [],
 					schemas: [built.made.base],
 					logins,
 					migrations: "migrations",

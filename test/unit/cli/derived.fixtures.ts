@@ -82,7 +82,6 @@ const ident = identifierOf(identity.schema(parsedSchemaName("DerivedShop")))
 export const schemaDir = `migrations/${ident}`
 
 export const config = defineConfig({
-	contracts: [],
 	schemas: [shop.schema],
 	logins: [shop.server],
 	migrations: "migrations",

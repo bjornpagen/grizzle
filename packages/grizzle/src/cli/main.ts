@@ -40,7 +40,7 @@ const unloaded =
  * a draft's configuration input (draft-inputs.ts). A module the command line had loaded already is grizzle's or a
  * package's, which other inputs name, so what the import loads anew is every module of the configuration's own.
  */
-const configAt = (
+export const configAt = (
 	file: string
 ): Effect.Effect<ConfigFile, CliError, FileSystem.FileSystem | Path.Path> =>
 	Effect.gen(function* () {

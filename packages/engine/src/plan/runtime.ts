@@ -125,8 +125,7 @@ export {
 export { ServedPatterns } from "#compiler/scalar/regex/matcher.ts"
 export { sameBytes } from "#compiler/scalar/values/bytes.ts"
 export { compareValues } from "#compiler/scalar/values/identity.ts"
-export { contractFile, servedFile } from "#compiler/served/json.ts"
-export { type ContractParser, contractParserOver } from "#compiler/runtime/contract.ts"
+export { servedFile } from "#compiler/served/json.ts"
 export { carried, servedTree } from "#compiler/served/read.ts"
 export {
 	decodeKey,

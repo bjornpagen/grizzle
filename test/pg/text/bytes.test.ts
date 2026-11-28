@@ -72,7 +72,7 @@ export const strBytesGeneratedStoresExactlyTheTextsOfItsPatternOfAtMostNBytesAsT
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/text/refinement.ts",
+				file: "packages/engine/src/text/membership.ts",
 				original: '\tle(call("octet_length", [value]), lit.int(octets, types.integer))',
 				replacement: '\tle(call("char_length", [value]), lit.int(octets, types.integer))',
 				why: "str.bytes bounding characters, not UTF-8 bytes."

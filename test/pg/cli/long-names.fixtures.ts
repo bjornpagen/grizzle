@@ -177,7 +177,6 @@ export const limitCase = (n: Names, c: Case<LimitFeature>) =>
 			const fs = yield* FileSystem.FileSystem
 			const dir = yield* workspace("limit")
 			const config = defineConfig({
-				contracts: [],
 				schemas: [world.schema],
 				logins: [world.login],
 				migrations: "migrations",

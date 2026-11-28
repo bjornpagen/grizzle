@@ -81,7 +81,6 @@ export const heapConfig = (c: HeapCase) => {
 		})
 	})
 	return defineConfig({
-		contracts: [],
 		schemas: [base],
 		logins,
 		migrations: "migrations",

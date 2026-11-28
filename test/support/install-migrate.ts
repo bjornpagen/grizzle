@@ -1179,7 +1179,6 @@ export const generatedDrafting = (
 				Effect.gen(function* () {
 					const config = yield* resolveConfig(
 						defineConfig({
-							contracts: [],
 							schemas: [version.schema],
 							logins: version.logins,
 							migrations: "migrations",

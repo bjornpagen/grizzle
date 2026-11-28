@@ -7,9 +7,10 @@
  *
  * Oracle: the architecture's zones (.fallowrc.json), which classify every module: the DSL's are dsl-<zone>, each the
  * part of <zone> the entry loads, whose rules let them load only each other, browser-core, credential, values and
- * grizzle-text. A program loads no module of the packages outside them, of the compiler's SQL only the printer (dsl.fixtures.ts
- * printer states why), and every module the DSL's zones name, so the zones are the entry's closure and no more. Read off
- * a load hook in the child (test/support/load-probe.ts).
+ * grizzle-text. A program loads no module of the packages outside them, none of the compiler's SQL among them (a text
+ * refinement's CHECK is chosen by the bytes the text analysis states it prints in, not by printing it), and every module
+ * the DSL's zones name, so the zones are the entry's closure and no more. Read off a load hook in the child
+ * (test/support/load-probe.ts).
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -21,7 +22,6 @@ import {
 	besideTheDsl,
 	isDslZone,
 	packageSources,
-	printer,
 	probedProgram,
 	programGen,
 	zoneOf,
@@ -30,8 +30,7 @@ import {
 
 /**
  * A program over the authoring entry loads the DSL alone: no module of the packages outside the DSL's zones,
- * browser-core, credential, values and grizzle-text, the SQL printer alone of the compiler's SQL, and every module the DSL's zones
- * name.
+ * browser-core, credential, values and grizzle-text, none of the compiler's SQL, and every module the DSL's zones name.
  */
 export const aProgramOverTheAuthoringEntryLoadsTheDslAloneNoCompilerInstallOrRuntimeModuleAndEveryModuleTheDslZonesName =
 	property.exhaust(finite(programGen), {
@@ -62,11 +61,6 @@ export const aProgramOverTheAuthoringEntryLoadsTheDslAloneNoCompilerInstallOrRun
 					[],
 					`${program} loads a module outside the DSL`
 				)
-				assert.deepEqual<ReadonlyArray<string>>(
-					Arr.filter(ours, Str.startsWith("packages/engine/src/sql/")),
-					printer,
-					`${program} loads the compiler's SQL printer and no more of its SQL`
-				)
 				const sources = yield* packageSources(checkout)
 				const named = Arr.filter(sources, (file) => isDslZone(zoneOf(zones, file)))
 				assert.deepEqual(
@@ -77,10 +71,17 @@ export const aProgramOverTheAuthoringEntryLoadsTheDslAloneNoCompilerInstallOrRun
 			}),
 		oracle: {
 			kind: "specification",
-			name: "the architecture's DSL zones (.fallowrc.json dsl-*), browser-core, credential, values and grizzle-text, and the SQL printer the DSL loads"
+			name: "the architecture's DSL zones (.fallowrc.json dsl-*), browser-core, credential, values and grizzle-text"
 		},
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/text/refinement.ts",
+				original: 'import { structuralBounds } from "#compiler/text/bounds.ts"\n',
+				replacement:
+					'import { structuralBounds } from "#compiler/text/bounds.ts"\nimport "#compiler/sql/print.ts"\n',
+				why: "The text analysis loads the SQL printer again, as it did when it chose a refinement's CHECK by printing both: every program loads the compiler's SQL."
+			},
 			{
 				file: "packages/grizzle/src/index.ts",
 				original: 'export * from "#adapter/public/config.ts"\n',

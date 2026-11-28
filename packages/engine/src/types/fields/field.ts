@@ -431,10 +431,7 @@ export interface Contract<
 	readonly base: B
 }
 
-/**
- * Any consumer's contract, whatever its name, base, key and declared facts: what a configuration's `contracts` lists,
- * each compiled into its checker file (served/forms.ts ContractFile).
- */
+/** Any consumer's contract, whatever its name, base, key and declared facts. */
 export type AnyContract = Contract<string, FieldBase, symbol>
 
 /**

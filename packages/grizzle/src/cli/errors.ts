@@ -292,6 +292,23 @@ export class ConfigUnloaded extends Data.TaggedError("ConfigUnloaded")<{
 }
 
 /**
+ * The configuration file `file` imports, through the modules it reaches, files of its migrations directory
+ * `migrations`, which `grizzle generate` writes (`read`, each absolute, in the order Node loaded them): a configuration
+ * that reads what generate writes stops loading as soon as a file of it is of another format, removed or not yet
+ * written, and then the generate that would write it again cannot run, and a draft would be a function of its own
+ * output. So no module a configuration reaches imports one; a running application's entry imports its served files.
+ */
+export class ConfigReadsGenerated extends Data.TaggedError("ConfigReadsGenerated")<{
+	readonly file: string
+	readonly migrations: string
+	readonly read: readonly [string, ...Array<string>]
+}> {
+	override get message(): string {
+		return `${this.file} imports files grizzle generate writes in ${this.migrations}: ${Arr.join(this.read, ", ")}; a configuration that reads them cannot load once generate rewrites them, so import none from any module the configuration reaches, and import a login's served file from the running application's entry alone`
+	}
+}
+
+/**
  * The configuration file `file` has no default export, or its default export is no object, or no object defineConfig
  * built.
  */
@@ -306,7 +323,7 @@ export class ExportRefused extends Data.TaggedError("ExportRefused")<{
 			case "notAnObject":
 				return `the default export of ${this.file} must be a configuration object`
 			case "notDefined":
-				return `the default export of ${this.file} must be built by defineConfig, imported from @bjornpagen/grizzle: export default defineConfig({ schemas: [...], logins: [...], contracts: [...], migrations: "...", connection: { ... } })`
+				return `the default export of ${this.file} must be built by defineConfig, imported from @bjornpagen/grizzle: export default defineConfig({ schemas: [...], logins: [...], migrations: "...", connection: { ... } })`
 		}
 	}
 }
@@ -315,7 +332,6 @@ export class ExportRefused extends Data.TaggedError("ExportRefused")<{
 export const configSettings = [
 	"schemas",
 	"logins",
-	"contracts",
 	"migrations",
 	"rolePrefixBytes",
 	"connection"
@@ -325,14 +341,12 @@ export const configSettings = [
  * The settings whose value the configuration reads itself; `connection` is a function migrate and drift call and
  * check the result of, so the configuration refuses only a connection that is no function.
  */
-type ReadSetting = "schemas" | "logins" | "contracts" | "migrations" | "rolePrefixBytes"
+type ReadSetting = "schemas" | "logins" | "migrations" | "rolePrefixBytes"
 
 const malformedSettingText: Readonly<Record<ReadSetting, string>> = {
 	schemas: "schemas must be a nonempty list of the declared schema values to migrate",
 	logins:
 		"logins must be a list of the login values whose roles the migrations install, and whose workloads plan its indexes",
-	contracts:
-		"contracts must be a list of the consumers' contract values whose checker files generate compiles, each a contract a running application parses values of",
 	migrations:
 		"migrations must be a nonempty path of the migrations directory, absolute or relative to the configuration file's directory",
 	rolePrefixBytes: `rolePrefixBytes must be an integer from 0 to ${maxRolePrefixBytes}: the bytes of the longest role prefix an installation of the configuration is under, 0 where none is under one`
@@ -456,30 +470,6 @@ export class LoginEntryRefused extends Data.TaggedError("LoginEntryRefused")<{
 				return `${at} (${fault.login}) names ${fault.name}, one name with ${holderText(fault.holder)} of schema ${fault.schema}; logins and roles of one schema have names that convert apart, their PostgreSQL roles being <schema>__<name>, so rename one of them`
 			case "roleTooLong":
 				return `${at} (${fault.login}): the PostgreSQL role of ${holderText(fault.holder)}, ${fault.role}, takes ${fault.bytes} bytes under a role prefix of ${fault.prefixBytes} bytes (<prefix>__${fault.role}, rolePrefixBytes), past PostgreSQL's ${fault.limit}, which would cut it short; shorten its name or its schema's, or the prefix`
-		}
-	}
-}
-
-/**
- * A `contracts` entry refused: one that does not compile, a value that is no contract among them (`uncompiled`, the
- * engine's CompileError), or a contract of a name another entry holds (`shared`), since its file is named by it.
- */
-type ContractEntryFault =
-	| { readonly kind: "uncompiled"; readonly error: CompileError }
-	| { readonly kind: "shared"; readonly name: string; readonly other: number }
-
-export class ContractEntryRefused extends Data.TaggedError("ContractEntryRefused")<{
-	readonly index: number
-	readonly fault: ContractEntryFault
-}> {
-	override get message(): string {
-		const at = `contracts[${this.index}]`
-		const fault = this.fault
-		switch (fault.kind) {
-			case "uncompiled":
-				return `${at} does not compile: ${fault.error.message}`
-			case "shared":
-				return `${at} is the contract ${fault.name}, as contracts[${fault.other}] is: a contract's checker file is named by its name, so list each contract once`
 		}
 	}
 }
@@ -864,10 +854,10 @@ type CliReason =
 	| ConfigMissing
 	| ConfigUnloaded
 	| ExportRefused
+	| ConfigReadsGenerated
 	| SettingRefused
 	| SchemaEntryRefused
 	| LoginEntryRefused
-	| ContractEntryRefused
 	| ConnectionRefused
 	| ConnectionThrew
 	| ConnectionEnvironmentRefused
@@ -897,10 +887,10 @@ const stageOf: { readonly [Tag in CliReason["_tag"]]: CliStage } = {
 	ConfigMissing: "config",
 	ConfigUnloaded: "config",
 	ExportRefused: "config",
+	ConfigReadsGenerated: "config",
 	SettingRefused: "config",
 	SchemaEntryRefused: "config",
 	LoginEntryRefused: "config",
-	ContractEntryRefused: "generate",
 	ConnectionRefused: "config",
 	ConnectionThrew: "config",
 	ConnectionEnvironmentRefused: "environment",

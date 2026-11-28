@@ -107,7 +107,7 @@ export { shop }
 const configText = `import { defineConfig } from "@bjornpagen/grizzle"
 import { server, shop } from "./${schemaModule}"
 
-export default defineConfig({ contracts: [],
+export default defineConfig({
 	schemas: [shop],
 	logins: [server],
 	migrations: "migrations",

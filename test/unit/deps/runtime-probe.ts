@@ -211,6 +211,7 @@ const field = await import("#compiler/text/field.ts")
 const parse = await import("@bjornpagen/grizzle-text/regex/parse")
 const programPatterns = (await import("#compiler/scalar/regex/patterns.ts")).ProgramPatterns.of
 const refinement = await import("#compiler/text/refinement.ts")
+const membership = await import("#compiler/text/membership.ts")
 const texts = await import("#test/support/text.ts")
 const loc = await import("#compiler/core/loc.ts")
 const generators = await import("#test/support/unit/text/generators.ts")
@@ -234,7 +235,7 @@ const admittedChecks: ReadonlyArray<ReadonlyArray<boolean>> = Arr.flatMap(
 			const regex = texts.textInfo(result.value)
 			const check = result.value.check
 			if (check.kind !== "tautology") {
-				refinement.membership(check, refinement.domainValue)
+				membership.membership(check, membership.domainValue)
 			}
 			if (typeof regex === "string") {
 				return [[]]

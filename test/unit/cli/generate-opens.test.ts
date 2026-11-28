@@ -60,7 +60,6 @@ export const generateAndDbLayerMakeCompileALoginsProgramsAlikeAtTheSelectListsBo
 				const pairs = pairsOf(head)
 				const config = yield* resolveConfig(
 					defineConfig({
-						contracts: [],
 						schemas: [pairs.schema],
 						logins: [pairs.login],
 						migrations: "migrations",

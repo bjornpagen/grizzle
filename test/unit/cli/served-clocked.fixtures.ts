@@ -228,7 +228,6 @@ export const compiled = (c: Case, clocked: boolean) =>
 		const app = login(Box, "app", [worker], { workload: [workload(Box, programsOf(c, clocked))] })
 		const config = yield* resolveConfig(
 			defineConfig({
-				contracts: [],
 				schemas: [Box],
 				logins: [app],
 				migrations: "migrations",

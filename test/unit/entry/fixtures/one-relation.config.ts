@@ -23,7 +23,6 @@ const reader = role(Notes, "reader", wholeEntriesOf(Notes))
 const Web = login(Notes, "web", [reader], { workload: [] })
 
 export default defineConfig({
-	contracts: [],
 	schemas: [Notes],
 	logins: [Web],
 	migrations: "migrations",

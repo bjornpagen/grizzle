@@ -68,7 +68,7 @@ import {
 import { and } from "#compiler/sql/build.ts"
 import { Transform } from "#compiler/sql/transform.ts"
 import { digestedHooks, digestedTypes } from "#compiler/sql/type-schemas.ts"
-import { domainValue, membershipTerms, textDomainDefinition } from "#compiler/text/refinement.ts"
+import { domainValue, membershipTerms, textDomainDefinition } from "#compiler/text/membership.ts"
 import type { DeclaredEntry, StatedLaw } from "#compiler/types/changeset/changeset.ts"
 
 /** The regex of a column that a structural text domain types: refined text outside any contract. */

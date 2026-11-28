@@ -213,7 +213,6 @@ const lineSuffix = regex(":[0-9]+$")
 export const entryOf = (where: string): string => Str.replace(lineSuffix, "")(where)
 
 export const config = defineConfig({
-	contracts: [],
 	schemas: [shop.schema],
 	logins: [shop.server],
 	migrations: "migrations",

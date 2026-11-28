@@ -101,13 +101,11 @@ type Path = ReadonlyArray<string | number>
 /**
  * What grizzle reads back that it wrote, a MalformedArtifact's source: the snapshot (deploy/snapshot, the shell's
  * snapshot.json), the admission manifest, a migration folder's files and meta.json, the migrations ledger's rows, a
- * login's served file (served/json.ts servedFile), a contract's checker file (served/json.ts contractFile), and the
- * canonical or fingerprinted value a digest is taken over.
+ * login's served file (served/json.ts servedFile), and the canonical or fingerprinted value a digest is taken over.
  */
 export type Artifact =
 	| "snapshot"
 	| "served"
-	| "contract"
 	| "manifest"
 	| "folder"
 	| "meta"

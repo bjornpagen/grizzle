@@ -268,16 +268,6 @@ export interface ServedAbove {
 	readonly laws: ReadonlyMap<LawId, AboveLaw<RecordedLaw>>
 }
 
-/**
- * The directory, beside the schemas' directories in the migrations directory, that holds the configuration's contracts'
- * files (runtime/contract.ts ContractFile): its name holds a hyphen, which no schema's PostgreSQL identifier holds, so it is never a
- * schema's directory.
- */
-export const contractsDirectory = "contract-checks"
-
-/** The file of a contract's checker, within the migrations directory. */
-export const contractPath = (contract: string): string => `${contractsDirectory}/${contract}.json`
-
 /** The directory, beside snapshot.json, that holds a schema's served files. */
 export const servedDirectory = "served"
 

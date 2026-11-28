@@ -83,7 +83,6 @@ export const LedgerApp = login(Ledger, "app", [Child], { workload: [childWork] }
 export default defineConfig({
 	schemas: [Ledger],
 	logins: [AuthorApp, LedgerApp],
-	contracts: [],
 	migrations: "migrations",
 	connection
 })

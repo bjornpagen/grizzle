@@ -284,7 +284,6 @@ const measure = Effect.fn("measure")(function* (scale: Scale) {
 	const dir = yield* fs.makeTempDirectoryScoped({ prefix: "grizzle-bench-compile-" })
 	const file = `${dir}/grizzle.config.ts`
 	const config = defineConfig({
-		contracts: [],
 		schemas: [made.base],
 		logins: [made.web],
 		migrations: "migrations",

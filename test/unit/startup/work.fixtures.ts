@@ -219,7 +219,6 @@ export const stepsAt = (dir: ScratchDir) => (size: Size) =>
 				sites
 			)
 			const config = defineConfig({
-				contracts: [],
 				schemas: [base],
 				logins: [server],
 				migrations: "migrations",

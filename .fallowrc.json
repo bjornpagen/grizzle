@@ -118,7 +118,6 @@
 					"packages/grizzle/src/adapter/page/window.ts",
 					"packages/grizzle/src/adapter/pool/live.ts",
 					"packages/grizzle/src/adapter/pool/served.ts",
-					"packages/grizzle/src/adapter/public/contract.ts",
 					"packages/grizzle/src/adapter/public/db.ts",
 					"packages/grizzle/src/adapter/public/errors.ts",
 					"packages/grizzle/src/adapter/public/layer.ts",
@@ -217,6 +216,14 @@
 				"patterns": ["packages/engine/src/runtime/records.ts"]
 			},
 			{
+				// A consumer's contract's checked mint (contract/parser.ts), its checker derived from the contract value where
+				// the parser is built: the runtime's judgment of a value's domain beside the scalar typing, the predicate
+				// lowering and the text-language analysis a schema's compile types the contract by, and no SQL printer, so the
+				// contract entry loads no install, check or planning zone and the runtime entry none of this.
+				"name": "contract",
+				"patterns": ["packages/engine/src/contract/**"]
+			},
+			{
 				// What a served layer and its Dbs run beside the core: the statement helpers a read's and a write's runtime share
 				// with the lowering that compiles them. Nothing here loads the compiler.
 				"name": "runtime",
@@ -264,19 +271,19 @@
 				// The authoring DSL: @bjornpagen/grizzle (packages/grizzle/src/index.ts, dsl-index) and every module it loads
 				// beside browser-core, credential, values and grizzle-text, so a schema module or a grizzle.config.ts evaluates
 				// its builders and nothing that compiles, installs or runs them. Each dsl-<zone> holds the DSL's part of <zone>
-				// (all of text/ and of the two index modules), and its rule allows by value only what <zone>'s did of the DSL,
+				// (all of text/ but a text domain's CHECK, and of the two index modules), and its rule allows by value only what <zone>'s did of the DSL,
 				// browser-core, credential, values and grizzle-text, naming every other zone by type alone; a zone that allowed <zone> allows dsl-<zone> as
-				// it did. The SQL printer (dsl-sql) is the one part of the compiler here: a str.regex descriptor's admission
-				// analyzes its patterns once (text/refinement.ts analyzeText) and chooses its CHECK, `VALUE IN (...)` or
-				// `VALUE ~ 'ARE'`, by which prints shorter, which only the printer measures. test/unit/entry/dsl.test.ts holds a
-				// program over the entry to these zones and allows the printer by name.
+				// it did. The DSL loads none of the compiler: a str.regex descriptor's admission chooses its CHECK, `VALUE IN
+				// (...)` or `VALUE ~ 'ARE'`, by the bytes each prints in, which the text analysis states as data
+				// (text/refinement.ts checkSpelling), so the SQL printer (sql-printer) and the CHECK's builders (text-sql) are
+				// the compiler's. test/unit/entry/dsl.test.ts holds a program over the entry to these zones.
 				"name": "dsl-core",
 				"patterns": [
-					"packages/engine/src/core/{allen,clock,decoder,fingerprint,function,hex,identity,ids,lazy,lines,page,phantom,set,sha256,stems,temporary,wire}.ts"
+					"packages/engine/src/core/{allen,clock,decoder,fingerprint,function,hex,identity,ids,lazy,page,phantom,set,sha256,stems,wire}.ts"
 				]
 			},
 			{
-				"name": "dsl-sql",
+				"name": "sql-printer",
 				"patterns": [
 					"packages/engine/src/sql/{ast,build,catalog,escape,generation,lexer,print,print-once,pull-up,scope,transform}.ts"
 				]
@@ -301,8 +308,20 @@
 				]
 			},
 			{
+				// The text-language analysis of declared and computed patterns (text/refinement.ts, text/bounds.ts), which
+				// states the bytes a check prints in as data of its own and loads no SQL, so a contract's parser runs it.
+				"name": "dsl-text-language",
+				"patterns": ["packages/engine/src/text/{bounds,refinement}.ts"]
+			},
+			{
 				"name": "dsl-text",
-				"patterns": ["packages/engine/src/text/{bounds,field,refinement}.ts"]
+				"patterns": ["packages/engine/src/text/field.ts"]
+			},
+			{
+				// The CHECK of a text domain (text/membership.ts), built from the SQL printer's builders: the compiler's,
+				// which installs the domain; the text analysis that chose it states its bytes as data and loads no SQL.
+				"name": "text-sql",
+				"patterns": ["packages/engine/src/text/membership.ts"]
 			},
 			{
 				"name": "dsl-schema",
@@ -505,8 +524,19 @@
 				"patterns": ["packages/engine/src/plan/runtime.ts"]
 			},
 			{
+				// The engine's contract facade: a consumer's contract's checked mint and its types, which the contract entry
+				// reads the engine through.
+				"name": "plan-contract",
+				"patterns": ["packages/engine/src/plan/contract.ts"]
+			},
+			{
 				"name": "plan",
 				"patterns": ["packages/engine/src/plan/**"]
+			},
+			{
+				// The shell's contract parser (adapter/public/contract.ts), the contract entry's one module.
+				"name": "adapter-contract",
+				"patterns": ["packages/grizzle/src/adapter/public/contract.ts"]
 			},
 			{
 				"name": "adapter",
@@ -519,6 +549,11 @@
 			{
 				"name": "runtime-entry",
 				"patterns": ["packages/grizzle/src/runtime.ts"]
+			},
+			{
+				// @bjornpagen/grizzle/contract: a consumer's contract's checked mint, apart from the runtime entry.
+				"name": "contract-entry",
+				"patterns": ["packages/grizzle/src/contract.ts"]
 			},
 			{
 				// @bjornpagen/grizzle/dynamic: the door for a generated schema, the engine's constructors of relations whose
@@ -743,8 +778,9 @@
 					"dsl-query",
 					"dsl-scalar",
 					"dsl-schema",
-					"dsl-sql",
+					"sql-printer",
 					"dsl-text",
+					"dsl-text-language",
 					"dsl-write",
 					"grizzle-text",
 					"ir",
@@ -789,7 +825,7 @@
 					"dsl-runtime",
 					"dsl-scalar",
 					"dsl-schema",
-					"dsl-sql",
+					"sql-printer",
 					"dsl-write",
 					"grizzle-text",
 					"install",
@@ -828,7 +864,7 @@
 					"scalar",
 					"values"
 				],
-				"allowTypeOnly": ["dsl-sql", "dsl-write", "laws", "lower", "sql", "types", "write"]
+				"allowTypeOnly": ["sql-printer", "dsl-write", "laws", "lower", "sql", "types", "write"]
 			},
 			{
 				"from": "dsl-core",
@@ -836,14 +872,14 @@
 				"allowTypeOnly": ["core"]
 			},
 			{
-				"from": "dsl-sql",
-				"allow": ["browser-core", "dsl-core", "grizzle-text"],
-				"allowTypeOnly": ["core", "sql"]
+				"from": "sql-printer",
+				"allow": ["browser-core", "core", "dsl-core", "grizzle-text"],
+				"allowTypeOnly": ["sql"]
 			},
 			{
 				"from": "dsl-allen",
-				"allow": ["browser-core", "dsl-core", "dsl-sql", "grizzle-text"],
-				"allowTypeOnly": ["allen", "core", "sql"]
+				"allow": ["browser-core", "dsl-core", "grizzle-text"],
+				"allowTypeOnly": ["allen", "core", "sql", "sql-printer"]
 			},
 			{
 				"from": "dsl-ir",
@@ -862,11 +898,11 @@
 					"dsl-core",
 					"dsl-ir",
 					"dsl-scalar",
-					"dsl-sql",
+					"dsl-text-language",
 					"grizzle-text",
 					"values"
 				],
-				"allowTypeOnly": ["core", "ir", "scalar", "sql", "types"]
+				"allowTypeOnly": ["core", "ir", "scalar", "types"]
 			},
 			{
 				"from": "dsl-schema",
@@ -875,12 +911,22 @@
 					"dsl-core",
 					"dsl-ir",
 					"dsl-scalar",
-					"dsl-sql",
 					"dsl-text",
+					"dsl-text-language",
 					"grizzle-text",
 					"values"
 				],
-				"allowTypeOnly": ["codec", "core", "ir", "runtime", "scalar", "schema", "sql", "types"]
+				"allowTypeOnly": [
+					"codec",
+					"core",
+					"ir",
+					"runtime",
+					"scalar",
+					"schema",
+					"sql",
+					"sql-printer",
+					"types"
+				]
 			},
 			{
 				"from": "dsl-query",
@@ -891,6 +937,7 @@
 					"dsl-scalar",
 					"dsl-schema",
 					"dsl-text",
+					"dsl-text-language",
 					"grizzle-text",
 					"values"
 				],
@@ -905,7 +952,6 @@
 					"dsl-query",
 					"dsl-scalar",
 					"dsl-schema",
-					"dsl-sql",
 					"grizzle-text",
 					"values"
 				],
@@ -925,6 +971,7 @@
 					"schema",
 					"served",
 					"sql",
+					"sql-printer",
 					"types",
 					"write"
 				]
@@ -939,7 +986,6 @@
 					"dsl-runtime",
 					"dsl-scalar",
 					"dsl-schema",
-					"dsl-sql",
 					"dsl-write",
 					"grizzle-text",
 					"values"
@@ -964,6 +1010,7 @@
 					"schema",
 					"served",
 					"sql",
+					"sql-printer",
 					"types",
 					"write"
 				]
@@ -980,6 +1027,7 @@
 					"dsl-scalar",
 					"dsl-schema",
 					"dsl-text",
+					"dsl-text-language",
 					"dsl-write",
 					"grizzle-text",
 					"values"
@@ -1007,7 +1055,6 @@
 					"dsl-query",
 					"dsl-scalar",
 					"dsl-schema",
-					"dsl-sql",
 					"dsl-write",
 					"grizzle-text",
 					"values"
@@ -1036,6 +1083,7 @@
 					"schema",
 					"served",
 					"sql",
+					"sql-printer",
 					"types",
 					"write"
 				]
@@ -1067,11 +1115,19 @@
 			},
 			{
 				"from": "sql",
-				"allow": ["browser-core", "core", "dsl-core", "dsl-sql", "grizzle-text"]
+				"allow": ["browser-core", "core", "dsl-core", "sql-printer", "grizzle-text"]
 			},
 			{
 				"from": "allen",
-				"allow": ["browser-core", "core", "dsl-allen", "dsl-core", "dsl-sql", "grizzle-text", "sql"]
+				"allow": [
+					"browser-core",
+					"core",
+					"dsl-allen",
+					"dsl-core",
+					"sql-printer",
+					"grizzle-text",
+					"sql"
+				]
 			},
 			{
 				"from": "ir-sql",
@@ -1080,7 +1136,7 @@
 					"core",
 					"dsl-core",
 					"dsl-ir",
-					"dsl-sql",
+					"sql-printer",
 					"grizzle-text",
 					"ir",
 					"sql",
@@ -1090,7 +1146,7 @@
 			{
 				"from": "ir",
 				"allow": ["browser-core", "core", "dsl-core", "dsl-ir", "grizzle-text", "values"],
-				"allowTypeOnly": ["dsl-sql", "ir-sql", "sql"]
+				"allowTypeOnly": ["sql-printer", "ir-sql", "sql"]
 			},
 			{
 				"from": "scalar",
@@ -1160,8 +1216,9 @@
 					"dsl-runtime",
 					"dsl-scalar",
 					"dsl-schema",
-					"dsl-sql",
+					"sql-printer",
 					"dsl-text",
+					"dsl-text-language",
 					"grizzle-text",
 					"ir",
 					"runtime",
@@ -1183,6 +1240,7 @@
 					"dsl-scalar",
 					"dsl-schema",
 					"dsl-text",
+					"dsl-text-language",
 					"grizzle-text",
 					"ir",
 					"logical",
@@ -1203,6 +1261,7 @@
 					"dsl-scalar",
 					"dsl-schema",
 					"dsl-text",
+					"dsl-text-language",
 					"grizzle-text",
 					"ir",
 					"logical",
@@ -1225,7 +1284,7 @@
 					"dsl-ir",
 					"dsl-scalar",
 					"dsl-schema",
-					"dsl-sql",
+					"sql-printer",
 					"grizzle-text",
 					"ir",
 					"scalar",
@@ -1246,6 +1305,7 @@
 					"dsl-scalar",
 					"dsl-schema",
 					"dsl-text",
+					"dsl-text-language",
 					"grizzle-text",
 					"ir",
 					"scalar",
@@ -1266,7 +1326,7 @@
 					"dsl-ir",
 					"dsl-runtime",
 					"dsl-scalar",
-					"dsl-sql",
+					"sql-printer",
 					"grizzle-text",
 					"ir",
 					"ir-sql",
@@ -1292,7 +1352,7 @@
 					"dsl-runtime",
 					"dsl-scalar",
 					"dsl-schema",
-					"dsl-sql",
+					"sql-printer",
 					"dsl-write",
 					"grizzle-text",
 					"ir",
@@ -1323,8 +1383,8 @@
 					"dsl-runtime",
 					"dsl-scalar",
 					"dsl-schema",
-					"dsl-sql",
 					"dsl-text",
+					"dsl-text-language",
 					"dsl-write",
 					"grizzle-text",
 					"ir",
@@ -1338,6 +1398,8 @@
 					"scalar",
 					"schema",
 					"sql",
+					"sql-printer",
+					"text-sql",
 					"types",
 					"values",
 					"write"
@@ -1360,7 +1422,7 @@
 					"dsl-runtime",
 					"dsl-scalar",
 					"dsl-schema",
-					"dsl-sql",
+					"sql-printer",
 					"dsl-write",
 					"grizzle-text",
 					"ir",
@@ -1391,8 +1453,9 @@
 					"dsl-core",
 					"dsl-ir",
 					"dsl-schema",
-					"dsl-sql",
+					"sql-printer",
 					"dsl-text",
+					"dsl-text-language",
 					"grizzle-text",
 					"ir",
 					"ir-sql",
@@ -1422,6 +1485,7 @@
 					"dsl-scalar",
 					"dsl-schema",
 					"dsl-text",
+					"dsl-text-language",
 					"dsl-write",
 					"grizzle-text",
 					"ir",
@@ -1451,7 +1515,7 @@
 				"allowTypeOnly": [
 					"codec",
 					"dsl-runtime",
-					"dsl-sql",
+					"sql-printer",
 					"dsl-write",
 					"laws",
 					"live-served",
@@ -1480,7 +1544,7 @@
 					"dsl-runtime",
 					"dsl-scalar",
 					"dsl-schema",
-					"dsl-sql",
+					"sql-printer",
 					"dsl-write",
 					"grizzle-text",
 					"ir",
@@ -1543,7 +1607,7 @@
 					"dsl-program",
 					"dsl-query",
 					"dsl-schema",
-					"dsl-sql",
+					"sql-printer",
 					"dsl-text",
 					"dsl-write",
 					"install",
@@ -1601,7 +1665,7 @@
 					"dsl-program",
 					"dsl-query",
 					"dsl-schema",
-					"dsl-sql",
+					"sql-printer",
 					"dsl-text",
 					"dsl-write",
 					"install",
@@ -1706,6 +1770,48 @@
 				"allow": ["adapter-runtime", "grizzle-text"]
 			},
 			{
+				"from": "contract-entry",
+				"allow": ["adapter-contract", "grizzle-text"]
+			},
+			{
+				"from": "adapter-contract",
+				"allow": ["adapter-runtime", "contract", "grizzle-text", "plan-contract"],
+				"allowTypeOnly": ["types"]
+			},
+			{
+				"from": "plan-contract",
+				"allow": ["contract"],
+				"allowTypeOnly": ["types"]
+			},
+			{
+				"from": "contract",
+				"allow": [
+					"browser-core",
+					"codec",
+					"core",
+					"dsl-core",
+					"dsl-ir",
+					"dsl-scalar",
+					"dsl-text-language",
+					"grizzle-text",
+					"ir",
+					"runtime",
+					"scalar",
+					"values"
+				],
+				"allowTypeOnly": ["types"]
+			},
+			{
+				"from": "dsl-text-language",
+				"allow": ["browser-core", "dsl-core", "dsl-ir", "dsl-scalar", "grizzle-text", "values"],
+				"allowTypeOnly": ["core", "ir", "scalar", "types"]
+			},
+			{
+				"from": "text-sql",
+				"allow": ["grizzle-text", "sql-printer"],
+				"allowTypeOnly": ["dsl-ir"]
+			},
+			{
 				"from": "dynamic-entry",
 				"allow": ["dsl-public", "grizzle-text", "public"]
 			},
@@ -1746,7 +1852,7 @@
 					"dsl-runtime",
 					"dsl-scalar",
 					"dsl-schema",
-					"dsl-sql",
+					"sql-printer",
 					"dsl-write",
 					"grizzle-text",
 					"ir",
@@ -1784,7 +1890,7 @@
 					"dsl-program",
 					"dsl-runtime",
 					"dsl-schema",
-					"dsl-sql",
+					"sql-printer",
 					"grizzle-text",
 					"install",
 					"ir",
@@ -1822,6 +1928,7 @@
 					"dsl-query",
 					"dsl-schema",
 					"dsl-text",
+					"dsl-text-language",
 					"grizzle-text",
 					"http",
 					"program",

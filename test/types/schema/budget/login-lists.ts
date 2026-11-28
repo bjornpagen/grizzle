@@ -60,7 +60,7 @@ ${Arr.join(Arr.map(indices(logins), loginOf), "")}export const LOGINS = [${Arr.j
 			", "
 		)}] as const satisfies ReadonlyArray<AnyLogin>
 declare const connection: MigrationConnectionConfig
-export const config = defineConfig({ contracts: [], schemas: [Top], logins: LOGINS, migrations: "migrations", rolePrefixBytes: 0, connection: () => connection })
+export const config = defineConfig({ schemas: [Top], logins: LOGINS, migrations: "migrations", rolePrefixBytes: 0, connection: () => connection })
 export const names = Arr.map(LOGINS, (login: AnyLogin) => roleNameOf(login, {}))
 `
 	)

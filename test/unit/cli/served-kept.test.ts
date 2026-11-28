@@ -77,7 +77,6 @@ export const whatGenerateKeepsOfALoginsServedCompileHoldsItsTextsAloneNoPartOfIt
 				})
 				const config = yield* resolveConfig(
 					defineConfig({
-						contracts: [],
 						schemas: [Reports],
 						logins: [below, above],
 						migrations: "migrations",

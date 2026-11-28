@@ -229,7 +229,6 @@ export const configOf = (
 	return {
 		schemas: [first, ...rest],
 		logins: Arr.map(built, (b) => b.server),
-		contracts: [],
 		migrations: "migrations",
 		rolePrefixBytes: 0,
 		connection
@@ -423,6 +422,19 @@ export const cli = (
 	argv: ReadonlyArray<string>
 ): Effect.Effect<CliRun, never, FileSystem.FileSystem | Path.Path> =>
 	runIn(dir, workspaceConfig, argv, processMeter)
+
+/**
+ * Runs a command line in process in `dir`, its configuration file imported by `load` as the bin's import would, its
+ * closure what `load` records of it.
+ *
+ * @internal
+ */
+export const cliLoading = (
+	dir: string,
+	load: ConfigLoader,
+	argv: ReadonlyArray<string>
+): Effect.Effect<CliRun, never, FileSystem.FileSystem | Path.Path> =>
+	runIn(dir, load, argv, processMeter)
 
 /**
  * Runs a command line in process in `dir` over `value`, the default export of whatever configuration file it names, as

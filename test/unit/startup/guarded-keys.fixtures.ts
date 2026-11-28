@@ -85,7 +85,6 @@ export const stepsAt = (dir: ScratchDir) => (k: number) =>
 			const fs = yield* FileSystem.FileSystem
 			const { base, server } = loginOf(k)
 			const config = defineConfig({
-				contracts: [],
 				schemas: [base],
 				logins: [server],
 				migrations: "migrations",

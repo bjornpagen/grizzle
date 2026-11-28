@@ -28,7 +28,8 @@ import { createDomain } from "#compiler/physical/ddl/domains.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { emit, costChosen } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
-import { analyzeText, textDomainDefinition } from "#compiler/text/refinement.ts"
+import { textDomainDefinition } from "#compiler/text/membership.ts"
+import { analyzeText } from "#compiler/text/refinement.ts"
 import {
 	caseGen,
 	type ConjunctionFeature,
@@ -173,7 +174,7 @@ export const aConjunctionOfPatternsECMAScriptHostProductDFAAndPostgreSQLsCHECKAg
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/text/refinement.ts",
+				file: "packages/engine/src/text/membership.ts",
 				original:
 					'\t\t\treturn mapNonEmpty(check.ares, (are) => binary("~", value, lit.text(are, types.text)))',
 				replacement: '\t\t\treturn [binary("~", value, lit.text(check.ares[0], types.text))]',

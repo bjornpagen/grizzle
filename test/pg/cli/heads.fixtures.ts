@@ -96,7 +96,6 @@ export const runHistory = (history: ReadonlyArray<HeadsVersion>) =>
 		for (const version of history) {
 			const s = headsSchema(name, version)
 			const config = defineConfig({
-				contracts: [],
 				schemas: [s.schema],
 				logins: [s.login],
 				migrations: "migrations",

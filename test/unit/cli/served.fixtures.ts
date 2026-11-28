@@ -134,7 +134,6 @@ export const schemaDir = `migrations/${ident}`
 export const login = "server"
 
 export const config = defineConfig({
-	contracts: [],
 	schemas: [servedShop.schema],
 	logins: [servedShop.server],
 	migrations: "migrations",

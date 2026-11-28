@@ -36,7 +36,6 @@ const compilerRefusal = (refusal: CliError): Option.Option<CompileError> => {
 	switch (reason._tag) {
 		case "SchemaEntryRefused":
 		case "LoginEntryRefused":
-		case "ContractEntryRefused":
 			return reason.fault.kind === "uncompiled" ? Option.some(reason.fault.error) : Option.none()
 		case "DraftRefused":
 			return Option.some(reason.error)
@@ -49,6 +48,7 @@ const compilerRefusal = (refusal: CliError): Option.Option<CompileError> => {
 		case "ConfigMissing":
 		case "ConfigUnloaded":
 		case "ExportRefused":
+		case "ConfigReadsGenerated":
 		case "SettingRefused":
 		case "ConnectionRefused":
 		case "ConnectionThrew":

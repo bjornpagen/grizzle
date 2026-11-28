@@ -29,16 +29,12 @@ import {
 	type PatternCheck,
 	type PatternLanguage,
 	patternsText,
-	type RegexCheck,
 	type RegexKey,
 	regexCheck
 } from "#compiler/ir/scalar.ts"
 import { refusalAt } from "#compiler/scalar/regex/admit.ts"
 import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import type { TextLookup } from "#compiler/scalar/registry.ts"
-import type { Collation, Expr, TypeRef } from "#compiler/sql/ast.ts"
-import { and, binary, call, cUtf8Collation, isIn, le, lit, types } from "#compiler/sql/build.ts"
-import { printExpr } from "#compiler/sql/print.ts"
 import { structuralBounds } from "#compiler/text/bounds.ts"
 
 /**
@@ -372,76 +368,67 @@ export class AnalyzedPatterns extends CompilePatterns implements PatternAutomata
 		)
 }
 
-/** A domain CHECK's VALUE. */
-export const domainValue: Expr = Object.freeze({ kind: "domainValue" })
+/**
+ * How the printer spells a pattern check's predicate over a domain's VALUE (text/membership.ts membership, which
+ * sql/print.ts prints), as data: `VALUE IN (<literal>, <literal>)` of a finite language's members, `VALUE = <literal>`
+ * of its one member (sql/build.ts isIn), `VALUE ~ <literal>` of each ARE joined by ` AND `, each literal its text
+ * between quotes, a quote inside doubled, cast to text. It is what
+ * choose compares two equivalent checks' bytes by, read here without the printer, so the text analysis, which a contract's
+ * parser runs where it is built, loads no SQL printer; test/unit/text/check-bytes.test.ts holds it to the printer's text.
+ */
+const checkSpelling = {
+	value: "VALUE",
+	equals: " = ",
+	inOpen: " IN (",
+	inSeparator: ", ",
+	inClose: ")",
+	match: " ~ ",
+	conjunction: " AND ",
+	quote: "'",
+	textCast: '::"pg_catalog"."text"'
+} as const
 
-/** A member of `VALUE IN (...)`: the text literal its list holds. */
-const memberLiteral = (member: string): Expr => lit.text(member, types.text)
+/** The UTF-8 bytes of a spelling of checkSpelling. */
+const spelled = (part: keyof typeof checkSpelling): number => utf8Length(checkSpelling[part])
+
+/** The UTF-8 bytes a text literal of `text` prints in: its text between quotes, each quote inside doubled, cast to text. */
+const literalBytes = (text: string): number =>
+	utf8Length(text) +
+	(text.split(checkSpelling.quote).length - 1) * spelled("quote") +
+	2 * spelled("quote") +
+	spelled("textCast")
 
 /**
  * The fewest UTF-8 bytes a member adds to `VALUE IN (...)`, the empty text's literal: any member's literal is that one
  * with the member's UTF-8 bytes inside its quotes, and more where a quote is doubled.
  */
-const memberBytes = utf8Length(printExpr(memberLiteral("")))
+const memberBytes = literalBytes("")
 
 /**
- * The terms of a language's membership predicate over `value`, which AND joins: `value IN (...)` of its members, or
- * `value ~ '<ARE>'` of each ARE of its conjunction.
+ * The UTF-8 bytes a check's predicate over VALUE prints in (checkSpelling), what choose compares two equivalent checks
+ * by. Every CHECK prints its predicate in one place whatever its form, alone inside `CHECK (VALUE IS NULL OR (...) IS
+ * TRUE)` or as a term of a contract's conjunction, so the predicates' bytes order the statements as the statements' own
+ * bytes do.
  */
-const patternTerms = (check: PatternCheck, value: Expr): NonEmptyReadonlyArray<Expr> => {
+export const predicateBytes = (check: PatternCheck): number => {
 	switch (check.kind) {
-		case "finite":
-			return [isIn(value, mapNonEmpty(check.members, memberLiteral))]
+		case "finite": {
+			const [member, ...others] = check.members
+			return isNonEmpty(others)
+				? spelled("value") +
+						spelled("inOpen") +
+						check.members.reduce((bytes, m) => bytes + literalBytes(m), 0) +
+						others.length * spelled("inSeparator") +
+						spelled("inClose")
+				: spelled("value") + spelled("equals") + literalBytes(member)
+		}
 		case "regex":
-			return mapNonEmpty(check.ares, (are) => binary("~", value, lit.text(are, types.text)))
+			return (
+				check.ares.reduce(
+					(bytes, are) => bytes + spelled("value") + spelled("match") + literalBytes(are),
+					0
+				) +
+				(check.ares.length - 1) * spelled("conjunction")
+			)
 	}
 }
-
-/** A byte bound's test over `value`: `octet_length(value) <= octets`. */
-const octetsTest = (octets: number, value: Expr): Expr =>
-	le(call("octet_length", [value]), lit.int(octets, types.integer))
-
-/**
- * The terms of the membership predicate over `value` (domainValue inside a domain CHECK), which AND joins, a contract's
- * among its predicate's: a language's (patternTerms), or a byte bound's test before them, so PostgreSQL's regex engine
- * never reads a value past the bound.
- */
-export const membershipTerms = (check: RegexCheck, value: Expr): NonEmptyReadonlyArray<Expr> => {
-	switch (check.kind) {
-		case "finite":
-		case "regex":
-			return patternTerms(check, value)
-		case "octets":
-			return check.check === undefined
-				? [octetsTest(check.octets, value)]
-				: [octetsTest(check.octets, value), ...patternTerms(check.check, value)]
-	}
-}
-
-/**
- * The membership predicate over `value` (domainValue inside a domain CHECK), without the wrapper the printer adds to
- * every CHECK: its terms (membershipTerms) joined by AND, one term alone.
- */
-export const membership = (check: RegexCheck, value: Expr): Expr =>
-	and(membershipTerms(check, value))
-
-/**
- * The UTF-8 bytes a check's predicate over VALUE prints in, what choose compares two equivalent checks by. Every CHECK
- * prints its predicate in one place whatever its form, alone inside `CHECK (VALUE IS NULL OR (...) IS TRUE)` or as a
- * term of a contract's conjunction, so the predicates' bytes order the statements as the statements' own bytes do.
- */
-const predicateBytes = (check: PatternCheck): number =>
-	utf8Length(printExpr(and(patternTerms(check, domainValue))))
-
-/**
- * The definition of the compiler-owned structural domain of a nontrivial refinement (physical/ddl/domains.ts
- * DomainDefinition), created as `CREATE DOMAIN <schema>.__text_<slug> AS text COLLATE pg_catalog.pg_c_utf8 CONSTRAINT __text_<slug>__check
- * CHECK (VALUE IS NULL OR (...) IS TRUE)`, with no NOT NULL: text in pg_c_utf8 under the pattern's membership.
- */
-export const textDomainDefinition = (
-	check: RegexCheck
-): { readonly base: TypeRef; readonly collation: Collation; readonly check: Expr } => ({
-	base: types.text,
-	collation: cUtf8Collation,
-	check: membership(check, domainValue)
-})

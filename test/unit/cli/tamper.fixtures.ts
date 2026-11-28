@@ -267,10 +267,10 @@ const namedOf = (reason: CliError["reason"]): Named => {
 		case "ConfigMissing":
 		case "ConfigUnloaded":
 		case "ExportRefused":
+		case "ConfigReadsGenerated":
 		case "SettingRefused":
 		case "SchemaEntryRefused":
 		case "LoginEntryRefused":
-		case "ContractEntryRefused":
 		case "ConnectionRefused":
 		case "ConnectionThrew":
 		case "ConnectionEnvironmentRefused":

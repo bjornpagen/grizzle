@@ -165,7 +165,6 @@ import { Blog, Web } from "./src/schema.ts"
 export default defineConfig({
 	schemas: [Blog],
 	logins: [Web],
-	contracts: [],
 	migrations: "migrations",
 	rolePrefixBytes: 0,
 	/** Where `grizzle migrate` connects, as the role that owns the schema. */
@@ -831,6 +830,12 @@ export const calls = (workspace: string) =>
 
 `Micros` above is a `contract`: a type of its own over `pg.bigint`, with a check, whose values only the holder of
 `microsKey` can make, through `mintOf(microsKey)`. Two systems' ids, or cents and micros, never mix.
+
+`contractParser(Micros, microsKey)`, from `@bjornpagen/grizzle/contract`, is the checked mint: it parses a value from
+outside, a request's or a step input's, and refuses one PostgreSQL would refuse to store, `ValueRefused` or
+`DomainRefused`. It derives its checker from the contract where it is built, so no generated file holds one. Your
+configuration never imports a file `grizzle generate` writes: one that does is refused (`ConfigReadsGenerated`), since
+it would stop loading when that file next changed format.
 
 `schema.extend` builds a level over another schema. Each level installs in its own PostgreSQL schema, and a level
 references the one below it by plain containment:

@@ -81,8 +81,6 @@ export {
 	type ServedPageRequest,
 	type ServedPageProgram,
 	type ServedParamDomain,
-	contractPath,
-	contractsDirectory,
 	servedPath,
 	type ServedPrologue,
 	type ServedRead,

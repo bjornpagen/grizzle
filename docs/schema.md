@@ -139,20 +139,23 @@ Each type has one name, the one PostgreSQL prints for it: `pg.integer`, never `i
   `Marked<Decimal, typeof gradedKey>`, and a write of a grade takes nothing else. A key is a unique symbol, one per
   contract: a key of type `symbol` is a type error, and `mintOf` refuses a registered one, which `Symbol.for` gives any
   module by its name.
-- **A contract's checked mint parses a value from outside, with no compiler loaded.** A configuration that names the
-  contract, `contracts: [Cents]`, has `grizzle generate` compile it into its checker file,
-  `migrations/contract-checks/Cents.json`: its type as a schema's compile types it, its predicate a table the host
-  evaluates, the automata of its patterns and the digest of its description, a served file's artifact kind, which
-  `grizzle check` holds current. `contractParser(centsFile, Cents, centsKey)` (`@bjornpagen/grizzle/runtime`), over the
-  file as an import of it yields (`import centsFile from "./migrations/contract-checks/Cents.json" with { type: "json"
-  }`), reads a value of the base as PostgreSQL does before it stores it: a value of no value of the base's type is
+- **A contract's checked mint parses a value from outside.** `contractParser(Cents, centsKey)`
+  (`@bjornpagen/grizzle/contract`) derives the contract's checker from the contract itself, once, where it is built:
+  its type as a schema's compile types it, its predicate a table the host evaluates and the automata of its patterns.
+  It reads a value of the base as PostgreSQL does before it stores it: a value of no value of the base's type is
   `ValueRefused` by the codec's fault (a bigint past int8), one outside the contract's predicate or its base's
   refinements `DomainRefused`, each at the contract, and any other value is minted under the key, `Marked<bigint, typeof
-  centsKey>`; over a file compiled from another description of the contract every value is `CheckerDrifted`. Its
-  `contract` is the contract, which a consumer that stores what it parses types its column by. It takes the contract's
-  own key, so only the key's holder builds it, in a module of its own beside the mint (a schema module importing the
-  file would load it while generate writes it), where a boundary decodes the contract's values, a request's or a step
-  input's. A test builds one over `contractCheck(Cents)` (`@bjornpagen/grizzle/compile`), the same file's value.
+  centsKey>`. Its `contract` is the contract, which a consumer that stores what it parses types its column by. It takes
+  the contract's own key, so only the key's holder builds it, beside the mint, where a boundary decodes the contract's
+  values, a request's or a step input's. The entry is apart from `@bjornpagen/grizzle/runtime`, so a process that
+  serves a login and parses no contract's values loads none of the text analysis a checker is derived by. No file holds
+  a checker, so a module that builds one, and a configuration whose modules reach that module, read nothing `grizzle
+  generate` writes.
+- **A configuration reads nothing `grizzle generate` writes.** Every command refuses a configuration any module of
+  which imports a file of its migrations directory (`ConfigReadsGenerated`, naming each file): a configuration that read
+  one would stop loading as soon as a format change, a removal or a first generate left the file unreadable, and then the
+  generate that writes it again could not run. A running application's entry imports its login's served file; nothing
+  the configuration reaches does.
 - **Where a contract's value comes from.** A fact's field, a parameter's argument, a closed relation's row, a typed
   constant (`Type.literal(Cents, toCents(5n))`), a conditional's other arm and a variant arm's field are values of the
   host type: a plain `bigint`, or another contract's value, is a type error there. A value compared with a contract's

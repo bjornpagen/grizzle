@@ -196,7 +196,6 @@ export const draftCase = (d: Drafting, c: Case<DraftFeature>) =>
 			const shop = shopV1(d.schema, "full")
 			const dir = yield* workspace("variables")
 			const config = defineConfig({
-				contracts: [],
 				schemas: [shop.schema],
 				logins: [shop.server],
 				migrations: "migrations",

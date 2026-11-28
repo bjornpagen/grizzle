@@ -103,7 +103,7 @@ export const contractPredicateTable = (
  * field of the contract types it (contractPredicateTable), by `patterns`, its compile's table, each literal in it typed
  * by this environment; `declared` the tables its compile lowered once already, by contract name, read before any
  * contract's predicate is lowered again. The one environment a schema's fields (analysis/schema.ts) and a contract's
- * host parse (program/contract.ts contractParserOver) are typed by.
+ * host parse (contract/parser.ts contractParserOf) are typed by.
  */
 export const schemaEnvOf = (
 	roster: RosterLookup,

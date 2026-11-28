@@ -940,7 +940,6 @@ const builtOf = (spec: SchemaSpec) => {
 const configOf = (m: Model) => {
 	const built = Arr.map(m.schemas, (s) => builtOf(s.current))
 	return defineConfig({
-		contracts: [],
 		schemas: [Arr.headNonEmpty(built).schema, ...Arr.map(Arr.tailNonEmpty(built), (b) => b.schema)],
 		logins: Arr.map(built, (b) => b.server),
 		migrations: "migrations",

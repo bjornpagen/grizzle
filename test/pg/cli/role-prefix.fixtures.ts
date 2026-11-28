@@ -96,7 +96,6 @@ export const spaceCase = (s: Spaces, c: Case<SpaceFeature>) =>
 			)
 			const configFor = (i: Installation) =>
 				defineConfig({
-					contracts: [],
 					schemas: [shop.schema],
 					logins: [shop.server],
 					migrations: "migrations",

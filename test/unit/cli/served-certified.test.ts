@@ -119,7 +119,6 @@ export const aRolesIsolationLevelIsDecidedOnceFromTheStatementsItsWritesSendEver
 				}
 				const config = yield* resolveConfig(
 					defineConfig({
-						contracts: [],
 						schemas: [Work],
 						logins: [app, ...psql],
 						migrations: "migrations",

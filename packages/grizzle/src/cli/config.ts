@@ -1,4 +1,13 @@
-import { Array as Arr, Effect, Option, Path, Predicate, Record as Rec, Result } from "effect"
+import {
+	Array as Arr,
+	Effect,
+	Option,
+	Path,
+	Predicate,
+	Record as Rec,
+	Result,
+	String as Str
+} from "effect"
 import { definedConfig } from "#adapter/config/define.ts"
 import { toResult } from "#adapter/engine.ts"
 import {
@@ -10,6 +19,7 @@ import {
 import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
 import {
 	type CliError,
+	ConfigReadsGenerated,
 	configSettings,
 	ExportRefused,
 	LoginEntryRefused,
@@ -53,7 +63,7 @@ import {
  *     import { connection, Web, Work } from "./src/db.ts"
  *
  *     export default defineConfig({
- *         schemas: [Work], logins: [Web], contracts: [], migrations: "migrations", rolePrefixBytes: 0, connection
+ *         schemas: [Work], logins: [Web], migrations: "migrations", rolePrefixBytes: 0, connection
  *     })
  *
  * - `schemas`: the installations to migrate, at least one, each listed by its top level, a schema(...) or
@@ -65,9 +75,6 @@ import {
  *   over a schema no configured installation holds refused. A role is installed exactly with its login. Each login's
  *   workloads (login(..., { workload })), which login(...) admitted, plan the schema's access paths; a schema whose
  *   logins own none drafts no access path.
- * - `contracts`: the consumers' contracts a running application parses values of at a boundary, each a contract(...)
- *   value: generate compiles each into its checker file, `<migrations>/contract-checks/<name>.json` (contracts.ts),
- *   which the runtime's contractParser reads, loading no compiler, and check holds each current.
  * - `migrations`: the migrations directory, absolute or relative to the configuration file's directory.
  * - `rolePrefixBytes`: the bytes of the longest role prefix an installation of the configuration is under, 0 where
  *   none is (core/identity.ts RolePrefixBound). A login or role whose PostgreSQL role would pass PostgreSQL's 63 bytes
@@ -150,11 +157,6 @@ export interface ResolvedConfig {
 	/** In configured order. */
 	readonly schemas: ReadonlyArray<ConfiguredSchema>
 	/**
-	 * The contracts whose checker files generate compiles, in configured order, each as given: generate and check
-	 * compile each (contracts.ts), which refuses a value that is no contract.
-	 */
-	readonly contracts: ReadonlyArray<unknown>
-	/**
 	 * The configuration's connection as given, a function only `grizzle migrate`, `grizzle drift`, `grizzle roles` and
 	 * `grizzle uninstall` call, and check what it returns (connection.ts).
 	 */
@@ -192,7 +194,7 @@ const onlyKeys = (value: Record<string, unknown>): Result.Result<void, CliError>
 
 /** Refuses the value of `setting`, which is not of its kind. */
 const malformedSetting = (
-	setting: "schemas" | "logins" | "contracts" | "migrations" | "rolePrefixBytes"
+	setting: "schemas" | "logins" | "migrations" | "rolePrefixBytes"
 ): Result.Result<never, CliError> =>
 	Result.fail(cliError(new SettingRefused({ fault: { kind: "malformed", setting } })))
 
@@ -329,7 +331,6 @@ const resolveConfigWith = (
 		migrations: migrationsSetting,
 		schemas: schemaValues,
 		logins: loginValues,
-		contracts: contractValues,
 		rolePrefixBytes: rolePrefixSetting,
 		connection: connectionSetting
 	} = value
@@ -387,9 +388,6 @@ const resolveConfigWith = (
 	}
 	if (!isList(loginValues)) {
 		return malformedSetting("logins")
-	}
-	if (!isList(contractValues)) {
-		return malformedSetting("contracts")
 	}
 	for (const [i, l] of loginValues.entries()) {
 		const refuseLogin = (fault: LoginEntryRefused["fault"]): CliError =>
@@ -457,9 +455,33 @@ const resolveConfigWith = (
 		migrations,
 		rolePrefixBytes,
 		schemas,
-		contracts: contractValues,
 		connection: typed.value.connection
 	})
+}
+
+/**
+ * The configuration `config`, resolved from `loaded`, held to read nothing `grizzle generate` writes: no file of its
+ * migrations directory among the file modules its import loaded (ConfigFile `closure`), or ConfigReadsGenerated naming
+ * each. A configuration that read one would stop loading once generate wrote it in another format, or removed it, and
+ * then the generate that writes it again could not run; held here, at every command's first stage, the configuration
+ * that starts to read one is refused the first time it does, while the file still reads.
+ */
+export const readsNothingGenerated = (
+	loaded: ConfigFile,
+	config: ResolvedConfig,
+	path: Path.Path
+): Result.Result<ResolvedConfig, CliError> => {
+	const read = Arr.filter(loaded.closure, (module) => {
+		const relative = path.relative(config.migrations, module)
+		return relative !== "" && !Str.startsWith("..")(relative) && !path.isAbsolute(relative)
+	})
+	return Arr.isReadonlyArrayNonEmpty(read)
+		? Result.fail(
+				cliError(
+					new ConfigReadsGenerated({ file: loaded.file, migrations: config.migrations, read })
+				)
+			)
+		: Result.succeed(config)
 }
 
 /**

@@ -218,7 +218,6 @@ export const servedRoles = (c: Case) =>
 	Effect.gen(function* () {
 		const config = yield* resolveConfig(
 			defineConfig({
-				contracts: [],
 				schemas: [Base],
 				logins: [loginOf(c.roles)],
 				migrations: "migrations",

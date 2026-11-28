@@ -20,14 +20,8 @@ import {
 import type { UninstallReport } from "#adapter/migrate/uninstall.ts"
 import { type CommandLine, parseArgs } from "#cli/args.ts"
 import { check, checkFiles, findingText, type SchemaCheck } from "#cli/check.ts"
-import { type ConfigFile, resolveConfig } from "#cli/config.ts"
+import { type ConfigFile, readsNothingGenerated, resolveConfig } from "#cli/config.ts"
 import { migrationConnection } from "#cli/connection.ts"
-import {
-	contractFindings,
-	contractFindingText,
-	contractTexts,
-	writeContracts
-} from "#cli/contracts.ts"
 import { draftKey, grizzleCheckout } from "#cli/draft-inputs.ts"
 import type { CliError } from "#cli/errors.ts"
 import { generateMigrations, type SchemaGenerateReport } from "#cli/generate.ts"
@@ -486,10 +480,12 @@ const commandRan = Effect.fn("commandRan")(function* (
 		phases,
 		{ name: "config", of: [] },
 		Effect.flatMap(load(path.resolve(cwd, line.config)), (file) =>
-			Effect.map(resolveConfig(file.value, file.file), (resolved) => ({
-				loaded: file,
-				config: resolved
-			}))
+			Effect.flatMap(resolveConfig(file.value, file.file), (resolved) =>
+				Effect.map(Effect.fromResult(readsNothingGenerated(file, resolved, path)), (held) => ({
+					loaded: file,
+					config: held
+				}))
+			)
 		)
 	)
 	const command = line.command
@@ -509,15 +505,13 @@ const commandRan = Effect.fn("commandRan")(function* (
 		return ran(exitCodes.ok, listed, [])
 	}
 	if (command.kind === "check") {
-		const contracts = yield* Effect.fromResult(contractTexts(config))
 		const checks = yield* check(config, cwd, phases)
-		const contractFound = yield* contractFindings(config, contracts, cwd)
 		const clean = Arr.filter(checks, (c) => c.findings.length === 0)
 		const dirty = Arr.filter(checks, (c) => c.findings.length > 0)
 		return ran(
-			dirty.length === 0 && contractFound.length === 0 ? exitCodes.ok : exitCodes.failed,
+			dirty.length === 0 ? exitCodes.ok : exitCodes.failed,
 			renderCheck(clean),
-			[...renderCheck(dirty), ...Arr.map(contractFound, contractFindingText)]
+			renderCheck(dirty)
 		)
 	}
 	if (command.kind === "migrate") {
@@ -560,21 +554,15 @@ const commandRan = Effect.fn("commandRan")(function* (
 			[]
 		)
 	}
-	const contracts = yield* Effect.fromResult(contractTexts(config))
 	const reports = yield* generateMigrations(config, {
 		mode: command.mode,
 		schema: command.schema,
 		declared: command.declared,
 		phases
 	})
-	const checkers = yield* writeContracts(config, contracts)
 	return ran(
 		exitCodes.ok,
-		[
-			...Arr.map(checkers.written, (p) => path.relative(cwd, p)),
-			...Arr.map(checkers.removed, (p) => `removed ${path.relative(cwd, p)}`),
-			...renderGenerate(reports, (p) => path.relative(cwd, p))
-		],
+		renderGenerate(reports, (p) => path.relative(cwd, p)),
 		[]
 	)
 })

@@ -78,7 +78,6 @@ export const grizzleCheckOverAClosedRelationsLiteralPassesADraftedLiteralAndRefu
 					const fs = yield* FileSystem.FileSystem
 					const gridSchema = gridSchemaOf(d)
 					const config = defineConfig({
-						contracts: [],
 						schemas: [gridSchema],
 						logins: [],
 						migrations: "migrations",

@@ -10,7 +10,7 @@
  * - Folder timestamps, generated against day arithmetic of the proleptic Gregorian calendar: a timestamp is the UTC second as fourteen digits,
  *   read back as the second it names and as nothing when its digits name none; a new folder's is the second after its
  *   committed chain's last folder's, the epoch's for a chain of none, read off no clock.
- * - The configuration, generated: defineConfig({ contracts: [], schemas, logins, migrations, rolePrefixBytes, connection }) over one
+ * - The configuration, generated: defineConfig({ schemas, logins, migrations, rolePrefixBytes, connection }) over one
  *   to three schemas and any of their logins, and maybe a login whose PostgreSQL role fills 63 bytes under the declared
  *   role prefix, resolves to exactly its schemas, each with its PostgreSQL schema, its directory and its logins, the
  *   migrations directory against the configuration file's, and the connection kept unread; one fault planted into it,

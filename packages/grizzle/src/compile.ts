@@ -8,7 +8,7 @@
  * plan names, its key columns and why the installation holds it, from the snapshot. The host's readings of a schema,
  * each compiling it, are here too: lawsOf, lawsByStatement and constraintNamesOf, which read its laws and their
  * installed names, installedIdentifiersOf, every PostgreSQL identifier its installation names an object by, and
- * insertPreview, factsDecoder, rowEvaluator, codecText, rowText and contractCheck (adapter/public/host.ts), which read
+ * insertPreview, factsDecoder, rowEvaluator, codecText and rowText (adapter/public/host.ts), which read
  * its rows and its values as PostgreSQL would, sending no SQL. And assembled, the runtime's own assembly of a single
  * statement's units (runtime/write/parted.ts), the one function a served file's parted statement becomes the text and
  * placeholders a call sends by: a test or a budget that measures a served statement reads it through this export,
@@ -40,7 +40,6 @@ export {
 } from "#compiler/plan/serve.ts"
 export {
 	codecText,
-	contractCheck,
 	factsDecoder,
 	insertPreview,
 	rowEvaluator,

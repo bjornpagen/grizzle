@@ -30,11 +30,8 @@ import { admitIr } from "#compiler/ir/pattern.ts"
 import { createDomain } from "#compiler/physical/ddl/domains.ts"
 import { emit, costChosen } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
-import {
-	analyzeText,
-	type TextRefinement,
-	textDomainDefinition
-} from "#compiler/text/refinement.ts"
+import { textDomainDefinition } from "#compiler/text/membership.ts"
+import { analyzeText, type TextRefinement } from "#compiler/text/refinement.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { accepts } from "#test/support/fixtures/ir/scalar.ts"
 import { pickGen } from "#test/support/pick.ts"

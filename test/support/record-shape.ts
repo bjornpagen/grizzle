@@ -31,8 +31,7 @@ const rootOf: {
 	readonly [F in FormattedFile]: { readonly module: string; readonly name: string }
 } = {
 	snapshot: { module: "deploy/snapshot/types.ts", name: "DeploySnapshot" },
-	served: { module: "served/forms.ts", name: "ServedFile" },
-	contract: { module: "runtime/contract.ts", name: "ContractFile" }
+	served: { module: "served/forms.ts", name: "ServedFile" }
 }
 
 /** The flags of a type printed by its intrinsic name. */

@@ -37,7 +37,6 @@ import { Blog, caPem, EtlJob, Web } from "./src/blog.ts"
 export default defineConfig({
 	schemas: [Blog],
 	logins: [Web, EtlJob],
-	contracts: [],
 	migrations: "migrations",
 	rolePrefixBytes: 0,
 	connection: () => ({

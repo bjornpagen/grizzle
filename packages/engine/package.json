@@ -19,6 +19,7 @@
 		"./internal/plan/change.ts": "./src/plan/change.ts",
 		"./internal/plan/client.ts": "./src/plan/client.ts",
 		"./internal/plan/common.ts": "./src/plan/common.ts",
+		"./internal/plan/contract.ts": "./src/plan/contract.ts",
 		"./internal/plan/decode.ts": "./src/plan/decode.ts",
 		"./internal/plan/migration.ts": "./src/plan/migration.ts",
 		"./internal/plan/openapi.ts": "./src/plan/openapi.ts",

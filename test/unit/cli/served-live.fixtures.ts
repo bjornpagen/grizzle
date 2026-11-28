@@ -116,7 +116,6 @@ export const liveIsTheUnion = (
 		const config = yield* Effect.result(
 			resolveConfig(
 				defineConfig({
-					contracts: [],
 					schemas: [drawnSchemaCase.laws.schema],
 					logins: [drawnLogin(drawnSchemaCase, shapes)],
 					migrations: "migrations",

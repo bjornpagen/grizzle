@@ -13,7 +13,6 @@ import { serverName } from "#test/grizzle/connection.ts"
 import { Items, Server } from "#test/grizzle/world.ts"
 
 export default defineConfig({
-	contracts: [],
 	schemas: [Items],
 	logins: [Server],
 	migrations: Effect.runSync(Config.String("EOCG_GRIZZLE_MIGRATIONS")),

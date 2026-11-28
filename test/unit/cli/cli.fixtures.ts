@@ -756,13 +756,7 @@ type ConfigFault =
 	| { readonly kind: "an unknown setting"; readonly setting: "poolSize" | "migration" | "schema" }
 	| {
 			readonly kind: "a setting left out"
-			readonly setting:
-				| "schemas"
-				| "logins"
-				| "contracts"
-				| "migrations"
-				| "rolePrefixBytes"
-				| "connection"
+			readonly setting: "schemas" | "logins" | "migrations" | "rolePrefixBytes" | "connection"
 	  }
 	| { readonly kind: "an empty migrations path" }
 	| { readonly kind: "a rolePrefixBytes no bound"; readonly value: MalformedBound }
@@ -828,14 +822,7 @@ const configFaultGen = (schemas: number, logins: ReadonlyArray<number>): Gen<Con
 		[
 			1,
 			map(
-				element([
-					"schemas",
-					"logins",
-					"contracts",
-					"migrations",
-					"rolePrefixBytes",
-					"connection"
-				] as const),
+				element(["schemas", "logins", "migrations", "rolePrefixBytes", "connection"] as const),
 				(setting) => ({ kind: "a setting left out", setting })
 			)
 		],
@@ -1064,7 +1051,6 @@ export const valueOf = (
 		)
 	]
 	const config = defineConfig({
-		contracts: [],
 		schemas: [at(0).schema, ...Arr.drop(schemas, 1)],
 		logins,
 		migrations: migrationsOf(s.migrations).given,
