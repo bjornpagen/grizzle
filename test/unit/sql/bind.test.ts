@@ -34,7 +34,7 @@ import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "e
 import { nameKey } from "#compiler/sql/ast.ts"
 import { bindSelect } from "#compiler/sql/bind.ts"
 import { AdviceScope } from "#compiler/sql/naming.ts"
-import { levelItems } from "#compiler/sql/plan.ts"
+import { levelItems, scannedItems } from "#compiler/sql/plan.ts"
 import { codebookOfStates } from "#test/support/closed/generate.ts"
 import { owning } from "#test/support/policy.ts"
 import {
@@ -47,6 +47,7 @@ import {
 	type BindFeature,
 	bindCaseGen,
 	bindFeatures,
+	boundMet,
 	catalog,
 	contextLevel,
 	itemOf,
@@ -79,6 +80,30 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 						`the context's claims row is ${inner}, the scope's, the one item of the level its alias names (${Formatter.format(levels)})`
 					)
 					c.note("a context source's row named by the scope, its level's one item")
+					return
+				}
+				if (drawn.place.kind === "met") {
+					const met = Option.getOrUndefined(boundMet(bound.statement))
+					if (met === undefined) {
+						assert.fail("the bound statement reads its met rows at its top")
+					}
+					const marked: ReadonlyArray<ReadonlyArray<string>> = Arr.flatMap(bound.plan.levels, (level) =>
+						level.kind === "joins" && level.name.kind === "named" && level.name.name === met.marked
+							? [[level.first.alias, ...Arr.map(level.appended, (i) => i.alias)]]
+							: []
+					)
+					const top: ReadonlyArray<string> = Arr.map(viewedLevels(bound.plan).top, (i) => i.alias)
+					assert.deepEqual(
+						{ top, marked },
+						{ top: [met.marked], marked: [[met.sides, met.scan, met.returned]] },
+						"the met rows' marked rows are the reader's item, planned apart reading their sides, the append relation of both arms"
+					)
+					const own = [met.marked, met.sides, met.scan, met.returned]
+					assert.ok(
+						Arr.every(own, (a) => Str.startsWith("r")(a)) && Arr.dedupe(own).length === own.length,
+						`each of the met rows' own names is the scope's, once (${Arr.join(own, ", ")})`
+					)
+					c.note("an INSERT's met rows planned apart under the scope's names")
 					return
 				}
 				if (drawn.place.kind === "world") {
@@ -184,7 +209,7 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 					"T's read is bound as the specification says"
 				)
 				const aliases = Arr.map(
-					Arr.flatMap(bound.plan.levels, (level) => [...levelItems(level), ...level.appended]),
+					Arr.flatMap(bound.plan.levels, scannedItems),
 					(i) => i.alias
 				)
 				assert.deepEqual(
@@ -206,6 +231,44 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 					"a conjunct stated twice binds T's seek once, never an index condition and a filter of one column"
 				)
 				switch (drawn.place.kind) {
+					case "union": {
+						const appends = Arr.flatMap(bound.plan.levels, (level) =>
+							level.kind === "append" ? [level] : []
+						)
+						const topItems = Arr.flatMap(bound.plan.levels, (level) =>
+							level.kind === "joins" && level.name.kind === "top"
+								? [[level.first.alias, ...Arr.map(level.appended, (i) => i.alias)]]
+								: []
+						)
+						const members: ReadonlyArray<string> =
+							drawn.place.at === "top"
+								? Arr.flatMap(appends, (level) =>
+										level.name.kind === "top" ? Arr.map(level.members, (i) => i.alias) : []
+									)
+								: Arr.flatMap(topItems, (aliases) => aliases.slice(1))
+						const named = new Set<string>(
+							Arr.flatMap(bound.plan.levels, (level) =>
+								level.kind === "joins" && level.name.kind === "named" ? [level.name.name] : []
+							)
+						)
+						assert.ok(
+							members.length === 2 &&
+								Arr.every(members, (m) => named.has(m)) &&
+								(drawn.place.at === "top"
+									? appends.length === 1 && topItems.length === 0
+									: appends.length === 0 && topItems.length === 1),
+							`each arm of the UNION ALL is one member, planned apart under its alias, of the append relation ${drawn.place.at === "top" ? "of the statement's level" : "of its reader's item"} (members ${Arr.join(members, ", ")})`
+						)
+						c.note(
+							drawn.place.at === "top"
+								? "a UNION ALL's append level, each arm's one item a member"
+								: "a derived UNION ALL's members appended to its reader's item"
+						)
+						if (spec.kind === "whole" && Arr.contains(held, "f")) {
+							c.note("a whole read of few values alone")
+						}
+						break
+					}
 					case "top":
 						if (spec.kind === "index") {
 							c.note("a seek at a literal")
@@ -259,6 +322,31 @@ export const everyReadIsBoundAsItsLevelFixesItWhereItStandsUnderTheScopesOneAlia
 		oracle: { kind: "specification", name: "the contract's binding rules (CARRY-CONTRACT §1)" },
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original:
+					'\t\t\t\tif (b.op === "UNION ALL" && name !== undefined && !this.#recursions.has(b)) {\n',
+				replacement: "\t\t\t\tif (name === undefined && name !== undefined) {\n",
+				why: "A UNION ALL's query names no append level: PostgreSQL flattens it into an append relation of its arms' items, whose NO_GATHER no advice carries (LAWS' Law 1 on cross-step's and held-scope's served reads, NO_GATHER(r3), NO_GATHER(r5))."
+			},
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original: "\t\t\tappended: bound.items\n",
+				replacement: "\t\t\tappended: []\n",
+				why: "A derived UNION ALL PostgreSQL pulls up into its reader's level carries no member: each arm's item is planned in the reader's append relation, unadvised."
+			},
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original: "\t\t\t\treturn { ...read, item: { alias: marked, scan: { kind: \"rows\" } } }\n",
+				replacement: "\t\t\t\treturn read\n",
+				why: "The met rows' reader's item named by their source's alias, a query PostgreSQL pulls up into the reader's level: the level's join order and NO_GATHER name a relation PostgreSQL never plans there, and the marked rows it plans in its place go unadvised (LAWS' Law 1 on key-reach's writeWhole, NO_GATHER(r10#2@r3))."
+			},
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original: "\t\t\t\tconst scan = this.#alias(source.scan)\n",
+				replacement: "\t\t\t\tconst scan = sides\n",
+				why: "The met rows' proposed side named as their sides: two relations of the marked rows' level share one alias, PostgreSQL numbers the second's occurrence, and an atom naming either matches both (Law 3)."
+			},
 			{
 				file: "packages/engine/src/sql/bind.ts",
 				original:

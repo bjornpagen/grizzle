@@ -68,7 +68,7 @@ const adviceOf = (scan: AdvisedScan, alias: AdviceScope, schema: string): Advice
 	return defined(
 		printAdvice({
 			levels: [
-				{ name: { kind: "top" }, first: { alias: r1, scan: read }, joined: [], appended: [] }
+				{ kind: "joins", name: { kind: "top" }, first: { alias: r1, scan: read }, joined: [], appended: [] }
 			]
 		}),
 		"the advice of a read of one table"

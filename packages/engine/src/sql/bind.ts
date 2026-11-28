@@ -927,6 +927,11 @@ interface BoundEntry {
 	readonly step: Step
 	readonly item: PlanItem<AccessIndexRequest>
 	readonly method: JoinMethod
+	/**
+	 * The members of the UNION ALL the item reads, which PostgreSQL flattens into the item's append relation at its level
+	 * (prepjointree.c pull_up_simple_union_all), each its arm's one item: none for any other item.
+	 */
+	readonly appended: ReadonlyArray<PlanItem<AccessIndexRequest>>
 }
 
 /** A level's FROM, one join chain: its first entry, every other a step, each joined as it states. */
@@ -1084,10 +1089,62 @@ const readsAtOwnLevel = (q: OperandSelect): boolean => {
  * (`named`), a set operation's arm's, and bare where it reads them by place, a sublink's, so its rows, its multiplicity
  * and every name a reader reads are the query's.
  */
-const wrapped = (q: OperandSelect, named: boolean): OperandSelect => {
-	if (!readsAtOwnLevel(q)) {
-		return q
+const wrapped = (q: OperandSelect, named: boolean): OperandSelect =>
+	readsAtOwnLevel(q) ? wrapper(q, named) : q
+
+/**
+ * Whether PostgreSQL pulls a set operation's arm up into the append relation of its UNION ALL as its one item
+ * (prepjointree.c is_safe_append_member, is_simple_subquery): a simple query (sql/pull-up.ts simpleQuery), as the
+ * binding reads it once its pass-through projections fold (sql/print.ts foldedCore), of no WHERE that reads one item,
+ * no stored table or view, whose relation is then the member.
+ */
+const appendMember = (q: OperandSelect): boolean => {
+	if (!simpleQuery(q) || q.body.kind !== "core") {
+		return false
 	}
+	const body = foldedCore(q.body, true)
+	if (!simpleQuery({ ...q, body }) || body.where !== undefined) {
+		return false
+	}
+	const [entry, ...others] = entriesOf(body.from)
+	return entry !== undefined && others.length === 0 && entry.source.kind !== "table"
+}
+
+/**
+ * A set operation's arm as it is bound (see `appendMember`): as it stands where it is an append member, else read
+ * through one item of the scope's (`wrapper`), so the arm is one under every set operation, its item the member
+ * PostgreSQL pulls up into a UNION ALL's append relation, and a level of the scope's where PostgreSQL plans it apart.
+ */
+const armed = (q: OperandSelect): OperandSelect => (appendMember(q) ? q : wrapper(q, true))
+
+/**
+ * Whether PostgreSQL pulls the derived table of this query up into its reader's level as an append relation
+ * (prepjointree.c is_simple_union_all, pull_up_simple_union_all): a UNION ALL of no WITH, ORDER BY, LIMIT or OFFSET,
+ * every arm one item (`armed`), each a member of the relation at the reader's level.
+ */
+const pulledUnion = (q: OperandSelect): boolean =>
+	q.body.kind === "setOp" &&
+	q.body.op === "UNION ALL" &&
+	q.with === undefined &&
+	q.orderBy.length === 0 &&
+	q.limit === undefined &&
+	q.offset === undefined
+
+/** Whether the query `q` reads the CTE written `name`: a recursive CTE's body that reads itself. */
+const readsCte = (q: OperandSelect, name: string): boolean => {
+	let reads = false
+	new Transform({
+		...identityHooks,
+		fromSource: (source) => {
+			reads ||= source.kind === "cte" && source.name === name
+			return source
+		}
+	}).select(q)
+	return reads
+}
+
+/** The query `q` read through one item of the scope's, whatever it reads (`wrapped`). */
+const wrapper = (q: OperandSelect, named: boolean): OperandSelect => {
 	const outputs = bodyPositionNames(q.body)
 	const names = outputs.map((_, i) => `c${i + 1}`)
 	const inner = namedQuery(q, names)
@@ -1190,6 +1247,11 @@ class Binder {
 	#whole = false
 	/** The world views the statement reads whose bodies hold levels of their own, by ordinal (`worldEntry`). */
 	readonly #worlds = new Set<number>()
+	/**
+	 * The bodies of the recursive CTEs the walk is in, each the UNION of its recursion, which PostgreSQL plans as a
+	 * recursion, never an append relation (prepjointree.c flatten_simple_union_all).
+	 */
+	readonly #recursions = new Set<OperandBody>()
 
 	constructor(scope: Scope, catalog: ReadCatalog, reads: BoundReads) {
 		this.#scope = scope
@@ -1352,13 +1414,25 @@ class Binder {
 	 * names itself), then its ORDER BY, LIMIT and OFFSET over the body's FROM.
 	 */
 	query(q: OperandSelect, env: Env, name: PlanName | undefined): OperandSelect {
+		return this.#bound(q, env, name).query
+	}
+
+	/**
+	 * A query bound (`query`), with the items its level reads: its core's entries', a nested query's, or each arm's one
+	 * item of a set operation.
+	 */
+	#bound(
+		q: OperandSelect,
+		env: Env,
+		name: PlanName | undefined
+	): { readonly query: OperandSelect; readonly items: ReadonlyArray<PlanItem<AccessIndexRequest>> } {
 		const { with: w, env: inner } = this.with(q.with, env)
 		const body = this.body(q.body, inner, name, {
 			orderBy: q.orderBy,
 			limit: q.limit,
 			offset: q.offset
 		})
-		return { ...q, with: w, body: body.body, ...body.tail }
+		return { query: { ...q, with: w, body: body.body, ...body.tail }, items: body.items }
 	}
 
 	/** A WITH: each CTE under its new name, each a level that name names, a recursive one's every CTE seen in each. */
@@ -1375,6 +1449,9 @@ class Binder {
 		}
 		const bound = w.ctes.map((cte, i): Cte => {
 			const name = names[i] ?? defect("a name for each CTE")
+			if (w.recursive && cte.query.kind === "select" && readsCte(cte.query, cte.name)) {
+				this.#recursions.add(cte.query.body)
+			}
 			const query = this.cteBody(cte.query, { ...env, ctes: new Map(ctes) }, name)
 			ctes.set(cte.name, name)
 			return { ...cte, name, query }
@@ -1410,7 +1487,11 @@ class Binder {
 		env: Env,
 		name: PlanName | undefined,
 		stated: Tail
-	): { readonly body: OperandBody; readonly tail: Tail } {
+	): {
+		readonly body: OperandBody
+		readonly tail: Tail
+		readonly items: ReadonlyArray<PlanItem<AccessIndexRequest>>
+	} {
 		const limit = stated.limit
 		/** A take's core with its fences folded away under its ORDER BY (`takenThrough`). */
 		const taken =
@@ -1433,17 +1514,26 @@ class Binder {
 			case "core": {
 				const folded = taken?.core ?? (tail.orderBy.length > 0 ? b : foldedCore(b, true))
 				const bound = this.core(folded, env, name, order)
-				return { body: bound.core, tail: tailUnder(bound.env) }
+				return { body: bound.core, tail: tailUnder(bound.env), items: bound.items }
 			}
-			case "select":
-				return { body: this.query(b, env, name), tail: tailUnder(env) }
+			case "select": {
+				const bound = this.#bound(b, env, name)
+				return { body: bound.query, tail: tailUnder(env), items: bound.items }
+			}
 			case "setOp": {
-				const [one, two, ...rest] = b.arms
-				const arms = [
-					this.arm(one, env),
-					this.arm(two, env),
-					...rest.map((a) => this.arm(a, env))
-				] as const
+				const [a0, a1, ...as] = b.arms
+				const one = this.arm(a0, env)
+				const two = this.arm(a1, env)
+				const rest = as.map((a) => this.arm(a, env))
+				const arms = [one.arm, two.arm, ...rest.map((a) => a.arm)] as const
+				const members: NonEmptyReadonlyArray<PlanItem<AccessIndexRequest>> = [
+					one.item,
+					two.item,
+					...rest.map((a) => a.item)
+				]
+				if (b.op === "UNION ALL" && name !== undefined && !this.#recursions.has(b)) {
+					this.#levels.push({ kind: "append", name, members })
+				}
 				if (b.op === "UNION ALL" && b.rows !== "oneRow" && b.rows !== "operand") {
 					const set = (arm: SetOperand) =>
 						arm.kind === "core"
@@ -1453,26 +1543,42 @@ class Binder {
 								: defect("a UNION ALL arm bound a set still, as its proof requires")
 					return {
 						body: { ...b, arms: [set(arms[0]), set(arms[1]), ...arms.slice(2).map(set)] },
-						tail: tailUnder(env)
+						tail: tailUnder(env),
+						items: members
 					}
 				}
-				return { body: { ...b, arms }, tail: tailUnder(env) }
+				return { body: { ...b, arms }, tail: tailUnder(env), items: members }
 			}
 		}
 	}
 
-	/** A set operation's arm: a level PostgreSQL names itself, so it reads its relations through one item (`wrapped`). */
-	arm(arm: SetOperand, env: Env): SetOperand {
+	/**
+	 * A set operation's arm, its one item with it (`armed`): a level PostgreSQL names itself, or pulls up into the append
+	 * relation of a UNION ALL, so it reads its relations through that item.
+	 */
+	arm(
+		arm: SetOperand,
+		env: Env
+	): { readonly arm: SetOperand; readonly item: PlanItem<AccessIndexRequest> } {
 		const query = arm.kind === "core" ? operandSelect(arm) : arm
-		const bound = this.query(wrapped(query, true), env, undefined)
-		return arm.kind === "core" &&
-			bound.with === undefined &&
-			bound.orderBy.length === 0 &&
-			bound.limit === undefined &&
-			bound.offset === undefined &&
-			bound.body.kind === "core"
-			? bound.body
-			: bound
+		const bound = this.#bound(armed(query), env, undefined)
+		const [item, ...others] = bound.items
+		if (item === undefined || others.length > 0) {
+			return defect("a set operation's arm reading one item")
+		}
+		const q = bound.query
+		return {
+			arm:
+				arm.kind === "core" &&
+				q.with === undefined &&
+				q.orderBy.length === 0 &&
+				q.limit === undefined &&
+				q.offset === undefined &&
+				q.body.kind === "core"
+					? q.body
+					: q,
+			item
+		}
 	}
 
 	/**
@@ -1485,7 +1591,11 @@ class Binder {
 		env: Env,
 		name: PlanName | undefined,
 		order: OrderIntent | undefined
-	): { readonly core: SelectCore; readonly env: Env } {
+	): {
+		readonly core: SelectCore
+		readonly env: Env
+		readonly items: ReadonlyArray<PlanItem<AccessIndexRequest>>
+	} {
 		const depth = env.depth + 1
 		const where: Array<Expr> = [...conjunctsOf(c.where)]
 		let here: Env = { ...env, depth }
@@ -1521,10 +1631,12 @@ class Binder {
 			groupBy: rename.exprs(c.groupBy),
 			having: c.having === undefined ? undefined : rename.expr(c.having)
 		} as const
+		const items = bound.map((b) => b.item)
 		if (c.distinct === false) {
 			return {
 				core: { ...frame, distinct: false, rows: c.rows, targets: rename.targets(c.targets) },
-				env: here
+				env: here,
+				items
 			}
 		}
 		const [t0, ...ts] = rename.targets(c.targets)
@@ -1532,7 +1644,7 @@ class Binder {
 			return defect("a DISTINCT core of a target at least")
 		}
 		const distinct = c.distinct === true ? true : { on: rename.nonEmptyExprs(c.distinct.on) }
-		return { core: { ...frame, distinct, targets: [t0, ...ts] }, env: here }
+		return { core: { ...frame, distinct, targets: [t0, ...ts] }, env: here, items }
 	}
 
 	/** A level's plan, its first entry driving and the rest joined in order, where the scope names it. */
@@ -1542,10 +1654,11 @@ class Binder {
 			return
 		}
 		this.#levels.push({
+			kind: "joins",
 			name,
 			first: first.item,
 			joined: joined.map((j): JoinedItem<AccessIndexRequest> => ({ item: j.item, join: j.method })),
-			appended: []
+			appended: bound.flatMap((b) => b.appended)
 		})
 	}
 
@@ -1575,7 +1688,8 @@ class Binder {
 			source: s,
 			step: step(),
 			item: { alias, scan: { kind: "rows" } },
-			method
+			method,
+			appended: []
 		})
 		switch (source.kind) {
 			case "table": {
@@ -1609,10 +1723,34 @@ class Binder {
 			case "metRows": {
 				const cteOf = (name: string) =>
 					here.ctes.get(name) ?? defect(`a CTE ${name} a WITH in reach binds, which met rows read`)
-				return rows(
-					{ ...source, insert: cteOf(source.insert), proposed: cteOf(source.proposed), alias },
+				const marked = this.#alias(source.marked)
+				const sides = this.#alias(source.sides)
+				const scan = this.#alias(source.scan)
+				const returned = this.#alias(source.returned)
+				this.#levels.push({
+					kind: "joins",
+					name: { kind: "named", name: marked },
+					first: { alias: sides, scan: { kind: "rows" } },
+					joined: [],
+					appended: [
+						{ alias: scan, scan: { kind: "rows" } },
+						{ alias: returned, scan: { kind: "rows" } }
+					]
+				})
+				const read = rows(
+					{
+						...source,
+						insert: cteOf(source.insert),
+						proposed: cteOf(source.proposed),
+						scan,
+						returned,
+						sides,
+						marked,
+						alias
+					},
 					this.#method(entry, source.alias, where, here, place)
 				)
+				return { ...read, item: { alias: marked, scan: { kind: "rows" } } }
 			}
 			case "read":
 				return defect("a read source the lowering stated, which the binding alone makes")
@@ -1632,6 +1770,7 @@ class Binder {
 			case "context": {
 				const inner = this.#alias(source.inner)
 				this.#levels.push({
+					kind: "joins",
 					name: { kind: "named", name: alias },
 					first: { alias: inner, scan: { kind: "rows" } },
 					joined: [],
@@ -1710,6 +1849,7 @@ class Binder {
 				: order.filter((c) => btreeColumn(catalogTable, c) !== undefined && !held.includes(c))
 		const [h0, ...hs] = held
 		this.#levels.push({
+			kind: "joins",
 			name: { kind: "named", name: alias },
 			first: {
 				alias: stored === undefined ? inner : itemAlias(stored, inner),
@@ -1768,7 +1908,8 @@ class Binder {
 			},
 			step,
 			item: { alias, scan: { kind: "rows" } },
-			method: "nestedLoop"
+			method: "nestedLoop",
+			appended: []
 		}
 	}
 
@@ -1801,7 +1942,8 @@ class Binder {
 			},
 			step,
 			item: { alias, scan: { kind: "rows" } },
-			method: "nestedLoop"
+			method: "nestedLoop",
+			appended: []
 		}
 	}
 
@@ -2017,7 +2159,8 @@ class Binder {
 			source: bound.source,
 			step,
 			item: { alias: stored === undefined ? alias : itemAlias(stored, alias), scan: bound.scan },
-			method: this.#method(entry, written, where, here, place)
+			method: this.#method(entry, written, where, here, place),
+			appended: []
 		}
 	}
 
@@ -2178,6 +2321,7 @@ class Binder {
 			return defect("a probe of a column at least, bound by one")
 		}
 		this.#levels.push({
+			kind: "joins",
 			name: { kind: "named", name: alias },
 			first: {
 				alias: itemAlias(stored, inner),
@@ -2203,7 +2347,8 @@ class Binder {
 			},
 			step: entry.join === "left" ? { join: "left", on: lit.bool(true) } : { join: "cross" },
 			item: { alias, scan: { kind: "rows" } },
-			method: "nestedLoop"
+			method: "nestedLoop",
+			appended: []
 		}
 	}
 
@@ -2351,16 +2496,17 @@ class Binder {
 						on: conjunction(ons.map((c) => this.expr(c, self))) ?? lit.bool(true)
 					}
 				: { join: "cross" }
+		const reads = lateral ? here : outer
+		const appended = pulledUnion(query)
+		const bound = appended
+			? this.#bound(query, reads, undefined)
+			: { query: this.query(fenced(query), reads, { kind: "named", name: alias }), items: [] }
 		return {
-			source: {
-				kind: "derived",
-				query: this.query(fenced(query), lateral ? here : outer, { kind: "named", name: alias }),
-				alias,
-				lateral
-			},
+			source: { kind: "derived", query: bound.query, alias, lateral },
 			step,
 			item: { alias, scan: { kind: "rows" } },
-			method: lateral ? "nestedLoop" : this.#method(entry, written, where, here, place)
+			method: lateral ? "nestedLoop" : this.#method(entry, written, where, here, place),
+			appended: bound.items
 		}
 	}
 
@@ -2455,7 +2601,8 @@ class Binder {
 				source: { kind: "read", table, alias, access: { kind: "whole" } },
 				step: { join: "cross" },
 				item: { alias, scan: { kind: "tid" } },
-				method: "nestedLoop"
+				method: "nestedLoop",
+				appended: []
 			}
 			here = withRelation(here, written, alias, depth, place)
 			this.#level(
@@ -2505,7 +2652,8 @@ class Binder {
 					source: probed.source,
 					step: { join: "cross" },
 					item: { alias, scan: { kind: "tid" } },
-					method: "nestedLoop"
+					method: "nestedLoop",
+					appended: []
 				}
 			])
 			const rename = this.renamer(here)
@@ -2559,7 +2707,8 @@ class Binder {
 				source: { kind: "read", table, alias, access: { kind: "whole" } },
 				step: { join: "cross" },
 				item: targetItem,
-				method: "nestedLoop"
+				method: "nestedLoop",
+				appended: []
 			},
 			...bound
 		])
@@ -2647,7 +2796,8 @@ class Binder {
 					alias,
 					scan: catalogTable === undefined ? { kind: "rows" } : { kind: "seq" }
 				},
-				method: "nestedLoop"
+				method: "nestedLoop",
+				appended: []
 			},
 			{ ...source, method: "hash" }
 		])

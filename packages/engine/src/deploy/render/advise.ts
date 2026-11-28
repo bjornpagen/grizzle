@@ -24,7 +24,7 @@ import { type Advice, noAdvice, transactionAdvice } from "#compiler/sql/advice.t
 import type { ObjectName, PlBlock, SqlStatement } from "#compiler/sql/ast.ts"
 import { bindBlock, type BoundReads, bindStatement } from "#compiler/sql/bind.ts"
 import { AdviceScope } from "#compiler/sql/naming.ts"
-import { levelItems, type ReadPlan } from "#compiler/sql/plan.ts"
+import { type ReadPlan, scannedItems } from "#compiler/sql/plan.ts"
 
 /**
  * A draft as its file writes it: a data step bound (see the header) with the plan its advice is printed of, a statement
@@ -65,7 +65,7 @@ const stepReads = (installation: Installation): BoundReads => ({
 /** Every index request a plan's reads make, in its order. */
 const requestsOf = (plan: ReadPlan<AccessIndexRequest>): ReadonlyArray<AccessIndexRequest> =>
 	plan.levels.flatMap((level) =>
-		[...levelItems(level), ...level.appended].flatMap((item) =>
+		scannedItems(level).flatMap((item) =>
 			item.scan.kind === "index" ? [item.scan.index] : []
 		)
 	)

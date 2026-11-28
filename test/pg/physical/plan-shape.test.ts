@@ -105,8 +105,8 @@ export const everyRoutinePlansAsItsAdviceCarriesInEveryState = property.explore(
 		},
 		{
 			file: "packages/engine/src/sql/bind.ts",
-			original: "\tif (!readsAtOwnLevel(q)) {",
-			replacement: "\tif (true) {",
+			original: "\treadsAtOwnLevel(q) ? wrapper(q, named) : q\n",
+			replacement: "\tq\n",
 			why: "A sublink's query read at the level PostgreSQL names itself: a correlated EXISTS is flattened into a semi-join grizzle never planned (e3 P5), its advice targeting a level that no longer exists (Law 1)."
 		},
 		{

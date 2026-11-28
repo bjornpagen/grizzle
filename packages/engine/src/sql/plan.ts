@@ -15,6 +15,7 @@
  * the only source of the requests an installation plans its indexes from, `planRequests`), and the IndexRef the plan
  * resolved it to after (`ReadPlan<IndexRef>`, `resolvePlan`), which alone prints as advice.
  */
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { AccessIndexRequest } from "#compiler/ir/products.ts"
 import type { IndexRef } from "#compiler/physical/indexes/ref.ts"
 import type { Alias } from "#compiler/sql/naming.ts"
@@ -73,16 +74,29 @@ export interface JoinedItem<I> {
 }
 
 /**
- * One level the scope named (see the header): its name, its first item, and the items joined after it, in order; and the
- * members of a UNION ALL it reads as one item, which PostgreSQL flattens into an append relation of the level, each a
- * set operation's arm planned apart under its own alias (`appended`): scanned at the level, in no join order.
+ * One level the scope named (see the header), by its name:
+ * - `joins`: a join problem, its first item and the items joined after it, in order; and the members of a UNION ALL one
+ *   of its items reads, which PostgreSQL flattens into that item's append relation (prepjointree.c
+ *   pull_up_simple_union_all), each the one item of an arm it pulls up (`appended`): scanned at the level, in no join
+ *   order;
+ * - `append`: a UNION ALL's query alone, which PostgreSQL flattens into an append relation of its own level
+ *   (prepjointree.c flatten_simple_union_all), the relation it scans in no join problem, its members the one item of
+ *   each arm, each pulled up into the level: the relation PostgreSQL makes of the set operation's first arm stands for
+ *   the whole, under a name of its own, and no plan names it.
  */
-export interface PlanLevel<I> {
-	readonly name: PlanName
-	readonly first: PlanItem<I>
-	readonly joined: ReadonlyArray<JoinedItem<I>>
-	readonly appended: ReadonlyArray<PlanItem<I>>
-}
+export type PlanLevel<I> =
+	| {
+			readonly kind: "joins"
+			readonly name: PlanName
+			readonly first: PlanItem<I>
+			readonly joined: ReadonlyArray<JoinedItem<I>>
+			readonly appended: ReadonlyArray<PlanItem<I>>
+	  }
+	| {
+			readonly kind: "append"
+			readonly name: PlanName
+			readonly members: NonEmptyReadonlyArray<PlanItem<I>>
+	  }
 
 /** A plan of the statements of one advice scope, or of one of them (see the header). */
 export interface ReadPlan<I> {
@@ -94,17 +108,13 @@ export const joinPlans = <I>(plans: ReadonlyArray<ReadPlan<I>>): ReadPlan<I> => 
 	levels: plans.flatMap((p) => p.levels)
 })
 
-/** The items of a level's join problem, its first then the joined ones, in join order. */
-export const levelItems = <I>(level: PlanLevel<I>): ReadonlyArray<PlanItem<I>> => [
-	level.first,
-	...level.joined.map((j) => j.item)
-]
+/** The items of a level's join problem, its first then the joined ones, in join order; none of an append level's. */
+export const levelItems = <I>(level: PlanLevel<I>): ReadonlyArray<PlanItem<I>> =>
+	level.kind === "joins" ? [level.first, ...level.joined.map((j) => j.item)] : []
 
 /** Every item a level scans: its join problem's, then its append relations' members. */
-export const scannedItems = <I>(level: PlanLevel<I>): ReadonlyArray<PlanItem<I>> => [
-	...levelItems(level),
-	...level.appended
-]
+export const scannedItems = <I>(level: PlanLevel<I>): ReadonlyArray<PlanItem<I>> =>
+	level.kind === "joins" ? [...levelItems(level), ...level.appended] : level.members
 
 /** Every request a plan's index reads make, in plan order, each as often as a read makes it. */
 export const planRequests = (
@@ -141,10 +151,20 @@ export const resolvePlan = (
 	plan: ReadPlan<AccessIndexRequest>,
 	resolve: (request: AccessIndexRequest) => IndexRef
 ): ReadPlan<IndexRef> => ({
-	levels: plan.levels.map((level) => ({
-		name: level.name,
-		first: resolvedItem(level.first, resolve),
-		joined: level.joined.map((j) => ({ item: resolvedItem(j.item, resolve), join: j.join })),
-		appended: level.appended.map((item) => resolvedItem(item, resolve))
-	}))
+	levels: plan.levels.map(
+		(level): PlanLevel<IndexRef> =>
+			level.kind === "joins"
+				? {
+						kind: "joins",
+						name: level.name,
+						first: resolvedItem(level.first, resolve),
+						joined: level.joined.map((j) => ({ item: resolvedItem(j.item, resolve), join: j.join })),
+						appended: level.appended.map((item) => resolvedItem(item, resolve))
+					}
+				: {
+						kind: "append",
+						name: level.name,
+						members: mapNonEmpty(level.members, (item) => resolvedItem(item, resolve))
+					}
+	)
 })

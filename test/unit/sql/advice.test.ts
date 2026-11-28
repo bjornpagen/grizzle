@@ -7,7 +7,7 @@
  * meant, a tag's name read as the tag.
  *
  * A case draws a plan of one to three levels, each the statement's top or one a scope's alias names, each its first item
- * and up to three joined after it by a nested loop or a hash join, each item read whole, through an index, at tuple ids
+ * and up to three joined after it by a nested loop or a hash join, or a UNION ALL's append level, each item read whole, through an index, at tuple ids
  * or as rows of no stored relation; an index of several access methods, whether it returns what it stores, the columns
  * it stores and the ones its read needs drawn from one small pool, and its name and schema plain, capitalized, quoted,
  * or a tag's name.
@@ -27,6 +27,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order } from "effect"
 import { printAdvice } from "#compiler/sql/advice.ts"
+import { levelItems } from "#compiler/sql/plan.ts"
 import {
 	type AdviceFeature,
 	type Atom,
@@ -50,17 +51,19 @@ export const aPlansAdviceParsesAsPgPlanAdviceReadsItAndHoldsExactlyTheAtomsThePl
 					Arr.sort(Arr.map(atoms, atomText), Order.String)
 				assert.deepEqual(sorted(parsedAtoms(advice)), sorted(statedAtoms(plan)))
 				for (const level of plan.levels) {
-					const items = [level.first, ...Arr.map(level.joined, (j) => j.item)]
+					const items = levelItems(level)
 					if (items.length > 1) {
 						c.note("join order")
 					}
-					if (Arr.some(level.joined, (j) => j.join === "hash")) {
+					if (level.kind === "joins" && Arr.some(level.joined, (j) => j.join === "hash")) {
 						c.note("hash join")
 					}
 					if (level.name.kind === "named") {
 						c.note("named level")
 					}
-					if (level.appended.length > 0) {
+					if (level.kind === "append") {
+						c.note("a UNION ALL's append level")
+					} else if (level.appended.length > 0) {
 						c.note("an append member")
 					}
 					for (const { scan } of items) {
@@ -112,7 +115,7 @@ export const aPlansAdviceParsesAsPgPlanAdviceReadsItAndHoldsExactlyTheAtomsThePl
 			{
 				file: "packages/engine/src/sql/advice.ts",
 				original: "\t\t...scanned.map((item) => noGather(at(item)))",
-				replacement: "\t\t...[level.first].map((item) => noGather(at(item)))",
+				replacement: "\t\t...scanned.slice(0, 1).map((item) => noGather(at(item)))",
 				why: "A joined item or an append member may run under a Gather; its NO_GATHER atom is missing."
 			},
 			{

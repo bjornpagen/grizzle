@@ -19,7 +19,9 @@ import {
 	col,
 	columnDefinition,
 	core,
+	continuedAll,
 	countStar,
+	cte,
 	cteRefAs,
 	derived,
 	eq,
@@ -40,7 +42,7 @@ import {
 } from "#compiler/sql/build.ts"
 import { wholeViewAlias } from "#compiler/sql/naming.ts"
 import type { PlanItem, ReadPlan } from "#compiler/sql/plan.ts"
-import { levelItems } from "#compiler/sql/plan.ts"
+import { levelItems, scannedItems } from "#compiler/sql/plan.ts"
 import { printExpr } from "#compiler/sql/print.ts"
 import { identityHooks, Transform } from "#compiler/sql/transform.ts"
 
@@ -62,6 +64,9 @@ export type BindFeature =
 	| "a context source's row named by the scope, its level's one item"
 	| "a world view's read planned under its body's aliases, the reader's qual pushed past its barrier"
 	| "a world view's read whose qual its barrier keeps out"
+	| "an INSERT's met rows planned apart under the scope's names"
+	| "a UNION ALL's append level, each arm's one item a member"
+	| "a derived UNION ALL's members appended to its reader's item"
 
 export const bindFeatures = [
 	"a seek at a literal",
@@ -79,7 +84,10 @@ export const bindFeatures = [
 	"a whole view read twice at one level, the second a level of its own",
 	"a context source's row named by the scope, its level's one item",
 	"a world view's read planned under its body's aliases, the reader's qual pushed past its barrier",
-	"a world view's read whose qual its barrier keeps out"
+	"a world view's read whose qual its barrier keeps out",
+	"an INSERT's met rows planned apart under the scope's names",
+	"a UNION ALL's append level, each arm's one item a member",
+	"a derived UNION ALL's members appended to its reader's item"
 ] as const
 
 /**
@@ -173,6 +181,29 @@ export const catalog: ReadCatalog = {
 	fired: () => undefined
 }
 
+/**
+ * The met rows of the CTE `i` proposing the CTE `p`, keyed by a, delivering a and b, read as `m`, each name of their own
+ * written as the lowering writes one: what PostgreSQL plans as the level `mm` reading `md`, the append relation of `ms`
+ * and `mr`.
+ */
+export const metSource: Extract<FromSource, { readonly kind: "metRows" }> = {
+	kind: "metRows",
+	insert: "i",
+	proposed: "p",
+	key: [{ column: "a", from: "a", schema: undefined }],
+	columns: [
+		{ column: "a", returned: "a" },
+		{ column: "b", returned: "b" }
+	],
+	scan: "ms",
+	returned: "mr",
+	sides: "md",
+	marker: "mk",
+	marked: "mm",
+	hit: "mh",
+	alias: "m"
+}
+
 /** A session's context, one claim `sub` delivered as `c1`, read as `x`, its claims document's row written `m`. */
 const contextSource: FromSource = {
 	kind: "context",
@@ -190,7 +221,9 @@ export type Fixed = "a" | "b" | "f" | "v" | "d"
  * Where a case reads T: its level's own top, its first literal equality stated twice; after S, joined to it at b; beneath S's EXISTS at a; through a window;
  * inside groups by b, a derived table S is joined to at b, over T itself or over a MATERIALIZED CTE of T's rows; or
  * through T's whole view at its level's top, once, or twice, the second read whole beside the first; or none, a
- * session's context read instead, its claims document's row written `m`.
+ * session's context read instead, its claims document's row written `m`, or an INSERT's met rows, their own names
+ * written as the lowering writes them; or in the first arm of a UNION ALL with S's, the statement's own or a derived
+ * table its top reads.
  */
 export type Place =
 	| { readonly kind: "top" }
@@ -201,6 +234,8 @@ export type Place =
 	| { readonly kind: "viewed"; readonly reads: 1 | 2 }
 	| { readonly kind: "context" }
 	| { readonly kind: "world"; readonly leaky: boolean }
+	| { readonly kind: "met" }
+	| { readonly kind: "union"; readonly at: "top" | "derived" }
 
 export interface BindCase {
 	readonly place: Place
@@ -225,7 +260,10 @@ export const bindCaseGen: Gen<BindCase> = (source) => {
 			{ kind: "viewed", reads: 2 },
 			{ kind: "context" },
 			{ kind: "world", leaky: false },
-			{ kind: "world", leaky: true }
+			{ kind: "world", leaky: true },
+			{ kind: "met" },
+			{ kind: "union", at: "top" },
+			{ kind: "union", at: "derived" }
 		])
 	)
 	return {
@@ -319,6 +357,33 @@ export const statementOf = (c: BindCase): Select => {
 		}
 		case "context":
 			return select(provedCore("oneRow", [target(col("x", "c1"))], [contextSource], undefined))
+		case "union": {
+			const united = continuedAll(
+				"disjoint",
+				keyedSet([target(col("t", "b"))], [tRead], whereOf(fixed), "T's arm"),
+				keyedSet([target(col("s", "w"))], [sRead], undefined, "S's arm")
+			)
+			return c.place.at === "top"
+				? select(united)
+				: select(
+						keyedSet(
+							[target(col("u", "b"))],
+							[derived(select(united), "u", false)],
+							undefined,
+							"a read of T's and S's union"
+						)
+					)
+		}
+		case "met": {
+			const rowsOfT = operandSelect(core([target(col("t", "a")), target(col("t", "b"))], [tRead], undefined))
+			const rowsOfP = operandSelect(
+				core([target(col("q", "a")), target(col("q", "b"))], [cteRefAs("p", "q")], undefined)
+			)
+			return {
+				...select(keyedSet([target(col("m", "b"))], [metSource], undefined, "an INSERT's met rows")),
+				with: { recursive: false, ctes: [cte("p", rowsOfT), cte("i", rowsOfP)] }
+			}
+		}
 		case "world":
 			return select(
 				keyedSet(
@@ -401,6 +466,7 @@ export const topJoins = (
 		hashed: Arr.some(
 			plan.levels,
 			(level) =>
+				level.kind === "joins" &&
 				level.name.kind === "top" &&
 				Arr.some(level.joined, (j) => j.join === "hash" && j.item.scan.kind === "rows")
 		)
@@ -438,7 +504,7 @@ export const itemOf = (
 	alias: string
 ): Option.Option<PlanItem<AccessIndexRequest>> =>
 	Arr.findFirst(
-		Arr.flatMap(plan.levels, (level) => [...levelItems(level), ...level.appended]),
+		Arr.flatMap(plan.levels, scannedItems),
 		(item) => item.alias === alias
 	)
 
@@ -465,6 +531,7 @@ export const specified = (c: BindCase): SpecifiedRead => {
 		case "driven":
 			return { kind: "index", probe: true, bound: sorted(["b", ...held]) }
 		case "context":
+		case "met":
 			return { kind: "whole" }
 		case "world":
 			return c.place.leaky ? { kind: "whole" } : { kind: "index", probe: false, bound: ["a"] }
@@ -483,7 +550,8 @@ export const specified = (c: BindCase): SpecifiedRead => {
 			return { kind: "index", probe: false, bound: sorted(["a", ...held]) }
 		case "window":
 			return c.place.at === "a" ? { kind: "index", probe: false, bound: ["a"] } : { kind: "whole" }
-		case "top": {
+		case "top":
+		case "union": {
 			const many = Arr.some(held, (f) => f !== "f")
 			if (many && Arr.contains(held, "a")) {
 				return { kind: "index", probe: false, bound: sorted(held) }
@@ -535,6 +603,15 @@ export const contextLevel = (
 				)
 		})
 	}
+}
+
+/** The met rows the bound statement reads at its top, as the binding wrote them. */
+export const boundMet = (
+	bound: Select
+): Option.Option<Extract<FromSource, { readonly kind: "metRows" }>> => {
+	const body = bound.body
+	const [first] = body.kind === "core" ? body.from : []
+	return first?.kind === "metRows" ? Option.some(first) : Option.none()
 }
 
 /** The conditions of every seek's bindings the bound statement reads T by, each as printed. */

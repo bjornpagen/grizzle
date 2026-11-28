@@ -152,9 +152,10 @@ const levelAtoms = (level: PlanLevel<IndexRef>): ReadonlyArray<string> => {
 	const items = levelItems(level)
 	const scanned = scannedItems(level)
 	const at = (item: PlanItem<IndexRef>) => target(item, level.name)
+	const joined = level.kind === "joins" ? level.joined : []
 	return [
-		...(level.joined.length === 0 ? [] : [`JOIN_ORDER(${items.map(at).join(" ")})`]),
-		...level.joined.map((j) => `${methodTag[j.join]}(${at(j.item)})`),
+		...(joined.length === 0 ? [] : [`JOIN_ORDER(${items.map(at).join(" ")})`]),
+		...joined.map((j) => `${methodTag[j.join]}(${at(j.item)})`),
 		...scanned.flatMap((item) => scanAtom(item, at(item))),
 		...scanned.map((item) => noGather(at(item)))
 	]

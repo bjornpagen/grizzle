@@ -31,6 +31,7 @@ export type AdviceFeature =
 	| "quoted name"
 	| "a tag's name"
 	| "an append member"
+	| "a UNION ALL's append level"
 
 export const adviceFeatures = [
 	"join order",
@@ -43,7 +44,8 @@ export const adviceFeatures = [
 	"named level",
 	"quoted name",
 	"a tag's name",
-	"an append member"
+	"an append member",
+	"a UNION ALL's append level"
 ] as const satisfies ReadonlyArray<Reached<AdviceFeature>>
 
 /** The columns an index stores and a read needs, from one small pool, so covering is often met and often missed. */
@@ -99,8 +101,9 @@ const scanGen: Gen<PlanScan<IndexRef>> = (source) => {
 }
 
 /**
- * A plan of one to three levels, each its first item and up to three joined after it, every alias minted by one scope
- * (sql/naming.ts AdviceScope), and each level the statement's top or one named by an alias of the scope.
+ * A plan of one to three levels, each its first item and up to three joined after it with up to two append members, or a
+ * UNION ALL's append level of one to three, every alias minted by one scope (sql/naming.ts AdviceScope), and each
+ * level the statement's top or one named by an alias of the scope.
  */
 export const planGen: Gen<ReadPlan<IndexRef>> = (source) => {
 	const scope = new AdviceScope()
@@ -108,6 +111,14 @@ export const planGen: Gen<ReadPlan<IndexRef>> = (source) => {
 	const item = (): PlanItem<IndexRef> => ({ alias: alias(), scan: source.draw(scanGen) })
 	const level = (): PlanLevel<IndexRef> => {
 		const name: PlanName = source.draw(boolean) ? { kind: "top" } : { kind: "named", name: alias() }
+		const member = (): PlanItem<IndexRef> => ({ alias: alias(), scan: { kind: "rows" } })
+		if (source.draw(int(0, 3)) === 0) {
+			return {
+				kind: "append",
+				name,
+				members: [member(), ...source.draw(array(member, { min: 0, max: 2 }))]
+			}
+		}
 		const first = item()
 		const joined = source.draw(
 			array(
@@ -118,13 +129,8 @@ export const planGen: Gen<ReadPlan<IndexRef>> = (source) => {
 				{ min: 0, max: 3 }
 			)
 		)
-		const appended = source.draw(
-			array((): PlanItem<IndexRef> => ({ alias: alias(), scan: { kind: "rows" } }), {
-				min: 0,
-				max: 2
-			})
-		)
-		return { name, first, joined, appended }
+		const appended = source.draw(array(member, { min: 0, max: 2 }))
+		return { kind: "joins", name, first, joined, appended }
 	}
 	return { levels: source.draw(array(level, { min: 1, max: 3 })) }
 }
@@ -299,7 +305,8 @@ export const parsedAtoms = (advice: string): ReadonlyArray<Atom> => {
  */
 export const statedAtoms = (plan: ReadPlan<IndexRef>): ReadonlyArray<Atom> =>
 	Arr.flatMap(plan.levels, (level) => {
-		const items = [level.first, ...Arr.map(level.joined, (j) => j.item)]
+		const joined = level.kind === "joins" ? level.joined : []
+		const items = level.kind === "joins" ? [level.first, ...Arr.map(joined, (j) => j.item)] : []
 		const targetOf = (item: PlanItem<IndexRef>): string =>
 			level.name.kind === "top" ? item.alias : `${item.alias}@${level.name.name}`
 		const one = (tag: string, item: PlanItem<IndexRef>): Atom => ({
@@ -330,15 +337,13 @@ export const statedAtoms = (plan: ReadPlan<IndexRef>): ReadonlyArray<Atom> =>
 				}
 			}
 		}
-		const scanned = [...items, ...level.appended]
+		const scanned = level.kind === "joins" ? [...items, ...level.appended] : level.members
 		const scans = Arr.flatMap(scanned, scanOf)
 		return [
 			...(items.length > 1
 				? [{ tag: "JOIN_ORDER", targets: Arr.map(items, targetOf), index: undefined }]
 				: []),
-			...Arr.map(level.joined, (j) =>
-				one(j.join === "hash" ? "HASH_JOIN" : "NESTED_LOOP_PLAIN", j.item)
-			),
+			...Arr.map(joined, (j) => one(j.join === "hash" ? "HASH_JOIN" : "NESTED_LOOP_PLAIN", j.item)),
 			...scans,
 			...Arr.map(scanned, (item) => one("NO_GATHER", item))
 		]

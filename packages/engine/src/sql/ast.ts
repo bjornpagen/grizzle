@@ -998,6 +998,11 @@ export type FromSource =
 			 * sides carry every column, never the key alone with the met keys joined back to the proposed rows: under the
 			 * same estimate PostgreSQL may plan that join as a nested loop, the proposed rows times the met ones, every row
 			 * of both where every row is met, the pairing the window replaces.
+			 *
+			 * PostgreSQL pulls the outer query up into its reader's level, so the reader's item is `marked`, planned apart
+			 * under that name, whose level reads `sides`, the UNION ALL it flattens into an append relation of `scan` and
+			 * `returned`: four range-table entries, each named by the binding's scope (sql/bind.ts), so each is a target its
+			 * advice names.
 			 */
 			readonly kind: "metRows"
 			readonly insert: string

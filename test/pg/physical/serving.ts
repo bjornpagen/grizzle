@@ -685,6 +685,7 @@ const probeProblems = (judging: Judging, request: IndexRequest, host: IndexRef) 
 		const plan: ReadPlan<IndexRef> = {
 			levels: [
 				{
+					kind: "joins",
 					name: { kind: "top" },
 					first: {
 						alias,

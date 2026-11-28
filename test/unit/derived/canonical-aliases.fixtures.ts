@@ -14,11 +14,7 @@
 import { defined } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, Record as Rec } from "effect"
-import { workloadExtension } from "#compiler/physical/access/extension.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import { installOptions } from "#compiler/physical/install/compile.ts"
-import { compileInstallation } from "#compiler/program/install.ts"
-import { workload } from "#compiler/program/workload/value.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { mutable, schema, unit } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -28,8 +24,7 @@ import { schemaBuilder } from "#compiler/schema/schema.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
-import { owning } from "#test/support/policy.ts"
+import { servedInstallation } from "#test/support/compiled-served.ts"
 
 /** The definition every alias of a shape has (see the header). */
 type Definition = "union" | "byKey" | "byDoc" | "without"
@@ -122,7 +117,8 @@ const definitionOf = (base: ReturnType<typeof schema>, d: Definition) => {
 
 /**
  * The installation of `s` with `aliases` derived relations of its definition and every read over the alias `aliasOf`
- * names for it, its workload's index requests and live plan planned in (physical/access/extension.ts).
+ * names for it, as `grizzle generate` drafts it serving those reads (test/support/compiled-served.ts
+ * servedInstallation): every read its bound statements make asked an index for, and its live plan.
  */
 const installed = (
 	s: AliasShape,
@@ -166,21 +162,7 @@ const installed = (
 			] as const
 		})
 	)
-	const plan = succeeded(
-		compileTestWorkload(
-			[{ login: "server", workloads: [workload(top, programs)] }],
-			top,
-			testCompile
-		)
-	)
-	const owned = owning(top)
-	const options = installOptions(owned)
-	return succeeded(
-		compileInstallation(owned, {
-			...options,
-			extensions: [...options.extensions, { ...workloadExtension(plan), live: plan.live }]
-		})
-	)
+	return succeeded(servedInstallation(top, programs), "the aliases' served installation").installation
 }
 
 /** The installation with every alias, each read over its own. */
