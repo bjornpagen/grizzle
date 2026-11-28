@@ -19,11 +19,17 @@
  * Property, per case: every member's entry as certification reads it holds its servable write, its facts and its
  * claims and no prepared write, its compiled write's own fields the servable write's; every member's servable entry, once certified,
  * holds its servable write and nothing more, its front end's fields the schema, written relations and codes alone; and
- * with only the servable roles held, the prepared writes alive are those alive before the login compiled, counted by V8
- * after a full collection (node:v8 queryObjects over write/program/compile.ts PreparedWrite). Oracle: specification, a
+ * the roles retain no prepared write: the prepared writes alive with the servable roles held are those alive once they
+ * are released, each count V8's after a full collection (node:v8 queryObjects over write/program/compile.ts
+ * PreparedWrite), so the difference is the prepared writes only the roles keep alive, their retained set, whatever else
+ * the worker holds. Two counts of one synchronous job, the roles released between them by the frame that held them
+ * returning, so what another property left alive, or anything the worker keeps beside the roles, is in both and
+ * cancels: the count is the roles' own, deterministic, where a count before the compile against one after it read
+ * every holder in the worker and went red in a mixed run (REDS7, 187 properties, unit and pg, one prepared write left
+ * at case 86, green on its replay). Oracle: specification, a
  * servable entry is what reads it after its compile. Kills: the entry certification reads holds its compiled write
- * whole; it keeps its prepared write; the servable entry holds the compiled write whole; the certified entry keeps
- * the facts and claims.
+ * whole; it keeps its prepared write; the servable write keeps its prepared write under a key no field names, which the
+ * count alone sees; the servable entry holds the compiled write whole; the certified entry keeps the facts and claims.
  *
  * Features: a role with a member lacking a form, a formed role.
  */
@@ -157,36 +163,42 @@ export const aRolesServableChangeMembersHoldTheirWritesSlicesAloneAndNoPreparedW
 		>,
 		check: (_, c: Case<Situation>) => (drawn) =>
 			Effect.sync(() => {
-				const before = preparedAlive()
-				const roles = servableRoles(drawn)
-				for (const { unformed, role } of roles) {
-					c.note(unformed ? "a role with a member lacking a form" : "a formed role")
-					for (const variants of role.members.values()) {
-						for (const entry of entriesOf(variants)) {
-							assert.deepEqual(
-								fieldsOf(entry),
-								servableEntryFields,
-								"the entry's fields, no prepared write"
-							)
-							assert.deepEqual(
-								fieldsOf(entry.compiled),
-								servableFields,
-								"the compiled write's servable fields alone"
-							)
-							assert.deepEqual(
-								fieldsOf(entry.compiled.frontend),
-								frontendFields,
-								"the front end's schema, written relations and codes alone"
-							)
+				/** The prepared writes alive with the servable roles held, counted in the frame that holds them, which returns
+				 * before the count with them released. */
+				const held = (): number => {
+					const roles = servableRoles(drawn)
+					for (const { unformed, role } of roles) {
+						c.note(unformed ? "a role with a member lacking a form" : "a formed role")
+						for (const variants of role.members.values()) {
+							for (const entry of entriesOf(variants)) {
+								assert.deepEqual(
+									fieldsOf(entry),
+									servableEntryFields,
+									"the entry's fields, no prepared write"
+								)
+								assert.deepEqual(
+									fieldsOf(entry.compiled),
+									servableFields,
+									"the compiled write's servable fields alone"
+								)
+								assert.deepEqual(
+									fieldsOf(entry.compiled.frontend),
+									frontendFields,
+									"the front end's schema, written relations and codes alone"
+								)
+							}
 						}
 					}
+					const alive = preparedAlive()
+					assert.ok(roles.length > 0, "the roles are held while the prepared writes are counted")
+					return alive
 				}
+				const withRoles = held()
 				assert.equal(
+					withRoles,
 					preparedAlive(),
-					before,
-					"no prepared write alive with the servable roles held"
+					"no prepared write retained by the servable roles: as many alive with them held as once they are released"
 				)
-				assert.ok(roles.length > 0, "the roles are held while the prepared writes are counted")
 			}),
 		oracle: { kind: "specification", name: "a servable entry is its write's slice" },
 		kept: [],
@@ -203,6 +215,13 @@ export const aRolesServableChangeMembersHoldTheirWritesSlicesAloneAndNoPreparedW
 				original: "\t\tclaims: entry.claims\n\t})\n",
 				replacement: "\t\tclaims: entry.claims,\n\t\tprepared: entry.prepared\n\t})\n",
 				why: "The entry certification reads keeps its prepared write, as every entry did, so every front end lives until certification ends (metis's full installation: 213, 1,198 MB): the entry has a prepared write, and the search fails."
+			},
+			{
+				file: "packages/engine/src/program/workload/change.ts",
+				original: "\t\tcompiled: servableWrite(entry.compiled)\n",
+				replacement:
+					'\t\tcompiled: { ...servableWrite(entry.compiled), [Symbol.for("prepared")]: entry.prepared }\n',
+				why: "The servable write keeps its prepared write under a key no field names, so every field check passes and the served round's roles hold every front end alive: the roles retain a prepared write, and the search fails at the count."
 			},
 			{
 				file: "packages/engine/src/program/workload/change.ts",
