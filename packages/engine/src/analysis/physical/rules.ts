@@ -1232,11 +1232,7 @@ const declareKey = (
 const baseProps = (node: NodeOf<"Base">, cx: RuleContext): PhysicalProps => {
 	const columns = node.heading.map((c) => c.name)
 	const fds = new DependencyDraft(columns)
-	/** Its keys its heading holds: its primary key but where the prune narrowed it away, its rows no reader's to tell
-	 * apart (lower/optimize/prune narrowedBase), and every other key it kept. */
-	const declared = [node.primaryKey, ...node.keys].filter((k) =>
-		k.every((c) => columns.includes(c))
-	)
+	const declared = [node.primaryKey, ...node.keys]
 	for (const k of declared) {
 		if (node.relationKind === "world") {
 			const just = withReason(

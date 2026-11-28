@@ -65,11 +65,12 @@ export const eachJudgedStatementReadsOfARelationExactlyTheColumnsItsRuleReadsAnd
 /**
  * A guard's existence read reads of its table only what its conditions read, and is advised an index-only scan: the
  * judge's guard of a probe (analysis/theory/query.ts probeGuard), its top-level IF EXISTS, reads Value at the written
- * package, and its read delivers to nothing above it. Its key, which the prune kept on every scan, made it read the
- * learner and the place no reader reads, and the needs of its routine read off the routine whole counted the columns
- * another statement's item of its alias reads; either made its advice an INDEX_SCAN, one heap fetch a row where the
- * index holds every column it reads (rule-guard's guard over Bound's delta and its twin over Node's, 201 rows read where
- * one bounds it, main's measure from CARRIERS).
+ * package, and its derived table delivers to nothing above it. The table delivers Value's key, as every scan of a stored
+ * relation does, which PostgreSQL leaves unread where no reference reads it (allpaths.c remove_unused_subquery_outputs);
+ * counting its targets' columns as read, or the columns another statement's item of its alias reads, as the needs of its
+ * routine read off the routine whole did, made its advice an INDEX_SCAN, one heap fetch a row where the index holds
+ * every column it reads (rule-guard's guard over Bound's delta and its twin over Node's, 201 rows read where one bounds
+ * it, main's measure from CARRIERS).
  */
 export const aGuardsExistenceReadReadsWhatItsConditionsReadAndIsAdvisedAnIndexOnlyScan =
 	property.exhaust(finite(guardedGen), {
@@ -87,12 +88,10 @@ export const aGuardsExistenceReadReadsWhatItsConditionsReadAndIsAdvisedAnIndexOn
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/lower/optimize/prune/index.ts",
-				original:
-					"\tconst keep = (n: string) => demanded.has(n) || (identified && node.primaryKey.includes(n))\n",
-				replacement:
-					"\tconst keep = (n: string) => demanded.has(n) || node.primaryKey.includes(n)\n",
-				why: "Every scan keeps its primary key, so the guard's existence read of Value delivers its learner and its place, which no reader reads, and its advice is an INDEX_SCAN; the property fails."
+				file: "packages/engine/src/sql/bind.ts",
+				original: "\t\t\t\tif (column === undefined || opaque(t.expr) || returnsSet(t.expr)) {\n",
+				replacement: "\t\t\t\tif (column !== undefined) {\n",
+				why: "Every named target of a derived table counts its columns as read whether or not a reference reads them, so the guard's existence read of Value reads the learner and the place its table delivers, which no reference reads, and its advice is an INDEX_SCAN; the property fails."
 			},
 			{
 				file: "packages/engine/src/sql/bind.ts",

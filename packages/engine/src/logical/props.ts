@@ -2721,18 +2721,8 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 						reading.relationKind === "relation"
 							? {
 									dependencies: [
-										...(reading.primaryKey.every((c) => all.includes(c))
-											? [
-													declaredKey(
-														reading.primaryKey,
-														all,
-														[storedKeyPremise(relation, reading.primaryKey, true)],
-														"immediate"
-													)
-												]
-											: []),
-										...reading.keys.map((k) =>
-											declaredKey(k, all, [storedKeyPremise(relation, k, false)], "immediate")
+										...[reading.primaryKey, ...reading.keys].map((k, i) =>
+											declaredKey(k, all, [storedKeyPremise(relation, k, i === 0)], "immediate")
 										),
 										...reading.generated.map(generationDetermines)
 									],

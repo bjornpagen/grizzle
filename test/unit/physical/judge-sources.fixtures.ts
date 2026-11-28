@@ -596,29 +596,12 @@ const guardsIn = (
 	return guards
 }
 
-/** A read of Value a guard makes: its advice target, the columns it delivers and its own conditions read, by its alias. */
+/** A read of Value a guard makes: its advice target, and the derived table it stands in, its level, and that table's
+ * columns. */
 interface ValueRead {
 	readonly target: string
 	readonly outputs: ReadonlyArray<string>
 	readonly level: string
-	readonly delivered: ReadonlySet<string>
-	readonly conditioned: ReadonlySet<string>
-}
-
-/** The columns of the read under `alias` that `exprs` read. */
-const columnsOf = (exprs: ReadonlyArray<Expr>, alias: string): ReadonlySet<string> => {
-	const out = new Set<string>()
-	for (const e of exprs) {
-		visitExpr(e, {
-			...inertVisitor,
-			expr: (x) => {
-				if (x.kind === "column" && x.table === alias) {
-					out.add(x.column)
-				}
-			}
-		})
-	}
-	return out
 }
 
 /** Each read of Value in `query`, a derived table whose one source is a bound read of the guarded schema's Value. */
@@ -645,15 +628,7 @@ const valueReadsOf = (query: OperandSelect): ReadonlyArray<ValueRead> => {
 				reads.push({
 					target: `${from.alias}@${source.alias}`,
 					outputs: selectColumns(source.query),
-					level: source.alias,
-					delivered: columnsOf(
-						Arr.map(source.query.body.targets, (t) => t.expr),
-						from.alias
-					),
-					conditioned: columnsOf(
-						[...readConditions(from), ...conjunctsIn(source.query.body.where)],
-						from.alias
-					)
+					level: source.alias
 				})
 			}
 		}
@@ -687,11 +662,13 @@ const deltasRead = (query: OperandSelect): ReadonlySet<string> => {
 }
 
 /**
- * Judges each guard of `g`'s installation: each read of Value it makes that delivers no column a reference of the
- * guard reads, its existence read, reads of Value only the columns its own conditions read, never a key no reader tells
- * the rows of apart (lower/optimize/prune narrowedBase), and is advised an index-only scan in its routine, its index
- * holding every column it reads, never an index scan whose needs another statement of the routine counted
- * (sql/bind.ts, each query PL/pgSQL hands the planner its own needs).
+ * Judges each guard of `g`'s installation: each read of Value it makes whose derived table no reference of the guard
+ * reads a column of, its existence read, is advised an index-only scan in its routine. Its table delivers Value's key,
+ * as every scan of a stored relation does (lower/optimize/prune narrowedBase), which PostgreSQL never reads, no
+ * reference reading it (allpaths.c remove_unused_subquery_outputs): what the read reads of Value is its conditions'
+ * columns, the package, which an index holds (sql/bind.ts Needs `read`), never a column of its table's targets, nor
+ * one another statement of its routine reads under the same alias (sql/bind.ts `planned`, each query PL/pgSQL hands
+ * the planner its own needs).
  */
 export const guarded = (g: Guarded, note: (r: GuardReached) => void): void => {
 	const owned = owning(guardedSchemaOf(g))
@@ -714,12 +691,6 @@ export const guarded = (g: Guarded, note: (r: GuardReached) => void): void => {
 		for (const read of reads) {
 			if (Arr.some(read.outputs, (o) => references.has(`${read.level}.${o}`))) {
 				continue
-			}
-			for (const column of read.delivered) {
-				assert.ok(
-					read.conditioned.has(column),
-					`the guard's existence read ${read.target} of Value reads ${column}, which its conditions read`
-				)
 			}
 			assert.ok(
 				Str.includes(`INDEX_ONLY_SCAN(${read.target} `)(advice),

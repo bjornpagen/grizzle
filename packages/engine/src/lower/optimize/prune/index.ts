@@ -57,11 +57,8 @@ const restrict = (heading: Heading, keep: (name: string) => boolean): Heading =>
 type Reach = "aboveSources" | "withSources"
 
 /**
- * A scan of a stored relation narrowed to the columns its readers demand, and its primary key where a reader tells its
- * rows apart (`identified`), so each row it delivers there is still one stored row, keyed as it was, and no reader's
- * multiplicity or deduplication changes; a scan no reader tells the rows of apart, an existence read's, every reader a
- * region whose occurrence of it binds no variable the region keeps, delivers what its readers demand alone, its
- * conditions' columns, and holds no key, since no row of any reader holds anything of its rows. It keeps each other
+ * A scan of a stored relation narrowed to the columns its readers demand and its primary key, so each row it delivers
+ * is still one stored row, keyed as it was, and no reader's multiplicity or deduplication changes; it keeps each other
  * declared key whose columns it keeps, and each generated field whose generation reads only columns it keeps, the
  * field among them (ir/rel.ts StoredBase generated), so every key and generation it states names its heading's columns
  * alone, where a generation reading a column it dropped named a determinant the scan does not deliver, which the logical
@@ -71,13 +68,12 @@ type Reach = "aboveSources" | "withSources"
  */
 const narrowedBase = (
 	node: KindOver<"Base", EditRefs>,
-	demanded: ReadonlySet<string>,
-	identified: boolean
+	demanded: ReadonlySet<string>
 ): EditNode | undefined => {
 	if (node.relationKind !== "relation") {
 		return undefined
 	}
-	const keep = (n: string) => demanded.has(n) || (identified && node.primaryKey.includes(n))
+	const keep = (n: string) => demanded.has(n) || node.primaryKey.includes(n)
 	const heading = restrict(node.heading, keep)
 	return heading.length === node.heading.length
 		? undefined
@@ -117,20 +113,6 @@ const step = (cx: RewriteCx, reach: Reach): void => {
 	const d = pruneDemand(cx, pinnedNodes)
 	const order = cx.cells.order
 	const changed: Array<NodeId> = []
-	/**
-	 * Whether a reader of `cell` tells its rows apart: one that is no region, or a region whose occurrence of it binds a
-	 * variable the region keeps live. An occurrence that binds none only tests whether a row its constants hold stands,
-	 * an existence read, however deep it stands: the region's rows hold nothing of it.
-	 */
-	const identified = (cell: Cell): boolean =>
-		cx.cells.readers(cell).some((reader) => {
-			const r = reader.current
-			if (r.kind !== "MatchRegion") {
-				return true
-			}
-			const live = d.liveVars(reader)
-			return r.occurrences.some((o) => o.source === cell && o.bindings.some((b) => live.has(b.var)))
-		})
 	/** A node narrowed to its demanded columns, or undefined when it keeps its form. */
 	const pruned = (
 		cell: Cell,
@@ -219,7 +201,7 @@ const step = (cx: RewriteCx, reach: Reach): void => {
 				}
 			}
 			case "Base":
-				return reach === "withSources" ? narrowedBase(node, demanded, identified(cell)) : undefined
+				return reach === "withSources" ? narrowedBase(node, demanded) : undefined
 			case "Delta":
 				return reach === "withSources" ? narrowedDelta(node, demanded) : undefined
 			case "Closed":

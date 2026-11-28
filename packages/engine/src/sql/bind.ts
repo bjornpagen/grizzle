@@ -92,6 +92,7 @@ import {
 	type SetOperand,
 	type SqlStatement,
 	selectColumns,
+	selectNames,
 	type Target,
 	targetColumnName,
 	type TypeRef,
@@ -530,26 +531,113 @@ const sublinked = (e: Expr): boolean => {
 /** Whether an expression holds a sublink or a VOLATILE call, which no binding or pushed conjunct carries. */
 const opaque = (e: Expr): boolean => sublinked(e) || volatile(e)
 
-/**
- * Every column each written alias of a statement is read at, anywhere in it, by the alias: what a probe made of a table
- * delivers, and what a read's index-only scan must store. An alias two items declare reads the columns of both.
- */
-const neededColumns = (statement: SqlStatement): ReadonlyMap<string, ReadonlySet<string>> =>
-	neededBy((t) => t.statement(statement))
+/** Columns by the alias they are columns of. */
+type ColumnsByAlias = ReadonlyMap<string, ReadonlySet<string>>
 
-/** Every column each relation of `walk`'s walk is read at (neededColumns), by its alias. */
-const neededBy = (walk: (t: Transform) => unknown): ReadonlyMap<string, ReadonlySet<string>> => {
+/**
+ * What a statement reads of each written alias, by the alias. `named`: every column a reference of it names, anywhere
+ * in it, what a probe made of a table delivers and a view's read selects, since the statement's text names each; an
+ * alias two items declare names the columns of both. `read`: the columns PostgreSQL reads of it, the named ones but those
+ * only a target of a derived table names that no reference outside the table reads (`readBy`), what a read's index-only
+ * scan must store.
+ */
+interface Needs {
+	readonly named: ColumnsByAlias
+	readonly read: ColumnsByAlias
+}
+
+/** What a statement reads of each written alias (Needs). */
+const neededColumns = (statement: SqlStatement): Needs => neededBy((t) => t.statement(statement))
+
+/** What `walk`'s walk reads of each relation (Needs), by its alias. */
+const neededBy = (walk: (t: Transform) => unknown): Needs => ({
+	named: namedBy(walk),
+	read: readBy(walk)
+})
+
+/** A walk that counts each column a reference names into its map, by its alias. */
+class ColumnCount extends Transform {
+	readonly #out: Map<string, Set<string>>
+
+	constructor(out: Map<string, Set<string>>) {
+		super(identityHooks)
+		this.#out = out
+	}
+
+	override readonly expr = (x: Expr): Expr => {
+		if (x.kind === "column" && x.table !== undefined) {
+			this.#out.getOrInsertComputed(x.table, () => new Set<string>()).add(x.column)
+		}
+		return this.exprChildren(x)
+	}
+}
+
+/** Every column a reference of `walk`'s walk names (Needs `named`), by its alias. */
+const namedBy = (walk: (t: Transform) => unknown): ColumnsByAlias => {
 	const out = new Map<string, Set<string>>()
-	walk(
-		new (class extends Transform {
-			override readonly expr = (x: Expr): Expr => {
-				if (x.kind === "column" && x.table !== undefined) {
-					out.getOrInsertComputed(x.table, () => new Set<string>()).add(x.column)
-				}
-				return this.exprChildren(x)
+	walk(new ColumnCount(out))
+	return out
+}
+
+/**
+ * Whether PostgreSQL may leave unread a target of a derived table over `query` that no reference outside the table
+ * reads: a plain core's, neither a set operation nor DISTINCT, whose rows no GROUP BY, HAVING or ORDER BY reads by its
+ * targets. allpaths.c remove_unused_subquery_outputs sets each such target to a NULL of its type (one a sort or a group
+ * names it keeps, and a set operation or plain DISTINCT it leaves whole), and a subquery pulled up into its reader
+ * leaves it unreferenced.
+ */
+const outputsDroppable = (query: OperandSelect): boolean =>
+	query.body.kind === "core" &&
+	query.body.distinct === false &&
+	query.body.groupBy.length === 0 &&
+	query.body.having === undefined &&
+	query.orderBy.length === 0
+
+/**
+ * The columns PostgreSQL reads of each relation of `walk`'s walk (Needs `read`), by its alias: each a reference names,
+ * but those a target of a derived table names (outputsDroppable) that no reference outside the table reads, the table's
+ * column of the target's name never read, nor a reference of a target this one's reading makes read, to the fixed point:
+ * a target is read once a reference reads its column. A target that is volatile, holds a sublink or returns a set is read
+ * whatever reads it, as allpaths.c keeps it.
+ */
+const readBy = (walk: (t: Transform) => unknown): ColumnsByAlias => {
+	const out = new Map<string, Set<string>>()
+	/** The targets held unread, each the derived table's alias and the column it names. */
+	let held: Array<{ readonly table: string; readonly column: string; readonly expr: Expr }> = []
+	const count = new (class extends ColumnCount {
+		override source(source: FromSource): FromSource {
+			if (source.kind !== "derived" || !outputsDroppable(source.query)) {
+				return super.source(source)
 			}
-		})(identityHooks)
-	)
+			const query = source.query
+			const body = query.body
+			if (body.kind !== "core" || body.distinct !== false) {
+				return super.source(source)
+			}
+			const names = selectNames(query)
+			const kept = body.targets.filter((t, i) => {
+				const column = names[i]
+				if (column === undefined || opaque(t.expr) || returnsSet(t.expr)) {
+					return true
+				}
+				held.push({ table: source.alias, column, expr: t.expr })
+				return false
+			})
+			super.source({ ...source, query: { ...query, body: { ...body, targets: kept } } })
+			return source
+		}
+	})(out)
+	walk(count)
+	const isRead = (h: { readonly table: string; readonly column: string }): boolean =>
+		out.get(h.table)?.has(h.column) === true
+	let reached = held.filter(isRead)
+	while (reached.length > 0) {
+		held = held.filter((h) => !isRead(h))
+		for (const h of reached) {
+			count.expr(h.expr)
+		}
+		reached = held.filter(isRead)
+	}
 	return out
 }
 
@@ -1411,7 +1499,7 @@ const levelJoins = (
 	/** Each entry's lateral reads: the entries before it it reads in its source. */
 	const reads: ReadonlyArray<ReadonlySet<number>> = bound.map((b, at) => {
 		const read = placesOf([
-			...neededBy((t) => t.source(b.source)).keys(),
+			...namedBy((t) => t.source(b.source)).keys(),
 			...(b.source.kind === "met" ? [b.source.rows] : [])
 		])
 		return new Set([...read].filter((p) => p < at))
@@ -2039,7 +2127,7 @@ class Binder {
 	readonly #catalog: ReadCatalog
 	readonly #reads: BoundReads
 	readonly #levels: Array<PlanLevel<AccessIndexRequest>> = []
-	#needs: ReadonlyMap<string, ReadonlySet<string>> = new Map()
+	#needs: Needs = { named: new Map(), read: new Map() }
 	#whole = false
 	/** Whether a statement of the binding read what it read whole, once (`#whole`), a PL/pgSQL block of whole reads. */
 	#readWhole = false
@@ -2116,9 +2204,14 @@ class Binder {
 		return this.#scope.alias({ kind: "internal", purpose: `bound ${written ?? "source"}` })
 	}
 
-	/** Every column the statement reads of the written alias `alias`, in name order. */
+	/** Every column the statement names of the written alias `alias` (Needs `named`), in name order. */
 	#needed(alias: string): ReadonlyArray<string> {
-		return [...(this.#needs.get(alias) ?? [])].toSorted()
+		return [...(this.#needs.named.get(alias) ?? [])].toSorted()
+	}
+
+	/** Every column PostgreSQL reads of the written alias `alias` (Needs `read`), in name order. */
+	#read(alias: string): ReadonlyArray<string> {
+		return [...(this.#needs.read.get(alias) ?? [])].toSorted()
 	}
 
 	/**
@@ -2529,7 +2622,7 @@ class Binder {
 			return undefined
 		}
 		const outer = (a: string) => here.relations.has(a)
-		if ([...neededBy((t) => t.fromItem(entry.source)).keys()].some(outer)) {
+		if ([...namedBy((t) => t.fromItem(entry.source)).keys()].some(outer)) {
 			return undefined
 		}
 		const conjuncts = conjunctsOf(body.where)
@@ -2878,7 +2971,8 @@ class Binder {
 						})
 					)
 		const delivers = this.#needed(written)
-		const needs = stored === undefined ? delivers : tableColumns(stored, delivers)
+		const reads = this.#read(written)
+		const needs = stored === undefined ? reads : tableColumns(stored, reads)
 		const take = (conjunct: Expr) => {
 			for (const pool of pools) {
 				const at = pool.indexOf(conjunct)
@@ -3626,7 +3720,7 @@ class Binder {
 										: "join key"
 								),
 								bound: boundColumns,
-								needs: this.#needed(written)
+								needs: this.#read(written)
 							}
 						},
 						method: "nestedLoop",
