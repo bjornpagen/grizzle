@@ -64,7 +64,8 @@ import type { BenchSession } from "#bench/harness/session.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
-import type { StatementSpec } from "#compiler/ir/products.ts"
+import type { AdvisedFile, BoundDraft } from "#compiler/deploy/render/advise.ts"
+import type { AccessIndexRequest, StatementSpec } from "#compiler/ir/products.ts"
 import type { IndexRef, IndexResolver } from "#compiler/physical/indexes/ref.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { compileParsed, parsedChange, servableEntry } from "#compiler/plan/change.ts"
@@ -91,6 +92,7 @@ import {
 	resolvePlan,
 	scannedItems
 } from "#compiler/sql/plan.ts"
+import { printPlannedQuery, printStatement } from "#compiler/sql/print.ts"
 import type { AnyLoginRole } from "#compiler/types/schema/world.ts"
 import { paramTexts } from "#test/support/compile.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
@@ -953,6 +955,63 @@ export const flightScope = (
 			sql: s.text
 		})),
 		vehicle: { kind: "flight", advice: shipped }
+	}
+}
+
+/**
+ * What PostgreSQL plans of a migration file's draft as the file writes it (deploy/render/advise.ts BoundDraft), with the
+ * plan it was bound with: a data step's statement, and a law's violation check's probe of its violation query as
+ * PL/pgSQL hands the planner the block's PERFORM (physical/ddl/recheck.ts violationCheck, sql/print.ts printPlannedQuery
+ * `found`); none of any other draft, which reads no stored row grizzle binds.
+ */
+export const draftPlanned = (
+	draft: BoundDraft
+): Option.Option<{ readonly sql: string; readonly plan: ReadPlan<AccessIndexRequest> }> => {
+	switch (draft.kind) {
+		case "step":
+			return Option.some({ sql: printStatement(draft.statement), plan: draft.plan })
+		case "violation": {
+			const [found, ...more] = draft.block.body
+			return found.kind === "whenFound" && more.length === 0
+				? Option.some({
+						sql: printPlannedQuery({ kind: "found", query: found.query }),
+						plan: draft.plan
+					})
+				: assert.fail(`the violation check of ${draft.law} probes its violation query alone`)
+		}
+		case "statement":
+		case "alteration":
+		case "fill":
+		case "zones":
+		case "loss":
+		case "confirm":
+			return Option.none()
+	}
+}
+
+/**
+ * The scope of a migration file's data steps (README "Plan advice"): each as PostgreSQL plans it (`draftPlanned`), with
+ * its bound plan (AdvisedFile `drafts`), each plan's reads resolved by the installation (`resolve`); its advice what those
+ * plans carry, and its vehicle the advice the runner sets (`set`), its transaction's first statement. A file of no data
+ * step carries no advice, and has no scope.
+ */
+export const fileScope = (file: AdvisedFile, resolve: IndexResolver, set: string): LawScope => {
+	const steps = Arr.flatMap(file.drafts, (d) => Option.toArray(draftPlanned(d)))
+	const [first, ...rest] = Arr.map(steps, (s, at): ScopeStatement => ({
+		label: `data step ${at + 1}`,
+		sql: s.sql
+	}))
+	if (first === undefined) {
+		return assert.fail(`${file.file.name} runs a data step`)
+	}
+	const plan = resolvePlan(joinPlans(Arr.map(steps, (s) => s.plan)), resolve)
+	return {
+		label: `the data steps of ${file.file.name}`,
+		sends: "every",
+		advice: printAdvice(plan),
+		...planFacts(plan),
+		statements: [first, ...rest],
+		vehicle: { kind: "flight", advice: set }
 	}
 }
 

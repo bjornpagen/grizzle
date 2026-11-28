@@ -1,4 +1,4 @@
-/** What check-cost.test.ts reads: the schema, its template, the space, and each case's run. */
+/** What check-cost.test.ts reads: the schemas, their templates, the spaces, and each case's run. */
 
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
@@ -13,21 +13,19 @@ import {
 	Result,
 	String as Str
 } from "effect"
-import {
-	findNodes,
-	type PlanNode,
-	parsePlan,
-	planNodes,
-	rowsTouched
-} from "#bench/harness/explain.ts"
+import { folderSource } from "#adapter/migrate/input.ts"
+import { findNodes, type PlanNode, planNodes, rowsTouched } from "#bench/harness/explain.ts"
+import type { BenchSession } from "#bench/harness/session.ts"
 import { isCanonicalName } from "#compiler/analysis/derived/canonical.ts"
-import type { LawId, RelationIdent } from "#compiler/core/ids.ts"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
+import type { LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
+import { ledgerStatements } from "#compiler/deploy/ledger/ledger.ts"
+import type { BoundDraft } from "#compiler/deploy/render/advise.ts"
+import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
-import { violationCheck } from "#compiler/physical/ddl/recheck.ts"
-import { fillStatement } from "#compiler/physical/derived/objects.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
+import { statedAdvice } from "#compiler/plan/migration.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -49,21 +47,33 @@ import {
 	isSetQuery,
 	nameKey,
 	type OperandSelect,
-	type Select,
 	selectColumns,
 	type SelectCore
 } from "#compiler/sql/ast.ts"
-import { type Lexeme, lexemesOf } from "#compiler/sql/lexer.ts"
-import { printObjectName, printStatement, sqlText, writeDoBlock } from "#compiler/sql/print.ts"
+import { printObjectName, sqlText, writeDoBlock } from "#compiler/sql/print.ts"
 import { identityHooks, transformQuery } from "#compiler/sql/transform.ts"
+import {
+	advisedExplain,
+	apart,
+	budgetOfPlan,
+	draftPlanned,
+	fileScope,
+	type LawScope,
+	lawsHold,
+	type PgClassState,
+	pgClassStates,
+	standIn
+} from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { standUpJudge } from "#test/support/judge.ts"
-import { namesOf } from "#test/support/kernel/naming.ts"
-import { noDeclarations } from "#test/support/migrate/kit.ts"
+import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { draftedAt, fromEmpty, generate, noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
+import { superuserClient } from "#test/support/substrate/shared.ts"
+import type { RolledBack } from "#test/support/substrate/substrate.ts"
 
 /** A package's elements, by package, document and place, each of a kind, as pantry stores QTI content. */
 const Node = relation(
@@ -194,12 +204,11 @@ const TypedName = derived(
 /**
  * And no two declared elements of one document and kind share a weight: a key over a join of two stored relations
  * whose terms read both, as QTI's __choice_node_key_package_path_kind_identifier, whose check derived choice ⋈ node
- * twice when it was a self-join of the side. Declared delivers Doc's unit at its places, (pkg, path, at), wider than
- * Doc's key, so the installation stores it (`storedDerived`) and its key is its table's unique index, which its fill and
- * its upkeep's INSERT fire, its cost the fill's. And no declared name of a document has two cardinalities, however many
- * places declare it: a key over CardName, which delivers (pkg, path) alone, Doc's whole key, so it is read live and its
- * key is a rule the judge holds, as QTI's One base, a key over KnownOperandBase, each operator's operand bases with the
- * operand's place projected away, whose check is the side read once, grouped by the key, its facts counted.
+ * twice when it was a self-join of the side. And no declared name of a document has two cardinalities, however many
+ * places declare it: a key over CardName, each declared name beside its cardinality with its place projected away, as
+ * QTI's One base, a key over KnownOperandBase. The installation stores Declared, CardName and TypedName, each unit-local
+ * in Doc with an upkeep its delta bounds (analysis/derived/storage.ts), so each key is its table's unique index, which
+ * its fill and its upkeep's INSERT fire, its migration's cost the fill's.
  */
 const Mid = schema.extend(
 	[Base],
@@ -228,7 +237,8 @@ const Fit = derived(
  * projection of a join that witnesses the declaration's place, as QTI's BindingFit over BindingBaseTypeNode, whose
  * check read DeclarationName and TypedDeclarationName each as a query of its own, joined by PostgreSQL's estimates of
  * them, 102 rows of 61,093, by a nested loop over one's rows for each of the other's: 1,165,329,900 pairs thrown away,
- * 193 s over zero violations.
+ * 193 s over zero violations. The installation stores Fit too, so the check is its table's CHECK constraint, which its
+ * fill fires, reading CardName's and TypedName's tables.
  */
 const Checked = schema.extend(
 	[Mid],
@@ -239,7 +249,7 @@ const Checked = schema.extend(
 
 /**
  * The relations each derived relation of the box matches, an entry at each occurrence its rule reads one: what a law over
- * it reads as the schema declares it (`storedReadsOf`), and what its fill reads where it is stored (`fillReadsOf`).
+ * it reads as the schema declares it, and what its fill reads where it is stored (`readsOf`).
  */
 const declaredReads: ReadonlyMap<string, ReadonlyArray<string>> = new Map([
 	[Declared.name, [Node.name, Decl.name]],
@@ -247,29 +257,6 @@ const declaredReads: ReadonlyMap<string, ReadonlyArray<string>> = new Map([
 	[TypedName.name, [Dcl.name, Typed.name]],
 	[Fit.name, [Bind.name, CardName.name, TypedName.name]]
 ])
-
-/**
- * The derived relations of the box the installation stores (analysis/derived/storage.ts), in name order: Declared alone,
- * whose head delivers Doc's unit at (pkg, path, at), wider than Doc's key, so its upkeep re-derives the places a write
- * touched. CardName, TypedName and Fit deliver (pkg, path) alone, Doc's whole key, so each upkeep would re-derive a
- * whole document at every write of it, and each is read live, by its definition.
- */
-const storedDerived: ReadonlyArray<string> = [Declared.name]
-
-/** The stored relations `relation` reads as the box declares it, one at each occurrence: itself where it is stored. */
-const storedReadsOf = (relation: string): ReadonlyArray<string> => {
-	const read = declaredReads.get(relation)
-	return read === undefined || storedDerived.includes(relation)
-		? [relation]
-		: Arr.flatMap(read, storedReadsOf)
-}
-
-/** The stored relations the fill of the stored relation `relation` reads, one at each occurrence: its definition's. */
-const fillReadsOf = (relation: string): ReadonlyArray<string> =>
-	Arr.flatMap(
-		defined(declaredReads.get(relation), `${relation}, a derived relation of the box`),
-		storedReadsOf
-	)
 
 /** The schema installed through its first migration, its tables empty. */
 export const checkCostTemplate = migratedTemplate({
@@ -307,36 +294,39 @@ export const checkCaseGen: Gen<CheckCase> = (s) => ({
 	size: s.draw(element(sizes))
 })
 
-export type CheckFeature = "a law that holds" | "a violation found"
+export type CheckFeature = "a law that holds" | "a violation found" | `every table ${PgClassState}`
 
 /**
- * The elements of `c` as one INSERT's SELECT over generate_series's i: package, document, place, kind, and its tag,
- * group and band, each i mod 20.
+ * Elements `from` to `to` of `c`, from 1, as one INSERT's SELECT over generate_series's i: package, document, place,
+ * kind, and its tag, group and band, each i mod 20; `spread` numbers its i from 1, `documents` from 0.
  */
-const elementsOf = (c: CheckCase): string => {
+const elementsOf = (c: CheckCase, from: number, to: number): string => {
 	switch (c.layout) {
 		case "spread":
-			return `SELECT i % 7, i % 13, i, i % 4, i % 20, i % 20, i % 20 FROM pg_catalog.generate_series(1, ${c.size}) AS g(i)`
+			return `SELECT i % 7, i % 13, i, i % 4, i % 20, i % 20, i % 20 FROM pg_catalog.generate_series(${from}, ${to}) AS g(i)`
 		case "documents":
-			return `SELECT i / 1000, (i / 50) % 20, i % 50, CASE WHEN i % 25 = 0 THEN 1 WHEN i % 31 = 0 THEN 2 ELSE 3 + i % 5 END, i % 20, i % 20, i % 20 FROM pg_catalog.generate_series(0, ${c.size - 1}) AS g(i)`
+			return `SELECT i / 1000, (i / 50) % 20, i % 50, CASE WHEN i % 25 = 0 THEN 1 WHEN i % 31 = 0 THEN 2 ELSE 3 + i % 5 END, i % 20, i % 20, i % 20 FROM pg_catalog.generate_series(${from - 1}, ${to - 1}) AS g(i)`
 	}
 }
 
 /**
- * The declarations and bindings of `c`, each one INSERT's SELECT over generate_series's i, of one table: documents of 50
- * elements, size / 50 of them, each its own path, 20 documents to a package where `documents` lays them out one after
- * the other and 7 packages where `spread` deals the elements round the documents; places 0 to 9 of a document declare
- * variables 0 to 9, each of cardinality 1 and base type 1, and places 10 to 49 bind one, of attribute place mod 3. Each
- * binding names one declaration of its document, and every one is lawful: base type 1.
+ * The declarations and bindings at elements `from` to `to` of `c`, from 1, each one INSERT's SELECT over
+ * generate_series's i, from 0, of one table: documents of 50 elements, size / 50 of them, each its own path, 20
+ * documents to a package where `documents` lays them out one after the other and 7 packages where `spread` deals the
+ * elements round the documents; places 0 to 9 of a document declare variables 0 to 9, each of cardinality 1 and base
+ * type 1, and places 10 to 49 bind one, of attribute place mod 3. Each binding names one declaration of its document,
+ * and every one is lawful: base type 1.
  */
 const declarationsOf = (
-	c: CheckCase
+	c: CheckCase,
+	from: number,
+	to: number
 ): Readonly<Record<"dcl" | "card" | "typed" | "bind", string>> => {
 	const docs = c.size / 50
 	const place = c.layout === "documents" ? "i % 50" : `i / ${docs}`
 	const doc = c.layout === "documents" ? "i / 50" : `i % ${docs}`
 	const pkg = c.layout === "documents" ? `${doc} / 20` : `${doc} % 7`
-	const series = `FROM (SELECT ${pkg} AS pkg, ${doc} AS path, ${place} AS at FROM pg_catalog.generate_series(0, ${c.size - 1}) AS g(i)) AS e`
+	const series = `FROM (SELECT ${pkg} AS pkg, ${doc} AS path, ${place} AS at FROM pg_catalog.generate_series(${from - 1}, ${to - 1}) AS g(i)) AS e`
 	return {
 		dcl: `SELECT pkg, path, at, at ${series} WHERE at < 10`,
 		card: `SELECT pkg, path, at, 1 ${series} WHERE at < 10`,
@@ -386,88 +376,183 @@ const needlessDeduplications = (query: OperandSelect): ReadonlyArray<SelectCore>
 	return needless
 }
 
-/**
- * The statements PostgreSQL plans for a check's block, from its text, each as PL/pgSQL plans it: a PERFORM as the
- * SELECT whose keyword it replaces, for every row (pl_exec.c exec_stmt_perform), an IF's condition as SELECT
- * <condition> (exec_eval_expr), an EXISTS sublink in it for its first row. FOUND, the probe's own flag, reads no table.
- * Each statement of the block is one line of its text (sql/print.ts proceduralBlock), a compound one holding its body,
- * so a line is read as the statements its terminators end, each ended where PostgreSQL's scanner reads a semicolon.
- */
-const plannedStatements = (text: string): ReadonlyArray<string> =>
-	Arr.flatMap(Str.split(text, "\n"), (line) => {
-		const lexemes = lexemesOf(line).lexemes
-		const ends: ReadonlyArray<number> = Arr.filterMap(lexemes, (l) =>
-			l.kind === "terminator" ? Result.succeed(l.start) : Result.failVoid
-		)
-		const starts: ReadonlyArray<number> = [0, ...Arr.map(ends, (end) => end + 1)]
-		return Arr.flatMap(Arr.zip(starts, ends), ([start, end]: readonly [number, number]) => {
-			const statement = Str.trim(Str.slice(start, end)(line))
-			if (Str.startsWith("PERFORM ")(statement)) {
-				return [`SELECT ${Str.slice("PERFORM ".length)(statement)}`]
-			}
-			const then: Lexeme | undefined = Arr.findFirst(
-				lexemes,
-				(l) => l.start > start && l.start < end && l.kind === "word" && l.upper === "THEN"
-			).pipe(Option.getOrUndefined)
-			if (!Str.startsWith("IF ")(statement) || then === undefined) {
-				return []
-			}
-			const condition = Str.slice("IF ".length)(Str.trim(Str.slice(start, then.start)(line)))
-			return condition === "FOUND" ? [] : [`SELECT ${condition}`]
-		})
-	})
+/** A table of the installation, by its schema and its name: a relation's, as the installation names it. */
+type StoredTable = ReturnType<Installation["names"]["relation"]>
 
 /**
- * The rows a plan's sequential rescans of small tables touch: each Seq Scan PostgreSQL runs once per row of a node
- * above it (more than one loop) whose own estimated cost, a whole table's read, is at most `probeCost`, what an index
- * probe of one row costs it at least, the index's leaf page and the table's page, each a random page (costsize.c
- * cost_index over genericcostestimate, twice random_page_cost): PostgreSQL rescans a table by a sequential scan per row
- * only where reading all of it costs no more than that probe, a table of a page or two, and such a rescan touches the
- * table's rows once per outer row, which its plan's work holds beside the rows it reads. A sequential rescan of any
- * larger table, which no estimate makes cheaper than a probe, adds nothing here, so a plan that reads a large table
- * again for each row of another still passes the bound only where its rows read do.
+ * What a data step of a migration file is (`DataStep`): a stored relation's fill, the INSERT the migration that creates
+ * its table fills it by (physical/derived/objects.ts fillStatement), of `relation` into `table`; or a law's violation
+ * check, the DO block the migration that adds the law runs (physical/ddl/recheck.ts violationCheck).
  */
-const smallTableRescans = (plan: PlanNode, probeCost: number): number =>
-	Arr.reduce(Arr.fromIterable(planNodes(plan)), 0, (sum, n) =>
-		n.nodeType === "Seq Scan" && n.actualLoops > 1 && n.totalCost <= probeCost
-			? sum + (n.actualRows + n.rowsRemovedByFilter) * n.actualLoops
-			: sum
-	)
+type Step =
+	| { readonly kind: "fill"; readonly relation: string; readonly table: StoredTable }
+	| { readonly kind: "check"; readonly law: LawId }
 
-/** The plan PostgreSQL runs `statement` by, explained with ANALYZE, which runs it: an explained write writes. */
-const explainedPlan = (connection: PgConnection, statement: string) =>
-	Effect.map(
-		connection.queryValues(
-			`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${statement}`,
-			[]
-		),
-		(explained) => succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan
-	)
+/**
+ * A data step as its file runs it, bound (deploy/render/advise.ts BoundDraft): what it is (`Step`), the query it reads
+ * every row by, the statement PostgreSQL plans of it (a fill's INSERT; a check's probe as PL/pgSQL hands it the planner,
+ * sql/print.ts printPlannedQuery `found`), the statement the file sends, and the laws it refuses a violation of under
+ * their identity: the natives a fill's INSERT fires, every law the installation's constraint map reads under one of its
+ * table's constraints (ir/products.ts ConstraintLaws), or a check's law.
+ */
+interface DataStep {
+	readonly step: Step
+	readonly query: OperandSelect
+	readonly planned: string
+	readonly sent: string
+	readonly holds: ReadonlyArray<LawId>
+}
 
-/** What a plan is held to (`holdsTheBound`): the rows of the tables, and what an index probe of one row costs at least. */
-interface Bound {
-	readonly rows: number
-	readonly probeCost: number
+/** A data step as a failure names it. */
+const stepText = (step: Step): string =>
+	step.kind === "fill" ? `${step.relation}'s fill` : `${step.law}'s check`
+
+/**
+ * A transactional file of a migration that runs data steps: the advice the runner sets as its transaction's first
+ * statement (LedgerStatements `advise`), its folder's meta.json's record of it as the runner reads it
+ * (deploy/render/folder.ts statedAdvice), its data steps in its order, and their scope (test/support/advice.ts
+ * fileScope): the plans their bound drafts carry, joined and resolved by the installation, its vehicle the advice the
+ * runner sets.
+ */
+interface StepFile {
+	readonly set: string
+	readonly steps: Arr.NonEmptyReadonlyArray<DataStep>
+	readonly scope: LawScope
 }
 
 /**
- * Holds one plan PostgreSQL ran, `what`'s, to the bound (runCheck): it reads each table by at most one plan node per
- * occurrence `reads` holds of it, the node that writes a fill's table, its INSERT's ModifyTable, reading none of it, and
- * touches at most its nodes times the rows of the tables and the rows its rescans of tables no larger than an index probe
- * touch (`smallTableRescans`).
+ * The data steps of `migrated`'s one migration, file by file (StepFile), as the runner runs them: the migration drafted
+ * again over the template's installation from the empty snapshot, as its build drafted it (install-migrate.ts
+ * draftVersion), its files' drafts bound (deploy/render/advise.ts AdvisedFile); each file's advice as the runner reads it
+ * from the folder the template applied, every statement of it a recorded one, so the record's advice holds at each.
+ */
+const stepFiles = (migrated: Installed): ReadonlyArray<StepFile> => {
+	const installation = migrated.installation
+	const [folder, ...later] = migrated.folders
+	assert.equal(later.length, 0, "the template's one migration")
+	const meta = succeeded(folderSource(folder).meta, "the applied folder's meta.json")
+	const drafted = succeeded(
+		generate({
+			installation,
+			name: "install",
+			timestamp: draftedAt(0),
+			previous: fromEmpty,
+			workload: noWorkload,
+			declared: noDeclarations
+		}),
+		"the template's migration drafted again"
+	)
+	const stored = Arr.flatMap(
+		Arr.fromIterable(installation.checked.holdings),
+		([relation, holding]) => (holding.kind === "stored" ? [relation] : [])
+	)
+	/** A data step of the box as its file writes it, `planned` what PostgreSQL plans of it (draftPlanned). */
+	const stepOf = (d: BoundDraft, planned: string): DataStep => {
+		switch (d.kind) {
+			case "step": {
+				const statement = d.statement
+				if (statement.kind !== "fillStored") {
+					return assert.fail(`${planned}: a data step of the box is a stored relation's fill`)
+				}
+				const relation = defined(
+					Arr.findFirst(
+						stored,
+						(r) => nameKey(installation.names.relation(r)) === nameKey(statement.table)
+					).pipe(Option.getOrUndefined),
+					`the stored relation of ${printObjectName(statement.table)}`
+				)
+				const table = installation.names.relation(relation)
+				return {
+					step: { kind: "fill", relation, table },
+					query: statement.query,
+					planned,
+					sent: planned,
+					holds: Arr.dedupe(
+						Arr.flatten(Rec.values(installation.constraintToLaw.tables[table.name] ?? {}))
+					)
+				}
+			}
+			case "violation": {
+				const [found] = d.block.body
+				return found.kind === "whenFound"
+					? {
+							step: { kind: "check", law: d.law },
+							query: found.query,
+							planned,
+							sent: sqlText(SourceLoc("check-cost", []), (out) => writeDoBlock(out, d.block)),
+							holds: [d.law]
+						}
+					: assert.fail(`${d.law}: a check probes its violation query`)
+			}
+			case "statement":
+			case "alteration":
+			case "fill":
+			case "zones":
+			case "loss":
+			case "confirm":
+				return assert.fail(`${planned}: a draft of no data step, which plans nothing`)
+		}
+	}
+	return Arr.flatMap(drafted.files, (file): ReadonlyArray<StepFile> => {
+		const steps = Arr.flatMap(file.drafts, (d) =>
+			Arr.map(Option.toArray(draftPlanned(d)), (p) => stepOf(d, p.sql))
+		)
+		if (!Arr.isReadonlyArrayNonEmpty(steps)) {
+			return []
+		}
+		const written = defined(
+			Arr.findFirst(folder.files, (f) => f.name === file.file.name).pipe(Option.getOrUndefined),
+			`${file.file.name}, a file of the applied folder`
+		)
+		const stated = statedAdvice(meta, written)
+		assert.ok(
+			Arr.every(stated.reviewed, (reviewed) => !reviewed),
+			`${file.file.name}: every statement a recorded one`
+		)
+		return [
+			{
+				set: stated.advice,
+				steps,
+				scope: fileScope(file, installation.resolve, stated.advice)
+			}
+		]
+	})
+}
+
+/** The rows the tables `tables` name, each qualified and quoted, hold now. */
+const rowsIn = (connection: PgConnection, tables: ReadonlyArray<string>) =>
+	Effect.map(
+		connection.queryValues(
+			`SELECT ${Arr.join(
+				Arr.map(tables, (t) => `(SELECT pg_catalog.count(*) FROM ${t})`),
+				" + "
+			)}`,
+			[]
+		),
+		(counted) => Number(defined(counted[0]?.[0], "the tables' count"))
+	)
+
+/**
+ * Holds one plan PostgreSQL ran, `what`'s, to the bound: it reads each table by at most one plan node per occurrence
+ * `reads` holds of it, the node that writes a fill's table, its INSERT's ModifyTable, reading none of it, and touches at
+ * most its nodes times `rows`, the rows of the tables it reads (bench/harness/explain.ts rowsTouched, every row each node
+ * handled over all its loops, a join's examined pairs among them): a filter, a projection, a deduplication, a hash, a
+ * sort and a merge pass each row of their input once, a probe meets the rows of its key, and an anti join over sets
+ * passes each outer row once and meets each inner row once in its hash or merge. A plan that reads a set again for each
+ * row of another, a nested loop over a materialized set, handles the product of the two, past the bound once the outer
+ * holds more rows than the plan has nodes.
  */
 const holdsTheBound = (
 	plan: PlanNode,
 	reads: ReadonlyArray<string>,
-	bound: Bound,
+	rows: number,
 	what: string
 ): void => {
-	const nodes = Arr.fromIterable(planNodes(plan)).length
+	const nodes = Arr.fromIterable(planNodes(plan))
 	const touched = rowsTouched(plan)
-	const rescans = smallTableRescans(plan, bound.probeCost)
 	assert.ok(
-		touched <= nodes * bound.rows + rescans,
-		`${what} touches ${touched} rows, past its ${nodes} nodes times the ${bound.rows} rows it reads and the ${rescans} its rescans of tables no larger than an index probe read, ${Formatter.format(Arr.map(Arr.fromIterable(planNodes(plan)), (n) => n.nodeType))}`
+		touched <= nodes.length * rows,
+		`${what} touches ${touched} rows, past its ${nodes.length} nodes times the ${rows} rows it reads, ${Formatter.format(Arr.map(nodes, (n) => n.nodeType))}`
 	)
 	const scans = Arr.flatMap(
 		findNodes(
@@ -490,256 +575,312 @@ const holdsTheBound = (
 }
 
 /**
- * The tables `all` loaded by `inserts` through the captures, the judge deferred to a COMMIT the case never reaches, so
- * no stored relation's upkeep fills its table before the fill a case explains, and analyzed, as a migration's are by
- * the runbook and autovacuum: what a plan over them is held to (`holdsTheBound`), their rows counted, and what an index
- * probe of one row costs PostgreSQL at least, twice random_page_cost.
+ * A violation a case writes into its lawful rows, each law of the box broken alone (`brokenAlone`): its rows, each an
+ * INSERT into a table of the box, and the data steps that refuse it, each under its own laws' identity, every other
+ * step running clean.
  */
-const loaded = (
-	connection: PgConnection,
-	all: ReadonlyArray<string>,
-	inserts: ReadonlyArray<string>
-) =>
-	Effect.gen(function* () {
-		for (const sql of [...inserts, ...Arr.map(all, (t) => `ANALYZE ${t}`)]) {
-			yield* connection.query(sql, [])
-		}
-		const counted = yield* connection.queryValues(
-			`SELECT ${Arr.join(
-				Arr.map(all, (t) => `(SELECT pg_catalog.count(*) FROM ${t})`),
-				" + "
-			)}`,
-			[]
-		)
-		const costs = yield* connection.queryValues(
-			"SELECT pg_catalog.current_setting('random_page_cost')::pg_catalog.float8",
-			[]
-		)
-		return {
-			rows: Number(defined(counted[0]?.[0], "the tables' count")),
-			probeCost: 2 * Number(defined(costs[0]?.[0], "random_page_cost"))
-		} satisfies Bound
-	})
-
-/**
- * A stored relation's fill, as the migration that creates its table runs it, into the table empty, once every row its
- * definition reads is written (physical/derived/objects.ts fillStatement, deploy/diff/diff.ts view): the relation, its
- * table, the INSERT's query and text, and the laws its table's natives hold, every law the installation's constraint map
- * reads under one of the table's constraints (ir/products.ts ConstraintLaws), which its INSERT fires.
- */
-interface StoredFill {
-	readonly relation: string
-	readonly table: { readonly schema: string; readonly name: RelationIdent }
-	readonly query: Select
-	readonly text: string
-	readonly natives: ReadonlyArray<LawId>
+interface Violation {
+	readonly label: string
+	readonly rows: ReadonlyArray<string>
+	readonly refusedBy: (step: Step) => boolean
 }
 
 /**
- * The fill of each derived relation `installation` stores (StoredFill), in the order the installation creates their
- * tables, which the migration fills them in: a stored relation another's definition reads is filled before it.
+ * What a case's runs of the data steps read beside its rows: the installation, its migration's files of data steps, and
+ * the tables each step reads.
  */
-const storedFills = (installation: Installation): ReadonlyArray<StoredFill> => {
-	const creates = Arr.flatMap(installation.statements, (s) =>
-		s.kind === "createStoredTable" ? [s] : []
+interface Steps {
+	readonly migrated: Installed
+	readonly files: ReadonlyArray<StepFile>
+	/** The tables each step reads, one at each occurrence its law or definition reads one. */
+	readonly reads: (step: Step) => ReadonlyArray<StoredTable>
+}
+
+/**
+ * Every file's data steps run over the rows a case stood, as the migration runs them, each file's under the advice the
+ * runner sets: the plan laws over its scope (test/support/advice.ts lawsHold, Laws 1 to 3: the advice the record holds is
+ * the advice its steps' plans carry, every atom matched in one statement, every bound column an index condition), which
+ * then holds that advice in force; then each step: no SELECT DISTINCT of its query reads only sets whose every column its
+ * targets keep (`needlessDeduplications`), its planned statement run under the advice by EXPLAIN ANALYZE, generic as
+ * every session grizzle opens plans it (advisedExplain), a fill's INSERT filling its table, held to its bound
+ * (`holdsTheBound`) over the rows of the tables it reads and to the budget its plan gives (budgetOfPlan, each index read
+ * its descents times its height and two pages a row, each whole read its table's pages); and a check's block then run,
+ * raising nothing.
+ */
+const lawfulRuns = (clone: RolledBack<Installed>, steps: Steps, label: string) =>
+	Effect.scoped(
+		Effect.gen(function* () {
+			const session: BenchSession = { values: clone.connection.queryValues }
+			const superuser = yield* superuserClient(clone.cluster, clone.database, "check cost heights")
+			for (const file of steps.files) {
+				yield* lawsHold(session, file.scope)
+				for (const s of file.steps) {
+					const what = `${label}: ${stepText(s.step)}`
+					assert.equal(
+						needlessDeduplications(s.query).length,
+						0,
+						`${what} deduplicates no set it reads whole`
+					)
+					const reads = steps.reads(s.step)
+					const rows = yield* rowsIn(clone.connection, Arr.dedupe(Arr.map(reads, printObjectName)))
+					const plan = yield* advisedExplain(session, s.planned, [])
+					holdsTheBound(
+						plan,
+						Arr.map(reads, (t) => t.name),
+						rows,
+						what
+					)
+					const budget = yield* budgetOfPlan(
+						session,
+						(sql) => Effect.orDie(superuser.query(sql, [])),
+						what,
+						plan
+					)
+					assert.deepEqual(budget, [], `${what} keeps its plan's budget\n${s.planned}`)
+					if (s.step.kind === "check") {
+						yield* clone.connection.query(s.sent, [])
+					}
+				}
+			}
+		})
 	)
-	const stored = Arr.flatMap(
-		Arr.fromIterable(installation.checked.holdings),
-		([relation, holding]) => (holding.kind === "stored" ? [relation] : [])
-	)
-	const placeOf = (relation: string): number =>
-		Arr.findFirstIndex(
-			creates,
-			(create) => nameKey(create.name) === nameKey(installation.names.relation(relation))
-		).pipe(Option.getOrElse(() => creates.length))
-	return Arr.map(Arr.sort(stored, Order.mapInput(Order.Number, placeOf)), (relation) => {
-		const table = installation.names.relation(relation)
-		const fill = fillStatement(
-			defined(
-				Arr.findFirst(creates, (create) => nameKey(create.name) === nameKey(table)).pipe(
-					Option.getOrUndefined
+
+/**
+ * Each violation of `violations` written alone into the rows a case stood, each in a savepoint of its own rolled back
+ * after it (test/support/advice.ts apart), the stored tables emptied as the migration that creates them finds them:
+ * every file's data steps run in order as the migration sends them, each file's under the advice the runner sets
+ * (LedgerStatements `advise`, the runner's own statement), each step its own savepoint, so a refused one leaves the rest
+ * to run; the steps the violation names refuse it with SQLSTATE class 23, under exactly the laws they hold (a native's
+ * constraint as the installation maps it to its laws, ir/products.ts lawsOfConstraint, a check's the law it raises
+ * under), and every other step runs clean.
+ */
+const brokenAlone = (
+	clone: RolledBack<Installed>,
+	steps: Steps,
+	violations: ReadonlyArray<Violation>,
+	label: string
+) =>
+	Effect.gen(function* () {
+		const migrated = steps.migrated
+		const advise = succeeded(
+			ledgerStatements(identifierOf(identity.schema(parsedSchemaName(migrated.declared)))),
+			"the ledger's statements"
+		).advise.text
+		const filled = Arr.flatMap(steps.files, (f) =>
+			Arr.flatMap(f.steps, (s) => (s.step.kind === "fill" ? [s.step.table] : []))
+		)
+		for (const violation of violations) {
+			yield* apart(
+				{ values: clone.bare.queryValues },
+				"check_cost_violation",
+				Effect.gen(function* () {
+					for (const sql of [
+						...Arr.map(filled, (table) => `TRUNCATE ${printObjectName(table)}`),
+						...violation.rows
+					]) {
+						yield* clone.connection.query(sql, [])
+					}
+					for (const file of steps.files) {
+						yield* clone.connection.query(advise, [file.set])
+						for (const s of file.steps) {
+							const what = `${label}, ${violation.label}: ${stepText(s.step)}`
+							const ran = yield* Effect.result(clone.connection.query(s.sent, []))
+							if (!violation.refusedBy(s.step)) {
+								assert.ok(Result.isSuccess(ran), `${what} runs clean`)
+								continue
+							}
+							assert.ok(Result.isFailure(ran), `${what} refuses it`)
+							const fields = pgErrorFields(ran.failure)
+							assert.ok(
+								Str.startsWith("23")(fields?.code ?? ""),
+								`${what}: an integrity violation, ${Formatter.format(fields)}`
+							)
+							assert.deepEqual<ReadonlyArray<string> | undefined>(
+								fields?.constraint === undefined
+									? undefined
+									: s.step.kind === "check"
+										? [fields.constraint]
+										: lawsOfConstraint(
+												migrated.installation.constraintToLaw,
+												{ kind: "table", name: s.step.table.name },
+												fields.constraint
+											),
+								s.holds,
+								`${what}: under the identity of the laws it holds`
+							)
+						}
+					}
+				})
+			)
+		}
+	})
+
+/**
+ * The stored relations `relation` reads as the box declares it, one at each occurrence, each by its installed name:
+ * itself where `stored` holds it, else the relations its rule matches (`declaredReads`).
+ */
+const storedReadsOf = (
+	installation: Installation,
+	relation: string
+): ReadonlyArray<StoredTable> => {
+	const read = declaredReads.get(relation)
+	return read === undefined || installation.checked.holdings.get(relation)?.kind === "stored"
+		? [installation.names.relation(relation)]
+		: Arr.flatMap(read, (r) => storedReadsOf(installation, r))
+}
+
+/**
+ * The tables a data step of the box reads, one at each occurrence (`Steps` `reads`): a fill's, each relation its
+ * definition matches (`declaredReads`), a stored one by its table, a live one by its definition (`storedReadsOf`); a
+ * check's, each side of its law, never the reads of the compiled check, which count a side read twice twice.
+ */
+const checkReads =
+	(installation: Installation) =>
+	(step: Step): ReadonlyArray<StoredTable> => {
+		if (step.kind === "fill") {
+			return Arr.flatMap(
+				defined(
+					declaredReads.get(step.relation),
+					`${step.relation}, a derived relation of the box`
 				),
-				`the stored table of ${relation}`
-			)
-		)
-		return {
-			relation,
-			table,
-			query: fill.query,
-			text: printStatement(fill),
-			natives: Arr.dedupe(
-				Arr.flatten(Rec.values(installation.constraintToLaw.tables[table.name] ?? {}))
+				(r) => storedReadsOf(installation, r)
 			)
 		}
-	})
-}
+		const rule = defined(
+			Arr.findFirst(installation.laws.rules, (r) => r.law.id === step.law).pipe(
+				Option.getOrUndefined
+			),
+			`${step.law}, a rule of the box`
+		).rule
+		if (rule.kind !== "whole") {
+			return assert.fail(`${step.law}: a unit-local rule, judged whole`)
+		}
+		const sides = rule.law.kind === "contained" ? [rule.law.from, rule.law.to] : [rule.law.side]
+		return Arr.flatMap(sides, (side) => storedReadsOf(installation, side.relation))
+	}
 
 /**
- * One case in its one transaction, which the case's end rolls back: the elements of `c` written through the captures, a
- * declaration at each of a declaring kind or of tag 5, weighed by its place, the tables analyzed, as a migration's data
- * steps write the rows its checks then read in its one transaction, the judge deferred to a COMMIT the case never
- * reaches; then, as the migration that creates them runs them, each stored relation's fill (`storedFills`), explained
- * with ANALYZE, which runs it, and each rule's check, as the migration that adds the rule runs it (deploy/render/sql.ts
- * violationCheck), each statement it plans explained with ANALYZE, and the block run. A law the installation holds by a
- * native of a stored relation's table, Declared's key, has no check of its own: its migration's cost is the fill's,
- * which the table's unique index refuses at the first row that breaks the key. Every plan, a fill's and a check's,
- * reads each table by one node per occurrence its law or definition reads it at as the box declares it, so it derives
- * no relation twice, and handles each row it reads a bounded number of times: its rows touched
- * (bench/harness/explain.ts rowsTouched, every row each node handled over all its loops, a join's examined pairs among
- * them) at most its nodes times the rows of the tables and the rows its sequential rescans of tables no larger than an
- * index probe touch (`smallTableRescans`), since a filter, a projection, a deduplication, a hash, a sort and a merge
- * pass each row of their input once, and an anti join over sets passes each outer row once and meets each inner row
- * once in its hash or merge. A plan that reads a set again for each row of another, a nested loop over a materialized
- * set, handles the product of the two, past the bound once the outer holds more rows than the plan has nodes. The fill
- * and the blocks raise nothing; then, the stored tables emptied as their migration found them, with one element of a
- * declaring kind and of tag, group and band 5 and no declaration added, two declared elements of one document and kind
- * of one weight, a name its document declares at two places of two cardinalities, and a binding of attribute 1 to a
- * variable of base type 2, each block raises SQLSTATE 23000 under its law's identity and Declared's fill raises 23505
- * under its key's, the constraint the installation maps to it.
+ * One case in its one transaction, which the case's end rolls back, held in every pg_class state (test/support/advice.ts
+ * PgClassState), each within a savepoint rolled back after it (apart): the judge stood up, and the elements of `c`
+ * written through the captures, a declaration at each of a declaring kind or of tag 5, weighed by its place, and the
+ * declarations and bindings beside them, every table stood in the state (standIn), as a migration's
+ * data steps write the rows its checks then read in its one transaction, the judge deferred to a COMMIT the case never
+ * reaches; then the data steps of the template's migration run over them (`lawfulRuns`): each stored relation's fill,
+ * whose table's natives hold every law over it alone (Declared's and CardName's keys, its unique index, and Fit's check,
+ * its CHECK constraint), and each rule's check (deploy/render/sql.ts, BoundDraft `violation`), each held to the plan laws
+ * under the advice the runner sets, to its bound and to its budget, the fills and the checks raising nothing; and then
+ * each law broken alone (`brokenAlone`): an element of a declaring kind and of tag, group and band 5 that no
+ * declaration names, which each check refuses under its law's identity; two declared elements of one document and kind
+ * of one weight, which Declared's fill refuses under its key's; a name its document declares at two places of two
+ * cardinalities, which CardName's fill refuses under its key's; and a binding of attribute 1 to a variable of base type
+ * 2, which Fit's fill refuses under its check's.
  */
-export const runCheck = (
-	migrated: Installed,
-	connection: PgConnection,
-	c: CheckCase,
-	k: Case<CheckFeature>
-) =>
+export const runCheck = (clone: RolledBack<Installed>, c: CheckCase, k: Case<CheckFeature>) =>
 	Effect.gen(function* () {
-		yield* standUpJudge(connection, migrated.installation)
+		const migrated = clone.value
+		const installation = migrated.installation
+		const connection = clone.connection
+		yield* standUpJudge(connection, installation)
 		const names = namesOf(migrated)
-		const nodeTable = names.table(Node)
-		const declTable = names.table(Decl)
-		const declared = declarationsOf(c)
 		const tables = {
+			node: names.table(Node),
+			decl: names.table(Decl),
 			dcl: names.table(Dcl),
 			card: names.table(Card),
 			typed: names.table(Typed),
 			bind: names.table(Bind)
 		}
-		const all = [nodeTable, declTable, tables.dcl, tables.card, tables.typed, tables.bind]
-		const bound = yield* loaded(connection, all, [
-			`INSERT INTO ${nodeTable} ${elementsOf(c)}`,
-			`INSERT INTO ${declTable} SELECT pkg, path, at, at FROM ${nodeTable} WHERE kind IN (1, 2) OR tag = 5`,
-			`INSERT INTO ${tables.dcl} ${declared.dcl}`,
-			`INSERT INTO ${tables.card} ${declared.card}`,
-			`INSERT INTO ${tables.typed} ${declared.typed}`,
-			`INSERT INTO ${tables.bind} ${declared.bind}`
-		])
-		const installation = migrated.installation
-		const fills = storedFills(installation)
-		assert.deepEqual<ReadonlyArray<string>>(
-			Arr.map(fills, (f) => f.relation),
-			storedDerived,
-			"the box's stored relations, as the installation infers them"
+		const files = stepFiles(migrated)
+		const fills = Arr.flatMap(files, (f) =>
+			Arr.flatMap(f.steps, (s) => (s.step.kind === "fill" ? [s.step.relation] : []))
 		)
-		const checks = lawChecks(installation)
-		assert.equal(checks.rules.length, 4, "the schema's four rules")
-		/**
-		 * The occurrences of each table a rule reads as the box declares it, each rule of the box a unit-local one: each of
-		 * its sides' relations, a derived one by the relations its rule matches where it is live (`storedReadsOf`), never
-		 * the reads of the compiled check (WholeRule reads, walked from the violation query the check is), which count a
-		 * side read twice twice.
-		 */
-		const occurrences = (law: LawId): ReadonlyArray<string> => {
-			const rule = defined(
-				Arr.findFirst(installation.laws.rules, (r) => r.law.id === law).pipe(Option.getOrUndefined),
-				`${law}, a rule of the box`
-			).rule
-			if (rule.kind !== "whole") {
-				return assert.fail(`${law}: a unit-local rule, judged whole`)
-			}
-			const sides = rule.law.kind === "contained" ? [rule.law.from, rule.law.to] : [rule.law.side]
-			return Arr.map(
-				Arr.flatMap(sides, (side) => storedReadsOf(side.relation)),
-				(relation) => installation.names.relation(relation).name
-			)
-		}
-		for (const fill of fills) {
-			assert.equal(
-				fill.natives.length,
-				1,
-				`${fill.relation}'s key, the one law its table's natives hold`
-			)
-			assert.equal(
-				needlessDeduplications(fill.query).length,
-				0,
-				`${fill.relation}: the fill deduplicates no set it reads whole`
-			)
-			const plan = yield* explainedPlan(connection, fill.text)
-			holdsTheBound(
-				plan,
-				Arr.map(
-					fillReadsOf(fill.relation),
-					(relation) => installation.names.relation(relation).name
+		assert.deepEqual<ReadonlyArray<string>>(
+			Arr.sort(fills, Order.String),
+			Arr.sort(
+				Arr.flatMap(Arr.fromIterable(installation.checked.holdings), ([relation, holding]) =>
+					holding.kind === "stored" ? [relation] : []
 				),
-				bound,
-				`${Formatter.format(c)}: ${fill.relation}'s fill`
-			)
-		}
-		for (const rule of checks.rules) {
-			assert.equal(
-				needlessDeduplications(rule.query).length,
-				0,
-				`${rule.law}: the check deduplicates no set it reads whole`
-			)
-		}
-		const blocks = Arr.map(checks.rules, (rule) => ({
-			law: rule.law,
-			text: sqlText(SourceLoc("check-cost", []), (out) =>
-				writeDoBlock(out, violationCheck(rule.law, rule.query))
-			)
-		}))
-		for (const { law, text } of blocks) {
-			const planned = plannedStatements(text)
-			assert.equal(planned.length, 1, "a check plans one statement over the tables")
-			for (const statement of planned) {
-				const plan = yield* explainedPlan(connection, statement)
-				holdsTheBound(plan, occurrences(law), bound, `${Formatter.format(c)}: ${law}'s check`)
+				Order.String
+			),
+			"the migration fills every relation the installation stores"
+		)
+		const steps: Steps = { migrated, files, reads: checkReads(installation) }
+		const violations: ReadonlyArray<Violation> = [
+			{
+				label:
+					"an element of a declaring kind and of tag, group and band 5 that no declaration names",
+				rows: [`INSERT INTO ${tables.node} VALUES (1000000, 0, 0, 1, 5, 5, 5)`],
+				refusedBy: (step) => step.kind === "check"
+			},
+			{
+				label: "two declared elements of one document and kind of one weight",
+				rows: [
+					`INSERT INTO ${tables.node} VALUES (1000001, 0, 1, 1, 0, 0, 0), (1000001, 0, 2, 1, 0, 0, 0)`,
+					`INSERT INTO ${tables.decl} VALUES (1000001, 0, 1, 7), (1000001, 0, 2, 7)`
+				],
+				refusedBy: (step) => step.kind === "fill" && step.relation === Declared.name
+			},
+			{
+				label: "a name its document declares at two places of two cardinalities",
+				rows: [
+					`INSERT INTO ${tables.dcl} VALUES (1000002, 0, 0, 0), (1000002, 0, 1, 0)`,
+					`INSERT INTO ${tables.card} VALUES (1000002, 0, 0, 1), (1000002, 0, 1, 2)`
+				],
+				refusedBy: (step) => step.kind === "fill" && step.relation === CardName.name
+			},
+			{
+				label: "a binding of attribute 1 to a variable of base type 2",
+				rows: [
+					`INSERT INTO ${tables.dcl} VALUES (1000003, 0, 0, 0)`,
+					`INSERT INTO ${tables.card} VALUES (1000003, 0, 0, 1)`,
+					`INSERT INTO ${tables.typed} VALUES (1000003, 0, 0, 2)`,
+					`INSERT INTO ${tables.bind} VALUES (1000003, 0, 10, 1, 0)`
+				],
+				refusedBy: (step) => step.kind === "fill" && step.relation === Fit.name
 			}
-			yield* connection.query(text, [])
-		}
-		k.note("a law that holds")
-		for (const sql of [
-			...Arr.map(fills, (f) => `TRUNCATE ${printObjectName(f.table)}`),
-			`INSERT INTO ${nodeTable} VALUES (1000000, 0, 0, 1, 5, 5, 5), (1000000, 0, 1, 1, 0, 0, 0), (1000000, 0, 2, 1, 0, 0, 0)`,
-			`INSERT INTO ${declTable} VALUES (1000000, 0, 1, 7), (1000000, 0, 2, 7)`,
-			`INSERT INTO ${tables.dcl} VALUES (1000000, 0, 0, 0), (1000000, 0, 1, 0)`,
-			`INSERT INTO ${tables.card} VALUES (1000000, 0, 0, 1), (1000000, 0, 1, 2)`,
-			`INSERT INTO ${tables.typed} VALUES (1000000, 0, 0, 2)`,
-			`INSERT INTO ${tables.bind} VALUES (1000000, 0, 10, 1, 0)`
-		]) {
-			yield* connection.query(sql, [])
-		}
-		for (const fill of fills) {
-			const refused = yield* Effect.flip(connection.query(fill.text, []))
-			const fields = pgErrorFields(refused)
-			assert.equal(
-				fields?.code,
-				"23505",
-				`${Formatter.format(c)}: ${fill.relation}'s fill refuses the two declared elements at one key`
+		]
+		const run = (statements: ReadonlyArray<string>) =>
+			Effect.forEach(statements, (sql) => connection.query(sql, []), { discard: true })
+		for (const state of pgClassStates) {
+			yield* apart(
+				{ values: clone.bare.queryValues },
+				"check_cost_state",
+				Effect.gen(function* () {
+					yield* standIn(
+						{ values: connection.queryValues },
+						{
+							tables: [
+								tables.node,
+								tables.decl,
+								tables.dcl,
+								tables.card,
+								tables.typed,
+								tables.bind
+							],
+							units: c.size,
+							load: (from, to) => {
+								const declared = declarationsOf(c, from, to)
+								return run([
+									`INSERT INTO ${tables.node} ${elementsOf(c, from, to)}`,
+									`INSERT INTO ${tables.decl} SELECT e.pkg, e.path, e.at, e.at FROM (${elementsOf(c, from, to)}) AS e(pkg, path, at, kind, tag, grp, band) WHERE e.kind IN (1, 2) OR e.tag = 5`,
+									`INSERT INTO ${tables.dcl} ${declared.dcl}`,
+									`INSERT INTO ${tables.card} ${declared.card}`,
+									`INSERT INTO ${tables.typed} ${declared.typed}`,
+									`INSERT INTO ${tables.bind} ${declared.bind}`
+								])
+							}
+						},
+						state
+					)
+					const label = `${Formatter.format(c)}, with every table ${state}`
+					yield* lawfulRuns(clone, steps, label)
+					k.note("a law that holds")
+					yield* brokenAlone(clone, steps, violations, label)
+					k.note("a violation found")
+					k.note(`every table ${state}`)
+				})
 			)
-			assert.deepEqual<ReadonlyArray<LawId> | undefined>(
-				fields?.constraint === undefined
-					? undefined
-					: lawsOfConstraint(
-							installation.constraintToLaw,
-							{ kind: "table", name: fill.table.name },
-							fields.constraint
-						),
-				fill.natives,
-				`${Formatter.format(c)}: under its key's identity`
-			)
 		}
-		for (const { law, text } of blocks) {
-			const refused = yield* Effect.flip(connection.query(text, []))
-			const fields = pgErrorFields(refused)
-			assert.equal(
-				fields?.code,
-				"23000",
-				`${Formatter.format(c)}: the check refuses the undeclared element`
-			)
-			assert.equal(fields?.constraint, law, `${Formatter.format(c)}: under the law's identity`)
-		}
-		k.note("a violation found")
 	})
 
 /**
@@ -867,10 +1008,15 @@ const Naming = schema.extend([Manifest], "NamingFill_1", [Named], [])
  * relations it matches, the resource types from the attributes where the import stands, beside the manifest's records,
  * elements, `href`s and listed documents.
  */
-const namingReads = (relation: string): ReadonlyArray<string> =>
-	relation === Named.name
-		? [RecordNode.name, ManifestNode.name, HrefPath.name, Attribute.name, ListedDocument.name]
-		: [Attribute.name]
+const namingReads =
+	(installation: Installation) =>
+	(step: Step): ReadonlyArray<StoredTable> =>
+		Arr.map(
+			step.kind === "fill" && step.relation === Named.name
+				? [RecordNode.name, ManifestNode.name, HrefPath.name, Attribute.name, ListedDocument.name]
+				: [Attribute.name],
+			(relation) => installation.names.relation(relation)
+		)
 
 /** The manifest's schema installed through its first migration, its tables empty. */
 export const namingFillTemplate = migratedTemplate({
@@ -907,19 +1053,31 @@ export const namingCaseGen: Gen<NamingCase> = (s) => ({
 	resources: s.draw(element([16, 64, 256] as const))
 })
 
-export type NamingFeature = "a record that names its document" | "a record that names none"
+export type NamingFeature =
+	| "a record that names its document"
+	| "a record that names none"
+	| `every table ${PgClassState}`
 
 /** Whether resource `n` of a package names its document: under `mixed`, one whose `href`, type and listing all stand. */
 const namesItsDocument = (c: NamingCase, n: number): boolean =>
 	c.layout === "listed" || (n % 3 !== 2 && n % 5 !== 4 && n % 7 !== 6)
 
+/** The box's tables, each by its part in a case's rows. */
+const namingTables = ["node", "record", "attribute", "href", "listed"] as const
+type NamingTable = (typeof namingTables)[number]
+
 /**
- * The rows of `c`, each table's one INSERT's SELECT over packages p and resources n: in each package's manifest, path 0,
- * resource n at place 10n + 1 under the root, its metadata at 10n + 2 and its record at 10n + 3; the resource's `type`
- * and `href` attributes; its resolved `href` to document n + 1; and document n + 1 listed, of the resource's type.
+ * The rows of resources `from` to `to` of `c`, from 1, each table's one INSERT's SELECT over packages p and resources n,
+ * from 0: in each package's manifest, path 0, resource n at place 10n + 1 under the root, its metadata at 10n + 2 and its
+ * record at 10n + 3; the resource's `type` and `href` attributes; its resolved `href` to document n + 1; and document
+ * n + 1 listed, of the resource's type.
  */
-const namingRowsOf = (c: NamingCase): Readonly<Record<NamingTable, string>> => {
-	const grid = `FROM pg_catalog.generate_series(1, ${c.packages}) AS p(p), pg_catalog.generate_series(0, ${c.resources - 1}) AS g(n)`
+const namingRowsOf = (
+	c: NamingCase,
+	from: number,
+	to: number
+): Readonly<Record<NamingTable, string>> => {
+	const grid = `FROM pg_catalog.generate_series(1, ${c.packages}) AS p(p), pg_catalog.generate_series(${from - 1}, ${to - 1}) AS g(n)`
 	const mixed = c.layout === "mixed"
 	const type = mixed
 		? `CASE WHEN n % 5 = 4 THEN ${naming.web} WHEN n % 2 = 0 THEN ${naming.item} ELSE ${naming.test} END`
@@ -933,31 +1091,30 @@ const namingRowsOf = (c: NamingCase): Readonly<Record<NamingTable, string>> => {
 	}
 }
 
-/** The box's tables, each by its part in a case's rows. */
-const namingTables = ["node", "record", "attribute", "href", "listed"] as const
-type NamingTable = (typeof namingTables)[number]
-
 /**
- * One case in its one transaction, which the case's end rolls back: the packages of `c` written through the captures
- * and analyzed, the judge deferred to a COMMIT the case never reaches, then each stored relation's fill, as the
- * migration that creates their tables runs them, the resource types' canonical relation first, then Named's, each
- * explained with ANALYZE, which runs it. Each plan reads each table by at most one node per occurrence its definition
- * reads it at, and touches at most its nodes times the rows of the tables (`holdsTheBound`): each record, its metadata,
- * its resource's `href` and type and the listed document read a bounded number of times, by a lookup of what the steps
+ * One case in its one transaction, which the case's end rolls back, held in every pg_class state (test/support/advice.ts
+ * PgClassState), each within a savepoint rolled back after it (apart): the judge stood up, the packages of `c` written
+ * through the captures, every table stood in the state (standIn), the judge deferred to a COMMIT the case never reaches;
+ * then the data steps of the template's migration run over them (`lawfulRuns`), each stored relation's fill as the
+ * migration that creates their tables runs them, the resource types' canonical relation first, then Named's, each held
+ * to the plan laws under the advice the runner sets, to its bound and to its budget: each record, its metadata, its
+ * resource's `href` and type and the listed document read a bounded number of times, by a lookup of what the steps
  * before it bound, at most a log of the rows each, the fill's work O(n log n) in its records, elements, attributes and
  * documents. Where a record is joined to its resource's type and document by its package alone, the metadata and the
- * `href` tests above, or PostgreSQL's estimates join it to its manifest's every typed resource by the manifest alone,
- * it touches the product of the package's records, resources and documents, past the bound once a package holds more
- * resources than the plan has nodes. And Named's fill holds each record that names a document, and only those.
+ * `href` tests above, it touches the product of the package's records, resources and documents, past the bound once a
+ * package holds more resources than the plan has nodes. And Named's fill holds each record that names a document, and
+ * only those.
  */
 export const runNamingFill = (
-	migrated: Installed,
-	connection: PgConnection,
+	clone: RolledBack<Installed>,
 	c: NamingCase,
 	k: Case<NamingFeature>
 ) =>
 	Effect.gen(function* () {
-		yield* standUpJudge(connection, migrated.installation)
+		const migrated = clone.value
+		const installation = migrated.installation
+		const connection = clone.connection
+		yield* standUpJudge(connection, installation)
 		const tableOf = namesOf(migrated).table
 		const tables: Readonly<Record<NamingTable, string>> = {
 			node: tableOf(ManifestNode),
@@ -966,52 +1123,59 @@ export const runNamingFill = (
 			href: tableOf(HrefPath),
 			listed: tableOf(ListedDocument)
 		}
-		const rows = namingRowsOf(c)
-		const bound = yield* loaded(
-			connection,
-			Arr.map(namingTables, (t) => tables[t]),
-			Arr.map(namingTables, (t) => `INSERT INTO ${tables[t]} ${rows[t]}`)
-		)
-		const installation = migrated.installation
-		const fills = storedFills(installation)
-		const [types, named, ...more] = fills
+		const files = stepFiles(migrated)
+		const fills = Arr.flatMap(files, (f) => f.steps)
+		const [types, named, ...more] = Arr.map(fills, (s) => s.step)
 		assert.ok(
-			types !== undefined &&
+			types?.kind === "fill" &&
 				isCanonicalName(types.relation) &&
-				named?.relation === Named.name &&
+				named?.kind === "fill" &&
+				named.relation === Named.name &&
 				more.length === 0,
-			`the box's stored relations, as the installation infers them: the resource types' canonical relation, then Named, ${Formatter.format(Arr.map(fills, (f) => f.relation))}`
+			`the box's data steps, as the installation infers its stored relations: the resource types' canonical relation's fill, then Named's, ${Formatter.format(Arr.map(fills, (s) => stepText(s.step)))}`
 		)
-		for (const fill of fills) {
-			const plan = yield* explainedPlan(connection, fill.text)
-			holdsTheBound(
-				plan,
-				Arr.map(
-					namingReads(fill.relation),
-					(relation) => installation.names.relation(relation).name
-				),
-				bound,
-				`${Formatter.format(c)}: ${fill.relation}'s fill`
+		const namers = Arr.filter(
+			Array.from({ length: c.resources }, (_, n) => n),
+			(n) => namesItsDocument(c, n)
+		).length
+		for (const state of pgClassStates) {
+			yield* apart(
+				{ values: clone.bare.queryValues },
+				"naming_fill_state",
+				Effect.gen(function* () {
+					yield* standIn(
+						{ values: connection.queryValues },
+						{
+							tables: [tables.node, tables.record, tables.attribute, tables.href, tables.listed],
+							units: c.resources,
+							load: (from, to) => {
+								const rows = namingRowsOf(c, from, to)
+								return Effect.forEach(
+									namingTables,
+									(t) => connection.query(`INSERT INTO ${tables[t]} ${rows[t]}`, []),
+									{ discard: true }
+								)
+							}
+						},
+						state
+					)
+					const label = `${Formatter.format(c)}, with every table ${state}`
+					yield* lawfulRuns(clone, { migrated, files, reads: namingReads(installation) }, label)
+					const filled = yield* connection.queryValues(
+						`SELECT pg_catalog.count(*) FROM ${printObjectName(named.table)}`,
+						[]
+					)
+					assert.equal(
+						Number(defined(filled[0]?.[0], "the fill's count")),
+						c.packages * namers,
+						`${label}: Named's fill holds each record that names a document`
+					)
+					k.note("a record that names its document")
+					if (namers < c.resources) {
+						k.note("a record that names none")
+					}
+					k.note(`every table ${state}`)
+				})
 			)
-			if (fill.relation !== Named.name) {
-				continue
-			}
-			const filled = yield* connection.queryValues(
-				`SELECT pg_catalog.count(*) FROM ${printObjectName(fill.table)}`,
-				[]
-			)
-			const namers = Arr.filter(
-				Array.from({ length: c.resources }, (_, n) => n),
-				(n) => namesItsDocument(c, n)
-			).length
-			assert.equal(
-				Number(defined(filled[0]?.[0], "the fill's count")),
-				c.packages * namers,
-				`${Formatter.format(c)}: ${fill.relation}'s fill holds each record that names a document`
-			)
-			k.note("a record that names its document")
-			if (namers < c.resources) {
-				k.note("a record that names none")
-			}
 		}
 	})

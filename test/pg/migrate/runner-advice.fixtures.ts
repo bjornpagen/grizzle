@@ -1,23 +1,16 @@
-/** What runner-advice.test.ts reads: its schema, the transactions the apply runner sends, and each advised file's scope. */
+/** What runner-advice.test.ts reads: its schema, the transactions the apply runner sends, and the runner's own rows' scope. */
 
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { Array as Arr, Option, String as Str } from "effect"
 import type { MigrationSession } from "#adapter/migrate/session.ts"
 import type { BatchStatement } from "#adapter/wire/batch.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { LedgerStatements } from "#compiler/deploy/ledger/ledger.ts"
-import type { AdvisedFile } from "#compiler/deploy/render/advise.ts"
-import type { IndexResolver } from "#compiler/physical/indexes/ref.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, relation, schema, unit } from "#compiler/public/schema.ts"
-import { printAdvice } from "#compiler/sql/advice.ts"
-import { joinPlans, resolvePlan } from "#compiler/sql/plan.ts"
-import { printStatement } from "#compiler/sql/print.ts"
 import {
 	type AdvisedPlan,
 	type LawScope,
-	planFacts,
 	type ScopeStatement,
 	type Supplied
 } from "#test/support/advice.ts"
@@ -136,33 +129,6 @@ export const openingAdvice = (
 	return first === undefined || sentSql(first) !== ledger.advise.text
 		? undefined
 		: String(first.params[0])
-}
-
-/**
- * The scope of a migration file's data steps (README "Plan advice"): each as its file writes it, with its bound plan
- * (AdvisedFile `drafts`, a step), each plan's reads resolved by the installation (`resolve`); its advice what those
- * plans carry, and its vehicle the advice the runner set (`set`), its transaction's first statement.
- */
-export const stepsScope = (file: AdvisedFile, resolve: IndexResolver, set: string): LawScope => {
-	const steps = Arr.flatMap(file.drafts, (d) =>
-		d.kind === "step" ? [{ text: printStatement(d.statement), plan: d.plan }] : []
-	)
-	const plan = resolvePlan(joinPlans(Arr.map(steps, (s) => s.plan)), resolve)
-	const [first, ...rest] = Arr.map(steps, (s, at): ScopeStatement => ({
-		label: `data step ${at + 1}`,
-		sql: s.text
-	}))
-	if (first === undefined) {
-		return defect(`${file.file.name}'s advice is printed of a data step`)
-	}
-	return {
-		label: `the data steps of ${file.file.name}`,
-		sends: "every",
-		advice: printAdvice(plan),
-		...planFacts(plan),
-		statements: [first, ...rest],
-		vehicle: { kind: "flight", advice: set }
-	}
 }
 
 /**

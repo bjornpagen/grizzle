@@ -33,10 +33,9 @@ import {
 	writingAtStructure,
 	openingAdvice,
 	rowsScope,
-	runnerSchema,
-	stepsScope
+	runnerSchema
 } from "#test/pg/migrate/runner-advice.fixtures.ts"
-import { type LawScope, lawsOver, plannedScope } from "#test/support/advice.ts"
+import { fileScope, type LawScope, lawsOver, plannedScope } from "#test/support/advice.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { sentSql } from "#test/support/flight/scripted.ts"
@@ -121,7 +120,7 @@ export const aMigrationFilesTransactionRunsUnderTheAdviceItsRecordHolds = proper
 								Arr.contains(opened, file.advice),
 								`the runner opens the transaction of ${file.file.name} with the advice its record holds, ${file.advice}; it opened ${Arr.join(opened, " | ")}`
 							)
-							const steps = stepsScope(file, resolve, file.advice)
+							const steps = fileScope(file, resolve, file.advice)
 							assert.equal(
 								steps.advice,
 								file.advice,
