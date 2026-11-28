@@ -3,23 +3,29 @@
  * the schema: over the compile benchmark's generated schema (bench/compile/schema.ts) with its full role and a login
  * whose workload looks up the first relations by key, as the benchmark builds them, compiled with no database as
  * generate drafts it, the snapshot and the login's served file over it (test/support/compiled-served.ts
- * compiledServedFile), at a scale and at twice it, every count of which doubles, each counted site makes no more than
- * 2.1 times the calls at twice the schema:
+ * compiledServedFile), at a scale, twice it and three times it, every count of which grows with the factor, each
+ * counted site's calls are the exact function of the factor its work is:
  *
- * - certify's group of an outside read (analysis/isolation/certify.ts groupOf): condition 5b reads each statement's
- *   outside reads once for the statement (statementOutsides), each read's group written once, where each write of the
- *   statement filtered every outside read of it by its group again, the writes times the reads;
- * - the index engine's test of whether an index serves a request (physical/indexes/engine.ts serves): a landing reads
- *   its own relation's indexes (IndexHosts), where every request scanned every index of the installation;
- * - hex's bit setter (core/hex.ts setBit): a roster's constants, named by the digests of its names and its live codes,
- *   are minted once per roster as the installation's names are built (physical/ddl/names.ts InstallNames
- *   rosterConstants), where every read of a roster's names constant, each decoded closed id a statement or view reads,
- *   spelled the roster's live codes again, the uses times the handles.
+ * - certify's group of an outside read (analysis/isolation/certify.ts groupOf), once per outside read, 12 calls a
+ *   factor, proportional: condition 5b reads each statement's outside reads once for the statement
+ *   (statementOutsides), each read's group written once, where each write of the statement filtered every outside read
+ *   of it by its group again, the writes times the reads;
+ * - the index engine's test of whether an index serves a request (physical/indexes/engine.ts serves), once per index of
+ *   a request's relation, 60 calls a factor and 31 beside them, affine, the workload's lookups and the first
+ *   relation's missing containment its constant: a landing reads its own relation's indexes (IndexHosts), where every
+ *   request scanned every index of the installation;
+ * - hex's bit setter (core/hex.ts setBit), once per live handle of each roster's constants, 1,600 calls a factor,
+ *   proportional: a roster's constants, named by the digests of its names and its live codes, are minted once per
+ *   roster as the installation's names are built (physical/ddl/names.ts InstallNames rosterConstants), where every read
+ *   of a roster's names constant, each decoded closed id a statement or view reads, spelled the roster's live codes
+ *   again, the uses times the handles.
  *
- * Each grew with the square of the schema, about four times the calls at twice it: the benchmark's growth check (bench
- * compile --quick, x4.00, x3.13 and x3.36 at 30 relations) is the kept case. The count is work, never time: V8's precise
- * coverage counts each site's calls (kernel/calls.ts callCounts). The box is exhausted: the scale at its base and at
- * twice the base.
+ * A proportional count is twice and three times its count at twice and three times the scale, and an affine one grows
+ * by one step from each to the next, its step and its constant read off two scales and held at the third, exactly: the
+ * counts are deterministic, so no slack lets an n log n or a quadratic term through. Each grew with the square of the
+ * schema, about four times the calls at twice it: the benchmark's growth check (bench compile --quick, x4.00, x3.13 and
+ * x3.36 at 30 relations) is the kept case. The count is work, never time: V8's precise coverage counts each site's
+ * calls (kernel/calls.ts callCounts). The box is exhausted: the scale at its base and at twice the base.
  *
  * Features: the base scale, twice the base.
  */
@@ -40,6 +46,12 @@ const sites = {
 	serves: { file: "packages/engine/src/physical/indexes/engine.ts", name: "serves" },
 	setBit: { file: "packages/engine/src/core/hex.ts", name: "setBit" }
 } as const
+
+/**
+ * The function of the scale's factor each site's calls are: proportional, `c·f`, no call standing apart from the
+ * schema's parts; or affine, `c·f + b`, a constant `b` of calls the parts that do not grow make.
+ */
+const laws = { groupOf: "proportional", serves: "affine", setBit: "proportional" } as const
 
 type ScaleFeature = "the base scale" | "twice the base"
 
@@ -70,28 +82,33 @@ const callsAt = (scale: Scale) =>
 		([, counts]) => counts
 	)
 
-/** Each counted site makes no more than 2.1 times the calls at twice the schema. */
+/** Each counted site's calls are the exact proportional or affine function of the scale its work is. */
 export const generatesCompileOfAServedLoginDoesEachRequestWriteAndRosterUseOnce = property.exhaust(
 	finite(int(1, 2)),
 	{
 		needs: {},
-		box: "the generated schema's scale at its base and at twice it, each counted site's calls at the scale and at twice it",
+		box: "the generated schema's scale at its base and at twice it, each counted site's calls at the scale, twice it and three times it",
 		situations: ["the base scale", "twice the base"] satisfies ReadonlyArray<Reached<ScaleFeature>>,
 		check: (_, c: Case<ScaleFeature>) => (base) =>
 			Effect.gen(function* () {
 				c.note(base === 1 ? "the base scale" : "twice the base")
 				const once = yield* callsAt(scaleAt(base))
 				const twice = yield* callsAt(scaleAt(2 * base))
-				for (const [site, { file }] of Rec.toEntries(sites)) {
+				const thrice = yield* callsAt(scaleAt(3 * base))
+				for (const [site, law] of Rec.toEntries(laws)) {
+					const counts = `${sites[site].file} ${site}'s calls at the scale, twice it and three times it: ${once[site]}, ${twice[site]}, ${thrice[site]}`
 					assert.ok(
-						once[site] > 0 && twice[site] <= 2.1 * once[site],
-						`${file} ${site}'s calls at a scale and at twice it: ${once[site]}, ${twice[site]}`
+						once[site] > 0 && thrice[site] - twice[site] === twice[site] - once[site],
+						`${counts}, one step from each to the next`
 					)
+					if (law === "proportional") {
+						assert.ok(twice[site] === 2 * once[site], `${counts}, proportional`)
+					}
 				}
 			}),
 		oracle: {
 			kind: "specification",
-			name: "each counted site's calls (kernel/calls.ts callCounts) at most 2.1 times as many at twice the schema"
+			name: "each counted site's calls (kernel/calls.ts callCounts) the exact function of the scale its work is: one step from each scale to the next, none beside it where the count is proportional"
 		},
 		kept: [],
 		kills: [
