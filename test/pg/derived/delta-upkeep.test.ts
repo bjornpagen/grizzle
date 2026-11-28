@@ -159,9 +159,9 @@ export const aStoredRelationKeptByItsDeltaProgramEqualsItsDefinitionAfterEveryCo
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: '\t\t\tu.form.kind === "delta"\n',
-				replacement: '\t\t\tu.form.kind === "unit"\n',
-				why: "A delta form's holders' sides of news are netted only where a rule reads them: a data step that inserts a visit and deletes it again leaves its image in the delta, and the gained rule reads the pair it would derive, which Pairs' table then keeps with no visit standing for it."
+				original: "\t\t\t\t\t...nettingsOf(b.schema, sides),\n",
+				replacement: "\t\t\t\t\t...nettingsOf(b.schema, []),\n",
+				why: "The judge nets no side of news: a data step that inserts a visit and deletes it again leaves its image in the delta, and the gained rule reads the pair it would derive, which Pairs' table then keeps with no visit standing for it."
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",

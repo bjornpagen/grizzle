@@ -3,14 +3,7 @@
 import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
-import type {
-	Expr,
-	OperandCore,
-	OperandSelect,
-	Select,
-	SetCore,
-	Target
-} from "#compiler/sql/ast.ts"
+import type { Expr, OperandCore, Select, SetCore, Target } from "#compiler/sql/ast.ts"
 import {
 	asc,
 	binary,
@@ -52,9 +45,9 @@ import type { PgConnection } from "#test/support/pg.ts"
  * - The innermost level may filter the VALUES rows.
  * - The readers: the statement's own rows (by name), the same ordered by its columns (the query's ORDER BY reads the
  *   reading core's FROM), the core parenthesized as a body of its own under an ORDER BY of its output names (which is
- *   all PostgreSQL reads there, as it reads a set operation's), and by place: a CTE, which names its columns, and the
- *   subquery of an IN. Every reader but the IN reads the stack's top through a projection
- *   of picked columns, each read once or more, unaliased, so its rows' names are the columns' own.
+ *   all PostgreSQL reads there, as it reads a set operation's), and by place: a CTE, which names its columns. Every
+ *   reader reads the stack's top through a projection of picked columns, each read once or more, unaliased, so its rows'
+ *   names are the columns' own.
  *
  * Its twin is the same statement with every core that reads a derived table filtered by WHERE TRUE, which no fold reads
  * through (a pass-through projection has no WHERE) and which keeps every row: what the statement meant before the
@@ -85,7 +78,7 @@ export type Level =
 	| Readonly<{ kind: "aggregate"; terms: Arr.NonEmptyReadonlyArray<Aggregate> }>
 
 /** How the statement reads the stack's top (see the header). */
-export type Reader = "statement" | "ordered" | "ordered through parentheses" | "CTE" | "IN"
+export type Reader = "statement" | "ordered" | "ordered through parentheses" | "CTE"
 
 /** A case: the VALUES rows, the innermost level's filter, the levels innermost first, the reader and its picks. */
 export interface FoldSketch {
@@ -151,8 +144,7 @@ const readers = [
 	"statement",
 	"ordered",
 	"ordered through parentheses",
-	"CTE",
-	"IN"
+	"CTE"
 ] as const satisfies ReadonlyArray<Reader>
 
 const rowGen: Gen<readonly [number, number, number]> = (source) => [
@@ -269,26 +261,6 @@ export const foldCase = (sketch: FoldSketch, twin: boolean): FoldCase => {
 					),
 					with: { recursive: false, ctes: [cte(w, namedBody(select(reading(once)), named))] }
 				}
-			}
-			case "IN": {
-				const v = `r${sketch.levels.length + 1}`
-				const subquery: OperandSelect = operandSelect(
-					core([target(col(q, Arr.headNonEmpty(picked)))], [read], guard(twin))
-				)
-				return select(
-					distinctCore(
-						[target(col(v, "c1"))],
-						[
-							{
-								kind: "values",
-								rows: Arr.map([0, 1, 2, 3] as const, (n) => [lit.int(n, types.integer)]),
-								alias: v,
-								columns: ["c1"]
-							}
-						],
-						{ kind: "inQuery", expr: col(v, "c1"), query: subquery, not: false }
-					)
-				)
 			}
 		}
 	})()
@@ -544,7 +516,7 @@ export const reachedOf = (sketch: FoldSketch, folded: boolean): ReadonlyArray<Fo
 	if (sketch.reader === "ordered through parentheses") {
 		reached.push("a fold read by name under an ORDER BY through parentheses")
 	}
-	if (sketch.reader === "IN" || sketch.reader === "CTE") {
+	if (sketch.reader === "CTE") {
 		reached.push("a fold read by place")
 	}
 	if (holds("placeholder")) {

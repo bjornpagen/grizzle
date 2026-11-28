@@ -143,7 +143,6 @@ class Delivered {
 			case "isTrue":
 			case "between":
 			case "inList":
-			case "inQuery":
 			case "equalsAny":
 			case "exists":
 			case "array":

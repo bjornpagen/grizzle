@@ -424,7 +424,7 @@ export default defineGate({
 							", "
 						)}) ` +
 						`SELECT ${digestOf("g")}, 0, 0 FROM pg_catalog.generate_series(${from}, ${from + n - 1}) AS g`
-					yield* ownerTransaction(fx, [
+					yield* ownerTransaction([
 						work(1, options.pending, "render"),
 						wanted(1, options.pending),
 						work(options.pending + 1, options.dead, "transcode"),

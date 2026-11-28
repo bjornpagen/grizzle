@@ -169,7 +169,6 @@ export const aReadsCanonicalOrderSortsOnlyTheRowsItsKeyRestricts = property.expl
 						"the read of one shelf"
 					)
 					const problems = yield* inEveryState(
-						installed.installation,
 						(session) =>
 							itemLoad(
 								session,
@@ -293,7 +292,6 @@ export const aDeduplicatedReadsOrderSortsOnlyTheRowsItDelivers = property.explor
 						"the twins' read"
 					)
 					const problems = yield* inEveryState(
-						installed.installation,
 						(session) =>
 							itemLoad(
 								session,

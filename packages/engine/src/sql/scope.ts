@@ -555,14 +555,6 @@ class ScopeWalk {
 				})
 				this.#exprs(e.list, reach, "list")
 				return
-			case "inQuery":
-				this.#at("expr", () => {
-					this.#expr(e.expr, reach)
-				})
-				this.#at("query", () => {
-					this.#select(e.query)
-				})
-				return
 			case "equalsAny":
 				this.#at("expr", () => {
 					this.#expr(e.expr, reach)
@@ -1315,7 +1307,9 @@ class ScopeWalk {
 				})
 				return
 			case "forQuery":
-				this.#variable(statement.variable)
+				for (const variable of statement.variables) {
+					this.#variable(variable)
+				}
 				this.#at("query", () => {
 					this.#select(statement.query)
 				})
@@ -1374,10 +1368,13 @@ class ScopeWalk {
 					this.#expr(statement.value, query)
 				})
 				return
-			case "createSessionTable":
-			case "createSessionIndex":
-			case "truncateSessionTable":
-			case "createSessionTrigger":
+			case "into":
+				for (const variable of statement.into) {
+					this.#variable(variable)
+				}
+				this.#at("statement", () => {
+					this.#cteBody(statement.statement)
+				})
 				return
 		}
 	}
@@ -1571,6 +1568,7 @@ class ScopeWalk {
 			case "createGuardTrigger":
 			case "createImmutableGuardTrigger":
 			case "createConstraintTrigger":
+			case "createJudgeLog":
 			case "createTransitionTrigger":
 			case "createPublication":
 			case "dropPublication":
@@ -1691,6 +1689,7 @@ const headOf = (subject: Walked): string => {
 		case "createGuardTrigger":
 		case "createImmutableGuardTrigger":
 		case "createConstraintTrigger":
+		case "createJudgeLog":
 		case "createTransitionTrigger":
 		case "createPublication":
 		case "dropPublication":

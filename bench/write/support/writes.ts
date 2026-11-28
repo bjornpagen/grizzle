@@ -62,7 +62,6 @@ import type { ArtifactStatement } from "#compiler/write/program/artifact.ts"
 import { refusalFunctionName } from "#compiler/write/refusal.ts"
 import { conservativeChange } from "#test/support/conservative.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
-import { standUpJudge } from "#test/support/judge.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { member, openServedDb, type ServedDb } from "#test/support/served-db.ts"
@@ -263,12 +262,10 @@ export const owner = Effect.fn("owner")(function* (
  * the COMMIT, as a writer outside grizzle's are: a seed whose rows hold a deferred law or a native deferred foreign key
  * only together, which statements committed one by one would each break.
  */
-export const ownerTransaction = Effect.fn("ownerTransaction")(function* <S>(
-	fixture: Fixture<S>,
+export const ownerTransaction = Effect.fn("ownerTransaction")(function* (
 	sql: ReadonlyArray<string>
 ): Effect.fn.Return<void, SqlError | TransactionRolledBack, Substrate> {
 	const s = yield* Substrate
-	yield* standUpJudge(s.admin, fixture.installed.installation)
 	yield* transaction(s.admin, sql)
 })
 

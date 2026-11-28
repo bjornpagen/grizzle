@@ -17,8 +17,7 @@ import {
 	judgedStatementsOf,
 	readWork,
 	scannedTableOf,
-	scannedWork,
-	standUpJudge
+	scannedWork
 } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -182,7 +181,7 @@ const seatAt = (installed: Installed, unit: number, doc: number): string => {
 const rowsReadByTable = (installed: Installed, connection: PgConnection) =>
 	Effect.gen(function* () {
 		const plans = yield* judgedPlans(
-			(sql) => connection.queryValues(sql, []),
+			(sql, params) => connection.queryValues(sql, params),
 			installed.installation,
 			judgedStatementsOf(installed.installation)
 		)
@@ -209,7 +208,7 @@ const rowsReadByTable = (installed: Installed, connection: PgConnection) =>
 const loadWork = (installed: Installed, connection: PgConnection) =>
 	Effect.map(
 		judgedPlans(
-			(sql) => connection.queryValues(sql, []),
+			(sql, params) => connection.queryValues(sql, params),
 			installed.installation,
 			judgedStatementsOf(installed.installation)
 		),
@@ -243,7 +242,6 @@ export const runProbeShare = (
 		if (drawn.growth === 16) {
 			c.note("the population grown sixteen times")
 		}
-		yield* standUpJudge(connection, installed.installation)
 		yield* connection.query("SET CONSTRAINTS ALL DEFERRED", [])
 		for (const sql of population(installed, 0, share)) {
 			yield* connection.query(sql, [])

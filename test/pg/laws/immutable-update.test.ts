@@ -17,7 +17,6 @@ import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { runRewrite, rewriteGen } from "#test/pg/laws/immutable-update.fixtures.ts"
 import { judgeTemplates } from "#test/pg/laws/rule-whole.fixtures.ts"
-import { standUpJudge } from "#test/support/judge.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -43,7 +42,6 @@ export const aDeleteATruncateOrAnUpdateOfAnImmutableRelationThatChangesARowIsRef
 			Effect.gen(function* () {
 				const judge = yield* judges[`whole ${rewrite.shape}`]
 				const session = yield* judge.substrate.session({ ...ownerSession(), label: "owner" })
-				yield* standUpJudge(session, judge.value.installation)
 				yield* runRewrite(judge.value, session, rewrite, c)
 			}).pipe(Effect.scoped),
 		oracle: {

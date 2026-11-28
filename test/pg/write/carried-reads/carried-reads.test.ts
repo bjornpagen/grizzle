@@ -59,7 +59,6 @@ import {
 	storedGrades
 } from "#test/pg/write/carried-reads/carried-reads.fixtures.ts"
 import { carrierFills } from "#test/support/carrier-reads.ts"
-import { standUpJudge } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { Substrate, baseSubstrate } from "#test/support/substrate/substrate.ts"
 
@@ -104,7 +103,6 @@ export const aWritesReadBackOfItsOwnDeltaReadsItAsTheWholeWriteLeavesTheStateCar
 							const names = namesOf(fx.installed)
 							const column = (relation: typeof Attempt | typeof Graded, field: string) =>
 								quoteIdent(names.columnIdent(relation, field))
-							yield* standUpJudge((yield* Substrate).admin, fx.installed.installation)
 							yield* owner(
 								`INSERT INTO ${names.table(Attempt)} (${column(Attempt, "child")}, ${column(Attempt, "n")}) VALUES ${Arr.join(
 									Arr.map(storedAttempts, (a) => `(${a.child}, ${a.n})`),

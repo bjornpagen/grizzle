@@ -1959,6 +1959,7 @@ const withColumns = (
 		case "createGuardTrigger":
 		case "createImmutableGuardTrigger":
 		case "createTransitionTrigger":
+		case "createJudgeLog":
 		case "guardBracket":
 		case "createExtension":
 		case "lockTable":
@@ -2046,6 +2047,7 @@ const withRoles = (s: WholeStatement, roles: ReadonlyMap<string, string>): Whole
 		case "createGuardTrigger":
 		case "createImmutableGuardTrigger":
 		case "createConstraintTrigger":
+		case "createJudgeLog":
 		case "createTransitionTrigger":
 		case "guardBracket":
 		case "createExtension":

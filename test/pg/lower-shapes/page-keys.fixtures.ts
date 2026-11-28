@@ -37,12 +37,16 @@ import { str } from "#compiler/public/text.ts"
 import { answered, paged } from "#compiler/public/workload.ts"
 import type { CreateStoredTable, Delete } from "#compiler/sql/ast.ts"
 import {
+	and,
 	col,
 	core,
+	derived as derivedTable,
+	eq,
+	exists,
 	operandSelect,
-	row as rowOf,
 	select,
 	setOperation,
+	simpleSelect,
 	table,
 	targetAs
 } from "#compiler/sql/build.ts"
@@ -1186,12 +1190,13 @@ const storedDifference = (create: CreateStoredTable): ReadonlyArray<string> => {
 		table: create.name,
 		alias: "t",
 		using: [],
-		where: {
-			kind: "inQuery",
-			expr: rowOf(mapNonEmpty(create.columns, (c) => col("t", c))),
-			query: select(setOperation("EXCEPT", [held("s"), create.query])),
-			not: false
-		},
+		where: exists(
+			simpleSelect(
+				[],
+				[derivedTable(select(setOperation("EXCEPT", [held("s"), create.query])), "x", false)],
+				and(mapNonEmpty(create.columns, (c) => eq(col("x", c), col("t", c))))
+			)
+		),
 		returning: []
 	}
 	const fill = fillStatement(create)
@@ -1429,14 +1434,13 @@ const textSet = (rows: ReadonlyArray<ReadonlyArray<string>>): ReadonlyArray<stri
 	)
 
 /**
- * A case's transaction opened on `clone` (runPage): its session's stand-ups called, as a direct writer of a table the
- * rule judge holds calls them, the tests and an operator granted teaching, under claims naming the operator's Clerk user.
+ * A case's transaction opened on `clone` (runPage): the tests and an operator granted teaching, under claims naming the
+ * operator's Clerk user.
  */
 const opened = (clone: RolledBack<Generated>) => {
 	const names = namesOf(clone.value.installed)
 	return Effect.forEach(
 		[
-			...names.standUps,
 			`INSERT INTO ${names.table(Test)} SELECT t, 'test ' || t, t FROM generate_series(1, 3) AS t`,
 			`INSERT INTO ${names.table(People)} VALUES ('staff')`,
 			`INSERT INTO ${names.table(ClerkAccount)} VALUES ('user_staff', 'staff')`,
@@ -1520,9 +1524,7 @@ export const stoodApart = (clone: RolledBack<Generated>, state: PgClassState) =>
 	})
 
 /**
- * One case in its one transaction, which the case's end rolls back: its session's stand-ups called, as a direct writer
- * of a table the rule judge holds calls them (an assignment's containment in the one status a sitting), the tests and
- * an operator granted teaching, under claims naming the operator's Clerk user. The case's window is paged as a served
+ * One case in its one transaction, which the case's end rolls back: the tests and an operator granted teaching, under claims naming the operator's Clerk user. The case's window is paged as a served
  * Db of the ledger's full world pages it (test/support/advice.ts servedPageRead: the role's compile, read "page", under
  * the advice its served record ships), and the page oracle's baseline built beside it (test/support/conservative.ts
  * conservativePageRuntime), cost-chosen, the oracle of its rows alone. The case's learners 1 to `learners` are loaded

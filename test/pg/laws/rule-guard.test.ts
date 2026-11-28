@@ -78,8 +78,8 @@ export const aProbeOfTheContentRunsOnlyWhereALearnersRowStandsAtItsUnit = proper
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
 				original:
-					"\t\t\t\t\t\t\t\t\tbody: [guarded === undefined ? judged : whenExists(guarded.statement, [judged])]",
-				replacement: "\t\t\t\t\t\t\t\t\tbody: [judged]",
+					"\t\t\t\t\t\t\t\t\t\t\t\tguarded === undefined ? judged : whenExists(guarded.statement, [judged])\n",
+				replacement: "\t\t\t\t\t\t\t\t\t\t\t\tjudged\n",
 				why: "No probe is guarded, as before: a write of the content with no learner's value at its package still runs the probe, which reads Node."
 			},
 			{
@@ -197,9 +197,9 @@ export const aProbesGuardReadsOneRowOfItsRelationHoweverManyStandAtTheWrittenUni
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
 				original:
-					"\t\t\t\t\t\t\t\t\tbody: [guarded === undefined ? judged : whenExists(guarded.statement, [judged])]",
+					"\t\t\t\t\t\t\t\t\t\t\t\tguarded === undefined ? judged : whenExists(guarded.statement, [judged])\n",
 				replacement:
-					"\t\t\t\t\t\t\t\t\tbody: [guarded === undefined ? judged : whenFound(guarded.statement, [judged])]",
+					"\t\t\t\t\t\t\t\t\t\t\t\tguarded === undefined ? judged : whenFound(guarded.statement, [judged])\n",
 				why: "The guard is a PERFORM run to its end, as before: it reads a value at every written package where its first was enough, three entries of Value where it read one."
 			}
 		]

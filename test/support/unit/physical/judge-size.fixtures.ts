@@ -242,27 +242,28 @@ const sourcesOf = (visit: Walk): ReadonlyArray<FromSource> => {
 }
 
 /**
- * How `statement` reads the session's deltas, at any depth: the FROM sources that name a table of pg_temp, and those that
- * call a function, a delta's reader (physical/ddl/rules.ts readers) where the judge's statement reads one.
+ * How `statement` reads the transaction's deltas, at any depth: the FROM sources that name a table of pg_temp, and those
+ * that unnest a variable of its block, a delta's array or a selection of it (physical/ddl/deltas.ts headed).
  */
 const deltaReadsOf = (
 	statement: OperandSelect
-): { readonly tables: number; readonly calls: number } => {
+): { readonly tables: number; readonly arrays: number } => {
 	const sources = sourcesOf((visitor) => visitSelect(statement, visitor))
 	return {
 		tables: Arr.filter(sources, (s) => tableOfSource(s)?.schema === "pg_temp").length,
-		calls: Arr.filter(sources, (s) => s.kind === "function" && s.call.fn.kind === "qualified")
-			.length
+		arrays: Arr.filter(
+			sources,
+			(s) => s.kind === "function" && Arr.some(s.call.args, (a) => a.kind === "plVar")
+		).length
 	}
 }
 
 /**
- * Every statement of the chain's whole rule reads the session's deltas through their readers, never a table of pg_temp:
- * a plan that reads a delta through its reader depends on the function, so the TRUNCATE the judge empties the delta with
- * once it has read it leaves the plan standing for the next run, where a plan that read the table was made again at
- * every COMMIT after one.
+ * Every statement of the chain's whole rule reads the transaction's deltas as arrays, never a table of pg_temp: an
+ * argument of its block, which PostgreSQL holds in memory, so no plan of it depends on a relation a session made, which
+ * every emptying invalidated and the next COMMIT planned again, and no session makes one.
  */
-export const readsDeltasThroughReaders = (c: Chain, note: (r: Reached) => void): void => {
+export const readsDeltasAsArrays = (c: Chain, note: (r: Reached) => void): void => {
 	const owned = owning(schemaOf(c))
 	const installation = succeeded(compileInstallation(owned, installOptions(owned)))
 	const statements = judgedStatementsOf(installation)
@@ -285,8 +286,8 @@ export const readsDeltasThroughReaders = (c: Chain, note: (r: Reached) => void):
 			`a statement of the chain ${c.depth} deep reads a table of pg_temp`
 		)
 		assert.ok(
-			reads.calls > 0,
-			`a statement of the chain ${c.depth} deep reads no delta through its reader`
+			reads.arrays > 0,
+			`a statement of the chain ${c.depth} deep reads no delta as an array`
 		)
 	}
 }

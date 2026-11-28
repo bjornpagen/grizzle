@@ -200,8 +200,7 @@ class Rewriter {
 				const q = this.select(e.query, { ...ctx, underExists: true })
 				return q === e.query ? e : { ...e, query: q }
 			}
-			case "subquery":
-			case "inQuery": {
+			case "subquery": {
 				const q = this.select(e.query, ctx)
 				return q === e.query ? e : { ...e, query: q }
 			}
@@ -348,8 +347,6 @@ export const readsAlias = (e: Expr, alias: string): boolean => {
 			return readsAlias(e.expr, alias) || readsAlias(e.low, alias) || readsAlias(e.high, alias)
 		case "inList":
 			return readsAlias(e.expr, alias) || Arr.some(e.list, (a) => readsAlias(a, alias))
-		case "inQuery":
-			return readsAlias(e.expr, alias) || selectReads(e.query, alias)
 		case "exists":
 		case "subquery":
 		case "array":

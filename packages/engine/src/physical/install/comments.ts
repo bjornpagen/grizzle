@@ -132,6 +132,18 @@ const created = (s: SqlStatement): ReadonlyArray<Created> => {
 			]
 		case "createPolicy":
 			return [{ on: { kind: "POLICY", name: s.name, on: s.table }, identifier: s.name }]
+		case "createJudgeLog":
+			return [
+				{ on: { kind: "TABLE", name: s.table }, identifier: s.table.name },
+				...(s.log.kind === "arm"
+					? [
+							{
+								on: { kind: "CONSTRAINT", name: s.log.key, on: s.table },
+								identifier: s.log.key
+							} satisfies Created
+						]
+					: [])
+			]
 		case "createGuardTrigger":
 		case "createImmutableGuardTrigger":
 		case "createConstraintTrigger":

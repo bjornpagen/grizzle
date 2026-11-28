@@ -1,6 +1,5 @@
 import { Array as Arr, Effect, Result, type Scope } from "effect"
 import { type HostCall, hostInputs, sessionTransport, valuesFailure } from "#adapter/apply/run.ts"
-import { standUp } from "#adapter/apply/stand-up.ts"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
 import { InputRejected, UnreadableAnswer } from "#adapter/errors/failures.ts"
@@ -19,11 +18,10 @@ import {
 	type PreparedStatement,
 	preparedStatement,
 	runFramed,
-	type Transaction,
-	writeFrame
+	type Transaction
 } from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"
-import type { ExecutionPart, ServedStandUp } from "#compiler/plan/change.ts"
+import type { ExecutionPart } from "#compiler/plan/change.ts"
 import { type Advice, explainAnalyzeOf, explainOf } from "#compiler/plan/runtime.ts"
 import type { ServedTables } from "#compiler/plan/serve.ts"
 
@@ -34,9 +32,8 @@ import type { ServedTables } from "#compiler/plan/serve.ts"
  *
  * Each planned statement is sent as its EXPLAIN, PostgreSQL's unnamed statement over the served statement's text
  * (sql/emit.ts explainOf), with the parameters the application binds to the named prepared statement, and is reported
- * under that statement's name. A change's session stands its write up first, as an application's does (apply/stand-up.ts),
- * so every carrier and judge's table its statements name stands; a carrier's emptying, which has no plan of its own,
- * runs as the application runs it, so every statement after it plans against the carrier.
+ * under that statement's name. A carrier's fill, which has no plan of its own, runs as the application runs it, so every
+ * statement after it plans against the carrier.
  */
 
 /** One statement an explain sends: planned, for the served statement it names, or run as it is, with what it does. */
@@ -94,22 +91,16 @@ const decodedPlans = <P>(
 
 /**
  * Sends the statements `made` makes for the session it leases from the context's pool, in one flight on that session
- * in `frame`, once the session has stood up `standUps` (apply/stand-up.ts), and decodes the plan of each planned one by
- * `decode`.
+ * in `frame`, and decodes the plan of each planned one by `decode`.
  */
 const plansOf = Effect.fn("plansOf")(function* <P>(
 	ctx: ServedDbContext,
 	frame: Transaction,
 	advice: Advice,
-	standUps: ReadonlyArray<ServedStandUp>,
 	made: (session: Session) => Result.Result<ReadonlyArray<Explained>, ReadFailure>,
 	decode: (name: string, cell: string | undefined) => Result.Result<P, string>
 ): Effect.fn.Return<ReadonlyArray<P>, ReadError, Scope.Scope> {
 	const session = yield* Effect.mapError(ctx.pool.lease, (reason) => new ReadFailure({ reason }))
-	yield* Effect.mapError(
-		standUp(session, writeFrame(ctx.prologue, ctx.isolation, excludesNothing, advice), standUps),
-		asReadFailure
-	)
 	const statements = yield* Effect.fromResult(made(session))
 	const outcomes = yield* Effect.mapError(
 		runFramed(
@@ -149,7 +140,6 @@ export const explainRead = (
 			ctx,
 			readFrame,
 			call.advice,
-			[],
 			() => Result.succeed([statement]),
 			(name, cell) => Result.map(decodePlan(cell, installed), (plan) => ({ statement: name, plan }))
 		)
@@ -169,7 +159,6 @@ export const explainReadAnalyzed = (
 			ctx,
 			readFrame,
 			call.advice,
-			[],
 			() => Result.succeed([statement]),
 			(name, cell) =>
 				Result.map(decodeExecuted(cell, installed), (executed) => ({
@@ -241,12 +230,7 @@ export const explainChange = (
 			}
 			return Result.succeed(Arr.appendAll(statements, backs))
 		}
-		return yield* plansOf(
-			ctx,
-			changeFrame,
-			entry.program.advice,
-			entry.program.standUps,
-			explainedOf,
-			(statement, cell) => Result.map(decodePlan(cell, installed), (plan) => ({ statement, plan }))
+		return yield* plansOf(ctx, changeFrame, entry.program.advice, explainedOf, (statement, cell) =>
+			Result.map(decodePlan(cell, installed), (plan) => ({ statement, plan }))
 		)
 	})

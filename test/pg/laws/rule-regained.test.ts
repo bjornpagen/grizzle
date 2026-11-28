@@ -43,7 +43,7 @@ export const aTargetsNegationASiblingArmRegainsByTheClockIsReadByNoProbe = prope
 					const { substrate, value } = yield* regained
 					coverage(value)
 					const session = yield* substrate.session({ ...ownerSession(), label: "regained" })
-					yield* runSchedule(value, substrate.admin, session, schedule, c)
+					yield* runSchedule(value, session, schedule, c)
 				}).pipe(Effect.scoped),
 		oracle: {
 			kind: "postgresql",

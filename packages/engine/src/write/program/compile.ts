@@ -77,13 +77,7 @@ import { keyedUnion } from "#compiler/lower/shapes/union/index.ts"
 import { sentHeading, sentSpec, specifiedProgram } from "#compiler/lower/template.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
-import type {
-	EmittedSql,
-	Select,
-	SqlStatement,
-	StatementText,
-	UnprintedSql
-} from "#compiler/sql/ast.ts"
+import type { Dml, EmittedSql, Select, StatementText, UnprintedSql } from "#compiler/sql/ast.ts"
 import {
 	freshNames as startNames,
 	type NameMap,
@@ -116,7 +110,7 @@ import {
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import { servedCatalog } from "#compiler/physical/access/catalog.ts"
 import type { Binding } from "#compiler/runtime/write/binding.ts"
-import { noExclusion, type StandUp, type WriteExclusion } from "#compiler/runtime/write/flight.ts"
+import { noExclusion, type WriteExclusion } from "#compiler/runtime/write/flight.ts"
 import { sentLayout } from "#compiler/runtime/write/nesting.ts"
 import type { FamilyWriteStep } from "#compiler/runtime/write/steps.ts"
 import type { UniqueAbort, WriteStep } from "#compiler/runtime/write/steps.ts"
@@ -194,7 +188,6 @@ import {
 	singleStatement
 } from "#compiler/write/program/single.ts"
 import { withStagedSlots } from "#compiler/write/program/slot-carriers.ts"
-import { writeStandUps } from "#compiler/write/program/stand-up.ts"
 import {
 	choosePutTargets,
 	type ChosenTargets,
@@ -276,9 +269,6 @@ export interface CompiledWrite extends ProgramArtifacts<WriteParamSlot> {
 	readonly plan: WritePlan
 	/** The optimized artifact, the one an application runs. */
 	readonly artifact: WriteArtifact
-	/** The session objects its artifact's flight reads and writes, which its session stands up before its first call
-	 * (write/program/stand-up.ts writeStandUps), each the statement that calls it. */
-	readonly standUps: ReadonlyArray<StandUp<Select>>
 	/** Where each family statement is placed in its stratum's schedule, which every realization places it by. */
 	readonly placements: ReadonlyArray<FamilyPlacement>
 	/**
@@ -999,7 +989,7 @@ const placeSpec = (
 		}
 	>,
 	spec: StatementSpec<WriteParamSlot>,
-	ast: SqlStatement,
+	ast: Dml,
 	nameMap: WriteStatement["sql"]["nameMap"],
 	text: FormText,
 	riders: ReadonlyArray<RidingReadBack>
@@ -2091,7 +2081,6 @@ const compileAt = (
 		choices: chosen.choices,
 		plan,
 		artifact: optimized,
-		standUps: writeStandUps(optimized, options.laws, options.names.schema),
 		placements: familyProgram(restated, lowering.w, plan.sources),
 		params: callerParams(frontend.params),
 		clocked: clockedParams(frontend.params),

@@ -419,8 +419,7 @@ export const placementsOf = (desc: SchemaDesc): Placements => {
 					compileLaws(owned, {
 						kind: "recorded",
 						cycles: basis.model.fkCycles,
-						references: choice,
-						judged: basis.model.judged
+						references: choice
 					}),
 					"the law model under a recorded placement"
 				)

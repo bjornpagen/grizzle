@@ -105,10 +105,10 @@ export const twoSpellingsOfAPatternInstallOneIdentityExactlyWhenTheySpellOneLang
 			{
 				file: "packages/engine/src/physical/ddl/deltas.ts",
 				original:
-					"\t\t\t...new Map(selection.map((e) => [printExpr(named.expr(e)), e] as const)).entries()\n",
+					"\t\t\t...new Map(conjuncts.map((e) => [printExpr(named.expr(e)), e] as const)).entries()\n",
 				replacement:
-					"\t\t\t...new Map(selection.map((e) => [printExpr(e), e] as const)).entries()\n",
-				why: "A session delta's reader is named by its selection's SQL text, each pattern by its spelling's ARE: two spellings of one language name two readers, and the identities differ."
+					"\t\t\t...new Map(conjuncts.map((e) => [printExpr(e), e] as const)).entries()\n",
+				why: "A delta's selection is named by its SQL text, each pattern by its spelling's ARE: two spellings of one language name two selections, and the identities differ."
 			},
 			{
 				file: "packages/engine/src/core/canonical.ts",

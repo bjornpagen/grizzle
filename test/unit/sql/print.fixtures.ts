@@ -179,7 +179,7 @@ const statementAt = (depth: number): Gen<PlStatement> =>
 					1,
 					(s) => ({
 						kind: "forQuery",
-						variable: "r",
+						variables: ["r"],
 						query: provedSelect(
 							"keyed",
 							[target(col("r1", "id"))],

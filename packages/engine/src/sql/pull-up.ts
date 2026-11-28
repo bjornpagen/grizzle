@@ -265,8 +265,7 @@ const anchored = (e: Expr, own: ReadonlySet<string>): boolean => {
 const holdsSubquery = (e: Expr): boolean => {
 	let holds = false
 	visitLevelExpr(e, (x) => {
-		holds ||=
-			x.kind === "exists" || x.kind === "subquery" || x.kind === "array" || x.kind === "inQuery"
+		holds ||= x.kind === "exists" || x.kind === "subquery" || x.kind === "array"
 	})
 	return holds
 }

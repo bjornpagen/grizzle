@@ -90,7 +90,7 @@ export const borrowFunctionDdl = (schema: string): readonly [CreateFunction, Rev
 			body: [
 				{
 					kind: "forQuery",
-					variable: at,
+					variables: [at],
 					query: {
 						...select(
 							distinctCore(

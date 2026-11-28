@@ -44,14 +44,13 @@ import {
 	unit
 } from "#compiler/public/schema.ts"
 import type { OperandSelect } from "#compiler/sql/ast.ts"
-import { printExpr } from "#compiler/sql/print.ts"
 import { installDerived, OracleFixtureFailed, snapshotOf } from "#test/pg/derived/oracle/harness.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { installGenerated } from "#test/support/install-migrate.ts"
 import { installFullWorld } from "#test/support/installed.ts"
-import { standUpRelations, upkeepBodyOf } from "#test/support/judge.ts"
+import { boundQuery, type JudgeFunction, upkeepFunctionsOf } from "#test/support/judge.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
@@ -110,9 +109,6 @@ const compile = fn("compile", {
 	language: "plpgsql",
 	body: fn.body`\nBEGIN\n  PERFORM pg_catalog.set_config('stored_test.compiled', (COALESCE(NULLIF(pg_catalog.current_setting('stored_test.compiled', true), ''), '0')::integer + 1)::text, false);\n  RETURN x * 7 + 1;\nEND\n`
 })
-
-/** The relations a case's writer writes, each of which it stands up before its first write, and no other. */
-const written = ["Doc", "Link"] as const
 
 /** Whether Doc is closed or open. */
 export type Openness = "closed" | "open"
@@ -463,7 +459,6 @@ export const upkeepRun = (
 		const s = yield* Substrate
 		const built = topOf(c.openness, "stored_upkeep")
 		const opened = yield* installDerived(built.top, {}, "upkeep")
-		yield* standUpRelations(s.admin, opened.installed.installation, written)
 		/** Each stored relation's heading as a reader reads it, its definition's: its table's columns but those it holds
 		 * beside them, Unshelved's shelf, which its head hides (analysis/derived/storage.ts). */
 		const headingOf = (name: string) => {
@@ -699,7 +694,6 @@ export const watchRun = (
 			{ label: "upkeep_live", ambient: ordinarySession }
 		)
 		const { installed } = generated
-		yield* standUpRelations(s.admin, installed.installation, written)
 		if (c.openness === "open") {
 			reached.note("Doc open")
 		}
@@ -908,7 +902,6 @@ export const lawfulRun = (
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const opened = yield* installDerived(lawfulOf(c.openness, "stored_lawful"), {}, "lawful")
-		yield* standUpRelations(s.admin, opened.installed.installation, written)
 		if (c.openness === "open") {
 			reached.note("Doc open")
 		}
@@ -993,32 +986,43 @@ export type CallsFeature =
 	| "a value at no linked place of a written document"
 	| "Doc open"
 
+/** A query of a routine of the judge's, which a measurement binds over the transaction's log (support/judge.ts boundQuery). */
+interface RoutineQuery {
+	readonly routine: JudgeFunction
+	readonly query: OperandSelect
+}
+
 /**
- * The queries of stored relation `relation`'s upkeep (physical/ddl/rules.ts upkeepBlock): the units it re-derives,
- * where it deletes at any, its removal's region, each a row of the unit's key, the first item its loop's query reads,
- * under the query's WITH, whose CTEs hold the calls of the readers its region shares with the definition the query reads
- * (physical/ddl/deltas.ts headed), none where its holders are closed, whose rows no served write removes, so it deletes
- * nothing and inserts the facts the rows a write adds gain (analysis/theory/upkeep.ts ClosedLoss); and its first
+ * The queries of stored relation `relation`'s upkeep (physical/ddl/rules.ts upkeepBlock), each with its block: the units
+ * it re-derives, where it deletes at any, its removal's region, each a row of the unit's key, the first item its loop's
+ * query reads, under the query's WITH, none where its holders are closed, whose rows no served write removes, so it
+ * deletes nothing and inserts the facts the rows a write adds gain (analysis/theory/upkeep.ts ClosedLoss); and its first
  * insert's rows: its definition at those units that its table does not hold yet, or the facts gained.
  */
 const upkeepOf = (
 	installation: Installation,
 	relation: string
-): { readonly units: Option.Option<OperandSelect>; readonly inserted: OperandSelect } => {
-	const body = upkeepBodyOf(installation, relation)
-	const [region] = Arr.flatMap(body, (step) => {
-		if (step.kind !== "forQuery" || step.query.body.kind !== "core") {
-			return []
-		}
-		const [first] = step.query.body.from
-		return first?.kind === "derived" ? [withLeading(first.query, step.query.with?.ctes ?? [])] : []
-	})
-	const [inserted] = Arr.flatMap(body, (step) =>
-		step.kind === "modify" &&
-		step.statement.kind === "insert" &&
-		step.statement.source.kind === "query"
-			? [step.statement.source.query]
-			: []
+): { readonly units: Option.Option<RoutineQuery>; readonly inserted: RoutineQuery } => {
+	const routines = upkeepFunctionsOf(installation, relation)
+	const [region] = Arr.flatMap(routines, (routine) =>
+		Arr.flatMap(routine.body, (step): ReadonlyArray<RoutineQuery> => {
+			if (step.kind !== "forQuery" || step.query.body.kind !== "core") {
+				return []
+			}
+			const [first] = step.query.body.from
+			return first?.kind === "derived"
+				? [{ routine, query: withLeading(first.query, step.query.with?.ctes ?? []) }]
+				: []
+		})
+	)
+	const [inserted] = Arr.flatMap(routines, (routine) =>
+		Arr.flatMap(routine.body, (step): ReadonlyArray<RoutineQuery> =>
+			step.kind === "modify" &&
+			step.statement.kind === "insert" &&
+			step.statement.source.kind === "query"
+				? [{ routine, query: step.statement.source.query }]
+				: []
+		)
 	)
 	if (inserted === undefined) {
 		throw new Error(`the upkeep of ${relation}: an insert of its rows`)
@@ -1048,17 +1052,21 @@ export const callsRun = (
 		const s = yield* Substrate
 		const opened = yield* installDerived(topOf(c.openness, "stored_calls").top, {}, "calls")
 		const installation = opened.installed.installation
-		yield* standUpRelations(s.admin, installation, written)
 		if (c.openness === "open") {
 			reached.note("Doc open")
 		}
 		const upkeep = upkeepOf(installation, "Programmed")
-		const units = Option.map(
-			upkeep.units,
-			(region) =>
-				`SELECT "u".c2::text FROM ${printExpr({ kind: "subquery", query: region })} AS "u"(c1, c2)`
-		)
-		const inserted = `SELECT ROW("q".*)::text FROM ${printExpr({ kind: "subquery", query: upkeep.inserted })} AS "q"`
+		/** `q`'s query bound over the log on `pinned`, read through `wrap`'s text around it. */
+		const sent = (pinned: PgConnection, q: RoutineQuery, wrap: (sql: string) => string) =>
+			Effect.flatMap(
+				boundQuery(
+					(sql, params) => pinned.queryValues(sql, params),
+					installation,
+					q.routine,
+					q.query
+				),
+				(bound) => pinned.queryValues(wrap(bound.sql), bound.params)
+			)
 		const calls = `SELECT COALESCE(NULLIF(pg_catalog.current_setting('${callsSetting}', true), ''), '0')`
 		let model: Model = { places: new Map(), links: new Set() }
 		for (const [step, writes] of c.transactions.entries()) {
@@ -1072,13 +1080,22 @@ export const callsRun = (
 							for (const w of writes) {
 								yield* pinned.query(sqlOf(opened.installed.names, w), [])
 							}
-							const docs = Option.isSome(units)
-								? yield* Effect.map(pinned.queryValues(units.value, []), (rows) =>
-										Arr.map(rows, (row) => Number(String(row[0])))
+							const docs = Option.isSome(upkeep.units)
+								? yield* Effect.map(
+										sent(
+											pinned,
+											upkeep.units.value,
+											(sql) => `SELECT "u".c2::text FROM (${sql}) AS "u"(c1, c2)`
+										),
+										(rows) => Arr.map(rows, (row) => Number(String(row[0])))
 									)
 								: Arr.dedupe(Arr.map(writes, (w) => w.doc))
 							const before = yield* pinned.queryValues(calls, [])
-							yield* pinned.queryValues(inserted, [])
+							yield* sent(
+								pinned,
+								upkeep.inserted,
+								(sql) => `SELECT ROW("q".*)::text FROM (${sql}) AS "q"`
+							)
 							const after = yield* pinned.queryValues(calls, [])
 							return {
 								docs,
@@ -1106,7 +1123,7 @@ export const callsRun = (
 			}
 			/** A unit form re-derives its units whole, so it calls compile once for each distinct value they hold; a closed
 			 * form's gain derives the facts the added rows open alone, so it calls it at most that often. */
-			const rederived = Option.isSome(units)
+			const rederived = Option.isSome(upkeep.units)
 			if (rederived ? seen.calls !== expected : seen.calls > expected) {
 				return yield* new OracleFixtureFailed({
 					message: `in transaction ${step}, the upkeep of Programmed called compile ${seen.calls} times where its units, the documents ${Arr.join(

@@ -19,8 +19,7 @@ import {
 	judgedDeltaReadsOf,
 	judgedPlans,
 	type JudgedStatement,
-	scannedWork,
-	standUpJudge
+	scannedWork
 } from "#test/support/judge.ts"
 import {
 	type Seat,
@@ -1042,7 +1041,6 @@ const footprintOf = (seat: Seat, shape: Shape, k: number, table: Table) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const session = yield* substrate.session({ ...ownerSession(), label: "rule seed locality" })
-		yield* standUpJudge(session, seat.installed.installation)
 		const write = foundingSql(seat, shape, foundedKey(k))
 		/** `measured` after the founding write, in a transaction rolled back after it. */
 		const touching = <A, E>(measured: Effect.Effect<A, E>) =>
@@ -1062,7 +1060,7 @@ const footprintOf = (seat: Seat, shape: Shape, k: number, table: Table) =>
 			})
 		const judged = yield* touching(
 			judgedPlans(
-				(sql) => session.values(sql, []),
+				(sql, params) => session.values(sql, params),
 				seat.installed.installation,
 				probesOn(seat, table)
 			)
@@ -1109,7 +1107,6 @@ const localityTemplate = (shape: Shape, keys: number): SeatTemplate =>
 		`rule_seed_${shape}_${keys}`,
 		(seat) =>
 			Effect.gen(function* () {
-				yield* standUpJudge(seat.session, seat.installed.installation)
 				yield* seat.session.begin
 				for (const sql of clusterSql(seat, 1, keys)) {
 					yield* seat.session.query(sql, [])

@@ -146,8 +146,6 @@ import {
 	proofStatements,
 	proofsIdent,
 	replayLocks,
-	standUpCalls,
-	standUpDisplayLead,
 	type StatedAdvice,
 	statedLocks
 } from "#compiler/plan/migration.ts"
@@ -426,42 +424,6 @@ const guardedTables: CatalogQuery<string> = (() => {
 		what: "a guarded table",
 		row: ([schema, name]) =>
 			schema === undefined || name === undefined ? undefined : `${schema}.${name}`
-	}
-})()
-
-/**
- * The stand-ups of the schemas $1, by schema and name: each function whose COMMENT, its identity spelled out, is a
- * judged table's stand-up's ($2, core/identity.ts standUpDisplayLead; physical/ddl/rules.ts addStandUps). What a custom
- * migration's data step calls before its statements, read where the step runs, under the apply lock, as its guards
- * are, so a folder applied before it in the same apply, which adds or drops a rule, is read as it left them.
- */
-const installedStandUps: CatalogQuery<ObjectName> = (() => {
-	const f = C.from("pg_proc", "f")
-	const n = C.from("pg_namespace", "n")
-	const d = C.from("pg_description", "d")
-	return {
-		sql: emitCatalog(
-			C.query(
-				[C.asText(n.col("nspname")), C.asText(f.col("proname"))],
-				[f.item, n.item, d.item],
-				C.and([
-					C.eq(f.col("pronamespace"), n.col("oid")),
-					C.eq(d.col("objoid"), f.col("oid")),
-					C.eq(d.col("classoid"), C.catalogRegclass("pg_proc")),
-					C.eq(
-						C.catalogCall("left", [
-							d.col("description"),
-							C.catalogCall("length", [C.param(2, "text")])
-						]),
-						C.param(2, "text")
-					),
-					C.any(n.col("nspname"), C.arrayParam(1, "text"))
-				])
-			)
-		),
-		what: "a stand-up",
-		row: ([schema, name]) =>
-			schema === undefined || name === undefined ? undefined : { schema, name }
 	}
 })()
 
@@ -1076,12 +1038,9 @@ const runFile = (
 	}
 	return Effect.flatMap(
 		folder.meta.kind === "custom"
-			? Effect.all([
-					guardedOf(session, levels, at, schema),
-					standUpsRead(session, levels, at, schema)
-				])
-			: Effect.succeed([noGuards, noStandUps] as const),
-		([guarded, standUps]) => {
+			? guardedOf(session, levels, at, schema)
+			: Effect.succeed(noGuards),
+		(guarded) => {
 			/** A statement's failure, or, where the guard of a table `guarded` holds refused it, why it may not run alone. */
 			const aloneFailed = (index: number) => (failure: StatementFailure) => {
 				const table =
@@ -1104,38 +1063,20 @@ const runFile = (
 						)
 					: statementFailed(index)(failure)
 			}
-			/** Each stand-up's call alone, before the file's statements, a failure stopping it as the file's lock would. */
-			const stoodUp = Effect.forEach(
-				standUpCalls(standUps),
-				(sql) =>
-					Effect.mapError(
-						Effect.flatMap(session.apart([oneShotStatement(sql, [])]), (answers) =>
-							Effect.fromResult(sentAnswer(answers, 0))
-						),
-						(failure) => lockFailed(schema, at, failure)
-					),
-				{ discard: true }
-			)
 			return Effect.andThen(
 				recordFolderRow(session, schema, statements, folder, ledger),
 				Effect.andThen(
-					stoodUp,
-					Effect.andThen(
-						Effect.forEach(
-							file.statements,
-							(sql, index) =>
-								Effect.flatMap(
-									Effect.mapError(
-										session.apart([oneShotStatement(sql, [])]),
-										statementFailed(index)
-									),
-									(answers) =>
-										Effect.mapError(Effect.fromResult(sentAnswer(answers, 0)), aloneFailed(index))
-								),
-							{ discard: true }
-						),
-						transaction(0, unbracketed)
-					)
+					Effect.forEach(
+						file.statements,
+						(sql, index) =>
+							Effect.flatMap(
+								Effect.mapError(session.apart([oneShotStatement(sql, [])]), statementFailed(index)),
+								(answers) =>
+									Effect.mapError(Effect.fromResult(sentAnswer(answers, 0)), aloneFailed(index))
+							),
+						{ discard: true }
+					),
+					transaction(0, unbracketed)
 				)
 			)
 		}
@@ -1144,13 +1085,10 @@ const runFile = (
 
 /** A transaction no guard brackets: a drafted folder's, whose data steps the draft brackets itself (deploy/diff/diff.ts
  * unguard), and a no-transaction file's rows. */
-const unbracketed: ReturnType<typeof dataStepBracket> = dataStepBracket([], [], [])
+const unbracketed: ReturnType<typeof dataStepBracket> = dataStepBracket([], [])
 
 /** No guard: a drafted folder's no-transaction file, whose statements the draft wrote. */
 const noGuards: ReadonlySet<string> = new Set()
-
-/** No stand-up: a drafted folder's no-transaction file, whose statements the draft wrote and write no table the rule judge holds. */
-const noStandUps: ReadonlyArray<ObjectName> = []
 
 /**
  * The tables of the installation's levels `levels` the catalog holds a guard on where a no-transaction custom file
@@ -1175,26 +1113,6 @@ const guardedOf = (
 					Effect.fromResult(apartRows(guardedTables, sentAnswer(answers, 0))),
 					(tables) => new Set(tables)
 				)
-		),
-		(failure) => lockFailed(schema, at, failure)
-	)
-
-/**
- * The stand-ups the catalog holds in the installation's levels `levels` where a custom migration's file runs
- * (installedStandUps). A failed read stops the migration as the file's lock would.
- */
-const standUpsRead = (
-	session: MigrationSession,
-	levels: ReadonlyArray<string>,
-	at: RecordPlace,
-	schema: string
-): Effect.Effect<ReadonlyArray<ObjectName>, MigrateError> =>
-	Effect.mapError(
-		Effect.flatMap(
-			session.apart([
-				oneShotStatement(installedStandUps.sql, [textArray(levels), textParam(standUpDisplayLead)])
-			]),
-			(answers) => Effect.fromResult(apartRows(installedStandUps, sentAnswer(answers, 0)))
 		),
 		(failure) => lockFailed(schema, at, failure)
 	)
@@ -1230,12 +1148,11 @@ const rechecksRead = (
 
 /**
  * The bracket of a custom migration's transactional file, a data step written by hand, in its one transaction
- * (physical/ddl/immutable.ts dataStepBracket): before its statements, the call of every stand-up the catalog holds in
- * the installation's levels (standUpsRead), so a statement that writes a table the rule judge holds is judged at the
- * COMMIT as a served write is, and every guard of a table of the levels lifted; after them, every re-check of a data
- * step the levels hold (rechecksRead), which refuses the step where it breaks a rule over a closed relation the judge
- * reads as no served write does, then each guard created again. Every stand-up, re-check and guard, never those of the
- * tables a file's statements write, which no reading of hand-written SQL decides.
+ * (physical/ddl/immutable.ts dataStepBracket): before its statements, every guard of a table of the levels lifted, so a
+ * statement that writes a table the rule judge holds is judged at the COMMIT as a served write is; after them, every
+ * re-check of a data step the levels hold (rechecksRead), which refuses the step where it breaks a rule over a closed
+ * relation the judge reads as no served write does, then each guard created again. Every re-check and guard, never
+ * those of the tables a file's statements write, which no reading of hand-written SQL decides.
  */
 const guardBracket = (
 	session: MigrationSession,
@@ -1243,12 +1160,8 @@ const guardBracket = (
 	at: RecordPlace,
 	schema: string
 ): Effect.Effect<ReturnType<typeof dataStepBracket>, MigrateError> =>
-	Effect.map(
-		Effect.all([
-			standUpsRead(session, levels, at, schema),
-			rechecksRead(session, levels, at, schema)
-		]),
-		([standUps, rechecks]) => dataStepBracket(levels, standUps, rechecks)
+	Effect.map(rechecksRead(session, levels, at, schema), (rechecks) =>
+		dataStepBracket(levels, rechecks)
 	)
 
 /** Whether the schema's ledger exists before a transaction of the apply: absent only before its first file committed. */

@@ -35,13 +35,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { installMigrated, type Installed } from "#test/support/install-migrate.ts"
 import { installFullWorld } from "#test/support/installed.ts"
-import {
-	committedJudged,
-	judgeRun,
-	judgeStatementsOf,
-	scannedWork,
-	standUpJudge
-} from "#test/support/judge.ts"
+import { committedJudged, judgeRun, judgeStatementsOf, scannedWork } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import { opened } from "#test/support/open.ts"
@@ -1638,7 +1632,7 @@ const touchedWork = (shape: Shape, installed: Installed, built: Built, session: 
 			Effect.gen(function* () {
 				yield* session.query(insertSql(shape, installed, built, touch), [])
 				const plans = yield* judgeRun(
-					(sql) => session.values(sql, []),
+					(sql, params) => session.values(sql, params),
 					installed.installation,
 					judgeStatementsOf(installed.installation)
 				)
@@ -1698,7 +1692,6 @@ export const runLocality = (d: LocalityCase, note: Case<LocalityFeature>["note"]
 			...ownerSession(),
 			label: "rule aggregate locality"
 		})
-		yield* standUpJudge(session, done.installation)
 		const past = d.before + d.more
 		yield* committedJudged(session, [
 			...Arr.map(touchedBase(shape), (op) => insertSql(shape, done, built, op)),

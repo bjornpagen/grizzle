@@ -74,7 +74,6 @@ const servedDerived = (derived: unknown): Result.Result<SnapshotDerived, Compile
 	const closed = derived["closed"]
 	const fkCycles = derived["fkCycles"]
 	const references = derived["references"]
-	const judged = derived["judged"]
 	const textDomains = derived["textDomains"]
 	const library = derived["library"]
 	const tables = derived["tables"]
@@ -93,9 +92,6 @@ const servedDerived = (derived: unknown): Result.Result<SnapshotDerived, Compile
 	}
 	if (!isList(references)) {
 		return Result.err(underived(["derived", "references"]))
-	}
-	if (!isList(judged)) {
-		return Result.err(underived(["derived", "judged"]))
 	}
 	if (!isRecord(textDomains)) {
 		return Result.err(underived(["derived", "textDomains"]))
@@ -131,7 +127,6 @@ const servedDerived = (derived: unknown): Result.Result<SnapshotDerived, Compile
 		closed: new Map(Object.entries(trusted<Readonly<Record<string, NamedClosed>>>(closed))),
 		fkCycles: trusted<FkCycles>(fkCycles),
 		references: trusted<ReferenceChoice>(references),
-		judged: trusted<ReadonlyArray<string>>(judged),
 		textDomains: trusted<TextDomainNames>(new Map(Object.entries(textDomains))),
 		library: trusted<ReadonlyArray<LibraryFn>>(library),
 		tables: trusted<SnapshotTables>(tables),

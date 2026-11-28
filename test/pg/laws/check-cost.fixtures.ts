@@ -67,7 +67,6 @@ import {
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
-import { standUpJudge } from "#test/support/judge.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { draftedAt, fromEmpty, generate, noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -774,7 +773,6 @@ export const runCheck = (clone: RolledBack<Installed>, c: CheckCase, k: Case<Che
 		const migrated = clone.value
 		const installation = migrated.installation
 		const connection = clone.connection
-		yield* standUpJudge(connection, installation)
 		const names = namesOf(migrated)
 		const tables = {
 			node: names.table(Node),
@@ -1109,7 +1107,6 @@ export const runNamingFill = (
 		const migrated = clone.value
 		const installation = migrated.installation
 		const connection = clone.connection
-		yield* standUpJudge(connection, installation)
 		const tableOf = namesOf(migrated).table
 		const tables: Readonly<Record<NamingTable, string>> = {
 			node: tableOf(ManifestNode),

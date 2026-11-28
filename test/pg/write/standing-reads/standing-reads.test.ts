@@ -118,7 +118,6 @@ const runAt = (earlier: Earlier, scale: number) =>
 						]
 			const { assignments, grades, invalidations, reinstatements } = stateAt(earlier, scale)
 			yield* ownerTransaction(
-				fx,
 				Arr.flatten([
 					insert(
 						Assignment,

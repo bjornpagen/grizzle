@@ -106,7 +106,6 @@ const runAt = (due: Due, scale: number) =>
 						]
 			const { assignments, held, tests, needs } = stateAt(scale)
 			yield* ownerTransaction(
-				fx,
 				Arr.flatten([
 					insert(
 						Assignment,

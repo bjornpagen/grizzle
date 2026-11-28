@@ -21,7 +21,6 @@ import {
 } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
-import { standUpJudge } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -273,7 +272,6 @@ export const runJudged = (
 	c: Case<JudgedFeature>
 ) =>
 	Effect.gen(function* () {
-		yield* standUpJudge(connection, installed.installation)
 		const statements = [
 			...insertOf(
 				installed,

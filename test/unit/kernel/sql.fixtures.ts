@@ -118,7 +118,6 @@ export const requiredStatementFeatures: Arr.NonEmptyReadonlyArray<AuditedStateme
 	"intersect",
 	"except",
 	"exists",
-	"in query",
 	"scalar subquery",
 	"in list",
 	"between",

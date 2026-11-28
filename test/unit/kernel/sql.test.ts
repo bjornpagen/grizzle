@@ -28,7 +28,12 @@ import {
 	shapeFeatures,
 	shapeOf
 } from "#test/support/kernel/shape.ts"
-import { selectGen, statementGen, unframedWindowGen } from "#test/support/kernel/sqlgen.ts"
+import {
+	cteInsertGen,
+	selectGen,
+	statementGen,
+	unframedWindowGen
+} from "#test/support/kernel/sqlgen.ts"
 import { auditStatement } from "#test/support/oracle/verify/sql.ts"
 import {
 	admitted,
@@ -118,13 +123,17 @@ export const generatedQueriesKeepTheirShapeUnderARenamingOfEveryAlias = property
  * Budget: its suite's count before the conversion (unit/kernel/statement-audit: 400 independent cases and 48 steered,
  * Vitest at grizzle 4ca3036a). At those counts its required situations went unreached at TEST_SEED=1 (window
  * row_number; toolchain-test run of 2026-11-16 08:21Z), so its steered phase keeps the runner's cap of 200, which it
- * stops short of once every situation is reached.
+ * stops short of once every situation is reached. Two situations its stream draws seldom are aimed: a window's ranking
+ * call, which needs frames off, and a data-modifying CTE's INSERT (sqlgen.ts unframedWindowGen, cteInsertGen).
  */
 export const generatedStatementsPassBothAuditsAndReachEveryStatementKindAndEveryConstructAnAuditRuleWatches =
 	property.explore(
 		aimedSteered(
 			steered<SqlStatement, AuditedStatementFeature>(() => statementGen(statementCatalog)),
-			[["window row_number", unframedWindowGen(statementCatalog)]]
+			[
+				["window row_number", unframedWindowGen(statementCatalog)],
+				["cte insert", cteInsertGen(statementCatalog)]
+			]
 		),
 		{
 			needs: {},

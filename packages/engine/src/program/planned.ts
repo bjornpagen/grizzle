@@ -118,11 +118,10 @@ const statementTexts = (statement: ServedStatement): number => {
 	}
 }
 
-/** One call of a served write (see the header): its stand-ups, its statements and its read-backs sent behind them. */
+/** One call of a served write (see the header): its statements and its read-backs sent behind them. */
 export const writeCall = (write: ServableWrite): PlannedCall => ({
 	frame: { kind: "write", locks: write.exclusion.kind === "lock" },
 	texts:
-		write.standUps.length +
 		write.statements.reduce((sum, s) => sum + statementTexts(s), 0) +
 		write.readBacks.filter((r) => r.carried.kind === "sent").length,
 	reach: write.reach

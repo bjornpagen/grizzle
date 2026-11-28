@@ -1,12 +1,19 @@
 /**
- * The rule judge's session deltas (physical/ddl/rules.ts addRules): for each side of each table a rule over a query
- * reads, the table of pg_temp a capture writes the rows a statement wrote into, how a judge's part nets, stands up and
- * empties it, and how a judged statement reads it. physical/ddl/rules.ts holds the captures' triggers, the sentinel
- * that arms the judge, the parts and the judge.
+ * The rule judge's deltas (physical/ddl/rules.ts addRules): for each side of each table a rule over a query or a stored
+ * relation's upkeep reads, its row type, the rows a capture writes of it into the transaction's log, how the judge nets
+ * them, and how a judged statement reads them. physical/ddl/rules.ts holds the captures, the log, the judge, its parts
+ * and its blocks.
+ *
+ * A delta is a value, never a relation: the rows of one side, an array of its row type, which a capture builds from its
+ * statement's transition table and appends to the transaction's log, which the judge claims at COMMIT into a PL/pgSQL
+ * variable of its own, and which each part and block of it takes as an argument. A judged statement reads it as
+ * `unnest(<variable>)`: one function scan of the array PostgreSQL holds in memory, no relation's pages, no catalog row
+ * and no WAL. A selection a statement reads it under, conjuncts over its own columns and constants, is its own array,
+ * each part's pass over the delta's rows making it once for every statement that reads it (`DeltaSelections`,
+ * `selectionsMade`), so each read reads the rows its selection admits, never the whole delta.
  */
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
-	appendNonEmpty,
 	headNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
@@ -16,38 +23,23 @@ import type { ProbeSide } from "#compiler/analysis/theory/query.ts"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import { temporarySchema } from "#compiler/core/temporary.ts"
 import { weightOf } from "#compiler/core/zset.ts"
-import type { LawField, TheoryTable } from "#compiler/ir/law.ts"
+import type { TheoryTable } from "#compiler/ir/law.ts"
 import { sessionTypeRef } from "#compiler/ir/physical.ts"
-import type { PhysicalReason } from "#compiler/ir/products.ts"
-import { heapTupleMaxBytes } from "#compiler/laws/model/model.ts"
-import { inlineColumn, type RowColumn, rowBytes } from "#compiler/laws/model/rows.ts"
-import { withLeading } from "#compiler/lower/conservative/context.ts"
 import type { DeltaRelation } from "#compiler/lower/conservative/types.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { byLanguage } from "#compiler/physical/ddl/row-functions.ts"
-import type { Node } from "#compiler/physical/obligations/graph.ts"
-import {
-	btreeEntryBytes,
-	btreeMaxItemSize,
-	datumBound,
-	typlens
-} from "#compiler/schema/representability.ts"
-import { noAdvice } from "#compiler/sql/advice.ts"
 import type {
 	ColumnDefinition,
-	Cte,
+	CreateRowType,
 	Expr,
 	FromSource,
-	Insert,
 	ObjectName,
 	OperandSelect,
-	PlFunction,
+	PlDeclaration,
 	PlStatement,
 	Revoke,
 	SelectCore,
-	SessionTableStorage,
 	TransitionTable,
 	TypeRef
 } from "#compiler/sql/ast.ts"
@@ -55,76 +47,56 @@ import { selectColumns, transitionTables } from "#compiler/sql/ast.ts"
 import {
 	and,
 	call,
+	cast,
 	col,
 	cUtf8Collation,
 	derived,
 	desc,
 	eq,
-	exists,
+	firstNonNull,
 	gt,
-	le,
+	isIn,
 	lit,
+	namedType,
 	notExists,
-	objectName,
-	or,
-	provedSelect,
-	qualifiedCall,
+	provedCore,
+	row,
+	select,
 	simpleSelect,
 	targetAs,
 	types,
 	windowOf
 } from "#compiler/sql/build.ts"
-import { printExpr, sessionTableEmptied } from "#compiler/sql/print.ts"
+import { printExpr } from "#compiler/sql/print.ts"
 import { identityHooks, inertVisitor, Transform, visitSelect } from "#compiler/sql/transform.ts"
+import { installedTypes } from "#compiler/sql/type-schemas.ts"
 
 /**
- * The stem of the name of a session's delta of each side (identity.ruleDelta), which its table of pg_temp is named by:
- * the side of what a transaction adds is `news` and of what it removes `olds`, as every installed judge and capture
- * names them.
+ * The stem of the name of a delta of each side (identity.ruleDelta): the side of what a transaction adds is `news` and
+ * of what it removes `olds`, as every capture and the judge name them.
  */
 const deltaStem = { added: "news", removed: "olds" } as const satisfies Record<ProbeSide, string>
 
 /**
- * A session's delta of one side of a table (`addRules`): the name of its table of pg_temp, its columns, its relation's
- * heading in the canonical order a query reads it in, a Delta node's (check/checker.ts), each of its field's base type,
- * so no session's table depends on a domain a migration alters or drops (PostgreSQL refuses ALTER DOMAIN ... ADD
- * CONSTRAINT over another session's temporary table, and DROP DOMAIN while one names it), and the table's own columns:
- * the heading's, then, on the side of news, the count of each image (`countColumn`).
+ * A delta of one side of a table (`addRules`): its identity and name, which its row type, its column of the log and
+ * every variable that holds its rows take; its relation's heading in the canonical order a query reads it in, a Delta
+ * node's (check/checker.ts), each field by its base type (ir/physical.ts sessionTypeRef), so no row type of the judge
+ * depends on a domain a migration alters or drops (PostgreSQL refuses ALTER DOMAIN ... ADD CONSTRAINT over a domain
+ * an attribute of a composite some column holds is typed by); and its row's attributes: the heading's, then, on the side
+ * of news, the count of each image (`countColumn`).
  */
-export interface SessionDelta {
+export interface Delta {
 	readonly ident: Identity<"ruleDelta">
 	readonly name: string
+	/**
+	 * Where the delta sorts among the judge's deltas: its relation's declared name, then its side's stem, the same under
+	 * any installation's name, where its name's digest is the installation's, so every list of deltas the judge prints,
+	 * its log's columns, its claims, its nettings and its parts' arguments, stands in one order whatever schema it is
+	 * installed in.
+	 */
+	readonly order: string
 	readonly columns: NonEmptyReadonlyArray<ColumnDefinition>
-	readonly table: NonEmptyReadonlyArray<ColumnDefinition>
-	/** How its table stores its values (`deltaStorage`). */
-	readonly storage: SessionTableStorage
-}
-
-/**
- * How a delta of a relation of `heading` stores its values (sql/ast.ts SessionTableStorage): inline where every field's
- * datum has a bound (laws/model/rows.ts inlineColumn) and its widest row, each column NULL-able as a delta's are, with
- * the side of news's count (`counted`), fits one heap tuple, MaxHeapTupleSize (laws/model/model.ts heapTupleMaxBytes),
- * its header, null bitmap and alignment included (rowBytes); toasted otherwise, a field of no bound, a learner's
- * response among them, or a row of bounded fields wider than a tuple, which only out-of-line values let PostgreSQL
- * store. A delta's row is its relation's heading, each value the stored column's, within the bound its field's
- * descriptor states, so an inline delta takes every row a capture writes.
- */
-const deltaStorage = (
-	heading: NonEmptyReadonlyArray<LawField>,
-	counted: boolean
-): SessionTableStorage => {
-	const columns: Array<RowColumn> = []
-	for (const f of heading) {
-		const column = inlineColumn(f.desc, true)
-		if (column === undefined) {
-			return "toasted"
-		}
-		columns.push(column)
-	}
-	const count: ReadonlyArray<RowColumn> = counted
-		? [{ bytes: typlens.int2, align: typlens.int2, nullable: true }]
-		: []
-	return rowBytes([...columns, ...count]) <= heapTupleMaxBytes ? "inline" : "toasted"
+	readonly row: NonEmptyReadonlyArray<ColumnDefinition>
 }
 
 /**
@@ -141,20 +113,16 @@ export const countColumn = "__count"
  */
 export interface JudgedSide {
 	readonly side: ProbeSide
-	readonly delta: SessionDelta
+	readonly delta: Delta
 	readonly read: ReadonlyArray<string>
 }
 
 /**
- * The delta of `relation`'s side `side` (`SessionDelta`): its columns, its relation's heading's, each of its field's
- * session type (ir/physical.ts sessionTypeRef: never an installation's domain, a set's bits too; a text column collated
- * C.UTF-8 as every stored text column is), its table's, its storage and its name.
+ * The delta of `relation`'s side `side` (`Delta`): its columns, its relation's heading's, each of its field's base type
+ * (ir/physical.ts sessionTypeRef: never an installation's domain, a set's bits too; a text column collated C.UTF-8 as
+ * every stored text column is), its row's, and its name.
  */
-export const sessionDeltaOf = (
-	b: InstallBuilder,
-	relation: TheoryTable,
-	side: ProbeSide
-): SessionDelta => {
+export const deltaOf = (b: InstallBuilder, relation: TheoryTable, side: ProbeSide): Delta => {
 	const columns = mapNonEmpty(relation.heading, (f): ColumnDefinition => {
 		const type = sessionTypeRef(b.names, f.type)
 		return {
@@ -163,72 +131,169 @@ export const sessionDeltaOf = (
 			collation: type.kind === "builtin" && type.name === "text" ? cUtf8Collation : undefined
 		}
 	})
-	const table =
+	const row =
 		side === "added"
-			? appendNonEmpty(columns, {
-					name: countColumn,
-					type: types.smallint,
-					collation: undefined
-				})
+			? [...columns, { name: countColumn, type: types.smallint, collation: undefined }]
 			: columns
-	const storage = deltaStorage(relation.heading, side === "added")
+	const [first, ...rest] = row
+	const attributes: NonEmptyReadonlyArray<ColumnDefinition> = [
+		defined(first, "a delta's first attribute"),
+		...rest
+	]
 	const ident = identity.ruleDelta(
 		headNonEmpty(b.names.levels),
 		relation.name,
 		deltaStem[side],
-		canonicalTextOf({ table, storage })
+		canonicalTextOf(attributes)
 	)
 	return {
 		ident,
 		name: b.name(ident),
+		order: `${relation.name}\u0000${deltaStem[side]}`,
 		columns,
-		table,
-		storage
+		row: attributes
 	}
 }
+
+/** `delta`'s row type, in the installation's schema `schema`, named by its delta. */
+export const deltaRowType = (schema: string, delta: Delta): ObjectName => ({
+	schema,
+	name: delta.name
+})
+
+/** An array of `delta`'s rows (`deltaRowType`): a variable's, an argument's and the log's column's type. */
+export const deltaArrayType = (schema: string, delta: Delta): TypeRef => ({
+	kind: "named",
+	schema: installedTypes(schema),
+	name: delta.name,
+	typmod: [],
+	array: true
+})
+
+/** `delta`'s row type's CREATE: its row's attributes. */
+export const deltaRowTypeCreate = (schema: string, delta: Delta): CreateRowType => ({
+	kind: "createRowType",
+	name: deltaRowType(schema, delta),
+	attributes: delta.row
+})
 
 /**
  * `delta` of `relation` as a Delta node reads it (lower/conservative/types.ts DeltaRelation): a CTE of the delta's name,
  * which no statement holds, each field of its relation's heading in the column of its place, c<n>: `headed` reads each
- * read of it through the reader of the selection the statement reads it under, its columns those.
+ * read of it from the array of the selection the statement reads it under, its columns those.
  */
-export const deltaRelation = (relation: TheoryTable, delta: SessionDelta): DeltaRelation => ({
+export const deltaRelation = (relation: TheoryTable, delta: Delta): DeltaRelation => ({
 	kind: "cte",
 	cte: delta.name,
 	columns: relation.heading.map((f, at) => ({ field: f.name, column: `c${at + 1}` }))
 })
 
-/** The table of pg_temp named `name`. */
-export const sessionTable = (name: string): ObjectName => objectName(temporarySchema, name)
+/** The PL/pgSQL variable, or argument, that holds `delta`'s rows: its name. */
+export const deltaVariable = (delta: Delta): Expr => ({ kind: "plVar", name: delta.name })
 
-/** That the session's table named `name`, which stands, holds a row, read under `alias`. */
-export const holding = (name: string, alias: string): Expr =>
-	exists(simpleSelect([], [{ kind: "table", table: sessionTable(name), alias }], undefined))
+/** A row of `delta` as its row type: each of `values` an attribute's, in its row's order. */
+const deltaRowOf = (schema: string, delta: Delta, values: NonEmptyReadonlyArray<Expr>): Expr =>
+	cast(row(values), namedType(installedTypes(schema), delta.name, []))
 
 /**
- * The refusal of a session table some other role made under the judge's name, the table's name `table`: a login that
- * creates one first could empty it before COMMIT, so the judge never reads a table its definer did not create.
+ * The array of `delta`'s rows `rows` aggregates, of its row type, each row one element: the empty array where the query
+ * aggregates no row, `coalesce(array_agg(<row>), '{}')`, so no array of the judge is NULL, and one holds a row exactly
+ * where its cardinality is past 0 (`holdsRows`).
  */
-export const foreignOf = (table: Expr): PlStatement => ({
-	kind: "raise",
-	message: "a session table of the rule judge that the judge's definer does not own",
-	using: [
-		{ option: "ERRCODE", value: lit.text("insufficient_privilege", types.text) },
-		{ option: "SCHEMA", value: lit.text(temporarySchema, types.text) },
-		{ option: "TABLE", value: table }
-	]
+const aggregated = (schema: string, delta: Delta, rows: Expr): Expr =>
+	firstNonNull([call("array_agg", [rows]), lit.text("{}", deltaArrayType(schema, delta))])
+
+/** That the array `array` holds a row: its cardinality is past 0, every array of the judge an array, never NULL. */
+export const holdsRows = (array: Expr): Expr =>
+	gt(call("cardinality", [array]), lit.int(0, types.integer))
+
+/**
+ * The rows of `delta`, read under `alias` with its attributes by their names, `unnest(<array>) AS <alias>`: its row
+ * type's attributes, each by its name.
+ */
+const unnested = (array: Expr, alias: string): FromSource => ({
+	kind: "function",
+	call: call("unnest", [array]),
+	alias,
+	columns: { kind: "named", names: [], ordinality: false },
+	lateral: false
 })
 
 /**
- * The delta's table made in the session, where the session holds none (physical/ddl/rules.ts standing, which refuses a
- * table some other role made under its name).
+ * The array of the rows `from` delivers under `alias`, each of `delta`'s row built from its attributes there, the empty
+ * array where it delivers none (`aggregated`): `(SELECT coalesce(array_agg(ROW(<alias>.<attribute>, ...)::<row type>),
+ * '{}') FROM ... WHERE ...)`.
  */
-export const deltaTable = (delta: SessionDelta): PlStatement => ({
-	kind: "createSessionTable",
-	name: delta.name,
-	columns: delta.table,
-	storage: delta.storage
+const rowsArray = (
+	schema: string,
+	delta: Delta,
+	alias: string,
+	from: ReadonlyArray<FromSource>,
+	where: Expr | undefined
+): Expr => ({
+	kind: "subquery",
+	query: simpleSelect(
+		[
+			{
+				expr: aggregated(
+					schema,
+					delta,
+					deltaRowOf(
+						schema,
+						delta,
+						mapNonEmpty(delta.row, (c) => col(alias, c.name))
+					)
+				),
+				alias: undefined
+			}
+		],
+		from,
+		where
+	)
 })
+
+/**
+ * The statement that sets `target` to the array of `delta`'s rows, each built from `values`, its attributes' values over
+ * each row `from` delivers, the empty array where it delivers none (`aggregated`), `before`'s rows first where it is
+ * one: `SELECT [<before> ||] coalesce(array_agg(ROW(<value>, ...)::<row type>), '{}') FROM ... WHERE ... INTO <target>`.
+ * A statement of its own, never a scalar subquery of an assignment, so the binding names each level of it (sql/bind.ts
+ * plannedOf), a capture's anti-join of two transition tables among them.
+ */
+const rowsInto = (
+	schema: string,
+	delta: Delta,
+	target: string,
+	values: NonEmptyReadonlyArray<Expr>,
+	from: ReadonlyArray<FromSource>,
+	where: Expr | undefined,
+	before: Expr | undefined
+): PlStatement => {
+	const rows = aggregated(schema, delta, deltaRowOf(schema, delta, values))
+	return {
+		kind: "into",
+		statement: select(
+			provedCore(
+				"oneRow",
+				[
+					{
+						expr:
+							before === undefined
+								? rows
+								: { kind: "binary", op: "||", left: before, right: rows, schema: undefined },
+						alias: undefined
+					}
+				],
+				from,
+				where
+			)
+		),
+		into: [target]
+	}
+}
+
+/** Each of `delta`'s attributes read off its rows under `alias`, by name. */
+const attributesAt = (delta: Delta, alias: string): NonEmptyReadonlyArray<Expr> =>
+	mapNonEmpty(delta.row, (c) => col(alias, c.name))
 
 /** A row's image on a side (`JudgedSide`): its primary key's columns, then every other column the side reads. */
 const imageOf = (relation: TheoryTable, side: JudgedSide): NonEmptyReadonlyArray<string> => {
@@ -237,170 +302,131 @@ const imageOf = (relation: TheoryTable, side: JudgedSide): NonEmptyReadonlyArray
 }
 
 /**
- * The rows of one side a statement wrote into its delta: every row of the transition table `rows`, or, for an UPDATE,
- * each row the other transition table holds no row of with the same image (`imageOf`), so an UPDATE of columns no rule
- * reads there captures nothing. Every row stands once in a transition table, and its key with it, so the rows are a
- * set. The side of olds takes the rows a statement found as they are. The side of news counts each image by its
- * weight (core/zset.ts weightOf): 1 for a row the statement put (`news`), -1 for one it removed (`olds`), which the
- * judge nets (`netted`). A removal is counted only once the delta holds a row: before any image the transaction put
- * stands there it cancels none, and an image it removed that the transaction puts again is then judged as any it put,
- * so a write that only removes rows logs none.
+ * The rows of one side a statement wrote, as the array a capture appends to the transaction's log, the empty array
+ * where it wrote none of them (`aggregated`): every row of the transition table `rows`, or, for an UPDATE, each row the other transition table holds
+ * no row of with the same image (`imageOf`), so an UPDATE of columns no rule reads there captures nothing. Every row
+ * stands once in a transition table, and its key with it, so the rows are a set. The side of olds takes the rows a
+ * statement found as they are. The side of news counts each image by its weight (core/zset.ts weightOf): 1 for a row
+ * the statement put (`news`), -1 for one it removed (`olds`), every removal counted, which the judge nets (`netted`):
+ * the transaction's change is the Z-set of every image it put and removed, whatever order its statements ran in.
  */
 export const captured = (
+	schema: string,
 	relation: TheoryTable,
 	side: JudgedSide,
 	rows: TransitionTable,
-	other: TransitionTable | undefined
+	other: TransitionTable | undefined,
+	before: Expr | undefined
 ): PlStatement => {
-	const columns = mapNonEmpty(side.delta.columns, (c) => c.name)
 	const unchanged =
 		other === undefined
-			? []
-			: [
-					notExists(
-						simpleSelect(
-							[],
-							[{ kind: "transition", table: other, alias: "r2" }],
-							and(mapNonEmpty(imageOf(relation, side), (c) => eq(col("r2", c), col("r1", c))))
-						)
+			? undefined
+			: notExists(
+					simpleSelect(
+						[],
+						[{ kind: "transition", table: other, alias: "r2" }],
+						and(mapNonEmpty(imageOf(relation, side), (c) => eq(col("r2", c), col("r1", c))))
 					)
+				)
+	const values = mapNonEmpty(side.delta.columns, (c) => col("r1", c.name))
+	const [first, ...rest] =
+		side.side === "added"
+			? [
+					...values,
+					lit.int(weightOf[rows === transitionTables.olds ? "removed" : "added"], types.smallint)
 				]
-	const counted = side.side === "added"
-	const removed = rows === transitionTables.olds
-	const where = [...unchanged, ...(counted && removed ? [holding(side.delta.name, "r3")] : [])]
-	const insert: Insert = {
-		kind: "insert",
-		with: undefined,
-		table: sessionTable(side.delta.name),
-		alias: undefined,
-		onConflict: undefined,
-		returning: [],
-		columns: counted ? [...columns, countColumn] : columns,
-		source: {
-			kind: "query",
-			query: provedSelect(
-				"keyed",
-				[
-					...columns.map((c) => ({ expr: col("r1", c), alias: undefined })),
-					...(counted
-						? [
-								{
-									expr: lit.int(weightOf[removed ? "removed" : "added"], types.smallint),
-									alias: undefined
-								}
-							]
-						: [])
-				],
-				[{ kind: "transition", table: rows, alias: "r1" }],
-				isNonEmpty(where) ? and(where) : undefined
-			)
-		}
-	}
-	return { kind: "modify", statement: insert }
+			: values
+	return rowsInto(
+		schema,
+		side.delta,
+		side.delta.name,
+		[defined(first, "a captured row's value"), ...rest],
+		[{ kind: "transition", table: rows, alias: "r1" }],
+		unchanged,
+		before
+	)
 }
 
 /**
- * The side of news a delta nets (`addRules`'s judge): it deletes every row of an image whose counts sum to 0 or less,
+ * The side of news a delta holds netted (`addRules`'s judge): of each image, the rows whose counts sum to 0 or less go,
  * and every row but one of each other image, which stands at COMMIT and stood nowhere before the transaction, so the
  * delta holds delta.added of its relation's images, each once: the relation's rows as the transaction leaves them minus
  * those it found (check/checker.ts Delta). That is the Z-set's one netting rule (core/zset.ts): an image's sum is its
  * weights, its puts less its removals, whatever order a statement's captures ran in, 1 where the transaction put it and
- * it stands, -1 where it removed one it found, 0 otherwise; and it stands added where its sum is positive (sideOf). An
- * image of sum -1 goes too: a removal is counted only to cancel a put, and one the transaction puts again is judged as
- * any it put. A later statement's captures count on from what the delta holds, so the judge at SET CONSTRAINTS ALL
- * IMMEDIATE nets it again from there.
+ * it stands, -1 where it removed one it found, 0 where it put and removed it, or removed one it found and put it back;
+ * and it stands added where its sum is positive (sideOf). The empty array where no image stands added.
+ *
+ *   <delta> := (SELECT coalesce(array_agg(ROW(r2.c1, ..., r2.__count)::<row type>), '{}') FROM (SELECT r1.<column> AS c1, ...,
+ *     sum(r1.__count) OVER (PARTITION BY <image>) AS ..., row_number() OVER (PARTITION BY <image> ORDER BY
+ *     r1.__count DESC) AS ... FROM unnest(<delta>) AS r1) AS r2 WHERE <sum> > 0 AND <row number> = 1)
  */
-export const netted = (relation: TheoryTable, side: JudgedSide): PlStatement => {
-	const image = mapNonEmpty(imageOf(relation, side), (c) => col("r2", c))
+export const netted = (schema: string, relation: TheoryTable, side: JudgedSide): PlStatement => {
+	const delta = side.delta
+	const image = mapNonEmpty(imageOf(relation, side), (c) => col("r1", c))
+	const placed = delta.row.map((c, at) => targetAs(col("r1", c.name), `c${at + 1}`))
+	const sum = `c${delta.row.length + 1}`
+	const rank = `c${delta.row.length + 2}`
 	const counts = simpleSelect(
 		[
-			targetAs(col("r2", "ctid"), "c1"),
+			...placed,
+			targetAs({ ...call("sum", [col("r1", countColumn)]), over: windowOf(image, []) }, sum),
 			targetAs(
-				{
-					...call("sum", [col("r2", countColumn)]),
-					over: windowOf(image, [])
-				},
-				"c2"
-			),
-			targetAs(
-				{ ...call("row_number", []), over: windowOf(image, [desc(col("r2", countColumn))]) },
-				"c3"
+				{ ...call("row_number", []), over: windowOf(image, [desc(col("r1", countColumn))]) },
+				rank
 			)
 		],
-		[{ kind: "table", table: sessionTable(side.delta.name), alias: "r2" }],
+		[unnested(deltaVariable(delta), "r1")],
 		undefined
 	)
-	return {
-		kind: "modify",
-		statement: {
-			kind: "delete",
-			with: undefined,
-			table: sessionTable(side.delta.name),
-			alias: "r1",
-			using: [],
-			where: {
-				kind: "inQuery",
-				expr: col("r1", "ctid"),
-				query: simpleSelect(
-					[{ expr: col("r3", "c1"), alias: undefined }],
-					[derived(counts, "r3", false)],
-					or([
-						le(col("r3", "c2"), lit.int(0, types.bigint)),
-						gt(col("r3", "c3"), lit.int(1, types.bigint))
-					])
-				),
-				not: false
-			},
-			returning: []
-		}
-	}
+	return rowsInto(
+		schema,
+		delta,
+		delta.name,
+		mapNonEmpty(delta.row, (_, at) => col("r2", `c${at + 1}`)),
+		[derived(counts, "r2", false)],
+		and([
+			gt(col("r2", sum), lit.int(0, types.bigint)),
+			eq(col("r2", rank), lit.int(1, types.bigint))
+		]),
+		undefined
+	)
 }
 
-/**
- * The rows of `delta` emptied once its part has read them (physical/ddl/rules.ts emptiedWhereWritten): the delta holds
- * the rows of one run of the judge alone, and no COMMIT empties it (physical/ddl/rules.ts addRules). It is emptied as every session
- * table is (sql/print.ts sessionTableEmptied): by DELETE, which keeps its file and sends no invalidation, while it holds
- * the pages it keeps (sql/print.ts sessionTableKeptBytes), and by TRUNCATE once it holds more, so a delta never holds
- * more than those pages past a run and its run's rows, and the relcache invalidation a TRUNCATE sends every backend of
- * the database, each of which walks every plan it holds, is paid once in those pages' worth of a session's rows, where
- * a TRUNCATE at every run paid it at every judged COMMIT. The judge's statements read the delta through its readers (`addReaders`), so their plans outlive a truncation.
- * The judge runs inside no statement that holds the delta open: after SET CONSTRAINTS ALL IMMEDIATE it runs at the end
- * of the capture's arming INSERT, which reads the sentinel and the written set's variable alone (physical/ddl/rules.ts
- * arming).
- */
-export const emptied = (delta: SessionDelta): PlStatement => sessionTableEmptied(delta.name)
-
-/** A judged table's side as the judge's statements read it (`DeltaReads`): its relation, the side and its delta. */
+/** A judged table's side as the judge's statements read it (`DeltaSelections`): its relation, the side and its delta. */
 export interface ReadDelta {
 	readonly relation: TheoryTable
 	readonly side: ProbeSide
-	readonly delta: SessionDelta
+	readonly delta: Delta
 }
 
 /**
- * A read of a session's delta a judged statement makes (`headed`): the side it reads; its selection, the conjuncts of
- * the statement's own over the read's columns and constants alone, each over the delta's table `r1` (`overDelta`), in
- * the order of their texts, none where the statement reads every row; its projection, the places in the delta's
- * columns of those the statement reads of the selection's rows at any of its reads of them, ascending, the first column
- * alone where it reads none, since PostgreSQL defines no call's rows by an empty list; and the reader that returns those
- * columns of the rows the selection admits (identity.ruleDeltaReader), named by the delta, the selection's texts and
- * the projection's columns.
+ * A selection of a delta a judged statement reads (`headed`): the side it reads; its conjuncts, each of the statement's
+ * own over the read's columns and constants alone, each over the delta's rows `r1` (`overDelta`), in the order of their
+ * texts, none where the statement reads every row; and the variable, or argument, that holds the rows it admits: the
+ * delta's own where it admits every row (`deltaVariable`), else its own (identity.ruleDeltaSelection), named by the
+ * delta and the conjuncts' texts, which the part that runs the statement's block makes (`selectionsMade`).
  */
-export interface DeltaRead extends ReadDelta {
-	readonly selection: ReadonlyArray<Expr>
-	readonly projection: NonEmptyReadonlyArray<number>
-	readonly reader: Identity<"ruleDeltaReader">
+export interface DeltaSelection extends ReadDelta {
+	readonly conditions: ReadonlyArray<Expr>
+	readonly variable: string
+	/**
+	 * Its identity, the delta's own where it admits every row: what names a block that takes it (identity.ruleJudgeBlock,
+	 * identity.storedUpkeep), an identity, never its variable's text, so a block's name reads as one identity under any
+	 * installation's name.
+	 */
+	readonly ident: Identity<"ruleDeltaSelection" | "ruleDelta">
+	/** Where it sorts among the selections: its delta's order (Delta `order`), then its conjuncts' texts. */
+	readonly order: string
 }
 
 /**
- * The reads of the session deltas an installation's judged statements make (`headed`), each once by its delta and its
- * selection however many statements make it: one reader each (`addReaders`), and the B-trees of each delta its
- * readers seek through (`deltaIndexes`), which its table is stood up with.
+ * The selections of the deltas an installation's judged statements read (`headed`), each once by its delta and its
+ * conjuncts however many statements read it: each one array a part makes once for every block of it that reads it.
  */
-export class DeltaReads {
+export class DeltaSelections {
 	readonly #b: InstallBuilder
 	readonly #deltas: ReadonlyMap<string, ReadDelta>
-	readonly #reads = new Map<string, Map<string, DeltaRead>>()
+	readonly #selections = new Map<string, Map<string, DeltaSelection>>()
 
 	constructor(b: InstallBuilder, deltas: ReadonlyArray<ReadDelta>) {
 		this.#b = b
@@ -413,95 +439,273 @@ export class DeltaReads {
 	}
 
 	/**
-	 * The read of `of`'s delta under `selection`, conjuncts over its table `r1`, of the columns at `places` in the
-	 * delta's columns: each conjunct once, in the order of their texts as an identity reads them, each pattern by its
-	 * language (row-functions.ts byLanguage), and each place once, ascending, the first alone where there is none
-	 * (DeltaRead `projection`), so every statement that reads the same columns of the delta under the same conditions
-	 * reads one reader, and two spellings of one language one.
+	 * The selection of `of`'s delta under `conjuncts`, each over its rows `r1`: each conjunct once, in the order of its
+	 * text as an identity reads it, each pattern by its language (row-functions.ts byLanguage), so every statement that
+	 * reads the delta under the same conditions reads one array, and two spellings of one language one.
 	 */
-	read(of: ReadDelta, selection: ReadonlyArray<Expr>, places: ReadonlyArray<number>): DeltaRead {
+	select(of: ReadDelta, conjuncts: ReadonlyArray<Expr>): DeltaSelection {
 		const named = new Transform({
 			...identityHooks,
 			expr: (e) => byLanguage((are) => this.#b.languageOf(are), e)
 		})
-		const conjuncts = [
-			...new Map(selection.map((e) => [printExpr(named.expr(e)), e] as const)).entries()
+		const distinct = [
+			...new Map(conjuncts.map((e) => [printExpr(named.expr(e)), e] as const)).entries()
 		].toSorted(([x], [y]) => compareStrings(x, y))
-		const [first = 0, ...rest] = [...new Set(places)].toSorted((x, y) => x - y)
-		const projection: NonEmptyReadonlyArray<number> = [first, ...rest]
-		const reader = identity.ruleDeltaReader(
-			of.relation.name,
-			deltaStem[of.side],
-			of.delta.ident,
-			conjuncts.map(([text]) => text),
-			projection.map((at) => defined(of.delta.columns[at], "a projected column of the delta").name)
-		)
-		const held = this.#reads.get(of.delta.name) ?? new Map<string, DeltaRead>()
-		this.#reads.set(of.delta.name, held)
-		const found = held.get(reader.canonical)
+		const texts = distinct.map(([text]) => text)
+		const ident: Identity<"ruleDeltaSelection" | "ruleDelta"> = isNonEmpty(texts)
+			? identity.ruleDeltaSelection(of.relation.name, deltaStem[of.side], of.delta.ident, texts)
+			: of.delta.ident
+		const variable = isNonEmpty(texts) ? this.#b.name(ident) : of.delta.name
+		const held = this.#selections.getOrInsertComputed(of.delta.name, () => new Map())
+		const found = held.get(variable)
 		if (found !== undefined) {
 			return found
 		}
-		const read: DeltaRead = { ...of, selection: conjuncts.map(([, e]) => e), projection, reader }
-		held.set(reader.canonical, read)
-		return read
-	}
-
-	/** The function `read`'s rows are returned by. */
-	reader(read: DeltaRead): ObjectName {
-		return objectName(this.#b.schema, this.#b.name(read.reader))
-	}
-
-	/** Every read of the delta named `name`, in the order of their readers' identities. */
-	readsOf(name: string): ReadonlyArray<DeltaRead> {
-		return [...(this.#reads.get(name)?.values() ?? [])].toSorted((x, y) =>
-			compareStrings(x.reader.canonical, y.reader.canonical)
-		)
-	}
-
-	/** Every delta some statement reads, each with its reads, in the order of the deltas' names. */
-	all(): ReadonlyArray<{
-		readonly of: ReadDelta
-		readonly reads: NonEmptyReadonlyArray<DeltaRead>
-	}> {
-		return [...this.#reads.keys()].toSorted(compareStrings).flatMap((name) => {
-			const reads = this.readsOf(name)
-			return isNonEmpty(reads)
-				? [{ of: defined(this.#deltas.get(name), "a read delta, a judged side's"), reads }]
-				: []
-		})
+		const selection: DeltaSelection = {
+			...of,
+			conditions: distinct.map(([, e]) => e),
+			variable,
+			ident,
+			order: [of.delta.order, ...texts].join("\u0000")
+		}
+		held.set(variable, selection)
+		return selection
 	}
 
 	/**
-	 * The deltas `body` reads, each once, in the order of their names: those of the reads whose readers it calls
-	 * (`readersCalled`), as every judged statement reads a delta (`headed`): where none of them holds a row, a call of
-	 * the judge over `body` has nothing to read, so its part calls it where one does (physical/ddl/rules.ts upkeepBlock).
+	 * The selections `body`, a block's or the judge's statements, reads, each once, in their order (DeltaSelection `order`): the
+	 * arguments a block takes and the arrays its part makes for it (`selectionsMade`).
 	 */
-	readBy(body: ReadonlyArray<PlStatement>): ReadonlyArray<SessionDelta> {
-		const called = readersCalled(body)
-		return this.all().flatMap(({ of, reads }) =>
-			reads.some((read) => called.has(read.reader.identifier)) ? [of.delta] : []
-		)
-	}
-
-	/** The B-trees the delta named `name` is stood up with (`deltaIndexes`). */
-	indexesOf(name: string): ReadonlyArray<DeltaIndex> {
-		const of = this.#deltas.get(name)
-		return of === undefined
-			? []
-			: deltaIndexes(of, this.readsOf(name)).map((column) => ({
-					name: this.#b.name(
-						identity.ruleDeltaIndex(of.relation.name, deltaStem[of.side], of.delta.ident, column)
-					),
-					column
-				}))
+	readBy(body: ReadonlyArray<PlStatement>): ReadonlyArray<DeltaSelection> {
+		const read = new Set<string>()
+		new Transform({
+			...identityHooks,
+			fromSource: (source) => {
+				const [array] = source.kind === "function" ? source.call.args : []
+				if (array?.kind === "plVar") {
+					read.add(array.name)
+				}
+				return source
+			}
+		}).plStatements(body)
+		return [...this.#selections.values()]
+			.flatMap((held) => [...held.values()])
+			.filter((s) => read.has(s.variable))
+			.toSorted((x, y) => compareStrings(x.order, y.order))
 	}
 }
 
-/** A B-tree of a delta over one of its columns (`deltaIndexes`), by its name in pg_temp. */
-export interface DeltaIndex {
-	readonly name: string
+/**
+ * A selection's equality with a constant over one of its delta's columns, which a pass grouping the delta's rows by that
+ * column serves (`selectionsMade`): the column, the constant, and the selection's other conjuncts.
+ */
+interface Keyed {
+	readonly selection: DeltaSelection
 	readonly column: string
+	readonly value: Expr
+	readonly rest: ReadonlyArray<Expr>
+}
+
+/** A constant a conjunct compares a column with: a literal, cast or collated as the comparison reads it. */
+const isConstant = (e: Expr): boolean =>
+	e.kind === "literal" || ((e.kind === "cast" || e.kind === "collate") && isConstant(e.expr))
+
+/**
+ * `conjunct`'s equality of a column of the delta's rows `r1` with a constant, by builtin `=` (`overDelta`): the column
+ * and the constant, none for any other conjunct.
+ */
+const equalityOf = (
+	conjunct: Expr
+): { readonly column: string; readonly value: Expr } | undefined => {
+	if (conjunct.kind !== "binary" || conjunct.op !== "=" || conjunct.schema !== undefined) {
+		return undefined
+	}
+	const { left, right } = conjunct
+	return left.kind === "column" && left.table === "r1" && isConstant(right)
+		? { column: left.column, value: right }
+		: right.kind === "column" && right.table === "r1" && isConstant(left)
+			? { column: right.column, value: left }
+			: undefined
+}
+
+/**
+ * Each of `selections`' equality with a constant over the column of its delta the most of them fix so, the fewest
+ * passes over the delta's rows serving them all (`selectionsMade`), its ties by the column's name; none for a selection
+ * that fixes no column.
+ */
+const keyedBy = (selections: ReadonlyArray<DeltaSelection>): ReadonlyArray<Keyed> => {
+	const equalities = selections.map((selection) => ({
+		selection,
+		fixes: selection.conditions.flatMap((c, at) => {
+			const equality = equalityOf(c)
+			return equality === undefined
+				? []
+				: [{ ...equality, at, family: `${selection.delta.order}\u0000${equality.column}` }]
+		})
+	}))
+	const fixing = new Map<string, number>()
+	for (const { fixes } of equalities) {
+		for (const family of new Set(fixes.map((f) => f.family))) {
+			fixing.set(family, (fixing.get(family) ?? 0) + 1)
+		}
+	}
+	return equalities.flatMap(({ selection, fixes }) => {
+		const [best] = fixes.toSorted(
+			(x, y) =>
+				(fixing.get(y.family) ?? 0) - (fixing.get(x.family) ?? 0) ||
+				compareStrings(x.family, y.family)
+		)
+		return best === undefined
+			? []
+			: [
+					{
+						selection,
+						column: best.column,
+						value: best.value,
+						rest: selection.conditions.filter((_, at) => at !== best.at)
+					}
+				]
+	})
+}
+
+/**
+ * The stem of the variables of a grouped pass (`selectionsMade`), its group's key and its rows, none a delta's, a
+ * selection's or the claim's.
+ */
+const groupStem = "__group_"
+
+/**
+ * The declarations and the statements that make each of `selections` that admits less than its whole delta, from its
+ * delta's variable, in their order (DeltaSelection `order`): the array of the rows of the delta its conjuncts admit, the empty
+ * array where it admits none (`rowsInto`). The selections of a delta that fix one column of it to two values or more,
+ * each by an equality with a constant (`keyedBy`), are one pass over its rows, grouped by that column, each group's rows
+ * the array of each selection that fixes its value, or of the rows of it the selection's other conjuncts admit; every
+ * other selection is a pass of its own. So a COMMIT's judge passes over a delta's rows once for each column its
+ * selections fix, however many selections fix it, where a pass for each selection read the delta's rows once for each
+ * of them, edullm's giant pattern package's Node delta 92 times:
+ *
+ *   <selection> := (SELECT coalesce(array_agg(ROW(r1.<attribute>, ...)::<row type>), '{}') FROM unnest(<delta>) AS r1
+ *     WHERE <conjuncts>);
+ *
+ *   <selection> := '{}'; ...
+ *   FOR __group_key_<n>, __group_rows_<n> IN SELECT r1.<column> AS c1, array_agg(ROW(r1.<attribute>, ...)::<row type>)
+ *       AS c2 FROM unnest(<delta>) AS r1 WHERE r1.<column> IN (<value>, ...) GROUP BY r1.<column> LOOP
+ *     CASE __group_key_<n> WHEN <value> THEN <selection> := __group_rows_<n>; <selection> := (SELECT ... FROM
+ *       unnest(__group_rows_<n>) AS r1 WHERE <other conjuncts>); ... END CASE;
+ *   END LOOP;
+ *
+ * Each group's key is one the IN lists, so the CASE, which has no ELSE, finds a WHEN for each; its key variable is of
+ * its column's type, its rows variable of the delta's array type, each declared, so every query PL/pgSQL plans reads
+ * each by its type (sql/bind.ts plannedOf).
+ */
+export const selectionsMade = (
+	schema: string,
+	selections: ReadonlyArray<DeltaSelection>
+): {
+	readonly declare: ReadonlyArray<PlDeclaration>
+	readonly body: ReadonlyArray<PlStatement>
+} => {
+	const own = selections.flatMap((s) => {
+		const { conditions } = s
+		return isNonEmpty(conditions) ? [{ ...s, conditions }] : []
+	})
+	const families = new Map<string, Array<Keyed>>()
+	for (const k of keyedBy(own)) {
+		families.getOrInsertComputed(`${k.selection.delta.order}\u0000${k.column}`, () => []).push(k)
+	}
+	const valuesOf = (members: ReadonlyArray<Keyed>): ReadonlyMap<string, ReadonlyArray<Keyed>> =>
+		Map.groupBy(members, (k) => printExpr(k.value))
+	const grouped = [...families.values()].filter((members) => valuesOf(members).size >= 2)
+	const inGroup = new Set(grouped.flatMap((members) => members.map((k) => k.selection.variable)))
+	const pass = (s: (typeof own)[number]): PlStatement =>
+		rowsInto(
+			schema,
+			s.delta,
+			s.variable,
+			attributesAt(s.delta, "r1"),
+			[unnested(deltaVariable(s.delta), "r1")],
+			and(s.conditions),
+			undefined
+		)
+	/** The variables of the `at`-th grouped pass: its group's key, by its column's type, and its rows. */
+	const groupOf = (at: number) => ({
+		key: `${groupStem}key_${at + 1}`,
+		rows: `${groupStem}rows_${at + 1}`
+	})
+	const groupPass = (members: ReadonlyArray<Keyed>, at: number): ReadonlyArray<PlStatement> => {
+		const first = defined(members[0], "a grouped pass's first selection")
+		const { delta } = first.selection
+		const { column } = first
+		const group = groupOf(at)
+		const rows: Expr = { kind: "plVar", name: group.rows }
+		const [w0, ...ws] = [...valuesOf(members).values()].map((fixing) => ({
+			values: [defined(fixing[0], "a group's selection").value] as const,
+			body: fixing.map((k): PlStatement =>
+				isNonEmpty(k.rest)
+					? rowsInto(
+							schema,
+							delta,
+							k.selection.variable,
+							attributesAt(delta, "r1"),
+							[unnested(rows, "r1")],
+							and(k.rest),
+							undefined
+						)
+					: { kind: "assign", target: k.selection.variable, value: rows }
+			)
+		}))
+		const first0 = defined(w0, "a grouped pass's first value")
+		return [
+			...members.map((k): PlStatement => ({
+				kind: "assign",
+				target: k.selection.variable,
+				value: lit.text("{}", deltaArrayType(schema, delta))
+			})),
+			{
+				kind: "forQuery",
+				variables: [group.key, group.rows],
+				query: select({
+					...provedCore(
+						"grouped",
+						[
+							{ expr: col("r1", column), alias: "c1" },
+							{
+								expr: call("array_agg", [deltaRowOf(schema, delta, attributesAt(delta, "r1"))]),
+								alias: "c2"
+							}
+						],
+						[unnested(deltaVariable(delta), "r1")],
+						isIn(col("r1", column), [first0.values[0], ...ws.map((w) => w.values[0])])
+					),
+					groupBy: [col("r1", column)]
+				}),
+				body: [
+					{
+						kind: "case",
+						operand: { kind: "plVar", name: group.key },
+						whens: [first0, ...ws]
+					}
+				]
+			}
+		]
+	}
+	return {
+		declare: grouped.flatMap((members, at): ReadonlyArray<PlDeclaration> => {
+			const first = defined(members[0], "a grouped pass's first selection")
+			const group = groupOf(at)
+			return [
+				{
+					name: group.key,
+					type: defined(
+						first.selection.delta.row.find((c) => c.name === first.column),
+						"a grouped pass's column"
+					).type
+				},
+				{ name: group.rows, type: deltaArrayType(schema, first.selection.delta) }
+			]
+		}),
+		body: [...own.filter((s) => !inGroup.has(s.variable)).map(pass), ...grouped.flatMap(groupPass)]
+	}
 }
 
 /** Each of `xs`, or none where one is none. */
@@ -520,11 +724,11 @@ const everyOf = (
 }
 
 /**
- * `e`, a conjunct a core holds over the columns of its FROM items, over the delta's table `r1`, where every column it
- * reads is a column of one read of a delta, which `column` names the table's column of, and it reads at least one: its
- * columns, constants, and the operators, casts and connectives that read nothing else, each over a builtin type (Expr
- * `binary` and `equalsAny` with no schema); none for any other, a subquery, a function call or a column of another
- * source among them, which a reader of no argument cannot read.
+ * `e`, a conjunct a core holds over the columns of its FROM items, over the delta's rows `r1`, where every column it
+ * reads is a column of one read of a delta, which `column` names the delta's attribute of, and it reads at least one:
+ * its columns, constants, and the operators, casts and connectives that read nothing else, each over a builtin type
+ * (Expr `binary` and `equalsAny` with no schema); none for any other, a subquery, a function call or a column of
+ * another source among them, which a part's pass over the delta's rows alone cannot read.
  */
 const overDelta = (
 	e: Expr,
@@ -600,7 +804,6 @@ const overDelta = (
 			case "returning":
 			case "param":
 			case "clock":
-			case "inQuery":
 			case "exists":
 			case "subquery":
 			case "array":
@@ -628,286 +831,19 @@ const overDelta = (
 const conjunctsOf = (e: Expr): ReadonlyArray<Expr> =>
 	e.kind === "and" ? e.args.flatMap(conjunctsOf) : [e]
 
-/** The column of the delta's table each column `c<n>` of its CTE holds (`deltaRelation`), none for any other name. */
+/** The place in a delta's columns of its CTE's column `c<n>` (`deltaRelation`), none for any other name. */
+const columnPlace = (column: string): number | undefined => {
+	const digits = column.startsWith("c") ? column.slice(1) : ""
+	const n = Number(digits)
+	return digits !== "" && Number.isSafeInteger(n) && String(n) === digits && n >= 1
+		? n - 1
+		: undefined
+}
+
+/** The column of the delta each column `c<n>` of its CTE holds (`deltaRelation`), none for any other name. */
 const deltaColumnAt = (of: ReadDelta, column: string): string | undefined => {
 	const at = columnPlace(column)
 	return at === undefined ? undefined : of.delta.columns[at]?.name
-}
-
-/**
- * A read of a delta a core's FROM holds (`headed`): the side it reads; the delta's column each column the core reads of
- * it holds, by its alias and name; and the source with the delta's CTE renamed `name`. A read is the delta's CTE itself
- * (lower/conservative/delta), or a pass-through projection of one (`passThrough`: a filter's input over a delta, and
- * each projection pruning leaves around it), whose i-th target names the column the derived table's i-th name holds.
- */
-interface HeldRead {
-	readonly of: ReadDelta
-	readonly column: (read: Extract<Expr, { readonly kind: "column" }>) => string | undefined
-	readonly renamed: (name: string) => FromSource
-}
-
-/** `source` as a read of a delta `reads` holds (`HeldRead`), none where it reads none. */
-const heldRead = (source: FromSource, reads: DeltaReads): HeldRead | undefined => {
-	if (source.kind === "cte") {
-		const of = reads.delta(source.name)
-		const alias = source.alias ?? source.name
-		return of === undefined
-			? undefined
-			: {
-					of,
-					column: (read) => (read.table === alias ? deltaColumnAt(of, read.column) : undefined),
-					renamed: (name) => ({ ...source, name, alias })
-				}
-	}
-	const p = passThrough(source, (name) => reads.delta(name) !== undefined)
-	const below = p === undefined ? undefined : heldRead(p.inner, reads)
-	if (p === undefined || below === undefined) {
-		return undefined
-	}
-	const projected = p.reads.map((read) => below.column(read))
-	if (projected.some((c) => c === undefined)) {
-		return undefined
-	}
-	return {
-		of: below.of,
-		column: (read) =>
-			read.table === p.source.alias
-				? projected[selectColumns(p.source.query).indexOf(read.column)]
-				: undefined,
-		renamed: (name) => ({
-			...p.source,
-			query: { ...p.source.query, body: { ...p.core, from: [below.renamed(name)] } }
-		})
-	}
-}
-
-/**
- * `statement` with every read of a session's delta read through the reader of its selection (`DeltaReads`): a core's
- * conjuncts over the columns of one read in its FROM and constants alone (`overDelta`), each moved from its WHERE into
- * the read's reader, as PostgreSQL moves such a conjunct into its scan of a table, which no call of a function admits;
- * a read the core holds no such conjunct of reads every row. Only a read where the WHERE meets every row it delivers
- * takes one, so never a LEFT join's source, whose rows the join completes. A judge's read of a delta of 253,458 nodes
- * whose rule constrains the nodes of one kind read every node, through a reader that returned every row, and kept that
- * kind's in the CTE it held them in: 92 statements of the giant pattern package's COMMIT read 23.3 million rows, 23.3 s
- * (edullm's s18 at 39989d602), where each read of its kind reads that kind's rows, by the index its delta is stood up
- * with (`deltaIndexes`).
- *
- * Each selection a statement reads is read through one reader, its projection the columns any of its reads reads,
- * once the moved conditions read theirs in the reader: a pass-through projection's column nothing reads goes from it
- * (`deadPassThrough`), so the reader returns none of it. A reader the statement reads once is called where the read
- * stands, which produces its rows once; one it reads twice or more, the arms of a union of one relation's rows under one
- * selection, or a region's occurrences, is read through one MATERIALIZED CTE leading the statement's WITH, named past
- * every relation the statement names, r<n> over its call r<n+1>, which calls it once for the statement and holds its
- * rows for each read: no read's rows are produced twice, where a CTE over every reader held the rows its call produced a
- * second time even for its one read. Each call defines the columns it reads by their types and collations, each named
- * c<n> by its place in the delta's columns, as the statement's reads name them.
- */
-export const headed = (statement: OperandSelect, reads: DeltaReads): OperandSelect => {
-	/** Each selection a read was renamed under, by the name: the side it reads and the conjuncts moved into its reader. */
-	const selected = new Map<string, Selection>()
-	const readName = (of: ReadDelta, conditions: ReadonlyArray<Expr>): string => {
-		const name = `${readMark}${selected.size}`
-		selected.set(name, { of, conditions })
-		return name
-	}
-	const pushed = new Transform({
-		...identityHooks,
-		core: (core) => {
-			const sources = core.from.flatMap((item): ReadonlyArray<FromSource> =>
-				item.kind === "joins"
-					? [item.first, ...item.steps.flatMap((s) => (s.kind === "left" ? [] : [s.source]))]
-					: [item]
-			)
-			const held = new Map(
-				sources.flatMap((source) => {
-					const read = heldRead(source, reads)
-					return read === undefined ? [] : [[source, read] as const]
-				})
-			)
-			if (held.size === 0 || core.where === undefined) {
-				return core
-			}
-			const conjuncts = conjunctsOf(core.where)
-			const moved = new Map<FromSource, Array<Expr>>()
-			const kept = conjuncts.filter((conjunct) => {
-				for (const [source, read] of held) {
-					const over = overDelta(conjunct, read.column)
-					if (over === undefined) {
-						continue
-					}
-					const into = moved.get(source) ?? []
-					into.push(over)
-					moved.set(source, into)
-					return false
-				}
-				return true
-			})
-			if (moved.size === 0) {
-				return core
-			}
-			const renamed = (source: FromSource): FromSource => {
-				const read = held.get(source)
-				const conditions = moved.get(source)
-				return read === undefined || conditions === undefined
-					? source
-					: read.renamed(readName(read.of, conditions))
-			}
-			return {
-				...core,
-				from: core.from.map((item) =>
-					item.kind === "joins"
-						? {
-								...item,
-								first: renamed(item.first),
-								steps: mapNonEmpty(item.steps, (s) => ({ ...s, source: renamed(s.source) }))
-							}
-						: renamed(item)
-				),
-				where: isNonEmpty(kept) ? (kept.length === 1 ? headNonEmpty(kept) : and(kept)) : undefined
-			}
-		}
-	}).select(statement)
-	/** The selection a read under the name `name` reads: a renamed one's, or every row of a delta read whole. */
-	const selectionOf = (name: string): Selection | undefined => {
-		const renamed = selected.get(name)
-		if (renamed !== undefined) {
-			return renamed
-		}
-		const of = reads.delta(name)
-		return of === undefined ? undefined : { of, conditions: [] }
-	}
-	/** Each read's selection by its alias, and each selection's places of the columns its reads read, by its key. */
-	const sites = new Map<string, string>()
-	const keyed = new Map<string, { readonly selection: Selection; readonly places: Set<number> }>()
-	let last = 0
-	/** A generated relation name, r<n>, raises `last` to its n; any other name is none of the statement's numbering. */
-	const numbered = (name: string | undefined): void => {
-		const digits = name?.startsWith("r") === true ? name.slice(1) : ""
-		const n = Number(digits)
-		if (digits !== "" && Number.isSafeInteger(n) && String(n) === digits) {
-			last = Math.max(last, n)
-		}
-	}
-	const sourceOf = (source: FromSource): void => {
-		const selection = source.kind === "cte" ? selectionOf(source.name) : undefined
-		if (selection !== undefined && source.kind === "cte") {
-			const key = selectionKey(selection)
-			sites.set(source.alias ?? source.name, key)
-			keyed.set(key, keyed.get(key) ?? { selection, places: new Set() })
-		}
-		numbered("alias" in source ? source.alias : undefined)
-	}
-	visitSelect(pushed, {
-		...inertVisitor,
-		fromItem: (item) => {
-			if (item.kind === "joins") {
-				sourceOf(item.first)
-				for (const step of item.steps) {
-					sourceOf(step.source)
-				}
-				return
-			}
-			sourceOf(item)
-		},
-		with: (w) => {
-			for (const cte of w.ctes) {
-				numbered(cte.name)
-			}
-		}
-	})
-	const dropped = deadPassThrough(pushed, (name) => selectionOf(name) !== undefined)
-	const live = liveReferences(pushed, dropped)
-	for (const [alias, key] of sites) {
-		for (const column of live.get(alias) ?? []) {
-			const at = columnPlace(column)
-			if (at !== undefined) {
-				defined(keyed.get(key), "a read's selection").places.add(at)
-			}
-		}
-	}
-	/** Each selection's read, its projection every column any of the statement's reads of the selection reads. */
-	const readOf = new Map(
-		[...keyed].map(
-			([key, { selection, places }]) =>
-				[key, reads.read(selection.of, selection.conditions, [...places])] as const
-		)
-	)
-	const counts = new Map<string, number>()
-	for (const key of sites.values()) {
-		counts.set(key, (counts.get(key) ?? 0) + 1)
-	}
-	/** The call of `read`'s reader under `alias`, each column it returns defined by its type and collation under its
-	 * name in the statement's reads, c<n> by its place in the delta's columns. */
-	const callOf = (read: DeltaRead, alias: string): FromSource => {
-		const reader = reads.reader(read)
-		return {
-			kind: "function",
-			call: qualifiedCall(
-				{ kind: "qualified", schema: reader.schema, name: reader.name, volatility: "VOLATILE" },
-				[]
-			),
-			alias,
-			columns: {
-				kind: "defined",
-				definitions: mapNonEmpty(read.projection, (at) => {
-					const c = defined(read.delta.columns[at], "a projected column of the delta")
-					return { name: `c${at + 1}`, type: c.type, collation: c.collation }
-				})
-			},
-			lateral: false
-		}
-	}
-	/** Each reader read twice or more, its CTE named past every relation the statement names: r<n>, its call r<n+1>. */
-	const shared = new Map(
-		[...readOf].flatMap(([key, read]) => {
-			if ((counts.get(key) ?? 0) < 2) {
-				return []
-			}
-			const cte = `r${last + 1}`
-			const inner = `r${last + 2}`
-			last += 2
-			const columns = mapNonEmpty(read.projection, (at) => `c${at + 1}`)
-			const head: Cte = {
-				name: cte,
-				materialized: "MATERIALIZED",
-				query: simpleSelect(
-					mapNonEmpty(columns, (c) => ({ expr: col(inner, c), alias: undefined })),
-					[callOf(read, inner)],
-					undefined
-				)
-			}
-			return [[key, head] as const]
-		})
-	)
-	const resolved = new Transform({
-		...identityHooks,
-		fromSource: (source, original) => {
-			const gone = dropped.get(original)
-			if (
-				gone !== undefined &&
-				source.kind === "derived" &&
-				source.query.body.kind === "core" &&
-				source.query.body.distinct === false
-			) {
-				const core = source.query.body
-				const kept = (_: unknown, at: number): boolean => !gone.has(at)
-				return {
-					...source,
-					query: { ...source.query, body: { ...core, targets: core.targets.filter(kept) } }
-				}
-			}
-			const alias = source.kind === "cte" ? (source.alias ?? source.name) : undefined
-			const key = alias === undefined ? undefined : sites.get(alias)
-			if (key === undefined || alias === undefined || source.kind !== "cte") {
-				return source
-			}
-			const head = shared.get(key)
-			return head === undefined
-				? callOf(defined(readOf.get(key), "a read's selection"), alias)
-				: { ...source, name: head.name, alias }
-		}
-	}).select(pushed)
-	return withLeading(resolved, shared.values())
 }
 
 /**
@@ -919,7 +855,6 @@ interface PassThrough {
 	readonly source: Extract<FromSource, { readonly kind: "derived" }>
 	readonly core: SelectCore
 	readonly inner: FromSource
-	readonly distinct: boolean
 	readonly reads: ReadonlyArray<Extract<Expr, { readonly kind: "column" }>>
 }
 
@@ -952,346 +887,170 @@ const passThrough = (
 	}
 	const below = inner.kind === "cte" ? read(inner.name) : passThrough(inner, read) !== undefined
 	const reads = core.targets.flatMap((t) => (t.expr.kind === "column" ? [t.expr] : []))
-	return below && reads.length === core.targets.length
-		? { source, core, inner, distinct: core.distinct, reads }
-		: undefined
+	return below && reads.length === core.targets.length ? { source, core, inner, reads } : undefined
 }
 
 /**
- * The places of the columns each pass-through projection over a delta's read (`passThrough`) delivers that nothing reads,
- * by the projection's source, once a statement's selections have moved into their readers: a column the moved conditions
- * alone read is read no more, nor is the column each projection below it took it from. A projection under DISTINCT keeps
- * every column, each of which tells its rows apart.
+ * A read of a delta a core's FROM holds (`headed`): the side it reads; the delta's column each column the core reads of
+ * it holds, by its alias and name; and the source with the delta's CTE read from `array` in its place. A read is the
+ * delta's CTE itself (lower/conservative/delta), or a pass-through projection of one (`passThrough`: a filter's input
+ * over a delta, and each projection pruning leaves around it), whose i-th target names the column the derived table's
+ * i-th name holds.
  */
-const deadPassThrough = (
-	statement: OperandSelect,
-	read: (name: string) => boolean
-): ReadonlyMap<FromSource, ReadonlySet<number>> => {
-	const projections: Array<PassThrough> = []
-	const counts = new Map<string, number>()
-	const referenced = (e: Extract<Expr, { readonly kind: "column" }>): string =>
-		`${e.table}.${e.column}`
-	const visitSource = (source: FromSource): void => {
-		const p = passThrough(source, read)
-		if (p !== undefined) {
-			projections.push(p)
-		}
+interface HeldRead {
+	readonly of: ReadDelta
+	readonly column: (read: Extract<Expr, { readonly kind: "column" }>) => string | undefined
+	readonly from: (variable: string) => FromSource
+}
+
+/** The rows of the array `variable` holds read where the delta's CTE `source` stood, under its alias, by its columns. */
+const fromArray = (
+	source: Extract<FromSource, { readonly kind: "cte" }>,
+	of: ReadDelta,
+	variable: string
+): FromSource => ({
+	kind: "function",
+	call: call("unnest", [{ kind: "plVar", name: variable }]),
+	alias: source.alias ?? source.name,
+	columns: {
+		kind: "named",
+		names: of.delta.columns.map((_, at) => `c${at + 1}`),
+		ordinality: false
+	},
+	lateral: false
+})
+
+/** `source` as a read of a delta `selections` holds (`HeldRead`), none where it reads none. */
+const heldRead = (source: FromSource, selections: DeltaSelections): HeldRead | undefined => {
+	if (source.kind === "cte") {
+		const of = selections.delta(source.name)
+		const alias = source.alias ?? source.name
+		return of === undefined
+			? undefined
+			: {
+					of,
+					column: (read) => (read.table === alias ? deltaColumnAt(of, read.column) : undefined),
+					from: (variable) => fromArray(source, of, variable)
+				}
 	}
+	const p = passThrough(source, (name) => selections.delta(name) !== undefined)
+	const below = p === undefined ? undefined : heldRead(p.inner, selections)
+	if (p === undefined || below === undefined) {
+		return undefined
+	}
+	const projected = p.reads.map((read) => below.column(read))
+	if (projected.some((c) => c === undefined)) {
+		return undefined
+	}
+	return {
+		of: below.of,
+		column: (read) =>
+			read.table === p.source.alias
+				? projected[selectColumns(p.source.query).indexOf(read.column)]
+				: undefined,
+		from: (variable) => ({
+			...p.source,
+			query: { ...p.source.query, body: { ...p.core, from: [below.from(variable)] } }
+		})
+	}
+}
+
+/**
+ * `statement` with every read of a delta read from the array of the rows its selection admits (`DeltaSelections`),
+ * `unnest(<selection's variable>) AS <alias>(c1, ..., cn)`: a core's conjuncts over the columns of one read in its FROM
+ * and constants alone (`overDelta`), each moved from its WHERE into the read's selection, which its part makes once for
+ * every statement that reads it (`selectionsMade`), so the read reads the rows the selection admits and no other; a read
+ * the core holds no such conjunct of reads every row, from the delta's own variable. Only a read where the WHERE meets
+ * every row it delivers takes one, so never a LEFT join's source, whose rows the join completes. A judge's read of a
+ * delta of 253,458 nodes whose rule constrains the nodes of one kind read every node, and kept that kind's: 92 statements
+ * of the giant pattern package's COMMIT read 23.3 million rows, 23.3 s (edullm's s18 at 39989d602), where each read of
+ * its kind reads that kind's rows.
+ */
+export const headed = (statement: OperandSelect, selections: DeltaSelections): OperandSelect => {
+	const moved = new Transform({
+		...identityHooks,
+		core: (core) => {
+			const sources = core.from.flatMap((item): ReadonlyArray<FromSource> =>
+				item.kind === "joins"
+					? [item.first, ...item.steps.flatMap((s) => (s.kind === "left" ? [] : [s.source]))]
+					: [item]
+			)
+			const held = new Map(
+				sources.flatMap((source) => {
+					const read = heldRead(source, selections)
+					return read === undefined ? [] : [[source, read] as const]
+				})
+			)
+			if (held.size === 0) {
+				return core
+			}
+			const conjuncts = core.where === undefined ? [] : conjunctsOf(core.where)
+			const into = new Map<FromSource, Array<Expr>>()
+			const kept = conjuncts.filter((conjunct) => {
+				for (const [source, read] of held) {
+					const over = overDelta(conjunct, read.column)
+					if (over === undefined) {
+						continue
+					}
+					into.getOrInsertComputed(source, () => []).push(over)
+					return false
+				}
+				return true
+			})
+			if (into.size === 0) {
+				return core
+			}
+			const replaced = (source: FromSource): FromSource => {
+				const read = held.get(source)
+				const conditions = into.get(source)
+				return read === undefined || conditions === undefined
+					? source
+					: read.from(selections.select(read.of, conditions).variable)
+			}
+			return {
+				...core,
+				from: core.from.map((item) =>
+					item.kind === "joins"
+						? {
+								...item,
+								first: replaced(item.first),
+								steps: mapNonEmpty(item.steps, (s) => ({ ...s, source: replaced(s.source) }))
+							}
+						: replaced(item)
+				),
+				where: isNonEmpty(kept) ? (kept.length === 1 ? headNonEmpty(kept) : and(kept)) : undefined
+			}
+		}
+	}).select(statement)
+	return new Transform({
+		...identityHooks,
+		fromSource: (source) => {
+			if (source.kind !== "cte") {
+				return source
+			}
+			const of = selections.delta(source.name)
+			return of === undefined ? source : fromArray(source, of, selections.select(of, []).variable)
+		}
+	}).select(moved)
+}
+
+/** Whether `statement` reads a delta that `headed` has not read from an array: a judged statement's defect. */
+export const readsDeltaUnheaded = (
+	statement: OperandSelect,
+	selections: DeltaSelections
+): boolean => {
+	let unheaded = false
 	visitSelect(statement, {
 		...inertVisitor,
 		fromItem: (item) => {
-			if (item.kind === "joins") {
-				visitSource(item.first)
-				for (const step of item.steps) {
-					visitSource(step.source)
-				}
-				return
-			}
-			visitSource(item)
-		},
-		expr: (e) => {
-			if (e.kind === "column" && e.table !== undefined) {
-				counts.set(referenced(e), (counts.get(referenced(e)) ?? 0) + 1)
-			}
+			const sources =
+				item.kind === "joins" ? [item.first, ...item.steps.map((s) => s.source)] : [item]
+			unheaded ||= sources.some(
+				(source) => source.kind === "cte" && selections.delta(source.name) !== undefined
+			)
 		}
 	})
-	const dead = new Map<FromSource, Set<number>>()
-	let changed = true
-	while (changed) {
-		changed = false
-		for (const p of projections) {
-			if (p.distinct) {
-				continue
-			}
-			const gone = dead.get(p.source) ?? new Set<number>()
-			for (const [at, column] of selectColumns(p.source.query).entries()) {
-				if (gone.has(at) || (counts.get(`${p.source.alias}.${column}`) ?? 0) > 0) {
-					continue
-				}
-				gone.add(at)
-				changed = true
-				const target = defined(p.reads[at], "a projection's target")
-				counts.set(referenced(target), (counts.get(referenced(target)) ?? 0) - 1)
-			}
-			dead.set(p.source, gone)
-		}
-	}
-	return dead
-}
-
-/** Each column a statement reads of each alias, but a dead projection's targets (`deadPassThrough`). */
-const liveReferences = (
-	statement: OperandSelect,
-	dead: ReadonlyMap<FromSource, ReadonlySet<number>>
-): ReadonlyMap<string, ReadonlySet<string>> => {
-	const deadReads = new Set(
-		[...dead].flatMap(([source, gone]) => {
-			if (source.kind !== "derived" || source.query.body.kind !== "core") {
-				return []
-			}
-			const targets = source.query.body.targets
-			return [...gone].flatMap((at) => {
-				const t = targets[at]?.expr
-				return t?.kind === "column" ? [t] : []
-			})
-		})
-	)
-	const live = new Map<string, Set<string>>()
-	visitSelect(statement, {
-		...inertVisitor,
-		expr: (e) => {
-			if (e.kind !== "column" || e.table === undefined || deadReads.has(e)) {
-				return
-			}
-			const columns = live.get(e.table) ?? new Set<string>()
-			columns.add(e.column)
-			live.set(e.table, columns)
-		}
-	})
-	return live
-}
-
-/** A selection a statement reads a delta under (`headed`): the side, and the conjuncts moved into its reader. */
-interface Selection {
-	readonly of: ReadDelta
-	readonly conditions: ReadonlyArray<Expr>
-}
-
-/** What tells two selections of one statement apart: the delta, then each conjunct's text, in order. */
-const selectionKey = (selection: Selection): string =>
-	[
-		selection.of.delta.name,
-		...[...new Set(selection.conditions.map(printExpr))].toSorted(compareStrings)
-	].join("\u0000")
-
-/** The place in a delta's columns of its CTE's column `c<n>` (`deltaRelation`), none for any other name. */
-const columnPlace = (column: string): number | undefined => {
-	const digits = column.startsWith("c") ? column.slice(1) : ""
-	const n = Number(digits)
-	return digits !== "" && Number.isSafeInteger(n) && String(n) === digits && n >= 1
-		? n - 1
-		: undefined
-}
-
-/**
- * What a read's CTE is renamed to while `headed` moves its selection: the mark, then the read's number. No relation
- * a statement names starts with it, since a lowering names each r<n> and a delta `__delta_...`.
- */
-const readMark = "\u0001read"
-
-/**
- * The columns `e`, a selection's conjunct over the delta's table `r1`, holds equal to constants (`deltaIndexes`): a
- * column equal to a literal, in an IN list of literals or equal to an element of a literal array; each column every
- * argument of an OR holds so; each column some argument of an AND holds so.
- */
-const fixedBy = (e: Expr): ReadonlySet<string> => {
-	const columnOf = (x: Expr): string | undefined =>
-		x.kind === "column" && x.table === "r1" ? x.column : undefined
-	const constant = (x: Expr): boolean =>
-		x.kind === "literal" || (x.kind === "cast" && constant(x.expr))
-	const fixing = (c: string | undefined, by: boolean): ReadonlySet<string> =>
-		c !== undefined && by ? new Set([c]) : new Set()
-	if (e.kind === "binary" && e.op === "=") {
-		const left = columnOf(e.left)
-		return left !== undefined
-			? fixing(left, constant(e.right))
-			: fixing(columnOf(e.right), constant(e.left))
-	}
-	if (e.kind === "inList") {
-		return fixing(columnOf(e.expr), !e.not && e.list.every(constant))
-	}
-	if (e.kind === "equalsAny") {
-		return fixing(columnOf(e.expr), constant(e.array))
-	}
-	if (e.kind === "and") {
-		return new Set(e.args.flatMap((x) => [...fixedBy(x)]))
-	}
-	if (e.kind === "or") {
-		const [first, ...rest] = mapNonEmpty(e.args, fixedBy)
-		return new Set([...first].filter((c) => rest.every((fixed) => fixed.has(c))))
-	}
-	return new Set()
-}
-
-/**
- * The columns of `of`'s delta each a B-tree of its table holds (`DeltaReads` indexesOf), the delta's `reads` the
- * selections its readers read: of each selection that holds a column a B-tree may hold equal to constants (`fixedBy`),
- * the one most of the delta's selections hold so, the first in the delta's heading among those, where another
- * selection holds it too, so its reader reads the rows it admits through that column's B-tree, which PostgreSQL plans
- * at every size of the table, the empty one never analyzed among them, since the column's equality is priced at a row
- * (selfuncs.c DEFAULT_EQ_SEL); in the heading's order. A column no other selection holds takes none: its B-tree's
- * entries, one for each row every capture of the delta writes, cost the one read it would serve as much as that
- * read's own pass over the rows, 160 ms against 62 ms of 253,458 nodes. A column a B-tree may hold is one whose datum has a byte bound its entry fits within (schema/representability.ts
- * btreeEntry), of a type its default class orders, never a vector; a selection that fixes none reads every row of the
- * delta it tests. A B-tree costs every capture of the delta its entries, which the reads it serves repay: a judge's read
- * of one kind of node through the delta's B-tree of kinds reads that kind's rows, in 0.2 ms of 253,458 nodes where
- * the read of every row took 62 ms (JUDGEDELTA, s18).
- */
-const deltaIndexes = (of: ReadDelta, reads: ReadonlyArray<DeltaRead>): ReadonlyArray<string> => {
-	const indexable = new Set<string>(
-		of.relation.heading.flatMap((f) => {
-			const datum = datumBound(f.desc)
-			return datum === undefined ||
-				datum.family === "vector" ||
-				btreeEntryBytes([{ name: f.column, datum, nullable: true }]) > btreeMaxItemSize
-				? []
-				: [f.column]
-		})
-	)
-	/** Each selection of the delta's reads once, however many projections read it. */
-	const selections = [
-		...new Map(
-			reads.map((read) => [read.selection.map(printExpr).join("\u0000"), read.selection])
-		).values()
-	]
-	const fixed = selections.map((selection) =>
-		[...new Set(selection.flatMap((e) => [...fixedBy(e)]))].filter((c) => indexable.has(c))
-	)
-	const held = new Map<string, number>()
-	for (const columns of fixed) {
-		for (const c of columns) {
-			held.set(c, (held.get(c) ?? 0) + 1)
-		}
-	}
-	const place = (c: string): number => of.delta.columns.findIndex((d) => d.name === c)
-	const sought = new Set(
-		fixed.flatMap((columns) => {
-			const [first, ...rest] = columns
-			const best =
-				first === undefined
-					? undefined
-					: rest.reduce((most, c) => {
-							const by = (held.get(c) ?? 0) - (held.get(most) ?? 0)
-							return by > 0 || (by === 0 && place(c) < place(most)) ? c : most
-						}, first)
-			return best === undefined || (held.get(best) ?? 0) < 2 ? [] : [best]
-		})
-	)
-	return [...sought].toSorted((x, y) => place(x) - place(y))
-}
-
-/** A B-tree of a delta's table (`DeltaIndex`), made by the stand-up that makes the table or that finds it without it. */
-export const deltaIndex = (delta: SessionDelta, index: DeltaIndex): PlStatement => ({
-	kind: "createSessionIndex",
-	name: index.name,
-	table: delta.name,
-	column: index.column
-})
-
-/**
- * Each read delta's readers (`DeltaReads`), by the delta's name, each read once: for each of its reads the function the
- * statements that read it so call, its rows' one SELECT, the read's projection its columns and its selection its WHERE,
- * no count of a side of news among them, which the part nets before any statement reads the delta (`netted`), returning
- * SETOF record, each call defining the columns it reads by their types and collations (headed, sql/ast.ts
- * FunctionColumns `defined`), so no type is made for a reader and a text it returns is read under pg_c_utf8, which a
- * declared result column of a function never carries:
- *
- *   RETURN QUERY SELECT r1.<projected column>, ... FROM pg_temp.<delta> AS r1 [WHERE <selection>]
- *
- * A reader returns the columns its statements read and no other: an upkeep's region of Node's units read Node's every
- * column of 253,458 rows to take each row's package, 17 times in the giant pattern package's COMMIT (s18 at 39989d602).
- *
- * It deduplicates nothing. A side of news holds each image once once it is netted (`netted` keeps one row of each image
- * it keeps), and images are distinct rows; a side of olds may hold one row twice (a row found, put back and found
- * again), and the statement reads every Delta node as the DISTINCT of the fields it delivers
- * (lower/conservative/delta/index.ts lowerDelta), which takes those alike. A DISTINCT here sorted or hashed the delta's
- * every column, toasted text among them, once for each statement that read the delta: 378 times, 9.75 million rows,
- * 118.6 s of a 540-item package's COMMIT at f87b2aaab.
- *
- * It declares no rows a call returns: PostgreSQL estimates a set-returning function's thousand, and no plan of a judge
- * statement turns on it, every read of a stored table beside the delta a step at its rows (lower/conservative/step
- * fencedRead: `LATERAL (... WHERE <column> = <delta's value> OFFSET 0)`, a correlated EXISTS over OFFSET 0), which
- * PostgreSQL runs once for each row the delta holds whatever it estimates the reader returns, and never joins to the
- * table by a hash. Declared at ten rows (DECLSTATS's measurement over an unfenced anti join of a reader and a table,
- * ~/.cache/grizzle/DECLSTATS-work/unitscale/run3.sh), and at PostgreSQL's thousand, plan-shape's 24 cases and its kept judge (LC-WRITERS'),
- * upkeep-bound's box, rule-delta-reads, stored-judged, delta-upkeep and probe-share each read every table alike: the
- * upkeep's DELETE reads its stored rows `LATERAL (... OFFSET 0)` at the delta's units, and its definition under a
- * Materialize of the same steps.
- *
- * A plan of a statement that reads the delta through it depends on the function, never on the table, so a TRUNCATE
- * the judge empties the table with once it has outgrown its page (`emptied`), a new file of the table and an
- * invalidation of every plan that reads it, leaves the judge's plans standing for the next run, and only the reader's
- * own SELECT is planned again. Its EXECUTE is revoked from PUBLIC, as each part's is: only the judge's definer runs it,
- * over a table only that definer made (`ensured`). Each is installed for `reasons`, by its function's name.
- */
-export const addReaders = (
-	b: InstallBuilder,
-	reads: DeltaReads,
-	reasons: ReadonlyArray<PhysicalReason>
-): ReadonlyMap<string, Node<"validate">> =>
-	new Map(
-		reads.all().flatMap(({ of, reads: each }) => {
-			const delta = of.delta
-			return each.map((read) => {
-				const named = reads.reader(read)
-				const reader: readonly [PlFunction, Revoke] = [
-					{
-						kind: "createFunction",
-						advice: noAdvice,
-						language: "plpgsql",
-						name: named,
-						params: [],
-						returns: {
-							setOf: types.record,
-							rows: { kind: "planner" }
-						},
-						volatility: "VOLATILE",
-						parallel: "UNSAFE",
-						security: "DEFINER",
-						body: {
-							declare: [],
-							body: [
-								{
-									kind: "returnQuery",
-									query: simpleSelect(
-										mapNonEmpty(read.projection, (at) => ({
-											expr: col(
-												"r1",
-												defined(delta.columns[at], "a projected column of the delta").name
-											),
-											alias: undefined
-										})),
-										[{ kind: "table", table: sessionTable(delta.name), alias: "r1" }],
-										isNonEmpty(read.selection) ? and(read.selection) : undefined
-									)
-								}
-							]
-						}
-					},
-					revokeOf(named, [])
-				]
-				const node = b.add(
-					{
-						kind: "lawFunction",
-						ident: b.qualified("function", read.reader),
-						ddl: reader,
-						reasons,
-						phase: "validate"
-					},
-					[b.levelNode(of.relation.name)]
-				)
-				return [named.name, node] as const
-			})
-		})
-	)
-
-/**
- * The names of the delta readers `body`, a block's statements, calls (`addReaders`), each once: the readers its block
- * depends on, and no other reader of the deltas it reads, so a block's edges are its own reads however many readers
- * other blocks' selections give its deltas.
- */
-export const readersCalled = (body: ReadonlyArray<PlStatement>): ReadonlySet<string> => {
-	const called = new Set<string>()
-	new Transform({
-		...identityHooks,
-		fromSource: (source) => {
-			if (source.kind === "function" && source.call.fn.kind === "qualified") {
-				called.add(source.call.fn.name)
-			}
-			return source
-		}
-	}).plStatements(body)
-	return called
+	return unheaded
 }
 
 /** REVOKE EXECUTE ON FUNCTION <fn>(<args>) FROM PUBLIC. */
@@ -1301,3 +1060,15 @@ export const revokeOf = (fn: ObjectName, args: ReadonlyArray<TypeRef>): Revoke =
 	on: { kind: "FUNCTION", names: [{ ...fn, args }] },
 	from: [{ kind: "PUBLIC" }]
 })
+
+/** The rows of `delta` an array of it holds, read under `alias` by its attributes' names (`unnested`). */
+export const deltaRows = (array: Expr, alias: string): FromSource => unnested(array, alias)
+
+/** The core of one row's aggregate over `from`: `provedCore("oneRow", ...)`, a statement's one row. */
+export const oneRowOf = (
+	targets: NonEmptyReadonlyArray<{ readonly expr: Expr; readonly alias: string | undefined }>,
+	from: ReadonlyArray<FromSource>,
+	where: Expr | undefined
+): SelectCore => provedCore("oneRow", targets, from, where)
+
+export { deltaStem, rowsArray }

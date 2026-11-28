@@ -524,7 +524,6 @@ const statementFeatures = [
 	"param reuse",
 	"connectives",
 	"exists",
-	"in query",
 	"scalar subquery",
 	"in list",
 	"between",
@@ -754,7 +753,6 @@ type ExprForm =
 	| "between"
 	| "in list"
 	| "exists"
-	| "in query"
 	| "arithmetic"
 	| "negate"
 	| "abs"
@@ -777,12 +775,7 @@ const formsOf = (env: Env, type: SqlColumnType, depth: number): Forms => {
 	const subqueries = env.depth < maxQueryDepth
 	switch (type) {
 		case "boolean": {
-			const nested: Forms = subqueries
-				? [
-						["exists", "exists"],
-						["in query", "in query"]
-					]
-				: []
+			const nested: Forms = subqueries ? [["exists", "exists"]] : []
 			return [
 				["connectives", "connective"],
 				["connectives", "not"],
@@ -870,15 +863,6 @@ const formOf = (d: Draw, env: Env, type: SqlColumnType, depth: number): Expr => 
 		}
 		case "exists":
 			return exists(nestedQuery(d, nested, undefined).select)
-		case "in query": {
-			const t = d.from(statementTypes)
-			return {
-				kind: "inQuery",
-				expr: sub(t),
-				query: nestedQuery(d, nested, [t]).select,
-				not: false
-			}
-		}
 		case "arithmetic":
 			return binary(d.from(["+", "-", "*"] as const), sub(type), sub(type))
 		case "negate":
@@ -2108,6 +2092,26 @@ export const columnSetOperationGen =
 		for (const feature of statementFeatures) {
 			const weight = drawn[feature]
 			if (weight !== undefined && feature !== "set operation" && !valueShaping.includes(feature)) {
+				on[feature] = weight
+			}
+		}
+		return source.draw(statementUnder(catalog, on))
+	}
+
+/**
+ * Statements that write through a data-modifying CTE's INSERT: the swarm drawn as `statementGen` draws it, then the
+ * data-modifying CTE and the INSERT turned on at full weight, the rest of the swarm as it came. `statementGen` draws the
+ * two at once seldom enough that a shift of the draws before them (the IN query's removal from the swarm) left the
+ * audit property's `cte insert` unreached: its aim (test/unit/kernel/sql.test.ts).
+ */
+export const cteInsertGen =
+	(catalog: SqlCatalog): Gen<SqlStatement> =>
+	(source) => {
+		const drawn = source.draw(swarm(statementFeatures))
+		const on: Partial<Record<StatementFeature, Presence>> = { "data-modifying cte": 3, insert: 3 }
+		for (const feature of statementFeatures) {
+			const weight = drawn[feature]
+			if (weight !== undefined && feature !== "data-modifying cte" && feature !== "insert") {
 				on[feature] = weight
 			}
 		}

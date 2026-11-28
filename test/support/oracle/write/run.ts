@@ -319,7 +319,7 @@ export const resetGroup = (
 		}
 		yield* replaceRows(
 			s.admin,
-			tablesGroup(namesOf(t.installed).storedTables, namesOf(t.installed).standUps),
+			tablesGroup(namesOf(t.installed).storedTables),
 			Arr.map(statements, (sql) => ({ sql, params: [] }))
 		)
 	})
@@ -375,21 +375,10 @@ export const programOf = (
 	changes: unknown
 ): Result.Result<CompiledProgram, CompileError> => compiledWrite(t.ctx, changes, t.ctx.claims)
 
-/**
- * A session that logs every flight it sends, and what the server answered, into `log`, but the session's stand-up of
- * the write before its first call (adapter/apply/stand-up.ts), a transaction of its own that binds a text of `standUps`,
- * which no call's flight sends.
- */
-const loggedSession = (
-	session: Session,
-	log: Array<Flight>,
-	standUps: ReadonlySet<string>
-): Session => ({
+/** A session that logs every flight it sends, and what the server answered, into `log`. */
+const loggedSession = (session: Session, log: Array<Flight>): Session => ({
 	...session,
 	send: (pipeline, onAnswer, onEnd, onCut) => {
-		if (Arr.some(pipeline, (q) => q._tag === "prepared" && standUps.has(q.text.sql))) {
-			return session.send(pipeline, onAnswer, onEnd, onCut)
-		}
 		const last = pipeline[pipeline.length - 1]
 		const ends = last?._tag === "control" && last.control.kind === "end" ? last.control.end : "kept"
 		const statements = Arr.filter(pipeline, (q) => q._tag !== "control").length
@@ -417,20 +406,12 @@ const loggedSession = (
 	}
 })
 
-/**
- * A context whose sessions log their flights into `log`: each but the session's stand-up of the write
- * (adapter/apply/stand-up.ts), a transaction of its own of the write's stand-up texts `standUps` alone, which runs once a
- * session before its first call and is no flight of an attempt.
- */
-const loggedContext = (
-	ctx: OracleContext,
-	log: Array<Flight>,
-	standUps: ReadonlySet<string>
-): OracleContext => ({
+/** A context whose sessions log their flights into `log`, each an attempt's. */
+const loggedContext = (ctx: OracleContext, log: Array<Flight>): OracleContext => ({
 	...ctx,
 	pool: {
 		...ctx.pool,
-		lease: Effect.map(ctx.pool.lease, (session) => loggedSession(session, log, standUps))
+		lease: Effect.map(ctx.pool.lease, (session) => loggedSession(session, log))
 	}
 })
 
@@ -462,14 +443,7 @@ export const applyWith = (
 	const log: Array<Flight> = []
 	/** The attempt logs its own flights and is held to the single-flight property (see the header). */
 	const once = Effect.suspend(() =>
-		Effect.result(
-			runEntry(
-				loggedContext(perturbed, log, new Set(Arr.map(entry.program.standUps, (u) => u.call.sql))),
-				entry,
-				params,
-				changes.reads
-			)
-		).pipe(
+		Effect.result(runEntry(loggedContext(perturbed, log), entry, params, changes.reads)).pipe(
 			Effect.flatMap((result) => {
 				const problems = batchProblems(log, result)
 				if (problems.length > 0) {

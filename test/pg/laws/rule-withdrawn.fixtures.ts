@@ -16,10 +16,9 @@ import { contained, derived, mutable, on, relation, schema, unit } from "#compil
 import { printStatement } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
-import { capturedDeltasOf, standUpJudge } from "#test/support/judge.ts"
+import { capturedDeltasOf } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
-import type { PgConnection } from "#test/support/pg.ts"
 import { refusalOf } from "#test/support/substrate.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 
@@ -420,14 +419,11 @@ const standingOf = (installed: Installed, session: RawSession) =>
  */
 export const runSchedule = (
 	installed: Installed,
-	admin: PgConnection,
 	session: RawSession,
 	schedule: Schedule,
 	c: Case<WithdrawnFeature>
 ) =>
 	Effect.gen(function* () {
-		yield* standUpJudge(admin, installed.installation)
-		yield* standUpJudge(session, installed.installation)
 		for (const [place, ops] of schedule.transactions.entries()) {
 			const where = `transaction ${place} of ${Formatter.format(schedule)}`
 			yield* session.begin

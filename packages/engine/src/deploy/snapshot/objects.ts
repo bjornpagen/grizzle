@@ -28,6 +28,7 @@ import {
 	type CreateRole,
 	type CreateRowType,
 	type CreateSchema,
+	type CreateJudgeLog,
 	type CreateTable,
 	type CreateView,
 	type DomainConstraint,
@@ -205,6 +206,15 @@ export type Installed<O extends AnyObject = ManifestObject> =
 			readonly kind: "founding"
 			readonly object: O
 			readonly create: CreateTable
+	  }
+	| {
+			/**
+			 * A table of the rule judge's log (physical/ddl/rules.ts addRules): its CREATE UNLOGGED TABLE and its revoke,
+			 * the arm's with its deferred trigger, which runs the judge.
+			 */
+			readonly kind: "ruleLog"
+			readonly object: O
+			readonly create: CreateJudgeLog
 	  }
 	| {
 			/** A head's table (physical/ddl/stamps.ts): its CREATE TABLE and its revoke. */
@@ -525,6 +535,13 @@ export const installed = <O extends AnyObject>(o: O): Installed<O> => {
 			return o.ddl.length === 2 && s?.kind === "createTable" && o.ddl[1]?.kind === "revoke"
 				? { kind: o.kind, object: o, create: s }
 				: malformed("a founding table's CREATE TABLE and its revoke")
+		case "ruleLog":
+			return s?.kind === "createJudgeLog" &&
+				o.ddl[1]?.kind === "revoke" &&
+				o.ddl.length === (s.log.kind === "arm" ? 3 : 2) &&
+				(s.log.kind === "deltas" || o.ddl[2]?.kind === "createConstraintTrigger")
+				? { kind: o.kind, object: o, create: s }
+				: malformed("a table of the rule judge's log, its revoke and, the arm's, its trigger")
 		case "head":
 			return o.ddl.length === 2 && s?.kind === "createTable" && o.ddl[1]?.kind === "revoke"
 				? { kind: o.kind, object: o, create: s }
@@ -551,6 +568,7 @@ export const objectTable = (o: AnyObject): ObjectName | undefined => {
 		case "ledger":
 		case "head":
 		case "founding":
+		case "ruleLog":
 			return v.create.table
 		case "storedTable":
 			return v.create.name
@@ -731,6 +749,7 @@ export const builtOver = <O extends AnyObject>(
 		case "head":
 		case "headStamp":
 		case "founding":
+		case "ruleLog":
 		case "validation":
 			return undefined
 	}
@@ -842,6 +861,7 @@ const objectParts = <O extends AnyObject>(
 		case "head":
 		case "headStamp":
 		case "founding":
+		case "ruleLog":
 		case "validation":
 			return []
 	}

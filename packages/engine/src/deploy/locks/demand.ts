@@ -18,6 +18,7 @@ import {
 	type Expr,
 	type GuardBracket,
 	type GuardScope,
+	judgeLogColumns,
 	nameKey,
 	type ObjectName,
 	type OperandSelect,
@@ -281,10 +282,6 @@ interface Names {
 	readonly arrays: Array<ObjectName>
 	readonly operators: Array<string>
 	readonly regclasses: Array<ObjectName>
-	/** The functions a body arms as a trigger of a session table it writes (PlStatement createSessionTrigger). */
-	readonly sessionTriggers: Array<ObjectName>
-	/** The session tables a body creates (PlStatement createSessionTable): each a new temporary relation. */
-	readonly sessionTables: Array<string>
 }
 
 const noNames = (): Names => ({
@@ -294,9 +291,7 @@ const noNames = (): Names => ({
 	types: [],
 	arrays: [],
 	operators: [],
-	regclasses: [],
-	sessionTriggers: [],
-	sessionTables: []
+	regclasses: []
 })
 
 /** The writes of a query's data-modifying CTEs. */
@@ -374,7 +369,7 @@ const queryNames = (query: OperandSelect): Names => {
 	return into
 }
 
-/** The writes and session objects of a PL/pgSQL block's statements, nested ones included. */
+/** The writes of a PL/pgSQL block's statements, nested ones included. */
 const plWrites = (statements: ReadonlyArray<PlStatement>, into: Names): void => {
 	for (const s of statements) {
 		switch (s.kind) {
@@ -397,21 +392,14 @@ const plWrites = (statements: ReadonlyArray<PlStatement>, into: Names): void => 
 				}
 				break
 			case "modify":
+			case "into":
 				cteWrites(s.statement, into)
-				break
-			case "createSessionTable":
-				into.sessionTables.push(s.name)
-				break
-			case "createSessionTrigger":
-				into.sessionTriggers.push(s.function)
 				break
 			case "assign":
 			case "perform":
 			case "raise":
 			case "return":
 			case "returnQuery":
-			case "createSessionIndex":
-			case "truncateSessionTable":
 				break
 		}
 	}
@@ -675,6 +663,11 @@ const learn = (catalogOf: LockCatalog, s: SqlStatement | RecordedStatement): voi
 			return
 		case "createLiveSecret":
 			catalogOf.toasted.add(relationKey(catalogOf, s.table))
+			return
+		case "createJudgeLog":
+			if (s.log.kind === "deltas") {
+				catalogOf.toasted.add(relationKey(catalogOf, s.table))
+			}
 			return
 		case "createDomain":
 			catalogOf.domains.set(named(s.name), s.base)
@@ -1116,11 +1109,8 @@ class Locks {
 				for (const w of n.writes) {
 					this.write(w)
 				}
-				for (const f of [...n.functions, ...n.sessionTriggers]) {
+				for (const f of n.functions) {
 					this.run(named(f))
-				}
-				for (const table of n.sessionTables) {
-					this.transient(`session table ${table}`, true)
 				}
 				return
 		}
@@ -1128,8 +1118,8 @@ class Locks {
 
 	/**
 	 * A relation PostgreSQL creates and drops within the transaction, which leaves its locks behind: a rewrite's
-	 * transient table (cluster.c make_new_heap) or a session table, with its row type and array type, and its TOAST
-	 * relations where its table has them. Each is a relation of its own, never one before it.
+	 * transient table (cluster.c make_new_heap), with its row type and array type, and its TOAST relations where its
+	 * table has them. Each is a relation of its own, never one before it.
 	 */
 	transient(what: string, toasted: boolean): void {
 		const n = String(++this.#transients)
@@ -1862,6 +1852,27 @@ const lockStatement = (locks: Locks, s: SqlStatement | RecordedStatement): void 
 		case "createLiveSecret":
 			locks.created(s.table, true)
 			return
+		case "createJudgeLog":
+			switch (s.log.kind) {
+				case "arm":
+					locks.created(s.table, false)
+					locks.constraint(
+						s.table,
+						{
+							kind: "primaryKey",
+							name: s.log.key,
+							columns: [{ column: judgeLogColumns.xact, withoutOverlaps: false }]
+						},
+						true
+					)
+					return
+				case "deltas":
+					locks.created(s.table, true)
+					for (const side of s.log.sides) {
+						locks.add([target("arrayType", named(side.type))])
+					}
+					return
+			}
 		case "guardBracket":
 			for (const g of locks.guarded(s)) {
 				locks.add([relation(g.table)])

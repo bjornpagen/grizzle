@@ -7,7 +7,6 @@
 
 import { Effect } from "effect"
 import type { Installed } from "#test/support/install-migrate.ts"
-import { standUpJudge } from "#test/support/judge.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { beginSerializable } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -22,7 +21,6 @@ export const storedSeed =
 		Effect.gen(function* () {
 			const substrate = yield* Substrate
 			const session = yield* substrate.session({ ...ownerSession(), label: "stored" })
-			yield* standUpJudge(session, installed.installation)
 			yield* session.begin
 			for (const sql of statements(installed)) {
 				yield* session.query(sql, [])

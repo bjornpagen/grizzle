@@ -39,7 +39,6 @@ import {
 	templateInstalledOf,
 	type Version
 } from "#test/support/install-migrate.ts"
-import { standUpSnapshot } from "#test/support/judge.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { fromEmpty, fromSnapshot, type Previous } from "#test/support/migrate/kit.ts"
 import type { RealInstallPlan } from "#test/support/oracle/install/real.ts"
@@ -331,7 +330,6 @@ export const migrated = (options: MigrateOptions) =>
 				{ snapshot: step.snapshot, folders: foldersThrough(steps, i) },
 				noFurther
 			)
-			yield* standUpSnapshot(session, step.snapshot)
 			yield* Option.match(options.observe, {
 				onNone: () => Effect.void,
 				onSome: (observe) => observe(i, session)

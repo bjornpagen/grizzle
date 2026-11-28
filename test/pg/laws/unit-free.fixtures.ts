@@ -20,8 +20,7 @@ import {
 	judgeRun,
 	type JudgeStatement,
 	judgeStatementsOf,
-	scannedWork,
-	standUpJudge
+	scannedWork
 } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -312,7 +311,7 @@ const touchedWork = (shape: UnitFreeShape, installed: Installed, session: RawSes
 					yield* session.query(sql, [])
 				}
 				return yield* judgeRun(
-					(sql) => session.values(sql, []),
+					(sql, params) => session.values(sql, params),
 					installed.installation,
 					judgeStatementsOf(installed.installation)
 				)
@@ -344,7 +343,6 @@ export const runUnitFree = (
 	c: Case<UnitFreeFeature>
 ) =>
 	Effect.gen(function* () {
-		yield* standUpJudge(session, installed.installation)
 		yield* committedJudged(session, [
 			...fixedSql(d.shape, installed),
 			...unitsSql(d.shape, installed, 2, background + 1),

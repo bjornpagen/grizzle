@@ -20,8 +20,7 @@ import {
 	judgeRun,
 	judgeStatementsOf,
 	raisedRule,
-	scannedWork,
-	standUpJudge
+	scannedWork
 } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -234,7 +233,7 @@ const writeWork = (
 			Effect.gen(function* () {
 				yield* session.query(writeSql(installed, w, open, per), [])
 				return yield* judgeRun(
-					(sql) => session.values(sql, []),
+					(sql, params) => session.values(sql, params),
 					installed.installation,
 					judgeStatementsOf(installed.installation)
 				)
@@ -278,7 +277,6 @@ export const runFlat = (
 			Arr.some(installed.installation.laws.theory.upkeeps, (u) => u.relation === "Order"),
 			"Order stored at the sitting, an upkeep of the installation's"
 		)
-		yield* standUpJudge(session, installed.installation)
 		yield* committedJudged(session, sessionsSql(installed, 0, d.few - 1, d.per))
 		const few = yield* writeWork(installed, session, d.write, d.few - 1, d.per)
 		const many = 10 * d.few
@@ -419,7 +417,6 @@ export const runFound = (
 ) =>
 	Effect.gen(function* () {
 		const names = namesOf(installed)
-		yield* standUpJudge(session, installed.installation)
 		yield* session.begin
 		const plans = yield* Effect.onError(
 			Effect.gen(function* () {
@@ -432,7 +429,7 @@ export const runFound = (
 					[]
 				)
 				return yield* judgeRun(
-					(sql) => session.values(sql, []),
+					(sql, params) => session.values(sql, params),
 					installed.installation,
 					judgeStatementsOf(installed.installation)
 				)
@@ -708,7 +705,7 @@ export const runLost = (
 					Effect.gen(function* () {
 						yield* session.query(lostSql(installed, d.write, open), [])
 						const run = yield* judgeRun(
-							(sql) => session.values(sql, []),
+							(sql, params) => session.values(sql, params),
 							installed.installation,
 							judgeStatementsOf(installed.installation)
 						)
@@ -716,7 +713,7 @@ export const runLost = (
 						const routines = new Set(
 							Arr.flatMap(run, (p) =>
 								p.statement.kind === "upkeep" && checked.has(p.statement.relation)
-									? [`${p.statement.routine.schema}.${p.statement.routine.name}`]
+									? [`${p.statement.routine.fn.schema}.${p.statement.routine.fn.name}`]
 									: []
 							)
 						)
@@ -738,7 +735,6 @@ export const runLost = (
 					(p) => p.statement.kind === "upkeep" && checked.has(p.statement.relation)
 				)
 			})
-		yield* standUpJudge(session, installed.installation)
 		yield* committedJudged(session, [
 			`INSERT INTO ${namesOf(installed).table(Cohort)} (child, cohort) VALUES (${child}, 1)`,
 			...openSessionsSql(installed, 0, d.few - 1, d.per),

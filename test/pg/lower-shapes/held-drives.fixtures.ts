@@ -311,7 +311,7 @@ const stored = (fx: Fixture<unknown>, learners: number) => {
 		units: learners,
 		load: (from: number, to: number) => {
 			const g = `generate_series(${String(from)}, ${String(to)}) AS g(child)`
-			return ownerTransaction(fx, [
+			return ownerTransaction([
 				`INSERT INTO ${columns(Session, ["child", "stage", "package", "path"])} SELECT child, stage, 1, path FROM ${g}, generate_series(0, 1) AS st(stage), ${it}`,
 				`INSERT INTO ${columns(Session, ["child", "stage", "package", "path"])} SELECT 1, 7, 2, 99 + child FROM ${g}`,
 				`INSERT INTO ${columns(Attempt, ["child", "package", "path", "n"])} SELECT child, 1, path, n FROM ${g}, ${it}, generate_series(1, 2) AS a(n)`,

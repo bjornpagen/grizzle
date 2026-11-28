@@ -20,12 +20,7 @@ import { rebuild, renamed } from "#test/support/installed.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { openFixture } from "#test/support/open-fixture.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import {
-	grizzleActor,
-	openActors,
-	standUpActor,
-	textOfValue
-} from "#test/support/schedules/actors.ts"
+import { grizzleActor, openActors, textOfValue } from "#test/support/schedules/actors.ts"
 import { every, everyRelation, exploreEnv } from "#test/support/schedules/interleave.ts"
 import {
 	type Explained,
@@ -185,7 +180,6 @@ export const runRace = (
 		const direct = yield* openActors(substrate, {
 			h: { kind: "psql", as: f.installed.world(worlds.hr) }
 		})
-		yield* standUpActor(direct.h, namesOf(f.installed).standUps)
 		yield* Effect.orDie(writeAnswerOf(hr.workload.noop.once({ params: {}, facts: {} })))
 		const g = yield* grizzleActor("g", opened.ctx.pool)
 		const env = yield* exploreEnv(substrate)

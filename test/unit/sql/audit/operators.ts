@@ -506,12 +506,9 @@ const bodiesOf = (s: PlStatement): ReadonlyArray<PlBody> => {
 		case "perform":
 		case "modify":
 		case "returnQuery":
-		case "createSessionTable":
-		case "createSessionIndex":
-		case "truncateSessionTable":
-		case "createSessionTrigger":
 		case "raise":
 		case "return":
+		case "into":
 			return []
 	}
 }
@@ -579,7 +576,6 @@ const holdsNullOnEmpty = (e: Expr): boolean => {
 		case "negate":
 		case "not":
 		case "isTrue":
-		case "inQuery":
 		case "complement":
 		case "lowerAscii":
 			return holdsNullOnEmpty(e.expr)
@@ -1184,7 +1180,7 @@ const requiredBreakTable = breakTable([
 				return table === undefined ? [] : [{ ...item, query: withDelete(item.query, table) }]
 			},
 			expr: (e) => {
-				if (e.kind !== "exists" && e.kind !== "subquery" && e.kind !== "inQuery") {
+				if (e.kind !== "exists" && e.kind !== "subquery") {
 					return []
 				}
 				const table = tableOf(e.query)

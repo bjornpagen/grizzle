@@ -203,16 +203,14 @@ const relationStatements = (
  * under native equality but spelled differently (1.0 and 1.00 in a key), or that conflict at a key, are left to
  * PostgreSQL, which refuses them with 23505 as it would any direct writer.
  *
- * Loads `facts` in one transaction on `connection`, which needs INSERT on every loaded relation: the owner. The
- * transaction calls `standUps` first, the installation's stand-ups (kernel/naming.ts Names standUps), so an insert of a
- * table the rule judge holds is judged at its COMMIT.
+ * Loads `facts` in one transaction on `connection`, which needs INSERT on every loaded relation: the owner. An insert of
+ * a table the rule judge holds is judged at its COMMIT.
  */
 export const loadFacts = (
 	connection: PgConnection,
 	plan: InstallPlan,
-	facts: FactSet,
-	standUps: ReadonlyArray<string>
+	facts: FactSet
 ): Effect.Effect<void, CompileError | SqlError | TransactionRolledBack> =>
 	Effect.flatMap(fromEngine(factStatements(plan, facts)), (statements) =>
-		transaction(connection, [...standUps, ...statements])
+		transaction(connection, statements)
 	)

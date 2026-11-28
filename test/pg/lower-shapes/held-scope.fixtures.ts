@@ -156,8 +156,7 @@ const stored = (installed: Installed, c: ScopeCase): ReadonlyArray<string> => {
 }
 
 /**
- * One case in its one transaction, which the case's end rolls back: its session's stand-ups called, as a direct writer
- * of a table the rule judge holds calls them, the stored rows, then the read of sitting 1 as a served Db of the full
+ * One case in its one transaction, which the case's end rolls back: the stored rows, then the read of sitting 1 as a served Db of the full
  * world runs it (test/support/advice.ts servedRead), under its carried advice once the plan laws
  * hold over it (servedRun), its attachment holding exactly the pairs of learner 1's sessions that share an instant. A
  * held join's CTE that names a relation of the root's own FROM is refused by PostgreSQL (42P01) before a row is read.
@@ -166,7 +165,7 @@ export const runScope = (clone: RolledBack<Generated>, c: ScopeCase, k: Case<Sco
 	Effect.gen(function* () {
 		const { connection } = clone
 		const installed = clone.value.installed
-		for (const sql of [...namesOf(installed).standUps, ...stored(installed, c)]) {
+		for (const sql of stored(installed, c)) {
 			yield* connection.query(sql, [])
 		}
 		const session: BenchSession = { values: connection.queryValues }

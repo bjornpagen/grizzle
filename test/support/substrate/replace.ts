@@ -11,13 +11,11 @@ import { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 
 /**
  * The tables one reset empties together (schema-qualified, quoted): a whole group, built only by installationGroup or
- * tablesGroup, and emptied only all of it at once, by the one reset (madeFresh: replaceRows, clearRows); and the calls of the
- * stand-ups of the installation that holds them, which the reset's backend sends before its inserts, so an insert of a
- * table the rule judge holds is judged at its COMMIT (kernel/naming.ts Names standUps).
+ * tablesGroup, and emptied only all of it at once, by the one reset (madeFresh: replaceRows, clearRows); an insert of a
+ * table the rule judge holds is judged at its COMMIT.
  */
 export type ResetGroup = {
 	readonly tables: ReadonlyArray<string>
-	readonly standUps: ReadonlyArray<string>
 } & Brand.Brand<"ResetGroup">
 const ResetGroup = Brand.nominal<ResetGroup>()
 
@@ -27,17 +25,13 @@ const ResetGroup = Brand.nominal<ResetGroup>()
  * relations alone stores nothing, and its group empties nothing.
  */
 export const installationGroup = (names: Names): ResetGroup =>
-	ResetGroup({ tables: names.storedTables, standUps: names.standUps })
+	ResetGroup({ tables: names.storedTables })
 
 /**
  * Every table of `tables`, which a test creates by hand rather than installs, or an installation's stored tables
- * (kernel/naming.ts Names storedTables): the write oracle's every group of a generated schema; and `standUps`, the calls
- * of the stand-ups of the installation that holds them (kernel/naming.ts Names standUps), none for tables made by hand.
+ * (kernel/naming.ts Names storedTables): the write oracle's every group of a generated schema.
  */
-export const tablesGroup = (
-	tables: ReadonlyArray<string>,
-	standUps: ReadonlyArray<string>
-): ResetGroup => ResetGroup({ tables, standUps })
+export const tablesGroup = (tables: ReadonlyArray<string>): ResetGroup => ResetGroup({ tables })
 
 /**
  * The fill of every place's head of `installation` from its relation as it stands (physical/ddl/stamps.ts headFill),
@@ -193,13 +187,7 @@ export const replaceRows = (
 ): Effect.Effect<void, SqlError | TransactionRolledBack> =>
 	Effect.scoped(
 		Effect.flatMap(connection.pin, (pinned) =>
-			Effect.andThen(
-				emptied(pinned, group),
-				Effect.andThen(
-					Effect.forEach(group.standUps, (sql) => pinned.query(sql, []), { discard: true }),
-					insertedOn(pinned, statements)
-				)
-			)
+			Effect.andThen(emptied(pinned, group), insertedOn(pinned, statements))
 		)
 	)
 

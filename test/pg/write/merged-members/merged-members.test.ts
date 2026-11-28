@@ -89,7 +89,7 @@ export const aStratumsSourcesOfOneOperationOnOneRelationAreOneActionSoAStratumTh
 							const column = (r: typeof Moment | typeof Budget | typeof Old, field: string) =>
 								quoteIdent(names.columnIdent(r, field))
 							for (const [child, at] of storedMoments) {
-								yield* ownerTransaction(fx, [
+								yield* ownerTransaction([
 									`SELECT FROM ${names.stampCall(Moment, "at", [`${child}`], at)}`,
 									`INSERT INTO ${names.table(Moment)} (${column(Moment, "child")}, ${column(Moment, "at")}) VALUES (${child}, ${at})`
 								])

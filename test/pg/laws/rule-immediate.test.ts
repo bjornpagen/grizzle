@@ -18,7 +18,6 @@ import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { immediateGen, runImmediate } from "#test/pg/laws/rule-immediate.fixtures.ts"
 import { judgeTemplates } from "#test/pg/laws/rule-whole.fixtures.ts"
-import { standUpJudge } from "#test/support/judge.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -42,7 +41,6 @@ export const everyWriteIsJudgedInItsTransactionAtItsStatementAfterSetConstraints
 			Effect.gen(function* () {
 				const judge = yield* judges[`whole ${k.shape}`]
 				const session = yield* judge.substrate.session({ ...ownerSession(), label: "writer" })
-				yield* standUpJudge(session, judge.value.installation)
 				yield* runImmediate(judge.value, session, k, c)
 			}).pipe(Effect.scoped),
 		oracle: {
@@ -54,24 +52,23 @@ export const everyWriteIsJudgedInItsTransactionAtItsStatementAfterSetConstraints
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
 				original:
-					"\t): ReadonlyArray<PlStatement> => [...required, ...writes, ...arming(sentinel, deltas)]",
+					'source: { kind: "values", rows: [[thisTransaction, variable(captureNames.row)]] }',
 				replacement:
-					"\t): ReadonlyArray<PlStatement> => [...required, ...arming(sentinel, deltas), ...writes]",
-				why: "The capture inserts the sentinel's row before its rows, as before, so after SET CONSTRAINTS ALL IMMEDIATE the judge fires inside the capture over a written set naming no delta that holds a row yet: a breaking insert runs past its statement and commits, and its rows stand in the deltas after COMMIT."
+					'source: { kind: "values", rows: [[thisTransaction, variable(captureNames.head)]] }',
+				why: "A capture leaves the arm's head where it read it, so the judge its arm row fires claims none of the statement's rows: a breaking insert runs past its statement and commits."
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original:
-					'\t\t\t),\n\t\t\t...(part.pass.kind === "rules" ? part.deltas.map(emptiedWhereWritten) : [])\n',
-				replacement: "\t\t\t)\n",
-				why: "No part deletes the rows it read, so a lawful document's rows stand in the deltas past its COMMIT."
-			},
-			{
-				file: "packages/engine/src/physical/ddl/rules.ts",
-				original:
-					'\t\t{ kind: "createSessionTrigger", name: sentinel, table: sentinel, function: judge }\n',
+				original: "\t\t\t\t\tarmDeleted(log),\n",
 				replacement: "",
-				why: "The stand-up makes the sentinel without its trigger, which every site reads as standing from its pg_class row alone: no judge fires, so a breaking insert commits, deferred and immediate alike."
+				why: "The judge leaves the transaction's arm row, so a later statement's capture finds it standing and inserts none: no judge fires for that statement, and a breaking insert after a lawful one commits."
+			},
+			{
+				file: "packages/engine/src/physical/ddl/rules.ts",
+				original:
+					'\t\t\t\t\t{\n\t\t\t\t\t\tkind: "createConstraintTrigger",\n\t\t\t\t\t\tname: identifierOf(identity.ruleJudge()),\n\t\t\t\t\t\ttable: log.arm,\n\t\t\t\t\t\tevents: [{ kind: "insert" }],\n\t\t\t\t\t\tfunction: judge\n\t\t\t\t\t}\n',
+				replacement: "",
+				why: "The arm stands without its trigger: no judge fires, so a breaking insert commits, deferred and immediate alike."
 			}
 		]
 	})

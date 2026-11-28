@@ -21,7 +21,6 @@ import {
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed } from "#test/support/install-migrate.ts"
 import { fullWorldTemplate } from "#test/support/installed.ts"
-import { standUpJudge } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 
@@ -195,7 +194,6 @@ export const runKeyedReach = (
 					{ discard: true }
 				)
 		})
-		yield* standUpJudge(connection, installed.installation)
 		yield* standIn(session, storing(1, c.children), c.state)
 		const read = yield* servedRead(
 			installed,

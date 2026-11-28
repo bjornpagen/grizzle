@@ -71,6 +71,7 @@ const createdIdents = (s: SqlStatement): ReadonlyArray<string> => {
 			return [namedIdent("schema", s.name)]
 		case "createTable":
 		case "createLiveSecret":
+		case "createJudgeLog":
 			return [qualifiedIdent("table", s.table.schema, s.table.name)]
 		case "createStoredTable":
 			return [qualifiedIdent("table", s.name.schema, s.name.name)]

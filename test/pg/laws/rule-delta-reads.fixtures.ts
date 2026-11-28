@@ -3,20 +3,15 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
-import { type PlanNode, planNodes } from "#bench/harness/explain.ts"
-import { temporarySchema } from "#compiler/core/temporary.ts"
-import { quoteIdent, quoteString } from "#compiler/core/text.ts"
+import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { int4 } from "#compiler/public/fields.ts"
 import { query, type Rule, v } from "#compiler/public/query.ts"
 import { check, derived, relation, schema, unit } from "#compiler/public/schema.ts"
-import { objectName } from "#compiler/sql/build.ts"
-import { printObjectName } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { pgCluster } from "#test/support/env.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
-import { readersOf, standUpRelations, upkeepPlans } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -30,6 +25,9 @@ const T = relation("T", { doc: int4, at: int4, kind: int4, b: int4 }, ["doc", "a
 const U = relation("U", { doc: int4, at: int4, kind: int4 }, ["doc", "at"])
 
 const Base = schema("delta_selection", [T, U], [unit("Document", { doc: int4 })])
+
+/** T and U, which rule-log.fixtures.ts writes through. */
+export const selectionRelations = [T, U] as const
 
 /** The kinds a case writes: each judged kind and two no rule reads. */
 const kinds = [1, 2, 3, 4, 5] as const
@@ -130,87 +128,35 @@ const rowsOf = (drawn: Writes, kind: Kind): number => drawn.rows[kinds.indexOf(k
 const tracked = ["compute_query_id = 'on'", "pg_stat_statements.track = 'all'"] as const
 
 /**
- * The calls and the rows of every statement of `delta`'s readers the cluster's statement statistics count in the case's
- * database: each reader's one SELECT of the delta, run inside it, its text the delta's table read as `r1`.
+ * The passes over the rows of the delta `delta` the cluster's statement statistics count in the case's database: the
+ * calls of every statement of the judge that unnests an array of the delta's rows and names the delta, by its variable
+ * or its row type (a FOR's query, which PL/pgSQL hands the planner with its variables as placeholders, names it by the
+ * type of the rows it aggregates), each one pass over every row it holds: the judge's netting of it, its borrow of the
+ * units the transaction wrote, and its part's making of its selections, never its claim, the one DELETE among them,
+ * which reads the log; and the calls of the grouped pass among them, the one that groups and calls no borrow
+ * (physical/ddl/deltas.ts selectionsMade).
  */
-const readerCounts = (statistics: RawSession, database: string, delta: string) =>
+const passes = (statistics: RawSession, database: string, delta: string) =>
 	Effect.map(
 		statistics.values(
-			"SELECT COALESCE(sum(s.calls), 0)::int8, COALESCE(sum(s.rows), 0)::int8 FROM public.pg_stat_statements AS s JOIN pg_catalog.pg_database AS d ON d.oid = s.dbid WHERE d.datname = $1::text AND NOT s.toplevel AND s.query LIKE 'SELECT \"r1\".%' AND pg_catalog.strpos(s.query, $2::text) > 0",
-			[database, `${printObjectName(objectName(temporarySchema, delta))} AS "r1"`]
+			"SELECT COALESCE(sum(s.calls), 0)::int8, COALESCE(sum(s.calls) FILTER (WHERE pg_catalog.strpos(s.query, 'GROUP BY') > 0 AND pg_catalog.strpos(s.query, '__borrow') = 0), 0)::int8 FROM public.pg_stat_statements AS s JOIN pg_catalog.pg_database AS d ON d.oid = s.dbid WHERE d.datname = $1::text AND pg_catalog.strpos(s.query, $2::text) > 0 AND pg_catalog.strpos(s.query, '\"pg_catalog\".\"unnest\"(') > 0 AND pg_catalog.strpos(s.query, 'DELETE FROM') = 0",
+			[database, quoteIdent(delta)]
 		),
-		(rows) => ({ calls: Number(rows[0]?.[0]), rows: Number(rows[0]?.[1]) })
+		(rows) => ({ calls: Number(rows[0]?.[0]), grouped: Number(rows[0]?.[1]) })
 	)
 
-/**
- * Judges Kept's upkeep's reads of U's deltas over the case's write, its statements explained over the deltas the
- * captures wrote (support/judge.ts upkeepPlans): each statement calls each reader of U's deltas once at most, and each
- * call that runs returns, of U's news, its rows of the kept kind, the news Kept's definition can match, and of its olds,
- * none, the write removing no row; the INSERT, which reads the region its definition is read at, calls the reader of
- * U's news. So an upkeep whose selection holds no written row reads none, however many rows of other kinds U holds.
- */
-const upkeepReads = (
-	installed: Installed,
-	drawn: Writes,
-	plans: ReadonlyArray<PlanNode>,
-	c: Case<DeltaReadsFeature>
-): void => {
-	const where = Formatter.format(drawn)
-	const readers = readersOf(installed.installation)
-	const matched = rowsOf(drawn, keptKind)
-	const written = Arr.reduce(kinds, 0, (sum, k) => sum + rowsOf(drawn, k))
-	if (written > matched) {
-		c.note(
-			matched > 0
-				? "an upkeep whose selection holds rows beside rows it does not select"
-				: "an upkeep whose selection holds no written row"
-		)
-	}
-	assert.equal(plans.length, 2, `${where}: Kept's upkeep is a DELETE and an INSERT`)
-	for (const [at, plan] of plans.entries()) {
-		const statement = at === 0 ? "DELETE" : "INSERT"
-		const calls = Arr.flatMap([...planNodes(plan)], (n) => {
-			const reader = Option.getOrUndefined(n.functionName)
-			const delta = reader === undefined ? undefined : readers.get(reader)
-			return n.nodeType === "Function Scan" && reader !== undefined && delta !== undefined
-				? [{ reader, delta, node: n }]
-				: []
-		})
-		for (const { reader, delta, node } of calls) {
-			assert.ok(
-				Arr.filter(calls, (other) => other.reader === reader).length === 1 && node.actualLoops <= 1,
-				`${where}: the upkeep's ${statement} calls ${reader} once at most, not at ${Arr.filter(calls, (other) => other.reader === reader).length} scans of ${node.actualLoops} loops`
-			)
-			const news = Str.startsWith("__delta_news_u_")(delta)
-			const selected = node.actualLoops === 0 ? 0 : news ? matched : 0
-			assert.equal(
-				node.actualRows * node.actualLoops,
-				selected,
-				`${where}: the upkeep's ${statement} reads of ${delta} through ${reader} its ${selected} rows of the kept kind, of the ${news ? written : 0} it holds`
-			)
-		}
-		if (statement === "INSERT" && written > 0) {
-			assert.ok(
-				Arr.some(
-					calls,
-					({ delta, node }) => Str.startsWith("__delta_news_u_")(delta) && node.actualLoops === 1
-				),
-				`${where}: the upkeep's INSERT reads U's news, its region`
-			)
-		}
-	}
-}
+/** The rows of `relation`'s table, the session reading it. */
+const rowsIn = (session: RawSession, table: string) =>
+	Effect.map(session.values(`SELECT count(*) FROM ${table}`, []), (rows) => Number(rows[0]?.[0]))
 
 /**
  * One case on a fresh clone: its database counting every statement's calls and rows, functions' included; one session
- * stands T and U up, writes the case's rows in one transaction, its lawful rows into U too, and runs the judge by SET
- * CONSTRAINTS ALL IMMEDIATE. A breaking row of a judged kind is refused, one of a kind no rule reads committed. Over a
- * lawful write, T's delta's readers return, at each call, the rows of one judged kind, never the whole delta: the rows
- * they return sum to at least every judged kind's rows, which the judge reads, and to at most their calls times the
- * rows of the kind the case writes most of; and each reads its rows through the delta's B-tree, so the delta's tuples
- * an index fetched are the rows they returned. Kept's upkeep, explained before the judge runs (`upkeepReads`), calls
- * each reader of U's deltas once at most in each of its statements, each call returning U's rows of the kept kind, the
- * news its definition can match: none where the write holds none, however many rows of other kinds U holds.
+ * writes the case's rows of T in one transaction, its lawful rows into U too, and runs the judge by SET CONSTRAINTS ALL
+ * IMMEDIATE. A breaking row of a judged kind is refused, one of a kind no rule reads committed. Over a lawful write the
+ * judge passes over T's delta three times at most, its netting, its borrow of the units the write wrote, and one pass
+ * grouped by kind that makes the three rules' selections, however many rules select its rows; and each selection holds exactly its kind's rows: each of Kind1,
+ * Kind2 and Kind3 holds a row of each row of its kind the write put, and Kept, whose upkeep reads U's news under the
+ * selection of the kept kind, a row of each of U's rows of that kind, none of another's.
  */
 export const runWrites = (
 	selection: SubstrateCase<Installed>,
@@ -229,14 +175,17 @@ export const runWrites = (
 			label: "statement statistics"
 		})
 		const session = yield* substrate.session({ ...ownerSession(), label: "delta reads" })
-		const deltas = Arr.dedupe([...readersOf(installed.installation).values()])
-		const [delta, ...others] = Arr.filter(deltas, Str.startsWith("__delta_news_t_"))
+		const sides = Arr.flatMap(installed.installation.statements, (st) =>
+			st.kind === "createJudgeLog" && st.log.kind === "deltas"
+				? Arr.map(st.log.sides, (side) => side.column)
+				: []
+		)
+		const [delta, ...others] = Arr.filter(sides, Str.startsWith("__delta_news_t_"))
 		assert.ok(
 			delta !== undefined && others.length === 0,
-			"the judge reads T's side of news through its readers"
+			"the judge's log holds T's side of news, which its rules read"
 		)
-		yield* standUpRelations(session, installed.installation, ["T", "U"])
-		const table = namesOf(installed).table(T)
+		const names = namesOf(installed)
 		const values = Arr.flatMap(kinds, (kind) =>
 			Array.from(
 				{ length: rowsOf(drawn, kind) },
@@ -247,31 +196,24 @@ export const runWrites = (
 			Array.from({ length: rowsOf(drawn, kind) }, (_, i) => `(1, ${kind * 1000 + i}, ${kind})`)
 		)
 		const where = Formatter.format(drawn)
-		const before = yield* readerCounts(statistics, substrate.database, delta)
+		const before = yield* passes(statistics, substrate.database, delta)
 		yield* session.begin
 		if (Arr.isReadonlyArrayNonEmpty(values)) {
 			yield* session.query(
-				`INSERT INTO ${table} (doc, at, kind, b) VALUES ${Arr.join(values, ", ")}`,
+				`INSERT INTO ${names.table(T)} (doc, at, kind, b) VALUES ${Arr.join(values, ", ")}`,
 				[]
 			)
 			yield* session.query(
-				`INSERT INTO ${namesOf(installed).table(U)} (doc, at, kind) VALUES ${Arr.join(uValues, ", ")}`,
+				`INSERT INTO ${names.table(U)} (doc, at, kind) VALUES ${Arr.join(uValues, ", ")}`,
 				[]
 			)
 		}
 		if (drawn.breaking !== undefined) {
 			yield* session.query(
-				`INSERT INTO ${table} (doc, at, kind, b) VALUES (1, ${drawn.breaking * 1000 + rowsAtMost}, ${drawn.breaking}, -1)`,
+				`INSERT INTO ${names.table(T)} (doc, at, kind, b) VALUES (1, ${drawn.breaking * 1000 + rowsAtMost}, ${drawn.breaking}, -1)`,
 				[]
 			)
 		}
-		const plans = yield* upkeepPlans(
-			(sql) => session.query(sql, []),
-			(sql) => session.values(sql, []),
-			installed.installation,
-			"Kept"
-		)
-		upkeepReads(installed, drawn, plans, c)
 		const judged = drawn.breaking !== undefined && Arr.contains(judgedKinds, drawn.breaking)
 		const run = yield* Effect.result(session.query("SET CONSTRAINTS ALL IMMEDIATE", []))
 		if (judged) {
@@ -287,17 +229,14 @@ export const runWrites = (
 		if (drawn.breaking !== undefined) {
 			c.note("a breaking row of a kind no rule reads committed")
 		}
-		const [[fetched] = []] = yield* session.values(
-			`SELECT COALESCE(idx_tup_fetch, 0)::int8 FROM pg_catalog.pg_stat_xact_all_tables WHERE relid = pg_catalog.to_regclass(${quoteString(printObjectName(objectName(temporarySchema, delta)))})`,
-			[]
-		)
 		yield* session.commit
-		const after = yield* readerCounts(statistics, substrate.database, delta)
+		const after = yield* passes(statistics, substrate.database, delta)
 		const calls = after.calls - before.calls
-		const returned = after.rows - before.rows
+		const grouped = after.grouped - before.grouped
 		const judgedRows = Arr.map(judgedKinds, (k) => rowsOf(drawn, k))
-		const most = Arr.reduce(judgedRows, 0, (best, n) => Math.max(best, n))
-		const every = Arr.reduce(judgedRows, 0, (sum, n) => sum + n)
+		const tRows =
+			Arr.reduce(kinds, 0, (sum, k) => sum + rowsOf(drawn, k)) +
+			(drawn.breaking === undefined ? 0 : 1)
 		if (rowsOf(drawn, 4) + rowsOf(drawn, 5) > 0) {
 			c.note("rows of a kind no rule reads in the delta")
 		}
@@ -308,16 +247,39 @@ export const runWrites = (
 			c.note("a judged kind holding no row")
 		}
 		assert.ok(
-			returned >= every,
-			`${where}: T's delta's readers return every judged kind's rows, ${every}, not ${returned}`
-		)
-		assert.ok(
-			returned <= calls * most,
-			`${where}: each of the ${calls} calls of T's delta's readers returns one judged kind's rows, at most ${most}, so ${returned} rows at most ${calls * most}`
+			calls <= 3,
+			`${where}: the judge passes over T's delta ${calls} times, where its netting, its borrow of the units it wrote and one grouped pass are 3 at most`
 		)
 		assert.equal(
-			Number(fetched),
-			returned,
-			`${where}: each reader reads the rows it returns through the delta's B-tree, its index fetching ${returned} of T's delta's tuples, not ${Number(fetched)}`
+			grouped,
+			tRows > 0 ? 1 : 0,
+			`${where}: one grouped pass makes the three rules' selections of T's delta`
+		)
+		for (const [k, stored] of [
+			[1, one],
+			[2, two],
+			[3, three]
+		] as const) {
+			const held = yield* rowsIn(session, names.table(stored))
+			assert.equal(
+				held,
+				rowsOf(drawn, k),
+				`${where}: Kind${k} holds a row of each of T's rows of kind ${k} the write put, its selection's rows`
+			)
+		}
+		const matched = rowsOf(drawn, keptKind)
+		const written = Arr.reduce(kinds, 0, (sum, k) => sum + rowsOf(drawn, k))
+		if (written > matched) {
+			c.note(
+				matched > 0
+					? "an upkeep whose selection holds rows beside rows it does not select"
+					: "an upkeep whose selection holds no written row"
+			)
+		}
+		const keptRows = yield* rowsIn(session, names.table(kept))
+		assert.equal(
+			keptRows,
+			matched,
+			`${where}: Kept holds a row of each of U's rows of the kept kind, its selection's rows, of the ${written} U holds`
 		)
 	}).pipe(Effect.scoped)

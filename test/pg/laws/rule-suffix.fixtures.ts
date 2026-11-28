@@ -16,7 +16,7 @@ import { param, tableCol, types } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
 import { suffixRange } from "#compiler/sql/suffix.ts"
 import { lawsHold, routineScopes } from "#test/support/advice.ts"
-import { judgedDeltaReadsOf, judgedPlans, scannedWork, standUpJudge } from "#test/support/judge.ts"
+import { judgedDeltaReadsOf, judgedPlans, scannedWork } from "#test/support/judge.ts"
 import { type Seat, type SeatTemplate, seatTemplate } from "#test/support/pg/fin/installed.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -114,14 +114,13 @@ const footprintOf = (seat: Seat, key: number) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const session = yield* substrate.session({ ...ownerSession(), label: "rule suffix locality" })
-		yield* standUpJudge(session, seat.installed.installation)
 		const reads = Arr.filter(judgedDeltaReadsOf(seat.installed.installation), (r) =>
 			Arr.some([...r.deltas], Str.startsWith("__delta_news_forbidden_"))
 		)
 		assert.ok(reads.length > 0, "a judged statement reads Forbidden's side of news")
 		const probes = Arr.map(reads, (r) => r.statement)
 		/** The routines the probes are judged in, whose plans the laws hold over (Law 2: the range an index condition). */
-		const routines = new Set(Arr.map(reads, (r) => `${r.routine.schema}.${r.routine.name}`))
+		const routines = new Set(Arr.map(reads, (r) => `${r.routine.fn.schema}.${r.routine.fn.name}`))
 		const scopes = Arr.filter(
 			routineScopes(seat.installed.installation),
 			(scope) =>
@@ -136,7 +135,7 @@ const footprintOf = (seat: Seat, key: number) =>
 					[]
 				)
 				const plans = yield* judgedPlans(
-					(sql) => session.values(sql, []),
+					(sql, params) => session.values(sql, params),
 					seat.installed.installation,
 					probes
 				)

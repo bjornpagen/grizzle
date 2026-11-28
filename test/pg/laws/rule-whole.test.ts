@@ -56,7 +56,6 @@ import {
 	wholeFeatures,
 	wholeSpace
 } from "#test/pg/laws/rule-whole.fixtures.ts"
-import { standUpJudge } from "#test/support/judge.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -74,9 +73,7 @@ export const aUnitLocalRuleIsJudgedWholeOverTheUnitsATransactionWroteAsItsWholeC
 				const w = yield* judges[`whole ${schedule.shape}`]
 				const p = yield* judges[`probed ${schedule.shape}`]
 				const ws = yield* w.substrate.session({ ...ownerSession(), label: "whole judge" })
-				yield* standUpJudge(ws, w.value.installation)
 				const ps = yield* p.substrate.session({ ...ownerSession(), label: "probed judge" })
-				yield* standUpJudge(ps, p.value.installation)
 				yield* runEquivalence(
 					{ installed: w.value, session: ws },
 					{ installed: p.value, session: ps },
@@ -211,9 +208,7 @@ export const twoTransactionsEachWritingAUnitOfItsOwnBothCommitAndNeithersJudgeLo
 			Effect.gen(function* () {
 				const w = yield* templates[drawn.shape]
 				const first = yield* w.substrate.session({ ...ownerSession(), label: "first unit" })
-				yield* standUpJudge(first, w.value.installation)
 				const second = yield* w.substrate.session({ ...ownerSession(), label: "second unit" })
-				yield* standUpJudge(second, w.value.installation)
 				yield* runCommute(w.value, first, second, drawn, c)
 			}).pipe(Effect.scoped),
 		oracle: {
@@ -262,10 +257,10 @@ export const aWholeRuleOverAContainedRelationsJoinReadsItOncePerRowItGainedNever
 			},
 			{
 				file: "test/support/judge.ts",
-				original: "\t\tconst temporary = yield* values(",
+				original: "\t\tconst plans: Array<JudgePlan<S>> = []\n",
 				replacement:
-					'\t\tyield* values("SET CONSTRAINTS ALL IMMEDIATE")\n\t\tconst temporary = yield* values(',
-				why: "The judge's statements explained after the judge has run, as every property explained them after SET CONSTRAINTS ALL IMMEDIATE until e8de84026 made each part delete the delta rows it reads: every scan of Tag reads empty deltas, 0 loops, so the bound held over no rows whatever Marks's region read; the measurement is refused, no judged statement reading a delta row."
+					'\t\tyield* values("SET CONSTRAINTS ALL IMMEDIATE", [])\n\t\tconst plans: Array<JudgePlan<S>> = []\n',
+				why: "The judge's statements explained after the judge has run, as every property explained them after SET CONSTRAINTS ALL IMMEDIATE until e8de84026 made the judge consume the rows it reads: its claim emptied the log, so every statement's arguments hold no row and the bound held over none whatever Marks's region read; the measurement is refused, no judged statement reading a delta row."
 			}
 		]
 	})

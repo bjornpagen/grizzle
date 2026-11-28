@@ -230,11 +230,10 @@ type Source =
 			readonly columns: Arr.NonEmptyReadonlyArray<Column>
 	  }
 
-/** A filter: EXISTS, IN, NOT, or a call of a schema function, one the names know reads no table, or one that may read
+/** A filter: EXISTS, NOT, or a call of a schema function, one the names know reads no table, or one that may read
  * tables. */
 type Filter =
 	| { readonly kind: "exists"; readonly not: boolean; readonly query: QuerySpec }
-	| { readonly kind: "in"; readonly not: boolean; readonly query: QuerySpec }
 	| { readonly kind: "not"; readonly inner: Filter }
 	| { readonly kind: "call"; readonly fn: "noTable" | "readsTables" }
 
@@ -566,7 +565,6 @@ const aggregateGen: Gen<Aggregate> = weighted<Aggregate>([
 const filterGen = (depth: number): Gen<Filter> =>
 	weighted<Filter>([
 		[3, (s) => ({ kind: "exists", not: s.draw(boolean), query: s.draw(queryGen(depth)) })],
-		[1, (s) => ({ kind: "in", not: s.draw(boolean), query: s.draw(queryGen(depth)) })],
 		[1, (s) => ({ kind: "not", inner: s.draw(filterGen(depth)) })],
 		[
 			1,
@@ -1509,13 +1507,6 @@ const filterExpr = (
 	switch (f.kind) {
 		case "exists":
 			return { kind: "exists", query: buildOperand(f.query, `${path}q`, scope, env), not: f.not }
-		case "in":
-			return {
-				kind: "inQuery",
-				expr: column,
-				query: buildOperand(f.query, `${path}q`, scope, env),
-				not: f.not
-			}
 		case "not":
 			return not(filterExpr(f.inner, `${path}n`, scope, env, column))
 		case "call":
@@ -2774,8 +2765,8 @@ class Expect {
 		}
 	}
 
-	/** A filter in a condition: EXISTS probes and keeps its polarity, NOT EXISTS flips it, IN keeps it and NOT IN flips
-	 * it, NOT flips it, and a schema function the names do not clear is a read either way. */
+	/** A filter in a condition: EXISTS probes and keeps its polarity, NOT EXISTS flips it, NOT flips it, and a schema
+	 * function the names do not clear is a read either way. */
 	filter(f: Filter, path: string, place: Place, env: Env): void {
 		switch (f.kind) {
 			case "exists":
@@ -2785,18 +2776,6 @@ class Expect {
 					this.enter(place, {
 						...place,
 						probe: true,
-						polarity: f.not ? flip(place.polarity) : place.polarity
-					}),
-					env
-				)
-				return
-			case "in":
-				this.query(
-					f.query,
-					`${path}q`,
-					this.enter(place, {
-						...place,
-						probe: false,
 						polarity: f.not ? flip(place.polarity) : place.polarity
 					}),
 					env

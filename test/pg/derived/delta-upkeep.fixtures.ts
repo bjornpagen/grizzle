@@ -23,7 +23,6 @@ import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { mutableBuilder, unitBuilder } from "#compiler/schema/statements.ts"
 import { objectName } from "#compiler/sql/build.ts"
 import { installDerived, OracleFixtureFailed, snapshotOf } from "#test/pg/derived/oracle/harness.ts"
-import { standUpRelations } from "#test/support/judge.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
@@ -584,17 +583,6 @@ export const deltaRun = (
 		const s = yield* Substrate
 		const built = schemaOf(c, "delta_upkeep")
 		const opened = yield* installDerived(built.top, {}, "delta")
-		/** The holders an upkeep reads, whose captures the judge stands up before a write: no other holder has any. */
-		const read = new Set(
-			Arr.flatMap(opened.installed.installation.laws.theory.upkeeps, (u) =>
-				Arr.map(u.reads, (r) => r.relation)
-			)
-		)
-		yield* standUpRelations(
-			s.admin,
-			opened.installed.installation,
-			Arr.filter(holderNames, (h) => read.has(h))
-		)
 		const stored = (name: string) =>
 			opened.analysis.schema.canonicalNamed(name)?.holding.kind === "stored"
 		const upkeeps = opened.installed.installation.laws.theory.upkeeps
@@ -642,16 +630,12 @@ export const deltaRun = (
 		 * its canonical relation's name: a live one is its definition, read through its view. */
 		const kept = Arr.filter(c.above === "imported" ? [pairs, ...built.names] : built.names, stored)
 		const installation = opened.installed.installation
-		/** A data step's bracket (dataStepBracket): the judge's stand-ups of the holders it holds, and, the holders
-		 * closed, every guard of the installation's schema dropped before the step's statements and created again after,
+		/** A data step's bracket (dataStepBracket): the holders closed, every guard of the installation's schema dropped
+		 * before the step's statements and created again after,
 		 * the installation's re-check run before (physical/ddl/recheck.ts), which makes each stored relation over a closed
 		 * holder its definition's rows again. */
 		const bracket = dataStepBracket(
 			c.open ? [] : [installation.names.schema],
-			Arr.map(
-				Arr.filter(holderNames, (h) => read.has(h)),
-				(h) => objectName(installation.names.schema, identifierOf(identity.ruleStandUp(h)))
-			),
 			installation.recheck === undefined
 				? []
 				: [objectName(installation.names.schema, identifierOf(identity.dataStepRecheck()))]

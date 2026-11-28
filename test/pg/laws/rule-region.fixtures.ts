@@ -20,7 +20,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
-import { judgedPlans, judgedStatementsOf, standUpJudge } from "#test/support/judge.ts"
+import { judgedPlans, judgedStatementsOf } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -121,7 +121,7 @@ export type RepeatsFeature = "a probed rule's region" | "a whole rule's region"
 const workOf = (installed: Installed, connection: PgConnection) =>
 	Effect.map(
 		judgedPlans(
-			(sql) => connection.queryValues(sql, []),
+			(sql, params) => connection.queryValues(sql, params),
 			installed.installation,
 			judgedStatementsOf(installed.installation)
 		),
@@ -164,7 +164,6 @@ export const runRepeats = (
 				(rule.rule.kind === "whole") === (drawn.judged === "whole"),
 			`the ${drawn.judged} judgment's one rule ${drawn.judged === "whole" ? "judged whole" : "probed"}`
 		)
-		yield* standUpJudge(connection, installed.installation)
 		for (const sql of written(installed, 0, drawn.rows - 1, drawn.g)) {
 			yield* connection.query(sql, [])
 		}

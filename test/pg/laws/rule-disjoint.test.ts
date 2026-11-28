@@ -33,7 +33,6 @@ import {
 	disjointTemplate,
 	runConcurrent
 } from "#test/pg/laws/rule-disjoint.fixtures.ts"
-import { standUpJudge } from "#test/support/judge.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -60,11 +59,8 @@ export const transactionsWritingSpacedUnitsUnderWholeRulesAllCommitUnderSERIALIZ
 				Effect.gen(function* () {
 					const { substrate, value } = yield* disjoint
 					const loader = yield* substrate.session({ ...ownerSession(), label: "loader" })
-					yield* standUpJudge(loader, value.installation)
 					const sessions = yield* Effect.forEach(drawn.units, (_, j) =>
-						Effect.tap(substrate.session({ ...ownerSession(), label: `unit ${j}` }), (session) =>
-							standUpJudge(session, value.installation)
-						)
+						substrate.session({ ...ownerSession(), label: `unit ${j}` })
 					)
 					yield* runConcurrent(value, loader, sessions, drawn, c)
 				}).pipe(Effect.scoped),

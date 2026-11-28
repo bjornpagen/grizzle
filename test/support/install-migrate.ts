@@ -1527,7 +1527,7 @@ export const loadMigrated = (
 ): Effect.Effect<void, CompileError | SqlError | TransactionRolledBack, Substrate> =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
-		yield* loadFacts(substrate.admin, installed.plan, facts, namesOf(installed).standUps)
+		yield* loadFacts(substrate.admin, installed.plan, facts)
 	})
 
 /**

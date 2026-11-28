@@ -35,7 +35,7 @@ import {
 	judgedNested,
 	judgedUnions,
 	type Reached,
-	readsDeltasThroughReaders,
+	readsDeltasAsArrays,
 	type UnionReached,
 	unionsGen
 } from "#test/support/unit/physical/judge-size.fixtures.ts"
@@ -242,40 +242,36 @@ export const aRulesCheckOverEveryRowReadsEachDefinitionOnceHoweverItsRuleMultipl
 	})
 
 /**
- * A whole rule's statements read every delta through its reader, never the session's table: the judge truncates a delta
- * once it has read it, and a plan that read the table was made again at every COMMIT after one, where one that reads
- * the reader stands.
+ * A whole rule's statements read every delta as an array, an argument of their block, never a session's table: a plan
+ * that read a session's table was made again at every COMMIT after the judge emptied it, and its stand-up wrote the
+ * catalog at its session's first write.
  */
-export const aWholeRulesStatementsReadEveryDeltaThroughItsReader = property.exhaust(
-	finite(chainGen),
-	{
-		needs: {},
-		situations: [
-			"a definition read once",
-			"a definition read twice",
-			"a definition read three times",
-			"a chain three deep"
-		] satisfies ReadonlyArray<ReachedOf<Reached>>,
-		check: (_, c: Case<Reached>) => (chain) =>
-			Effect.sync(() => readsDeltasThroughReaders(chain, c.note)),
-		oracle: {
-			kind: "specification",
-			name: "the judge's statements: no FROM source a table of pg_temp, and some a delta's reader"
-		},
-		box: "every chain of one to three queries over Node, each reading the one below one to three times, under a whole rule's check",
-		kept: [],
-		kills: [
-			{
-				file: "packages/engine/src/physical/ddl/deltas.ts",
-				original:
-					'\t\t\tkind: "function",\n\t\t\tcall: qualifiedCall(\n\t\t\t\t{ kind: "qualified", schema: reader.schema, name: reader.name, volatility: "VOLATILE" },\n\t\t\t\t[]\n\t\t\t),\n\t\t\talias,',
-				replacement:
-					'\t\t\tkind: "table",\n\t\t\ttable: sessionTable(read.delta.name),\n\t\t\talias,',
-				why: "The judge's statements read the session's delta table, as before, so the TRUNCATE that empties it invalidates every plan that reads it, made again at the next COMMIT."
-			}
-		]
-	}
-)
+export const aWholeRulesStatementsReadEveryDeltaAsAnArray = property.exhaust(finite(chainGen), {
+	needs: {},
+	situations: [
+		"a definition read once",
+		"a definition read twice",
+		"a definition read three times",
+		"a chain three deep"
+	] satisfies ReadonlyArray<ReachedOf<Reached>>,
+	check: (_, c: Case<Reached>) => (chain) => Effect.sync(() => readsDeltasAsArrays(chain, c.note)),
+	oracle: {
+		kind: "specification",
+		name: "the judge's statements: no FROM source a table of pg_temp, and some an unnest of a delta's array"
+	},
+	box: "every chain of one to three queries over Node, each reading the one below one to three times, under a whole rule's check",
+	kept: [],
+	kills: [
+		{
+			file: "packages/engine/src/physical/ddl/deltas.ts",
+			original:
+				'\tkind: "function",\n\tcall: call("unnest", [{ kind: "plVar", name: variable }]),\n\talias: source.alias ?? source.name,\n',
+			replacement:
+				'\tkind: "table",\n\ttable: { schema: "pg_temp", name: of.delta.name },\n\talias: source.alias ?? source.name,\n',
+			why: "The judge's statements read a session's delta table, as before the log, so a session stands it up at its first write, writing the catalog, and every plan that reads it is made again after each emptying; the property fails."
+		}
+	]
+})
 
 /**
  * A probed rule over levels of definitions, each negating the one below or each a union whose rules match the one

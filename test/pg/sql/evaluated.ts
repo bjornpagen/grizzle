@@ -35,7 +35,6 @@ import {
 	provedCore,
 	select,
 	tableCol,
-	target,
 	targetAs,
 	types
 } from "#compiler/sql/build.ts"
@@ -800,9 +799,6 @@ export const aggregateCaseGen: Gen<AggregateCase> = (source) => {
 /** What a relational case reached: its form, and for a window its frame's bound kinds, partitioning and direction. */
 export type RelationalFeature =
 	| "cross join"
-	| "in"
-	| "not in"
-	| "empty subquery"
 	| `frame ${FrameBound["kind"]} to ${FrameBound["kind"]}`
 	| "partitioned window"
 	| "descending window"
@@ -874,13 +870,11 @@ export interface RelationalRow {
 }
 
 /**
- * What a relational case computes over its relations: a CROSS JOIN; IN or NOT IN over the subquery of r2's values above
- * a floor; or sum and count(*) over a window between two bounds, in the order drawn, partitioned by r1's group or
- * not, ordered by r1's id either way.
+ * What a relational case computes over its relations: a CROSS JOIN; or sum and count(*) over a window between two
+ * bounds, in the order drawn, partitioned by r1's group or not, ordered by r1's id either way.
  */
 export type RelationalForm =
 	| { readonly kind: "cross join" }
-	| { readonly kind: "in" | "not in"; readonly floor: number }
 	| {
 			readonly kind: "window"
 			readonly bounds: readonly [FrameBound, FrameBound]
@@ -915,13 +909,10 @@ export const relationalSketchGen: Gen<RelationalSketch> = (source) => {
 		source.draw(int(0, 3)),
 		...source.draw(array(int(0, 3), { min: 0, max: 3 }))
 	]
-	const kind = t.from(["cross join", "in", "not in", "window", "window"] as const)
+	const kind = t.from(["cross join", "window", "window"] as const)
 	switch (kind) {
 		case "cross join":
 			return { r1, r2, form: { kind } }
-		case "in":
-		case "not in":
-			return { r1, r2, form: { kind, floor: t.count(-1, 3) } }
 		case "window": {
 			const frame = t.from(["running", "remaining", "drawn", "drawn"] as const)
 			const bounds: readonly [FrameBound, FrameBound] =
@@ -990,37 +981,6 @@ export const resolveRelational = (sketch: RelationalSketch): RelationalCase => {
 				),
 				reached: ["cross join"]
 			}
-		case "in":
-		case "not in": {
-			/** The subquery keeps the values above the floor, which may keep none. */
-			const kept = Arr.filter(r2, (x) => x > form.floor)
-			const subquery = operandSelect(
-				core(
-					[target(col("r2", "c1"))],
-					[r2Values("r2")],
-					binary(">", col("r2", "c1"), lit.int(form.floor, types.integer))
-				)
-			)
-			const matches = (x: number): boolean => kept.includes(x) === (form.kind === "in")
-			return {
-				statement: {
-					...select(
-						provedCore("keyed", [targetAs(col("r1", "c1"), "c1")], [r1From], {
-							kind: "inQuery",
-							expr: col("r1", "c2"),
-							query: subquery,
-							not: form.kind === "not in"
-						})
-					),
-					orderBy: [asc(col("r1", "c1"))]
-				},
-				rows: Arr.map(
-					Arr.filter(r1, (r) => matches(r.value)),
-					(r) => [String(r.id)]
-				),
-				reached: kept.length === 0 ? [form.kind, "empty subquery"] : [form.kind]
-			}
-		}
 		case "window": {
 			const [first, second] = form.bounds
 			const { partitioned, descending } = form

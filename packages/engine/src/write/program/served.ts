@@ -30,7 +30,6 @@ import {
 	type FlightWrite,
 	loadWrite,
 	type ServedPartedForm,
-	type ServedStandUp,
 	type ServedStatement,
 	type ServedWrite,
 	type ServedWriteForm,
@@ -41,9 +40,7 @@ import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import type { ServedReadBack } from "#compiler/served/read.ts"
 import { servedReadBacks } from "#compiler/served/spine.ts"
 import { type Advice, transactionAdvice } from "#compiler/sql/advice.ts"
-import type { EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
-import { costChosen, emitText } from "#compiler/sql/emit.ts"
-import { emptyNameMap } from "#compiler/sql/naming.ts"
+import type { EmittedText, Dml } from "#compiler/sql/ast.ts"
 import { joinPlans, type ReadPlan } from "#compiler/sql/plan.ts"
 import { type Reach, ReachOf } from "#compiler/sql/reach.ts"
 import type { CarrierColumn } from "#compiler/write/carriers/carriers.ts"
@@ -96,7 +93,7 @@ const servedWriteForm = (form: {
 /** A single statement's form as data: its text by its units (write/program/single.ts partedOf), each placeholder's slot
  * as data. A single statement is sent by its units. */
 const servedPartedForm = (form: {
-	readonly ast: SqlStatement
+	readonly ast: Dml
 	readonly params: ReadonlyArray<WriteParamSlot>
 	readonly text: FormText
 }): ServedPartedForm => {
@@ -182,8 +179,7 @@ const servedStatements = (
  * servedCarriers) and its role's classifier (adapter/served/project.ts refusalsOf). Its level and its
  * exclusion; its statements as its application runs them at that level, but the read-backs', which their own programs
  * run, each step with the aborts it meets there, each its text, parts and slots (ServedStatement); its read-backs
- * as its served file holds them (served/spine.ts servedReadBacks); its stand-ups, every text named
- * (runtime/write/flight.ts StandUp), and the columns of its program carriers; its declared and clocked
+ * as its served file holds them (served/spine.ts servedReadBacks), and the columns of its program carriers; its declared and clocked
  * parameters, its binding; and of its front end the schema it compiled against, the relations it writes and the codes it reads. A compiled write's
  * artifact holds each statement's SQL AST beside its text, which its certification's facts read and nothing after
  * (program/isolation/member-facts.ts), so the servable write holds no AST, no schedule, no placement and no analysis:
@@ -195,7 +191,6 @@ export interface ServableWrite {
 	readonly exclusion: WriteExclusion
 	readonly statements: ReadonlyArray<ServedStatement>
 	readonly readBacks: ReadonlyArray<ServedReadBack>
-	readonly standUps: ReadonlyArray<ServedStandUp>
 	readonly carried: ReadonlyArray<CarrierColumn>
 	readonly params: ReadonlyArray<CallerParamDecl>
 	readonly clocked: ReadonlyArray<ClockParamDecl>
@@ -206,14 +201,13 @@ export interface ServableWrite {
 	 * two of them share an alias: each statement, the read-backs' own and the admission among them, a single statement's
 	 * every unit. The installation asks an index for each of its requests and resolves them (physical/install/compile.ts),
 	 * and generate prints its advice, the one its transaction sends whichever of its statements and units a call sends,
-	 * since an atom of an unsent one targets no relation of the call's (sql/advice.ts). A stand-up calls the judge's
-	 * stand-up, which the installation advises itself.
+	 * since an atom of an unsent one targets no relation of the call's (sql/advice.ts).
 	 */
 	readonly plan: ReadPlan<AccessIndexRequest>
 	/**
 	 * What every statement its flight may send reaches as PostgreSQL runs it (sql/reach.ts), read off each statement's
-	 * AST before the AST goes: each statement, the read-backs' own and the admission among them, and its stand-ups'
-	 * calls, which a bound of the queries one call plans follows into the installation (program/planned.ts).
+	 * AST before the AST goes: each statement, the read-backs' own and the admission among them, which a bound of the
+	 * queries one call plans follows into the installation (program/planned.ts).
 	 */
 	readonly reach: Reach
 }
@@ -221,21 +215,10 @@ export interface ServableWrite {
 /** `compiled` as everything past its compile reads it (ServableWrite), its statements projected at its level. */
 export const servableWrite = (compiled: CompiledWrite): ServableWrite => {
 	const { artifact } = compiled
-	const standUps = Object.freeze(
-		compiled.standUps.map((s): ServedStandUp =>
-			Object.freeze({
-				kind: "judged",
-				call: prepared(emitText(s.call, emptyNameMap, costChosen).text)
-			})
-		)
-	)
 	const statementAsts = artifact.statements.map((s) => s.ast)
 	const reach = new ReachOf()
 	for (const ast of statementAsts) {
 		reach.statement(ast)
-	}
-	for (const s of compiled.standUps) {
-		reach.query(s.call)
 	}
 	return Object.freeze({
 		level: compiled.level,
@@ -244,7 +227,6 @@ export const servableWrite = (compiled: CompiledWrite): ServableWrite => {
 			artifact.statements.flatMap((s) => servedStatements(s, compiled.level))
 		),
 		readBacks: Object.freeze(servedReadBacks(artifact.readBacks)),
-		standUps,
 		carried: Object.freeze(artifact.carriers.flatMap((c) => c.heading)),
 		params: compiled.params,
 		clocked: compiled.clocked,
@@ -261,8 +243,7 @@ export const servableWrite = (compiled: CompiledWrite): ServableWrite => {
 
 /**
  * The data an application of `compiled` reads (`ServedWrite`) at the level it was compiled for (ServableWrite
- * `level`): its declared parameters, its binding, what its transaction locks before its snapshot, its stand-ups, its
- * statements but the read-backs', which the read-backs' own programs run, each step with the aborts it meets at that
+ * `level`): its declared parameters, its binding, what its transaction locks before its snapshot, its statements but the read-backs', which the read-backs' own programs run, each step with the aborts it meets at that
  * level, the statements one call sends, its own and its read-backs' after the last stratum, and its written relations'
  * headings.
  */
@@ -271,7 +252,6 @@ export const projectWrite = (compiled: ServableWrite, advice: Advice): ServedWri
 		params: compiled.params,
 		binding: compiled.binding,
 		exclusion: compiled.exclusion,
-		standUps: compiled.standUps,
 		statements: compiled.statements,
 		sends:
 			compiled.statements.length +

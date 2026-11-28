@@ -21,7 +21,6 @@ import type { OracleTemplate } from "#test/support/conservative.ts"
 import * as P from "#test/support/fixtures/api/payroll.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { namesOf } from "#test/support/kernel/naming.ts"
 import {
 	type Comparison,
 	compareRuns,
@@ -319,7 +318,7 @@ export const runPayrollCase = (
 								)
 							)
 						)
-				for (const sql of [...reading.open, ...namesOf(installed).standUps]) {
+				for (const sql of reading.open) {
 					yield* exec(sql, "setup")
 				}
 				return yield* Effect.gen(function* () {

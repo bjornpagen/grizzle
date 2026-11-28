@@ -84,7 +84,7 @@ export const theScriptedSessionAgainstPostgreSQLObservesWhatTheServerObservesFor
 							Effect.scoped(
 								Effect.gen(function* () {
 									const sqlOf = sqlOver(schema, c)
-									yield* clearRows(s.admin, tablesGroup([table], []))
+									yield* clearRows(s.admin, tablesGroup([table]))
 									const tapped = yield* tappedSession({
 										cluster: s.cluster,
 										database: s.database,

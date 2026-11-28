@@ -17,12 +17,15 @@ import { compileInstallation } from "#compiler/program/install.ts"
 import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
-import { printExpr, printStatement } from "#compiler/sql/print.ts"
+import type { OperandSelect, PlStatement } from "#compiler/sql/ast.ts"
+import { derived as derivedTable, lit, simpleSelect, types } from "#compiler/sql/build.ts"
+import { printPlannedQuery, printStatement } from "#compiler/sql/print.ts"
+import { routineAdviceHeld } from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { dataStepOf, refusedByRecheck } from "#test/support/data-step.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
-import { judgeBodiesOf, standUpJudge } from "#test/support/judge.ts"
+import { boundQuery, type JudgeFunction, judgeFunctionsOf } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -220,16 +223,13 @@ export const runGuard = (
 	learner: Learner,
 	c: Case<GuardFeature>
 ) =>
-	Effect.andThen(
-		standUpJudge(connection, installed.installation),
-		learner === "another package's, read past the unit"
-			? runCross(installed, connection, c)
-			: learner === "an unresolved part, no session" ||
-				  learner === "an unresolved part beside a session" ||
-				  learner === "another package's template withdrawn beside a session"
-				? runReady(installed, connection, learner, c)
-				: runWithin(installed, connection, learner, c)
-	)
+	learner === "another package's, read past the unit"
+		? runCross(installed, connection, c)
+		: learner === "an unresolved part, no session" ||
+			  learner === "an unresolved part beside a session" ||
+			  learner === "another package's template withdrawn beside a session"
+			? runReady(installed, connection, learner, c)
+			: runWithin(installed, connection, learner, c)
 
 /**
  * A case of Ready (`Item`, `Doc`, `Sess`): every row but the written one committed first (committedOn), then the
@@ -457,39 +457,58 @@ const runWithin = (
 	})
 
 /**
- * Each guard of the judge's blocks as the judge runs it (analysis/theory/query.ts probeGuard): an existence over its
- * query (sql/build.ts whenExists), or a PERFORM of its query read to its end (whenFound) whose body runs the probe, not a
- * RAISE.
+ * Each guard of the judge's blocks as the judge runs it (analysis/theory/query.ts probeGuard), with the block that runs
+ * it: an existence over its query (sql/build.ts whenExists), or a PERFORM of its query read to its end (whenFound) whose
+ * body runs the probe, not a RAISE, each as a query of one row.
  */
-const guardsOf = (installation: Installation): ReadonlyArray<string> =>
-	Arr.flatMap(judgeBodiesOf(installation), (s): ReadonlyArray<string> => {
-		switch (s.kind) {
-			case "if":
-				return Arr.flatMap(s.branches, (b) =>
-					b.condition.kind === "exists" && !b.condition.not
-						? [`SELECT ${printExpr(b.condition)}`]
-						: []
-				)
-			case "whenFound":
-				return s.body[0].kind === "raise"
-					? []
-					: [`SELECT 1 FROM ${printExpr({ kind: "subquery", query: s.query })} AS "found"`]
-			case "assign":
-			case "case":
-			case "createSessionIndex":
-			case "createSessionTable":
-			case "createSessionTrigger":
-			case "forQuery":
-			case "modify":
-			case "perform":
-			case "raise":
-			case "return":
-			case "returnQuery":
-			case "truncateSessionTable":
-			case "wholeReads":
-				return []
-		}
-	})
+const guardsOf = (
+	installation: Installation
+): ReadonlyArray<{ readonly routine: JudgeFunction; readonly query: OperandSelect }> => {
+	const guards = (
+		routine: JudgeFunction,
+		body: ReadonlyArray<PlStatement>
+	): ReadonlyArray<{ readonly routine: JudgeFunction; readonly query: OperandSelect }> =>
+		Arr.flatMap(body, (s) => {
+			switch (s.kind) {
+				case "if":
+					return Arr.flatMap(s.branches, (b) =>
+						b.condition.kind === "exists" && !b.condition.not
+							? [
+									{
+										routine,
+										query: simpleSelect([{ expr: b.condition, alias: undefined }], [], undefined)
+									}
+								]
+							: []
+					)
+				case "whenFound":
+					return s.body[0].kind === "raise"
+						? []
+						: [
+								{
+									routine,
+									query: simpleSelect(
+										[{ expr: lit.int(1, types.integer), alias: undefined }],
+										[derivedTable(s.query, "found", false)],
+										undefined
+									)
+								}
+							]
+				case "assign":
+				case "case":
+				case "forQuery":
+				case "modify":
+				case "perform":
+				case "raise":
+				case "return":
+				case "returnQuery":
+				case "wholeReads":
+				case "into":
+					return []
+			}
+		})
+	return Arr.flatMap(judgeFunctionsOf(installation), (routine) => guards(routine, routine.body))
+}
 
 /** The rows a guard's plan reads of the stored relations, and the index entries its bitmaps read beside them. */
 const valueWork = (plan: PlanNode): number =>
@@ -521,7 +540,8 @@ const writtenPackages = [1, 2, 3] as const
  * reads it by the package alone (analysis/theory/query.ts probeGuard), every learner's values of the package there.
  * The guard is an existence (sql/build.ts whenExists), and a read of no column stops at its first row
  * (lower/conservative/step headingRead), so it reads one value, the first of the first written package it seeks: each
- * guard over Value explained as the judge runs it (EXPLAIN ANALYZE, `guardsOf`), before the judge runs, reads one row
+ * guard over Value explained as the judge runs it (EXPLAIN ANALYZE, `guardsOf`, under its block's advice), before the
+ * judge runs, reads one row
  * of the stored relations and no index entry beside them (`valueWork`) at every population, where a guard read to its
  * every row reads every value of each written package, 600 at 1x and 6,000 at 10x. The judge then accepts the content,
  * every value lawful.
@@ -533,7 +553,6 @@ export const runGuardWork = (
 	c: Case<GuardWorkFeature>
 ) =>
 	Effect.gen(function* () {
-		yield* standUpJudge(connection, installed.installation)
 		const names = namesOf(installed)
 		const node = names.table(Node)
 		const value = names.table(Value)
@@ -554,13 +573,22 @@ export const runGuardWork = (
 		]) {
 			yield* connection.query(sql, [])
 		}
-		const guards = Arr.filter(guardsOf(installed.installation), Str.includes(value))
+		const guards = Arr.filter(guardsOf(installed.installation), (g) =>
+			Str.includes(value)(printPlannedQuery({ kind: "query", query: g.query }))
+		)
 		assert.ok(guards.length > 0, "a guard of the judge reads Value")
 		let read = 0
 		for (const guard of guards) {
+			const bound = yield* boundQuery(
+				(sql, params) => connection.queryValues(sql, params),
+				installed.installation,
+				guard.routine,
+				guard.query
+			)
+			yield* connection.queryValues(routineAdviceHeld(guard.routine.fn), [])
 			const [explained] = yield* connection.queryValues(
-				`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${guard}`,
-				[]
+				`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${bound.sql}`,
+				bound.params
 			)
 			read += valueWork(succeeded(parsePlan(explained?.[0]), "one EXPLAIN plan").plan)
 		}
@@ -651,8 +679,6 @@ export const runRace = (
 			...ownerSession(),
 			label: "rule guard race learner"
 		})
-		yield* standUpJudge(publisher, installation)
-		yield* standUpJudge(learner, installation)
 		yield* publisher.begin
 		yield* publisher.query(`INSERT INTO ${item} (${i("pkg")}, ${i("item")}) VALUES (1, 2)`, [])
 		if (race.standing) {

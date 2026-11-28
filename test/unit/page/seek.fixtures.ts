@@ -119,7 +119,6 @@ export const evaluate = (
 		case "field":
 		case "greatest":
 		case "inList":
-		case "inQuery":
 		case "equalsAny":
 		case "isTrue":
 		case "least":

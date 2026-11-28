@@ -21,7 +21,6 @@ import {
 	noPlaceholders,
 	seededTemplate
 } from "#test/support/install-migrate.ts"
-import { standUpJudge } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -316,7 +315,6 @@ export const runWritten = (
 	c: Case<TokensFeature>
 ) =>
 	Effect.gen(function* () {
-		yield* standUpJudge(connection, installed.installation)
 		const names = namesOf(installed)
 		const attribute = names.table(Attribute)
 		const target = names.table(Target)
@@ -442,7 +440,6 @@ export const runTokensLocality = (
 		/** The judge's reads over document 0 written whole on one clone. */
 		const measured = (installed: Installed, connection: PgConnection) =>
 			Effect.gen(function* () {
-				yield* standUpJudge(connection, installed.installation)
 				const names = namesOf(installed)
 				for (const sql of [
 					...(locality.statistics === "analyzed"

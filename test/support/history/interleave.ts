@@ -21,7 +21,7 @@ import {
 	type HostOp
 } from "#test/support/laws/model.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import { type Actors, openActors, standUpActor } from "#test/support/schedules/actors.ts"
+import { type Actors, openActors } from "#test/support/schedules/actors.ts"
 import {
 	type ActionStep,
 	allowed,
@@ -92,9 +92,6 @@ export const lawActors = (
 			b: { kind: "psql", as: direct },
 			c: { kind: "psql", as: direct }
 		})
-		for (const actor of [actors.a, actors.b, actors.c]) {
-			yield* standUpActor(actor, env.names.standUps)
-		}
 		return { direct: actors, grizzle: env.rig.actors }
 	})
 

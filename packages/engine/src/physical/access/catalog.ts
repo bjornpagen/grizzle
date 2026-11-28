@@ -33,7 +33,13 @@ import {
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import type { IndexColumn, InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
 import { ledgerHeadTableName } from "#compiler/physical/ddl/ledger.ts"
-import { type NameKey, nameKey, type ObjectName } from "#compiler/sql/ast.ts"
+import {
+	judgeLogColumns,
+	type NameKey,
+	nameKey,
+	type ObjectName,
+	type SqlStatement
+} from "#compiler/sql/ast.ts"
 import type {
 	BindColumn,
 	BindTable,
@@ -268,6 +274,54 @@ const ledgerHead = (schema: string): ReadonlyMap<NameKey, BindTable> =>
 	])
 
 /**
+ * The rule judge's log as the binding reads it (sql/ast.ts CreateJudgeLog, physical/ddl/rules.ts addRules), each of its
+ * tables a bookkeeping table the judge and the captures read at the tuple ids it links: its arm, keyed by its
+ * transaction's id, with the tuple id of the transaction's newest delta row; its delta log, each row's link to the one
+ * before it and each delta's rows, an array. Each column is one value of a row no read binds but by tuple id.
+ */
+const judgeLog = (statements: ReadonlyArray<SqlStatement>): ReadonlyMap<NameKey, BindTable> =>
+	new Map(
+		statements.flatMap((s): ReadonlyArray<readonly [NameKey, BindTable]> => {
+			if (s.kind !== "createJudgeLog") {
+				return []
+			}
+			const scalar = (field: string): readonly [string, BindColumn] => [
+				field,
+				{ kind: "scalar", column: { kind: "field", field }, holds: "many" }
+			]
+			switch (s.log.kind) {
+				case "arm":
+					return [
+						[
+							nameKey(s.table),
+							{
+								relation: s.table.name,
+								columns: new Map([scalar(judgeLogColumns.xact), scalar(judgeLogColumns.last)]),
+								keys: [[judgeLogColumns.xact]],
+								hashRow: { kind: "none" }
+							}
+						]
+					]
+				case "deltas":
+					return [
+						[
+							nameKey(s.table),
+							{
+								relation: s.table.name,
+								columns: new Map([
+									scalar(judgeLogColumns.prev),
+									...s.log.sides.map((side) => scalar(side.column))
+								]),
+								keys: [],
+								hashRow: { kind: "none" }
+							}
+						]
+					]
+			}
+		})
+	)
+
+/**
  * The catalog of the installation `b` builds (see the header), every other view its statements create one PostgreSQL
  * plans apart, as a world view is, and each trigger function's table's columns, each its type, by the function every trigger the statements create on a table
  * calls, and the ledger's head its snapshot guard reads (`ledgerHead`).
@@ -305,7 +359,7 @@ export const installCatalog = (b: InstallBuilder): ReadCatalog => {
 		[],
 		(key) => views.has(key),
 		(fn) => fired.get(fn),
-		ledgerHead(b.schema)
+		new Map([...ledgerHead(b.schema), ...judgeLog(statements)])
 	)
 }
 

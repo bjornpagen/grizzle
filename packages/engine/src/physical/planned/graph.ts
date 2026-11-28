@@ -36,11 +36,9 @@ import { canonicalTextOf, unwrap } from "#compiler/core/canonical.ts"
 import { type ContentKey, contentCensus, contentDigest } from "#compiler/core/identity.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
-import { temporarySchema } from "#compiler/core/temporary.ts"
 import {
 	addedColumn,
 	type ColumnDef,
-	type ColumnDefinition,
 	type CreateConstant,
 	type CreateDomain,
 	type Delete,
@@ -141,8 +139,7 @@ export interface PlannedRelation {
 /**
  * The installation's planned queries as data (see the header): every reach its functions, triggers, relations and
  * domains reach, once, by its key (PlannedReachKey); each function by its printed name, each relation a statement may
- * read or write by its printed name, the session tables the rule judge's stand-ups make among them, and each domain by
- * its printed name with the key of what its checks reach. On qti-pie's pantry 6,852 references name 3,988 reaches.
+ * read or write by its printed name, the rule judge's log among them, and each domain by its printed name with the key of what its checks reach. On qti-pie's pantry 6,852 references name 3,988 reaches.
  */
 export interface PlannedGraph {
 	readonly reaches: Readonly<Record<string, PlannedReach>>
@@ -187,23 +184,16 @@ interface FrameReads {
 /** The relation a source reads by its alias alone, which is all PostgreSQL jumbles of it (`canonicalPiece`). */
 const unnamed: ObjectName = { schema: "", name: "" }
 
-/** The columns of each session table the installation's stand-ups make, by its printed name, in their order. */
-type SessionColumns = ReadonlyMap<string, ReadonlyArray<ColumnDefinition>>
-
 /**
  * A piece of a body with every literal canonical (`canonicalLiteral`), every relation it reads by its alias alone where
  * that is all its jumble holds of it (`unnamed`), and what it reads of its frame, over every expression and FROM source
  * the Transform meets, a sub-query's included. PostgreSQL jumbles a relation by its alias (parsenodes.h RangeTblEntry
  * `eref`) and each column of it by its attribute number (primnodes.h Var `varattno`, its type ignored): so a relation of
- * which the piece reads no column is its alias alone, a judge's emptying of each delta, `DELETE FROM pg_temp."<delta>" AS
- * "r1"`, one query id; and a session table, whose columns its stand-up fixes, is its alias and each column it reads by
- * its number and its type (`sessions`), each delta's reader `SELECT "r1"."doc", "r1"."k_0" FROM pg_temp."<delta>" AS
- * "r1"` one query id where the columns stand alike. A relation read under an alias the piece gives two relations, or with
- * a column of no alias anywhere in the piece, keeps its name. `piece` reads whether a DELETE's own alias is named, to
- * unname its target.
+ * which the piece reads no column is its alias alone. A relation read under an alias the piece gives two relations, or
+ * with a column of no alias anywhere in the piece, keeps its name. `piece` reads whether a DELETE's own alias is named,
+ * to unname its target.
  */
 const canonicalPiece = <A>(
-	sessions: SessionColumns,
 	piece: (t: Transform, named: (alias: string) => boolean) => A
 ): { readonly value: A; readonly reads: FrameReads } => {
 	const columns = new Map<string, Set<string>>()
@@ -241,30 +231,12 @@ const canonicalPiece = <A>(
 	)
 	/** Whether the piece names a column of `alias`, every alias where it names a column of none. */
 	const isNamed = (alias: string): boolean => unqualified || columns.has(alias)
-	/** The columns of the one session table `alias` reads, where it reads one and every column the piece reads of it. */
-	const sessionOf = (alias: string): ReadonlyArray<ColumnDefinition> | undefined => {
-		const [table, ...others] = tables.get(alias) ?? []
-		const own =
-			table === undefined || others.length > 0 || unqualified ? undefined : sessions.get(table)
-		return own !== undefined &&
-			[...(columns.get(alias) ?? [])].every((c) => own.some((d) => d.name === c))
-			? own
-			: undefined
-	}
 	const reads: FrameReads = { variable: false, row: false }
 	const t = new Transform({
 		...identityHooks,
 		expr: (e) => {
 			if (e.kind === "literal") {
 				return { ...e, value: canonicalLiteral(e.value) }
-			}
-			if (e.kind === "column") {
-				const own = e.table === undefined ? undefined : sessionOf(e.table)
-				const at = own?.findIndex((d) => d.name === e.column) ?? -1
-				const column = own?.[at]
-				return column === undefined
-					? e
-					: { ...e, column: canonicalTextOf([at + 1, column.type, column.collation ?? []]) }
 			}
 			reads.variable ||=
 				e.kind === "plVar" || e.kind === "param" || e.kind === "plSpecial" || e.kind === "field"
@@ -275,8 +247,7 @@ const canonicalPiece = <A>(
 		},
 		fromSource: (source) => {
 			reads.row ||= source.kind === "transition" && isNamed(source.alias)
-			return source.kind === "table" &&
-				(!isNamed(source.alias) || sessionOf(source.alias) !== undefined)
+			return source.kind === "table" && !isNamed(source.alias)
 				? { ...source, table: unnamed }
 				: source
 		}
@@ -326,25 +297,17 @@ interface Walked {
 	readonly reach: Reach
 }
 
-/** The session tables' triggers a stand-up's statements make: each pg_temp table's printed name, and its function. */
-interface SessionTrigger {
-	readonly table: string
-	readonly function: ObjectName
-}
-
 /** One query's identity: its parts' canonical text's digest. */
 const identityOf = (parts: ReadonlyArray<unknown>): string => sha256Hex(canonicalTextOf(parts))
 
 /**
  * The walk of PL/pgSQL function `fn`'s printed body as a trigger fired by `event` on `table` runs it, or as a call runs
- * it where `event` is none (see the header), and every session trigger its statements make, to `made`.
+ * it where `event` is none (see the header).
  */
 const walkBody = (
 	fn: PlFunction,
 	event: PlannedEventKind | undefined,
-	table: string | undefined,
-	sessions: SessionColumns,
-	made: (trigger: SessionTrigger) => void
+	table: string | undefined
 ): Walked => {
 	const printed = printedFunction(fn)
 	const frame = [
@@ -362,7 +325,7 @@ const walkBody = (
 		piece: (t: Transform, named: (alias: string) => boolean) => unknown,
 		variable: boolean
 	): string => {
-		const { value, reads } = canonicalPiece(sessions, piece)
+		const { value, reads } = canonicalPiece(piece)
 		return identityOf([
 			"plpgsql",
 			kind,
@@ -387,10 +350,6 @@ const walkBody = (
 		piece: (t: Transform, named: (alias: string) => boolean) => unknown
 	): void => {
 		identities.push(identityAt(kind, piece, true))
-	}
-	/** A utility statement the body runs, its names its own. */
-	const utility = (s: PlStatement): void => {
-		identities.push(identityOf(["utility", s]))
 	}
 	const statements = (list: ReadonlyArray<PlStatement>): void => {
 		for (const s of list) {
@@ -472,20 +431,17 @@ const walkBody = (
 				raises.push(options)
 				return
 			}
-			case "createSessionTable":
-			case "createSessionIndex":
-				return utility(s)
-			case "truncateSessionTable":
-				utility(s)
-				reach.write({ schema: temporarySchema, name: s.name }, { kind: "truncate" })
+			case "into": {
+				const into = s.statement
+				if (into.kind === "select") {
+					query("select into", (t) => t.select(into))
+					reach.query(into)
+				} else {
+					query("dml into", (t, named) => unnamedTarget(t.modified(into), named))
+					reach.dml(into)
+				}
 				return
-			case "createSessionTrigger":
-				utility(s)
-				made({
-					table: printObjectName({ schema: temporarySchema, name: s.table }),
-					function: s.function
-				})
-				return
+			}
 		}
 	}
 	statements(printed.body.body)
@@ -501,7 +457,7 @@ const walkConstant = (c: CreateConstant): Walked => {
 	if (c.language === "sql" || c.body.kind === "param") {
 		return { identities: [], raises: [], reach }
 	}
-	const { value } = canonicalPiece(new Map(), (t) => t.expr(c.body))
+	const { value } = canonicalPiece((t) => t.expr(c.body))
 	return {
 		identities: [
 			identityOf(["plpgsql", "expr", ["frame", [false, c.params.map((p) => p.type), []]], value])
@@ -523,10 +479,9 @@ interface TriggerShape {
 	/**
 	 * Which of grizzle's triggers it is: a rule capture (sql/ast.ts CreateTransitionTrigger), an isolation guard
 	 * (CreateGuardTrigger), an immutability guard (CreateImmutableGuardTrigger), all fired at the end of their statement;
-	 * a rule's constraint trigger (CreateConstraintTrigger) or the judge's sentinel's (PlStatement createSessionTrigger),
-	 * both deferred to COMMIT.
+	 * or a constraint trigger (CreateConstraintTrigger), the rule judge's arm's among them, deferred to COMMIT.
 	 */
-	readonly kind: "capture" | "guard" | "immutable" | "constraint" | "session"
+	readonly kind: "capture" | "guard" | "immutable" | "constraint"
 	readonly table: string
 	readonly events: ReadonlyArray<{
 		readonly event: PlannedEventKind
@@ -543,7 +498,6 @@ const firesOf = (kind: TriggerShape["kind"]): PlannedTrigger["fires"] => {
 		case "immutable":
 			return "immediate"
 		case "constraint":
-		case "session":
 			return "deferred"
 	}
 }
@@ -661,6 +615,9 @@ class Indexed {
 				return
 			case "createStoredTable":
 				this.shape(s.name)
+				return
+			case "createJudgeLog":
+				this.shape(s.table)
 				return
 			case "createDomain":
 				this.domains.set(printObjectName(s.name), s)
@@ -850,62 +807,11 @@ const referenceTriggers = (
 	]
 }
 
-/** The columns of each session table a statement of `functions`' bodies makes (PlStatement createSessionTable). */
-const sessionColumns = (functions: ReadonlyArray<PlFunction>): SessionColumns => {
-	const out = new Map<string, ReadonlyArray<ColumnDefinition>>()
-	const statements = (list: ReadonlyArray<PlStatement>): void => {
-		for (const s of list) {
-			switch (s.kind) {
-				case "createSessionTable":
-					out.set(printObjectName({ schema: temporarySchema, name: s.name }), s.columns)
-					break
-				case "if":
-					for (const branch of s.branches) {
-						statements(branch.body)
-					}
-					statements(s.else)
-					break
-				case "forQuery":
-				case "whenFound":
-				case "wholeReads":
-					statements(s.body)
-					break
-				case "case":
-					for (const when of s.whens) {
-						statements(when.body)
-					}
-					break
-				case "assign":
-				case "return":
-				case "perform":
-				case "modify":
-				case "returnQuery":
-				case "raise":
-				case "createSessionIndex":
-				case "truncateSessionTable":
-				case "createSessionTrigger":
-					break
-			}
-		}
-	}
-	for (const fn of functions) {
-		statements(fn.body.body)
-	}
-	return out
-}
-
 /** The planned graph of an installation's statements (see the header). */
 export const plannedGraph = (statements: ReadonlyArray<SqlStatement>): PlannedGraph => {
 	const indexed = new Indexed()
 	for (const s of statements) {
 		indexed.statement(s)
-	}
-	const sessions = sessionColumns([...indexed.plFunctions.values()])
-	const sessionTriggers: Array<SessionTrigger> = []
-	const madeTrigger = (trigger: SessionTrigger): void => {
-		if (!sessionTriggers.some((t) => t.table === trigger.table)) {
-			sessionTriggers.push(trigger)
-		}
 	}
 	const functions = new Map<
 		string,
@@ -915,7 +821,7 @@ export const plannedGraph = (statements: ReadonlyArray<SqlStatement>): PlannedGr
 		if (fn.returns !== "trigger") {
 			functions.set(name, {
 				kind: "definer",
-				walked: walkBody(fn, undefined, undefined, sessions, madeTrigger)
+				walked: walkBody(fn, undefined, undefined)
 			})
 		}
 	}
@@ -944,20 +850,12 @@ export const plannedGraph = (statements: ReadonlyArray<SqlStatement>): PlannedGr
 				event,
 				columns: assignedThrough(indexed.tables.get(shape.table), columns),
 				fires: firesOf(shape.kind),
-				walked: walkBody(fn, event, shape.table, sessions, madeTrigger)
+				walked: walkBody(fn, event, shape.table)
 			})
 		}
 	}
 	for (const shape of indexed.triggers) {
 		walkedTrigger(shape)
-	}
-	for (const made of sessionTriggers) {
-		walkedTrigger({
-			kind: "session",
-			table: made.table,
-			events: [{ event: "insert", columns: [] }],
-			function: made.function
-		})
 	}
 	for (const [child, shape] of indexed.tables) {
 		for (const fk of shape.references) {

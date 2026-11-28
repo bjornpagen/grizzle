@@ -30,7 +30,6 @@ import {
 	unit
 } from "#test/support/fixtures/ir/desc.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
-import { standUpJudge } from "#test/support/judge.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 export type PlanShapeFeature =
@@ -458,7 +457,6 @@ export const shapeCase = (sketch: ShapeSketch, note: (feature: PlanShapeFeature)
 					pinned.query("BEGIN", []),
 					() =>
 						Effect.gen(function* () {
-							yield* standUpJudge(pinned, installation)
 							for (const [at, r] of sketch.relations.entries()) {
 								yield* standIn(
 									session,

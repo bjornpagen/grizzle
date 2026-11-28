@@ -28,7 +28,6 @@ import { query, v } from "#compiler/public/query.ts"
 import { derived, login, mutable, relation, role, schema, unit } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import {
-	callStandUps,
 	callStatements,
 	type InstalledShape,
 	servedLevel,
@@ -429,14 +428,6 @@ export const runRace = (s: InstalledShape, cast: Cast, race: UpkeepRace) =>
 			)
 			const actorOf = (i: number): DirectActor => defined(actors[`s${i}`], `session s${i}`)
 			const sessionOf = new Map(Arr.map(sessions, (_, i) => [actorOf(i).pid, i] as const))
-			for (const [i, call] of race.calls.entries()) {
-				for (const sql of callStandUps(s, {
-					role: roleOf(cast, call.member),
-					member: call.member
-				})) {
-					yield* actorOf(i).perform({ _tag: "Sql", sql })
-				}
-			}
 			const sent = yield* Effect.forEach(race.calls, (c, i) =>
 				callStatements(s, {
 					kind: "change",

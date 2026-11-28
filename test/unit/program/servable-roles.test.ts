@@ -77,7 +77,6 @@ const servableFields = fieldsOf({
 	reach: true,
 	plan: true,
 	readBacks: true,
-	standUps: true,
 	statements: true
 } satisfies Record<keyof ServableWrite, true>)
 

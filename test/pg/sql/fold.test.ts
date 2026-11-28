@@ -2,8 +2,7 @@
  * A pass-through projection's fold on PostgreSQL 19 (sql/print.ts passedThrough, foldedCore): a core whose every
  * target is a column of the one derived table it reads prints as the core it reads, and the statement means what it
  * meant. Over drawn stacks of projections and aggregates over VALUES rows, read by the statement's rows, under its
- * ORDER BY, parenthesized under an ORDER BY of its output names, through a CTE and as an IN's subquery,
- * the folded statement answers exactly its twin's names and rows, its twin being the same statement with every core
+ * ORDER BY, parenthesized under an ORDER BY of its output names, and through a CTE, the folded statement answers exactly its twin's names and rows, its twin being the same statement with every core
  * over a derived table guarded by WHERE TRUE, which no fold reads through, and pulled up as the statement is
  * (sql/pull-up.ts, bcb057d552), each guard conjoined with the WHERE of a sub-query flattened into its core; and its
  * text adds no token its twin lacks beyond a copy of a column or a literal read twice, calls what its twin calls and

@@ -926,13 +926,6 @@ const mint = <K extends IdentityKind>(
 }
 
 /**
- * What the COMMENT of every judged table's stand-up begins with (identity.ruleStandUp's display, displayOf), and the
- * COMMENT of no other object: by it a custom migration's data step finds the stand-ups the catalog holds where it runs
- * (adapter/migrate/apply.ts installedStandUps), as it finds the guards by their trigger's one name.
- */
-export const standUpDisplayLead = "the stand-up of the rule judge's session tables a write of "
-
-/**
  * The name of the installation's re-check of a data step in each schema of its levels (identity.dataStepRecheck), by
  * which a custom migration's data step finds every one the catalog holds where it runs (adapter/migrate/apply.ts
  * installedRechecks).
@@ -2297,9 +2290,9 @@ export const identity = Object.freeze({
 			hashed
 		),
 	/**
-	 * The function a table's rule captures run (physical/ddl/rules.ts judged), which writes the rows each statement wrote
-	 * of `relation` into its deltas and arms its session's judge: its body names the table's columns and the deltas in
-	 * PL/pgSQL text, so it is replaced in place whenever they change, and a rename of the relation names another.
+	 * The function a table's rule captures run (physical/ddl/rules.ts addCapture), which appends the rows each statement
+	 * wrote of `relation` to the transaction's log of the judge and arms it: its body names the table's columns and the
+	 * deltas in PL/pgSQL text, so it is replaced in place whenever they change, and a rename of the relation names another.
 	 */
 	ruleCapture: (relation: string): Identity<"ruleCapture"> =>
 		mint(
@@ -2310,62 +2303,21 @@ export const identity = Object.freeze({
 			hashed
 		),
 	/**
-	 * The stand-up of the rule judge's session tables a write of `relation` needs (physical/ddl/rules.ts addStandUps):
-	 * the function a session calls once, before its first write of the relation, which makes the session's sentinel, the
-	 * relation's deltas and the deltas the judge reads beside them where the session holds none, as the judge's definer.
-	 * Its body names the deltas, so it is replaced in place whenever they change, and a rename of the relation names
-	 * another.
-	 */
-	ruleStandUp: (relation: string): Identity<"ruleStandUp"> =>
-		mint(
-			"ruleStandUp",
-			[relation],
-			["stand", ...nameSegments(relation)],
-			`${standUpDisplayLead}${relation} needs`,
-			hashed
-		),
-	/**
-	 * The maker of a closure of the rule judge (physical/ddl/rules.ts Closure): the function the stand-up of every table
-	 * whose writes reach the closure calls, which makes its deltas and their indexes where the session holds none, as the
-	 * judge's definer, and last its marker, `stood`. It is named by its marker, so a closure of other deltas is another
-	 * function, its stem by `relation`, the closure's first stored relation in name order. Its display leads with no
-	 * stand-up's, so no custom migration's data step calls it as one (standUpDisplayLead).
-	 */
-	ruleClosure: (relation: string, stood: Identity<"ruleStood">): Identity<"ruleClosure"> =>
-		mint(
-			"ruleClosure",
-			[stood],
-			["closure", ...nameSegments(relation)],
-			`the maker of the rule judge's session tables the upkeeps over ${relation} reach`,
-			hashed
-		),
-	/**
-	 * The maker of a share of the rule judge (physical/ddl/rules.ts Share): the function that makes `deltas`, the deltas
-	 * two or more of the judge's makers need, a closure's maker or a table's stand-up, alike, and their indexes, where the
-	 * session holds none, as the judge's definer, so the installation states each delta's table once. Named by its
-	 * deltas, its stem by `relation`, the relation of the first of them.
-	 */
-	ruleShare: (
-		relation: string,
-		deltas: NonEmptyReadonlyArray<Identity<"ruleDelta">>
-	): Identity<"ruleShare"> =>
-		mint(
-			"ruleShare",
-			deltas,
-			["share", ...nameSegments(relation)],
-			`the maker of the rule judge's session tables of ${relation} that more than one stand-up needs`,
-			hashed
-		),
-	/**
 	 * A function of the rule judge's upkeep of stored derived relation `relation` (physical/ddl/rules.ts upkeepBlock,
-	 * phase A): the one that runs one part of its form (`UpkeepPart`), which its part of the judge calls where a delta
-	 * its statements read holds a row, so a session compiles and plans the parts its writes touch alone. A unit form's
-	 * one part keeps the name of the relation alone.
+	 * phase A): the one that runs one part of its form (`UpkeepPart`), which its part of the judge calls where a
+	 * selection it reads holds a row, so a session compiles and plans the parts its writes touch alone. It is named by
+	 * the selections it takes, `selections`, each an argument, so a part whose arguments change is another function,
+	 * never one CREATE OR REPLACE would have to rename an argument of (42P13). A unit form's one part keeps the name of
+	 * the relation alone beside them.
 	 */
-	storedUpkeep: (relation: string, part: UpkeepPart): Identity<"storedUpkeep"> =>
+	storedUpkeep: (
+		relation: string,
+		part: UpkeepPart,
+		selections: ReadonlyArray<Identity<"ruleDeltaSelection" | "ruleDelta">>
+	): Identity<"storedUpkeep"> =>
 		mint(
 			"storedUpkeep",
-			part === "units" ? [relation] : [relation, part],
+			part === "units" ? [relation, ...selections] : [relation, part, ...selections],
 			["upkeep", ...nameSegments(relation)],
 			`the rule judge's upkeep of stored relation ${relation}${upkeepPartDisplay[part]}`,
 			hashed
@@ -2383,10 +2335,9 @@ export const identity = Object.freeze({
 			readable(`__capture_${event}`)
 		),
 	/**
-	 * The installation's rule judge (physical/ddl/rules.ts judged): the one function a session's sentinel's deferred
-	 * trigger runs, so it keeps its name, and its object, for as long as the installation holds a rule over a query:
-	 * a session's sentinel outlives every migration that replaces it, and PostgreSQL refuses to drop a function a
-	 * trigger runs.
+	 * The installation's rule judge (physical/ddl/rules.ts addRules): the one function the arm's deferred trigger runs, so
+	 * it keeps its name, and its object, for as long as the installation holds a rule over a query: a migration replaces
+	 * it in place, and PostgreSQL refuses to drop a function a trigger runs.
 	 */
 	ruleJudge: (): Identity<"ruleJudge"> =>
 		mint("ruleJudge", [], ["judge"], "the rule judge", readable("__judge")),
@@ -2406,23 +2357,19 @@ export const identity = Object.freeze({
 		),
 	/**
 	 * A part of the rule judge (physical/ddl/rules.ts addRules): the function that judges every rule whose statements
-	 * read one of the session's deltas `deltas`, which the judge runs where the transaction wrote one of them, the
-	 * written set its `sentinel` holds. It is named by its sentinel and its deltas, an upkeep's by its stratum too, which
-	 * two strata's parts over the same deltas tell apart, and its stem by the relation of the first, `relation`, so a part
-	 * whose deltas or whose written set's declaration change is another function, created in its place, never one whose
-	 * parameters CREATE OR REPLACE would have to rename (42P13).
+	 * read one of the deltas `deltas`, each an argument, which the judge runs where the transaction wrote one of them. It
+	 * is named by its deltas, an upkeep's by its stratum too, which two strata's parts over the same deltas tell apart,
+	 * and its stem by the relation of the first, `relation`, so a part whose deltas change is another function, created
+	 * in its place, never one whose arguments CREATE OR REPLACE would have to rename or retype (42P13).
 	 */
 	ruleJudgePart: (
 		relation: string,
-		sentinel: Identity<"ruleSentinel">,
 		deltas: NonEmptyReadonlyArray<Identity<"ruleDelta">>,
 		pass: { readonly kind: "upkeep"; readonly stratum: number } | { readonly kind: "rules" }
 	): Identity<"ruleJudgePart"> =>
 		mint(
 			"ruleJudgePart",
-			pass.kind === "rules"
-				? [sentinel, ...deltas]
-				: [sentinel, "upkeep", String(pass.stratum), ...deltas],
+			pass.kind === "rules" ? deltas : ["upkeep", String(pass.stratum), ...deltas],
 			["judge", ...nameSegments(relation)],
 			pass.kind === "rules"
 				? `the rule judge of the deltas of ${relation} and the relations its rules join it to`
@@ -2433,19 +2380,23 @@ export const identity = Object.freeze({
 	 * A block of the rule judge (physical/ddl/rules.ts addRules): the function that runs one rule's statement over what
 	 * its region reads, a probe's one side of one table or a whole rule's units, which its part runs where one of the
 	 * deltas the region reads holds a row, so a session compiles and plans the statements of the rules its writes can
-	 * break alone. It is named by its rule's trigger, `rule`, and its region, its stem by the rule's law, `law`. It takes
-	 * no argument, so CREATE OR REPLACE puts any statement of its rule in place.
+	 * break alone. It is named by its rule's trigger, `rule`, its region and the selections it takes, `selections`, each
+	 * an argument, so a block whose arguments change is another function, never one CREATE OR REPLACE would have to
+	 * rename or retype an argument of (42P13); its stem by the rule's law, `law`.
 	 */
 	ruleJudgeBlock: (
 		rule: Identity<"lawTrigger">,
 		law: Identity<"law">,
 		region:
 			| { readonly kind: "probe"; readonly relation: string; readonly side: "added" | "removed" }
-			| { readonly kind: "units" }
+			| { readonly kind: "units" },
+		selections: ReadonlyArray<Identity<"ruleDeltaSelection" | "ruleDelta">>
 	): Identity<"ruleJudgeBlock"> =>
 		mint(
 			"ruleJudgeBlock",
-			region.kind === "probe" ? [rule, region.relation, region.side] : [rule],
+			region.kind === "probe"
+				? [rule, region.relation, region.side, ...selections]
+				: [rule, ...selections],
 			["judge", ...law.segments],
 			region.kind === "probe"
 				? `the rule judge's block of rule ${law.display} over the rows ${region.side === "added" ? "a write adds to" : "a write removes from"} ${region.relation}`
@@ -2453,10 +2404,10 @@ export const identity = Object.freeze({
 			hashed
 		),
 	/**
-	 * A session's delta of `relation`'s writes on one side of the rules that read it (physical/ddl/rules.ts addRules): a
-	 * table of pg_temp, by its installation, the identity of its root schema, since a session may write several, and by
-	 * its declaration's canonical text, its columns and their types, so a migration that changes it names another and
-	 * never meets a session's delta of the old declaration.
+	 * A delta of `relation`'s writes on one side of the rules that read it (physical/ddl/deltas.ts Delta): its row type,
+	 * its column of the judge's log and the variable that holds its rows, by its installation, the identity of its root
+	 * schema, and by its declaration's canonical text, its attributes and their types, so a migration that changes it
+	 * names another, whose log's column no capture of the old declaration writes.
 	 */
 	ruleDelta: (
 		installation: Identity<"schema">,
@@ -2472,75 +2423,62 @@ export const identity = Object.freeze({
 			hashed
 		),
 	/**
-	 * A reader of a session's delta `delta` of `relation`'s writes on one side (physical/ddl/deltas.ts DeltaReads): the
-	 * set-returning function a statement of the judge reads the columns `projection` of the rows of the delta a selection
-	 * admits through, the selection's conjuncts over the delta's table, each by its text in canonical order, none for
-	 * every row, the projection's columns by name in the delta's order; named by the delta's identity, the selection and
-	 * the projection, so a migration that changes the delta's declaration or a read's selection or columns names another
-	 * reader.
+	 * A selection of a delta `delta` of `relation`'s writes on one side (physical/ddl/deltas.ts DeltaSelections): the
+	 * variable, and the argument of each block that reads it, that holds the rows of the delta its conjuncts admit, each by
+	 * its text in canonical order; named by the delta's identity and the conjuncts, so a migration that changes the
+	 * delta's declaration or a read's selection names another.
 	 */
-	ruleDeltaReader: (
+	ruleDeltaSelection: (
 		relation: string,
 		side: "news" | "olds",
 		delta: Identity<"ruleDelta">,
-		selection: ReadonlyArray<string>,
-		projection: ReadonlyArray<string>
-	): Identity<"ruleDeltaReader"> =>
+		selection: NonEmptyReadonlyArray<string>
+	): Identity<"ruleDeltaSelection"> =>
 		mint(
-			"ruleDeltaReader",
-			[delta, selection, projection],
-			["reader", side, ...nameSegments(relation)],
-			`the reader of the delta of ${side} of ${relation}`,
+			"ruleDeltaSelection",
+			[delta, selection],
+			["selection", side, ...nameSegments(relation)],
+			`a selection of the delta of ${side} of ${relation}`,
 			hashed
 		),
 	/**
-	 * An index of a session's delta `delta` of `relation`'s writes on one side over its column `column`
-	 * (physical/ddl/deltas.ts deltaIndexes): the B-tree its readers of a selection that fixes the column read the rows it
-	 * admits through, made with the delta's table, named by the delta's identity and the column.
+	 * The rule judge's arm of an installation, the identity of its root schema (physical/ddl/rules.ts addRules): the
+	 * UNLOGGED table of each open transaction's one row, whose INSERT arms the judge's deferred trigger and which holds
+	 * the tuple id of the transaction's newest delta row (sql/ast.ts CreateJudgeLog `arm`). Its shape is fixed, so it
+	 * keeps its name whatever the deltas.
 	 */
-	ruleDeltaIndex: (
-		relation: string,
-		side: "news" | "olds",
-		delta: Identity<"ruleDelta">,
-		column: string
-	): Identity<"ruleDeltaIndex"> =>
+	ruleArm: (installation: Identity<"schema">): Identity<"ruleArm"> =>
 		mint(
-			"ruleDeltaIndex",
-			[delta, column],
-			["index", side, ...nameSegments(relation)],
-			`the index of the delta of ${side} of ${relation} over ${column}`,
+			"ruleArm",
+			[installation],
+			["judge", "arm"],
+			`the rule judge's arm of ${installation.display}`,
+			hashed
+		),
+	/** The primary key of the rule judge's arm (`ruleArm`), over its transaction's 64-bit id. */
+	ruleArmKey: (installation: Identity<"schema">): Identity<"ruleArmKey"> =>
+		mint(
+			"ruleArmKey",
+			[installation],
+			["judge", "arm", "pk"],
+			`key of the rule judge's arm of ${installation.display}`,
 			hashed
 		),
 	/**
-	 * A session's marker of a set of the rule judge's deltas, `deltas`, of an installation, the identity of its root schema
-	 * (physical/ddl/rules.ts Closure, addStandUps): a table of pg_temp of no column, which the one site that makes the
-	 * set's deltas makes last, so its standing as the definer's own proves every one of them stands as the definer's own.
-	 * Named by the set, so two sites that make one set make one marker, and an installation whose set holds another
-	 * delta names another, which no session that stood the old set up holds.
+	 * The rule judge's delta log of an installation, the identity of its root schema (physical/ddl/rules.ts addRules):
+	 * the UNLOGGED table of one row of each capture, each delta's rows its statement wrote in the delta's column (sql/ast.ts
+	 * CreateJudgeLog `deltas`), named by its deltas' identities in its columns' order, so a migration that changes a delta
+	 * names another log, which no capture of the old declaration writes.
 	 */
-	ruleStood: (
+	ruleDeltas: (
 		installation: Identity<"schema">,
 		deltas: NonEmptyReadonlyArray<Identity<"ruleDelta">>
-	): Identity<"ruleStood"> =>
+	): Identity<"ruleDeltas"> =>
 		mint(
-			"ruleStood",
+			"ruleDeltas",
 			[installation, ...deltas],
-			["stood"],
-			`the marker of a set of the rule judge's session tables of ${installation.display}`,
-			hashed
-		),
-	/**
-	 * A session's sentinel of an installation, the identity of its root schema (physical/ddl/rules.ts addRules): a table
-	 * of pg_temp whose one row arms its deferred trigger, which runs the judge, and holds the transaction's written set,
-	 * named by its declaration's canonical text too, so a migration that changes it names another and no capture meets
-	 * a session's sentinel of the old declaration.
-	 */
-	ruleSentinel: (installation: Identity<"schema">, declaration: string): Identity<"ruleSentinel"> =>
-		mint(
-			"ruleSentinel",
-			[installation, declaration],
-			["sentinel"],
-			`the rule sentinel of ${installation.display}`,
+			["judge", "deltas"],
+			`the rule judge's delta log of ${installation.display}`,
 			hashed
 		),
 	/** The name a migration sets a held object aside under. */

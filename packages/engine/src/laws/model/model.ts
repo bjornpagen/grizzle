@@ -477,16 +477,6 @@ export interface LawModel {
 	/** The reference choice its recognizer read (plan.ts ReferenceChoice): what generate records for a login's compile,
 	 * which chooses none of its own. */
 	readonly references: ReferenceChoice
-	/**
-	 * The relations whose writes the installation's rule judge captures (physical/ddl/rules.ts addRules, judgedTables),
-	 * in code point order: each a rule over a query reads (RuleTrigger `tables`) and each a stored derived relation's
-	 * upkeep reads a side of (StoredUpkeep `sides`), of every level (`judgedOf`). A session stands up the judge's tables a write of
-	 * one needs before its first such write (physical/ddl/rules.ts addStandUps), which a served write does in its
-	 * session's stand-up (write/program/stand-up.ts writeStandUps): what generate records for a layer that plans only a
-	 * level (CycleSource), whose own rules are not the installation's, a rule of a level above its own over a relation it
-	 * writes among them.
-	 */
-	readonly judged: ReadonlyArray<string>
 	/** Each containment's existence evidence a query may rely on, its law and the context its discharge holds it in
 	 * (catalog.ts existenceConstraints): what every evidence catalog over the model reads. */
 	readonly existence: ReadonlyArray<ExistenceConstraint>
@@ -559,21 +549,6 @@ export const undischargedLaws = (model: LawModel): ReadonlyArray<LawId> => {
 		discharged.has(law.id) ? [] : [law.id]
 	)
 }
-
-/**
- * The relations whose writes a judge of `rules` and `upkeeps` captures (LawModel `judged`): each relation a rule reads
- * and each an upkeep reads a side of (StoredUpkeep `sides`), in code point order.
- */
-const judgedOf = (
-	rules: ReadonlyArray<RuleTrigger>,
-	upkeeps: ReadonlyArray<StoredUpkeep>
-): ReadonlyArray<string> =>
-	[
-		...new Set([
-			...rules.flatMap((r) => r.tables.map((t) => t.relation.name)),
-			...upkeeps.flatMap((u) => u.sides.map((r) => r.relation))
-		])
-	].toSorted(compareStrings)
 
 /**
  * The admitted patterns the host's evaluation of a write reads over the model: the field types and generated
@@ -788,11 +763,10 @@ const onCycleOf = (cycles: FkCycles): ((from: string, to: string) => boolean) =>
 }
 
 /**
- * Where a law model's whole-schema facts come from, its foreign key cycles (FkCycles), its reference choice (plan.ts
- * ReferenceChoice) and the relations its installation's judge captures (LawModel `judged`): planned from every law of
- * the schema, or recorded by generate in the snapshot (snapshot.json derived.fkCycles, derived.references and
- * derived.judged), which a login's compile reads, so that it chooses the installation's references and stands up every
- * table the installation's judge captures, though its level holds no rule of a level above it.
+ * Where a law model's whole-schema facts come from, its foreign key cycles (FkCycles) and its reference choice (plan.ts
+ * ReferenceChoice): planned from every law of the schema, or recorded by generate in the snapshot (snapshot.json
+ * derived.fkCycles and derived.references), which a login's compile reads, so that it chooses the installation's
+ * references.
  */
 export type CycleSource =
 	| { readonly kind: "planned" }
@@ -800,7 +774,6 @@ export type CycleSource =
 			readonly kind: "recorded"
 			readonly cycles: FkCycles
 			readonly references: ReferenceChoice
-			readonly judged: ReadonlyArray<string>
 	  }
 
 /** The edges of the foreign key graph `plans` order a write's statements by (`#deferral`): every foreign key its family
@@ -1367,8 +1340,6 @@ class Specializer {
 			immediate,
 			fkCycles,
 			references: this.recognizer.references,
-			judged:
-				this.cycles.kind === "planned" ? judgedOf(rules, this.theory.upkeeps) : this.cycles.judged,
 			existence: existenceConstraints(evidence.containments),
 			migrationLaws: plans.flatMap((plan) => (plan.discharge === "migration" ? [plan.law.id] : [])),
 			rules,

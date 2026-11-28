@@ -3,7 +3,7 @@
  * file sends is one the audit accepts, the printer's output, never hand-edited.
  *
  * - Catalog reads: a catalog read of drawn arms is the set union of their rows, a row two arms share once.
- * - Relational: generated CROSS JOINs, IN and NOT IN over a subquery, and windows over drawn ROWS frames evaluate as
+ * - Relational: generated CROSS JOINs and windows over drawn ROWS frames evaluate as
  *   the host computes them (test/pg/sql/evaluated.ts).
  * - Default privileges: a reset of PUBLIC's default privilege, in one schema and in the global form, of each kind
  *   PostgreSQL grants PUBLIC by default, leaves PUBLIC its privilege on a new function or type under the schema's form
@@ -151,7 +151,7 @@ export const printedSQLOnPostgreSQL19ReadsACatalogReadOfSeveralArmsAsTheSetUnion
 	})
 
 /**
- * Printed SQL on PostgreSQL 19 evaluates generated CROSS JOINs, IN and NOT IN over a subquery, and windows over drawn ROWS frames as the host does.
+ * Printed SQL on PostgreSQL 19 evaluates generated CROSS JOINs and windows over drawn ROWS frames as the host does.
  *
  * Its budget, measured (fastcycle's cull):
  *
@@ -176,14 +176,11 @@ export const printedSQLOnPostgreSQL19ReadsACatalogReadOfSeveralArmsAsTheSetUnion
  * @revalidate a change of its space, situations, kept cases or kills, of its label (the floor stream's seed), or of the
  *   runner's floor rule
  */
-export const printedSQLOnPostgreSQL19EvaluatesGeneratedCROSSJOINsINAndNOTINOverASubqueryAndWindowsOverDrawnROWSFramesAsTheHostDoes =
+export const printedSQLOnPostgreSQL19EvaluatesGeneratedCROSSJOINsAndWindowsOverDrawnROWSFramesAsTheHostDoes =
 	property.explore(relationalSketchGen, {
 		needs: { tx: Substrate.rolledBack(baseSubstrate) },
 		situations: [
 			"cross join",
-			"in",
-			"not in",
-			"empty subquery",
 			"frame unboundedPreceding to currentRow",
 			"frame currentRow to unboundedFollowing",
 			"frame offset to offset",

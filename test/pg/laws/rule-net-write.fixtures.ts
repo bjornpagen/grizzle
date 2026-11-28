@@ -3,10 +3,10 @@
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { aimed, array, boolean, element, type Gen, weighted } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
-import { Array as Arr, Data, Effect, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Data, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
 import { rowsRead } from "#bench/harness/explain.ts"
 import type { LawId } from "#compiler/core/ids.ts"
-import { quoteIdent, quoteString } from "#compiler/core/text.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import {
 	baselineRuleChecks,
 	definedRuleChecks,
@@ -20,8 +20,7 @@ import { int2, int4, int8 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, mutable, on, relation, schema, unit } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import type { PlStatement } from "#compiler/sql/ast.ts"
-import { printStatement } from "#compiler/sql/print.ts"
+import { printObjectName, printStatement } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import {
 	type Installed,
@@ -32,10 +31,9 @@ import {
 import {
 	capturedDeltasOf,
 	foundQueryOf,
-	judgeBodiesOf,
 	judgeRun,
 	judgeStatementsOf,
-	standUpJudge
+	nettedValue
 } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -152,9 +150,8 @@ export const netWriteTemplate = migratedTemplate({
 class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}
 
 /**
- * A's side of news as the judge's statements read it: the delta A's capture creates with a count of each image, its
- * images' columns, the heading's, and the part's netting of it, the DELETE whose WHERE reads the counts' sums
- * (physical/ddl/deltas.ts netted).
+ * A's side of news as the judge's statements read it: the delta A's capture logs with a count of each image, its
+ * images' columns, the heading's, and its row type, printed.
  */
 const newsOfA = (installation: Installation) => {
 	const news = defined(
@@ -163,51 +160,40 @@ const newsOfA = (installation: Installation) => {
 		).pipe(Option.getOrUndefined),
 		"A's side of news"
 	)
-	const nettings = (body: ReadonlyArray<PlStatement>): ReadonlyArray<string> =>
-		Arr.flatMap(body, (s) =>
-			s.kind === "modify" &&
-			s.statement.kind === "delete" &&
-			typeof s.statement.table !== "string" &&
-			s.statement.table.name === news.name &&
-			s.statement.where !== undefined
-				? [printStatement(s.statement)]
-				: s.kind === "if"
-					? [...Arr.flatMap(s.branches, (b) => nettings(b.body)), ...nettings(s.else)]
-					: []
-		)
-	/** Each part that reads A's side of news nets it first, by the one statement: Named's rules' part and Media's
-	 * upkeep's, phase A's, which reads it beside A's side of olds. */
-	const [netting, ...others] = Arr.dedupe(nettings(judgeBodiesOf(installation)))
-	assert.ok(
-		netting !== undefined && others.length === 0,
-		"the judge nets A's side of news by one statement"
+	const rowType = defined(
+		Arr.findFirst(installation.statements, (st) =>
+			st.kind === "createRowType" && st.name.name === news.name
+				? Option.some(printObjectName(st.name))
+				: Option.none()
+		).pipe(Option.getOrUndefined),
+		"A's side of news's row type"
 	)
 	return {
 		delta: news.name,
 		images: Arr.filter(news.columns, (c) => c !== countColumn),
-		netting: defined(netting, "A's netting")
+		rowType
 	}
 }
 
 /**
- * That the side of news the judge reads holds each image once (`newsOfA`): its rows netted, as a part nets them before
- * any statement reads them, hold no image twice, since every reader of the delta deduplicates nothing
- * (physical/ddl/deltas.ts addReaders). A delta the session has not stood up holds none.
+ * That the side of news the judge reads holds each image once (`newsOfA`): its rows the transaction logged, netted as
+ * the judge nets them before any part reads them (support/judge.ts nettedValue), hold no image twice, since no statement
+ * that reads the delta's array deduplicates it (physical/ddl/deltas.ts netted).
  */
 const newsOnce = (installed: Installed, session: RawSession, where: string) =>
 	Effect.gen(function* () {
 		const news = newsOfA(installed.installation)
-		const stands = yield* session.values(
-			`SELECT pg_catalog.to_regclass(${quoteString(`pg_temp.${quoteIdent(news.delta)}`)}) IS NOT NULL`,
-			[]
+		const netted = yield* nettedValue(
+			(sql, params) => session.values(sql, params),
+			installed.installation,
+			news.delta
 		)
-		if (stands[0]?.[0] !== true) {
-			return
-		}
-		yield* session.query(news.netting, [])
 		const read = yield* session.values(
-			`SELECT count(*)::int, count(DISTINCT r.*)::int FROM (SELECT ${Arr.join(Arr.map(news.images, quoteIdent), ", ")} FROM pg_temp.${quoteIdent(news.delta)}) AS r`,
-			[]
+			`SELECT count(*)::int, count(DISTINCT (${Arr.join(
+				Arr.map(news.images, (c) => `r.${quoteIdent(c)}`),
+				", "
+			)}))::int FROM pg_catalog.unnest($1::${news.rowType}[]) AS r`,
+			[netted]
 		)
 		if (read[0]?.[0] !== read[0]?.[1]) {
 			return yield* new Disagreed({
@@ -666,28 +652,27 @@ const reachedBy = (
 }
 
 /**
- * Every law a refusal's constraint serves, through the installation's constraint map: none for another table's. A
- * rule's raise names the table of the relation its trigger stands on: a stored relation's own, Media's, whose rule
- * reads its table and its deltas.
+ * Every law a refusal's constraint serves, through the installation's constraint map, the relation whose table it names
+ * among every relation of the installation: a rule's raise names a table of a relation it reads, a stored relation's
+ * own among them, Media's or Named's, whose rule reads its table and its deltas; none for another table's.
  */
 const refusedLaws = (
 	installation: Installation,
 	fields: { readonly table: Option.Option<string>; readonly constraint: string | undefined }
 ): ReadonlyArray<LawId> => {
-	if (Option.isNone(fields.table) || fields.constraint === undefined) {
-		return []
-	}
-	const table = fields.table.value
-	const owner = Arr.findFirst(
-		["P", "A", "R", "Q", "Media"],
-		(r) => installation.names.relation(r).name === table
+	const { constraint } = fields
+	const owner = Option.flatMap(fields.table, (table) =>
+		Arr.findFirst(
+			Rec.keys(installation.owned.relations),
+			(r) => installation.names.relation(r).name === table
+		)
 	)
-	return Option.isNone(owner)
+	return Option.isNone(owner) || constraint === undefined
 		? []
 		: (lawsOfConstraint(
 				installation.constraintToLaw,
 				{ kind: "table", name: installation.names.relation(owner.value).name },
-				fields.constraint
+				constraint
 			) ?? [])
 }
 
@@ -761,7 +746,6 @@ export const runSchedule = (
 	c: Case<NetFeature>
 ) =>
 	Effect.gen(function* () {
-		yield* standUpJudge(admin, installed.installation)
 		const names = namesOf(installed)
 		yield* admin.query(
 			`ALTER TABLE ${names.table(A)} ADD FOREIGN KEY (package) REFERENCES ${names.table(P)} (package) ON DELETE CASCADE`,
@@ -880,7 +864,7 @@ export const tieTemplates = {
 const readsOf = (installed: Installed, connection: PgConnection) =>
 	Effect.map(
 		judgeRun(
-			(sql) => connection.queryValues(sql, []),
+			(sql, params) => connection.queryValues(sql, params),
 			installed.installation,
 			judgeStatementsOf(installed.installation)
 		),
@@ -908,7 +892,6 @@ export const runTie = (
 		/** The judge's reads over the touched row on one clone, then its verdict, which accepts it. */
 		const measured = (installed: Installed, connection: PgConnection) =>
 			Effect.gen(function* () {
-				yield* standUpJudge(connection, installed.installation)
 				const names = namesOf(installed)
 				const a = names.table(A)
 				for (const sql of [

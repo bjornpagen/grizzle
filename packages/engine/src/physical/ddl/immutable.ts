@@ -89,9 +89,8 @@ export const guardBracketTexts = (
 
 /**
  * A custom migration's data step's bracket as the runner sends it (adapter/migrate/apply.ts), over the installation's
- * schemas `schemas`: `before` its statements, the call of each judged table's stand-up `standUps` names
- * (physical/ddl/rules.ts addStandUps), so a statement that writes a table the rule judge holds finds the session's
- * tables standing and is judged at its COMMIT, then every guard of the schemas lifted (guardBracket); `after` them, the
+ * schemas `schemas`: `before` its statements, every guard of the schemas lifted (guardBracket), so a statement that
+ * writes a table the rule judge holds is captured into the judge's log and judged at its COMMIT; `after` them, the
  * re-check of each level `rechecks` names (physical/ddl/recheck.ts), each after SET CONSTRAINTS ALL IMMEDIATE, so the
  * judge keeps every stored table the step's writes reach before the re-check reads them and a rule the step breaks is
  * refused in the step's own transaction, naming its law; then each guard created again. No schema, before the
@@ -100,7 +99,6 @@ export const guardBracketTexts = (
  */
 export const dataStepBracket = (
 	schemas: ReadonlyArray<string>,
-	standUps: ReadonlyArray<ObjectName>,
 	rechecks: ReadonlyArray<ObjectName>
 ): {
 	readonly before: ReadonlyArray<EmittedText>
@@ -108,7 +106,7 @@ export const dataStepBracket = (
 } => {
 	const lifted = isNonEmpty(schemas) ? [guardBracketTexts({ kind: "schemas", schemas })] : []
 	return {
-		before: [...standUpCalls(standUps), ...lifted.map((b) => b.before)],
+		before: lifted.map((b) => b.before),
 		after: [
 			...(isNonEmpty(rechecks)
 				? [
@@ -122,14 +120,6 @@ export const dataStepBracket = (
 		]
 	}
 }
-
-/**
- * The call of each stand-up of `standUps`, a statement of its own (sql/build.ts calledAlone): what a custom migration's
- * data step runs before its statements, inside its bracket (`dataStepBracket`) or, for a file that runs outside a
- * transaction, alone before them, each committing its session's tables for every statement after.
- */
-export const standUpCalls = (standUps: ReadonlyArray<ObjectName>): ReadonlyArray<EmittedText> =>
-	standUps.map((standUp) => emitText(calledAlone(standUp), emptyNameMap, costChosen).text)
 
 /** The fields of `relation` its guard holds fixed: every field its rows never change in place, but a generated one. */
 const fixedFields = (relation: RelationInfo): ReadonlyArray<string> =>

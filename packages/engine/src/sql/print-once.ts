@@ -289,8 +289,6 @@ const childrenOf = (e: SubqueryExpr): ReadonlyArray<SubqueryExpr> => {
 			return [e.expr, e.low, e.high]
 		case "inList":
 			return [e.expr, ...e.list]
-		case "inQuery":
-			return [e.expr]
 		case "equalsAny":
 			return [e.expr, e.array]
 		case "row":

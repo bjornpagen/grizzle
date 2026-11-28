@@ -20,7 +20,7 @@ import {
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed } from "#test/support/install-migrate.ts"
 import { fullWorldTemplate } from "#test/support/installed.ts"
-import { readWork, standUpJudge } from "#test/support/judge.ts"
+import { readWork } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 
@@ -558,7 +558,6 @@ export const runStage = (
 		const session = { values: connection.queryValues }
 		const run = (statements: ReadonlyArray<string>) =>
 			Effect.forEach(statements, (sql) => connection.query(sql, []), { discard: true })
-		yield* standUpJudge(connection, installed.installation)
 		yield* standIn(
 			session,
 			{

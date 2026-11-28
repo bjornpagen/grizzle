@@ -24,7 +24,6 @@ import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { pgCluster } from "#test/support/env.ts"
 import { installGenerated } from "#test/support/install-migrate.ts"
 import { installFullWorld } from "#test/support/installed.ts"
-import { standUpJudge } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
@@ -77,10 +76,10 @@ const build = (name: string) => {
  */
 const sizes = [1, 16, 400] as const
 
-/** The calls a case makes on each of its two backends: the first, which stands the write up, and three after it. */
+/** The calls a case makes on each of its two backends: the first, which plans the write, and three after it. */
 const callsMade = 4
 
-export type SecondCallFeature = "one key" | "sixteen keys" | "deltas past a page at every call"
+export type SecondCallFeature = "one key" | "sixteen keys" | "a call's log row past a page"
 
 /** A case: the keys each of the two calls puts. */
 export interface Calls {
@@ -97,7 +96,7 @@ const featureOf = (calls: Calls): SecondCallFeature => {
 		case 16:
 			return "sixteen keys"
 		case 400:
-			return "deltas past a page at every call"
+			return "a call's log row past a page"
 	}
 }
 
@@ -148,14 +147,14 @@ const textOf = (cell: unknown): string => (typeof cell === "string" ? cell : "")
  * the clone's backends counting every statement's plans (pg_stat_statements: compute_query_id on, track all,
  * track_planning on, for the database alone, as its template turns them on), then two served Dbs of the full world's
  * login, one after the other, each opened on a pool whose first session is a brand-new backend, and its put called four
- * times on it (`callsMade`). On each backend the first call stands the write up (adapter/apply/stand-up.ts) and plans
- * its statements; each call after it plans none, in functions or out, and changes no catalog row of the session's own
- * relations: none made, no file given anew, no row of pg_class or pg_proc of its temporary schema rewritten, so it sent
- * no invalidation any backend of the database reads. And the second backend's calls send no statement the first's did
+ * times on it (`callsMade`). On each backend every call, its first among them, changes no catalog row of the session's
+ * own relations: none made, no file given anew, no row of pg_class or pg_proc of its temporary schema rewritten, so it
+ * sends no invalidation any backend of the database reads; the first plans its statements, and each call after it plans
+ * none, in functions or out. And the second backend's calls send no statement the first's did
  * not: every statement it sends is one the statistics already hold, by its query id, so a served statement is one
  * statement in every session, its text and its identity its program's alone (no statement names a carrier of the
- * session's: write/carriers/carriers.ts). Four hundred keys fill the judge's deltas past a page at every call: their
- * emptying keeps their files below the pages it keeps (sql/print.ts sessionTableKeptPages).
+ * session's: write/carriers/carriers.ts). Four hundred keys fill each call's row of the judge's delta log past a page, an
+ * array its TOAST table holds (physical/ddl/rules.ts logged).
  */
 export const runCalls = (calls: Calls, c: Case<SecondCallFeature>) =>
 	Effect.gen(function* () {
@@ -169,7 +168,6 @@ export const runCalls = (calls: Calls, c: Case<SecondCallFeature>) =>
 		const world = fullWorld(built, {}, [])
 		const substrate = yield* Substrate
 		const names = namesOf(done)
-		yield* standUpJudge(substrate.admin, done.installation)
 		yield* substrate.admin.query("BEGIN", [])
 		yield* substrate.admin.query(
 			`INSERT INTO ${names.table(Fixed)} (${names.column(Fixed, "id")}, ${names.column(Fixed, "w")}) SELECT g, g FROM pg_catalog.generate_series(1, $1::int4) AS g`,
@@ -247,7 +245,14 @@ export const runCalls = (calls: Calls, c: Case<SecondCallFeature>) =>
 							)
 							assert.equal(outcome._tag, "accepted", `call ${k} of ${where} is accepted`)
 						})
+					const catalogFresh = yield* catalog
 					yield* call(1)
+					const catalogFirst = yield* catalog
+					assert.equal(
+						catalogFirst,
+						catalogFresh,
+						`call 1 of ${where}, the brand-new backend's first, changed a catalog row of the session's own relations or functions`
+					)
 					const first = yield* backends
 					for (let k = 2; k <= callsMade; k++) {
 						const before = yield* counted
@@ -319,11 +324,10 @@ export const belowGen: Gen<Below> = (source) => ({
  * login over Fixed's level alone (`baseOf`), whose one role writes Fixed and holds no law of the level above, then one
  * served Db of it, compiled under the installation's snapshot as generate compiles a login below the top
  * (adapter/served/compile.ts snapshotCompiled), whose first session is a brand-new backend, and its insert of Fixed
- * called twice on it. The session's stand-up makes the judge's tables of Fixed, which the installation's judge captures
- * for Bounded (deploy/snapshot/types.ts CompileFacts `judged`), so each call is judged at its COMMIT: a lawful fact
- * accepted, one past the bound refused by Bounded, named as the level above states it, and a call after a refusal judged
- * alike, where a stand-up of the tables only its own level's rules read made none, and the capture refused every call
- * (55Z03, a write of a table the rule judge holds in a session that has not stood up its tables).
+ * called twice on it. The installation's judge captures Fixed for Bounded whichever login writes it, so each call is
+ * judged at its COMMIT: a lawful fact accepted, one past the bound refused by Bounded, named as the level above states
+ * it, and a call after a refusal judged alike, where a session that stood up only the tables its own level's rules read
+ * had its every call refused by the capture.
  */
 export const runBelow = (below: Below, c: Case<BelowFeature>) =>
 	Effect.gen(function* () {

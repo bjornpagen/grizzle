@@ -17,8 +17,7 @@ import {
 	type JudgeStatement,
 	judgeStatementsOf,
 	raisedRule,
-	scannedWork,
-	standUpJudge
+	scannedWork
 } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -161,7 +160,7 @@ const answerWork = (installed: Installed, session: RawSession, answers: number) 
 					[]
 				)
 				return yield* judgeRun(
-					(sql) => session.values(sql, []),
+					(sql, params) => session.values(sql, params),
 					installed.installation,
 					judgeStatementsOf(installed.installation)
 				)
@@ -233,7 +232,6 @@ export const runUpkeep = (
 	c: Case<UpkeepFeature>
 ) =>
 	Effect.gen(function* () {
-		yield* standUpJudge(session, installed.installation)
 		const names = namesOf(installed)
 		const others = `FROM generate_series(2, ${background + 1}) AS g(child)`
 		yield* committedJudged(session, [
@@ -391,7 +389,7 @@ const momentWork = (installed: Installed, session: RawSession) =>
 					[]
 				)
 				return yield* judgeRun(
-					(sql) => session.values(sql, []),
+					(sql, params) => session.values(sql, params),
 					installed.installation,
 					judgeStatementsOf(installed.installation)
 				)
@@ -416,7 +414,6 @@ export const runSpan = (
 	c: Case<SpanFeature>
 ) =>
 	Effect.gen(function* () {
-		yield* standUpJudge(session, installed.installation)
 		yield* committedJudged(session, [
 			...spanBackgroundSql(installed),
 			`INSERT INTO ${namesOf(installed).table(Shown)} (child, s, at) SELECT 1, 1, 10 * k FROM generate_series(1, ${d.shown}) AS g(k)`,
@@ -553,7 +550,6 @@ export const runFold = (
 		const names = namesOf(installed)
 		const shown = (from: number, to: number, instant: string) =>
 			`INSERT INTO ${names.table(Shown)} (child, s, at) SELECT 1, 1, ${instant} FROM generate_series(${from}, ${to}) AS g(i)`
-		yield* standUpJudge(session, installed.installation)
 		yield* committedJudged(session, [
 			...spanBackgroundSql(installed),
 			shown(1, 4, "10 * i"),

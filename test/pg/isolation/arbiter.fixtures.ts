@@ -31,7 +31,6 @@ import {
 import { workload } from "#compiler/public/workload.ts"
 import {
 	type CallInput,
-	callStandUps,
 	callStatements,
 	type InstalledShape,
 	shapeTemplate,
@@ -260,11 +259,6 @@ export const runDisjoint = (s: InstalledShape, race: DisjointRace) =>
 			)
 			const outcomes = Arr.map(sessions, (): Array<ScheduleOutcome> => [])
 			const actorOf = (i: number) => defined(actors[`s${i}`], `session s${i}`)
-			for (const [i, c] of race.calls.entries()) {
-				for (const sql of callStandUps(s, { role: "importer", member: c.member })) {
-					yield* actorOf(i).perform({ _tag: "Sql", sql })
-				}
-			}
 			for (const [i] of sessions.entries()) {
 				const begun = yield* actorOf(i).perform(writeBegin(s, "importer"))
 				defined(outcomes[i], "a session's outcomes").push(begun)

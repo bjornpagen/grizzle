@@ -208,8 +208,7 @@ export const artifactsUnder = (
 			{
 				kind: "recorded",
 				cycles: derived.fkCycles,
-				references: derived.references,
-				judged: derived.judged
+				references: derived.references
 			},
 			reading,
 			served

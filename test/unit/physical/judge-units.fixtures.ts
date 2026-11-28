@@ -133,7 +133,7 @@ const schemaOf = (c: Roots): FixtureSchema => {
 const readsStored = (query: OperandSelect): boolean => {
 	let stored = false
 	const source = (s: FromSource): void => {
-		const table = s.kind === "probe" ? s.table : tableOfSource(s)
+		const table = tableOfSource(s)
 		if (table !== undefined && table.schema !== "pg_temp") {
 			stored = true
 		}

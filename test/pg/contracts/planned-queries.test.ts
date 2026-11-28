@@ -85,10 +85,10 @@ export const aCallMakesNoMoreStatementEntriesThanItsPlannedBound = property.expl
 	kills: [
 		{
 			file: "packages/engine/src/physical/planned/graph.ts",
-			original: "\t\t\t\twalked: walkBody(fn, event, shape.table, sessions, madeTrigger)\n",
+			original: "\t\t\t\twalked: walkBody(fn, event, shape.table)\n",
 			replacement:
-				'\t\t\t\twalked:\n\t\t\t\t\tshape.kind === "capture"\n\t\t\t\t\t\t? { ...walkBody(fn, event, shape.table, sessions, madeTrigger), identities: [], raises: [] }\n\t\t\t\t\t\t: walkBody(fn, event, shape.table, sessions, madeTrigger)\n',
-			why: "The rule judge's captures plan nothing: every capture's query of the rows its statement wrote, its insert into its delta and its arming of the judge, leaves the count, and a write of a captured table makes more entries as the installation's owner than its bound."
+				'\t\t\t\twalked:\n\t\t\t\t\tshape.kind === "capture"\n\t\t\t\t\t\t? { ...walkBody(fn, event, shape.table), identities: [], raises: [] }\n\t\t\t\t\t\t: walkBody(fn, event, shape.table)\n',
+			why: "The rule judge's captures plan nothing: every capture's query of the rows its statement wrote, its log of them and its move of the arm, leaves the count, and a write of a captured table makes more entries as the installation's owner than its bound."
 		}
 	]
 })

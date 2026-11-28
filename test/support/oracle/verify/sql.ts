@@ -750,14 +750,6 @@ class StatementAuditor {
 				})
 				this.exprs(e.list, ctx, "list")
 				return
-			case "inQuery":
-				this.at("expr", () => {
-					this.expr(e.expr, ctx)
-				})
-				this.at("query", () => {
-					this.subquery(e.query, ctx)
-				})
-				return
 			case "equalsAny":
 				this.at("expr", () => {
 					this.expr(e.expr, ctx)
@@ -1995,7 +1987,9 @@ class StatementAuditor {
 				})
 				return
 			case "forQuery":
-				this.plVar(statement.variable, ctx)
+				for (const variable of statement.variables) {
+					this.plVar(variable, ctx)
+				}
 				this.at("query", () => {
 					this.embedded(() => {
 						this.select(statement.query, { pl: true, outermost: false, topLevel: true })
@@ -2029,25 +2023,19 @@ class StatementAuditor {
 					})
 				})
 				return
-			case "createSessionTable":
-				this.ident(statement.name, "table", "name")
-				for (const [i, column] of statement.columns.entries()) {
-					this.ident(column.name, "column", "columns", i, "name")
-				}
+			case "into": {
+				const into = statement.statement
+				this.at("statement", () => {
+					if (into.kind === "select") {
+						this.select(into, { pl: true, outermost: false, topLevel: true })
+					} else {
+						this.embedded(() => {
+							this.dml(into, true, true)
+						})
+					}
+				})
 				return
-			case "createSessionIndex":
-				this.ident(statement.name, "index", "name")
-				this.ident(statement.table, "table", "table")
-				this.ident(statement.column, "column", "column")
-				return
-			case "truncateSessionTable":
-				this.ident(statement.name, "table", "name")
-				return
-			case "createSessionTrigger":
-				this.ident(statement.name, "trigger", "name")
-				this.ident(statement.table, "table", "table")
-				this.objectName(statement.function, "function", "function")
-				return
+			}
 			case "whenFound":
 				this.at("query", () => {
 					embeddedSelect(statement.query)
@@ -2169,6 +2157,7 @@ class StatementAuditor {
 			case "createImmutableGuardTrigger":
 			case "createConstraintTrigger":
 			case "createTransitionTrigger":
+			case "createJudgeLog":
 			case "createPublication":
 			case "dropPublication":
 			case "createLiveSecret":
@@ -2545,6 +2534,25 @@ class StatementAuditor {
 			case "adoptRole":
 				this.ident(statement.role, "role", "role")
 				return
+			case "createJudgeLog": {
+				this.objectName(statement.table, "relation", "table")
+				const log = statement.log
+				switch (log.kind) {
+					case "arm":
+						this.ident(log.key, "constraint", "key")
+						return
+					case "deltas":
+						this.at("sides", () => {
+							for (const [i, side] of log.sides.entries()) {
+								this.at(i, () => {
+									this.ident(side.column, "column", "column")
+									this.objectName(side.type, "type", "type")
+								})
+							}
+						})
+						return
+				}
+			}
 			case "endHolders":
 				for (const [i, role] of statement.roles.entries()) {
 					this.ident(role, "role", "roles", i)
@@ -2784,7 +2792,6 @@ const forEachAggregateCall = (e: Expr, f: (call: FunctionCall) => void): void =>
 		case "isTrue":
 		case "complement":
 		case "lowerAscii":
-		case "inQuery":
 			forEachAggregateCall(e.expr, f)
 			return
 		case "attribute":

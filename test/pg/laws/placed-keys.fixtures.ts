@@ -18,7 +18,7 @@ import type { Select } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
-import { foundQueryOf, standUpJudge } from "#test/support/judge.ts"
+import { foundQueryOf } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -380,7 +380,6 @@ export const runPlaced = (
 	c: Case<PlacedFeature>
 ) =>
 	Effect.gen(function* () {
-		yield* standUpJudge(connection, installed.installation)
 		for (const sql of written(installed, drawn)) {
 			yield* connection.query(sql, [])
 		}

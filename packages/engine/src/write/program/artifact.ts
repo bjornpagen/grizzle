@@ -26,7 +26,7 @@ import {
 } from "#compiler/runtime/write/steps.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
-import type { EmittedText, Select, SqlStatement } from "#compiler/sql/ast.ts"
+import type { EmittedText, Select, Dml } from "#compiler/sql/ast.ts"
 import { emitSelect, emitText, type Emitting } from "#compiler/sql/emit.ts"
 import type { NameMap } from "#compiler/sql/naming.ts"
 import type { ReadPlan } from "#compiler/sql/plan.ts"
@@ -157,7 +157,7 @@ export const wholeText: FormText = Object.freeze({ kind: "whole" })
  * rewrite of a placed statement's AST emits again, so its text, plan and units are one binding's.
  */
 export const emittedForm = (
-	ast: SqlStatement,
+	ast: Dml,
 	nameMap: NameMap,
 	text: FormText,
 	binding: Emitting
@@ -187,7 +187,7 @@ export interface ArtifactStatement {
 	readonly index: number
 	readonly step: WriteStep
 	readonly spec: StatementSpec<WriteParamSlot>
-	readonly ast: SqlStatement
+	readonly ast: Dml
 	/** How its text, `spec.sql`, is sent. */
 	readonly text: FormText
 }
@@ -239,7 +239,7 @@ export interface WriteArtifact {
  * SentStatement, every placeholder a declared parameter's), which determine its step, and which statement admits its write's caller parameters as it was lowered (ReadBackAdmission). Each
  * holds its spec, its AST, and the generated names its text holds. */
 export type PlacedStatement = {
-	readonly ast: SqlStatement
+	readonly ast: Dml
 	readonly names: NameMap
 } & (
 	| {

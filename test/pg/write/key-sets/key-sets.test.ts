@@ -106,7 +106,6 @@ const runAt = (readers: Readers, scale: number) =>
 						]
 			const { tag, tagB, link, pin } = contentAt(scale)
 			yield* ownerTransaction(
-				fx,
 				Arr.flatten([
 					insert(
 						Item,

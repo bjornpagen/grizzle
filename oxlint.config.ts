@@ -18,6 +18,7 @@ const { active, lintConfig } = standard(toolchain)
  * is over, every directive the README states, every probe of a scale program, every dimension a cost gate measures).
  */
 const DICTIONARY_MINTS = [
+	"test/types/served/ddl.dictionary.ts",
 	"test/types/schema/closed-subset.dictionary.ts",
 	"test/types/schema/variant-subset.dictionary.ts",
 	"test/pg/served/absent-claims.dictionary.ts",

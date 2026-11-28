@@ -267,24 +267,6 @@ const inlined = (sql: string, params: ReadonlyArray<Param>): Effect.Effect<strin
 		}
 	)
 
-/**
- * The statements a session sends before a race's first call of `member` of `role`: the write's stand-ups
- * (runtime/write/flight.ts StandUp), each text in order, the carriers' as the role and the judged tables' as the judge's
- * definer, as a served write's session does before its first call (adapter/apply/stand-up.ts). Each commits alone,
- * outside every race's transaction, so the interleaved statements meet every session object they read standing.
- */
-export const callStandUps = (
-	s: InstalledShape,
-	call: { readonly role: string; readonly member: string }
-): ReadonlyArray<string> =>
-	Arr.flatMap(
-		defined(
-			s.changes.get(call.role)?.get(call.member),
-			`member ${call.member} of role ${call.role}`
-		).entry.program.standUps,
-		(standUp) => [standUp.call.sql]
-	)
-
 /** The one statement a call the host refuses before any SQL sends: a constant SELECT naming the refusal. */
 const hostRefused = `SELECT 'host refused'::text AS refused`
 

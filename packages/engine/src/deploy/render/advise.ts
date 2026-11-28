@@ -196,6 +196,7 @@ const readsRows = (statement: SqlStatement): boolean => {
 		case "commit":
 		case "createConstant":
 		case "createConstraintTrigger":
+		case "createJudgeLog":
 		case "createDeclaredFunction":
 		case "createDomain":
 		case "createExtension":

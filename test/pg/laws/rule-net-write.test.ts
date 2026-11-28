@@ -10,7 +10,8 @@
  *   and two names (puts, removals, updates of the governor the rules read, of the note none reads and of the key,
  *   references, declarations, and deletes of a package that a direct writer's foreign key cascades into A), with the
  *   judge run inside a transaction that then writes on. At each judge and at each transaction's end A's side of news,
- *   netted as a part nets it and read through its reader, which deduplicates nothing, holds no row twice; and every
+ *   the rows the transaction logged netted as the judge nets them, which no statement that reads it deduplicates, holds
+ *   no row twice; and every
  *   rule's whole check, its violation query lowered by the oracle baseline with every derived relation read through
  *   its definition (deploy/snapshot/violation.ts definedRuleChecks), judges the state first: the judge refuses exactly
  *   when one finds the state broken, under 23503 naming a rule it finds broken, and the transaction commits otherwise;
@@ -40,7 +41,6 @@ import {
 	tieTemplates,
 	tieGen
 } from "#test/pg/laws/rule-net-write.fixtures.ts"
-import { standUpJudge } from "#test/support/judge.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -58,7 +58,6 @@ export const aRuleOverAQueryJudgesTheTransactionsNetWriteAsTheRulesWholeCheckJud
 				Effect.gen(function* () {
 					const { substrate, value } = yield* net
 					const session = yield* substrate.session({ ...ownerSession(), label: "net write" })
-					yield* standUpJudge(session, value.installation)
 					yield* runSchedule(value, substrate.admin, session, schedule, c)
 				}).pipe(Effect.scoped),
 		oracle: {
@@ -86,20 +85,21 @@ export const aRuleOverAQueryJudgesTheTransactionsNetWriteAsTheRulesWholeCheckJud
 		kills: [
 			{
 				file: "packages/engine/src/physical/ddl/deltas.ts",
-				original: '\t\t\t\t\t\tgt(col("r3", "c3"), lit.int(1, types.bigint))',
-				replacement: '\t\t\t\t\t\tgt(col("r3", "c3"), lit.int(2, types.bigint))',
-				why: "The judge's netting keeps two rows of an image a transaction put, removed and put again, so its side of news holds the image twice, and its reader, which deduplicates nothing, returns it twice to every statement that reads it."
+				original: 'eq(col("r2", rank), lit.int(1, types.bigint))',
+				replacement: 'gt(col("r2", rank), lit.int(0, types.bigint))',
+				why: "The judge's netting keeps every row of an image whose sum stands, so an image a transaction put, removed and put again stands on its side of news twice, and every statement that reads the array reads it twice."
 			},
 			{
 				file: "packages/engine/src/physical/ddl/deltas.ts",
-				original: '\t\t\t\t\t\tle(col("r3", "c2"), lit.int(0, types.bigint)),',
-				replacement: '\t\t\t\t\t\tle(col("r3", "c2"), lit.int(-1, types.bigint)),',
+				original: 'gt(col("r2", sum), lit.int(0, types.bigint))',
+				replacement: 'gt(col("r2", sum), lit.int(-1, types.bigint))',
 				why: "The judge's netting keeps an image whose puts and removals cancel, so a row a transaction put and removed is judged as if it stood, and a transaction that leaves the rules kept is refused."
 			},
 			{
 				file: "packages/engine/src/physical/ddl/deltas.ts",
-				original: "\tconst removed = rows === transitionTables.olds",
-				replacement: "\tconst removed = false",
+				original:
+					'lit.int(weightOf[rows === transitionTables.olds ? "removed" : "added"], types.smallint)',
+				replacement: 'lit.int(weightOf["added"], types.smallint)',
 				why: "A removal is counted as a put on the side of news, so a row a transaction put and removed sums to two and is judged as if it stood."
 			},
 			{

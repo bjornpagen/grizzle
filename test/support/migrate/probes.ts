@@ -96,7 +96,7 @@ const lateralSource = (source: FromSource): string | undefined =>
 
 /** Whether an expression is a subquery: a scalar one, EXISTS, IN or ARRAY. */
 const isSubquery = (e: Expr): boolean =>
-	e.kind === "subquery" || e.kind === "exists" || e.kind === "inQuery" || e.kind === "array"
+	e.kind === "subquery" || e.kind === "exists" || e.kind === "array"
 
 /** The name a FROM source's columns are read under. */
 const aliasOf = (source: FromSource): string | undefined =>

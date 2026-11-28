@@ -21,8 +21,6 @@ import {
 	textOf
 } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { blockSize } from "#compiler/core/page.ts"
-import { temporarySchema } from "#compiler/core/temporary.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { messageMaxBytes } from "#compiler/core/wire.ts"
 import {
@@ -64,6 +62,7 @@ import {
 	type GrantObjects,
 	type HandOverFunction,
 	type IndexKey,
+	judgeLogColumns,
 	type Insert,
 	type JoinStep,
 	type KeyColumn,
@@ -91,7 +90,6 @@ import {
 	selectColumns,
 	type RoleSetting,
 	type SelectCore,
-	type SessionTableStorage,
 	type SqlStatement,
 	type StoredGeneration,
 	type StubConstant,
@@ -108,26 +106,7 @@ import {
 	type With,
 	liveSecretColumn
 } from "#compiler/sql/ast.ts"
-import {
-	and,
-	call as builtinCall,
-	cast,
-	col,
-	conjunction,
-	cUtf8Collation,
-	eq,
-	exists,
-	gt,
-	isIn,
-	lit,
-	mapTargets,
-	objectName,
-	or,
-	provedCore,
-	select as selectOf,
-	simpleSelect,
-	types
-} from "#compiler/sql/build.ts"
+import { conjunction, cUtf8Collation, mapTargets, types } from "#compiler/sql/build.ts"
 import {
 	type CatalogCall,
 	type CatalogCast,
@@ -909,13 +888,6 @@ const expr = (e: Expr): Printed => {
 			const list = e.list.map((item) => printExpr(item)).join(", ")
 			return printedOf(`${wrap(expr(e.expr), "other")} ${keyword} (${list})`, "between")
 		}
-		case "inQuery": {
-			const keyword = e.not ? "NOT IN" : "IN"
-			return printedOf(
-				`${wrap(expr(e.expr), "other")} ${keyword} (${printSelectInline(e.query, "placed")})`,
-				"between"
-			)
-		}
 		case "exists":
 			return e.not
 				? printedOf(`NOT EXISTS (${printSelectInline(e.query, "placed")})`, "not")
@@ -1329,13 +1301,7 @@ const holds = (e: Expr, kinds: ReadonlySet<Expr["kind"]>): boolean => {
  * EXISTS, IN or ARRAY of one. Every other expression PostgreSQL computes from its row alone, and leaves uncomputed
  * where nothing reads it.
  */
-const computing: ReadonlySet<Expr["kind"]> = new Set([
-	"call",
-	"subquery",
-	"exists",
-	"inQuery",
-	"array"
-])
+const computing: ReadonlySet<Expr["kind"]> = new Set(["call", "subquery", "exists", "array"])
 
 /** A placeholder: a statement's text binds each where it stands, and PostgreSQL types each by where it is read. */
 const binding: ReadonlySet<Expr["kind"]> = new Set(["param"])
@@ -1825,225 +1791,13 @@ const printStoredGeneration = (g: StoredGeneration): string => {
 	}
 }
 
-/** A column up to its NOT NULL: its name, type, collation and generation. */
-/**
- * A session table's column: its name, its type and its collation, and no constraint: what it holds is copied from
- * columns that hold their own.
- */
+/** A column's definition, a row type's attribute: its name, its type and its collation, and no constraint. */
 const definitionText = (column: ColumnDefinition): string =>
 	[
 		quoteIdent(column.name),
 		printType(column.type),
 		...(column.collation === undefined ? [] : [`COLLATE ${printObjectName(column.collation)}`])
 	].join(" ")
-
-/**
- * A session table's column as its storage declares it (SessionTableStorage): an inline table's STORAGE PLAIN, which
- * PostgreSQL's grammar takes after the type and before COLLATE (REL_19_0 src/backend/parser/gram.y 3894 columnDef), a
- * toasted one's as the type's default storage declares it.
- */
-const sessionColumnText = (column: ColumnDefinition, storage: SessionTableStorage): string => {
-	switch (storage) {
-		case "inline":
-			return [
-				quoteIdent(column.name),
-				printType(column.type),
-				"STORAGE PLAIN",
-				...(column.collation === undefined ? [] : [`COLLATE ${printObjectName(column.collation)}`])
-			].join(" ")
-		case "toasted":
-			return definitionText(column)
-	}
-}
-
-/** A session table's CREATE (PlStatement createSessionTable): the statement that stands up a judge's delta or sentinel,
- * as a test that stands one up before the judge runs spells it too. */
-const sessionTableCreate = (
-	table: Extract<PlStatement, { readonly kind: "createSessionTable" }>
-): string => {
-	const columns = table.columns.map((c) => sessionColumnText(c, table.storage))
-	return `CREATE TEMPORARY TABLE ${sessionTableName(table.name)} (${columns.join(", ")}) ON COMMIT PRESERVE ROWS`
-}
-
-/** The session's own table `name`, qualified by its temporary schema. */
-const sessionTableName = (name: string): string =>
-	printObjectName({ schema: temporarySchema, name })
-
-/** `name`'s relation in the session's own temporary schema, or NULL where it holds none. */
-const sessionRegclass = (name: string): Expr =>
-	builtinCall("to_regclass", [lit.text(sessionTableName(name), types.text)])
-
-/**
- * That the relation of pg_class under `alias` is a temporary table CURRENT_USER owns: inside a SECURITY DEFINER function
- * its definer, in a DO block the role its transaction runs as.
- */
-const ownedSessionTable = (alias: string): NonEmptyReadonlyArray<Expr> => [
-	eq(builtinCall("pg_get_userbyid", [col(alias, "relowner")]), {
-		kind: "user",
-		name: "CURRENT_USER"
-	}),
-	eq(col(alias, "relpersistence"), lit.text("t", types.text))
-]
-
-/**
- * Which of the session's tables `names` stand: each as its name where it is a temporary table CURRENT_USER owns
- * (`ownedSessionTable`), and as `!` and its name where it stands otherwise, a table some other role made under it, all
- * of them read by one statement over pg_catalog.pg_class, so a site that stands up several session tables plans one
- * read of the catalog and no other (physical/ddl/rules.ts standing):
- *
- *   ARRAY(SELECT CASE WHEN <owned r1> THEN r1.relname::text ELSE '!' || r1.relname::text END
- *     FROM pg_catalog.pg_class AS r1 WHERE r1.oid IN (pg_catalog.to_regclass('"pg_temp"."<name>"'), ...))
- */
-export const sessionTablesStanding = (names: NonEmptyReadonlyArray<string>): Expr => {
-	const name = cast(col("r1", "relname"), types.text)
-	return {
-		kind: "array",
-		query: selectOf(
-			provedCore(
-				"keyed",
-				[
-					{
-						expr: {
-							kind: "case",
-							operand: undefined,
-							whens: [{ when: and(ownedSessionTable("r1")), result: name }],
-							else: {
-								kind: "binary",
-								op: "||",
-								left: lit.text(stoodApart, types.text),
-								right: name,
-								schema: undefined
-							}
-						},
-						alias: undefined
-					}
-				],
-				[{ kind: "table", table: objectName("pg_catalog", "pg_class"), alias: "r1" }],
-				isIn(col("r1", "oid"), mapNonEmpty(names, sessionRegclass))
-			)
-		)
-	}
-}
-
-/** The mark a session table's name takes in `sessionTablesStanding` where some other role made it. */
-export const stoodApart = "!"
-
-/**
- * The most pages a session table's heap, and its TOAST table's heap, hold that its emptying keeps rather than gives back
- * by a TRUNCATE (`sessionTableEmptied`, sessionTableKeptBytes): the point past which the dead pages a statement reads
- * cost more than the TRUNCATE that would give them back.
- *
- * Why pages accumulate: every row a use inserts takes a line pointer of its page, which the emptying's DELETE leaves
- * dead, and pruning on access marks it dead, never unused, whether or not the table has an index
- * (src/backend/access/heap/pruneheap.c 358-363, heap_page_prune_opt's options), so only a VACUUM, which no session table
- * meets, would free it. A page holds MaxHeapTuplesPerPage line pointers, (BLCKSZ - SizeOfPageHeaderData) /
- * (MAXALIGN(SizeofHeapTupleHeader) + sizeof(ItemIdData)) = (8192 - 24) / (24 + 4) = 291 (src/include/access/htup_details.h
- * 769-771), and nothing writes a session table's free space map (autovacuum never processes another backend's temporary
- * table, src/backend/postmaster/autovacuum.c 2078, 2175), so an insert past the target page extends the table (hio.c
- * 577, 585, 769): a table its uses fill with n rows each grows a page in each 291 / n uses, without bound. Every read of
- * it walks those pages, a delta's reader's among them; a TRUNCATE gives them back
- * but costs the session its own TRUNCATE and the replan of each reader's one SELECT, and costs every other backend of the
- * database a walk of each plan it holds, at each of the three relcache invalidations (the table, its TOAST table and that
- * table's index, plancache.c PlanCacheRelCallback). Waiting until the dead pages' cost since the last TRUNCATE equals one
- * TRUNCATE's, as with any rent-or-buy choice, bounds the total at twice the best one could do knowing the future: a
- * table growing a page a use and read once a use has paid c · P² / 2 for P pages, which equals T at P = √(2T / c).
- *
- * @limitKind measured
- * @owner grizzle's session tables (sql/print.ts sessionTableEmptied), under PostgreSQL 19's heap and plan cache
- * @unit pages of a session table's heap, and of its TOAST table's heap
- * @scope each session table, a rule judge's delta, in one session, as a use's emptying finds it
- * @evidence ~/.cache/grizzle/PROLOGUE-tools/trunc (scan.sql with run-scan.sh, own.sql, and the two-backend run that
- *   times a 5,000-plan backend's next statement beside a truncating one), run by hand against postgres-ram@seriesplan
- * @observed 2026-11-23, 18:40 to 19:10 America/Chicago
- * @environment cassowary (64 cores, 247 GiB, shared by many lanes, load average 60 to 130), PostgreSQL 19.0 in a
- *   tmpfs cluster, temp_buffers 8 MB, grizzle at 8ab32a3bb
- * @workload a keyed carrier of an int8 key and a short text, filled 16 rows a use and emptied by DELETE until its heap
- *   held 1, 8, 64, 256, 1,024 and 4,096 pages, then read 200 times through its reader (SETOF, ROWS 1); 600 rows a use
- *   emptied by TRUNCATE against DELETE, 60 uses each, statement by statement; a second backend holding 5,000 prepared
- *   statements timing a SELECT 1 every 250 ms, 40 times, beside a session truncating its carrier every 250 ms, and alone
- * @result a read through the reader: 0.010 ms at 1 page, 0.026 at 8, 0.030 at 64, 0.099 at 256, 0.43 at 1,024
- *   (0.42 µs a page) and 14.8 at 4,096, past temp_buffers' 1,024 pages, 3.6 µs a page. The emptying: TRUNCATE 0.76 ms
- *   against DELETE 0.30, and the reader's first read after it 0.31 against 0.27. The 5,000-plan backend's next
- *   statement: 1.71 ms beside the truncating session against 0.11 alone (1.6 ms a TRUNCATE, 0.32 µs a plan held). Not
- *   measured: backends of more plans, which pay in proportion, and toasted rows' reads.
- * @decision T, one TRUNCATE beside one other backend of 5,000 plans, is 0.46 + 1.6 ≈ 2.1 ms, and c is 0.42 µs a page,
- *   so P = √(2 · 2.1 ms / 0.42 µs) = 100 pages: 800 KB a table, within temp_buffers for ten tables at once, where the
- *   cost of a page rises ninefold. A deployment of more backends or more plans each makes T, and so P, larger (√ of it);
- *   one page, the former point, truncated a table filled past it at every use and sent three invalidations a call.
- * @revalidate a PostgreSQL upgrade; a temp_buffers other than 8 MB; sessions holding far more than 5,000 plans each
- *   or far more backends, which raise T; a session table read other than whole or many times a use
- */
-const sessionTableKeptPages = 100
-
-/** The bytes of sessionTableKeptPages, as pg_relation_size counts a table's file (`sessionTableOvergrown`). */
-export const sessionTableKeptBytes = sessionTableKeptPages * blockSize
-
-/**
- * That the session's table `name` holds more than the pages its emptying keeps (sessionTableKeptBytes) in its heap or in
- * its TOAST table's heap, each as the size of its file, which pg_relation_size reads by a stat and no page: a table with no
- * TOAST table has a reltoastrelid of 0, whose size it answers NULL, so its heap alone decides.
- *
- *   EXISTS (SELECT FROM pg_catalog.pg_class AS r1 WHERE r1.oid = pg_catalog.to_regclass('"pg_temp"."<name>"')
- *     AND (pg_catalog.pg_relation_size(r1.oid) > 819200 OR pg_catalog.pg_relation_size(r1.reltoastrelid) > 819200))
- */
-const sessionTableOvergrown = (name: string): Expr => {
-	const kept = lit.int(sessionTableKeptBytes, types.bigint)
-	return exists(
-		simpleSelect(
-			[],
-			[{ kind: "table", table: objectName("pg_catalog", "pg_class"), alias: "r1" }],
-			and([
-				eq(col("r1", "oid"), sessionRegclass(name)),
-				or([
-					gt(builtinCall("pg_relation_size", [col("r1", "oid")]), kept),
-					gt(builtinCall("pg_relation_size", [col("r1", "reltoastrelid")]), kept)
-				])
-			])
-		)
-	)
-}
-
-/**
- * The session's table `name` emptied of its rows, a rule judge's delta once its part has read them (physical/ddl/rules.ts
- * emptied): by DELETE while its heap and its TOAST
- * table's each hold the pages it keeps at most (sessionTableKeptPages), and by TRUNCATE once either holds more.
- *
- *   IF <it holds more than it keeps (sessionTableOvergrown)> THEN TRUNCATE pg_temp.<name>;
- *   ELSE DELETE FROM pg_temp.<name> AS r1; END IF;
- *
- * A DELETE keeps the table's file, so it sends no invalidation: a TRUNCATE of a table made in an earlier transaction
- * gives it, its TOAST table and that table's index each a new file (src/backend/commands/tablecmds.c 2245-2272
- * RelationSetNewRelfilenumber), a pg_class row updated for each, and the relcache invalidations of each reach every
- * backend of the database (src/backend/utils/cache/inval.c 88-95: a session's own table's among them), each of which
- * then walks every plan it holds (src/backend/utils/cache/plancache.c 2131 PlanCacheRelCallback). A session of 30,000
- * saved plans paid 86 ms of a commit that truncated five deltas, and an idle one beside it 44 ms more (SESSIONTEMP,
- * 2026-11-21), where a DELETE cost 1 ms and the other session nothing. The rows the DELETE leaves dead take their
- * page's space until a read prunes it, and their line pointers stay, so a table refilled use after use outgrows the
- * pages it keeps, and the use that finds it so truncates it: the TRUNCATE is paid once in each sessionTableKeptPages
- * pages' worth of rows, never at each use, and the statements that read the table through its reader keep their plans
- * across it (physical/ddl/deltas.ts addReaders). Every row is gone either way: a later transaction sees none, and one that rolls back takes its rows and
- * their emptying with it, so each use starts on an empty table.
- */
-export const sessionTableEmptied = (name: string): PlStatement => ({
-	kind: "if",
-	branches: [
-		{ condition: sessionTableOvergrown(name), body: [{ kind: "truncateSessionTable", name }] }
-	],
-	else: [
-		{
-			kind: "modify",
-			statement: {
-				kind: "delete",
-				with: undefined,
-				table: objectName(temporarySchema, name),
-				alias: "r1",
-				using: [],
-				where: undefined,
-				returning: []
-			}
-		}
-	]
-})
 
 const columnHead = (column: ColumnDef): string => {
 	const parts = [quoteIdent(column.name), printType(column.type)]
@@ -2326,7 +2080,7 @@ const plStatement = (out: Lines, statement: PlStatement): void => {
 			return out.line(`${quoteIdent(statement.target)} := ${printExpr(statement.value)};`)
 		case "forQuery":
 			out.line(
-				`FOR ${quoteIdent(statement.variable)} IN ${printSelectInline(statement.query, "named")} LOOP`
+				`FOR ${statement.variables.map(quoteIdent).join(", ")} IN ${printSelectInline(statement.query, "named")} LOOP`
 			)
 			plStatements(out.nested(), statement.body)
 			return out.line("END LOOP;")
@@ -2339,18 +2093,13 @@ const plStatement = (out: Lines, statement: PlStatement): void => {
 			out.line("RETURN QUERY")
 			selectBlock(out, statement.query)
 			return out.line(";")
-		case "createSessionTable":
-			return out.line(`${sessionTableCreate(statement)};`)
-		case "createSessionIndex":
-			return out.line(
-				`CREATE INDEX ${quoteIdent(statement.name)} ON ${sessionTableName(statement.table)} (${quoteIdent(statement.column)});`
-			)
-		case "truncateSessionTable":
-			return out.line(`TRUNCATE ${sessionTableName(statement.name)};`)
-		case "createSessionTrigger":
-			return out.line(
-				`CREATE CONSTRAINT TRIGGER ${quoteIdent(statement.name)} AFTER INSERT ON ${printObjectName({ schema: temporarySchema, name: statement.table })} DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION ${printObjectName(statement.function)}();`
-			)
+		case "into":
+			if (statement.statement.kind === "select") {
+				selectBlock(out, statement.statement)
+			} else {
+				dmlStatementBlock(out, statement.statement)
+			}
+			return out.line(`INTO ${statement.into.map(quoteIdent).join(", ")};`)
 		case "whenFound":
 			out.line(
 				`PERFORM 1 FROM ${nestedSelect(statement.query, "placed")} AS ${quoteIdent("found")};`
@@ -3017,6 +2766,25 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 			clauses.line("DEFERRABLE INITIALLY DEFERRED")
 			return clauses.line(`FOR EACH ROW EXECUTE FUNCTION ${printObjectName(statement.function)}()`)
 		}
+		case "createJudgeLog": {
+			out.line(`CREATE UNLOGGED TABLE ${printObjectName(statement.table)} (`)
+			switch (statement.log.kind) {
+				case "arm":
+					listed(out.nested(), [
+						`${quoteIdent(judgeLogColumns.xact)} pg_catalog.xid8 CONSTRAINT ${quoteIdent(statement.log.key)} PRIMARY KEY`,
+						`${quoteIdent(judgeLogColumns.last)} pg_catalog.tid`
+					])
+					return out.line(")")
+				case "deltas":
+					listed(out.nested(), [
+						`${quoteIdent(judgeLogColumns.prev)} pg_catalog.tid`,
+						...statement.log.sides.map(
+							(side) => `${quoteIdent(side.column)} ${printObjectName(side.type)}[]`
+						)
+					])
+					return out.line(")")
+			}
+		}
 		case "createTransitionTrigger": {
 			out.line(`CREATE TRIGGER ${quoteIdent(statement.name)}`)
 			const clauses = out.nested()
@@ -3164,6 +2932,7 @@ export const commandsOf = (given: SqlStatement): NonEmptyReadonlyArray<Command> 
 		case "guardBracket":
 		case "createImmutableGuardTrigger":
 		case "createConstraintTrigger":
+		case "createJudgeLog":
 		case "createTransitionTrigger":
 		case "createPublication":
 		case "dropPublication":

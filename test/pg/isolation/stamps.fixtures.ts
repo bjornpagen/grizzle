@@ -20,7 +20,6 @@ import { query } from "#compiler/public/query.ts"
 import { login, mutable, relation, role, schema, unit } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import {
-	callStandUps,
 	callStatements,
 	type InstalledShape,
 	shapeTemplate,
@@ -342,11 +341,6 @@ export const runRace = (s: InstalledShape, race: StampRace) =>
 				)
 			)
 			const actorOf = (i: number): DirectActor => defined(actors[`s${i}`], `session s${i}`)
-			for (const [i, c] of race.calls.entries()) {
-				for (const sql of callStandUps(s, { role: "writer", member: c.clock })) {
-					yield* actorOf(i).perform({ _tag: "Sql", sql })
-				}
-			}
 			const sent = yield* Effect.forEach(race.calls, (c, i) =>
 				callStatements(s, {
 					kind: "change",
@@ -739,9 +733,6 @@ export const runDirect = (s: InstalledShape, c: DirectCase) =>
 			const n = s.names
 			const head = s.installed.installation.names.head({ kind: "unit", unit: "Kid" })
 			const headTable = `${quoteIdent(head.schema)}.${quoteIdent(head.name)}`
-			for (const sql of callStandUps(s, { role: "writer", member: "mark" })) {
-				yield* actors.served.perform({ _tag: "Sql", sql })
-			}
 			const sent = yield* callStatements(s, {
 				kind: "change",
 				session: "served",

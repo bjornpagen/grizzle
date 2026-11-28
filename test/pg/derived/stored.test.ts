@@ -125,8 +125,8 @@ export const aStoredRelationEqualsItsDefinitionAfterEveryCommitOfEveryWriteOfIts
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
 				original:
-					"\t\t\t\t\tbody: [...removed.body, inserting(headed(rows.statement, reads), heading)]\n",
-				replacement: "\t\t\t\t\tbody: [inserting(headed(rows.statement, reads), heading)]\n",
+					"\t\t\t\t\tbody: [...removed.body, inserting(headed(rows.statement, selections), heading)]\n",
+				replacement: "\t\t\t\t\tbody: [inserting(headed(rows.statement, selections), heading)]\n",
 				why: "The upkeep inserts and never deletes: a place taken, or a link put over a place, leaves stored rows its definition no longer delivers."
 			},
 			{
@@ -151,15 +151,8 @@ export const aStoredRelationEqualsItsDefinitionAfterEveryCommitOfEveryWriteOfIts
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
 				original:
-					"\t\t\t...new Set([...reach.keys()].flatMap((name) => (kept.has(name) ? [root(name)] : [])))\n",
-				replacement: "\t\t\t...new Set<string>()\n",
-				why: "A table's stand-up makes the deltas one block away from its own alone and calls no closure's maker: a place's write stands up the deltas its upkeeps read beside its own and no closure of the stored relations they write, so Counted's capture in phase A finds its closure's marker missing and refuses the transaction (55Z03)."
-			},
-			{
-				file: "packages/engine/src/physical/ddl/rules.ts",
-				original:
-					"\tconst upkeep = upkeepParts.flatMap((stratum) => [...partsRun(stratum), readWritten])\n",
-				replacement: "\tconst upkeep: ReadonlyArray<PlStatement> = []\n",
+					'\t\t\t\t\t\t\t...partsRun(defined(upkeepParts[at], "a stratum\'s upkeep parts")),\n',
+				replacement: "",
 				why: "No upkeep runs at COMMIT: a stored relation keeps the rows its migration filled it with, empty, whatever is written after."
 			}
 		]
@@ -340,10 +333,9 @@ export const aLawOverAStoredRelationIsJudgedOverItsRowsAsTheTransactionLeavesThe
 		kills: [
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original:
-					"\tconst upkeep = upkeepParts.flatMap((stratum) => [...partsRun(stratum), readWritten])\n",
-				replacement: "\tconst upkeep = upkeepParts.flatMap((stratum) => partsRun(stratum))\n",
-				why: "Phase B judges by the written set as it stood before phase A, so a place taken leaves Placed's removed rows unjudged and a link at it commits."
+				original: '\t\t\t\t\t\t\t\t\t\t...claimed(b.schema, log, [k0, ...ks], "again"),\n',
+				replacement: "",
+				why: "Phase B judges by the log as the judge first claimed it, before phase A wrote the stored relations, so a place taken leaves Placed's removed rows unjudged and a link at it commits."
 			},
 			{
 				file: "packages/engine/src/laws/model/model.ts",

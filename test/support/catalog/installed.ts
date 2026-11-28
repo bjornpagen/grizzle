@@ -64,6 +64,9 @@ const created = (
 const tableOf = (s: SqlStatement | RecordedStatement): Option.Option<string> =>
 	s.kind === "createTable" ? Option.some(s.table.name) : Option.none()
 
+const judgeLogOf = (s: SqlStatement | RecordedStatement): Option.Option<string> =>
+	s.kind === "createJudgeLog" ? Option.some(s.table.name) : Option.none()
+
 const storedTableOf = (s: SqlStatement | RecordedStatement): Option.Option<string> =>
 	s.kind === "createStoredTable" ? Option.some(s.name.name) : Option.none()
 
@@ -331,13 +334,6 @@ export const installedScope = (
 	/** Each function the manifest's objects of `kind` create, as `what`. */
 	const functionsOf = (kind: PhysicalKind, what: InstalledFunction) =>
 		Arr.map([...created(snapshot, kind, functionOf)], (name) => [name, what] as const)
-	/** The judged tables' stand-ups (physical/ddl/rules.ts addStandUps), law functions every role writing their table
-	 * executes, by name. */
-	const standUps = new Set<string>(
-		Arr.flatMap(installation.identities, (named) =>
-			named.kind === "ruleStandUp" ? [identifierOf(named)] : []
-		)
-	)
 	/** Each trigger the manifest's objects of `kind` create, as `what`. */
 	const triggersOf = (
 		kind: PhysicalKind,
@@ -448,6 +444,7 @@ export const installedScope = (
 				)
 			),
 			foundings: created(snapshot, "founding", tableOf),
+			judgeLogs: created(snapshot, "ruleLog", judgeLogOf),
 			ledger: ledgerTableName,
 			guarded: created(snapshot, "isolationTrigger", guardedTableOf),
 			functions: new Map<string, InstalledFunction>([
@@ -455,11 +452,7 @@ export const installedScope = (
 				...functionsOf("borrowFunction", { kind: "borrow" }),
 				...functionsOf("isolationFunction", { kind: "isolationGuard" }),
 				...functionsOf("ruleJudge", { kind: "rule" }),
-				...Arr.map(
-					functionsOf("lawFunction", { kind: "rule" }),
-					([name, what]) =>
-						[name, standUps.has(name) ? ({ kind: "standUp" } as const) : what] as const
-				),
+				...functionsOf("lawFunction", { kind: "rule" }),
 				...functionsOf("immutableGuard", { kind: "immutableGuard" }),
 				...functionsOf("snapshotGuard", { kind: "snapshotGuard" }),
 				...functionsOf("worldFunction", { kind: "world" }),
@@ -490,6 +483,7 @@ export const installedScope = (
 				...triggersOf("immutableTrigger", immutableTriggerOf("rows"), "immutable rows"),
 				...triggersOf("immutableTrigger", immutableTriggerOf("truncate"), "immutable truncate"),
 				...triggersOf("lawTrigger", ruleTriggerOf, "rule"),
+				...triggersOf("ruleLog", ruleTriggerOf, "rule"),
 				...triggersOf("lawTrigger", captureTriggerOf, "capture")
 			]),
 			rowSecure: created(snapshot, "rowSecurity", rowSecureOf),

@@ -31,8 +31,7 @@ import {
 	judgeRun,
 	type JudgeStatement,
 	judgeStatementsOf,
-	scannedWork,
-	standUpJudge
+	scannedWork
 } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -445,7 +444,6 @@ export const runExact = (
 ) =>
 	Effect.gen(function* () {
 		const names = namesOf(installed)
-		yield* standUpJudge(session, installed.installation)
 		const m: Model = { items: new Map(), attempts: [] }
 		const isFounded = (p: number) => m.items.has(itemKey(p, 0))
 		const found = (p: number) => {
@@ -598,7 +596,7 @@ const answerWork = (installed: Installed, session: RawSession, n: number) =>
 					yield* session.query(sql, [])
 				}
 				return yield* judgeRun(
-					(sql) => session.values(sql, []),
+					(sql, params) => session.values(sql, params),
 					installed.installation,
 					judgeStatementsOf(installed.installation)
 				)
@@ -641,7 +639,6 @@ export const runBound = (
 	c: Case<BoundFeature>
 ) =>
 	Effect.gen(function* () {
-		yield* standUpJudge(session, installed.installation)
 		const first = d.background + 1
 		yield* committedJudged(session, [
 			...packagesSql(installed, 1, first),

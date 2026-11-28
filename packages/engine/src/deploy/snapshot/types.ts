@@ -264,13 +264,6 @@ export interface CompileFacts {
 	 */
 	readonly references: ReferenceChoice
 	/**
-	 * The relations whose writes the installation's rule judge captures, in code point order (laws/model/model.ts
-	 * LawModel `judged`), which a write's stand-ups stand up where it writes one (write/program/stand-up.ts
-	 * writeStandUps). generate plans them from every law of every level; DbLayer.make reads them here, whose level holds
-	 * no rule of a level above it, and plans none.
-	 */
-	readonly judged: ReadonlyArray<string>
-	/**
 	 * Each structural text domain the installation holds, by its pattern language's key, with the digest that names it
 	 * (physical/ddl/domains.ts TextDomainNames), which every compile names a refined text's domain by. generate plans
 	 * them from every artifact and served program (physical/install/plan.ts artifactObjects, ServedTypes); DbLayer.make

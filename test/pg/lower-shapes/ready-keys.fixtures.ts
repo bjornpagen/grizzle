@@ -734,7 +734,6 @@ const filled = (
 			? tables
 			: assert.fail("a ledger of no stored table")
 		yield* run([
-			...names.standUps,
 			`INSERT INTO ${names.table(Test)} SELECT t, 'test ' || t, t FROM generate_series(1, ${String(c.tests)}) AS t`,
 			`INSERT INTO ${names.table(TestWithdrawn)} VALUES (1)`,
 			...stored(besideFirst, besideFirst + besideLearners - 1)

@@ -19,7 +19,6 @@ import { workload } from "#compiler/public/workload.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import type { RelationFieldsOf } from "#compiler/types/schema/relation.ts"
 import {
-	callStandUps,
 	callStatements,
 	type InstalledShape,
 	type Shape,
@@ -29,7 +28,7 @@ import {
 import { replaceMigrated } from "#test/support/install-migrate.ts"
 import type { Names } from "#test/support/kernel/naming.ts"
 import type { FactSet } from "#test/support/oracle/install/load.ts"
-import { openActors, standUpActor, textOfValue } from "#test/support/schedules/actors.ts"
+import { openActors, textOfValue } from "#test/support/schedules/actors.ts"
 import { every, everyRelation, exploreEnv } from "#test/support/schedules/interleave.ts"
 import { type Explained, type RaceTxn, runSerialRace } from "#test/support/schedules/serial.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -376,10 +375,6 @@ export const runSkew = (s: InstalledShape, race: SkewRace, note: (f: SkewFeature
 			const env = yield* exploreEnv(substrate)
 			const txnOf = (call: Sent, session: "s0" | "s1") =>
 				Effect.gen(function* () {
-					yield* standUpActor(
-						actors[session],
-						callStandUps(s, { role: planned.role, member: call.member })
-					)
 					const statements = yield* callStatements(s, {
 						kind: "change",
 						session,

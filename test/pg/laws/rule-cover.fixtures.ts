@@ -27,12 +27,7 @@ import {
 import { printStatement } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
-import {
-	capturedDeltasOf,
-	judgedDeltaReadsOf,
-	raisedRule,
-	standUpJudge
-} from "#test/support/judge.ts"
+import { capturedDeltasOf, judgedDeltaReadsOf, raisedRule } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -1250,8 +1245,6 @@ export const runSchedule = (
 	c: Case<CoverFeature>
 ) =>
 	Effect.gen(function* () {
-		yield* standUpJudge(admin, installed.installation)
-		yield* standUpJudge(session, installed.installation)
 		const names = namesOf(installed)
 		yield* admin.query(`INSERT INTO ${names.table(Lim)} (grp, max) VALUES (1, ${bound})`, [])
 		const sittings = new Set<LawId>(

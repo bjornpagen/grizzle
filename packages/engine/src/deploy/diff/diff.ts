@@ -166,7 +166,6 @@ import {
 
 import { dropLiveSlot } from "#compiler/physical/ddl/live.ts"
 import {
-	calledAlone,
 	cast,
 	columnKey,
 	functionNameOf,
@@ -285,8 +284,8 @@ export const variantRearranged =
 	"a variant's arms changed otherwise than in place: an arm of a code past every arm's (appended to its roster or taken into its subset), an arm of no field taken in or left out, or a field appended to the arm of its greatest code migrate in place; an arm with fields left out of the subset or taken in below an arm's code, and a field removed, retyped or added to another arm, rewrite every stored value: a custom migration"
 
 /** What a migration drops: an object of every kind but those no step drops (the schema, its ledger, its rule judge,
- * extensions and the database's defaults outlive it, the judge since every session's sentinel's trigger names it and
- * PostgreSQL refuses to drop a function another session's trigger runs; a validation installs nothing; privileges and
+ * extensions and the database's defaults outlive it, the judge since its arm's trigger names it and PostgreSQL refuses
+ * to drop a function a trigger runs; a validation installs nothing; privileges and
  * memberships are revoked, never dropped; an isolation trigger goes with its table), and a column. */
 type Dropped =
 	| Exclude<
@@ -339,6 +338,7 @@ const dropOrder: { readonly [K in Dropped]: number } = {
 	table: 14,
 	liveSecret: 14,
 	founding: 14,
+	ruleLog: 14,
 	domain: 15,
 	rowType: 15,
 	constant: 16,
@@ -390,24 +390,6 @@ const heldBefore = (
 		case "migration":
 			return false
 	}
-}
-
-/**
- * The stand-ups `snapshot`'s installation holds (physical/ddl/rules.ts addStandUps), in its install order: each function
- * of its manifest named as a relation of its theory's stand-up (identity.ruleStandUp), which a session calls before its
- * first write of the relation.
- */
-export const standUpsOf = (snapshot: DeploySnapshot): ReadonlyArray<ObjectName> => {
-	const named = new Set<string>(
-		Object.keys(snapshot.theory.relations).map((r) => identifierOf(identity.ruleStandUp(r)))
-	)
-	return snapshot.manifest.objects.flatMap((o): ReadonlyArray<ObjectName> => {
-		if (o.kind !== "lawFunction") {
-			return []
-		}
-		const v = installed(o)
-		return v.kind === "lawFunction" && named.has(v.create.name.name) ? [v.create.name] : []
-	})
 }
 
 /** A drop drafted with its kind's place in the drop order. */
@@ -1530,7 +1512,6 @@ class Differ {
 		const written = this.dataSteps(backfilled.tables)
 		const rechecked = new Set<LawId>()
 		if (isNonEmpty(written)) {
-			this.standUps()
 			this.push("structure.immediate", statement(checkedAtOnce))
 			this.unguard()
 			for (const law of this.recheck(checks.rules, this.stepWrites(backfilled.columns))) {
@@ -2089,6 +2070,16 @@ class Differ {
 						{ kind: "drop", object: "TABLE", name: v.create.table, ifExists: false },
 						...o.ddl,
 						...this.foundingFillOf(v.create.table)
+					])
+				}
+				return
+			case "ruleLog":
+				if (before === undefined) {
+					this.sql("validate", o.ddl)
+				} else if (!sameRecord(before, o)) {
+					this.sql("validate", [
+						{ kind: "drop", object: "TABLE", name: v.create.table, ifExists: false },
+						...o.ddl
 					])
 				}
 				return
@@ -2987,20 +2978,6 @@ class Differ {
 	}
 
 	/**
-	 * The previous installation's stand-up of each table its rule judge holds (`standUpsOf`), each called once just
-	 * before SET CONSTRAINTS ALL IMMEDIATE (checkedAtOnce) where Structure holds a data step: a data step's write of
-	 * such a table runs the table's capture, which requires the judge's session tables and never makes one, so the
-	 * migration's session stands them up first, as a served write's session does before its first call. A table whose
-	 * capture stands during Structure has its stand-up there too, both the previous installation's.
-	 */
-	standUps(): void {
-		this.sql(
-			"structure.immediate",
-			standUpsOf(this.input.previous).map((fn): SqlStatement => calledAlone(fn))
-		)
-	}
-
-	/**
 	 * The re-check Structure's data steps owe the judge (physical/ddl/recheck.ts), where it holds one, in
 	 * structure.recheck: after every data step, every stored table filled and every head and founding table made, and
 	 * before the guards stand again (`unguard`), its laws by their identities (`ruleChecks` checks none of them again).
@@ -3557,8 +3534,9 @@ class Differ {
 	 * Both roles still stand when grants are replaced; a role dropped at the end takes it along anyway.
 	 *
 	 * A role, a decoder login or the function owner goes after the end of every session that holds a temporary object of
-	 * it (sql/ast.ts EndHolders): a rule judge's delta a transaction under it stood up (physical/ddl/deltas.ts), which
-	 * stands until its session ends, and which PostgreSQL's DROP ROLE refuses (2BP01).
+	 * it (sql/ast.ts EndHolders): any a session under it made in its temporary schema, which stands until its session
+	 * ends, and which PostgreSQL's DROP ROLE refuses (2BP01). grizzle makes none: no statement it installs or serves is
+	 * DDL (sql/ast.ts Dml, PlStatement).
 	 *
 	 * A validation installs nothing, so nothing is dropped.
 	 *
@@ -3652,6 +3630,7 @@ class Differ {
 				)
 				return
 			case "founding":
+			case "ruleLog":
 				drop(
 					v.kind,
 					statement({ kind: "drop", object: "TABLE", name: v.create.table, ifExists: false })
@@ -4826,6 +4805,7 @@ const grantObjectsOf = (v: Installed<AnyObject>): ReadonlyArray<GrantObject> => 
 		case "table":
 		case "ledger":
 		case "founding":
+		case "ruleLog":
 			return [{ kind: "TABLE", name: v.create.table }]
 		case "head":
 			return [{ kind: "TABLE", name: v.create.table }]

@@ -543,8 +543,14 @@ export const rosterDomainSql = (
 
 /**
  * The table a FROM source reads, one spelling for each side of the binding (sql/bind.ts): an unbound FROM's table, as a
- * lowering prints it, or a bound read's, as every statement an installation holds or a served program sends reads it
- * (sql/ast.ts FromSource `table`, `read`); none for any other source.
+ * lowering prints it, or a bound read's, as every statement an installation holds or a served program sends reads it,
+ * a probe's per row before it and a write's read of the row its arbitration met among them (sql/ast.ts FromSource
+ * `table`, `read`, `probe`, `met`); none for any other source.
  */
 export const tableOfSource = (source: FromSource): ObjectName | undefined =>
-	source.kind === "table" || source.kind === "read" ? source.table : undefined
+	source.kind === "table" ||
+	source.kind === "read" ||
+	source.kind === "probe" ||
+	source.kind === "met"
+		? source.table
+		: undefined

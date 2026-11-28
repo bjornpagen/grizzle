@@ -44,7 +44,7 @@ import {
 	type SlotFill
 } from "#compiler/program/isolation/extract.ts"
 import type { ArtifactsWorld, SchemaArtifacts } from "#compiler/program/schema.ts"
-import type { Expr, SqlStatement } from "#compiler/sql/ast.ts"
+import type { Expr, Dml } from "#compiler/sql/ast.ts"
 import { col } from "#compiler/sql/build.ts"
 import { fieldColumns } from "#compiler/write/defined.ts"
 import { filterReadsOther, renderMembership, renderProbes } from "#compiler/write/entry/render.ts"
@@ -61,7 +61,7 @@ const sentStatement = (statement: ArtifactStatement): SentStatement => ({
 
 /** A statement a flight may send: its AST, and what fills each of its placeholders, $n the slot n - 1. */
 interface SentStatement {
-	readonly ast: SqlStatement
+	readonly ast: Dml
 	readonly slots: ReadonlyArray<WriteParamSlot>
 }
 

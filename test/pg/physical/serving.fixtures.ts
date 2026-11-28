@@ -224,7 +224,6 @@ export const workloadCase = (
 			? loads
 			: assert.fail(`a generated schema of no relation\n${printCase(c)}`)
 		const problems = yield* inEveryState(
-			judged.installation,
 			(session) => volumeState(session, judged, loaded),
 			(session, read) =>
 				Effect.gen(function* () {
@@ -572,7 +571,6 @@ export const requestCase = (sketch: RequestSketch, note: (feature: RequestFeatur
 			extensions: [drawnRequests(specs)]
 		})
 		const problems = yield* inEveryState(
-			plan.installation,
 			(session) =>
 				volumeState(session, plan, Arr.append(indexedLoads, rotaLoad(plan, sketch.shades))),
 			(session, read) => judgeServing(session, read, plan, note)

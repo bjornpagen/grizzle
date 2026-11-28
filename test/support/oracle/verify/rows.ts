@@ -85,7 +85,6 @@ const anyCall = (e: Expr, test: (call: CallExpr) => boolean): boolean => {
 		case "isTrue":
 		case "complement":
 		case "lowerAscii":
-		case "inQuery":
 			return anyCall(e.expr, test)
 		case "nullif":
 			return any([e.expr, e.absent])

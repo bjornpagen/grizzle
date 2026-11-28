@@ -136,10 +136,6 @@ class CoreBinder {
 				const list: readonly [Expr, Expr, ...Array<Expr>] = [at(first), at(second), ...rest.map(at)]
 				return expr === e.expr && list.every((a, i) => a === e.list[i]) ? e : { ...e, expr, list }
 			}
-			case "inQuery": {
-				const expr = at(e.expr)
-				return expr === e.expr ? e : { ...e, expr }
-			}
 			case "equalsAny": {
 				const expr = at(e.expr)
 				const array = at(e.array)

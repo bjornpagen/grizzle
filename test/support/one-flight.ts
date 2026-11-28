@@ -1,5 +1,5 @@
 import { assert } from "@bjornpagen/testing/assert"
-import { Array as Arr, Effect, Formatter, type Scope } from "effect"
+import { Effect, Formatter, type Scope } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { defaultPool, poolFor, rowsOn } from "#test/support/pg/adapter/support.ts"
@@ -73,7 +73,7 @@ export const oneFlight = <C extends ServedDbContext>(
 			transport: { kind: "given", transport: tap.transport },
 			pool: { max: 1 }
 		})
-		const session = yield* Effect.orDie(
+		yield* Effect.orDie(
 			Effect.scoped(Effect.tap(pool.lease, (leased) => rowsOn(leased, "SELECT 'warm'::text", [])))
 		)
 		const judged = <A, E, R>(
@@ -81,29 +81,17 @@ export const oneFlight = <C extends ServedDbContext>(
 			effect: Effect.Effect<A, E, R>
 		): Effect.Effect<A, E, R> =>
 			Effect.gen(function* () {
-				const before = new Set(session.stoodUp.held)
 				const mark = tap.mark()
 				const value = yield* Effect.result(effect)
 				const window = tap.since(mark)
-				const stood = Arr.filter([...session.stoodUp.held], (name) => !before.has(name))
-				const flights = flightsOf(window)
-				const [standUp, write, diagnosis] = Arr.isReadonlyArrayNonEmpty(stood)
-					? flights
-					: [undefined, ...flights]
-				if (standUp !== undefined) {
-					const bound = new Set(Arr.map(standUp.frontend, (message) => message.name))
-					assert.ok(
-						Arr.every(stood, (name) => bound.has(name)) && frameOf(standUp).kind === "framed",
-						`${label}: the round trip before the call is the session's stand-up of the write, a transaction binding each stand-up it records`
-					)
-				}
+				const [write, diagnosis] = flightsOf(window)
 				if (write !== undefined) {
 					const diagnosed =
 						diagnosis !== undefined && lastQueryRefusal(write) === sqlstates.foreignKeyViolation
 					assert.equal(
 						window.roundTrips,
-						(standUp === undefined ? 0 : 1) + (diagnosed ? 2 : 1),
-						`${label}: round trips on the wire${standUp === undefined ? "" : ", the session's stand-up's"}${diagnosed ? ", the write's and its diagnosis's" : ""}`
+						diagnosed ? 2 : 1,
+						`${label}: round trips on the wire${diagnosed ? ", the write's and its diagnosis's" : ""}`
 					)
 					writeFrame(label, "the flight", write)
 					if (diagnosis !== undefined) {

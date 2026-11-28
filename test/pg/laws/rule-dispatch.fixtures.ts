@@ -4,8 +4,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import { array, type Gen, subset } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
-import { temporarySchema } from "#compiler/core/temporary.ts"
-import { quoteIdent, quoteString } from "#compiler/core/text.ts"
+import { quoteString } from "#compiler/core/text.ts"
 import { compileInstallation } from "#compiler/program/install.ts"
 import { int4 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -19,17 +18,9 @@ import {
 	select,
 	unit
 } from "#compiler/public/schema.ts"
-import { objectName } from "#compiler/sql/build.ts"
-import { printObjectName } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
-import {
-	capturedDeltasOf,
-	filledBy,
-	judgeStatementsOf,
-	standUpJudge,
-	standUpRelations
-} from "#test/support/judge.ts"
+import { filledBy, judgeStatementsOf, nettedValue, runsNow } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -175,9 +166,6 @@ const ops = [
 ] as const
 type Op = (typeof ops)[number]
 
-/** The relation an op writes: its last word. */
-const relationOf = (op: Op): string => Arr.lastNonEmpty(Str.split(op, " "))
-
 /** The most transactions a case runs in its one session. */
 const transactionsAtMost = 3
 
@@ -257,92 +245,53 @@ const sameSet = (x: ReadonlySet<string>, y: ReadonlySet<string>): boolean =>
 	x.size === y.size && Arr.every([...x], (n) => y.has(n))
 
 /**
- * The deltas a transaction wrote a row into, as its judge reads them: the written set of the sentinel's row
- * (physical/ddl/rules.ts arming, marked), read before the judge runs, which deletes the row and every row of the deltas
- * it names once its statements read them; none where no sentinel or no row stands. Found by its column in the
- * catalog, which locks no table, and read by its one row, which locks the sentinel alone, no delta.
+ * The deltas a transaction wrote a row into, as its judge reads them: each side of the judge's log whose rows the
+ * transaction logged, netted as the judge nets them, hold a row (support/judge.ts nettedValue), read before the judge
+ * runs, whose claim deletes them.
  */
-const writtenSet = (session: RawSession) =>
+const writtenSet = (installed: Installed, session: RawSession, deltas: ReadonlyArray<string>) =>
 	Effect.gen(function* () {
-		const sentinels = yield* session.values(
-			"SELECT c.relname::text FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_attribute AS a ON a.attrelid = c.oid WHERE c.relnamespace = pg_catalog.pg_my_temp_schema() AND a.attname = '__written'",
-			[]
-		)
 		const written = new Set<string>()
-		for (const [name] of sentinels) {
-			for (const [set] of yield* session.values(
-				`SELECT __written FROM pg_temp.${quoteIdent(String(name))}`,
-				[]
-			)) {
-				for (const delta of Arr.isArray(set) ? set : []) {
-					written.add(String(delta))
-				}
+		for (const delta of deltas) {
+			const netted = yield* nettedValue(
+				(sql, params) => session.values(sql, params),
+				installed.installation,
+				delta
+			)
+			if (netted !== "{}") {
+				written.add(delta)
 			}
 		}
 		return written
 	})
 
-/** What the session holds once a transaction's judge ran: the deltas it holds a lock on, which every statement of the
- * transaction that read or wrote one took, read before anything here reads a delta; the deltas that stand; and the
- * stored tables it holds ACCESS SHARE on, which a statement takes on every table it reads until the transaction ends. */
-const observed = (
-	session: RawSession,
-	deltas: ReadonlyArray<string>,
-	stored: ReadonlyArray<string>
-) =>
+/** The stored tables the session holds ACCESS SHARE on once a transaction's judge ran, which a statement takes on every
+ * table it reads until the transaction ends. */
+const locked = (session: RawSession, stored: ReadonlyArray<string>) =>
 	Effect.gen(function* () {
-		const locks = yield* session.values(
-			"SELECT c.relname::text FROM pg_catalog.pg_locks AS l JOIN pg_catalog.pg_class AS c ON c.oid = l.relation WHERE l.pid = pg_catalog.pg_backend_pid() AND l.locktype = 'relation' AND c.relpersistence = 't'",
-			[]
-		)
-		const touched = new Set(Arr.map(locks, ([name]) => String(name)))
-		const standing = new Set<string>()
-		for (const name of deltas) {
-			const [[stands] = []] = yield* session.values(
-				`SELECT to_regclass(${quoteString(printObjectName(objectName(temporarySchema, name)))}) IS NOT NULL`,
-				[]
-			)
-			if (stands === true) {
-				standing.add(name)
-			}
-		}
-		const locked = new Set<string>()
+		const held = new Set<string>()
 		for (const table of stored) {
-			const [[held] = []] = yield* session.values(
+			const [[locks] = []] = yield* session.values(
 				`SELECT EXISTS (SELECT FROM pg_catalog.pg_locks WHERE pid = pg_catalog.pg_backend_pid() AND locktype = 'relation' AND mode = 'AccessShareLock' AND relation = ${quoteString(table)}::pg_catalog.regclass)`,
 				[]
 			)
-			if (held === true) {
-				locked.add(table)
+			if (locks === true) {
+				held.add(table)
 			}
 		}
-		return { touched, standing, locked }
+		return held
 	})
 
 /**
- * The stand-ups a served write's session calls before the case's transactions, of the tables they write alone
- * (`standUpRelations`): the judge's tables a capture of each requires, its own deltas and those its parts read beside
- * them, and no other table's.
- */
-export const standUpWritten = (session: RawSession, installed: Installed, drawn: Writes) =>
-	standUpRelations(
-		session,
-		installed.installation,
-		Arr.dedupe(Arr.flatMap(drawn.transactions, (writes) => Arr.map(writes, relationOf)))
-	)
-
-/**
- * One case on a fresh clone, in one session, each transaction in turn: its writes, its written set read, the judge run
- * by SET CONSTRAINTS ALL IMMEDIATE, then what the session holds read, and COMMIT. The judge runs each of its statements
- * (test/support/judge.ts judgeStatementsOf), a stored relation's upkeep's and a rule's alike, exactly where a delta it
- * reads holds a row, which the written set names (README, Rules over queries: a rule is judged over the rows a
- * transaction wrote, and over deltas that hold none its region is empty; physical/ddl/rules.ts addRules: an upkeep runs
- * where a delta of a holder it reads holds one): the stored tables the transaction holds ACCESS SHARE on are exactly
- * those the statements over its written deltas read, since nothing else of the transaction reads a stored table; the
- * judge reads no delta but those the transaction wrote, those the statements that ran read, and those the captures of
- * the tables written write, the tables of the transaction's statements and the stored table of each upkeep that ran;
- * and the session holds no delta its stand-up did not make (physical/ddl/rules.ts addStandUps), so no transaction makes
- * a relation.
+ * One case on a fresh clone, in one session, each transaction in turn: its writes, its written set and the statements
+ * the judge runs read over its log, the judge run by SET CONSTRAINTS ALL IMMEDIATE, then the stored tables the session
+ * holds ACCESS SHARE on read, and COMMIT. The judge runs each of its statements (test/support/judge.ts
+ * judgeStatementsOf), a stored relation's upkeep's and a rule's alike, exactly where an argument of its block holds a
+ * row (support/judge.ts runsNow), which a delta the transaction wrote holds (README, Rules over queries: a rule is judged
+ * over the rows a transaction wrote, and over deltas that hold none its region is empty; physical/ddl/rules.ts
+ * addRules: an upkeep runs where a delta of a holder it reads holds one): the stored tables the transaction holds ACCESS
+ * SHARE on are exactly those the statements that run read, since nothing else of the transaction reads a stored table,
+ * each of those statements one over a delta the transaction wrote.
  *
  * The written set is read before the judge runs, so it names no delta an upkeep's writes fill inside it, and a
  * statement over such a delta runs beyond those the set names: none does here, since no write of the box changes
@@ -356,7 +305,6 @@ export const runWrites = (
 	c: Case<DispatchFeature>
 ) =>
 	Effect.gen(function* () {
-		yield* standUpJudge(admin, installed.installation)
 		for (const sql of seeded(installed)) {
 			yield* admin.query(sql, [])
 		}
@@ -369,8 +317,7 @@ export const runWrites = (
 			...Arr.map(tables, (t) => namesOf(installed).table(t)),
 			...Arr.flatMap(statements, (s) => [...s.stored])
 		])
-		/** The deltas the session's stand-up made, before its first transaction. */
-		const stood = (yield* observed(session, deltas, stored)).standing
+		const values = (sql: string, params: ReadonlyArray<unknown>) => session.values(sql, params)
 		/** The deltas an earlier transaction of the session wrote a row into. */
 		const wroteBefore = new Set<string>()
 		for (const [t, writes] of drawn.transactions.entries()) {
@@ -379,33 +326,16 @@ export const runWrites = (
 			for (const op of writes) {
 				yield* session.query(statementOf(installed, op, t), [])
 			}
-			const written = yield* writtenSet(session)
+			const written = yield* writtenSet(installed, session, deltas)
+			const ran = yield* Effect.filter(statements, (s) =>
+				runsNow(values, installed.installation, s)
+			)
 			yield* session.query("SET CONSTRAINTS ALL IMMEDIATE", [])
-			const { touched, standing, locked } = yield* observed(session, deltas, stored)
-			const ran = Arr.filter(statements, (s) => Arr.some([...s.deltas], (d) => written.has(d)))
+			const held = yield* locked(session, stored)
 			const expectedLocked = new Set(Arr.flatMap(ran, (s) => [...s.stored]))
 			assert.ok(
-				sameSet(locked, expectedLocked),
-				`${where}: the transaction holds ACCESS SHARE on exactly the tables the statements over its written deltas ${listed(written)} read, ${listed(expectedLocked)}, not ${listed(locked)}`
-			)
-			const stoodUp = new Set(Arr.flatMap(ran, (s) => [...s.deltas]))
-			/** The deltas the captures of the tables the transaction wrote write: each relation's its statements wrote,
-			 * and each stored relation's an upkeep that ran wrote, inside the judge. */
-			const captured = new Set([
-				...Arr.flatMap(writes, (op) =>
-					Arr.map(capturedDeltasOf(installed.installation, relationOf(op)), (d) => d.name)
-				),
-				...Arr.flatMap(ran, (s) => [...filledBy(s)])
-			])
-			const read = Arr.filter([...touched], (d) => Arr.contains(deltas, d))
-			assert.ok(
-				Arr.every(read, (d) => written.has(d) || stoodUp.has(d) || captured.has(d)),
-				`${where}: the judge reads no delta but those the transaction wrote, ${listed(written)}, those the statements that ran read, ${listed(stoodUp)}, and those the captures of the tables written write, ${listed(captured)}, not ${listed(read)}`
-			)
-			const added = Arr.filter([...standing], (d) => !stood.has(d))
-			assert.ok(
-				!Arr.isReadonlyArrayNonEmpty(added),
-				`${where}: the transaction made deltas, ${listed(added)}, beside those the session's stand-up made, ${listed(stood)}`
+				sameSet(held, expectedLocked),
+				`${where}: the transaction holds ACCESS SHARE on exactly the tables the statements over its written deltas ${listed(written)} read, ${listed(expectedLocked)}, not ${listed(held)}`
 			)
 			for (const s of ran) {
 				const by = Arr.filter([...s.deltas], (d) => written.has(d))
@@ -416,7 +346,8 @@ export const runWrites = (
 					c.note("a statement run by a side of olds alone")
 				}
 			}
-			if (Arr.some([...stoodUp], (d) => !written.has(d))) {
+			const read = new Set(Arr.flatMap(ran, (s) => [...s.deltas]))
+			if (Arr.some([...read], (d) => !written.has(d))) {
 				c.note("a delta a statement that ran read, whose transaction wrote no row of it")
 			}
 			if (Arr.some([...wroteBefore], (d) => !written.has(d))) {

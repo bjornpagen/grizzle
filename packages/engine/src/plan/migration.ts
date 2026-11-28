@@ -33,8 +33,7 @@ export {
 export {
 	dataStepBracket,
 	immutableTriggerName,
-	immutableTruncateTriggerName,
-	standUpCalls
+	immutableTruncateTriggerName
 } from "#compiler/physical/ddl/immutable.ts"
 export {
 	type GraphIdent,
@@ -167,8 +166,7 @@ export {
 	liveSlotOf,
 	type InstalledRoleTooLong,
 	roleInSpace,
-	type RoleSpace,
-	standUpDisplayLead
+	type RoleSpace
 } from "#compiler/core/identity.ts"
 export {
 	type InstallationNames,

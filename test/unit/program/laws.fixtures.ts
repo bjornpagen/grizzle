@@ -797,6 +797,8 @@ export const reportable = (installation: Installation): ReadonlyArray<Identified
 			case "createConstraintTrigger":
 			case "createTransitionTrigger":
 				return ofTable(s.table, s.name)
+			case "createJudgeLog":
+				return s.log.kind === "arm" ? ofTable(s.table, s.log.key) : []
 			case "createDomain":
 				return installed(s.name)
 					? Arr.flatMap(s.constraints, (c) =>

@@ -81,16 +81,7 @@ import type { StampFunction } from "#compiler/physical/ddl/stamps.ts"
 
 /** A function a role executes beside its statements' own: a head's stamp function, or a declared function its served
  * programs reach. */
-/**
- * The stand-up of the rule judge's session tables a write of one relation needs (physical/ddl/rules.ts addStandUps),
- * which every role whose grants let it write the relation executes.
- */
-export interface JudgeStandUp {
-	readonly node: Node<"validate">
-	readonly name: FunctionName
-}
-
-type CalledFunction = StampFunction | InstalledFunction | JudgeStandUp
+type CalledFunction = StampFunction | InstalledFunction
 
 /**
  * What a role holds beside its statements' own objects: EXECUTE on each function it calls, and SELECT and DELETE on the
@@ -2063,7 +2054,6 @@ export const addWorlds = (
 		readonly declared: ReadonlyMap<string, InstalledFunction>
 	},
 	fences: ReadonlyArray<LoginFence>,
-	standUps: ReadonlyMap<string, JudgeStandUp>,
 	handed: ReadonlyArray<RoleWorldViews>
 ): WorldsPlan => {
 	const logins = [...checkedLogins].toSorted((x, y) => compareStrings(x.login.name, y.login.name))
@@ -2080,10 +2070,9 @@ export const addWorlds = (
 	const writers: Array<Writer> = []
 	for (const login of logins) {
 		/** The functions a role calls: the stamp function of each head of a relation its grants let it insert into
-		 * (grantedPrivileges), which every insert of the relation that stamps the head calls, the judge's stand-up of each
-		 * judged relation its grants let it write (`standUps`), which its session calls before its first write of it, and
-		 * each declared function its served programs reach; and the head of each place of a relation its grants let it
-		 * delete from, which its deletes delete the removed groups' heads of. */
+		 * (grantedPrivileges), which every insert of the relation that stamps the head calls, and each declared function
+		 * its served programs reach; and the head of each place of a relation its grants let it delete from, which its
+		 * deletes delete the removed groups' heads of. */
 		const held = ({ checked }: CheckedRole): Held => {
 			const role = checked.world.role
 			const granted = [...grantedPrivileges(b.model, checked)]
@@ -2091,13 +2080,6 @@ export const addWorlds = (
 				...granted.flatMap(([relation, privileges]) =>
 					privileges.has("INSERT") ? (stamps.get(relation) ?? []) : []
 				),
-				...granted.flatMap(([relation, privileges]): ReadonlyArray<JudgeStandUp> => {
-					const standUp = standUps.get(relation)
-					return standUp !== undefined &&
-						(privileges.has("INSERT") || privileges.has("UPDATE") || privileges.has("DELETE"))
-						? [standUp]
-						: []
-				}),
 				...calls.calls.flatMap((c) =>
 					c.login === login.login.name && c.role === role.name
 						? [defined(calls.declared.get(c.function), `the declared function ${c.function}`)]

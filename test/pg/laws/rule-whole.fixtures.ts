@@ -39,8 +39,7 @@ import {
 	judgedPlans,
 	type JudgedStatement,
 	judgedStatementsOf,
-	raisedRule,
-	standUpJudge
+	raisedRule
 } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -1457,7 +1456,7 @@ export type LocalityFeature = "measured with no statistics" | "measured analyzed
 const plansOf = (installed: Installed, connection: PgConnection) =>
 	Effect.map(
 		judgedPlans(
-			(sql) => connection.queryValues(sql, []),
+			(sql, params) => connection.queryValues(sql, params),
 			installed.installation,
 			wholeStatementsOf(installed.installation)
 		),
@@ -1532,7 +1531,6 @@ export const runLocality = (
 		/** The judge's reads over document 0 written whole on one clone. */
 		const measured = (installed: Installed, connection: PgConnection) =>
 			Effect.gen(function* () {
-				yield* standUpJudge(connection, installed.installation)
 				const tables = tablesOf(installed, locality.shape)
 				const written = 0
 				for (const sql of [
@@ -1680,7 +1678,6 @@ export const runNarrowed = (
 	c: Case<"documents written whole beside a few tags">
 ) =>
 	Effect.gen(function* () {
-		yield* standUpJudge(connection, installed.installation)
 		const tables = tablesOf(installed, narrowed.shape)
 		for (const sql of [
 			...writtenWhole(tables, 1, narrowed.documents),

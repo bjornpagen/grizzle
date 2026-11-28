@@ -12,7 +12,7 @@ import { derived, relation, schema, sealed, unit } from "#compiler/public/schema
 import { pgClassStates, standIn } from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
-import { standUpJudge, upkeepRuns } from "#test/support/judge.ts"
+import { upkeepRuns } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -126,7 +126,6 @@ export const runImportUpkeep = (
 	k: Case<ImportUpkeepFeature>
 ) =>
 	Effect.gen(function* () {
-		yield* standUpJudge(connection, installed.installation)
 		const names = namesOf(installed)
 		const own = c.documents * c.rules * (1 + 2 * c.targets)
 		const run = (statements: ReadonlyArray<string>) =>
@@ -150,7 +149,7 @@ export const runImportUpkeep = (
 			)
 			yield* run([nodesOf(installed, c, 1, 1)])
 			const plans: ReadonlyArray<PlanNode> = yield* upkeepRuns(
-				(sql) => connection.queryValues(sql, []),
+				(sql, params) => connection.queryValues(sql, params),
 				installed.installation,
 				Forward.name
 			)

@@ -1,5 +1,6 @@
 /** The rule judge's PL/pgSQL, as an installation creates it (physical/ddl/rules.ts addRules). */
 
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import {
@@ -10,13 +11,21 @@ import {
 	rowsRead,
 	scannedRows
 } from "#bench/harness/explain.ts"
-import { identifierOf, identity, upkeepParts } from "#compiler/core/identity.ts"
-import { temporarySchema } from "#compiler/core/temporary.ts"
-import { quoteIdent, quoteString } from "#compiler/core/text.ts"
-import { standUpsOf } from "#compiler/deploy/diff/diff.ts"
-import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
+import { type Identity, identifierOf, identity, upkeepParts } from "#compiler/core/identity.ts"
+import type { IdentityKind } from "#compiler/core/ids.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
-import type { ObjectName, OperandSelect, PlBlock, PlStatement } from "#compiler/sql/ast.ts"
+import {
+	type Expr,
+	type FromSource,
+	functionColumnNames,
+	judgeLogColumns,
+	type ObjectName,
+	type OperandSelect,
+	type PlStatement,
+	type TypeRef
+} from "#compiler/sql/ast.ts"
+import { eq, param, simpleSelect } from "#compiler/sql/build.ts"
 import {
 	printExpr,
 	printObjectName,
@@ -26,147 +35,142 @@ import {
 import { identityHooks, Transform } from "#compiler/sql/transform.ts"
 import { routineAdviceHeld } from "#test/support/advice.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { standUpCallsOf } from "#test/support/kernel/naming.ts"
 import { tableOfSource } from "#test/support/sql.ts"
-import type { CaseSession, RawSession } from "#test/support/substrate/session.ts"
+import type { RawSession } from "#test/support/substrate/session.ts"
+
+/** A test session's read of rows: a statement and its parameters, its rows positional. */
+type Values<E> = (
+	sql: string,
+	params: ReadonlyArray<unknown>
+) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, E>
 
 /**
- * The bodies of the judge and of each of its parts, each a function of its own: the judge runs a part where the session
- * holds one of its deltas, and every statement that tests a rule stands in a part. A part is named by its identity's
- * stem, the judge's own followed by its first delta's relation (core/identity.ts ruleJudgePart).
+ * The bodies of the judge and of each of its parts and blocks, each a function of its own: the judge runs a part where
+ * the transaction wrote one of its deltas, a part each block where a selection it takes holds a row, and every
+ * statement that tests a rule stands in a block. A part and a block are named by their identities' stems, the judge's
+ * own followed by a relation's or a law's (core/identity.ts ruleJudgePart, ruleJudgeBlock).
  */
 export const judgeBodiesOf = (installation: Installation): ReadonlyArray<PlStatement> =>
 	Arr.flatMap(judgeFunctionsOf(installation), (f) => f.body)
 
-/** The judge and each of its parts (`judgeBodiesOf`), each by its function's name and its body. */
-const judgeFunctionsOf = (
-	installation: Installation
-): ReadonlyArray<{ readonly fn: ObjectName; readonly body: ReadonlyArray<PlStatement> }> => {
+/**
+ * A PL/pgSQL function of the judge's (`judgeFunctionsOf`, `upkeepFunctionsOf`): its name, its arguments, each by its
+ * type, an array of its delta's row type, which names it (physical/ddl/deltas.ts deltaArrayType), and its body.
+ */
+export interface JudgeFunction {
+	readonly fn: ObjectName
+	readonly params: ReadonlyMap<string, TypeRef>
+	/** Its variables' types, its arguments' and its declarations', by name. */
+	readonly typed: ReadonlyMap<string, TypeRef>
+	readonly body: ReadonlyArray<PlStatement>
+}
+
+/** `installation`'s PL/pgSQL function `named` (`JudgeFunction`), none where it creates none. */
+const functionNamed = (installation: Installation, named: string): Option.Option<JudgeFunction> =>
+	Arr.findFirst(installation.statements, (s): Option.Option<JudgeFunction> =>
+		s.kind === "createFunction" && s.language === "plpgsql" && s.name.name === named
+			? Option.some({
+					fn: s.name,
+					params: new Map(Arr.map(s.params, (p) => [p.name, p.type] as const)),
+					typed: new Map(
+						Arr.map([...s.params, ...s.body.declare], (d) => [d.name, d.type] as const)
+					),
+					body: s.body.body
+				})
+			: Option.none()
+	)
+
+/** The judge and each of its parts and blocks (`judgeBodiesOf`). */
+export const judgeFunctionsOf = (installation: Installation): ReadonlyArray<JudgeFunction> => {
 	const judge = identifierOf(identity.ruleJudge())
-	return Arr.flatMap(installation.statements, (s) =>
+	return Arr.flatMap(installation.statements, (s): ReadonlyArray<JudgeFunction> =>
 		s.kind === "createFunction" &&
 		s.language === "plpgsql" &&
 		(s.name.name === judge || Str.startsWith(`${judge}_`)(s.name.name))
-			? [{ fn: s.name, body: s.body.body }]
+			? [
+					{
+						fn: s.name,
+						params: new Map(Arr.map(s.params, (p) => [p.name, p.type] as const)),
+						typed: new Map(
+							Arr.map([...s.params, ...s.body.declare], (d) => [d.name, d.type] as const)
+						),
+						body: s.body.body
+					}
+				]
 			: []
 	)
 }
 
 /**
- * The stand-ups of `installation` (kernel/naming.ts standUpCallsOf) sent on `session`: outside a transaction each commits alone, so
- * the session holds the judge's tables for every transaction after; inside one they are that transaction's, as a case on
- * a rolled-back transaction needs (substrate.ts Substrate.rolledBack).
- */
-export const standUpJudge = (session: Pick<CaseSession, "query">, installation: Installation) =>
-	Effect.forEach(
-		standUpCallsOf(installation, installation.names.schema),
-		(sql) => session.query(sql, []),
-		{
-			discard: true
-		}
-	)
-
-/**
- * The stand-ups of `relations` alone, each a table the rule judge holds, by its declared name, sent on `session`: what a
- * served write's session calls before its first write of them (adapter apply/stand-up.ts), the session tables a capture
- * of each requires and no other, where `standUpJudge` stands up every table's.
- */
-export const standUpRelations = (
-	session: Pick<CaseSession, "query">,
-	installation: Installation,
-	relations: ReadonlyArray<string>
-) =>
-	Effect.forEach(
-		relations,
-		(relation) =>
-			session.query(
-				`SELECT ${quoteIdent(installation.names.schema)}.${quoteIdent(identifierOf(identity.ruleStandUp(relation)))}()`,
-				[]
-			),
-		{ discard: true }
-	)
-
-/**
- * A delta a table's capture writes (physical/ddl/rules.ts addCapture): its name, and the columns its INSERT names, a
- * side of news's count among them.
+ * A delta a table's capture logs (physical/ddl/rules.ts addCapture): its name, and the attributes of its row type, a side
+ * of news's count among them.
  */
 export interface CapturedDelta {
 	readonly name: string
 	readonly columns: ReadonlyArray<string>
 }
 
-/** Every INSERT of `body` into a table of pg_temp, at any depth of the conditions it stands under, as a delta's write. */
-const sessionInserts = (body: ReadonlyArray<PlStatement>): ReadonlyArray<CapturedDelta> =>
-	Arr.flatMap(body, (s): ReadonlyArray<CapturedDelta> => {
+/** The deltas `body` logs, at any depth of the conditions it stands under: each column of its INSERT into the delta log. */
+const loggedDeltas = (body: ReadonlyArray<PlStatement>): ReadonlyArray<string> =>
+	Arr.flatMap(body, (s): ReadonlyArray<string> => {
 		switch (s.kind) {
 			case "if":
-				return [
-					...Arr.flatMap(s.branches, (b) => sessionInserts(b.body)),
-					...sessionInserts(s.else)
-				]
-			case "modify":
+				return [...Arr.flatMap(s.branches, (b) => loggedDeltas(b.body)), ...loggedDeltas(s.else)]
+			case "into":
 				return s.statement.kind === "insert" &&
-					typeof s.statement.table !== "string" &&
-					s.statement.table.schema === temporarySchema
-					? [{ name: s.statement.table.name, columns: s.statement.columns }]
+					Arr.contains(s.statement.columns, judgeLogColumns.prev)
+					? Arr.filter(s.statement.columns, (c) => c !== judgeLogColumns.prev)
 					: []
+			case "wholeReads":
+				return loggedDeltas(s.body)
 			case "assign":
 			case "case":
-			case "createSessionTable":
-			case "createSessionIndex":
-			case "createSessionTrigger":
 			case "forQuery":
 			case "perform":
 			case "raise":
 			case "return":
 			case "returnQuery":
-			case "truncateSessionTable":
 			case "whenFound":
+			case "modify":
 				return []
-			case "wholeReads":
-				return sessionInserts(s.body)
 		}
 	})
 
+/** Each delta's row type's attributes, by the delta's name (physical/ddl/deltas.ts deltaRowTypeCreate). */
+const rowTypesOf = (installation: Installation): ReadonlyMap<string, ReadonlyArray<string>> =>
+	new Map(
+		Arr.flatMap(installation.statements, (s) =>
+			s.kind === "createRowType"
+				? [[s.name.name, Arr.map(s.attributes, (a) => a.name)] as const]
+				: []
+		)
+	)
+
 /**
- * The deltas `relation`'s capture writes (physical/ddl/rules.ts addCapture), each once, in the order its body writes
- * them: every INSERT of its body into a table of pg_temp but the sentinel's, whose one column is the written set.
+ * The deltas `relation`'s capture logs (physical/ddl/rules.ts addCapture), each once, in the order its body logs them,
+ * each with its row type's attributes.
  */
 export const capturedDeltasOf = (
 	installation: Installation,
 	relation: string
 ): ReadonlyArray<CapturedDelta> => {
-	const capture = identifierOf(identity.ruleCapture(relation))
-	return Arr.dedupeWith(
-		Arr.filter(
-			Arr.flatMap(installation.statements, (s) =>
-				s.kind === "createFunction" && s.language === "plpgsql" && s.name.name === capture
-					? sessionInserts(s.body.body)
-					: []
-			),
-			(d) => !Arr.contains(d.columns, "__written")
-		),
-		(a, b) => a.name === b.name
-	)
+	const attributes = rowTypesOf(installation)
+	return Option.match(functionNamed(installation, identifierOf(identity.ruleCapture(relation))), {
+		onNone: () => [],
+		onSome: (capture) =>
+			Arr.map(Arr.dedupe(loggedDeltas(capture.body)), (name) => ({
+				name,
+				columns: defined(attributes.get(name), `the row type of delta ${name}`)
+			}))
+	})
 }
-
-/**
- * The stand-ups of the installation `snapshot` records (deploy/diff/diff.ts standUpsOf) sent on `session`, as
- * `standUpJudge` sends an installation's: a writer outside grizzle's first statements over a migrated installation.
- */
-export const standUpSnapshot = (session: Pick<CaseSession, "query">, snapshot: DeploySnapshot) =>
-	Effect.forEach(
-		standUpsOf(snapshot),
-		(fn) => session.query(`SELECT ${quoteIdent(fn.schema)}.${quoteIdent(fn.name)}()`, []),
-		{ discard: true }
-	)
 
 /** A RAISE of PL/pgSQL. */
 type Raise = Extract<PlStatement, { readonly kind: "raise" }>
 
 /**
- * A statement the judge tests a rule by: a whenFound (sql/build.ts) of the judge or a part, `query` the rule's query it
- * reads whole, and `raise`, what it runs where the query returns a row.
+ * A statement the judge tests a rule by: a whenFound (sql/build.ts) of a block, `query` the rule's query it reads whole,
+ * and `raise`, what it runs where the query returns a row.
  */
 export interface JudgedStatement {
 	readonly query: OperandSelect
@@ -194,11 +198,10 @@ export const judgedStatementsIn = (
 		return first.kind === "raise" ? [{ query: s.query, raise: first }] : judgedStatementsIn(s.body)
 	})
 
-/** Every statement the judge and its parts test a rule by (`JudgedStatement`), in their bodies' order. */
+/** Every statement the judge's blocks test a rule by (`JudgedStatement`), in their bodies' order. */
 export const judgedStatementsOf = (installation: Installation): ReadonlyArray<JudgedStatement> =>
 	judgedStatementsIn(judgeBodiesOf(installation))
 
-/** A statement a PL/pgSQL body runs for its effect (sql/ast.ts PlStatement `modify`). */
 /**
  * A statement a PL/pgSQL body runs for its effect: an upkeep's (physical/ddl/rules.ts upkeepBlock), a write it runs
  * once, the DELETE of its removal, its target read at the tuple ids its USING's query returns, or its INSERT.
@@ -214,117 +217,65 @@ export const upkeepBodyOf = (
 	installation: Installation,
 	relation: string
 ): ReadonlyArray<PlStatement> =>
-	Arr.flatMap(upkeepBlocksOf(installation, relation), (block) => block.body)
+	Arr.flatMap(upkeepFunctionsOf(installation, relation), (f) => f.body)
 
-/** The blocks of stored relation `relation`'s upkeep (`upkeepBodyOf`), in their parts' order. */
-const upkeepBlocksOf = (installation: Installation, relation: string): ReadonlyArray<PlBlock> =>
-	Arr.map(upkeepFunctionsOf(installation, relation), (f) => f.block)
-
-/** The functions of stored relation `relation`'s upkeep (`upkeepBlocksOf`), each by its name and its block. */
-const upkeepFunctionsOf = (
-	installation: Installation,
-	relation: string
-): ReadonlyArray<{ readonly fn: ObjectName; readonly block: PlBlock }> =>
-	Arr.flatMap(upkeepParts, (part) => {
-		const named = identifierOf(identity.storedUpkeep(relation, part))
-		return Arr.flatMap(installation.statements, (s) =>
-			s.kind === "createFunction" && s.language === "plpgsql" && s.name.name === named
-				? [{ fn: s.name, block: s.body }]
-				: []
-		)
-	})
+/** Whether `named`, an identity the installation minted, is part `part` of stored relation `relation`'s upkeep. */
+const isUpkeepPart = (
+	named: Identity<IdentityKind>,
+	relation: string,
+	part: (typeof upkeepParts)[number]
+): boolean => {
+	if (named.kind !== "storedUpkeep" || named.parts[0] !== relation) {
+		return false
+	}
+	const second = named.parts[1]
+	return part === "units" ? second !== "lost" && second !== "gained" : second === part
+}
 
 /**
- * The statements of the upkeep of stored relation `relation` (`upkeepBlocksOf`), in its blocks' order: each removal of
- * its rows its definition no longer holds, before the INSERT of its block, a unit form's of those it derives at the
- * written units, a delta form's of those it gained.
+ * The functions of stored relation `relation`'s upkeep (`upkeepBodyOf`), in their parts' order: each named by its part
+ * and the selections it takes (identity.storedUpkeep), found among the identities the installation minted.
  */
-const upkeepStatementsOf = (
+export const upkeepFunctionsOf = (
 	installation: Installation,
 	relation: string
-): ReadonlyArray<Modified> => Arr.map(upkeepRunsOf(installation, relation), (r) => r.run)
+): ReadonlyArray<JudgeFunction> =>
+	Arr.flatMap(upkeepParts, (part) => {
+		const named = new Set(
+			Arr.flatMap(installation.identities, (i): ReadonlyArray<string> =>
+				isUpkeepPart(i, relation, part) ? [identifierOf(i)] : []
+			)
+		)
+		return Arr.flatMap([...named], (name) => Option.toArray(functionNamed(installation, name)))
+	})
 
-/** The statements of the upkeep of stored relation `relation` (`upkeepStatementsOf`), each with its block's routine. */
+/** The statements of the upkeep of stored relation `relation` (`upkeepFunctionsOf`), each with its block's function. */
 const upkeepRunsOf = (
 	installation: Installation,
 	relation: string
-): ReadonlyArray<{ readonly routine: ObjectName; readonly run: Modified }> =>
-	Arr.flatMap(upkeepFunctionsOf(installation, relation), ({ fn, block }) =>
+): ReadonlyArray<{ readonly routine: JudgeFunction; readonly run: Modified }> =>
+	Arr.flatMap(upkeepFunctionsOf(installation, relation), (routine) =>
 		Arr.flatMap(
-			block.body,
-			(s): ReadonlyArray<{ readonly routine: ObjectName; readonly run: Modified }> =>
-				s.kind === "modify" ? [{ routine: fn, run: s.statement }] : []
+			routine.body,
+			(s): ReadonlyArray<{ readonly routine: JudgeFunction; readonly run: Modified }> =>
+				s.kind === "modify" ? [{ routine, run: s.statement }] : []
 		)
 	)
 
 /**
- * The reads of each statement of the upkeep of stored relation `relation` (`upkeepStatementsOf`), each as the query of
- * the rows it reads: a DELETE's, the query of its USING, whose rows it reads the table at by their ids alone; an
- * INSERT's, the query its rows come from.
+ * The reads of each statement of the upkeep of stored relation `relation` (`upkeepRunsOf`), each as the query of the
+ * rows it reads: a DELETE's, the query of its USING, whose rows it reads the table at by their ids alone; an INSERT's,
+ * the query its rows come from.
  */
 export const upkeepReadsOf = (
 	installation: Installation,
 	relation: string
 ): ReadonlyArray<OperandSelect> =>
-	Arr.flatMap(upkeepStatementsOf(installation, relation), (m): ReadonlyArray<OperandSelect> => {
+	Arr.flatMap(upkeepRunsOf(installation, relation), ({ run: m }): ReadonlyArray<OperandSelect> => {
 		if (m.kind === "delete") {
 			return Arr.flatMap(m.using, (u) => (u.kind === "derived" ? [u.query] : []))
 		}
 		return m.kind === "insert" && m.source.kind === "query" ? [m.source.query] : []
-	})
-
-/** One EXPLAIN ANALYZE of `sql`, its plan. */
-const explained = <E>(
-	values: (sql: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, E>,
-	sql: string
-): Effect.Effect<PlanNode, E> =>
-	Effect.map(
-		values(`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${sql}`),
-		(rows) => succeeded(parsePlan(rows[0]?.[0]), "one EXPLAIN plan").plan
-	)
-
-/**
- * The plan PostgreSQL runs `sql`, a statement of the routine `routine`, by, explained with ANALYZE under the advice the
- * routine's own SET clause holds, as every call of it plans it (test/support/advice.ts routineAdviceHeld), which stays
- * in force for the rest of the transaction.
- */
-const heldPlan = <E>(
-	values: (sql: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, E>,
-	routine: ObjectName,
-	sql: string
-): Effect.Effect<PlanNode, E> =>
-	Effect.andThen(values(routineAdviceHeld(routine)), () => explained(values, sql))
-
-/**
- * Each statement of the upkeep of stored relation `relation` (`upkeepRunsOf`) explained (EXPLAIN ANALYZE) over the
- * transaction's deltas as the judge would run it, under its routine's advice (`heldPlan`), in its body's order, the
- * removal's effect before the INSERT, its writes standing after: what a case whose transaction rolls back whole
- * explains itself, before anything runs the judge, SET CONSTRAINTS ALL IMMEDIATE or COMMIT, which empties the deltas.
- */
-export const upkeepRuns = <E>(
-	values: (sql: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, E>,
-	installation: Installation,
-	relation: string
-): Effect.Effect<ReadonlyArray<PlanNode>, E> =>
-	Effect.forEach(upkeepRunsOf(installation, relation), ({ routine, run }) =>
-		heldPlan(values, routine, printStatement(run))
-	)
-
-/**
- * The upkeep's statements explained (`upkeepRuns`) under a savepoint the explanation rolls back to, so the upkeep's
- * table and the deltas stand as the captures left them.
- */
-export const upkeepPlans = <E>(
-	query: (sql: string) => Effect.Effect<unknown, E>,
-	values: (sql: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, E>,
-	installation: Installation,
-	relation: string
-): Effect.Effect<ReadonlyArray<PlanNode>, E> =>
-	Effect.gen(function* () {
-		yield* query("SAVEPOINT upkeep_explained")
-		const plans = yield* upkeepRuns(values, installation, relation)
-		yield* query("ROLLBACK TO SAVEPOINT upkeep_explained")
-		return plans
 	})
 
 /**
@@ -351,6 +302,49 @@ export const raisedRule = (statement: JudgedStatement): Option.Option<string> =>
 		)
 	)
 
+/**
+ * The delta a variable of `routine` holds rows of, `variable` by its name, an argument or a declaration of the routine:
+ * its type's, an array of the delta's row type.
+ */
+const deltaOfVariable = (routine: JudgeFunction, variable: string): string | undefined => {
+	const type = routine.typed.get(variable)
+	return type?.kind === "named" ? type.name : undefined
+}
+
+/**
+ * A read of a delta's array a statement of `routine` makes (physical/ddl/deltas.ts headed): the FROM item that unnests
+ * one of its arguments, the delta's rows or a selection of them, `unnest(<argument>) AS <alias>(c1, ..., cn)`; the
+ * delta, by its name, and each column the item names, c<i>, the delta's i-th attribute (`rowTypesOf`).
+ */
+export interface ArrayRead {
+	readonly delta: string
+	readonly columnOf: ReadonlyMap<string, string>
+}
+
+/** `source` as a read of a delta's array by `routine` of `installation` (`ArrayRead`), none where it reads none. */
+export const arrayReadOf = (
+	installation: Installation,
+	routine: JudgeFunction,
+	source: FromSource
+): ArrayRead | undefined => {
+	const [array] = source.kind === "function" ? source.call.args : []
+	const delta = array?.kind === "plVar" ? deltaOfVariable(routine, array.name) : undefined
+	const attributes = delta === undefined ? undefined : rowTypesOf(installation).get(delta)
+	if (delta === undefined || attributes === undefined || source.kind !== "function") {
+		return undefined
+	}
+	const names = functionColumnNames(source.columns)
+	return {
+		delta,
+		columnOf: new Map(
+			Arr.flatMap(names, (c, at) => {
+				const attribute = attributes[at]
+				return attribute === undefined ? [] : [[c, attribute] as const]
+			})
+		)
+	}
+}
+
 /** The tables a statement reads: its deltas, by name, and its stored tables, printed (`tablesReadBy`). */
 interface TablesRead {
 	readonly deltas: ReadonlyArray<string>
@@ -359,14 +353,13 @@ interface TablesRead {
 
 /**
  * The tables the statement `walk` visits reads, in the order its FROM items name them, at any depth, its subqueries'
- * among them, each the table of its source (`tableOfSource`): its deltas, each a table of pg_temp a FROM names or a delta a FROM reads through its reader (`readers`,
- * `readersOf`), and its stored tables, every other table a FROM names, printed as pg_locks' regclass reads them. A
- * write's target is no FROM of it: an upkeep's DELETE or INSERT reads its stored relation's table only where a FROM of
- * it names the table.
+ * among them: its deltas, each the delta of the argument of `routine` a FROM unnests (physical/ddl/deltas.ts headed),
+ * and its stored tables, every table a FROM names, printed as pg_locks' regclass reads them. A write's target is no FROM
+ * of it: an upkeep's DELETE or INSERT reads its stored relation's table only where a FROM of it names the table.
  */
 const tablesReadBy = (
 	walk: (transform: Transform) => unknown,
-	readers: ReadonlyMap<string, string>
+	routine: JudgeFunction
 ): TablesRead => {
 	const deltas: Array<string> = []
 	const stored: Array<string> = []
@@ -376,17 +369,12 @@ const tablesReadBy = (
 			fromSource: (source) => {
 				const table = tableOfSource(source)
 				if (table !== undefined) {
-					if (table.schema === temporarySchema) {
-						deltas.push(table.name)
-					} else {
-						stored.push(printObjectName(table))
-					}
+					stored.push(printObjectName(table))
 				}
-				if (source.kind === "function" && source.call.fn.kind === "qualified") {
-					const delta = readers.get(source.call.fn.name)
-					if (delta !== undefined) {
-						deltas.push(delta)
-					}
+				const [array] = source.kind === "function" ? source.call.args : []
+				const delta = array?.kind === "plVar" ? deltaOfVariable(routine, array.name) : undefined
+				if (delta !== undefined) {
+					deltas.push(delta)
 				}
 				return source
 			}
@@ -395,36 +383,10 @@ const tablesReadBy = (
 	return { deltas, stored }
 }
 
-/** The deltas a query reads (`tablesReadBy`). */
-const sessionTablesOf = (
-	query: OperandSelect,
-	readers: ReadonlyMap<string, string>
-): ReadonlyArray<string> => tablesReadBy((t) => t.select(query), readers).deltas
-
-/**
- * Each delta's reader in `installation` by its function's name, the delta it reads (physical/ddl/rules.ts readers): a
- * PL/pgSQL function whose one statement returns the rows of a table of pg_temp, the delta, which the judge's statements
- * read the delta through.
- */
-export const readersOf = (installation: Installation): ReadonlyMap<string, string> =>
-	new Map(
-		Arr.flatMap(installation.statements, (s) => {
-			if (s.kind !== "createFunction" || s.language !== "plpgsql") {
-				return []
-			}
-			const [only, ...rest] = s.body.body
-			if (only.kind !== "returnQuery" || rest.length > 0) {
-				return []
-			}
-			const [delta, ...others] = sessionTablesOf(only.query, new Map())
-			return delta === undefined || others.length > 0 ? [] : [[s.name.name, delta] as const]
-		})
-	)
-
-/** A statement of the judge that tests a rule (`JudgedStatement`), with the tables it reads. */
+/** A statement of the judge that tests a rule (`JudgedStatement`), in its block, with the tables it reads. */
 export interface RuleStatement {
 	readonly kind: "rule"
-	readonly routine: ObjectName
+	readonly routine: JudgeFunction
 	readonly statement: JudgedStatement
 	readonly deltas: ReadonlySet<string>
 	readonly stored: ReadonlySet<string>
@@ -434,12 +396,12 @@ export interface RuleStatement {
  * A statement of a stored relation's upkeep (physical/ddl/rules.ts upkeepBlock, `Modified`), `relation` the stored
  * relation whose table it writes: its DELETE of the rows the relation's definition no longer derives at the units
  * the transaction wrote, or its INSERT of those it newly derives there, with the tables it reads, and `writes`, the
- * deltas its stored table's capture writes where a rule or an upkeep reads the relation (`capturedDeltasOf`), which the
+ * deltas its stored table's capture logs where a rule or an upkeep reads the relation (`capturedDeltasOf`), which the
  * upkeep's writes fill inside the judge, before every statement over them runs.
  */
 export interface UpkeepStatement {
 	readonly kind: "upkeep"
-	readonly routine: ObjectName
+	readonly routine: JudgeFunction
 	readonly relation: string
 	readonly statement: Modified
 	readonly deltas: ReadonlySet<string>
@@ -448,9 +410,9 @@ export interface UpkeepStatement {
 }
 
 /**
- * A statement the judge runs over the session's deltas, where a delta it reads holds a row: a rule's test
+ * A statement the judge runs over the transaction's deltas, where a selection it reads holds a row: a rule's test
  * (`RuleStatement`), or a stored relation's upkeep's write (`UpkeepStatement`), each beside the deltas it reads, by name,
- * through their readers (`readersOf`), its text naming no delta, and the stored tables it reads, printed.
+ * each the delta of an argument of its block it unnests, and the stored tables it reads, printed.
  */
 export type JudgeStatement = RuleStatement | UpkeepStatement
 
@@ -468,13 +430,9 @@ const modified = (transform: Transform, statement: Modified): Modified => {
 	}
 }
 
-/** A statement the judge tests a rule by in its routine `routine`, with the tables it reads (`RuleStatement`). */
-const ruleStatementOf = (
-	routine: ObjectName,
-	statement: JudgedStatement,
-	readers: ReadonlyMap<string, string>
-): RuleStatement => {
-	const read = tablesReadBy((t) => t.select(statement.query), readers)
+/** A statement the judge tests a rule by in its block `routine`, with the tables it reads (`RuleStatement`). */
+const ruleStatementOf = (routine: JudgeFunction, statement: JudgedStatement): RuleStatement => {
+	const read = tablesReadBy((t) => t.select(statement.query), routine)
 	return {
 		kind: "rule",
 		routine,
@@ -484,26 +442,20 @@ const ruleStatementOf = (
 	}
 }
 
-/** Every statement the judge and its parts test a rule by (`judgedStatementsOf`), each in its routine, with the tables
- * it reads. */
-const ruleStatementsOf = (
-	installation: Installation,
-	readers: ReadonlyMap<string, string>
-): ReadonlyArray<RuleStatement> =>
+/** Every statement the judge's blocks test a rule by (`judgedStatementsOf`), each in its block, with the tables it
+ * reads. */
+const ruleStatementsOf = (installation: Installation): ReadonlyArray<RuleStatement> =>
 	Arr.flatMap(judgeFunctionsOf(installation), (f) =>
-		Arr.map(judgedStatementsIn(f.body), (statement) => ruleStatementOf(f.fn, statement, readers))
+		Arr.map(judgedStatementsIn(f.body), (statement) => ruleStatementOf(f, statement))
 	)
 
 /**
  * Every statement of every stored relation's upkeep (analysis/theory/unit.ts StoredUpkeep), each relation's in its
- * function's body's order (`upkeepStatementsOf`), its DELETE before its INSERT, the relations in the theory's order,
- * each after every stored relation it reads, as phase A runs them stratum by stratum (physical/ddl/rules.ts addRules),
- * each with the deltas and stored tables it reads and the deltas its stored table's capture writes.
+ * functions' order (`upkeepRunsOf`), its DELETE before its INSERT, the relations in the theory's order, each after every
+ * stored relation it reads, as phase A runs them stratum by stratum (physical/ddl/rules.ts addRules), each with the
+ * deltas and stored tables it reads and the deltas its stored table's capture logs.
  */
-const upkeepJudgeStatementsOf = (
-	installation: Installation,
-	readers: ReadonlyMap<string, string>
-): ReadonlyArray<UpkeepStatement> =>
+const upkeepJudgeStatementsOf = (installation: Installation): ReadonlyArray<UpkeepStatement> =>
 	Arr.flatMap(installation.laws.theory.upkeeps, (upkeep) => {
 		const statements = upkeepRunsOf(installation, upkeep.relation)
 		assert.ok(
@@ -512,7 +464,7 @@ const upkeepJudgeStatementsOf = (
 		)
 		const writes = new Set(Arr.map(capturedDeltasOf(installation, upkeep.relation), (d) => d.name))
 		return Arr.map(statements, ({ routine, run: statement }): UpkeepStatement => {
-			const read = tablesReadBy((t) => modified(t, statement), readers)
+			const read = tablesReadBy((t) => modified(t, statement), routine)
 			return {
 				kind: "upkeep",
 				routine,
@@ -526,41 +478,21 @@ const upkeepJudgeStatementsOf = (
 	})
 
 /**
- * Every statement the judge runs over the session's deltas (`JudgeStatement`), in the order it runs them: phase A's,
+ * Every statement the judge runs over the transaction's deltas (`JudgeStatement`), in the order it runs them: phase A's,
  * every stored relation's upkeep (`upkeepJudgeStatementsOf`), then phase B's, every rule's (`judgedStatementsOf`). The one
- * way a property picks the statements over a delta, a rule's and an upkeep's alike, as every statement reads each delta
- * through its reader (`readersOf`).
+ * way a property picks the statements over a delta, a rule's and an upkeep's alike.
  */
-export const judgeStatementsOf = (installation: Installation): ReadonlyArray<JudgeStatement> => {
-	const readers = readersOf(installation)
-	return [
-		...upkeepJudgeStatementsOf(installation, readers),
-		...ruleStatementsOf(installation, readers)
-	]
-}
+export const judgeStatementsOf = (installation: Installation): ReadonlyArray<JudgeStatement> => [
+	...upkeepJudgeStatementsOf(installation),
+	...ruleStatementsOf(installation)
+]
 
 /**
  * The statements of `judgeStatementsOf` that test a rule, for a property of a rule's statements, its raise or its
  * query: those of phase B alone.
  */
 export const judgedDeltaReadsOf = (installation: Installation): ReadonlyArray<RuleStatement> =>
-	ruleStatementsOf(installation, readersOf(installation))
-
-/**
- * The plan PostgreSQL runs a statement of the judge by, under its routine's advice (`heldPlan`): a rule's test as its
- * PERFORM's SELECT (`plannedQueryOf`), an upkeep's statement as the judge runs it.
- */
-const planOf = <E>(
-	values: (sql: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, E>,
-	statement: JudgeStatement
-): Effect.Effect<PlanNode, E> =>
-	heldPlan(
-		values,
-		statement.routine,
-		statement.kind === "rule"
-			? plannedQueryOf(statement.statement)
-			: printStatement(statement.statement)
-	)
+	ruleStatementsOf(installation)
 
 /** The deltas a statement of the judge fills as it runs: an upkeep's `writes`; a rule's test writes nothing. */
 export const filledBy = (statement: JudgeStatement): ReadonlySet<string> => {
@@ -572,7 +504,7 @@ export const filledBy = (statement: JudgeStatement): ReadonlySet<string> => {
 	}
 }
 
-/** A judged statement explained over the deltas the transaction's captures filled: the statement and its plan. */
+/** A judged statement explained over the deltas the transaction's captures logged: the statement and its plan. */
 export interface JudgedPlan {
 	readonly statement: JudgedStatement
 	readonly plan: PlanNode
@@ -587,101 +519,374 @@ export interface JudgePlan<S extends JudgeStatement> {
 	readonly plan: PlanNode
 }
 
+/** One EXPLAIN ANALYZE of `sql` over `params`, its plan. */
+const explained = <E>(
+	values: Values<E>,
+	sql: string,
+	params: ReadonlyArray<unknown>
+): Effect.Effect<PlanNode, E> =>
+	Effect.map(
+		values(`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${sql}`, params),
+		(rows) => succeeded(parsePlan(rows[0]?.[0]), "one EXPLAIN plan").plan
+	)
+
+/** The delta log of `installation` (sql/ast.ts CreateJudgeLog `deltas`), printed. */
+const deltaLogOf = (installation: Installation): string =>
+	defined(
+		Arr.findFirst(installation.statements, (s) =>
+			s.kind === "createJudgeLog" && s.log.kind === "deltas"
+				? Option.some(printObjectName(s.table))
+				: Option.none()
+		).pipe(Option.getOrUndefined),
+		"the installation's delta log"
+	)
+
 /**
- * Whether `plan` reads a row of one of `deltas`: a node over one, or over its reader, the function the judge's statements
- * read a delta through (`readersOf`), returned or filtered out a row in some loop.
+ * `e` with each variable of `bound` read from the placeholder of its place: the text the session sends it at, its
+ * value bound as a parameter of that type, and the values in that order.
  */
-const readsDeltaRow = (
-	plan: PlanNode,
-	deltas: ReadonlySet<string>,
-	readers: ReadonlyMap<string, string>
-): boolean =>
-	Iterator.from(planNodes(plan)).some(
-		(n) =>
-			(Option.exists(n.relation, (r) => deltas.has(r)) ||
-				Option.exists(n.functionName, (f) => {
-					const delta = readers.get(f)
-					return delta !== undefined && deltas.has(delta)
-				})) &&
-			n.actualLoops * scannedRowsOf(n) > 0
+const boundOver = (
+	e: Expr,
+	bound: ReadonlyArray<{ readonly name: string; readonly type: TypeRef }>
+): Expr =>
+	new Transform({
+		...identityHooks,
+		expr: (x) => {
+			if (x.kind !== "plVar") {
+				return x
+			}
+			const at = Arr.findFirstIndex(bound, (b) => b.name === x.name).pipe(Option.getOrUndefined)
+			const b = at === undefined ? undefined : bound[at]
+			return at === undefined || b === undefined ? x : param(at + 1, b.type)
+		}
+	}).expr(e)
+
+/**
+ * The variables `walk` reads, each once, in the order it first reads them, each with its type in `routine`: what a
+ * session binds the placeholders of a query of the routine's to, PostgreSQL requiring each placeholder it is sent to be
+ * one the query reads.
+ */
+const readVariables = (
+	walk: (transform: Transform) => unknown,
+	routine: JudgeFunction
+): ReadonlyArray<{ readonly name: string; readonly type: TypeRef }> => {
+	const read = new Set<string>()
+	walk(
+		new Transform({
+			...identityHooks,
+			expr: (x) => {
+				if (x.kind === "plVar") {
+					read.add(x.name)
+				}
+				return x
+			}
+		})
+	)
+	return Arr.map([...read], (name) => ({
+		name,
+		type: defined(routine.typed.get(name), `the type of ${name} in ${routine.fn.name}`)
+	}))
+}
+
+/** The variables of a routine as an interpretation of its body holds them (`interpreted`): each one's value, as text. */
+type Variables = Map<string, unknown>
+
+/**
+ * The text of the query `select` with each variable it reads a placeholder, each column of its rows as text, and the
+ * values of those variables in their places: what a session sends to read the query's rows as PL/pgSQL reads them.
+ */
+const sentQuery = (
+	routine: JudgeFunction,
+	env: Variables,
+	select: OperandSelect,
+	width: number
+): { readonly sql: string; readonly params: ReadonlyArray<unknown> } => {
+	const bound = readVariables((t) => t.select(select), routine)
+	const transform = new Transform({
+		...identityHooks,
+		expr: (x) => (x.kind === "plVar" ? boundOver(x, bound) : x)
+	})
+	const columns = Array.from({ length: width }, (_, i) => `c${i + 1}`)
+	return {
+		sql: `SELECT ${Arr.join(
+			Arr.map(columns, (c) => `x.${c}::text`),
+			", "
+		)} FROM (${printPlannedQuery({ kind: "query", query: transform.select(select) })}) AS x (${Arr.join(columns, ", ")})`,
+		params: Arr.map(bound, (b) => env.get(b.name) ?? null)
+	}
+}
+
+/** `e` as a query of one row of one column (`sentQuery`). */
+const valueQuery = (e: Expr): OperandSelect =>
+	simpleSelect([{ expr: e, alias: undefined }], [], undefined)
+
+/**
+ * Interprets `body`, statements of `routine`, over `env` as PL/pgSQL runs them, each query and expression read by the
+ * session (`values`): an assignment, a statement INTO variables, a FOR over a query's rows, a CASE and an IF; a PERFORM,
+ * a block's call, runs nothing. What the judge's netting and a part's making of its selections compute (physical/ddl/
+ * deltas.ts netted, selectionsMade), each variable's value as text in `env`.
+ */
+const interpreted = <E>(
+	values: Values<E>,
+	routine: JudgeFunction,
+	env: Variables,
+	body: ReadonlyArray<PlStatement>
+): Effect.Effect<void, E> =>
+	Effect.forEach(
+		body,
+		(s): Effect.Effect<void, E> => {
+			const rows = (select: OperandSelect, width: number) => {
+				const q = sentQuery(routine, env, select, width)
+				return values(q.sql, q.params)
+			}
+			const value = (e: Expr) => Effect.map(rows(valueQuery(e), 1), (r) => r[0]?.[0] ?? null)
+			switch (s.kind) {
+				case "assign":
+					return Effect.map(value(s.value), (v) => {
+						env.set(s.target, v)
+					})
+				case "into":
+					return s.statement.kind !== "select"
+						? Effect.void
+						: Effect.map(rows(s.statement, s.into.length), (r) => {
+								for (const [at, name] of s.into.entries()) {
+									env.set(name, r[0]?.[at] ?? null)
+								}
+							})
+				case "forQuery":
+					return Effect.flatMap(rows(s.query, s.variables.length), (found) =>
+						Effect.forEach(
+							found,
+							(row) => {
+								for (const [at, name] of s.variables.entries()) {
+									env.set(name, row[at] ?? null)
+								}
+								return interpreted(values, routine, env, s.body)
+							},
+							{ discard: true }
+						)
+					)
+				case "case":
+					return Effect.flatMap(
+						Effect.forEach(s.whens, (w) =>
+							Effect.map(
+								value({ kind: "or", args: mapNonEmpty(w.values, (v) => eq(s.operand, v)) }),
+								(hit) => ({ w, hit: hit === "true" })
+							)
+						),
+						(hits) => {
+							const hit = Arr.findFirst(hits, (h) => h.hit).pipe(Option.getOrUndefined)
+							return hit === undefined ? Effect.void : interpreted(values, routine, env, hit.w.body)
+						}
+					)
+				case "if":
+					return Effect.flatMap(
+						Effect.forEach(s.branches, (b) =>
+							Effect.map(value(b.condition), (hit) => ({ b, hit: hit === "true" }))
+						),
+						(hits) => {
+							const hit = Arr.findFirst(hits, (h) => h.hit).pipe(Option.getOrUndefined)
+							return interpreted(values, routine, env, hit === undefined ? s.else : hit.b.body)
+						}
+					)
+				case "perform":
+				case "whenFound":
+				case "wholeReads":
+				case "raise":
+				case "return":
+				case "modify":
+				case "returnQuery":
+					return Effect.void
+			}
+		},
+		{ discard: true }
+	)
+
+/** Whether `body` sets `variable`, at any depth: an assignment's or an INTO's target, or a FOR's variable. */
+const sets = (body: ReadonlyArray<PlStatement>, variable: string): boolean =>
+	Arr.some(body, (s) => {
+		switch (s.kind) {
+			case "assign":
+				return s.target === variable
+			case "into":
+				return Arr.contains(s.into, variable)
+			case "forQuery":
+				return Arr.contains(s.variables, variable) || sets(s.body, variable)
+			case "case":
+				return Arr.some(s.whens, (w) => sets(w.body, variable))
+			case "if":
+				return Arr.some(s.branches, (b) => sets(b.body, variable)) || sets(s.else, variable)
+			case "perform":
+			case "whenFound":
+			case "wholeReads":
+			case "raise":
+			case "return":
+			case "modify":
+			case "returnQuery":
+				return false
+		}
+	})
+
+/**
+ * The judge's first netting of the delta `delta` (physical/ddl/deltas.ts netted, rules.ts nettingsOf): the statement of
+ * the judge's body, the IF over whether the delta holds a row, that sets the delta's variable from its rows alone, never
+ * the claim, which sets it from the log's rows it deletes; none where the judge nets no such delta, a side of olds.
+ */
+const nettingOf = (judge: JudgeFunction, delta: string): ReadonlyArray<PlStatement> =>
+	Arr.filter(judge.body, (s) => s.kind === "if" && sets([s], delta)).slice(0, 1)
+
+/**
+ * The rows of the delta `delta` the judge's claim would take from the transaction's log as it holds them now, as text,
+ * each capture's aggregated as the claim aggregates them (physical/ddl/rules.ts claimed), netted where the judge nets the
+ * delta (deltas.ts netted, `nettingOf`): what the judge passes each part that reads the delta.
+ */
+export const nettedValue = <E>(
+	values: Values<E>,
+	installation: Installation,
+	delta: string
+): Effect.Effect<unknown, E> =>
+	Effect.gen(function* () {
+		const judge = defined(
+			Arr.findFirst(
+				judgeFunctionsOf(installation),
+				(f) => f.fn.name === identifierOf(identity.ruleJudge())
+			).pipe(Option.getOrUndefined),
+			"the judge"
+		)
+		const raw = yield* values(
+			`SELECT COALESCE(pg_catalog.array_agg(r2), '{}')::text FROM ${deltaLogOf(installation)} AS r1, LATERAL pg_catalog.unnest(r1.${quoteIdent(delta)}) AS r2`,
+			[]
+		)
+		const env: Variables = new Map([[delta, raw[0]?.[0] ?? null]])
+		yield* interpreted(values, judge, env, nettingOf(judge, delta))
+		return env.get(delta) ?? null
+	})
+
+/**
+ * The value of the argument `variable` of `routine` as the judge passes it where the transaction's log holds what it
+ * holds now, as text: each delta's rows the log holds, each capture's, aggregated as the judge's claim aggregates them
+ * (physical/ddl/rules.ts claimed), netted where the judge nets the delta (deltas.ts netted); then, where `variable` is a
+ * selection, the part that makes it interpreted over its deltas so (`interpreted`), the rows it admits (deltas.ts
+ * selectionsMade), the empty array where none stands.
+ */
+const argumentValue = <E>(
+	values: Values<E>,
+	installation: Installation,
+	routine: JudgeFunction,
+	variable: string
+): Effect.Effect<unknown, E> =>
+	Effect.gen(function* () {
+		const functions = judgeFunctionsOf(installation)
+		const nettedOf = (delta: string) => nettedValue(values, installation, delta)
+		const delta = defined(deltaOfVariable(routine, variable), `the delta of argument ${variable}`)
+		if (variable === delta) {
+			return yield* nettedOf(delta)
+		}
+		const part = defined(
+			Arr.findFirst(functions, (f) => sets(f.body, variable)).pipe(Option.getOrUndefined),
+			`the part that makes the selection ${variable}`
+		)
+		const env: Variables = new Map()
+		for (const name of part.params.keys()) {
+			const netted = yield* nettedOf(name)
+			env.set(name, netted)
+		}
+		yield* interpreted(values, part, env, part.body)
+		return env.get(variable) ?? null
+	})
+
+/**
+ * `query`, a query of the judge's routine `routine`, as a session sends it where the transaction's log holds what it
+ * holds now: its text, each variable it reads a placeholder of its type, and each one's value as the judge would pass it
+ * (`argumentValue`), so a measurement runs the routine's query over the rows the judge would read, read before anything
+ * runs the judge, SET CONSTRAINTS ALL IMMEDIATE or COMMIT, whose claim empties the log.
+ */
+export const boundQuery = <E>(
+	values: Values<E>,
+	installation: Installation,
+	routine: JudgeFunction,
+	query: OperandSelect
+): Effect.Effect<{ readonly sql: string; readonly params: ReadonlyArray<unknown> }, E> =>
+	Effect.gen(function* () {
+		const bound = readVariables((t) => t.select(query), routine)
+		const params = yield* Effect.forEach(bound, (b) =>
+			argumentValue(values, installation, routine, b.name)
+		)
+		const transform = new Transform({
+			...identityHooks,
+			expr: (x) => (x.kind === "plVar" ? boundOver(x, bound) : x)
+		})
+		return { sql: printPlannedQuery({ kind: "query", query: transform.select(query) }), params }
+	})
+
+/**
+ * Whether the judge runs `statement` over the transaction's log as it holds it now: where an argument of its block
+ * holds a row (`argumentValue`), since a part calls each block where one does (physical/ddl/rules.ts partBody). Read
+ * before anything runs the judge, SET CONSTRAINTS ALL IMMEDIATE or COMMIT, whose claim empties the log.
+ */
+export const runsNow = <E>(
+	values: Values<E>,
+	installation: Installation,
+	statement: JudgeStatement
+): Effect.Effect<boolean, E> =>
+	Effect.map(
+		Effect.forEach([...statement.routine.params.keys()], (name) =>
+			argumentValue(values, installation, statement.routine, name)
+		),
+		(held) => Arr.some(held, (a) => a !== "{}")
 	)
 
 /**
  * Each of `statements` the judge runs over the transaction's deltas, in their order, explained (EXPLAIN ANALYZE) as it
- * runs it: each statement that reads a delta holding a row at its turn, one a capture of the transaction wrote into
- * (physical/ddl/rules.ts addCapture), as the judge runs an upkeep, a probe of a side and a whole rule's violation only
- * where a delta it reads holds one (rules.ts partBody), every other delta it reads standing empty, as the session's
- * stand-up made it (`standUpJudge`, rules.ts addStandUps). An upkeep's write runs, as EXPLAIN ANALYZE runs a write, so
- * its stored table's captures fill the deltas it `writes`, which the statements after it read, as phase A's writes fill
- * them for phase B (rules.ts addRules); its writes stand after the measurement, as the judge's would, so a case that
- * measures again first ends the transaction or runs the judge, and measures over a write of its own (no savepoint
- * serves: a case's connection runs each statement under one it releases, which releases every savepoint the statement
- * set, test/support/substrate/substrate.ts undoneAlone). Explained before anything
- * runs the judge, SET CONSTRAINTS ALL IMMEDIATE or COMMIT, which truncates each delta it reads (rules.ts emptied), so a
- * statement explained after it reads no row. A statement reads a delta through its reader (`readersOf`), and so does
- * each count of the rows it read. A case writes through the captures of `installation`, explains, and only then runs the
- * judge, or defers it to a COMMIT it never reaches. The one measurement of the judge's statements every property makes:
- * one where no statement reads a standing delta, or no explained statement reads a row of one, is refused, so no bound
- * over the judge's work holds over deltas the judge emptied.
+ * runs it: each statement whose block's arguments hold a row at its turn (physical/ddl/rules.ts partBody), each argument
+ * its value as the judge would pass it over the log as it stands then (`argumentValue`), under its block's advice
+ * (test/support/advice.ts routineAdviceHeld). An upkeep's write runs, as EXPLAIN ANALYZE runs a write, so its stored
+ * table's captures log the rows it writes into the deltas it `writes`, which the statements after it read, as phase A's
+ * writes do for phase B (rules.ts addRules); its writes stand after the measurement, as the judge's would, so a case that
+ * measures again first ends the transaction or runs the judge, and measures over a write of its own. Explained before
+ * anything runs the judge, SET CONSTRAINTS ALL IMMEDIATE or COMMIT, whose claim deletes the log's rows, so a statement
+ * explained after it reads no row. A case writes through the captures of `installation`, explains, and only then runs
+ * the judge, or defers it to a COMMIT it never reaches. The one measurement of the judge's statements every property
+ * makes: one where no explained statement's arguments hold a row is refused, so no bound over the judge's work holds
+ * over a log the judge claimed.
  */
 export const judgeRun = <S extends JudgeStatement, E>(
-	values: (sql: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, E>,
+	values: Values<E>,
 	installation: Installation,
 	statements: ReadonlyArray<S>
 ): Effect.Effect<ReadonlyArray<JudgePlan<S>>, E> =>
 	Effect.gen(function* () {
-		const temporary = yield* values(
-			"SELECT relname::text FROM pg_catalog.pg_class WHERE relnamespace = pg_catalog.pg_my_temp_schema()"
-		)
-		const standing = new Set(Arr.map(temporary, (row) => String(row[0])))
-		const readers = readersOf(installation)
-		/** Those of `deltas` that stand and hold a row. */
-		const holdingOf = (deltas: Iterable<string>) => {
-			const candidates = Arr.filter(Arr.dedupe([...deltas]), (d) => standing.has(d))
-			return Arr.isReadonlyArrayNonEmpty(candidates)
-				? Effect.map(
-						values(
-							Arr.join(
-								Arr.map(
-									candidates,
-									(d) =>
-										`SELECT ${quoteString(d)} WHERE EXISTS (SELECT FROM pg_temp.${quoteIdent(d)})`
-								),
-								" UNION ALL "
-							)
-						),
-						(held) => Arr.map(held, (row) => String(row[0]))
-					)
-				: Effect.succeed([])
-		}
-		const written = yield* holdingOf(Arr.flatMap(statements, (s) => [...s.deltas]))
-		/** The standing deltas that hold a row: those the transaction's captures wrote, which the judge reads, and those
-		 * the upkeeps explained so far filled. */
-		const holding = new Set(written)
 		const plans: Array<JudgePlan<S>> = []
 		for (const statement of statements) {
-			if (!Arr.some([...statement.deltas], (d) => holding.has(d))) {
+			const routine = statement.routine
+			const held = yield* Effect.forEach([...routine.params.keys()], (name) =>
+				argumentValue(values, installation, routine, name)
+			)
+			if (!Arr.some(held, (a) => a !== "{}")) {
 				continue
 			}
-			plans.push({ statement, plan: yield* planOf(values, statement) })
-			const filled = yield* holdingOf(filledBy(statement))
-			for (const d of filled) {
-				holding.add(d)
-			}
+			const bound = readVariables(
+				(t) =>
+					statement.kind === "rule"
+						? t.select(statement.statement.query)
+						: modified(t, statement.statement),
+				routine
+			)
+			const args = Arr.map(bound, (b) => held[[...routine.params.keys()].indexOf(b.name)] ?? null)
+			const transform = new Transform({
+				...identityHooks,
+				expr: (x) => (x.kind === "plVar" ? boundOver(x, bound) : x)
+			})
+			const sql =
+				statement.kind === "rule"
+					? printPlannedQuery({ kind: "found", query: transform.select(statement.statement.query) })
+					: printStatement(modified(transform, statement.statement))
+			yield* values(routineAdviceHeld(routine.fn), [])
+			plans.push({ statement, plan: yield* explained(values, sql, args) })
 		}
 		assert.ok(
 			Arr.isReadonlyArrayNonEmpty(plans),
-			"a judged statement reads a delta the transaction's captures wrote a row into"
-		)
-		const deltas = new Set(
-			Arr.filter(
-				Arr.flatMap(plans, (p) => [...p.statement.deltas]),
-				(d) => holding.has(d)
-			)
-		)
-		assert.ok(
-			Arr.some(plans, (p) => readsDeltaRow(p.plan, deltas, readers)),
-			`a judged statement reads a row of the deltas ${Arr.join(Arr.map([...deltas], quoteIdent), ", ")}: none does, so the judge emptied them before the measurement (explain before SET CONSTRAINTS ALL IMMEDIATE or COMMIT runs it)`
+			"a judged statement reads a delta the transaction's captures logged a row into (explain before SET CONSTRAINTS ALL IMMEDIATE or COMMIT runs the judge, whose claim empties the log)"
 		)
 		return plans
 	})
@@ -691,33 +896,66 @@ export const judgeRun = <S extends JudgeStatement, E>(
  * measurement of a property of a rule's statements, which reads each plan beside its raise or its query.
  */
 export const judgedPlans = <E>(
-	values: (sql: string) => Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, E>,
+	values: Values<E>,
 	installation: Installation,
 	statements: ReadonlyArray<JudgedStatement>
 ): Effect.Effect<ReadonlyArray<JudgedPlan>, E> => {
-	const readers = readersOf(installation)
 	const functions = judgeFunctionsOf(installation)
-	/** The routine whose body tests a rule by `statement`. */
-	const routineOf = (statement: JudgedStatement): ObjectName =>
+	/** The block whose body tests a rule by `statement`. */
+	const routineOf = (statement: JudgedStatement): JudgeFunction =>
 		defined(
 			Arr.findFirst(functions, (f) =>
 				Arr.some(judgedStatementsIn(f.body), (s) => s.query === statement.query)
-			).pipe(
-				Option.map((f) => f.fn),
-				Option.getOrUndefined
-			),
-			"the judge's routine holding a judged statement"
+			).pipe(Option.getOrUndefined),
+			"the judge's block holding a judged statement"
 		)
 	return Effect.map(
 		judgeRun(
 			values,
 			installation,
-			Arr.map(statements, (statement) => ruleStatementOf(routineOf(statement), statement, readers))
+			Arr.map(statements, (statement) => ruleStatementOf(routineOf(statement), statement))
 		),
 		(plans) =>
 			Arr.map(plans, (p): JudgedPlan => ({ statement: p.statement.statement, plan: p.plan }))
 	)
 }
+
+/**
+ * Each statement of the upkeep of stored relation `relation` (`upkeepRunsOf`) explained (EXPLAIN ANALYZE) over the
+ * transaction's log as the judge would run it (`judgeRun`), in its body's order, the removal's effect before the INSERT,
+ * its writes standing after: what a case whose transaction rolls back whole explains itself, before anything runs the
+ * judge, SET CONSTRAINTS ALL IMMEDIATE or COMMIT, whose claim empties the log.
+ */
+export const upkeepRuns = <E>(
+	values: Values<E>,
+	installation: Installation,
+	relation: string
+): Effect.Effect<ReadonlyArray<PlanNode>, E> =>
+	Effect.map(
+		judgeRun(
+			values,
+			installation,
+			Arr.filter(upkeepJudgeStatementsOf(installation), (s) => s.relation === relation)
+		),
+		(plans) => Arr.map(plans, (p) => p.plan)
+	)
+
+/**
+ * The upkeep's statements explained (`upkeepRuns`) under a savepoint the explanation rolls back to, so the upkeep's
+ * table and the log stand as the captures left them.
+ */
+export const upkeepPlans = <E>(
+	query: (sql: string) => Effect.Effect<unknown, E>,
+	values: Values<E>,
+	installation: Installation,
+	relation: string
+): Effect.Effect<ReadonlyArray<PlanNode>, E> =>
+	Effect.gen(function* () {
+		yield* query("SAVEPOINT upkeep_explained")
+		const plans = yield* upkeepRuns(values, installation, relation)
+		yield* query("ROLLBACK TO SAVEPOINT upkeep_explained")
+		return plans
+	})
 
 /** The rows a scan reads a loop: its output and what its filters removed. */
 export const scannedRowsOf = (n: PlanNode): number =>
@@ -749,10 +987,10 @@ export const readWork = (plan: PlanNode): number =>
 
 /**
  * A plan's work as its scans read it: every row each scan of a stored relation reads (rowsRead) and each read of a
- * session's delta through its reader function yields (rowsGenerated), over all of their loops. A row is counted where a
- * scan reads it, never again at a node it passes through: PostgreSQL sorted a touched group's two attempts read by
- * (child, n) beside a few hundred groups, and read them in order by the primary key beside a thousand, the same two rows
- * read either way (rule-aggregate.test.ts's locality).
+ * delta's array yields (rowsGenerated), over all of their loops. A row is counted where a scan reads it, never again at
+ * a node it passes through: PostgreSQL sorted a touched group's two attempts read by (child, n) beside a few hundred
+ * groups, and read them in order by the primary key beside a thousand, the same two rows read either way
+ * (rule-aggregate.test.ts's locality).
  */
 export const scannedWork = (plan: PlanNode): number => rowsRead(plan) + rowsGenerated(plan)
 

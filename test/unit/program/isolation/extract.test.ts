@@ -17,13 +17,13 @@
  * chain or crosswise,
  * under a WHERE
  * and ON conjuncts that equate a table's columns with a placeholder, an own source's column of its core or an enclosing
- * one, another table's column, a literal or a cast placeholder; it filters by EXISTS, NOT EXISTS, IN, NOT IN, NOT and
- * calls of schema functions, nested; it counts by GROUP BY, HAVING, count(*), an aggregate call, ordered-set ones among
+ * one, another table's column, a literal or a cast placeholder; it filters by EXISTS, NOT EXISTS, NOT and calls of
+ * schema functions, nested; it counts by GROUP BY, HAVING, count(*), an aggregate call, ordered-set ones among
  * them, an aggregate inside COALESCE, or a window call; and it projects a scalar subquery, an ARRAY or an EXISTS.
  *
  * Oracle: the extractor's contract restated over the drawn shape, never over the built statements.
- * - A read's polarity: NOT flips it, an EXCEPT arm after the first flips it, EXISTS and IN keep it and their NOT flips
- *   it in a condition, and in a value either is either way, `both`. Counted beneath a counting core (a GROUP BY, a
+ * - A read's polarity: NOT flips it, an EXCEPT arm after the first flips it, EXISTS keeps it and NOT EXISTS flips it
+ *   in a condition, and in a value either is either way, `both`. Counted beneath a counting core (a GROUP BY, a
  *   HAVING, a call over many rows, an aggregate's or a window's), a scalar subquery and an ARRAY. Probe on the table
  *   sources of an EXISTS's own cores alone.
  * - A read's mode: arbiter for a probe of a relation its statement writes, an ON CONFLICT, one per object an ON

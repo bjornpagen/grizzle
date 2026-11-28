@@ -43,10 +43,10 @@ export const aMigrationsDataStepThatBreaksARuleOverAQueryIsRefusedAtItsStatement
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
 				original:
-					"\t): ReadonlyArray<PlStatement> => [...required, ...writes, ...arming(sentinel, deltas)]",
+					'source: { kind: "values", rows: [[thisTransaction, variable(captureNames.row)]] }',
 				replacement:
-					"\t): ReadonlyArray<PlStatement> => [...required, ...arming(sentinel, deltas), ...writes]",
-				why: "The capture inserts the sentinel's row before its rows, as before, so the judge the data step fires reads none of them, and the breaking step runs on, refused only by the Validate file's full violation check."
+					'source: { kind: "values", rows: [[thisTransaction, variable(captureNames.head)]] }',
+				why: "A capture leaves the arm's head where it read it, so the judge the data step fires claims none of its rows, and the breaking step runs on, refused only by the Validate file's full violation check."
 			}
 		]
 	}

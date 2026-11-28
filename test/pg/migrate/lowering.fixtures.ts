@@ -19,7 +19,6 @@ import {
 	expectFreshCatalog,
 	noPlaceholders
 } from "#test/support/install-migrate.ts"
-import { standUpJudge } from "#test/support/judge.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
 	fromEmpty,
@@ -434,7 +433,6 @@ export const walk = (c: WalkCase, note: (feature: Feature) => void) =>
 						(doc, id) => `INSERT INTO ${tableOf("Use")} (id, doc) VALUES (${id + 1}, ${doc})`
 					)
 				]
-				yield* standUpJudge(substrate.admin, plan.installation)
 				yield* transaction(substrate.admin, statements)
 			} else if (applied !== undefined) {
 				const now = lowered(plan)
@@ -466,7 +464,6 @@ export const walk = (c: WalkCase, note: (feature: Feature) => void) =>
 			const law = ruleLawOf(plan)
 			if (Option.isSome(law)) {
 				const use = useName(c, step)
-				yield* standUpJudge(session, plan.installation)
 				const refused = yield* attemptChecked(
 					session,
 					[`INSERT INTO ${tableOf(use)} (id, doc) VALUES (100, ${nodes + 9})`],

@@ -84,7 +84,6 @@ export {
 	type FlightStatement,
 	type FlightWrite,
 	loadWrite,
-	type ServedStandUp,
 	type ServedWrite,
 	type WriteExclusion
 } from "#compiler/runtime/write/flight.ts"

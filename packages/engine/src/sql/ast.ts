@@ -378,6 +378,7 @@ export const builtinFunctions = {
 	daterange: { reach: "row", volatility: "IMMUTABLE" },
 	range_minus_multi: { reach: "row", volatility: "IMMUTABLE" },
 	unnest: { reach: "set", volatility: "IMMUTABLE" },
+	cardinality: { reach: "row", volatility: "IMMUTABLE" },
 	string_to_array: { reach: "row", volatility: "IMMUTABLE" },
 	regexp_split_to_table: { reach: "row", volatility: "IMMUTABLE" },
 	ascii: { reach: "row", volatility: "IMMUTABLE" },
@@ -642,12 +643,6 @@ export type Expr =
 			 * parse_expr.c transformAExprIn), which is how a membership of one is written.
 			 */
 			readonly list: readonly [Expr, Expr, ...Array<Expr>]
-			readonly not: boolean
-	  }
-	| {
-			readonly kind: "inQuery"
-			readonly expr: Expr
-			readonly query: OperandSelect
 			readonly not: boolean
 	  }
 	| {
@@ -2188,6 +2183,39 @@ export interface GuardBracket {
 }
 
 /**
+ * CREATE UNLOGGED TABLE <table> (...): a table of the rule judge's log (physical/ddl/rules.ts addRules), which holds a
+ * transaction's captures from its first capture to its judge's claim, and none of them past its COMMIT. UNLOGGED: it
+ * writes no WAL, and a crash's recovery empties it, losing nothing, since every transaction that wrote a row of it
+ * ended unfinished. Every column but a key is NULL where the row holds nothing of it. Its kinds:
+ *
+ * - `arm`: `(__xact pg_catalog.xid8 CONSTRAINT <key> PRIMARY KEY, __last pg_catalog.tid)`, a transaction's one row,
+ *   keyed by its 64-bit id, whose INSERT arms the judge's deferred trigger, holding the tuple id of the transaction's
+ *   newest delta row;
+ * - `deltas`: `(__prev pg_catalog.tid, "<delta>" <delta's row type>[], ...)`, one row of each capture, each side's rows
+ *   its statement wrote, linked to the row of the capture before it in the transaction, with no index: no statement
+ *   reads it but by tuple id.
+ */
+/**
+ * The rule judge's log's own columns (CreateJudgeLog): the arm row's transaction and its newest delta row, and a delta
+ * row's link to the one before it. No delta's column is so named: a delta's name leads with `__delta_`.
+ */
+export const judgeLogColumns = { xact: "__xact", last: "__last", prev: "__prev" } as const
+
+export interface CreateJudgeLog {
+	readonly kind: "createJudgeLog"
+	readonly table: ObjectName
+	readonly log:
+		| { readonly kind: "arm"; readonly key: string }
+		| {
+				readonly kind: "deltas"
+				readonly sides: NonEmptyReadonlyArray<{
+					readonly column: string
+					readonly type: ObjectName
+				}>
+		  }
+}
+
+/**
  * CREATE CONSTRAINT TRIGGER <name> AFTER <events> ON <table> DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE
  * FUNCTION <function>(): a rule over a query's trigger on one table it reads (physical/ddl/rules.ts), which PostgreSQL
  * fires at COMMIT for every row an event of it touched.
@@ -2481,16 +2509,6 @@ export interface RaiseOption {
 	readonly value: Expr
 }
 
-/**
- * How a session table stores its values (PlStatement createSessionTable): `inline`, every value in its row, each column
- * STORAGE PLAIN, for which PostgreSQL makes no TOAST table (REL_19_0 src/backend/access/heap/heapam_handler.c 2002-2039
- * heapam_relation_needs_toast_table: none where no column's storage is other than PLAIN), so a table whose widest row
- * its columns' bounds prove fits one heap tuple is one relation, where with its TOAST table and that table's index it
- * was three, each a file its emptying's TRUNCATE gives a new one and each a relation its session's exit drops; or
- * `toasted`, PostgreSQL's default, a value too long for its row moved out of line into the table's TOAST table.
- */
-export type SessionTableStorage = "inline" | "toasted"
-
 /** A PERFORM's query: the SELECT whose leading keyword PERFORM replaces, so it has no WITH and its body is one core. */
 export interface PerformQuery {
 	readonly body: SelectCore
@@ -2510,8 +2528,9 @@ export type PlStatement =
 	  }
 	| { readonly kind: "assign"; readonly target: string; readonly value: Expr }
 	| {
+			/** FOR <variables> IN <query> LOOP <body> END LOOP: each row's columns into the variables, in order. */
 			readonly kind: "forQuery"
-			readonly variable: string
+			readonly variables: NonEmptyReadonlyArray<string>
 			readonly query: Select
 			readonly body: ReadonlyArray<PlStatement>
 	  }
@@ -2555,71 +2574,30 @@ export type PlStatement =
 	| { readonly kind: "raise"; readonly message: string; readonly using: ReadonlyArray<RaiseOption> }
 	| { readonly kind: "return"; readonly value: Expr }
 	| {
-			/** A data-modifying statement run for its effect alone: a rule capture's rows into its delta and its arming of
-			 * the judge, the judge's disarming, and a data step's re-check's refill of a stored table
-			 * (physical/ddl/recheck.ts). */
+			/** A data-modifying statement run for its effect alone: a rule capture's move of its transaction's arm row to
+			 * the delta row it logged, the judge's deletion of the arm row, and a data step's re-check's refill of a stored
+			 * table (physical/ddl/recheck.ts). */
 			readonly kind: "modify"
 			readonly statement: Insert | Update | Delete | Merge
 	  }
 	| {
 			/**
 			 * RETURN QUERY <query>: the query's rows appended to a set-returning function's result, in its order, each
-			 * as often as the query delivers it: a stamp function returns its keys' heads (physical/ddl/stamps.ts);
-			 * a rule judge's delta reader returns
-			 * the delta's rows as they stand, which every statement that reads them takes as a Delta node's DISTINCT of
-			 * the fields it delivers (physical/ddl/deltas.ts addReaders).
+			 * as often as the query delivers it: a stamp function returns its keys' heads (physical/ddl/stamps.ts).
 			 */
 			readonly kind: "returnQuery"
 			readonly query: OperandSelect
 	  }
 	| {
 			/**
-			 * CREATE TEMPORARY TABLE pg_temp.<name> (<columns>) ON COMMIT PRESERVE ROWS: a table of the session's own temporary schema, made once in a session and kept by every
-			 * COMMIT, owned by the role that runs the statement, so no COMMIT truncates or drops it (tablecmds.c
-			 * PreCommit_on_commit_actions truncates every ON COMMIT DELETE ROWS table of a session at each COMMIT of a
-			 * transaction that touched any temporary relation, each truncation an ACCESS EXCLUSIVE lock and an invalidation
-			 * every backend reads; a table dropped at COMMIT is made again by the next transaction, whose catalog rows
-			 * overflow the shared invalidation queue and reset every cache of the session, its cached plans among them): a
-			 * rule judge's delta or sentinel (physical/ddl/rules.ts addStandUps), its columns nullable, its owner the
-			 * stand-up's definer. A table of no column is the sentinel's.
+			 * <statement> INTO <variables>: a statement of one row, which PL/pgSQL assigns to `into` in order, its targets'
+			 * or its RETURNING's, each NULL where it returns no row: the rule judge's claim of its transaction's arm row and
+			 * deltas, and a capture's read of the newest delta row and its link to it (physical/ddl/rules.ts). PL/pgSQL
+			 * takes INTO anywhere at the statement's top level, so it prints after the statement, whatever its kind.
 			 */
-			readonly kind: "createSessionTable"
-			readonly name: string
-			readonly columns: ReadonlyArray<ColumnDefinition>
-			/** How it stores its values (SessionTableStorage). */
-			readonly storage: SessionTableStorage
-	  }
-	| {
-			/**
-			 * CREATE INDEX <name> ON pg_temp.<table> (<column>): a B-tree of a rule judge's delta over one of its columns,
-			 * made in the table's own temporary schema by the branch of a stand-up that makes the table, or beside a table
-			 * that stands without it (physical/ddl/deltas.ts deltaIndexes), owned by the table's owner, the stand-up's
-			 * definer; a reader of a selection that fixes the column reads the rows it admits through it.
-			 */
-			readonly kind: "createSessionIndex"
-			readonly name: string
-			readonly table: string
-			readonly column: string
-	  }
-	| {
-			/**
-			 * TRUNCATE pg_temp.<name>: a session table, a rule judge's delta, that has outgrown the
-			 * pages its emptying keeps given a new file, the old one given back (sql/print.ts sessionTableEmptied, which
-			 * empties one that has not by DELETE, keeping its file).
-			 */
-			readonly kind: "truncateSessionTable"
-			readonly name: string
-	  }
-	| {
-			/**
-			 * CREATE CONSTRAINT TRIGGER <name> AFTER INSERT ON pg_temp.<table> DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
-			 * EXECUTE FUNCTION <function>(): the sentinel's trigger, which runs the rule judge at COMMIT, or at SET
-			 * CONSTRAINTS ALL IMMEDIATE, once per row the sentinel takes (physical/ddl/rules.ts judged).
-			 */
-			readonly kind: "createSessionTrigger"
-			readonly name: string
-			readonly table: string
-			readonly function: ObjectName
+			readonly kind: "into"
+			readonly statement: OperandSelect | Insert | Update | Delete
+			readonly into: NonEmptyReadonlyArray<string>
 	  }
 
 /** A block's statements are at least one: a trigger function that falls off its end without RETURN fails. */
@@ -2994,6 +2972,7 @@ export type Ddl =
 	| CreateGuardTrigger
 	| CreateImmutableGuardTrigger
 	| CreateConstraintTrigger
+	| CreateJudgeLog
 	| CreateTransitionTrigger
 	| CreatePublication
 	| DropPublication

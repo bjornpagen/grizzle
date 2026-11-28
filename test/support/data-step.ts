@@ -19,15 +19,14 @@ import type { PgErrorFields } from "#test/support/pg.ts"
  * levels lifted; `after` them, where the installation holds one, its re-check (physical/ddl/recheck.ts), after SET
  * CONSTRAINTS ALL IMMEDIATE, which runs the judge and then makes each stored relation over a closed relation its
  * definition's rows again and checks each rule over one over every row, as the judge, whose premise spares a closed
- * relation's removed rows, reads none of them; then each guard created again. The caller stands up the tables its
- * statements write, and reads, where it reads the state a step leaves, between the two.
+ * relation's removed rows, reads none of them; then each guard created again. The caller reads, where it reads the
+ * state a step leaves, between the two.
  */
 export const dataStepOf = (
 	installation: Installation
 ): { readonly before: ReadonlyArray<string>; readonly after: ReadonlyArray<string> } =>
 	dataStepBracket(
 		Arr.map(installation.names.levels, identifierOf),
-		[],
 		installation.recheck === undefined
 			? []
 			: [objectName(installation.names.schema, identifierOf(identity.dataStepRecheck()))]

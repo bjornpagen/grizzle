@@ -87,7 +87,7 @@ export const outermostOnlyPublicRenamingNamesTheOutputByTheHeadingInEveryArmAndI
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/sql/naming.test.ts#outermostOnlyPublicRenamingNamesTheOutputByTheHeadingInEveryArmAndItsORDERBYAndNothingNested:-:1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+					"test/unit/sql/naming.test.ts#outermostOnlyPublicRenamingNamesTheOutputByTheHeadingInEveryArmAndItsORDERBYAndNothingNested:-:1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
 				),
 				reason: "a UNION of two one-column cores",
 				since: "2026-10-29"

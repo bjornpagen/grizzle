@@ -866,6 +866,7 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 			case "head":
 			case "headStamp":
 			case "founding":
+			case "ruleLog":
 			case "isolationFunction":
 			case "snapshotGuard":
 			case "ruleJudge":
@@ -1076,7 +1077,6 @@ export const derivedFacts = (
 	closed,
 	fkCycles: model.fkCycles,
 	references: model.references,
-	judged: model.judged,
 	textDomains,
 	library
 })
@@ -1565,7 +1565,6 @@ const derivedForm = <S>(d: SnapshotDerived, units: Units<S>): RecordOf<S> => ({
 	closed: Object.fromEntries([...d.closed].map(([name, c]) => [name, closedForm(c)] as const)),
 	fkCycles: d.fkCycles,
 	references: d.references.map((r) => ({ law: r.law, part: r.part })),
-	judged: d.judged,
 	textDomains: Object.fromEntries([...d.textDomains].toSorted(([a], [b]) => compareStrings(a, b))),
 	library: d.library,
 	liveDerived: d.liveDerived,

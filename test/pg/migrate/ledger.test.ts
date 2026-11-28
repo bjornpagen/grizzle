@@ -99,12 +99,6 @@ export const ledgerMachine = property.explore(
 			},
 			{
 				file: "packages/grizzle/src/adapter/migrate/apply.ts",
-				original: "([standUps, rechecks]) => dataStepBracket(levels, standUps, rechecks)",
-				replacement: "([standUps, rechecks]) => dataStepBracket(levels, [], rechecks)",
-				why: "A custom migration's data step stands up no rule judge's table before its statements: its write of a table a rule over a query reads is refused at the statement (55Z03), where the data step that breaks the rule is refused at its COMMIT."
-			},
-			{
-				file: "packages/grizzle/src/adapter/migrate/apply.ts",
 				original: "\t\t\t...Arr.map(bracket.after, (sql) => ({\n\t\t\t\tstage: lawsChecked,\n",
 				replacement: "\t\t\t...Arr.map(bracket.after, (sql) => ({\n\t\t\t\tstage: recordStage,\n",
 				why: "The bracket's statements after a custom data step's, its deferred laws made immediate, staged as the ledger's rows: the data step that breaks a rule is refused as a record the ledger could not write, at stage record, where its laws refused it as its COMMIT would."

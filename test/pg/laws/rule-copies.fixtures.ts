@@ -11,7 +11,7 @@ import { fullWorldRole, servedRead, servedRun } from "#test/support/advice.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, seededTemplate } from "#test/support/install-migrate.ts"
 import { fullWorldTemplate } from "#test/support/installed.ts"
-import { judgedPlans, judgedStatementsOf, readWork, standUpJudge } from "#test/support/judge.ts"
+import { judgedPlans, judgedStatementsOf, readWork } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 import { storedSeed } from "#test/support/stored.ts"
@@ -216,7 +216,6 @@ export const runCopies = (
 	k: Case<CopiesFeature>
 ) =>
 	Effect.gen(function* () {
-		yield* standUpJudge(connection, installed.installation)
 		const names = namesOf(installed)
 		const shape = shapes[c.shape]
 		yield* connection.query("SET CONSTRAINTS ALL DEFERRED", [])
@@ -228,7 +227,7 @@ export const runCopies = (
 					[]
 				)
 				const judged = yield* judgedPlans(
-					(sql) => connection.queryValues(sql, []),
+					(sql, params) => connection.queryValues(sql, params),
 					installed.installation,
 					judgedStatementsOf(installed.installation)
 				)

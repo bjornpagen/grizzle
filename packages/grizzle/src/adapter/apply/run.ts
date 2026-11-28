@@ -15,7 +15,6 @@ import {
 	riddenRows
 } from "#adapter/apply/readback.ts"
 import { drawShares, sendsAlone } from "#adapter/apply/shares.ts"
-import { standUp } from "#adapter/apply/stand-up.ts"
 import {
 	type ApplyError,
 	CommitUnknown,
@@ -25,7 +24,6 @@ import {
 } from "#adapter/errors/execution.ts"
 import {
 	type CommitRefused,
-	ConnectionLost,
 	type InputTooLarge,
 	type ServerError,
 	literalBound,
@@ -298,39 +296,6 @@ const statementOrigin = (sent: ReadonlyArray<SentStatement>, index: number): Fai
 }
 
 /**
- * What a write's failed stand-up means (stand-up.ts): the fence's refusal as StaleSnapshot, and the guard's of a session
- * without pg_plan_advice as AdviceUnloaded; SERIALIZABLE's refusal as the
- * TransientFailure a statement's is; a lost connection, at COMMIT too, as a TransportFailure, since the write's own
- * statements were never sent; any other refusal as the server's.
- */
-const standUpFailure = (failure: FlightFailure): ApplyError => {
-	switch (failure._tag) {
-		case "BatchRefused":
-		case "CommitRefused":
-			return (
-				serializationRefusal(failure.failure) ?? new ExecutionFailure({ reason: failure.failure })
-			)
-		case "PrologueRefused":
-			return (
-				serializationRefusal(failure.failure) ?? new ExecutionFailure({ reason: failure.failure })
-			)
-		case "CommitLost":
-			return new TransportFailure({
-				reason: new ConnectionLost({ operation: "commit", ended: { by: "transport" } })
-			})
-		case "ConnectionLost":
-		case "DriverFailure":
-			return new TransportFailure({ reason: failure })
-		case "UnreadableAnswer":
-		case "InputTooLarge":
-			return new ExecutionFailure({ reason: failure })
-		case "StaleSnapshot":
-		case "AdviceUnloaded":
-			return failure
-	}
-}
-
-/**
  * What a write's failed flight means, but a refusal at COMMIT (`commitRefusal`): a refused statement is classified at
  * its origin; the fence's refusal is StaleSnapshot, and the guard's of a session without pg_plan_advice AdviceUnloaded; a
  * refused prologue's deadlock or serialization failure, which a fenced write's lock
@@ -513,8 +478,7 @@ const writeStatements = (
 
 /**
  * The second half of an application: its statements in one transaction of `frame` on `session` (see the header), once
- * they are bound, behind the session's stand-up of the write, which a session that ran it sends nothing for
- * (stand-up.ts), so a call whose values no transport carries is refused before any SQL.
+ * they are bound, so a call whose values no transport carries is refused before any SQL.
  */
 export const runWrite = <R>(
 	session: Session,
@@ -560,7 +524,6 @@ export const runWrite = <R>(
 				if (Result.isFailure(writes)) {
 					return yield* Effect.fail(inputApplyError(writes.failure))
 				}
-				yield* Effect.mapError(standUp(session, frame, flight.standUps), standUpFailure)
 				const ran = yield* Effect.result(
 					runFramed(session, frame, [...writes.success.statements, ...backs.statements])
 				)
@@ -732,8 +695,7 @@ const addCounts = (
  * share bound on the host (hostInputs) only once the flight of the share before it has drained, its statements sent
  * as one flight, cut into executions within PostgreSQL's default work_mem (bind.ts batchedExecutions), and its rows read
  * at once into the outcome's counts, which every share's add to, so the host holds one share's facts, parameters and
- * rows at a time; then the read-backs and COMMIT. The session's stand-up of the write runs first, as for a whole call
- * (runWrite).
+ * rows at a time; then the read-backs and COMMIT.
  *
  * A refusal is the call's answer, judged where it is met, and every share sent before it is rolled back
  * (runFramedFlights): the call is never sent again, so no second attempt can commit what the first refused, the state
@@ -761,7 +723,6 @@ export const runWriteShares = <R>(
 ): Effect.Effect<ApplyOutcome<R>, ApplyError> =>
 	Effect.gen(function* () {
 		const flight = entry.program
-		yield* Effect.mapError(standUp(session, frame, flight.standUps), standUpFailure)
 		const empty = drawn.empty
 		/**
 		 * How a refusal of a statement is judged on the host, over `stated`: a share's statement over that share's own

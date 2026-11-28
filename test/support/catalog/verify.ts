@@ -37,13 +37,6 @@ export type InstalledFunction =
 	| { readonly kind: "isolationGuard" }
 	| { readonly kind: "immutableGuard" }
 	| { readonly kind: "rule" }
-	| {
-			/**
-			 * A judged table's stand-up of the rule judge's session tables (physical/ddl/rules.ts addStandUps), SECURITY
-			 * DEFINER, which every role that writes the table executes.
-			 */
-			readonly kind: "standUp"
-	  }
 	| { readonly kind: "stamp" }
 	| { readonly kind: "names" }
 	| { readonly kind: "live"; readonly domains: ReadonlyArray<string> }
@@ -133,6 +126,12 @@ export interface ErasureExpectation {
 	 * privilege.
 	 */
 	readonly foundings: ReadonlySet<string>
+	/**
+	 * The rule judge's log's tables (physical/ddl/rules.ts addRules, sql/ast.ts CreateJudgeLog): beside the authored ones,
+	 * under no isolation guard, written and read by the judge's captures and the judge alone, as their definer, on which no
+	 * role and no login holds a privilege.
+	 */
+	readonly judgeLogs: ReadonlySet<string>
 	/** The migrations ledger's table, a bookkeeping table, which every login reads and the live source publishes. */
 	readonly ledger: string
 	/**
@@ -590,6 +589,7 @@ const standingProblems = (j: Judging, t: Table): ReadonlyArray<ErasureProblem> =
 		!j.expect.bookkeeping.has(t.name) &&
 		!j.expect.heads.has(t.name) &&
 		!j.expect.foundings.has(t.name) &&
+		!j.expect.judgeLogs.has(t.name) &&
 		!isSecret(j, t)
 	) {
 		return [{ kind: "unexpectedTable", table: t.name }]
@@ -670,6 +670,7 @@ const worldPrivileges = (j: Judging, t: Table): WorldPrivileges => {
 		isSecret(j, t) ||
 		j.expect.heads.has(t.name) ||
 		j.expect.foundings.has(t.name) ||
+		j.expect.judgeLogs.has(t.name) ||
 		j.expect.storedTables.has(t.name)
 	) {
 		return { table: allowed.none, column: allowed.none }
@@ -854,7 +855,6 @@ const functionProblems = (j: Judging, f: Fn): ReadonlyArray<ErasureProblem> => {
 		case "refusal":
 		case "borrow":
 		case "stamp":
-		case "standUp":
 			return [...definer, ...grantProblems(j, held, allowed.function, allowed.none)]
 		case "snapshotGuard":
 			return [

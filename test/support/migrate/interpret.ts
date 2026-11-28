@@ -1097,7 +1097,6 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 		case "field":
 		case "greatest":
 		case "inList":
-		case "inQuery":
 		case "equalsAny":
 		case "least":
 		case "param":
@@ -1161,8 +1160,6 @@ const callsAggregate = (e: Expr): boolean => {
 			return callsAggregate(e.expr) || callsAggregate(e.absent)
 		case "subscript":
 			return callsAggregate(e.array) || callsAggregate(e.index)
-		case "inQuery":
-			return callsAggregate(e.expr)
 		case "equalsAny":
 			return callsAggregate(e.expr) || callsAggregate(e.array)
 		case "array":
@@ -3860,6 +3857,13 @@ class Model {
 				})
 				return
 			}
+			case "createJudgeLog":
+				if (!this.#ours(s.table)) {
+					return
+				}
+				this.#claimRelation(s.table.name, `the judge's log ${printObjectName(s.table)}`)
+				this.#tables.set(s.table.name, { columns: [], rows: [] })
+				return
 			case "createStoredTable":
 				if (!this.#ours(s.name)) {
 					return

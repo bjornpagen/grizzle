@@ -68,8 +68,6 @@ export type ShapeFeature =
 	| `call ${string}`
 	| "exists"
 	| "not exists"
-	| "in query"
-	| "not in query"
 	| "in list"
 	| "not in list"
 	| "scalar subquery"
@@ -141,7 +139,6 @@ const roleOf = (e: Expr): Role => {
 		case "isTrue":
 		case "between":
 		case "inList":
-		case "inQuery":
 		case "equalsAny":
 		case "exists":
 		case "array":
@@ -248,8 +245,6 @@ const exprFeature = (e: Expr): ReadonlyArray<ShapeFeature> => {
 		}
 		case "exists":
 			return [e.not ? "not exists" : "exists"]
-		case "inQuery":
-			return [e.not ? "not in query" : "in query"]
 		case "equalsAny":
 			return [`predicate = ${roleOf(e.expr)} ${roleOf(e.array)}`]
 		case "inList":

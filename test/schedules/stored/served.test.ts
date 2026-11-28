@@ -1,9 +1,8 @@
 /**
- * A served write of a stored derived relation's holder stands the rule judge's tables up first and keeps the stored
- * relation at its COMMIT (D11 2b, after 8ab32a3bb's stand-ups): a session stands up the judge's tables a write of a
- * table needs before its first such write (physical/ddl/rules.ts addStandUps), a served write in its session's
- * stand-up (write/program/stand-up.ts writeStandUps), for each relation the judge captures (laws/model/model.ts
- * LawModel `judged`), each a rule over a query reads and each a stored relation's upkeep reads, Doc among them.
+ * A served write of a stored derived relation's holder keeps the stored relation at its COMMIT (D11 2b): the judge
+ * captures each table a rule over a query reads and each a stored relation's upkeep reads, Doc among them
+ * (physical/ddl/rules.ts judgedTables), so a served write of Doc logs its rows and the judge runs Counted's upkeep over
+ * them, its session making nothing first.
  *
  * Over the box of borrows.fixtures.ts, Doc(shelf, doc, at) in the unit Shelf(shelf) and Counted, each document's places,
  * a stored derived relation over it kept at its document, narrower than the shelf: each case's seed gives the
@@ -13,8 +12,8 @@
  *
  * Properties, per case: each call is accepted, and Counted holds each document's places after both, seeded and put
  * alike. Oracle: Counted's definition stated over the seed and the two calls (borrows.fixtures.ts countedAfter). Kill:
- * a stored relation's holders left out of the relations the judge captures, so a served write of Doc stands nothing up
- * and its capture refuses it (55Z03).
+ * a stored relation's holders left out of the tables the judge captures, so a served write of Doc logs nothing for
+ * Counted's upkeep.
  *
  * Features: one document or two, and each document's places before the calls.
  */
@@ -135,10 +134,11 @@ export const aServedWriteOfAStoredRelationsHolderStandsTheJudgeUpAndKeepsTheStor
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/laws/model/model.ts",
-				original: "\t\t\t...upkeeps.flatMap((u) => u.sides.map((r) => r.relation))\n",
-				replacement: "",
-				why: "A stored relation's holders left out of the relations the judge captures: a served write of Doc stands nothing up, and its capture refuses it (55Z03, a write of a table the rule judge holds in a session that has not stood up its tables)."
+				file: "packages/engine/src/physical/ddl/rules.ts",
+				original:
+					"\tfor (const upkeep of b.model.theory.upkeeps) {\n\t\tfor (const s of upkeep.sides) {\n",
+				replacement: "\tfor (const upkeep of []) {\n\t\tfor (const s of upkeep.sides) {\n",
+				why: "A stored relation's holders left out of the tables the judge captures: a served write of Doc logs nothing for Counted's upkeep, which never runs, so Counted keeps the rows it held before the calls."
 			}
 		]
 	})

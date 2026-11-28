@@ -105,16 +105,15 @@ export const everyRoutinePlansAsItsAdviceCarriesInEveryState = property.explore(
 		},
 		{
 			file: "packages/engine/src/sql/bind.ts",
+			original: "\t\tif (stored !== undefined && atTid !== undefined) {",
+			replacement: "\t\tif (false) {",
+			why: "A read of the rule judge's delta log at the tuple id its walk follows bound as a set join: grizzle advises a hash join of the whole log, which PostgreSQL scans, a scan grizzle does not carry, where each step reads one row by its TID (Law 1)."
+		},
+		{
+			file: "packages/engine/src/sql/bind.ts",
 			original: "\treadsAtOwnLevel(q) ? wrapper(q, named) : q\n",
 			replacement: "\tq\n",
 			why: "A sublink's query read at the level PostgreSQL names itself: a correlated EXISTS is flattened into a semi-join grizzle never planned (e3 P5), its advice targeting a level that no longer exists (Law 1)."
-		},
-		{
-			file: "packages/engine/src/physical/ddl/rules.ts",
-			original: "\tconst judging: ReadonlyArray<PlStatement> = !isNonEmpty(tables)\n\t\t? []\n",
-			replacement:
-				"\tconst judging: ReadonlyArray<PlStatement> = !isNonEmpty(tables)\n\t\t? [consumed]\n",
-			why: "The judge of an installation that judges no table still reads the sentinel, which no stand-up makes: its one query plans over a relation no session ever holds (42P01), a function nothing fires."
 		},
 		{
 			file: "packages/engine/src/sql/naming.ts",

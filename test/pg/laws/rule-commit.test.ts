@@ -1,85 +1,81 @@
 /**
- * A judged COMMIT leaves the session's tables empty, each delta it wrote within one page and with its file where it was
- * within that page before, and truncates no table it did not read (physical/ddl/rules.ts addRules): a rule over a
- * query's deltas and its sentinel are ON COMMIT PRESERVE ROWS, and the judge empties each delta it reads once its part
- * has read them (`emptied`), by DELETE while the delta holds its one reused page and by TRUNCATE once it holds more
- * (sql/print.ts sessionTableEmptied), its statements reading every delta through its reader, so their plans outlive a
- * truncation. Where it deleted their rows always, every page of every run stayed in the heap, which no VACUUM of a
- * session's table records as free, so a session's deltas grew by each write (a table refilled with 100k rows a
- * transaction: 13 MB to 108 MB over 8 uses); where it truncated them always, each COMMIT gave each a new file, whose
- * invalidations every backend of the database walked every plan it holds for; where they were ON COMMIT DELETE ROWS,
- * PostgreSQL truncated every one the session held at each COMMIT of a transaction that touched a temporary relation
- * (tablecmds.c PreCommit_on_commit_actions), each an ACCESS EXCLUSIVE lock, a rebuild of each index and TOAST table and
- * invalidations every backend reads, so a learner session holding 18 deltas spent most of each COMMIT truncating them
- * (edullm GRADING-SQL D: COMMIT 79.6% of active session time, heap_truncate 54.6% of backend CPU).
+ * A judged transaction writes no catalog row, takes no predicate lock on the judge's log and leaves no row of it past
+ * its end, and the log is its owner's alone (physical/ddl/rules.ts addRules): the log is two UNLOGGED tables the
+ * installation creates, its arm, one row of each open transaction's, whose INSERT arms the judge's deferred trigger and
+ * which holds the tuple id of the transaction's newest delta row, and its delta log, one row of each capture's, linked to
+ * the one before it; the judge claims the transaction's rows by tuple id and deletes them, and deletes the arm row. Where
+ * each session stood up its deltas as temporary tables at its first write, each a pg_class, pg_type, pg_attribute and
+ * pg_depend row, a database's connections churned the shared invalidation queue past its end, and every backend that
+ * lagged reset its caches and planned every judge and trigger again (METIS-PERFBAR under churn: a start's reads from
+ * about 2,000 pages to 12,659, an attempt's judge from 27 to 2,071).
  *
- * Over each unit shape's whole judge and its probed twin of rule-whole.fixtures.ts, a session writes two documents
- * whole and drops one, one transaction each, then writes one again and rolls it back. The whole judge's drop is a data
- * step, its relations closed: no capture writes its removed rows, so after its statements no session table holds a
- * row, and its bracket's re-check judges it (rule-whole.fixtures.ts bracketOf). Before each COMMIT the
- * transaction holds no predicate lock on the session's tables; after each COMMIT every table of the session holds no
- * row, each delta the transaction wrote keeps its file where it held its one page at most before and holds that page at
- * most, and the sentinel, whose one row the judge deletes as it starts, keeps its page; after the rollback every table
- * holds no row and keeps its file.
+ * Over each unit shape's whole judge and its probed twin of rule-whole.fixtures.ts, a fresh session writes two
+ * documents whole and drops one, one transaction each, then writes one again and rolls it back. The whole judge's drop
+ * is a data step, its relations closed, whose removals its captures log, counted, and its bracket's judge nets away
+ * before its re-check judges it (rule-whole.fixtures.ts bracketOf). Once the judge has run, at SET CONSTRAINTS ALL
+ * IMMEDIATE, the log holds no row, the transaction holds no predicate lock on it, after its captures or its judge, and,
+ * served, has written no catalog row, its session's first included; after each COMMIT and after the rollback the log
+ * holds no row; before the rollback the transaction's one arm row's head reaches each delta row it logged once, by
+ * tuple id; and no role but the judge's definer holds a privilege on it.
  */
 import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { commitsGen, runCommits } from "#test/pg/laws/rule-commit.fixtures.ts"
 import { judgeTemplates } from "#test/pg/laws/rule-whole.fixtures.ts"
-import { standUpJudge } from "#test/support/judge.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * A judged COMMIT leaves every session table it wrote empty, each delta of them within its page and its file, and its
- * sentinel's page.
+ * A judged transaction writes no catalog row, takes no predicate lock on the judge's log and leaves no row of it, and the
+ * log is its owner's alone.
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
  */
-export const aJudgedCommitLeavesEverySessionTableItWroteEmptyEachDeltaOfThemWithinItsPageAndItsFileAndItsSentinelsPage =
+export const aJudgedTransactionWritesNoCatalogRowTakesNoPredicateLockOnTheLogAndLeavesNoRowOfIt =
 	property.explore(commitsGen, {
 		needs: Substrate.oneOf(judgeTemplates, Substrate.fresh),
 		situations: [
-			"a whole judge's deltas",
-			"a probed judge's deltas",
-			"a whole judge's data step, its removals captured by none"
+			"a whole judge's log",
+			"a probed judge's log",
+			"a whole judge's data step, its removals netted away"
 		],
 		check: (judges, c) => (k) =>
 			Effect.gen(function* () {
 				const judge = yield* judges[`${k.judge} ${k.shape}`]
 				const session = yield* judge.substrate.session({ ...ownerSession(), label: "writer" })
-				yield* standUpJudge(session, judge.value.installation)
 				yield* runCommits(judge.value, session, k, c)
 			}).pipe(Effect.scoped),
 		oracle: {
 			kind: "postgresql",
-			name: "each session table's rows, file and bytes on disk after each COMMIT and after a rollback, against the tables the transaction wrote a row into and their bytes before it: none holds a row, each delta it wrote within its page keeps its file and one past it has a new one, each within its page after, its sentinel keeps its page, and the transaction held no predicate lock on any of them"
+			name: "the log's rows, its chain by tuple id, the transaction's predicate locks and catalog writes (pg_locks, pg_stat_xact_sys_tables) and the log's grantees: each served write's arm row reaching each of its delta rows once, the log empty after its judge, after each COMMIT and after a rollback, no predicate lock on it, no catalog row written, no grantee but its owner, the judge's definer"
 		},
 		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/sql/print.ts",
-				original: ") ON COMMIT PRESERVE ROWS`",
-				replacement: ") ON COMMIT DELETE ROWS`",
-				why: "The session's deltas and sentinel are ON COMMIT DELETE ROWS, as before, so every COMMIT that touched them truncates each one the session holds, the sentinel among them, which holds no page after it."
+				original: '\tout.line("BEGIN")\n\tconst statements = out.nested()',
+				replacement:
+					'\tout.line("BEGIN CREATE TEMPORARY TABLE IF NOT EXISTS __stood (c1 pg_catalog.int4) ON COMMIT PRESERVE ROWS;")\n\tconst statements = out.nested()',
+				why: "One stand-up put back: every function of the installation stands a session table up at its session's first call, as each capture stood its deltas up before, so a fresh session's first served write writes catalog rows; the property fails."
 			},
 			{
-				file: "packages/engine/src/physical/ddl/deltas.ts",
-				original: "PlStatement => sessionTableEmptied(delta.name)",
-				replacement: 'PlStatement => ({ kind: "truncateSessionTable", name: delta.name })',
-				why: "Each part truncates every delta it read, as it did before its emptying kept a delta's file within its page: each delta the transaction wrote has a new file after the COMMIT, and every backend of the database walks every plan it holds for the invalidations."
+				file: "packages/engine/src/physical/ddl/rules.ts",
+				original: "\t\t\t\t\tarmDeleted(log),\n",
+				replacement: "",
+				why: "The judge leaves the transaction's arm row, so the log holds it after the judge and after the COMMIT, and a later statement of the transaction arms no judge; the property fails."
 			},
 			{
-				file: "packages/engine/src/physical/ddl/deltas.ts",
-				original: "\t\t\t\t\t},\n\t\t\t\t\trevokeOf(named, [])\n\t\t\t\t]",
-				replacement: "\t\t\t\t\t}\n\t\t\t\t]",
-				why: "A delta's reader keeps PUBLIC's EXECUTE, PostgreSQL's default for a new function, so any role of the session may run the judge's definer's reader over the run's rows."
+				file: "packages/engine/src/physical/ddl/rules.ts",
+				original: '\t\t\t\t\t\t\t\t\t\teq(col("r3", "ctid"), col("r2", "c1")),\n',
+				replacement: '\t\t\t\t\t\t\t\t\t\teq(col("r3", judgeLogColumns.prev), col("r2", "c1")),\n',
+				why: "The claim follows each link the wrong way, from a row to the rows that link to it, so it claims the transaction's newest delta row alone and leaves the rest in the log past its judge and its COMMIT; the property fails."
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
 				original:
-					'\t\t\t),\n\t\t\t...(part.pass.kind === "rules" ? part.deltas.map(emptiedWhereWritten) : [])\n',
-				replacement: "\t\t\t)\n",
-				why: "No part deletes the rows it read, so a delta keeps one transaction's rows past its COMMIT, and the next transaction's judge reads them again as its own."
+					'source: { kind: "values", rows: [[thisTransaction, variable(captureNames.row)]] }',
+				replacement:
+					'source: { kind: "values", rows: [[thisTransaction, variable(captureNames.head)]] }',
+				why: "A capture leaves the arm's head where it read it, so the transaction's arm reaches none of its delta rows and the claim takes none of them; the property fails."
 			}
 		]
 	})

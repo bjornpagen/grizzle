@@ -84,7 +84,6 @@ import {
 	type StateLoad,
 	standIn
 } from "#test/support/advice.ts"
-import { standUpJudge } from "#test/support/judge.ts"
 import { parsedName, wild } from "#test/support/kernel/naming.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { insertOf } from "#test/support/substrate/fill.ts"
@@ -837,7 +836,6 @@ const clearedStats = (tables: ReadonlyArray<string>): string =>
  * in the state (test/support/advice.ts standIn). Every problem `judge` finds, each beside the states it was found in.
  */
 export const inEveryState = <E>(
-	installation: Installation,
 	load: (session: BenchSession) => StateLoad,
 	judge: (session: BenchSession, read: SuperuserRead) => Effect.Effect<ReadonlyArray<string>, E>
 ): Effect.Effect<ReadonlyArray<string>, E | SqlError, Substrate> =>
@@ -859,7 +857,6 @@ export const inEveryState = <E>(
 						pinned.query("BEGIN", []),
 						() =>
 							Effect.gen(function* () {
-								yield* standUpJudge(pinned, installation)
 								yield* standIn(session, loading, state)
 								return yield* judge(session, read)
 							}),

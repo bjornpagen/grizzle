@@ -233,10 +233,7 @@ export const load = (
 		const s = yield* Substrate
 		yield* replaceRows(
 			s.admin,
-			tablesGroup(
-				Arr.map(env.host.relations, (r) => tableOf(env, r.name)),
-				env.names.standUps
-			),
+			tablesGroup(Arr.map(env.host.relations, (r) => tableOf(env, r.name))),
 			Arr.flatMap(env.host.relations, (r) => {
 				const facts = state.get(r.name) ?? []
 				return facts.length === 0 ? [] : [{ sql: insertSql(env, r.name, facts), params: [] }]

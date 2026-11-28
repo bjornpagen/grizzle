@@ -24,8 +24,7 @@ import {
 	judgeRun,
 	type JudgeStatement,
 	judgeStatementsOf,
-	scannedWork,
-	standUpJudge
+	scannedWork
 } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -836,7 +835,6 @@ export const runExact = (
 ) =>
 	Effect.gen(function* () {
 		const names = namesOf(installed)
-		yield* standUpJudge(session, installed.installation)
 		yield* committedJudged(session, contentSql(installed))
 		const m: Model = {
 			sittings: [],
@@ -1325,7 +1323,7 @@ const writeWork = (installed: Installed, session: RawSession, write: Write) =>
 					yield* session.query(sql, [])
 				}
 				return yield* judgeRun(
-					(sql) => session.values(sql, []),
+					(sql, params) => session.values(sql, params),
 					installed.installation,
 					judgeStatementsOf(installed.installation)
 				)
@@ -1370,7 +1368,6 @@ export const runBound = (
 ) =>
 	Effect.gen(function* () {
 		const names = namesOf(installed)
-		yield* standUpJudge(session, installed.installation)
 		yield* committedJudged(session, contentSql(installed))
 		yield* committedJudged(session, [
 			...(d.background > 0

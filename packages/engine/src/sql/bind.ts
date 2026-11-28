@@ -503,12 +503,7 @@ const sublinked = (e: Expr): boolean => {
 	let found = false
 	new (class extends Transform {
 		override readonly expr = (x: Expr): Expr => {
-			if (
-				x.kind === "exists" ||
-				x.kind === "subquery" ||
-				x.kind === "array" ||
-				x.kind === "inQuery"
-			) {
+			if (x.kind === "exists" || x.kind === "subquery" || x.kind === "array") {
 				found = true
 				return x
 			}
@@ -2121,9 +2116,6 @@ class Binder {
 				if (x.kind === "array") {
 					return { ...x, query: array(x.query) }
 				}
-				if (x.kind === "inQuery") {
-					return { ...x, expr: this.expr(x.expr), query: sublink(x.query) }
-				}
 				return this.exprChildren(x)
 			}
 		})(identityHooks)
@@ -2820,6 +2812,46 @@ class Binder {
 				if (at >= 0) {
 					pool.splice(at, 1)
 				}
+			}
+		}
+		/**
+		 * The read's tuple id its condition states equal to a value its level fixes (a PL variable, a parameter, an
+		 * enclosing level's column) or an earlier item's column, so the table is read at that tid, one heap fetch a row
+		 * before it by a TID condition of its scan, never through an index or whole: the rule judge's walk of its
+		 * transaction's delta rows, each read at the link the row after it holds (physical/ddl/rules.ts claimed).
+		 */
+		const atTid =
+			stored === undefined
+				? undefined
+				: pools
+						.flat()
+						.map((c) => bindingOf(c, written))
+						.find(
+							(b) =>
+								b?.op === "=" &&
+								b.column === tupleId &&
+								([...qualifiersOf(b.value)].some(earlier) || fixed(b.value))
+						)
+		if (stored !== undefined && atTid !== undefined) {
+			take(atTid.conjunct)
+			const self = withRelation(here, written, alias, here.depth, place)
+			return {
+				source: {
+					kind: "read",
+					table: source.table,
+					alias,
+					access: { kind: "tid", at: this.expr(atTid.value, self) }
+				},
+				step:
+					entry.join === "on" || entry.join === "left"
+						? {
+								join: entry.join,
+								on: conjunction(ons.map((c) => this.expr(c, self))) ?? lit.bool(true)
+							}
+						: { join: "cross" },
+				item: { alias: itemAlias(stored, alias), scan: { kind: "tid" } },
+				method: "nestedLoop",
+				appended: []
 			}
 		}
 		if (stored !== undefined && bindings.some((b) => b.driven)) {
@@ -3843,11 +3875,33 @@ class Binder {
 					)
 				}
 			}
-			case "createSessionTable":
-			case "createSessionIndex":
-			case "createSessionTrigger":
-			case "truncateSessionTable":
-				return s
+			case "into": {
+				const statement = s.statement
+				const planned = <M>(bind: () => M): M =>
+					this.#planned((t) => t.plStatement({ ...s, statement }), bind)
+				switch (statement.kind) {
+					case "select":
+						return {
+							...s,
+							statement: planned(() => this.query(statement, topEnv, { kind: "top" }))
+						}
+					case "insert":
+						return {
+							...s,
+							statement: planned(() => this.insert(statement, topEnv, { kind: "top" }))
+						}
+					case "update":
+						return {
+							...s,
+							statement: planned(() => this.update(statement, topEnv, { kind: "top" }))
+						}
+					case "delete":
+						return {
+							...s,
+							statement: planned(() => this.delete(statement, topEnv, { kind: "top" }))
+						}
+				}
+			}
 		}
 	}
 }
@@ -4044,11 +4098,15 @@ const plannedOf = (
 				case "returnQuery":
 					query(s.query)
 					break
-				case "createSessionTable":
-				case "createSessionIndex":
-				case "createSessionTrigger":
-				case "truncateSessionTable":
+				case "into": {
+					const into = s.statement
+					if (into.kind === "select") {
+						query(into)
+					} else {
+						placed((t) => printStatement(t.statement(into)))
+					}
 					break
+				}
 			}
 		}
 	}

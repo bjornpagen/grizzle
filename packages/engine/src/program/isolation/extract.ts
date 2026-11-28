@@ -468,8 +468,6 @@ const operandsOf = (e: Expr): ReadonlyArray<Expr> => {
 			return [e.expr, e.low, e.high]
 		case "inList":
 			return [e.expr, ...e.list]
-		case "inQuery":
-			return [e.expr]
 		case "equalsAny":
 			return [e.expr, e.array]
 		case "row":
@@ -699,7 +697,6 @@ const callValue = (e: Expr, own: ReadonlySet<string>): boolean => {
 		case "row":
 		case "case":
 			return operandsOf(e).every((o) => callValue(o, own))
-		case "inQuery":
 		case "exists":
 		case "subquery":
 		case "array":
@@ -1753,9 +1750,6 @@ export class Walk<Top extends Arrival> {
 	expr(e: Expr, c: Context<Top>): void {
 		if (e.kind === "exists") {
 			this.query(e.query, this.#entering(c, { ...c, probe: true, polarity: predicate(c, e.not) }))
-		}
-		if (e.kind === "inQuery") {
-			this.query(e.query, this.#entering(c, { ...c, probe: false, polarity: predicate(c, e.not) }))
 		}
 		if (e.kind === "subquery" || e.kind === "array") {
 			this.query(e.query, this.#entering(c, { ...c, probe: false, counted: true }))

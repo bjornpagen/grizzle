@@ -421,13 +421,13 @@ export const baseTypeRef = (names: PhysicalNames, t: ScalarType): TypeRef => {
 
 /**
  * The type a value of `t` is held by between the statements of one transaction: a write's carrier column, its array's
- * element type (write/carriers), and a rule judge's delta, a temporary table of the session's. It is the value's base
- * type (baseTypeRef), but a set's: baseTypeRef reads a set as its roster's bits domain, and these hold it by the
- * domain's own base, bit(n) of the roster's width, which a value of another length entering it refuses (22026). So
- * neither names an installation's domain: a cast into a domain judges its CHECK again at every reader, and PostgreSQL
- * refuses to drop a domain a column of another session's temporary table is typed by (2BP01) and to add a constraint to
- * it ("cannot access temporary tables of other sessions"); a value reaches its stored column through the column's
- * domain, which judges it there.
+ * element type (write/carriers), and an attribute of a rule judge's delta's row type, an array of which the judge's log
+ * holds (physical/ddl/deltas.ts). It is the value's base type (baseTypeRef), but a set's: baseTypeRef reads a set as its
+ * roster's bits domain, and these hold it by the domain's own base, bit(n) of the roster's width, which a value of
+ * another length entering it refuses (22026). So neither names an installation's domain: a cast into a domain judges its
+ * CHECK again at every reader, and PostgreSQL refuses ALTER DOMAIN ... ADD CONSTRAINT over a domain an attribute of a
+ * composite some column holds is typed by; a value reaches its stored column through the column's domain, which judges
+ * it there.
  */
 export const sessionTypeRef = (names: PhysicalNames, t: ScalarType): TypeRef => {
 	const b = baseOf(t)

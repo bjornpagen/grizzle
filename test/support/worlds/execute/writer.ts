@@ -4,12 +4,7 @@ import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { type PgErrorFields, reportedOwnerOf } from "#test/support/substrate/errors.ts"
 import type { PsqlWriter } from "#test/support/substrate/psql.ts"
-import {
-	type DirectNames,
-	directSql,
-	type Reads,
-	takesRole
-} from "#test/support/worlds/execute/direct.ts"
+import { type DirectNames, directSql, type Reads } from "#test/support/worlds/execute/direct.ts"
 import { valueOfText } from "#test/support/worlds/execute/host.ts"
 import type { Found } from "#test/support/worlds/execute/leak.ts"
 import { sqlStateOf } from "#test/support/worlds/execute/observe.ts"
@@ -260,11 +255,6 @@ export const runDirect = (
 			return error._tag === "PsqlStatementError"
 				? yield* refusalOf(reading, error.fields)
 				: yield* Effect.die(error)
-		}
-		if (takesRole(statement)) {
-			for (const sql of names.standUps) {
-				yield* Effect.orDie(session.writer.run(sql))
-			}
 		}
 		const notices = Arr.map(ran.success.notices, (text): Found => ({ field: "notice", text }))
 		const reads = direct.reads

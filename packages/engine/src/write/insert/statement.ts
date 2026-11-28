@@ -41,7 +41,7 @@ import {
 	type OrderItem,
 	type RowsProof,
 	type Select,
-	type SqlStatement,
+	type Dml,
 	type TypeRef,
 	type With
 } from "#compiler/sql/ast.ts"
@@ -228,7 +228,7 @@ export interface WriteStatement<
 > {
 	readonly role: StatementRole
 	/** The AST; `sql` is its emission where it is sent alone, none where a single statement composes it (StatementWriting). */
-	readonly ast: SqlStatement
+	readonly ast: Dml
 	readonly sql: T
 	/** Placeholder $n is params[n - 1], in the conservative lowering's slot vocabulary. */
 	readonly params: ReadonlyArray<WriteParamSlot>
@@ -356,7 +356,7 @@ export const writeContext = (
 /** What a builder builds of one statement: its AST, result, role and skipped input, and for a write of facts its
  * RETURNING. */
 export interface Built<R extends WriteResult> {
-	readonly ast: SqlStatement
+	readonly ast: Dml
 	readonly result: R
 	readonly role: StatementRole
 	readonly needs: Needs

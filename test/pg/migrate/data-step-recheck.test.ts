@@ -121,9 +121,10 @@ export const aDataStepThatBreaksARuleOverClosedRowsIsRefusedNamingItAndOneThatBr
 			},
 			{
 				file: "packages/engine/src/deploy/diff/diff.ts",
-				original: "\t\tif (isNonEmpty(written)) {\n\t\t\tthis.standUps()\n",
+				original:
+					'\t\tif (isNonEmpty(written)) {\n\t\t\tthis.push("structure.immediate", statement(checkedAtOnce))\n',
 				replacement:
-					'\t\tfor (const law of this.recheck(checks.rules, { kind: "unknown" })) {\n\t\t\trechecked.add(law)\n\t\t}\n\t\tif (isNonEmpty(written)) {\n\t\t\tthis.standUps()\n',
+					'\t\tfor (const law of this.recheck(checks.rules, { kind: "unknown" })) {\n\t\t\trechecked.add(law)\n\t\t}\n\t\tif (isNonEmpty(written)) {\n\t\t\tthis.push("structure.immediate", statement(checkedAtOnce))\n',
 				why: "A draft re-checks with no data step: the draft opening Note alone holds the MERGE of Toys."
 			},
 			{

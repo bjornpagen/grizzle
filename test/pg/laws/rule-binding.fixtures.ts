@@ -20,7 +20,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, seededTemplate } from "#test/support/install-migrate.ts"
-import { judgedPlans, judgedStatementsOf, raisedRule, standUpJudge } from "#test/support/judge.ts"
+import { judgedPlans, judgedStatementsOf, raisedRule } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 import { storedSeed } from "#test/support/stored.ts"
@@ -242,7 +242,6 @@ export const runBinding = (
 	c: Case<BindingFeature>
 ) =>
 	Effect.gen(function* () {
-		yield* standUpJudge(connection, installed.installation)
 		const names = namesOf(installed)
 		const tables = Arr.map([NodeTable, Ref, Named], (t) => names.table(t))
 		const statistics = b.statistics === "analyzed" ? Arr.map(tables, (t) => `ANALYZE ${t}`) : []
@@ -259,7 +258,7 @@ export const runBinding = (
 		const rows = writtenRows(b)
 		const statements = judgedStatementsOf(installed.installation)
 		const judged = yield* judgedPlans(
-			(sql) => connection.queryValues(sql, []),
+			(sql, params) => connection.queryValues(sql, params),
 			installed.installation,
 			statements
 		)

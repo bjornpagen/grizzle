@@ -52,7 +52,7 @@ import type {
 	WriteParamSlot
 } from "#compiler/lower/conservative/types.ts"
 import { type OwnStep, sentWhere } from "#compiler/runtime/write/steps.ts"
-import type { Cte, SqlStatement } from "#compiler/sql/ast.ts"
+import type { Cte, Dml } from "#compiler/sql/ast.ts"
 import type { Emitting } from "#compiler/sql/emit.ts"
 import { namesPast, NameSupply } from "#compiler/sql/naming.ts"
 import { ownStatement } from "#compiler/write/insert/statement.ts"
@@ -143,26 +143,16 @@ const widened = (p: OwnPlaced, needs: Needs): OwnPlaced => ({
 })
 
 /** `ast` with `cte` first among its WITH's entries: a write statement is DML, whose WITH leads it. */
-const leading = (ast: SqlStatement, cte: Cte): SqlStatement => {
-	if (ast.kind === "select") {
-		return withLeading(ast, [cte])
-	}
-	if (
-		ast.kind === "insert" ||
-		ast.kind === "update" ||
-		ast.kind === "delete" ||
-		ast.kind === "merge"
-	) {
-		return {
-			...ast,
-			with:
-				ast.with === undefined
-					? { recursive: false, ctes: [cte] }
-					: { ...ast.with, ctes: [cte, ...ast.with.ctes] }
-		}
-	}
-	defect(`a write statement is DML, not ${ast.kind}`)
-}
+const leading = (ast: Dml, cte: Cte): Dml =>
+	ast.kind === "select"
+		? withLeading(ast, [cte])
+		: {
+				...ast,
+				with:
+					ast.with === undefined
+						? { recursive: false, ctes: [cte] }
+						: { ...ast.with, ctes: [cte, ...ast.with.ctes] }
+			}
 
 /** A form's text with the admission's unit first, sent with every part: a single statement's, whose units hold its
  * WITH's entries in order, cut from its admitted AST once that is bound (artifact.ts emittedForm); a whole text as it
@@ -209,7 +199,7 @@ const admittedIn = (
 	const count = slots.length
 	const names = [...p.names, ...supply.map()]
 	/** Its AST and placeholders with the admission first. */
-	const own: { readonly ast: SqlStatement; readonly params: ReadonlyArray<WriteParamSlot> } = {
+	const own: { readonly ast: Dml; readonly params: ReadonlyArray<WriteParamSlot> } = {
 		ast: leading(
 			renumberedStatement(
 				p.ast,

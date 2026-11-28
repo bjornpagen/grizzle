@@ -38,7 +38,7 @@ import type {
 	RelationColumn,
 	WriteParamSlot
 } from "#compiler/lower/conservative/types.ts"
-import type { ArrayCheck, ArrayColumn, Cte, FromSource, SqlStatement } from "#compiler/sql/ast.ts"
+import type { ArrayCheck, ArrayColumn, Cte, FromSource, Dml } from "#compiler/sql/ast.ts"
 import {
 	arrays,
 	col,
@@ -58,7 +58,7 @@ import {
 	type NameMap,
 	NameSupply
 } from "#compiler/sql/naming.ts"
-import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
+import { identityHooks, Transform, transformStatement } from "#compiler/sql/transform.ts"
 import {
 	type CarrierColumn,
 	type CarrierDeclaring,
@@ -94,7 +94,7 @@ export interface StagedSlots {
 
 /** An own statement as the pass reads and rewrites it: its AST and its placeholders. */
 interface Formed {
-	readonly ast: SqlStatement
+	readonly ast: Dml
 	readonly params: ReadonlyArray<WriteParamSlot>
 }
 
@@ -273,7 +273,7 @@ const cteNames = (ctes: ReadonlyArray<Cte>): ReadonlyArray<string> =>
 	)
 
 /** The relation names `ast` defines anywhere (sql/naming.ts: r<n>, each once per statement). */
-const relationNames = (ast: SqlStatement): ReadonlyArray<string> => {
+const relationNames = (ast: Dml): ReadonlyArray<string> => {
 	const names: Array<string> = []
 	if (
 		ast.kind === "insert" ||
@@ -307,7 +307,7 @@ const relationNumber = (name: string): number | undefined => {
 }
 
 /** The first relation number past every r<n> `ast` defines, as a NameSupply starts a statement that continues it. */
-export const relationsPast = (ast: SqlStatement): number =>
+export const relationsPast = (ast: Dml): number =>
 	relationNames(ast).reduce((next, name) => {
 		const n = relationNumber(name)
 		return n === undefined ? next : Math.max(next, n + 1)
@@ -329,11 +329,11 @@ const renumbering = (count: number, moved: ReadonlySet<number>): ((number: numbe
  * count's and columns', numbered by `renumbered` (`renumbering`, or the admission's shift, write/program/admission.ts).
  */
 export const renumberedStatement = (
-	ast: SqlStatement,
+	ast: Dml,
 	renumbered: (number: number) => number,
 	replace: (source: FromSource) => FromSource | undefined
-): SqlStatement =>
-	transformStatement(ast, {
+): Dml =>
+	new Transform({
 		...identityHooks,
 		replaceSource: replace,
 		expr: (e) =>
@@ -365,7 +365,7 @@ export const renumberedStatement = (
 					return source
 			}
 		}
-	})
+	}).dml(ast)
 
 /**
  * A form read through the carriers of the slots `staged` holds: each FROM item of a staged slot's arrays replaced by the

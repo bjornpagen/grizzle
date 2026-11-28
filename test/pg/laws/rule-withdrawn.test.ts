@@ -39,7 +39,7 @@ export const aRowAContainmentsSourceLosesIsReadByNoJudgeWhereItsTargetReadsTheSo
 					const { substrate, value } = yield* withdrawn
 					coverage(value)
 					const session = yield* substrate.session({ ...ownerSession(), label: "withdrawn" })
-					yield* runSchedule(value, substrate.admin, session, schedule, c)
+					yield* runSchedule(value, session, schedule, c)
 				}).pipe(Effect.scoped),
 		oracle: {
 			kind: "postgresql",

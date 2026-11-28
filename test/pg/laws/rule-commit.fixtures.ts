@@ -2,10 +2,10 @@
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
-import { Array as Arr, String as Str, Data, Effect, Formatter, Option } from "effect"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { blockSize } from "#compiler/core/page.ts"
-import { quoteIdent, quoteString } from "#compiler/core/text.ts"
+import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
+import { quoteString } from "#compiler/core/text.ts"
+import { type CreateJudgeLog, judgeLogColumns } from "#compiler/sql/ast.ts"
+import { printObjectName } from "#compiler/sql/print.ts"
 import {
 	bracketOf,
 	type Judge,
@@ -15,7 +15,6 @@ import {
 	tablesOf
 } from "#test/pg/laws/rule-whole.fixtures.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
-import { readersOf } from "#test/support/judge.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 
 const judges = ["whole", "probed"] as const satisfies ReadonlyArray<Judge>
@@ -24,10 +23,9 @@ const docs = [1, 2] as const
 /**
  * A case: the judge and the unit shape it runs on, and its session's transactions, each a write of one document: both
  * documents written whole and lawful (rule-whole.fixtures.ts statementsOf `unit` at type 1, which keeps every rule; at
- * type 0 One type refuses it), the first standing up the session's deltas and the second writing into deltas that
- * stand, then one of them dropped: on the probed judge a served write, which writes the sides of the rows it removes;
- * on the whole judge a data step, its relations closed, whose removals no capture writes (rule-whole.fixtures.ts
- * bracketOf).
+ * type 0 One type refuses it), the first the session's first transaction, then one of them dropped: on the probed judge
+ * a served write; on the whole judge a data step, its relations closed (rule-whole.fixtures.ts bracketOf), whose
+ * removals each capture logs on its side of news, each counted, which the judge its bracket runs nets away.
  */
 export interface Commits {
 	readonly judge: Judge
@@ -42,125 +40,119 @@ export const commitsGen: Gen<Commits> = (s) => ({
 })
 
 export type CommitFeature =
-	| "a whole judge's deltas"
-	| "a probed judge's deltas"
-	| "a whole judge's data step, its removals captured by none"
+	| "a whole judge's log"
+	| "a probed judge's log"
+	| "a whole judge's data step, its removals netted away"
 
-class Truncated extends Data.TaggedError("Truncated")<{ readonly message: string }> {}
+class Logged extends Data.TaggedError("Logged")<{ readonly message: string }> {}
 
-/**
- * The session's temporary tables, each by its name with its file and the bytes its heap and its TOAST table's heap hold
- * on disk.
- */
-const sessionTables = (session: RawSession) =>
-	Effect.map(
-		session.values(
-			"SELECT c.relname, pg_catalog.pg_relation_size(c.oid), COALESCE(pg_catalog.pg_relation_size(c.reltoastrelid), 0), pg_catalog.pg_relation_filenode(c.oid)::text FROM pg_catalog.pg_class AS c WHERE c.relnamespace = pg_catalog.pg_my_temp_schema() AND c.relkind = 'r' ORDER BY c.relname",
-			[]
-		),
-		(rows) =>
-			Arr.map(rows, (row) => ({
-				name: String(row[0]),
-				bytes: Number(row[1]),
-				toast: Number(row[2]),
-				filenode: String(row[3])
-			}))
-	)
+/** The installation's log of the rule judge (sql/ast.ts CreateJudgeLog): its arm and its delta log, each printed. */
+interface JudgeLog {
+	readonly arm: string
+	readonly deltas: string
+}
 
-/** A session table past the one page its emptying keeps, in its heap or its TOAST table (sql/print.ts sessionTableEmptied). */
-const outgrown = (t: { readonly bytes: number; readonly toast: number }): boolean =>
-	t.bytes > blockSize || t.toast > blockSize
-
-/**
- * The predicate locks the session's transaction holds on its temporary tables: none, since PostgreSQL takes none on a
- * relation of local buffers (REL_19_0 src/backend/storage/lmgr/predicate.c 512-516 PredicateLockingNeededForRelation),
- * so no SERIALIZABLE transaction of another session conflicts with a judge's reads of its deltas.
- */
-const predicateLocks = (session: RawSession) =>
-	Effect.map(
-		session.values(
-			"SELECT count(*) FROM pg_catalog.pg_locks AS l JOIN pg_catalog.pg_class AS c ON c.oid = l.relation WHERE l.mode = 'SIReadLock' AND l.pid = pg_catalog.pg_backend_pid() AND c.relnamespace = pg_catalog.pg_my_temp_schema()",
-			[]
-		),
-		(rows) => Number(rows[0]?.[0])
-	)
-
-/** Whether the session's table `name` is a delta of the judge (core/identity.ts ruleDelta's stem), not its sentinel. */
-const isDelta = (name: string): boolean => Str.startsWith("__delta_")(name)
-
-/**
- * That no role but the judge's definer may read the run's rows: each delta the transaction wrote, `written`, is a
- * temporary table its owner alone holds a privilege on (pg_class relacl NULL), owned by the role that owns the judge's
- * functions, which made it inside them (physical/ddl/rules.ts ensured); and no reader of the installation, the function
- * the judge's statements read a delta through, may be run by PUBLIC (physical/ddl/rules.ts readers, its EXECUTE
- * revoked).
- */
-const closed = (
-	session: RawSession,
-	installed: Installed,
-	written: ReadonlyArray<string>,
-	where: string
-) =>
+/** The judge's log `installed` creates, by its two CREATE UNLOGGED TABLEs (physical/ddl/rules.ts addRules). */
+const logOf = (installed: Installed) =>
 	Effect.gen(function* () {
-		for (const name of Arr.filter(written, isDelta)) {
-			const rows = yield* session.values(
-				`SELECT c.relacl IS NULL, pg_catalog.pg_get_userbyid(c.relowner) = (SELECT pg_catalog.pg_get_userbyid(p.proowner) FROM pg_catalog.pg_proc AS p WHERE p.proname = ${quoteString(identifierOf(identity.ruleJudge()))} LIMIT 1) FROM pg_catalog.pg_class AS c WHERE c.oid = pg_catalog.to_regclass(${quoteString(`pg_temp.${quoteIdent(name)}`)})`,
-				[]
-			)
-			const [ownerOnly, definers] = rows[0] ?? []
-			if (ownerOnly !== true || definers !== true) {
-				return yield* new Truncated({
-					message: `the delta ${name} is readable beyond the judge's definer (owner only: ${String(ownerOnly)}, the definer's: ${String(definers)}), ${where}`
-				})
-			}
-		}
-		const readers = readersOf(installed.installation)
-		const functions = Arr.flatMap(installed.installation.statements, (st) =>
-			st.kind === "createFunction" && readers.has(st.name.name) ? [st.name] : []
+		const created = Arr.flatMap(
+			installed.installation.statements,
+			(st): ReadonlyArray<CreateJudgeLog> => (st.kind === "createJudgeLog" ? [st] : [])
 		)
-		for (const fn of functions) {
-			const reader = fn.name
-			const rows = yield* session.values(
-				`SELECT pg_catalog.has_function_privilege('public', ${quoteString(`${quoteIdent(fn.schema)}.${quoteIdent(fn.name)}()`)}, 'EXECUTE')`,
-				[]
-			)
-			if (rows[0]?.[0] !== false) {
-				return yield* new Truncated({ message: `PUBLIC may run the reader ${reader}, ${where}` })
-			}
+		const [arm, ...arms] = Arr.filter(created, (st) => st.log.kind === "arm")
+		const [deltas, ...logs] = Arr.filter(created, (st) => st.log.kind === "deltas")
+		if (arm === undefined || deltas === undefined || arms.length + logs.length > 0) {
+			return yield* new Logged({
+				message: `the installation creates ${created.length} judge logs, not one arm and one delta log`
+			})
 		}
+		return {
+			arm: printObjectName(arm.table),
+			deltas: printObjectName(deltas.table)
+		} satisfies JudgeLog
 	})
 
-/** The rows the session's temporary table `name` holds. */
-const rowsIn = (session: RawSession, name: string) =>
-	Effect.map(session.values(`SELECT count(*) FROM pg_temp.${quoteIdent(name)}`, []), (rows) =>
-		Number(rows[0]?.[0])
-	)
+/** One count `sql` reads. */
+const counted = (session: RawSession, sql: string) =>
+	Effect.map(session.values(sql, []), (rows) => Number(rows[0]?.[0]))
 
-/** The session's temporary tables that hold a row, each by its name. */
-const holdingRows = (session: RawSession) =>
-	Effect.gen(function* () {
-		const holding: Array<string> = []
-		for (const t of yield* sessionTables(session)) {
-			if ((yield* rowsIn(session, t.name)) > 0) {
-				holding.push(t.name)
-			}
-		}
-		return holding
+/** The rows the transaction sees in the log's arm and in its delta log. */
+const logRows = (session: RawSession, log: JudgeLog) =>
+	Effect.all({
+		arm: counted(session, `SELECT count(*) FROM ${log.arm}`),
+		deltas: counted(session, `SELECT count(*) FROM ${log.deltas}`)
 	})
 
 /**
- * Writes the case's documents whole, one transaction each, in one session, then one of them again in a transaction it
- * rolls back, and reads what each transaction leaves of the session's temporary tables. The whole judge's drop is a
- * data step, inside its bracket: after its statements and before the bracket's checks, no session table holds a row,
- * since no capture writes a closed relation's removed rows, the bracket's re-check judging the step whole. Before each COMMIT the
- * transaction holds no predicate lock on any of them. After each COMMIT the tables the transaction wrote a row into,
- * read before it, each hold no row; each delta among them that held its one page at most before the COMMIT, its heap
- * and its TOAST table's, keeps its file, the judge having read it and deleted its rows, and one that held more has a
- * new file, empty, the judge having truncated it (sql/print.ts sessionTableEmptied), so each holds its one page at
- * most; where a TRUNCATE at every COMMIT gave each a new file, and every backend of the database walked every plan it
- * holds for the invalidations. The sentinel, whose one row the judge deletes as it starts, keeps its page, which no
- * COMMIT truncates, where ON COMMIT DELETE ROWS truncated it and every other such table the session held at every
- * COMMIT, written or not. After the rollback every table holds no row and keeps its file.
+ * The transaction's chain through the delta log: its arm row's count, and the delta rows its head reaches, each read from
+ * the one after it by its link, by tuple id, as the judge's claim reads them (physical/ddl/rules.ts claimed), counted
+ * with the distinct tuple ids among them. A delta row is insert-only until the judge claims it, so its tuple id stands
+ * for it and the chain reaches each of the transaction's rows once; a row rewritten would stand at another tuple id,
+ * and the link to it would reach none.
+ */
+const chainOf = (session: RawSession, log: JudgeLog) =>
+	Effect.map(
+		session.values(
+			`WITH RECURSIVE chain (t, prev) AS (SELECT d.ctid, d.${judgeLogColumns.prev} FROM ${log.arm} AS a JOIN ${log.deltas} AS d ON d.ctid = a.${judgeLogColumns.last} WHERE a.${judgeLogColumns.xact} = pg_catalog.pg_current_xact_id() UNION SELECT d.ctid, d.${judgeLogColumns.prev} FROM chain AS c JOIN ${log.deltas} AS d ON d.ctid = c.prev) SELECT (SELECT count(*) FROM ${log.arm} AS a WHERE a.${judgeLogColumns.xact} = pg_catalog.pg_current_xact_id()), count(*), count(DISTINCT t) FROM chain`,
+			[]
+		),
+		(rows) => ({
+			arms: Number(rows[0]?.[0]),
+			reached: Number(rows[0]?.[1]),
+			distinct: Number(rows[0]?.[2])
+		})
+	)
+
+/**
+ * The predicate locks the session's transaction holds on the log: none, since every read of it is by tuple id of the
+ * transaction's own rows (REL_19_0 src/backend/storage/lmgr/predicate.c PredicateLockTID, which returns before it locks
+ * a tuple its own transaction wrote) or an arbiter's check of a conflict, under a dirty snapshot, which takes none
+ * (SerializationNeededForRead, an MVCC snapshot's alone), so no SERIALIZABLE transaction of another session conflicts
+ * with a capture or a claim of this one's.
+ */
+const predicateLocks = (session: RawSession, log: JudgeLog) =>
+	counted(
+		session,
+		`SELECT count(*) FROM pg_catalog.pg_locks AS l WHERE l.mode = 'SIReadLock' AND l.pid = pg_catalog.pg_backend_pid() AND l.relation IN (pg_catalog.to_regclass(${quoteString(log.arm)}), pg_catalog.to_regclass(${quoteString(log.deltas)}))`
+	)
+
+/**
+ * The rows of the system catalogs the transaction inserted, updated or deleted so far (pg_stat_xact_sys_tables, its
+ * counts not yet flushed): none, since a served transaction writes no catalog, the judge's log standing since its
+ * install, where a session's first write stood up its temporary deltas, each a pg_class, pg_type, pg_attribute and
+ * pg_depend row, whose invalidations every backend of the database reads.
+ */
+const catalogWrites = (session: RawSession) =>
+	counted(
+		session,
+		"SELECT COALESCE(sum(s.n_tup_ins + s.n_tup_upd + s.n_tup_del), 0)::int8 FROM pg_catalog.pg_stat_xact_sys_tables AS s"
+	)
+
+/**
+ * The grantees of the log's tables other than their owner, and whether that owner is the judge's definer, the owner of
+ * the arm's trigger's function: none, so no role but the judge's definer reads or writes the log (pg_class relacl, or
+ * its default where none is set, acldefault, which grants a table's owner alone).
+ */
+const closed = (session: RawSession, log: JudgeLog) =>
+	Effect.map(
+		session.values(
+			`SELECT (SELECT count(*) FROM pg_catalog.pg_class AS c, pg_catalog.aclexplode(COALESCE(c.relacl, pg_catalog.acldefault('r', c.relowner))) AS g WHERE c.oid IN (pg_catalog.to_regclass(${quoteString(log.arm)}), pg_catalog.to_regclass(${quoteString(log.deltas)})) AND g.grantee <> c.relowner), (SELECT pg_catalog.bool_and(c.relowner = p.proowner) FROM pg_catalog.pg_class AS c, pg_catalog.pg_trigger AS t JOIN pg_catalog.pg_proc AS p ON p.oid = t.tgfoid WHERE t.tgrelid = pg_catalog.to_regclass(${quoteString(log.arm)}) AND c.oid IN (pg_catalog.to_regclass(${quoteString(log.arm)}), pg_catalog.to_regclass(${quoteString(log.deltas)})))`,
+			[]
+		),
+		(rows) => ({ grantees: Number(rows[0]?.[0]), definers: rows[0]?.[1] === true })
+	)
+
+/**
+ * Writes the case's documents whole, one transaction each, in one fresh session, then drops one, then writes one again
+ * in a transaction it rolls back, and reads what each leaves of the judge's log. The log is its owner's alone, the
+ * judge's definer's. A served write's captures log its rows: its transaction's one arm row, whose head reaches each of
+ * its delta rows once, by tuple id, each at the tuple id it was inserted at. The whole judge's drop is a data step,
+ * inside its bracket, whose captures log each removed row on its side of news, counted, and whose bracket's SET
+ * CONSTRAINTS ALL IMMEDIATE runs the judge, which nets them away, before its re-check judges the step whole. Once the
+ * judge has run, at SET CONSTRAINTS ALL IMMEDIATE, the log holds no row the transaction sees, its claims having deleted
+ * each delta row and the arm row; the transaction holds no predicate lock on the log after its captures or after its
+ * judge, and a served one has written no catalog row, its first included, where a session's first write stood up its
+ * deltas as temporary tables. After each COMMIT, and after the rollback, the log holds no row.
  */
 export const runCommits = (
 	installed: Installed,
@@ -170,7 +162,14 @@ export const runCommits = (
 ) =>
 	Effect.gen(function* () {
 		const tables = tablesOf(installed, k.shape)
-		c.note(k.judge === "whole" ? "a whole judge's deltas" : "a probed judge's deltas")
+		const log = yield* logOf(installed)
+		c.note(k.judge === "whole" ? "a whole judge's log" : "a probed judge's log")
+		const owned = yield* closed(session, log)
+		if (owned.grantees > 0 || !owned.definers) {
+			return yield* new Logged({
+				message: `the log is readable beyond the judge's definer (${owned.grantees} other grantees, the definer's: ${String(owned.definers)}) in ${Formatter.format(k)}`
+			})
+		}
 		const ops = [
 			...Arr.map(docs, (doc) => ({ kind: "unit", doc, type: 1 }) as const),
 			{ kind: "drop", doc: k.dropped } as const
@@ -185,76 +184,67 @@ export const runCommits = (
 			]) {
 				yield* session.query(sql, [])
 			}
+			const captured = yield* predicateLocks(session, log)
+			if (captured > 0) {
+				return yield* new Logged({
+					message: `the transaction holds ${captured} predicate locks on the log after its captures, ${where}`
+				})
+			}
 			if (Option.isSome(bracket)) {
-				const captured = yield* holdingRows(session)
-				if (captured.length > 0) {
-					return yield* new Truncated({
-						message: `a data step's removals of closed rows stand captured in ${Formatter.format(captured)}, ${where}`
-					})
-				}
 				for (const sql of bracket.value.after) {
 					yield* session.query(sql, [])
 				}
-				c.note("a whole judge's data step, its removals captured by none")
+				c.note("a whole judge's data step, its removals netted away")
+			} else {
+				yield* session.query("SET CONSTRAINTS ALL IMMEDIATE", [])
+				const judged = yield* predicateLocks(session, log)
+				if (judged > 0) {
+					return yield* new Logged({
+						message: `the transaction holds ${judged} predicate locks on the log after its judge, ${where}`
+					})
+				}
+				const written = yield* catalogWrites(session)
+				if (written > 0) {
+					return yield* new Logged({
+						message: `the served transaction wrote ${written} catalog rows, ${where}`
+					})
+				}
 			}
-			const before = yield* sessionTables(session)
-			const written = yield* holdingRows(session)
-			yield* closed(session, installed, written, where)
-			const locks = yield* predicateLocks(session)
-			if (locks > 0) {
-				return yield* new Truncated({
-					message: `the transaction holds ${locks} predicate locks on the session's tables, ${where}`
+			const left = yield* logRows(session, log)
+			if (left.arm + left.deltas > 0) {
+				return yield* new Logged({
+					message: `the judge left ${Formatter.format(left)} rows in the log, ${where}`
 				})
 			}
 			yield* session.commit
-			if (written.length === 0 && Option.isNone(bracket)) {
-				return yield* new Truncated({ message: `the served write captured no row, ${where}` })
-			}
-			const after = yield* sessionTables(session)
-			for (const t of after) {
-				const rows = yield* rowsIn(session, t.name)
-				if (rows > 0) {
-					return yield* new Truncated({
-						message: `the session's ${t.name} holds ${rows} rows after the COMMIT that wrote them, ${where}`
-					})
-				}
-			}
-			for (const t of Arr.filter(after, (t) => written.includes(t.name) && isDelta(t.name))) {
-				const was = Arr.findFirst(before, (b) => b.name === t.name)
-				if (Option.isNone(was)) {
-					return yield* new Truncated({
-						message: `the delta ${t.name} stood up at the COMMIT, ${where}`
-					})
-				}
-				const truncated = t.filenode !== was.value.filenode
-				if (truncated !== outgrown(was.value) || outgrown(t)) {
-					return yield* new Truncated({
-						message: `the COMMIT left the delta ${t.name} at ${Formatter.format(t)} from ${Formatter.format(was.value)}, where one within its page keeps its file and one past it is given a new one, each within its page after, ${where}`
-					})
-				}
-			}
-			const sentinels = Arr.filter(after, (t) => written.includes(t.name) && !isDelta(t.name))
-			if (Arr.some(sentinels, (t) => t.bytes === 0)) {
-				return yield* new Truncated({
-					message: `the COMMIT truncated the sentinel, ${Formatter.format(Arr.map(sentinels, (t) => t.name))}, ${where}`
+			const after = yield* logRows(session, log)
+			if (after.arm + after.deltas > 0) {
+				return yield* new Logged({
+					message: `the log holds ${Formatter.format(after)} rows after the COMMIT, ${where}`
 				})
 			}
 		}
-		const aborted = `a rolled-back unit of document ${k.dropped} in ${Formatter.format(k)}`
-		const standing = yield* sessionTables(session)
 		yield* session.begin
 		for (const sql of statementsOf(tables, { kind: "unit", doc: k.dropped, type: 1 })) {
 			yield* session.query(sql, [])
 		}
+		const chain = yield* chainOf(session, log)
+		const logged = yield* logRows(session, log)
+		if (
+			chain.arms !== 1 ||
+			logged.deltas === 0 ||
+			chain.reached !== logged.deltas ||
+			chain.distinct !== logged.deltas
+		) {
+			return yield* new Logged({
+				message: `the transaction's ${chain.arms} arm rows reach ${chain.reached} delta rows, ${chain.distinct} distinct, of the ${logged.deltas} it logged, a unit of document ${k.dropped} in ${Formatter.format(k)}`
+			})
+		}
 		yield* session.rollback
-		const left = yield* sessionTables(session)
-		for (const t of left) {
-			const rows = yield* rowsIn(session, t.name)
-			const was = Arr.findFirst(standing, (b) => b.name === t.name)
-			if (rows > 0 || (Option.isSome(was) && was.value.filenode !== t.filenode)) {
-				return yield* new Truncated({
-					message: `the rollback left ${t.name} with ${rows} rows at ${Formatter.format(t)} from ${Formatter.format(was)}, ${aborted}`
-				})
-			}
+		const aborted = yield* logRows(session, log)
+		if (aborted.arm + aborted.deltas > 0) {
+			return yield* new Logged({
+				message: `the log holds ${Formatter.format(aborted)} rows after a rolled-back unit of document ${k.dropped} in ${Formatter.format(k)}`
+			})
 		}
 	})

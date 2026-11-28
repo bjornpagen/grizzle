@@ -23,7 +23,6 @@ import { type Unevaluated } from "#compiler/types/schema/evaluation.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
-import { standUpJudge } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import {
 	buildPred,
@@ -421,7 +420,6 @@ export const rowEvaluatorCase = (ec: EvalCase, k: Case<Feature>) =>
 		const names = namesOf(installed)
 		const substrate = yield* Substrate
 		const session = yield* substrate.session({ ...ownerSession(), label: "row evaluator writer" })
-		yield* standUpJudge(session, installed.installation)
 		const domainOf = (domain: string) => `${quoteIdent(names.schema)}.${quoteIdent(domain)}`
 		const pattern = names.textDomain(Gen, "p")
 		const units = names.contract("Units")

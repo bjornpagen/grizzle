@@ -89,14 +89,16 @@ export const eachStoredRelationsRowsAreItsDefinitionsOverTheRowsItsReadCommitted
 		kills: [
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: "\t\t\t\t\t...judgeBorrow,\n\t\t\t\t\t...upkeep,\n",
-				replacement: "\t\t\t\t\t...upkeep,\n",
+				original: "\t\t\t\t\t...judgeBorrow,\n\t\t\t\t\t...upkeptStrata.flatMap(",
+				replacement: "\t\t\t\t\t...upkeptStrata.flatMap(",
 				why: "The judge takes no borrow, as before this property: each upkeep reads its definition at a snapshot that misses another open writer of its unit, so an answer and its key judged at once leave Matched without their row and Unkeyed with it."
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: "\t\t\t\t\t...judgeBorrow,\n\t\t\t\t\t...upkeep,\n\t\t\t\t\tconsumed,\n",
-				replacement: "\t\t\t\t\t...upkeep,\n\t\t\t\t\t...judgeBorrow,\n\t\t\t\t\tconsumed,\n",
+				original:
+					'\t\t\t\t\t...judgeBorrow,\n\t\t\t\t\t...upkeptStrata.flatMap(({ stratum }, at): ReadonlyArray<PlStatement> => {\n\t\t\t\t\t\tconst [k0, ...ks] = keptIn(stratum)\n\t\t\t\t\t\treturn [\n\t\t\t\t\t\t\t...partsRun(defined(upkeepParts[at], "a stratum\'s upkeep parts")),\n\t\t\t\t\t\t\t...(k0 === undefined\n\t\t\t\t\t\t\t\t? []\n\t\t\t\t\t\t\t\t: [\n\t\t\t\t\t\t\t\t\t\t...claimed(b.schema, log, [k0, ...ks], "again"),\n\t\t\t\t\t\t\t\t\t\t...nettingsOf(b.schema, sideOfSides([k0, ...ks]))\n\t\t\t\t\t\t\t\t\t])\n\t\t\t\t\t\t]\n\t\t\t\t\t}),\n\t\t\t\t\tarmDeleted(log),\n',
+				replacement:
+					'\t\t\t\t\t...upkeptStrata.flatMap(({ stratum }, at): ReadonlyArray<PlStatement> => {\n\t\t\t\t\t\tconst [k0, ...ks] = keptIn(stratum)\n\t\t\t\t\t\treturn [\n\t\t\t\t\t\t\t...partsRun(defined(upkeepParts[at], "a stratum\'s upkeep parts")),\n\t\t\t\t\t\t\t...(k0 === undefined\n\t\t\t\t\t\t\t\t? []\n\t\t\t\t\t\t\t\t: [\n\t\t\t\t\t\t\t\t\t\t...claimed(b.schema, log, [k0, ...ks], "again"),\n\t\t\t\t\t\t\t\t\t\t...nettingsOf(b.schema, sideOfSides([k0, ...ks]))\n\t\t\t\t\t\t\t\t\t])\n\t\t\t\t\t\t]\n\t\t\t\t\t}),\n\t\t\t\t\t...judgeBorrow,\n\t\t\t\t\tarmDeleted(log),\n',
 				why: "The borrow is taken after phase A, once every upkeep has read its definition: the lock orders the commits but not the reads, so an upkeep still keeps its unit at a snapshot that missed the other writer's rows."
 			},
 			{

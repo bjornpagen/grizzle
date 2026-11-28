@@ -18,6 +18,7 @@ import type {
 	CreateDomain,
 	CreateExtension,
 	CreateFunction,
+	CreateJudgeLog,
 	CreateIndex,
 	Cte,
 	CteBody,
@@ -332,11 +333,6 @@ export class Transform {
 					others.every((x, i) => x === rest[i])
 					? e
 					: { ...e, expr, list: [one, two, ...others] }
-			}
-			case "inQuery": {
-				const expr = this.expr(e.expr)
-				const query = this.select(e.query)
-				return expr === e.expr && query === e.query ? e : { ...e, expr, query }
 			}
 			case "exists":
 			case "subquery": {
@@ -1207,16 +1203,9 @@ export class Transform {
 				const query = this.select(s.query)
 				return query === s.query ? s : { ...s, query }
 			}
-			case "createSessionTable": {
-				const columns = mapList(s.columns, (c) => this.columnDefinition(c))
-				return columns === s.columns ? s : { ...s, columns }
-			}
-			case "createSessionIndex":
-			case "truncateSessionTable":
-				return s
-			case "createSessionTrigger": {
-				const fn = this.name(s.function, "function")
-				return fn === s.function ? s : { ...s, function: fn }
+			case "into": {
+				const statement = this.intoStatement(s.statement)
+				return statement === s.statement ? s : { ...s, statement }
 			}
 			case "whenFound": {
 				const query = this.select(s.query)
@@ -1244,6 +1233,33 @@ export class Transform {
 	}
 
 	/** A PL/pgSQL statement's data-modifying statement, of the kind it was. */
+	/** The rule judge's delta log's sides (CreateJudgeLog `deltas`), each side's row type by its name. */
+	judgeDeltas(
+		log: Extract<CreateJudgeLog["log"], { readonly kind: "deltas" }>
+	): Extract<CreateJudgeLog["log"], { readonly kind: "deltas" }> {
+		const sides = mapNonEmptyKept(log.sides, (side) => {
+			const type = this.name(side.type, "type")
+			return type === side.type ? side : { ...side, type }
+		})
+		return sides === log.sides ? log : { ...log, sides }
+	}
+
+	/** The statement of a PL/pgSQL INTO (PlStatement `into`), each kind by its own transform. */
+	intoStatement(
+		s: OperandSelect | Insert | Update | Delete
+	): OperandSelect | Insert | Update | Delete {
+		switch (s.kind) {
+			case "select":
+				return this.select(s)
+			case "insert":
+				return this.insert(s)
+			case "update":
+				return this.update(s)
+			case "delete":
+				return this.delete(s)
+		}
+	}
+
 	modified(s: Insert | Update | Delete | Merge): Insert | Update | Delete | Merge {
 		switch (s.kind) {
 			case "insert":
@@ -1477,6 +1493,11 @@ export class Transform {
 				const fn = this.name(s.function, "function")
 				return table === s.table && fn === s.function ? s : { ...s, table, function: fn }
 			}
+			case "createJudgeLog": {
+				const table = this.name(s.table, "relation")
+				const log = s.log.kind === "arm" ? s.log : this.judgeDeltas(s.log)
+				return table === s.table && log === s.log ? s : { ...s, table, log }
+			}
 			case "createPublication": {
 				const tables = mapList(s.tables, (p) => {
 					const table = this.name(p.table, "relation")
@@ -1588,6 +1609,7 @@ export class Transform {
 			case "createGuardTrigger":
 			case "createImmutableGuardTrigger":
 			case "createConstraintTrigger":
+			case "createJudgeLog":
 			case "createTransitionTrigger":
 			case "createPublication":
 			case "dropPublication":
@@ -2342,23 +2364,6 @@ class Visit {
 						}
 					],
 					["list", this.exprs(e.list)]
-				])
-				return
-			}
-			case "inQuery": {
-				inKeyOrder(keys, [
-					[
-						"expr",
-						() => {
-							this.expr(e.expr)
-						}
-					],
-					[
-						"query",
-						() => {
-							this.#subquery(e.query)
-						}
-					]
 				])
 				return
 			}

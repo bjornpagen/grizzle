@@ -17,8 +17,7 @@ import {
 	judgedPlans,
 	judgedStatementsOf,
 	scannedRowsOf,
-	scannedTableOf,
-	standUpJudge
+	scannedTableOf
 } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -144,7 +143,6 @@ export const runConcatProbe = (
 	c: Case<ConcatProbeFeature>
 ) =>
 	Effect.gen(function* () {
-		yield* standUpJudge(connection, installed.installation)
 		const names = namesOf(installed)
 		const ref = names.table(Ref)
 		const variable = names.table(Var)
@@ -167,7 +165,7 @@ export const runConcatProbe = (
 		const most = Number(bounds?.[0])
 		/** The judged queries over the deltas the write stood up, each explained before the judge runs: those it runs. */
 		const judged = yield* judgedPlans(
-			(sql) => connection.queryValues(sql, []),
+			(sql, params) => connection.queryValues(sql, params),
 			installed.installation,
 			judgedStatementsOf(installed.installation)
 		)

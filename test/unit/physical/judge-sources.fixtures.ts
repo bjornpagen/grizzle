@@ -23,7 +23,6 @@ import {
 	type Expr,
 	type FromItem,
 	type FromSource,
-	functionColumnNames,
 	type OperandSelect,
 	type PlStatement,
 	readConditions,
@@ -31,7 +30,7 @@ import {
 } from "#compiler/sql/ast.ts"
 import { inertVisitor, visitExpr, visitSelect } from "#compiler/sql/transform.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { judgedDeltaReadsOf } from "#test/support/judge.ts"
+import { arrayReadOf, type JudgeFunction, judgedDeltaReadsOf } from "#test/support/judge.ts"
 import { owning } from "#test/support/policy.ts"
 
 /** A rule's law over D: a containment of S into it, a check over its facts, or a key over a projection of them. */
@@ -136,16 +135,16 @@ const readFields = (shape: Shape): { readonly [K in Table]: ReadonlySet<string> 
 const tableNamed = (name: string): Table | undefined =>
 	Option.getOrUndefined(Arr.findFirst(tables, (t) => t === name))
 
-/** A table a scan reads: a stored table of the installation, or a session's delta of one. */
+/** A table a scan reads: a stored table of the installation, or a delta of one, an array of its rows. */
 interface Scanned {
 	readonly kind: "stored" | "delta"
 	readonly table: Table
 }
 
-/** The prefixes of a session's delta's table, one per side, before its relation's name and its digest. */
+/** The prefixes of a delta's name, one per side, before its relation's name and its digest. */
 const deltaPrefixes = ["__delta_news_", "__delta_olds_"] as const
 
-/** The relation a session's delta holds a side of, by its CTE's name: what lies between its prefix and its digest. */
+/** The relation a delta holds a side of, by its name: what lies between its prefix and its digest. */
 const deltaOf = (name: string): Table | undefined => {
 	const prefix = Option.getOrUndefined(Arr.findFirst(deltaPrefixes, (p) => Str.startsWith(p)(name)))
 	if (prefix === undefined) {
@@ -159,72 +158,30 @@ const deltaOf = (name: string): Table | undefined => {
 	)
 }
 
-/** A delta's reader (physical/ddl/rules.ts readers): the delta it reads, and the columns it returns, in order. */
-interface Reader {
-	readonly delta: string
-	readonly columns: ReadonlyArray<string>
-}
-
-/** Each delta's reader in `installation`, by its function's name: a PL/pgSQL function whose one statement returns the
- * columns of one table of pg_temp, the delta, read as the binding reads a stored table (sql/ast.ts FromSource `read`). */
-const readersIn = (installation: Installation): ReadonlyMap<string, Reader> =>
-	new Map(
-		Arr.flatMap(installation.statements, (s): ReadonlyArray<readonly [string, Reader]> => {
-			if (s.kind !== "createFunction" || s.language !== "plpgsql") {
-				return []
-			}
-			const [only, ...rest] = s.body.body
-			if (only.kind !== "returnQuery" || rest.length > 0 || only.query.body.kind !== "core") {
-				return []
-			}
-			const [from, ...more] = only.query.body.from
-			if (from?.kind !== "read" || more.length > 0) {
-				return []
-			}
-			const columns = Arr.flatMap(only.query.body.targets, (t) =>
-				t.expr.kind === "column" ? [t.expr.column] : []
-			)
-			return [[s.name.name, { delta: from.table.name, columns }]]
-		})
-	)
-
-/** A read of a delta's reader a judged statement holds (physical/ddl/deltas.ts headed): the call where the statement
- * reads it once, or the CTE over the call it reads twice or more through; the delta's table, and each of the read's
- * columns' column of the delta. */
+/** A read of a delta's array a judged statement holds (physical/ddl/deltas.ts headed): the FROM item that unnests an
+ * argument of its block, the delta's rows or a selection of them, or a CTE over one; the delta's table, and each of the
+ * read's columns' column of the delta. */
 interface Head {
 	readonly table: Table
 	readonly columnOf: ReadonlyMap<string, string>
 }
 
-/** `source` as a call of a delta's reader (`Head`), none where it calls none. */
-const calledHead = (
-	source: FromSource | undefined,
-	columns: ReadonlyArray<string>,
-	readers: ReadonlyMap<string, Reader>
-): Head | undefined => {
-	const reader =
-		source?.kind === "function" && source.call.fn.kind === "qualified"
-			? readers.get(source.call.fn.name)
-			: undefined
-	const table = reader === undefined ? undefined : deltaOf(reader.delta)
-	return reader === undefined || table === undefined
-		? undefined
-		: {
-				table,
-				columnOf: new Map(
-					Arr.flatMap(columns, (c, at) => {
-						const column = reader.columns[at]
-						return column === undefined ? [] : [[c, column] as const]
-					})
-				)
-			}
-}
+/** The reads of a delta's array the statements of `routine` make (support/judge.ts arrayReadOf). */
+type ArrayReads = (source: FromSource | undefined) => Head | undefined
 
-/** Each CTE of `statement` that reads a delta's reader, by its name (`Head`). */
-const headsOf = (
-	statement: OperandSelect,
-	readers: ReadonlyMap<string, Reader>
-): ReadonlyMap<string, Head> => {
+/** `installation`'s reads of a delta's array in `routine` (`ArrayReads`), each as its delta's table's (`deltaOf`). */
+const arrayReadsIn =
+	(installation: Installation, routine: JudgeFunction): ArrayReads =>
+	(source) => {
+		const read = source === undefined ? undefined : arrayReadOf(installation, routine, source)
+		const table = read === undefined ? undefined : deltaOf(read.delta)
+		return read === undefined || table === undefined
+			? undefined
+			: { table, columnOf: read.columnOf }
+	}
+
+/** Each CTE of `statement` that reads a delta's array, by its name (`Head`). */
+const headsOf = (statement: OperandSelect, arrays: ArrayReads): ReadonlyMap<string, Head> => {
 	const heads = new Map<string, Head>()
 	visitSelect(statement, {
 		...inertVisitor,
@@ -235,9 +192,19 @@ const headsOf = (
 					continue
 				}
 				const [from] = body.body.from
-				const head = from?.kind === "joins" ? undefined : calledHead(from, cteColumns(cte), readers)
+				const head = from?.kind === "joins" ? undefined : arrays(from)
 				if (head !== undefined) {
-					heads.set(cte.name, head)
+					heads.set(cte.name, {
+						table: head.table,
+						columnOf: new Map(
+							Arr.flatMap(cteColumns(cte), (c, at) => {
+								const target = body.body.kind === "core" ? body.body.targets[at] : undefined
+								const column =
+									target?.expr.kind === "column" ? head.columnOf.get(target.expr.column) : undefined
+								return column === undefined ? [] : [[c, column] as const]
+							})
+						)
+					})
 				}
 			}
 		}
@@ -247,20 +214,20 @@ const headsOf = (
 
 /**
  * The table a FROM source reads, where it reads one of the installation's, bound as every stored read of a statement the
- * judge sends is (sql/ast.ts FromSource `read`), or a session's delta of one, which a judged statement reads through a
- * call of its reader or a CTE over one (`heads`).
+ * judge sends is (sql/ast.ts FromSource `read`), or a delta of one, which a judged statement reads as an unnest of an
+ * argument of its block or a CTE over one (`heads`).
  */
 const scannedBy = (
 	source: FromSource,
 	heads: ReadonlyMap<string, Head>,
-	readers: ReadonlyMap<string, Reader>
+	arrays: ArrayReads
 ): Scanned | undefined => {
 	if (source.kind === "cte") {
 		const head = heads.get(source.name)
 		return head === undefined ? undefined : { kind: "delta", table: head.table }
 	}
 	if (source.kind === "function") {
-		const head = calledHead(source, functionColumnNames(source.columns), readers)
+		const head = arrays(source)
 		return head === undefined ? undefined : { kind: "delta", table: head.table }
 	}
 	if (source.kind !== "read" && source.kind !== "probe") {
@@ -333,12 +300,12 @@ interface Scan {
 const scansOf = (
 	statement: OperandSelect,
 	heads: ReadonlyMap<string, Head>,
-	readers: ReadonlyMap<string, Reader>
+	arrays: ArrayReads
 ): ReadonlyArray<Scan> => {
 	const scans: Array<Scan> = []
 	const source = (item: FromSource): void => {
 		if (item.kind === "probe") {
-			const scanned = scannedBy(item, heads, readers)
+			const scanned = scannedBy(item, heads, arrays)
 			if (scanned !== undefined) {
 				scans.push({
 					scanned,
@@ -362,7 +329,7 @@ const scansOf = (
 		) {
 			return
 		}
-		const scanned = scannedBy(from, heads, readers)
+		const scanned = scannedBy(from, heads, arrays)
 		if (scanned === undefined) {
 			return
 		}
@@ -371,7 +338,7 @@ const scansOf = (
 			from.kind === "cte"
 				? heads.get(from.name)?.columnOf
 				: from.kind === "function"
-					? calledHead(from, functionColumnNames(from.columns), readers)?.columnOf
+					? arrays(from)?.columnOf
 					: undefined
 		const outputs = selectColumns(item.query)
 		const conditions = [...readConditions(from), ...conjunctsIn(item.query.body.where)]
@@ -495,29 +462,21 @@ export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 	const owned = owning(schemaOf(shape))
 	const installation = succeeded(compileInstallation(owned, installOptions(owned)))
 	const read = readFields(shape)
-	const readers = readersIn(installation)
-	for (const [name, reader] of readers) {
-		const table = deltaOf(reader.delta)
-		for (const column of table === undefined ? [] : reader.columns) {
-			assert.ok(
-				table !== undefined && read[table].has(column),
-				`the reader ${name} returns ${column} of ${table ?? reader.delta}'s delta, a field its rule binds`
-			)
-		}
-	}
 	const advices = advicesIn(installation)
 	for (const { routine, statement: judgedStatement } of judgedDeltaReadsOf(installation)) {
 		const statement = judgedStatement.query
 		note(shape.judge === "whole" ? "a whole rule's statement" : "a probe's statement")
 		const references = referencesOf(statement)
-		const advice = defined(advices.get(routine.name), `the advice of ${routine.name}`)
-		for (const scan of scansOf(statement, headsOf(statement, readers), readers)) {
+		const name = routine.fn.name
+		const advice = defined(advices.get(name), `the advice of ${name}`)
+		const arrays = arrayReadsIn(installation, routine)
+		for (const scan of scansOf(statement, headsOf(statement, arrays), arrays)) {
 			const { kind, table } = scan.scanned
 			if (scan.existence !== undefined) {
 				const target = scan.existence
 				assert.ok(
 					Str.includes(`INDEX_ONLY_SCAN(${target} `)(advice),
-					`the existence read ${target} of ${table} is advised an index-only scan in ${routine.name}: ${advice}`
+					`the existence read ${target} of ${table} is advised an index-only scan in ${name}: ${advice}`
 				)
 				note("an existence read index-only")
 			}
@@ -702,8 +661,9 @@ const valueReadsOf = (query: OperandSelect): ReadonlyArray<ValueRead> => {
 	return reads
 }
 
-/** The relations whose deltas a guard reads, by the readers it calls (physical/ddl/rules.ts readers): a probe's guard
- * reads a written relation's, a dispatcher's test none. */
+/** The relations whose deltas a guard reads, by the arguments of its block it unnests, a delta's array or a selection
+ * of it, named by its relation (physical/ddl/deltas.ts headed): a probe's guard reads a written relation's, a
+ * dispatcher's test none. */
 const deltasRead = (query: OperandSelect): ReadonlySet<string> => {
 	const read = new Set<string>()
 	visitSelect(query, {
@@ -712,9 +672,10 @@ const deltasRead = (query: OperandSelect): ReadonlySet<string> => {
 			const sources =
 				item.kind === "joins" ? [item.first, ...Arr.map(item.steps, (st) => st.source)] : [item]
 			for (const source of sources) {
-				if (source.kind === "function" && source.call.fn.kind === "qualified") {
+				const [array] = source.kind === "function" ? source.call.args : []
+				if (array?.kind === "plVar") {
 					for (const relation of ["bound", "node"]) {
-						if (Str.includes(`_${relation}_`)(source.call.fn.name)) {
+						if (Str.includes(`_${relation}_`)(array.name)) {
 							read.add(relation)
 						}
 					}
