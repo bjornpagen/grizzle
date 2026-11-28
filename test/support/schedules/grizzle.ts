@@ -38,7 +38,7 @@ export const untilAnswered = <A, R>(
 				return { refused, answered: result.success }
 			}
 			const error = result.failure
-			if (error.kind !== "transient") {
+			if (error._tag !== "transient") {
 				return yield* Effect.fail(error)
 			}
 			refused.push(error.reason)

@@ -438,7 +438,7 @@ export const aRoleWithAScopeReadsAndWritesItsWorldEveryLawOverEveryRow = propert
 									const answered = yield* Effect.result(call)
 									if (Result.isFailure(answered)) {
 										return assert.fail(
-											`the ${write.kind} failed with ${answered.failure.kind}: ${answered.failure.message}`
+											`the ${write.kind} failed with ${answered.failure._tag}: ${answered.failure.message}`
 										)
 									}
 									const answer = answered.success
@@ -447,7 +447,7 @@ export const aRoleWithAScopeReadsAndWritesItsWorldEveryLawOverEveryRow = propert
 									const after = yield* tables
 									switch (expected.kind) {
 										case "accepted":
-											assert.equal(answer.kind, "accepted", `the ${write.kind} is accepted`)
+											assert.equal(answer._tag, "accepted", `the ${write.kind} is accepted`)
 											assert.deepEqual(
 												after,
 												tablesOf(expected.after, code),
@@ -473,12 +473,12 @@ export const aRoleWithAScopeReadsAndWritesItsWorldEveryLawOverEveryRow = propert
 											}
 											break
 										case "unchanged":
-											assert.equal(answer.kind, "unchanged", `the ${write.kind} changes nothing`)
+											assert.equal(answer._tag, "unchanged", `the ${write.kind} changes nothing`)
 											assert.deepEqual(after, before, "the state after an unchanged write")
 											break
 										case "outsideWorld":
 											assert.equal(
-												answer.kind,
+												answer._tag,
 												"outsideWorld",
 												`the ${write.kind} is outside the world`
 											)
@@ -487,15 +487,15 @@ export const aRoleWithAScopeReadsAndWritesItsWorldEveryLawOverEveryRow = propert
 											break
 										case "either":
 											assert.ok(
-												answer.kind === "outsideWorld" || answer.kind === "refused",
-												`the ${write.kind}, outside the world and breaking a law, is either; it answered ${answer.kind}`
+												answer._tag === "outsideWorld" || answer._tag === "refused",
+												`the ${write.kind}, outside the world and breaking a law, is either; it answered ${answer._tag}`
 											)
 											assert.deepEqual(after, before, "a refused write stores nothing")
 											break
 										case "refused": {
-											if (answer.kind !== "refused") {
+											if (answer._tag !== "refused") {
 												return assert.fail(
-													`the ${write.kind} is refused on ${expected.relation.name}; it answered ${answer.kind}`
+													`the ${write.kind} is refused on ${expected.relation.name}; it answered ${answer._tag}`
 												)
 											}
 											if (expected.law !== "other") {

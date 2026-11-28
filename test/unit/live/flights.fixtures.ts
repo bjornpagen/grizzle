@@ -189,7 +189,7 @@ export const silent: ChangeSource = { open: () => Effect.void }
 
 /** One event of an answer as the properties read it: its kind, and an error event's CallError. */
 interface Answered {
-	readonly kind: string
+	readonly _tag: string
 	readonly error: CallError | undefined
 }
 
@@ -201,21 +201,21 @@ export const answerOf = (
 	calls: ServedCalls,
 	input: unknown
 ): Effect.Effect<ReadonlyArray<Answered>> => {
-	const read = <E extends { readonly kind: string }>(
+	const read = <E extends { readonly _tag: string }>(
 		events: Stream.Stream<E>,
 		errorOf: (event: E) => CallError | undefined
 	) =>
 		Effect.map(
-			Stream.runCollect(Stream.takeUntil(events, (e) => e.kind === "ready" || e.kind === "end")),
-			(all) => Arr.map(all, (e): Answered => ({ kind: e.kind, error: errorOf(e) }))
+			Stream.runCollect(Stream.takeUntil(events, (e) => e._tag === "ready" || e._tag === "end")),
+			(all) => Arr.map(all, (e): Answered => ({ _tag: e._tag, error: errorOf(e) }))
 		)
 	switch (calls.shape) {
 		case "list":
-			return read(calls.watch(input), (e) => (e.kind === "error" ? e.error : undefined))
+			return read(calls.watch(input), (e) => (e._tag === "error" ? e.error : undefined))
 		case "answeredList":
-			return read(calls.answer(input), (e) => (e.kind === "error" ? e.error : undefined))
+			return read(calls.answer(input), (e) => (e._tag === "error" ? e.error : undefined))
 		case "write":
-			return read(calls.watch(input), (e) => (e.kind === "error" ? e.error : undefined))
+			return read(calls.watch(input), (e) => (e._tag === "error" ? e.error : undefined))
 	}
 }
 

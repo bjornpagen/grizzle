@@ -113,7 +113,7 @@ export const concatFoldsCarriedByTheirDigestsStoreTheREADMEsFoldOfTextsPastTheBT
 								})
 							)
 							assert.ok(
-								docs.kind === "accepted",
+								docs._tag === "accepted",
 								`the documents are accepted, not ${Formatter.format(docs)}`
 							)
 							if (Arr.isReadonlyArrayNonEmpty(sketch.trees)) {
@@ -124,7 +124,7 @@ export const concatFoldsCarriedByTheirDigestsStoreTheREADMEsFoldOfTextsPastTheBT
 									})
 								)
 								assert.ok(
-									trees.kind === "accepted",
+									trees._tag === "accepted",
 									`the trees are accepted, not ${Formatter.format(trees)}`
 								)
 							}

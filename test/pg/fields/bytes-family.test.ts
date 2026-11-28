@@ -77,7 +77,7 @@ export const aFamilysBytesMembersReadTheirStoredSuffixInChunksAndWriteEachRePlac
 											facts: { insert: { Owner: [{ id: owner, badge, members }] } }
 										})
 									)
-									assert.equal(inserted.kind, "accepted", "the owner and its members are written")
+									assert.equal(inserted._tag, "accepted", "the owner and its members are written")
 									const owners = yield* rowsOf(db.workload.owners.once({ params: {}, facts: {} }))
 									assert.ok(
 										owners.length === 1 && sameBytes(defined(owners[0], "the owner").badge, badge),
@@ -111,7 +111,7 @@ export const aFamilysBytesMembersReadTheirStoredSuffixInChunksAndWriteEachRePlac
 											facts: { delete: { Member: [{ id: cut.id, owner, body: cut.body }] } }
 										})
 									)
-									assert.equal(deleted.kind, "accepted", "the member is deleted")
+									assert.equal(deleted._tag, "accepted", "the member is deleted")
 									yield* readBack(Arr.filter(members, (m) => m.id !== cut.id))
 								}).pipe(
 									(body) =>

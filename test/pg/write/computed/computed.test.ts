@@ -194,8 +194,8 @@ export const everyRowOfACallHoldsItsOneValueOfEachComputedFieldTheOwnerAndEveryM
 									)
 									return
 								}
-								if (answer.kind !== "accepted") {
-									return assert.fail(`the call is accepted, not ${answer.kind}`)
+								if (answer._tag !== "accepted") {
+									return assert.fail(`the call is accepted, not ${answer._tag}`)
 								}
 								const read = answer.reads.reading
 								assert.equal(read.length, 1, "the call reads its reading back once")
@@ -347,12 +347,12 @@ export const anInsertComputingAKeyFieldIsJudgedAtTheKeyAsTheTableHoldsTheRowsItW
 									const what = `call ${i} at t ${call.t} of ${Formatter.format(call.rows)} on ${Formatter.format(stored)}`
 									if (expected.kind === "refused") {
 										assert.ok(
-											answer.kind === "refused" &&
+											answer._tag === "refused" &&
 												Arr.every(refusedLaws(answer.refused), (l) => l.kind === "primaryKey"),
 											`${what}: refused at Slot's primary key, not ${Formatter.format(answer)}`
 										)
 									} else {
-										assert.equal(answer.kind, expected.kind, `${what}: ${Formatter.format(answer)}`)
+										assert.equal(answer._tag, expected.kind, `${what}: ${Formatter.format(answer)}`)
 										stored = Arr.sort([...stored, ...expected.added], bySlotKey)
 									}
 									const held = yield* slotRows

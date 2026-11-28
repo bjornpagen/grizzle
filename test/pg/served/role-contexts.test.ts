@@ -96,12 +96,12 @@ export const aFullRolesDeclaredContextsAreWhatItsServedDbDecodesFromTheTokenSoAP
 									)
 									const act = yield* writeAnswerOf(db.workload.actedAs.once({ params, facts: {} }))
 									assert.equal(
-										start.kind,
+										start._tag,
 										answer.started.length > 0 ? "accepted" : "unchanged",
 										"the start's outcome"
 									)
 									assert.equal(
-										act.kind,
+										act._tag,
 										answer.acted.length > 0 ? "accepted" : "unchanged",
 										"the act's outcome"
 									)

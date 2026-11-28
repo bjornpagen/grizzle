@@ -96,7 +96,7 @@ export const carriesEveryTextAWritesSlotsOrAReadsRelationParameterHoldToPostgreS
 									const inserted = yield* writeAnswerOf(
 										db.workload.insertNote.once({ params: {}, facts: { insert: { Note: rows } } })
 									)
-									assert.equal(inserted.kind, "accepted", "the insert is accepted")
+									assert.equal(inserted._tag, "accepted", "the insert is accepted")
 									const afterInsert = yield* bodies
 									const insertedLiteral = yield* literal(texts)
 									assert.deepEqual(afterInsert, insertedLiteral, "the inserted texts read back")
@@ -105,8 +105,8 @@ export const carriesEveryTextAWritesSlotsOrAReadsRelationParameterHoldToPostgreS
 										db.workload.putNote.once({ params: {}, facts: { put: { Note: put } } })
 									)
 									assert.ok(
-										putOutcome.kind === "accepted" || putOutcome.kind === "unchanged",
-										`the put is lawful, not ${putOutcome.kind}`
+										putOutcome._tag === "accepted" || putOutcome._tag === "unchanged",
+										`the put is lawful, not ${putOutcome._tag}`
 									)
 									const afterPut = yield* bodies
 									const putLiteral = yield* literal(Arr.map(put, (row) => row.body))
@@ -120,8 +120,8 @@ export const carriesEveryTextAWritesSlotsOrAReadsRelationParameterHoldToPostgreS
 										})
 									)
 									assert.ok(
-										deletedOutcome.kind === "accepted" || deletedOutcome.kind === "unchanged",
-										`the delete is lawful, not ${deletedOutcome.kind}`
+										deletedOutcome._tag === "accepted" || deletedOutcome._tag === "unchanged",
+										`the delete is lawful, not ${deletedOutcome._tag}`
 									)
 									const afterDelete = yield* bodies
 									const keptLiteral = yield* literal(Arr.map(kept, (row) => row.body))
@@ -145,7 +145,7 @@ export const carriesEveryTextAWritesSlotsOrAReadsRelationParameterHoldToPostgreS
 										db.workload.answer.once({ params: { responses }, facts: {} })
 									)
 									assert.equal(
-										answeredOutcome.kind,
+										answeredOutcome._tag,
 										"accepted",
 										"the write from a relation parameter is accepted"
 									)

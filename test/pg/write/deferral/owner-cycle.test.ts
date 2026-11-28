@@ -168,8 +168,8 @@ export const aLawsKeyOnACycleWithAFamilysOwnerAxisIsDeferredSoEveryLawfulWriteOf
 									)
 									const label = `${Formatter.format(c)}, step ${String(i)}`
 									if (Arr.isReadonlyArrayNonEmpty(broken)) {
-										assert.equal(outcome.kind, "refused", label)
-										if (outcome.kind === "refused") {
+										assert.equal(outcome._tag, "refused", label)
+										if (outcome._tag === "refused") {
 											const laws = Arr.map(broken, lawOf)
 											assert.ok(
 												Arr.some(refusedEntries(outcome.refused), (law) =>
@@ -186,7 +186,7 @@ export const aLawsKeyOnACycleWithAFamilysOwnerAxisIsDeferredSoEveryLawfulWriteOf
 										step.state.members.length +
 										step.state.referrers.length
 									assert.equal(
-										outcome.kind,
+										outcome._tag,
 										step.state.owners === stored && next === size ? "unchanged" : "accepted",
 										label
 									)

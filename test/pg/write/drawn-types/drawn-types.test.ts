@@ -104,7 +104,7 @@ const answerOfCall = (
 	)
 
 /** Whether a call's failure is its input's refusal, before any statement. */
-const isInput = (error: CallError): error is CallErrorOf<"input"> => error.kind === "input"
+const isInput = (error: CallError): error is CallErrorOf<"input"> => error._tag === "input"
 
 /** The read-back of a kind's call: each issued number as the query decodes it, and whether a test holds it. */
 type Issued = {
@@ -112,7 +112,7 @@ type Issued = {
 }
 
 const answerOf = (answer: WriteAnswer<WriteOutcome<Issued>>): Answer => {
-	switch (answer.kind) {
+	switch (answer._tag) {
 		case "accepted":
 			return {
 				kind: "accepted",
@@ -427,7 +427,7 @@ export const aPutThatMovesMembersIntoAGroupPastItsCarriersBoundIsRefusedOnTheDra
 										}
 									})
 								)
-								assert.equal(inserted.kind, "accepted", "the two groups are inserted fresh")
+								assert.equal(inserted._tag, "accepted", "the two groups are inserted fresh")
 								const before = yield* stored
 								assert.deepEqual(
 									before,
@@ -452,11 +452,11 @@ export const aPutThatMovesMembersIntoAGroupPastItsCarriersBoundIsRefusedOnTheDra
 								if (count > kinds.Tall.carrier) {
 									k.note("a group drawn past its carrier's bound, refused")
 									assert.equal(
-										answer.kind,
+										answer._tag,
 										"refused",
 										`a move into a group of ${move.full} past ${kinds.Tall.carrier} is refused, not ${Formatter.format(answer)}`
 									)
-									if (answer.kind === "refused") {
+									if (answer._tag === "refused") {
 										assert.ok(
 											Arr.some(
 												refusedEntries(answer.refused),
@@ -470,7 +470,7 @@ export const aPutThatMovesMembersIntoAGroupPastItsCarriersBoundIsRefusedOnTheDra
 								}
 								k.note("a group drawn to its carrier's bound")
 								assert.equal(
-									answer.kind,
+									answer._tag,
 									"accepted",
 									`a move into a group of ${move.full} to ${count} is accepted, not ${Formatter.format(answer)}`
 								)

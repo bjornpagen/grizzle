@@ -170,22 +170,22 @@ export const theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRo
 								)
 								if (Result.isFailure(applied)) {
 									return assert.fail(
-										`${label} failed with ${applied.failure.kind}: ${applied.failure.message}`
+										`${label} failed with ${applied.failure._tag}: ${applied.failure.message}`
 									)
 								}
 								const outcome = applied.success
 								switch (expected.kind) {
 									case "uncompiled":
 										return assert.fail(
-											`${label}: ${outcome.kind}, where the reference finds it refused when it compiles: ${Formatter.format(expected)}`
+											`${label}: ${outcome._tag}, where the reference finds it refused when it compiles: ${Formatter.format(expected)}`
 										)
 									case "refused": {
 										assert.equal(
-											outcome.kind,
+											outcome._tag,
 											"refused",
 											`${label}: the laws ${Formatter.format([...expected.laws])} are broken`
 										)
-										if (outcome.kind !== "refused") {
+										if (outcome._tag !== "refused") {
 											return
 										}
 										const named = Arr.map(refusedEntries(outcome.refused), (law): LawId =>
@@ -209,7 +209,7 @@ export const theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRo
 										return
 									}
 									case "written": {
-										assert.equal(outcome.kind, expected.changed ? "accepted" : "unchanged", label)
+										assert.equal(outcome._tag, expected.changed ? "accepted" : "unchanged", label)
 										yield* storesExactly(done, spec, built, expected.next, label)
 										c.noteAll(stepShapes(spec, state, step, expected))
 										state = expected.next

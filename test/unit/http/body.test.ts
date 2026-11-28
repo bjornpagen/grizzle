@@ -79,7 +79,7 @@ export const anHTTPCallsBodyIsReadExactlyWhenItsBytesAreUTF8SpellingJSONAsWritte
 						assert.deepEqual(
 							{
 								value: Exit.isSuccess(read) ? Option.some(read.value) : Option.none(),
-								refused: Option.map(Exit.findErrorOption(read), (e): string => e.kind)
+								refused: Option.map(Exit.findErrorOption(read), (e): string => e._tag)
 							},
 							Option.match(expected, {
 								onNone: () => ({ value: Option.none(), refused: Option.some("input") }),

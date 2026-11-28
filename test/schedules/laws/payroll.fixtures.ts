@@ -59,7 +59,7 @@ export type LeaveFeature =
 	| "the insert waited"
 	| "the insert refused"
 	| `refused: ${TransientTag}`
-	| `the insert answered ${WriteAnswer<WriteOutcome<unknown>>["kind"]}`
+	| `the insert answered ${WriteAnswer<WriteOutcome<unknown>>["_tag"]}`
 	| `the writer ${"committed" | "rolled back" | "aborted" | "failed"}`
 
 const reasons = ["vacation", "sick", "unpaid"] as const
@@ -136,7 +136,7 @@ const featuresOf = (
 			switch (end.kind) {
 				case "answered":
 					return [
-						`the insert answered ${end.retried.answered.kind}`,
+						`the insert answered ${end.retried.answered._tag}`,
 						...(end.retried.refused.length > 0 ? ["the insert refused" as const] : []),
 						...Arr.map(end.retried.refused, (reason): LeaveFeature => `refused: ${reason}`)
 					]

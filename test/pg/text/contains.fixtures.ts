@@ -285,7 +285,7 @@ export const searchCaseRun =
 						facts: { insert: { Staff: Arr.map(k.names, (name, at) => ({ at: BigInt(at), name })) } }
 					})
 				)
-				assert.equal(written.kind, "accepted", "the staff are written")
+				assert.equal(written._tag, "accepted", "the staff are written")
 				for (const term of k.terms) {
 					const shown = Formatter.format({ names: k.names, term })
 					const search = yield* rowsOf(db.workload.search.once({ params: { term }, facts: {} }))

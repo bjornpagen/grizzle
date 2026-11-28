@@ -207,7 +207,7 @@ export const runVisits = (taken: SubstrateCase<Generated>, visits: Visits, c: Ca
 									facts: { put: { Note: [{ id: i + 1, n: round }] } }
 								})
 							)
-							assert.equal(outcome.kind, "accepted", `request ${i} of burst ${round}'s put`)
+							assert.equal(outcome._tag, "accepted", `request ${i} of burst ${round}'s put`)
 							return
 						}
 						case "read":
@@ -449,7 +449,7 @@ export const runReap = (taken: SubstrateCase<Generated>, program: Program, c: Ca
 									params: {},
 									facts: { put: { Note: [{ id: 1, n: round }] } }
 								}),
-								(outcome) => outcome.kind
+								(outcome) => outcome._tag
 							)
 						case "read":
 							return yield* Effect.map(

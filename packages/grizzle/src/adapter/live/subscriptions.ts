@@ -397,7 +397,7 @@ export const makeSubscriptions = (
 					Stream.onEnd(
 						Effect.sync(() => {
 							const folded = answer.settle(seen)
-							if (folded.kind === "ready") {
+							if (folded._tag === "ready") {
 								holding.value = folded.value
 							}
 							Deferred.doneUnsafe(first, Effect.succeed(folded))
@@ -426,7 +426,7 @@ export const makeSubscriptions = (
 								Stream.runCollect(request.read),
 								(events): Effect.Effect<Ran<Row, E>> => {
 									const after = answer.settle(events)
-									switch (after.kind) {
+									switch (after._tag) {
 										case "ready": {
 											const changes = answer.diff(value, after.value)
 											return Effect.succeed(
@@ -436,7 +436,7 @@ export const makeSubscriptions = (
 											)
 										}
 										case "failed":
-											if (after.error.kind === "transient") {
+											if (after.error._tag === "transient") {
 												markSubscription(subscription)
 												return Effect.succeed({ kind: "refused" })
 											}
@@ -536,7 +536,7 @@ export const makeSubscriptions = (
 						handout.taken = true
 						return first.pipe(
 							Deferred.await,
-							Effect.map((folded) => (folded.kind === "ready" ? live : Stream.make(answer.end))),
+							Effect.map((folded) => (folded._tag === "ready" ? live : Stream.make(answer.end))),
 							Stream.unwrap
 						)
 					})
@@ -579,7 +579,7 @@ export const makeSubscriptions = (
 
 				const turn: Effect.Effect<Option.Option<ReadonlyArray<E>>> = Effect.flatMap(
 					Deferred.await(first),
-					(folded) => (folded.kind === "ready" ? once : Effect.succeedSome([answer.end]))
+					(folded) => (folded._tag === "ready" ? once : Effect.succeedSome([answer.end]))
 				)
 				return { initial, changes, turn, state }
 			})

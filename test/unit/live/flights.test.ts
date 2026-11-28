@@ -154,7 +154,7 @@ export const aLiveAnswerOverTheProtocolsResultsSendsReadyOnlyAfterItsCOMMITAnswe
 								? { params: { kind: "light" }, facts: {} }
 								: { params: { student: 1 }, facts: {} }
 						const events = yield* answerOf(calls, input)
-						const kinds = Arr.map(events, (e) => e.kind)
+						const kinds = Arr.map(events, (e) => e._tag)
 						const fault = c.fault
 						if (fault.kind === "none") {
 							const routed = c.member === "sittings" || c.member === "ordered"
@@ -198,7 +198,7 @@ export const aLiveAnswerOverTheProtocolsResultsSendsReadyOnlyAfterItsCOMMITAnswe
 							),
 							"the answer's error"
 						)
-						assert.equal(error.kind, expected, `${fault.kind} at ${c.member} ends as ${expected}`)
+						assert.equal(error._tag, expected, `${fault.kind} at ${c.member} ends as ${expected}`)
 						assert.equal(
 							error.retry,
 							retryOf(expected),
@@ -214,7 +214,7 @@ export const aLiveAnswerOverTheProtocolsResultsSendsReadyOnlyAfterItsCOMMITAnswe
 						const onceError = Exit.isFailure(once)
 							? Option.getOrUndefined(Exit.findErrorOption(once))
 							: undefined
-						assert.equal(onceError?.kind, expected, "once's error is the answer's")
+						assert.equal(onceError?._tag, expected, "once's error is the answer's")
 					})
 				),
 			oracle: {

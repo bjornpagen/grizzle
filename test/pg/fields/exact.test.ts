@@ -105,7 +105,7 @@ export const anExactFieldStoresAndReadsBackEveryDrawnValueBitExactlyItsExactSums
 											facts: { insert: { Ledger: Arr.map(d.rows, factOf) } }
 										})
 									)
-									assert.equal(stored.kind, "accepted", "every ledger row is written")
+									assert.equal(stored._tag, "accepted", "every ledger row is written")
 									const readRows = yield* rowsOf(db.workload.ledger.once({ params: {}, facts: {} }))
 									const read = Arr.sort(readRows, byId)
 									assert.deepEqual(
@@ -121,7 +121,7 @@ export const anExactFieldStoresAndReadsBackEveryDrawnValueBitExactlyItsExactSums
 												facts: { put: { Ledger: Arr.map(d.restated, factOf) } }
 											})
 										)
-										assert.equal(put.kind, "accepted", "every restated row is put")
+										assert.equal(put._tag, "accepted", "every restated row is put")
 										c.note("a put restating a row")
 									}
 									const afterRows = yield* rowsOf(
@@ -137,7 +137,7 @@ export const anExactFieldStoresAndReadsBackEveryDrawnValueBitExactlyItsExactSums
 										db.workload.double.once({ params: {}, facts: {} })
 									)
 									assert.equal(
-										doubled.kind,
+										doubled._tag,
 										"accepted",
 										"the doubled rows are written from the query"
 									)
@@ -165,8 +165,8 @@ export const anExactFieldStoresAndReadsBackEveryDrawnValueBitExactlyItsExactSums
 											}
 										})
 									)
-									if (one.kind !== "refused") {
-										return assert.fail(`a count of one is refused by NotOne, not ${one.kind}`)
+									if (one._tag !== "refused") {
+										return assert.fail(`a count of one is refused by NotOne, not ${one._tag}`)
 									}
 									assert.deepEqual(
 										refusedLaws(one.refused),

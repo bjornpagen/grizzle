@@ -107,7 +107,7 @@ export const theLiveModelsValuesAReadsEventsFoldIntoTheModelsValueAndAReSentUpse
 					]
 					const folded = fold(opening<Row>(), events)
 					assert.deepEqual(readySpecs(folded), model)
-					if (folded.kind === "ready") {
+					if (folded._tag === "ready") {
 						assert.deepEqual(
 							folded.value.toJSON(),
 							[...folded.value],
@@ -209,9 +209,9 @@ export const theLiveModelsValuesDiffCarriesOneValueToTheOtherWithTheLeastChanges
 					const from = valueOf(fields, previous)
 					const changes = diffList(from, valueOf(fields, next))
 					assert.deepEqual(specsIn(from.applying(changes)), next)
-					assert.equal(Arr.filter(changes, (change) => change.kind === "remove").length, gone)
+					assert.equal(Arr.filter(changes, (change) => change._tag === "remove").length, gone)
 					assert.equal(
-						Arr.filter(changes, (change) => change.kind === "upsert").length,
+						Arr.filter(changes, (change) => change._tag === "upsert").length,
 						sent + moved
 					)
 				}),
@@ -319,7 +319,7 @@ export const theLiveModelsValuesFoldIsAReadsLifecycleAndAWritesOutcomeIsItsValue
 						if (error === "before reset") {
 							c.note("an error before reset")
 							assert.deepEqual(fold(opening<Row>(), [failed(cut), end]), {
-								kind: "failed",
+								_tag: "failed",
 								error: cut
 							})
 							return
@@ -339,7 +339,7 @@ export const theLiveModelsValuesFoldIsAReadsLifecycleAndAWritesOutcomeIsItsValue
 						if (error === "at the end") {
 							events.push(failed(cut), end)
 							c.note(wasReady ? "an error after ready" : "an error before ready")
-							assert.deepEqual(fold(opening<Row>(), events), { kind: "failed", error: cut })
+							assert.deepEqual(fold(opening<Row>(), events), { _tag: "failed", error: cut })
 							return
 						}
 						const state = fold(opening<Row>(), events)
@@ -350,18 +350,18 @@ export const theLiveModelsValuesFoldIsAReadsLifecycleAndAWritesOutcomeIsItsValue
 							return
 						}
 						c.note("provisional at its end")
-						assert.equal(state.kind, "provisional")
-						assert.deepEqual(state.kind === "provisional" ? specsIn(state.value) : [], value)
+						assert.equal(state._tag, "provisional")
+						assert.deepEqual(state._tag === "provisional" ? specsIn(state.value) : [], value)
 					}
 					read()
 					const outcome = { kind: "unchanged", reads: start } as const
 					const answer: ReadonlyArray<WriteEvent<typeof outcome>> =
 						error === "none"
-							? [{ kind: "outcome", outcome }, { kind: "end" }]
-							: [{ kind: "error", error: cut }, { kind: "end" }]
+							? [{ _tag: "outcome", outcome }, { _tag: "end" }]
+							: [{ _tag: "error", error: cut }, { _tag: "end" }]
 					assert.deepEqual(
 						foldWrite(writeOpening<typeof outcome>(), answer),
-						error === "none" ? { kind: "ready", value: outcome } : { kind: "failed", error: cut }
+						error === "none" ? { _tag: "ready", value: outcome } : { _tag: "failed", error: cut }
 					)
 				}),
 		oracle: {
@@ -491,13 +491,13 @@ export const aLiveValueKeysNoNativeMapByAKeyV8HashesByItsLength = property.explo
 						if (change.remove) {
 							c.note("a key removed")
 							model.delete(change.at)
-							sent.push({ kind: "remove", key: RowKey([textOf(change.at)]) })
+							sent.push({ _tag: "remove", key: RowKey([textOf(change.at)]) })
 						} else {
 							const order = [...model.keys()]
 							const held = order.indexOf(change.at)
 							c.note(held >= 0 ? "a key upserted again in place" : "a key added")
 							sent.push({
-								kind: "upsert",
+								_tag: "upsert",
 								row: { k: textOf(change.at), v: change.payload },
 								after: keyAt(held >= 0 ? order[held - 1] : order.at(-1))
 							})

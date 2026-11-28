@@ -64,7 +64,7 @@ export const aCastIntoAnExactIntegerOnPostgreSQLAgreesWithTheHostAndXsIntegersMa
 									const written = yield* writeAnswerOf(
 										db.workload.insert.once({ params: {}, facts: { insert: { Digits: facts } } })
 									)
-									assert.equal(written.kind, "accepted", "every row is written")
+									assert.equal(written._tag, "accepted", "every row is written")
 									const stored = yield* rowsOf(db.workload.all.once({ params: {}, facts: {} }))
 									for (const [id, row] of rows.entries()) {
 										const read = defined(

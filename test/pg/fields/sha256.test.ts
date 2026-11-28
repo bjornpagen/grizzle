@@ -91,7 +91,7 @@ export const aDigestRoundTripsAKeyOverItHoldsAnyPathAndAParameterOfItFindsItsRow
 										const outcome = yield* writeAnswerOf(
 											db.workload.store.once({ params: {}, facts: { insert: { Media: batch } } })
 										)
-										assert.equal(outcome.kind, "accepted", "every medium is written at its digest")
+										assert.equal(outcome._tag, "accepted", "every medium is written at its digest")
 									}
 									const stored = yield* rowsOf(db.workload.media.once({ params: {}, facts: {} }))
 									const read = Arr.sort(stored, byDigest)
@@ -129,8 +129,8 @@ export const aDigestRoundTripsAKeyOverItHoldsAnyPathAndAParameterOfItFindsItsRow
 											}
 										})
 									)
-									if (again.kind !== "refused") {
-										return assert.fail(`a medium at a stored digest is refused, not ${again.kind}`)
+									if (again._tag !== "refused") {
+										return assert.fail(`a medium at a stored digest is refused, not ${again._tag}`)
 									}
 									if (again.witness.kind === "key") {
 										assert.equal(

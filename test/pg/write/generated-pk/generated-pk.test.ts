@@ -203,7 +203,7 @@ export const aWriteNamesItsRowsByTheirTextsAndMeetsEveryOtherFactAtItsKeyGenerat
 										)
 										const empty = c.stored.StimulusRef.size + c.stored.FoldedRef.size === 0
 										assert.equal(
-											seeded.kind,
+											seeded._tag,
 											empty ? "unchanged" : "accepted",
 											"the stored rows are lawful"
 										)
@@ -246,9 +246,9 @@ export const aWriteNamesItsRowsByTheirTextsAndMeetsEveryOtherFactAtItsKeyGenerat
 											)
 											const after = yield* readFlat
 											if (refusedBy.length > 0) {
-												if (outcome.kind !== "refused") {
+												if (outcome._tag !== "refused") {
 													return assert.fail(
-														`${Formatter.format(strat)} puts two facts at one key of ${Arr.join(refusedBy, ", ")}: refused, not ${outcome.kind}`
+														`${Formatter.format(strat)} puts two facts at one key of ${Arr.join(refusedBy, ", ")}: refused, not ${outcome._tag}`
 													)
 												}
 												assert.deepEqual(after, before, "a refused write changes nothing")
@@ -307,7 +307,7 @@ export const aWriteNamesItsRowsByTheirTextsAndMeetsEveryOtherFactAtItsKeyGenerat
 												return x.kind === "applied" && x.changed
 											})
 											assert.equal(
-												outcome.kind,
+												outcome._tag,
 												changed ? "accepted" : "unchanged",
 												"accepted where the write changed a row"
 											)
@@ -514,7 +514,7 @@ export const aFamilyOverAKeyGenerationGroupsItsMembersByTheOwnersDigest = proper
 										})
 									)
 									assert.equal(
-										seeded.kind,
+										seeded._tag,
 										stored.length + storedTrees.length === 0 ? "unchanged" : "accepted",
 										"the stored documents and trees are lawful"
 									)
@@ -547,9 +547,9 @@ export const aFamilyOverAKeyGenerationGroupsItsMembersByTheOwnersDigest = proper
 									)
 									const after = yield* readFamilies
 									if (expected.kind === "refused") {
-										if (outcome.kind !== "refused") {
+										if (outcome._tag !== "refused") {
 											return assert.fail(
-												`a stratum breaking ${Arr.join(expected.breaches, ", ")} is refused, not ${outcome.kind}`
+												`a stratum breaking ${Arr.join(expected.breaches, ", ")} is refused, not ${outcome._tag}`
 											)
 										}
 										assert.deepEqual(after, before, "a refused write changes nothing")
@@ -579,7 +579,7 @@ export const aFamilyOverAKeyGenerationGroupsItsMembersByTheOwnersDigest = proper
 										return
 									}
 									assert.equal(
-										outcome.kind,
+										outcome._tag,
 										expected.changed ? "accepted" : "unchanged",
 										"accepted where the write changed a row"
 									)
@@ -597,7 +597,7 @@ export const aFamilyOverAKeyGenerationGroupsItsMembersByTheOwnersDigest = proper
 										})
 									)
 									assert.equal(
-										putOutcome.kind,
+										putOutcome._tag,
 										put.changed ? "accepted" : "unchanged",
 										"a title put is accepted where it changed a title"
 									)
@@ -747,7 +747,7 @@ export const aSetLikeRelationKeyedByItsValuesDigestsHoldsAndFindsValuesOfAnyLeng
 										})
 									)
 									assert.equal(
-										seeded.kind,
+										seeded._tag,
 										stored.length === 0 ? "unchanged" : "accepted",
 										"the stored rows are lawful"
 									)
@@ -782,9 +782,9 @@ export const aSetLikeRelationKeyedByItsValuesDigestsHoldsAndFindsValuesOfAnyLeng
 										)
 										const after = yield* readSet
 										if (expected.kind === "refused") {
-											if (outcome.kind !== "refused") {
+											if (outcome._tag !== "refused") {
 												return assert.fail(
-													`${Formatter.format(step)} puts two weights at one value: refused, not ${outcome.kind}`
+													`${Formatter.format(step)} puts two weights at one value: refused, not ${outcome._tag}`
 												)
 											}
 											assert.deepEqual(after, before, "a refused write changes nothing")
@@ -797,7 +797,7 @@ export const aSetLikeRelationKeyedByItsValuesDigestsHoldsAndFindsValuesOfAnyLeng
 											return
 										}
 										assert.equal(
-											outcome.kind,
+											outcome._tag,
 											expected.changed ? "accepted" : "unchanged",
 											"accepted where the step changed a row"
 										)

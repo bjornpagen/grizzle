@@ -99,9 +99,9 @@ export type UnavailableCause = (typeof unavailableCauses)[number]
  * its errno's name for a system error.
  */
 export type UnavailableReason =
-	| { readonly kind: UnavailableCause }
-	| { readonly kind: "otherSqlstate"; readonly sqlstate: Sqlstate }
-	| { readonly kind: "otherSocketCode"; readonly code: string }
+	| { readonly _tag: UnavailableCause }
+	| { readonly _tag: "otherSqlstate"; readonly sqlstate: Sqlstate }
+	| { readonly _tag: "otherSocketCode"; readonly code: string }
 
 /**
  * What one payload member holds, by the slot that types it: a text; reset's key fields; a row; a key; the key a row
@@ -198,9 +198,12 @@ export type PayloadOf<P extends Payload, Row, Outcome, Failure> = {
 	readonly [M in keyof P]: SlotValues<Row, Outcome, Failure>[P[M]]
 }
 
-/** The error of kind K: its kind, the retry the classification gives it, and its payload. */
+/**
+ * The error of kind K: its kind as its `_tag`, so Effect's catchTag selects it (`Effect.catchTag("refused", ...)`), the
+ * retry the classification gives it, and its payload.
+ */
 export type CallErrorOf<K extends CallErrorKind> = {
-	readonly kind: K
+	readonly _tag: K
 	readonly retry: (typeof callErrors)[K]["retry"]
 } & PayloadOf<(typeof callErrors)[K]["payload"], never, never, never>
 
@@ -214,7 +217,7 @@ export type CallError = CallErrorIn<CallErrorKind>
 export const callError = <K extends CallErrorKind>(
 	kind: K,
 	payload: PayloadOf<(typeof callErrors)[K]["payload"], never, never, never>
-): CallErrorOf<K> => ({ kind, retry: callErrors[kind].retry, ...payload })
+): CallErrorOf<K> => ({ _tag: kind, retry: callErrors[kind].retry, ...payload })
 
 /**
  * Where a call's failure is met, each with exactly the kinds of CallError it is read as. Each source's reading is a
@@ -354,11 +357,11 @@ export interface ShapeAnswers {
 export type ShapeFailure<S extends Shape> = AnswerFailure<ShapeAnswers[S]>
 
 /**
- * The event `name` of shape S over Row and Outcome: its name as `kind`, and its payload's members, an error of the
+ * The event `name` of shape S over Row and Outcome: its name as `_tag`, and its payload's members, an error of the
  * kinds the shape's answers end with (ShapeFailure).
  */
 type EventNamed<S extends Shape, Name extends keyof (typeof events)[S], Row, Outcome> = {
-	readonly kind: Name
+	readonly _tag: Name
 } & PayloadOf<EventPayload<S, Name>, Row, Outcome, ShapeFailure<S>>
 
 type EventPayload<
@@ -381,4 +384,4 @@ export type AnsweredListEvent<Row> = EventOfShape<"answeredList", Row, never>
 export type WriteEvent<Outcome> = EventOfShape<"write", never, Outcome>
 
 /** A read's change: an upsert of a row after a key, a move when its key is present, or a removal. */
-export type ListChange<Row> = Extract<ListEvent<Row>, { readonly kind: "upsert" | "remove" }>
+export type ListChange<Row> = Extract<ListEvent<Row>, { readonly _tag: "upsert" | "remove" }>

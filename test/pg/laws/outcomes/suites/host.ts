@@ -401,12 +401,12 @@ export const hostCase = (
 			const outcome = applied.success
 			const broken = Arr.map(k.accounts, brokenBy)
 			if (Arr.every(broken, (b) => b.size === 0)) {
-				assert.equal(outcome.kind, "accepted")
+				assert.equal(outcome._tag, "accepted")
 				c.note("accepted")
 				return
 			}
-			if (outcome.kind !== "refused") {
-				return assert.fail(`a write that breaks a rule is refused, not ${outcome.kind}`)
+			if (outcome._tag !== "refused") {
+				return assert.fail(`a write that breaks a rule is refused, not ${outcome._tag}`)
 			}
 			assert.equal(
 				outcome.refused.kind,

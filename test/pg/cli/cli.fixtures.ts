@@ -158,7 +158,7 @@ export const roundTrip = (dir: string, name: string, fixture: Fixture, n: number
 					)
 				)
 			).pipe(withLayer(s.layer))
-			assert.equal(outcome.kind, "accepted")
+			assert.equal(outcome._tag, "accepted")
 			const row = yield* Effect.scoped(
 				Effect.flatMap(Db.open(s.login.roles.reader, {}), (db) =>
 					oneRowOf(db.workload.customer.once({ params: { id: id(n) }, facts: {} }))
@@ -181,7 +181,7 @@ export const roundTrip = (dir: string, name: string, fixture: Fixture, n: number
 				)
 			)
 		).pipe(withLayer(l.layer))
-		assert.equal(outcome.kind, "accepted")
+		assert.equal(outcome._tag, "accepted")
 		const row = yield* Effect.scoped(
 			Effect.flatMap(Db.open(l.login.roles.reader, {}), (db) =>
 				oneRowOf(db.workload.customer.once({ params: { id: id(n) }, facts: {} }))

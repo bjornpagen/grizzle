@@ -736,7 +736,7 @@ const runOpen = (r: Workspace, model: Model) =>
 				`a call's failure, not ${Formatter.format(failure)}`
 			)
 			assert.equal(
-				failure.kind,
+				failure._tag,
 				model.applied === 0 ? "credentialRefused" : "stale",
 				`the read's failure: ${failure.message}`
 			)

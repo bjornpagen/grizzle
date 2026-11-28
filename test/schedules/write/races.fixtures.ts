@@ -1074,7 +1074,7 @@ const answerOf = (
 	r: Result.Result<Retried<WriteAnswer<WrittenOutcome>>, CallError>
 ): { readonly refused: ReadonlyArray<TransientTag>; readonly answer: GrizzleAnswer } => {
 	if (Result.isFailure(r)) {
-		return { refused: [], answer: { kind: "failed", what: r.failure.kind } }
+		return { refused: [], answer: { kind: "failed", what: r.failure._tag } }
 	}
 	const value = r.success.answered
 	return { refused: r.success.refused, answer: grizzleAnswer(reported, value) }
@@ -1085,7 +1085,7 @@ const grizzleAnswer = (
 	reported: (refused: IdentifiedLaw) => LawId,
 	value: WriteAnswer<WrittenOutcome>
 ): GrizzleAnswer => {
-	switch (value.kind) {
+	switch (value._tag) {
 		case "refused": {
 			const [law, ...more] = refusedEntries(value.refused)
 			return more.length === 0
@@ -1099,10 +1099,10 @@ const grizzleAnswer = (
 					}
 		}
 		case "outsideWorld":
-			return { kind: "failed", what: value.kind }
+			return { kind: "failed", what: value._tag }
 		case "accepted":
 		case "unchanged":
-			return { kind: value.kind }
+			return { kind: value._tag }
 	}
 }
 
@@ -1601,7 +1601,7 @@ const inserterAnswerOf = (
 ): InserterAnswer => {
 	if (Result.isFailure(r)) {
 		return {
-			answer: { kind: "failed", what: `${r.failure.kind}: ${r.failure.message}` },
+			answer: { kind: "failed", what: `${r.failure._tag}: ${r.failure.message}` },
 			rejection: Option.none()
 		}
 	}
@@ -1609,7 +1609,7 @@ const inserterAnswerOf = (
 	return {
 		answer: grizzleAnswer(reported, value),
 		rejection:
-			value.kind === "refused"
+			value._tag === "refused"
 				? Option.some({ decided: value.refused.kind, witness: value.witness })
 				: Option.none()
 	}
@@ -2058,7 +2058,7 @@ const claimerAnswerOf = (
 ): ClaimerAnswer => {
 	if (Result.isFailure(r)) {
 		return {
-			answer: { kind: "failed", what: `${r.failure.kind}: ${r.failure.message}` },
+			answer: { kind: "failed", what: `${r.failure._tag}: ${r.failure.message}` },
 			reads: Option.none()
 		}
 	}
@@ -2066,7 +2066,7 @@ const claimerAnswerOf = (
 	return {
 		answer: grizzleAnswer(reported, value),
 		reads:
-			value.kind === "accepted" || value.kind === "unchanged"
+			value._tag === "accepted" || value._tag === "unchanged"
 				? Option.some(value.reads)
 				: Option.none()
 	}

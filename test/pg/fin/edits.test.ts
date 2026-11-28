@@ -87,8 +87,8 @@ export const countedPutAndDeleteThroughGrizzlesApplyOnPostgreSQL19PutASpanKeyedO
 									)
 									const owners = yield* tableState(o.installed, SpanOwner)
 									const stored = yield* tableState(o.installed, SpanMember)
-									assert.equal(first.kind, "accepted", "the owners' and members' insert")
-									assert.equal(outcome.kind, "accepted", "the owner's put")
+									assert.equal(first._tag, "accepted", "the owners' and members' insert")
+									assert.equal(outcome._tag, "accepted", "the owner's put")
 									unorderedEqual(
 										owners,
 										Arr.map(sketch.owners, (owner, i) => ({

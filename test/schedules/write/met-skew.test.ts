@@ -143,7 +143,7 @@ export const aSERIALIZABLEInsertionsMetRowIsAReadSSISeesAWriteSkewThroughItNever
 							assert.ok(Result.isSuccess(ran), `L commits: ${Formatter.format(ran)}`)
 							const outcome = ran.success
 							assert.ok(
-								outcome.kind === "accepted" || outcome.kind === "unchanged",
+								outcome._tag === "accepted" || outcome._tag === "unchanged",
 								`L inserts its mark: ${Formatter.format(outcome)}`
 							)
 							const made = Arr.filter(after, (r) => r.k === "3")

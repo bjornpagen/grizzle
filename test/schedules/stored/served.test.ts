@@ -99,7 +99,7 @@ export const aServedWriteOfAStoredRelationsHolderStandsTheJudgeUpAndKeepsTheStor
 									["B", answeredB]
 								] as const) {
 									assert.ok(
-										Result.isSuccess(answered.ran) && answered.ran.success.kind === "accepted",
+										Result.isSuccess(answered.ran) && answered.ran.success._tag === "accepted",
 										`${label}: ${who} is accepted, ${Formatter.format(answered.ran)}`
 									)
 								}

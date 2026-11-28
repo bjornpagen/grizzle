@@ -93,7 +93,7 @@ export const theLiveSourceOpensUnderItsLayersOwnServicesTheBuildsSpanLeftBehindN
 								const events = yield* Stream.runCollect(live.initial)
 								return answer.settle(events)
 							}).pipe(asCaller(name))
-							assert.equal(initial.kind, "ready", `${name} registers on an open source`)
+							assert.equal(initial._tag, "ready", `${name} registers on an open source`)
 							c.note(
 								at === 0 ? "a source opened by its first watch" : "a watch joining an open source"
 							)

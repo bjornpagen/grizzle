@@ -683,7 +683,7 @@ export const previewCase = (k: PreviewCase, c: Case<PreviewFeature>) =>
 
 /** A store's refusal by the schema's laws, or the case fails naming what the store answered instead. */
 const refusedBy = (stored: StoredAnswer, what: string, where: string): Refused =>
-	Result.isFailure(stored) && stored.failure.kind === "refused"
+	Result.isFailure(stored) && stored.failure._tag === "refused"
 		? stored.failure
 		: assert.fail(
 				`the store refuses ${what} as the preview does, not ${Formatter.format(stored)}: ${where}`
@@ -718,7 +718,7 @@ const judged = (
 		switch (refusal._tag) {
 			case "InputRefused":
 				assert.ok(
-					Result.isFailure(stored.answer) && stored.answer.failure.kind === "input",
+					Result.isFailure(stored.answer) && stored.answer.failure._tag === "input",
 					`the store refuses the call's input as the preview does (${refusal.failure._tag}), not ${Formatter.format(stored.answer)}: ${where}`
 				)
 				return

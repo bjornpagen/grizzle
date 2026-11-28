@@ -110,7 +110,7 @@ export type QueueFeature =
 	| "two writes in flight together"
 	| "a write refused"
 	| `refused: ${TransientTag}`
-	| `${QueueWrite["kind"]} ${WriteAnswer<WriteOutcome<unknown>>["kind"]}`
+	| `${QueueWrite["kind"]} ${WriteAnswer<WriteOutcome<unknown>>["_tag"]}`
 
 /** The features one explained run reached (see QueueFeature). */
 const featuresOf =
@@ -131,7 +131,7 @@ const featuresOf =
 					return []
 				}
 				return [
-					`${race[session].kind} ${end.retried.answered.kind}`,
+					`${race[session].kind} ${end.retried.answered._tag}`,
 					...(end.retried.refused.length > 0 ? ["a write refused" as const] : []),
 					...Arr.map(end.retried.refused, (reason): QueueFeature => `refused: ${reason}`)
 				]

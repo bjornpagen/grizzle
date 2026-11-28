@@ -97,7 +97,7 @@ export const theSetAlgebraOverADraftedBitsDomainComputesEverySetWithItsPaddingBi
 									})
 								)
 								assert.equal(
-									outcome.kind,
+									outcome._tag,
 									"accepted",
 									`every computed set meets the domain: ${Formatter.format(d)}`
 								)

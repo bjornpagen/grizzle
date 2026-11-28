@@ -749,9 +749,10 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   migration to another snapshot completed, with `stale` (reason `Migrated`). A write with nothing to write sends its
   transaction and meets the check too, so a stale `Db` never answers it `unchanged`. Deploy the code that
   carries the new snapshot.json, and open new `Db`s with it.
-- Handle a call's failure by its `CallError`'s `kind`, one of a closed set, and its `retry`: `"safe"` when the same
+- Handle a call's failure by its `CallError`'s `_tag`, one of a closed set (`Effect.catchTag("refused", ...)`), and
+  its `retry`: `"safe"` when the same
   call may succeed run again (`transient`, its `reason` naming the concurrent work that refused it; `unavailable`, its
-  `reason` a `{ kind }` naming why no session could be had for now, the network, the server or a released layer, with
+  `reason` a `{ _tag }` naming why no session could be had for now, the network, the server or a released layer, with
   the SQLSTATE or socket code of a cause no name classifies; `transport`; `tokenExpired`), `"never"` otherwise
   (`input`; `paramRejected`, its `param` the place whose value PostgreSQL refused by its pattern, a `str.bytes`
   bound among them, `{ kind: "scalar", name }` or `{ kind: "field", name, field }` for a relation parameter's field;
@@ -759,7 +760,7 @@ to fix, or the compiler's refusal of a schema or login with its fix, and no line
   authenticated: `passwordFailed`, `passwordRefused`, `loginRefused`, `tlsUnverified`, `driverRefused`; `stale`,
   `commitUnknown`, `failed`, and over HTTP `route`). A configuration fault is `credentialRefused`; a database
   that is down is `unavailable`. Its `message` is the failure's own words, the server's report
-  where the database refused; read facts from the kind's members, never from the message. grizzle runs no call again:
+  where the database refused; read facts from the tag's members, never from the message. grizzle runs no call again:
   a `transient` or any other `"safe"` failure is yours to run again (a den step runs again past one); after
   `commitUnknown`, read back before running the call again. `DbLayer.make` and `Db.open` fail with `OpenError`, whose tagged `reason` `Effect.catchReason`
   reaches; every error and reason class is exported as a value, so a test builds the exact value, never a cast.

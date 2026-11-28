@@ -105,7 +105,7 @@ export const aQueryEntrysWriteMeetsEveryUniqueObjectOfItsTargetAStoredFactAtAnyU
 									)
 									if (Result.isFailure(applied)) {
 										return assert.fail(
-											`ann's insert of ${Formatter.format(c.submitted)} failed with ${applied.failure.kind}: ${applied.failure.message}`
+											`ann's insert of ${Formatter.format(c.submitted)} failed with ${applied.failure._tag}: ${applied.failure.message}`
 										)
 									}
 									const outcome = applied.success
@@ -125,7 +125,7 @@ export const aQueryEntrysWriteMeetsEveryUniqueObjectOfItsTargetAStoredFactAtAnyU
 									const repeat = Option.exists(c.inside, (s) => same(s, c.submitted))
 									if (met.length === 0) {
 										cx.note(repeat ? "an exact repeat" : "accepted")
-										assert.equal(outcome.kind, repeat ? "unchanged" : "accepted", "the outcome")
+										assert.equal(outcome._tag, repeat ? "unchanged" : "accepted", "the outcome")
 										const { id, code, grp, lead, team } = c.submitted
 										assert.deepEqual(
 											after,
@@ -141,12 +141,12 @@ export const aQueryEntrysWriteMeetsEveryUniqueObjectOfItsTargetAStoredFactAtAnyU
 										)
 										return
 									}
-									if (outcome.kind !== "refused") {
+									if (outcome._tag !== "refused") {
 										return assert.fail(
 											`ann's insert of ${Formatter.format(c.submitted)} met ${Arr.join(
 												Arr.map(met, (o) => o.name),
 												", "
-											)} and answered ${outcome.kind}`
+											)} and answered ${outcome._tag}`
 										)
 									}
 									const [law, ...more] = Arr.map(refusedEntries(outcome.refused), (l) =>

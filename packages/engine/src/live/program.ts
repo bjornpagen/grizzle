@@ -80,11 +80,11 @@ export interface RelationCounts {
  */
 export type WriteOutcome<Reads> =
 	| {
-			readonly kind: "accepted"
+			readonly _tag: "accepted"
 			readonly counts: ReadonlyArray<RelationCounts>
 			readonly reads: Reads
 	  }
-	| { readonly kind: "unchanged"; readonly reads: Reads }
+	| { readonly _tag: "unchanged"; readonly reads: Reads }
 
 /** What a key member reads by: a relation's primary key, a closed relation's, or a candidate key. */
 type KeyTarget = AnyRelation | AnyClosed | CandidateKey<AnyRelation>

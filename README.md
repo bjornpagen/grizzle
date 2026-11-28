@@ -906,8 +906,9 @@ export const IndexerLayer = DbLayer.make({
 ### Errors and outcomes with Effect
 
 A program's call is an Effect. A write answers `accepted` or `unchanged`; everything that goes wrong is a typed error
-with a `kind`, such as `refused` (a rule said no, naming it), `outsideWorld` or `transient`, and a `retry` field that
-is `"safe"` exactly when running the call again can help. grizzle never retries on its own.
+tagged by what happened, such as `refused` (a rule said no, naming it), `outsideWorld` or `transient`, so
+`Effect.catchTag` and `Effect.catchTags` handle each. Its `retry` is `"safe"` exactly when running the call again can
+help. Write outcomes, read states and events carry `_tag` the same way. grizzle never retries on its own.
 
 ```ts
 /** A post as the client sends it, decoded with Effect Schema. */
@@ -919,25 +920,24 @@ export const POST = (request: Request) =>
 		Effect.gen(function* () {
 			const token = bearer(request)
 			if (token === undefined) {
-				return new Response(null, { status: 401 })
+				return 401
 			}
 			const post = yield* Effect.flatMap(
 				Effect.promise(() => request.json()),
 				Schema.decodeUnknownEffect(NewPost)
 			)
 			const db = yield* Db.open(WebServed.roles.member, { token })
-			const status = yield* db.workload.write
-				.once({ params: {}, facts: { insert: { MyPost: [{ ...post, status: "draft" }] } } })
-				.pipe(
-					Effect.map((outcome) => (outcome.kind === "accepted" ? 201 : 200)),
-					Effect.catchIf(
-						(error) => error.kind === "refused",
-						() => Effect.succeed(409)
-					)
-				)
-			return new Response(null, { status })
+			const outcome = yield* db.workload.write.once({
+				params: {},
+				facts: { insert: { MyPost: [{ ...post, status: "draft" }] } }
+			})
+			return outcome._tag === "accepted" ? 201 : 200
 		}).pipe(
-			Effect.catchTag("SchemaError", () => Effect.succeed(new Response(null, { status: 422 })))
+			Effect.catchTags({
+				refused: () => Effect.succeed(409),
+				SchemaError: () => Effect.succeed(422)
+			}),
+			Effect.map((status) => new Response(null, { status }))
 		)
 	)
 ```

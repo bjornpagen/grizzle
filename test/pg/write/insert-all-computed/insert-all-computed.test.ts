@@ -81,14 +81,14 @@ export const aPublishComputingItsPackageFromItsOneParameterStoresWhatInsertAllSt
 								const unmarked = unmarkedOf(c)
 								const refused = unmarked !== undefined || isUnweighed(c)
 								const answered = refused ? "refused" : isEmpty(c) ? "unchanged" : "accepted"
-								assert.equal(computed.kind, answered, `computed: ${Formatter.format(computed)}`)
+								assert.equal(computed._tag, answered, `computed: ${Formatter.format(computed)}`)
 								const stated = yield* writeAnswerOf(
 									db.workload.stated.once({
 										params: {},
 										facts: { insert: factsOf(c, { package: "b" }) }
 									})
 								)
-								assert.equal(stated.kind, answered, `stated: ${Formatter.format(stated)}`)
+								assert.equal(stated._tag, answered, `stated: ${Formatter.format(stated)}`)
 								if (refused) {
 									const statedWitness = "witness" in stated ? stated.witness : undefined
 									const computedWitness = "witness" in computed ? computed.witness : undefined

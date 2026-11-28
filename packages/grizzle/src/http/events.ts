@@ -37,34 +37,34 @@ type FrameOf<S extends keyof Events> = {
 
 /** The frame of a read's event: an upsert holds its row and the key of the row it follows. */
 export const listFrame = (slots: SlotEncoders, event: ListEvent<unknown>): FrameOf<"list"> => {
-	switch (event.kind) {
+	switch (event._tag) {
 		case "reset":
-			return { event: event.kind, data: { key: slots.fields(event.key) } }
+			return { event: event._tag, data: { key: slots.fields(event.key) } }
 		case "upsert":
 			return {
-				event: event.kind,
+				event: event._tag,
 				data: { row: slots.row(event.row), after: slots.after(event.after) }
 			}
 		case "remove":
-			return { event: event.kind, data: { key: slots.key(event.key) } }
+			return { event: event._tag, data: { key: slots.key(event.key) } }
 		case "ready":
-			return { event: event.kind, data: {} }
+			return { event: event._tag, data: {} }
 		case "error":
-			return { event: event.kind, data: { error: slots.error(event.error) } }
+			return { event: event._tag, data: { error: slots.error(event.error) } }
 		case "end":
-			return { event: event.kind, data: {} }
+			return { event: event._tag, data: {} }
 	}
 }
 
 /** The frame of a write's event: its outcome, its error, or its end. */
 export const writeFrame = (slots: SlotEncoders, event: WriteEvent<unknown>): FrameOf<"write"> => {
-	switch (event.kind) {
+	switch (event._tag) {
 		case "outcome":
-			return { event: event.kind, data: { outcome: slots.outcome(event.outcome) } }
+			return { event: event._tag, data: { outcome: slots.outcome(event.outcome) } }
 		case "error":
-			return { event: event.kind, data: { error: slots.error(event.error) } }
+			return { event: event._tag, data: { error: slots.error(event.error) } }
 		case "end":
-			return { event: event.kind, data: {} }
+			return { event: event._tag, data: {} }
 	}
 }
 

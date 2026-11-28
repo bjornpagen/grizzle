@@ -226,10 +226,10 @@ export const aFailingLiveCallEndsWithItsClasssCallErrorWhoseRetryHoldsWhenTheCal
 											(events) => {
 												const [only, ...more] = events
 												assert.ok(
-													only?.kind === "error" && more.length === 0,
-													`a refused input's watch answers its one error, no reset before it: ${Formatter.format(Arr.map(events, (e) => e.kind))}`
+													only?._tag === "error" && more.length === 0,
+													`a refused input's watch answers its one error, no reset before it: ${Formatter.format(Arr.map(events, (e) => e._tag))}`
 												)
-												return only.error.kind
+												return only.error._tag
 											}
 										)
 									}

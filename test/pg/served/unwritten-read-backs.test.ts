@@ -76,7 +76,7 @@ export const aRoleThatWritesNothingRunsTheReadBacksItsLoginServesEachDeliveringE
 						)
 					}
 					const outcome = called.success
-					assert.equal(outcome.kind, "unchanged", "a ChangeSet that writes nothing changes nothing")
+					assert.equal(outcome._tag, "unchanged", "a ChangeSet that writes nothing changes nothing")
 					const rows = isRecord(outcome.reads) ? outcome.reads["family"] : undefined
 					assert.ok(Arr.isArray(rows), "the call reads the family back")
 					unorderedEqual(

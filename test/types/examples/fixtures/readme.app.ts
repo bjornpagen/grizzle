@@ -139,25 +139,24 @@ export const POST = (request: Request) =>
 		Effect.gen(function* () {
 			const token = bearer(request)
 			if (token === undefined) {
-				return new Response(null, { status: 401 })
+				return 401
 			}
 			const post = yield* Effect.flatMap(
 				Effect.promise(() => request.json()),
 				Schema.decodeUnknownEffect(NewPost)
 			)
 			const db = yield* Db.open(WebServed.roles.member, { token })
-			const status = yield* db.workload.write
-				.once({ params: {}, facts: { insert: { MyPost: [{ ...post, status: "draft" }] } } })
-				.pipe(
-					Effect.map((outcome) => (outcome.kind === "accepted" ? 201 : 200)),
-					Effect.catchIf(
-						(error) => error.kind === "refused",
-						() => Effect.succeed(409)
-					)
-				)
-			return new Response(null, { status })
+			const outcome = yield* db.workload.write.once({
+				params: {},
+				facts: { insert: { MyPost: [{ ...post, status: "draft" }] } }
+			})
+			return outcome._tag === "accepted" ? 201 : 200
 		}).pipe(
-			Effect.catchTag("SchemaError", () => Effect.succeed(new Response(null, { status: 422 })))
+			Effect.catchTags({
+				refused: () => Effect.succeed(409),
+				SchemaError: () => Effect.succeed(422)
+			}),
+			Effect.map((status) => new Response(null, { status }))
 		)
 	)
 

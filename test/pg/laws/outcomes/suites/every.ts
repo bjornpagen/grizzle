@@ -374,7 +374,7 @@ export const everyCase = (
 						)
 					)
 					assert.ok(
-						Result.isSuccess(storing) && storing.success.kind === "accepted",
+						Result.isSuccess(storing) && storing.success._tag === "accepted",
 						"lawful cells are stored"
 					)
 				}
@@ -396,13 +396,13 @@ export const everyCase = (
 				return applied.success
 			}).pipe(Effect.scoped, withLayer(o.served.layer))
 			if (!Arr.isReadonlyArrayNonEmpty(broken)) {
-				assert.equal(outcome.kind, "accepted")
+				assert.equal(outcome._tag, "accepted")
 				c.note("accepted")
 				continue
 			}
-			if (outcome.kind !== "refused") {
+			if (outcome._tag !== "refused") {
 				return assert.fail(
-					`a cell breaking ${Arr.join(broken, ", ")} is refused, not ${outcome.kind}`
+					`a cell breaking ${Arr.join(broken, ", ")} is refused, not ${outcome._tag}`
 				)
 			}
 			const reported = defined(

@@ -1197,7 +1197,7 @@ export const keysCase = (taken: SubstrateCase<Generated>, k: Case, c: PropertyCa
 					k.stored.tags.length +
 					k.stored.mappings.length ===
 				0
-			assert.equal(seeded.kind, none ? "unchanged" : "accepted", "the stored rows are lawful")
+			assert.equal(seeded._tag, none ? "unchanged" : "accepted", "the stored rows are lawful")
 			const before = storedState(k.stored)
 			const beforeRows = yield* readState
 			assert.deepEqual(beforeRows, sortedStateRows(host, before), "the stored rows are the model's")
@@ -1213,7 +1213,7 @@ export const keysCase = (taken: SubstrateCase<Generated>, k: Case, c: PropertyCa
 			)
 			if (Result.isFailure(applied)) {
 				return assert.fail(
-					`a write over keys of generated fields is an outcome: ${applied.failure.kind}: ${applied.failure.message}`
+					`a write over keys of generated fields is an outcome: ${applied.failure._tag}: ${applied.failure.message}`
 				)
 			}
 			const outcome = applied.success
@@ -1224,12 +1224,12 @@ export const keysCase = (taken: SubstrateCase<Generated>, k: Case, c: PropertyCa
 				c.note("two deletions at one key")
 			}
 			if (expected.kind === "refused") {
-				if (outcome.kind !== "refused") {
+				if (outcome._tag !== "refused") {
 					return assert.fail(
 						`a write breaking ${Arr.join(
 							Arr.map(expected.violations, (v) => v.law),
 							", "
-						)} is refused, not ${outcome.kind}`
+						)} is refused, not ${outcome._tag}`
 					)
 				}
 				assert.deepEqual(afterRows, beforeRows, "a refused write changes nothing")
@@ -1267,7 +1267,7 @@ export const keysCase = (taken: SubstrateCase<Generated>, k: Case, c: PropertyCa
 				return
 			}
 			assert.equal(
-				outcome.kind,
+				outcome._tag,
 				expected.changed ? "accepted" : "unchanged",
 				"accepted where the write changed a row"
 			)

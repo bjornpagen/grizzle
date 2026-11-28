@@ -351,9 +351,9 @@ export const refusedAs = (
 	const data: unknown = trustedJson<unknown>(defined(error, "the error event").data)
 	const carried = isRecord(data) && isRecord(data["error"]) ? data["error"] : {}
 	assert.deepEqual(
-		[carried["kind"], carried["retry"]],
+		[carried["_tag"], carried["retry"]],
 		[expected, callErrors[expected].retry],
-		`the error is ${expected}, with its kind's retry\n${printed()}`
+		`the error is ${expected}, with its tag's retry\n${printed()}`
 	)
 	assert.equal(defined(end, "the end event").data, "{}", `end carries {}\n${printed()}`)
 }

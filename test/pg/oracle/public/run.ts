@@ -802,7 +802,7 @@ const refused = (
 	exit: Exit.Exit<unknown, CallError>,
 	expected: CallErrorKind
 ): Effect.Effect<void, Disagreement> => {
-	if (Option.exists(Exit.findErrorOption(exit), (error) => error.kind === expected)) {
+	if (Option.exists(Exit.findErrorOption(exit), (error) => error._tag === expected)) {
 		return Effect.void
 	}
 	const got = Exit.isSuccess(exit) ? "an answer" : Cause.pretty(exit.cause)
@@ -1566,7 +1566,7 @@ const store = (c: ProgramCase, members: Members): Effect.Effect<void, Disagreeme
 		const exit = yield* sideExit(members.store(storeMember, facts))
 		const outcome = Exit.isSuccess(exit) ? exit.value : undefined
 		const counted =
-			outcome?.kind === "accepted" &&
+			outcome?._tag === "accepted" &&
 			Arr.every(c.schema.relations, (r) => {
 				const held = BigInt((c.facts.get(r.name) ?? []).length)
 				const added = Option.map(
@@ -1581,12 +1581,12 @@ const store = (c: ProgramCase, members: Members): Effect.Effect<void, Disagreeme
 					? Exit.isFailure(exit)
 						? Cause.pretty(exit.cause)
 						: "no outcome"
-					: outcome.kind === "accepted"
+					: outcome._tag === "accepted"
 						? `accepted, adding ${Arr.join(
 								Arr.map(outcome.counts, (n) => `${n.added} to ${n.relation}`),
 								", "
 							)}`
-						: outcome.kind
+						: outcome._tag
 			return yield* new Disagreement({
 				check: "setup",
 				report: `the store member did not store the facts: ${answer}\n${printCase(c)}`

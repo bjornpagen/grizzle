@@ -1097,9 +1097,9 @@ type Answer =
 	| { readonly kind: "other"; readonly shown: string }
 
 /** A write's answer as the oracle reads it (Answer). */
-const answerOf = <O extends { readonly kind: string }>(outcome: WriteAnswer<O>): Answer =>
-	outcome.kind === "accepted" || outcome.kind === "unchanged"
-		? { kind: outcome.kind }
+const answerOf = <O extends { readonly _tag: string }>(outcome: WriteAnswer<O>): Answer =>
+	outcome._tag === "accepted" || outcome._tag === "unchanged"
+		? { kind: outcome._tag }
 		: "refused" in outcome
 			? {
 					kind: "refused",

@@ -103,7 +103,7 @@ export const untilAnswered = (call: Effect.Effect<WriteAnswer<WriteOutcome<unkno
 	Effect.gen(function* () {
 		for (let tries = 1; ; tries++) {
 			const ran = yield* Effect.result(call)
-			if (Result.isSuccess(ran) || ran.failure.kind !== "transient") {
+			if (Result.isSuccess(ran) || ran.failure._tag !== "transient") {
 				return { tries, ran } satisfies Answered
 			}
 		}

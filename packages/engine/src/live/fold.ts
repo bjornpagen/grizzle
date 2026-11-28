@@ -14,13 +14,13 @@ import { type Entry, KeyedList } from "#compiler/live/keyed.ts"
  * with no value, one a read's answer may end with (live/events.ts ShapeFailure).
  */
 export type ReadState<Row extends object> =
-	| { readonly kind: "opening" }
-	| { readonly kind: "provisional"; readonly value: KeyedList<Row> }
-	| { readonly kind: "ready"; readonly value: KeyedList<Row> }
-	| { readonly kind: "failed"; readonly error: ShapeFailure<"list"> }
+	| { readonly _tag: "opening" }
+	| { readonly _tag: "provisional"; readonly value: KeyedList<Row> }
+	| { readonly _tag: "ready"; readonly value: KeyedList<Row> }
+	| { readonly _tag: "failed"; readonly error: ShapeFailure<"list"> }
 
 /** The state of a read before its first event. */
-export const opening = <Row extends object>(): ReadState<Row> => ({ kind: "opening" })
+export const opening = <Row extends object>(): ReadState<Row> => ({ _tag: "opening" })
 
 /** The state `state` with `pending` changes applied to its value, where it holds one. */
 const settled = <Row extends object>(
@@ -30,10 +30,10 @@ const settled = <Row extends object>(
 	if (pending.length === 0) {
 		return state
 	}
-	switch (state.kind) {
+	switch (state._tag) {
 		case "provisional":
 		case "ready":
-			return { kind: state.kind, value: state.value.applying(pending) }
+			return { _tag: state._tag, value: state.value.applying(pending) }
 		case "opening":
 		case "failed":
 			return state
@@ -53,31 +53,31 @@ export const fold = <Row extends object>(
 	let current = state
 	let pending: Array<ListChange<Row>> = []
 	for (const event of events) {
-		switch (event.kind) {
+		switch (event._tag) {
 			case "upsert":
 			case "remove":
-				if (current.kind === "opening") {
+				if (current._tag === "opening") {
 					defect("a read's change came before its reset")
 				}
 				pending.push(event)
 				break
 			case "reset":
 				current =
-					current.kind === "failed"
+					current._tag === "failed"
 						? current
-						: { kind: "provisional", value: KeyedList.empty(event.key) }
+						: { _tag: "provisional", value: KeyedList.empty(event.key) }
 				pending = []
 				break
 			case "ready":
 				current = settled(current, pending)
 				pending = []
-				if (current.kind === "opening") {
+				if (current._tag === "opening") {
 					defect("a read's ready came before its reset")
 				}
-				current = current.kind === "provisional" ? { kind: "ready", value: current.value } : current
+				current = current._tag === "provisional" ? { _tag: "ready", value: current.value } : current
 				break
 			case "error":
-				current = current.kind === "failed" ? current : { kind: "failed", error: event.error }
+				current = current._tag === "failed" ? current : { _tag: "failed", error: event.error }
 				pending = []
 				break
 			case "end":
@@ -92,12 +92,12 @@ export const fold = <Row extends object>(
  * error that ended it.
  */
 export type WriteState<Outcome> =
-	| { readonly kind: "opening" }
-	| { readonly kind: "ready"; readonly value: Outcome }
-	| { readonly kind: "failed"; readonly error: ShapeFailure<"write"> }
+	| { readonly _tag: "opening" }
+	| { readonly _tag: "ready"; readonly value: Outcome }
+	| { readonly _tag: "failed"; readonly error: ShapeFailure<"write"> }
 
 /** The state of a write before its first event. */
-export const writeOpening = <Outcome>(): WriteState<Outcome> => ({ kind: "opening" })
+export const writeOpening = <Outcome>(): WriteState<Outcome> => ({ _tag: "opening" })
 
 /**
  * `state` after `events`, in order: `outcome` is the write's final value; `error` ends it; `end` changes nothing. A
@@ -109,18 +109,18 @@ export const foldWrite = <Outcome>(
 ): WriteState<Outcome> => {
 	let current = state
 	for (const event of events) {
-		switch (event.kind) {
+		switch (event._tag) {
 			case "outcome":
-				if (current.kind !== "opening") {
+				if (current._tag !== "opening") {
 					defect("a write answered twice")
 				}
-				current = { kind: "ready", value: event.outcome }
+				current = { _tag: "ready", value: event.outcome }
 				break
 			case "error":
-				if (current.kind === "ready") {
+				if (current._tag === "ready") {
 					defect("a write answered twice")
 				}
-				current = current.kind === "failed" ? current : { kind: "failed", error: event.error }
+				current = current._tag === "failed" ? current : { _tag: "failed", error: event.error }
 				break
 			case "end":
 				break
@@ -171,7 +171,7 @@ export const diffList = <Row extends object>(
 	const changes: Array<ListChange<Row>> = []
 	for (const entry of previous.entries()) {
 		if (next.at(entry.form) === undefined) {
-			changes.push({ kind: "remove", key: entry.key })
+			changes.push({ _tag: "remove", key: entry.key })
 		}
 	}
 	const place = new Map<Entry<Row>, number>()
@@ -195,7 +195,7 @@ export const diffList = <Row extends object>(
 	let after: RowKey | null = null
 	entries.forEach((entry, i) => {
 		if (!stays.has(i)) {
-			changes.push({ kind: "upsert", row: entry.row, after })
+			changes.push({ _tag: "upsert", row: entry.row, after })
 		}
 		after = entry.key
 	})

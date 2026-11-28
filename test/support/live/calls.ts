@@ -89,7 +89,7 @@ export const errorOf = (
 ): { readonly kind: CallErrorKind; readonly retry: string } => {
 	const data = trustedJson<unknown>(event.data)
 	const error = isRecord(data) ? data["error"] : undefined
-	const kind = isRecord(error) ? error["kind"] : undefined
+	const kind = isRecord(error) ? error["_tag"] : undefined
 	const retry = isRecord(error) ? error["retry"] : undefined
 	const known = Arr.findFirst(callErrorKinds, (k) => k === kind)
 	if (Option.isNone(known) || typeof retry !== "string") {
@@ -112,9 +112,9 @@ const readiesOf = <Row extends object>(
 			(state, event) => {
 				const next = fold(state, [event])
 				const steps: ReadonlyArray<Step<KeyedList<Row>>> =
-					event.kind === "ready" && next.kind === "ready"
+					event._tag === "ready" && next._tag === "ready"
 						? [{ kind: "value", value: next.value }]
-						: event.kind === "error"
+						: event._tag === "error"
 							? [{ kind: "error", error: event.error }]
 							: []
 				return [next, steps] as const
@@ -343,7 +343,7 @@ const registeredFrom = <Row extends object>(live: {
 	Effect.gen(function* () {
 		const initial = yield* Stream.runCollect(live.initial)
 		const settled = fold(opening<Row>(), initial)
-		switch (settled.kind) {
+		switch (settled._tag) {
 			case "failed":
 				return yield* Effect.fail(settled.error)
 			case "opening":
@@ -360,11 +360,11 @@ const registeredFrom = <Row extends object>(live: {
 							? Effect.succeedNone
 							: Effect.flatMap(Ref.get(held), (was) => {
 									const next = fold(was, batch.value)
-									return next.kind === "failed"
+									return next._tag === "failed"
 										? Effect.fail(next.error)
 										: Effect.as(
 												Ref.set(held, next),
-												next.kind === "ready" ? Option.some(next.value) : Option.none()
+												next._tag === "ready" ? Option.some(next.value) : Option.none()
 											)
 								})
 				)

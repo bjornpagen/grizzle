@@ -87,7 +87,7 @@ export const rowsOf = (value: KeyedList<Row>): ReadonlyArray<Row> => [...value]
 export const upsertsOf = (rows: ReadonlyArray<Row>): ReadonlyArray<ListEvent<Row>> =>
 	Arr.map(rows, (row, n) => {
 		const before = rows[n - 1]
-		return { kind: "upsert", row, after: before === undefined ? null : keyOf(["id"], before) }
+		return { _tag: "upsert", row, after: before === undefined ? null : keyOf(["id"], before) }
 	})
 
 /** `commit` applied to `model`, and the keys a leader sends for it. */
@@ -114,9 +114,9 @@ export const applied = (model: Map<number, Row>, commit: Commit): ReadonlyArray<
 export const answer: LiveAnswer<Row, ListEvent<Row>> = {
 	settle: (events) => fold(opening<Row>(), events),
 	diff: diffList,
-	ready: { kind: "ready" },
-	error: (error) => ({ kind: "error", error }),
-	end: { kind: "end" }
+	ready: { _tag: "ready" },
+	error: (error) => ({ _tag: "error", error }),
+	end: { _tag: "end" }
 }
 
 /** The features a case shows. */

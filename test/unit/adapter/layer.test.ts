@@ -306,7 +306,7 @@ export const dbLayerMakeJudgesATokenAtStageTokenBeforeAnyConnectionNoToken68ATok
 						assert.ok(error.reason === outage, "verify's own VerifierUnavailable")
 						assert.equal(error.retry, "safe", "an unavailable verifier's open may be retried")
 						assert.equal(
-							served.kind,
+							served._tag,
 							"unavailable",
 							"over HTTP, an unavailable verifier is no refused token"
 						)

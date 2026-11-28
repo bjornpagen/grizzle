@@ -38,7 +38,7 @@ export type WriteRefusal = CallErrorOf<"refused"> | CallErrorOf<"outsideWorld">
 export type WriteAnswer<O> = O | WriteRefusal
 
 const isRefusal = (error: CallError): error is WriteRefusal =>
-	error.kind === "refused" || error.kind === "outsideWorld"
+	error._tag === "refused" || error._tag === "outsideWorld"
 
 /** A write's answer (WriteAnswer): its refusal moved into the value, every other CallError still its failure. */
 export const writeAnswerOf = <O, R>(

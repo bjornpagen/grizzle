@@ -1313,7 +1313,7 @@ const write = (h: History, w: World, all: Facts, batch: Facts) =>
 			)
 		)
 		assert.equal(
-			outcome.kind,
+			outcome._tag,
 			"accepted",
 			`step ${h.steps}: the batch's write is not accepted: ${Formatter.format(outcome)}`
 		)

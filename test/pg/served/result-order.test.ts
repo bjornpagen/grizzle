@@ -153,8 +153,8 @@ export const everyServedReadDeliversItsRowsInItsKeysDeclaredOrderWhateverTheTabl
 											facts: { insert: { Item: [c.stocked] } }
 										})
 									)
-									if (stocked.kind !== "accepted") {
-										return assert.fail(`the stocking write is accepted, not ${stocked.kind}`)
+									if (stocked._tag !== "accepted") {
+										return assert.fail(`the stocking write is accepted, not ${stocked._tag}`)
 									}
 									assert.deepEqual(
 										Arr.map(readBackRows(stocked.reads), rowOf(delivered.all)),

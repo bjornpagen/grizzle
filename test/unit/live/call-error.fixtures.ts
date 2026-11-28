@@ -186,14 +186,14 @@ type Expected =
 
 /** An unavailable error's reason, as the oracle states it. */
 type UnavailableExpected =
-	| { readonly kind: UnavailableCause }
-	| { readonly kind: "otherSqlstate"; readonly sqlstate: string }
-	| { readonly kind: "otherSocketCode"; readonly code: string }
+	| { readonly _tag: UnavailableCause }
+	| { readonly _tag: "otherSqlstate"; readonly sqlstate: string }
+	| { readonly _tag: "otherSocketCode"; readonly code: string }
 
 const credential = (reason: CredentialReason): Expected => ({ kind: "credentialRefused", reason })
 const unavailable = (cause: UnavailableCause): Expected => ({
 	kind: "unavailable",
-	reason: { kind: cause }
+	reason: { _tag: cause }
 })
 
 /**
@@ -299,7 +299,7 @@ const expectedOfSqlstate = (code: string): Expected =>
 	sqlstateOracle.get(code) ??
 	(Str.startsWith(authorizationClass)(code)
 		? credential("loginRefused")
-		: { kind: "unavailable", reason: { kind: "otherSqlstate", sqlstate: code } })
+		: { kind: "unavailable", reason: { _tag: "otherSqlstate", sqlstate: code } })
 
 /**
  * The oracle's table of socket codes, written from docs/errors-and-concurrency.md "Errors and outcomes": each code a reason names; any other
@@ -327,7 +327,7 @@ const socketOracle: ReadonlyMap<string, Expected> = new Map(socketTable)
 const expectedOfSocket = (code: string): Expected =>
 	socketOracle.get(code) ?? {
 		kind: "unavailable",
-		reason: { kind: "otherSocketCode", code }
+		reason: { _tag: "otherSocketCode", code }
 	}
 
 /** This platform's system errors, by their errno's names: what a socket's code is, besides the resolver's and Node's. */
@@ -658,13 +658,13 @@ export const calledWith = (
 
 /** What a call error states, as the oracle states it: its kind and its reason, none for `failed`. */
 export const statedOf = (error: CallError): Expected | string =>
-	error.kind === "credentialRefused"
-		? { kind: error.kind, reason: error.reason }
-		: error.kind === "unavailable"
-			? { kind: error.kind, reason: error.reason }
-			: error.kind === "failed"
-				? { kind: error.kind }
-				: error.kind
+	error._tag === "credentialRefused"
+		? { kind: error._tag, reason: error.reason }
+		: error._tag === "unavailable"
+			? { kind: error._tag, reason: error.reason }
+			: error._tag === "failed"
+				? { kind: error._tag }
+				: error._tag
 
 /** A write's wire, of a ChangeSet writing nothing: an error's encode reads nothing of a member's beside its role's witness. */
 const errorWire: MemberWire = {
@@ -706,4 +706,4 @@ export const reachedOf = (expected: Expected): ConnectFeature =>
 		? "failed"
 		: expected.kind === "credentialRefused"
 			? expected.reason
-			: expected.reason.kind
+			: expected.reason._tag

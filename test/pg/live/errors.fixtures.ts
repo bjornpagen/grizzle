@@ -34,7 +34,7 @@ export const outcomeKind = <A>(
 	call: Effect.Effect<A, CallError>
 ): Effect.Effect<CallErrorKind | "succeeded"> =>
 	Effect.match(call, {
-		onFailure: (error): CallErrorKind | "succeeded" => error.kind,
+		onFailure: (error): CallErrorKind | "succeeded" => error._tag,
 		onSuccess: (): CallErrorKind | "succeeded" => "succeeded"
 	})
 
@@ -198,7 +198,7 @@ export const watched = (file: ServedLogin<AnyLogin>, token: string, name: string
 		return yield* Stream.runCollect(
 			Stream.takeUntil(
 				calls.watch(input),
-				(event) => event.kind === "ready" || event.kind === "error"
+				(event) => event._tag === "ready" || event._tag === "error"
 			)
 		)
 	})

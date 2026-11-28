@@ -99,13 +99,13 @@ export const bytesWrittenAndReadBackWholeStoresEveryDrawnValueExactlySingleOrBat
 													facts: { insert: { Shelf: upTo(d.shelves, (id) => ({ id })) } }
 												})
 											)
-											assert.equal(shelved.kind, "accepted", "every shelf is written")
+											assert.equal(shelved._tag, "accepted", "every shelf is written")
 											const batches = d.batched ? [facts] : Arr.map(facts, (fact) => [fact])
 											for (const batch of batches) {
 												const outcome = yield* writeAnswerOf(
 													db.workload.store.once({ params: {}, facts: { insert: { Blob: batch } } })
 												)
-												assert.equal(outcome.kind, "accepted", "every bytes value is written")
+												assert.equal(outcome._tag, "accepted", "every bytes value is written")
 											}
 											const collected = yield* rowsOf(
 												db.workload.blobs.once({ params: {}, facts: {} })
@@ -166,8 +166,8 @@ export const bytesWrittenAndReadBackWholeStoresEveryDrawnValueExactlySingleOrBat
 											const deleted = yield* writeAnswerOf(
 												db.workload.clearShelf.once({ params: { shelf }, facts: {} })
 											)
-											if (deleted.kind !== "accepted") {
-												return assert.fail(`the shelf's values are deleted, not ${deleted.kind}`)
+											if (deleted._tag !== "accepted") {
+												return assert.fail(`the shelf's values are deleted, not ${deleted._tag}`)
 											}
 											assert.equal(
 												defined(

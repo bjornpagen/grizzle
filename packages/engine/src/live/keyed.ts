@@ -94,7 +94,7 @@ export class KeyedList<Row extends object> implements Iterable<Row> {
 			value.#link({ ...node, prev: undefined, next: undefined }, value.#tail)
 		}
 		for (const change of changes) {
-			switch (change.kind) {
+			switch (change._tag) {
 				case "remove":
 					value.#remove(formOf(change.key))
 					break

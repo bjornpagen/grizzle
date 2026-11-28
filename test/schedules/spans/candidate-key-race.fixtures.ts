@@ -97,7 +97,7 @@ export type BookingFeature =
 	| "the apply waited"
 	| "the apply refused"
 	| `refused: ${TransientTag}`
-	| `the apply answered ${WriteAnswer<WriteOutcome<unknown>>["kind"]}`
+	| `the apply answered ${WriteAnswer<WriteOutcome<unknown>>["_tag"]}`
 	| `${"direct" | "blocker"} ${"committed" | "rolled back" | "aborted" | "failed"}`
 
 /** A span: where it starts, and its width. */
@@ -199,7 +199,7 @@ const featuresOf = (
 			switch (end.kind) {
 				case "answered":
 					return [
-						`the apply answered ${end.retried.answered.kind}`,
+						`the apply answered ${end.retried.answered._tag}`,
 						...(end.retried.refused.length > 0 ? ["the apply refused" as const] : []),
 						...Arr.map(end.retried.refused, (reason): BookingFeature => `refused: ${reason}`)
 					]

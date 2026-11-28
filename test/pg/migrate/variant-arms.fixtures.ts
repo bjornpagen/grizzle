@@ -307,7 +307,7 @@ export const armsCase = (k: ArmsCase, c: Case<ArmsFeature>) =>
 				})
 			)
 			assert.equal(
-				cells.kind,
+				cells._tag,
 				k.cells.length > 0 ? "accepted" : "unchanged",
 				"the cells are written"
 			)
@@ -318,7 +318,7 @@ export const armsCase = (k: ArmsCase, c: Case<ArmsFeature>) =>
 				})
 			)
 			assert.equal(
-				held.kind,
+				held._tag,
 				seen.length > 0 ? "accepted" : "unchanged",
 				"the values seen are written"
 			)
@@ -336,7 +336,7 @@ export const armsCase = (k: ArmsCase, c: Case<ArmsFeature>) =>
 				})
 			)
 			assert.equal(
-				picked.kind,
+				picked._tag,
 				k.picks.length > 0 ? "accepted" : "unchanged",
 				"the picks are written"
 			)
@@ -389,7 +389,7 @@ export const armsCase = (k: ArmsCase, c: Case<ArmsFeature>) =>
 					}
 				})
 			)
-			assert.equal(added.kind, "accepted", "a value of each appended arm is written")
+			assert.equal(added._tag, "accepted", "a value of each appended arm is written")
 			const cells = yield* rowsOf(db.workload.allCells.once({ params: {}, facts: {} }))
 			assert.deepEqual(
 				Arr.map(cells, (row) => `${row.id} ${keyOf(row.value)}`),
@@ -406,7 +406,7 @@ export const armsCase = (k: ArmsCase, c: Case<ArmsFeature>) =>
 					facts: { insert: { Seen: Arr.map([...appended, ...again], (value) => ({ value })) } }
 				})
 			)
-			assert.equal(wrote.kind, "accepted", "the appended arms' values are seen")
+			assert.equal(wrote._tag, "accepted", "the appended arms' values are seen")
 			const values = yield* rowsOf(db.workload.allSeen.once({ params: {}, facts: {} }))
 			assert.deepEqual(
 				spelled(Arr.map(values, (row) => row.value)),
@@ -580,7 +580,7 @@ export const subsetCase = (k: SubsetCase, c: Case<SubsetFeature>) =>
 				})
 			)
 			assert.equal(
-				written.kind,
+				written._tag,
 				k.held.length > 0 ? "accepted" : "unchanged",
 				"the first version's values are written"
 			)
@@ -657,7 +657,7 @@ export const subsetCase = (k: SubsetCase, c: Case<SubsetFeature>) =>
 					}
 				})
 			)
-			assert.equal(added.kind, "accepted", "a value of each arm taken in is written")
+			assert.equal(added._tag, "accepted", "a value of each arm taken in is written")
 			const values = yield* rowsOf(db.workload.allHeld.once({ params: {}, facts: {} }))
 			assert.deepEqual(
 				Arr.map(values, (row) => `${row.id} ${subKeyOf(row.value)}`),

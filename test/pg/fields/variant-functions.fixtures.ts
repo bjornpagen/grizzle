@@ -213,7 +213,7 @@ export const applicationCase = (application: Application, k: FunctionsCase) =>
 				})
 			)
 			assert.equal(
-				wrote.kind,
+				wrote._tag,
 				"accepted",
 				`the ${application} application's Db writes a value of each arm`
 			)
@@ -358,7 +358,7 @@ export const exactArmCase = (w: ExactArmWrite) =>
 				return Option.some(Arr.map(answered.success, (row): unknown => row.amount))
 			}
 			assert.ok(
-				answered.failure.kind === "failed" &&
+				answered.failure._tag === "failed" &&
 					Str.includes("violates check constraint")(answered.failure.message),
 				`amount_of's ${w.value} is refused at the call's cast to the variant's domain, not ${Formatter.format(answered.failure)}`
 			)

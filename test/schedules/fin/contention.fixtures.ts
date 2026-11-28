@@ -156,7 +156,7 @@ export const contentionCase = (taken: SubstrateCase<Generated>) =>
 										ran = Result.isSuccess(r)
 											? Result.succeed({
 													refused: r.success.refused,
-													answer: r.success.answered.kind
+													answer: r.success.answered._tag
 												})
 											: Result.fail(r.failure.message)
 									})

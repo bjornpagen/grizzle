@@ -1458,7 +1458,7 @@ export const runHistory = (c: AggregateCase, note: Case<Feature>["note"]) =>
 					const broken = brokenOf(shape, after)
 					const outcome = yield* writeAnswerOf(apply({ params: {}, facts: factsOf(shape, write) }))
 					const where = `write ${i} ${Formatter.format(write)} of ${Formatter.format(c)}`
-					if (outcome.kind === "accepted" || outcome.kind === "unchanged") {
+					if (outcome._tag === "accepted" || outcome._tag === "unchanged") {
 						if (broken.length > 0) {
 							return yield* new Disagreed({
 								message: `accepted a state breaking ${Formatter.format(Arr.map(broken, (b) => shape.laws[b]))}: ${where}`
@@ -1469,13 +1469,13 @@ export const runHistory = (c: AggregateCase, note: Case<Feature>["note"]) =>
 						continue
 					}
 					const named =
-						outcome.kind === "refused"
+						outcome._tag === "refused"
 							? Arr.map(refusedLaws(outcome.refused), (law) => lawIndexOf(shape, law))
 							: []
 					const broke = (n: number | undefined): n is number =>
 						n !== undefined && broken.includes(n)
 					if (
-						outcome.kind !== "refused" ||
+						outcome._tag !== "refused" ||
 						outcome.witness.kind !== "unreported" ||
 						!(outcome.refused.kind === "some"
 							? Arr.some(named, broke)

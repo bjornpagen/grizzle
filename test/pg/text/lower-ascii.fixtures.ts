@@ -355,7 +355,7 @@ export const reproCase =
 					db.workload.write.once({ params: {}, facts: { insert: { Attr: attributes, Tag: [] } } })
 				)
 				assert.equal(
-					written.kind,
+					written._tag,
 					attributes.length === 0 ? "unchanged" : "accepted",
 					"attributes alone break no rule"
 				)
@@ -405,7 +405,7 @@ export const reproCase =
 				})
 				if (breaking.length === 0) {
 					assert.equal(
-						tagged.kind,
+						tagged._tag,
 						tags.length === 0 ? "unchanged" : "accepted",
 						`${shown} is accepted`
 					)
@@ -426,7 +426,7 @@ export const reproCase =
 					}
 					return
 				}
-				assert.ok(tagged.kind === "refused", `${shown} is refused`)
+				assert.ok(tagged._tag === "refused", `${shown} is refused`)
 				assert.deepEqual(
 					refusedLaws(tagged.refused),
 					[names.described(names.lawOf(rule))],

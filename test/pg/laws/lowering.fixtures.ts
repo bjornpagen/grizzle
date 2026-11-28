@@ -1303,7 +1303,7 @@ const loweredIn = (taken: SubstrateCase<Installed>, shape: Shape, order: Order) 
 					Effect.map(
 						writeAnswerOf(db.workload.write.once({ params: {}, facts: facts })),
 						(outcome): ServedOutcome => {
-							switch (outcome.kind) {
+							switch (outcome._tag) {
 								case "accepted":
 								case "unchanged":
 									return { kind: "accepted" }

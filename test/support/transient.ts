@@ -22,4 +22,4 @@ export const untilAnswered = <A, R>(
 
 /** Whether a call's failure is a transient refusal, which the caller runs the call again after (`untilAnswered`). */
 const isTransient = (error: CallError): error is CallErrorOf<"transient"> =>
-	error.kind === "transient"
+	error._tag === "transient"

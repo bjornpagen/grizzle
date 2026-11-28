@@ -33,9 +33,9 @@ export const features: { readonly [S in Second]: Feature } = {
 export const answer: LiveAnswer<Row, ListEvent<Row>> = {
 	settle: (events) => fold(opening<Row>(), events),
 	diff: diffList,
-	ready: { kind: "ready" },
-	error: (error) => ({ kind: "error", error }),
-	end: { kind: "end" }
+	ready: { _tag: "ready" },
+	error: (error) => ({ _tag: "error", error }),
+	end: { _tag: "end" }
 }
 
 /** The one key the read registers under, and the one the change routes. */

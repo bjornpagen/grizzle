@@ -241,17 +241,17 @@ export type Answer =
 const platformNames = installationNamesOf(installationOf(P.Platform, { kind: "declared" }))
 
 export const answerOf = (outcome: CallAnswer<WriteOutcome<unknown>>): Answer => {
-	switch (outcome.kind) {
+	switch (outcome._tag) {
 		case "refused":
 			return {
-				kind: outcome.kind,
+				kind: outcome._tag,
 				laws: Arr.map(refusedEntries(outcome.refused), (law) => platformNames.reported(law))
 			}
 		case "outsideWorld":
-			return { kind: outcome.kind, relation: outcome.relation }
+			return { kind: outcome._tag, relation: outcome.relation }
 		case "accepted":
 		case "unchanged":
-			return { kind: outcome.kind }
+			return { kind: outcome._tag }
 	}
 }
 
@@ -1181,7 +1181,7 @@ const runGrizzle = (form: GrizzleWrite, db: RacesDb): Effect.Effect<GrizzleRan> 
 				}
 			: {
 					transients,
-					last: { kind: "failed", error: `${ran.failure.kind}: ${ran.failure.message}` }
+					last: { kind: "failed", error: `${ran.failure._tag}: ${ran.failure.message}` }
 				}
 	})
 
@@ -1531,7 +1531,7 @@ const exactRepeats = (
 		})
 		for (const a of again) {
 			if (Result.isFailure(a)) {
-				return `the exact repeat of #${repeat.value.id} failed: ${a.failure.kind}: ${a.failure.message}`
+				return `the exact repeat of #${repeat.value.id} failed: ${a.failure._tag}: ${a.failure.message}`
 			}
 			if (a.success.kind !== "unchanged") {
 				return `the exact repeat of #${repeat.value.id} was ${a.success.kind}, not unchanged`

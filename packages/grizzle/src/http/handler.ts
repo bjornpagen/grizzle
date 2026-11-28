@@ -454,11 +454,11 @@ const answerProgress = (): AnswerProgress => {
 }
 
 /**
- * The JSON of the refusal of a request line no route serves, which no member's slots encode: its kind, its retry, and
- * its payload, a message alone (live/events.ts callErrors route).
+ * The JSON of the refusal of a request line no route serves, which no member's slots encode: its kind as its `_tag`, its
+ * retry, and its payload, a message alone (live/events.ts callErrors route).
  */
 const routeErrorJson = (error: CallErrorOf<"route">): WireJson => ({
-	kind: error.kind,
+	_tag: error._tag,
 	retry: error.retry,
 	message: error.message
 })

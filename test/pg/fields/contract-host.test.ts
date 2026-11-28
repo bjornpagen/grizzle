@@ -73,14 +73,14 @@ export const aContractsMintedValueRoundTripsAndItsPredicateRefusesTheRest = prop
 									const stored = Arr.sort(read, byId)
 									if (Arr.some(holdings, (h) => h.amount < 0n)) {
 										assert.equal(
-											outcome.kind,
+											outcome._tag,
 											"refused",
 											"Amount's predicate refuses a negative amount"
 										)
 										assert.deepEqual(stored, [], "a refused write stores no holding")
 										return
 									}
-									assert.equal(outcome.kind, "accepted", "every minted holding is written")
+									assert.equal(outcome._tag, "accepted", "every minted holding is written")
 									assert.ok(
 										exactValue(stored, facts),
 										"every holding reads back as written, each value the one its mint was given"

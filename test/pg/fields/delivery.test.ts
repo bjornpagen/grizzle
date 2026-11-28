@@ -79,7 +79,7 @@ export const aDeliveryAtChunkBoundariesReadsBackEveryRowStoredInTheStatementsOrd
 											params: {},
 											facts: { insert: { Blob: d.rows } }
 										})
-										assert.equal(outcome.kind, "accepted", "every row is written")
+										assert.equal(outcome._tag, "accepted", "every row is written")
 									}).pipe(
 										(body) =>
 											Effect.flatMap(Layer.build(o.served.layer), (context) =>

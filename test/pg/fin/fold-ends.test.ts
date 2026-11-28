@@ -89,7 +89,7 @@ export const everyFoldsEndThroughGrizzlesApplyOnPostgreSQL19StoresExactlyTheREAD
 								}
 								const next = applied(o.s, state, w)
 								assert.equal(
-									outcome.kind,
+									outcome._tag,
 									deepEquals(next, state) && w.kind !== "trees" ? "unchanged" : "accepted",
 									`the write ${Formatter.format(w)}`
 								)

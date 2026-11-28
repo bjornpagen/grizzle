@@ -422,13 +422,13 @@ export const aDeleteOfAPlacesWholeGroupsDeletesTheirHeadsSoEachClearedGroupStamp
 									(item) => [item, Arr.contains(c.cleared, item) ? 0 : c.heads[item]] as const
 								)
 								const added = (x: Answered): bigint =>
-									Result.isSuccess(x.ran) && x.ran.success.kind === "accepted"
+									Result.isSuccess(x.ran) && x.ran.success._tag === "accepted"
 										? Arr.reduce(x.ran.success.counts, 0n, (n, count) => n + count.added)
 										: 0n
 								const departures = Arr.filter(
 									[
 										...Arr.map(clears, (x, at) =>
-											Result.isSuccess(x.ran) && x.ran.success.kind === "accepted"
+											Result.isSuccess(x.ran) && x.ran.success._tag === "accepted"
 												? undefined
 												: `the clear of item ${String(c.cleared[at])} is accepted: ${Formatter.format(x.ran)}`
 										),

@@ -245,7 +245,7 @@ export const runCalls = (calls: Calls, c: Case<SecondCallFeature>) =>
 									facts: { put: { Fixed: factsOf(calls, (session - 1) * callsMade + k) } }
 								})
 							)
-							assert.equal(outcome.kind, "accepted", `call ${k} of ${where} is accepted`)
+							assert.equal(outcome._tag, "accepted", `call ${k} of ${where} is accepted`)
 						})
 					yield* call(1)
 					const first = yield* backends
@@ -350,7 +350,7 @@ export const runBelow = (below: Below, c: Case<BelowFeature>) =>
 					}
 					if (call === "lawful") {
 						assert.equal(
-							outcome.kind,
+							outcome._tag,
 							"accepted",
 							`${where} is accepted: ${Formatter.format(outcome)}`
 						)

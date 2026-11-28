@@ -120,9 +120,9 @@ export const theLiveRegistryRoutingIsExactFoldingASubscriptionsEventsEqualsRunni
 										if (refusals.queued > 0) {
 											refusals.queued -= 1
 											return Stream.fromIterable<ListEvent<Row>>([
-												{ kind: "reset", key: ["id"] },
+												{ _tag: "reset", key: ["id"] },
 												{
-													kind: "error",
+													_tag: "error",
 													error: callError("transient", {
 														message: "40001",
 														reason: "SerializationFailure"
@@ -131,9 +131,9 @@ export const theLiveRegistryRoutingIsExactFoldingASubscriptionsEventsEqualsRunni
 											])
 										}
 										return Stream.fromIterable<ListEvent<Row>>([
-											{ kind: "reset", key: ["id"] },
+											{ _tag: "reset", key: ["id"] },
 											...upsertsOf(readOf(model, reach)),
-											{ kind: "ready" }
+											{ _tag: "ready" }
 										])
 									})
 									const live = yield* registry.register({
@@ -144,7 +144,7 @@ export const theLiveRegistryRoutingIsExactFoldingASubscriptionsEventsEqualsRunni
 									})
 									const initialEvents = yield* Stream.runCollect(live.initial)
 									const initial = answer.settle(initialEvents)
-									assert.ok(initial.kind === "ready", "the initial run is ready")
+									assert.ok(initial._tag === "ready", "the initial run is ready")
 									assert.deepEqual(
 										rowsOf(initial.value),
 										readOf(model, reach),
@@ -230,10 +230,10 @@ export const theLiveRegistryRoutingIsExactFoldingASubscriptionsEventsEqualsRunni
 									}
 									subscription.refusals.queued = plan.refused
 									const batch = yield* subscription.pull
-									assert.equal(Arr.lastNonEmpty(batch).kind, "ready", "a batch ends with ready")
+									assert.equal(Arr.lastNonEmpty(batch)._tag, "ready", "a batch ends with ready")
 									const before = subscription.holding.value
 									for (const event of batch) {
-										if (event.kind === "remove") {
+										if (event._tag === "remove") {
 											c.note("a batch removing a row")
 											assert.ok(
 												before.at(formOf(event.key)) !== undefined,
@@ -241,8 +241,8 @@ export const theLiveRegistryRoutingIsExactFoldingASubscriptionsEventsEqualsRunni
 											)
 										}
 									}
-									const after = fold({ kind: "ready", value: before }, batch)
-									assert.ok(after.kind === "ready", "a batch folds to a value")
+									const after = fold({ _tag: "ready", value: before }, batch)
+									assert.ok(after._tag === "ready", "a batch folds to a value")
 									assert.deepEqual(
 										rowsOf(after.value),
 										expected,
@@ -315,9 +315,9 @@ export const theLiveRegistryALiveReadEndsWithTokenExpiredAtItsTokensExpiryEachCh
 									const live = yield* registry.register({
 										read: Stream.suspend(() =>
 											Stream.fromIterable<ListEvent<Row>>([
-												{ kind: "reset", key: ["id"] },
+												{ _tag: "reset", key: ["id"] },
 												...upsertsOf(readOf(model, reach)),
-												{ kind: "ready" }
+												{ _tag: "ready" }
 											])
 										),
 										answer,
@@ -335,7 +335,7 @@ export const theLiveRegistryALiveReadEndsWithTokenExpiredAtItsTokensExpiryEachCh
 										sink.touched({ kind: "keyed", table, column, value: String(row.g) })
 										const batch = yield* pull
 										assert.equal(
-											Arr.lastNonEmpty(batch).kind,
+											Arr.lastNonEmpty(batch)._tag,
 											"ready",
 											"the change comes before the expiry"
 										)
@@ -347,7 +347,7 @@ export const theLiveRegistryALiveReadEndsWithTokenExpiredAtItsTokensExpiryEachCh
 									const ending = yield* Fiber.join(waiting)
 									assert.deepEqual(
 										Arr.map(ending, (event) =>
-											event.kind === "error" ? `error ${event.error.kind}` : event.kind
+											event._tag === "error" ? `error ${event.error._tag}` : event._tag
 										),
 										["error tokenExpired", "end"],
 										"the stream ends with tokenExpired, then end, at the expiry"

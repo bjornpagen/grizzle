@@ -87,7 +87,7 @@ export const aVariantRoundTrips = property.explore(space, {
 								const outcome = yield* writeAnswerOf(
 									db.workload.cells.once({ params: {}, facts: { insert: { Cell: cells } } })
 								)
-								assert.equal(outcome.kind, "accepted", "every cell is written")
+								assert.equal(outcome._tag, "accepted", "every cell is written")
 								const stored = yield* rowsOf(db.workload.allCells.once({ params: {}, facts: {} }))
 								assert.deepEqual(
 									Arr.map(stored, (row) => [row.id, row.value, row.kind]),
@@ -156,7 +156,7 @@ export const aVariantRoundTrips = property.explore(space, {
 									})
 								)
 								assert.equal(
-									outOfOrder.kind,
+									outOfOrder._tag,
 									"refused",
 									"a point whose x passes its y is refused by its arm's check"
 								)
@@ -190,7 +190,7 @@ export const aVariantRoundTrips = property.explore(space, {
 										facts: { insert: { Bag: Arr.map(members, (member) => ({ owner: 1, member })) } }
 									})
 								)
-								assert.equal(bagged.kind, "accepted", "a bag's distinct members are written")
+								assert.equal(bagged._tag, "accepted", "a bag's distinct members are written")
 								const bags = yield* rowsOf(db.workload.allBags.once({ params: {}, facts: {} }))
 								assert.deepEqual(
 									Arr.map(bags, (row) => row.member),
@@ -205,7 +205,7 @@ export const aVariantRoundTrips = property.explore(space, {
 									})
 								)
 								assert.equal(
-									repeated.kind,
+									repeated._tag,
 									"unchanged",
 									"a member the bag holds, written again, meets itself under the key"
 								)
@@ -227,7 +227,7 @@ export const aVariantRoundTrips = property.explore(space, {
 									})
 								)
 								assert.equal(
-									apart.kind,
+									apart._tag,
 									"accepted",
 									"a double's two zeros are two members: the key's equality is the variant's identity"
 								)
@@ -332,7 +332,7 @@ export const anEmptyRelationOfAVariantAnswersNoRow = property.exhaust(finite(emp
 													}
 												}),
 												(outcome) => {
-													assert.equal(outcome.kind, "accepted", "the cell is written")
+													assert.equal(outcome._tag, "accepted", "the cell is written")
 													return defined(
 														outcome.reads["removed"],
 														"the read-back of what it removed"
@@ -417,7 +417,7 @@ export const aVariantOverASubsetHoldsItsArmsAlone = property.explore(space, {
 									db.workload.somes.once({ params: {}, facts: { insert: { Somes: somes } } })
 								)
 								assert.equal(
-									written.kind,
+									written._tag,
 									somes.length > 0 ? "accepted" : "unchanged",
 									"every value of the subset's arms is written"
 								)
@@ -446,7 +446,7 @@ export const aVariantOverASubsetHoldsItsArmsAlone = property.explore(space, {
 									)
 								)
 								assert.ok(
-									Result.isFailure(input) && input.failure.kind === "input",
+									Result.isFailure(input) && input.failure._tag === "input",
 									`a JavaScript caller's ${stray.tag}, a handle no arm of Some names, is refused at the call's input`
 								)
 								const owner = yield* Substrate.pipe(
@@ -587,7 +587,7 @@ export const aVariantsEqualityIsItsIdentity = property.explore(identitySpace, {
 									})
 								)
 								assert.equal(
-									imaged.kind,
+									imaged._tag,
 									cells.length > 0 ? "accepted" : "unchanged",
 									"each cell's value is written by its facts under its image, a key generation"
 								)
@@ -826,7 +826,7 @@ export const aVariantsHostAdmissionIsItsDomain = property.explore(replySpace, {
 									})
 								)
 								assert.equal(
-									written.kind,
+									written._tag,
 									Result.isSuccess(host) ? "accepted" : "refused",
 									`the host ${Result.isSuccess(host) ? "admits" : "refuses"} ${replyText(reply)}, as the database does`
 								)
@@ -837,8 +837,8 @@ export const aVariantsHostAdmissionIsItsDomain = property.explore(replySpace, {
 										"the host refuses a reply outside its domain at its field"
 									)
 									const at = `the database refuses ${replyText(reply)} at its field, naming its variant law`
-									if (written.kind !== "refused") {
-										return assert.fail(`${at}, not ${written.kind}`)
+									if (written._tag !== "refused") {
+										return assert.fail(`${at}, not ${written._tag}`)
 									}
 									assert.equal(written.refused.kind, "every", at)
 									assert.deepEqual(

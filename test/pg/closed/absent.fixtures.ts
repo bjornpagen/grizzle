@@ -1197,10 +1197,10 @@ const verdict = (
 	}
 	const outcome = applied.success
 	if (lawful) {
-		return assert.equal(outcome.kind, "accepted", `${where} is lawful`)
+		return assert.equal(outcome._tag, "accepted", `${where} is lawful`)
 	}
-	if (outcome.kind !== "refused") {
-		return assert.fail(`${where} is unlawful, so refused, not ${outcome.kind}`)
+	if (outcome._tag !== "refused") {
+		return assert.fail(`${where} is unlawful, so refused, not ${outcome._tag}`)
 	}
 	assert.equal(refusedLaws(outcome.refused).length, 1, `${where} breaks one law`)
 	assert.ok(

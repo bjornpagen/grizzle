@@ -4,8 +4,9 @@ The reference grizzle's source and tests cite by heading (test/unit/dev/referenc
 
 ## Errors and outcomes
 
-A call answers its value or fails with one `CallError`, the same in process and over HTTP: `{ kind, retry, message }`
-and the members its kind holds. `kind` is one of a closed set, `retry` says whether the same call may succeed run again
+A call answers its value or fails with one `CallError`, the same in process and over HTTP: `{ _tag, retry, message }`
+and the members its tag holds. `_tag` is one of a closed set, so `Effect.catchTag` selects it, `retry` says whether the
+same call may succeed run again
 (`"safe"`: nothing committed, and the failure was not the call's own) or meets the same answer (`"never"`), and
 `message` is the failure's own words, the server's report where the database refused. A broken rule is a refusal of
 the write, `refused`, which names the rules it broke and a row that breaks them.
@@ -300,9 +301,9 @@ gives handles alone, so its rows are the same whatever codes an installation hol
 (test/pg/write/preview/preview.test.ts holds them to a fresh installation's and to one migrated past a dropped handle).
 
 **Errors**: `DbLayer.make` and `Db.open` fail with `OpenError` in the Effect's error channel; every call of a member
-fails with its `CallError`, by kind:
+fails with its `CallError`, by its `_tag`:
 
-| `kind`          | `retry` | What happened                                                                                                   |
+| `_tag`          | `retry` | What happened                                                                                                   |
 | --------------- | ------- | --------------------------------------------------------------------------------------------------------------- |
 | `input`         | `never` | a parameter, a fact or a window the member's codecs or input boundary refuse, past a bound of its transport included |
 | `paramRejected` | `never` | PostgreSQL refused a parameter's value outside its pattern, a `str.bytes` bound included, as it bound it (`param`) |
@@ -348,7 +349,7 @@ fails with its `CallError`, by kind:
     SSLRequest with neither yes nor no;
   - `driverRefused`: pg ended the startup itself, with no SQLSTATE and no code: a SCRAM exchange whose server proof
     does not verify, a mechanism it does not support, a server that asks a password of a role given none.
-- **`unavailable`**: no session could be had for now, for a cause that may pass. Its `reason` is `{ kind }`, a cause
+- **`unavailable`**: no session could be had for now, for a cause that may pass. Its `reason` is `{ _tag }`, a cause
   of a closed set read off the SQLSTATE or the socket's code, never off the message:
   - `connectionRefused`: nothing accepted the connection at its address, ECONNREFUSED or ENOENT;
   - `hostUnreachable`: no route reaches the host, EHOSTUNREACH, ENETUNREACH, EHOSTDOWN or ENETDOWN;
@@ -366,9 +367,9 @@ fails with its `CallError`, by kind:
   - `slotInvalidated`: the installation's replication slot was invalidated: its live leader makes it again;
   - `leaderFailed`: the live leader's candidacy failed otherwise: an answer, a message or a secret it cannot read, a
     statement past a bound, or a replication stream the server ended;
-  - `{ kind: "otherSqlstate", sqlstate }`: the server refused with any other SQLSTATE, such as 3D000 for a database
+  - `{ _tag: "otherSqlstate", sqlstate }`: the server refused with any other SQLSTATE, such as 3D000 for a database
     that does not exist;
-  - `{ kind: "otherSocketCode", code }`: the socket failed with any other code, its errno's name for a system error.
+  - `{ _tag: "otherSocketCode", code }`: the socket failed with any other code, its errno's name for a system error.
 - **`credentialRefused`**, **`unavailable`** and **`transport`** change nothing. Waiting for a session never fails: a
   call waits until it has one or is interrupted. A server that reaches ReadyForQuery without a cancellation key
   (`NoCancelKey`) is `failed`: every attempt meets it.
@@ -395,7 +396,7 @@ fails with its `CallError`, by kind:
 A call's `CallError` is read from the reason that failed it, each reason a class of grizzle's own
 (adapter/live/call-error.ts), and a member's `explain` and `explainAnalyze` fail with the `CallError` its `once` would:
 
-| Reason                                                                                                                                                                       | `kind`          |
+| Reason                                                                                                                                                                       | `_tag`          |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
 | the server's `ServerError`, 53200 and 54001 among them; `UnreadableAnswer`, rows grizzle cannot read or its compiled proof says the query cannot deliver; `CompileError`; `DriverFailure`, pg's refusal of a query on a connection still standing; `AdviceUnloaded`, a session that does not load `pg_plan_advice` ([Install](../README.md#install)) | `failed`        |
 | `CredentialError`; `StartupRefused` of SQLSTATE class 28; `TlsRefused`, but a handshake's failure with a system error's code; `DriverRefused` | `credentialRefused` |

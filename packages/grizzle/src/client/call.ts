@@ -103,7 +103,7 @@ const readReading: Reading<ReadState<object>, KeyedList<object>, ListEvent<objec
 	whole: "ready",
 	fold,
 	valueOf: (state) => {
-		if (state.kind !== "ready") {
+		if (state._tag !== "ready") {
 			defect("a read's batch ended at ready with no ready value")
 		}
 		return state.value
@@ -120,13 +120,13 @@ const writeReading: Reading<WriteState<unknown>, unknown, WriteEvent<unknown>> =
 	whole: "outcome",
 	fold: foldWrite,
 	valueOf: (state) => {
-		if (state.kind !== "ready") {
+		if (state._tag !== "ready") {
 			defect("a write's batch ended at its outcome with no outcome")
 		}
 		return state.value
 	},
 	cut: (state, message) =>
-		state.kind === "ready"
+		state._tag === "ready"
 			? { kind: "ended" }
 			: { kind: "failed", error: callError("commitUnknown", { message }) }
 }
@@ -170,7 +170,7 @@ const framesOf = <Ev>(
 				return { kind: "ended" }
 			case "item":
 			case "ready": {
-				const event: Record<string, unknown> = { kind: frame.type }
+				const event: Record<string, unknown> = { _tag: frame.type }
 				for (const [member, slot] of Rec.toEntries(descriptor.payload)) {
 					event[member] = decoders[slot](trustedMember(data, member))
 				}
@@ -196,7 +196,7 @@ interface Batch<St, Ev> {
  * as the shape reads it.
  */
 const advance =
-	<St, V, Ev extends { readonly kind: string }>(reading: Reading<St, V, Ev>) =>
+	<St, V, Ev extends { readonly _tag: string }>(reading: Reading<St, V, Ev>) =>
 	(
 		batch: Batch<St, Ev>,
 		arrival: Arrival<Ev>
@@ -207,7 +207,7 @@ const advance =
 		switch (arrival.kind) {
 			case "event": {
 				batch.pending.push(arrival.event)
-				if (arrival.event.kind !== reading.whole || !Arr.isArrayNonEmpty(batch.pending)) {
+				if (arrival.event._tag !== reading.whole || !Arr.isArrayNonEmpty(batch.pending)) {
 					return [batch, []]
 				}
 				const state = reading.fold(batch.state, batch.pending)
@@ -260,7 +260,7 @@ const exchange = (
  * An input the member's wire does not encode (live/codec.ts encodeInput) is the call's `input` CallError, before any
  * request, as the server's door refuses a body its wire does not parse.
  */
-const answer = <St, V, Ev extends { readonly kind: string }>(
+const answer = <St, V, Ev extends { readonly _tag: string }>(
 	member: ClientMember,
 	reading: Reading<St, V, Ev>,
 	token: Option.Option<Redacted.Redacted>,
@@ -317,7 +317,7 @@ export interface ProgramCalls<V, Ev, E> {
 }
 
 /** The operations of a member read by `reading`, each call's token taken first. */
-const callsOf = <St, V, Ev extends { readonly kind: string }, E>(
+const callsOf = <St, V, Ev extends { readonly _tag: string }, E>(
 	member: ClientMember,
 	reading: Reading<St, V, Ev>,
 	token: Option.Option<Token<E>>

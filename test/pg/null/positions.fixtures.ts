@@ -573,10 +573,10 @@ const verdict = (
 	}
 	const outcome = applied.success
 	if (broken.length === 0) {
-		return assert.equal(outcome.kind, "accepted", `${where} breaks no law`)
+		return assert.equal(outcome._tag, "accepted", `${where} breaks no law`)
 	}
-	if (outcome.kind !== "refused") {
-		return assert.fail(`${where} breaks ${Arr.join(broken, ", ")}, so refused, not ${outcome.kind}`)
+	if (outcome._tag !== "refused") {
+		return assert.fail(`${where} breaks ${Arr.join(broken, ", ")}, so refused, not ${outcome._tag}`)
 	}
 	const named: ReadonlyArray<string> = Arr.sort(
 		Arr.map(refusedLaws(outcome.refused), lawName),

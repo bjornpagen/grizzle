@@ -205,7 +205,7 @@ export const aQueryEntrysInsertionRacingACommitAtItsKeyFailsAtAnOccupantPastItsS
 							)
 							if (!c.sameId) {
 								assert.ok(
-									answer.kind === "accepted" &&
+									answer._tag === "accepted" &&
 										deepEquals(Arr.map(answer.reads.added, seatOf), [
 											{ id: request.id, team: request.team }
 										]) &&
@@ -222,7 +222,7 @@ export const aQueryEntrysInsertionRacingACommitAtItsKeyFailsAtAnOccupantPastItsS
 							}
 							if (!c.outside && c.sameTeam) {
 								assert.ok(
-									answer.kind === "unchanged" &&
+									answer._tag === "unchanged" &&
 										answer.reads.added.length === 0 &&
 										deepEquals(Arr.map(answer.reads.met, seatOf), [{ id: wId, team: wTeam }]),
 									`A's exact repeat of ann's own seat is unchanged, met: ${Formatter.format(answer)}`
@@ -234,7 +234,7 @@ export const aQueryEntrysInsertionRacingACommitAtItsKeyFailsAtAnOccupantPastItsS
 								return
 							}
 							assert.ok(
-								answer.kind === "refused" &&
+								answer._tag === "refused" &&
 									Arr.length(refusedEntries(answer.refused)) === 1 &&
 									answer.witness.kind === "key" &&
 									deepEquals(answer.witness.values, { id: wId }),

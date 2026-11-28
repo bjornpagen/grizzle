@@ -17,15 +17,15 @@ interface Row {
 export const answer: LiveAnswer<Row, ListEvent<Row>> = {
 	settle: (events) => fold(opening<Row>(), events),
 	diff: diffList,
-	ready: { kind: "ready" },
-	error: (error) => ({ kind: "error", error }),
-	end: { kind: "end" }
+	ready: { _tag: "ready" },
+	error: (error) => ({ _tag: "error", error }),
+	end: { _tag: "end" }
 }
 
 /** A read of no rows, its one run's events. */
 export const read: Stream.Stream<ListEvent<Row>> = Stream.fromIterable<ListEvent<Row>>([
-	{ kind: "reset", key: ["id"] },
-	{ kind: "ready" }
+	{ _tag: "reset", key: ["id"] },
+	{ _tag: "ready" }
 ])
 
 /** A candidacy's end as its fiber meets it. */

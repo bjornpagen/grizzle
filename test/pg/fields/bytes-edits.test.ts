@@ -81,7 +81,7 @@ export const countsEachPutOfAnotherValueAndEachExactDelete = property.explore(ca
 											facts: { insert: { Blob: rows, Held: rows, Stage: stage } }
 										})
 									)
-									assert.equal(stored.kind, "accepted", "every stored row is written")
+									assert.equal(stored._tag, "accepted", "every stored row is written")
 								}
 								const staging = yield* writeAnswerOf(
 									db.workload.stage.once({ params: {}, facts: {} })
@@ -91,10 +91,10 @@ export const countsEachPutOfAnotherValueAndEachExactDelete = property.explore(ca
 									(st) => st.as === "one byte off" || st.as === "resized"
 								).length
 								if (staged === 0) {
-									assert.equal(staging.kind, "unchanged", "no staged value changes a row")
+									assert.equal(staging._tag, "unchanged", "no staged value changes a row")
 								} else {
-									if (staging.kind !== "accepted") {
-										return assert.fail(`the staged values are put, not ${staging.kind}`)
+									if (staging._tag !== "accepted") {
+										return assert.fail(`the staged values are put, not ${staging._tag}`)
 									}
 									assert.equal(
 										defined(
@@ -149,7 +149,7 @@ export const countsEachPutOfAnotherValueAndEachExactDelete = property.explore(ca
 								)
 								if (again !== undefined && d.again === "one byte off") {
 									assert.equal(
-										outcome.kind,
+										outcome._tag,
 										"refused",
 										"two facts at one key one byte apart are refused on the key"
 									)
@@ -158,10 +158,10 @@ export const countsEachPutOfAnotherValueAndEachExactDelete = property.explore(ca
 								const put = Arr.filter(d.edits, (e) => e.kind === "put" && e.as !== "same").length
 								const deleted = Arr.filter(d.edits, (e) => e.kind === "delete" && e.exact).length
 								if (put + deleted === 0) {
-									assert.equal(outcome.kind, "unchanged", "no edit changes a row")
+									assert.equal(outcome._tag, "unchanged", "no edit changes a row")
 								} else {
-									if (outcome.kind !== "accepted") {
-										return assert.fail(`the edits are accepted, not ${outcome.kind}`)
+									if (outcome._tag !== "accepted") {
+										return assert.fail(`the edits are accepted, not ${outcome._tag}`)
 									}
 									const counts = defined(
 										Option.getOrUndefined(

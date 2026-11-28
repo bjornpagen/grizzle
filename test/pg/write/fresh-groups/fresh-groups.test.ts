@@ -201,7 +201,7 @@ export const aFreshCountedGroupDrawnByTheHostIsStoredAsTheFamilysScanDrawsItAndA
 							factsOf(k, k.rows, insertedRelations(k.spec))
 						)
 						assert.equal(
-							whole.kind,
+							whole._tag,
 							k.rows.length === 0 ? "unchanged" : "accepted",
 							"the fresh installation's insert of the whole instance"
 						)
@@ -212,7 +212,7 @@ export const aFreshCountedGroupDrawnByTheHostIsStoredAsTheFamilysScanDrawsItAndA
 								factsOf(k, k.rows, relations)
 							)
 							assert.equal(
-								once.kind,
+								once._tag,
 								holds ? "accepted" : "unchanged",
 								`the scanned installation's insert of depth ${String(d)}`
 							)
@@ -232,7 +232,7 @@ export const aFreshCountedGroupDrawnByTheHostIsStoredAsTheFamilysScanDrawsItAndA
 						for (const at of [fresh, scanned]) {
 							const answer = yield* at.applied("whole", facts)
 							assert.equal(
-								answer.kind,
+								answer._tag,
 								"accepted",
 								"an exact repeat of a stored owner beside an append"
 							)
@@ -264,12 +264,12 @@ export const aFreshCountedGroupDrawnByTheHostIsStoredAsTheFamilysScanDrawsItAndA
 							factsOf(immutable, k.rows, insertedRelations(k.spec))
 						)
 						assert.equal(
-							stored.kind,
+							stored._tag,
 							"accepted",
 							"the immutable installation's insert of the whole instance"
 						)
 						const refused = yield* fixed.applied("whole", facts)
-						if (refused.kind !== "refused") {
+						if (refused._tag !== "refused") {
 							return assert.fail(
 								`an exact repeat of a stored immutable owner beside an append is refused, not ${Formatter.format(refused)}`
 							)

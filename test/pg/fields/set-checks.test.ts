@@ -74,7 +74,7 @@ export const aRowCheckOverASetAndASetValueHoldsARowExactlyWhenItsFlagsAreDisjoin
 								names.described
 							)
 							if (!Arr.isReadonlyArrayNonEmpty(named)) {
-								assert.equal(outcome.kind, "accepted", `${Formatter.format(flags)} is accepted`)
+								assert.equal(outcome._tag, "accepted", `${Formatter.format(flags)} is accepted`)
 								const read = yield* rowsOf(db.workload.readBack.once({ params: {}, facts: {} }))
 								assert.deepEqual(
 									Arr.map(read, (row) => ({
@@ -93,7 +93,7 @@ export const aRowCheckOverASetAndASetValueHoldsARowExactlyWhenItsFlagsAreDisjoin
 								return
 							}
 							const refusal = `${Formatter.format(flags)} is refused naming every check it breaks, each once, in canonical order`
-							assert.ok(outcome.kind === "refused", refusal)
+							assert.ok(outcome._tag === "refused", refusal)
 							assert.equal(outcome.refused.kind, "every", refusal)
 							assert.deepEqual(refusedLaws(outcome.refused), named, refusal)
 							assert.deepEqual(

@@ -142,7 +142,7 @@ export const everyMemberOfANestedWriteUnderAStampedOwnerStoresExactlyItsOwnersSt
 						for (const nth of [1, 2]) {
 							const answer = yield* call
 							assert.equal(
-								answer.kind,
+								answer._tag,
 								conflict ? "refused" : "accepted",
 								`call ${String(nth)}: ${Formatter.format(answer)}`
 							)

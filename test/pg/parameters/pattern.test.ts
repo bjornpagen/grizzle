@@ -128,7 +128,7 @@ export const aParametersPatternNoStoredFieldDeclaresAgainstPostgreSQL19AParamete
 										return assert.fail("a value outside its pattern is refused")
 									}
 									const failure = read.failure
-									assertVariant(failure, "kind", "paramRejected", "refused at bind")
+									assertVariant(failure, "_tag", "paramRejected", "refused at bind")
 									assert.ok(
 										Arr.some(outsideOf(k.via, rows), (place) => deepEquals(place, failure.param)),
 										`the refusal names a place bound outside its pattern, not ${Formatter.format(failure.param)}`
@@ -141,7 +141,7 @@ export const aParametersPatternNoStoredFieldDeclaresAgainstPostgreSQL19AParamete
 								}
 								if (Result.isFailure(read)) {
 									return assert.fail(
-										`values inside their patterns are delivered: ${read.failure.kind}`
+										`values inside their patterns are delivered: ${read.failure._tag}`
 									)
 								}
 								const delivered: ReadonlyArray<Readonly<Record<string, unknown>>> =

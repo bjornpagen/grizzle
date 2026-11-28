@@ -462,7 +462,7 @@ export const nativeCase = (
 			const applied = yield* Effect.result(p.applied)
 			assert.ok(Result.isSuccess(applied), k.kind)
 			const outcome = applied.success
-			assert.ok(outcome.kind === "refused", `${k.kind}: ${outcome.kind}`)
+			assert.ok(outcome._tag === "refused", `${k.kind}: ${outcome._tag}`)
 			assert.equal(outcome.refused.kind, "every", k.kind)
 			assert.deepEqual(refusedLaws(outcome.refused), p.expected.laws, k.kind)
 			assert.deepEqual(outcome.witness, p.expected.witness, k.kind)

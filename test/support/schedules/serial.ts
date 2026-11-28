@@ -280,7 +280,7 @@ export const runSerialRace = <A, E>(
 				: Effect.map(Effect.result(untilAnswered(t.call)), (r): Shown<A> =>
 						Result.isSuccess(r)
 							? { kind: "answered", answer: r.success.answered }
-							: { kind: "failed", what: r.failure.kind }
+							: { kind: "failed", what: r.failure._tag }
 					)
 		const referenceOf = (order: ReadonlyArray<string>): Effect.Effect<Reference<A>, E | SqlError> =>
 			Effect.gen(function* () {
@@ -308,7 +308,7 @@ export const runSerialRace = <A, E>(
 				}
 				return Result.isSuccess(answer)
 					? { kind: "answered", retried: answer.success }
-					: `${t.session}'s call failed with ${answer.failure.kind}: ${answer.failure.message}`
+					: `${t.session}'s call failed with ${answer.failure._tag}: ${answer.failure.message}`
 			}
 			const result = run.results[t.session]
 			if (result === undefined) {

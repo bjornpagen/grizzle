@@ -91,7 +91,7 @@ export const aServedChangeSetsArrayMembersWriteExactlyTheFactsEachCallSuppliesAn
 									const expectedItems = itemsAfter(stored, facts)
 									const agrees =
 										Result.isSuccess(applied) &&
-										applied.success.kind === "accepted" &&
+										applied.success._tag === "accepted" &&
 										sameItems(storedItems, expectedItems) &&
 										storedLabels.length === facts.insert.Label.length
 									if (plant.kind !== "none") {

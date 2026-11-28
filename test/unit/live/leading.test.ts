@@ -98,7 +98,7 @@ export const theLiveLeadershipEndsEveryWaitingReadWithATypedErrorAtAnyEndOfItsCa
 						})
 						const initialEvents = yield* Stream.runCollect(live.initial)
 						const initial = answer.settle(initialEvents)
-						assert.equal(initial.kind, "ready", "the read registers on the open source")
+						assert.equal(initial._tag, "ready", "the read registers on the open source")
 						const current = yield* Queue.take(started)
 						assert.equal(
 							count.started,
@@ -122,11 +122,11 @@ export const theLiveLeadershipEndsEveryWaitingReadWithATypedErrorAtAnyEndOfItsCa
 						const after = Arr.fromIterable(changed)
 						const [error, last] = after
 						assert.ok(
-							after.length === 2 && error?.kind === "error" && last?.kind === "end",
+							after.length === 2 && error?._tag === "error" && last?._tag === "end",
 							`the waiting read ends with its error and end: ${Formatter.format(after)}`
 						)
 						assert.equal(
-							error.error.kind,
+							error.error._tag,
 							expectedKind[end],
 							`a candidacy ending by ${end} ends the read ${expectedKind[end]}`
 						)

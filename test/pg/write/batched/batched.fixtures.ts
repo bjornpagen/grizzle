@@ -355,7 +355,7 @@ export const runAdmitted = (
 					)
 				}
 				assert.equal(
-					applied.success.kind,
+					applied.success._tag,
 					"accepted",
 					`${Formatter.format(c)}: the write is accepted`
 				)
@@ -385,11 +385,11 @@ export const runAdmitted = (
 			}
 			if (Result.isSuccess(applied)) {
 				return assert.fail(
-					`${Formatter.format(c)}: an outside code is refused at bind, not answered ${applied.success.kind}`
+					`${Formatter.format(c)}: an outside code is refused at bind, not answered ${applied.success._tag}`
 				)
 			}
 			const refused = applied.failure
-			assertVariant(refused, "kind", "paramRejected", "refused at bind")
+			assertVariant(refused, "_tag", "paramRejected", "refused at bind")
 			assert.deepEqual(
 				refused.param,
 				{ kind: "field", name: "named", field: "code" },

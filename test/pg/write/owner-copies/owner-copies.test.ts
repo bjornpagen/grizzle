@@ -120,7 +120,7 @@ export const everyRowOfACallInsertingACountedFamilysOwnersBesideItsMembersAField
 						const answer = yield* writeAnswerOf(
 							writeOnce(member(served, "publish"))({ params: built.params, facts: built.facts })
 						)
-						assert.equal(answer.kind, "accepted", `the call: ${Formatter.format(answer)}`)
+						assert.equal(answer._tag, "accepted", `the call: ${Formatter.format(answer)}`)
 						const names = namesOf(done)
 						const s = yield* Substrate
 						/** A table's rows, each column `columns` names as its text, in one order. */

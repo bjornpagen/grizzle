@@ -101,7 +101,7 @@ export const aFloatsZerosAreOneKeyAndTwoFactsAWriteOfAFactAtAStoredFactsKeyWhose
 										Arr.findFirst(state, (row) => row["k"] === at.k)
 									)
 									const answer: Answer = {
-										outcome: outcome.kind,
+										outcome: outcome._tag,
 										after: after === undefined ? undefined : Number(after["x"])
 									}
 									const model = expected(s)
@@ -112,7 +112,7 @@ export const aFloatsZerosAreOneKeyAndTwoFactsAWriteOfAFactAtAStoredFactsKeyWhose
 												: model.after !== undefined && Object.is(answer.after, model.after)),
 										`${Formatter.format(s)}: answered ${Formatter.format(answer)}, the fact identity gives ${Formatter.format(model)}`
 									)
-									if (outcome.kind === "refused") {
+									if (outcome._tag === "refused") {
 										assert.deepEqual(
 											refusedLaws(outcome.refused),
 											[
@@ -204,8 +204,8 @@ export const twoFactsAtMinusZeroAndPlusZeroOfAFloatKeyAreOneKeyAPutOfBothIsRefus
 											}
 										})
 									)
-									if (outcome.kind !== "refused") {
-										return assert.fail(`two facts of one key refused, not ${outcome.kind}`)
+									if (outcome._tag !== "refused") {
+										return assert.fail(`two facts of one key refused, not ${outcome._tag}`)
 									}
 									const names = namesOf(o.installed)
 									assert.deepEqual(refusedLaws(outcome.refused), [

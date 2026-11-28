@@ -224,7 +224,7 @@ export const aLoginUnderHostileDatabaseDefaultsAnswersExactlyAsUnderTheDatabases
 							})),
 							amountFacts([...byId(c.program.revised), ...byId(c.program.amounts)])
 						)
-						if (Arr.some(ordinary.writes, (w) => w.kind === "refused")) {
+						if (Arr.some(ordinary.writes, (w) => w._tag === "refused")) {
 							cx.note("a write refused by a law")
 						}
 						if (ordinary.pages.length > 1) {

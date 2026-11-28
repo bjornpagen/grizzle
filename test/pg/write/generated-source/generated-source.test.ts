@@ -105,7 +105,7 @@ export const aQuerySourcedWriteIntoGeneratedFieldsAgainstPostgreSQL19AnInsertOrA
 
 									if (Arr.isReadonlyArrayNonEmpty(k.stored)) {
 										const seeded = yield* seed(k.target, k.stored)
-										assert.equal(seeded.kind, "accepted", "the stored rows are lawful")
+										assert.equal(seeded._tag, "accepted", "the stored rows are lawful")
 									}
 									const before: ReadonlyArray<Readonly<Record<string, unknown>>> = yield* read(
 										k.target
@@ -113,7 +113,7 @@ export const aQuerySourcedWriteIntoGeneratedFieldsAgainstPostgreSQL19AnInsertOrA
 									const applied = yield* Effect.result(write(k, k.source))
 									if (Result.isFailure(applied)) {
 										return assert.fail(
-											`a lawful schema's write is an outcome: ${applied.failure.kind}`
+											`a lawful schema's write is an outcome: ${applied.failure._tag}`
 										)
 									}
 									const outcome = applied.success
@@ -122,9 +122,9 @@ export const aQuerySourcedWriteIntoGeneratedFieldsAgainstPostgreSQL19AnInsertOrA
 									)
 									const expected = expectedOf(k)
 									if (expected.kind === "refused") {
-										if (outcome.kind !== "refused") {
+										if (outcome._tag !== "refused") {
 											return assert.fail(
-												`a write breaking ${Arr.join(expected.laws, ", ")} is refused, not ${outcome.kind}`
+												`a write breaking ${Arr.join(expected.laws, ", ")} is refused, not ${outcome._tag}`
 											)
 										}
 										const [law] = refusedLaws(outcome.refused)
@@ -143,7 +143,7 @@ export const aQuerySourcedWriteIntoGeneratedFieldsAgainstPostgreSQL19AnInsertOrA
 										return
 									}
 									assert.equal(
-										outcome.kind,
+										outcome._tag,
 										expected.changed ? "accepted" : "unchanged",
 										"accepted where the write changed a row"
 									)

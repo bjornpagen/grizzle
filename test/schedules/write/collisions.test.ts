@@ -182,10 +182,10 @@ export const collidingAdditionsOfACertifiedREADCOMMITTEDRoleAnswerAsTheSerialOrd
 										if (
 											!(
 												Result.isSuccess(ran) &&
-												ran.success.kind !== "refused" &&
-												ran.success.kind !== "outsideWorld" &&
+												ran.success._tag !== "refused" &&
+												ran.success._tag !== "outsideWorld" &&
 												(expected.rows.length === 0
-													? ran.success.kind === "unchanged" ||
+													? ran.success._tag === "unchanged" ||
 														addedTo(ran.success, "Sitting") === 0n
 													: addedTo(ran.success, "Sitting") === BigInt(expected.rows.length))
 											)
@@ -208,7 +208,7 @@ export const collidingAdditionsOfACertifiedREADCOMMITTEDRoleAnswerAsTheSerialOrd
 											? undefined
 											: `${label} reads back as added the rows it made, ${Formatter.format(at(expected.rows))}, and as met the stored rows it repeats, ${Formatter.format(at(expected.met))}: added ${Formatter.format(added)}, met ${Formatter.format(met)}`
 									}
-									if (Result.isFailure(ran) || ran.success.kind !== "refused") {
+									if (Result.isFailure(ran) || ran.success._tag !== "refused") {
 										return `${label} is a typed refusal of ${expected.law}, never an abort or a defect: ${Formatter.format(ran)}`
 									}
 									const outcome = ran.success

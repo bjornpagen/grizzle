@@ -84,7 +84,7 @@ export const aMemberBoundToTheDatabasesClockReadsTheInstantItsCallsTransactionBe
 								return assert.fail("a clocked read is served at its call's instant")
 							}
 							const answer = yield* Stream.runCollect(dueCalls.answer(call))
-							const kinds: ReadonlyArray<string> = Arr.map(answer, (e) => e.kind)
+							const kinds: ReadonlyArray<string> = Arr.map(answer, (e) => e._tag)
 							const expectedKinds: ReadonlyArray<string> = [
 								"reset",
 								...Arr.map(
@@ -129,7 +129,7 @@ export const aMemberBoundToTheDatabasesClockReadsTheInstantItsCallsTransactionBe
 							const refused = yield* Effect.result(readOnce(calls("after"))(call))
 							notes.note("a contract that refuses the reading")
 							assert.ok(
-								Result.isFailure(refused) && refused.failure.kind === "refused",
+								Result.isFailure(refused) && refused.failure._tag === "refused",
 								`a reading before 2100 is refused by a contract of instants after it: ${Formatter.format(refused)}`
 							)
 						})

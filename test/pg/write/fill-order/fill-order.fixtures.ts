@@ -977,7 +977,7 @@ export const checkCase = (
 				applied("first", firstFacts)
 			)
 			assert.equal(
-				outcome.kind,
+				outcome._tag,
 				rows.length === 0 ? "unchanged" : "accepted",
 				`the instance's first insert of ${Formatter.format(spec)}`
 			)
@@ -1052,7 +1052,7 @@ export const checkCase = (
 				applied("next", nextFacts(members, slots))
 			)
 			assert.equal(
-				second.kind,
+				second._tag,
 				"accepted",
 				`the follow-up ${Formatter.format(members)} of ${Formatter.format(spec)}`
 			)

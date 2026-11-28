@@ -137,7 +137,7 @@ export const applyErrorThroughThePublicAPIAValueItsCodecRefusesIsRefusedAsInputN
 								}
 								const error = outcome.failure
 								if (outside) {
-									assertVariant(error, "kind", "paramRejected", error.message)
+									assertVariant(error, "_tag", "paramRejected", error.message)
 									assert.deepEqual(
 										error.param,
 										{ kind: "scalar", name: "label" },
@@ -148,7 +148,7 @@ export const applyErrorThroughThePublicAPIAValueItsCodecRefusesIsRefusedAsInputN
 									cx.note("wild outside the label's pattern refused at bind")
 									return
 								}
-								assert.equal(error.kind, "input", error.message)
+								assert.equal(error._tag, "input", error.message)
 								assert.equal(tap.since(mark).frontend.length, 0, "no statement before the refusal")
 								const state = yield* tableState(o.installed, Typed)
 								assert.deepEqual(state, [])
@@ -248,7 +248,7 @@ export const aCallWhoseParamsHoldAKeyItsMemberDeclaresNoParameterOfIsRefusedAsIn
 									writeAnswerOf(writeOnce(memberCalls(tapped, change))(input))
 								)
 								assert.ok(Result.isFailure(answered), `${c.form} admits a params key ${c.key}`)
-								assert.equal(answered.failure.kind, "input", answered.failure.message)
+								assert.equal(answered.failure._tag, "input", answered.failure.message)
 								const applied = yield* Effect.result(
 									changeApplication(tapped, variantOf(tapped, change.variants))(input)
 								)

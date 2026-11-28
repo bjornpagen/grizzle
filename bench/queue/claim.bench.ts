@@ -181,7 +181,7 @@ const forever = 1_000_000_000_000n
  */
 class EnqueueFailed extends Data.TaggedError("EnqueueFailed")<{ readonly error: CallError }> {
 	override get message(): string {
-		return `${this.error.kind}: ${this.error.message}`
+		return `${this.error._tag}: ${this.error.message}`
 	}
 }
 
@@ -753,12 +753,9 @@ export default defineGate({
 							Effect.retry({
 								times: options.enqueueRetry.times,
 								schedule: backoffOf(options.enqueueRetry),
-								while: (e) => e.kind === "transient"
+								while: (e) => e._tag === "transient"
 							}),
-							Effect.catchIf(
-								(e) => e.kind === "transient",
-								() => Effect.succeed({ kind: "transient" } as const)
-							),
+							Effect.catchTag("transient", () => Effect.succeed({ _tag: "transient" } as const)),
 							Effect.mapError((error) => new EnqueueFailed({ error }))
 						)
 						enqueueMs.push(performance.now() - t)
@@ -769,7 +766,7 @@ export default defineGate({
 						while: () => !claimersDone,
 						body: () => enqueueBatch,
 						step: (outcome) => {
-							bump(enqueueOutcomes, outcome.kind)
+							bump(enqueueOutcomes, outcome._tag)
 						}
 					})
 					const beside = yield* measureRun(
@@ -779,7 +776,7 @@ export default defineGate({
 						{ kind: "alongside", run: enqueueLoop },
 						false
 					)
-					bump(enqueueOutcomes, (yield* enqueueBatch).kind)
+					bump(enqueueOutcomes, (yield* enqueueBatch)._tag)
 
 					/**
 					 * One claim's footprint under SSI. With `live` leases held and not settled (as `live` holders would hold them

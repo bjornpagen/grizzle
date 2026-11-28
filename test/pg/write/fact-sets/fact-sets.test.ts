@@ -89,11 +89,11 @@ export const aParameterRelationsFactsAreStoredWithTheBitsTheyWereWrittenWithByBo
 								const given = givenOf(s)
 								const first = [{ variable: at.variable, field: 1n, value: s.first }]
 								/** A write's answer, its outcome and no read-back. */
-								const plain = <O extends { readonly kind: Answer["outcome"] }, E, R>(
+								const plain = <O extends { readonly _tag: Answer["outcome"] }, E, R>(
 									write: Effect.Effect<O, E, R>
 								) =>
 									Effect.map(write, (o): Pick<Answer, "outcome" | "reads"> => ({
-										outcome: o.kind,
+										outcome: o._tag,
 										reads: []
 									}))
 								const read = (() => {
@@ -157,15 +157,15 @@ export const aParameterRelationsFactsAreStoredWithTheBitsTheyWereWrittenWithByBo
 															})
 														),
 														(o): Pick<Answer, "outcome" | "reads"> =>
-															o.kind === "accepted" || o.kind === "unchanged"
+															o._tag === "accepted" || o._tag === "unchanged"
 																? {
-																		outcome: o.kind,
+																		outcome: o._tag,
 																		reads: [
 																			["added", readBits(o.reads.added)],
 																			["removed", readBits(o.reads.removed)]
 																		]
 																	}
-																: { outcome: o.kind, reads: [] }
+																: { outcome: o._tag, reads: [] }
 													)
 											)
 									}

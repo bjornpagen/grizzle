@@ -258,8 +258,8 @@ interface ShapeAnswer<E> extends ShapeEvents<E>, LiveAnswer<DecodedRow, E> {
 /** A live read's answer: its error event of any of the failures a live read's answer ends with. */
 const liveAnswer: ShapeAnswer<ListEvent<DecodedRow>> = {
 	...listEvents,
-	error: (error) => ({ kind: "error", error }),
-	end: { kind: "end" },
+	error: (error) => ({ _tag: "error", error }),
+	end: { _tag: "end" },
 	settle: (events) => fold(opening<DecodedRow>(), events),
 	diff: diffList
 }
@@ -276,7 +276,7 @@ interface AnsweredAnswer<E> extends ShapeEvents<E> {
 /** An answered read's answer. */
 const answeredAnswer: AnsweredAnswer<AnsweredListEvent<DecodedRow>> = {
 	...listEvents,
-	end: { kind: "end" },
+	end: { _tag: "end" },
 	settle: (events) => fold(opening<DecodedRow>(), events)
 }
 
@@ -424,7 +424,7 @@ const readOnce =
 	(input: unknown): Effect.Effect<KeyedList<DecodedRow>, ShapeFailure<"list">> =>
 		Effect.flatMap(Stream.runCollect(events(input)), (collected) => {
 			const state = settle(collected)
-			switch (state.kind) {
+			switch (state._tag) {
 				case "ready":
 					return Effect.succeed(state.value)
 				case "failed":
@@ -487,9 +487,9 @@ const writeCalls = (
 		Stream.unwrap(
 			Effect.match(write(input), {
 				onFailure: (error): Stream.Stream<WriteEvent<WrittenOutcome>> =>
-					Stream.make({ kind: "error", error }, { kind: "end" }),
+					Stream.make({ _tag: "error", error }, { _tag: "end" }),
 				onSuccess: (outcome): Stream.Stream<WriteEvent<WrittenOutcome>> =>
-					Stream.make({ kind: "outcome", outcome }, { kind: "end" })
+					Stream.make({ _tag: "outcome", outcome }, { _tag: "end" })
 			})
 		)
 })
@@ -559,9 +559,9 @@ const writtenOf = (
 ): Result.Result<WrittenOutcome, FailureOf<"outcome">> => {
 	switch (outcome.kind) {
 		case "accepted":
-			return Result.succeed({ kind: "accepted", counts: outcome.counts, reads: outcome.reads })
+			return Result.succeed({ _tag: "accepted", counts: outcome.counts, reads: outcome.reads })
 		case "no-change":
-			return Result.succeed({ kind: "unchanged", reads: outcome.reads })
+			return Result.succeed({ _tag: "unchanged", reads: outcome.reads })
 		case "invariant-rejected":
 			return Result.fail(
 				callError(outcomeReading[outcome.kind], {

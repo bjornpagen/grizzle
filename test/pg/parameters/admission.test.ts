@@ -173,11 +173,11 @@ export const aWritesParametersAdmittedBeforeItsStatementsAgainstPostgreSQL19APar
 								if (!isCode(k.code)) {
 									if (Result.isSuccess(applied)) {
 										return assert.fail(
-											`a code outside its pattern is refused at bind, not answered ${applied.success.kind}`
+											`a code outside its pattern is refused at bind, not answered ${applied.success._tag}`
 										)
 									}
 									const refused = applied.failure
-									assertVariant(refused, "kind", "paramRejected", "refused at bind")
+									assertVariant(refused, "_tag", "paramRejected", "refused at bind")
 									assert.deepEqual(refused.param, param, "the refusal names the parameter's place")
 									const unwritten = yield* written
 									assert.deepEqual(unwritten, [], "nothing is written")
@@ -207,12 +207,12 @@ export const aWritesParametersAdmittedBeforeItsStatementsAgainstPostgreSQL19APar
 								const answer = applied.success
 								if (k.write === "scanned") {
 									assert.equal(
-										answer.kind,
+										answer._tag,
 										"unchanged",
 										"a ChangeSet of reads alone changes nothing"
 									)
 									assert.deepEqual(
-										answer.kind === "unchanged" && isRecord(answer.reads)
+										answer._tag === "unchanged" && isRecord(answer.reads)
 											? answer.reads["coded"]
 											: undefined,
 										[],
@@ -224,9 +224,9 @@ export const aWritesParametersAdmittedBeforeItsStatementsAgainstPostgreSQL19APar
 									return
 								}
 								if (k.first === "colliding") {
-									if (answer.kind !== "refused") {
+									if (answer._tag !== "refused") {
 										return assert.fail(
-											`a stored item inserted again is refused, not ${answer.kind}`
+											`a stored item inserted again is refused, not ${answer._tag}`
 										)
 									}
 									assert.deepEqual(
@@ -239,7 +239,7 @@ export const aWritesParametersAdmittedBeforeItsStatementsAgainstPostgreSQL19APar
 								}
 								const unchanged = k.write === "guarded" && k.first === "none"
 								assert.equal(
-									answer.kind,
+									answer._tag,
 									unchanged ? "unchanged" : "accepted",
 									"the write answers what it changed"
 								)

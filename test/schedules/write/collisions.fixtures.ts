@@ -396,11 +396,11 @@ const readingAs =
 	(
 		answer: WriteAnswer<WriteOutcome<R>>
 	): WriteAnswer<WriteOutcome<Option.Option<SittingReads>>> => {
-		switch (answer.kind) {
+		switch (answer._tag) {
 			case "accepted":
-				return { kind: "accepted", counts: answer.counts, reads: reads(answer.reads) }
+				return { _tag: "accepted", counts: answer.counts, reads: reads(answer.reads) }
 			case "unchanged":
-				return { kind: "unchanged", reads: reads(answer.reads) }
+				return { _tag: "unchanged", reads: reads(answer.reads) }
 			case "refused":
 			case "outsideWorld":
 				return answer
@@ -431,7 +431,7 @@ export const storedSitting = (row: ReadonlyArray<string>): SittingRow => ({
 
 /** A relation's added count in an accepted outcome, none where it adds none. */
 export const addedTo = (outcome: WriteAnswer<WriteOutcome<unknown>>, relation: string): bigint =>
-	outcome.kind === "accepted"
+	outcome._tag === "accepted"
 		? Option.getOrElse(
 				Option.map(
 					Arr.findFirst(outcome.counts, (c) => c.relation === relation),

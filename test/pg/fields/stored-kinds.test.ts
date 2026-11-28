@@ -132,7 +132,7 @@ export const eachStoredKindIsWrittenAndReadBackExactlyAsAReadDeliveredItACompute
 										)
 										assert.ok(
 											Result.isFailure(refused) &&
-												refused.failure.kind === "input" &&
+												refused.failure._tag === "input" &&
 												Str.includes("refused: numericBound")(refused.failure.message),
 											"an amount past the bound is refused before any SQL, never rounded"
 										)
@@ -141,7 +141,7 @@ export const eachStoredKindIsWrittenAndReadBackExactlyAsAReadDeliveredItACompute
 										const kept = yield* writeAnswerOf(
 											db.workload.keep.once({ params: {}, facts: { insert: { Kept: keep } } })
 										)
-										assert.equal(kept.kind, "accepted", "every row within the bound is kept")
+										assert.equal(kept._tag, "accepted", "every row within the bound is kept")
 									}
 									const keptRows = yield* rowsOf(db.workload.kept.once({ params: {}, facts: {} }))
 									const back = Arr.sort(keptRows, byId)
@@ -160,7 +160,7 @@ export const eachStoredKindIsWrittenAndReadBackExactlyAsAReadDeliveredItACompute
 										const put = yield* writeAnswerOf(
 											db.workload.rekeep.once({ params: {}, facts: { put: { Kept: rotated } } })
 										)
-										assert.equal(put.kind, "accepted", "the put is accepted")
+										assert.equal(put._tag, "accepted", "the put is accepted")
 										const putRows = yield* rowsOf(db.workload.kept.once({ params: {}, facts: {} }))
 										const after = Arr.sort(putRows, byId)
 										assert.deepEqual(
@@ -172,7 +172,7 @@ export const eachStoredKindIsWrittenAndReadBackExactlyAsAReadDeliveredItACompute
 									const copy = yield* writeAnswerOf(
 										db.workload.copy.once({ params: {}, facts: {} })
 									)
-									assert.equal(copy.kind, "accepted", "Copied is filled from Source")
+									assert.equal(copy._tag, "accepted", "Copied is filled from Source")
 									const copiedRows = yield* rowsOf(
 										db.workload.copied.once({ params: {}, facts: {} })
 									)

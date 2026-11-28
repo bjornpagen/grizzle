@@ -148,17 +148,17 @@ export const modelApply = (model: ReadonlyArray<Spec>, change: ChangeSpec): Read
 const keyAt = (fields: KeyFields, i: number): RowKey => keyOf(fields, rowOf({ i, p: 0 }))
 
 /** A read's events: its reset, its ready, its error and its end. */
-const reset = (fields: KeyFields): ListEvent<Row> => ({ kind: "reset", key: fields })
-export const ready: ListEvent<Row> = { kind: "ready" }
-export const failed = (error: ShapeFailure<"list">): ListEvent<Row> => ({ kind: "error", error })
-export const end: ListEvent<Row> = { kind: "end" }
+const reset = (fields: KeyFields): ListEvent<Row> => ({ _tag: "reset", key: fields })
+export const ready: ListEvent<Row> = { _tag: "ready" }
+export const failed = (error: ShapeFailure<"list">): ListEvent<Row> => ({ _tag: "error", error })
+export const end: ListEvent<Row> = { _tag: "end" }
 
 /** The upserts of a first run's rows, in their order, each after the row before it, null first. */
 const rowsOf = (fields: KeyFields, specs: ReadonlyArray<Spec>): ReadonlyArray<ListChange<Row>> =>
 	Arr.map(specs, (spec, n) => {
 		const before = specs[n - 1]
 		return {
-			kind: "upsert",
+			_tag: "upsert",
 			row: rowOf(spec),
 			after: before === undefined ? null : keyOf(fields, rowOf(before))
 		}
@@ -167,9 +167,9 @@ const rowsOf = (fields: KeyFields, specs: ReadonlyArray<Spec>): ReadonlyArray<Li
 /** A drawn change as the read's change. */
 export const changeOf = (fields: KeyFields, change: ChangeSpec): ListChange<Row> =>
 	change.kind === "remove"
-		? { kind: "remove", key: keyAt(fields, change.i) }
+		? { _tag: "remove", key: keyAt(fields, change.i) }
 		: {
-				kind: "upsert",
+				_tag: "upsert",
 				row: rowOf(change.spec),
 				after: change.after === null ? null : keyAt(fields, change.after)
 			}
@@ -181,8 +181,8 @@ export const specsIn = (value: KeyedList<Row>): ReadonlyArray<Spec> => Arr.map([
 
 /** The specs of a state's value, which must be ready. */
 export const readySpecs = (state: ReadState<Row>): ReadonlyArray<Spec> => {
-	assert.equal(state.kind, "ready")
-	return state.kind === "ready" ? specsIn(state.value) : []
+	assert.equal(state._tag, "ready")
+	return state._tag === "ready" ? specsIn(state.value) : []
 }
 
 /** The events of a read whose first run delivered `specs`, up to its ready. */

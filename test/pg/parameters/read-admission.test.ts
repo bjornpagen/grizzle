@@ -123,7 +123,7 @@ export const aReadsParametersAdmittedWhateverItsLogicReadsAgainstPostgreSQL19APa
 										)
 									}
 									const refused = read.failure
-									assertVariant(refused, "kind", "paramRejected", "refused at bind")
+									assertVariant(refused, "_tag", "paramRejected", "refused at bind")
 									assert.deepEqual(refused.param, param, "the refusal names the parameter's place")
 									c.note(`${k.via} outside Code refused, filtered by ${k.filter}`)
 									return

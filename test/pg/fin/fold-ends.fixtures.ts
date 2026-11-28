@@ -822,9 +822,9 @@ export const judgeRefused = (
 	broken: Arr.NonEmptyReadonlyArray<Broken>,
 	outcome: WriteAnswer<WrittenOutcome>
 ): ReadonlyArray<Broken> => {
-	if (outcome.kind !== "refused") {
+	if (outcome._tag !== "refused") {
 		return assert.fail(
-			`a write whose rows break ${Formatter.format(Arr.map(broken, (b) => b.law))} is refused, not ${outcome.kind}: ${Formatter.format(w)}`
+			`a write whose rows break ${Formatter.format(Arr.map(broken, (b) => b.law))} is refused, not ${outcome._tag}: ${Formatter.format(w)}`
 		)
 	}
 	const breaks = (law: Law): boolean => Arr.some(broken, (b) => deepEquals(b.law, law))

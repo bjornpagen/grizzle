@@ -1174,7 +1174,7 @@ export const servedLawRun = (places: ServedPlaces, reached: Case<ServedLawFeatur
 				)
 				const where = `${places} (${Arr.join(Arr.map(values, String), ", ")})`
 				if (places === "two places of two values") {
-					assert.equal(outcome.kind, "accepted", `${where}: ${Formatter.format(outcome)}`)
+					assert.equal(outcome._tag, "accepted", `${where}: ${Formatter.format(outcome)}`)
 					reached.note("a lawful write accepted")
 					return
 				}

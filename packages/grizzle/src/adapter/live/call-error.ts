@@ -255,7 +255,7 @@ export const readings: { readonly [S in FailureSource]: ReadonlyArray<FailureKin
 
 /** The error `unavailable` for the named cause `cause`, carrying a failure's own message. */
 const unavailable = (cause: UnavailableCause, message: string): CallErrorOf<"unavailable"> =>
-	callError("unavailable", { message, reason: { kind: cause } })
+	callError("unavailable", { message, reason: { _tag: cause } })
 
 /** The error `credentialRefused` for `reason`, carrying a failure's own message. */
 const credentialRefused = (
@@ -292,7 +292,7 @@ const serverCallError = (
 	}
 	const cause = serverCauses.get(sqlstate)
 	return cause === undefined
-		? callError("unavailable", { message, reason: { kind: "otherSqlstate", sqlstate } })
+		? callError("unavailable", { message, reason: { _tag: "otherSqlstate", sqlstate } })
 		: unavailable(cause, message)
 }
 
@@ -320,7 +320,7 @@ const socketCauses: ReadonlyMap<string, UnavailableCause> = new Map<string, Unav
 const socketCallError = (code: string, message: string): CallErrorOf<"unavailable"> => {
 	const cause = socketCauses.get(code)
 	return cause === undefined
-		? callError("unavailable", { message, reason: { kind: "otherSocketCode", code } })
+		? callError("unavailable", { message, reason: { _tag: "otherSocketCode", code } })
 		: unavailable(cause, message)
 }
 
@@ -480,7 +480,7 @@ export const openCallError = (error: OpenError): FailureOf<"open"> => {
 }
 
 /** Why a call's Db did not open for now, its layer's verify unable to judge its token (VerifierUnavailable). */
-const verifierUnavailable = { kind: "verifierUnavailable" } as const
+const verifierUnavailable = { _tag: "verifierUnavailable" } as const
 
 /** The witness of a refusal PostgreSQL raised by a domain, which states no row. */
 const unreported = { kind: "unreported" } as const

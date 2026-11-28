@@ -833,12 +833,12 @@ const encodeOutcome = (wire: MemberWire, value: unknown, options: WireOptions): 
 	if (wire.shape !== "write") {
 		defect("a read's answer holds no outcome")
 	}
-	const kind = ownMember(value, "kind")
+	const tag = ownMember(value, "_tag")
 	const reads = encodeRecord(wire.outcome.reads, ownMember(value, "reads"), options)
-	if (kind === "unchanged") {
-		return { kind, reads }
+	if (tag === "unchanged") {
+		return { _tag: tag, reads }
 	}
-	if (kind !== "accepted") {
+	if (tag !== "accepted") {
 		defect("a ChangeSet's outcome")
 	}
 	const counts = ownMember(value, "counts")
@@ -846,7 +846,7 @@ const encodeOutcome = (wire: MemberWire, value: unknown, options: WireOptions): 
 		defect("a ChangeSet's counts")
 	}
 	return {
-		kind,
+		_tag: tag,
 		counts: counts.map((count) => ({
 			relation: plainJson(ownMember(count, "relation")),
 			added: countText(ownMember(count, "added")),
@@ -872,11 +872,11 @@ const decodeOutcome = (wire: MemberWire, json: WireJson, options: WireOptions): 
 	}
 	const record = trustedRecord(json)
 	const reads = decodeRecord(wire.outcome.reads, trustedMember(record, "reads"), options)
-	if (trustedMember(record, "kind") === "unchanged") {
-		return Object.freeze({ kind: "unchanged", reads })
+	if (trustedMember(record, "_tag") === "unchanged") {
+		return Object.freeze({ _tag: "unchanged", reads })
 	}
 	return Object.freeze({
-		kind: "accepted",
+		_tag: "accepted",
 		counts: Object.freeze(
 			trustedArray(trustedMember(record, "counts")).map((item) => {
 				const count = trustedRecord(item)
@@ -965,21 +965,21 @@ const isUnavailableCause = (value: unknown): value is UnavailableCause =>
  */
 const encodeUnavailableReason = (value: unknown): WireJson => {
 	if (isPlainRecord(value)) {
-		const kind = value["kind"]
-		if (isUnavailableCause(kind)) {
-			return { kind }
+		const tag = value["_tag"]
+		if (isUnavailableCause(tag)) {
+			return { _tag: tag }
 		}
 		const sqlstate = value["sqlstate"]
 		if (
-			kind === "otherSqlstate" &&
+			tag === "otherSqlstate" &&
 			typeof sqlstate === "string" &&
 			Sqlstate.parse(sqlstate) !== undefined
 		) {
-			return { kind, sqlstate }
+			return { _tag: tag, sqlstate }
 		}
 		const code = value["code"]
-		if (kind === "otherSocketCode" && typeof code === "string") {
-			return { kind, code }
+		if (tag === "otherSocketCode" && typeof code === "string") {
+			return { _tag: tag, code }
 		}
 	}
 	defect("an unavailable CallError's reason, a named cause or another SQLSTATE or socket code")
@@ -1016,25 +1016,28 @@ const decodeParamPlace = (json: WireJson): ParamPlace => {
 /** An unavailable CallError's reason from the server's own JSON. */
 const decodeUnavailableReason = (json: WireJson): UnavailableReason => {
 	const record = trustedRecord(json)
-	const kind = trustedString(trustedMember(record, "kind"))
-	switch (kind) {
+	const tag = trustedString(trustedMember(record, "_tag"))
+	switch (tag) {
 		case "otherSqlstate":
-			return { kind, sqlstate: trusted<Sqlstate>(trustedString(trustedMember(record, "sqlstate"))) }
+			return {
+				_tag: tag,
+				sqlstate: trusted<Sqlstate>(trustedString(trustedMember(record, "sqlstate")))
+			}
 		case "otherSocketCode":
-			return { kind, code: trustedString(trustedMember(record, "code")) }
+			return { _tag: tag, code: trustedString(trustedMember(record, "code")) }
 		default:
-			return { kind: trusted<UnavailableCause>(kind) }
+			return { _tag: trusted<UnavailableCause>(tag) }
 	}
 }
 
-/** The JSON of a CallError: its kind, its retry and its payload's members by their slots. */
+/** The JSON of a CallError: its kind as its `_tag`, its retry and its payload's members by their slots. */
 const encodeError = (
 	witness: RoleWitness<WireScalar>,
 	error: CallError,
 	options: WireOptions
 ): WireJson => {
-	const out: Record<string, WireJson> = { kind: error.kind, retry: error.retry }
-	for (const [member, slot] of Object.entries(callErrors[error.kind].payload)) {
+	const out: Record<string, WireJson> = { _tag: error._tag, retry: error.retry }
+	for (const [member, slot] of Object.entries(callErrors[error._tag].payload)) {
 		out[member] = encodeErrorMember(witness, slot, ownMember(error, member), options)
 	}
 	return out
@@ -1126,9 +1129,9 @@ const decodeError = (
 	options: WireOptions
 ): CallError => {
 	const record = trustedRecord(json)
-	const kind = trustedString(trustedMember(record, "kind"))
+	const kind = trustedString(trustedMember(record, "_tag"))
 	if (!isCallErrorKind(kind)) {
-		defect("a CallError's kind")
+		defect("a CallError's _tag")
 	}
 	return errorDecoders(witness, options)[kind](record)
 }

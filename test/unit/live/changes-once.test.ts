@@ -74,9 +74,9 @@ export const aRegisteredLiveReadsChangesAreTakenOnceASecondTakeDiesWhereverItCom
 						const read = Stream.unwrap(
 							Effect.map(Ref.get(stored), (row) =>
 								Stream.fromIterable<ListEvent<Row>>([
-									{ kind: "reset", key: ["id"] },
-									{ kind: "upsert", row, after: null },
-									{ kind: "ready" }
+									{ _tag: "reset", key: ["id"] },
+									{ _tag: "upsert", row, after: null },
+									{ _tag: "ready" }
 								])
 							)
 						)
@@ -89,7 +89,7 @@ export const aRegisteredLiveReadsChangesAreTakenOnceASecondTakeDiesWhereverItCom
 						})
 						const initialEvents = yield* Stream.runCollect(live.initial)
 						const initial = answer.settle(initialEvents)
-						assert.ok(initial.kind === "ready", "the read registers and reads its row")
+						assert.ok(initial._tag === "ready", "the read registers and reads its row")
 						const sink = opened.sink
 						assert.ok(sink !== undefined, "registering opened the source")
 						const secondTake = Effect.exit(Stream.runCollect(Stream.take(live.changes, 1)))
@@ -114,7 +114,7 @@ export const aRegisteredLiveReadsChangesAreTakenOnceASecondTakeDiesWhereverItCom
 								const ready = yield* Queue.take(heard)
 								assert.deepEqual(
 									[change, ready],
-									[{ kind: "upsert", row: { id: 1, v: n }, after: null }, { kind: "ready" }],
+									[{ _tag: "upsert", row: { id: 1, v: n }, after: null }, { _tag: "ready" }],
 									`the first consumer hears the change to ${n}, then its ready`
 								)
 							})

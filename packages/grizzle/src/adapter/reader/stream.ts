@@ -89,17 +89,17 @@ export interface ShapeEvents<E> {
  * `remove`: a live read's every re-run makes these too.
  */
 export const listEvents: ShapeEvents<AnsweredListEvent<DecodedRow>> = {
-	reset: (fields) => ({ kind: "reset", key: fields }),
+	reset: (fields) => ({ _tag: "reset", key: fields }),
 	upserts: (fields) => {
 		let after: RowKey | null = null
 		return (row) => {
-			const event: AnsweredListEvent<DecodedRow> = { kind: "upsert", row, after }
+			const event: AnsweredListEvent<DecodedRow> = { _tag: "upsert", row, after }
 			after = keyOf(fields, row)
 			return event
 		}
 	},
-	ready: { kind: "ready" },
-	error: (error) => ({ kind: "error", error })
+	ready: { _tag: "ready" },
+	error: (error) => ({ _tag: "error", error })
 }
 
 /**

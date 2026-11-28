@@ -77,8 +77,8 @@ export const aDbOverAMovedClockReadsEveryReadingAndStampOfACallAsExactlyTheInsta
 										facts: { insert: { Lease: [{ id: 1 }], Mark: [{ id: 1 }] } }
 									})
 									.pipe(writeAnswerOf)
-								if (answer.kind !== "accepted") {
-									return assert.fail(`the take at ${at} is accepted, not ${answer.kind}`)
+								if (answer._tag !== "accepted") {
+									return assert.fail(`the take at ${at} is accepted, not ${answer._tag}`)
 								}
 								assert.deepEqual(
 									Arr.map(answer.reads.reading, (row) => row.now),

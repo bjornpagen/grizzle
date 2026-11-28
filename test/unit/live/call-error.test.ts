@@ -116,7 +116,7 @@ export const aStatementsRefusalIsRetrySafeExactlyWherePostgreSQLRolledBackAPatte
 						assert.ok(Str.includes(refused.message)(error.message), "the failure's own message")
 						assert.deepEqual(decodedOff(error), error, "the wire carries the error unchanged")
 						if (refusal.kind === "pattern") {
-							assertVariant(error, "kind", "paramRejected", "a pattern's refusal of a parameter")
+							assertVariant(error, "_tag", "paramRejected", "a pattern's refusal of a parameter")
 							assert.deepEqual(error.param, refusal.param, "the refused place, as data")
 							c.note(
 								program === "read"
@@ -204,7 +204,7 @@ export const aPatternsRefusalAtEachDeclaredPlaceReadsAsThatPlaceThoughOneTextSpe
 						const error = decodedOff(
 							program === "read" ? readCallError(onRead) : applyCallError(onWrite)
 						)
-						assertVariant(error, "kind", "paramRejected", "a pattern's refusal of a parameter")
+						assertVariant(error, "_tag", "paramRejected", "a pattern's refusal of a parameter")
 						return error.param
 					})
 					unorderedEqual(read, declared, `the places a refusal of a ${program} reads as`)

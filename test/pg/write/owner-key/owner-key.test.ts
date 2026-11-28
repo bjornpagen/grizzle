@@ -64,7 +64,7 @@ export const insertsIntoAFamilyOwnersPrimaryKeyAgreeWithTheKeysModelOnDrawnStore
 												}
 											})
 										)
-										assert.equal(loaded.kind, "accepted", "the stored state loads")
+										assert.equal(loaded._tag, "accepted", "the stored state loads")
 									}
 									const facts = Arr.map(requested, (f) => ({ id: f.id, cap: f.cap }))
 									const outcome =
@@ -91,8 +91,8 @@ export const insertsIntoAFamilyOwnersPrimaryKeyAgreeWithTheKeysModelOnDrawnStore
 									)
 									const owners = yield* tableState(o.installed, Owner)
 									if (want.kind === "refused") {
-										if (outcome.kind !== "refused") {
-											return assert.fail(`a refusal by the owner's key law, not ${outcome.kind}`)
+										if (outcome._tag !== "refused") {
+											return assert.fail(`a refusal by the owner's key law, not ${outcome._tag}`)
 										}
 										assert.deepEqual(refusedLaws(outcome.refused), [
 											names.described(names.primaryKeyLaw(Owner))
@@ -146,11 +146,11 @@ export const insertsIntoAFamilyOwnersPrimaryKeyAgreeWithTheKeysModelOnDrawnStore
 										cx.note("a stored owner with members repeated exactly")
 									}
 									if (want.added.length === 0) {
-										assert.equal(outcome.kind, "unchanged")
+										assert.equal(outcome._tag, "unchanged")
 										return
 									}
-									if (outcome.kind !== "accepted") {
-										return assert.fail(`accepted, not ${outcome.kind}`)
+									if (outcome._tag !== "accepted") {
+										return assert.fail(`accepted, not ${outcome._tag}`)
 									}
 									assert.deepEqual(
 										Arr.map(outcome.counts, (n) => ({ ...n })),
