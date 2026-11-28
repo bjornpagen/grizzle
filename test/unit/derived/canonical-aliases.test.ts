@@ -69,8 +69,8 @@ export const aliasesOfOneDefinitionPlanTheOneTableKeyAndIndexesOfTheirCanonicalR
 		kills: [
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
-				original: "\t\t\tconst relation = b.checked.installedAs(r.relation)\n",
-				replacement: "\t\t\tconst relation = r.relation\n",
+				original: "\t\t\t\tconst relation = b.checked.installedAs(a.request.relation)\n",
+				replacement: "\t\t\t\tconst relation = a.request.relation\n",
 				why: "Each alias's requests planned on its own name: an alias names an index of its own again on its canonical relation's table, beside the first's (page-keys' duplicateIndex)."
 			},
 			{

@@ -87,8 +87,7 @@ export const aRefusedRequestNamesEveryReadThatAskedForIt = property.exhaust(case
 	kills: [
 		{
 			file: "packages/engine/src/physical/indexes/engine.ts",
-			original:
-				'\t`${requestLabel(asked.request)}, asked by ${asked.askedBy.map(askerText).join("; ")}`\n',
+			original: `\t\`\${requestLabel(asked.request)}, asked by \${asked.askedBy.map(askerText).join("; ")}\`\n`,
 			replacement: "\trequestLabel(asked.request)\n",
 			why: "A refusal names the request alone: a login serving alsoByText is refused as UnrepresentableKey on Note(text) naming no read, so its author cannot tell which program asked."
 		},

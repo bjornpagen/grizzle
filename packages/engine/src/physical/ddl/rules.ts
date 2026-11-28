@@ -789,7 +789,7 @@ const partBody = (
 	const [first, ...rest] = part.blocks.flatMap((j) => j.calls)
 	const calls: NonEmptyReadonlyArray<JudgedCall> = [defined(first, "a part's first call"), ...rest]
 	const made = [
-		...new Map(calls.flatMap((call) => call.params.map((p) => [p.variable, p] as const))).values()
+		...new Map(calls.flatMap((c) => c.params.map((p) => [p.variable, p] as const))).values()
 	].toSorted((x, y) => compareStrings(x.order, y.order))
 	const own = made.filter((selection) => isNonEmpty(selection.conditions))
 	const making = selectionsMade(schema, own)
@@ -803,15 +803,15 @@ const partBody = (
 		],
 		body: concatNonEmpty(
 			[...making.body],
-			mapNonEmpty(calls, (call): PlStatement => ({
+			mapNonEmpty(calls, (blockCall): PlStatement => ({
 				kind: "if",
 				branches: [
 					{
-						condition: anyHolds(mapNonEmpty(call.params, (p) => p.variable)),
+						condition: anyHolds(mapNonEmpty(blockCall.params, (p) => p.variable)),
 						body: [
 							performed(
-								functionOf(call),
-								call.params.map((p): Expr => ({ kind: "plVar", name: p.variable }))
+								functionOf(blockCall),
+								blockCall.params.map((p): Expr => ({ kind: "plVar", name: p.variable }))
 							)
 						]
 					}
@@ -1795,10 +1795,10 @@ export const addRules = (
 	 */
 	const callNode = (
 		j: Judged,
-		call: JudgedCall
+		judged: JudgedCall
 	): { readonly fn: ObjectName; readonly node: Node<"validate"> } => {
-		const fn = objectName(b.schema, b.name(call.named))
-		const params = call.params.map((p) => ({
+		const fn = objectName(b.schema, b.name(judged.named))
+		const params = judged.params.map((p) => ({
 			name: p.variable,
 			type: deltaArrayType(b.schema, p.delta)
 		}))
@@ -1812,7 +1812,7 @@ export const addRules = (
 			volatility: "VOLATILE",
 			parallel: "UNSAFE",
 			security: "DEFINER",
-			body: call.body
+			body: judged.body
 		}
 		const ddl: readonly [PlFunction, Revoke] = [
 			running,
@@ -1821,16 +1821,16 @@ export const addRules = (
 				params.map((p) => p.type)
 			)
 		]
-		requesters.set(nameKey(fn), call.by)
+		requesters.set(nameKey(fn), judged.by)
 		const node = b.add(
 			{
 				kind: "lawFunction",
-				ident: b.qualified("function", call.named),
+				ident: b.qualified("function", judged.named),
 				ddl,
 				reasons: j.reasons,
 				phase: "validate"
 			},
-			[...tablesNamed(j.relations), ...typesOf(call.params.map((p) => p.delta))]
+			[...tablesNamed(j.relations), ...typesOf(judged.params.map((p) => p.delta))]
 		)
 		return { fn, node }
 	}
@@ -1843,7 +1843,7 @@ export const addRules = (
 			"a part's first delta, a judged table's side"
 		).t.relation.name
 		const calls = new Map(
-			part.blocks.flatMap((j) => j.calls.map((call) => [call, callNode(j, call)] as const))
+			part.blocks.flatMap((j) => j.calls.map((c) => [c, callNode(j, c)] as const))
 		)
 		const named = identity.ruleJudgePart(
 			relation,
@@ -1866,7 +1866,7 @@ export const addRules = (
 				body: partBody(
 					b.schema,
 					part,
-					(call) => defined(calls.get(call), "a call of a block of the part").fn
+					(c) => defined(calls.get(c), "a call of a block of the part").fn
 				)
 			},
 			revokeOf(
@@ -1884,7 +1884,7 @@ export const addRules = (
 			},
 			[
 				...tablesNamed(part.blocks.flatMap((j) => j.relations)),
-				...[...calls.values()].map((call) => call.node),
+				...[...calls.values()].map((made) => made.node),
 				...typesOf(part.deltas)
 			]
 		)
@@ -2192,10 +2192,10 @@ const claimed = (
 	schema: string,
 	log: JudgeLog,
 	claiming: NonEmptyReadonlyArray<JudgedSide>,
-	at: "first" | "again"
+	pass: "first" | "again"
 ): ReadonlyArray<PlStatement> => {
 	const past = (tid: Expr): Expr =>
-		at === "first"
+		pass === "first"
 			? linked(tid)
 			: { kind: "binary", op: "<>", left: tid, right: variable(claimNames.seen), schema: undefined }
 	const walk: Select = {

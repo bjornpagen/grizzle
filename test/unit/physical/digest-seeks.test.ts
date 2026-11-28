@@ -280,7 +280,7 @@ export const aLookupThatBindsATextOfNoByteBoundByEqualitySeeksByItsDeclaredDiges
 			},
 			{
 				file: "packages/engine/src/physical/ddl/context.ts",
-				original: "\t\t\t\tdigests: textDigestsOf(stored.fields),",
+				original: "\t\t\t\tdigests: digestsOf(stored),",
 				replacement: "\t\t\t\tdigests: new Map(),",
 				why: "A stored relation's index target declares no digest (physical/ddl/context.ts BuiltTarget `digests`), as a lookup read its relation's digests off a model that held no laws of it did: a read that binds T's text by equality and seeks by h, its declared digest, is refused as undigested."
 			},

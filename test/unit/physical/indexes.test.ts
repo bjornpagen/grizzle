@@ -530,8 +530,9 @@ export const aSuperkeySeekLandsOnItsKeyAndTheEngineCreatesNoIndexForIt = propert
 			},
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
-				original: "\t\t\treturn relation === r.relation ? r : { ...r, relation }",
-				replacement: "\t\t\treturn { ...r, relation }",
+				original:
+					"\t\t\t\treturn relation === a.request.relation\n\t\t\t\t\t? a\n\t\t\t\t\t: { request: { ...a.request, relation }, askedBy: a.askedBy }\n",
+				replacement: "\t\t\t\treturn { request: { ...a.request, relation }, askedBy: a.askedBy }\n",
 				why: "Every request planned as a copy, an alias's or not, as yonvslxs's canonical aliases planned them: the index a request lands on holds a copy of it, and no reader of the plan finds the request it asked among any index's (red at e42937e8b: the seek on Event(id) landed on no index)."
 			}
 		]

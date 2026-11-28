@@ -295,47 +295,41 @@ const ledgerHead = (schema: string): ReadonlyMap<NameKey, BindTable> =>
  */
 const judgeLog = (statements: ReadonlyArray<SqlStatement>): ReadonlyMap<NameKey, BindTable> =>
 	new Map(
-		statements.flatMap((s): ReadonlyArray<readonly [NameKey, BindTable]> => {
-			if (s.kind !== "createJudgeLog") {
-				return []
-			}
-			const scalar = (field: string): readonly [string, BindColumn] => [
-				field,
-				{ kind: "scalar", column: { kind: "field", field }, holds: "many" }
-			]
-			switch (s.log.kind) {
-				case "arm":
-					return [
-						[
-							nameKey(s.table),
-							{
-								relation: s.table.name,
-								columns: new Map([scalar(judgeLogColumns.xact), scalar(judgeLogColumns.last)]),
-								keys: [[judgeLogColumns.xact]],
-								hashRow: { kind: "none" },
-								digests: new Map()
-							}
-						]
-					]
-				case "deltas":
-					return [
-						[
-							nameKey(s.table),
-							{
-								relation: s.table.name,
-								columns: new Map([
-									scalar(judgeLogColumns.prev),
-									...s.log.sides.map((side) => scalar(side.column))
-								]),
-								keys: [],
-								hashRow: { kind: "none" },
-								digests: new Map()
-							}
-						]
-					]
-			}
-		})
+		statements.flatMap((s): ReadonlyArray<readonly [NameKey, BindTable]> =>
+			s.kind === "createJudgeLog" ? [[nameKey(s.table), judgeLogTable(s)]] : []
+		)
 	)
+
+/** One table of the judge's log as the binding reads it (judgeLog): its arm's or its delta log's columns and keys. */
+const judgeLogTable = (
+	s: Extract<SqlStatement, { readonly kind: "createJudgeLog" }>
+): BindTable => {
+	const scalar = (field: string): readonly [string, BindColumn] => [
+		field,
+		{ kind: "scalar", column: { kind: "field", field }, holds: "many" }
+	]
+	switch (s.log.kind) {
+		case "arm":
+			return {
+				relation: s.table.name,
+				columns: new Map([scalar(judgeLogColumns.xact), scalar(judgeLogColumns.last)]),
+				keys: [[judgeLogColumns.xact]],
+				hashRow: { kind: "none" },
+				digests: new Map()
+			}
+		case "deltas":
+			return {
+				relation: s.table.name,
+				columns: new Map([
+					scalar(judgeLogColumns.prev),
+					...s.log.sides.map((side) => scalar(side.column))
+				]),
+				keys: [],
+				hashRow: { kind: "none" },
+				digests: new Map()
+			}
+	}
+}
 
 /**
  * The catalog of the installation `b` builds (see the header), every other view its statements create one PostgreSQL

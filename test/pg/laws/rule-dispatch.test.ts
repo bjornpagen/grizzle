@@ -77,14 +77,16 @@ export const theRuleJudgeRunsExactlyTheRulesOverTheRelationsATransactionWrote = 
 		kills: [
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: "\t\t\t\t\t\tcondition: anyHolds(mapNonEmpty(call.params, (p) => p.variable)),",
+				original:
+					"\t\t\t\t\t\tcondition: anyHolds(mapNonEmpty(blockCall.params, (p) => p.variable)),",
 				replacement: "\t\t\t\t\t\tcondition: lit.bool(true),",
 				why: "Every block of a part runs whatever the transaction wrote of its deltas, as before the dispatch: a write of a package's parts runs the probes over the documents' empty deltas, each statement read and its tables locked; the property fails."
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: "\t\t\t\t\t\tcondition: anyHolds(mapNonEmpty(call.params, (p) => p.variable)),",
-				replacement: "\t\t\t\t\t\tcondition: anyHolds([headNonEmpty(call.params).variable]),",
+				original:
+					"\t\t\t\t\t\tcondition: anyHolds(mapNonEmpty(blockCall.params, (p) => p.variable)),",
+				replacement: "\t\t\t\t\t\tcondition: anyHolds([headNonEmpty(blockCall.params).variable]),",
 				why: "A block runs on its first argument alone, so a whole containment a transaction wrote only the target of, a document or a visit deleted, is never judged, and its tables are never read; the property fails."
 			}
 		]

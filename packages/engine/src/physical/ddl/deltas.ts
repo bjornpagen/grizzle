@@ -131,11 +131,11 @@ export const deltaOf = (b: InstallBuilder, relation: TheoryTable, side: ProbeSid
 			collation: type.kind === "builtin" && type.name === "text" ? cUtf8Collation : undefined
 		}
 	})
-	const row =
+	const stored =
 		side === "added"
 			? [...columns, { name: countColumn, type: types.smallint, collation: undefined }]
 			: columns
-	const [first, ...rest] = row
+	const [first, ...rest] = stored
 	const attributes: NonEmptyReadonlyArray<ColumnDefinition> = [
 		defined(first, "a delta's first attribute"),
 		...rest
