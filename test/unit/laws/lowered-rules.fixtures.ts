@@ -55,7 +55,10 @@ import {
  * into a UNIQUE of the match's relation over exactly the fields it references, its declared key's own or a superkey of
  * it, or, where that costs the schema fewer indexes and columns, from the source's columns alone into the match's own
  * columns under its constants (laws/model/plan.ts sharedTargets); and the rule then holds no capture. Every other rule
- * over a query is kept for the set judge (physical/ddl/rules.ts addRules), a capture on each table it reads. The law
+ * over a query is kept for the set judge (physical/ddl/rules.ts addRules), a capture on each table whose change can
+ * break it. Every relation here is closed, so no table has olds, which the judge never reads or captures of a closed
+ * relation, and a relation the definition matches only gains facts, which grow the definition and never break a
+ * containment into it: the captures are S's, whose news can, and R1's where the definition negates it. The law
  * oracle's conservative installation (program/install.ts conservativeInstallation) keeps every rule so, under
  * the same laws.
  *
@@ -71,7 +74,7 @@ import {
  * Oracle: the seven conditions restated over the drawn definition, never over the engine's arms, and the catalog each
  * implies: lowered, every match's foreign key from S's paired columns and its constant columns, each generated from its
  * literal, into exactly a UNIQUE or the primary key of its relation, mapped to the rule's law, and no capture for the
- * rule; kept, the rule's captures on S and every relation it matches and no foreign key from S. The conservative
+ * rule; kept, the rule's captures on exactly S and, where the definition negates R1, R1, and no foreign key from S. The conservative
  * installation keeps the rule in every case, and both name the rule by one law. The law model's trigger laws over each
  * of S, R0 and R1 (laws/model/model.ts triggerLawsOver), which the isolation certifier reads, are the rule's law exactly
  * when it is kept and its query mentions the relation, by its source, a match or its negation.
@@ -663,16 +666,21 @@ const foreignKeysFromS = (installation: Installation): ReadonlyArray<ForeignKey>
 	)
 }
 
-/** Asserts `installation` keeps the rule for the judge, capturing S and every relation its definition matches, with no
- * foreign key from S. */
+/**
+ * Asserts `installation` keeps the rule for the judge, capturing exactly the tables whose news can break it, S's and,
+ * where the definition negates R1, R1's, with no foreign key from S: every relation is closed, so none has olds the
+ * judge captures, and a relation the definition matches only grows it.
+ */
 export const assertKept = (c: LoweringCase, installation: Installation, law: LawId): void => {
-	const held = capturedTables(installation, law)
-	for (const relation of ["S", ...Arr.map(c.matches, (m) => m.target)]) {
-		assert.ok(
-			held.includes(tableOf(installation, relation)),
-			`a capture of the rule on ${relation}`
-		)
-	}
+	assert.deepEqual(
+		new Set(capturedTables(installation, law)),
+		new Set(
+			Arr.map(["S", ...(c.breaks === "a negation" ? ["R1"] : [])], (relation) =>
+				tableOf(installation, relation)
+			)
+		),
+		"the rule's captures: S's, and R1's where the definition negates it"
+	)
 	assert.deepEqual(foreignKeysFromS(installation), [], "no foreign key from S")
 }
 
