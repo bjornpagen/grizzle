@@ -1,0 +1,3270 @@
+From 694ccac0802b02e59f7366c0f3febdf595b62c82 Mon Sep 17 00:00:00 2001
+From: Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 21:01:25 -0600
+Subject: [PATCH v1 2/4] pg_plan_advice: Add PARAMETERIZED and UNPARAMETERIZED
+ advice.
+
+Plan advice could pin a join's order, its method and the inner side's
+index, but not whether the inner scan takes parameters from the outer
+side, that is, whether the join clauses become conditions of the scan.
+So two different plans generated the same advice: given
+
+    JOIN_ORDER(d n) NESTED_LOOP_PLAIN(n) INDEX_SCAN(n n_pkey)
+
+n might be probed through n_pkey once per row of d, or scanned through
+n_pkey on its other columns alone with the join clause left as a join
+filter.  When statistics make the two look equally cheap, as they do
+after a VACUUM that ran while the transaction filling a table was still
+open (pages counted, tuples not), the planner picks the latter, and the
+advice generated from the former doesn't bring it back: add_path()
+discards the parameterized path, which costs no less, before any join is
+planned.  That breaks the module's promise that generated advice
+reproduces the decision it was generated from.
+
+PARAMETERIZED(n d) says that the scan of n takes its parameters from
+exactly d, and PARAMETERIZED(n (d e)) from exactly d and e;
+UNPARAMETERIZED(n) says that it takes none.  This is scan advice,
+enforced from build_simple_rel_hook through the new
+pgs_required_outer/pgs_forbidden_outer restriction: every path of n of
+another parameterization is disabled, so it can no longer crowd out the
+advised path in add_path(), and every join that would use it inherits
+the disabled node.  Relations that supply parameters are named by their
+topmost appendrel parents, as the planner names them, and outer joins
+are never named.  Like join method advice, this implies a join order.
+
+Generated advice includes the new items for each relation scanned by
+itself for which the planner had a choice of parameterization (a
+parameterized path was built, and another parameterization, possibly
+none, was possible), much as SEMIJOIN_NON_UNIQUE is generated only where
+unique-ification was considered.  The parameterization is read from the
+final plan by following each NestLoop parameter back through the outer
+side's targetlists to the scan that supplies it, as ruleutils does to
+print it.  A scan that takes a computed parameter, such as a
+PlaceHolderVar's value, gets no such advice, since the plan doesn't
+record which relations the planner charged that value to.
+
+test_plan_advice, which replans the whole core regression suite with
+generated advice, passes.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ contrib/pg_plan_advice/Makefile               |   4 +-
+ contrib/pg_plan_advice/README                 |  43 ++
+ contrib/pg_plan_advice/expected/gather.out    |  42 +-
+ .../pg_plan_advice/expected/join_order.out    |  75 ++-
+ .../pg_plan_advice/expected/join_strategy.out |  54 +-
+ .../pg_plan_advice/expected/parameterized.out | 548 ++++++++++++++++++
+ .../pg_plan_advice/expected/partitionwise.out |  42 +-
+ contrib/pg_plan_advice/expected/scan.out      |  14 +-
+ contrib/pg_plan_advice/expected/semijoin.out  |  48 +-
+ contrib/pg_plan_advice/expected/syntax.out    |  55 ++
+ contrib/pg_plan_advice/meson.build            |   1 +
+ contrib/pg_plan_advice/pgpa_ast.c             |  10 +
+ contrib/pg_plan_advice/pgpa_ast.h             |  12 +-
+ contrib/pg_plan_advice/pgpa_output.c          |  86 +++
+ contrib/pg_plan_advice/pgpa_parser.y          |  41 +-
+ contrib/pg_plan_advice/pgpa_planner.c         | 250 +++++++-
+ contrib/pg_plan_advice/pgpa_planner.h         |  20 +
+ contrib/pg_plan_advice/pgpa_scan.c            |   2 +
+ contrib/pg_plan_advice/pgpa_scan.h            |  15 +
+ contrib/pg_plan_advice/pgpa_scanner.l         |   5 +-
+ contrib/pg_plan_advice/pgpa_trove.c           |  13 +-
+ contrib/pg_plan_advice/pgpa_walker.c          | 349 +++++++++++
+ contrib/pg_plan_advice/pgpa_walker.h          |  31 +
+ contrib/pg_plan_advice/sql/parameterized.sql  | 172 ++++++
+ contrib/pg_plan_advice/sql/syntax.sql         |  17 +
+ doc/src/sgml/pgplanadvice.sgml                |  84 +++
+ src/tools/pgindent/typedefs.list              |   1 +
+ 27 files changed, 1939 insertions(+), 95 deletions(-)
+ create mode 100644 contrib/pg_plan_advice/expected/parameterized.out
+ create mode 100644 contrib/pg_plan_advice/sql/parameterized.sql
+
+diff --git a/contrib/pg_plan_advice/Makefile b/contrib/pg_plan_advice/Makefile
+index c844846d..626e154e 100644
+--- a/contrib/pg_plan_advice/Makefile
++++ b/contrib/pg_plan_advice/Makefile
+@@ -19,8 +19,8 @@ HEADERS_pg_plan_advice = pg_plan_advice.h
+ 
+ PGFILEDESC = "pg_plan_advice - help the planner get the right plan"
+ 
+-REGRESS = alternatives gather join_order join_strategy partitionwise \
+-	prepared scan semijoin syntax
++REGRESS = alternatives gather join_order join_strategy parameterized \
++	partitionwise prepared scan semijoin syntax
+ 
+ TAP_TESTS = 1
+ 
+diff --git a/contrib/pg_plan_advice/README b/contrib/pg_plan_advice/README
+index 532d646a..7eaf65eb 100644
+--- a/contrib/pg_plan_advice/README
++++ b/contrib/pg_plan_advice/README
+@@ -199,6 +199,49 @@ technique should not be used. We should never assume that the absence of an
+ instruction to do a certain thing means that it should not be done; all
+ instructions must be explicit.
+ 
++Parameterization Advice
++=======================
++
++When a relation is scanned on the inner side of a nested loop, the planner
++can parameterize the scan by relations on the outer side, so that join
++clauses become conditions of the scan itself, typically index conditions,
++evaluated once per outer row. Which relations, if any, a scan takes its
++parameters from is a planner decision in its own right: join order, join
++method and index don't settle it. Given JOIN_ORDER(d n) NESTED_LOOP_PLAIN(n)
++INDEX_SCAN(n n_pkey), n might be probed by n_pkey once for each row of d, or
++scanned by n_pkey on its other columns alone with the join clause applied as
++a join filter, and both plans used to generate exactly that advice.
++
++PARAMETERIZED(n d) says that the scan of n takes its parameters from exactly
++d, and PARAMETERIZED(n (d e)) from exactly d and e together; UNPARAMETERIZED(n)
++says that it takes none. Relations that supply parameters are named by their
++topmost appendrel parents, because that is how the planner itself records a
++parameterization (until reparameterize_path_by_child() runs during plan
++creation), and outer joins are never named.
++
++This is scan advice, enforced when the target relation's paths are built: the
++module asks core, through RelOptInfo's pgs_required_outer and
++pgs_forbidden_outer, to disable every path of the relation whose
++parameterization differs. Enforcing it at the scan rather than at the join is
++essential. When the advised parameterized path costs no less than an
++unparameterized one, as happens when statistics say a table is empty,
++add_path() discards it before any join is planned, and no join-level advice
++could bring it back; once the unparameterized path is disabled, it can no
++longer crowd out the advised one. Like join method advice, parameterization
++advice implies a join order: the relations that supply the parameters must be
++joined before the parameterized one.
++
++We generate this advice only for relations for which the planner had a choice
++of parameterization: a parameterized path was built for the relation, and some
++other parameterization (possibly none) was also possible. A lateral reference
++forces a minimum parameterization; that is not a choice, and core never treats
++it as forbidden. The parameterization is read from the final plan, by
++following each NestLoop parameter back through the outer side's targetlists to
++the scan that supplies it. When a parameter's value is computed rather than
++read from a column, as a PlaceHolderVar's is, the plan doesn't record which
++relations the planner charged it to, so we generate no parameterization advice
++for the scan that uses it.
++
+ Semijoin Uniqueness
+ ===================
+ 
+diff --git a/contrib/pg_plan_advice/expected/gather.out b/contrib/pg_plan_advice/expected/gather.out
+index 60f2b32e..2cb47395 100644
+--- a/contrib/pg_plan_advice/expected/gather.out
++++ b/contrib/pg_plan_advice/expected/gather.out
+@@ -41,8 +41,9 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    JOIN_ORDER(f d)
+    HASH_JOIN(d)
+    SEQ_SCAN(f d)
++   UNPARAMETERIZED(d)
+    GATHER_MERGE((f d))
+-(14 rows)
++(15 rows)
+ 
+ -- Force Gather or Gather Merge of both relations together.
+ BEGIN;
+@@ -66,8 +67,9 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    JOIN_ORDER(f d)
+    HASH_JOIN(d)
+    SEQ_SCAN(f d)
++   UNPARAMETERIZED(d)
+    GATHER_MERGE((f d))
+-(16 rows)
++(17 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'gather((f d))';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -89,8 +91,9 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    JOIN_ORDER(f d)
+    HASH_JOIN(d)
+    SEQ_SCAN(f d)
++   UNPARAMETERIZED(d)
+    GATHER((f d))
+-(16 rows)
++(17 rows)
+ 
+ COMMIT;
+ -- Force a separate Gather or Gather Merge operation for each relation.
+@@ -119,8 +122,9 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    JOIN_ORDER(f d)
+    MERGE_JOIN_PLAIN(d)
+    SEQ_SCAN(f d)
++   UNPARAMETERIZED(d)
+    GATHER_MERGE(f d)
+-(20 rows)
++(21 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'gather(f d)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -146,8 +150,9 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    JOIN_ORDER(f d)
+    MERGE_JOIN_PLAIN(d)
+    SEQ_SCAN(f d)
++   UNPARAMETERIZED(d)
+    GATHER(f d)
+-(20 rows)
++(21 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'gather((d d/d.d))';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -169,9 +174,10 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    MERGE_JOIN_PLAIN(d)
+    SEQ_SCAN(f)
+    INDEX_SCAN(d public.gt_dim_pkey)
++   UNPARAMETERIZED(d)
+    GATHER_MERGE(f)
+    NO_GATHER(d)
+-(17 rows)
++(18 rows)
+ 
+ COMMIT;
+ -- Force a Gather or Gather Merge on one relation but no parallelism on other.
+@@ -197,9 +203,10 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    MERGE_JOIN_PLAIN(d)
+    SEQ_SCAN(f)
+    INDEX_SCAN(d public.gt_dim_pkey)
++   UNPARAMETERIZED(d)
+    GATHER_MERGE(f)
+    NO_GATHER(d)
+-(18 rows)
++(19 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'gather_merge(d) no_gather(f)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -223,9 +230,10 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    JOIN_ORDER(f d)
+    MERGE_JOIN_PLAIN(d)
+    SEQ_SCAN(f d)
++   UNPARAMETERIZED(d)
+    GATHER_MERGE(d)
+    NO_GATHER(f)
+-(19 rows)
++(20 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'gather(f) no_gather(d)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -248,9 +256,10 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    MERGE_JOIN_PLAIN(f)
+    SEQ_SCAN(f)
+    INDEX_SCAN(d public.gt_dim_pkey)
++   UNPARAMETERIZED(d)
+    GATHER(f)
+    NO_GATHER(d)
+-(18 rows)
++(19 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'gather(d) no_gather(f)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -274,9 +283,10 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    JOIN_ORDER(f d)
+    MERGE_JOIN_PLAIN(d)
+    SEQ_SCAN(f d)
++   UNPARAMETERIZED(d)
+    GATHER(d)
+    NO_GATHER(f)
+-(19 rows)
++(20 rows)
+ 
+ COMMIT;
+ -- Force no Gather or Gather Merge use at all.
+@@ -300,8 +310,9 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    MERGE_JOIN_PLAIN(f)
+    SEQ_SCAN(f)
+    INDEX_SCAN(d public.gt_dim_pkey)
++   UNPARAMETERIZED(d)
+    NO_GATHER(f d)
+-(15 rows)
++(16 rows)
+ 
+ COMMIT;
+ -- Can't force Gather Merge without the ORDER BY clause, but just Gather is OK.
+@@ -325,8 +336,9 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    JOIN_ORDER(f d)
+    HASH_JOIN(d)
+    SEQ_SCAN(f d)
++   UNPARAMETERIZED(d)
+    GATHER((f d))
+-(15 rows)
++(16 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'gather((f d))';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -346,8 +358,9 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    JOIN_ORDER(f d)
+    HASH_JOIN(d)
+    SEQ_SCAN(f d)
++   UNPARAMETERIZED(d)
+    GATHER((f d))
+-(14 rows)
++(15 rows)
+ 
+ COMMIT;
+ -- Test conflicting advice.
+@@ -373,8 +386,9 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    JOIN_ORDER(f d)
+    HASH_JOIN(d)
+    SEQ_SCAN(f d)
++   UNPARAMETERIZED(d)
+    GATHER_MERGE((f d))
+-(17 rows)
++(18 rows)
+ 
+ COMMIT;
+ -- Test interaction of NO_GATHER with partitioned tables.  By default, we
+diff --git a/contrib/pg_plan_advice/expected/join_order.out b/contrib/pg_plan_advice/expected/join_order.out
+index 76df9128..e9fbef85 100644
+--- a/contrib/pg_plan_advice/expected/join_order.out
++++ b/contrib/pg_plan_advice/expected/join_order.out
+@@ -44,8 +44,9 @@ SELECT * FROM jo_fact f
+    JOIN_ORDER(f d2 d1)
+    HASH_JOIN(d2 d1)
+    SEQ_SCAN(f d2 d1)
++   UNPARAMETERIZED(d1 d2)
+    NO_GATHER(f d1 d2)
+-(16 rows)
++(17 rows)
+ 
+ -- Force a few different join orders. Some of these are very inefficient,
+ -- but the planner considers them all viable.
+@@ -75,8 +76,9 @@ SELECT * FROM jo_fact f
+    JOIN_ORDER(f d1 d2)
+    HASH_JOIN(d1 d2)
+    SEQ_SCAN(f d1 d2)
++   UNPARAMETERIZED(d1 d2)
+    NO_GATHER(f d1 d2)
+-(18 rows)
++(19 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'join_order(f d2 d1)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -103,8 +105,9 @@ SELECT * FROM jo_fact f
+    JOIN_ORDER(f d2 d1)
+    HASH_JOIN(d2 d1)
+    SEQ_SCAN(f d2 d1)
++   UNPARAMETERIZED(d1 d2)
+    NO_GATHER(f d1 d2)
+-(18 rows)
++(19 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'join_order(d1 f d2)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -131,8 +134,9 @@ SELECT * FROM jo_fact f
+    JOIN_ORDER(d1 f d2)
+    HASH_JOIN(f d2)
+    SEQ_SCAN(d1 f d2)
++   UNPARAMETERIZED(d1 d2)
+    NO_GATHER(f d1 d2)
+-(18 rows)
++(19 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'join_order(f (d1 d2))';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -159,8 +163,9 @@ SELECT * FROM jo_fact f
+    NESTED_LOOP_MATERIALIZE(d2)
+    HASH_JOIN((d1 d2))
+    SEQ_SCAN(f d1 d2)
++   UNPARAMETERIZED(d1 d2)
+    NO_GATHER(f d1 d2)
+-(18 rows)
++(19 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'join_order(f {d1 d2})';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -187,8 +192,9 @@ SELECT * FROM jo_fact f
+    NESTED_LOOP_MATERIALIZE(d2)
+    HASH_JOIN((d1 d2))
+    SEQ_SCAN(f d1 d2)
++   UNPARAMETERIZED(d1 d2)
+    NO_GATHER(f d1 d2)
+-(18 rows)
++(19 rows)
+ 
+ COMMIT;
+ -- Test cases for initial sublists, which require special handling in the code.
+@@ -218,8 +224,9 @@ SELECT * FROM jo_fact f
+    JOIN_ORDER(f d1 d2)
+    HASH_JOIN(d1 d2)
+    SEQ_SCAN(f d1 d2)
++   UNPARAMETERIZED(d1 d2)
+    NO_GATHER(f d1 d2)
+-(18 rows)
++(19 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'join_order({f d1} d2)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -246,8 +253,9 @@ SELECT * FROM jo_fact f
+    JOIN_ORDER(f d1 d2)
+    HASH_JOIN(d1 d2)
+    SEQ_SCAN(f d1 d2)
++   UNPARAMETERIZED(d1 d2)
+    NO_GATHER(f d1 d2)
+-(18 rows)
++(19 rows)
+ 
+ COMMIT;
+ -- Test cases for sublists spanning all targets.
+@@ -277,8 +285,9 @@ SELECT * FROM jo_fact f
+    JOIN_ORDER(f d1 d2)
+    HASH_JOIN(d1 d2)
+    SEQ_SCAN(f d1 d2)
++   UNPARAMETERIZED(d1 d2)
+    NO_GATHER(f d1 d2)
+-(18 rows)
++(19 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'join_order({f d1 d2})';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -305,8 +314,9 @@ SELECT * FROM jo_fact f
+    JOIN_ORDER(f d2 d1)
+    HASH_JOIN(d2 d1)
+    SEQ_SCAN(f d2 d1)
++   UNPARAMETERIZED(d1 d2)
+    NO_GATHER(f d1 d2)
+-(18 rows)
++(19 rows)
+ 
+ COMMIT;
+ -- Test cases for single-element groupings. The extra grouping levels should
+@@ -337,8 +347,9 @@ SELECT * FROM jo_fact f
+    JOIN_ORDER(f d1 d2)
+    HASH_JOIN(d1 d2)
+    SEQ_SCAN(f d1 d2)
++   UNPARAMETERIZED(d1 d2)
+    NO_GATHER(f d1 d2)
+-(18 rows)
++(19 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'join_order({f} d1 d2)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -365,8 +376,9 @@ SELECT * FROM jo_fact f
+    JOIN_ORDER(f d1 d2)
+    HASH_JOIN(d1 d2)
+    SEQ_SCAN(f d1 d2)
++   UNPARAMETERIZED(d1 d2)
+    NO_GATHER(f d1 d2)
+-(18 rows)
++(19 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'join_order(f (d1) d2)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -393,8 +405,9 @@ SELECT * FROM jo_fact f
+    JOIN_ORDER(f d1 d2)
+    HASH_JOIN(d1 d2)
+    SEQ_SCAN(f d1 d2)
++   UNPARAMETERIZED(d1 d2)
+    NO_GATHER(f d1 d2)
+-(18 rows)
++(19 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'join_order(f {d1} d2)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -421,8 +434,9 @@ SELECT * FROM jo_fact f
+    JOIN_ORDER(f d1 d2)
+    HASH_JOIN(d1 d2)
+    SEQ_SCAN(f d1 d2)
++   UNPARAMETERIZED(d1 d2)
+    NO_GATHER(f d1 d2)
+-(18 rows)
++(19 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'join_order(f ({d1 d2}))';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -449,8 +463,9 @@ SELECT * FROM jo_fact f
+    NESTED_LOOP_MATERIALIZE(d2)
+    HASH_JOIN((d1 d2))
+    SEQ_SCAN(f d1 d2)
++   UNPARAMETERIZED(d1 d2)
+    NO_GATHER(f d1 d2)
+-(18 rows)
++(19 rows)
+ 
+ COMMIT;
+ -- Force a join order by mentioning just a prefix of the join list.
+@@ -480,8 +495,9 @@ SELECT * FROM jo_fact f
+    JOIN_ORDER(d2 (f d1))
+    HASH_JOIN(d1 (f d1))
+    SEQ_SCAN(d2 f d1)
++   UNPARAMETERIZED(d1 d2)
+    NO_GATHER(f d1 d2)
+-(18 rows)
++(19 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'join_order(d2 d1)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -508,8 +524,9 @@ SELECT * FROM jo_fact f
+    NESTED_LOOP_MATERIALIZE(d1)
+    HASH_JOIN(f)
+    SEQ_SCAN(d2 d1 f)
++   UNPARAMETERIZED(d1 d2)
+    NO_GATHER(f d1 d2)
+-(18 rows)
++(19 rows)
+ 
+ COMMIT;
+ -- jo_fact is not partitioned, but let's try pretending that it is and
+@@ -541,8 +558,9 @@ SELECT * FROM jo_fact f
+    NESTED_LOOP_PLAIN(d1 d2)
+    SEQ_SCAN(f)
+    INDEX_SCAN(d1 public.jo_dim1_pkey d2 public.jo_dim2_pkey)
++   PARAMETERIZED(d1 f d2 f)
+    NO_GATHER(f d1 d2)
+-(19 rows)
++(20 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'join_order(f/public.d1 (d1 d2))';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -569,8 +587,9 @@ SELECT * FROM jo_fact f
+    NESTED_LOOP_PLAIN(f)
+    NESTED_LOOP_MATERIALIZE(d2)
+    SEQ_SCAN(d1 d2 f)
++   UNPARAMETERIZED(d1 d2)
+    NO_GATHER(f d1 d2)
+-(18 rows)
++(19 rows)
+ 
+ COMMIT;
+ -- The unusual formulation of this query is intended to prevent the query
+@@ -599,8 +618,9 @@ SELECT * FROM jo_dim1 d1
+    MERGE_JOIN_PLAIN(f)
+    NESTED_LOOP_MATERIALIZE(d1)
+    SEQ_SCAN(d2 f d1)
++   UNPARAMETERIZED(d1)
+    NO_GATHER(d1 f d2)
+-(18 rows)
++(19 rows)
+ 
+ -- We should not be able to force the planner to join f to d1 first, because
+ -- that is not a valid join order, but we should be able to force the planner
+@@ -633,8 +653,9 @@ SELECT * FROM jo_dim1 d1
+    MERGE_JOIN_PLAIN(f)
+    NESTED_LOOP_PLAIN(d1)
+    SEQ_SCAN(d2 f d1)
++   UNPARAMETERIZED(d1)
+    NO_GATHER(d1 f d2)
+-(21 rows)
++(22 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'join_order(f d2 d1)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -662,8 +683,9 @@ SELECT * FROM jo_dim1 d1
+    MERGE_JOIN_PLAIN(d2)
+    NESTED_LOOP_MATERIALIZE(d1)
+    SEQ_SCAN(f d2 d1)
++   UNPARAMETERIZED(d1)
+    NO_GATHER(d1 f d2)
+-(20 rows)
++(21 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'join_order(d2 f d1)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -691,8 +713,9 @@ SELECT * FROM jo_dim1 d1
+    MERGE_JOIN_PLAIN(f)
+    NESTED_LOOP_MATERIALIZE(d1)
+    SEQ_SCAN(d2 f d1)
++   UNPARAMETERIZED(d1)
+    NO_GATHER(d1 f d2)
+-(20 rows)
++(21 rows)
+ 
+ COMMIT;
+ -- Two incompatible join orders should conflict. In the second case,
+@@ -726,8 +749,9 @@ SELECT * FROM jo_dim1 d1
+    MERGE_JOIN_PLAIN(d2)
+    NESTED_LOOP_MATERIALIZE(d1)
+    SEQ_SCAN(f d2 d1)
++   UNPARAMETERIZED(d1)
+    NO_GATHER(d1 f d2)
+-(21 rows)
++(22 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'join_order(d1) hash_join(d1)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -756,7 +780,8 @@ SELECT * FROM jo_dim1 d1
+    MERGE_JOIN_PLAIN(f)
+    NESTED_LOOP_MATERIALIZE((f d2))
+    SEQ_SCAN(d1 d2 f)
++   UNPARAMETERIZED(d1)
+    NO_GATHER(d1 f d2)
+-(21 rows)
++(22 rows)
+ 
+ COMMIT;
+diff --git a/contrib/pg_plan_advice/expected/join_strategy.out b/contrib/pg_plan_advice/expected/join_strategy.out
+index 0f9db692..a5775502 100644
+--- a/contrib/pg_plan_advice/expected/join_strategy.out
++++ b/contrib/pg_plan_advice/expected/join_strategy.out
+@@ -26,8 +26,9 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    JOIN_ORDER(f d)
+    HASH_JOIN(d)
+    SEQ_SCAN(f d)
++   UNPARAMETERIZED(f d)
+    NO_GATHER(f d)
+-(10 rows)
++(11 rows)
+ 
+ -- Try forcing each join method in turn with join_dim as the inner table.
+ -- All of these should work except for MERGE_JOIN_MATERIALIZE; that will
+@@ -50,8 +51,9 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    JOIN_ORDER(f d)
+    HASH_JOIN(d)
+    SEQ_SCAN(f d)
++   UNPARAMETERIZED(f d)
+    NO_GATHER(f d)
+-(12 rows)
++(13 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'MERGE_JOIN_MATERIALIZE(d)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -69,8 +71,9 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    JOIN_ORDER(f d)
+    MERGE_JOIN_PLAIN(d)
+    INDEX_SCAN(f public.join_fact_dim_id d public.join_dim_pkey)
++   UNPARAMETERIZED(f d)
+    NO_GATHER(f d)
+-(12 rows)
++(13 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'MERGE_JOIN_PLAIN(d)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -87,8 +90,9 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    JOIN_ORDER(f d)
+    MERGE_JOIN_PLAIN(d)
+    INDEX_SCAN(f public.join_fact_dim_id d public.join_dim_pkey)
++   UNPARAMETERIZED(f d)
+    NO_GATHER(f d)
+-(11 rows)
++(12 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'NESTED_LOOP_MATERIALIZE(d)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -106,8 +110,9 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    JOIN_ORDER(f d)
+    NESTED_LOOP_MATERIALIZE(d)
+    SEQ_SCAN(f d)
++   UNPARAMETERIZED(f d)
+    NO_GATHER(f d)
+-(12 rows)
++(13 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'NESTED_LOOP_MEMOIZE(d)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -128,8 +133,10 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    NESTED_LOOP_MEMOIZE(d)
+    SEQ_SCAN(f)
+    INDEX_SCAN(d public.join_dim_pkey)
++   PARAMETERIZED(d f)
++   UNPARAMETERIZED(f)
+    NO_GATHER(f d)
+-(15 rows)
++(17 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'NESTED_LOOP_PLAIN(d)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -147,8 +154,10 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    NESTED_LOOP_PLAIN(d)
+    SEQ_SCAN(f)
+    INDEX_SCAN(d public.join_dim_pkey)
++   PARAMETERIZED(d f)
++   UNPARAMETERIZED(f)
+    NO_GATHER(f d)
+-(12 rows)
++(14 rows)
+ 
+ COMMIT;
+ -- Now try forcing each join method in turn with join_fact as the inner
+@@ -170,8 +179,9 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    JOIN_ORDER(d f)
+    HASH_JOIN(f)
+    SEQ_SCAN(d f)
++   UNPARAMETERIZED(f d)
+    NO_GATHER(f d)
+-(12 rows)
++(13 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'MERGE_JOIN_MATERIALIZE(f)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -189,8 +199,9 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    JOIN_ORDER(d f)
+    MERGE_JOIN_MATERIALIZE(f)
+    INDEX_SCAN(d public.join_dim_pkey f public.join_fact_dim_id)
++   UNPARAMETERIZED(f d)
+    NO_GATHER(f d)
+-(12 rows)
++(13 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'MERGE_JOIN_PLAIN(f)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -207,8 +218,9 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    JOIN_ORDER(d f)
+    MERGE_JOIN_PLAIN(f)
+    INDEX_SCAN(d public.join_dim_pkey f public.join_fact_dim_id)
++   UNPARAMETERIZED(f d)
+    NO_GATHER(f d)
+-(11 rows)
++(12 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'NESTED_LOOP_MATERIALIZE(f)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -226,8 +238,9 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    JOIN_ORDER(d f)
+    NESTED_LOOP_MATERIALIZE(f)
+    SEQ_SCAN(d f)
++   UNPARAMETERIZED(f d)
+    NO_GATHER(f d)
+-(12 rows)
++(13 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'NESTED_LOOP_MEMOIZE(f)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -248,8 +261,10 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    NESTED_LOOP_MEMOIZE(f)
+    SEQ_SCAN(d)
+    INDEX_SCAN(f public.join_fact_dim_id)
++   PARAMETERIZED(f d)
++   UNPARAMETERIZED(d)
+    NO_GATHER(f d)
+-(15 rows)
++(17 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'NESTED_LOOP_PLAIN(f)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -267,8 +282,10 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    NESTED_LOOP_PLAIN(f)
+    SEQ_SCAN(d)
+    INDEX_SCAN(f public.join_fact_dim_id)
++   PARAMETERIZED(f d)
++   UNPARAMETERIZED(d)
+    NO_GATHER(f d)
+-(12 rows)
++(14 rows)
+ 
+ COMMIT;
+ -- Non-working cases. We can't force a foreign join between these tables,
+@@ -293,8 +310,10 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    NESTED_LOOP_PLAIN(d)
+    SEQ_SCAN(f)
+    INDEX_SCAN(d public.join_dim_pkey)
++   PARAMETERIZED(d f)
++   UNPARAMETERIZED(f)
+    NO_GATHER(f d)
+-(13 rows)
++(15 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'NESTED_LOOP_PLAIN(f) NESTED_LOOP_MATERIALIZE(f)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -312,8 +331,9 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    JOIN_ORDER(d f)
+    MERGE_JOIN_PLAIN(f)
+    INDEX_SCAN(d public.join_dim_pkey f public.join_fact_dim_id)
++   UNPARAMETERIZED(f d)
+    NO_GATHER(f d)
+-(12 rows)
++(13 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'NESTED_LOOP_PLAIN(f d)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -333,7 +353,9 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    NESTED_LOOP_PLAIN(d)
+    SEQ_SCAN(f)
+    INDEX_SCAN(d public.join_dim_pkey)
++   PARAMETERIZED(d f)
++   UNPARAMETERIZED(f)
+    NO_GATHER(f d)
+-(14 rows)
++(16 rows)
+ 
+ COMMIT;
+diff --git a/contrib/pg_plan_advice/expected/parameterized.out b/contrib/pg_plan_advice/expected/parameterized.out
+new file mode 100644
+index 00000000..e7d62cee
+--- /dev/null
++++ b/contrib/pg_plan_advice/expected/parameterized.out
+@@ -0,0 +1,548 @@
++LOAD 'pg_plan_advice';
++SET max_parallel_workers_per_gather = 0;
++-- A small table of documents and a large table of their nodes, keyed by
++-- (doc, f1, f2), with a second index on (doc, f1).
++CREATE TABLE pz_doc (doc int PRIMARY KEY, owner int NOT NULL)
++	WITH (autovacuum_enabled = false);
++INSERT INTO pz_doc SELECT d, d % 2 FROM generate_series(1, 4) d;
++CREATE TABLE pz_node (doc int NOT NULL, f1 int NOT NULL, f2 int NOT NULL,
++	v text NOT NULL, PRIMARY KEY (doc, f1, f2))
++	WITH (autovacuum_enabled = false);
++CREATE INDEX pz_node_doc_f1 ON pz_node (doc, f1);
++INSERT INTO pz_node SELECT d, f, g, 'x'
++	FROM generate_series(1, 4) d, generate_series(1, 5) f,
++		 generate_series(1, 3000) g;
++VACUUM ANALYZE pz_doc, pz_node;
++-- With accurate statistics, the key of pz_node is probed once per document:
++-- its scan takes pz_doc's key as a parameter, and the generated advice says
++-- so. pz_doc could have been parameterized by pz_node, and wasn't, which the
++-- advice also says.
++EXPLAIN (COSTS OFF, PLAN_ADVICE)
++	SELECT n.v FROM pz_doc d JOIN pz_node n ON n.doc = d.doc AND n.f1 = 1
++	AND n.f2 = 2 WHERE d.owner = 1;
++                             QUERY PLAN                              
++---------------------------------------------------------------------
++ Nested Loop
++   ->  Seq Scan on pz_doc d
++         Filter: (owner = 1)
++   ->  Memoize
++         Cache Key: d.doc
++         Cache Mode: logical
++         ->  Index Scan using pz_node_pkey on pz_node n
++               Index Cond: ((doc = d.doc) AND (f1 = 1) AND (f2 = 2))
++ Generated Plan Advice:
++   JOIN_ORDER(d n)
++   NESTED_LOOP_MEMOIZE(n)
++   SEQ_SCAN(d)
++   INDEX_SCAN(n public.pz_node_pkey)
++   PARAMETERIZED(n d)
++   UNPARAMETERIZED(d)
++   NO_GATHER(d n)
++(16 rows)
++
++-- Now make both tables look empty, as they do after a VACUUM that ran while
++-- the transaction filling them was still open: pages are counted, rows are
++-- not. Every index path now costs the same, and the planner's own choice
++-- leaves pz_doc's key out of the index condition.
++SELECT pg_restore_relation_stats('schemaname', 'public', 'relname', 'pz_doc',
++	'relpages', 1, 'reltuples', 0::real);
++ pg_restore_relation_stats 
++---------------------------
++ t
++(1 row)
++
++SELECT pg_restore_relation_stats('schemaname', 'public', 'relname', 'pz_node',
++	'relpages', 100, 'reltuples', 0::real);
++ pg_restore_relation_stats 
++---------------------------
++ t
++(1 row)
++
++SELECT pg_clear_attribute_stats('public', 'pz_doc', a, false)
++	FROM unnest(ARRAY['doc', 'owner']) a;
++ pg_clear_attribute_stats 
++--------------------------
++ 
++ 
++(2 rows)
++
++SELECT pg_clear_attribute_stats('public', 'pz_node', a, false)
++	FROM unnest(ARRAY['doc', 'f1', 'f2', 'v']) a;
++ pg_clear_attribute_stats 
++--------------------------
++ 
++ 
++ 
++ 
++(4 rows)
++
++EXPLAIN (COSTS OFF, PLAN_ADVICE)
++	SELECT n.v FROM pz_doc d JOIN pz_node n ON n.doc = d.doc AND n.f1 = 1
++	AND n.f2 = 2 WHERE d.owner = 1;
++                     QUERY PLAN                     
++----------------------------------------------------
++ Nested Loop
++   Join Filter: (d.doc = n.doc)
++   ->  Seq Scan on pz_doc d
++         Filter: (owner = 1)
++   ->  Index Scan using pz_node_doc_f1 on pz_node n
++         Index Cond: (f1 = 1)
++         Filter: (f2 = 2)
++ Generated Plan Advice:
++   JOIN_ORDER(d n)
++   NESTED_LOOP_PLAIN(n)
++   SEQ_SCAN(d)
++   INDEX_SCAN(n public.pz_node_doc_f1)
++   UNPARAMETERIZED(d n)
++   NO_GATHER(d n)
++(14 rows)
++
++-- Advice that pins the join order, the join method and the index, but not
++-- the parameterization, doesn't bring the probe back, because the
++-- parameterized path costs no less than the unparameterized one and is
++-- discarded before joins are planned. The advice generated from both plans
++-- used to be the same, so it could not tell them apart.
++BEGIN;
++SET LOCAL pg_plan_advice.advice = 'JOIN_ORDER(d n) NESTED_LOOP_PLAIN(n)
++	SEQ_SCAN(d) INDEX_SCAN(n public.pz_node_pkey)';
++EXPLAIN (COSTS OFF)
++	SELECT n.v FROM pz_doc d JOIN pz_node n ON n.doc = d.doc AND n.f1 = 1
++	AND n.f2 = 2 WHERE d.owner = 1;
++                    QUERY PLAN                     
++---------------------------------------------------
++ Nested Loop
++   Join Filter: (d.doc = n.doc)
++   ->  Seq Scan on pz_doc d
++         Filter: (owner = 1)
++   ->  Index Scan using pz_node_pkey on pz_node n
++         Index Cond: ((f1 = 1) AND (f2 = 2))
++ Supplied Plan Advice:
++   SEQ_SCAN(d) /* matched */
++   INDEX_SCAN(n public.pz_node_pkey) /* matched */
++   JOIN_ORDER(d n) /* matched */
++   NESTED_LOOP_PLAIN(n) /* matched */
++(11 rows)
++
++-- The advice generated from the first plan reproduces it.
++SET LOCAL pg_plan_advice.advice = 'JOIN_ORDER(d n) NESTED_LOOP_PLAIN(n)
++	SEQ_SCAN(d) INDEX_SCAN(n public.pz_node_pkey) PARAMETERIZED(n d)
++	UNPARAMETERIZED(d)';
++EXPLAIN (COSTS OFF, PLAN_ADVICE)
++	SELECT n.v FROM pz_doc d JOIN pz_node n ON n.doc = d.doc AND n.f1 = 1
++	AND n.f2 = 2 WHERE d.owner = 1;
++                          QUERY PLAN                           
++---------------------------------------------------------------
++ Nested Loop
++   ->  Seq Scan on pz_doc d
++         Filter: (owner = 1)
++   ->  Index Scan using pz_node_pkey on pz_node n
++         Index Cond: ((doc = d.doc) AND (f1 = 1) AND (f2 = 2))
++ Supplied Plan Advice:
++   SEQ_SCAN(d) /* matched */
++   INDEX_SCAN(n public.pz_node_pkey) /* matched */
++   PARAMETERIZED(n d) /* matched */
++   UNPARAMETERIZED(d) /* matched */
++   JOIN_ORDER(d n) /* matched */
++   NESTED_LOOP_PLAIN(n) /* matched */
++ Generated Plan Advice:
++   JOIN_ORDER(d n)
++   NESTED_LOOP_PLAIN(n)
++   SEQ_SCAN(d)
++   INDEX_SCAN(n public.pz_node_pkey)
++   PARAMETERIZED(n d)
++   UNPARAMETERIZED(d)
++   NO_GATHER(d n)
++(20 rows)
++
++-- PARAMETERIZED alone also implies the join order and a nested loop above
++-- the parameterized scan, though not the index.
++SET LOCAL pg_plan_advice.advice = 'PARAMETERIZED(n d)';
++EXPLAIN (COSTS OFF)
++	SELECT n.v FROM pz_doc d JOIN pz_node n ON n.doc = d.doc AND n.f1 = 1
++	AND n.f2 = 2 WHERE d.owner = 1;
++                     QUERY PLAN                     
++----------------------------------------------------
++ Nested Loop
++   ->  Seq Scan on pz_doc d
++         Filter: (owner = 1)
++   ->  Index Scan using pz_node_doc_f1 on pz_node n
++         Index Cond: ((doc = d.doc) AND (f1 = 1))
++         Filter: (f2 = 2)
++ Supplied Plan Advice:
++   PARAMETERIZED(n d) /* matched */
++(8 rows)
++
++-- UNPARAMETERIZED rules out parameterized scans of its target, whichever
++-- side of the join it is on.
++SET LOCAL pg_plan_advice.advice = 'UNPARAMETERIZED(d n)';
++EXPLAIN (COSTS OFF)
++	SELECT n.v FROM pz_doc d JOIN pz_node n ON n.doc = d.doc AND n.f1 = 1
++	AND n.f2 = 2 WHERE d.owner = 1;
++                     QUERY PLAN                     
++----------------------------------------------------
++ Nested Loop
++   Join Filter: (d.doc = n.doc)
++   ->  Seq Scan on pz_doc d
++         Filter: (owner = 1)
++   ->  Index Scan using pz_node_doc_f1 on pz_node n
++         Index Cond: (f1 = 1)
++         Filter: (f2 = 2)
++ Supplied Plan Advice:
++   UNPARAMETERIZED(d) /* matched */
++   UNPARAMETERIZED(n) /* matched */
++(10 rows)
++
++-- Advice that can't be applied: a source that isn't in the query, a source
++-- that is the target itself, and two items that disagree.
++SET LOCAL pg_plan_advice.advice = 'PARAMETERIZED(n nosuch)';
++EXPLAIN (COSTS OFF)
++	SELECT n.v FROM pz_doc d JOIN pz_node n ON n.doc = d.doc AND n.f1 = 1
++	AND n.f2 = 2 WHERE d.owner = 1;
++                          QUERY PLAN                           
++---------------------------------------------------------------
++ Nested Loop
++   Join Filter: (d.doc = n.doc)
++   ->  Seq Scan on pz_doc d
++         Filter: (owner = 1)
++   ->  Index Scan using pz_node_doc_f1 on pz_node n
++         Index Cond: (f1 = 1)
++         Filter: (f2 = 2)
++ Supplied Plan Advice:
++   PARAMETERIZED(n nosuch) /* matched, inapplicable, failed */
++(9 rows)
++
++SET LOCAL pg_plan_advice.advice = 'PARAMETERIZED(n n)';
++EXPLAIN (COSTS OFF)
++	SELECT n.v FROM pz_doc d JOIN pz_node n ON n.doc = d.doc AND n.f1 = 1
++	AND n.f2 = 2 WHERE d.owner = 1;
++                        QUERY PLAN                        
++----------------------------------------------------------
++ Nested Loop
++   Join Filter: (d.doc = n.doc)
++   ->  Seq Scan on pz_doc d
++         Filter: (owner = 1)
++   ->  Index Scan using pz_node_doc_f1 on pz_node n
++         Index Cond: (f1 = 1)
++         Filter: (f2 = 2)
++ Supplied Plan Advice:
++   PARAMETERIZED(n n) /* matched, inapplicable, failed */
++(9 rows)
++
++SET LOCAL pg_plan_advice.advice = 'PARAMETERIZED(n d) UNPARAMETERIZED(n)';
++EXPLAIN (COSTS OFF)
++	SELECT n.v FROM pz_doc d JOIN pz_node n ON n.doc = d.doc AND n.f1 = 1
++	AND n.f2 = 2 WHERE d.owner = 1;
++                       QUERY PLAN                        
++---------------------------------------------------------
++ Nested Loop
++   Join Filter: (d.doc = n.doc)
++   ->  Seq Scan on pz_doc d
++         Filter: (owner = 1)
++   ->  Index Scan using pz_node_doc_f1 on pz_node n
++         Index Cond: (f1 = 1)
++         Filter: (f2 = 2)
++ Supplied Plan Advice:
++   PARAMETERIZED(n d) /* matched, conflicting, failed */
++   UNPARAMETERIZED(n) /* matched, conflicting */
++(10 rows)
++
++COMMIT;
++-- A star join: the fact table can take its parameters from either dimension
++-- or from both, and each is a different plan.
++CREATE TABLE pz_dim1 (id int PRIMARY KEY, a int) WITH (autovacuum_enabled = false);
++CREATE TABLE pz_dim2 (id int PRIMARY KEY, b int) WITH (autovacuum_enabled = false);
++CREATE TABLE pz_fact (d1 int, d2 int, x int) WITH (autovacuum_enabled = false);
++CREATE INDEX pz_fact_d1_d2 ON pz_fact (d1, d2);
++INSERT INTO pz_dim1 SELECT g, g % 10 FROM generate_series(1, 100) g;
++INSERT INTO pz_dim2 SELECT g, g % 10 FROM generate_series(1, 100) g;
++INSERT INTO pz_fact SELECT g % 100 + 1, g % 97 + 1, g
++	FROM generate_series(1, 100000) g;
++VACUUM ANALYZE pz_dim1, pz_dim2, pz_fact;
++EXPLAIN (COSTS OFF, PLAN_ADVICE)
++	SELECT * FROM pz_dim1 d1, pz_dim2 d2, pz_fact f
++	WHERE f.d1 = d1.id AND f.d2 = d2.id AND d1.a = 1 AND d2.b = 1;
++                QUERY PLAN                
++------------------------------------------
++ Hash Join
++   Hash Cond: (f.d2 = d2.id)
++   ->  Hash Join
++         Hash Cond: (f.d1 = d1.id)
++         ->  Seq Scan on pz_fact f
++         ->  Hash
++               ->  Seq Scan on pz_dim1 d1
++                     Filter: (a = 1)
++   ->  Hash
++         ->  Seq Scan on pz_dim2 d2
++               Filter: (b = 1)
++ Generated Plan Advice:
++   JOIN_ORDER(f d1 d2)
++   HASH_JOIN(d1 d2)
++   SEQ_SCAN(f d1 d2)
++   UNPARAMETERIZED(d1 d2 f)
++   NO_GATHER(d1 d2 f)
++(17 rows)
++
++BEGIN;
++SET LOCAL pg_plan_advice.advice = 'JOIN_ORDER(d1 d2 f) PARAMETERIZED(f d1)';
++EXPLAIN (COSTS OFF, PLAN_ADVICE)
++	SELECT * FROM pz_dim1 d1, pz_dim2 d2, pz_fact f
++	WHERE f.d1 = d1.id AND f.d2 = d2.id AND d1.a = 1 AND d2.b = 1;
++                      QUERY PLAN                      
++------------------------------------------------------
++ Nested Loop
++   Join Filter: (d2.id = f.d2)
++   ->  Nested Loop
++         ->  Seq Scan on pz_dim1 d1
++               Filter: (a = 1)
++         ->  Materialize
++               ->  Seq Scan on pz_dim2 d2
++                     Filter: (b = 1)
++   ->  Memoize
++         Cache Key: d1.id
++         Cache Mode: logical
++         ->  Bitmap Heap Scan on pz_fact f
++               Recheck Cond: (d1.id = d1)
++               ->  Bitmap Index Scan on pz_fact_d1_d2
++                     Index Cond: (d1 = d1.id)
++ Supplied Plan Advice:
++   PARAMETERIZED(f d1) /* matched */
++   JOIN_ORDER(d1 d2 f) /* matched */
++ Generated Plan Advice:
++   JOIN_ORDER(d1 d2 f)
++   NESTED_LOOP_MATERIALIZE(d2)
++   NESTED_LOOP_MEMOIZE(f)
++   SEQ_SCAN(d1 d2)
++   BITMAP_HEAP_SCAN(f)
++   PARAMETERIZED(f d1)
++   UNPARAMETERIZED(d1 d2)
++   NO_GATHER(d1 d2 f)
++(27 rows)
++
++SET LOCAL pg_plan_advice.advice = 'JOIN_ORDER(d1 d2 f) PARAMETERIZED(f (d1 d2))';
++EXPLAIN (COSTS OFF, PLAN_ADVICE)
++	SELECT * FROM pz_dim1 d1, pz_dim2 d2, pz_fact f
++	WHERE f.d1 = d1.id AND f.d2 = d2.id AND d1.a = 1 AND d2.b = 1;
++                        QUERY PLAN                         
++-----------------------------------------------------------
++ Nested Loop
++   ->  Nested Loop
++         ->  Seq Scan on pz_dim1 d1
++               Filter: (a = 1)
++         ->  Materialize
++               ->  Seq Scan on pz_dim2 d2
++                     Filter: (b = 1)
++   ->  Bitmap Heap Scan on pz_fact f
++         Recheck Cond: ((d1.id = d1) AND (d2.id = d2))
++         ->  Bitmap Index Scan on pz_fact_d1_d2
++               Index Cond: ((d1 = d1.id) AND (d2 = d2.id))
++ Supplied Plan Advice:
++   PARAMETERIZED(f (d1 d2)) /* matched */
++   JOIN_ORDER(d1 d2 f) /* matched */
++ Generated Plan Advice:
++   JOIN_ORDER(d1 d2 f)
++   NESTED_LOOP_PLAIN(f)
++   NESTED_LOOP_MATERIALIZE(d2)
++   SEQ_SCAN(d1 d2)
++   BITMAP_HEAP_SCAN(f)
++   PARAMETERIZED(f (d1 d2))
++   UNPARAMETERIZED(d1 d2)
++   NO_GATHER(d1 d2 f)
++(23 rows)
++
++COMMIT;
++-- A parameter that an outer join can null makes the outer join part of the
++-- parameterization; advice never names outer joins, so this still works.
++EXPLAIN (COSTS OFF, PLAN_ADVICE)
++	SELECT * FROM pz_dim1 d1 LEFT JOIN pz_dim2 d2 ON d2.id = d1.a
++	LEFT JOIN pz_fact f ON f.d1 = d2.id AND f.d2 = d1.id
++	WHERE d1.id = 5;
++                         QUERY PLAN                          
++-------------------------------------------------------------
++ Nested Loop Left Join
++   ->  Merge Right Join
++         Merge Cond: (d2.id = d1.a)
++         ->  Index Scan using pz_dim2_pkey on pz_dim2 d2
++         ->  Sort
++               Sort Key: d1.a
++               ->  Seq Scan on pz_dim1 d1
++                     Filter: (id = 5)
++   ->  Index Scan using pz_fact_d1_d2 on pz_fact f
++         Index Cond: ((d1 = d2.id) AND (d2 = 5))
++ Generated Plan Advice:
++   JOIN_ORDER(d2 d1 f)
++   MERGE_JOIN_PLAIN(d1)
++   NESTED_LOOP_PLAIN(f)
++   SEQ_SCAN(d1)
++   INDEX_SCAN(d2 public.pz_dim2_pkey f public.pz_fact_d1_d2)
++   PARAMETERIZED(f d2)
++   UNPARAMETERIZED(d2)
++   NO_GATHER(d1 d2 f)
++(19 rows)
++
++BEGIN;
++SET LOCAL pg_plan_advice.advice = 'JOIN_ORDER(d2 d1 f) MERGE_JOIN_PLAIN(d1)
++	NESTED_LOOP_PLAIN(f) SEQ_SCAN(d1) PARAMETERIZED(f d2) UNPARAMETERIZED(d2)
++	INDEX_SCAN(d2 public.pz_dim2_pkey f public.pz_fact_d1_d2)';
++EXPLAIN (COSTS OFF)
++	SELECT * FROM pz_dim1 d1 LEFT JOIN pz_dim2 d2 ON d2.id = d1.a
++	LEFT JOIN pz_fact f ON f.d1 = d2.id AND f.d2 = d1.id
++	WHERE d1.id = 5;
++                       QUERY PLAN                        
++---------------------------------------------------------
++ Nested Loop Left Join
++   ->  Merge Right Join
++         Merge Cond: (d2.id = d1.a)
++         ->  Index Scan using pz_dim2_pkey on pz_dim2 d2
++         ->  Sort
++               Sort Key: d1.a
++               ->  Seq Scan on pz_dim1 d1
++                     Filter: (id = 5)
++   ->  Index Scan using pz_fact_d1_d2 on pz_fact f
++         Index Cond: ((d1 = d2.id) AND (d2 = 5))
++ Supplied Plan Advice:
++   SEQ_SCAN(d1) /* matched */
++   PARAMETERIZED(f d2) /* matched */
++   UNPARAMETERIZED(d2) /* matched */
++   INDEX_SCAN(d2 public.pz_dim2_pkey) /* matched */
++   INDEX_SCAN(f public.pz_fact_d1_d2) /* matched */
++   JOIN_ORDER(d2 d1 f) /* matched */
++   MERGE_JOIN_PLAIN(d1) /* matched */
++   NESTED_LOOP_PLAIN(f) /* matched */
++(19 rows)
++
++SET LOCAL pg_plan_advice.advice = 'UNPARAMETERIZED(f)';
++EXPLAIN (COSTS OFF, PLAN_ADVICE)
++	SELECT * FROM pz_dim1 d1 LEFT JOIN pz_dim2 d2 ON d2.id = d1.a
++	LEFT JOIN pz_fact f ON f.d1 = d2.id AND f.d2 = d1.id
++	WHERE d1.id = 5;
++                          QUERY PLAN                           
++---------------------------------------------------------------
++ Hash Right Join
++   Hash Cond: (f.d1 = d2.id)
++   ->  Bitmap Heap Scan on pz_fact f
++         Recheck Cond: (d2 = 5)
++         ->  Bitmap Index Scan on pz_fact_d1_d2
++               Index Cond: (d2 = 5)
++   ->  Hash
++         ->  Merge Right Join
++               Merge Cond: (d2.id = d1.a)
++               ->  Index Scan using pz_dim2_pkey on pz_dim2 d2
++               ->  Sort
++                     Sort Key: d1.a
++                     ->  Seq Scan on pz_dim1 d1
++                           Filter: (id = 5)
++ Supplied Plan Advice:
++   UNPARAMETERIZED(f) /* matched */
++ Generated Plan Advice:
++   JOIN_ORDER(f (d2 d1))
++   MERGE_JOIN_PLAIN(d1)
++   HASH_JOIN((d1 d2))
++   SEQ_SCAN(d1)
++   BITMAP_HEAP_SCAN(f)
++   INDEX_SCAN(d2 public.pz_dim2_pkey)
++   UNPARAMETERIZED(d2 f)
++   NO_GATHER(d1 d2 f)
++(25 rows)
++
++COMMIT;
++-- A partitioned table on the inner side: each partition's scan takes its
++-- parameters from the outer relation, and the outer relation is named the
++-- way the planner names it, by its topmost parent.
++CREATE TABLE pz_part (id int, v int) PARTITION BY RANGE (id);
++CREATE TABLE pz_part_1 PARTITION OF pz_part FOR VALUES FROM (0) TO (50000)
++	WITH (autovacuum_enabled = false);
++CREATE TABLE pz_part_2 PARTITION OF pz_part FOR VALUES FROM (50000) TO (100001)
++	WITH (autovacuum_enabled = false);
++CREATE INDEX ON pz_part (id);
++INSERT INTO pz_part SELECT g, g FROM generate_series(1, 100000) g;
++VACUUM ANALYZE pz_part;
++BEGIN;
++SET LOCAL pg_plan_advice.advice = 'JOIN_ORDER(d1 p) NESTED_LOOP_PLAIN(p)';
++EXPLAIN (COSTS OFF, PLAN_ADVICE)
++	SELECT * FROM pz_dim1 d1 JOIN pz_part p ON p.id = d1.id WHERE d1.id < 3;
++                                 QUERY PLAN                                 
++----------------------------------------------------------------------------
++ Nested Loop
++   ->  Seq Scan on pz_dim1 d1
++         Filter: (id < 3)
++   ->  Append
++         ->  Index Scan using pz_part_1_id_idx on pz_part_1 p_1
++               Index Cond: (id = d1.id)
++         ->  Index Scan using pz_part_2_id_idx on pz_part_2 p_2
++               Index Cond: (id = d1.id)
++ Supplied Plan Advice:
++   JOIN_ORDER(d1 p) /* matched */
++   NESTED_LOOP_PLAIN(p) /* matched */
++ Generated Plan Advice:
++   JOIN_ORDER(d1 p)
++   NESTED_LOOP_PLAIN(p)
++   SEQ_SCAN(d1)
++   INDEX_SCAN(p/public.pz_part_1 public.pz_part_1_id_idx p/public.pz_part_2
++    public.pz_part_2_id_idx)
++   PARTITIONWISE(p)
++   PARAMETERIZED(p d1 p/public.pz_part_1 d1 p/public.pz_part_2 d1)
++   UNPARAMETERIZED(d1)
++   NO_GATHER(d1 p p/public.pz_part_1 p/public.pz_part_2)
++(21 rows)
++
++SET LOCAL pg_plan_advice.advice = 'JOIN_ORDER(d1 p) NESTED_LOOP_PLAIN(p)
++	UNPARAMETERIZED(p/public.pz_part_2)';
++EXPLAIN (COSTS OFF)
++	SELECT * FROM pz_dim1 d1 JOIN pz_part p ON p.id = d1.id WHERE d1.id < 3;
++                     QUERY PLAN                      
++-----------------------------------------------------
++ Nested Loop
++   Join Filter: (d1.id = p.id)
++   ->  Seq Scan on pz_dim1 d1
++         Filter: (id < 3)
++   ->  Append
++         ->  Seq Scan on pz_part_1 p_1
++         ->  Seq Scan on pz_part_2 p_2
++ Supplied Plan Advice:
++   UNPARAMETERIZED(p/public.pz_part_2) /* matched */
++   JOIN_ORDER(d1 p) /* matched */
++   NESTED_LOOP_PLAIN(p) /* matched */
++(11 rows)
++
++COMMIT;
++-- A lateral function's scan must take parameters from the relation it
++-- refers to; that is not a choice, so no advice is generated for it.
++EXPLAIN (COSTS OFF, PLAN_ADVICE)
++	SELECT * FROM pz_dim1 d1, LATERAL generate_series(1, d1.a) g
++	WHERE d1.id < 3;
++                QUERY PLAN                
++------------------------------------------
++ Nested Loop
++   ->  Seq Scan on pz_dim1 d1
++         Filter: (id < 3)
++   ->  Function Scan on generate_series g
++ Generated Plan Advice:
++   JOIN_ORDER(d1 g)
++   NESTED_LOOP_PLAIN(g)
++   SEQ_SCAN(d1)
++   NO_GATHER(d1 g)
++(9 rows)
++
++-- Inside a lateral subquery that is not flattened, values from the outer
++-- query are constants of the subquery's own join problem, so the scan in the
++-- subquery is not parameterized at its level; the subquery itself is, but
++-- only by its lateral reference, which is not a choice.
++EXPLAIN (COSTS OFF, PLAN_ADVICE)
++	SELECT * FROM pz_dim1 d1, LATERAL
++	(SELECT * FROM pz_dim2 d2 WHERE d2.id = d1.a LIMIT 1) s
++	WHERE d1.id < 3;
++             QUERY PLAN             
++------------------------------------
++ Nested Loop
++   ->  Seq Scan on pz_dim1 d1
++         Filter: (id < 3)
++   ->  Limit
++         ->  Seq Scan on pz_dim2 d2
++               Filter: (id = d1.a)
++ Generated Plan Advice:
++   JOIN_ORDER(d1 s)
++   NESTED_LOOP_PLAIN(s)
++   SEQ_SCAN(d2@s d1)
++   NO_GATHER(d1 s d2@s)
++(11 rows)
++
+diff --git a/contrib/pg_plan_advice/expected/partitionwise.out b/contrib/pg_plan_advice/expected/partitionwise.out
+index 3df13fb1..4f9038d2 100644
+--- a/contrib/pg_plan_advice/expected/partitionwise.out
++++ b/contrib/pg_plan_advice/expected/partitionwise.out
+@@ -117,10 +117,13 @@ SELECT * FROM pt1, pt2, pt3 WHERE pt1.id = pt2.id AND pt2.id = pt3.id
+    INDEX_SCAN(pt1/public.pt1a public.pt1a_pkey pt1/public.pt1b public.pt1b_pkey
+     pt1/public.pt1c public.pt1c_pkey)
+    PARTITIONWISE((pt1 pt2 pt3))
++   PARAMETERIZED(pt1/public.pt1a pt2 pt1/public.pt1b pt2 pt1/public.pt1c pt2)
++   UNPARAMETERIZED(pt2/public.pt2a pt2/public.pt2b pt2/public.pt2c
++    pt3/public.pt3a pt3/public.pt3b pt3/public.pt3c)
+    NO_GATHER(pt1 pt2 pt3 pt1/public.pt1a pt1/public.pt1b pt1/public.pt1c
+     pt2/public.pt2a pt2/public.pt2b pt2/public.pt2c pt3/public.pt3a
+     pt3/public.pt3b pt3/public.pt3c)
+-(48 rows)
++(51 rows)
+ 
+ -- Suppress partitionwise join, or do it just partially.
+ BEGIN;
+@@ -171,10 +174,14 @@ SELECT * FROM pt1, pt2, pt3 WHERE pt1.id = pt2.id AND pt2.id = pt3.id
+    INDEX_SCAN(pt1/public.pt1a public.pt1a_pkey pt1/public.pt1b public.pt1b_pkey
+     pt1/public.pt1c public.pt1c_pkey)
+    PARTITIONWISE(pt2 pt3 pt1)
++   PARAMETERIZED(pt1 pt2 pt1/public.pt1a pt2 pt1/public.pt1b pt2
++    pt1/public.pt1c pt2)
++   UNPARAMETERIZED(pt2 pt3 pt2/public.pt2a pt2/public.pt2b pt2/public.pt2c
++    pt3/public.pt3a pt3/public.pt3b pt3/public.pt3c)
+    NO_GATHER(pt1 pt2 pt3 pt1/public.pt1a pt1/public.pt1b pt1/public.pt1c
+     pt2/public.pt2a pt2/public.pt2b pt2/public.pt2c pt3/public.pt3a
+     pt3/public.pt3b pt3/public.pt3c)
+-(44 rows)
++(48 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'PARTITIONWISE((pt1 pt2) pt3)';
+ EXPLAIN (PLAN_ADVICE, COSTS OFF)
+@@ -227,10 +234,13 @@ SELECT * FROM pt1, pt2, pt3 WHERE pt1.id = pt2.id AND pt2.id = pt3.id
+     pt1/public.pt1c pt2/public.pt2c pt3/public.pt3a pt3/public.pt3b
+     pt3/public.pt3c)
+    PARTITIONWISE((pt1 pt2) pt3)
++   UNPARAMETERIZED(pt3 pt1/public.pt1a pt1/public.pt1b pt1/public.pt1c
++    pt2/public.pt2a pt2/public.pt2b pt2/public.pt2c pt3/public.pt3a
++    pt3/public.pt3b pt3/public.pt3c)
+    NO_GATHER(pt1 pt2 pt3 pt1/public.pt1a pt1/public.pt1b pt1/public.pt1c
+     pt2/public.pt2a pt2/public.pt2b pt2/public.pt2c pt3/public.pt3a
+     pt3/public.pt3b pt3/public.pt3c)
+-(48 rows)
++(51 rows)
+ 
+ COMMIT;
+ -- Test conflicting advice.
+@@ -290,10 +300,13 @@ SELECT * FROM pt1, pt2, pt3 WHERE pt1.id = pt2.id AND pt2.id = pt3.id
+    INDEX_SCAN(pt1/public.pt1a public.pt1a_pkey pt1/public.pt1b public.pt1b_pkey
+     pt1/public.pt1c public.pt1c_pkey)
+    PARTITIONWISE((pt1 pt2 pt3))
++   PARAMETERIZED(pt1/public.pt1a pt2 pt1/public.pt1b pt2 pt1/public.pt1c pt2)
++   UNPARAMETERIZED(pt2/public.pt2a pt2/public.pt2b pt2/public.pt2c
++    pt3/public.pt3a pt3/public.pt3b pt3/public.pt3c)
+    NO_GATHER(pt1 pt2 pt3 pt1/public.pt1a pt1/public.pt1b pt1/public.pt1c
+     pt2/public.pt2a pt2/public.pt2b pt2/public.pt2c pt3/public.pt3a
+     pt3/public.pt3b pt3/public.pt3c)
+-(52 rows)
++(55 rows)
+ 
+ COMMIT;
+ -- Test use of join order for the partitionwise join case.
+@@ -349,10 +362,13 @@ SELECT * FROM pt1, pt2, pt3 WHERE pt1.id = pt2.id AND pt2.id = pt3.id
+     pt1/public.pt1c pt2/public.pt2c pt3/public.pt3a pt3/public.pt3b
+     pt3/public.pt3c)
+    PARTITIONWISE((pt1 pt2) pt3)
++   UNPARAMETERIZED(pt3 pt1/public.pt1a pt1/public.pt1b pt1/public.pt1c
++    pt2/public.pt2a pt2/public.pt2b pt2/public.pt2c pt3/public.pt3a
++    pt3/public.pt3b pt3/public.pt3c)
+    NO_GATHER(pt1 pt2 pt3 pt1/public.pt1a pt1/public.pt1b pt1/public.pt1c
+     pt2/public.pt2a pt2/public.pt2b pt2/public.pt2c pt3/public.pt3a
+     pt3/public.pt3b pt3/public.pt3c)
+-(48 rows)
++(51 rows)
+ 
+ COMMIT;
+ -- Can't force a partitionwise join with a mismatched table.
+@@ -382,9 +398,12 @@ SELECT * FROM pt1, ptmismatch WHERE pt1.id = ptmismatch.id;
+    INDEX_SCAN(ptmismatch/public.ptmismatcha public.ptmismatcha_pkey
+     ptmismatch/public.ptmismatchb public.ptmismatchb_pkey)
+    PARTITIONWISE(pt1 ptmismatch)
++   PARAMETERIZED(ptmismatch pt1 ptmismatch/public.ptmismatcha pt1
++    ptmismatch/public.ptmismatchb pt1)
++   UNPARAMETERIZED(pt1 pt1/public.pt1a pt1/public.pt1b pt1/public.pt1c)
+    NO_GATHER(pt1 ptmismatch pt1/public.pt1a pt1/public.pt1b pt1/public.pt1c
+     ptmismatch/public.ptmismatcha ptmismatch/public.ptmismatchb)
+-(22 rows)
++(25 rows)
+ 
+ COMMIT;
+ -- PARTITIONWISE is only applicable to inheritance parents.
+@@ -409,8 +428,9 @@ SELECT * FROM pt1, pt3a WHERE pt1.id = pt3a.id;
+    INDEX_SCAN(pt1/public.pt1a public.pt1a_pkey pt1/public.pt1b public.pt1b_pkey
+     pt1/public.pt1c public.pt1c_pkey pt3a public.pt3a_pkey)
+    PARTITIONWISE(pt1)
++   UNPARAMETERIZED(pt1 pt3a pt1/public.pt1a pt1/public.pt1b pt1/public.pt1c)
+    NO_GATHER(pt1 pt3a pt1/public.pt1a pt1/public.pt1b pt1/public.pt1c)
+-(16 rows)
++(17 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'PARTITIONWISE((pt1 pt3a))';
+ EXPLAIN (PLAN_ADVICE, COSTS OFF)
+@@ -432,8 +452,9 @@ SELECT * FROM pt1, pt3a WHERE pt1.id = pt3a.id;
+    INDEX_SCAN(pt1/public.pt1a public.pt1a_pkey pt1/public.pt1b public.pt1b_pkey
+     pt1/public.pt1c public.pt1c_pkey pt3a public.pt3a_pkey)
+    PARTITIONWISE(pt1)
++   UNPARAMETERIZED(pt1 pt3a pt1/public.pt1a pt1/public.pt1b pt1/public.pt1c)
+    NO_GATHER(pt1 pt3a pt1/public.pt1a pt1/public.pt1b pt1/public.pt1c)
+-(16 rows)
++(17 rows)
+ 
+ COMMIT;
+ -- Force join order for a particular branch of the partitionwise join.
+@@ -491,10 +512,13 @@ SELECT * FROM pt1, pt2, pt3 WHERE pt1.id = pt2.id AND pt2.id = pt3.id
+    INDEX_SCAN(pt1/public.pt1a public.pt1a_pkey pt1/public.pt1b public.pt1b_pkey
+     pt1/public.pt1c public.pt1c_pkey)
+    PARTITIONWISE((pt1 pt2 pt3))
++   PARAMETERIZED(pt1/public.pt1a pt2 pt1/public.pt1b pt2 pt1/public.pt1c pt2)
++   UNPARAMETERIZED(pt2/public.pt2a pt2/public.pt2b pt2/public.pt2c
++    pt3/public.pt3a pt3/public.pt3b pt3/public.pt3c)
+    NO_GATHER(pt1 pt2 pt3 pt1/public.pt1a pt1/public.pt1b pt1/public.pt1c
+     pt2/public.pt2a pt2/public.pt2b pt2/public.pt2c pt3/public.pt3a
+     pt3/public.pt3b pt3/public.pt3c)
+-(50 rows)
++(53 rows)
+ 
+ COMMIT;
+ -- We should get PARTITIONWISE advice for all unpruned partition tables.
+diff --git a/contrib/pg_plan_advice/expected/scan.out b/contrib/pg_plan_advice/expected/scan.out
+index f4036e4c..9caec183 100644
+--- a/contrib/pg_plan_advice/expected/scan.out
++++ b/contrib/pg_plan_advice/expected/scan.out
+@@ -582,8 +582,9 @@ SELECT * FROM (generate_series(1,10) g LEFT JOIN scan_table s ON g = s.a) x
+    JOIN_ORDER(g s s#2)
+    NESTED_LOOP_PLAIN(s s#2)
+    INDEX_SCAN(s public.scan_table_pkey s#2 public.scan_table_pkey)
++   PARAMETERIZED(s g s#2 g)
+    NO_GATHER(g s s#2)
+-(12 rows)
++(13 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'SEQ_SCAN(s)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -607,8 +608,10 @@ SELECT * FROM (generate_series(1,10) g LEFT JOIN scan_table s ON g = s.a) x
+    HASH_JOIN(s)
+    SEQ_SCAN(s)
+    INDEX_SCAN(s#2 public.scan_table_pkey)
++   PARAMETERIZED(s#2 g)
++   UNPARAMETERIZED(s)
+    NO_GATHER(g s s#2)
+-(17 rows)
++(19 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'SEQ_SCAN(s#2)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -632,8 +635,10 @@ SELECT * FROM (generate_series(1,10) g LEFT JOIN scan_table s ON g = s.a) x
+    HASH_JOIN(s#2)
+    SEQ_SCAN(s#2)
+    INDEX_SCAN(s public.scan_table_pkey)
++   PARAMETERIZED(s g)
++   UNPARAMETERIZED(s#2)
+    NO_GATHER(g s s#2)
+-(17 rows)
++(19 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'SEQ_SCAN(s) SEQ_SCAN(s#2)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -657,8 +662,9 @@ SELECT * FROM (generate_series(1,10) g LEFT JOIN scan_table s ON g = s.a) x
+    JOIN_ORDER(g s s#2)
+    HASH_JOIN(s s#2)
+    SEQ_SCAN(s s#2)
++   UNPARAMETERIZED(s s#2)
+    NO_GATHER(g s s#2)
+-(17 rows)
++(18 rows)
+ 
+ COMMIT;
+ -- Test our ability to refer to scans within a subquery.
+diff --git a/contrib/pg_plan_advice/expected/semijoin.out b/contrib/pg_plan_advice/expected/semijoin.out
+index 63737ddc..92e60e73 100644
+--- a/contrib/pg_plan_advice/expected/semijoin.out
++++ b/contrib/pg_plan_advice/expected/semijoin.out
+@@ -35,9 +35,10 @@ SELECT * FROM sj_wide
+    JOIN_ORDER("*VALUES*" sj_wide)
+    NESTED_LOOP_PLAIN(sj_wide)
+    INDEX_SCAN(sj_wide public.sj_wide_pkey)
++   PARAMETERIZED(sj_wide "*VALUES*")
+    SEMIJOIN_UNIQUE("*VALUES*")
+    NO_GATHER(sj_wide "*VALUES*")
+-(13 rows)
++(14 rows)
+ 
+ -- If we ask for a unique semijoin, we should get the same plan as with
+ -- no advice. If we ask for a non-unique semijoin, we should see a Semi
+@@ -62,9 +63,10 @@ SELECT * FROM sj_wide
+    JOIN_ORDER("*VALUES*" sj_wide)
+    NESTED_LOOP_PLAIN(sj_wide)
+    INDEX_SCAN(sj_wide public.sj_wide_pkey)
++   PARAMETERIZED(sj_wide "*VALUES*")
+    SEMIJOIN_UNIQUE("*VALUES*")
+    NO_GATHER(sj_wide "*VALUES*")
+-(15 rows)
++(16 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'semijoin_non_unique("*VALUES*")';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -83,9 +85,10 @@ SELECT * FROM sj_wide
+    JOIN_ORDER(sj_wide "*VALUES*")
+    HASH_JOIN("*VALUES*")
+    SEQ_SCAN(sj_wide)
++   UNPARAMETERIZED(sj_wide)
+    SEMIJOIN_NON_UNIQUE("*VALUES*")
+    NO_GATHER(sj_wide "*VALUES*")
+-(13 rows)
++(14 rows)
+ 
+ COMMIT;
+ -- Because this table is narrower than the previous one, a sequential scan
+@@ -106,9 +109,10 @@ SELECT * FROM sj_narrow
+    JOIN_ORDER(sj_narrow "*VALUES*")
+    HASH_JOIN("*VALUES*")
+    SEQ_SCAN(sj_narrow)
++   UNPARAMETERIZED(sj_narrow)
+    SEMIJOIN_NON_UNIQUE("*VALUES*")
+    NO_GATHER(sj_narrow "*VALUES*")
+-(11 rows)
++(12 rows)
+ 
+ -- Here, we expect advising a unique semijoin to switch to the same plan that
+ -- we got with sj_wide, and advising a non-unique semijoin should not change
+@@ -133,9 +137,10 @@ SELECT * FROM sj_narrow
+    JOIN_ORDER(sj_narrow "*VALUES*")
+    HASH_JOIN("*VALUES*")
+    SEQ_SCAN(sj_narrow)
++   UNPARAMETERIZED(sj_narrow)
+    SEMIJOIN_UNIQUE("*VALUES*")
+    NO_GATHER(sj_narrow "*VALUES*")
+-(15 rows)
++(16 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'semijoin_non_unique("*VALUES*")';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -154,9 +159,10 @@ SELECT * FROM sj_narrow
+    JOIN_ORDER(sj_narrow "*VALUES*")
+    HASH_JOIN("*VALUES*")
+    SEQ_SCAN(sj_narrow)
++   UNPARAMETERIZED(sj_narrow)
+    SEMIJOIN_NON_UNIQUE("*VALUES*")
+    NO_GATHER(sj_narrow "*VALUES*")
+-(13 rows)
++(14 rows)
+ 
+ COMMIT;
+ -- In the above example, we made the outer side of the join unique, but here,
+@@ -177,9 +183,10 @@ SELECT * FROM generate_series(1,1000) g
+    JOIN_ORDER(g sj_narrow)
+    HASH_JOIN(sj_narrow)
+    SEQ_SCAN(sj_narrow)
++   UNPARAMETERIZED(sj_narrow)
+    SEMIJOIN_UNIQUE(sj_narrow)
+    NO_GATHER(g sj_narrow)
+-(13 rows)
++(14 rows)
+ 
+ -- We should be able to force a plan with or without the make-unique strategy,
+ -- with either side as the driving table.
+@@ -203,9 +210,10 @@ SELECT * FROM generate_series(1,1000) g
+    JOIN_ORDER(g sj_narrow)
+    HASH_JOIN(sj_narrow)
+    SEQ_SCAN(sj_narrow)
++   UNPARAMETERIZED(sj_narrow)
+    SEMIJOIN_UNIQUE(sj_narrow)
+    NO_GATHER(g sj_narrow)
+-(15 rows)
++(16 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'semijoin_non_unique(sj_narrow)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -224,9 +232,10 @@ SELECT * FROM generate_series(1,1000) g
+    JOIN_ORDER(g sj_narrow)
+    HASH_JOIN(sj_narrow)
+    SEQ_SCAN(sj_narrow)
++   UNPARAMETERIZED(sj_narrow)
+    SEMIJOIN_NON_UNIQUE(sj_narrow)
+    NO_GATHER(g sj_narrow)
+-(13 rows)
++(14 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'semijoin_unique(sj_narrow) join_order(sj_narrow)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -248,9 +257,10 @@ SELECT * FROM generate_series(1,1000) g
+    JOIN_ORDER(sj_narrow g)
+    HASH_JOIN(g)
+    SEQ_SCAN(sj_narrow)
++   UNPARAMETERIZED(sj_narrow)
+    SEMIJOIN_UNIQUE(sj_narrow)
+    NO_GATHER(g sj_narrow)
+-(16 rows)
++(17 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'semijoin_non_unique(sj_narrow) join_order(sj_narrow)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -270,9 +280,10 @@ SELECT * FROM generate_series(1,1000) g
+    JOIN_ORDER(sj_narrow g)
+    HASH_JOIN(g)
+    SEQ_SCAN(sj_narrow)
++   UNPARAMETERIZED(sj_narrow)
+    SEMIJOIN_NON_UNIQUE(sj_narrow)
+    NO_GATHER(g sj_narrow)
+-(14 rows)
++(15 rows)
+ 
+ COMMIT;
+ -- However, mentioning the wrong side of the join should result in an advice
+@@ -297,9 +308,10 @@ SELECT * FROM generate_series(1,1000) g
+    JOIN_ORDER(sj_narrow g)
+    NESTED_LOOP_PLAIN(g)
+    SEQ_SCAN(sj_narrow)
++   UNPARAMETERIZED(sj_narrow)
+    SEMIJOIN_UNIQUE(sj_narrow)
+    NO_GATHER(g sj_narrow)
+-(15 rows)
++(16 rows)
+ 
+ SET LOCAL pg_plan_advice.advice = 'semijoin_non_unique(g)';
+ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+@@ -320,9 +332,10 @@ SELECT * FROM generate_series(1,1000) g
+    JOIN_ORDER(sj_narrow g)
+    NESTED_LOOP_PLAIN(g)
+    SEQ_SCAN(sj_narrow)
++   UNPARAMETERIZED(sj_narrow)
+    SEMIJOIN_UNIQUE(sj_narrow)
+    NO_GATHER(g sj_narrow)
+-(15 rows)
++(16 rows)
+ 
+ COMMIT;
+ -- Test conflicting advice.
+@@ -347,9 +360,10 @@ SELECT * FROM generate_series(1,1000) g
+    JOIN_ORDER(g sj_narrow)
+    HASH_JOIN(sj_narrow)
+    SEQ_SCAN(sj_narrow)
++   UNPARAMETERIZED(sj_narrow)
+    SEMIJOIN_UNIQUE(sj_narrow)
+    NO_GATHER(g sj_narrow)
+-(16 rows)
++(17 rows)
+ 
+ COMMIT;
+ -- Try applying SEMIJOIN_UNIQUE() to a non-semijoin.
+@@ -371,8 +385,9 @@ SELECT * FROM generate_series(1,1000) g, sj_narrow s WHERE g = s.val1;
+    JOIN_ORDER(s g)
+    MERGE_JOIN_PLAIN(g)
+    INDEX_SCAN(s public.sj_narrow_val1_idx)
++   UNPARAMETERIZED(s)
+    NO_GATHER(g s)
+-(13 rows)
++(14 rows)
+ 
+ COMMIT;
+ -- Test the case where the subquery containing a semijoin is removed from
+@@ -420,7 +435,8 @@ SELECT 1 FROM generate_series(1, 1000) g WHERE EXISTS
+    HASH_JOIN(g)
+    SEQ_SCAN(sj_narrow)
+    INDEX_ONLY_SCAN(t2 public.sj_narrow_pkey)
++   UNPARAMETERIZED(t2)
+    SEMIJOIN_UNIQUE((t2 sj_narrow "*RESULT*"))
+    NO_GATHER(g t2 sj_narrow "*RESULT*")
+-(20 rows)
++(21 rows)
+ 
+diff --git a/contrib/pg_plan_advice/expected/syntax.out b/contrib/pg_plan_advice/expected/syntax.out
+index b699653b..9146924b 100644
+--- a/contrib/pg_plan_advice/expected/syntax.out
++++ b/contrib/pg_plan_advice/expected/syntax.out
+@@ -259,3 +259,58 @@ SET pg_plan_advice.advice = 'SEQ_SCAN(t/public.hash_join)';
+ SET pg_plan_advice.advice = 'SEQ_SCAN(t/hash_join.foo)';
+ SET pg_plan_advice.advice = 'SEQ_SCAN(t@hash_join)';
+ SET pg_plan_advice.advice = 'SEQ_SCAN(t@seq_scan)';
++-- PARAMETERIZED pairs each target with the relation, or the parenthesized
++-- list of relations, from which it takes its parameters; UNPARAMETERIZED
++-- takes plain targets.
++SET pg_plan_advice.advice = 'PARAMETERIZED(a b c (d e#2@f))';
++EXPLAIN (COSTS OFF) SELECT 1;
++                   QUERY PLAN                   
++------------------------------------------------
++ Result
++ Supplied Plan Advice:
++   PARAMETERIZED(a b) /* not matched */
++   PARAMETERIZED(c (d e#2@f)) /* not matched */
++(4 rows)
++
++SET pg_plan_advice.advice = 'UNPARAMETERIZED(a b@c)';
++EXPLAIN (COSTS OFF) SELECT 1;
++                QUERY PLAN                
++------------------------------------------
++ Result
++ Supplied Plan Advice:
++   UNPARAMETERIZED(a) /* not matched */
++   UNPARAMETERIZED(b@c) /* not matched */
++(4 rows)
++
++SET pg_plan_advice.advice = 'PARAMETERIZED()';
++EXPLAIN (COSTS OFF) SELECT 1;
++ QUERY PLAN 
++------------
++ Result
++(1 row)
++
++SET pg_plan_advice.advice = 'PARAMETERIZED(a)';
++ERROR:  invalid value for parameter "pg_plan_advice.advice": "PARAMETERIZED(a)"
++DETAIL:  Could not parse advice: syntax error at or near ")"
++SET pg_plan_advice.advice = 'PARAMETERIZED(a ())';
++ERROR:  invalid value for parameter "pg_plan_advice.advice": "PARAMETERIZED(a ())"
++DETAIL:  Could not parse advice: PARAMETERIZED sources must contain at least one relation identifier at or near ")"
++SET pg_plan_advice.advice = 'PARAMETERIZED(a ((b)))';
++ERROR:  invalid value for parameter "pg_plan_advice.advice": "PARAMETERIZED(a ((b)))"
++DETAIL:  Could not parse advice: syntax error at or near "("
++SET pg_plan_advice.advice = 'PARAMETERIZED((a) b)';
++ERROR:  invalid value for parameter "pg_plan_advice.advice": "PARAMETERIZED((a) b)"
++DETAIL:  Could not parse advice: syntax error at or near "("
++SET pg_plan_advice.advice = 'UNPARAMETERIZED((a))';
++ERROR:  invalid value for parameter "pg_plan_advice.advice": "UNPARAMETERIZED((a))"
++DETAIL:  Could not parse advice: syntax error at or near "("
++SET pg_plan_advice.advice = 'SEQ_SCAN(parameterized unparameterized)';
++EXPLAIN (COSTS OFF) SELECT 1;
++                  QUERY PLAN                   
++-----------------------------------------------
++ Result
++ Supplied Plan Advice:
++   SEQ_SCAN(parameterized) /* not matched */
++   SEQ_SCAN(unparameterized) /* not matched */
++(4 rows)
++
+diff --git a/contrib/pg_plan_advice/meson.build b/contrib/pg_plan_advice/meson.build
+index bbab676b..170ad8af 100644
+--- a/contrib/pg_plan_advice/meson.build
++++ b/contrib/pg_plan_advice/meson.build
+@@ -57,6 +57,7 @@ tests += {
+       'gather',
+       'join_order',
+       'join_strategy',
++      'parameterized',
+       'partitionwise',
+       'prepared',
+       'scan',
+diff --git a/contrib/pg_plan_advice/pgpa_ast.c b/contrib/pg_plan_advice/pgpa_ast.c
+index 943ea9d3..24c45877 100644
+--- a/contrib/pg_plan_advice/pgpa_ast.c
++++ b/contrib/pg_plan_advice/pgpa_ast.c
+@@ -61,6 +61,8 @@ pgpa_cstring_advice_tag(pgpa_advice_tag_type advice_tag)
+ 			return "NESTED_LOOP_PLAIN";
+ 		case PGPA_TAG_NO_GATHER:
+ 			return "NO_GATHER";
++		case PGPA_TAG_PARAMETERIZED:
++			return "PARAMETERIZED";
+ 		case PGPA_TAG_PARTITIONWISE:
+ 			return "PARTITIONWISE";
+ 		case PGPA_TAG_SEMIJOIN_NON_UNIQUE:
+@@ -71,6 +73,8 @@ pgpa_cstring_advice_tag(pgpa_advice_tag_type advice_tag)
+ 			return "SEQ_SCAN";
+ 		case PGPA_TAG_TID_SCAN:
+ 			return "TID_SCAN";
++		case PGPA_TAG_UNPARAMETERIZED:
++			return "UNPARAMETERIZED";
+ 	}
+ 
+ 	pg_unreachable();
+@@ -140,6 +144,8 @@ pgpa_parse_advice_tag(const char *tag, bool *fail)
+ 				return PGPA_TAG_NO_GATHER;
+ 			break;
+ 		case 'p':
++			if (strcmp(tag, "parameterized") == 0)
++				return PGPA_TAG_PARAMETERIZED;
+ 			if (strcmp(tag, "partitionwise") == 0)
+ 				return PGPA_TAG_PARTITIONWISE;
+ 			break;
+@@ -155,6 +161,10 @@ pgpa_parse_advice_tag(const char *tag, bool *fail)
+ 			if (strcmp(tag, "tid_scan") == 0)
+ 				return PGPA_TAG_TID_SCAN;
+ 			break;
++		case 'u':
++			if (strcmp(tag, "unparameterized") == 0)
++				return PGPA_TAG_UNPARAMETERIZED;
++			break;
+ 	}
+ 
+ 	/* didn't work out */
+diff --git a/contrib/pg_plan_advice/pgpa_ast.h b/contrib/pg_plan_advice/pgpa_ast.h
+index 17b40efa..d5b7e836 100644
+--- a/contrib/pg_plan_advice/pgpa_ast.h
++++ b/contrib/pg_plan_advice/pgpa_ast.h
+@@ -63,6 +63,14 @@ typedef struct pgpa_advice_target
+ 	 */
+ 	pgpa_index_target *itarget;
+ 
++	/*
++	 * This field is set when ttype is PGPA_TARGET_IDENTIFIER and the advice
++	 * tag is PGPA_TAG_PARAMETERIZED. It names the relations from which the
++	 * scan of the target relation takes its parameters: either a single
++	 * relation identifier or a PGPA_TARGET_ORDERED_LIST of them.
++	 */
++	struct pgpa_advice_target *param_source;
++
+ 	/*
+ 	 * When the ttype is PGPA_TARGET_<anything>_LIST, this field contains a
+ 	 * list of additional pgpa_advice_target objects. Otherwise, it is unused.
+@@ -94,11 +102,13 @@ typedef enum pgpa_advice_tag_type
+ 	PGPA_TAG_NESTED_LOOP_MEMOIZE,
+ 	PGPA_TAG_NESTED_LOOP_PLAIN,
+ 	PGPA_TAG_NO_GATHER,
++	PGPA_TAG_PARAMETERIZED,
+ 	PGPA_TAG_PARTITIONWISE,
+ 	PGPA_TAG_SEMIJOIN_NON_UNIQUE,
+ 	PGPA_TAG_SEMIJOIN_UNIQUE,
+ 	PGPA_TAG_SEQ_SCAN,
+-	PGPA_TAG_TID_SCAN
++	PGPA_TAG_TID_SCAN,
++	PGPA_TAG_UNPARAMETERIZED
+ } pgpa_advice_tag_type;
+ 
+ /*
+diff --git a/contrib/pg_plan_advice/pgpa_output.c b/contrib/pg_plan_advice/pgpa_output.c
+index 4b0770a9..29e7c637 100644
+--- a/contrib/pg_plan_advice/pgpa_output.c
++++ b/contrib/pg_plan_advice/pgpa_output.c
+@@ -33,6 +33,7 @@
+  */
+ typedef struct pgpa_output_context
+ {
++	pgpa_identifier *rt_identifiers;
+ 	const char **rid_strings;
+ 	StringInfo	buf;
+ 	int			wrap_column;
+@@ -46,6 +47,8 @@ static void pgpa_output_scan_strategy(pgpa_output_context *context,
+ 									  pgpa_scan_strategy strategy,
+ 									  List *scans);
+ static void pgpa_output_relation_name(pgpa_output_context *context, Oid relid);
++static void pgpa_output_parameterization(pgpa_output_context *context,
++										 pgpa_plan_walker_context *walker);
+ static void pgpa_output_query_feature(pgpa_output_context *context,
+ 									  pgpa_qf_type type,
+ 									  List *query_features);
+@@ -86,6 +89,7 @@ pgpa_output_advice(StringInfo buf, pgpa_plan_walker_context *walker,
+ 
+ 	/* Basic initialization. */
+ 	memset(&context, 0, sizeof(pgpa_output_context));
++	context.rt_identifiers = rt_identifiers;
+ 	context.buf = buf;
+ 
+ 	/*
+@@ -152,6 +156,9 @@ pgpa_output_advice(StringInfo buf, pgpa_plan_walker_context *walker,
+ 		if (c != PGPA_SCAN_ORDINARY)
+ 			pgpa_output_scan_strategy(&context, c, walker->scans[c]);
+ 
++	/* Emit parameterization advice. */
++	pgpa_output_parameterization(&context, walker);
++
+ 	/* Emit query feature advice. */
+ 	for (int t = 0; t < NUM_PGPA_QF_TYPES; ++t)
+ 		pgpa_output_query_feature(&context, t, walker->query_features[t]);
+@@ -291,6 +298,85 @@ pgpa_output_relation_name(pgpa_output_context *context, Oid relid)
+ 	appendStringInfoString(context->buf, quote_identifier(relname));
+ }
+ 
++/*
++ * Output PARAMETERIZED and UNPARAMETERIZED advice.
++ *
++ * We emit advice for each relation for which the planner had a choice of
++ * parameterization, and which is scanned by itself: PARAMETERIZED, naming the
++ * relations it takes parameters from, if its scan is parameterized, and
++ * UNPARAMETERIZED if not. We emit none for a scan that takes a computed
++ * parameter, such as a PlaceHolderVar's value, since we can't tell which
++ * relations the planner charged it to.
++ */
++static void
++pgpa_output_parameterization(pgpa_output_context *context,
++							 pgpa_plan_walker_context *walker)
++{
++	Bitmapset  *unparameterized = NULL;
++	bool		first = true;
++	int			rti = -1;
++
++	while ((rti = bms_next_member(walker->param_choice_rtis, rti)) >= 0)
++	{
++		Bitmapset  *param_relids;
++
++		if (walker->scan_by_rti[rti - 1] == NULL ||
++			walker->scan_by_rti[rti - 1]->param_inexact ||
++			context->rid_strings[rti - 1] == NULL)
++			continue;
++
++		param_relids = pgpa_walker_scan_param_relids(walker,
++													 context->rt_identifiers,
++													 rti);
++		if (param_relids == NULL)
++		{
++			unparameterized = bms_add_member(unparameterized, rti);
++			continue;
++		}
++
++		if (first)
++		{
++			if (context->buf->len > 0)
++				appendStringInfoChar(context->buf, '\n');
++			appendStringInfoString(context->buf, "PARAMETERIZED(");
++			first = false;
++		}
++		else
++		{
++			pgpa_maybe_linebreak(context->buf, context->wrap_column);
++			appendStringInfoChar(context->buf, ' ');
++		}
++
++		appendStringInfoString(context->buf, context->rid_strings[rti - 1]);
++		pgpa_maybe_linebreak(context->buf, context->wrap_column);
++		appendStringInfoChar(context->buf, ' ');
++		if (bms_membership(param_relids) == BMS_SINGLETON)
++			pgpa_output_relations(context, context->buf, param_relids);
++		else
++		{
++			appendStringInfoChar(context->buf, '(');
++			pgpa_output_relations(context, context->buf, param_relids);
++			appendStringInfoChar(context->buf, ')');
++		}
++	}
++
++	if (!first)
++	{
++		appendStringInfoChar(context->buf, ')');
++		pgpa_maybe_linebreak(context->buf, context->wrap_column);
++	}
++
++	if (unparameterized != NULL)
++	{
++		if (context->buf->len > 0)
++			appendStringInfoChar(context->buf, '\n');
++		appendStringInfoString(context->buf, "UNPARAMETERIZED(");
++		pgpa_output_relations(context, context->buf, unparameterized);
++		appendStringInfoChar(context->buf, ')');
++		pgpa_maybe_linebreak(context->buf, context->wrap_column);
++	}
++}
++
+ /*
+  * Output advice for a List of pgpa_query_feature objects.
+  *
+diff --git a/contrib/pg_plan_advice/pgpa_parser.y b/contrib/pg_plan_advice/pgpa_parser.y
+index 82c04b4b..ee33aad2 100644
+--- a/contrib/pg_plan_advice/pgpa_parser.y
++++ b/contrib/pg_plan_advice/pgpa_parser.y
+@@ -50,16 +50,16 @@
+ 	pgpa_index_target *itarget;
+ }
+ %token <str> TOK_IDENT TOK_TAG_JOIN_ORDER TOK_TAG_INDEX
+-%token <str> TOK_TAG_SIMPLE TOK_TAG_GENERIC
++%token <str> TOK_TAG_PARAMETERIZED TOK_TAG_SIMPLE TOK_TAG_GENERIC
+ %token <integer> TOK_INTEGER
+ 
+ %type <integer> opt_ri_occurrence
+ %type <item> advice_item
+ %type <list> advice_item_list generic_target_list
+ %type <list> index_target_list join_order_target_list
+-%type <list> opt_partition simple_target_list
++%type <list> opt_partition param_target_list simple_target_list
+ %type <str> identifier opt_plan_name
+-%type <target> generic_sublist join_order_sublist
++%type <target> generic_sublist join_order_sublist param_source
+ %type <target> relation_identifier
+ %type <itarget> index_name
+ 
+@@ -101,6 +101,12 @@ advice_item: TOK_TAG_JOIN_ORDER '(' join_order_target_list ')'
+ 				elog(ERROR, "tag parsing failed: %s", $1);
+ 			$$->targets = $3;
+ 		}
++	| TOK_TAG_PARAMETERIZED '(' param_target_list ')'
++		{
++			$$ = palloc0_object(pgpa_advice_item);
++			$$->tag = PGPA_TAG_PARAMETERIZED;
++			$$->targets = $3;
++		}
+ 	| TOK_TAG_SIMPLE '(' simple_target_list ')'
+ 		{
+ 			$$ = palloc0_object(pgpa_advice_item);
+@@ -114,6 +120,8 @@ advice_item: TOK_TAG_JOIN_ORDER '(' join_order_target_list ')'
+ 				$$->tag = PGPA_TAG_SEQ_SCAN;
+ 			else if (strcmp($1, "tid_scan") == 0)
+ 				$$->tag = PGPA_TAG_TID_SCAN;
++			else if (strcmp($1, "unparameterized") == 0)
++				$$->tag = PGPA_TAG_UNPARAMETERIZED;
+ 			else
+ 				elog(ERROR, "tag parsing failed: %s", $1);
+ 			$$->targets = $3;
+@@ -192,6 +200,7 @@ opt_ri_occurrence:
+ identifier: TOK_IDENT
+ 	| TOK_TAG_JOIN_ORDER
+ 	| TOK_TAG_INDEX
++	| TOK_TAG_PARAMETERIZED
+ 	| TOK_TAG_SIMPLE
+ 	| TOK_TAG_GENERIC
+ 	;
+@@ -241,6 +250,32 @@ index_target_list:
+ 		{ $$ = NIL; }
+ 	;
+ 
++/*
++ * Each target of PARAMETERIZED is followed by the relation, or the
++ * parenthesized list of relations, from which it takes its parameters.
++ */
++param_target_list:
++	  param_target_list relation_identifier param_source
++		{
++			$2->param_source = $3;
++			$$ = lappend($1, $2);
++		}
++	|
++		{ $$ = NIL; }
++	;
++
++param_source: relation_identifier
++	| '(' simple_target_list ')'
++		{
++			$$ = palloc0_object(pgpa_advice_target);
++			$$->ttype = PGPA_TARGET_ORDERED_LIST;
++			$$->children = $2;
++			if ($2 == NIL)
++				pgpa_yyerror(result, parse_error_msg_p, yyscanner,
++							 "PARAMETERIZED sources must contain at least one relation identifier");
++		}
++	;
++
+ join_order_target_list: join_order_target_list relation_identifier
+ 		{ $$ = lappend($1, $2); }
+ 	| join_order_target_list join_order_sublist
+diff --git a/contrib/pg_plan_advice/pgpa_planner.c b/contrib/pg_plan_advice/pgpa_planner.c
+index 9f924b6a..99b1f31c 100644
+--- a/contrib/pg_plan_advice/pgpa_planner.c
++++ b/contrib/pg_plan_advice/pgpa_planner.c
+@@ -143,12 +143,27 @@ static void pgpa_planner_apply_join_path_advice(JoinType jointype,
+ 												uint64 *pgs_mask_p,
+ 												char *plan_name,
+ 												pgpa_join_state *pjs);
+-static void pgpa_planner_apply_scan_advice(RelOptInfo *rel,
++static void pgpa_planner_apply_scan_advice(PlannerInfo *root,
++										   pgpa_planner_info *proot,
++										   RelOptInfo *rel,
+ 										   RangeTblEntry *rte,
+ 										   pgpa_trove_entry *scan_entries,
+ 										   Bitmapset *scan_indexes,
+ 										   pgpa_trove_entry *rel_entries,
+ 										   Bitmapset *rel_indexes);
++static void pgpa_planner_apply_param_advice(PlannerInfo *root,
++											pgpa_planner_info *proot,
++											RelOptInfo *rel,
++											pgpa_trove_entry *scan_entries,
++											Bitmapset *scan_indexes);
++static bool pgpa_planner_resolve_param_source(PlannerInfo *root,
++											  pgpa_planner_info *proot,
++											  RelOptInfo *rel,
++											  pgpa_advice_target *source,
++											  Relids *relids);
++static pgpa_identifier *pgpa_planner_level_identifier(pgpa_planner_info *proot,
++													  PlannerInfo *root,
++													  Index rti);
+ static uint64 pgpa_join_strategy_mask_from_advice_tag(pgpa_advice_tag_type tag);
+ static pgpa_jo_outcome pgpa_join_order_permits_join(int outer_count,
+ 													int inner_count,
+@@ -453,7 +468,9 @@ pgpa_build_simple_rel(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
+ 		{
+ 			uint64		original_mask = rel->pgs_mask;
+ 
+-			pgpa_planner_apply_scan_advice(rel,
++			pgpa_planner_apply_scan_advice(root,
++										   proot,
++										   rel,
+ 										   rte,
+ 										   tresult_scan.entries,
+ 										   tresult_scan.indexes,
+@@ -502,6 +519,34 @@ pgpa_set_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, Index rti,
+ 	pbs = GetRelOptInfoExtensionState(rel, planner_extension_id);
+ 	if (pbs != NULL && pbs->discard_partial_paths)
+ 		rel->partial_pathlist = NIL;
++
++	/*
++	 * If we're generating advice, remember whether the planner had a choice
++	 * of parameterization for this relation. It did if a parameterized path
++	 * was built, which leaves a ParamPathInfo in rel->ppilist even if
++	 * add_path later discarded the path itself, and some other
++	 * parameterization was also possible: either an unparameterized path,
++	 * which is always possible unless lateral references force a minimum
++	 * parameterization, or a path of another parameterization.
++	 */
++	if (rel->ppilist != NIL &&
++		(rel->lateral_relids == NULL || list_length(rel->ppilist) > 1))
++	{
++		pgpa_planner_state *pps;
++
++		pps = GetPlannerGlobalExtensionState(root->glob, planner_extension_id);
++		if (pps != NULL && pps->generate_advice_string)
++		{
++			pgpa_planner_info *proot;
++			MemoryContext oldcontext;
++
++			oldcontext = MemoryContextSwitchTo(pps->mcxt);
++			proot = pgpa_planner_get_proot(pps, root);
++			proot->param_choice_rels =
++				bms_add_member(proot->param_choice_rels, rti);
++			MemoryContextSwitchTo(oldcontext);
++		}
++	}
+ }
+ 
+ /*
+@@ -1704,7 +1749,9 @@ pgpa_semijoin_permits_join(int outer_count, int inner_count,
+  * Apply scan advice to a RelOptInfo.
+  */
+ static void
+-pgpa_planner_apply_scan_advice(RelOptInfo *rel,
++pgpa_planner_apply_scan_advice(PlannerInfo *root,
++							   pgpa_planner_info *proot,
++							   RelOptInfo *rel,
+ 							   RangeTblEntry *rte,
+ 							   pgpa_trove_entry *scan_entries,
+ 							   Bitmapset *scan_indexes,
+@@ -2020,6 +2067,203 @@ pgpa_planner_apply_scan_advice(RelOptInfo *rel,
+ 			PGS_GATHER | PGS_GATHER_MERGE | PGS_CONSIDER_NONPARTIAL;
+ 		rel->pgs_mask &= ~(all_gather_mask & ~gather_mask);
+ 	}
++
++	/* Enforce any advice about this relation's parameterization. */
++	pgpa_planner_apply_param_advice(root, proot, rel, scan_entries,
++									scan_indexes);
++}
++
++/*
++ * Apply PARAMETERIZED and UNPARAMETERIZED advice to a RelOptInfo.
++ *
++ * PARAMETERIZED(t s) means that the scan of t takes its parameters from
++ * exactly the relations named by s; UNPARAMETERIZED(t) means that it takes
++ * none. We enforce this by restricting the parameterizations of t's paths
++ * (see pgs_required_outer and pgs_forbidden_outer): the advised one is
++ * required, every other relation at this query level is forbidden, and paths
++ * outside that range are disabled when they are added to the rel. Enforcing
++ * this here, rather than when joins are planned, matters: when an
++ * unparameterized path costs the same as the advised parameterized one,
++ * add_path would otherwise discard the parameterized path before any join is
++ * considered.
++ *
++ * Relations that supply parameters are named by their topmost parents,
++ * because that is how the planner names them: a child's path is
++ * parameterized by the parents of the outer relations until it is
++ * reparameterized during plan creation. Outer joins are never named, and a
++ * parameterization that includes one is neither required nor forbidden.
++ */
++static void
++pgpa_planner_apply_param_advice(PlannerInfo *root, pgpa_planner_info *proot,
++								RelOptInfo *rel,
++								pgpa_trove_entry *scan_entries,
++								Bitmapset *scan_indexes)
++{
++	int			i = -1;
++	bool		found = false;
++	bool		conflict = false;
++	Relids		required = NULL;
++	Bitmapset  *param_indexes = NULL;
++	int			flags;
++
++	while ((i = bms_next_member(scan_indexes, i)) >= 0)
++	{
++		pgpa_trove_entry *my_entry = &scan_entries[i];
++		Relids		my_required = NULL;
++
++		if (my_entry->tag != PGPA_TAG_PARAMETERIZED &&
++			my_entry->tag != PGPA_TAG_UNPARAMETERIZED)
++			continue;
++
++		CHECK_FOR_INTERRUPTS();
++
++		/*
++		 * If the sources can't be resolved, mark the advice inapplicable, and
++		 * don't let it take part in conflict detection.
++		 */
++		if (my_entry->tag == PGPA_TAG_PARAMETERIZED &&
++			!pgpa_planner_resolve_param_source(root, proot, rel,
++											   my_entry->target->param_source,
++											   &my_required))
++		{
++			my_entry->flags |= PGPA_FB_MATCH_PARTIAL | PGPA_FB_MATCH_FULL |
++				PGPA_FB_INAPPLICABLE;
++			continue;
++		}
++
++		if (found && !bms_equal(required, my_required))
++			conflict = true;
++		found = true;
++		required = my_required;
++		param_indexes = bms_add_member(param_indexes, i);
++	}
++
++	/* Mark the advice as matched, and as conflicting if it disagrees. */
++	flags = PGPA_FB_MATCH_PARTIAL | PGPA_FB_MATCH_FULL;
++	if (conflict)
++		flags |= PGPA_FB_CONFLICTING;
++	pgpa_trove_set_flags(scan_entries, param_indexes, flags);
++
++	/* If we have a single answer, enforce it. */
++	if (found && !conflict)
++	{
++		Relids		forbidden = NULL;
++		Index		rtable_length = list_length(root->parse->rtable);
++
++		for (Index rti = 1; rti <= rtable_length; ++rti)
++		{
++			RangeTblEntry *rte = rt_fetch(rti, root->parse->rtable);
++
++			if (rte->rtekind != RTE_JOIN && !bms_is_member(rti, required))
++				forbidden = bms_add_member(forbidden, rti);
++		}
++
++		rel->pgs_required_outer = required;
++		rel->pgs_forbidden_outer = forbidden;
++
++		/* Emit debugging message, if enabled. */
++		if (pg_plan_advice_trace_mask)
++		{
++			if (root->plan_name != NULL)
++				ereport(WARNING,
++						(errmsg("parameterization for RTI %u in subplan \"%s\" restricted to %s",
++								rel->relid, root->plan_name,
++								pgpa_bms_to_cstring(required))));
++			else
++				ereport(WARNING,
++						(errmsg("parameterization for RTI %u restricted to %s",
++								rel->relid, pgpa_bms_to_cstring(required))));
++		}
++	}
++}
++
++/*
++ * Resolve the sources named by PARAMETERIZED advice to RTIs.
++ *
++ * Each source must identify exactly one relation of this query level that a
++ * path can be parameterized by: not an appendrel child, which the planner
++ * represents by its topmost parent, and not the target relation itself.
++ * Returns false if any source fails that test.
++ */
++static bool
++pgpa_planner_resolve_param_source(PlannerInfo *root, pgpa_planner_info *proot,
++								  RelOptInfo *rel, pgpa_advice_target *source,
++								  Relids *relids)
++{
++	List	   *sources;
++	Index		rtable_length = list_length(root->parse->rtable);
++
++	if (source->ttype == PGPA_TARGET_IDENTIFIER)
++		sources = list_make1(source);
++	else
++		sources = source->children;
++
++	*relids = NULL;
++	foreach_ptr(pgpa_advice_target, one_source, sources)
++	{
++		Index		match = 0;
++
++		Assert(one_source->ttype == PGPA_TARGET_IDENTIFIER);
++
++		for (Index rti = 1; rti <= rtable_length; ++rti)
++		{
++			pgpa_identifier *rid;
++
++			rid = pgpa_planner_level_identifier(proot, root, rti);
++			if (rid == NULL || !pgpa_identifier_matches_target(rid, one_source))
++				continue;
++			if (match != 0)
++				return false;	/* not unique */
++			match = rti;
++		}
++
++		if (match == 0 || match == rel->relid ||
++			bms_is_member(match, rel->top_parent_relids))
++			return false;
++
++		*relids = bms_add_member(*relids, match);
++	}
++
++	return true;
++}
++
++/*
++ * Get the relation identifier for a given RTI of this query level, if it
++ * names a relation that a path can be parameterized by. Returns NULL for
++ * joins and for appendrel children.
++ */
++static pgpa_identifier *
++pgpa_planner_level_identifier(pgpa_planner_info *proot, PlannerInfo *root,
++							  Index rti)
++{
++	RangeTblEntry *rte = rt_fetch(rti, root->parse->rtable);
++	pgpa_identifier *rid;
++
++	if (rte->rtekind == RTE_JOIN)
++		return NULL;
++	if (root->append_rel_array != NULL && root->append_rel_array[rti] != NULL)
++		return NULL;
++
++	/* Allocate or extend the array as necessary. */
++	if (proot->level_rid_array_size < rti)
++	{
++		int			new_size = pg_nextpower2_32(Max(rti, 8));
++
++		if (proot->level_rid_array_size == 0)
++			proot->level_rid_array = palloc0_array(pgpa_identifier, new_size);
++		else
++			proot->level_rid_array = repalloc0_array(proot->level_rid_array,
++													 pgpa_identifier,
++													 proot->level_rid_array_size,
++													 new_size);
++		proot->level_rid_array_size = new_size;
++	}
++
++	rid = &proot->level_rid_array[rti - 1];
++	if (rid->alias_name == NULL)
++		pgpa_compute_identifier_by_rti(root, rti, rid);
++
++	return rid;
+ }
+ 
+ /*
+diff --git a/contrib/pg_plan_advice/pgpa_planner.h b/contrib/pg_plan_advice/pgpa_planner.h
+index 366142a0..4e4d8fe5 100644
+--- a/contrib/pg_plan_advice/pgpa_planner.h
++++ b/contrib/pg_plan_advice/pgpa_planner.h
+@@ -67,6 +67,26 @@ typedef struct pgpa_planner_info
+ 	 * cases that approach was considered, so that it doesn't have to guess.
+ 	 */
+ 	List	   *sj_unique_rels;
++
++	/*
++	 * RTIs of relations for which the planner had a choice of
++	 * parameterization, that is, more than one parameterization was possible:
++	 * some ParamPathInfo was created for the rel, and either it could also be
++	 * scanned unparameterized or more than one ParamPathInfo was created.
++	 * Advice about parameterization is generated only for these relations,
++	 * much as sj_unique_rels limits SEMIJOIN_NON_UNIQUE advice to the
++	 * semijoins for which unique-ification was considered.
++	 */
++	Bitmapset  *param_choice_rels;
++
++	/*
++	 * Relation identifiers for every RTI at this query level, computed on
++	 * demand when the sources of PARAMETERIZED advice must be resolved. This
++	 * is kept separate from rid_array, which describes only the relations
++	 * that were actually planned.
++	 */
++	pgpa_identifier *level_rid_array;
++	int			level_rid_array_size;
+ } pgpa_planner_info;
+ 
+ /*
+diff --git a/contrib/pg_plan_advice/pgpa_scan.c b/contrib/pg_plan_advice/pgpa_scan.c
+index ca41a27f..239c3293 100644
+--- a/contrib/pg_plan_advice/pgpa_scan.c
++++ b/contrib/pg_plan_advice/pgpa_scan.c
+@@ -246,6 +246,8 @@ pgpa_make_scan(pgpa_plan_walker_context *walker, Plan *plan,
+ 	scan->plan = plan;
+ 	scan->strategy = strategy;
+ 	scan->relids = relids;
++	scan->param_relids = NULL;
++	scan->param_inexact = false;
+ 
+ 	/* Add it to the appropriate list. */
+ 	walker->scans[scan->strategy] = lappend(walker->scans[scan->strategy],
+diff --git a/contrib/pg_plan_advice/pgpa_scan.h b/contrib/pg_plan_advice/pgpa_scan.h
+index 49211148..1c08c970 100644
+--- a/contrib/pg_plan_advice/pgpa_scan.h
++++ b/contrib/pg_plan_advice/pgpa_scan.h
+@@ -75,6 +75,21 @@ typedef struct pgpa_scan
+ 	Plan	   *plan;
+ 	pgpa_scan_strategy strategy;
+ 	Bitmapset  *relids;
++
++	/*
++	 * RTIs of the relations that supply the nestloop parameters this scan
++	 * uses, named by their topmost appendrel parents. This is filled in at
++	 * the end of the plan tree walk, and includes relations of every query
++	 * level; see pgpa_walker_scan_param_relids for the ones that count.
++	 */
++	Bitmapset  *param_relids;
++
++	/*
++	 * True if any of those parameters is computed, as a PlaceHolderVar's
++	 * value is, so that param_relids is only approximate. We generate no
++	 * parameterization advice for such a scan.
++	 */
++	bool		param_inexact;
+ } pgpa_scan;
+ 
+ extern pgpa_scan *pgpa_build_scan(pgpa_plan_walker_context *walker, Plan *plan,
+diff --git a/contrib/pg_plan_advice/pgpa_scanner.l b/contrib/pg_plan_advice/pgpa_scanner.l
+index 15d67cd4..50790c6f 100644
+--- a/contrib/pg_plan_advice/pgpa_scanner.l
++++ b/contrib/pg_plan_advice/pgpa_scanner.l
+@@ -126,11 +126,14 @@ xcinside		[^*/]+
+ 					else if (tag == PGPA_TAG_INDEX_SCAN ||
+ 							 tag == PGPA_TAG_INDEX_ONLY_SCAN)
+ 						return TOK_TAG_INDEX;
++					else if (tag == PGPA_TAG_PARAMETERIZED)
++						return TOK_TAG_PARAMETERIZED;
+ 					else if (tag == PGPA_TAG_SEQ_SCAN ||
+ 							 tag == PGPA_TAG_TID_SCAN ||
+ 							 tag == PGPA_TAG_BITMAP_HEAP_SCAN ||
+ 							 tag == PGPA_TAG_NO_GATHER ||
+-							 tag == PGPA_TAG_DO_NOT_SCAN)
++							 tag == PGPA_TAG_DO_NOT_SCAN ||
++							 tag == PGPA_TAG_UNPARAMETERIZED)
+ 						return TOK_TAG_SIMPLE;
+ 					else
+ 						return TOK_TAG_GENERIC;
+diff --git a/contrib/pg_plan_advice/pgpa_trove.c b/contrib/pg_plan_advice/pgpa_trove.c
+index 5cf73c76..a46ea23c 100644
+--- a/contrib/pg_plan_advice/pgpa_trove.c
++++ b/contrib/pg_plan_advice/pgpa_trove.c
+@@ -161,11 +161,16 @@ pgpa_build_trove(List *advice_items)
+ 			case PGPA_TAG_DO_NOT_SCAN:
+ 			case PGPA_TAG_INDEX_ONLY_SCAN:
+ 			case PGPA_TAG_INDEX_SCAN:
++			case PGPA_TAG_PARAMETERIZED:
+ 			case PGPA_TAG_SEQ_SCAN:
+ 			case PGPA_TAG_TID_SCAN:
++			case PGPA_TAG_UNPARAMETERIZED:
+ 
+ 				/*
+-				 * Scan advice.
++				 * Scan advice. Parameterization advice belongs here too: it
++				 * is enforced on the target relation's own paths, and only
++				 * the target is entered into the hash table, not the
++				 * relations that supply its parameters.
+ 				 */
+ 				foreach_ptr(pgpa_advice_target, target, item->targets)
+ 				{
+@@ -310,6 +315,12 @@ pgpa_cstring_trove_entry(pgpa_trove_entry *entry)
+ 		pgpa_format_index_target(&buf, entry->target->itarget);
+ 	}
+ 
++	if (entry->target->param_source != NULL)
++	{
++		appendStringInfoChar(&buf, ' ');
++		pgpa_format_advice_target(&buf, entry->target->param_source);
++	}
++
+ 	if (entry->tag != PGPA_TAG_JOIN_ORDER)
+ 		appendStringInfoChar(&buf, ')');
+ 
+diff --git a/contrib/pg_plan_advice/pgpa_walker.c b/contrib/pg_plan_advice/pgpa_walker.c
+index 313aff56..0497b0a2 100644
+--- a/contrib/pg_plan_advice/pgpa_walker.c
++++ b/contrib/pg_plan_advice/pgpa_walker.c
+@@ -18,6 +18,7 @@
+ 
+ #include "access/tsmapi.h"
+ #include "miscadmin.h"
++#include "nodes/nodeFuncs.h"
+ #include "nodes/plannodes.h"
+ #include "parser/parsetree.h"
+ #include "utils/lsyscache.h"
+@@ -68,6 +69,25 @@ static void pgpa_classify_alternative_subplans(pgpa_plan_walker_context *walker,
+ 											   List **chosen_proots,
+ 											   List **discarded_proots);
+ 
++/* Context for pgpa_column_sources_walker */
++typedef struct pgpa_column_sources_context
++{
++	pgpa_plan_walker_context *walker;
++	Plan	   *plan;
++	Bitmapset  *relids;
++	bool		exact;
++} pgpa_column_sources_context;
++
++static void pgpa_record_nestloop_params(pgpa_plan_walker_context *walker,
++										NestLoop *nl);
++static bool pgpa_add_column_sources(pgpa_plan_walker_context *walker,
++									Plan *plan, List *tlist, AttrNumber attno,
++									Bitmapset **relids);
++static bool pgpa_column_sources_walker(Node *node,
++									   pgpa_column_sources_context *context);
++static void pgpa_finish_scan_params(pgpa_plan_walker_context *walker,
++									List *proots);
++
+ /*
+  * Top-level entrypoint for the plan tree walk.
+  *
+@@ -90,6 +110,25 @@ pgpa_plan_walker(pgpa_plan_walker_context *walker, PlannedStmt *pstmt,
+ 	memset(walker, 0, sizeof(pgpa_plan_walker_context));
+ 	walker->pstmt = pstmt;
+ 
++	/*
++	 * Map each RTI to its topmost appendrel parent. Parents always precede
++	 * their children in the AppendRelInfo list, so one pass suffices.
++	 */
++	walker->top_parent_rtis = palloc_array(Index, list_length(pstmt->rtable));
++	for (Index rti = 1; rti <= list_length(pstmt->rtable); ++rti)
++		walker->top_parent_rtis[rti - 1] = rti;
++	foreach_node(AppendRelInfo, appinfo, pstmt->appendRelations)
++	{
++		Index		parent = walker->top_parent_rtis[appinfo->parent_relid - 1];
++
++		walker->top_parent_rtis[appinfo->child_relid - 1] = parent;
++	}
++
++	/* We'll record the sources of each nestloop parameter as we go. */
++	walker->nparam_sources = list_length(pstmt->paramExecTypes);
++	walker->param_sources = palloc0_array(Bitmapset *,
++										  walker->nparam_sources);
++
+ 	/* Walk the main plan tree. */
+ 	pgpa_walk_recursively(walker, pstmt->planTree, false, false, NULL, NIL,
+ 						  false);
+@@ -192,6 +231,9 @@ pgpa_plan_walker(pgpa_plan_walker_context *walker, PlannedStmt *pstmt,
+ 		walker->query_features[t] = query_features;
+ 	}
+ 
++	/* Work out which relations each scan takes parameters from. */
++	pgpa_finish_scan_params(walker, proots);
++
+ 	/* Classify alternative subplans. */
+ 	pgpa_classify_alternative_subplans(walker, proots,
+ 									   &chosen_proots, &discarded_proots);
+@@ -273,6 +315,10 @@ pgpa_walk_recursively(pgpa_plan_walker_context *walker, Plan *plan,
+ 
+ 	Assert(within_join_problem || join_unroller == NULL);
+ 
++	/* Note where the parameters that this node sets come from. */
++	if (IsA(plan, NestLoop))
++		pgpa_record_nestloop_params(walker, (NestLoop *) plan);
++
+ 	/*
+ 	 * Check the future_query_features list to see whether this was previously
+ 	 * identified as a plan node that needs to be treated as a query feature.
+@@ -943,12 +989,315 @@ pgpa_walker_would_advise(pgpa_plan_walker_context *walker,
+ 											 relids);
+ 		case PGPA_TAG_NO_GATHER:
+ 			return pgpa_walker_contains_no_gather(walker, relids);
++		case PGPA_TAG_PARAMETERIZED:
++		case PGPA_TAG_UNPARAMETERIZED:
++			{
++				Index		rti = bms_singleton_member(relids);
++				Bitmapset  *advised = NULL;
++
++				if (walker->scan_by_rti[rti - 1] == NULL)
++					return false;
++
++				if (tag == PGPA_TAG_PARAMETERIZED)
++				{
++					pgpa_advice_target *source = target->param_source;
++					List	   *sources;
++
++					if (source->ttype == PGPA_TARGET_IDENTIFIER)
++						sources = list_make1(source);
++					else
++						sources = source->children;
++					foreach_ptr(pgpa_advice_target, one_source, sources)
++					{
++						Index		source_rti;
++
++						source_rti =
++							pgpa_compute_rti_from_identifier(rtable_length,
++															 rt_identifiers,
++															 &one_source->rid);
++						if (source_rti == 0)
++							return false;
++						advised = bms_add_member(advised, source_rti);
++					}
++				}
++
++				return bms_equal(advised,
++								 pgpa_walker_scan_param_relids(walker,
++															   rt_identifiers,
++															   rti));
++			}
+ 	}
+ 
+ 	/* should not get here */
+ 	return false;
+ }
+ 
++/*
++ * Get the set of relations from which the scan of a given relation takes
++ * nestloop parameters, counting only relations of the scan's own query level.
++ *
++ * Parameters can also reach a scan from an outer query level, when a NestLoop
++ * there feeds a lateral subquery; but within the subquery's own join problem
++ * such a value is as fixed as a constant, so it doesn't make the scan
++ * parameterized for purposes of advice.
++ */
++Bitmapset *
++pgpa_walker_scan_param_relids(pgpa_plan_walker_context *walker,
++							  pgpa_identifier *rt_identifiers, Index rti)
++{
++	pgpa_scan  *scan = walker->scan_by_rti[rti - 1];
++	pgpa_identifier *rid = &rt_identifiers[rti - 1];
++	Bitmapset  *result = NULL;
++	int			source = -1;
++
++	if (scan == NULL)
++		return NULL;
++
++	while ((source = bms_next_member(scan->param_relids, source)) >= 0)
++	{
++		pgpa_identifier *source_rid = &rt_identifiers[source - 1];
++
++		if (source_rid->alias_name != NULL &&
++			strings_equal_or_both_null(source_rid->plan_name,
++									   rid->plan_name))
++			result = bms_add_member(result, source);
++	}
++
++	return result;
++}
++
++/*
++ * Record the relations that supply the parameters a NestLoop sets.
++ *
++ * After setrefs, each NestLoopParam's value is an OUTER_VAR reference to the
++ * outer plan's targetlist, so we follow it down to the scan that produces it,
++ * much as ruleutils.c does to print it.
++ */
++static void
++pgpa_record_nestloop_params(pgpa_plan_walker_context *walker, NestLoop *nl)
++{
++	Plan	   *outer_plan = outerPlan(&nl->join.plan);
++
++	foreach_node(NestLoopParam, nlp, nl->nestParams)
++	{
++		Bitmapset  *relids = NULL;
++
++		Assert(IsA(nlp->paramval, Var) && nlp->paramval->varno == OUTER_VAR);
++		Assert(nlp->paramno >= 0 && nlp->paramno < walker->nparam_sources);
++
++		if (!pgpa_add_column_sources(walker, outer_plan,
++									 outer_plan->targetlist,
++									 nlp->paramval->varattno, &relids))
++			walker->inexact_params = bms_add_member(walker->inexact_params,
++													nlp->paramno);
++		walker->param_sources[nlp->paramno] = relids;
++	}
++}
++
++/*
++ * Add to *relids the RTIs of the relations that supply column 'attno' of the
++ * targetlist 'tlist', which belongs to 'plan' (it is either the plan's own
++ * targetlist or a scan targetlist of the plan).
++ *
++ * The search does not cross into a subquery: a subquery, even one whose
++ * SubqueryScan was elided, is the relation that supplies its own columns.
++ *
++ * Returns true if the column is simply a column of the relations found. It
++ * returns false if the column is computed somewhere along the way, as the
++ * value of a PlaceHolderVar is; the relations the planner charges such a
++ * value to are those it may be evaluated at, which the final plan doesn't
++ * record, and which can include relations no column of the expression comes
++ * from. In that case *relids is still updated, on a best-effort basis, with
++ * the relations whose columns the expression uses.
++ */
++static bool
++pgpa_add_column_sources(pgpa_plan_walker_context *walker, Plan *plan,
++						List *tlist, AttrNumber attno, Bitmapset **relids)
++{
++	PlannedStmt *pstmt = walker->pstmt;
++	TargetEntry *tle;
++	pgpa_column_sources_context context;
++
++	check_stack_depth();
++
++	/*
++	 * If an elided node stood above this one at our query level, it may tell
++	 * us that this is where a subquery begins. Elided Append and MergeAppend
++	 * nodes over partitions don't, since their children belong to our query
++	 * level, but those over subqueries do.
++	 */
++	if (tlist == plan->targetlist)
++	{
++		for (int n = list_length(pstmt->elidedNodes) - 1; n >= 0; --n)
++		{
++			ElidedNode *elided_node = list_nth(pstmt->elidedNodes, n);
++			Bitmapset  *elided_relids;
++			int			rti;
++
++			if (elided_node->plan_node_id != plan->plan_node_id)
++				continue;
++
++			elided_relids = pgpa_filter_out_join_relids(elided_node->relids,
++														pstmt->rtable);
++			rti = bms_next_member(elided_relids, -1);
++			if (rti < 0)
++				continue;
++
++			if (elided_node->elided_type == T_SubqueryScan ||
++				rt_fetch(rti, pstmt->rtable)->rtekind != RTE_RELATION)
++			{
++				while (rti >= 0)
++				{
++					*relids = bms_add_member(*relids,
++											 walker->top_parent_rtis[rti - 1]);
++					rti = bms_next_member(elided_relids, rti);
++				}
++				return true;
++			}
++		}
++	}
++
++	tle = get_tle_by_resno(tlist, attno);
++	if (tle == NULL)
++		elog(ERROR, "could not find column %d in targetlist", attno);
++
++	context.walker = walker;
++	context.plan = plan;
++	context.relids = *relids;
++	context.exact = IsA(tle->expr, Var);
++	(void) pgpa_column_sources_walker((Node *) tle->expr, &context);
++	*relids = context.relids;
++	return context.exact;
++}
++
++/*
++ * Expression walker for pgpa_add_column_sources.
++ */
++static bool
++pgpa_column_sources_walker(Node *node, pgpa_column_sources_context *context)
++{
++	if (node == NULL)
++		return false;
++
++	if (IsA(node, Var))
++	{
++		Var		   *var = (Var *) node;
++		Plan	   *plan = context->plan;
++		Plan	   *child = NULL;
++
++		switch (var->varno)
++		{
++			case OUTER_VAR:
++
++				/*
++				 * Append and MergeAppend nodes keep their children elsewhere,
++				 * but every child produces the same columns, and we want only
++				 * topmost parents anyway, so the first child will do.
++				 */
++				if (IsA(plan, Append))
++				{
++					List	   *appendplans = ((Append *) plan)->appendplans;
++
++					child = appendplans == NIL ? NULL : linitial(appendplans);
++				}
++				else if (IsA(plan, MergeAppend))
++				{
++					List	   *mergeplans = ((MergeAppend *) plan)->mergeplans;
++
++					child = mergeplans == NIL ? NULL : linitial(mergeplans);
++				}
++				else
++					child = outerPlan(plan);
++				break;
++			case INNER_VAR:
++				child = innerPlan(plan);
++				break;
++			case INDEX_VAR:
++				if (IsA(plan, IndexOnlyScan))
++					context->relids =
++						bms_add_member(context->relids,
++									   context->walker->top_parent_rtis[((Scan *) plan)->scanrelid - 1]);
++				else if (IsA(plan, ForeignScan))
++					context->exact &=
++						pgpa_add_column_sources(context->walker, plan,
++												((ForeignScan *) plan)->fdw_scan_tlist,
++												var->varattno, &context->relids);
++				else if (IsA(plan, CustomScan))
++					context->exact &=
++						pgpa_add_column_sources(context->walker, plan,
++												((CustomScan *) plan)->custom_scan_tlist,
++												var->varattno, &context->relids);
++				return false;
++			case ROWID_VAR:
++				return false;
++			default:
++				Assert(!IS_SPECIAL_VARNO(var->varno));
++				context->relids =
++					bms_add_member(context->relids,
++								   context->walker->top_parent_rtis[var->varno - 1]);
++				return false;
++		}
++
++		if (child != NULL)
++			context->exact &=
++				pgpa_add_column_sources(context->walker, child,
++										child->targetlist, var->varattno,
++										&context->relids);
++		return false;
++	}
++
++	return expression_tree_walker(node, pgpa_column_sources_walker, context);
++}
++
++/*
++ * After the plan tree walk, work out which relations each scan takes
++ * parameters from, index scans of single relations by RTI, and translate
++ * the planner's record of which relations had a choice of parameterization
++ * into RTIs of the final range table.
++ */
++static void
++pgpa_finish_scan_params(pgpa_plan_walker_context *walker, List *proots)
++{
++	walker->scan_by_rti = palloc0_array(pgpa_scan *,
++										list_length(walker->pstmt->rtable));
++
++	for (int s = 0; s < NUM_PGPA_SCAN_STRATEGY; s++)
++	{
++		foreach_ptr(pgpa_scan, scan, walker->scans[s])
++		{
++			int			paramid = -1;
++			int			rti;
++
++			while ((paramid = bms_next_member(scan->plan->extParam,
++											  paramid)) >= 0)
++			{
++				if (paramid < walker->nparam_sources)
++					scan->param_relids =
++						bms_add_members(scan->param_relids,
++										walker->param_sources[paramid]);
++				if (bms_is_member(paramid, walker->inexact_params))
++					scan->param_inexact = true;
++			}
++
++			if (bms_get_singleton_member(scan->relids, &rti) &&
++				walker->scan_by_rti[rti - 1] == NULL)
++				walker->scan_by_rti[rti - 1] = scan;
++		}
++	}
++
++	foreach_ptr(pgpa_planner_info, proot, proots)
++	{
++		int			rti = -1;
++
++		if (!proot->has_rtoffset)
++			continue;
++		while ((rti = bms_next_member(proot->param_choice_rels, rti)) >= 0)
++			walker->param_choice_rtis =
++				bms_add_member(walker->param_choice_rtis,
++							   rti + proot->rtoffset);
++	}
++}
++
+ /*
+  * Does the index target match the Plan?
+  *
+diff --git a/contrib/pg_plan_advice/pgpa_walker.h b/contrib/pg_plan_advice/pgpa_walker.h
+index 21ebf57c..7b70629b 100644
+--- a/contrib/pg_plan_advice/pgpa_walker.h
++++ b/contrib/pg_plan_advice/pgpa_walker.h
+@@ -90,6 +90,27 @@ typedef struct pgpa_query_feature
+  * objects for Plan nodes that the plan tree walk has not yet encountered;
+  * when encountered, they will be moved to the list of active query features
+  * that is propagated via the call stack.
++ *
++ * top_parent_rtis maps each RTI (offset by one) to its topmost appendrel
++ * parent, or to itself if it isn't an appendrel child. Unlike the mapping
++ * used to build relation identifiers, this one follows every appendrel,
++ * because that is how the planner names the relations a path is
++ * parameterized by.
++ *
++ * param_sources is an array indexed by PARAM_EXEC parameter number. For each
++ * parameter that a NestLoop sets, it holds the RTIs of the relations that
++ * supply its value, mapped through top_parent_rtis; it is NULL for other
++ * parameters.
++ *
++ * inexact_params is the set of those parameters whose value is computed
++ * rather than read from a column, so that its sources are only approximate;
++ * see pgpa_add_column_sources.
++ *
++ * param_choice_rtis is the set of RTIs for which the planner had a choice of
++ * parameterization; see pgpa_planner_info's param_choice_rels.
++ *
++ * scan_by_rti maps each RTI (offset by one) to the scan of that relation
++ * alone, if there is one.
+  */
+ typedef struct pgpa_plan_walker_context
+ {
+@@ -101,6 +122,12 @@ typedef struct pgpa_plan_walker_context
+ 	List	   *query_features[NUM_PGPA_QF_TYPES];
+ 	List	   *future_query_features;
+ 	List	   *do_not_scan_identifiers;
++	Index	   *top_parent_rtis;
++	Bitmapset **param_sources;
++	int			nparam_sources;
++	Bitmapset  *inexact_params;
++	Bitmapset  *param_choice_rtis;
++	pgpa_scan **scan_by_rti;
+ } pgpa_plan_walker_context;
+ 
+ extern void pgpa_plan_walker(pgpa_plan_walker_context *walker,
+@@ -117,6 +144,10 @@ extern Index pgpa_scanrelid(Plan *plan);
+ extern bool pgpa_is_scan_level_materialize(Plan *plan);
+ extern Bitmapset *pgpa_filter_out_join_relids(Bitmapset *relids, List *rtable);
+ 
++extern Bitmapset *pgpa_walker_scan_param_relids(pgpa_plan_walker_context *walker,
++												pgpa_identifier *rt_identifiers,
++												Index rti);
++
+ extern bool pgpa_walker_would_advise(pgpa_plan_walker_context *walker,
+ 									 pgpa_identifier *rt_identifiers,
+ 									 pgpa_advice_tag_type tag,
+diff --git a/contrib/pg_plan_advice/sql/parameterized.sql b/contrib/pg_plan_advice/sql/parameterized.sql
+new file mode 100644
+index 00000000..8f5cc039
+--- /dev/null
++++ b/contrib/pg_plan_advice/sql/parameterized.sql
+@@ -0,0 +1,172 @@
++LOAD 'pg_plan_advice';
++SET max_parallel_workers_per_gather = 0;
++
++-- A small table of documents and a large table of their nodes, keyed by
++-- (doc, f1, f2), with a second index on (doc, f1).
++CREATE TABLE pz_doc (doc int PRIMARY KEY, owner int NOT NULL)
++	WITH (autovacuum_enabled = false);
++INSERT INTO pz_doc SELECT d, d % 2 FROM generate_series(1, 4) d;
++CREATE TABLE pz_node (doc int NOT NULL, f1 int NOT NULL, f2 int NOT NULL,
++	v text NOT NULL, PRIMARY KEY (doc, f1, f2))
++	WITH (autovacuum_enabled = false);
++CREATE INDEX pz_node_doc_f1 ON pz_node (doc, f1);
++INSERT INTO pz_node SELECT d, f, g, 'x'
++	FROM generate_series(1, 4) d, generate_series(1, 5) f,
++		 generate_series(1, 3000) g;
++VACUUM ANALYZE pz_doc, pz_node;
++
++-- With accurate statistics, the key of pz_node is probed once per document:
++-- its scan takes pz_doc's key as a parameter, and the generated advice says
++-- so. pz_doc could have been parameterized by pz_node, and wasn't, which the
++-- advice also says.
++EXPLAIN (COSTS OFF, PLAN_ADVICE)
++	SELECT n.v FROM pz_doc d JOIN pz_node n ON n.doc = d.doc AND n.f1 = 1
++	AND n.f2 = 2 WHERE d.owner = 1;
++
++-- Now make both tables look empty, as they do after a VACUUM that ran while
++-- the transaction filling them was still open: pages are counted, rows are
++-- not. Every index path now costs the same, and the planner's own choice
++-- leaves pz_doc's key out of the index condition.
++SELECT pg_restore_relation_stats('schemaname', 'public', 'relname', 'pz_doc',
++	'relpages', 1, 'reltuples', 0::real);
++SELECT pg_restore_relation_stats('schemaname', 'public', 'relname', 'pz_node',
++	'relpages', 100, 'reltuples', 0::real);
++SELECT pg_clear_attribute_stats('public', 'pz_doc', a, false)
++	FROM unnest(ARRAY['doc', 'owner']) a;
++SELECT pg_clear_attribute_stats('public', 'pz_node', a, false)
++	FROM unnest(ARRAY['doc', 'f1', 'f2', 'v']) a;
++EXPLAIN (COSTS OFF, PLAN_ADVICE)
++	SELECT n.v FROM pz_doc d JOIN pz_node n ON n.doc = d.doc AND n.f1 = 1
++	AND n.f2 = 2 WHERE d.owner = 1;
++
++-- Advice that pins the join order, the join method and the index, but not
++-- the parameterization, doesn't bring the probe back, because the
++-- parameterized path costs no less than the unparameterized one and is
++-- discarded before joins are planned. The advice generated from both plans
++-- used to be the same, so it could not tell them apart.
++BEGIN;
++SET LOCAL pg_plan_advice.advice = 'JOIN_ORDER(d n) NESTED_LOOP_PLAIN(n)
++	SEQ_SCAN(d) INDEX_SCAN(n public.pz_node_pkey)';
++EXPLAIN (COSTS OFF)
++	SELECT n.v FROM pz_doc d JOIN pz_node n ON n.doc = d.doc AND n.f1 = 1
++	AND n.f2 = 2 WHERE d.owner = 1;
++
++-- The advice generated from the first plan reproduces it.
++SET LOCAL pg_plan_advice.advice = 'JOIN_ORDER(d n) NESTED_LOOP_PLAIN(n)
++	SEQ_SCAN(d) INDEX_SCAN(n public.pz_node_pkey) PARAMETERIZED(n d)
++	UNPARAMETERIZED(d)';
++EXPLAIN (COSTS OFF, PLAN_ADVICE)
++	SELECT n.v FROM pz_doc d JOIN pz_node n ON n.doc = d.doc AND n.f1 = 1
++	AND n.f2 = 2 WHERE d.owner = 1;
++
++-- PARAMETERIZED alone also implies the join order and a nested loop above
++-- the parameterized scan, though not the index.
++SET LOCAL pg_plan_advice.advice = 'PARAMETERIZED(n d)';
++EXPLAIN (COSTS OFF)
++	SELECT n.v FROM pz_doc d JOIN pz_node n ON n.doc = d.doc AND n.f1 = 1
++	AND n.f2 = 2 WHERE d.owner = 1;
++
++-- UNPARAMETERIZED rules out parameterized scans of its target, whichever
++-- side of the join it is on.
++SET LOCAL pg_plan_advice.advice = 'UNPARAMETERIZED(d n)';
++EXPLAIN (COSTS OFF)
++	SELECT n.v FROM pz_doc d JOIN pz_node n ON n.doc = d.doc AND n.f1 = 1
++	AND n.f2 = 2 WHERE d.owner = 1;
++
++-- Advice that can't be applied: a source that isn't in the query, a source
++-- that is the target itself, and two items that disagree.
++SET LOCAL pg_plan_advice.advice = 'PARAMETERIZED(n nosuch)';
++EXPLAIN (COSTS OFF)
++	SELECT n.v FROM pz_doc d JOIN pz_node n ON n.doc = d.doc AND n.f1 = 1
++	AND n.f2 = 2 WHERE d.owner = 1;
++SET LOCAL pg_plan_advice.advice = 'PARAMETERIZED(n n)';
++EXPLAIN (COSTS OFF)
++	SELECT n.v FROM pz_doc d JOIN pz_node n ON n.doc = d.doc AND n.f1 = 1
++	AND n.f2 = 2 WHERE d.owner = 1;
++SET LOCAL pg_plan_advice.advice = 'PARAMETERIZED(n d) UNPARAMETERIZED(n)';
++EXPLAIN (COSTS OFF)
++	SELECT n.v FROM pz_doc d JOIN pz_node n ON n.doc = d.doc AND n.f1 = 1
++	AND n.f2 = 2 WHERE d.owner = 1;
++COMMIT;
++
++-- A star join: the fact table can take its parameters from either dimension
++-- or from both, and each is a different plan.
++CREATE TABLE pz_dim1 (id int PRIMARY KEY, a int) WITH (autovacuum_enabled = false);
++CREATE TABLE pz_dim2 (id int PRIMARY KEY, b int) WITH (autovacuum_enabled = false);
++CREATE TABLE pz_fact (d1 int, d2 int, x int) WITH (autovacuum_enabled = false);
++CREATE INDEX pz_fact_d1_d2 ON pz_fact (d1, d2);
++INSERT INTO pz_dim1 SELECT g, g % 10 FROM generate_series(1, 100) g;
++INSERT INTO pz_dim2 SELECT g, g % 10 FROM generate_series(1, 100) g;
++INSERT INTO pz_fact SELECT g % 100 + 1, g % 97 + 1, g
++	FROM generate_series(1, 100000) g;
++VACUUM ANALYZE pz_dim1, pz_dim2, pz_fact;
++EXPLAIN (COSTS OFF, PLAN_ADVICE)
++	SELECT * FROM pz_dim1 d1, pz_dim2 d2, pz_fact f
++	WHERE f.d1 = d1.id AND f.d2 = d2.id AND d1.a = 1 AND d2.b = 1;
++BEGIN;
++SET LOCAL pg_plan_advice.advice = 'JOIN_ORDER(d1 d2 f) PARAMETERIZED(f d1)';
++EXPLAIN (COSTS OFF, PLAN_ADVICE)
++	SELECT * FROM pz_dim1 d1, pz_dim2 d2, pz_fact f
++	WHERE f.d1 = d1.id AND f.d2 = d2.id AND d1.a = 1 AND d2.b = 1;
++SET LOCAL pg_plan_advice.advice = 'JOIN_ORDER(d1 d2 f) PARAMETERIZED(f (d1 d2))';
++EXPLAIN (COSTS OFF, PLAN_ADVICE)
++	SELECT * FROM pz_dim1 d1, pz_dim2 d2, pz_fact f
++	WHERE f.d1 = d1.id AND f.d2 = d2.id AND d1.a = 1 AND d2.b = 1;
++COMMIT;
++
++-- A parameter that an outer join can null makes the outer join part of the
++-- parameterization; advice never names outer joins, so this still works.
++EXPLAIN (COSTS OFF, PLAN_ADVICE)
++	SELECT * FROM pz_dim1 d1 LEFT JOIN pz_dim2 d2 ON d2.id = d1.a
++	LEFT JOIN pz_fact f ON f.d1 = d2.id AND f.d2 = d1.id
++	WHERE d1.id = 5;
++BEGIN;
++SET LOCAL pg_plan_advice.advice = 'JOIN_ORDER(d2 d1 f) MERGE_JOIN_PLAIN(d1)
++	NESTED_LOOP_PLAIN(f) SEQ_SCAN(d1) PARAMETERIZED(f d2) UNPARAMETERIZED(d2)
++	INDEX_SCAN(d2 public.pz_dim2_pkey f public.pz_fact_d1_d2)';
++EXPLAIN (COSTS OFF)
++	SELECT * FROM pz_dim1 d1 LEFT JOIN pz_dim2 d2 ON d2.id = d1.a
++	LEFT JOIN pz_fact f ON f.d1 = d2.id AND f.d2 = d1.id
++	WHERE d1.id = 5;
++SET LOCAL pg_plan_advice.advice = 'UNPARAMETERIZED(f)';
++EXPLAIN (COSTS OFF, PLAN_ADVICE)
++	SELECT * FROM pz_dim1 d1 LEFT JOIN pz_dim2 d2 ON d2.id = d1.a
++	LEFT JOIN pz_fact f ON f.d1 = d2.id AND f.d2 = d1.id
++	WHERE d1.id = 5;
++COMMIT;
++
++-- A partitioned table on the inner side: each partition's scan takes its
++-- parameters from the outer relation, and the outer relation is named the
++-- way the planner names it, by its topmost parent.
++CREATE TABLE pz_part (id int, v int) PARTITION BY RANGE (id);
++CREATE TABLE pz_part_1 PARTITION OF pz_part FOR VALUES FROM (0) TO (50000)
++	WITH (autovacuum_enabled = false);
++CREATE TABLE pz_part_2 PARTITION OF pz_part FOR VALUES FROM (50000) TO (100001)
++	WITH (autovacuum_enabled = false);
++CREATE INDEX ON pz_part (id);
++INSERT INTO pz_part SELECT g, g FROM generate_series(1, 100000) g;
++VACUUM ANALYZE pz_part;
++BEGIN;
++SET LOCAL pg_plan_advice.advice = 'JOIN_ORDER(d1 p) NESTED_LOOP_PLAIN(p)';
++EXPLAIN (COSTS OFF, PLAN_ADVICE)
++	SELECT * FROM pz_dim1 d1 JOIN pz_part p ON p.id = d1.id WHERE d1.id < 3;
++SET LOCAL pg_plan_advice.advice = 'JOIN_ORDER(d1 p) NESTED_LOOP_PLAIN(p)
++	UNPARAMETERIZED(p/public.pz_part_2)';
++EXPLAIN (COSTS OFF)
++	SELECT * FROM pz_dim1 d1 JOIN pz_part p ON p.id = d1.id WHERE d1.id < 3;
++COMMIT;
++
++-- A lateral function's scan must take parameters from the relation it
++-- refers to; that is not a choice, so no advice is generated for it.
++EXPLAIN (COSTS OFF, PLAN_ADVICE)
++	SELECT * FROM pz_dim1 d1, LATERAL generate_series(1, d1.a) g
++	WHERE d1.id < 3;
++
++-- Inside a lateral subquery that is not flattened, values from the outer
++-- query are constants of the subquery's own join problem, so the scan in the
++-- subquery is not parameterized at its level; the subquery itself is, but
++-- only by its lateral reference, which is not a choice.
++EXPLAIN (COSTS OFF, PLAN_ADVICE)
++	SELECT * FROM pz_dim1 d1, LATERAL
++	(SELECT * FROM pz_dim2 d2 WHERE d2.id = d1.a LIMIT 1) s
++	WHERE d1.id < 3;
+diff --git a/contrib/pg_plan_advice/sql/syntax.sql b/contrib/pg_plan_advice/sql/syntax.sql
+index 58685b93..a697053d 100644
+--- a/contrib/pg_plan_advice/sql/syntax.sql
++++ b/contrib/pg_plan_advice/sql/syntax.sql
+@@ -98,3 +98,20 @@ SET pg_plan_advice.advice = 'SEQ_SCAN(t/public.hash_join)';
+ SET pg_plan_advice.advice = 'SEQ_SCAN(t/hash_join.foo)';
+ SET pg_plan_advice.advice = 'SEQ_SCAN(t@hash_join)';
+ SET pg_plan_advice.advice = 'SEQ_SCAN(t@seq_scan)';
++
++-- PARAMETERIZED pairs each target with the relation, or the parenthesized
++-- list of relations, from which it takes its parameters; UNPARAMETERIZED
++-- takes plain targets.
++SET pg_plan_advice.advice = 'PARAMETERIZED(a b c (d e#2@f))';
++EXPLAIN (COSTS OFF) SELECT 1;
++SET pg_plan_advice.advice = 'UNPARAMETERIZED(a b@c)';
++EXPLAIN (COSTS OFF) SELECT 1;
++SET pg_plan_advice.advice = 'PARAMETERIZED()';
++EXPLAIN (COSTS OFF) SELECT 1;
++SET pg_plan_advice.advice = 'PARAMETERIZED(a)';
++SET pg_plan_advice.advice = 'PARAMETERIZED(a ())';
++SET pg_plan_advice.advice = 'PARAMETERIZED(a ((b)))';
++SET pg_plan_advice.advice = 'PARAMETERIZED((a) b)';
++SET pg_plan_advice.advice = 'UNPARAMETERIZED((a))';
++SET pg_plan_advice.advice = 'SEQ_SCAN(parameterized unparameterized)';
++EXPLAIN (COSTS OFF) SELECT 1;
+diff --git a/doc/src/sgml/pgplanadvice.sgml b/doc/src/sgml/pgplanadvice.sgml
+index 34c3c431..afd39872 100644
+--- a/doc/src/sgml/pgplanadvice.sgml
++++ b/doc/src/sgml/pgplanadvice.sgml
+@@ -60,6 +60,7 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    JOIN_ORDER(f d)
+    HASH_JOIN(d)
+    SEQ_SCAN(f d)
++   UNPARAMETERIZED(f d)
+    NO_GATHER(f d)
+ </programlisting>
+ 
+@@ -73,6 +74,9 @@ EXPLAIN (COSTS OFF, PLAN_ADVICE)
+    <literal>d</literal> should appear on the inner side of a hash join.
+    <literal>SEQ_SCAN(f d)</literal> means that both <literal>f</literal>
+    and <literal>d</literal> should be accessed via a sequential scan.
++   <literal>UNPARAMETERIZED(f d)</literal> means that neither scan should
++   take parameters from the other relation, as it would if it were probed
++   once for each row of the other.
+    <literal>NO_GATHER(f d)</literal> means that neither <literal>f</literal>
+    nor <literal>d</literal> should appear beneath a <literal>Gather</literal>
+    or <literal>Gather Merge</literal> node. For more details on the plan
+@@ -432,6 +436,86 @@ join_method_name(<replaceable>join_method_item</replaceable> [ ... ])
+ 
+   </sect3>
+ 
++  <sect3 id="pgplanadvice-parameterization">
++  <title>Parameterization Advice</title>
++   <synopsis>
++PARAMETERIZED(<replaceable>advice_target</replaceable> <replaceable>parameter_source</replaceable> [ ... ])
++UNPARAMETERIZED(<replaceable>advice_target</replaceable> [ ... ])
++
++<phrase>where <replaceable>parameter_source</replaceable> is:</phrase>
++
++{ <replaceable>advice_target</replaceable> |
++( <replaceable>advice_target</replaceable> [ ... ] ) }</synopsis>
++
++   <para>
++    When a relation is scanned on the inner side of a nested loop, the planner
++    can <firstterm>parameterize</firstterm> the scan by relations on the outer
++    side, so that join clauses become conditions of the scan itself, such as
++    index conditions, evaluated once for each outer row. Join order, join
++    method and scan advice do not determine whether this happens: the same
++    nested loop and index can also be used with the join clause applied as a
++    join filter instead.
++   </para>
++
++   <para>
++    <literal>PARAMETERIZED(n d)</literal> specifies that the scan of
++    <literal>n</literal> should take its parameters from exactly
++    <literal>d</literal>; <literal>PARAMETERIZED(n (d e))</literal> specifies
++    that it should take them from exactly <literal>d</literal> and
++    <literal>e</literal> together. <literal>UNPARAMETERIZED(n)</literal>
++    specifies that it should take none. For example:
++   </para>
++
++<programlisting>
++SET pg_plan_advice.advice = 'JOIN_ORDER(d n) NESTED_LOOP_PLAIN(n)
++    INDEX_SCAN(n node_pkey) PARAMETERIZED(n d)';
++EXPLAIN (COSTS OFF)
++    SELECT n.v FROM doc d JOIN node n ON n.doc = d.doc AND n.f1 = 1
++    WHERE d.owner = 1;
++                    QUERY PLAN
++--------------------------------------------------
++ Nested Loop
++   ->  Seq Scan on doc d
++         Filter: (owner = 1)
++   ->  Index Scan using node_pkey on node n
++         Index Cond: ((doc = d.doc) AND (f1 = 1))
++ Supplied Plan Advice:
++   INDEX_SCAN(n node_pkey) /* matched */
++   PARAMETERIZED(n d) /* matched */
++   JOIN_ORDER(d n) /* matched */
++   NESTED_LOOP_PLAIN(n) /* matched */
++</programlisting>
++
++   <para>
++    Without <literal>PARAMETERIZED(n d)</literal>, the same join order, join
++    method and index could instead produce
++    <literal>Join Filter: (d.doc = n.doc)</literal> with only
++    <literal>(f1 = 1)</literal> as the index condition, and the planner may
++    choose that plan whenever the statistics make the two look equally
++    cheap, for instance when a table's statistics say it is empty.
++   </para>
++
++   <para>
++    Relations that supply parameters are named by their topmost parent: a
++    partition's scan parameterized by a partitioned table is advised as
++    <literal>PARAMETERIZED(n/public.n_p1 d)</literal>, even when, in a
++    partitionwise join, the value comes from one of <literal>d</literal>'s
++    partitions. A relation that a lateral reference requires is part of every
++    parameterization of the scan, so it is neither required nor ruled out by
++    this advice. As with join method advice, parameterization advice implies
++    a join order: the relations named as sources must be joined before the
++    target.
++   </para>
++
++   <para>
++    Generated advice includes this advice for each relation scanned by
++    itself for which the planner had a choice of parameterization, except
++    a scan that takes a computed value, such as the output of a subquery
++    expression, as a parameter.
++   </para>
++
++  </sect3>
++
+   <sect3 id="pgplanadvice-partitionwise">
+   <title>Partitionwise Advice</title>
+    <synopsis>
+diff --git a/src/tools/pgindent/typedefs.list b/src/tools/pgindent/typedefs.list
+index f10eb469..04d9c51f 100644
+--- a/src/tools/pgindent/typedefs.list
++++ b/src/tools/pgindent/typedefs.list
+@@ -4084,6 +4084,7 @@ pgpa_advice_item
+ pgpa_advice_tag_type
+ pgpa_advice_target
+ pgpa_baserel_state
++pgpa_column_sources_context
+ pgpa_identifier
+ pgpa_index_target
+ pgpa_itm_type
+-- 
+2.53.0
+

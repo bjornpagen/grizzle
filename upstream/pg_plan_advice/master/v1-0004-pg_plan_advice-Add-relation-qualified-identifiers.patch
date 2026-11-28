@@ -1,0 +1,821 @@
+From 1f97a523ba379d2c895d631f95358aa8639f9d35 Mon Sep 17 00:00:00 2001
+From: Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 21:20:02 -0600
+Subject: [PATCH v1 4/4] pg_plan_advice: Add relation-qualified identifiers.
+
+Relation identifiers are unique within a query, but advice is not applied
+to one query: pg_plan_advice.advice is in force for every query planned
+in its scope, whether set for a session, a role, a transaction or a
+function, and that includes queries the user never wrote.  The queries
+ri_triggers.c runs to check foreign keys alias every table "x", and
+ORM-generated SQL repeats aliases across statements the same way.  So an
+item meant for one query's relation lands on another query's relation of
+the same alias, reporting "matched, inapplicable, failed" there, and two
+items meant for two such relations conflict in both queries, so neither
+is enforced.  Per-table advice could not reach the foreign-key checks at
+all.
+
+Let an identifier name the relation its alias must refer to:
+
+    alias#occurrence:schema.relation/partition_schema.partition@plan
+
+A qualified identifier matches what the unqualified one would, provided
+the alias refers to that relation (for a partition, the partitioned
+table, the partition itself still being named after the slash), and
+nothing otherwise.  The relation must be schema-qualified, as a partition
+must.  The qualifier only narrows a match, so identifiers stay unique,
+and generated advice, which identifies relations within the query it
+came from, never includes it.  With
+
+    INDEX_SCAN(x:public.ref public.ref_pkey)
+    INDEX_SCAN(x:public.tgt public.tgt_pkey)
+
+in force, deleting a key from tgt checks both tables with their keys;
+measured on a referencing table of 60,000 rows that statistics say is
+empty, the "is the deleted key still referenced?" check reads 2 buffers
+instead of 12,425.
+
+The partition component could not simply be generalized to name the
+relation an RTE scans: under traditional inheritance the parent's own
+rows are scanned by a child RTE with the parent's alias and relation,
+already identified as parent/schema.parent, which would then match two
+RTEs.
+
+The three places that compared identifiers field by field now share one
+function, pgpa_identifier_matches().
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ contrib/pg_plan_advice/Makefile               |   2 +-
+ contrib/pg_plan_advice/README                 |  23 ++
+ contrib/pg_plan_advice/expected/qualified.out | 199 ++++++++++++++++++
+ contrib/pg_plan_advice/expected/syntax.out    |  31 +++
+ contrib/pg_plan_advice/meson.build            |   1 +
+ contrib/pg_plan_advice/pgpa_ast.c             |  25 +--
+ contrib/pg_plan_advice/pgpa_identifier.c      |  82 +++++++-
+ contrib/pg_plan_advice/pgpa_identifier.h      |  15 ++
+ contrib/pg_plan_advice/pgpa_parser.y          |  29 ++-
+ contrib/pg_plan_advice/pgpa_walker.c          |   9 +-
+ contrib/pg_plan_advice/sql/qualified.sql      | 107 ++++++++++
+ contrib/pg_plan_advice/sql/syntax.sql         |  10 +
+ doc/src/sgml/pgplanadvice.sgml                |  24 +++
+ 13 files changed, 509 insertions(+), 48 deletions(-)
+ create mode 100644 contrib/pg_plan_advice/expected/qualified.out
+ create mode 100644 contrib/pg_plan_advice/sql/qualified.sql
+
+diff --git a/contrib/pg_plan_advice/Makefile b/contrib/pg_plan_advice/Makefile
+index 6e0dd5ff..5f91c8d9 100644
+--- a/contrib/pg_plan_advice/Makefile
++++ b/contrib/pg_plan_advice/Makefile
+@@ -20,7 +20,7 @@ HEADERS_pg_plan_advice = pg_plan_advice.h
+ PGFILEDESC = "pg_plan_advice - help the planner get the right plan"
+ 
+ REGRESS = alternatives cached_plans gather join_order join_strategy parameterized \
+-	partitionwise prepared scan semijoin syntax
++	partitionwise prepared qualified scan semijoin syntax
+ 
+ TAP_TESTS = 1
+ 
+diff --git a/contrib/pg_plan_advice/README b/contrib/pg_plan_advice/README
+index f129874d..6f30c706 100644
+--- a/contrib/pg_plan_advice/README
++++ b/contrib/pg_plan_advice/README
+@@ -76,6 +76,29 @@ occurrence number. For children of partitioned tables, both the partition
+ schema and partition name must be included; in other cases, both are
+ omitted. The plan_name is omitted for the top-level PlannerInfo.
+ 
++These identifiers are unique within a query, but an advice string is not
++applied to one query: pg_plan_advice.advice is in force for every query
++planned in its scope, including queries the user never wrote, such as the
++ones ri_triggers.c runs to check foreign keys, all of which alias their
++table "x". So handwritten advice may also qualify an identifier with the
++relation its alias must refer to:
++
++alias_name#occurrence_number:schema.relation/partition_schema.partition_name@plan_name
++
++The qualified identifier matches exactly what the unqualified one would, if
++the alias refers to the named relation (for a child of a partitioned table,
++the topmost partitioned table, the partition itself being named after the
++slash), and nothing otherwise. The relation must be schema-qualified, as a
++partition must. Because the qualifier only narrows a match, identifiers are
++as unique as before. It isn't needed to make advice reproduce the plan of the
++query it was generated from, so generated advice never includes it.
++
++We considered letting the partition component name any relation an RTE
++scans, rather than adding a component, but under traditional inheritance the
++parent's own rows are scanned by a child RTE with the parent's alias and
++relation, already identified as parent/schema.parent, so that identifier
++would then match both the parent RTE and that child.
++
+ Scan Advice
+ ===========
+ 
+diff --git a/contrib/pg_plan_advice/expected/qualified.out b/contrib/pg_plan_advice/expected/qualified.out
+new file mode 100644
+index 00000000..8d3b9c97
+--- /dev/null
++++ b/contrib/pg_plan_advice/expected/qualified.out
+@@ -0,0 +1,199 @@
++LOAD 'pg_plan_advice';
++SET max_parallel_workers_per_gather = 0;
++-- An advice string is applied to every query planned while it is in force,
++-- and different queries can use the same alias for different tables. An
++-- identifier qualified with the relation its alias must refer to matches only
++-- that relation.
++CREATE TABLE q_a (id int PRIMARY KEY, v int) WITH (autovacuum_enabled = false);
++CREATE TABLE q_b (id int PRIMARY KEY, v int) WITH (autovacuum_enabled = false);
++INSERT INTO q_a SELECT g, g FROM generate_series(1, 1000) g;
++INSERT INTO q_b SELECT g, g FROM generate_series(1, 1000) g;
++VACUUM ANALYZE q_a, q_b;
++-- Unqualified, one item for each table meets both queries; in each query one
++-- of them names an index of the other table, and the two conflict.
++BEGIN;
++SET LOCAL pg_plan_advice.advice = 'INDEX_SCAN(x public.q_a_pkey)
++	SEQ_SCAN(x)';
++EXPLAIN (COSTS OFF) SELECT * FROM q_a x WHERE x.id = 1;
++                         QUERY PLAN                         
++------------------------------------------------------------
++ Index Scan using q_a_pkey on q_a x
++   Index Cond: (id = 1)
++ Supplied Plan Advice:
++   INDEX_SCAN(x public.q_a_pkey) /* matched, conflicting */
++   SEQ_SCAN(x) /* matched, conflicting, failed */
++(5 rows)
++
++EXPLAIN (COSTS OFF) SELECT * FROM q_b x WHERE x.id = 1;
++                             QUERY PLAN                             
++--------------------------------------------------------------------
++ Index Scan using q_b_pkey on q_b x
++   Index Cond: (id = 1)
++ Supplied Plan Advice:
++   INDEX_SCAN(x public.q_a_pkey) /* matched, conflicting, failed */
++   SEQ_SCAN(x) /* matched, conflicting, failed */
++(5 rows)
++
++-- Qualified, each item reaches only its own table.
++SET LOCAL pg_plan_advice.advice = 'INDEX_SCAN(x:public.q_a public.q_a_pkey)
++	SEQ_SCAN(x:public.q_b)';
++EXPLAIN (COSTS OFF) SELECT * FROM q_a x WHERE x.id = 1;
++                        QUERY PLAN                        
++----------------------------------------------------------
++ Index Scan using q_a_pkey on q_a x
++   Index Cond: (id = 1)
++ Supplied Plan Advice:
++   INDEX_SCAN(x:public.q_a public.q_a_pkey) /* matched */
++   SEQ_SCAN(x:public.q_b) /* not matched */
++(5 rows)
++
++EXPLAIN (COSTS OFF) SELECT * FROM q_b x WHERE x.id = 1;
++                          QUERY PLAN                          
++--------------------------------------------------------------
++ Seq Scan on q_b x
++   Filter: (id = 1)
++ Supplied Plan Advice:
++   INDEX_SCAN(x:public.q_a public.q_a_pkey) /* not matched */
++   SEQ_SCAN(x:public.q_b) /* matched */
++(5 rows)
++
++-- The qualifier names the relation the alias refers to, so it doesn't match
++-- a subquery, and for a partition it names the partitioned table.
++SET LOCAL pg_plan_advice.advice = 'SEQ_SCAN(x:public.q_a)';
++EXPLAIN (COSTS OFF) SELECT * FROM (SELECT * FROM q_a OFFSET 0) x;
++                 QUERY PLAN                 
++--------------------------------------------
++ Seq Scan on q_a
++ Supplied Plan Advice:
++   SEQ_SCAN(x:public.q_a) /* not matched */
++(3 rows)
++
++COMMIT;
++CREATE TABLE q_part (id int, v int) PARTITION BY RANGE (id);
++CREATE TABLE q_part_1 PARTITION OF q_part FOR VALUES FROM (0) TO (500)
++	WITH (autovacuum_enabled = false);
++CREATE TABLE q_part_2 PARTITION OF q_part FOR VALUES FROM (500) TO (1001)
++	WITH (autovacuum_enabled = false);
++CREATE INDEX ON q_part (id);
++INSERT INTO q_part SELECT g, g FROM generate_series(1, 1000) g;
++VACUUM ANALYZE q_part;
++BEGIN;
++SET LOCAL pg_plan_advice.advice = 'SEQ_SCAN(x:public.q_part/public.q_part_1)
++	SEQ_SCAN(x:public.q_part_1/public.q_part_2)';
++EXPLAIN (COSTS OFF) SELECT * FROM q_part x WHERE x.id < 10 OR x.id > 990;
++                           QUERY PLAN                            
++-----------------------------------------------------------------
++ Append
++   ->  Seq Scan on q_part_1 x_1
++         Filter: ((id < 10) OR (id > 990))
++   ->  Seq Scan on q_part_2 x_2
++         Filter: ((id < 10) OR (id > 990))
++ Supplied Plan Advice:
++   SEQ_SCAN(x:public.q_part/public.q_part_1) /* matched */
++   SEQ_SCAN(x:public.q_part_1/public.q_part_2) /* not matched */
++(8 rows)
++
++COMMIT;
++-- PostgreSQL's own foreign-key checks alias every table x. Deleting a key
++-- from q_tgt runs a check of q_tgt and a check of q_ref, and with
++-- statistics that say both tables are empty, the planner's own choice for
++-- the q_ref check is the smaller sibling index, which skip-scans.
++CREATE TABLE q_tgt (pkg int, id int, PRIMARY KEY (pkg, id))
++	WITH (autovacuum_enabled = false);
++CREATE INDEX q_tgt_id ON q_tgt (id);
++CREATE TABLE q_ref (pkg int NOT NULL, id int NOT NULL, seq int NOT NULL,
++	PRIMARY KEY (pkg, id, seq), FOREIGN KEY (pkg, id) REFERENCES q_tgt)
++	WITH (autovacuum_enabled = false);
++CREATE INDEX q_ref_seq_pkg ON q_ref (seq, pkg);
++INSERT INTO q_tgt SELECT p, i FROM generate_series(1, 3) p,
++	generate_series(1, 100) i;
++INSERT INTO q_ref SELECT p, i, s FROM generate_series(1, 3) p,
++	generate_series(1, 100) i, generate_series(1, 20) s;
++INSERT INTO q_tgt SELECT 2, g FROM generate_series(1001, 1020) g;
++SELECT pg_restore_relation_stats('schemaname', 'public', 'relname', 'q_ref',
++	'relpages', 100, 'reltuples', 0::real);
++ pg_restore_relation_stats 
++---------------------------
++ t
++(1 row)
++
++SELECT pg_restore_relation_stats('schemaname', 'public', 'relname', 'q_tgt',
++	'relpages', 10, 'reltuples', 0::real);
++ pg_restore_relation_stats 
++---------------------------
++ t
++(1 row)
++
++-- Which of q_ref's indexes have been scanned since we last looked? Call
++-- pg_stat_force_next_flush() first, in a statement of its own.
++CREATE TABLE q_seen (indexrelid regclass PRIMARY KEY, scans bigint);
++INSERT INTO q_seen SELECT indexrelid, 0 FROM pg_index
++	WHERE indrelid = 'q_ref'::regclass;
++CREATE FUNCTION q_ref_indexes_used() RETURNS text LANGUAGE sql
++	BEGIN ATOMIC
++	WITH now AS (
++		SELECT indexrelid, idx_scan FROM pg_stat_user_indexes
++		WHERE relid = 'q_ref'::regclass),
++	newly AS (
++		UPDATE q_seen s SET scans = now.idx_scan FROM now
++		WHERE s.indexrelid = now.indexrelid AND now.idx_scan > s.scans
++		RETURNING s.indexrelid)
++	SELECT string_agg(indexrelid::text, ', ' ORDER BY indexrelid::text)
++		FROM newly;
++	END;
++-- Advice for both checks in one string: unqualified, the two items conflict
++-- in each check, and neither is enforced.
++SET pg_plan_advice.feedback_warnings = true;
++BEGIN;
++SET LOCAL pg_plan_advice.advice = 'INDEX_SCAN(x public.q_ref_pkey)
++	INDEX_SCAN(x public.q_tgt_pkey)';
++DELETE FROM q_tgt WHERE pkg = 2 AND id = 1001;
++WARNING:  supplied plan advice was not enforced
++DETAIL:  advice INDEX_SCAN(x public.q_ref_pkey) feedback is "not matched"
++advice INDEX_SCAN(x public.q_tgt_pkey) feedback is "not matched"
++WARNING:  supplied plan advice was not enforced
++DETAIL:  advice INDEX_SCAN(x public.q_ref_pkey) feedback is "matched, conflicting, failed"
++advice INDEX_SCAN(x public.q_tgt_pkey) feedback is "matched, conflicting, failed"
++WARNING:  supplied plan advice was not enforced
++DETAIL:  advice INDEX_SCAN(x public.q_ref_pkey) feedback is "matched, conflicting, failed"
++advice INDEX_SCAN(x public.q_tgt_pkey) feedback is "matched, conflicting, failed"
++COMMIT;
++SELECT pg_stat_force_next_flush();
++ pg_stat_force_next_flush 
++--------------------------
++ 
++(1 row)
++
++SELECT q_ref_indexes_used();
++ q_ref_indexes_used 
++--------------------
++ q_ref_seq_pkg
++(1 row)
++
++-- Qualified, each item reaches its own check, which reports only that the
++-- other item didn't match it.
++BEGIN;
++SET LOCAL pg_plan_advice.advice = 'INDEX_SCAN(x:public.q_ref public.q_ref_pkey)
++	INDEX_SCAN(x:public.q_tgt public.q_tgt_pkey)';
++DELETE FROM q_tgt WHERE pkg = 2 AND id = 1002;
++WARNING:  supplied plan advice was not enforced
++DETAIL:  advice INDEX_SCAN(x:public.q_ref public.q_ref_pkey) feedback is "not matched"
++advice INDEX_SCAN(x:public.q_tgt public.q_tgt_pkey) feedback is "not matched"
++WARNING:  supplied plan advice was not enforced
++DETAIL:  advice INDEX_SCAN(x:public.q_ref public.q_ref_pkey) feedback is "not matched"
++WARNING:  supplied plan advice was not enforced
++DETAIL:  advice INDEX_SCAN(x:public.q_tgt public.q_tgt_pkey) feedback is "not matched"
++COMMIT;
++SELECT pg_stat_force_next_flush();
++ pg_stat_force_next_flush 
++--------------------------
++ 
++(1 row)
++
++SELECT q_ref_indexes_used();
++ q_ref_indexes_used 
++--------------------
++ q_ref_pkey
++(1 row)
++
++RESET pg_plan_advice.feedback_warnings;
+diff --git a/contrib/pg_plan_advice/expected/syntax.out b/contrib/pg_plan_advice/expected/syntax.out
+index 9146924b..ac4605b6 100644
+--- a/contrib/pg_plan_advice/expected/syntax.out
++++ b/contrib/pg_plan_advice/expected/syntax.out
+@@ -314,3 +314,34 @@ EXPLAIN (COSTS OFF) SELECT 1;
+    SEQ_SCAN(unparameterized) /* not matched */
+ (4 rows)
+ 
++-- An identifier can name the relation its alias must refer to, which must be
++-- schema-qualified.
++SET pg_plan_advice.advice = 'SEQ_SCAN(x:public.t) INDEX_SCAN(x#2:s.t/s.p@q s.i)';
++EXPLAIN (COSTS OFF) SELECT 1;
++                    QUERY PLAN                     
++---------------------------------------------------
++ Result
++ Supplied Plan Advice:
++   SEQ_SCAN(x:public.t) /* not matched */
++   INDEX_SCAN(x#2:s.t/s.p@q s.i) /* not matched */
++(4 rows)
++
++SET pg_plan_advice.advice = 'JOIN_ORDER(a:"S"."T" {b:s.t c}) PARAMETERIZED(a:s.t b:s.u)';
++EXPLAIN (COSTS OFF) SELECT 1;
++                     QUERY PLAN                      
++-----------------------------------------------------
++ Result
++ Supplied Plan Advice:
++   PARAMETERIZED(a:s.t b:s.u) /* not matched */
++   JOIN_ORDER(a:"S"."T" {b:s.t c}) /* not matched */
++(4 rows)
++
++SET pg_plan_advice.advice = 'SEQ_SCAN(x:t)';
++ERROR:  invalid value for parameter "pg_plan_advice.advice": "SEQ_SCAN(x:t)"
++DETAIL:  Could not parse advice: syntax error at or near ")"
++SET pg_plan_advice.advice = 'SEQ_SCAN(x:)';
++ERROR:  invalid value for parameter "pg_plan_advice.advice": "SEQ_SCAN(x:)"
++DETAIL:  Could not parse advice: syntax error at or near ")"
++SET pg_plan_advice.advice = 'SEQ_SCAN(x/s.p:s.t)';
++ERROR:  invalid value for parameter "pg_plan_advice.advice": "SEQ_SCAN(x/s.p:s.t)"
++DETAIL:  Could not parse advice: syntax error at or near ":"
+diff --git a/contrib/pg_plan_advice/meson.build b/contrib/pg_plan_advice/meson.build
+index 9b375c1e..1fb7d998 100644
+--- a/contrib/pg_plan_advice/meson.build
++++ b/contrib/pg_plan_advice/meson.build
+@@ -61,6 +61,7 @@ tests += {
+       'parameterized',
+       'partitionwise',
+       'prepared',
++      'qualified',
+       'scan',
+       'semijoin',
+       'syntax',
+diff --git a/contrib/pg_plan_advice/pgpa_ast.c b/contrib/pg_plan_advice/pgpa_ast.c
+index 24c45877..44291201 100644
+--- a/contrib/pg_plan_advice/pgpa_ast.c
++++ b/contrib/pg_plan_advice/pgpa_ast.c
+@@ -260,30 +260,7 @@ pgpa_identifier_matches_target(pgpa_identifier *rid, pgpa_advice_target *target)
+ 		return false;
+ 	}
+ 
+-	/* Straightforward comparisons of alias name and occurrence number. */
+-	if (strcmp(rid->alias_name, target->rid.alias_name) != 0)
+-		return false;
+-	if (rid->occurrence != target->rid.occurrence)
+-		return false;
+-
+-	/*
+-	 * A relation identifier should either include both of partition name and
+-	 * partition schema, or neither one.
+-	 */
+-	Assert((rid->partnsp == NULL) == (rid->partrel == NULL));
+-
+-	/*
+-	 * These fields can be NULL on either side, but NULL only matches another
+-	 * NULL.
+-	 */
+-	if (!strings_equal_or_both_null(rid->partnsp, target->rid.partnsp))
+-		return false;
+-	if (!strings_equal_or_both_null(rid->partrel, target->rid.partrel))
+-		return false;
+-	if (!strings_equal_or_both_null(rid->plan_name, target->rid.plan_name))
+-		return false;
+-
+-	return true;
++	return pgpa_identifier_matches(rid, &target->rid);
+ }
+ 
+ /*
+diff --git a/contrib/pg_plan_advice/pgpa_identifier.c b/contrib/pg_plan_advice/pgpa_identifier.c
+index 96107dee..67ac98e9 100644
+--- a/contrib/pg_plan_advice/pgpa_identifier.c
++++ b/contrib/pg_plan_advice/pgpa_identifier.c
+@@ -25,6 +25,13 @@
+  * Identifier-style escaping is applied to the schema and to the relation
+  * name separately.
+  *
++ * Advice may also qualify an identifier with the relation its alias must
++ * refer to, as in alias_name#occurrence_number:schema.relation/..., so that
++ * one advice string can be applied to many queries without an item meant
++ * for one query's relation landing on another query's relation of the same
++ * alias. The qualifier only narrows what an identifier matches; it plays no
++ * part in making identifiers unique, and we never generate it.
++ *
+  * The upshot of all of these rules is that in simple cases, the relation
+  * identifier is textually identical to the alias name, making life easier
+  * for users. However, even in complex cases, every relation identifier
+@@ -87,6 +94,12 @@ pgpa_identifier_string(const pgpa_identifier *rid)
+ 	if (rid->occurrence > 1)
+ 		result = psprintf("%s#%d", result, rid->occurrence);
+ 
++	Assert((rid->relnsp == NULL) == (rid->relname == NULL));
++	if (rid->relname != NULL)
++		result = psprintf("%s:%s.%s", result,
++						  quote_identifier(rid->relnsp),
++						  quote_identifier(rid->relname));
++
+ 	Assert((rid->partnsp == NULL) == (rid->partrel == NULL));
+ 	if (rid->partrel != NULL)
+ 		result = psprintf("%s/%s.%s", result,
+@@ -99,6 +112,58 @@ pgpa_identifier_string(const pgpa_identifier *rid)
+ 	return result;
+ }
+ 
++/*
++ * Does a relation identifier computed from a query match an identifier given
++ * in advice?
++ *
++ * The alias name and occurrence number must be equal; the partition schema,
++ * partition name and plan name must be equal or omitted on both sides; and
++ * if the advice names the relation the alias must refer to, it must.
++ */
++bool
++pgpa_identifier_matches(const pgpa_identifier *rid,
++						const pgpa_identifier *target_rid)
++{
++	if (strcmp(rid->alias_name, target_rid->alias_name) != 0)
++		return false;
++	if (rid->occurrence != target_rid->occurrence)
++		return false;
++
++	/*
++	 * A relation identifier should either include both of partition name and
++	 * partition schema, or neither one.
++	 */
++	Assert((rid->partnsp == NULL) == (rid->partrel == NULL));
++
++	/*
++	 * These fields can be NULL on either side, but NULL only matches another
++	 * NULL.
++	 */
++	if (!strings_equal_or_both_null(rid->partnsp, target_rid->partnsp))
++		return false;
++	if (!strings_equal_or_both_null(rid->partrel, target_rid->partrel))
++		return false;
++	if (!strings_equal_or_both_null(rid->plan_name, target_rid->plan_name))
++		return false;
++
++	/* Check the relation the alias refers to, if the advice names one. */
++	if (target_rid->relname != NULL)
++	{
++		char	   *relname;
++
++		if (!OidIsValid(rid->relid))
++			return false;
++		relname = get_rel_name(rid->relid);
++		if (relname == NULL || strcmp(relname, target_rid->relname) != 0)
++			return false;
++		if (strcmp(get_namespace_name_or_temp(get_rel_namespace(rid->relid)),
++				   target_rid->relnsp) != 0)
++			return false;
++	}
++
++	return true;
++}
++
+ /*
+  * Compute a relation identifier for a particular RTI.
+  *
+@@ -193,6 +258,9 @@ pgpa_compute_identifier_by_rti(PlannerInfo *root, Index rti,
+ 	/* OK, we have all the answers we need. Return them to the caller. */
+ 	rid->alias_name = top_rte->eref->aliasname;
+ 	rid->occurrence = occurrence;
++	rid->relnsp = NULL;
++	rid->relname = NULL;
++	rid->relid = top_rte->rtekind == RTE_RELATION ? top_rte->relid : InvalidOid;
+ 	rid->partnsp = partnsp;
+ 	rid->partrel = partrel;
+ 	rid->plan_name = root->plan_name;
+@@ -329,6 +397,8 @@ pgpa_create_identifiers_for_planned_stmt(PlannedStmt *pstmt)
+ 		rid = &result[rti - 1];
+ 		rid->alias_name = top_rte->eref->aliasname;
+ 		rid->occurrence = occurrence;
++		rid->relid = top_rte->rtekind == RTE_RELATION ?
++			top_rte->relid : InvalidOid;
+ 		rid->partnsp = partnsp;
+ 		rid->partrel = partrel;
+ 		rid->plan_name = plan_name;
+@@ -357,16 +427,8 @@ pgpa_compute_rti_from_identifier(int rtable_length,
+ 		if (rti_rid->alias_name == NULL)
+ 			continue;
+ 
+-		/*
+-		 * If it matches, return this RTI. The partition schema, partition
+-		 * name, and plan name must either match exactly or be omitted on both
+-		 * sides.
+-		 */
+-		if (strcmp(rid->alias_name, rti_rid->alias_name) == 0 &&
+-			rid->occurrence == rti_rid->occurrence &&
+-			strings_equal_or_both_null(rid->partnsp, rti_rid->partnsp) &&
+-			strings_equal_or_both_null(rid->partrel, rti_rid->partrel) &&
+-			strings_equal_or_both_null(rid->plan_name, rti_rid->plan_name))
++		/* If it matches, return this RTI. */
++		if (pgpa_identifier_matches(rti_rid, rid))
+ 		{
+ 			if (result != 0)
+ 			{
+diff --git a/contrib/pg_plan_advice/pgpa_identifier.h b/contrib/pg_plan_advice/pgpa_identifier.h
+index 393a83dc..8b9fc5b1 100644
+--- a/contrib/pg_plan_advice/pgpa_identifier.h
++++ b/contrib/pg_plan_advice/pgpa_identifier.h
+@@ -16,10 +16,23 @@
+ #include "nodes/pathnodes.h"
+ #include "nodes/plannodes.h"
+ 
++/*
++ * A relation identifier.
++ *
++ * Identifiers computed from a query set relid to the OID of the relation the
++ * alias refers to (for a partition, its topmost partitioned table), or to
++ * InvalidOid if the alias doesn't refer to a table; they leave relnsp and
++ * relname NULL. Identifiers parsed from advice set relnsp and relname if the
++ * advice qualifies the alias with the relation it must refer to, and leave
++ * relid invalid.
++ */
+ typedef struct pgpa_identifier
+ {
+ 	const char *alias_name;
+ 	int			occurrence;
++	const char *relnsp;
++	const char *relname;
++	Oid			relid;
+ 	const char *partnsp;
+ 	const char *partrel;
+ 	const char *plan_name;
+@@ -38,6 +51,8 @@ strings_equal_or_both_null(const char *a, const char *b)
+ }
+ 
+ extern const char *pgpa_identifier_string(const pgpa_identifier *rid);
++extern bool pgpa_identifier_matches(const pgpa_identifier *rid,
++									const pgpa_identifier *target_rid);
+ extern void pgpa_compute_identifier_by_rti(PlannerInfo *root, Index rti,
+ 										   pgpa_identifier *rid);
+ extern int	pgpa_compute_identifiers_by_relids(PlannerInfo *root,
+diff --git a/contrib/pg_plan_advice/pgpa_parser.y b/contrib/pg_plan_advice/pgpa_parser.y
+index ee33aad2..caf5bb9e 100644
+--- a/contrib/pg_plan_advice/pgpa_parser.y
++++ b/contrib/pg_plan_advice/pgpa_parser.y
+@@ -57,7 +57,7 @@
+ %type <item> advice_item
+ %type <list> advice_item_list generic_target_list
+ %type <list> index_target_list join_order_target_list
+-%type <list> opt_partition param_target_list simple_target_list
++%type <list> opt_partition opt_relation param_target_list simple_target_list
+ %type <str> identifier opt_plan_name
+ %type <target> generic_sublist join_order_sublist param_source
+ %type <target> relation_identifier
+@@ -153,19 +153,27 @@ advice_item: TOK_TAG_JOIN_ORDER '(' join_order_target_list ')'
+ 		}
+ 	;
+ 
+-relation_identifier: identifier opt_ri_occurrence opt_partition opt_plan_name
++relation_identifier:
++	identifier opt_ri_occurrence opt_relation opt_partition opt_plan_name
+ 		{
+ 			$$ = palloc0_object(pgpa_advice_target);
+ 			$$->ttype = PGPA_TARGET_IDENTIFIER;
+ 			$$->rid.alias_name = $1;
+ 			$$->rid.occurrence = $2;
++			$$->rid.relid = InvalidOid;
+ 			if ($3 != NIL)
+ 			{
+ 				Assert(list_length($3) == 2);
+-				$$->rid.partnsp = linitial($3);
+-				$$->rid.partrel = lsecond($3);
++				$$->rid.relnsp = linitial($3);
++				$$->rid.relname = lsecond($3);
+ 			}
+-			$$->rid.plan_name = $4;
++			if ($4 != NIL)
++			{
++				Assert(list_length($4) == 2);
++				$$->rid.partnsp = linitial($4);
++				$$->rid.partrel = lsecond($4);
++			}
++			$$->rid.plan_name = $5;
+ 		}
+ 	;
+ 
+@@ -205,6 +213,17 @@ identifier: TOK_IDENT
+ 	| TOK_TAG_GENERIC
+ 	;
+ 
++/*
++ * The relation an alias must refer to, which, like a partition name, must be
++ * schema-qualified.
++ */
++opt_relation:
++	':' identifier '.' identifier
++		{ $$ = list_make2($2, $4); }
++	|
++		{ $$ = NIL; }
++	;
++
+ /*
+  * The partition name must always be schema-qualified. Otherwise, a relation
+  * identifier could refer to more than one partition of the same partitioned
+diff --git a/contrib/pg_plan_advice/pgpa_walker.c b/contrib/pg_plan_advice/pgpa_walker.c
+index 0497b0a2..e7584b41 100644
+--- a/contrib/pg_plan_advice/pgpa_walker.c
++++ b/contrib/pg_plan_advice/pgpa_walker.c
+@@ -855,14 +855,7 @@ pgpa_walker_would_advise(pgpa_plan_walker_context *walker,
+ 			return false;
+ 		foreach_ptr(pgpa_identifier, rid, walker->do_not_scan_identifiers)
+ 		{
+-			if (strcmp(rid->alias_name, target->rid.alias_name) == 0 &&
+-				rid->occurrence == target->rid.occurrence &&
+-				strings_equal_or_both_null(rid->partnsp,
+-										   target->rid.partnsp) &&
+-				strings_equal_or_both_null(rid->partrel,
+-										   target->rid.partrel) &&
+-				strings_equal_or_both_null(rid->plan_name,
+-										   target->rid.plan_name))
++			if (pgpa_identifier_matches(rid, &target->rid))
+ 				return true;
+ 		}
+ 		return false;
+diff --git a/contrib/pg_plan_advice/sql/qualified.sql b/contrib/pg_plan_advice/sql/qualified.sql
+new file mode 100644
+index 00000000..c5090d29
+--- /dev/null
++++ b/contrib/pg_plan_advice/sql/qualified.sql
+@@ -0,0 +1,107 @@
++LOAD 'pg_plan_advice';
++SET max_parallel_workers_per_gather = 0;
++
++-- An advice string is applied to every query planned while it is in force,
++-- and different queries can use the same alias for different tables. An
++-- identifier qualified with the relation its alias must refer to matches only
++-- that relation.
++CREATE TABLE q_a (id int PRIMARY KEY, v int) WITH (autovacuum_enabled = false);
++CREATE TABLE q_b (id int PRIMARY KEY, v int) WITH (autovacuum_enabled = false);
++INSERT INTO q_a SELECT g, g FROM generate_series(1, 1000) g;
++INSERT INTO q_b SELECT g, g FROM generate_series(1, 1000) g;
++VACUUM ANALYZE q_a, q_b;
++
++-- Unqualified, one item for each table meets both queries; in each query one
++-- of them names an index of the other table, and the two conflict.
++BEGIN;
++SET LOCAL pg_plan_advice.advice = 'INDEX_SCAN(x public.q_a_pkey)
++	SEQ_SCAN(x)';
++EXPLAIN (COSTS OFF) SELECT * FROM q_a x WHERE x.id = 1;
++EXPLAIN (COSTS OFF) SELECT * FROM q_b x WHERE x.id = 1;
++
++-- Qualified, each item reaches only its own table.
++SET LOCAL pg_plan_advice.advice = 'INDEX_SCAN(x:public.q_a public.q_a_pkey)
++	SEQ_SCAN(x:public.q_b)';
++EXPLAIN (COSTS OFF) SELECT * FROM q_a x WHERE x.id = 1;
++EXPLAIN (COSTS OFF) SELECT * FROM q_b x WHERE x.id = 1;
++
++-- The qualifier names the relation the alias refers to, so it doesn't match
++-- a subquery, and for a partition it names the partitioned table.
++SET LOCAL pg_plan_advice.advice = 'SEQ_SCAN(x:public.q_a)';
++EXPLAIN (COSTS OFF) SELECT * FROM (SELECT * FROM q_a OFFSET 0) x;
++COMMIT;
++
++CREATE TABLE q_part (id int, v int) PARTITION BY RANGE (id);
++CREATE TABLE q_part_1 PARTITION OF q_part FOR VALUES FROM (0) TO (500)
++	WITH (autovacuum_enabled = false);
++CREATE TABLE q_part_2 PARTITION OF q_part FOR VALUES FROM (500) TO (1001)
++	WITH (autovacuum_enabled = false);
++CREATE INDEX ON q_part (id);
++INSERT INTO q_part SELECT g, g FROM generate_series(1, 1000) g;
++VACUUM ANALYZE q_part;
++BEGIN;
++SET LOCAL pg_plan_advice.advice = 'SEQ_SCAN(x:public.q_part/public.q_part_1)
++	SEQ_SCAN(x:public.q_part_1/public.q_part_2)';
++EXPLAIN (COSTS OFF) SELECT * FROM q_part x WHERE x.id < 10 OR x.id > 990;
++COMMIT;
++
++-- PostgreSQL's own foreign-key checks alias every table x. Deleting a key
++-- from q_tgt runs a check of q_tgt and a check of q_ref, and with
++-- statistics that say both tables are empty, the planner's own choice for
++-- the q_ref check is the smaller sibling index, which skip-scans.
++CREATE TABLE q_tgt (pkg int, id int, PRIMARY KEY (pkg, id))
++	WITH (autovacuum_enabled = false);
++CREATE INDEX q_tgt_id ON q_tgt (id);
++CREATE TABLE q_ref (pkg int NOT NULL, id int NOT NULL, seq int NOT NULL,
++	PRIMARY KEY (pkg, id, seq), FOREIGN KEY (pkg, id) REFERENCES q_tgt)
++	WITH (autovacuum_enabled = false);
++CREATE INDEX q_ref_seq_pkg ON q_ref (seq, pkg);
++INSERT INTO q_tgt SELECT p, i FROM generate_series(1, 3) p,
++	generate_series(1, 100) i;
++INSERT INTO q_ref SELECT p, i, s FROM generate_series(1, 3) p,
++	generate_series(1, 100) i, generate_series(1, 20) s;
++INSERT INTO q_tgt SELECT 2, g FROM generate_series(1001, 1020) g;
++SELECT pg_restore_relation_stats('schemaname', 'public', 'relname', 'q_ref',
++	'relpages', 100, 'reltuples', 0::real);
++SELECT pg_restore_relation_stats('schemaname', 'public', 'relname', 'q_tgt',
++	'relpages', 10, 'reltuples', 0::real);
++
++-- Which of q_ref's indexes have been scanned since we last looked? Call
++-- pg_stat_force_next_flush() first, in a statement of its own.
++CREATE TABLE q_seen (indexrelid regclass PRIMARY KEY, scans bigint);
++INSERT INTO q_seen SELECT indexrelid, 0 FROM pg_index
++	WHERE indrelid = 'q_ref'::regclass;
++CREATE FUNCTION q_ref_indexes_used() RETURNS text LANGUAGE sql
++	BEGIN ATOMIC
++	WITH now AS (
++		SELECT indexrelid, idx_scan FROM pg_stat_user_indexes
++		WHERE relid = 'q_ref'::regclass),
++	newly AS (
++		UPDATE q_seen s SET scans = now.idx_scan FROM now
++		WHERE s.indexrelid = now.indexrelid AND now.idx_scan > s.scans
++		RETURNING s.indexrelid)
++	SELECT string_agg(indexrelid::text, ', ' ORDER BY indexrelid::text)
++		FROM newly;
++	END;
++
++-- Advice for both checks in one string: unqualified, the two items conflict
++-- in each check, and neither is enforced.
++SET pg_plan_advice.feedback_warnings = true;
++BEGIN;
++SET LOCAL pg_plan_advice.advice = 'INDEX_SCAN(x public.q_ref_pkey)
++	INDEX_SCAN(x public.q_tgt_pkey)';
++DELETE FROM q_tgt WHERE pkg = 2 AND id = 1001;
++COMMIT;
++SELECT pg_stat_force_next_flush();
++SELECT q_ref_indexes_used();
++
++-- Qualified, each item reaches its own check, which reports only that the
++-- other item didn't match it.
++BEGIN;
++SET LOCAL pg_plan_advice.advice = 'INDEX_SCAN(x:public.q_ref public.q_ref_pkey)
++	INDEX_SCAN(x:public.q_tgt public.q_tgt_pkey)';
++DELETE FROM q_tgt WHERE pkg = 2 AND id = 1002;
++COMMIT;
++SELECT pg_stat_force_next_flush();
++SELECT q_ref_indexes_used();
++RESET pg_plan_advice.feedback_warnings;
+diff --git a/contrib/pg_plan_advice/sql/syntax.sql b/contrib/pg_plan_advice/sql/syntax.sql
+index a697053d..25d6d508 100644
+--- a/contrib/pg_plan_advice/sql/syntax.sql
++++ b/contrib/pg_plan_advice/sql/syntax.sql
+@@ -115,3 +115,13 @@ SET pg_plan_advice.advice = 'PARAMETERIZED((a) b)';
+ SET pg_plan_advice.advice = 'UNPARAMETERIZED((a))';
+ SET pg_plan_advice.advice = 'SEQ_SCAN(parameterized unparameterized)';
+ EXPLAIN (COSTS OFF) SELECT 1;
++
++-- An identifier can name the relation its alias must refer to, which must be
++-- schema-qualified.
++SET pg_plan_advice.advice = 'SEQ_SCAN(x:public.t) INDEX_SCAN(x#2:s.t/s.p@q s.i)';
++EXPLAIN (COSTS OFF) SELECT 1;
++SET pg_plan_advice.advice = 'JOIN_ORDER(a:"S"."T" {b:s.t c}) PARAMETERIZED(a:s.t b:s.u)';
++EXPLAIN (COSTS OFF) SELECT 1;
++SET pg_plan_advice.advice = 'SEQ_SCAN(x:t)';
++SET pg_plan_advice.advice = 'SEQ_SCAN(x:)';
++SET pg_plan_advice.advice = 'SEQ_SCAN(x/s.p:s.t)';
+diff --git a/doc/src/sgml/pgplanadvice.sgml b/doc/src/sgml/pgplanadvice.sgml
+index 4813fa5d..18a47e96 100644
+--- a/doc/src/sgml/pgplanadvice.sgml
++++ b/doc/src/sgml/pgplanadvice.sgml
+@@ -264,6 +264,30 @@ alias_name#occurrence_number/partition_schema.partition_name@plan_name
+    top-level plan, and must be included for any subplan.
+   </para>
+ 
++  <para>
++   Advice is applied to every query planned while it is in force, and
++   different queries can use the same alias for different tables; for
++   example, the queries <productname>PostgreSQL</productname> runs to check
++   foreign keys all alias their table <literal>x</literal>. An advice target
++   can therefore name the relation that its alias must refer to:
++  </para>
++
++<programlisting>
++alias_name#occurrence_number:schema.relation/partition_schema.partition_name@plan_name
++</programlisting>
++
++  <para>
++   Such a target matches what the same target without
++   <literal>:schema.relation</literal> would match, but only if the alias
++   refers to that relation, which must be schema-qualified; for a partition,
++   it is the partitioned table that the alias refers to. For example,
++   <literal>INDEX_SCAN(x:public.orders public.orders_pkey)</literal> applies
++   to a query whose alias <literal>x</literal> refers to
++   <literal>public.orders</literal>, and to no other query. Generated advice
++   does not include the relation, since it is not needed to identify a
++   relation within the query the advice was generated from.
++  </para>
++
+   <para>
+    It is not always easy to determine the correct advice target by examining
+    the query. For instance, if the planner pulls up a subquery into the parent
+-- 
+2.53.0
+

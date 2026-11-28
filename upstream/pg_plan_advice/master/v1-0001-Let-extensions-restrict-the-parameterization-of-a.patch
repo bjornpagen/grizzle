@@ -1,0 +1,275 @@
+From 5c98f03de45efa5feafe60941ccf332882914890 Mon Sep 17 00:00:00 2001
+From: Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 21:01:25 -0600
+Subject: [PATCH v1 1/4] Let extensions restrict the parameterization of a
+ relation's paths.
+
+A path's parameterization, the set of outer relations it requires, is a
+planner decision of its own: whether the join clauses to some outer
+relations are evaluated inside a scan, typically as index conditions, or
+above it.  The PGS_* bits in pgs_mask can steer scan types, join methods
+and the like, but they cannot steer this, because it is not a strategy
+but a choice of relid set.
+
+Add two fields beside pgs_mask, RelOptInfo.pgs_required_outer and
+RelOptInfo.pgs_forbidden_outer.  A path that is not parameterized by
+every relation in the first, or that is parameterized by a relation in
+the second other than one of the rel's own lateral_relids, counts as one
+more disabled node.  Both default to empty, which permits every
+parameterization, so nothing changes unless an extension sets them, from
+build_simple_rel_hook or joinrel_setup_hook as it would pgs_mask.
+
+The check is made in add_path(), add_path_precheck(), add_partial_path()
+and add_partial_path_precheck(), where every path of a rel arrives, and
+in reparameterize_path(), whose paths deliberately bypass add_path(),
+rather than in the cost functions.  That way it applies equally to paths
+whose costs core never computes, such as foreign, custom and Append
+paths.  It also has to happen no later than add_path(): when a
+parameterized path costs no less than an unparameterized one, add_path()
+lets the unparameterized path dominate and discards the parameterized
+path before any join is considered, so a restriction applied only while
+planning joins could not bring it back.  A disabled path survives as a
+last resort, as any disabled path does, so the restriction can never
+cause planner failure.
+
+pg_plan_advice will use this to enforce advice about parameterization.
+
+While here, make reparameterize_path() honor IndexOptInfo.disabled for
+the index paths it copies, as create_index_path() does; previously a
+disabled index could be used through a reparameterized child path of an
+Append.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/backend/optimizer/util/pathnode.c | 95 ++++++++++++++++++++++++++-
+ src/backend/optimizer/util/relnode.c  |  5 +-
+ src/include/nodes/pathnodes.h         | 17 +++++
+ 3 files changed, 114 insertions(+), 3 deletions(-)
+
+diff --git a/src/backend/optimizer/util/pathnode.c b/src/backend/optimizer/util/pathnode.c
+index 5f28174a..883a3f71 100644
+--- a/src/backend/optimizer/util/pathnode.c
++++ b/src/backend/optimizer/util/pathnode.c
+@@ -53,12 +53,57 @@ static List *reparameterize_pathlist_by_child(PlannerInfo *root,
+ 											  RelOptInfo *child_rel);
+ static bool pathlist_is_reparameterizable_by_child(List *pathlist,
+ 												   RelOptInfo *child_rel);
++static inline int parameterization_disabled_nodes(RelOptInfo *rel,
++												  Relids required_outer);
++static Path *reparameterize_path_guts(PlannerInfo *root, Path *path,
++									  Relids required_outer,
++									  double loop_count);
+ 
+ 
+ /*****************************************************************************
+  *		MISC. PATH UTILITIES
+  *****************************************************************************/
+ 
++/*
++ * parameterization_disabled_nodes
++ *	  Does a path with the given parameterization violate the restrictions
++ *	  that rel->pgs_required_outer and rel->pgs_forbidden_outer place on the
++ *	  paths of this rel?  Returns 1 if so (the number of disabled nodes the
++ *	  violation adds to the path) and 0 if not.
++ *
++ * The rel's lateral_relids are exempt from pgs_forbidden_outer: every path of
++ * the rel is parameterized by them, so they are not a choice, and forbidding
++ * them would merely disable every path.
++ *
++ * Extensions use these fields to choose among parameterizations, which is a
++ * decision no pgs_mask bit can express; see the comments for the PGS_*
++ * constants in pathnodes.h.  The check is made in add_path and its siblings,
++ * where every path of a rel arrives, and in reparameterize_path, whose paths
++ * bypass add_path, rather than in the cost functions, so that it also covers
++ * paths that core doesn't cost, such as foreign and custom paths.  A path
++ * disabled this way survives as a last resort, as any disabled path does, so
++ * restricting the parameterization can never cause planner failure; and since
++ * it no longer competes as an enabled path, it cannot cause add_path to
++ * discard an enabled path of the permitted parameterization.
++ */
++static inline int
++parameterization_disabled_nodes(RelOptInfo *rel, Relids required_outer)
++{
++	int			relid = -1;
++
++	if (!bms_is_subset(rel->pgs_required_outer, required_outer))
++		return 1;
++	if (rel->pgs_forbidden_outer == NULL)
++		return 0;
++	while ((relid = bms_next_member(required_outer, relid)) >= 0)
++	{
++		if (bms_is_member(relid, rel->pgs_forbidden_outer) &&
++			!bms_is_member(relid, rel->lateral_relids))
++			return 1;
++	}
++	return 0;
++}
++
+ /*
+  * compare_path_costs
+  *	  Return -1, 0, or +1 according as path1 is cheaper, the same cost,
+@@ -405,6 +450,11 @@ set_cheapest(RelOptInfo *parent_rel)
+  *    numbers of disabled path nodes; but in practice this tiebreak is almost
+  *    always used, since normally no path types are disabled.
+  *
++ *	  If parent_rel restricts the parameterization of its paths (see
++ *	  pgs_required_outer and pgs_forbidden_outer), a new_path whose
++ *	  parameterization violates the restriction is counted as one more
++ *	  disabled node before any comparison is made.
++ *
+  *	  In addition to possibly adding new_path, we also remove from the rel's
+  *    pathlist any old paths that are dominated by new_path --- that is,
+  *    new_path is cheaper, at least as well ordered, generates no more rows,
+@@ -479,6 +529,10 @@ add_path(RelOptInfo *parent_rel, Path *new_path)
+ 	 */
+ 	CHECK_FOR_INTERRUPTS();
+ 
++	/* A path of a parameterization this rel doesn't permit is disabled. */
++	new_path->disabled_nodes +=
++		parameterization_disabled_nodes(parent_rel, PATH_REQ_OUTER(new_path));
++
+ 	/* Pretend parameterized paths have no pathkeys, per comment above */
+ 	new_path_pathkeys = new_path->param_info ? NIL : new_path->pathkeys;
+ 
+@@ -700,6 +754,10 @@ add_path_precheck(RelOptInfo *parent_rel, int disabled_nodes,
+ 	bool		consider_startup;
+ 	ListCell   *p1;
+ 
++	/* Count a disabled parameterization, as add_path will */
++	disabled_nodes += parameterization_disabled_nodes(parent_rel,
++													  required_outer);
++
+ 	/* Pretend parameterized paths have no pathkeys, per add_path policy */
+ 	new_path_pathkeys = required_outer ? NIL : pathkeys;
+ 
+@@ -824,6 +882,14 @@ add_partial_path(RelOptInfo *parent_rel, Path *new_path)
+ 	/* Relation should be OK for parallelism, too. */
+ 	Assert(parent_rel->consider_parallel);
+ 
++	/*
++	 * Partial paths are never parameterized, which is disabled if this rel's
++	 * paths must be parameterized by something.
++	 */
++	Assert(PATH_REQ_OUTER(new_path) == NULL);
++	new_path->disabled_nodes +=
++		parameterization_disabled_nodes(parent_rel, NULL);
++
+ 	/*
+ 	 * As in add_path, throw out any paths which are dominated by the new
+ 	 * path, but throw out the new path if some existing path dominates it.
+@@ -937,6 +1003,9 @@ add_partial_path_precheck(RelOptInfo *parent_rel, int disabled_nodes,
+ 	bool		consider_startup = parent_rel->consider_startup;
+ 	ListCell   *p1;
+ 
++	/* Count a disabled parameterization, as add_partial_path will */
++	disabled_nodes += parameterization_disabled_nodes(parent_rel, NULL);
++
+ 	/*
+ 	 * Our goal here is twofold.  First, we want to find out whether this path
+ 	 * is clearly inferior to some existing partial path.  If so, we want to
+@@ -3957,12 +4026,32 @@ adjust_limit_rows_costs(double *rows,	/* in/out parameter */
+  * possibly try to delete them on the grounds of being cost-inferior to the
+  * paths they were made from, and we don't want that.  Paths made here are
+  * not necessarily of general-purpose usefulness, but they can be useful
+- * as members of an append path.
++ * as members of an append path.  Since they bypass add_path(), we apply the
++ * rel's restrictions on parameterization here instead.
+  */
+ Path *
+ reparameterize_path(PlannerInfo *root, Path *path,
+ 					Relids required_outer,
+ 					double loop_count)
++{
++	Path	   *newpath;
++
++	newpath = reparameterize_path_guts(root, path, required_outer, loop_count);
++	if (newpath != NULL)
++		newpath->disabled_nodes +=
++			parameterization_disabled_nodes(path->parent,
++											PATH_REQ_OUTER(newpath));
++	return newpath;
++}
++
++/*
++ * reparameterize_path_guts
++ *		Workhorse for reparameterize_path
++ */
++static Path *
++reparameterize_path_guts(PlannerInfo *root, Path *path,
++						 Relids required_outer,
++						 double loop_count)
+ {
+ 	RelOptInfo *rel = path->parent;
+ 
+@@ -3992,6 +4081,10 @@ reparameterize_path(PlannerInfo *root, Path *path,
+ 				newpath->path.param_info =
+ 					get_baserel_parampathinfo(root, rel, required_outer);
+ 				cost_index(newpath, root, loop_count, false);
++
++				/* As in create_index_path, honor a disabled index */
++				if (ipath->indexinfo->disabled)
++					newpath->path.disabled_nodes = 1;
+ 				return (Path *) newpath;
+ 			}
+ 		case T_BitmapHeapScan:
+diff --git a/src/backend/optimizer/util/relnode.c b/src/backend/optimizer/util/relnode.c
+index 90a687c3..c63ef9a6 100644
+--- a/src/backend/optimizer/util/relnode.c
++++ b/src/backend/optimizer/util/relnode.c
+@@ -407,7 +407,8 @@ build_simple_rel(PlannerInfo *root, int relid, RelOptInfo *parent)
+ 	 * removing an index, or adding a hypothetical index to the indexlist.
+ 	 *
+ 	 * An extension can also modify rel->pgs_mask here to control path
+-	 * generation.
++	 * generation, or rel->pgs_required_outer and rel->pgs_forbidden_outer to
++	 * control the parameterization of the rel's paths.
+ 	 */
+ 	if (build_simple_rel_hook)
+ 		(*build_simple_rel_hook) (root, rel, rte);
+@@ -1013,7 +1014,7 @@ build_join_rel(PlannerInfo *root,
+ 	/*
+ 	 * Allow a plugin to editorialize on the new joinrel's properties. Actions
+ 	 * might include altering the size estimate, clearing consider_parallel,
+-	 * or adjusting pgs_mask.
++	 * or adjusting pgs_mask, pgs_required_outer, or pgs_forbidden_outer.
+ 	 */
+ 	if (joinrel_setup_hook)
+ 		(*joinrel_setup_hook) (root, joinrel, outer_rel, inner_rel, sjinfo,
+diff --git a/src/include/nodes/pathnodes.h b/src/include/nodes/pathnodes.h
+index 2ba1dbfb..7daaf092 100644
+--- a/src/include/nodes/pathnodes.h
++++ b/src/include/nodes/pathnodes.h
+@@ -62,6 +62,19 @@
+  * plugin can nudge the planner toward a particular strategy by disabling
+  * all of the others, but that doesn't work here: unsetting PGS_SEQSCAN,
+  * for instance, would disable both partial and non-partial sequential scans.
++ *
++ * A path's parameterization (the set of outer relations it requires, see
++ * PATH_REQ_OUTER) is a choice along a different axis, so it is not controlled
++ * by a bit here but by each RelOptInfo's pgs_required_outer and
++ * pgs_forbidden_outer: a path that is not parameterized by every relation in
++ * the former, or that is parameterized by any relation in the latter other
++ * than one of the rel's own lateral_relids (which every path of the rel
++ * requires), is disabled. Both are empty by default, which permits every
++ * parameterization.
++ * Unlike most of the bits above, this is enforced where paths are added to
++ * the rel (add_path and friends, and reparameterize_path), so it applies
++ * equally to paths whose costs are computed outside core, such as foreign
++ * and custom paths.
+  */
+ #define PGS_SEQSCAN					0x00000001
+ #define PGS_INDEXSCAN				0x00000002
+@@ -1040,6 +1053,10 @@ typedef struct RelOptInfo
+ 	bool		consider_parallel;
+ 	/* path generation strategy mask */
+ 	uint64		pgs_mask;
++	/* rels every enabled path must be parameterized by */
++	Relids		pgs_required_outer;
++	/* rels no enabled path may be parameterized by */
++	Relids		pgs_forbidden_outer;
+ 
+ 	/*
+ 	 * default result targetlist for Paths scanning this relation; list of
+-- 
+2.53.0
+

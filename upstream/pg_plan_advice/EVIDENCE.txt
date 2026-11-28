@@ -1,0 +1,104 @@
+EVIDENCE: pg_plan_advice cannot advise a scan's parameterization, a cached generic plan ignores the advice in force,
+and advice for one query's alias lands on another query's; the v1 series fixes all three
+
+Run 2026-11-27 on aarch64-linux (Ubuntu 26.04, gcc 15.2.0, 64 cores, shared). Every build is master cf9d92d1f755
+(2026-11-27, "Introduce get_numeric_infinity() and get_numeric_nan()", PostgreSQL 20devel), meson, debugoptimized,
+-Dcassert=true -Dtap_tests=enabled, in a private cluster (initdb, Unix socket only, fsync=off, shared_buffers=512MB),
+as the bootstrap superuser under psql -X. "Counted empty" means the state a VACUUM leaves when it runs while the
+transaction filling a table is still open: relpages counted, reltuples 0. repro.sql reaches it that way (VACUUM from
+a second session); the regression tests reach it with pg_restore_relation_stats(..., 'reltuples', 0), which gives the
+same cost lines. grizzle first measured all of this on 19.0 (its lane notes: ~/.cache/grizzle/ADVICE/e2.log, e3.log).
+
+1. THE ROOT CAUSE OF THE PARAMETERIZATION GAP, IN THE COSTS (unpatched master)
+   Tables doc (doc pk, owner; 4 rows) and node (doc, f1, f2, v; pk (doc, f1, f2); 60,000 rows) plus node_doc_f1
+   (doc, f1), counted empty, INDEX_SCAN(n public.node_pkey) in force:
+     EXPLAIN (GENERIC_PLAN) SELECT n.v FROM node n WHERE n.doc = $2 AND n.f1 = 1 AND n.f2 = 2;
+       Index Scan using node_pkey on node n  (cost=0.25..8.27 rows=1 width=32)
+     EXPLAIN (GENERIC_PLAN) SELECT n.v FROM node n WHERE n.f1 = 1 AND n.f2 = 2;
+       Index Scan using node_pkey on node n  (cost=0.25..8.27 rows=1 width=32)
+   Equal cost, equal rows, and the unparameterized path requires a subset of the outer rels, so add_path() keeps it
+   and frees the parameterized one while the base rel is planned. Advice applied when joins are planned can't
+   bring back a path that no longer exists.
+
+2. THE PLAIN JOIN AND THE FLATTENED EXISTS
+   Query J: SELECT n.v FROM doc d JOIN node n ON n.doc = d.doc AND n.f1 = 1 AND n.f2 = 2 WHERE d.owner = 1
+   a. unpatched master, counted empty, JOIN_ORDER(d n) NESTED_LOOP_PLAIN(n) SEQ_SCAN(d) INDEX_SCAN(n public.node_pkey)
+      NO_GATHER(d n), every item "matched":
+        Nested Loop  Join Filter: (d.doc = n.doc)
+          Index Scan using node_pkey on node n  Index Cond: ((f1 = 1) AND (f2 = 2))  Index Searches: 4  Buffers: 13
+      Generated advice for this plan: JOIN_ORDER(d n) NESTED_LOOP_PLAIN(n) SEQ_SCAN(d) INDEX_SCAN(n public.node_pkey)
+      NO_GATHER(d n).
+   b. unpatched master, the same tables after ANALYZE, then reltuples set back to 0 with pg_restore_relation_stats
+      (column statistics kept), the same advice: the planner probes,
+        Index Scan using node_pkey on node n  Index Cond: ((doc = d.doc) AND (f1 = 1) AND (f2 = 2))  Buffers: 5
+      and the advice generated from this plan is, character for character, the string generated in (a). Two plans,
+      one advice string: the vocabulary cannot tell them apart, so the round trip fails without any feedback flag.
+   c. patched, counted empty, the same advice plus PARAMETERIZED(n d):
+        Index Scan using node_pkey on node n  Index Cond: ((doc = d.doc) AND (f1 = 1) AND (f2 = 2))
+          Index Searches: 2  Buffers: 5                     (whole plan 6, against 14 in (a))
+      Generated advice: ... INDEX_SCAN(n public.node_pkey) PARAMETERIZED(n d) UNPARAMETERIZED(d) NO_GATHER(d n).
+      In the regression test parameterized.sql, the advice generated in the analyzed state reproduces the probe after
+      the statistics are moved to counted empty, where the 19.0 vocabulary gives the join filter.
+   d. Query E: SELECT d.doc FROM doc d WHERE d.owner = 1 AND EXISTS (SELECT 1 FROM node n WHERE n.doc = d.doc AND
+      n.f1 = 1 AND n.f2 = 2), flattened by the planner, counted empty, patched build:
+        no advice                                    node_doc_f1, Index Cond: (f1 = 1), Join Filter   1,254 buffers
+        INDEX_ONLY_SCAN(n public.node_pkey)          node_pkey,  Index Cond: ((f1 = 1) AND (f2 = 2))     10 buffers
+        ... plus PARAMETERIZED(n d)                  node_pkey,  Index Cond: ((doc = d.doc) AND ...)      6 buffers
+      (grizzle's 19.0 measurement of the same: 1,254 flattened; 6 kept as a subplan with OFFSET 0.)
+
+3. THE FOREIGN-KEY CHECKS
+   Tables tgt (pkg, id, label; pk (pkg, id); 3,000 rows; sibling index tgt_label_id (label, id)) and ref (pkg, id,
+   seq, body; pk (pkg, id, seq); FOREIGN KEY (pkg, id) REFERENCES tgt; 60,000 rows; sibling index ref_seq_pkg (seq,
+   pkg)), counted empty, force_generic_plan, auto_explain with buffers. Each step deletes one tgt key that ref doesn't
+   reference, so PostgreSQL runs ri_triggers.c's two queries, both aliasing their table x:
+     SELECT 1 FROM ONLY "public"."tgt" x WHERE "pkg" = $1 AND "id" = $2 FOR KEY SHARE OF x   (target recheck)
+     SELECT 1 FROM ONLY "public"."ref" x WHERE $1 = "pkg" AND $2 = "id" FOR KEY SHARE OF x   ("still referenced?")
+   The bound for the second is one descent of ref_pkey: 2 buffers.
+   a. unpatched master (lane run ri1, 2026-11-27):
+        tx 1, no advice                                      ref_seq_pkg, Filter ($2 = id), 20,000 rows removed  12,428
+        tx 2, SET LOCAL INDEX_SCAN(x public.ref_pkey)         ref_seq_pkg, no feedback for the RI query           12,424
+          (the generic plan from tx 1 is reused; only the DELETE itself is replanned)
+        new session, tx 1 with that advice                   ref_pkey (the tgt recheck reports "matched,
+                                                             inapplicable, failed")                                   2
+        then tx 2 without it                                 ref_pkey: the advice outlived its transaction              2
+        new session, default plan_cache_mode, six deletes
+        without advice, then one with it                     ref_seq_pkg, no feedback                            12,424
+   b. patched (repro.sql R1 to R4):
+        R1 tx 1, no advice                                   ref_seq_pkg                                         12,425
+                                                             tgt check: tgt_label_id                                 16
+        R2 unqualified INDEX_SCAN(x public.ref_pkey)
+           INDEX_SCAN(x public.tgt_pkey)                     both items "matched, conflicting, failed" in both
+                                                             checks; ref_seq_pkg                                 12,424
+        R3 qualified INDEX_SCAN(x:public.ref public.ref_pkey)
+           INDEX_SCAN(x:public.tgt public.tgt_pkey)          ref_pkey (generic plan from R1 rebuilt)                  2
+                                                             tgt check: tgt_pkey                                      3
+        R4 next transaction, no advice                       ref_seq_pkg again                                   12,424
+      12,425 against 2 is 6,212 times the bound (grizzle's 19.0 measurement, another shape: 10,463 against 2).
+
+4. TESTS
+   meson test on the final tree (all four patches), assert build, TAP enabled:
+     regress/regress                       243 subtests passed
+     plpgsql/regress                        13 subtests passed
+     pg_plan_advice/regress                 12 subtests passed (new: cached_plans, parameterized, qualified)
+     pg_plan_advice/001_foreign_scan         3 subtests passed
+     pg_stash_advice/regress                 2 subtests passed
+     pg_stash_advice/001_persist             6 subtests passed
+     test_plan_advice/001_replan_regress     passed: the whole core regression suite planned twice, the second time
+                                           under the advice generated from the first (now including PARAMETERIZED and
+                                           UNPARAMETERIZED), with pg_plan_advice.feedback_warnings on
+   Along the way test_plan_advice caught two classes of bug in earlier drafts, both fixed before v1: a parameter
+   whose value is a PlaceHolderVar is charged by the planner to the relations the PHV may be evaluated at, which the
+   plan doesn't record (so such scans get no parameterization advice), and the rels of a lateral subquery carry
+   their lateral references in every path (so core exempts lateral_relids from pgs_forbidden_outer). A partitioned
+   case in parameterized.sql found that reparameterize_path() bypassed add_path(), and with it both the new
+   restriction and, already, IndexOptInfo.disabled; 0001 fixes both.
+   cached_plans.sql reads which index the RI check used from pg_stat_user_indexes after pg_stat_force_next_flush();
+   its expected output (cp_ref_pkey in the two advised transactions) is what the unpatched build gets wrong, per 3a.
+   Each patch builds on its own (scratch worktree, one commit at a time).
+
+5. COST OF THE NEW CHECKS (from first principles; not separately benchmarked)
+   add_path() and its three siblings: two bms tests against NULL sets unless an extension restricts the rel.
+   Reuse of a cached generic plan with pg_plan_advice loaded: one walk of a short DefElem list per statement and an
+   integer comparison while neither the GUC nor any advisor generation has moved; a string comparison when the GUC
+   was assigned since (a function's SET clause on each call); an advisor probe only after an advisor's generation
+   moved, after which the stamps are updated in place.

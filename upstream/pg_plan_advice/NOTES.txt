@@ -1,0 +1,29 @@
+NOTES: grizzle's side of the pg_plan_advice series (lane PGADVICE, 2026-11-27)
+
+Why grizzle cares
+- grizzle proves at compile time which index each keyed read uses and which columns it binds, and the carry-the-plan
+  design (~/.cache/grizzle-release/status/CARRY-THE-PLAN.html) prints that proof both as SQL and as pg_plan_advice
+  advice. Two of its workarounds exist only because of the gaps this series closes:
+  - every keyed join is printed as a LATERAL subquery with LIMIT or OFFSET 0, which the planner never flattens,
+    because advice could not carry the binding (gap a, finding 5 of CARRY-THE-PLAN). With PARAMETERIZED, a keyed
+    join can be a plain join plus PARAMETERIZED(probed driver).
+  - foreign keys into tables that writes delete from are checked by grizzle itself, at commit, instead of natively,
+    because advice could not reach PostgreSQL's RI queries (gap c, FOREIGN-KEYS.html option 1). With qualified
+    identifiers and cached-plan revalidation (gaps b and c), a transaction prologue can carry the RI checks' advice.
+- None of this is a dependency: it reaches grizzle's hosts in PostgreSQL 20 at the earliest, and RDS later. Until
+  then grizzle keeps its workarounds.
+
+Where things live
+- Commits: ~/.cache/grizzle/PGADVICE/pg, a git worktree (branch pgadvice) of
+  ~/.cache/grizzle-release/pg19-review/pgsrc.git, on master cf9d92d1f755. The patch files in master/ are that
+  branch's git format-patch, so the worktree holds nothing more.
+- Build, tests and demonstrations: ~/.cache/grizzle/PGADVICE/{build,inst,demo,logs}; the private cluster that ran
+  them was deleted after the run.
+- Design: ~/.cache/grizzle-release/status/PG-ADVICE-DESIGN.md.
+
+Decisions taken on the way (main relayed Bjorn's direction)
+- No GUC to generate qualified identifiers: generated advice is exact for its statement; the qualifier is input
+  syntax for whoever composes one string for many statements, which grizzle does.
+- Cached-plan revalidation covers advisors too, with a generation fast path, so pg_stash_advice has no hole either.
+- The core parameterization primitive is an interval (required, forbidden), not an exact set, so outer-join relids
+  and lateral references need no special case in extensions.

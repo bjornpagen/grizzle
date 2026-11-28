@@ -1,0 +1,197 @@
+To: Robert Haas <rhaas@postgresql.org>
+Cc: Noah Misch <noah@leadboat.com>,
+ pgsql-hackers@lists.postgresql.org
+Subject: pg_plan_advice: parameterization advice, cached plans that
+ follow the advice in force, and relation-qualified identifiers
+Attach: master/v1-0001-Let-extensions-restrict-the-parameterization-of-a.patch
+ master/v1-0002-pg_plan_advice-Add-PARAMETERIZED-and-UNPARAMETERI.patch
+ master/v1-0003-Replan-a-cached-generic-plan-when-the-plan-advice.patch
+ master/v1-0004-pg_plan_advice-Add-relation-qualified-identifiers.patch
+ EVIDENCE.txt repro.sql
+
+Hi,
+
+We generate SQL from a compiler that already knows, for each
+statement, which index every read must use and which columns it
+binds, and since 19 we hand that plan to the planner with
+pg_plan_advice instead of hoping the statistics agree.  That works
+remarkably well.  But we hit three places where the module's own
+guarantees don't hold, and the attached series, against master,
+closes them by extending the module's existing machinery rather than
+adding a new mechanism.  All numbers below are from master
+(cf9d92d1f75), assert build; the details and a script are in the
+attached EVIDENCE.txt and repro.sql.
+
+1. Parameterization is not in the vocabulary (0001, 0002)
+
+The README promises that generated advice "should successfully
+enforce the same planning decision that led to it being generated".
+Take
+
+  SELECT n.v FROM doc d JOIN node n
+    ON n.doc = d.doc AND n.f1 = 1 AND n.f2 = 2
+  WHERE d.owner = 1;
+
+with node keyed by (doc, f1, f2).  The planner can probe node_pkey
+once per row of d, with (doc = d.doc) in the index condition, or scan
+node_pkey on (f1, f2) alone and leave d.doc = n.doc as a join filter.
+Both plans generate exactly the same advice:
+
+  JOIN_ORDER(d n) NESTED_LOOP_PLAIN(n) SEQ_SCAN(d)
+  INDEX_SCAN(n public.node_pkey) NO_GATHER(d n)
+
+so the advice can't tell them apart.  It matters as soon as the
+statistics move.  After a VACUUM that ran while the transaction
+filling the table was still open (pages counted, reltuples 0), that
+advice, every item "matched", gives the join filter.  The reason is
+upstream of the join: the parameterized and unparameterized index
+paths both cost 0.25..8.27 with rows=1, so add_path() keeps the
+unparameterized one and frees the parameterized one while the base
+rel is planned, and nothing done at join time can bring it back.  On
+the flattened form of a correlated EXISTS over the same tables, the
+planner's choice reads 1,254 buffers where the probe reads 6.
+
+0002 adds
+
+  PARAMETERIZED(n d)        n's scan takes its parameters from d
+  PARAMETERIZED(n (d e))    ... from exactly d and e
+  UNPARAMETERIZED(n)        ... from nothing
+
+following the module's existing pairs (GATHER/NO_GATHER,
+SEMIJOIN_UNIQUE/SEMIJOIN_NON_UNIQUE) and INDEX_SCAN's form of a target
+followed by an argument.  It is scan advice, because parameterization
+is a property of a base relation's scan: the inner side of a nested
+loop can be a join whose members take parameters from different outer
+relations, and a star join's fact table parameterized by d1 or by d1
+and d2 are different plans.  Sources are named by their topmost
+parents, which is how the planner itself records a parameterization
+until reparameterize_path_by_child(), and outer joins are never named.
+Like join method advice, it implies a join order.
+
+Enforcement has to happen where the base rel's paths are added, so
+0001 adds one primitive to core, in the spirit of pgs_mask and
+IndexOptInfo.disabled: RelOptInfo.pgs_required_outer and
+pgs_forbidden_outer.  A path not parameterized by every relation in
+the first, or parameterized by one in the second (other than the
+rel's own lateral_relids, which every path has), counts as one more
+disabled node.  Both default to empty, so nothing changes unless an
+extension sets them.  The check is in add_path() and its three
+siblings, where every path of a rel arrives, foreign, custom and
+Append paths included, and in reparameterize_path(), whose paths
+bypass add_path().  An interval rather than an exact set is what lets
+outer-join relids, which appear in a parameterization when a
+parameter can be nulled, stay out of the extension's way.  Disabled
+paths survive as a last resort, so this can't cause planner failure.
+(While there, 0001 makes reparameterize_path() honor
+IndexOptInfo.disabled, which it currently loses for the index paths it
+copies.  That one is a bug in 19 and could be split out and
+back-patched if you prefer.)
+
+Generated advice includes the new items for each relation scanned by
+itself for which the planner had a choice, that is, a parameterized
+path was built and some other parameterization, possibly none, was
+possible.  That mirrors how SEMIJOIN_NON_UNIQUE is emitted only where
+unique-ification was considered.  The parameterization is read from
+the final plan by following each NestLoop parameter back through the
+outer side's targetlists to the scan that supplies it, as ruleutils
+does to print it.  A scan that takes a computed parameter, such as a
+PlaceHolderVar's value, gets no such advice, because the plan doesn't
+record which relations the planner charged that value to.
+
+2. A cached plan ignores the advice in force (0003)
+
+Noah reported this in his review (postgr.es/m/
+20260827171830.68.noahmisch@microsoft.com), and 26bd08fb5c0
+documented it, pointing to DISCARD PLANS.  That reads like a corner of
+PREPARE, but the plans it hits hardest are ones no user statement
+holds.  ri_triggers.c prepares the queries for each foreign key once
+and keeps them for the life of the backend.  So whichever transaction
+first runs a foreign-key check in a backend decides that check's plan
+for every later transaction, whatever advice those transactions set.
+Deleting an unreferenced key from a table referenced by a 60,000-row
+table that statistics say is empty, the "is the key still
+referenced?" check reads 12,424 buffers in a transaction whose advice
+pins the key index (one descent reads 2), because an earlier
+transaction without advice cached a plan that skip-scans a sibling
+index.  The reverse holds too: advice set with SET LOCAL kept steering
+that check after its transaction ended.  Nothing reports either.
+
+0003 adds check_cached_plan_hook to plancache.c, consulted where
+search_path is checked before a generic plan is reused, and
+pg_plan_advice uses it to maintain one invariant: a generic plan is
+reused only while the advice that would be supplied for its query now
+equals the advice it was planned under, whether pg_plan_advice.advice
+or an advisor supplies it.  Each source is checked the way it changes,
+so reuse stays cheap.  The GUC carries a generation bumped by its
+assign hook: unchanged, the check is one integer comparison; changed,
+one string comparison, so a function whose SET clause sets the same
+string on every call never replans because of it.  Advisors may now
+register a generation function, which pg_stash_advice derives from its
+existing shared change counter; only a moved generation leads to
+asking the advisors again, and when the advice turns out unchanged,
+the plan's stamps are updated in place.
+
+This changes the advisor interface: pg_plan_advice_add_advisor() takes
+the generation function (NULL allowed), and an advisor may be called
+with NULL glob and es to revalidate a cached plan, when it must return
+what it would supply if the query were planned at that moment.  The
+DISCARD PLANS paragraph leaves the docs.
+
+3. Advice for one query's alias lands on another's (0004)
+
+Identifiers are unique within a query, but pg_plan_advice.advice is in
+force for every query planned in its scope, including ones the user
+never wrote.  ri_triggers.c aliases every table "x", and ORM-generated
+SQL repeats aliases across statements the same way.  An item meant for
+one check's table reports "matched, inapplicable, failed" on the
+other's, and one item per table conflict in both checks, so neither is
+enforced.  0004 lets handwritten advice name the relation an alias
+must refer to:
+
+  alias#occurrence:schema.relation/partition_schema.partition@plan
+
+A qualified identifier matches what the unqualified one would, if the
+alias refers to that relation (for a partition, the partitioned
+table), and nothing otherwise.  It only narrows a match, so
+identifiers stay unique, and generated advice, which is exact for the
+query it came from, never includes it.  With
+
+  INDEX_SCAN(x:public.ref public.ref_pkey)
+  INDEX_SCAN(x:public.tgt public.tgt_pkey)
+
+in force, both foreign-key checks above use their keys: 2 and 3
+buffers, against 12,425 and 16.  I first tried generalizing the
+"/partition" component to name whatever relation an RTE scans.  But
+under traditional inheritance the parent's own rows are scanned by a
+child RTE with the parent's alias and relation, already identified as
+p/public.p, so that identifier would have matched two RTEs, the kind
+of ambiguity 63920eb0 removed.  0004 also makes the three places that
+compared identifiers field by field share one function.
+
+Testing: new regression files parameterized, cached_plans and
+qualified, additions to syntax and to pg_stash_advice, and the
+expected-output updates the new generated items cause.
+test_plan_advice, which replans the whole core regression suite under
+the advice generated for each query, passes with the new items.  It
+caught two problems in earlier drafts, the PlaceHolderVar and lateral
+cases described above.  regress, plpgsql, pg_plan_advice,
+pg_stash_advice and both modules' TAP tests pass, and each patch
+builds on its own.
+
+Things I'd most like opinions on:
+
+- the names: PARAMETERIZED/UNPARAMETERIZED, pgs_required_outer/
+  pgs_forbidden_outer, check_cached_plan_hook, the ":" sigil;
+- add_path() counting a parameterization mismatch as one more disabled
+  node, which counts a node twice if it is also disabled for another
+  reason (it only ever makes a non-conforming path less attractive);
+- parameterization charged to a join rather than a scan (a clause over
+  three or more relations) is not advised.  The core primitive already
+  works for joinrels, so the vocabulary could grow there if
+  test_plan_advice ever finds such a plan;
+- with pg_plan_advice.feedback_warnings, a qualified item reports "not
+  matched" in every other statement of its scope.  That's correct, but
+  it's noise in multi-statement scopes.
+
+Thanks,
+Bjorn Pagen

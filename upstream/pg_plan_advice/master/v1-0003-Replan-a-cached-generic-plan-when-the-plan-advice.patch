@@ -1,0 +1,1507 @@
+From 4f5820f147414adb367643407d6c91a66011988d Mon Sep 17 00:00:00 2001
+From: Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 21:15:10 -0600
+Subject: [PATCH v1 3/4] Replan a cached generic plan when the plan advice in
+ force changes.
+
+pg_plan_advice applies advice when a query is planned, so a cached generic
+plan went on being reused under whatever advice was in force when it was
+made.  This was reported during review (Noah Misch) and documented as a
+limitation, with DISCARD PLANS as the remedy.  But the plans most affected
+are ones no user statement holds: ri_triggers.c prepares the queries for
+each foreign key once and keeps them for the life of the backend.  So the
+plan a foreign-key check runs depended on which transaction first ran that
+check in the backend.  Measured on a referencing table of 60,000 rows that
+statistics say is empty, the "is the deleted key still referenced?" check
+read 12,424 buffers in a transaction whose advice pinned the key index,
+because an earlier transaction without advice had cached a plan that
+skip-scans a sibling index; one descent reads 2.  The reverse also held:
+advice set with SET LOCAL kept steering that check after its transaction
+ended.  Nothing reported either.
+
+Add check_cached_plan_hook to plancache.c, consulted where search_path is
+checked before a generic plan is reused (CheckCachedPlan and
+CachedPlanIsSimplyValid); returning false invalidates the plan, which is
+then rebuilt as after any invalidation.  The query tree doesn't depend on
+the hook's inputs, so only the plan is rebuilt.
+
+pg_plan_advice uses it to maintain one invariant: a generic plan is reused
+only while the advice that would be supplied for its query now equals the
+advice it was planned under, whether pg_plan_advice.advice or an advisor
+supplies it.  Each PlannedStmt records the advice, its source, and a
+generation for each kind of source, and each source is checked the way it
+changes.  The GUC's generation is bumped by its assign hook; an unchanged
+generation is one comparison, and a changed one costs a string
+comparison, so a function whose SET clause sets the same string on every
+call never replans because of it.  Advisors may now provide a generation
+function, which pg_stash_advice does from its existing shared change
+counter, its readiness flag and a count of assignments to
+pg_stash_advice.stash_name; advisors are consulted again only when a
+generation has moved, or when an advisor has none.  When the advice turns
+out unchanged, the record's generations are updated in place, so the
+check is paid once per change, not once per reuse.  Adding or removing an
+advisor invalidates every cached plan.
+
+This changes the advisor interface: pg_plan_advice_add_advisor() takes a
+generation function (which may be NULL), and an advisor may now be called
+with NULL glob and es, to revalidate a cached plan, and must then return
+the advice it would supply if the query were planned at that moment.
+
+The DISCARD PLANS limitation leaves the documentation.  New tests cover
+a foreign-key check under force_generic_plan that follows advice set
+after it was planned, the same in the default mode after the custom-plan
+trials, advice that doesn't outlive its transaction, a function SET
+clause that doesn't cause replanning, and a prepared statement that
+follows a change to the stash.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ contrib/pg_plan_advice/Makefile               |   2 +-
+ contrib/pg_plan_advice/README                 |  27 ++
+ .../pg_plan_advice/expected/cached_plans.out  | 172 ++++++++++
+ contrib/pg_plan_advice/meson.build            |   1 +
+ contrib/pg_plan_advice/pg_plan_advice.c       | 305 ++++++++++++++++--
+ contrib/pg_plan_advice/pg_plan_advice.h       |  50 ++-
+ contrib/pg_plan_advice/pgpa_planner.c         |  52 +--
+ contrib/pg_plan_advice/sql/cached_plans.sql   | 107 ++++++
+ .../expected/pg_stash_advice.out              |  75 +++++
+ contrib/pg_stash_advice/pg_stash_advice.c     |  41 ++-
+ .../pg_stash_advice/sql/pg_stash_advice.sql   |  17 +
+ doc/src/sgml/pgplanadvice.sgml                |  42 ++-
+ doc/src/sgml/pgstashadvice.sgml               |  10 +-
+ src/backend/utils/cache/plancache.c           |  19 ++
+ src/include/utils/plancache.h                 |  16 +
+ .../test_plan_advice/test_plan_advice.c       |  24 +-
+ src/tools/pgindent/typedefs.list              |   4 +
+ 17 files changed, 895 insertions(+), 69 deletions(-)
+ create mode 100644 contrib/pg_plan_advice/expected/cached_plans.out
+ create mode 100644 contrib/pg_plan_advice/sql/cached_plans.sql
+
+diff --git a/contrib/pg_plan_advice/Makefile b/contrib/pg_plan_advice/Makefile
+index 626e154e..6e0dd5ff 100644
+--- a/contrib/pg_plan_advice/Makefile
++++ b/contrib/pg_plan_advice/Makefile
+@@ -19,7 +19,7 @@ HEADERS_pg_plan_advice = pg_plan_advice.h
+ 
+ PGFILEDESC = "pg_plan_advice - help the planner get the right plan"
+ 
+-REGRESS = alternatives gather join_order join_strategy parameterized \
++REGRESS = alternatives cached_plans gather join_order join_strategy parameterized \
+ 	partitionwise prepared scan semijoin syntax
+ 
+ TAP_TESTS = 1
+diff --git a/contrib/pg_plan_advice/README b/contrib/pg_plan_advice/README
+index 7eaf65eb..f129874d 100644
+--- a/contrib/pg_plan_advice/README
++++ b/contrib/pg_plan_advice/README
+@@ -288,6 +288,33 @@ the join the user is attempting to constrain won't actually occur in the
+ query, which ends up looking like the system has just decided to ignore
+ the advice altogether.
+ 
++Cached Plans
++============
++
++Advice is applied when a query is planned, but a generic plan can be cached
++and reused long after: a prepared statement, a statement in a PL/pgSQL
++function, or one of the queries ri_triggers.c prepares for each foreign key
++and keeps for the life of the backend. If such a plan went on being reused
++regardless of the advice in force, the plan a foreign-key check runs would
++depend on which transaction happened to run that check first in the backend,
++and advice set for one transaction would outlive it. So a generic plan is
++reused only while the advice that would be supplied for its query now equals
++the advice it was planned under, whatever supplies it.
++
++Core gives us check_cached_plan_hook, consulted where plancache.c checks
++search_path before reusing a generic plan. Each PlannedStmt records the advice
++it was planned under, whether an advisor or pg_plan_advice.advice supplied it,
++and a generation for each kind of source. Each source is checked the way it
++actually changes: an unchanged generation for the GUC (bumped by its assign
++hook) is a single comparison, and a changed one costs a string comparison, so
++a function whose SET clause sets the same string on every call never replans
++because of it; advisors may provide a generation function, and only when one
++has moved, or an advisor has none, do we consult the advisors again, with no
++PlannerGlobal or ExplainState. When the advice turns out to be unchanged, the
++record's generations are updated in place, so that the check is paid once per
++change rather than once per reuse. Adding or removing an advisor invalidates
++every cached plan.
++
+ Future Work
+ ===========
+ 
+diff --git a/contrib/pg_plan_advice/expected/cached_plans.out b/contrib/pg_plan_advice/expected/cached_plans.out
+new file mode 100644
+index 00000000..9c21d0c7
+--- /dev/null
++++ b/contrib/pg_plan_advice/expected/cached_plans.out
+@@ -0,0 +1,172 @@
++LOAD 'pg_plan_advice';
++SET max_parallel_workers_per_gather = 0;
++-- A cached generic plan is reused only while the advice that would be
++-- supplied now is the advice it was planned under. We test this with the
++-- queries that ri_triggers.c prepares for a foreign key and keeps for the
++-- life of the backend: deleting a key from cp_tgt checks whether cp_ref
++-- still references it, which cp_ref_pkey answers in one descent.
++CREATE TABLE cp_tgt (pkg int, id int, PRIMARY KEY (pkg, id))
++	WITH (autovacuum_enabled = false);
++CREATE TABLE cp_ref (pkg int NOT NULL, id int NOT NULL, seq int NOT NULL,
++	PRIMARY KEY (pkg, id, seq), FOREIGN KEY (pkg, id) REFERENCES cp_tgt)
++	WITH (autovacuum_enabled = false);
++CREATE INDEX cp_ref_seq_pkg ON cp_ref (seq, pkg);
++INSERT INTO cp_tgt SELECT p, i FROM generate_series(1, 3) p,
++	generate_series(1, 100) i;
++INSERT INTO cp_ref SELECT p, i, s FROM generate_series(1, 3) p,
++	generate_series(1, 100) i, generate_series(1, 20) s;
++INSERT INTO cp_tgt SELECT 2, g FROM generate_series(1001, 1020) g;
++-- Make cp_ref look empty, so that every index path ties and the planner's
++-- own choice for the check is the smaller sibling index.
++SELECT pg_restore_relation_stats('schemaname', 'public', 'relname', 'cp_ref',
++	'relpages', 100, 'reltuples', 0::real);
++ pg_restore_relation_stats 
++---------------------------
++ t
++(1 row)
++
++SELECT pg_restore_relation_stats('schemaname', 'public', 'relname', 'cp_tgt',
++	'relpages', 10, 'reltuples', 0::real);
++ pg_restore_relation_stats 
++---------------------------
++ t
++(1 row)
++
++-- Which of cp_ref's indexes have been scanned since we last looked? Call
++-- pg_stat_force_next_flush() first, in a statement of its own, so that the
++-- cumulative statistics include the scans.
++CREATE TABLE cp_seen (indexrelid regclass PRIMARY KEY, scans bigint);
++INSERT INTO cp_seen SELECT indexrelid, 0 FROM pg_index
++	WHERE indrelid = 'cp_ref'::regclass;
++CREATE FUNCTION cp_ref_indexes_used() RETURNS text LANGUAGE sql
++	BEGIN ATOMIC
++	WITH now AS (
++		SELECT indexrelid, idx_scan FROM pg_stat_user_indexes
++		WHERE relid = 'cp_ref'::regclass),
++	newly AS (
++		UPDATE cp_seen s SET scans = now.idx_scan FROM now
++		WHERE s.indexrelid = now.indexrelid AND now.idx_scan > s.scans
++		RETURNING s.indexrelid)
++	SELECT string_agg(indexrelid::text, ', ' ORDER BY indexrelid::text)
++		FROM newly;
++	END;
++-- Under force_generic_plan, the first check builds the generic plan with no
++-- advice in force. A later transaction's advice must reach it, and once that
++-- transaction ends, its advice must not outlive it.
++SET plan_cache_mode = force_generic_plan;
++BEGIN;
++DELETE FROM cp_tgt WHERE pkg = 2 AND id = 1001;
++COMMIT;
++SELECT pg_stat_force_next_flush();
++ pg_stat_force_next_flush 
++--------------------------
++ 
++(1 row)
++
++SELECT cp_ref_indexes_used();
++ cp_ref_indexes_used 
++---------------------
++ cp_ref_seq_pkg
++(1 row)
++
++BEGIN;
++SET LOCAL pg_plan_advice.advice = 'INDEX_SCAN(x public.cp_ref_pkey)';
++DELETE FROM cp_tgt WHERE pkg = 2 AND id = 1002;
++COMMIT;
++SELECT pg_stat_force_next_flush();
++ pg_stat_force_next_flush 
++--------------------------
++ 
++(1 row)
++
++SELECT cp_ref_indexes_used();
++ cp_ref_indexes_used 
++---------------------
++ cp_ref_pkey
++(1 row)
++
++BEGIN;
++DELETE FROM cp_tgt WHERE pkg = 2 AND id = 1003;
++COMMIT;
++SELECT pg_stat_force_next_flush();
++ pg_stat_force_next_flush 
++--------------------------
++ 
++(1 row)
++
++SELECT cp_ref_indexes_used();
++ cp_ref_indexes_used 
++---------------------
++ cp_ref_seq_pkg
++(1 row)
++
++-- The same in the default mode, after the custom-plan trials have settled on
++-- a generic plan.
++RESET plan_cache_mode;
++DISCARD PLANS;
++BEGIN;
++DELETE FROM cp_tgt WHERE pkg = 2 AND id = 1004;
++DELETE FROM cp_tgt WHERE pkg = 2 AND id = 1005;
++DELETE FROM cp_tgt WHERE pkg = 2 AND id = 1006;
++DELETE FROM cp_tgt WHERE pkg = 2 AND id = 1007;
++DELETE FROM cp_tgt WHERE pkg = 2 AND id = 1008;
++DELETE FROM cp_tgt WHERE pkg = 2 AND id = 1009;
++DELETE FROM cp_tgt WHERE pkg = 2 AND id = 1010;
++COMMIT;
++SELECT pg_stat_force_next_flush();
++ pg_stat_force_next_flush 
++--------------------------
++ 
++(1 row)
++
++SELECT cp_ref_indexes_used();
++ cp_ref_indexes_used 
++---------------------
++ cp_ref_seq_pkg
++(1 row)
++
++BEGIN;
++SET LOCAL pg_plan_advice.advice = 'INDEX_SCAN(x public.cp_ref_pkey)';
++DELETE FROM cp_tgt WHERE pkg = 2 AND id = 1011;
++COMMIT;
++SELECT pg_stat_force_next_flush();
++ pg_stat_force_next_flush 
++--------------------------
++ 
++(1 row)
++
++SELECT cp_ref_indexes_used();
++ cp_ref_indexes_used 
++---------------------
++ cp_ref_pkey
++(1 row)
++
++-- A function whose SET clause supplies advice sets the same string on every
++-- call; that must not cost a replan. With pg_plan_advice.trace_mask, each
++-- planning under the advice reports how it changed the strategy mask, so the
++-- second call's silence shows that it reused the plan.
++CREATE FUNCTION cp_count(int) RETURNS bigint LANGUAGE plpgsql
++	SET pg_plan_advice.advice = 'SEQ_SCAN(r)'
++	AS $$
++	DECLARE n bigint;
++	BEGIN
++		SELECT count(*) INTO n FROM cp_ref r WHERE r.pkg = $1;
++		RETURN n;
++	END $$;
++SET plan_cache_mode = force_generic_plan;
++SET pg_plan_advice.trace_mask = true;
++SELECT cp_count(1);
++WARNING:  strategy mask for RTI 1 changed from 0x5ffff to 0x4cfe1
++ cp_count 
++----------
++     2000
++(1 row)
++
++SELECT cp_count(2);
++ cp_count 
++----------
++     2000
++(1 row)
++
++RESET pg_plan_advice.trace_mask;
++RESET plan_cache_mode;
+diff --git a/contrib/pg_plan_advice/meson.build b/contrib/pg_plan_advice/meson.build
+index 170ad8af..9b375c1e 100644
+--- a/contrib/pg_plan_advice/meson.build
++++ b/contrib/pg_plan_advice/meson.build
+@@ -54,6 +54,7 @@ tests += {
+   'regress': {
+     'sql': [
+       'alternatives',
++      'cached_plans',
+       'gather',
+       'join_order',
+       'join_strategy',
+diff --git a/contrib/pg_plan_advice/pg_plan_advice.c b/contrib/pg_plan_advice/pg_plan_advice.c
+index 7cd753ee..1349bc5e 100644
+--- a/contrib/pg_plan_advice/pg_plan_advice.c
++++ b/contrib/pg_plan_advice/pg_plan_advice.c
+@@ -19,14 +19,18 @@
+ #include "pgpa_trove.h"
+ #include "pgpa_walker.h"
+ 
++#include "catalog/pg_type_d.h"
+ #include "commands/defrem.h"
+ #include "commands/explain.h"
+ #include "commands/explain_format.h"
+ #include "commands/explain_state.h"
+ #include "funcapi.h"
++#include "nodes/makefuncs.h"
+ #include "optimizer/planner.h"
+ #include "storage/dsm_registry.h"
+ #include "utils/guc.h"
++#include "utils/memutils.h"
++#include "utils/plancache.h"
+ 
+ PG_MODULE_MAGIC_EXT(
+ 					.name = "pg_plan_advice",
+@@ -40,13 +44,23 @@ static bool pg_plan_advice_always_explain_supplied_advice = true;
+ bool		pg_plan_advice_feedback_warnings = false;
+ bool		pg_plan_advice_trace_mask = false;
+ 
+-/* Saved hook value */
++/* Saved hook values */
+ static explain_per_plan_hook_type prev_explain_per_plan = NULL;
++static check_cached_plan_hook_type prev_check_cached_plan = NULL;
++
++/* A registered advisor, with its generation function if it has one */
++typedef struct pgpa_advisor
++{
++	pg_plan_advice_advisor_hook hook;
++	pg_plan_advice_generation_hook generation;
++} pgpa_advisor;
+ 
+ /* Other file-level globals */
+ static int	es_extension_id;
+ static MemoryContext pgpa_memory_context = NULL;
+-static List *advisor_hook_list = NIL;
++static MemoryContext pgpa_revalidation_context = NULL;
++static List *advisor_list = NIL;
++static uint64 pgpa_advice_guc_generation = 0;
+ 
+ static void pg_plan_advice_explain_option_handler(ExplainState *es,
+ 												  DefElem *opt,
+@@ -59,6 +73,13 @@ static void pg_plan_advice_explain_per_plan_hook(PlannedStmt *plannedstmt,
+ 												 QueryEnvironment *queryEnv);
+ static bool pg_plan_advice_advice_check_hook(char **newval, void **extra,
+ 											 GucSource source);
++static void pg_plan_advice_advice_assign_hook(const char *newval, void *extra);
++static bool pg_plan_advice_check_cached_plan(CachedPlanSource *plansource,
++											 CachedPlan *plan);
++static bool pgpa_supplied_advice_unchanged(PlannedStmt *pstmt, Query *query,
++										   CachedPlanSource *plansource);
++static bool pgpa_advisor_generation(uint64 *generation);
++static bool pgpa_advice_strings_equal(const char *a, const char *b);
+ static DefElem *find_defelem_by_defname(List *deflist, char *defname);
+ 
+ /*
+@@ -75,7 +96,7 @@ _PG_init(void)
+ 							   PGC_USERSET,
+ 							   0,
+ 							   pg_plan_advice_advice_check_hook,
+-							   NULL,
++							   pg_plan_advice_advice_assign_hook,
+ 							   NULL);
+ 
+ 	DefineCustomBoolVariable("pg_plan_advice.always_explain_supplied_advice",
+@@ -136,6 +157,8 @@ _PG_init(void)
+ 	pgpa_planner_install_hooks();
+ 	prev_explain_per_plan = explain_per_plan_hook;
+ 	explain_per_plan_hook = pg_plan_advice_explain_per_plan_hook;
++	prev_check_cached_plan = check_cached_plan_hook;
++	check_cached_plan_hook = pg_plan_advice_check_cached_plan;
+ }
+ 
+ /*
+@@ -167,33 +190,87 @@ pg_plan_advice_should_explain(ExplainState *es)
+ }
+ 
+ /*
+- * Get the advice that should be used while planning a particular query.
++ * Get the advice that should be used while planning a particular query, and
++ * note where it came from.
++ *
++ * glob and es are NULL when we're deciding whether a cached plan for the
++ * query may be reused rather than planning it.
+  */
+-char *
++void
+ pg_plan_advice_get_supplied_query_advice(PlannerGlobal *glob,
+ 										 Query *parse,
+ 										 const char *query_string,
+ 										 int cursorOptions,
+-										 ExplainState *es)
++										 ExplainState *es,
++										 pgpa_supplied_advice *supplied)
+ {
+-	ListCell   *lc;
++	supplied->advisors_have_generation =
++		pgpa_advisor_generation(&supplied->advisor_generation);
++	supplied->guc_generation = pgpa_advice_guc_generation;
+ 
+ 	/*
+ 	 * If any advisors are loaded, consult them. The first one that produces a
+ 	 * non-NULL string wins.
+ 	 */
+-	foreach(lc, advisor_hook_list)
++	foreach_ptr(pgpa_advisor, advisor, advisor_list)
+ 	{
+-		pg_plan_advice_advisor_hook hook = lfirst(lc);
+ 		char	   *advice_string;
+ 
+-		advice_string = (*hook) (glob, parse, query_string, cursorOptions, es);
++		advice_string = (*advisor->hook) (glob, parse, query_string,
++										  cursorOptions, es);
+ 		if (advice_string != NULL)
+-			return advice_string;
++		{
++			supplied->advice = advice_string;
++			supplied->from_advisor = true;
++			return;
++		}
+ 	}
+ 
+ 	/* Otherwise, just use the value of the GUC. */
+-	return pg_plan_advice_advice;
++	supplied->advice = pg_plan_advice_advice;
++	supplied->from_advisor = false;
++}
++
++/*
++ * Build the record of supplied advice that we store in a PlannedStmt, so that
++ * we can tell later whether a cached plan is still the one the advice in
++ * force would produce. See pg_plan_advice_check_cached_plan.
++ *
++ * The two generation numbers are kept in Const nodes because they are updated
++ * in place when a cached plan is found to be still valid after one of them
++ * has moved; see pgpa_supplied_advice_unchanged.
++ */
++List *
++pg_plan_advice_supplied_advice_items(pgpa_supplied_advice *supplied)
++{
++	List	   *items = NIL;
++
++	if (supplied->advice != NULL && supplied->advice[0] != '\0')
++		items = lappend(items,
++						makeDefElem("supplied_advice",
++									(Node *) makeString(pstrdup(supplied->advice)),
++									-1));
++	items = lappend(items,
++					makeDefElem("supplied_by_advisor",
++								(Node *) makeBoolean(supplied->from_advisor),
++								-1));
++	items = lappend(items,
++					makeDefElem("advisor_generation",
++								(Node *) makeConst(INT8OID, -1, InvalidOid,
++												   sizeof(int64),
++												   UInt64GetDatum(supplied->advisors_have_generation ?
++																  supplied->advisor_generation : 0),
++												   false, true),
++								-1));
++	items = lappend(items,
++					makeDefElem("guc_generation",
++								(Node *) makeConst(INT8OID, -1, InvalidOid,
++												   sizeof(int64),
++												   UInt64GetDatum(supplied->guc_generation),
++												   false, true),
++								-1));
++
++	return items;
+ }
+ 
+ /*
+@@ -203,15 +280,27 @@ pg_plan_advice_get_supplied_query_advice(PlannerGlobal *glob,
+  * The advisor should return NULL if it has no advice string to offer for a
+  * given query. If multiple advisors are added, they will be consulted in the
+  * order added until one of them returns a non-NULL value.
++ *
++ * generation may be NULL; see pg_plan_advice_generation_hook.
++ *
++ * Since a new advisor may supply advice for queries whose plans are already
++ * cached, adding or removing one invalidates every cached plan.
+  */
+ void
+-pg_plan_advice_add_advisor(pg_plan_advice_advisor_hook hook)
++pg_plan_advice_add_advisor(pg_plan_advice_advisor_hook hook,
++						   pg_plan_advice_generation_hook generation)
+ {
+ 	MemoryContext oldcontext;
++	pgpa_advisor *advisor;
+ 
+ 	oldcontext = MemoryContextSwitchTo(pg_plan_advice_get_mcxt());
+-	advisor_hook_list = lappend(advisor_hook_list, hook);
++	advisor = palloc_object(pgpa_advisor);
++	advisor->hook = hook;
++	advisor->generation = generation;
++	advisor_list = lappend(advisor_list, advisor);
+ 	MemoryContextSwitchTo(oldcontext);
++
++	ResetPlanCache();
+ }
+ 
+ /*
+@@ -220,11 +309,37 @@ pg_plan_advice_add_advisor(pg_plan_advice_advisor_hook hook)
+ void
+ pg_plan_advice_remove_advisor(pg_plan_advice_advisor_hook hook)
+ {
+-	MemoryContext oldcontext;
++	foreach_ptr(pgpa_advisor, advisor, advisor_list)
++	{
++		if (advisor->hook == hook)
++		{
++			advisor_list = foreach_delete_current(advisor_list, advisor);
++			pfree(advisor);
++			break;
++		}
++	}
+ 
+-	oldcontext = MemoryContextSwitchTo(pg_plan_advice_get_mcxt());
+-	advisor_hook_list = list_delete_ptr(advisor_hook_list, hook);
+-	MemoryContextSwitchTo(oldcontext);
++	ResetPlanCache();
++}
++
++/*
++ * Sum the generations of all advisors into *generation. Returns false if some
++ * advisor has no generation function, in which case the sum means nothing.
++ *
++ * Since every generation never decreases, the sum is unchanged only if every
++ * generation is.
++ */
++static bool
++pgpa_advisor_generation(uint64 *generation)
++{
++	*generation = 0;
++	foreach_ptr(pgpa_advisor, advisor, advisor_list)
++	{
++		if (advisor->generation == NULL)
++			return false;
++		*generation += (*advisor->generation) ();
++	}
++	return true;
+ }
+ 
+ /*
+@@ -444,6 +559,160 @@ pg_plan_advice_advice_check_hook(char **newval, void **extra, GucSource source)
+ 	return (error == NULL);
+ }
+ 
++/*
++ * Assign hook for pg_plan_advice.advice
++ *
++ * Count every assignment, so that a cached plan made under the advice in
++ * force at one assignment can be reused at the next without comparing the
++ * strings. Re-setting the same string, as a function's SET clause does on
++ * each call, costs a single string comparison and never forces a replan.
++ */
++static void
++pg_plan_advice_advice_assign_hook(const char *newval, void *extra)
++{
++	pgpa_advice_guc_generation++;
++}
++
++/*
++ * Hook to decide whether a cached generic plan may be reused.
++ *
++ * A generic plan is reused only while the advice that would be supplied now
++ * for each of its statements is the advice it was planned under, whether
++ * that advice comes from pg_plan_advice.advice or from an advisor. Otherwise
++ * a plan cached by one transaction would go on serving later transactions
++ * under whatever advice was in force when it was made: for example, the
++ * queries ri_triggers.c prepares for each foreign key are kept for the life
++ * of the backend.
++ */
++static bool
++pg_plan_advice_check_cached_plan(CachedPlanSource *plansource,
++								 CachedPlan *plan)
++{
++	ListCell   *lc_stmt;
++	ListCell   *lc_query;
++
++	if (prev_check_cached_plan &&
++		!(*prev_check_cached_plan) (plansource, plan))
++		return false;
++
++	forboth(lc_stmt, plan->stmt_list, lc_query, plansource->query_list)
++	{
++		PlannedStmt *pstmt = lfirst_node(PlannedStmt, lc_stmt);
++		Query	   *query = lfirst_node(Query, lc_query);
++
++		if (pstmt->commandType == CMD_UTILITY)
++			continue;
++		if (!pgpa_supplied_advice_unchanged(pstmt, query, plansource))
++			return false;
++	}
++
++	return true;
++}
++
++/*
++ * Is the advice that would be supplied for this statement now the advice
++ * that its plan was made under?
++ *
++ * Each source of advice is checked the way it actually changes. If the
++ * advisors' generations haven't moved, no advisor's answer can have changed:
++ * advice that came from an advisor is therefore still current, and advice
++ * that came from pg_plan_advice.advice needs only to be compared with that
++ * setting, which takes a single integer comparison if it hasn't been assigned
++ * since. Only when an advisor's generation has moved, or an advisor has no
++ * generation, do we work out the advice from scratch. When the advice turns
++ * out to be unchanged, we update the plan's record of the generations, so
++ * that the work is done once per change rather than once per reuse.
++ */
++static bool
++pgpa_supplied_advice_unchanged(PlannedStmt *pstmt, Query *query,
++							   CachedPlanSource *plansource)
++{
++	DefElem    *pgpa_item;
++	List	   *items;
++	DefElem    *advice_item;
++	DefElem    *by_advisor_item;
++	DefElem    *advisor_generation_item;
++	DefElem    *guc_generation_item;
++	const char *planned_advice;
++	uint64		advisor_generation;
++	pgpa_supplied_advice supplied = {0};
++	MemoryContext oldcontext;
++	bool		result;
++
++	pgpa_item = find_defelem_by_defname(pstmt->extension_state,
++										"pg_plan_advice");
++	items = pgpa_item == NULL ? NIL : (List *) pgpa_item->arg;
++	advice_item = find_defelem_by_defname(items, "supplied_advice");
++	by_advisor_item = find_defelem_by_defname(items, "supplied_by_advisor");
++	advisor_generation_item = find_defelem_by_defname(items,
++													  "advisor_generation");
++	guc_generation_item = find_defelem_by_defname(items, "guc_generation");
++	planned_advice = advice_item == NULL ? NULL : strVal(advice_item->arg);
++
++	/*
++	 * A plan made before pg_plan_advice was loaded has no record; it was
++	 * planned without advice, but we can't take any shortcut.
++	 */
++	if (guc_generation_item != NULL &&
++		pgpa_advisor_generation(&advisor_generation) &&
++		DatumGetUInt64(castNode(Const, advisor_generation_item->arg)->constvalue) ==
++		advisor_generation)
++	{
++		Const	   *guc_generation = castNode(Const, guc_generation_item->arg);
++
++		if (boolVal(by_advisor_item->arg))
++			return true;
++		if (DatumGetUInt64(guc_generation->constvalue) ==
++			pgpa_advice_guc_generation)
++			return true;
++		if (!pgpa_advice_strings_equal(planned_advice, pg_plan_advice_advice))
++			return false;
++		guc_generation->constvalue = UInt64GetDatum(pgpa_advice_guc_generation);
++		return true;
++	}
++
++	/* Work out the advice from scratch, in a short-lived context. */
++	if (pgpa_revalidation_context == NULL)
++		pgpa_revalidation_context =
++			AllocSetContextCreate(pg_plan_advice_get_mcxt(),
++								  "pg_plan_advice revalidation",
++								  ALLOCSET_SMALL_SIZES);
++	oldcontext = MemoryContextSwitchTo(pgpa_revalidation_context);
++	pg_plan_advice_get_supplied_query_advice(NULL, query,
++											 plansource->query_string,
++											 plansource->cursor_options,
++											 NULL, &supplied);
++	result = pgpa_advice_strings_equal(planned_advice, supplied.advice);
++	MemoryContextSwitchTo(oldcontext);
++
++	if (result && guc_generation_item != NULL)
++	{
++		castNode(Const, advisor_generation_item->arg)->constvalue =
++			UInt64GetDatum(supplied.advisors_have_generation ?
++						   supplied.advisor_generation : 0);
++		castNode(Const, guc_generation_item->arg)->constvalue =
++			UInt64GetDatum(supplied.guc_generation);
++		castNode(Boolean, by_advisor_item->arg)->boolval =
++			supplied.from_advisor;
++	}
++	MemoryContextReset(pgpa_revalidation_context);
++
++	return result;
++}
++
++/*
++ * Compare two advice strings, treating NULL and the empty string alike.
++ */
++static bool
++pgpa_advice_strings_equal(const char *a, const char *b)
++{
++	if (a == NULL)
++		a = "";
++	if (b == NULL)
++		b = "";
++	return strcmp(a, b) == 0;
++}
++
+ /*
+  * Search a list of DefElem objects for a given defname.
+  */
+diff --git a/contrib/pg_plan_advice/pg_plan_advice.h b/contrib/pg_plan_advice/pg_plan_advice.h
+index d7847715..5b207be8 100644
+--- a/contrib/pg_plan_advice/pg_plan_advice.h
++++ b/contrib/pg_plan_advice/pg_plan_advice.h
+@@ -44,13 +44,46 @@
+ #define PGPA_FB_CONFLICTING			0x0008
+ #define PGPA_FB_FAILED				0x0010
+ 
+-/* Hook for other plugins to supply advice strings */
++/*
++ * Hook for other plugins to supply advice strings.
++ *
++ * An advisor is consulted each time a query is planned. It is also consulted
++ * to decide whether a cached generic plan may be reused, in which case glob
++ * and es are NULL; it must then return the advice it would return if the
++ * query were planned now.
++ */
+ typedef char *(*pg_plan_advice_advisor_hook) (PlannerGlobal *glob,
+ 											  Query *parse,
+ 											  const char *query_string,
+ 											  int cursorOptions,
+ 											  ExplainState *es);
+ 
++/*
++ * Optional companion to an advisor: returns a number that never decreases,
++ * and increases whenever any advice string the advisor might return could
++ * have changed. While it stays the same, a cached plan can be reused without
++ * consulting the advisor; an advisor registered without one is consulted
++ * every time a cached generic plan is reused.
++ */
++typedef uint64 (*pg_plan_advice_generation_hook) (void);
++
++/*
++ * The advice supplied for a query, where it came from, and the state of its
++ * possible sources at the time.
++ *
++ * advisor_generation is the sum of the advisors' generations, meaningful only
++ * if advisors_have_generation is true; guc_generation counts assignments to
++ * pg_plan_advice.advice in this backend.
++ */
++typedef struct pgpa_supplied_advice
++{
++	char	   *advice;
++	bool		from_advisor;
++	bool		advisors_have_generation;
++	uint64		advisor_generation;
++	uint64		guc_generation;
++} pgpa_supplied_advice;
++
+ /* GUC variables */
+ extern char *pg_plan_advice_advice;
+ extern bool pg_plan_advice_always_store_advice_details;
+@@ -60,14 +93,17 @@ extern bool pg_plan_advice_trace_mask;
+ /* Function prototypes (for use by pg_plan_advice itself) */
+ extern MemoryContext pg_plan_advice_get_mcxt(void);
+ extern bool pg_plan_advice_should_explain(ExplainState *es);
+-extern char *pg_plan_advice_get_supplied_query_advice(PlannerGlobal *glob,
+-													  Query *parse,
+-													  const char *query_string,
+-													  int cursorOptions,
+-													  ExplainState *es);
++extern void pg_plan_advice_get_supplied_query_advice(PlannerGlobal *glob,
++													 Query *parse,
++													 const char *query_string,
++													 int cursorOptions,
++													 ExplainState *es,
++													 pgpa_supplied_advice *supplied);
++extern List *pg_plan_advice_supplied_advice_items(pgpa_supplied_advice *supplied);
+ 
+ /* Function prototypes (for use by other plugins) */
+-extern PGDLLEXPORT void pg_plan_advice_add_advisor(pg_plan_advice_advisor_hook hook);
++extern PGDLLEXPORT void pg_plan_advice_add_advisor(pg_plan_advice_advisor_hook hook,
++												   pg_plan_advice_generation_hook generation);
+ extern PGDLLEXPORT void pg_plan_advice_remove_advisor(pg_plan_advice_advisor_hook hook);
+ extern PGDLLEXPORT void pg_plan_advice_request_advice_generation(bool activate);
+ 
+diff --git a/contrib/pg_plan_advice/pgpa_planner.c b/contrib/pg_plan_advice/pgpa_planner.c
+index 99b1f31c..6b215092 100644
+--- a/contrib/pg_plan_advice/pgpa_planner.c
++++ b/contrib/pg_plan_advice/pgpa_planner.c
+@@ -45,8 +45,10 @@ typedef enum pgpa_jo_outcome
+ typedef struct pgpa_planner_state
+ {
+ 	MemoryContext mcxt;
++	bool		track_relations;
+ 	bool		generate_advice_feedback;
+ 	bool		generate_advice_string;
++	pgpa_supplied_advice supplied;
+ 	pgpa_trove *trove;
+ 	List	   *proots;
+ 	pgpa_planner_info *last_proot;
+@@ -233,10 +235,11 @@ pgpa_planner_setup(PlannerGlobal *glob, Query *parse, const char *query_string,
+ {
+ 	pgpa_trove *trove = NULL;
+ 	pgpa_planner_state *pps;
++	pgpa_supplied_advice supplied = {0};
+ 	char	   *supplied_advice;
+ 	bool		generate_advice_feedback = false;
+ 	bool		generate_advice_string = false;
+-	bool		needs_pps = false;
++	bool		track_relations = false;
+ 
+ 	/*
+ 	 * Decide whether we need to generate an advice string. We must do this if
+@@ -248,16 +251,15 @@ pgpa_planner_setup(PlannerGlobal *glob, Query *parse, const char *query_string,
+ 							  pgpa_planner_generate_advice ||
+ 							  pg_plan_advice_should_explain(es));
+ 	if (generate_advice_string)
+-		needs_pps = true;
++		track_relations = true;
+ 
+ 	/*
+ 	 * If any advice was provided, build a trove of advice for use during
+ 	 * planning.
+ 	 */
+-	supplied_advice = pg_plan_advice_get_supplied_query_advice(glob, parse,
+-															   query_string,
+-															   cursorOptions,
+-															   es);
++	pg_plan_advice_get_supplied_query_advice(glob, parse, query_string,
++											 cursorOptions, es, &supplied);
++	supplied_advice = supplied.advice;
+ 	if (supplied_advice != NULL && supplied_advice[0] != '\0')
+ 	{
+ 		List	   *advice_items;
+@@ -283,7 +285,7 @@ pgpa_planner_setup(PlannerGlobal *glob, Query *parse, const char *query_string,
+ 		if (advice_items != NIL)
+ 		{
+ 			trove = pgpa_build_trove(advice_items);
+-			needs_pps = true;
++			track_relations = true;
+ 
+ 			/*
+ 			 * If we know that we're running under EXPLAIN, or if the user has
+@@ -296,9 +298,12 @@ pgpa_planner_setup(PlannerGlobal *glob, Query *parse, const char *query_string,
+ 	}
+ 
+ 	/*
+-	 * We only create and initialize a private state object if it's needed for
+-	 * some purpose. That could be (1) recording that we will need to generate
+-	 * an advice string or (2) storing a trove of supplied advice.
++	 * Create and initialize a private state object. We always need it to
++	 * remember the advice supplied, which goes into the final plan so that a
++	 * cached plan can be checked against the advice in force when it is
++	 * reused. Beyond that, we only need to keep track of the query's
++	 * relations if we will need to generate an advice string or if we have a
++	 * trove of supplied advice to apply.
+ 	 *
+ 	 * Currently, the active memory context should be one that will last for
+ 	 * the entire duration of query planning, but if GEQO is in use, it's
+@@ -307,15 +312,16 @@ pgpa_planner_setup(PlannerGlobal *glob, Query *parse, const char *query_string,
+ 	 * context that should be used for allocations that need to live as long
+ 	 * as the pgpa_planner_state itself.
+ 	 */
+-	if (needs_pps)
+-	{
+-		pps = palloc0_object(pgpa_planner_state);
+-		pps->mcxt = CurrentMemoryContext;
+-		pps->generate_advice_feedback = generate_advice_feedback;
+-		pps->generate_advice_string = generate_advice_string;
+-		pps->trove = trove;
+-		SetPlannerGlobalExtensionState(glob, planner_extension_id, pps);
+-	}
++	pps = palloc0_object(pgpa_planner_state);
++	pps->mcxt = CurrentMemoryContext;
++	pps->track_relations = track_relations;
++	pps->generate_advice_feedback = generate_advice_feedback;
++	pps->generate_advice_string = generate_advice_string;
++	pps->supplied = supplied;
++	if (supplied.advice != NULL)
++		pps->supplied.advice = pstrdup(supplied.advice);
++	pps->trove = trove;
++	SetPlannerGlobalExtensionState(glob, planner_extension_id, pps);
+ 
+ 	/* Pass call to previous hook. */
+ 	if (prev_planner_setup)
+@@ -341,6 +347,12 @@ pgpa_planner_shutdown(PlannerGlobal *glob, Query *parse,
+ 	/* Fetch our private state, set up by pgpa_planner_setup(). */
+ 	pps = GetPlannerGlobalExtensionState(glob, planner_extension_id);
+ 	if (pps != NULL)
++	{
++		/* Record the advice supplied, for checking cached plans. */
++		pgpa_items = list_concat(pgpa_items,
++								 pg_plan_advice_supplied_advice_items(&pps->supplied));
++	}
++	if (pps != NULL && pps->track_relations)
+ 	{
+ 		/* Set up some local variables. */
+ 		trove = pps->trove;
+@@ -443,7 +455,7 @@ pgpa_build_simple_rel(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
+ 	 * Look up the pgpa_planner_info for this subquery, and make sure we've
+ 	 * saved a range table identifier.
+ 	 */
+-	if (pps != NULL)
++	if (pps != NULL && pps->track_relations)
+ 	{
+ 		proot = pgpa_planner_get_proot(pps, root);
+ 		pgpa_compute_rt_identifier(proot, root, rel);
+diff --git a/contrib/pg_plan_advice/sql/cached_plans.sql b/contrib/pg_plan_advice/sql/cached_plans.sql
+new file mode 100644
+index 00000000..ff5f63ce
+--- /dev/null
++++ b/contrib/pg_plan_advice/sql/cached_plans.sql
+@@ -0,0 +1,107 @@
++LOAD 'pg_plan_advice';
++SET max_parallel_workers_per_gather = 0;
++
++-- A cached generic plan is reused only while the advice that would be
++-- supplied now is the advice it was planned under. We test this with the
++-- queries that ri_triggers.c prepares for a foreign key and keeps for the
++-- life of the backend: deleting a key from cp_tgt checks whether cp_ref
++-- still references it, which cp_ref_pkey answers in one descent.
++CREATE TABLE cp_tgt (pkg int, id int, PRIMARY KEY (pkg, id))
++	WITH (autovacuum_enabled = false);
++CREATE TABLE cp_ref (pkg int NOT NULL, id int NOT NULL, seq int NOT NULL,
++	PRIMARY KEY (pkg, id, seq), FOREIGN KEY (pkg, id) REFERENCES cp_tgt)
++	WITH (autovacuum_enabled = false);
++CREATE INDEX cp_ref_seq_pkg ON cp_ref (seq, pkg);
++INSERT INTO cp_tgt SELECT p, i FROM generate_series(1, 3) p,
++	generate_series(1, 100) i;
++INSERT INTO cp_ref SELECT p, i, s FROM generate_series(1, 3) p,
++	generate_series(1, 100) i, generate_series(1, 20) s;
++INSERT INTO cp_tgt SELECT 2, g FROM generate_series(1001, 1020) g;
++
++-- Make cp_ref look empty, so that every index path ties and the planner's
++-- own choice for the check is the smaller sibling index.
++SELECT pg_restore_relation_stats('schemaname', 'public', 'relname', 'cp_ref',
++	'relpages', 100, 'reltuples', 0::real);
++SELECT pg_restore_relation_stats('schemaname', 'public', 'relname', 'cp_tgt',
++	'relpages', 10, 'reltuples', 0::real);
++
++-- Which of cp_ref's indexes have been scanned since we last looked? Call
++-- pg_stat_force_next_flush() first, in a statement of its own, so that the
++-- cumulative statistics include the scans.
++CREATE TABLE cp_seen (indexrelid regclass PRIMARY KEY, scans bigint);
++INSERT INTO cp_seen SELECT indexrelid, 0 FROM pg_index
++	WHERE indrelid = 'cp_ref'::regclass;
++CREATE FUNCTION cp_ref_indexes_used() RETURNS text LANGUAGE sql
++	BEGIN ATOMIC
++	WITH now AS (
++		SELECT indexrelid, idx_scan FROM pg_stat_user_indexes
++		WHERE relid = 'cp_ref'::regclass),
++	newly AS (
++		UPDATE cp_seen s SET scans = now.idx_scan FROM now
++		WHERE s.indexrelid = now.indexrelid AND now.idx_scan > s.scans
++		RETURNING s.indexrelid)
++	SELECT string_agg(indexrelid::text, ', ' ORDER BY indexrelid::text)
++		FROM newly;
++	END;
++
++-- Under force_generic_plan, the first check builds the generic plan with no
++-- advice in force. A later transaction's advice must reach it, and once that
++-- transaction ends, its advice must not outlive it.
++SET plan_cache_mode = force_generic_plan;
++BEGIN;
++DELETE FROM cp_tgt WHERE pkg = 2 AND id = 1001;
++COMMIT;
++SELECT pg_stat_force_next_flush();
++SELECT cp_ref_indexes_used();
++BEGIN;
++SET LOCAL pg_plan_advice.advice = 'INDEX_SCAN(x public.cp_ref_pkey)';
++DELETE FROM cp_tgt WHERE pkg = 2 AND id = 1002;
++COMMIT;
++SELECT pg_stat_force_next_flush();
++SELECT cp_ref_indexes_used();
++BEGIN;
++DELETE FROM cp_tgt WHERE pkg = 2 AND id = 1003;
++COMMIT;
++SELECT pg_stat_force_next_flush();
++SELECT cp_ref_indexes_used();
++
++-- The same in the default mode, after the custom-plan trials have settled on
++-- a generic plan.
++RESET plan_cache_mode;
++DISCARD PLANS;
++BEGIN;
++DELETE FROM cp_tgt WHERE pkg = 2 AND id = 1004;
++DELETE FROM cp_tgt WHERE pkg = 2 AND id = 1005;
++DELETE FROM cp_tgt WHERE pkg = 2 AND id = 1006;
++DELETE FROM cp_tgt WHERE pkg = 2 AND id = 1007;
++DELETE FROM cp_tgt WHERE pkg = 2 AND id = 1008;
++DELETE FROM cp_tgt WHERE pkg = 2 AND id = 1009;
++DELETE FROM cp_tgt WHERE pkg = 2 AND id = 1010;
++COMMIT;
++SELECT pg_stat_force_next_flush();
++SELECT cp_ref_indexes_used();
++BEGIN;
++SET LOCAL pg_plan_advice.advice = 'INDEX_SCAN(x public.cp_ref_pkey)';
++DELETE FROM cp_tgt WHERE pkg = 2 AND id = 1011;
++COMMIT;
++SELECT pg_stat_force_next_flush();
++SELECT cp_ref_indexes_used();
++
++-- A function whose SET clause supplies advice sets the same string on every
++-- call; that must not cost a replan. With pg_plan_advice.trace_mask, each
++-- planning under the advice reports how it changed the strategy mask, so the
++-- second call's silence shows that it reused the plan.
++CREATE FUNCTION cp_count(int) RETURNS bigint LANGUAGE plpgsql
++	SET pg_plan_advice.advice = 'SEQ_SCAN(r)'
++	AS $$
++	DECLARE n bigint;
++	BEGIN
++		SELECT count(*) INTO n FROM cp_ref r WHERE r.pkg = $1;
++		RETURN n;
++	END $$;
++SET plan_cache_mode = force_generic_plan;
++SET pg_plan_advice.trace_mask = true;
++SELECT cp_count(1);
++SELECT cp_count(2);
++RESET pg_plan_advice.trace_mask;
++RESET plan_cache_mode;
+diff --git a/contrib/pg_stash_advice/expected/pg_stash_advice.out b/contrib/pg_stash_advice/expected/pg_stash_advice.out
+index 8c24a212..d078b2be 100644
+--- a/contrib/pg_stash_advice/expected/pg_stash_advice.out
++++ b/contrib/pg_stash_advice/expected/pg_stash_advice.out
+@@ -292,6 +292,81 @@ SELECT stash_name, advice_string
+  regress_stash | SEQ_SCAN(d1)
+ (1 row)
+ 
++-- A cached generic plan follows the stash: when the stashed advice for its
++-- query changes, the plan is rebuilt under the new advice.
++SET plan_cache_mode = force_generic_plan;
++SELECT pg_set_stashed_advice('regress_stash', :'qid', 'HASH_JOIN(d1)');
++ pg_set_stashed_advice 
++-----------------------
++ 
++(1 row)
++
++PREPARE stashed_query AS SELECT * FROM aa_fact f
++	LEFT JOIN aa_dim1 d1 ON f.dim1_id = d1.id
++	LEFT JOIN aa_dim2 d2 ON f.dim2_id = d2.id
++	WHERE val1 = 1 AND val2 = 1;
++EXPLAIN (COSTS OFF) EXECUTE stashed_query;
++                QUERY PLAN                
++------------------------------------------
++ Hash Join
++   Hash Cond: (f.dim1_id = d1.id)
++   ->  Hash Join
++         Hash Cond: (f.dim2_id = d2.id)
++         ->  Seq Scan on aa_fact f
++         ->  Hash
++               ->  Seq Scan on aa_dim2 d2
++                     Filter: (val2 = 1)
++   ->  Hash
++         ->  Seq Scan on aa_dim1 d1
++               Filter: (val1 = 1)
++(11 rows)
++
++SELECT pg_set_stashed_advice('regress_stash', :'qid',
++	'NESTED_LOOP_PLAIN(d1)');
++ pg_set_stashed_advice 
++-----------------------
++ 
++(1 row)
++
++EXPLAIN (COSTS OFF) EXECUTE stashed_query;
++                    QUERY PLAN                     
++---------------------------------------------------
++ Nested Loop
++   ->  Hash Join
++         Hash Cond: (f.dim2_id = d2.id)
++         ->  Seq Scan on aa_fact f
++         ->  Hash
++               ->  Seq Scan on aa_dim2 d2
++                     Filter: (val2 = 1)
++   ->  Index Scan using aa_dim1_pkey on aa_dim1 d1
++         Index Cond: (id = f.dim1_id)
++         Filter: (val1 = 1)
++(10 rows)
++
++SELECT pg_set_stashed_advice('regress_stash', :'qid', null);
++ pg_set_stashed_advice 
++-----------------------
++ 
++(1 row)
++
++EXPLAIN (COSTS OFF) EXECUTE stashed_query;
++                QUERY PLAN                
++------------------------------------------
++ Hash Join
++   Hash Cond: (f.dim1_id = d1.id)
++   ->  Hash Join
++         Hash Cond: (f.dim2_id = d2.id)
++         ->  Seq Scan on aa_fact f
++         ->  Hash
++               ->  Seq Scan on aa_dim2 d2
++                     Filter: (val2 = 1)
++   ->  Hash
++         ->  Seq Scan on aa_dim1 d1
++               Filter: (val1 = 1)
++(11 rows)
++
++DEALLOCATE stashed_query;
++RESET plan_cache_mode;
+ -- Can't create a stash that already exists, or drop one that doesn't.
+ SELECT pg_create_advice_stash('regress_stash');
+ ERROR:  advice stash "regress_stash" already exists
+diff --git a/contrib/pg_stash_advice/pg_stash_advice.c b/contrib/pg_stash_advice/pg_stash_advice.c
+index 79048329..918a97f8 100644
+--- a/contrib/pg_stash_advice/pg_stash_advice.c
++++ b/contrib/pg_stash_advice/pg_stash_advice.c
+@@ -59,6 +59,7 @@ dshash_table *pgsa_entry_dshash;
+ 
+ /* Other global variables */
+ static MemoryContext pg_stash_advice_mcxt;
++static uint64 pgsa_stash_name_generation = 0;
+ 
+ /* Function prototypes */
+ static char *pgsa_advisor(PlannerGlobal *glob,
+@@ -66,8 +67,10 @@ static char *pgsa_advisor(PlannerGlobal *glob,
+ 						  const char *query_string,
+ 						  int cursorOptions,
+ 						  ExplainState *es);
++static uint64 pgsa_generation(void);
+ static bool pgsa_check_stash_name_guc(char **newval, void **extra,
+ 									  GucSource source);
++static void pgsa_assign_stash_name_guc(const char *newval, void *extra);
+ static void pgsa_init_shared_state(void *ptr, void *arg);
+ static bool pgsa_is_identifier(char *str);
+ 
+@@ -88,7 +91,8 @@ static bool pgsa_is_identifier(char *str);
+ void
+ _PG_init(void)
+ {
+-	void		(*add_advisor_fn) (pg_plan_advice_advisor_hook hook);
++	void		(*add_advisor_fn) (pg_plan_advice_advisor_hook hook,
++								   pg_plan_advice_generation_hook generation);
+ 
+ 	/* If compute_query_id = 'auto', we would like query IDs. */
+ 	EnableQueryId();
+@@ -129,7 +133,7 @@ _PG_init(void)
+ 							   PGC_USERSET,
+ 							   0,
+ 							   pgsa_check_stash_name_guc,
+-							   NULL,
++							   pgsa_assign_stash_name_guc,
+ 							   NULL);
+ 
+ 	MarkGUCPrefixReserved("pg_stash_advice");
+@@ -142,7 +146,7 @@ _PG_init(void)
+ 	add_advisor_fn =
+ 		load_external_function("pg_plan_advice", "pg_plan_advice_add_advisor",
+ 							   true, NULL);
+-	(*add_advisor_fn) (pgsa_advisor);
++	(*add_advisor_fn) (pgsa_advisor, pgsa_generation);
+ }
+ 
+ /*
+@@ -212,6 +216,25 @@ pgsa_advisor(PlannerGlobal *glob, Query *parse,
+ 	return advice_string;
+ }
+ 
++/*
++ * Report a number that increases whenever the advice pgsa_advisor might
++ * return could have changed: when any stash changes, when the stashes become
++ * ready after being restored from disk, or when this session's
++ * pg_stash_advice.stash_name is assigned. pg_plan_advice uses it to reuse a
++ * cached plan without looking up the stash again.
++ */
++static uint64
++pgsa_generation(void)
++{
++	/* Attach to dynamic shared memory if not already done. */
++	if (unlikely(pgsa_entry_dshash == NULL))
++		pgsa_attach();
++
++	return pg_atomic_read_u64(&pgsa_state->change_count) +
++		(pg_atomic_unlocked_test_flag(&pgsa_state->stashes_ready) ? 0 : 1) +
++		pgsa_stash_name_generation;
++}
++
+ /*
+  * Attach to various structures in dynamic shared memory.
+  *
+@@ -419,6 +442,18 @@ pgsa_check_stash_name_guc(char **newval, void **extra, GucSource source)
+ 	return true;
+ }
+ 
++/*
++ * Assign hook for pg_stash_advice.stash_name.
++ *
++ * Count assignments, so that pgsa_generation changes when this session starts
++ * using another stash.
++ */
++static void
++pgsa_assign_stash_name_guc(const char *newval, void *extra)
++{
++	pgsa_stash_name_generation++;
++}
++
+ /*
+  * Create an advice stash.
+  */
+diff --git a/contrib/pg_stash_advice/sql/pg_stash_advice.sql b/contrib/pg_stash_advice/sql/pg_stash_advice.sql
+index f047a2d1..ba6289fd 100644
+--- a/contrib/pg_stash_advice/sql/pg_stash_advice.sql
++++ b/contrib/pg_stash_advice/sql/pg_stash_advice.sql
+@@ -127,6 +127,23 @@ SELECT * FROM pg_get_advice_stashes() ORDER BY stash_name;
+ SELECT stash_name, advice_string
+ 	FROM pg_get_advice_stash_contents('regress_stash') ORDER BY advice_string;
+ 
++-- A cached generic plan follows the stash: when the stashed advice for its
++-- query changes, the plan is rebuilt under the new advice.
++SET plan_cache_mode = force_generic_plan;
++SELECT pg_set_stashed_advice('regress_stash', :'qid', 'HASH_JOIN(d1)');
++PREPARE stashed_query AS SELECT * FROM aa_fact f
++	LEFT JOIN aa_dim1 d1 ON f.dim1_id = d1.id
++	LEFT JOIN aa_dim2 d2 ON f.dim2_id = d2.id
++	WHERE val1 = 1 AND val2 = 1;
++EXPLAIN (COSTS OFF) EXECUTE stashed_query;
++SELECT pg_set_stashed_advice('regress_stash', :'qid',
++	'NESTED_LOOP_PLAIN(d1)');
++EXPLAIN (COSTS OFF) EXECUTE stashed_query;
++SELECT pg_set_stashed_advice('regress_stash', :'qid', null);
++EXPLAIN (COSTS OFF) EXECUTE stashed_query;
++DEALLOCATE stashed_query;
++RESET plan_cache_mode;
++
+ -- Can't create a stash that already exists, or drop one that doesn't.
+ SELECT pg_create_advice_stash('regress_stash');
+ SELECT pg_drop_advice_stash('no_such_stash');
+diff --git a/doc/src/sgml/pgplanadvice.sgml b/doc/src/sgml/pgplanadvice.sgml
+index afd39872..4813fa5d 100644
+--- a/doc/src/sgml/pgplanadvice.sgml
++++ b/doc/src/sgml/pgplanadvice.sgml
+@@ -199,6 +199,37 @@ EXPLAIN (COSTS OFF)
+ 
+  </sect2>
+ 
++ <sect2 id="pgplanadvice-cached-plans">
++  <title>Cached Plans</title>
++
++  <para>
++   A query whose plan is cached, such as a prepared statement, a statement
++   within a <application>PL/pgSQL</application> function, or one of the
++   queries that <productname>PostgreSQL</productname> itself prepares to
++   check foreign keys, is planned under whatever advice is in force at the
++   time. A cached generic plan is reused only while the advice that would be
++   supplied for the query now, from <varname>pg_plan_advice.advice</varname>
++   or from another module such as <xref linkend="pgstashadvice"/>, is the
++   advice it was planned under; otherwise, the plan is rebuilt, just as it
++   would be after a change to a table it uses. So advice set by
++   <command>SET LOCAL</command> reaches plans cached in earlier transactions,
++   and stops applying to them once the transaction ends. Comparing the advice
++   is cheap: a function whose <literal>SET</literal> clause supplies advice
++   sets the same string on every call, and does not cause its plans to be
++   rebuilt.
++  </para>
++
++  <para>
++   Modules that supply advice through <filename>pg_plan_advice</filename>'s
++   advisor interface are consulted again before a cached generic plan is
++   reused, without the planner state they receive when a query is planned,
++   and must return the advice they would supply if the query were planned
++   then. A module can avoid being consulted each time by also providing a
++   generation function, which reports a number that increases whenever its
++   advice could have changed; see <filename>pg_plan_advice.h</filename>.
++  </para>
++ </sect2>
++
+  <sect2 id="pgplanadvice-targets">
+   <title>Advice Targets</title>
+ 
+@@ -921,17 +952,6 @@ EXPLAIN (COSTS OFF)
+    not constrain the join order.
+   </para>
+ 
+-  <para>
+-   Plan advice is consulted only when a query is planned. If a prepared
+-   statement is re-executed under a different value of
+-   <varname>pg_plan_advice.advice</varname>, or with different advice supplied
+-   by another module such as <xref linkend="pgstashadvice"/>, it can still
+-   make use of a previously cached plan. The same thing can happen when
+-   re-executing a statement within a <application>PL/pgSQL</application>
+-   block, where plans can also be cached. Sessions that do not wish to reuse
+-   previously-cached plans can use
+-   <link linkend="sql-discard"><command>DISCARD PLANS</command></link>.
+-  </para>
+  </sect2>
+ 
+  <sect2 id="pgplanadvice-author">
+diff --git a/doc/src/sgml/pgstashadvice.sgml b/doc/src/sgml/pgstashadvice.sgml
+index 532e28c1..010f3512 100644
+--- a/doc/src/sgml/pgstashadvice.sgml
++++ b/doc/src/sgml/pgstashadvice.sgml
+@@ -66,11 +66,11 @@
+  </para>
+ 
+  <para>
+-  Stashed advice is applied only when a query is planned. Adding, replacing,
+-  or removing a stash entry, or changing
+-  <literal>pg_stash_advice.stash_name</literal>, does not affect plans that
+-  have already been cached. See
+-  <xref linkend="pgplanadvice-limitations"/>.
++  Adding, replacing, or removing a stash entry, or changing
++  <literal>pg_stash_advice.stash_name</literal>, also applies to plans that
++  have already been cached: a cached generic plan whose stashed advice has
++  changed is rebuilt before it is reused. See
++  <xref linkend="pgplanadvice-cached-plans"/>.
+  </para>
+ 
+  <para>
+diff --git a/src/backend/utils/cache/plancache.c b/src/backend/utils/cache/plancache.c
+index a1b406ce..eb58549d 100644
+--- a/src/backend/utils/cache/plancache.c
++++ b/src/backend/utils/cache/plancache.c
+@@ -18,6 +18,9 @@
+  * and then planning is performed as normal.  We also force re-analysis and
+  * re-planning if the active search_path is different from the previous time
+  * or, if RLS is involved, if the user changes or the RLS environment changes.
++ * A plugin can also refuse reuse of a generic plan through
++ * check_cached_plan_hook, if an input to planning that it supplies has
++ * changed.
+  *
+  * Note that if the sinval was a result of user DDL actions, parse analysis
+  * could throw an error, for example if a column referenced by the query is
+@@ -145,6 +148,9 @@ ResourceOwnerForgetPlanCacheRef(ResourceOwner owner, CachedPlan *plan)
+ /* GUC parameter */
+ int			plan_cache_mode = PLAN_CACHE_MODE_AUTO;
+ 
++/* Hook for plugins to veto reuse of a cached generic plan */
++check_cached_plan_hook_type check_cached_plan_hook = NULL;
++
+ /*
+  * InitPlanCache: initialize module during InitPostgres.
+  *
+@@ -980,6 +986,14 @@ CheckCachedPlan(CachedPlanSource *plansource)
+ 		plan->planRoleId != GetUserId())
+ 		plan->is_valid = false;
+ 
++	/*
++	 * Likewise if a plugin says that something it supplied to planning has
++	 * changed since the plan was made.
++	 */
++	if (plan->is_valid && check_cached_plan_hook &&
++		!(*check_cached_plan_hook) (plansource, plan))
++		plan->is_valid = false;
++
+ 	/*
+ 	 * If it appears valid, acquire locks and recheck; this is much the same
+ 	 * logic as in RevalidateCachedQuery, but for a plan.
+@@ -1623,6 +1637,11 @@ CachedPlanIsSimplyValid(CachedPlanSource *plansource, CachedPlan *plan,
+ 	if (!SearchPathMatchesCurrentEnvironment(plansource->search_path))
+ 		return false;
+ 
++	/* Does a plugin still accept it? */
++	if (check_cached_plan_hook &&
++		!(*check_cached_plan_hook) (plansource, plan))
++		return false;
++
+ 	/* It's still good.  Bump refcount if requested. */
+ 	if (owner)
+ 	{
+diff --git a/src/include/utils/plancache.h b/src/include/utils/plancache.h
+index a0355e79..246e107f 100644
+--- a/src/include/utils/plancache.h
++++ b/src/include/utils/plancache.h
+@@ -197,6 +197,22 @@ typedef struct CachedExpression
+ } CachedExpression;
+ 
+ 
++/*
++ * Hook for plugins to veto reuse of a cached generic plan.
++ *
++ * Before a generic plan is reused, this hook, if set, is called with the plan
++ * and its plansource.  Returning false marks the plan invalid, so that it is
++ * rebuilt just as after an invalidation.  This lets a plugin that supplies an
++ * input to planning (for example, advice about the plan to choose) keep a
++ * cached plan from outliving that input, much as plancache.c itself does for
++ * search_path.  The hook is consulted every time a generic plan is reused,
++ * before the plan's locks are acquired, so it should be cheap and should not
++ * depend on the state of the catalogs.
++ */
++typedef bool (*check_cached_plan_hook_type) (CachedPlanSource *plansource,
++											 CachedPlan *plan);
++extern PGDLLIMPORT check_cached_plan_hook_type check_cached_plan_hook;
++
+ extern void InitPlanCache(void);
+ extern void ResetPlanCache(void);
+ 
+diff --git a/src/test/modules/test_plan_advice/test_plan_advice.c b/src/test/modules/test_plan_advice/test_plan_advice.c
+index cff5039b..d64e934b 100644
+--- a/src/test/modules/test_plan_advice/test_plan_advice.c
++++ b/src/test/modules/test_plan_advice/test_plan_advice.c
+@@ -33,6 +33,7 @@ static char *test_plan_advice_advisor(PlannerGlobal *glob,
+ 									  const char *query_string,
+ 									  int cursorOptions,
+ 									  ExplainState *es);
++static uint64 test_plan_advice_generation(void);
+ static DefElem *find_defelem_by_defname(List *deflist, char *defname);
+ 
+ /*
+@@ -41,7 +42,8 @@ static DefElem *find_defelem_by_defname(List *deflist, char *defname);
+ void
+ _PG_init(void)
+ {
+-	void		(*add_advisor_fn) (pg_plan_advice_advisor_hook hook);
++	void		(*add_advisor_fn) (pg_plan_advice_advisor_hook hook,
++								   pg_plan_advice_generation_hook generation);
+ 
+ 	/*
+ 	 * Ask pg_plan_advice to get advice strings from test_plan_advice_advisor
+@@ -50,7 +52,19 @@ _PG_init(void)
+ 		load_external_function("pg_plan_advice", "pg_plan_advice_add_advisor",
+ 							   true, NULL);
+ 
+-	(*add_advisor_fn) (test_plan_advice_advisor);
++	(*add_advisor_fn) (test_plan_advice_advisor, test_plan_advice_generation);
++}
++
++/*
++ * The advice we supply for a query is generated from the query's own plan,
++ * so it never changes for a plan that has already been made: we tell
++ * pg_plan_advice that there is no need to consult us again before reusing a
++ * cached plan.
++ */
++static uint64
++test_plan_advice_generation(void)
++{
++	return 0;
+ }
+ 
+ /*
+@@ -69,9 +83,11 @@ test_plan_advice_advisor(PlannerGlobal *glob, Query *parse,
+ 
+ 	/*
+ 	 * Since this function is called from the planner and triggers planning,
+-	 * we need a recursion guard.
++	 * we need a recursion guard. We are never asked about a cached plan,
++	 * since our generation never changes, unless the plan was made before we
++	 * were loaded, in which case it was planned without advice.
+ 	 */
+-	if (in_recursion)
++	if (in_recursion || glob == NULL)
+ 		return NULL;
+ 
+ 	PG_TRY();
+diff --git a/src/tools/pgindent/typedefs.list b/src/tools/pgindent/typedefs.list
+index 04d9c51f..20f78aea 100644
+--- a/src/tools/pgindent/typedefs.list
++++ b/src/tools/pgindent/typedefs.list
+@@ -3666,6 +3666,7 @@ cb_tablespace_mapping
+ char16_t
+ char32_t
+ check_agg_arguments_context
++check_cached_plan_hook_type
+ check_function_callback
+ check_network_data
+ check_object_relabel_type
+@@ -4042,6 +4043,7 @@ pg_mb_radix_tree
+ pg_md5_ctx
+ pg_on_exit_callback
+ pg_plan_advice_advisor_hook
++pg_plan_advice_generation_hook
+ pg_prng_state
+ pg_re_flags
+ pg_regex_t
+@@ -4083,6 +4085,7 @@ pgp_armor_headers_state
+ pgpa_advice_item
+ pgpa_advice_tag_type
+ pgpa_advice_target
++pgpa_advisor
+ pgpa_baserel_state
+ pgpa_column_sources_context
+ pgpa_identifier
+@@ -4101,6 +4104,7 @@ pgpa_qf_type
+ pgpa_query_feature
+ pgpa_scan
+ pgpa_scan_strategy
++pgpa_supplied_advice
+ pgpa_target_type
+ pgpa_trove
+ pgpa_trove_entry
+-- 
+2.53.0
+
