@@ -113,6 +113,10 @@ export const aOneRowWritesJudgeWorkAtCommitIsBoundedByItsDeltaHoweverManyRowsIts
  * with four moments after them, beside 2,048 other learners' sessions, committed, and measures the judge's work at a
  * later moment's COMMIT; then adds sixteen or sixty-four moments more, committed, and measures again.
  *
+ * The take of the moment past the cut reads Moment itself in its key's order, the lowering's pass-through projections
+ * between them folded away (sql/bind.ts takenThrough), so no fence keeps PostgreSQL from reading the index in the
+ * take's order.
+ *
  * Oracle: a bound and invariance, as above: each statement does the same work beside four moments and beside the many.
  * A fold over
  * every moment past each item, the rule as written, reads the added moments for every item (ledger's presentedSpans,
@@ -138,7 +142,16 @@ export const aSuccessorsUpkeepReadsOneRowPastTheCutForEachRowBeforeItHoweverMany
 			name: "a bound and invariance: each statement the judge runs at a moment's COMMIT does the same work beside a few moments of the session past its items and beside many"
 		},
 		box: "the item matched first or the moment, one or four items shown in the session, sixteen or sixty-four moments added after the first measure",
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/derived/upkeep-bound.test.ts#aSuccessorsUpkeepReadsOneRowPastTheCutForEachRowBeforeItHoweverManyItsUnitHolds:-:0.0.0"
+				),
+				reason:
+					"STOREDFIX's measure on main 587fd269: Span's upkeep loop read 24 rows of Moment where 8 bound it, the take of the one moment past the cut reading Moment through two fenced pass-through projections, so PostgreSQL sorted every moment past the item",
+				since: "2026-11-27"
+			}
+		],
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
@@ -157,6 +170,12 @@ export const aSuccessorsUpkeepReadsOneRowPastTheCutForEachRowBeforeItHoweverMany
 				original: '\tconst dir = fn === "min" ? "asc" : "desc"\n',
 				replacement: '\tconst dir = fn === "min" ? "desc" : "asc"\n',
 				why: "A least fold read by the greatest row past its cut: each presentation's span ends at the sitting's last moment, a span covering every later presentation's."
+			},
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original: "\t\t\t\t? takenThrough(b, stated.orderBy)\n",
+				replacement: "\t\t\t\t? undefined\n",
+				why: "The take's fenced pass-through projections stand between its ORDER BY and Moment's read again: PostgreSQL reads every moment of the session past the item and sorts them for the one past the cut, 24 rows where 8 bound the upkeep, growing with the session."
 			}
 		]
 	})
@@ -169,6 +188,9 @@ export const aSuccessorsUpkeepReadsOneRowPastTheCutForEachRowBeforeItHoweverMany
  * SpanBound, each case holds four items and four moments in session 1 beside 2,048 other learners' sessions, committed,
  * measures the judge's work at a later moment's COMMIT, adds sixteen or sixty-four rows to the session, later moments or
  * unmoved items, committed, and measures again.
+ *
+ * Latest's take of the session's last moment reads Moment itself, its pass-through projections folded (sql/bind.ts
+ * takenThrough).
  *
  * Oracle: a bound and invariance, as above, and each table's fact at the session: the latest moment, the session
  * unmoved.
@@ -192,7 +214,16 @@ export const aFoldThatDerivesOneFactAtAUnitReadsOneRowOfItAtItsUpkeepHoweverMany
 			name: "a bound and invariance: each statement the judge runs at a moment's COMMIT does the same work beside a few rows of the session and beside many, each table's fact at the session as its definition states it"
 		},
 		box: "the latest moment of a session or a session with an unmoved item, sixteen or sixty-four rows added to the session",
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/derived/upkeep-bound.test.ts#aFoldThatDerivesOneFactAtAUnitReadsOneRowOfItAtItsUpkeepHoweverManyItHolds:-:0.0"
+				),
+				reason:
+					"STOREDFIX's measure on main 587fd269: Latest's upkeep loop read 23 rows of Moment where 7 bound it, the take of the session's last moment reading Moment through two fenced pass-through projections, so PostgreSQL sorted every moment of the session",
+				since: "2026-11-27"
+			}
+		],
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
@@ -211,6 +242,12 @@ export const aFoldThatDerivesOneFactAtAUnitReadsOneRowOfItAtItsUpkeepHoweverMany
 				original: "\t\tconst witnessed = oneWitness(navigated)\n",
 				replacement: "\t\tconst witnessed = undefined\n",
 				why: "A rule deriving one fact at a unit read by all its rows: a sitting with an unsuspended visit re-derived from every visit of the sitting at each write, 18 pages at enter on the helper's sd6 row, where its first witness derives it."
+			},
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original: "\t\t\t\t? takenThrough(b, stated.orderBy)\n",
+				replacement: "\t\t\t\t? undefined\n",
+				why: "The take's fenced pass-through projections stand between its ORDER BY and Moment's read again: PostgreSQL reads every moment of the session and sorts them for the last, 23 rows where 7 bound Latest's upkeep, growing with the session."
 			}
 		]
 	})

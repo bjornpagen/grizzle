@@ -85,6 +85,8 @@ import {
 	type SetOperand,
 	type SqlStatement,
 	selectColumns,
+	type Target,
+	targetColumnName,
 	type TypeRef,
 	type Update,
 	type With
@@ -919,6 +921,114 @@ const fromOf = (entries: ReadonlyArray<BoundEntry>): ReadonlyArray<FromItem> => 
 /** A query's ORDER BY, LIMIT and OFFSET, which read its body's FROM. */
 type Tail = Pick<OperandSelect, "orderBy" | "limit" | "offset">
 
+/** Whether an expression is the literal 0, an OFFSET that skips no row. */
+const zeroOffset = (e: Expr | undefined): boolean =>
+	e === undefined || (e.kind === "literal" && e.value.kind === "int" && e.value.value === 0n)
+
+/**
+ * A take's core (a LIMIT that states its level's B-tree order, sql/ast.ts AccessTag `ordered`) with no fence between
+ * its ORDER BY and the stored read it orders, and its ORDER BY read through the
+ * fold: each projection it begins with folded into the core it reads, the projection's OFFSET 0 fence with it, where
+ * the take's core reads that one derived table alone, under no GROUP BY, HAVING or DISTINCT, and the derived table's
+ * query is one core of no WITH, ORDER BY, LIMIT, DISTINCT, GROUP BY or HAVING, and an OFFSET of 0 or none, each of its
+ * targets a column or a literal: a column of its own FROM, or a value an enclosing level fixes. The core's WHERE, read
+ * through the projection, joins the projection's own. The take's LIMIT plans its level apart, so the fold keeps every
+ * level PostgreSQL plans but the projections', and the rows are the same: an OFFSET of 0 skips none, a filter over a
+ * projection of columns is the filter of what it projects, and a column read twice is read once. Each target keeps the
+ * name it delivered. So
+ * the take's level reads the stored table its ORDER BY orders, which its read is bound by in that order (`orderedOf`),
+ * one descent of the index and k entries, where each fenced projection kept PostgreSQL from reading the index in the
+ * take's order and it read every row of the unit and sorted them (STOREDFIX: Latest's upkeep loop read 23 rows where
+ * 7 bound it, and Span's 24 where 8 did, growing with the unit). None where no projection folds.
+ */
+const takenThrough = (
+	core: SelectCore,
+	orderBy: ReadonlyArray<OrderItem>
+): { readonly core: SelectCore; readonly orderBy: ReadonlyArray<OrderItem> } | undefined => {
+	const [source, ...more] = core.from
+	if (
+		source?.kind !== "derived" ||
+		source.lateral ||
+		more.length > 0 ||
+		core.groupBy.length > 0 ||
+		core.having !== undefined ||
+		core.distinct !== false
+	) {
+		return undefined
+	}
+	const inner = source.query
+	const body = inner.body
+	if (
+		inner.with !== undefined ||
+		inner.orderBy.length > 0 ||
+		inner.limit !== undefined ||
+		!zeroOffset(inner.offset) ||
+		body.kind !== "core" ||
+		body.distinct !== false ||
+		body.groupBy.length > 0 ||
+		body.having !== undefined ||
+		!body.targets.every((t) => t.expr.kind === "column" || t.expr.kind === "literal")
+	) {
+		return undefined
+	}
+	const columns = new Map(
+		selectColumns(inner).map((name, at) => [name, body.targets[at]?.expr] as const)
+	)
+	const alias = source.alias
+	/** `e` with each column of the projection read as the target that delivers it; none where one delivers none. */
+	const through = (e: Expr): Expr | undefined => {
+		let read = true
+		const out = new (class extends Transform {
+			override readonly expr = (x: Expr): Expr => {
+				if (x.kind !== "column" || x.table !== alias) {
+					return this.exprChildren(x)
+				}
+				const to = columns.get(x.column)
+				if (to === undefined) {
+					read = false
+					return x
+				}
+				return to
+			}
+		})(identityHooks).expr(e)
+		return read ? out : undefined
+	}
+	const targets: Array<Target> = []
+	for (const t of core.targets) {
+		const expr = through(t.expr)
+		if (expr === undefined) {
+			return undefined
+		}
+		const name = targetColumnName(t)
+		targets.push({
+			expr,
+			alias:
+				name !== undefined && targetColumnName({ expr, alias: undefined }) !== name ? name : t.alias
+		})
+	}
+	const ordered: Array<OrderItem> = []
+	for (const o of orderBy) {
+		const expr = through(o.expr)
+		if (expr === undefined) {
+			return undefined
+		}
+		ordered.push({ ...o, expr })
+	}
+	const where = core.where === undefined ? undefined : through(core.where)
+	if (core.where !== undefined && where === undefined) {
+		return undefined
+	}
+	const folded: SelectCore = {
+		...body,
+		targets,
+		where: conjunction([
+			...(body.where === undefined ? [] : [body.where]),
+			...(where === undefined ? [] : [where])
+		])
+	}
+	return takenThrough(folded, ordered) ?? { core: folded, orderBy: ordered }
+}
+
 /** A query fenced by OFFSET 0 where PostgreSQL would pull it up (sql/pull-up.ts simpleQuery), so it is planned apart. */
 const fenced = (q: OperandSelect): OperandSelect =>
 	simpleQuery(q) ? { ...q, offset: lit.int(0, types.bigint) } : q
@@ -1276,9 +1386,15 @@ class Binder {
 		stated: Tail
 	): { readonly body: OperandBody; readonly tail: Tail } {
 		const limit = stated.limit
+		/** A take's core with its fences folded away under its ORDER BY (`takenThrough`). */
+		const taken =
+			limit?.kind === "access" && limit.access.kind === "ordered" && b.kind === "core"
+				? takenThrough(b, stated.orderBy)
+				: undefined
+		const orderBy = taken?.orderBy ?? stated.orderBy
 		const order: OrderIntent | undefined =
-			limit?.kind === "access" ? { tag: limit.access, orderBy: stated.orderBy } : undefined
-		const tail: Tail = limit?.kind === "access" ? { ...stated, limit: limit.expr } : stated
+			limit?.kind === "access" ? { tag: limit.access, orderBy } : undefined
+		const tail: Tail = limit?.kind === "access" ? { ...stated, orderBy, limit: limit.expr } : stated
 		const tailUnder = (under: Env): Tail => {
 			const rename = this.renamer(under)
 			return {
@@ -1289,7 +1405,7 @@ class Binder {
 		}
 		switch (b.kind) {
 			case "core": {
-				const folded = tail.orderBy.length > 0 ? b : foldedCore(b, true)
+				const folded = taken?.core ?? (tail.orderBy.length > 0 ? b : foldedCore(b, true))
 				const bound = this.core(folded, env, name, order)
 				return { body: bound.core, tail: tailUnder(bound.env) }
 			}
