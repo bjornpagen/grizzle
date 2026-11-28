@@ -1042,8 +1042,6 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 				: undefined
 		}
 		const live = liveReading(liveDefinition, (query) => this.storedImport(query))
-		/** The columns of each definition a delta class reads, each checked once (theory/columns.ts knownColumns). */
-		const columnType = knownColumns(this)
 		const namedDerived = ownedRelations
 			.flatMap((o) => (o.kind === "derived" ? [o] : []))
 			.toSorted((a, b) =>
@@ -1054,10 +1052,15 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			 * The one session of every derived definition's check (check/session.ts CheckSession): a definition reads a
 			 * derived relation below it as a relation, and an import its definitions share, a query several of them read, is
 			 * checked once for the schema (check/checker.ts #closedImport), where a session of each definition's own checked it
-			 * again for each. It, the digests and the analyses below are this block's, the admission of the canonical
-			 * relations, so no closure the schema keeps holds them past it.
+			 * again for each. It, the digests, the analyses and the column types below are this block's, the admission of
+			 * the canonical relations, so no closure the schema keeps holds them past it.
 			 */
 			const session = new CheckSession(this.patterns)
+			/** The columns of each definition a delta class reads, each checked once (theory/columns.ts knownColumns) in a
+			 * session of its own, this block's as the session above is: declared in the constructor's own scope, it shared the
+			 * context of the closures the schema keeps (`#definitionOf`), so every schema held that session and every closed
+			 * import its checks recorded. */
+			const columnType = knownColumns(this)
 			/** The canonical forms of the definitions and their closed imports (ir/dag.ts CanonicalDigests), each closed
 			 * sub-query digested once for the schema however many forms read it. */
 			const digests = new CanonicalDigests()
