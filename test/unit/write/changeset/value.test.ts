@@ -6,7 +6,7 @@
  * - insert, delete and put add a member to the last stratum, sequence concatenates strata, union combines them position
  *   by position, and an empty stratum is kept;
  * - within a stratum, the array members of one operation on one relation are one member whose facts are theirs
- *   concatenated, equal query members are one, and the Streams of one operation on one relation keep their order;
+ *   concatenated, and equal query members are one;
  * - every value is sealed: no step changes an earlier value, and an array's facts are copied when it is added;
  * - a member, a read-back, a union and a sequence are over a level: a query over a higher level, a relation of a
  *   higher level, and two levels neither of which is a level of the other are refused;
@@ -86,11 +86,9 @@ export const theChangeSetAlgebraBuildsTheModelsChangeSetAtEveryStepCanonicalSeal
 			budget: { runs: 300, steered: 400 },
 			situations: [
 				"an array member",
-				"a Stream member",
 				"a query member",
 				"array members merged",
 				"a query member deduplicated",
-				"two Streams of one group",
 				"an empty stratum kept",
 				"three strata",
 				"a delta read-back",

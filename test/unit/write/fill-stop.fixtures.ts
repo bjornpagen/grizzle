@@ -277,31 +277,29 @@ const statementOutcome = (path: Path, stated: StatedRows, missing: boolean): Out
 
 /** The outcome of a case's ChangeSet on a path: the host's refusal, or PostgreSQL's of what the host binds. */
 export const outcomeOn = (path: Path, value: unknown, missing: boolean) =>
-	Effect.map(
-		collectInputs(path.program.binding.groups, parsedOf(value).inputs),
-		(members): Outcome => {
-			const bound = bindWrite(
-				flightOf(servableWrite(path.program), path.program.frontend.codes, noAdvice),
-				{
-					members,
-					params: {},
-					transport: inForce(bindFrame)
-				}
-			)
-			if (!bound.ok) {
-				return { kind: "other", what: bound.error._tag }
+	Effect.sync((): Outcome => {
+		const members = collectInputs(path.program.binding.groups, parsedOf(value).inputs)
+		const bound = bindWrite(
+			flightOf(servableWrite(path.program), path.program.frontend.codes, noAdvice),
+			{
+				members,
+				params: {},
+				transport: inForce(bindFrame)
 			}
-			const b = bound.value
-			switch (b.kind) {
-				case "invariant-rejected":
-					return { kind: "other", what: "a key law" }
-				case "generated-rejected":
-					return { kind: "invariant-rejected", law: b.rejection.law, witness: b.rejection.witness }
-				case "bound":
-					return statementOutcome(path, b.stated, missing)
-			}
+		)
+		if (!bound.ok) {
+			return { kind: "other", what: bound.error._tag }
 		}
-	)
+		const b = bound.value
+		switch (b.kind) {
+			case "invariant-rejected":
+				return { kind: "other", what: "a key law" }
+			case "generated-rejected":
+				return { kind: "invariant-rejected", law: b.rejection.law, witness: b.rejection.witness }
+			case "bound":
+				return statementOutcome(path, b.stated, missing)
+		}
+	})
 
 /** Whether a member's fill reads its weight: the weight fold steps over it, or the selection reaches the weight. */
 export const weightRead = (c: StopCase, m: MemberShape): boolean =>

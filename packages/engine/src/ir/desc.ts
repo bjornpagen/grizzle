@@ -2155,7 +2155,7 @@ export type EqualedDesc =
 	| { readonly kind: "literal"; readonly value: LiteralDesc }
 
 /**
- * ChangeSets. An array or Stream member names the slot its facts travel in; the facts are values,
+ * ChangeSets. An array member names the slot its facts travel in; the facts are values,
  * outside the Description and outside template identity. A query member is its query. A field-equality member,
  * `equal`, is the facts of its relation whose named fields equal what it equates them to, each a parameter or a
  * literal: the query that matches the relation's facts as its member writes them and keeps those whose fields are
@@ -2164,14 +2164,13 @@ export type EqualedDesc =
  */
 type MemberSourceDesc<L = Located> =
 	| { readonly kind: "array"; readonly slot: string }
-	| { readonly kind: "stream"; readonly slot: string }
 	| { readonly kind: "query"; readonly query: QueryDesc<L> }
 	| { readonly kind: "equal"; readonly fields: Readonly<Record<string, EqualedDesc>> }
 
 /**
  * The fields of an insert's host rows the call computes (ChangeSet.insert's third argument): `query`, one rule that
  * matches nothing and finds each field's value, a term over the call's scalar parameters, its clock reading and
- * literals, so one row, one value of each field for the whole call. Every array and Stream insert of its relation in its
+ * literals, so one row, one value of each field for the whole call. Every array insert of its relation in its
  * stratum leaves those fields out and takes them from it (write/frontend/compile.ts); it writes no row of its own.
  */
 export interface ComputedSourceDesc<L = Located> {
@@ -2212,7 +2211,7 @@ export type FactsMemberDesc<L = Located> = L & {
 	readonly member: MemberSourceDesc<L>
 }
 
-/** A member as the planner reads it: an array, a Stream or a query, a field-equality member made its query. */
+/** A member as the planner reads it: an array or a query, a field-equality member made its query. */
 export type PlannedMemberDesc<L = Located> = L & {
 	readonly op: WriteOp
 	readonly relation: string
@@ -2241,11 +2240,10 @@ export const renameEqualParams = (
 	)
 
 /** The parameters a member needs, by name: a query's and a computed record's (queryParamNames), a field-equality
- * member's, an array's or a Stream's none, its facts being values. */
+ * member's, an array's none, its facts being values. */
 export const memberParamNames = (member: InsertSourceDesc): ReadonlySet<string> => {
 	switch (member.kind) {
 		case "array":
-		case "stream":
 			return new Set()
 		case "query":
 		case "computed":
@@ -4345,10 +4343,9 @@ const equaledDescShape: S.Shape<EqualedDesc> = S.tagged<EqualedDesc>()("kind", {
 	literal: S.struct({ value: literalDescShape })
 })
 
-/** A write member's source: an array, a Stream, a query or a field-equality member. */
+/** A write member's source: an array, a query or a field-equality member. */
 const writeSourceShape = S.tagged<MemberSourceDesc>()("kind", {
 	array: S.struct({ slot: name }),
-	stream: S.struct({ slot: name }),
 	query: S.struct({ query: unorderedQueryShape }),
 	equal: S.struct({ fields: S.recordShape(equaledDescShape, name) })
 })
@@ -4359,7 +4356,6 @@ const writeMemberShape = S.structWith({ relation: name, member: writeSourceShape
 /** An insert member's source: a write member's, or the computed fields of its stratum's host rows. */
 const insertSourceShape = S.tagged<InsertSourceDesc>()("kind", {
 	array: S.struct({ slot: name }),
-	stream: S.struct({ slot: name }),
 	query: S.struct({ query: unorderedQueryShape }),
 	equal: S.struct({ fields: S.recordShape(equaledDescShape, name) }),
 	computed: S.struct({ query: unorderedQueryShape })
@@ -4373,12 +4369,11 @@ const memberDescShape: S.Shape<MemberDesc> = S.located(
 	})
 )
 
-/** Whether a member's facts travel in a slot of their own: an array's or a Stream's, never a query's or a field-equality
- * member's, whose facts its statement reads. */
+/** Whether a member's facts travel in a slot of their own: an array's, never a query's or a field-equality member's,
+ * whose facts its statement reads. */
 export const enumeratedMember = (member: MemberDesc["member"]): boolean => {
 	switch (member.kind) {
 		case "array":
-		case "stream":
 			return true
 		case "query":
 		case "equal":

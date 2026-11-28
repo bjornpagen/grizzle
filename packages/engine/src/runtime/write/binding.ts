@@ -153,15 +153,14 @@ export interface FreshStratum {
 }
 
 /**
- * An array or Stream member of the ChangeSet, as its call's facts reach it: the name of the member slot its facts travel
- * in, its stratum and operation, the relation its facts are of as the ChangeSet names it, and how they travel.
+ * An array member of the ChangeSet, as its call's facts reach it: the name of the member slot its facts travel in, its
+ * stratum and operation, and the relation its facts are of as the ChangeSet names it.
  */
 export interface MemberAt {
 	readonly slot: string
 	readonly stratum: number
 	readonly op: MemberDesc["op"]
 	readonly relation: string
-	readonly kind: "array" | "stream"
 }
 
 /**
@@ -175,7 +174,7 @@ export const drawableShape = (
 	params: ReadonlyArray<{ readonly kind: string }>
 ): boolean =>
 	members.length > 0 &&
-	members.every((m) => m.op === "insert" && m.kind === "array") &&
+	members.every((m) => m.op === "insert") &&
 	new Set(members.map((m) => m.stratum)).size === 1 &&
 	params.every((p) => p.kind !== "relation")
 
@@ -208,7 +207,7 @@ export interface NestedAt {
 
 /** A compiled write's binding (see the module's header). */
 export interface Binding {
-	/** Each array or Stream member of the ChangeSet, in its strata's order. */
+	/** Each array member of the ChangeSet, in its strata's order. */
 	readonly members: ReadonlyArray<MemberAt>
 	/** The slot groups, as normalization reads them (write/normalize/normalize.ts GroupData). */
 	readonly groups: ReadonlyArray<GroupData>

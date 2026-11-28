@@ -1,7 +1,7 @@
 /** What the properties of scaling.test.ts read: its spaces, models and helpers. */
 
 import { assert, defined } from "@bjornpagen/testing/assert"
-import { Array as Arr, Record as Rec, Stream } from "effect"
+import { Array as Arr, Record as Rec } from "effect"
 import type { IdentityDigest } from "#compiler/core/fingerprint.ts"
 import { type ChangeSetDesc, decodeDesc, descIdentity } from "#compiler/ir/desc.ts"
 import { queryOver as query, queryValueDesc, varsOver as v } from "#compiler/query/build/query.ts"
@@ -96,7 +96,6 @@ type Op =
 	| { readonly op: "put"; readonly member: number }
 	| { readonly op: "facts"; readonly note: number }
 	| { readonly op: "delete"; readonly note: number }
-	| { readonly op: "stream"; readonly note: number }
 	| { readonly op: "bind" }
 	| { readonly op: "read"; readonly member: number }
 	| { readonly op: "union" }
@@ -104,10 +103,9 @@ type Op =
 	| { readonly op: "sequence" }
 	| { readonly op: "sequence after" }
 
-/** A ChangeSet union and sequence combine with: a bound member, an array member and a Stream member. */
+/** A ChangeSet union and sequence combine with: a bound member and array members. */
 const other = ChangeSet.empty(Work)
-	.insert(TaskNote, [note(9)])
-	.insert(TaskNote, Stream.fromIterable([note(8)]))
+	.insert(TaskNote, [note(9), note(8)])
 	.put(Task, member(1))
 	.bind({ task1: uuidOf(9) })
 
@@ -117,7 +115,6 @@ export const opOf = (kind: number, n: number): Op => {
 		{ op: "put", member: n },
 		{ op: "facts", note: n },
 		{ op: "delete", note: n },
-		{ op: "stream", note: n },
 		{ op: "bind" },
 		{ op: "read", member: n },
 		{ op: "union" },
@@ -148,9 +145,6 @@ export const built = (ops: ReadonlyArray<Op>): ReadonlyArray<ChangeSetValue> => 
 				break
 			case "delete":
 				at = at.delete(TaskNote, [note(op.note)])
-				break
-			case "stream":
-				at = at.insert(TaskNote, Stream.fromIterable([note(op.note)]))
 				break
 			case "bind":
 				at = at.bind(Rec.fromEntries(Arr.map([...free], (i) => [`task${i}`, uuidOf(i)] as const)))

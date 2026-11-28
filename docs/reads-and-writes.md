@@ -664,7 +664,7 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
                                     the program's
 ```
 
-- **Rows** are an array, an Effect `Stream` or a query, in any number; each column travels as one array. A query reads
+- **Rows** are an array or a query, in any number; each column travels as one array. A query reads
   the state before its stratum, in the same transaction. There are no interactive transactions: a write that depends
   on a read states the read as its query.
 - **A relation parameter bound to a query is an input of the call**, not a member's query, and it is scoped to the
@@ -704,7 +704,7 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   `ChangeSet.empty(S).deleteWhere({ Node: { package }, Entry: { package } }).insertAll(rows)` replaces a package.
 - **A row holds the fields its caller writes**, `Written<R>` ([How a field is written](schema.md#how-a-field-is-written)). A
   family's member is a row of its own, nested under its owner only in a sequence ([Families](schema.md#families)), and written
-  from an array or a `Stream`, never from a query or through a query entry, since grizzle draws its family's values
+  from an array, never from a query or through a query entry, since grizzle draws its family's values
   from its rows on the host. Its owner may be written through a query entry
   ([Writing through a role](access.md#writing-through-a-role)).
 
@@ -724,7 +724,7 @@ without a value.
   ([Identity: natural keys](schema.md#identity-natural-keys)). An instant is no caller's: an insert's row leaves it out and the
   database stamps it ([Instants](#instants)).
 - **`insertAllComputed`** inserts host rows that leave fields for the call to compute: `insertAllComputed(rows,
-  computed)` takes insertAll's record, under each relation's name an array or a Stream of its rows, and a record of
+  computed)` takes insertAll's record, under each relation's name an array of its rows, and a record of
   fields, at least one, to terms over the call's parameters, its clock reading and literals, each a caller-written
   field of every relation the record names, written at its field's own type as a query member's head is, a relation
   that lacks one refused at its key: `ChangeSet.empty(Den).insertAllComputed({ Claim: [] }, { until:
@@ -1022,7 +1022,7 @@ export const signIn = g.ChangeSet.empty(Auth)
 	)
 ```
 
-- **An insert leaves an instant out to have it stamped.** A row of an array, a Stream or a query that omits an
+- **An insert leaves an instant out to have it stamped.** A row of an array or a query that omits an
   instant field has it stamped with the call's instant of its clock: a clock's own, at the row's child, or a
   reference's clock, at the child its containment carries the row to, `Visit.user` above. A stamp's child is a
   field the row states, never one the same insert stamps (`childStamped`). A clock is only ever stamped: a row that
@@ -1040,7 +1040,7 @@ export const signIn = g.ChangeSet.empty(Auth)
   clock and child of the scope it is a row of, so rows of one child in one call that share the rest of a key need a
   field of their own in it, a place or a name, or they meet at the key. A call stamps a clock in one statement: its
   stratum's, which holds its every insert and those of the references it stamps, a table's inserts one write of all
-  their sources, however many queries, arrays and Streams state them. A ChangeSet that would stamp it in two strata, or
+  their sources, however many queries and arrays state them. A ChangeSet that would stamp it in two strata, or
   in a stratum of several statements, such as one that inserts a table beside a put or a delete of it, whose removals
   run first, is refused when it compiles (`stampedApart`); a later stratum reads the stamped rows back as stored
   instants. Two clocks of one scope may stamp in two strata or two statements of one call: each stamps rows of its own

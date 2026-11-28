@@ -84,7 +84,7 @@ export const aWriteOfLargeBytesValuesRefusesAMemberPastTheMessageFromItsLengthsA
 							: ChangeSet.empty(Large).insert(Two, facts)
 					const program = succeeded(compileWrite(checking(Large), descOf(change), reality))
 					const write = flightOf(servableWrite(program), program.frontend.codes, noAdvice)
-					const members = yield* collectInputs(program.binding.groups, parsedOf(change).inputs)
+					const members = collectInputs(program.binding.groups, parsedOf(change).inputs)
 					const before = process.memoryUsage().arrayBuffers
 					const bound = bindWrite(write, {
 						members,

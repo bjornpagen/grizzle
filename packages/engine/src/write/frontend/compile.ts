@@ -209,8 +209,6 @@ export interface FrontendOptions {
  * columns. */
 export interface MemberSlot {
 	readonly slot: ParamId
-	/** stream when some member is a Stream, collected on the host, whole. */
-	readonly transport: "enumerated" | "stream"
 	/** The fields its facts carry, in heading order: its target's (`CheckedTarget`), none for the unit relation. */
 	readonly heading: Heading
 	/** The slot as its action's relation input, its columns in key-first order (insert/input.ts relationInput). */
@@ -949,7 +947,7 @@ interface CheckedTarget {
 }
 
 /**
- * A stratum's member, checked: its operation, its target, and its source, an array or Stream member slot, or a query
+ * A stratum's member, checked: its operation, its target, and its source, an array member slot, or a query
  * with its root in the write DAG, whose head is the member relation's. Its target is its relation's, whole, as targetOf
  * decides it for every member of the relation: a member holds no heading or class of its own, so no member's statement
  * can set the heading another operation's slot of its relation is admitted and carried under.
@@ -965,7 +963,7 @@ interface CheckedMember {
 	readonly source:
 		| {
 				readonly kind: "enumerated"
-				readonly member: Extract<FactsMemberDesc["member"], { readonly kind: "array" | "stream" }>
+				readonly member: Extract<FactsMemberDesc["member"], { readonly kind: "array" }>
 		  }
 		| {
 				readonly kind: "described"
@@ -1835,16 +1833,13 @@ const compile = (
 			}
 			if (
 				!stratum.members.some(
-					(o) =>
-						o.op === "insert" &&
-						o.relation === m.relation &&
-						(o.member.kind === "array" || o.member.kind === "stream")
+					(o) => o.op === "insert" && o.relation === m.relation && o.member.kind === "array"
 				)
 			) {
 				refuse(
 					"UnsupportedOperation",
 					loc,
-					`computed fields of ${relation.name}'s host rows, beside no array or Stream insert of ${relation.name} in their stratum: the call computes the fields an insert's host rows leave out`
+					`computed fields of ${relation.name}'s host rows, beside no array insert of ${relation.name} in their stratum: the call computes the fields an insert's host rows leave out`
 				)
 			}
 			const named = new Set(Object.keys(arm.head))
@@ -2015,7 +2010,7 @@ const compile = (
 				refuse(
 					"UnsupportedOperation",
 					loc,
-					`a ${member.op} of ${relation.name}, a member of a family, ${entry.kind !== "whole" ? "through a query entry" : "by a query"}: grizzle draws its family's values from its rows on the host, so write ${relation.name} whole from an array or a Stream`
+					`a ${member.op} of ${relation.name}, a member of a family, ${entry.kind !== "whole" ? "through a query entry" : "by a query"}: grizzle draws its family's values from its rows on the host, so write ${relation.name} whole from an array`
 				)
 			}
 			if (edited && member.op !== "insert" && nests(relation.name)) {
@@ -2030,7 +2025,7 @@ const compile = (
 				refuse(
 					"UnsupportedOperation",
 					loc,
-					`an insert into ${relation.name}, which owns a sequence, ${entry.kind !== "whole" ? "through a query entry" : "by a query"}: a sequence's members are written nested in order under their owner, so insert ${relation.name} whole from an array or a Stream`
+					`an insert into ${relation.name}, which owns a sequence, ${entry.kind !== "whole" ? "through a query entry" : "by a query"}: a sequence's members are written nested in order under their owner, so insert ${relation.name} whole from an array`
 				)
 			}
 			const written: MemberRelation =
@@ -2050,7 +2045,7 @@ const compile = (
 				relation,
 				source.kind === "equal" ? Object.keys(source.fields) : written.heading.map((c) => c.name)
 			)
-			if (source.kind === "array" || source.kind === "stream") {
+			if (source.kind === "array") {
 				return {
 					op: member.op,
 					target,
@@ -2316,7 +2311,6 @@ const compile = (
 					}
 				}
 				const loc = firstOfOp.loc
-				const transport = enumerated.some((m) => m.kind === "stream") ? "stream" : "enumerated"
 				/** The member slot of the operation's enumerated members, its facts carrying `carried` and stating `walked`
 				 * beside their key and caller's fields (insert/input.ts relationInput). */
 				const memberSlot = (
@@ -2327,7 +2321,6 @@ const compile = (
 					const id = writeSlotId(s, act, written.name)
 					return Object.freeze({
 						slot: id,
-						transport,
 						heading: carried,
 						input: relationInput(id, carried, relation, walked)
 					})
@@ -2688,7 +2681,7 @@ const compile = (
 					switch (reads.kind) {
 						case "slot":
 							return {
-								source: { kind: reads.slot.transport, slot: reads.slot.slot },
+								source: { kind: "enumerated", slot: reads.slot.slot },
 								reads,
 								heading: carried
 							}

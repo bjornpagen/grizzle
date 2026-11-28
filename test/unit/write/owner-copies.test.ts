@@ -75,7 +75,7 @@ export const aMembersCopyOfItsOwnersFieldReadsTheOwnersRowsAsItsFamilyStatementH
 			"a write refused"
 		] satisfies ReadonlyArray<Reached<CopyFeature>>,
 		check: (_, k: Case<CopyFeature>) => (c) =>
-			Effect.gen(function* () {
+			Effect.sync(() => {
 				k.noteAll(copyFeatures(c))
 				const copying = copyingOf(c, "Copies")
 				const artifacts = succeeded(
@@ -112,7 +112,7 @@ export const aMembersCopyOfItsOwnersFieldReadsTheOwnersRowsAsItsFamilyStatementH
 						}
 					}
 				}
-				const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
+				const members = collectInputs(program.binding.groups, parsedOf(value).inputs)
 				const flight = flightOf(servableWrite(program), program.frontend.codes, noAdvice)
 				const bound = succeeded(
 					bindWrite(flight, { members, params: copying.params, transport: inForce(bindFrame) }),

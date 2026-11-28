@@ -948,7 +948,7 @@ const queriedOwnerAppendText = (
 	family: { readonly owner: string; readonly count: string },
 	member: string
 ): string =>
-	`${op === "put" ? "a put of" : "an insert into"} ${owner} from a query, which may insert an owner of the family ${family.owner}.${family.count}, in a ChangeSet that appends ${member} to that family: an inserted owner holds its final count and ends in its own row, which grizzle fills only from the facts a ChangeSet states, so state ${owner}'s facts in this ChangeSet from an array or a Stream, or ${op} ${owner} in a ChangeSet that ChangeSet.sequence runs before the one that appends`
+	`${op === "put" ? "a put of" : "an insert into"} ${owner} from a query, which may insert an owner of the family ${family.owner}.${family.count}, in a ChangeSet that appends ${member} to that family: an inserted owner holds its final count and ends in its own row, which grizzle fills only from the facts a ChangeSet states, so state ${owner}'s facts in this ChangeSet from an array, or ${op} ${owner} in a ChangeSet that ChangeSet.sequence runs before the one that appends`
 
 /** The key an UnstatedKey names, by its fields: the relation's primary key, or a key a `key` statement declares. */
 interface UnstatedKeyOf {
@@ -1085,7 +1085,7 @@ export const compileReasonText = (reason: CompileReason): string => {
 		case "UnwritableRelation":
 			return unwritableRelationText(reason.relation, reason.cause)
 		case "CascadedCopyAppend":
-			return `${reason.op === "put" ? "a put of" : reason.op === "insert" ? "an insert into" : "a delete of"} ${reason.member} edits the family ${reason.family.owner}.${reason.family.count}, whose copy ${reason.copy} reads ${reason.owner}'s ${reason.through}, which ${reason.owner} copies from ${reason.changed}; the same stratum puts ${reason.changed} from a query, whose rows grizzle never sees, so it cannot draw the copy the change reaches ${reason.owner} with: put ${reason.changed} from an array or a Stream, or in a ChangeSet applied before this one`
+			return `${reason.op === "put" ? "a put of" : reason.op === "insert" ? "an insert into" : "a delete of"} ${reason.member} edits the family ${reason.family.owner}.${reason.family.count}, whose copy ${reason.copy} reads ${reason.owner}'s ${reason.through}, which ${reason.owner} copies from ${reason.changed}; the same stratum puts ${reason.changed} from a query, whose rows grizzle never sees, so it cannot draw the copy the change reaches ${reason.owner} with: put ${reason.changed} from an array, or in a ChangeSet applied before this one`
 		case "StaleDerivedRead":
 			return staleDerivedReadText(reason)
 		case "UnorderableStratum":

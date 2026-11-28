@@ -196,14 +196,13 @@ interface GeneratedRefusal {
 
 export type Normalization = Normalized | KeyRefusal | GeneratedRefusal
 
-/** The facts each member slot of the ChangeSet value supplies: an array's, or a Stream's collected. */
+/** The facts each member slot of the ChangeSet value supplies: its array's. */
 export type MemberFacts = ReadonlyMap<string, Iterable<unknown>>
 
-/** A member slot as normalization reads it (frontend/compile.ts MemberSlot): its parameter, how its members travel, and
- * the fields its facts carry, in heading order. */
+/** A member slot as normalization reads it (frontend/compile.ts MemberSlot): its parameter, and the fields its facts
+ * carry, in heading order. */
 export interface SlotData {
 	readonly slot: ParamId
-	readonly transport: "enumerated" | "stream"
 	readonly heading: Heading
 }
 
@@ -947,7 +946,7 @@ type AdmittedGroup =
  *
  * Host normalization of a ChangeSet's enumerated members.
  *
- * An enumerated member is the query over a relation parameter its array or Stream binds, so the host owns its set
+ * An enumerated member is the query over a relation parameter its array binds, so the host owns its set
  * property and its null ban. For each stratum and each relation, over the write front end's slots
  * (`SlotGroup`), it does what follows, step 1 over every slot before any slot is judged: an input that does not admit
  * is its EncodingFailure whatever law the others break, and a nested write's generated field with no value refuses the

@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Stream } from "effect"
+import { Array as Arr, Effect } from "effect"
 import type { CompiledChange } from "#adapter/apply/compile.ts"
 import type { HostCall } from "#adapter/apply/run.ts"
 import type { CallInputRefused } from "#adapter/errors/failures.ts"
@@ -25,36 +25,25 @@ const slotInputs = (
 		return input === undefined ? [] : [[member, input] as const]
 	})
 
-/** The facts of every member slot the compiled ChangeSet reads, from the ChangeSet value's inputs. The program was
- * compiled from the value's own Description, so the value holds an input for every slot.
- * A Stream member travels as its arrays like an array: it is collected on the host, whole, before any SQL, since host
- * normalization reads every fact before the transaction begins. A Stream member has no error or requirement channel:
- * the caller handled its failures and provided its services before it became a member, so a caller's retry after a
- * TransientFailure replays it here. The engine receives arrays only. */
+/** The facts of every member slot the compiled ChangeSet reads, from the ChangeSet value's inputs: each array member's
+ * facts, by its slot. The program was compiled from the value's own Description, so the value holds an input for every
+ * slot. */
 export const collectInputs = (
 	groups: ReadonlyArray<GroupData>,
 	inputs: ReadonlyMap<string, ChangeSetInput>
-): Effect.Effect<MemberFacts> =>
-	Effect.map(
-		Effect.forEach(slotInputs(groups, inputs), ([member, input]) =>
-			input.kind === "array"
-				? Effect.succeed([member, input.facts] as const)
-				: Effect.map(Stream.runCollect(input.stream), (facts) => [member, facts] as const)
-		),
-		(entries): MemberFacts => new Map<string, Iterable<unknown>>(entries)
-	)
+): MemberFacts => new Map<string, Iterable<unknown>>(slotInputs(groups, inputs))
 
 /**
  * The call of a ChangeSet value compiled in process as the program `program` (run.ts HostCall): the caller's parameters,
- * read by its declared names (reader/params.ts readParams), the value's bound values, and its members' facts, a Stream
- * member's collected whole (`collectInputs`).
+ * read by its declared names (reader/params.ts readParams), the value's bound values, and its members' facts
+ * (`collectInputs`).
  */
 export const changeCall = (
 	program: string,
 	compiled: CompiledChange,
 	params: unknown
 ): Effect.Effect<HostCall, CallInputRefused> =>
-	Effect.zipWith(
+	Effect.map(
 		Effect.fromResult(
 			readParams(
 				program,
@@ -62,6 +51,9 @@ export const changeCall = (
 				params
 			)
 		),
-		collectInputs(compiled.program.binding.groups, compiled.change.inputs),
-		(read, members): HostCall => ({ params: read, bound: compiled.change.values, members })
+		(read): HostCall => ({
+			params: read,
+			bound: compiled.change.values,
+			members: collectInputs(compiled.program.binding.groups, compiled.change.inputs)
+		})
 	)

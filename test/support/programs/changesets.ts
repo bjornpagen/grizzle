@@ -2,7 +2,6 @@
  * The names the ChangeSet agreement's generated program reads (test/support/agreement/changesets.ts), its prelude
  * (test/support/prelude.ts): the program imports these alone, each through this module.
  */
-export { Stream } from "effect"
 export type { Effect } from "effect"
 export type { WorkloadHandles } from "#adapter/types/db.ts"
 export type { CallError, InputOf, WriteOutcome } from "#compiler/live/index.ts"

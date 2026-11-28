@@ -825,13 +825,13 @@ const callFactsOf = (change: ParsedChangeSet): CallFacts => {
 				continue
 			}
 			const input = change.inputs.get(m.member.slot)
-			if (input?.kind !== "array") {
+			if (input === undefined) {
 				throw new GateSetupError({
 					what: `observedChange: the array member ${m.member.slot} holds no facts`
 				})
 			}
 			const byRelation = facts[m.op] ?? {}
-			byRelation[m.relation] = input.facts
+			byRelation[m.relation] = input
 			facts[m.op] = byRelation
 		}
 	}

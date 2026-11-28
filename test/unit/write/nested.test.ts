@@ -26,7 +26,7 @@ import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Option, String as Str, Stream } from "effect"
+import { Array as Arr, Effect, Option, String as Str } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { columnKeyOf } from "#compiler/ir/law.ts"
@@ -67,7 +67,7 @@ export const aNestedWriteThroughTheProgramWritesOwnersWithTheirFoldedFamiliesAnd
 			Reached<Feature>
 		>,
 		check: (_, c: Case<Feature>) => (box) =>
-			Effect.gen(function* () {
+			Effect.sync(() => {
 				const docs = Arr.map(box.docs, (qtys, d) => ({
 					id: uuidOf(100 + d),
 					lines: Arr.map(qtys, (qty, i) => ({
@@ -81,7 +81,7 @@ export const aNestedWriteThroughTheProgramWritesOwnersWithTheirFoldedFamiliesAnd
 				}))
 				const value = ChangeSet.empty(Nested).insert(Doc, docs).insert(Node, roots)
 				const program = nestedCompiled(value)
-				const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
+				const members = collectInputs(program.binding.groups, parsedOf(value).inputs)
 				const bound = succeeded(
 					bindWrite(flightOf(servableWrite(program), program.frontend.codes, noAdvice), {
 						members,
@@ -189,13 +189,13 @@ export const aNestedWritesFactsAreASetByIdentityRule0Ruling1WritesAFactStatedTwi
 			"accepted with members"
 		] satisfies ReadonlyArray<Reached<SetFeature>>,
 		check: (_, c: Case<SetFeature>) => (box) =>
-			Effect.gen(function* () {
+			Effect.sync(() => {
 				const stated = Arr.map(box.facts, docFact)
 				const value = ChangeSet.empty(Nested)
 					.insert(Doc, Arr.take(stated, box.inArray))
-					.insert(Doc, Stream.fromIterable(Arr.drop(stated, box.inArray)))
+					.insert(Doc, Arr.drop(stated, box.inArray))
 				const setShaped = nestedCompiled(value)
-				const members = yield* collectInputs(setShaped.binding.groups, parsedOf(value).inputs)
+				const members = collectInputs(setShaped.binding.groups, parsedOf(value).inputs)
 				const bound = succeeded(
 					bindWrite(flightOf(servableWrite(setShaped), setShaped.frontend.codes, noAdvice), {
 						members,
@@ -257,7 +257,7 @@ export const aNestedWritesFactsAreASetByIdentityRule0Ruling1WritesAFactStatedTwi
 			kind: "specification",
 			name: "a ChangeSet's facts are a set by identity, two at one key refused by its key law"
 		},
-		box: "one to three Doc facts of two ids, each nesting up to two Lines of two ids, split between an array and a Stream member",
+		box: "one to three Doc facts of two ids, each nesting up to two Lines of two ids, split between two array members of one stratum",
 		kept: [],
 		kills: [
 			{
@@ -282,11 +282,11 @@ export const aNestedTreeAtDepthAndWidthNumbersAChainsAndAStarsNodesInPreOrderAtS
 				Reached<ShapeFeature>
 			>,
 			check: (_, c: Case<ShapeFeature>) => (box) =>
-				Effect.gen(function* () {
+				Effect.sync(() => {
 					const root = box.shape === "chain" ? chainOf(box.n, 1000) : starOf(box.n, 1000)
 					const value = ChangeSet.empty(Nested).insert(Node, [{ ...root, root: uuidOf(999) }])
 					const treeShaped = nestedCompiled(value)
-					const members = yield* collectInputs(treeShaped.binding.groups, parsedOf(value).inputs)
+					const members = collectInputs(treeShaped.binding.groups, parsedOf(value).inputs)
 					const bound = succeeded(
 						bindWrite(flightOf(servableWrite(treeShaped), treeShaped.frontend.codes, noAdvice), {
 							members,
@@ -352,7 +352,7 @@ export const aBindSpellsNoFamilysOrLayoutsKeyForARowItFills = property.exhaust(
 						const root = box.shape === "chain" ? chainOf(n, 1000) : starOf(n, 1000)
 						const value = ChangeSet.empty(Nested).insert(Node, [{ ...root, root: uuidOf(999) }])
 						const treeShaped = nestedCompiled(value)
-						const members = yield* collectInputs(treeShaped.binding.groups, parsedOf(value).inputs)
+						const members = collectInputs(treeShaped.binding.groups, parsedOf(value).inputs)
 						const flight = flightOf(servableWrite(treeShaped), treeShaped.frontend.codes, noAdvice)
 						const [bound, counts] = yield* callCounts(
 							Effect.sync(() =>

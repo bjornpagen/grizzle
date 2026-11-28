@@ -291,13 +291,13 @@ type Fact = { readonly [field: string]: unknown }
 const mintNormal = nominal<Pick<NormalFacts, "facts" | "entries">, NormalFacts>()
 
 /**
- * Relation-valued inputs: the array encoder and the Stream collector.
+ * Relation-valued inputs: the array encoder.
  *
  * An enumerated ChangeSet member and a relation parameter are one thing, a set of facts the input binds, whatever its
  * size. It travels as parallel arrays, one text-format array literal per column, a bytes column's a binary bytea[]
  * (codec/bytea.ts) where a member carries it, every column's array one element per
- * fact in the same order, or, for an input of no column, as its count of facts (sql/ast.ts ArraysSource); every member,
- * a Stream included, travels this way. The host codec owns the set property and the null ban for these forms:
+ * fact in the same order, or, for an input of no column, as its count of facts (sql/ast.ts ArraysSource); every member
+ * travels this way. The host codec owns the set property and the null ban for these forms:
  *
  * - it parses every field exactly through its carrier (values/identity.ts parseValue), which refuses a value its
  *   column would store as another, numeric(5,2)'s 1.231 among them, so fact identity is the stored value's;
@@ -313,7 +313,7 @@ const mintNormal = nominal<Pick<NormalFacts, "facts" | "entries">, NormalFacts>(
  *
  * Each array's element type is its column's base type; money's is numeric and the statement converts it with ::money.
  *
- * A Stream member is collected on the host before it reaches this codec (the shell's adapter/apply/collect.ts and
+ * A relation parameter given as a Stream is collected on the host before it reaches this codec (the shell's
  * adapter/reader/params.ts), and then normalized exactly like an array. A caller's retry replays the Stream.
  *
  * The one mint of normal facts: the facts of `byIdentity`, each admitted by factIdentity over one heading and frozen,

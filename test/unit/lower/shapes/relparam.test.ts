@@ -48,13 +48,13 @@ export const aWritesEnumeratedMembersLowerToArraysAndAnInputOfAnyCountBindsEvery
 			Reached<CountFeature>
 		>,
 		check: (_, c: Case<CountFeature>) => (sketch) =>
-			Effect.gen(function* () {
+			Effect.sync(() => {
 				const rows = ((count) => upTo(count, fact))(sketch)
 
 				c.note(rows.length >= 100_000 ? "a hundred thousand facts or more" : "a few facts")
 				const changes = ChangeSet.empty(Shop).insert(Item, rows)
 				const compiled = program(changes)
-				const members = yield* collectInputs(compiled.binding.groups, parsedOf(changes).inputs)
+				const members = collectInputs(compiled.binding.groups, parsedOf(changes).inputs)
 				const flight = flightOf(servableWrite(compiled), compiled.frontend.codes, noAdvice)
 				const bound = succeeded(
 					bindWrite(flight, { members, params: {}, transport: inForce(bindFrame) })

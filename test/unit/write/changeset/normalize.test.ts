@@ -1,6 +1,6 @@
 /** Pair(k, v, c): primary key k, candidate key c, mutable inside the unit of its k.
  *
- * Host normalization of enumerated members, arrays and Streams alike, over one to three strata, checked against the
+ * Host normalization of enumerated members over one to three strata, checked against the
  * brute-force add-wins calculator: a refusal before SQL is a ChangeSet the add-wins meaning rejects, by a key law some
  * stratum's own additions violate whatever the state; a stratum that deletes two facts at one value of a key is no
  * refusal, since (S minus D) union A is lawful whichever of them is stored; and a normalized ChangeSet means exactly
@@ -10,7 +10,7 @@
  * Oracles: the brute-force add-wins calculator (oracle/addwins.ts, a second implementation) and the fact shape each
  * relation admits (a specification). The initial state is lawful by construction, its k and c each drawn once.
  *
- * Features: two and three strata, a Stream member, a refusal by a key, two deletions at one key normalized, a later stratum restating an earlier one's key, a fact a stratum both deletes and adds
+ * Features: two and three strata, a refusal by a key, two deletions at one key normalized, a later stratum restating an earlier one's key, a fact a stratum both deletes and adds
  * netted; each planted fault.
  */
 
@@ -54,7 +54,6 @@ export const normalizationAgainstTheAddWinsMeaningRefusesOnlyWhatAddWinsRejectsW
 			situations: [
 				"two strata",
 				"three strata",
-				"a Stream member",
 				"refused by a key",
 				"two deletions at one key, normalized",
 				"a later stratum restates an earlier stratum's key",

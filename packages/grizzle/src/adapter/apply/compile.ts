@@ -16,7 +16,7 @@ declare const installedBrand: unique symbol
  *
  * "A ChangeSet is compiled into the same kind of template: its members are queries, its parameters are theirs plus
  * one internal relation parameter per enumerated member". A ChangeSet value is a sealed Description plus the host
- * inputs of its array and Stream members; the Description alone decides the WriteProgram, compiled against the role it
+ * inputs of its array members; the Description alone decides the WriteProgram, compiled against the role it
  * compiles for and the contexts the Db's claims hold a fact of, which a write into a query entry fills from
  * (write/frontend/entry.ts), in the transaction evidence context. Every db.apply compiles its ChangeSet: grizzle keeps
  * no cache of programs, and a caller that applies one again keeps its compiled form itself (the workload, db.compile).

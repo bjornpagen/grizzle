@@ -65,7 +65,7 @@ export const aWriteThatNamesRowsByAPrimaryKeyRefusesAPutOrADeleteWhosePrimaryKey
 			"delete bound"
 		] satisfies ReadonlyArray<Reached<Situation>>,
 		check: (_, c: Case<Situation>) => (box) =>
-			Effect.gen(function* () {
+			Effect.sync(() => {
 				const { Member, declared, units } = memberOf(box.primary)
 				const Sequence = schema(
 					"Sequence",
@@ -98,7 +98,7 @@ export const aWriteThatNamesRowsByAPrimaryKeyRefusesAPutOrADeleteWhosePrimaryKey
 				const expected = expectedOf(box)
 				if (expected.kind === "bound") {
 					const program = succeeded(compiled, "a write that names its rows by stated fields")
-					const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
+					const members = collectInputs(program.binding.groups, parsedOf(value).inputs)
 					const bound = succeeded(
 						bindWrite(flightOf(servableWrite(program), program.frontend.codes, noAdvice), {
 							members,

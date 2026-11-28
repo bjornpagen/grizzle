@@ -57,8 +57,7 @@ const member = (op: MemberAt["op"], stratum: number): MemberAt => ({
 	slot: `slot ${stratum}`,
 	stratum,
 	op,
-	relation: "Entry",
-	kind: "array"
+	relation: "Entry"
 })
 
 const membersOf = (shape: Shape): ReadonlyArray<MemberAt> => {
@@ -157,8 +156,8 @@ export const aWriteDrawnInSharesCompilesOnlyWhereEveryHostCheckIsAnObjectTheServ
 			},
 			{
 				file: "packages/engine/src/runtime/write/binding.ts",
-				original: '\tmembers.every((m) => m.op === "insert" && m.kind === "array") &&\n',
-				replacement: '\tmembers.every((m) => m.kind === "array") &&\n',
+				original: '\tmembers.every((m) => m.op === "insert") &&\n',
+				replacement: '\tmembers.every((m) => m.op !== "delete") &&\n',
 				why: "A write that puts is a drawable shape: its puts drawn in shares replace each other at one key, where the whole call's host refuses the pair."
 			}
 		]

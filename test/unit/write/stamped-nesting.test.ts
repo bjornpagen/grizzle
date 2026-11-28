@@ -126,7 +126,7 @@ export const aNestedWriteUnderAStampedOwnerBindsEveryMemberWithItsOwnersStampLef
 			"conflict"
 		] satisfies ReadonlyArray<Reached<StampedFeature>>,
 		check: (_, k: Case<StampedFeature>) => (c) =>
-			Effect.gen(function* () {
+			Effect.sync(() => {
 				k.noteAll(featuresOf(c))
 				const built = stampedSchemaOf(c, "Stamped")
 				const artifacts = succeeded(
@@ -160,7 +160,7 @@ export const aNestedWriteUnderAStampedOwnerBindsEveryMemberWithItsOwnersStampLef
 					return
 				}
 				const program = succeeded(compiled, "the write compiles")
-				const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
+				const members = collectInputs(program.binding.groups, parsedOf(value).inputs)
 				const bound = succeeded(
 					bindWrite(flightOf(servableWrite(program), program.frontend.codes, noAdvice), {
 						members,

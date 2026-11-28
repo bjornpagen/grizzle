@@ -69,7 +69,7 @@ const writtenOnly = (value: ScalarType, field: ScalarType): string => {
 /**
  * ChangeSet members described by queries.
  *
- * A member is a set of facts of one ordinary relation. An array or a Stream member is the query over a relation
+ * A member is a set of facts of one ordinary relation. An array member is the query over a relation
  * parameter its input binds, whose shape the codec checks; a query member is checked here. A delete's head is the
  * relation's heading; an insert's and a put's is the fields a member writes, no field PostgreSQL generates or grizzle
  * draws or accumulates, an instant left out or stated (write/frontend/instants.ts). Each head column enters the field it is

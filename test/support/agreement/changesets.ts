@@ -3,7 +3,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { aimed, element, type Gen } from "@bjornpagen/testing/gen"
 import type { Source } from "@bjornpagen/testing/source"
 import { keep, type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
-import { Array as Arr, Effect, Option, Record as Rec, Result, Stream, String as Str } from "effect"
+import { Array as Arr, Effect, Option, Record as Rec, Result, String as Str } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { readParams } from "#adapter/reader/params.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
@@ -409,7 +409,6 @@ const swarmedFeatures = [
 	"put",
 	"insertAll",
 	"array member",
-	"stream member",
 	"a widened member",
 	"a fact stated twice",
 	"described member",
@@ -585,7 +584,7 @@ interface ParamSpec {
 
 type MemberSpec =
 	| {
-			readonly kind: "array" | "stream" | "widened"
+			readonly kind: "array" | "widened"
 			readonly op: Op
 			readonly relation: RelName | "Kind"
 			readonly facts: Arr.NonEmptyReadonlyArray<ReadonlyArray<readonly [string, Lit]>>
@@ -953,7 +952,7 @@ const headFaults: ReadonlyArray<ChangeSetFault> = [
 	"an exact value into a plain field"
 ]
 
-/** A member: its operation and relation, then its facts, enumerated or as a Stream, or its description. */
+/** A member: its operation and relation, then its facts, enumerated, or its description. */
 const memberOf = (d: Drawing, fault: ChangeSetFault | undefined, clean: boolean): MemberSpec => {
 	if (fault === "a closed relation written") {
 		return {
@@ -1030,14 +1029,9 @@ const memberOf = (d: Drawing, fault: ChangeSetFault | undefined, clean: boolean)
 		return { kind: "array", op, relation, facts: [first, second, ...beside] }
 	}
 	const planted = fault !== undefined && Arr.contains(factFaults, fault) ? fault : undefined
-	const kind =
-		planted === undefined && d.keep("a widened member")
-			? "widened"
-			: d.keep("stream member")
-				? "stream"
-				: "array"
+	const kind = planted === undefined && d.keep("a widened member") ? "widened" : "array"
 	if (kind !== "widened") {
-		d.note(kind === "stream" ? "stream member" : "array member")
+		d.note("array member")
 	}
 	const first = factOf(d, relation, planted, 0)
 	const extra =
@@ -1594,8 +1588,7 @@ const builtOf = (
 				return memberOf(d, i === 1 ? memberFault : undefined, clean)
 			})
 	const written = Arr.flatMap(members, (m): ReadonlyArray<RelName> =>
-		(m.kind === "array" || m.kind === "stream" || m.kind === "widened" || m.kind === "query") &&
-		m.relation !== "Kind"
+		(m.kind === "array" || m.kind === "widened" || m.kind === "query") && m.relation !== "Kind"
 			? [m.relation]
 			: []
 	)
@@ -1904,7 +1897,6 @@ const memberWrites = (m: MemberSpec): ReadonlyArray<string> => {
 		case "appended":
 			return [m.owner, countedMembers[m.owner]]
 		case "array":
-		case "stream":
 		case "widened":
 		case "query":
 			return [m.relation]
@@ -1971,7 +1963,6 @@ class Rendering {
 		| "Logic"
 		| "Num"
 		| "Type"
-		| "Stream"
 		| "Money"
 		| "int8"
 		| Level
@@ -2052,7 +2043,7 @@ class Rendering {
 		}
 	}
 
-	/** The members a part's call passes: its facts, enumerated or as a Stream, or its description. */
+	/** The members a part's call passes: its facts, enumerated, or its description. */
 	part(p: Part): string {
 		this.uses.add(p.kind === "derived" ? "TaskCount" : p.relation)
 		switch (p.kind) {
@@ -2066,12 +2057,6 @@ class Rendering {
 					Arr.map(p.facts, (f) => this.fact(f)),
 					", "
 				)}])`
-			case "stream":
-				this.uses.add("Stream")
-				return `Stream.make(${Arr.join(
-					Arr.map(p.facts, (f) => this.fact(f)),
-					", "
-				)})`
 			case "family":
 				return `[${Arr.join(
 					Arr.map(p.facts, (f) => this.familyFact(f)),
@@ -2203,7 +2188,7 @@ const partRelation = (p: Part): unknown =>
 			? familyRelations[p.relation]
 			: closedRelations[p.relation]
 
-/** The members a part passes, as the facade takes them: its facts, enumerated or as a Stream, or its query. */
+/** The members a part passes, as the facade takes them: its facts, enumerated, or its query. */
 const partInput = (p: Part): MemberInput => {
 	const facts = (f: ReadonlyArray<readonly [string, Lit]>) =>
 		Rec.fromEntries(Arr.map(f, ([n, l]) => [n, l.value] as const))
@@ -2211,8 +2196,6 @@ const partInput = (p: Part): MemberInput => {
 		case "array":
 		case "widened":
 			return Arr.map(p.facts, facts)
-		case "stream":
-			return Stream.fromIterable(Arr.map(p.facts, facts))
 		case "query":
 			return describedQuery(p)
 		case "family":
@@ -2653,7 +2636,7 @@ const bound = (
 	if (parsed === undefined) {
 		throw new Error("a ChangeSet the facade built does not parse")
 	}
-	const members = Effect.runSync(collectInputs(program.binding.groups, parsed.inputs))
+	const members = collectInputs(program.binding.groups, parsed.inputs)
 	const params = { ...args, ...Rec.fromEntries([...parsed.values]) }
 	return bindWrite(flightOf(servableWrite(program), program.frontend.codes, noAdvice), {
 		members,
@@ -2669,7 +2652,7 @@ const bound = (
 const outsideItsDomain = (laws: ReturnType<typeof realityWrite>["laws"], c: ChangeSpec): boolean =>
 	Arr.some(builtsOf(c), (b) =>
 		Arr.some(b.members, (m) => {
-			if (m.kind !== "array" && m.kind !== "stream" && m.kind !== "widened") {
+			if (m.kind !== "array" && m.kind !== "widened") {
 				return false
 			}
 			const relation = laws.relations.get(m.relation)

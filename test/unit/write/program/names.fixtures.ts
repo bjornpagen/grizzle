@@ -29,27 +29,28 @@ const membersOf = (program: CompiledWrite, value: unknown) =>
 const fact = (n: number) => ({ id: uuidOf(n), label: "a", qty: 1n })
 
 /** The placeholder texts every statement of the optimized artifact binds. */
-export const bound = Effect.fn("bound")(function* (name: string) {
-	const value = shopChangeSet().put(Stock, stockFromParam(Stock, name))
-	const program = shopCompiled(value, shopCompile)
-	assert.ok(
-		Arr.some(program.params, (p) => p.name === name),
-		name
-	)
-	const members = yield* membersOf(program, value)
-	const flight = flightOf(servableWrite(program), program.frontend.codes, noAdvice)
-	const b = succeeded(
-		bindWrite(flight, {
-			members,
-			params: { [name]: [fact(1), fact(2)] },
-			transport: inForce(bindFrame)
-		})
-	)
-	if (b.kind !== "bound") {
-		return assert.fail(`${name}: ${b.kind}`)
-	}
-	return Arr.map(flight.statements, (statement) => succeeded(b.values(statement)))
-})
+export const bound = (name: string) =>
+	Effect.sync(() => {
+		const value = shopChangeSet().put(Stock, stockFromParam(Stock, name))
+		const program = shopCompiled(value, shopCompile)
+		assert.ok(
+			Arr.some(program.params, (p) => p.name === name),
+			name
+		)
+		const members = membersOf(program, value)
+		const flight = flightOf(servableWrite(program), program.frontend.codes, noAdvice)
+		const b = succeeded(
+			bindWrite(flight, {
+				members,
+				params: { [name]: [fact(1), fact(2)] },
+				transport: inForce(bindFrame)
+			})
+		)
+		if (b.kind !== "bound") {
+			return assert.fail(`${name}: ${b.kind}`)
+		}
+		return Arr.map(flight.statements, (statement) => succeeded(b.values(statement)))
+	})
 
 /** What the search built once before its cases (items), now once per worker: every case on it reads them. */
 export const itemsNeed = {

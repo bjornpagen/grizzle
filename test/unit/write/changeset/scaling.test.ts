@@ -57,9 +57,9 @@ export const aChangeSetBuilderStepReadsOnlyWhatItAddsBuildsAFixedNumberOfContain
 				{
 					file: "packages/engine/src/write/changeset/value.ts",
 					original:
-						"\t\tstrata: released.strata.map((s, i) => (i === last ? withMember(s, i, member) : s)),",
+						"\t\tstrata: released.strata.map((s, i) => (i === last ? withMember(s, member) : s)),",
 					replacement:
-						"\t\tstrata: released.strata.map((s, i) => {\n\t\t\tconst copied = s.map((m) => ({ ...m }))\n\t\t\treturn i === last ? withMember(copied, i, member) : copied\n\t\t}),",
+						"\t\tstrata: released.strata.map((s, i) => {\n\t\t\tconst copied = s.map((m) => ({ ...m }))\n\t\t\treturn i === last ? withMember(copied, member) : copied\n\t\t}),",
 					why: "A step that copies every earlier member's state (write/changeset/value.ts scopeWith)."
 				}
 			]
@@ -76,7 +76,7 @@ export const aChangeSetBuilderStepReadsOnlyWhatItAddsBuildsAFixedNumberOfContain
 export const aChangeSetBuilderStepReadsOnlyWhatItAddsAssemblesTheDescriptionTheWholeDecodeGivesOverGeneratedPrograms =
 	property.explore(
 		(source) =>
-			Arr.map(source.draw(array(int(0, 10), { min: 1, max: 12 })), (kind) =>
+			Arr.map(source.draw(array(int(0, 9), { min: 1, max: 12 })), (kind) =>
 				opOf(kind, source.draw(int(1, 4)))
 			),
 		{

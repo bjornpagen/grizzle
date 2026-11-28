@@ -315,30 +315,28 @@ const setTransport = inForce(bindFrame)
  * statement's executions and the rows it inserts, or its refusal, its law and its witness.
  */
 export const boundSet = (facts: ReadonlyArray<StatedFact>) =>
-	Effect.map(
-		collectInputs(
+	Effect.sync(() => {
+		const members = collectInputs(
 			insertOwners.binding.groups,
 			parsedOf(ChangeSet.empty(Bodies).insert(Owner, factsOf(facts, setLength))).inputs
-		),
-		(members) => {
-			const flight = flightOf(servableWrite(insertOwners), insertOwners.frontend.codes, noAdvice)
-			const write = succeeded(bindWrite(flight, { members, params: {}, transport: setTransport }))
-			switch (write.kind) {
-				case "bound":
-					return {
-						kind: "bound",
-						statements: Arr.map(flight.statements, (statement) =>
-							write.skip.has(statement.index) ? undefined : write.chunks(statement, setTransport)
-						),
-						inserted: write.inserted
-					} as const
-				case "invariant-rejected":
-					return { kind: "refused", law: write.law, witness: write.witness } as const
-				case "generated-rejected":
-					return assert.fail("an owner's insert fills no generated field")
-			}
+		)
+		const flight = flightOf(servableWrite(insertOwners), insertOwners.frontend.codes, noAdvice)
+		const write = succeeded(bindWrite(flight, { members, params: {}, transport: setTransport }))
+		switch (write.kind) {
+			case "bound":
+				return {
+					kind: "bound",
+					statements: Arr.map(flight.statements, (statement) =>
+						write.skip.has(statement.index) ? undefined : write.chunks(statement, setTransport)
+					),
+					inserted: write.inserted
+				} as const
+			case "invariant-rejected":
+				return { kind: "refused", law: write.law, witness: write.witness } as const
+			case "generated-rejected":
+				return assert.fail("an owner's insert fills no generated field")
 		}
-	)
+	})
 
 /** The rows an insert inserts, each relation's in a canonical order of its rows' values, so two inserts of one set of
  * rows give one list whatever order they came in. */

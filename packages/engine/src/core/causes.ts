@@ -988,7 +988,7 @@ export type StaleCause =
 const staleCauseText = (member: string, cause: StaleCause): string => {
 	switch (cause.kind) {
 		case "query":
-			return `a query states the put's rows, which grizzle never sees, so it cannot draw that value again: put ${member} from an array or a Stream`
+			return `a query states the put's rows, which grizzle never sees, so it cannot draw that value again: put ${member} from an array`
 		case "cycle":
 			return `refilling it reaches the families ${cause.refills.map(familyNameText).join(", then ")} and the first again, so no order of the refills draws each value once`
 		case "immutable":

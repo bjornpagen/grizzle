@@ -127,12 +127,13 @@ export const offlineBind = (
 	program: CompiledWrite,
 	change: ParsedChangeSet
 ): Effect.Effect<Engine.Result<BindResult, EncodingFailure | CompileError>> =>
-	Effect.map(collectInputs(program.binding.groups, change.inputs), (members) =>
-		withinMessage(
+	Effect.sync(() => {
+		const members = collectInputs(program.binding.groups, change.inputs)
+		return withinMessage(
 			bindWrite(flightOf(servableWrite(program), program.frontend.codes, noAdvice), {
 				members,
 				params: {},
 				transport: inForce(bindFrame)
 			})
 		)
-	)
+	})

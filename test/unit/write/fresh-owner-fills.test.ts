@@ -78,7 +78,7 @@ export const aBindFillsANestedOwnerAgainOnlyWhereItsStratumAppendsAMemberToOneOf
 			"no node holding any"
 		] satisfies ReadonlyArray<Reached<Situation>>,
 		check: (_, c: Case<Situation>) => (docs) =>
-			Effect.gen(function* () {
+			Effect.sync(() => {
 				const value = ChangeSet.empty(Pages)
 					.insert(
 						Doc,
@@ -97,7 +97,7 @@ export const aBindFillsANestedOwnerAgainOnlyWhereItsStratumAppendsAMemberToOneOf
 						)
 					)
 				const program = succeeded(compileWrite(checking(Pages), descOf(value), reality))
-				const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
+				const members = collectInputs(program.binding.groups, parsedOf(value).inputs)
 				const flight = flightOf(servableWrite(program), program.frontend.codes, noAdvice)
 				/** Each fill call's families' member counts. */
 				const calls: Array<ReadonlyArray<number>> = []

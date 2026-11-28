@@ -104,8 +104,8 @@ import type {
 } from "#compiler/types/schema/world.ts"
 
 /**
- * A member is an array of facts, a Stream of facts, or a query whose head is the relation's heading, or for an insert
- * the fields its caller writes. An array or a Stream is the query over a relation parameter the input binds.
+ * A member is an array of facts, or a query whose head is the relation's heading, or for an insert the fields its
+ * caller writes. An array is the query over a relation parameter the input binds.
  * Query is invariant in its head, so a query member is admitted at any head and MemberCheck compares the head by
  * assignability: a head literal such as `kind: "Manual"` is a value of its field. M is a const type
  * parameter: an array literal whose facts carry a literal-typed field (a closed relation's handle) would otherwise widen
@@ -115,11 +115,11 @@ import type {
  * relation lacks is refused with one Refusal, never by the constraint's elaboration, whose diagnostic varies with the
  * literal's shape.
  */
-export type Member<S, F> = ReadonlyArray<F> | Stream.Stream<F> | QueryAt<LevelsOf<S>>
+export type Member<S, F> = ReadonlyArray<F> | QueryAt<LevelsOf<S>>
 
 /**
  * Each arm of a member's facts must be one arm of F exactly: assignable to it and with no field beyond it, so no fact
- * carries a field its relation lacks. An array or Stream member is an inferred type argument, so TypeScript runs no excess-property check
+ * carries a field its relation lacks. An array member is an inferred type argument, so TypeScript runs no excess-property check
  * on its elements; the check is this one, as for a query member's head. A query member's head also writes each field
  * of R at the field's own type (MistypedFields), as the checker requires (check/member.ts checkMemberHeading): an exact
  * integer or exact money binds at a plain integer or money column (Meets), but is stored into one only through
@@ -138,7 +138,7 @@ type DeletedCheck<M, F, R> = MemberFit<M, F, R, false>
 
 /**
  * A member's facts M as arms of F, the row type of R its op takes, then, where Keyed, its literal facts at R's key: a
- * query's head, read off its phantom, and an array's or a Stream's facts, each member of a union its own. A member is
+ * query's head, read off its phantom, and an array's facts, each member of a union its own. A member is
  * told by its keys, and a query's head and carriers are read by key, never by a test of the query: a query holds its
  * schema, and a conditional the checker resolves instantiates its operands whole, every relation of the schema with
  * them, once for each member it tests. A member typed `any`, whose keys are every string, is checked by MemberShapeFit.
@@ -162,27 +162,26 @@ type HeadFit<H, M, F, R> =
 		: Refusal<"the query's head is not a fact of the relation">
 
 /**
- * MemberFit of a member with no head in its phantom, as its shape tells it: an array's or a Stream's facts, each an arm
- * of F, and anything else admitted, as a value typed `any` is.
+ * MemberFit of a member with no head in its phantom, as its shape tells it: an array's facts, each an arm of F, and
+ * anything else admitted, as a value typed `any` is.
  */
-type MemberShapeFit<M, F, R, Keyed extends boolean> = M extends
-	| ReadonlyArray<infer E>
-	| Stream.Stream<infer E, unknown, unknown>
-	? HostRowsOf<F, R> extends infer Fh
-		? [Fh] extends [never]
-			? Refusal<"a put or a delete states every instant of its rows from a stored instant: write it from a query">
-			: IsNone<UnfitArms<E, Fh, never>> extends true
-				? Keyed extends true
-					? ConflictsAtKey<M, PrimaryKeyOf<R>> extends true
-						? KeyLawRefusal<NameOf<R>, PrimaryKeyOf<R>>
+type MemberShapeFit<M, F, R, Keyed extends boolean> =
+	M extends ReadonlyArray<infer E>
+		? HostRowsOf<F, R> extends infer Fh
+			? [Fh] extends [never]
+				? Refusal<"a put or a delete states every instant of its rows from a stored instant: write it from a query">
+				: IsNone<UnfitArms<E, Fh, never>> extends true
+					? Keyed extends true
+						? ConflictsAtKey<M, PrimaryKeyOf<R>> extends true
+							? KeyLawRefusal<NameOf<R>, PrimaryKeyOf<R>>
+							: unknown
 						: unknown
-					: unknown
-				: Refusal<"a member fact is not a fact of the relation">
-		: never
-	: unknown
+					: Refusal<"a member fact is not a fact of the relation">
+			: never
+		: unknown
 
 /**
- * The rows an array or a Stream of R states as F, the one type of a host row of R: F where R holds no instant; else,
+ * The rows an array of R states as F, the one type of a host row of R: F where R holds no instant; else,
  * where F leaves every instant optional, an insertion's, F with every instant left out, which the insert stamps, since
  * no host value is an instant; and none where F states one, a put's or a delete's, whose rows name every instant from a
  * stored one, which only a query holds (write/frontend/instants.ts). Every type of rows a host holds is this one: the
@@ -847,7 +846,7 @@ export interface ChangeSetOf<
 	 */
 	readonly insertAll: ChangeSetInsertAll
 	/**
-	 * Adds the members of each relation the record names, as insertAll does, each an array or a Stream of rows leaving
+	 * Adds the members of each relation the record names, as insertAll does, each an array of rows leaving
 	 * out every field `computed` names, which the call computes: under each field a term over the call's parameters, its
 	 * clock reading and literals, written at the field's type, evaluated once for every row of each relation its
 	 * stratum's host rows insert, in the statement that writes them; every relation the record names computes every
@@ -1079,8 +1078,8 @@ type ChangeSetInsertAll = <
 	Arrays | InsertedArrays<S, Rows, Done, never>
 >
 
-/** ChangeSet.insertAllComputed over the ChangeSet it is called on (ChangeSet): insertAll's, each key's rows an array or
- * a Stream that leave out every field C computes, which every relation the record names computes (InsertAt). */
+/** ChangeSet.insertAllComputed over the ChangeSet it is called on (ChangeSet): insertAll's, each key's rows an array
+ * that leaves out every field C computes, which every relation the record names computes (InsertAt). */
 type ChangeSetInsertAllComputed = <
 	S,
 	Params,
@@ -1091,7 +1090,7 @@ type ChangeSetInsertAllComputed = <
 	Last extends Stratum,
 	Arrays,
 	const Rows extends {
-		readonly [K in keyof Rows]: ReadonlyArray<unknown> | Stream.Stream<unknown>
+		readonly [K in keyof Rows]: ReadonlyArray<unknown>
 	},
 	const C extends Readonly<Record<string, unknown>>
 >(
@@ -1223,7 +1222,7 @@ type Holding<C, Then> = unknown extends C ? Then : C
 /** A selection of an ordered or a counted family's member, refused: a member's delete is its family's edit. */
 type SelectedMember<S, R> =
 	IsFamilyMember<S, R> extends true
-		? Refusal<"deleteWhere deletes no family's member: grizzle edits a family from the rows a ChangeSet states, so delete a member from an array or a Stream">
+		? Refusal<"deleteWhere deletes no family's member: grizzle edits a family from the rows a ChangeSet states, so delete a member from an array">
 		: unknown
 
 /**
@@ -1415,7 +1414,7 @@ type MemberOf<Op extends ArrayOp, R, At extends ReadonlyArray<unknown>, S, Compu
 
 /**
  * The array member member M of R adds by Op over S, in the stratum after the strata Done: one where M is an array, none
- * for a Stream or a query member, whose facts no call supplies. A ChangeSet's Arrays is the union of every member's, and
+ * for a query member, whose facts no call supplies. A ChangeSet's Arrays is the union of every member's, and
  * the array members of one op and one relation in one stratum are one member, their facts one array, as the value holds
  * them (write/changeset/value.ts); two in two strata meet with no position (RepeatedArrays), which a workload refuses
  * (types/db/workload.ts), as the engine refuses them in a served workload (UnservedMember).

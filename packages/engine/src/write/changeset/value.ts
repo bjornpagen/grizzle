@@ -1,7 +1,6 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import type { Stream } from "effect"
 import {
 	type CanonicalObject,
 	type CanonicalToken,
@@ -84,13 +83,13 @@ import type { Decoders, OrderedBase, QueryBase } from "#compiler/types/query/que
 import { type BuiltOver, builtOverOf } from "#compiler/write/changeset/levels.ts"
 import { delta, memberRelation, memberRelationNamed } from "#compiler/write/delta/source.ts"
 
-/** What any member does: a write member's op, which an array or a Stream holds. */
+/** What any member does: a write member's op, which an array holds. */
 type SlotOp = MemberDesc["op"]
 
 /**
  * One member as the value holds it, with its Description, `desc`, which the ChangeSet's Description holds as it is:
  * built from parts already decoded when the member is made, and again only when a rename changes its query or its
- * stratum or Stream position changes its slot.
+ * stratum changes its slot.
  */
 type MemberState =
 	| {
@@ -99,15 +98,6 @@ type MemberState =
 			readonly relation: string
 			readonly facts: ReadonlyArray<unknown>
 			/** The input its facts travel as (`arraySlot`). */
-			readonly slot: string
-			readonly desc: MemberDesc
-	  }
-	| {
-			readonly kind: "stream"
-			readonly op: SlotOp
-			readonly relation: string
-			readonly stream: Stream.Stream<unknown>
-			/** The input it travels as (`streamSlot`). */
 			readonly slot: string
 			readonly desc: MemberDesc
 	  }
@@ -246,19 +236,16 @@ interface ChangeSetState {
 	 */
 	readonly opaque: ReadonlyArray<string>
 	readonly desc: ChangeSetDesc
-	/** The array and Stream inputs, by the slot their member's Description names. */
+	/** The array members' facts, by the slot their member's Description names. */
 	readonly inputs: ReadonlyMap<string, ChangeSetInput>
 }
 
-/** The host input of one array or Stream member, by slot. */
-export type ChangeSetInput =
-	| { readonly kind: "array"; readonly facts: ReadonlyArray<unknown> }
-	| { readonly kind: "stream"; readonly stream: Stream.Stream<unknown> }
+/** The host input of one array member, its facts, by slot: the facts a served call supplies for it. */
+export type ChangeSetInput = ReadonlyArray<unknown>
 
-/** A member argument: an array of facts, a Stream of facts with no error or requirement channel, or a
- * query value; an ordered value is refused with its own diagnostic. A Stream's channels are types no run-time check
- * can see, so a Stream member is admitted only at this type. A JavaScript caller passing anything else is refused. */
-export type MemberInput = ReadonlyArray<unknown> | Stream.Stream<unknown> | QueryBase | OrderedBase
+/** A member argument: an array of facts, or a query value; an ordered value is refused with its own diagnostic. A
+ * JavaScript caller passing anything else is refused. */
+export type MemberInput = ReadonlyArray<unknown> | QueryBase | OrderedBase
 
 /** What a JavaScript caller sees: a ChangeSet of any schema, parameters, writes and read-backs, each method taking what
  * such a caller may pass. It is a view of the typed values make builds, never a second builder: every
@@ -271,14 +258,13 @@ export type MemberInput = ReadonlyArray<unknown> | Stream.Stream<unknown> | Quer
  * the commutative combination, and sequence is the only source of strata. Its meaning is one add-wins
  * transition per stratum, S' = (S \ D) ∪ A, every member of a stratum evaluated against the state before it; build
  * order never matters within a stratum. The value records a ChangeSetDesc, exposed as its
- * non-enumerable `desc`, and holds the host inputs its array and Stream members carry, outside the Description and
+ * non-enumerable `desc`, and holds the host inputs its array members carry, outside the Description and
  * outside template identity:
  *
  * - Canonical. Within a stratum the array members of one operation on one relation are one member, their facts
  *   concatenated (the codec deduplicates them); query members are deduplicated by their canonical
- *   Description; Stream members keep their order. Members are sorted by relation, operation and kind, so a ChangeSet
- *   built in any order of its members has one Description, and each array or Stream member's slot is named by its
- *   canonical position, `member[stratum,op,relation]` and `member[stratum,op,relation,k]` for the k-th Stream.
+ *   Description. Members are sorted by relation, operation and kind, so a ChangeSet built in any order of its members
+ *   has one Description, and each array member's slot is named by its canonical position, `member[stratum,op,relation]`.
  * - Sealed. Every value is frozen; the facts of an array member are copied and frozen when the member is added, so a
  *   caller mutating its array afterwards changes nothing.
  * - Strata. insert, delete and put add to the last stratum; union combines strata position by position, and sequence
@@ -325,7 +311,7 @@ export interface ChangeSetValue extends Built {
 	/** A JavaScript caller's record is read once: one that is no plain record, holds a symbol key or throws as it is read
 	 * is refused, and so is a key that names no relation the ChangeSet writes. */
 	insertAll(rows: Readonly<Record<string, MemberInput>>): ChangeSetValue
-	/** insertAll's record, each key's rows an array or a Stream leaving out the fields `computed` names; a JavaScript
+	/** insertAll's record, each key's rows an array leaving out the fields `computed` names; a JavaScript
 	 * caller's computed fields are a plain record of terms, read once, as deleteWhere's are, naming at least one field. */
 	insertAllComputed(
 		rows: Readonly<Record<string, MemberInput>>,
@@ -351,17 +337,6 @@ interface SchemaMember {
 /** An array argument, by a check that keeps its members unknown. */
 const isFactArray = (value: MemberInput): value is ReadonlyArray<unknown> => Array.isArray(value)
 
-/** A Stream argument, by the identifier every Stream value carries (Effect's `Stream.TypeId`, which `Stream.isStream`
- * tests), read without loading Effect. Its channels are types no run-time check can see (`MemberInput`). */
-const isStreamInput = (value: MemberInput): value is Stream.Stream<unknown> => {
-	/** A JavaScript caller can pass anything, null included, so the identifier is looked for on the unknown value. */
-	const given: unknown = value
-	return (
-		((typeof given === "object" && given !== null) || typeof given === "function") &&
-		"~effect/Stream" in given
-	)
-}
-
 const states = new WeakMap<object, ChangeSetState>()
 
 /** The state of a ChangeSet value, none when the value is not one. */
@@ -377,7 +352,7 @@ export const changeSetDesc = (value: unknown): ChangeSetDesc | undefined =>
 
 /** A ChangeSet value as compiling and applying it read it, taken once where the value enters (db.apply,
  * db.compile): the level of the schema or role it was built over, which a level is matched by, its
- * Description, the host inputs of its array and Stream members by the slot their member names, and the values bind
+ * Description, the host inputs of its array members by the slot their member names, and the values bind
  * closed by the private parameter names the Description's `bindings` lists. */
 export interface ParsedChangeSet {
 	/** The schema or role value it was built over, and its level. */
@@ -394,10 +369,9 @@ export const parseChangeSet = (value: unknown): ParsedChangeSet | undefined => c
 
 const kindRank: Readonly<Record<MemberState["kind"], number>> = {
 	array: 0,
-	stream: 1,
-	query: 2,
-	equal: 3,
-	computed: 4
+	query: 1,
+	equal: 2,
+	computed: 3
 }
 
 /** A member its statement reads the facts of, a query or a field-equality member, or an insert's computed fields, held
@@ -427,15 +401,12 @@ const memberOrder: Order.Comparator<MemberState> = Order.combineAll([
 		isDescribed(a) && isDescribed(b) ? Order.compareStrings(a.identity, b.identity) : 0
 ])
 
-/** The canonical form of one stratum's members (see `ChangeSetValue`).
- *
- * A stable sort: Streams of one group keep their order. */
+/** The canonical form of one stratum's members (see `ChangeSetValue`). */
 const canonicalStratum = (members: ReadonlyArray<MemberState>): ReadonlyArray<MemberState> => {
 	const arrays = new Map<string, Extract<MemberState, { kind: "array" }>>()
 	/** Equal described members are one: the first of each operation, relation, kind and identity digest. */
 	const described: Array<Described> = []
 	const texts = new TextsMap<true>()
-	const streams: Array<MemberState> = []
 	for (const m of members) {
 		const group = groupKey(m)
 		switch (m.kind) {
@@ -447,9 +418,6 @@ const canonicalStratum = (members: ReadonlyArray<MemberState>): ReadonlyArray<Me
 				)
 				break
 			}
-			case "stream":
-				streams.push(m)
-				break
 			case "query":
 			case "equal":
 			case "computed": {
@@ -461,17 +429,16 @@ const canonicalStratum = (members: ReadonlyArray<MemberState>): ReadonlyArray<Me
 			}
 		}
 	}
-	return Object.freeze([...arrays.values(), ...streams, ...described].toSorted(memberOrder))
+	return Object.freeze([...arrays.values(), ...described].toSorted(memberOrder))
 }
 
 /**
  * The `s`-th canonical stratum with one member more, canonical again, as canonicalStratum would make it: the member
- * after every member that sorts with or before it, which merges an array member into its group's, keeps a query member
- * equal to one before it out, and places a Stream after its group's earlier Streams, at their count.
+ * after every member that sorts with or before it, which merges an array member into its group's and keeps a query
+ * member equal to one before it out.
  */
 const withMember = (
 	stratum: ReadonlyArray<MemberState>,
-	s: number,
 	m: MemberState
 ): ReadonlyArray<MemberState> => {
 	let low = 0
@@ -495,16 +462,7 @@ const withMember = (
 	if (sameGroup && isDescribed(before) && isDescribed(m) && before.identity === m.identity) {
 		return stratum
 	}
-	let earlier = 0
-	for (let at = low - 1; m.kind === "stream" && at >= 0; at--) {
-		const other = defined(stratum[at], "a member of the stratum")
-		if (other.kind !== "stream" || groupKey(other) !== groupKey(m)) {
-			break
-		}
-		earlier++
-	}
-	const member = m.kind === "stream" ? atSlot(m, streamSlot(s, m.op, m.relation, earlier)) : m
-	return Object.freeze(stratum.toSpliced(low, 0, member))
+	return Object.freeze(stratum.toSpliced(low, 0, m))
 }
 
 /** The slot of a stratum's array members of one op and relation, which are one input (`EnumeratedInput` spells
@@ -524,22 +482,13 @@ export const insertAllSlots = (
 		.map((relation) => ({ slot: arraySlot(0, "insert", relation), relation }))
 		.toSorted(relationOrder)
 
-/** The slot of the `stream`-th Stream member of one op and relation in a stratum: each Stream is its own input. */
-export const streamSlot = (stratum: number, op: SlotOp, relation: string, stream: number): string =>
-	slotSpelling("member", stratum, op, `stream${stream}`, relation)
-
 /** A source location as a Description keeps it (shape.ts sourceLoc): frozen, so a Description holding it is. */
 const keptLoc = (loc: SourceLoc): SourceLoc =>
 	orThrow(S.decodeWith(S.sourceLoc, loc, "ChangeSet member location"))
 
-/** The Description of an array or Stream member at `slot`, its location kept. */
-const enumeratedDesc = (
-	kind: "array" | "stream",
-	op: SlotOp,
-	relation: string,
-	slot: string,
-	loc: SourceLoc
-): MemberDesc => Object.freeze({ op, relation, member: Object.freeze({ kind, slot }), loc })
+/** The Description of an array member at `slot`, its location kept. */
+const enumeratedDesc = (op: SlotOp, relation: string, slot: string, loc: SourceLoc): MemberDesc =>
+	Object.freeze({ op, relation, member: Object.freeze({ kind: "array", slot }), loc })
 
 /** The Description of a query member, its query a decoded Description and its location kept. */
 const queryMemberDesc = (
@@ -567,36 +516,21 @@ const equalState = (
 	desc: Object.freeze({ op, relation, member: Object.freeze({ kind: "equal", fields }), loc })
 })
 
-/** An array or Stream member at `slot`: itself when it is there already. */
-const atSlot = <M extends Extract<MemberState, { readonly kind: "array" | "stream" }>>(
-	m: M,
+/** An array member at `slot`: itself when it is there already. */
+const atSlot = (
+	m: Extract<MemberState, { readonly kind: "array" }>,
 	slot: string
-): M =>
-	m.slot === slot
-		? m
-		: { ...m, slot, desc: enumeratedDesc(m.kind, m.op, m.relation, slot, m.desc.loc) }
+): Extract<MemberState, { readonly kind: "array" }> =>
+	m.slot === slot ? m : { ...m, slot, desc: enumeratedDesc(m.op, m.relation, slot, m.desc.loc) }
 
-/**
- * The members of the `s`-th canonical stratum, each at the slot its place names: an array member at its op's and
- * relation's, the k-th Stream of an op and relation at its k.
- */
-const placed = (members: ReadonlyArray<MemberState>, s: number): ReadonlyArray<MemberState> => {
-	const streamCount = new Map<string, number>()
-	return Object.freeze(
-		members.map((m): MemberState => {
-			if (m.kind === "array") {
-				return atSlot(m, arraySlot(s, m.op, m.relation))
-			}
-			if (isDescribed(m)) {
-				return m
-			}
-			const group = groupKey(m)
-			const k = streamCount.get(group) ?? 0
-			streamCount.set(group, k + 1)
-			return atSlot(m, streamSlot(s, m.op, m.relation, k))
-		})
+/** The members of the `s`-th canonical stratum, each at the slot its place names: an array member at its op's and
+ * relation's. */
+const placed = (members: ReadonlyArray<MemberState>, s: number): ReadonlyArray<MemberState> =>
+	Object.freeze(
+		members.map((m): MemberState =>
+			m.kind === "array" ? atSlot(m, arraySlot(s, m.op, m.relation)) : m
+		)
 	)
-}
 
 /** Strata canonical and placed, each stratum's members at the slots their places name. */
 const canonicalStrata = (
@@ -621,9 +555,7 @@ const describe = (
 	const inputs = new Map<string, ChangeSetInput>()
 	for (const m of strata.flat()) {
 		if (m.kind === "array") {
-			inputs.set(m.slot, Object.freeze({ kind: "array", facts: m.facts }))
-		} else if (m.kind === "stream") {
-			inputs.set(m.slot, Object.freeze({ kind: "stream", stream: m.stream }))
+			inputs.set(m.slot, m.facts)
 		}
 	}
 	const names = [...bound.keys()].toSorted(Order.compareStrings)
@@ -1151,9 +1083,8 @@ const identityOf = (desc: QueryDesc | Readonly<Record<string, EqualedDesc>>): Id
 	return identity.value
 }
 
-/** The member state of `facts` as a member of `op` into `name` in the last stratum: an array of facts, a Stream of
- * facts, or a query of the ChangeSet's level; anything else is refused. An array or Stream member is made at the slot
- * its stratum alone names, its Stream position among the stratum's (`placed`) set when the ChangeSet is made. */
+/** The member state of `facts` as a member of `op` into `name` in the last stratum: an array of facts, or a query of
+ * the ChangeSet's level; anything else is refused. An array member is made at the slot its stratum alone names. */
 const memberState = (
 	state: ChangeSetState,
 	op: SlotOp,
@@ -1171,18 +1102,7 @@ const memberState = (
 			relation: name,
 			facts: heldFacts(facts),
 			slot,
-			desc: enumeratedDesc("array", op, name, slot, keptLoc(loc))
-		}
-	}
-	if (isStreamInput(facts)) {
-		const slot = streamSlot(last, op, name, 0)
-		return {
-			kind: "stream",
-			op,
-			relation: name,
-			stream: facts,
-			slot,
-			desc: enumeratedDesc("stream", op, name, slot, keptLoc(loc))
+			desc: enumeratedDesc(op, name, slot, keptLoc(loc))
 		}
 	}
 	const built = queryState(facts)
@@ -1206,7 +1126,7 @@ const memberState = (
 			desc: queryMemberDesc(op, name, query, keptLoc(loc))
 		}
 	}
-	throw malformed(label, "a member: an array of facts, a Stream of facts, or a query")
+	throw malformed(label, "a member: an array of facts or a query")
 }
 
 /** The scope with `member` in its last stratum. The member's parameters are free: a private parameter of that name moves
@@ -1215,7 +1135,7 @@ const scopeWith = (scope: Scope, member: MemberState): Scope => {
 	const released = release(scope, isDescribed(member) ? member.params : new Set())
 	const last = released.strata.length - 1
 	return {
-		strata: released.strata.map((s, i) => (i === last ? withMember(s, i, member) : s)),
+		strata: released.strata.map((s, i) => (i === last ? withMember(s, member) : s)),
 		reads: released.reads,
 		bound: released.bound
 	}
@@ -1332,8 +1252,8 @@ const addInserts = <S, P, W extends string, Rd, Done extends Strata, Last extend
 	addRecord(state, rows, "ChangeSet.insertAll", (at, _name, member) => scopeWith(at, member))
 
 /**
- * insertAllComputed: each key's members inserted as insertAll inserts them (`addRecord`), each an array's or a
- * Stream's, which leaves the computed fields out, beside the computed fields of its stratum's host rows of its relation,
+ * insertAllComputed: each key's members inserted as insertAll inserts them (`addRecord`), each an array's, which leaves
+ * the computed fields out, beside the computed fields of its stratum's host rows of its relation,
  * every relation computing the one record's query (`computedQuery`), at its member's location.
  */
 const addInsertsComputed = <
@@ -1352,10 +1272,10 @@ const addInsertsComputed = <
 	const label = "ChangeSet.insertAllComputed"
 	const query = computedQuery(state, computed, label)
 	return addRecord(state, rows, label, (at, name, member, loc) => {
-		if (member.kind !== "array" && member.kind !== "stream") {
+		if (member.kind !== "array") {
 			throw malformed(
 				label,
-				"rows as an array or a Stream, which leave the computed fields out: a query's head computes its own fields"
+				"rows as an array, which leaves the computed fields out: a query's head computes its own fields"
 			)
 		}
 		return scopeWith(scopeWith(at, member), computedState(name, query, keptLoc(loc)))

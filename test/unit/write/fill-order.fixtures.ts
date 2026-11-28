@@ -614,7 +614,7 @@ export const property = (
 	followUp: Option.Option<FollowUp>,
 	note: (situation: FillSituation) => void
 ): Effect.Effect<void> =>
-	Effect.gen(function* () {
+	Effect.sync(() => {
 		const built = buildFill(spec)
 		const value = built.rename("Fill")
 		const verdict = verdictOf(spec)
@@ -722,7 +722,7 @@ export const property = (
 		if (!program.ok) {
 			return
 		}
-		const members = yield* collectInputs(program.value.binding.groups, parsedOf(all).inputs)
+		const members = collectInputs(program.value.binding.groups, parsedOf(all).inputs)
 		const write = flightOf(servableWrite(program.value), program.value.frontend.codes, noAdvice)
 		const bound = bindWrite(write, {
 			members,

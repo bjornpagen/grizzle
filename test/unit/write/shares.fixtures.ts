@@ -99,7 +99,7 @@ const sharesOf = (c: Drawn, shares: number) =>
 		const change = ChangeSet.empty(Shared).insert(Wide, facts)
 		const program = succeeded(compileWrite(checking(Shared), descOf(change), reality))
 		const write = flightOf(servableWrite(program), program.frontend.codes, noAdvice)
-		const members = yield* collectInputs(program.binding.groups, parsedOf(change).inputs)
+		const members = collectInputs(program.binding.groups, parsedOf(change).inputs)
 		const call = { params: {}, bound: new Map(), members }
 		const read = drawnOf(drawShares(write, call, writeBatching.bytes, false))
 		const drawn = read.shares ?? [read.whole]
@@ -344,7 +344,7 @@ export const runGrouped = (c: Grouped, k: Case<GroupedFeature>) =>
 		})
 		const program = succeeded(compileWrite(checking(Families), descOf(change), familiesReality))
 		const write = flightOf(servableWrite(program), program.frontend.codes, noAdvice)
-		const membersOf = yield* collectInputs(program.binding.groups, parsedOf(change).inputs)
+		const membersOf = collectInputs(program.binding.groups, parsedOf(change).inputs)
 		const call = { params: {}, bound: new Map(), members: membersOf }
 		const whole = insertedRows(
 			bindWrite(write, { members: membersOf, params: {}, transport: inForce(bindFrame) })

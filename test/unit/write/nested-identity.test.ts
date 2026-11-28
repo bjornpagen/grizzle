@@ -82,13 +82,10 @@ export const aNestedWritesIdentitiesDedupeItsFactsAndRowsByTheirWholeContentRefu
 			"accepted with members"
 		] satisfies ReadonlyArray<Reached<IdentityFeature>>,
 		check: (_, c: Case<IdentityFeature>) => (box) =>
-			Effect.gen(function* () {
+			Effect.sync(() => {
 				const value = ChangeSet.empty(Bodies).insert(Owner, factsOf(box.facts, box.length))
 				const program = programOf(value)
-				const members: MemberFacts = yield* collectInputs(
-					program.binding.groups,
-					parsedOf(value).inputs
-				)
+				const members: MemberFacts = collectInputs(program.binding.groups, parsedOf(value).inputs)
 				const bound = succeeded(
 					bindWrite(flightOf(servableWrite(program), program.frontend.codes, noAdvice), {
 						members,

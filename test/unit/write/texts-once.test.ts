@@ -131,7 +131,7 @@ export const aWriteWorksOutEachNestedAndFreshValuesCanonicalTextOnceAtItsAdmissi
 			"no node holding any"
 		] satisfies ReadonlyArray<Reached<Situation>>,
 		check: (_, c: Case<Situation>) => (docs) =>
-			Effect.gen(function* () {
+			Effect.sync(() => {
 				const value = ChangeSet.empty(Labels)
 					.insert(
 						Doc,
@@ -154,7 +154,7 @@ export const aWriteWorksOutEachNestedAndFreshValuesCanonicalTextOnceAtItsAdmissi
 						)
 					)
 				const program = succeeded(compileWrite(checking(Labels), descOf(value), reality))
-				const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
+				const members = collectInputs(program.binding.groups, parsedOf(value).inputs)
 				const counting = countedCodes(program.frontend.codes)
 				const flight = flightOf(servableWrite(program), counting.codes, noAdvice)
 				const bound = succeeded(

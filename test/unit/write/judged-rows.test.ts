@@ -203,7 +203,7 @@ export const aRefusedNestedOwnerIsNamedBreakingExactlyTheLawsAndItsWitnessIsExac
 			"the root refused"
 		] satisfies ReadonlyArray<Reached<Situation>>,
 		check: (_, c: Case<Situation>) => (root) =>
-			Effect.gen(function* () {
+			Effect.sync(() => {
 				const nodes = placed(root)
 				const value = ChangeSet.empty(Judged)
 					.insert(T, [{ root: rootId, ...nestedOf(root) }])
@@ -218,7 +218,7 @@ export const aRefusedNestedOwnerIsNamedBreakingExactlyTheLawsAndItsWitnessIsExac
 						)
 					)
 				const program = succeeded(compileWrite(checking(Judged), descOf(value), reality))
-				const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
+				const members = collectInputs(program.binding.groups, parsedOf(value).inputs)
 				const flight = flightOf(servableWrite(program), program.frontend.codes, noAdvice)
 				const bound = succeeded(
 					withinMessage(bindWrite(flight, { members, params: {}, transport: inForce(bindFrame) }))

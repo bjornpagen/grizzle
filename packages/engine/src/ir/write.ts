@@ -5,7 +5,6 @@ import type { StratumAt } from "#compiler/ir/stratum.ts"
 
 export type ActionSource =
 	| { readonly kind: "enumerated"; readonly slot: ParamId }
-	| { readonly kind: "stream"; readonly slot: ParamId }
 	| { readonly kind: "described"; readonly node: RelNode }
 
 /** An operation: an insertion, a put or a deletion. */

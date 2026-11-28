@@ -238,7 +238,7 @@ export const inPlaceOf = (info: ActionInfo, payload: Payload): ReadonlyArray<Law
  *
  * Otherwise, on a mutable relation:
  *
- * - ON CONFLICT DO UPDATE, for an enumerated put, an array or a Stream;
+ * - ON CONFLICT DO UPDATE, for an enumerated put, an array;
  * - UPDATE ... FROM, for a described put that existingKeysProof proves reads only existing keys, when the
  *   stratum deletes nothing of the relation: an earlier deletion of a key in the same stratum would leave the UPDATE
  *   no row to update, where the put's definition inserts its member (S' = (S \ D) ∪ A). */

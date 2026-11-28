@@ -2,7 +2,7 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
-import { Array as Arr, Stream } from "effect"
+import { Array as Arr } from "effect"
 import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { descText } from "#compiler/ir/desc.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
@@ -78,7 +78,7 @@ const bases = ["empty", "after a stratum", "a bound parameter", "over the role"]
 type Base = (typeof bases)[number]
 
 /** How a key's members travel. */
-type Travel = "array" | "stream" | "query"
+type Travel = "array" | "query"
 
 interface Key {
 	readonly name: KeyName
@@ -136,8 +136,6 @@ export const membersOf = (key: Key): MemberInput => {
 	switch (key.travel) {
 		case "array":
 			return facts
-		case "stream":
-			return Stream.fromIterable(facts)
 		case "query":
 			return tasksAt
 	}
@@ -173,12 +171,7 @@ export const caseGen: Gen<InsertAllCase> = (source) => {
 	const names = source.draw(shuffled(offered(base), { min: 1, max: offered(base).length }))
 	const keys = Arr.map(names, (name, i): Key => ({
 		name,
-		travel:
-			name === "Task"
-				? source.draw(element(["array", "stream", "query"] as const))
-				: name === "Order" || name === "Node"
-					? "array"
-					: source.draw(element(["array", "stream"] as const)),
+		travel: name === "Task" ? source.draw(element(["array", "query"] as const)) : "array",
 		first: 10 * (i + 1),
 		count: source.draw(int(1, 2))
 	}))
@@ -247,16 +240,12 @@ export const planOf = (base: Base, change: ChangeSetValue) => {
 /** A ChangeSet's canonical Description text. */
 export const textOf = (change: ChangeSetValue): string => succeeded(descText(descOf(change)))
 
-/** A ChangeSet's inputs by slot: an array's facts, a Stream itself. */
-export const inputsOf = (change: ChangeSetValue) =>
-	Arr.map([...parsedOf(change).inputs], ([slot, input]) =>
-		input.kind === "array" ? [slot, input.facts] : [slot, input.stream]
-	)
+/** A ChangeSet's inputs by slot: each array's facts. */
+export const inputsOf = (change: ChangeSetValue) => [...parsedOf(change).inputs]
 
 export type InsertAllFeature =
 	| "one key"
 	| "four keys or more"
-	| "a Stream member"
 	| "a query member"
 	| "a nested member"
 	| "a world entry's key"

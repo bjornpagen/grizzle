@@ -1356,7 +1356,7 @@ export type ImmediateHeadOf<Q> = Q extends { readonly immediate: RowDecoder<infe
 /**
  * The parameters a program needs, each program of a union its own: a query's, ordered query's or ChangeSet's map, or a
  * bound import's, the parameters its bind map needs, read off its phantom by key (core/phantom.ts BundleParams) and
- * folded as ParamsOfTerm folds a value's; an array or Stream member, which has no phantom, and a value typed `any`,
+ * folded as ParamsOfTerm folds a value's; an array member, which has no phantom, and a value typed `any`,
  * whose keys are every string, none, `unknown`. A program is told by its keys,
  * never by a test of it: a query holds its schema, and a conditional the checker resolves instantiates its operands
  * whole, every relation of the schema with them, once for each program it tests. A value without the phantom's key is

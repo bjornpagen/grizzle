@@ -146,7 +146,7 @@ const readOf = (
  * A ChangeSet's variants, served: each compiled change its program, projected at the level it was compiled for, its
  * role's (write/program/served.ts projectWrite), its read-backs, its reads decoder's form, the values its
  * declaration bound and the array members a call supplies (servedMembers), or every reason no call can serve it
- * (UnservedMember: a Stream member, a bound value with no canonical text, two array members of one relation).
+ * (UnservedMember: a bound value with no canonical text, two array members of one relation).
  */
 const variantsOf = (
 	variants: ChangeVariants,

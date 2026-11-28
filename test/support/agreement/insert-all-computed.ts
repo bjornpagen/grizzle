@@ -1,5 +1,5 @@
 import { assertVariant } from "@bjornpagen/testing/assert"
-import { Array as Arr, Effect, Record as Rec } from "effect"
+import { Array as Arr, Record as Rec } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
@@ -239,7 +239,7 @@ export const insertAllComputedVerdict = (
 		return { kind: "refused", reason: compiled.error.reason._tag }
 	}
 	const program = compiled.value
-	const members = Effect.runSync(collectInputs(program.binding.groups, parsed.inputs))
+	const members = collectInputs(program.binding.groups, parsed.inputs)
 	const bound = bindWrite(flightOf(servableWrite(program), program.frontend.codes, noAdvice), {
 		members,
 		params: paramsOf(c),

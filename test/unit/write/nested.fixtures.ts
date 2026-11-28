@@ -163,7 +163,7 @@ interface StatedFact {
 
 interface SetCase {
 	readonly facts: ReadonlyArray<StatedFact>
-	/** How many of the facts, from the first, the array member states; the Stream member states the rest. */
+	/** How many of the facts, from the first, the first array member states; the second states the rest. */
 	readonly inArray: number
 }
 

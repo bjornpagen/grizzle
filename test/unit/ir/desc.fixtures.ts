@@ -551,7 +551,7 @@ const changeSet: ChangeSetDesc = {
 		{
 			members: [
 				{ op: "insert", relation: "Task", member: { kind: "array", slot: "m1" } },
-				{ op: "put", relation: "Account", member: { kind: "stream", slot: "m2" } }
+				{ op: "put", relation: "Account", member: { kind: "array", slot: "m2" } }
 			]
 		},
 		{

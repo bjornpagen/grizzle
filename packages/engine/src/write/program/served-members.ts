@@ -23,10 +23,6 @@ export const servedMembers = (
 	const served: Array<ArrayMember> = []
 	const reasons: Array<UnservedReason> = []
 	for (const member of members) {
-		if (member.kind === "stream") {
-			reasons.push({ kind: "stream", slot: member.slot, relation: member.relation })
-			continue
-		}
 		const byRelation = slots.getOrInsertComputed(member.op, () => new Map<string, string>())
 		const earlier = byRelation.get(member.relation)
 		if (earlier !== undefined) {

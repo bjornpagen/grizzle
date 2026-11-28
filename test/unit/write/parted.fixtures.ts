@@ -159,10 +159,8 @@ export const sentOf = (
 ): Effect.Effect<
 	ReadonlyArray<{ readonly form: FlightForm; readonly values: number } | undefined>
 > =>
-	Effect.gen(function* () {
-		const members = yield* Effect.orDie(
-			collectInputs(program.binding.groups, parsedOf(changes).inputs)
-		)
+	Effect.sync(() => {
+		const members = collectInputs(program.binding.groups, parsedOf(changes).inputs)
 		const bound = succeeded(
 			bindWrite(flight, { members, params: paramsOf(box), transport: inForce(bindFrame) }),
 			"the call binds"

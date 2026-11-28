@@ -208,7 +208,7 @@ class AtKey<I, V> {
 }
 
 /**
- * One stratum's nested writes as sets (rule 0), across its every nested input, array or Stream: each insert's facts by
+ * One stratum's nested writes as sets (rule 0), across its every nested input: each insert's facts by
  * their relation and their key's texts keyed (core/text.ts TextsId), each key holding the signature of its first fact
  * with that fact's host values; and each reached member relation's rows by their key's texts keyed (NestedRow keyed),
  * each key holding its first row. A fact's signature is its own row's texts when the insert's own statement writes it,

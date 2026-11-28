@@ -810,8 +810,6 @@ export class ServedRefused extends Data.TaggedError("ServedRefused")<{
  * unserved.ts UnservedReason). */
 const unservedReasonText = (reason: UnservedReason): string => {
 	switch (reason.kind) {
-		case "stream":
-			return `${reason.relation}'s Stream member (slot ${reason.slot}) supplies its facts as code, and a served call supplies arrays: give it an array member or a query member over parameters`
 		case "opaqueBinding":
 			return `the bound value ${reason.name} has no canonical text a served file can hold: bind a value of a declared type, or make it a parameter`
 		case "repeated":

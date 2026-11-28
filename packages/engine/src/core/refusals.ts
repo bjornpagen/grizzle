@@ -149,7 +149,7 @@ export const refusals = [
 	"a digest is never a domain's base: its one predicate is its length, which its domain holds",
 	"clocked binds at least one parameter of the program to the database's clock",
 	"clocked binds only parameters of the program whose values are bigints: int8, natural, or one consumer's domain over either, under its key",
-	"deleteWhere deletes no family's member: grizzle edits a family from the rows a ChangeSet states, so delete a member from an array or a Stream",
+	"deleteWhere deletes no family's member: grizzle edits a family from the rows a ChangeSet states, so delete a member from an array",
 	"deleteWhere names each relation by a required key: an optional key may delete nothing",
 	"deleteWhere selects by the fields its delete's rows state: a tree's root fields, any other relation's written fields",
 	"delta.met names no family's members: their additions are their family statement's, which meets no stored fact at an arbiter key",

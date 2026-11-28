@@ -5,7 +5,7 @@ import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import { array, element, int, shuffled } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import type { Source } from "@bjornpagen/testing/source"
-import { Array as Arr, Effect, Option, Order, Stream } from "effect"
+import { Array as Arr, Effect, Option, Order } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { closedTableOf } from "#compiler/analysis/schema.ts"
@@ -125,14 +125,10 @@ const small = int(1, 3)
 
 type PairFact = { readonly k: number; readonly v: number; readonly c: number }
 
-/** How a member's facts travel: an array, or a Stream the runtime collects whole. */
-type Transport = "array" | "stream"
-
-/** A drawn member: an operation of the change set on Pair, its facts, and how they travel. */
+/** A drawn member: an operation of the change set on Pair, and its facts, an array. */
 interface Member {
 	readonly op: "insert" | "put" | "delete"
 	readonly facts: ReadonlyArray<PairFact>
-	readonly transport: Transport
 }
 
 const pairFact = (source: Source): PairFact => ({
@@ -141,12 +137,9 @@ const pairFact = (source: Source): PairFact => ({
 	c: source.draw(small)
 })
 
-const transport = element(["array", "stream"] as const)
-
 export const memberGen = (source: Source): Member => ({
 	op: source.draw(element(["insert", "put", "delete"] as const)),
-	facts: source.draw(array(pairFact, { min: 0, max: 3 })),
-	transport: source.draw(transport)
+	facts: source.draw(array(pairFact, { min: 0, max: 3 }))
 })
 
 const membersGen = array(memberGen, { min: 0, max: 4 })
@@ -176,39 +169,27 @@ export const restatingGen = (source: Source) => {
 	const second: PairFact = { k: first.k, v: 3 - first.v, c: source.draw(small) }
 	const adding = (fact: PairFact): Member => ({
 		op: source.draw(element(["insert", "put"] as const)),
-		facts: [fact],
-		transport: source.draw(transport)
+		facts: [fact]
 	})
 	return [source.draw(initial), [[adding(first)], [adding(second)]]] as const
 }
 
 /**
  * A case aimed at a fact one stratum both deletes and adds: a lawful initial state and one stratum that deletes a Pair
- * fact and inserts or puts it again, each member an array or a Stream, which normalization nets to the addition.
+ * fact and inserts or puts it again, which normalization nets to the addition.
  */
 export const nettingGen = (source: Source) => {
 	const fact = source.draw(pairFact)
-	const member = (op: "insert" | "put" | "delete"): Member => ({
-		op,
-		facts: [fact],
-		transport: source.draw(transport)
-	})
+	const member = (op: "insert" | "put" | "delete"): Member => ({ op, facts: [fact] })
 	return [
 		source.draw(initial),
 		[[member("delete"), member(source.draw(element(["insert", "put"] as const)))]]
 	] as const
 }
 
-/** Facts as a member carries them: the array itself, or a Stream of it. */
-const sent = (
-	facts: ReadonlyArray<unknown>,
-	how: Transport
-): ReadonlyArray<unknown> | Stream.Stream<unknown> =>
-	how === "array" ? facts : Stream.fromIterable(facts)
-
-/** A stratum's members added to a ChangeSet in turn, each an array or a Stream of its facts. */
+/** A stratum's members added to a ChangeSet in turn, each an array of its facts. */
 export const stratumOf = (members: ReadonlyArray<Member>): ChangeSetValue =>
-	Arr.reduce(members, cs(Small), (changes, m) => changes[m.op](Pair, sent(m.facts, m.transport)))
+	Arr.reduce(members, cs(Small), (changes, m) => changes[m.op](Pair, m.facts))
 
 /**
  * The longest prefix of `members` whose ChangeSet normalizes, the empty one at least: the ChangeSet a fault is planted
@@ -259,7 +240,7 @@ const withinBounds = (
 
 /** A ChangeSet compiled over Small and normalized with its members collected as the runtime collects them. */
 export const normalizedOf = (changes: ChangeSetValue) =>
-	Effect.gen(function* () {
+	Effect.sync(() => {
 		const frontend = compiled(Small, changes)
 		const binding = decideBinding(frontend)
 		const prepared = prepareBinding(
@@ -268,7 +249,7 @@ export const normalizedOf = (changes: ChangeSetValue) =>
 			closedTableOf(frontend.schema),
 			new CompilePatterns()
 		)
-		const facts = yield* collectInputs(binding.groups, parsedOf(changes).inputs)
+		const facts = collectInputs(binding.groups, parsedOf(changes).inputs)
 		return {
 			frontend,
 			result: withinBounds(
@@ -359,7 +340,6 @@ const slotInvariants = (
 export type NormalizeFeature =
 	| "two strata"
 	| "three strata"
-	| "a Stream member"
 	| "refused by a key"
 	| "two deletions at one key, normalized"
 	| "a later stratum restates an earlier stratum's key"
@@ -417,9 +397,6 @@ export const normalizes = (
 	Effect.gen(function* () {
 		if (strata.length >= 2) {
 			c.note(strata.length === 2 ? "two strata" : "three strata")
-		}
-		if (Arr.some(Arr.flatten(strata), (m) => m.transport === "stream")) {
-			c.note("a Stream member")
 		}
 		const state = oracleState(oracleSchema, { Pair: start })
 		const expected = applyAddWins(oracleSchema, state, oracleOf(strata))

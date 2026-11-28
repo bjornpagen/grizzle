@@ -655,7 +655,6 @@ const evaluationOver = (
 /** A member slot as a binding holds it (normalize.ts SlotData). */
 const slotData = (slot: MemberSlot): SlotData => ({
 	slot: slot.slot,
-	transport: slot.transport,
 	heading: headingData(slot.heading)
 })
 
@@ -738,14 +737,14 @@ const nestedAts = (frontend: WriteFrontend): ReadonlyArray<NestedAt> =>
 		)
 	}))
 
-/** Each array or Stream member of the ChangeSet's Description, in its strata's order (binding.ts MemberAt). */
+/** Each array member of the ChangeSet's Description, in its strata's order (binding.ts MemberAt). */
 const membersAt = (frontend: WriteFrontend): ReadonlyArray<MemberAt> =>
 	frontend.desc.strata.flatMap((s, stratum) =>
 		s.members.flatMap((m): ReadonlyArray<MemberAt> => {
 			const source = m.member
 			return source.kind === "query"
 				? []
-				: [{ slot: source.slot, stratum, op: m.op, relation: m.relation, kind: source.kind }]
+				: [{ slot: source.slot, stratum, op: m.op, relation: m.relation }]
 		})
 	)
 

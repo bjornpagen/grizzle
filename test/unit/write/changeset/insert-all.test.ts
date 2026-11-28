@@ -2,11 +2,11 @@
  * ChangeSet#insertAll (write/changeset/value.ts) is the inserts of its keys: over the ChangeSet agreement's Work
  * (test/support/agreement/changeset-schema.ts), and over a role that writes a world entry, a ChangeSet begun empty,
  * after a stratum, or with a parameter bound, given one insertAll of a record of relations, each key's members an
- * array, a Stream or a query, has the Description, the inputs and the bound values of the same ChangeSet given one
+ * array or a query, has the Description, the inputs and the bound values of the same ChangeSet given one
  * insert of each key's members in any order; so it compiles to the same plan, statement by statement, or is refused
  * for the same reason. The oracle is the specification: inserts within one stratum are one set.
  *
- * Features: one key, four keys or more, a Stream member, a query member, a nested member, a world entry's key, a
+ * Features: one key, four keys or more, a query member, a nested member, a world entry's key, a
  * stratum before, a bound parameter yielding, another order, a plan compiled, a compile refused.
  */
 
@@ -40,7 +40,6 @@ export const changeSetInsertAllIsTheInsertsOfItsKeysInAnyOrderOneDescriptionTheS
 		situations: [
 			"one key",
 			"four keys or more",
-			"a Stream member",
 			"a query member",
 			"a nested member",
 			"a world entry's key",
@@ -76,9 +75,6 @@ export const changeSetInsertAllIsTheInsertsOfItsKeysInAnyOrderOneDescriptionTheS
 					c.note("four keys or more")
 				}
 				for (const k of sketch.keys) {
-					if (k.travel === "stream") {
-						c.note("a Stream member")
-					}
 					if (k.travel === "query") {
 						c.note("a query member")
 						if (sketch.base === "a bound parameter") {

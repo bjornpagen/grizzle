@@ -63,7 +63,7 @@ export const theWriteProgramsRelationParametersBindsADescribedMembersRelationPar
 				"a parameter given a number"
 			] satisfies ReadonlyArray<Reached<ParamFeature>>,
 			check: (_, c: Case<ParamFeature>) => (drawnMembers) =>
-				Effect.gen(function* () {
+				Effect.sync(() => {
 					const value = Arr.reduce(drawnMembers, shopChangeSet(), (changes, m) =>
 						m.op === "insert"
 							? changes.insert(m.relation, stockFromParam(m.relation, m.param))
@@ -82,7 +82,7 @@ export const theWriteProgramsRelationParametersBindsADescribedMembersRelationPar
 							}
 						})
 					)
-					const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
+					const members = collectInputs(program.binding.groups, parsedOf(value).inputs)
 					const bound = bindWrite(
 						flightOf(servableWrite(program), program.frontend.codes, noAdvice),
 						{

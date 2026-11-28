@@ -102,7 +102,7 @@ export interface Producer<out T, in P = unknown, out D = T, out L = T, out O = u
  * Rule<S>) => ({ x: r.relation("x", { ... }) })`, is therefore an instantiation that holds S, which a call binds to the
  * whole schema or level. A row over C, a mapped type over it, holds C in its mapper, and instantiating the row
  * instantiates C again and walks the whole level. A write's every relation parameter met that row at each of its
- * members (ParamsOf) and at each Array and Stream member signature its input is checked against: edullm's answer
+ * members (ParamsOf) and at each array member signature its input is checked against: edullm's answer
  * write, 44 relation parameters in qti-pie's postedIn over the Installed level, passed 5M instantiations at its
  * `.once` and `clocked` (TS2589), however few of its inserts read the parameters (GRADING-SQL P4-ITEM-2, lane
  * TYPEDEPTH). Row reads C only through the field types it reads off C by key, which hold no type parameter, so a write

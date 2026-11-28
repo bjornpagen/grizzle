@@ -108,7 +108,7 @@ export const property = (
 	case_: BindingCase,
 	note: (s: BindingSituation) => void
 ): Effect.Effect<void> =>
-	Effect.gen(function* () {
+	Effect.sync(() => {
 		const { spec, rows } = case_
 		const built = buildFill(spec)
 		const value = built.rename("Fill")
@@ -130,7 +130,7 @@ export const property = (
 					? "a fresh owner's counts drawn"
 					: "a write with no family"
 		)
-		const members = yield* collectInputs(program.binding.groups, parsedOf(all).inputs)
+		const members = collectInputs(program.binding.groups, parsedOf(all).inputs)
 		const inputs = { members, params: {}, transport: inForce(bindFrame) }
 		const wide = widened(program)
 		const write = flightOf(servableWrite(program), program.frontend.codes, noAdvice)

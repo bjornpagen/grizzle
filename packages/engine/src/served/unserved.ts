@@ -3,12 +3,11 @@ import type { ArrayMember } from "#compiler/runtime/write/members.ts"
 
 /**
  * Why a served file holds no ChangeSet: a member no served call can supply (write/program/served-members.ts
- * servedMembers): a Stream member, whose facts are code; a value ChangeSet.bind closed with no canonical text, whose
+ * servedMembers): a value ChangeSet.bind closed with no canonical text, whose
  * private name follows the order the ChangeSet was built in, not its declaration; or two array members of one op and
  * one relation, in two strata, whose facts one call keys alike.
  */
 export type UnservedReason =
-	| { readonly kind: "stream"; readonly slot: string; readonly relation: string }
 	| { readonly kind: "opaqueBinding"; readonly name: string }
 	| {
 			readonly kind: "repeated"

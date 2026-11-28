@@ -62,10 +62,10 @@ export const aNestedAdditionsFactsBindExactlyWhenEveryFactStatesItsCallersFields
 			"every fact states its caller's fields alone"
 		] satisfies ReadonlyArray<Reached<NestedFeature>>,
 		check: (_, c: Case<NestedFeature>) => (owners) =>
-			Effect.gen(function* () {
+			Effect.sync(() => {
 				const value = ChangeSet.empty(Sequenced).insert(Owner, additionsOf(owners))
 				const program = succeeded(compileWrite(checking(Sequenced), descOf(value), reality))
-				const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
+				const members = collectInputs(program.binding.groups, parsedOf(value).inputs)
 				const bound = withinMessage(
 					bindWrite(flightOf(servableWrite(program), program.frontend.codes, noAdvice), {
 						members,

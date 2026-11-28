@@ -225,7 +225,7 @@ const withinBounds = (
  * its front end and the column index its nested rows are laid out by.
  */
 const normalizedIn = (schemaValue: FixtureSchema, changes: ChangeSetValue) =>
-	Effect.gen(function* () {
+	Effect.sync(() => {
 		const frontend = compiled(schemaValue, changes)
 		const binding = decideBinding(frontend)
 		const prepared = prepareBinding(
@@ -234,7 +234,7 @@ const normalizedIn = (schemaValue: FixtureSchema, changes: ChangeSetValue) =>
 			closedTableOf(frontend.schema),
 			new CompilePatterns()
 		)
-		const facts = yield* collectInputs(binding.groups, parsedOf(changes).inputs)
+		const facts = collectInputs(binding.groups, parsedOf(changes).inputs)
 		return {
 			frontend,
 			columns: prepared.columns,

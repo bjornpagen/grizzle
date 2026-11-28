@@ -50,17 +50,18 @@ const program = (changes: unknown): CompiledWrite =>
 	)
 
 /** The value's program bound to its members, as the runtime collects them. */
-export const bind = Effect.fn("bind")(function* (value: ReturnType<typeof ChangeSet.empty>) {
-	const p = program(value)
-	const members = yield* collectInputs(p.binding.groups, parsedOf(value).inputs)
-	return succeeded(
-		bindWrite(flightOf(servableWrite(p), p.frontend.codes, noAdvice), {
-			members,
-			params: {},
-			transport: inForce(bindFrame)
-		})
-	)
-})
+export const bind = (value: ReturnType<typeof ChangeSet.empty>) =>
+	Effect.sync(() => {
+		const p = program(value)
+		const members = collectInputs(p.binding.groups, parsedOf(value).inputs)
+		return succeeded(
+			bindWrite(flightOf(servableWrite(p), p.frontend.codes, noAdvice), {
+				members,
+				params: {},
+				transport: inForce(bindFrame)
+			})
+		)
+	})
 
 interface Booked {
 	readonly room: number

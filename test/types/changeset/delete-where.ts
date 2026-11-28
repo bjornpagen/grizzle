@@ -41,7 +41,7 @@ const subjectRefusal = (s: Subject): Refused | undefined => {
 		case "Entry":
 			return "a put or a delete names its rows by their key, and no fact states a key field grizzle writes: key the relation by fields its caller writes"
 		case "Chip":
-			return "deleteWhere deletes no family's member: grizzle edits a family from the rows a ChangeSet states, so delete a member from an array or a Stream"
+			return "deleteWhere deletes no family's member: grizzle edits a family from the rows a ChangeSet states, so delete a member from an array"
 		case "Book":
 			return "a family's member that owns a sequence is written by inserting its owner with its rows nested"
 		case "Task":

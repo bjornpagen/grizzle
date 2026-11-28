@@ -232,10 +232,10 @@ const boundOf = (result: ReturnType<typeof bindWrite>) => {
 
 /** The header's property over one case. */
 export const property = (sketch: Sketch, c: Case<Feature>) =>
-	Effect.gen(function* () {
+	Effect.sync(() => {
 		const value = changeOf(sketch)
 		const program = succeeded(compileWrite(checking(Sources), descOf(value), reality))
-		const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
+		const members = collectInputs(program.binding.groups, parsedOf(value).inputs)
 		const flight = flightOf(servableWrite(program), program.frontend.codes, noAdvice)
 		const bind = (write: FlightWrite) =>
 			boundOf(bindWrite(write, { members, params: {}, transport: inForce(bindFrame) }))

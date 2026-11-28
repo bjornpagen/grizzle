@@ -668,34 +668,32 @@ const transport = inForce(bindFrame)
  * write's refusal; and the rows it inserts, where it binds.
  */
 export const outcomeOf = (flight: FlightWrite, rows: ArrayRows) =>
-	Effect.map(
-		collectInputs(
+	Effect.sync(() => {
+		const members = collectInputs(
 			insertAll.binding.groups,
 			parsedOf(changeSetOver.empty(Decoded).insertAll(rows)).inputs
-		),
-		(members) => {
-			const bound = bindWrite(flight, { members, params: {}, transport })
-			if (!bound.ok) {
-				return { outcome: { kind: "refused", refusal: bound.error }, inserted: [] } as const
-			}
-			const write = bound.value
-			switch (write.kind) {
-				case "bound":
-					return {
-						outcome: {
-							kind: "bound",
-							statements: Arr.map(flight.statements, (statement) =>
-								write.skip.has(statement.index) ? undefined : write.chunks(statement, transport)
-							)
-						},
-						inserted: write.inserted()
-					} as const
-				case "invariant-rejected":
-				case "generated-rejected":
-					return { outcome: { kind: "rejected", write }, inserted: [] } as const
-			}
+		)
+		const bound = bindWrite(flight, { members, params: {}, transport })
+		if (!bound.ok) {
+			return { outcome: { kind: "refused", refusal: bound.error }, inserted: [] } as const
 		}
-	)
+		const write = bound.value
+		switch (write.kind) {
+			case "bound":
+				return {
+					outcome: {
+						kind: "bound",
+						statements: Arr.map(flight.statements, (statement) =>
+							write.skip.has(statement.index) ? undefined : write.chunks(statement, transport)
+						)
+					},
+					inserted: write.inserted()
+				} as const
+			case "invariant-rejected":
+			case "generated-rejected":
+				return { outcome: { kind: "rejected", write }, inserted: [] } as const
+		}
+	})
 
 /** What a case does to its rows once decode has read them: nothing, or a bytes value's buffer detached. */
 const afterwards = ["nothing", "a buffer detached"] as const

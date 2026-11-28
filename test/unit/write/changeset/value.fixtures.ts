@@ -26,7 +26,7 @@ import {
 } from "@bjornpagen/testing/gen"
 import type { WildKind } from "@bjornpagen/testing/lsw"
 import type { Case } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Option, Order, Record as Rec, Stream } from "effect"
+import { Array as Arr, Effect, Option, Order, Record as Rec } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { DecoderForm, FieldForm } from "#compiler/core/decoder.ts"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
@@ -55,8 +55,7 @@ import {
 	changeSetOver as ChangeSet,
 	type ChangeSetValue,
 	isChangeSetValue,
-	parseChangeSet,
-	streamSlot
+	parseChangeSet
 } from "#compiler/write/changeset/value.ts"
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
 import { throwsRefused } from "#test/support/assert.ts"
@@ -110,7 +109,7 @@ const levelOfValue = (value: unknown): LevelName =>
 const higherLevel = (a: LevelName, b: LevelName): LevelName | undefined =>
 	a === b ? a : a === "Ledger" || b === "Ledger" ? undefined : "Ext"
 
-/** The relations a member's array or Stream is written into: Work's, and the one only Ext holds. */
+/** The relations a member's array is written into: Work's, and the one only Ext holds. */
 const writables = ["Task", "TaskNote", "ManualTask", "Extra"] as const
 
 type Writable = (typeof writables)[number]
@@ -289,12 +288,6 @@ type ModelMember =
 			readonly facts: ReadonlyArray<number>
 	  }
 	| {
-			readonly kind: "stream"
-			readonly op: WriteOp
-			readonly relation: Writable
-			readonly stream: number
-	  }
-	| {
 			readonly kind: "query"
 			readonly op: WriteOp
 			readonly shape: MemberShape
@@ -317,10 +310,9 @@ interface ModelChangeSet {
 	readonly reads: ReadonlyArray<ModelRead>
 }
 
-/** The pool of ChangeSets a program has made, in order, and how many Streams its members have carried. */
+/** The pool of ChangeSets a program has made, in order. */
 interface Model {
 	readonly handles: ReadonlyArray<ModelChangeSet>
-	readonly streams: number
 }
 
 const emptyOf = (level: LevelName): ModelChangeSet => ({ level, strata: [[]], reads: [] })
@@ -357,7 +349,6 @@ interface BindEntry {
 
 type MemberSource =
 	| { readonly kind: "array"; readonly relation: Writable; readonly facts: ReadonlyArray<number> }
-	| { readonly kind: "stream"; readonly relation: Writable }
 	| { readonly kind: "query"; readonly shape: MemberShape; readonly over: "Work" | "Ext" }
 
 /** The malformed calls a JavaScript caller can make, each on a valid ChangeSet of the pool. */
@@ -423,10 +414,7 @@ type Rule =
 const handleOf = (m: Model, i: number): ModelChangeSet => defined(m.handles[i], "a handle")
 
 /** The model with one handle more. */
-const made = (m: Model, next: ModelChangeSet, streams: number): Model => ({
-	handles: [...m.handles, next],
-	streams
-})
+const made = (m: Model, next: ModelChangeSet): Model => ({ handles: [...m.handles, next] })
 
 const withMember = (c: ModelChangeSet, member: ModelMember): ModelChangeSet => ({
 	...c,
@@ -694,14 +682,13 @@ const meetingShapes = (c: ModelChangeSet): ReadonlyArray<MemberShape> => {
 	)
 }
 
-/** A member's source: an array of facts, a Stream, or a query of any shape over Work or Ext. */
+/** A member's source: an array of facts, or a query of any shape over Work or Ext. */
 const sourceGen: Gen<MemberSource> = oneOf<MemberSource>([
 	(s) => ({
 		kind: "array",
 		relation: s.draw(element(writables)),
 		facts: s.draw(array(int(1, 4), { min: 0, max: 3 }))
 	}),
-	(s) => ({ kind: "stream", relation: s.draw(element(writables)) }),
 	(s) => ({
 		kind: "query",
 		shape: s.draw(shapeGen),
@@ -803,13 +790,13 @@ const bindValuesGen =
 	}
 
 export const machine: Machine<Model, Params, Refusal> = {
-	initial: { handles: [emptyOf("Work")], streams: 0 },
+	initial: { handles: [emptyOf("Work")] },
 	commands: {
 		begin: {
 			weight: 2,
 			applies: () => true,
 			parameters: () => map(element(["Work", "Ext", "Ledger"] as const), (level) => ({ level })),
-			judge: (m, p) => accepted(made(m, emptyOf(p.level), m.streams))
+			judge: (m, p) => accepted(made(m, emptyOf(p.level)))
 		},
 		write: {
 			weight: 8,
@@ -835,25 +822,12 @@ export const machine: Machine<Model, Params, Refusal> = {
 									op: p.op,
 									relation: source.relation,
 									facts: source.facts
-								}),
-								m.streams
-							)
-						case "stream":
-							return made(
-								m,
-								withMember(c, {
-									kind: "stream",
-									op: p.op,
-									relation: source.relation,
-									stream: m.streams
-								}),
-								m.streams + 1
+								})
 							)
 						case "query":
 							return made(
 								m,
-								withMember(c, { kind: "query", op: p.op, shape: source.shape, binding: free }),
-								m.streams
+								withMember(c, { kind: "query", op: p.op, shape: source.shape, binding: free })
 							)
 					}
 				})
@@ -876,7 +850,7 @@ export const machine: Machine<Model, Params, Refusal> = {
 			judge: (m, p) =>
 				judged(readRule(m, p), () => {
 					const c = handleOf(m, p.handle)
-					return made(m, { ...c, reads: joinReads(c.reads, [readOfStep(p)]) }, m.streams)
+					return made(m, { ...c, reads: joinReads(c.reads, [readOfStep(p)]) })
 				})
 		},
 		bind: {
@@ -889,8 +863,7 @@ export const machine: Machine<Model, Params, Refusal> = {
 					values: s.draw(bindValuesGen([...freeNames(handleOf(m, handle))]))
 				}
 			},
-			judge: (m, p) =>
-				judged(bindRule(m, p), () => made(m, bound(handleOf(m, p.handle), p.values), m.streams))
+			judge: (m, p) => judged(bindRule(m, p), () => made(m, bound(handleOf(m, p.handle), p.values)))
 		},
 		fork: {
 			weight: 4,
@@ -903,9 +876,7 @@ export const machine: Machine<Model, Params, Refusal> = {
 			},
 			judge: (m, p) => {
 				const c = handleOf(m, p.handle)
-				return judged(forkRule(c, p), () =>
-					made(m, unionOf(bound(c, p.first), bound(c, p.second)), m.streams)
-				)
+				return judged(forkRule(c, p), () => made(m, unionOf(bound(c, p.first), bound(c, p.second))))
 			}
 		},
 		union: {
@@ -913,18 +884,14 @@ export const machine: Machine<Model, Params, Refusal> = {
 			applies: () => true,
 			parameters: pairOf,
 			judge: (m, p) =>
-				judged(combineRule(m, p), () =>
-					made(m, unionOf(handleOf(m, p.a), handleOf(m, p.b)), m.streams)
-				)
+				judged(combineRule(m, p), () => made(m, unionOf(handleOf(m, p.a), handleOf(m, p.b))))
 		},
 		sequence: {
 			weight: 2,
 			applies: () => true,
 			parameters: pairOf,
 			judge: (m, p) =>
-				judged(combineRule(m, p), () =>
-					made(m, sequenceOf(handleOf(m, p.a), handleOf(m, p.b)), m.streams)
-				)
+				judged(combineRule(m, p), () => made(m, sequenceOf(handleOf(m, p.a), handleOf(m, p.b))))
 		},
 		fault: {
 			weight: 6,
@@ -950,7 +917,6 @@ interface CanonGroup {
 	readonly op: WriteOp
 	/** The one array member's facts, sorted, when there is one. */
 	readonly arrays: ReadonlyArray<ReadonlyArray<number>>
-	readonly streams: ReadonlyArray<number>
 	readonly queries: ReadonlyArray<CanonQuery>
 }
 
@@ -1062,7 +1028,6 @@ const canonOf = (c: ModelChangeSet): Canon => ({
 					relation: run.relation,
 					op: run.op,
 					arrays: arrays.length === 0 ? [] : [Arr.sort(Arr.flatten(arrays), Order.Number)],
-					streams: Arr.flatMap(run.items, (m) => (m.kind === "stream" ? [m.stream] : [])),
 					queries: Arr.sort(
 						Arr.dedupeWith(
 							Arr.flatMap(run.items, (m) =>
@@ -1148,18 +1113,15 @@ const usedParams = (desc: ChangeSetDesc): ReadonlySet<string> =>
 		...Arr.flatMap(desc.reads, (r) => [...queryParamNames(r.query)])
 	])
 
-const kindRank = { array: 0, stream: 1, query: 2, equal: 3, computed: 4 } as const
+const kindRank = { array: 0, query: 1, equal: 2, computed: 3 } as const
 
 /**
  * The real value read back into the canonical form, and held to the invariants the form does not show: members sorted
- * by relation, operation, kind and query identity digest (ir/desc.ts descIdentity), read-backs by name and bindings by name; each array or Stream member at
+ * by relation, operation, kind and query identity digest (ir/desc.ts descIdentity), read-backs by name and bindings by name; each array member at
  * the slot its place names, its input there and nothing else; every input's facts frozen; and every binding one the
  * members or read-backs use, with its value carried.
  */
-const readBackValue = (
-	value: ChangeSetValue,
-	streams: ReadonlyArray<Stream.Stream<unknown>>
-): Canon => {
+const readBackValue = (value: ChangeSetValue): Canon => {
 	const parsed = defined(parseChangeSet(value), "a ChangeSet value's parse")
 	const desc = parsed.desc
 	const bindings = new Set(desc.bindings)
@@ -1212,7 +1174,6 @@ const readBackValue = (
 			runsOf(stratum.members, (m) => ({ relation: m.relation, op: m.op })),
 			(run): CanonGroup => {
 				const arrays: Array<ReadonlyArray<number>> = []
-				const ids: Array<number> = []
 				const queries: Array<CanonQuery> = []
 				for (const m of run.items) {
 					const source = m.member
@@ -1221,29 +1182,14 @@ const readBackValue = (
 							slots += 1
 							assert.equal(source.slot, arraySlot(s, m.op, m.relation), "an array's slot")
 							const input = parsed.inputs.get(source.slot)
-							if (input?.kind !== "array") {
+							if (input === undefined) {
 								return assert.fail("an array member's facts at its slot")
 							}
 							assert.ok(
-								Object.isFrozen(input.facts) && Arr.every(input.facts, (f) => Object.isFrozen(f)),
+								Object.isFrozen(input) && Arr.every(input, (f) => Object.isFrozen(f)),
 								"an array member's facts are frozen"
 							)
-							arrays.push(Arr.sort(Arr.map(input.facts, factNumber), Order.Number))
-							break
-						}
-						case "stream": {
-							slots += 1
-							assert.equal(
-								source.slot,
-								streamSlot(s, m.op, m.relation, ids.length),
-								"a Stream's slot"
-							)
-							const input = parsed.inputs.get(source.slot)
-							if (input?.kind !== "stream") {
-								return assert.fail("a Stream member's Stream at its slot")
-							}
-							const id = streams.indexOf(input.stream)
-							ids.push(id >= 0 ? id : assert.fail("a Stream the program made"))
+							arrays.push(Arr.sort(Arr.map(input, factNumber), Order.Number))
 							break
 						}
 						case "query":
@@ -1264,17 +1210,12 @@ const readBackValue = (
 					relation: run.relation,
 					op: run.op,
 					arrays,
-					streams: ids,
 					queries: Arr.sort(queries, queryOrder)
 				}
 			}
 		)
 	})
-	assert.equal(
-		parsed.inputs.size,
-		slots,
-		"an input for every array and Stream member, and no other"
-	)
+	assert.equal(parsed.inputs.size, slots, "an input for every array member, and no other")
 	return {
 		level: levelOfValue(parsed.over.value),
 		strata,
@@ -1306,7 +1247,6 @@ const boundAs = (c: ChangeSetValue, shape: ReadShape, binding: Binding): ChangeS
  */
 const normalForm = (
 	c: ModelChangeSet,
-	streams: ReadonlyArray<Stream.Stream<unknown>>,
 	orders: ReadonlyArray<ReadonlyArray<number>>
 ): ChangeSetValue => {
 	const level = levelValues[c.level]
@@ -1315,8 +1255,6 @@ const normalForm = (
 		switch (m.kind) {
 			case "array":
 				return empty[m.op](writableValues[m.relation], Arr.map(m.facts, factOf))
-			case "stream":
-				return empty[m.op](writableValues[m.relation], defined(streams[m.stream], "a Stream"))
 			case "query":
 				return boundAs(
 					empty[m.op](writableValues[shapeRelation[m.shape]], memberQuery(m.shape, Work)),
@@ -1358,11 +1296,9 @@ const drawnOrder =
 export type AlgebraFeature =
 	| StepFeature<Params, Refusal>
 	| "an array member"
-	| "a Stream member"
 	| "a query member"
 	| "array members merged"
 	| "a query member deduplicated"
-	| "two Streams of one group"
 	| "an empty stratum kept"
 	| "three strata"
 	| "a delta read-back"
@@ -1445,10 +1381,6 @@ const shapeFeatures = (c: ModelChangeSet): ReadonlyArray<AlgebraFeature> => {
 	)
 	when(outOfNameOrder(c.reads), "read-backs read out of name order")
 	when(
-		Arr.some(members, (m) => m.kind === "stream"),
-		"a Stream member"
-	)
-	when(
 		Arr.some(members, (m) => m.kind === "query"),
 		"a query member"
 	)
@@ -1472,10 +1404,6 @@ const shapeFeatures = (c: ModelChangeSet): ReadonlyArray<AlgebraFeature> => {
 		Arr.reduce(groups, 0, (sum, g) => sum + g.queries.length) <
 			Arr.reduce(members, 0, (sum, m) => sum + (m.kind === "query" ? 1 : 0)),
 		"a query member deduplicated"
-	)
-	when(
-		Arr.some(groups, (g) => g.streams.length >= 2),
-		"two Streams of one group"
 	)
 	when(
 		c.strata.length >= 2 && Arr.some(c.strata, (stratum) => stratum.length === 0),
@@ -1588,7 +1516,6 @@ const bindArgument = (entries: ReadonlyArray<BindEntry>): Readonly<Record<string
 export const algebraOf = (c: Case<AlgebraFeature>): Real<Model, Params, Refusal, never, never> => {
 	const values: Array<ChangeSetValue> = [ChangeSet.empty(Work)]
 	const texts: Array<string> = Arr.map(values, valueText)
-	const streams: Array<Stream.Stream<unknown>> = []
 	const real = (i: number): ChangeSetValue => defined(values[i], "a value of the program")
 	const settle = (
 		attempt: Result.Result<unknown, CompileError>,
@@ -1620,13 +1547,13 @@ export const algebraOf = (c: Case<AlgebraFeature>): Real<Model, Params, Refusal,
 		}
 		assert.ok(Object.isFrozen(value), "a ChangeSet value is frozen")
 		const expected = defined(after.handles.at(-1), "the model's new ChangeSet")
-		assert.deepEqual(readBackValue(value, streams), canonOf(expected), "the model's ChangeSet")
+		assert.deepEqual(readBackValue(value), canonOf(expected), "the model's ChangeSet")
 		assert.equal(
-			valueText(normalForm(expected, streams, modelOrder(expected))),
+			valueText(normalForm(expected, modelOrder(expected))),
 			valueText(value),
 			"the Description of the normal form in model order"
 		)
-		const drawn = normalForm(expected, streams, c.draw(drawnOrder(expected)))
+		const drawn = normalForm(expected, c.draw(drawnOrder(expected)))
 		assert.equal(
 			valueText(drawn),
 			valueText(value),
@@ -1682,16 +1609,6 @@ export const algebraOf = (c: Case<AlgebraFeature>): Real<Model, Params, Refusal,
 							fact.n = 1001
 						}
 						return settle(attempt, after, verdict, writeRule(before, p))
-					}
-					case "stream": {
-						const stream = Stream.fromIterable([factOf(before.streams)])
-						streams[before.streams] = stream
-						return settle(
-							catchCompileError(() => target[p.op](writableValues[source.relation], stream)),
-							after,
-							verdict,
-							writeRule(before, p)
-						)
 					}
 					case "query":
 						return settle(
