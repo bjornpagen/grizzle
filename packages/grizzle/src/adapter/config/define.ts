@@ -10,8 +10,17 @@ import type { GrizzleConfig } from "#adapter/types/config.ts"
 const defined = new WeakMap<object, GrizzleConfig>()
 
 /**
+ * Each key of `C` that no configuration has, a setting the command line's loader refuses (cli/config.ts onlyKeys,
+ * cli/errors.ts configSettings), as a setting of no value: a configuration that names one is refused at it, where a type
+ * parameter alone, which takes every subtype, admitted it (qti-pie's configurations of the deleted `contracts`
+ * typechecked, and generate refused them at its configuration stage).
+ */
+type NoOtherSettings<C> = { readonly [K in Exclude<keyof C, keyof GrizzleConfig>]: never }
+
+/**
  * defineConfig, the identity function that types a configuration file (its shape:
- * packages/grizzle/src/adapter/types/config.ts), grizzle.config.ts by convention.
+ * packages/grizzle/src/adapter/types/config.ts), grizzle.config.ts by convention, and takes exactly its settings
+ * (NoOtherSettings), as the command line's loader does.
  *
  * This module is public: the connection barrel (packages/grizzle/src/adapter/public/layer.ts) re-exports it. It imports no Node module,
  * so the package root stays free of them. The command line (config.ts) reads the configurations defineConfig typed
@@ -20,7 +29,7 @@ const defined = new WeakMap<object, GrizzleConfig>()
  *
  * The identity function that types a configuration: `export default defineConfig({ ... })`.
  */
-export const defineConfig = <const C extends GrizzleConfig>(config: C): C => {
+export const defineConfig = <const C extends GrizzleConfig>(config: C & NoOtherSettings<C>): C => {
 	defined.set(config, config)
 	return config
 }
