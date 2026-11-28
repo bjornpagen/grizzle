@@ -31,6 +31,7 @@ import {
 	keyedSet,
 	lit,
 	namedType,
+	not,
 	notExists,
 	operandSelect,
 	param,
@@ -40,6 +41,7 @@ import {
 	target,
 	targetAs,
 	types,
+	unionAll,
 	windowOf
 } from "#compiler/sql/build.ts"
 import { wholeViewAlias } from "#compiler/sql/naming.ts"
@@ -788,3 +790,70 @@ export const seekConditionsOf = (bound: Select): ReadonlyArray<string> => {
 /** The alias the world view's body names T by, which its bound body reads T under. */
 export const worldTAlias = (): string =>
 	defined(tReadsOf(worldBody.bound)[0], "T's read in its world view's body").alias
+
+/**
+ * Where a statement reads one probe of T in two places (printedTwiceOf): two conjuncts of S's WHERE, the existence and
+ * its negation; two arms of a union of S's rows; or a target of S's read and that read's order.
+ */
+export const twicePlaces = ["two conjuncts", "two arms", "a target and the order"] as const
+
+export type TwicePlace = (typeof twicePlaces)[number]
+
+/** A case: where the probe stands twice, and whether its two places share one query or each builds its own. */
+export interface TwiceCase {
+	readonly place: TwicePlace
+	readonly shared: boolean
+}
+
+export const twiceCaseGen: Gen<TwiceCase> = (source) => ({
+	place: source.draw(element(twicePlaces)),
+	shared: source.draw(boolean)
+})
+
+/**
+ * The statement of a case: S read with T's probe at S's key, `EXISTS (SELECT 1 FROM t WHERE t.a = s.k)`, in each of the
+ * case's two places, one query object read in both where the case shares it, each place's own otherwise.
+ */
+export const printedTwiceOf = (c: TwiceCase): Select => {
+	const probe = (): OperandSelect =>
+		operandSelect(
+			keyedRead(
+				[target(lit.int(1, types.integer))],
+				[table("app", "t", "t")],
+				eq(col("t", "a"), col("s", "k"))
+			)
+		)
+	const one = probe()
+	const place = (): OperandSelect => (c.shared ? one : probe())
+	const sRead = () => table("app", "s", "s")
+	switch (c.place) {
+		case "two conjuncts":
+			return select(
+				keyedSet(
+					[target(col("s", "w"))],
+					[sRead()],
+					and([exists(place()), not(exists(place()))]),
+					"S beside T and beside none"
+				)
+			)
+		case "two arms":
+			return select(
+				unionAll("disjoint", [
+					keyedSet([target(col("s", "w"))], [sRead()], exists(place()), "S beside T"),
+					keyedSet([target(col("s", "w"))], [sRead()], not(exists(place())), "S beside none")
+				])
+			)
+		case "a target and the order":
+			return {
+				...select(
+					keyedSet(
+						[target(col("s", "w")), targetAs(exists(place()), "beside")],
+						[sRead()],
+						undefined,
+						"S, whether beside T"
+					)
+				),
+				orderBy: [asc(exists(place()))]
+			}
+	}
+}

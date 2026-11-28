@@ -1150,7 +1150,7 @@ export const buildInsert = <T extends StatementText>(
 					"keyed",
 					outFields.map((f) => returnedColumn(verdictAt(f), rowType(f), retCol(f))),
 					[cteRef(rv)],
-					conjunction([...(guarded === undefined ? [] : [guarded.guard]), ...inserted])
+					conjunction([...(guarded === undefined ? [] : [guarded.guard()]), ...inserted])
 				),
 				with: { ctes, recursive: false }
 			},

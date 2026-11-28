@@ -378,14 +378,15 @@ const slotFacts = (
 
 /**
  * The statement of `ctes` whose rows are each returning's rows behind its tag, its position among them, padded with
- * empty texts to the widest (program/single.ts), so the outcome reads each part's rows as a family statement's.
+ * empty texts to the widest (program/single.ts), so the outcome reads each part's rows as a family statement's, each arm
+ * under every refusal's guard, built for it (Guarded).
  */
 export const taggedRows = (
 	supply: NameSupply,
 	ctes: Array<Cte>,
 	returnings: NonEmptyReadonlyArray<FamilyReturning>,
 	params: WriteParams,
-	refusals: ReadonlyArray<Expr>,
+	refusals: ReadonlyArray<() => Expr>,
 	binding: Emitting
 ): FamilyWriteSql => {
 	const width = maxOf(
@@ -407,7 +408,7 @@ export const taggedRows = (
 				)
 			],
 			[cteRef(partName)],
-			conjunction(refusals)
+			conjunction(refusals.map((refusal) => refusal()))
 		)
 	})
 	const [firstCte, ...restCtes] = ctes

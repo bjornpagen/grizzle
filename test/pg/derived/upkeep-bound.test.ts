@@ -173,7 +173,7 @@ export const aSuccessorsUpkeepReadsOneRowPastTheCutForEachRowBeforeItHoweverMany
 			},
 			{
 				file: "packages/engine/src/sql/bind.ts",
-				original: "\t\t\t\t? takenThrough(b, stated.orderBy)\n",
+				original: "\t\t\t\t? takenThrough(b, stated.orderBy, oneRowLimit(limit.expr))\n",
 				replacement: "\t\t\t\t? undefined\n",
 				why: "The take's fenced pass-through projections stand between its ORDER BY and Moment's read again: PostgreSQL reads every moment of the session past the item and sorts them for the one past the cut, 24 rows where 8 bound the upkeep, growing with the session."
 			}
@@ -190,7 +190,10 @@ export const aSuccessorsUpkeepReadsOneRowPastTheCutForEachRowBeforeItHoweverMany
  * unmoved items, committed, and measures again.
  *
  * Latest's take of the session's last moment reads Moment itself, its pass-through projections folded (sql/bind.ts
- * takenThrough).
+ * takenThrough); Unmoved's witness, a take of one over the DISTINCT of the session's unmoved items, reads Shown at the
+ * session in its key's order, (child, s, at), each row probed at Moment's key, and stops at the first with no moment:
+ * the DISTINCT folds under a take of one row, since the first row of any order is a distinct one, so its loop reads
+ * the written moment's news, Unmoved's row at the session and that one item, however many items the session holds.
  *
  * Oracle: a bound and invariance, as above, and each table's fact at the session: the latest moment, the session
  * unmoved.
@@ -245,9 +248,15 @@ export const aFoldThatDerivesOneFactAtAUnitReadsOneRowOfItAtItsUpkeepHoweverMany
 			},
 			{
 				file: "packages/engine/src/sql/bind.ts",
-				original: "\t\t\t\t? takenThrough(b, stated.orderBy)\n",
+				original: "\t\t\t\t? takenThrough(b, stated.orderBy, oneRowLimit(limit.expr))\n",
 				replacement: "\t\t\t\t? undefined\n",
 				why: "The take's fenced pass-through projections stand between its ORDER BY and Moment's read again: PostgreSQL reads every moment of the session and sorts them for the last, 23 rows where 7 bound Latest's upkeep, growing with the session."
+			},
+			{
+				file: "packages/engine/src/sql/bind.ts",
+				original: "\t\t(body.distinct !== false && !(one && body.distinct === true)) ||\n",
+				replacement: "\t\tbody.distinct !== false ||\n",
+				why: "A take of one row keeps the DISTINCT beneath it: Unmoved's witness reads every shown item of the session, each probed against Moment, and sorts their one distinct session for the first, 22 rows where 6 bound its upkeep, growing with the session, where the first unmoved item in Shown's key order is the witness."
 			}
 		]
 	})

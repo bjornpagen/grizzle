@@ -4,13 +4,12 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ConstraintName, EntryName, LawId, StoredRelationName } from "#compiler/core/ids.ts"
 import { type Sqlstate, sqlstates } from "#compiler/core/sqlstate.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import type { BreachGuard, DeliveredBreach } from "#compiler/lower/conservative/types.ts"
+import type { BreachGuard, DeliveredBreach, Guarded } from "#compiler/lower/conservative/types.ts"
 import { changeTag, type ConcurrentChangeTag, keyTag } from "#compiler/runtime/write/refusal.ts"
 import { noAdvice } from "#compiler/sql/advice.ts"
 import type {
 	CreateFunction,
 	QualifiedFunctionRef,
-	Cte,
 	Expr,
 	FromItem,
 	FunctionName,
@@ -378,9 +377,7 @@ interface RefusalGuardInput {
  * value. JSON string escaping is the escape. readLawDetail and readChangeDetail convert a DETAIL without a check, each
  * under the SQLSTATE that raises it: the runtime reads one only under grizzle's own SQLSTATEs, from grizzle's own
  * statements, so the text is this encoding's, and a 23000 DETAIL under no tag of grizzle's is reported unclassified. */
-export const refusalGuard = (
-	input: RefusalGuardInput
-): { readonly cte: Cte; readonly guard: Expr } => {
+export const refusalGuard = (input: RefusalGuardInput): Guarded => {
 	const from = cteRef(input.verdicts)
 	return sourcedGuard(
 		input.supply,
@@ -395,7 +392,7 @@ export const sourcedRefusalGuard = (
 	supply: NameSupply,
 	schema: string,
 	arms: NonEmptyReadonlyArray<SourcedArm>
-): { readonly cte: Cte; readonly guard: Expr } => sourcedGuard(supply, schema, arms)
+): Guarded => sourcedGuard(supply, schema, arms)
 
 const breachArm = (b: DeliveredBreach): SourcedArm => ({
 	rank: refusalRank.breach,
@@ -419,7 +416,7 @@ const sourcedGuard = (
 	supply: NameSupply,
 	schema: string,
 	[first, ...rest]: readonly [SourcedArm, ...ReadonlyArray<SourcedArm>]
-): { readonly cte: Cte; readonly guard: Expr } => {
+): Guarded => {
 	const rw = supply.relation(internal("refusal"))
 	const rank = supply.column(internal("refusal rank"))
 	const state = supply.column(internal("refusal SQLSTATE"))
@@ -465,6 +462,6 @@ const sourcedGuard = (
 	])
 	return {
 		cte: cte(rw, query),
-		guard: notExists(simpleSelect([target(lit.int(1, types.integer))], [cteRef(rw)], refuse))
+		guard: () => notExists(simpleSelect([target(lit.int(1, types.integer))], [cteRef(rw)], refuse))
 	}
 }

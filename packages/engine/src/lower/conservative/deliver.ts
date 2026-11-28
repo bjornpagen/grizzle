@@ -477,7 +477,7 @@ export const checkedAttachment = (
 			"keyed",
 			columns.map((c) => target(col(rv, c.kept))),
 			[cteRef(rv)],
-			raised.guard
+			raised.guard()
 		),
 		with: { ctes: [kept, raised.cte], recursive: false }
 	}

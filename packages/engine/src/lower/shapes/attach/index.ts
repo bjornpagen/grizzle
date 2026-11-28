@@ -251,7 +251,7 @@ export const withFusedAttachments = (
 			: subject.breach(cx.supply, [first, ...rest])
 	return {
 		query: {
-			...select(keyedSet(targets, [source.item], raised?.guard, "a fused attachment's rows")),
+			...select(keyedSet(targets, [source.item], raised?.guard(), "a fused attachment's rows")),
 			with: raised === undefined ? undefined : { recursive: false, ctes: [raised.cte] },
 			orderBy
 		},

@@ -15,7 +15,7 @@ export const fencedScan = (
 	capability: string
 ): {
 	readonly scan: OperandSelect
-	readonly body: Extract<OperandSelect["body"], { readonly kind: "core" }>
+	readonly body: Extract<OperandSelect["body"], { readonly kind: "core"; readonly distinct: false }>
 	readonly alias: string
 } => {
 	const scan = cx.lower(base, env)

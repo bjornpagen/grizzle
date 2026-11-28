@@ -440,7 +440,7 @@ export const additionsSql = (
 	 * data-modifying CTE no part reads once the statement's rows are read, after each recount, which takes its owner's
 	 * row first, and the statement states them in that order. */
 	const seams: Array<Cte> = []
-	const refusals: Array<Expr> = []
+	const refusals: Array<() => Expr> = []
 	const drawn = members.flatMap((member): ReadonlyArray<Drawn> => {
 		const arbiter = memberArbiter(w, member)
 		const sources = member.sources.map((source) => ({
@@ -2517,7 +2517,7 @@ const probeGates = (
 	member: AppendedMember,
 	candidates: NonEmptyReadonlyArray<LaidRows>,
 	arbiter: Arbiter
-): ReadonlyArray<Expr> => {
+): (() => ReadonlyArray<Expr>) => {
 	const [first, ...rest] = candidates
 	const gate = candidateGate(
 		w,
@@ -2582,9 +2582,9 @@ const insertOf = (
 	ctes: Array<Cte>,
 	d: Drawn,
 	candidates: LaidRows,
-	gates: ReadonlyArray<Expr>,
+	gates: () => ReadonlyArray<Expr>,
 	arbiter: Arbiter,
-	refusals: Array<Expr>
+	refusals: Array<() => Expr>
 ): FamilyReturning => {
 	const relation = d.member.relation
 	const name = relation.name
@@ -2606,7 +2606,7 @@ const insertOf = (
 				"keyed",
 				from.columns.map((c) => target(col(from.name, c))),
 				[cteRef(from.name)],
-				conjunction(gates)
+				conjunction(gates())
 			)
 		)
 	switch (arbiter) {
@@ -2702,7 +2702,7 @@ const metRefusal = (
 		readonly columnOf: (key: ColumnKey) => string | undefined
 	},
 	returned: ReadonlyArray<{ readonly field: LawField; readonly alias: string }>
-): Expr => {
+): (() => Expr) => {
 	const relation = d.member.relation
 	const name = relation.name
 	const pk = relation.primaryFields
@@ -2928,16 +2928,21 @@ const recountOf = (
 		for (const facts of puts) {
 			const p = supply.relation(internal("put owner"))
 			const putKey = family.group.map((g) => col(p, columnAt(facts, columnKeyOf(g.owner.name))))
-			const appended = scans.map((scan) => {
-				const sc = supply.relation(internal("appended to"))
-				return notExists(
-					simpleSelect(
-						[target(one)],
-						[cteRefAs(scan.name, sc)],
-						sameGroupExprs(w.names, family, putKey, sc, scan.group)
+			/**
+			 * That no scan appended to the put owner's group, each arm's own: a subquery read in two places is two reads,
+			 * each of its own (sql/scope.ts, the scope walk).
+			 */
+			const appended = () =>
+				scans.map((scan) => {
+					const sc = supply.relation(internal("appended to"))
+					return notExists(
+						simpleSelect(
+							[target(one)],
+							[cteRefAs(scan.name, sc)],
+							sameGroupExprs(w.names, family, putKey, sc, scan.group)
+						)
 					)
-				)
-			})
+				})
 			/** The put owner's group's stored last member, read by the probe of its group's last member. */
 			const lastOf = () =>
 				probeGroup(
@@ -2963,7 +2968,7 @@ const recountOf = (
 						)
 					],
 					[cteRefAs(facts.name, p), stored.source],
-					isNonEmpty(appended) ? and(appended) : undefined
+					conjunction(appended())
 				)
 			)
 			arms.push(
@@ -2993,7 +2998,10 @@ const recountOf = (
 						})
 					],
 					[cteRefAs(facts.name, p)],
-					and([not(exists(simpleSelect([target(one)], [lastOf().source], undefined))), ...appended])
+					and([
+						not(exists(simpleSelect([target(one)], [lastOf().source], undefined))),
+						...appended()
+					])
 				)
 			)
 		}

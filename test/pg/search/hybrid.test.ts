@@ -277,8 +277,8 @@ export const aHybridSearchFusesItsArmsByReciprocalRankInOneStatementEachArmTheRo
 			{
 				file: "packages/engine/src/lower/shapes/vector/index.ts",
 				original:
-					'\t\t\torderBy: [asc(distance)],\n\t\t\tlimit: accessed({ kind: "nearest" }, streamBound())\n',
-				replacement: "\t\t\torderBy: [],\n\t\t\tlimit: undefined\n",
+					'\t\torderBy: [asc(distance())],\n\t\tlimit: accessed({ kind: "nearest" }, streamBound())\n',
+				replacement: "\t\torderBy: [],\n\t\tlimit: undefined\n",
 				why: "The approximate read unfenced: its stream a plain scan PostgreSQL pulls up, so the route's filters, priced by PostgreSQL's estimates, choose the read, and no nearest arm of a large case is served by the HNSW index."
 			}
 		]

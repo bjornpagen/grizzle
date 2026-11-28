@@ -17,6 +17,7 @@ import {
 	type UniqueObjects,
 	witnessFields
 } from "#compiler/laws/model/uniques.ts"
+import type { Guarded } from "#compiler/lower/conservative/types.ts"
 import type {
 	Cte,
 	Expr,
@@ -384,7 +385,7 @@ export const probeGuard = (
 	supply: NameSupply,
 	relation: string,
 	probe: ProbeSql
-): { readonly cte: Cte; readonly guard: Expr } =>
+): Guarded =>
 	refusalGuard({
 		supply,
 		schema: w.names.schema,

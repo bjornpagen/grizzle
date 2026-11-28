@@ -176,7 +176,7 @@ interface GatedInsert {
  * candidates under the statement's snapshot at every unique object the INSERT does not arbitrate, every other one where
  * it arbitrates its primary key, for a candidate whose key no stored row holds (Requested `complete`), and every one,
  * the primary key first, where it arbitrates none (Requested `none`); and the refusal guard that raises the probe's
- * refusal (probeGuard), none where it probes nothing. As every insert of the insert protocol probes each unique object
+ * refusal (probeGuard), none where it probes nothing, built anew for each INSERT it gates (Guarded). As every insert of the insert protocol probes each unique object
  * besides its arbiter, a stated row that meets one, a stored occupant or another candidate, is refused by the object's
  * law, its witness the row's values at the object's fields (witnessFields), never by PostgreSQL's 23505, which names no
  * row. The candidates are drawn on the host and in the statement (a tree's starts, a sequence's indexes), which no host
@@ -189,7 +189,7 @@ export const candidateGate = (
 	supply: NameSupply,
 	insert: GatedInsert,
 	candidates: LaidRows
-): { readonly ctes: ReadonlyArray<Cte>; readonly guards: ReadonlyArray<Expr> } => {
+): { readonly ctes: ReadonlyArray<Cte>; readonly guards: () => ReadonlyArray<Expr> } => {
 	const { relation, layout, uniques } = insert
 	const columns = [...layout.key, ...layout.columns]
 	const fields = relation.fields.filter((f) => f.writing.kind !== "generated")
@@ -225,8 +225,8 @@ export const candidateGate = (
 		occupants: "probed"
 	})
 	if (probe === undefined) {
-		return { ctes: [], guards: [] }
+		return { ctes: [], guards: () => [] }
 	}
 	const guarded = probeGuard(w, supply, relation.name, probe)
-	return { ctes: [...probe.ctes, guarded.cte], guards: [guarded.guard] }
+	return { ctes: [...probe.ctes, guarded.cte], guards: () => [guarded.guard()] }
 }

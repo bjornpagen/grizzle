@@ -84,13 +84,23 @@ export interface DeliveredBreach {
 }
 
 /**
- * The CTE and the guard through which a statement raises the first of its breaches inside itself, the guard false
- * exactly when one raises (write/refusal.ts breachGuard).
+ * A refusal CTE and the guard that raises its first row (write/refusal.ts refusalGuard), false exactly when one
+ * raises: the guard built anew for each place it stands, since one subquery read in two places is two reads, each
+ * place's own (sql/scope.ts, the scope walk).
+ */
+export interface Guarded {
+	readonly cte: Cte
+	readonly guard: () => Expr
+}
+
+/**
+ * The CTE and the guard through which a statement raises the first of its breaches inside itself (Guarded,
+ * write/refusal.ts breachGuard).
  */
 export type BreachGuard = (
 	supply: NameSupply,
 	breaches: readonly [DeliveredBreach, ...ReadonlyArray<DeliveredBreach>]
-) => { readonly cte: Cte; readonly guard: Expr }
+) => Guarded
 
 /**
  * What lowering a read-back adds to lowering a query: the relations its Delta nodes read, the guard each statement

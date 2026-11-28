@@ -1,3 +1,4 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	extendNonEmpty,
 	isNonEmpty,
@@ -34,13 +35,14 @@ import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { fencedScan } from "#compiler/lower/shapes/share/fence.ts"
 import type { ShapeFacts, Unique } from "#compiler/lower/shapes/share/physical.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
-import type {
-	Expr,
-	FromItem,
-	FromSource,
-	OperandSelect,
-	OrderItem,
-	Target
+import {
+	type Expr,
+	type FromItem,
+	type FromSource,
+	type OperandSelect,
+	type OrderItem,
+	type Target,
+	targetColumnName
 } from "#compiler/sql/ast.ts"
 import {
 	accessed,
@@ -55,6 +57,7 @@ import {
 	lit,
 	notExists,
 	provedCore,
+	provedSelect,
 	select,
 	simpleSelect,
 	target,
@@ -169,20 +172,33 @@ const streamBound = (): Expr =>
 	)
 
 /**
- * The searched occurrence's stored relation read as the approximate read's ordered stream, its fence: the scan's
+ * The searched occurrence's stored relation read as the approximate read's ordered stream (`ordered`): the scan's
  * columns as the region reads them, ordered by the distance of its vector from the query vector by `<=>` and bounded by
- * `streamBound`; and that distance, which `carried` delivers from the fence up as a column of its own. A subquery with
- * a LIMIT is neither pulled up nor given a filter from outside (PostgreSQL 19 allpaths.c subquery_is_pushdown_safe), so
- * the region's filters, its other matches and the rule's negations read the stream above it, and no statistic of theirs
- * prices the search: the shape is the program's. Its rows are a set, as the scan's are.
+ * `streamBound`; the fence the region reads it through (`fence`); and that distance (`distance`), which `carried`
+ * delivers from the stream up as a column of its own. A subquery with a LIMIT is neither pulled up nor given a filter
+ * from outside (PostgreSQL 19 allpaths.c subquery_is_pushdown_safe), so the region's filters, its other matches and the
+ * rule's negations read the stream above it, and no statistic of theirs prices the search: the shape is the program's.
+ * Its rows are a set, as the scan's are.
+ *
+ * A constant query vector stands in the stream itself, which is the fence. A keyed one is read once, bound in one place
+ * (QueryVectorRead): the fence reads its anchors' row, `q`, then the stream LATERAL to it, ordered by `<=>` against
+ * `q`'s vector, a value its level fixes, so the HNSW index orders by it as by a placeholder, and the order and the
+ * delivered distance both read that one column, where each read its own copy of the anchors' subquery. An anchor that
+ * holds no row leaves `q`, and so the fence, empty, and the stream is never executed: no graph is scanned for a NULL
+ * vector, as one that read the subquery's NULL scanned it until hnsw.max_scan_tuples (measured on PostgreSQL 19 with
+ * pgvector 0.8.7 over 50,000 vectors of four dimensions, 2,793 index rows and 43,325 shared buffers for an empty answer).
  */
 const fenceOf = (
 	cx: LowerContext,
 	env: Env,
 	trace: ApproximateTrace,
-	vector: () => Expr,
+	vector: QueryVectorRead,
 	at: string
-): { readonly fence: OperandSelect; readonly distance: Expr } => {
+): {
+	readonly fence: OperandSelect
+	readonly ordered: OperandSelect
+	readonly distance: () => Expr
+} => {
 	const { scan, body, alias } = fencedScan(
 		cx,
 		trace.base,
@@ -190,21 +206,60 @@ const fenceOf = (
 		at,
 		`approximateNearest: the searched relation ${trace.relation} read by one plain scan its ordered stream can bound`
 	)
-	const distance: Expr = {
+	const origin: NameOrigin = { kind: "node", node: trace.base.id }
+	const { value, anchor } = anchoredVector(cx, vector, origin)
+	/** The distance of the stream's vector from the query vector's value, which reads no row. */
+	const distance = (): Expr => ({
 		kind: "binary",
 		op: hnswPolicy.operator,
 		left: col(alias, cx.names.column(trace.relation, trace.field)),
-		right: vector(),
+		right: value,
 		schema: cx.names.vectorSchema
+	})
+	const streamOf = (core: typeof body): OperandSelect => ({
+		...scan,
+		body: core,
+		orderBy: [asc(distance())],
+		limit: accessed({ kind: "nearest" }, streamBound())
+	})
+	if (anchor === undefined) {
+		const ordered = streamOf(body)
+		return { fence: ordered, ordered, distance }
 	}
-	return {
-		fence: {
-			...scan,
-			body,
-			orderBy: [asc(distance)],
-			limit: accessed({ kind: "nearest" }, streamBound())
-		},
-		distance
+	/** The scan's outputs, each under a fresh name the fence reads it by and delivers under its own. */
+	const outputs = body.targets.map((t) => ({
+		expr: t.expr,
+		name: targetColumnName(t) ?? defect("a plain scan's output, a column of its table, named"),
+		fresh: cx.supply.column(origin)
+	}))
+	const ordered = streamOf({ ...body, targets: outputs.map((o) => targetAs(o.expr, o.fresh)) })
+	const stream = cx.relationAlias(origin)
+	const fence = provedSelect(
+		"keyed",
+		outputs.map((o) => targetAs(col(stream, o.fresh), o.name)),
+		[anchor, derived(ordered, stream, true)],
+		undefined
+	)
+	return { fence, ordered, distance }
+}
+
+/**
+ * The query vector's value as the stream's level reads it, and the anchors' row the fence reads before the stream where
+ * it is keyed (QueryVectorRead): a constant's own expression and no row; a keyed one's column of that row, under a fresh
+ * alias.
+ */
+const anchoredVector = (
+	cx: LowerContext,
+	vector: QueryVectorRead,
+	origin: NameOrigin
+): { readonly value: Expr; readonly anchor: FromSource | undefined } => {
+	switch (vector.kind) {
+		case "constant":
+			return { value: vector.vector, anchor: undefined }
+		case "keyed": {
+			const alias = cx.relationAlias(origin)
+			return { value: col(alias, vector.column), anchor: derived(vector.read, alias, false) }
+		}
 	}
 }
 
@@ -231,7 +286,7 @@ const carried = (
 	cx: LowerContext,
 	query: OperandSelect,
 	fence: OperandSelect,
-	distance: Expr,
+	distance: () => Expr,
 	origin: NameOrigin
 ): { readonly query: OperandSelect; readonly column: string } | undefined => {
 	const body = query.body
@@ -246,7 +301,7 @@ const carried = (
 		}
 		const inner =
 			source.query.orderBy === fence.orderBy
-				? delivering(cx, source.query, distance, origin)
+				? delivering(cx, source.query, distance(), origin)
 				: carried(cx, source.query, fence, distance, origin)
 		if (inner === undefined) {
 			return undefined
@@ -372,13 +427,13 @@ export const approximateLowerer =
 				)
 			}
 		}
-		const queried = queryVectorSql(cx, env, trace.projection.input.id, trace.query, env)
-		const { fence, distance } = fenceOf(cx, env, trace, queried.vector, at)
-		const region = cx.withLowering(trace.base, () => fence).source(projection.input, env)
 		const origin: NameOrigin = { kind: "node", node: trace.base.id }
+		const queried = queryVectorSql(cx, env, trace.projection.input.id, trace.query, env, origin)
+		const { fence, ordered, distance } = fenceOf(cx, env, trace, queried, at)
+		const region = cx.withLowering(trace.base, () => fence).source(projection.input, env)
 		const widened =
 			region.item.kind === "derived"
-				? carried(cx, region.item.query, fence, distance, origin)
+				? carried(cx, region.item.query, ordered, distance, origin)
 				: undefined
 		if (widened === undefined || region.item.kind !== "derived") {
 			return refuse(
@@ -405,7 +460,7 @@ export const approximateLowerer =
 			outputs.set(o.name, o.name === node.score ? distanceAt() : lowerExpr(cx, o.expr, scope))
 		}
 		const expr = (name: string): Expr => columnIn(outputs, name)
-		const where = [...queried.guard, ...eligibility(cx, env, trace, outputs, at)]
+		const where = eligibility(cx, env, trace, outputs, at)
 		const unique = uniqueSource(facts, node, [projection, ...trace.upper])
 		const constant = new Set(
 			projection.out.filter((o) => o.expr.deps.nodes.length === 0).map((o) => o.name)
@@ -478,60 +533,46 @@ const anchorRows = (
 }
 
 /**
- * The query vector as the search's ORDER BY reads it, and the guard the search's WHERE holds beside it. The vector is
- * built anew where it stands (the projected distance, the order), since a subquery's aliases name one place each.
- *
- * - A constant vector is its own expression over `scope`, a placeholder or a literal, and guards nothing.
- * - A keyed vector is read from the stored rows of its anchors, by their keys, in an uncorrelated scalar subquery,
- *   `(SELECT e.embedding FROM item_vector e WHERE e.item = $1)`, which PostgreSQL evaluates once, as an InitPlan, before
- *   the scan: a value that reads no row of the scan, so the HNSW index orders by `<=>` against it as against a
- *   placeholder. The rule's region still matches the anchors, so an anchor that holds no row leaves the region, and the
- *   search, empty. The guard states that emptiness in the plan: `EXISTS (SELECT 1 FROM item_vector e WHERE e.item =
- *   $1)`, uncorrelated, which PostgreSQL plans as a one-time filter above the scan. Without it an absent key leaves the
- *   subquery NULL, and pgvector scans the graph with a NULL vector, every distance zero, until hnsw.max_scan_tuples,
- *   each row rejected by the region's join: measured on PostgreSQL 19 with pgvector 0.8.7 over 50,000 vectors of four
- *   dimensions, 2,793 index rows and 43,325 shared buffers for an empty answer; with it the scan is never executed.
- *   The anchors' variables are one value in every row of a region that holds any, so the subquery's one row is every
- *   row's vector.
+ * The query vector as the search reads it (fenceOf), one value per execution: a constant vector, its own expression
+ * over `scope`, a placeholder or a literal; or a keyed one, the stored row of its anchors read by their keys
+ * (check/approximate/trace.ts Anchor) as a query of one row and one column, `read`, its vector delivered as `column`:
+ * `SELECT e.embedding FROM item_vector e WHERE e.item = $1`. The rule's region still matches the anchors, so an anchor
+ * that holds no row leaves the region, and the search, empty; the fence reads the stream LATERAL to this row, so an
+ * absent key leaves the stream unread. The anchors' variables are one value in every row of a region that holds any, so
+ * the query's one row is every row's vector.
  */
+type QueryVectorRead =
+	| { readonly kind: "constant"; readonly vector: Expr }
+	| { readonly kind: "keyed"; readonly read: OperandSelect; readonly column: string }
+
 const queryVectorSql = (
 	cx: LowerContext,
 	env: Env,
 	input: NodeId,
 	query: QueryVector,
-	scope: Env
-): { readonly vector: () => Expr; readonly guard: ReadonlyArray<Expr> } => {
+	scope: Env,
+	origin: NameOrigin
+): QueryVectorRead => {
 	switch (query.kind) {
-		case "constant": {
-			const vector = lowerExpr(cx, query.expr, scope)
-			return { vector: () => vector, guard: [] }
-		}
+		case "constant":
+			return { kind: "constant", vector: lowerExpr(cx, query.expr, scope) }
 		case "keyed": {
-			const vector = (): Expr => {
-				const read = anchorRows(cx, env, query.anchors)
-				return {
-					kind: "subquery",
-					query: simpleSelect(
-						[
-							target(lowerExpr(cx.inSublink(), query.expr, extendEnv(env, [[input, read.columns]])))
-						],
-						read.from,
-						conjunction(read.where)
-					)
-				}
-			}
-			const witness = anchorRows(cx, env, query.anchors)
+			const read = anchorRows(cx, env, query.anchors)
+			const column = cx.supply.column(origin)
 			return {
-				vector,
-				guard: [
-					exists(
-						simpleSelect(
-							[target(lit.int(1, types.integer))],
-							witness.from,
-							conjunction(witness.where)
+				kind: "keyed",
+				read: provedSelect(
+					"keyed",
+					[
+						targetAs(
+							lowerExpr(cx.inSublink(), query.expr, extendEnv(env, [[input, read.columns]])),
+							column
 						)
-					)
-				]
+					],
+					read.from,
+					conjunction(read.where)
+				),
+				column
 			}
 		}
 	}

@@ -1241,13 +1241,20 @@ type Tail = Pick<OperandSelect, "orderBy" | "limit" | "offset">
 const zeroOffset = (e: Expr | undefined): boolean =>
 	e === undefined || (e.kind === "literal" && e.value.kind === "int" && e.value.value === 0n)
 
+/** Whether a LIMIT is the literal 1, a take of one row. */
+const oneRowLimit = (e: Expr): boolean =>
+	e.kind === "literal" && e.value.kind === "int" && e.value.value === 1n
+
 /**
  * A take's core (a LIMIT that states its level's B-tree order, sql/ast.ts AccessTag `ordered`) with no fence between
  * its ORDER BY and the stored read it orders, and its ORDER BY read through the
  * fold: each projection it begins with folded into the core it reads, the projection's OFFSET 0 fence with it, where
  * the take's core reads that one derived table alone, under no GROUP BY, HAVING or DISTINCT, and the derived table's
  * query is one core of no WITH, ORDER BY, LIMIT, DISTINCT, GROUP BY or HAVING, and an OFFSET of 0 or none, each of its
- * targets a column or a literal: a column of its own FROM, or a value an enclosing level fixes. The core's WHERE, read
+ * targets a column or a literal: a column of its own FROM, or a value an enclosing level fixes; under a take of one row
+ * (`one`, a LIMIT of 1), a projection's plain DISTINCT folds with it, since the first row of any order is a distinct one
+ * (Unmoved's upkeep: its witness, a take of one over the DISTINCT of the session's unmoved items, read every shown item
+ * of the session for the first, 22 rows where 6 bound it). The core's WHERE, read
  * through the projection, joins the projection's own. The take's LIMIT plans its level apart, so the fold keeps every
  * level PostgreSQL plans but the projections', and the rows are the same: an OFFSET of 0 skips none, a filter over a
  * projection of columns is the filter of what it projects, and a column read twice is read once. Each target keeps the
@@ -1259,7 +1266,8 @@ const zeroOffset = (e: Expr | undefined): boolean =>
  */
 const takenThrough = (
 	taken: SelectCore,
-	orderBy: ReadonlyArray<OrderItem>
+	orderBy: ReadonlyArray<OrderItem>,
+	one: boolean
 ): { readonly core: SelectCore; readonly orderBy: ReadonlyArray<OrderItem> } | undefined => {
 	const [source, ...more] = taken.from
 	if (
@@ -1280,7 +1288,7 @@ const takenThrough = (
 		inner.limit !== undefined ||
 		!zeroOffset(inner.offset) ||
 		body.kind !== "core" ||
-		body.distinct !== false ||
+		(body.distinct !== false && !(one && body.distinct === true)) ||
 		body.groupBy.length > 0 ||
 		body.having !== undefined ||
 		!body.targets.every((t) => t.expr.kind === "column" || t.expr.kind === "literal")
@@ -1334,15 +1342,15 @@ const takenThrough = (
 	if (taken.where !== undefined && where === undefined) {
 		return undefined
 	}
-	const folded: SelectCore = {
-		...body,
-		targets,
-		where: conjunction([
-			...(body.where === undefined ? [] : [body.where]),
-			...(where === undefined ? [] : [where])
-		])
-	}
-	return takenThrough(folded, ordered) ?? { core: folded, orderBy: ordered }
+	const conditions = conjunction([
+		...(body.where === undefined ? [] : [body.where]),
+		...(where === undefined ? [] : [where])
+	])
+	const folded: SelectCore =
+		body.distinct === false
+			? { ...body, targets, where: conditions }
+			: { ...body, distinct: false, rows: "oneRow", targets, where: conditions }
+	return takenThrough(folded, ordered, one) ?? { core: folded, orderBy: ordered }
 }
 
 /** A query fenced by OFFSET 0 where PostgreSQL would pull it up (sql/pull-up.ts simpleQuery), so it is planned apart. */
@@ -1810,7 +1818,7 @@ class Binder {
 		/** A take's core with its fences folded away under its ORDER BY (`takenThrough`). */
 		const taken =
 			limit?.kind === "access" && limit.access.kind === "ordered" && b.kind === "core"
-				? takenThrough(b, stated.orderBy)
+				? takenThrough(b, stated.orderBy, oneRowLimit(limit.expr))
 				: undefined
 		const orderBy = taken?.orderBy ?? stated.orderBy
 		const order: OrderIntent | undefined =

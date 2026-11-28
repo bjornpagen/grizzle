@@ -247,6 +247,18 @@ const formatPath = (path: ReadonlyArray<string | number>): string => {
  * escape met, in walk order. Where `sought` names a relation or a CTE, every place that binds it is kept in `bound`, for
  * the report of an escape of it.
  */
+/**
+ * Whether a FROM item reads a relation where it stands: any source but a derived table, whose query is a core of its
+ * own, and rows its statement states itself (VALUES, a relation input's arrays), which read nothing stored.
+ */
+const readsHere = (item: FromItem): boolean =>
+	item.kind === "joins"
+		? readsSource(item.first) || item.steps.some((step) => readsSource(step.source))
+		: readsSource(item)
+
+const readsSource = (source: FromSource): boolean =>
+	source.kind !== "derived" && source.kind !== "values" && source.kind !== "arrays"
+
 class ScopeWalk {
 	readonly escapes: Array<ScopeEscape> = []
 	readonly bound = new Map<string, Array<string>>()
@@ -255,6 +267,11 @@ class ScopeWalk {
 	readonly #ctes = new Map<string, Array<CteBinder>>()
 	readonly #path: Array<string | number> = []
 	#variables: ReadonlySet<string> | undefined = undefined
+	/**
+	 * The cores that read a relation the walk has met in the statement it walks, by identity (`#core`): a PL/pgSQL
+	 * statement's own, each one a statement PL/pgSQL hands the planner.
+	 */
+	#printed = new WeakSet<SelectCore>()
 
 	constructor(sought: ReadonlySet<string>) {
 		this.#sought = sought
@@ -741,8 +758,22 @@ class ScopeWalk {
 		})
 	}
 
-	/** A core's FROM, then its clauses over all of it; its frame, still open for its query's ORDER BY. */
+	/**
+	 * A core's FROM, then its clauses over all of it; its frame, still open for its query's ORDER BY. A core that reads a
+	 * relation where it stands (`readsHere`) met a second time is one subtree the statement prints twice, its rows read twice and every alias in it
+	 * written twice (Law 3), an internal compiler error at the place it stands again, where each place builds its own
+	 * (the nearest search's keyed query vector, one subquery in its order and in its delivered distance; a write's
+	 * refusal guard, one NOT EXISTS in each statement it gates).
+	 */
 	#core(core: SelectCore): Frame {
+		if (core.from.some(readsHere)) {
+			if (this.#printed.has(core)) {
+				defect(
+					`a read printed twice in one statement: the query at ${this.#where()} stands at a place before it too, where each place builds its own`
+				)
+			}
+			this.#printed.add(core)
+		}
 		const frame = new Frame()
 		this.#at("from", () => {
 			for (const [i, item] of core.from.entries()) {
@@ -1262,6 +1293,7 @@ class ScopeWalk {
 	}
 
 	#plStatement(statement: PlStatement): void {
+		this.#printed = new WeakSet()
 		switch (statement.kind) {
 			case "if":
 				this.#at("branches", () => {

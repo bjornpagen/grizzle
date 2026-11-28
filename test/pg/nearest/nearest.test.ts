@@ -8,9 +8,10 @@
  *   candidates' catalog, the search by the row's catalog. Every search here runs on one served Db with no writer beside
  *   it, so each call reads the same database, and PostgreSQL's HNSW search, given one graph and one query vector, the
  *   same candidates.
- * - Its plan, under the advice it carries, holds one scan of the HNSW index, ordered by the vector the
- *   statement reads once, before the scan, from the item's key: a scan that ran for a stored item, and one never
- *   executed for an absent one, whose emptiness the statement's one-time filter states.
+ * - Its plan, under the advice it carries, holds one scan of the HNSW index (sql/bind.ts, the nearest arm), ordered by
+ *   the vector the statement reads once, before the scan, from the item's key, the stream read LATERAL to that row
+ *   (lower/shapes/vector fenceOf): a scan that ran for a stored item, and one never executed for an absent one, whose
+ *   row the stream has none of to run for.
  * - A record of reads answers one row, which holds each read's own answer: the search's candidates, the learner's seen
  *   lessons in their order, the item's row, each equal to its read's own answer, read alone; it is one statement, whose
  *   search, under the advice it carries, is one scan of the HNSW index.
@@ -173,18 +174,19 @@ export const aSearchWhoseQueryVectorIsAStoredItemsByItsKeyAnswersWhatReadingTheI
 		kills: [
 			{
 				file: "packages/engine/src/lower/shapes/vector/index.ts",
-				original: "\t\t\treturn {\n\t\t\t\tvector,\n\t\t\t\tguard: [\n\t\t\t\t\texists(",
+				original:
+					"\t\t\treturn { value: col(alias, vector.column), anchor: derived(vector.read, alias, false) }\n",
 				replacement:
-					"\t\t\treturn {\n\t\t\t\tvector,\n\t\t\t\tguard: [],\n\t\t\t\tdropped: [\n\t\t\t\t\texists(",
-				why: "A keyed search states no one-time filter, so an absent item's search runs the HNSW scan with a NULL vector; the plan check fails."
+					'\t\t\treturn { value: { kind: "subquery", query: vector.read }, anchor: undefined }\n',
+				why: "A keyed search reads its query vector as a subquery in its order and in its delivered distance: one read printed twice, which its binding refuses, where the anchors' row read once before the stream gave both its value and an absent item's stream no row to run for."
 			},
 			{
-				file: "packages/engine/src/lower/shapes/vector/index.ts",
+				file: "packages/engine/src/sql/bind.ts",
 				original:
-					"\t\t\tconst vector = (): Expr => {\n\t\t\t\tconst read = anchorRows(cx, env, query.anchors)",
+					'\t\t\t\t\treturn indexed(\n\t\t\t\t\t\t{ kind: "nearest", column: access.column },\n',
 				replacement:
-					"\t\t\tconst vector = (): Expr => lowerExpr(cx, query.expr, scope)\n\t\t\tconst unused = (): Expr => {\n\t\t\t\tconst read = anchorRows(cx, env, query.anchors)",
-				why: "A keyed search orders by the item's vector as a column of the region, which no index orders by, so no search is ever served from the HNSW index; the plan situation is never reached."
+					'\t\t\t\t\treturn { source: read({ kind: "whole" }), scan: { kind: "seq" } }\n\t\t\t\t\treturn indexed(\n\t\t\t\t\t\t{ kind: "nearest", column: access.column },\n',
+				why: "A nearest read's HNSW access is carried as a whole read: its advice states SEQ_SCAN of Lesson, which PostgreSQL obeys, sorting every lesson by its distance, so no search is served from the HNSW index; the plan situation is never reached."
 			}
 		]
 	})

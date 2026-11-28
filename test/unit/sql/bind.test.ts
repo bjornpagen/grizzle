@@ -29,6 +29,7 @@
  */
 
 import { assert } from "@bjornpagen/testing/assert"
+import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { nameKey } from "#compiler/sql/ast.ts"
@@ -54,12 +55,15 @@ import {
 	contextLevel,
 	existsFenced,
 	itemOf,
+	printedTwiceOf,
 	seekConditionsOf,
 	specified,
 	statementOf,
 	topJoins,
 	tReadsOf,
+	type TwicePlace,
 	tViewAlias,
+	twiceCaseGen,
 	viewedLevels,
 	worldTAlias
 } from "#test/unit/sql/bind.fixtures.ts"
@@ -605,3 +609,67 @@ export const everyWholeViewNamesItsTableByTheAliasTheBindingReadsItUnder = prope
 		]
 	}
 )
+
+/**
+ * A read printed twice in one statement is an internal compiler error of its binding (sql/scope.ts, the scope walk, which
+ * holds every statement as its lowering built it before print once or the binding rewrite it): a
+ * statement that reads T's probe in two places, two conjuncts, two arms of a union, or a target and the order, through
+ * one query object both places share is refused as a read printed twice, and the same statement with each place's own
+ * probe binds, reading T once in each place, under two aliases of the scope. Law 3 by construction: a shared subtree,
+ * which reads its rows twice and writes each alias in it twice, never reaches a printer (the nearest search's keyed
+ * query vector, one subquery in its order and in its delivered distance; a family's recount, one NOT EXISTS in two arms
+ * of its union).
+ *
+ * Oracle: the specification: a query body stands at one place of its statement.
+ */
+export const aReadPrintedTwiceInOneStatementIsAnInternalCompilerErrorOfItsBinding =
+	property.exhaust(finite(twiceCaseGen), {
+		needs: {},
+		situations: [
+			"two conjuncts",
+			"two arms",
+			"a target and the order",
+			"shared and refused"
+		] satisfies ReadonlyArray<TwicePlace | "shared and refused">,
+		check: (_, c: Case<TwicePlace | "shared and refused">) => (drawn) =>
+			Effect.sync(() => {
+				const bind = () => bindSelect(printedTwiceOf(drawn), new AdviceScope(), catalog)
+				if (drawn.shared) {
+					assert.throws(
+						bind,
+						(e) => Str.includes("a read printed twice in one statement")(String(e)),
+						`${drawn.place}: one probe read in both places is refused at its binding`
+					)
+					c.note("shared and refused")
+					return
+				}
+				const bound = bind()
+				const tAliases = Arr.flatMap(bound.plan.levels, (level) =>
+					Arr.flatMap(levelItems(level), (item) =>
+						item.scan.kind === "index" && item.scan.index.relation === "T"
+							? [String(item.alias)]
+							: []
+					)
+				)
+				assert.equal(
+					new Set(tAliases).size,
+					2,
+					`${drawn.place}: each place's own probe binds, T read once in each under an alias of its own (${Formatter.format(tAliases)})`
+				)
+				c.note(drawn.place)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "a query body stands at one place of its statement: one read in two places is two reads, each place's own"
+		},
+		box: "T's probe in two conjuncts, two arms of a union, or a target and the order, shared by both places or each place's own",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/sql/scope.ts",
+				original: "\t\t\tif (this.#printed.has(core)) {\n",
+				replacement: "\t\t\tif (false) {\n",
+				why: "A query body met twice binds twice: one probe of T shared by two places prints twice, its rows read twice and its aliases written twice, and the binding refuses nothing."
+			}
+		]
+	})

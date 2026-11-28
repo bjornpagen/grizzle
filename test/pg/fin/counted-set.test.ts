@@ -240,8 +240,9 @@ export const aCountedSetKeyedByThreeFieldsAndANameStoresEachOwnersCountAndFoldsO
 		kills: [
 			{
 				file: "packages/engine/src/write/family/statements.ts",
-				original: "\treturn { ctes: [...probe.ctes, guarded.cte], guards: [guarded.guard] }",
-				replacement: "\treturn { ctes: [...probe.ctes, guarded.cte], guards: [] }",
+				original:
+					"\treturn { ctes: [...probe.ctes, guarded.cte], guards: () => [guarded.guard()] }",
+				replacement: "\treturn { ctes: [...probe.ctes, guarded.cte], guards: () => [] }",
 				why: "A family's insert reads its candidates through no probe gate, as before 283f02952: a counted member stated again at its stored key is refused by PostgreSQL's 23505 on Attr's primary key with no witness (unreported), where the probe names the stated row's key, the red this property met at its birth (913a3d3a9)."
 			}
 		]

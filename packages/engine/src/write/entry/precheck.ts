@@ -353,7 +353,7 @@ export const buildEntryCheck = (
 					"oneRow",
 					[targetAs(lit.text("true", types.text), output)],
 					[cteRef(rv)],
-					guarded.guard
+					guarded.guard()
 				),
 				limit: lit.int(1, types.integer),
 				with: { ctes: [verdicts, guarded.cte], recursive: false }
