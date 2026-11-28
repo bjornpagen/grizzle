@@ -12,7 +12,7 @@ import {
 	pageHeaderBytes
 } from "#compiler/core/page.ts"
 import { int2Max } from "#compiler/ir/carriers.ts"
-import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
+import type { ExprDesc, FieldDesc, VariantFieldDesc } from "#compiler/ir/desc.ts"
 import type { ExactValueCarrier, NumericBound, TextLanguage } from "#compiler/ir/scalar.ts"
 import { decDigits } from "#compiler/scalar/compute/numeric.ts"
 import { utf8EncodingMaxBytes } from "#compiler/scalar/compute/typing.ts"
@@ -810,9 +810,7 @@ export const datumBound = (desc: FieldDesc): DatumBound | undefined => {
  * other arms' NULL attributes taking none, at the widest arm; aligned as a record is, `d`. Undefined where an arm's
  * field has no bound, a text of no byte bound, which no key entry holds.
  */
-const variantDatum = (
-	desc: Extract<FieldDesc, { readonly kind: "variant" }>
-): DatumBound | undefined => {
+const variantDatum = (desc: VariantFieldDesc): DatumBound | undefined => {
 	const attributes = 1 + desc.arms.reduce((n, arm) => n + arm.fields.length, 0)
 	const header = alignUp(heapTupleHeaderBytes + Math.ceil(attributes / bitsPerByte), maxAlign)
 	let widest = 0

@@ -44,6 +44,7 @@ import { Money } from "#compiler/scalar/values/money.ts"
 import { fieldDescOf } from "#compiler/schema/field-desc.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { refused, refusedKeys, succeeded } from "#test/support/assert.ts"
+import { undeclared } from "#test/support/fixtures/ir/scalar.ts"
 import { checkedIn, ownedInput } from "#test/support/policy.ts"
 import { outputText } from "#test/support/wire.ts"
 import { codecOf } from "#test/unit/codec/support.ts"
@@ -101,7 +102,7 @@ export const anExactFieldIsArithmeticsExactTypeAtNumericsOwnLimitAndHoldsEveryVa
 					)
 					const computed = exactType(carrier, digits)
 					const written = succeeded(
-						fieldDescOf(computed, () => undefined),
+						fieldDescOf(computed, undeclared),
 						`${shown}: the computed column's descriptor`
 					)
 					assert.deepEqual(

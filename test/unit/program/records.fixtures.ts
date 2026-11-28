@@ -28,7 +28,8 @@ import {
 	pg,
 	searchDocument,
 	span,
-	uuid
+	uuid,
+	variant
 } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -57,10 +58,28 @@ const centsKey = Symbol("Cents")
 const Cents = contract<typeof centsKey>()("Cents", pg.bigint)
 
 /**
+ * A typed sum over the roster, qti-pie's value cell's shape (its ledger's QtiValue, which metis's essay flow reads): a
+ * flag, a pair of two words, least first by its arm's check, and a point. A column of it is stored as the variant's one
+ * declaration, its check with it, where a variant rebuilt from the column's type, of no check, was declared differently
+ * from Item's and refused (DuplicateIdentity).
+ */
+const Cell = variant(
+	"Cell",
+	Tier,
+	{
+		Low: { value: pg.boolean },
+		Mid: { greatest: str.regex("^[a-z]+$"), least: str.regex("^[a-z]+$") },
+		High: { x: pg.integer, y: pg.integer }
+	},
+	{ Mid: (a) => a.le(a.least, a.greatest) }
+)
+
+/**
  * A field of every type a stored column may be: each pg integer, a numeric of a scale, of scale 0 and of no typmod,
  * both floats, money, a boolean, a date, a contract over uuid and over bigint, two refined texts, a closed id of the roster
- * and of a subset of it, a set over it, a span over integer, bigint and date, a vector, bytes, natural, an instant of
- * the database's clock, its clock of child `id`, and a search document PostgreSQL parses from `word`.
+ * and of a subset of it, a set over it, a span over integer, bigint and date, a vector, bytes, natural, a variant of an
+ * arm's check, an instant of the database's clock, its clock of child `id`, and a search document PostgreSQL parses
+ * from `word`.
  */
 export const Item = relation.generated(
 	"Item",
@@ -90,6 +109,7 @@ export const Item = relation.generated(
 		vec: pg.vector(3),
 		blob: bytes,
 		count: natural,
+		cell: Cell,
 		stamped: instant
 	},
 	["id", "stamped"],
@@ -101,8 +121,8 @@ export const Rec = schema("Rec", [Tier, Item], [])
 
 /**
  * Item's columns a query's records store: every one, `num`, a numeric of no typmod at numeric's own limits, stored as
- * pg.numeric, `stamped`, the database's instant, stored as a stored instant (instant.stored), and `search`, a generated
- * search document, stored as pg.tsvector, among them.
+ * pg.numeric, `cell`, a variant, stored as the variant's one declaration, `stamped`, the database's instant, stored as
+ * a stored instant (instant.stored), and `search`, a generated search document, stored as pg.tsvector, among them.
  */
 export const itemColumns = [
 	"id",
@@ -130,6 +150,7 @@ export const itemColumns = [
 	"vec",
 	"blob",
 	"count",
+	"cell",
 	"stamped",
 	"search"
 ] as const

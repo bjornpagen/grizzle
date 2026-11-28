@@ -52,7 +52,7 @@ import {
 	type SharedAnalyses
 } from "#compiler/logical/annotate.ts"
 import { derivedKeyPremise, storedKeyPremise } from "#compiler/logical/props.ts"
-import { ownedContractsByName } from "#compiler/schema/field-desc.ts"
+import { ownedDeclarations } from "#compiler/schema/field-desc.ts"
 import type { Owned, OwnedRelation } from "#compiler/schema/own.ts"
 import { attachesHeading } from "#compiler/schema/walk.ts"
 
@@ -462,7 +462,7 @@ export const analyzeDerivedRelation = (
 	const declared = declaredResult.value
 	const props = defined(analyzed.props.get(root), "a definition's root, kept")
 	const all = mapNonEmpty(heading, (c) => c.name)
-	const described = inferredFields(name, declared, ownedContractsByName(schema.owned.contracts))
+	const described = inferredFields(name, declared, ownedDeclarations(schema.owned))
 	if (!described.ok) {
 		return described
 	}

@@ -4,7 +4,8 @@
  * each JavaScript type; every column beside a union's literals; and a column beside a computed numeric. The records'
  * root `FoundRow` holds the owner's field, then one field per column the query finds, each the column's own field, its
  * declaration and its column the query's (the database's instant a stored instant, a generated search document a
- * stored one, both of one declaration), a computed numeric stored as numeric within its bound, and no head literal,
+ * stored one, both of one declaration, a variant the variant's one declaration, its arm's check with it), a computed
+ * numeric stored as numeric within its bound, and no head literal,
  * keyed by the owner's key; and recordsQuery over a level listing the records reads them through the query's own
  * decoder, which binds the read's compiled program in either artifact.
  *
@@ -169,7 +170,7 @@ export const aQuerysRecordsHoldEachColumnAsItsOwnFieldAndReadBackThroughItsOwnDe
 				kind: "second-implementation",
 				name: "the relation the query reads: each stored field's declaration its own field's, its column the query's decoder's"
 			},
-			box: "each column of a relation of every stored type alone (the database's instant and a generated search document among them), every column, every column beside a head literal of each JavaScript type and beside each pair of a union's literals, and a column beside a computed numeric",
+			box: "each column of a relation of every stored type alone (the database's instant, a generated search document and a variant of an arm's check among them), every column, every column beside a head literal of each JavaScript type and beside each pair of a union's literals, and a column beside a computed numeric",
 			kept: [],
 			kills: [
 				{
@@ -182,10 +183,18 @@ export const aQuerysRecordsHoldEachColumnAsItsOwnFieldAndReadBackThroughItsOwnDe
 				{
 					file: "packages/engine/src/schema/field-desc.ts",
 					original:
-						"\tisNumericValue(type) ? Result.ok(numericBoundDesc(type.bound)) : declaredDescOf(type, contracts)",
+						"\tisNumericValue(type) ? Result.ok(numericBoundDesc(type.bound)) : declaredDescOf(type, declared)",
 					replacement:
-						'\tisNumericValue(type) ? Result.ok({ kind: "pg", type: "numeric" }) : declaredDescOf(type, contracts)',
+						'\tisNumericValue(type) ? Result.ok({ kind: "pg", type: "numeric" }) : declaredDescOf(type, declared)',
 					why: "A computed numeric is stored as numeric of no typmod at numeric's own limits, its bound lost: `total` is no numeric within the bound its operands prove."
+				},
+				{
+					file: "packages/engine/src/schema/field-desc.ts",
+					original:
+						'\t\tcase "variant":\n\t\t\treturn declaration("variant", type.variant.name, declared.variant(type.variant.name))',
+					replacement:
+						'\t\tcase "variant": {\n\t\t\tconst found = declared.variant(type.variant.name)\n\t\t\treturn declaration("variant", type.variant.name, found && { ...found, arms: found.arms.map((arm) => ({ ...arm, check: undefined })) })\n\t\t}',
+					why: "A variant column is stored as a variant of its own, rebuilt from the column's type with no arm's check: `cell` is no longer Item's field, and the level listing the records is refused DuplicateIdentity, as metis's essay flow's records of qti-pie's QtiValue were."
 				},
 				{
 					file: "packages/engine/src/program/records.ts",

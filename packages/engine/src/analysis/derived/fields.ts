@@ -4,7 +4,7 @@ import { type CompileError, derivedRefused } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
-import { type ContractsByName, fieldDescOf } from "#compiler/schema/field-desc.ts"
+import { type Declarations, fieldDescOf } from "#compiler/schema/field-desc.ts"
 
 /**
  * The inferred field descriptors of a definition's heading, by field name in heading order.
@@ -36,10 +36,10 @@ import { type ContractsByName, fieldDescOf } from "#compiler/schema/field-desc.t
 export const inferredFields = <C extends HeadingColumn>(
 	relation: string,
 	heading: NonEmptyReadonlyArray<C>,
-	contracts: ContractsByName
+	declared: Declarations
 ): Result.Result<NonEmptyReadonlyArray<C & { readonly desc: FieldDesc }>, CompileError> => {
 	const [first, ...rest] = heading
-	const head = describedColumn(relation, first, contracts)
+	const head = describedColumn(relation, first, declared)
 	if (!head.ok) {
 		return head
 	}
@@ -47,7 +47,7 @@ export const inferredFields = <C extends HeadingColumn>(
 		head.value
 	]
 	for (const c of rest) {
-		const described = describedColumn(relation, c, contracts)
+		const described = describedColumn(relation, c, declared)
 		if (!described.ok) {
 			return described
 		}
@@ -60,17 +60,17 @@ export const inferredFields = <C extends HeadingColumn>(
 const describedColumn = <C extends HeadingColumn>(
 	relation: string,
 	c: C,
-	contracts: ContractsByName
+	declared: Declarations
 ): Result.Result<C & { readonly desc: FieldDesc }, CompileError> => {
-	const desc = fieldDescOf(c.type, contracts)
+	const desc = fieldDescOf(c.type, declared)
 	if (!desc.ok) {
 		const at = SourceLoc(`derived ${relation} field ${c.name}`, [])
 		return Result.err(
 			derivedRefused(at, {
-				kind: "undeclaredContract",
+				kind: "undeclared",
 				relation,
 				field: c.name,
-				contract: desc.error.contract
+				declaration: desc.error
 			})
 		)
 	}

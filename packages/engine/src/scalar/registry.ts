@@ -26,7 +26,13 @@ import {
 	fieldMark
 } from "#compiler/core/phantom.ts"
 import { deepFreeze, hasProperties } from "#compiler/core/record.ts"
-import type { ContractFieldDesc, ExprDesc, FieldDesc, PgScalarName } from "#compiler/ir/desc.ts"
+import type {
+	ContractFieldDesc,
+	ExprDesc,
+	FieldDesc,
+	PgScalarName,
+	VariantFieldDesc
+} from "#compiler/ir/desc.ts"
 import type { ExprTable } from "#compiler/ir/expr.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
 import {
@@ -813,7 +819,7 @@ export const variantTagField = "tag"
  * MalformedDescription, or refused as its fields' types refuse.
  */
 const variantAt = (
-	desc: Extract<FieldDesc, { readonly kind: "variant" }>,
+	desc: VariantFieldDesc,
 	env: ScalarEnv,
 	loc: SourceLoc
 ): Result.Result<DeclaredType, CompileError> => {

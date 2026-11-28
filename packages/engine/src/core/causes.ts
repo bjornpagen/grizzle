@@ -264,10 +264,19 @@ export interface UnitLocality {
 }
 
 /**
+ * A declaration a column's type names by its name that the schema holds none of: a contract or a variant, which a field
+ * of the type holds as the schema declares it (schema/field-desc.ts declaredDescOf).
+ */
+export interface Undeclared {
+	readonly kind: "contract" | "variant"
+	readonly name: string
+}
+
+/**
  * Why derived analysis refused a derived relation (analysis/derived), the cause of a DerivedRefused CompileError
  * (core/errors.ts):
  * - `attachment`: the definition attaches a nested relation to its facts: a stored table holds flat facts.
- * - `undeclaredContract`: a field whose type is a contract the schema declares nowhere.
+ * - `undeclared`: a field whose type is a contract or a variant the schema declares nowhere.
  * - `inheritedKey`: an inherited key narrower than the heading whose unique index entry is unrepresentable.
  * - `wholeHeading`: the whole heading, the one key when no narrower key is proven, whose unique index entry is
  *   unrepresentable.
@@ -277,10 +286,10 @@ export interface UnitLocality {
 export type DerivedRefusal =
 	| { readonly kind: "attachment"; readonly relation: string }
 	| {
-			readonly kind: "undeclaredContract"
+			readonly kind: "undeclared"
 			readonly relation: string
 			readonly field: string
-			readonly contract: string
+			readonly declaration: Undeclared
 	  }
 	| {
 			readonly kind: "inheritedKey"
@@ -520,8 +529,8 @@ export const derivedRefusalText = (cause: DerivedRefusal): string => {
 	switch (cause.kind) {
 		case "attachment":
 			return `derived relation ${cause.relation} over a definition that attaches a nested relation to its facts: a stored table holds flat facts`
-		case "undeclaredContract":
-			return `a contract the schema declares; ${cause.contract} is none`
+		case "undeclared":
+			return `a ${cause.declaration.kind} the schema declares; ${cause.declaration.name} is none`
 		case "inheritedKey":
 			return keyFaultText(
 				`inherited key (${list(cause.key)}) of derived relation ${cause.relation}`,

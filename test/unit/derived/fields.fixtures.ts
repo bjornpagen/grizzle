@@ -93,6 +93,23 @@ export const contractCaseGen: Gen<ContractCase> = (source) => {
 	}
 }
 
+/** Where a derived field holds a variant column: its definition's head, or the head of a query the definition imports. */
+export type VariantSite = "head" | "import"
+
+/**
+ * A variant a derived field holds, qti-pie's QtiValue's shape, two arms of two fields each: whether each arm states
+ * the check that orders its two fields, and where the definition finds its column.
+ */
+export interface VariantCase {
+	readonly checks: readonly [boolean, boolean]
+	readonly site: VariantSite
+}
+
+export const variantCaseGen: Gen<VariantCase> = (source) => ({
+	checks: [source.draw(boolean), source.draw(boolean)],
+	site: source.draw(element(["head", "import"] as const))
+})
+
 /**
  * A stored field of a read's column, one of the three kinds a records relation keeps of a read's heading: a search
  * document of a configuration (pg.tsvector), numeric of no typmod within a computed bound (pg.numeric.within), or at

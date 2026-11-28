@@ -210,6 +210,9 @@ export interface VariantArmDesc {
 /** A contract's descriptor, as a field declares it: its name, its base, its predicate and the facts it proves. */
 export type ContractFieldDesc = Extract<FieldDesc, { readonly kind: "contract" }>
 
+/** A variant's descriptor, as a field declares it: its name, its roster and its arms, each with its check. */
+export type VariantFieldDesc = Extract<FieldDesc, { readonly kind: "variant" }>
+
 /** Visits every descriptor inside `desc`: itself, then a contract's base's, a span's endpoint's and each variant arm field's, depth first. */
 export const nestedFields = (desc: FieldDesc, visit: (d: FieldDesc) => void): void => {
 	visit(desc)

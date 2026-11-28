@@ -34,10 +34,14 @@ import {
 } from "#compiler/scalar/compute/types.ts"
 import type { PlainCarrier } from "#compiler/scalar/native.ts"
 import { type ScalarEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
+import type { Declarations } from "#compiler/schema/field-desc.ts"
 import type { TextRefinement } from "#compiler/text/refinement.ts"
 
 export { anyNumeric, wildcardText } from "#compiler/scalar/compute/types.ts"
 export { plainType } from "#compiler/scalar/native.ts"
+
+/** No schema's declarations: what a type of no contract and no variant is described under (schema/field-desc.ts). */
+export const undeclared: Declarations = { contract: () => undefined, variant: () => undefined }
 
 /**
  * The declared type of `desc`, a closed id's or a set's roster read from `rosters` (roster name to its handles in

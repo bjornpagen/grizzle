@@ -80,7 +80,7 @@ import {
 } from "#compiler/schema/relation.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { contractDescriptor, spanDescriptor } from "#test/support/fixtures/descriptors.ts"
-import { scalarOf as registryTypeOf } from "#test/support/fixtures/ir/scalar.ts"
+import { scalarOf as registryTypeOf, undeclared } from "#test/support/fixtures/ir/scalar.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { referencePatterns } from "#test/support/oracle/reference/evaluate.ts"
 import type { DescriptorSketch } from "#test/unit/scalar/support.ts"
@@ -125,8 +125,8 @@ export const predicateTable = (
 
 /**
  * The FieldDesc the registry reads `t` from: the derived analysis's inverse (declaredDescOf), but for a contract, which
- * a schema declares by name over its base's FieldDesc (identity ignores the predicate), and a span over such an
- * endpoint.
+ * a schema declares by name over its base's FieldDesc (identity ignores the predicate), a span over such an endpoint,
+ * and a variant, which a schema declares by name over its arms' fields' FieldDescs, each arm of no check.
  */
 const fieldDescFor = (t: ScalarType): FieldDesc => {
 	if (isNumericValue(t)) {
@@ -146,7 +146,19 @@ const fieldDescFor = (t: ScalarType): FieldDesc => {
 	if (s?.endpoint.contract !== undefined) {
 		return { kind: "span", endpoint: fieldDescFor(s.endpoint), width: s.width }
 	}
-	return succeeded(declaredDescOf(t, () => undefined))
+	if (t.carrier === "variant") {
+		return {
+			kind: "variant",
+			name: t.variant.name,
+			roster: t.variant.roster.closed,
+			arms: Arr.map(t.variant.arms, (arm) => ({
+				handle: arm.handle,
+				fields: Arr.map(arm.fields, (f) => ({ name: f.name, desc: fieldDescFor(f.type) })),
+				check: undefined
+			}))
+		}
+	}
+	return succeeded(declaredDescOf(t, undeclared))
 }
 
 /**

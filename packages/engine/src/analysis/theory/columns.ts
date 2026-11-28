@@ -15,7 +15,7 @@ import { deepFreeze } from "#compiler/core/record.ts"
 import { noClock } from "#compiler/ir/clock.ts"
 import { descIdentity, type InferredQuery } from "#compiler/ir/desc.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { fieldDescOf, ownedContractsByName } from "#compiler/schema/field-desc.ts"
+import { fieldDescOf, ownedDeclarations } from "#compiler/schema/field-desc.ts"
 
 /**
  * The descriptor each column of `query`, read as the definition of `relation` (a derived relation, or the query a
@@ -39,7 +39,7 @@ const definitionColumns = (
 		if (type === undefined) {
 			return refuse("MalformedDescription", loc, `a column ${column} of ${relation}'s definition`)
 		}
-		const desc = fieldDescOf(type, ownedContractsByName(checked.owned.contracts))
+		const desc = fieldDescOf(type, ownedDeclarations(checked.owned))
 		return desc.ok
 			? desc.value
 			: refuse("MalformedDescription", loc, `a declared type of ${relation}.${column}`)

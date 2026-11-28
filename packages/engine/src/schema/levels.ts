@@ -5,7 +5,8 @@ import {
 	type ContractFieldDesc,
 	levelChain,
 	type RelationDesc,
-	type SchemaDesc
+	type SchemaDesc,
+	type VariantFieldDesc
 } from "#compiler/ir/desc.ts"
 import { type DeclaredEntries, noDeclaredEntries } from "#compiler/schema/declared-entries.ts"
 import {
@@ -68,6 +69,13 @@ export interface SchemaContent {
 	 * it is its relations'.
 	 */
 	readonly contracts: ReadonlyMap<string, ContractFieldDesc>
+	/**
+	 * Every variant a relation of the level or of a level below declares a field by, by name: its descriptor, its arms'
+	 * checks with it, the one ownership holds for it (own.ts OwnedVariant), read as `contracts` is, by the same walk: what
+	 * records(...) types a variant column by (program/records.ts), so a record's field of a variant is the variant's one
+	 * declaration. No part of the level's identity (sameLevel): it is its relations'.
+	 */
+	readonly variants: ReadonlyMap<string, VariantFieldDesc>
 }
 
 /**
@@ -132,26 +140,54 @@ const writtenBelow = (below: SchemaContent | undefined, text: string): boolean =
 	return false
 }
 
+/** The declarations a level's content holds by name (SchemaContent contracts and variants). */
+type LevelDeclarations = Pick<SchemaContent, "contracts" | "variants">
+
+/** Adds the declaration `desc` to `added` under its name where neither `held` nor `added` holds one by it yet. */
+const addFirst = <D extends { readonly name: string }>(
+	held: ReadonlyMap<string, D>,
+	added: Map<string, D>,
+	desc: D
+): void => {
+	if (!held.has(desc.name) && !added.has(desc.name)) {
+		added.set(desc.name, desc)
+	}
+}
+
+/** The map `held` with each of `added`, which it does not hold, `held` itself where `added` holds none. */
+const heldWith = <D>(
+	held: ReadonlyMap<string, D>,
+	added: ReadonlyMap<string, D>
+): ReadonlyMap<string, D> => (added.size === 0 ? held : new Map([...held, ...added]))
+
 /**
- * The contracts of a level that declares `relations` over the level `below` (SchemaContent contracts): the level below's,
- * natural alone at a root, and each contract the level's relations declare that none below does, each relation's in
- * name order, its fields' in heading order, the first declaration's descriptor. The level below's own map where the
- * level declares no new one.
+ * The contracts and the variants of a level that declares `relations` over the level `below` (SchemaContent contracts
+ * and variants): the level below's, natural alone and no variant at a root, and each the level's relations declare that
+ * none below does, each relation's in name order, its fields' in heading order, the first declaration's descriptor. The
+ * level below's own map where the level declares no new one.
  */
-const contractsOver = (
+const declarationsOver = (
 	relations: ReadonlyArray<LevelRelation>,
 	below: SchemaContent | undefined
-): ReadonlyMap<string, ContractFieldDesc> => {
-	const held = below?.contracts ?? new Map([[naturalContract.name, naturalContract]])
-	const added = new Map<string, ContractFieldDesc>()
+): LevelDeclarations => {
+	const contracts = below?.contracts ?? new Map([[naturalContract.name, naturalContract]])
+	const variants = below?.variants ?? new Map<string, VariantFieldDesc>()
+	const addedContracts = new Map<string, ContractFieldDesc>()
+	const addedVariants = new Map<string, VariantFieldDesc>()
 	for (const r of relations.toSorted((a, b) => (a.name < b.name ? -1 : 1))) {
 		visitDeclaredFields(r.desc, (_field, nested) => {
-			if (nested.kind === "contract" && !held.has(nested.name) && !added.has(nested.name)) {
-				added.set(nested.name, nested)
+			if (nested.kind === "contract") {
+				addFirst(contracts, addedContracts, nested)
+			}
+			if (nested.kind === "variant") {
+				addFirst(variants, addedVariants, nested)
 			}
 		})
 	}
-	return added.size === 0 ? held : new Map([...held, ...added])
+	return {
+		contracts: heldWith(contracts, addedContracts),
+		variants: heldWith(variants, addedVariants)
+	}
 }
 
 /**
@@ -177,7 +213,7 @@ export const levelContent = (
 		below,
 		fragments: Object.freeze([...fragments]),
 		entries,
-		contracts: contractsOver(relations, below)
+		...declarationsOver(relations, below)
 	})
 }
 

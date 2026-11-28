@@ -88,9 +88,9 @@ export const levelsOf = (name: string, cells: Arr.NonEmptyReadonlyArray<RecordsC
 /**
  * Item's facts: a row of each type's edges (the least smallint, the greatest integer, the least bigint, a negative
  * numeric at its scale, NaN, a large double, negative money, a leap day, a set of two handles, wide spans, a vector of
- * three components, bytes holding 0 and 255), and a row of zeros, empties and the other edges (Infinity, the first and
- * last days, the empty set, the empty name and bytes, the greatest natural). Neither states `stamped` or `search`: the
- * database stamps the one and PostgreSQL generates the other.
+ * three components, bytes holding 0 and 255, a pair its arm's check holds), and a row of zeros, empties and the other
+ * edges (Infinity, the first and last days, the empty set, the empty name and bytes, the greatest natural, a flag).
+ * Neither states `stamped` or `search`: the database stamps the one and PostgreSQL generates the other.
  */
 export const itemFacts: ReadonlyArray<Readonly<Record<string, unknown>>> = [
 	{
@@ -118,7 +118,8 @@ export const itemFacts: ReadonlyArray<Readonly<Record<string, unknown>>> = [
 		days: { start: "2024-01-01", end: "2024-03-01" },
 		vec: Vector.make(new Float32Array([0.5, -1, 2]), 3),
 		blob: new Uint8Array([0, 255, 7]),
-		count: 0n
+		count: 0n,
+		cell: { tag: "Mid", greatest: "b", least: "a" }
 	},
 	{
 		id: 2,
@@ -145,6 +146,7 @@ export const itemFacts: ReadonlyArray<Readonly<Record<string, unknown>>> = [
 		days: { start: "9999-12-30", end: "9999-12-31" },
 		vec: Vector.make(new Float32Array([0, 0, 1]), 3),
 		blob: new Uint8Array([]),
-		count: 9223372036854775807n
+		count: 9223372036854775807n,
+		cell: { tag: "Low", value: false }
 	}
 ]

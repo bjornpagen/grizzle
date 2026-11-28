@@ -79,9 +79,10 @@ export const aProgramsRecordsOwnNoLevelAndEachSchemasCompileOwnsItOnce = propert
 	kills: [
 		{
 			file: "packages/engine/src/program/records.ts",
-			original: "\t\t\treturn Result.ok(level.content.contracts)",
-			replacement: "\t\t\treturn Result.map(level.content.owned(), () => level.content.contracts)",
-			why: "Records own their level again to type its contract columns, as they did: building the program owns each level its records read."
+			original: "\t\t\treturn Result.ok(contentDeclarations(level.content))",
+			replacement:
+				"\t\t\treturn Result.map(level.content.owned(), () => contentDeclarations(level.content))",
+			why: "Records own their level again to type its contract and variant columns, as they did: building the program owns each level its records read."
 		}
 	]
 })

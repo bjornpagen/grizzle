@@ -7,13 +7,14 @@
  *   column of the query's heading, then a drawn count under the name of each array attachment, keyed by the owner's
  *   key. A column's field is its type's (schema/field-desc.ts fieldDescOf over the column's ScalarType, the one reading of a
  *   column's type as a field's, a derived relation's among its readers), its column the query's own (core/decoder.ts
- *   Column), so a contract column is the schema's own declaration of the contract, brand and check, a closed id a closed
+ *   Column), so a contract column is the schema's own declaration of the contract, brand and check, a variant column the
+ *   schema's own declaration of the variant, its arms' checks with it, a closed id a closed
  *   id of its roster, resolved by name in the level that lists the records, a refined text the text of its patterns, a
  *   computed numeric numeric within its bound (pg.numeric.within), numeric of no typmod at numeric's own limits
  *   pg.numeric, an instant a stored instant (instant.stored), which the database draws nothing of, and a search
  *   document a stored one (pg.tsvector). A head literal is stored nowhere: the read writes it again; head literals of
  *   several values at one key, a union's, are a column whose values are exactly them (literalsField). A union of several
- *   headings or a column of a contract the schema does not declare is refused, each naming what it lacks.
+ *   headings or a column of a contract or a variant the schema does not declare is refused, each naming what it lacks.
  * - Each attachment's relation (types/schema/records.ts types each): the name its author states for the attachment's
  *   path in the options' `names` (its attachment names from the root joined by `.`), or `${stem}${Capitalize<name>}`,
  *   or its parent's name followed by `Capitalize<name>` where that name is another attachment's or the root's `Row`, so
@@ -54,7 +55,7 @@ import { parseDerivedName, type HeldName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
-import { type ContractFieldDesc, declaredNaming, derivedNaming } from "#compiler/ir/desc.ts"
+import { declaredNaming, derivedNaming } from "#compiler/ir/desc.ts"
 import type { Roster } from "#compiler/ir/scalar.ts"
 import {
 	decodedBy,
@@ -74,8 +75,9 @@ import {
 import { type RecordsHolder, type RecordsLayout, recordsFacts } from "#compiler/runtime/records.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { defineField, type ScalarEnv } from "#compiler/scalar/registry.ts"
-import { fieldDescOf } from "#compiler/schema/field-desc.ts"
+import { type Declarations, fieldDescOf } from "#compiler/schema/field-desc.ts"
 import type { Level } from "#compiler/schema/level.ts"
+import type { SchemaContent } from "#compiler/schema/levels.ts"
 import { literalsField } from "#compiler/schema/literals.ts"
 import {
 	builderLoc,
@@ -189,25 +191,29 @@ const states = new WeakMap<object, RecordsState>()
 const rooted = new WeakMap<object, RecordsState>()
 
 /**
- * The contracts a query's level declares, by name, which its contract columns are declared by: those its content holds
- * from its build (levels.ts SchemaContent contracts), a role's its base's. Read off the content, so records own no
- * level: ownership is the compile's, which refuses two declarations of a contract that differ.
+ * The contracts and the variants a query's level declares, by name, which its contract and variant columns are declared
+ * by: those its content holds from its build (levels.ts SchemaContent contracts and variants), a role's its base's. Read
+ * off the content, so records own no level: ownership is the compile's, which refuses two declarations of a contract or
+ * of a variant that differ.
  */
-const contractsOf = (
-	level: Level,
-	label: string
-): Result.Result<ReadonlyMap<string, ContractFieldDesc>, CompileError> => {
+const declarationsOf = (level: Level, label: string): Result.Result<Declarations, CompileError> => {
 	switch (level.kind) {
 		case "schema":
-			return Result.ok(level.content.contracts)
+			return Result.ok(contentDeclarations(level.content))
 		case "role":
-			return Result.ok(level.base.contracts)
+			return Result.ok(contentDeclarations(level.base))
 		case "fragment":
 			return Result.err(
 				malformed(label, "a query over a schema or a role, whose records a level lists")
 			)
 	}
 }
+
+/** The contracts and the variants a level's content declares (levels.ts SchemaContent), by name. */
+const contentDeclarations = (content: SchemaContent): Declarations => ({
+	contract: (name) => content.contracts.get(name),
+	variant: (name) => content.variants.get(name)
+})
 
 /** One column of a query's heading as its records hold it: a stored field, or a head literal's value. */
 type HeadColumn =
@@ -223,7 +229,7 @@ const headColumn = (
 	name: string,
 	typing: HeadingTyping,
 	carrier: Carrier | undefined,
-	contracts: ReadonlyMap<string, ContractFieldDesc>,
+	declared: Declarations,
 	env: ScalarEnv,
 	label: string
 ): HeadColumn => {
@@ -240,11 +246,11 @@ const headColumn = (
 	}
 	const { scalar } = typing
 	const column = typing.carrier.column
-	const desc = fieldDescOf(scalar, (contract) => contracts.get(contract))
+	const desc = fieldDescOf(scalar, declared)
 	if (!desc.ok) {
 		throw unsupported(
 			SourceLoc(at, []),
-			`a stored field of the contract ${desc.error.contract}, which the schema declares`
+			`a stored field of the ${desc.error.kind} ${desc.error.name}, which the schema declares`
 		)
 	}
 	return {
@@ -257,7 +263,7 @@ const headColumn = (
 /** The columns of a query's or an attachment child's heading as its records hold them (headColumn). */
 const columnsOf = (
 	state: QueryState,
-	contracts: ReadonlyMap<string, ContractFieldDesc>,
+	declared: Declarations,
 	label: string
 ): ReadonlyArray<HeadColumn> => {
 	const carriers = headingOf(state.carriers)
@@ -266,7 +272,7 @@ const columnsOf = (
 			column,
 			typing,
 			Object.hasOwn(carriers, column) ? carriers[column] : undefined,
-			contracts,
+			declared,
 			state.schema.env,
 			label
 		)
@@ -407,7 +413,7 @@ interface Building {
 	readonly stem: string
 	readonly occurrences: ReadonlyMap<string, number>
 	readonly names: ReadonlyMap<string, string>
-	readonly contracts: ReadonlyMap<string, ContractFieldDesc>
+	readonly declared: Declarations
 	readonly level: Level
 	readonly label: string
 }
@@ -433,7 +439,7 @@ const attachmentRecords = (
 	built: Built
 ): AttachmentRecords => {
 	const label = `${building.label} attachment ${a.name}`
-	const columns = columnsOf(a.child, building.contracts, label)
+	const columns = columnsOf(a.child, building.declared, label)
 	const taken = new Set<string>([
 		...columns.map((c) => c.name),
 		...a.child.attached.map((c) => c.name)
@@ -519,7 +525,7 @@ interface Admitted {
 	readonly owner: RecordOwner
 	readonly key: ReadonlyArray<string>
 	readonly names: ReadonlyMap<string, string>
-	readonly contracts: ReadonlyMap<string, ContractFieldDesc>
+	readonly declared: Declarations
 	readonly label: string
 }
 
@@ -567,8 +573,8 @@ const admitRecords = (
 		}
 		return k
 	})
-	const contracts = orThrow(contractsOf(state.schema.over, label))
-	const columns = columnsOf(state, contracts, label)
+	const declared = orThrow(declarationsOf(state.schema.over, label))
+	const columns = columnsOf(state, declared, label)
 	for (const n of [...columns.map((c) => c.name), ...state.attached.map((a) => a.name)]) {
 		if (Object.hasOwn(owner, n)) {
 			throw malformed(
@@ -584,7 +590,7 @@ const admitRecords = (
 		owner: recordFields<RecordOwner>(Object.entries(owner)),
 		key,
 		names: admitNames(options, state.attached, label),
-		contracts,
+		declared,
 		label
 	}
 }
@@ -645,7 +651,7 @@ export const recordsBuilder = <
 			stem: admitted.stem,
 			occurrences,
 			names: admitted.names,
-			contracts: admitted.contracts,
+			declared: admitted.declared,
 			level: state.schema.over,
 			label: admitted.label
 		},

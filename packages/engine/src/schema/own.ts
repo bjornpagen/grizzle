@@ -96,6 +96,7 @@ import {
 	termText,
 	type UnitDesc,
 	type UnitFieldDesc,
+	type VariantFieldDesc,
 	type WriteMode,
 	type Writing,
 	writtenNames
@@ -270,7 +271,7 @@ export interface OwnedContract {
  */
 export interface OwnedVariant {
 	readonly name: DeclaredName
-	readonly desc: FieldDesc & { readonly kind: "variant" }
+	readonly desc: VariantFieldDesc
 	readonly loc: SourceLoc
 	readonly level: number
 }
@@ -1398,7 +1399,7 @@ class Owner {
 	readonly #variants = new Map<
 		string,
 		{
-			readonly desc: FieldDesc & { readonly kind: "variant" }
+			readonly desc: VariantFieldDesc
 			readonly text: string
 			readonly loc: SourceLoc
 			readonly level: number

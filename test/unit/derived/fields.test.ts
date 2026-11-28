@@ -12,8 +12,13 @@
  *   keyless cast is refused before the field is typed), the contract is the schema's either way, a relation's field or the definition's cast declaring it (schema/own.ts
  *   #collectFields, schema/walk.ts queryUses `contracts`), so the derived field's descriptor is the contract's as
  *   declared and fieldDescOf finds it, where a contract only a definition's cast named was refused at the field
- *   (DerivedRefused, undeclaredContract: edullm's LastPresence, cast to LastBeacon). Oracle: that rule, restated.
+ *   (DerivedRefused, undeclared: edullm's LastPresence, cast to LastBeacon). Oracle: that rule, restated.
  *   Features: by a relation, by the cast alone.
+ * - Variants: a variant column a derived relation's heading holds, in its definition's head or in the head of a query
+ *   it imports, is the schema's declaration of the variant, its arms' checks with it, the descriptor the relation
+ *   holding the column declares, where the heading held a variant rebuilt from the column's type, of no check (the
+ *   loss records of metis's essay flow met over qti-pie's QtiValue, refused DuplicateIdentity). Oracle: ownership's
+ *   variant (own.ts Owned variants). The box is exhausted.
  *
  * - Stored kinds: over drawn search documents of every configuration, computed numeric bounds, numeric's own limits and
  *   stored instants, a stored field of each is its caller's, and its descriptor and its type each give back the other,
@@ -27,21 +32,22 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
+import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record } from "effect"
-import { instant, pg } from "#compiler/public/fields.ts"
-import { relation, schema } from "#compiler/public/schema.ts"
+import { instant, pg, variant } from "#compiler/public/fields.ts"
+import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
-import { fieldDescOf, ownedContractsByName } from "#compiler/schema/field-desc.ts"
+import { fieldDescOf, ownedDeclarations } from "#compiler/schema/field-desc.ts"
 import {
 	derivedBuilder as runtimeDerived,
 	closedBuilder,
 	relationBuilder
 } from "#compiler/schema/relation.ts"
 import { schemaBuilder as runtimeSchema } from "#compiler/schema/schema.ts"
-import type { FieldBase } from "#compiler/types/fields/field.ts"
+import type { ArmChecks, FieldBase } from "#compiler/types/fields/field.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { analysesOf } from "#test/support/derived.ts"
 import { f as field } from "#test/support/fixtures/ir/desc.ts"
@@ -56,7 +62,9 @@ import {
 	handlesOf,
 	nonNegative,
 	type StoredKind,
-	storedKindGen
+	storedKindGen,
+	type VariantCase,
+	variantCaseGen
 } from "#test/unit/derived/fields.fixtures.ts"
 import { fieldOf } from "#test/unit/schema/field-sketch.ts"
 import { bareContract, rawContract } from "#test/unit/schema/support.ts"
@@ -124,9 +132,7 @@ export const derivedFieldInferenceGivesBackTheDescriptorOfEveryDeclarableFieldTy
 					c.note(sketch.kind === "pg" ? `pg ${sketch.member}` : `kind ${sketch.kind}`)
 					const declared = defined(line.fields[`f${i}`], `Line.f${i}`).type
 					assert.deepEqual(
-						succeeded(
-							fieldDescOf(scalarOf(declared, handles), ownedContractsByName(owned.contracts))
-						),
+						succeeded(fieldDescOf(scalarOf(declared, handles), ownedDeclarations(owned))),
 						declared,
 						`Line.f${i}`
 					)
@@ -240,10 +246,7 @@ export const aContractADerivedFieldIsCastToIsTheSchemasWhetherARelationOrTheCast
 				).desc
 				assert.deepEqual(desc, declared.desc)
 				const typeOf = scalarOf(field.contract(name, field.bigint, undefined), {})
-				assert.deepEqual(
-					succeeded(fieldDescOf(typeOf, ownedContractsByName(owned.contracts))),
-					declared.desc
-				)
+				assert.deepEqual(succeeded(fieldDescOf(typeOf, ownedDeclarations(owned))), declared.desc)
 			}),
 		oracle: {
 			kind: "specification",
@@ -265,7 +268,7 @@ export const aContractADerivedFieldIsCastToIsTheSchemasWhetherARelationOrTheCast
 				original: "\t\t\t\tfor (const d of queryUses(entry.desc.query).contracts) {",
 				replacement:
 					"\t\t\t\tfor (const d of queryUses(entry.desc.query).contracts.filter(() => false)) {",
-				why: "A contract only a derived definition's cast names is the schema's no longer: the derived field cast to it is refused undeclaredContract, and the cast-alone situation fails."
+				why: "A contract only a derived definition's cast names is the schema's no longer: the derived field cast to it is refused undeclared, and the cast-alone situation fails."
 			},
 			{
 				file: "packages/engine/src/schema/walk.ts",
@@ -278,6 +281,86 @@ export const aContractADerivedFieldIsCastToIsTheSchemasWhetherARelationOrTheCast
 				original: "\t\tfor (const d of inner.contracts) {\n\t\t\tthis.contracts.push(d)\n\t\t}\n",
 				replacement: "",
 				why: "A query's imports type no value by a contract for the query that imports them: a cast in an imported query's head names a contract the schema declares nowhere, and the import site fails, as the ledger's PresentTime was refused."
+			}
+		]
+	})
+
+/**
+ * A variant column a derived relation's heading holds is the schema's declaration of the variant, its arms' checks
+ * with it, the descriptor the relation holding the column declares, whichever of its arms state their checks and
+ * whether the definition's head finds the column or the head of a query it imports does.
+ */
+export const aVariantColumnADerivedHeadingHoldsIsTheSchemasDeclarationOfTheVariantItsArmsChecksWithIt =
+	property.exhaust(finite(variantCaseGen), {
+		box: "a variant of two arms of two fields, each arm stating the check that orders them or not, found in the definition's head or in the head of a query it imports",
+		needs: {},
+		situations: [],
+		check: () => (k: VariantCase) =>
+			Effect.sync(() => {
+				const Side = closed.unordered("Side", ["least", "most"])
+				const [leastChecked, mostChecked] = k.checks
+				const arms = {
+					least: { low: pg.integer, high: pg.integer },
+					most: { from: pg.integer, to: pg.integer }
+				}
+				/** Each arm's check, which orders its two fields. */
+				const orders = {
+					least: (a) => a.le(a.low, a.high),
+					most: (a) => a.le(a.from, a.to)
+				} satisfies ArmChecks<"Mark", typeof arms>
+				const Mark = variant("Mark", Side, arms, {
+					...(leastChecked ? { least: orders.least } : {}),
+					...(mostChecked ? { most: orders.most } : {})
+				})
+				const Unit = relation("Unit", { id: Id, mark: Mark }, ["id"])
+				const L = schema("L", [Side, Unit], [])
+				/** Each unit with its mark. */
+				const marks = queryOver(L).rule((r: RuleValue) => {
+					const vars = varsOver(Unit, "unit")
+					return r
+						.match(Unit, { id: vars["id"], mark: vars["mark"] })
+						.find({ id: vars["id"], mark: vars["mark"] })
+				})
+				const q =
+					k.site === "head"
+						? marks
+						: queryOver(L).rule((r: RuleValue) => {
+								const vars = varsOver(marks, "marked")
+								return r
+									.match(marks, { id: vars["id"], mark: vars["mark"] })
+									.find({ id: vars["id"], mark: vars["mark"] })
+							})
+				const extended = runtimeSchema.extend([L], "Level1", [runtimeDerived("T", q, [])], [], [])
+				const a = succeeded(Result.flatMap(checkedIn(extended), analysesOf))
+				const declared = defined(
+					checking(extended).owned.variants["Mark"],
+					"the schema's variant Mark"
+				).desc
+				assert.deepEqual(
+					Arr.map(declared.arms, (arm) => arm.check !== undefined),
+					[leastChecked, mostChecked],
+					"Mark's declaration holds the checks its arms state"
+				)
+				const desc = defined(
+					Option.getOrUndefined(
+						Arr.findFirst(defined(a.relations["T"]).heading, (col) => col.name === "mark")
+					)
+				).desc
+				assert.deepEqual(desc, declared, `${k.site}: T.mark is Mark as the schema declares it`)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "ownership's variant (own.ts Owned variants), the declaration the relation holding the column states"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/schema/field-desc.ts",
+				original:
+					'\t\tcase "variant":\n\t\t\treturn declaration("variant", type.variant.name, declared.variant(type.variant.name))',
+				replacement:
+					'\t\tcase "variant": {\n\t\t\tconst found = declared.variant(type.variant.name)\n\t\t\treturn declaration("variant", type.variant.name, found && { ...found, arms: found.arms.map((arm) => ({ ...arm, check: undefined })) })\n\t\t}',
+				why: "A derived heading's variant column is a variant rebuilt from the column's type with no arm's check: T.mark is no longer Mark as the schema declares it wherever an arm states its check, at either site."
 			}
 		]
 	})
@@ -351,7 +434,7 @@ export const aStoredFieldOfEachKindARecordsRelationKeepsIsOfItsColumnsTypeAgainI
 					"the database's instant is the database's clock's"
 				)
 				const type = scalarOf(declared.type, {})
-				const described = succeeded(fieldDescOf(type, ownedContractsByName(owned.contracts)))
+				const described = succeeded(fieldDescOf(type, ownedDeclarations(owned)))
 				assert.deepEqual(described, declared.type, "the column's type describes the field")
 				assert.deepEqual(scalarOf(described, {}), type, "the descriptor types the column again")
 			}),
