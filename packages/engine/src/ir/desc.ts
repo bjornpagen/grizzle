@@ -1,4 +1,4 @@
-import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
 	headNonEmpty,
@@ -2335,6 +2335,35 @@ export const unclocked = <L>(
 	program: ProgramDesc<L>
 ): Exclude<ProgramDesc<L>, { readonly kind: "clocked" }> =>
 	program.kind === "clocked" ? program.program : program
+
+/**
+ * Where a program's Description was written, which a refusal of an index its statements ask names (ir/products.ts
+ * IndexAsker `program`): a read's query's outermost stage, and a ChangeSet's first member, or its first read-back's
+ * query where it writes none. A ChangeSet of neither sends no statement, so it asks no index and has no place a
+ * refusal names.
+ */
+export const programAt = (program: ProgramDesc): SourceLoc => {
+	const of = unclocked(program)
+	switch (of.kind) {
+		case "query":
+		case "answered":
+			return stageAt(of.query.stage)
+		case "changeSet": {
+			const [member] = of.changeSet.strata.flatMap((s) => s.members)
+			if (member !== undefined) {
+				return member.loc
+			}
+			const [read] = of.changeSet.reads
+			return read === undefined
+				? defect("a ChangeSet whose statements ask an index writes a member or reads a read-back")
+				: stageAt(read.query.stage)
+		}
+	}
+}
+
+/** Where a query stage was written: its builder's call site, an attachment's its input's, which it attaches to. */
+const stageAt = (stage: QueryStageDesc): SourceLoc =>
+	stage.kind === "attach" ? stageAt(stage.input) : stage.loc
 
 /** The exported query workload. */
 export interface WorkloadDesc<L = Located> {

@@ -8,7 +8,7 @@ import {
 	sortNonEmpty
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
-import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import { canonicalTextOf, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
 import {
@@ -40,6 +40,9 @@ import {
 import { lawColumnType } from "#compiler/ir/physical.ts"
 import {
 	type AccessUse,
+	type AskedIndexRequest,
+	askerText,
+	type IndexAsker,
 	type IndexRequest,
 	indexOpclassText,
 	type PhysicalReason,
@@ -337,6 +340,33 @@ function fail(tag: ProseTag, label: string, capability: string): never {
 const requestLabel = (r: IndexRequest): string =>
 	`${r.role} index request on ${r.relation}(${requestColumns(r).map(keyTermText).join(", ")}) for ${r.use}`
 
+/** A request as planning's refusals locate it: what it asks, and every reader that asked for it (IndexAsker), in the
+ * order they asked. */
+const askedLabel = (asked: AskedIndexRequest): string =>
+	`${requestLabel(asked.request)}, asked by ${asked.askedBy.map(askerText).join("; ")}`
+
+/**
+ * Each request of `asked` with every asker of a request equal to it, in the order they asked (AskedIndexRequest): two
+ * requests are equal where their texts are one (core/canonical.ts canonicalTextOf), so a refusal of a request many
+ * reads make names them all, whichever of them planning meets first.
+ */
+const everyAsker = (asked: ReadonlyArray<AskedIndexRequest>): ReadonlyArray<AskedIndexRequest> => {
+	const texts = asked.map((a) => canonicalTextOf(a.request))
+	const askers = new Map<string, NonEmptyReadonlyArray<IndexAsker>>()
+	for (const [at, a] of asked.entries()) {
+		const text = defined(texts[at], "a text per request")
+		const known = askers.get(text)
+		askers.set(text, known === undefined ? a.askedBy : extendNonEmpty(known, a.askedBy))
+	}
+	return asked.map((a, at) => ({
+		request: a.request,
+		askedBy: defined(
+			askers.get(defined(texts[at], "a text per request")),
+			"the askers of a request"
+		)
+	}))
+}
+
 /** The keys a request states, in key order, each column by its arm, an access request's its field, its law column or
  * the field's suffix key (AccessKeyTerm). */
 const statedKeys = (r: IndexRequest): ReadonlyArray<IndexKey> =>
@@ -370,24 +400,27 @@ const justificationText = (j: LawIndexRequest["justification"]): string =>
  * planned it (ir/law.ts ReverseIndexOn), each a field or a law column by its arm. The law model leaves a constant law
  * column out of them: one value in every row narrows no lookup.
  */
-export const reverseRequests = (b: InstallBuilder): ReadonlyArray<IndexRequest> =>
+export const reverseRequests = (b: InstallBuilder): ReadonlyArray<AskedIndexRequest> =>
 	b.natives.flatMap(({ object: n }) => {
 		if (n.kind !== "ReverseIndex") {
 			return []
 		}
-		return n.lawIds.map((law: LawId): IndexRequest => ({
-			relation: n.relation.name,
-			blocks: [
-				mapNonEmpty(n.columns, (column) => ({
-					column,
-					dir: "asc" as const,
-					opclass: defaultOpclass
-				}))
-			],
-			method: n.method,
-			role: "lawMaintenance",
-			use: "reverse reference",
-			justification: { kind: "law", law }
+		return n.lawIds.map((law: LawId): AskedIndexRequest => ({
+			request: {
+				relation: n.relation.name,
+				blocks: [
+					mapNonEmpty(n.columns, (column) => ({
+						column,
+						dir: "asc" as const,
+						opclass: defaultOpclass
+					}))
+				],
+				method: n.method,
+				role: "lawMaintenance",
+				use: "reverse reference",
+				justification: { kind: "law", law }
+			},
+			askedBy: [{ kind: "lawModel" }]
 		}))
 	})
 
@@ -800,7 +833,7 @@ const refusedUndigested = (
 		const field = keyTermText(k.column)
 		b.keys.refuse({
 			at: SourceLoc(label, []),
-			subject: `${label} (${r.role === "lawMaintenance" ? justificationText(r.justification) : "the workload's access"})`,
+			subject: `${requestLabel(r)} (${r.role === "lawMaintenance" ? justificationText(r.justification) : "the workload's access"})`,
 			key: fields,
 			fault: { kind: "undigestedText", field, digest: digests.get(field) }
 		})
@@ -829,8 +862,7 @@ interface Stated {
  * `request` as it reads on `relation`, its relation's table (Stated): a request naming a column the table does not hold,
  * or one its access method, role and use place nowhere, refused as its asker's malformed description.
  */
-const statedOf = (request: IndexRequest, relation: CoveredRelation): Stated => {
-	const label = requestLabel(request)
+const statedOf = (request: IndexRequest, relation: CoveredRelation, label: string): Stated => {
 	const stated = statedKeys(request)
 	if (!isNonEmpty(stated)) {
 		return fail("MalformedDescription", label, "an index request with a key")
@@ -1352,7 +1384,7 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
 export const planIndexes = (
 	b: InstallBuilder,
 	keyIndexes: ReadonlyArray<KeyIndex>,
-	asked: ReadonlyArray<IndexRequest>
+	asked: ReadonlyArray<AskedIndexRequest>
 ): Result.Result<IndexPlan, CompileError> => b.keys.settle(planOver(b, keyIndexes, asked))
 
 /**
@@ -1364,16 +1396,21 @@ export const planIndexes = (
 const planOver = (
 	b: InstallBuilder,
 	keyIndexes: ReadonlyArray<KeyIndex>,
-	asked: ReadonlyArray<IndexRequest>
+	asked: ReadonlyArray<AskedIndexRequest>
 ): Result.Result<IndexPlan, CompileError> =>
 	catchRefusal((): IndexPlan => {
 		/** Each request on the relation it is installed as (analysis/schema.ts CheckedSchema installedAs): an alias's of
 		 * one definition on its canonical relation, whose table, keys and indexes are planned and named once, by it; any
-		 * other request as it was asked, the one its index's `requests` hold. */
-		const requests = asked.map((r): IndexRequest => {
-			const relation = b.checked.installedAs(r.relation)
-			return relation === r.relation ? r : { ...r, relation }
-		})
+		 * other request as it was asked, the one its index's `requests` hold; each with the askers of every request equal
+		 * to it (`everyAsker`). */
+		const requests = everyAsker(
+			asked.map((a): AskedIndexRequest => {
+				const relation = b.checked.installedAs(a.request.relation)
+				return relation === a.request.relation
+					? a
+					: { request: { ...a.request, relation }, askedBy: a.askedBy }
+			})
+		)
 		/** Each key index by its columns' arms: a table's key's, and a view's unique index's, over its fields. */
 		const installed: ReadonlyArray<
 			Omit<KeyIndex, "columns"> & { readonly columns: ReadonlyArray<IndexColumn> }
@@ -1455,12 +1492,14 @@ const planOver = (
 			}
 		}
 		const plan = requests
-			.flatMap((r): ReadonlyArray<Planned> => {
-				const table = tableOf(r.relation, requestLabel(r))
+			.flatMap((a): ReadonlyArray<Planned> => {
+				const r = a.request
+				const label = askedLabel(a)
+				const table = tableOf(r.relation, label)
 				if (table === undefined) {
 					return []
 				}
-				const stated = statedOf(r, table.covered)
+				const stated = statedOf(r, table.covered, label)
 				if (
 					methodOf(stated.placements.own) === "btree" &&
 					refusedUndigested(b, r, stated.label, table.target, stated, keyed(r.relation))
@@ -1718,7 +1757,7 @@ export const landingIn = (
 	if (table === undefined) {
 		return unserved(`of ${relation}, which the installation indexes none of`)
 	}
-	const covered = catchRefusal(() => coveredOf(statedOf(asked, table)))
+	const covered = catchRefusal(() => coveredOf(statedOf(asked, table, requestLabel(asked))))
 	if (!covered.ok) {
 		return unserved(`of ${relation}, whose table refuses it: ${covered.error.message}`)
 	}

@@ -38,6 +38,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option } from "effect"
 import { type MalformedPlan, planNodes } from "#bench/harness/explain.ts"
 import type { BenchSession } from "#bench/harness/session.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Direction } from "#compiler/core/order.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { trusted } from "#compiler/core/trusted.ts"
@@ -261,7 +262,17 @@ export const drawnRequests = (specs: ReadonlyArray<RequestSpec>): InstallExtensi
 		}
 		return EngineResult.ok({
 			...noContribution,
-			indexRequests: Arr.map(specs, (spec, at) => requestOf(spec, at, fieldOf))
+			indexRequests: Arr.map(specs, (spec, at) => ({
+				request: requestOf(spec, at, fieldOf),
+				askedBy: [
+					{
+						kind: "program" as const,
+						login: "test",
+						program: `request ${at}`,
+						at: SourceLoc(`request ${at}`, [])
+					}
+				] as const
+			}))
 		})
 	},
 	params: servesNoParams,

@@ -4,7 +4,8 @@ import type { Fence } from "#compiler/analysis/isolation/certify.ts"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import type { RoleIsolation } from "#compiler/core/certificate.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import type { AccessIndexRequest, IndexRequest } from "#compiler/ir/products.ts"
+import type { ProgramDesc } from "#compiler/ir/desc.ts"
+import type { AccessIndexRequest, AskedIndexRequest } from "#compiler/ir/products.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import type { LivePlan } from "#compiler/live/notify.ts"
 import type { RoleWorldViews } from "#compiler/physical/access/world-views.ts"
@@ -13,13 +14,16 @@ import { noServedTypes, type ServedTypes } from "#compiler/physical/ddl/domains.
 import type { ReadPlan } from "#compiler/sql/plan.ts"
 
 /**
- * A served program whose statements the installation indexes by what they read: a login's ChangeSet, by the login's
- * name and the program's, with the plan of every statement each compile of it sends (write/program/served.ts
- * ServableWrite `plan`), every role's and every variant's, each read's request one the installation asks an index for.
+ * A served program whose statements the installation indexes by what they read: a login's read or ChangeSet, by the
+ * login's name and the program's, with its Description (`desc`) and the plan of every statement each compile of it sends
+ * (write/program/served.ts ServableWrite `plan`), every role's and every variant's, each read's request one the
+ * installation asks an index for, asked by the program where its Description was written (ir/products.ts IndexAsker
+ * `program`, ir/desc.ts programAt).
  */
 export interface ServedProgram {
 	readonly login: string
 	readonly program: string
+	readonly desc: ProgramDesc
 	readonly plans: ReadonlyArray<ReadPlan<AccessIndexRequest>>
 }
 
@@ -27,7 +31,7 @@ export interface ServedProgram {
  * extension spreads `noContribution` and states what it contributes. Its index requests, and its served programs, each
  * of whose plans' requests the installation asks an index for (sql/plan.ts planRequests). */
 export interface InstallContribution {
-	readonly indexRequests: ReadonlyArray<IndexRequest>
+	readonly indexRequests: ReadonlyArray<AskedIndexRequest>
 	readonly programs: ReadonlyArray<ServedProgram>
 }
 

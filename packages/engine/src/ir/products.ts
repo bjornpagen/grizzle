@@ -12,6 +12,7 @@ import type {
 	SchemaFingerprint,
 	StoredRelationName
 } from "#compiler/core/ids.ts"
+import { formatLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import type { Direction } from "#compiler/core/order.ts"
 import { type TextsId, textsId } from "#compiler/core/text.ts"
 import type { Param, ParamBinary, ParamText } from "#compiler/core/wire.ts"
@@ -511,6 +512,47 @@ export interface AccessIndexRequest {
 
 /** Every index is justified by a law's maintenance or by the workload's access. */
 export type IndexRequest = LawIndexRequest | AccessIndexRequest
+
+/**
+ * Who asks index planning for a request (physical/indexes/engine.ts planIndexes), which every refusal of it names:
+ * - `program`: a statement a login's served program sends, the program by its login's name and its own, its
+ *   Description written at `at` (program/workload/compile.ts servedPrograms);
+ * - `routine`: a statement of a routine the installation installs, by its name (physical/install/compile.ts), a judge's
+ *   read asked as its law's maintenance (physical/ddl/rules.ts routineRequests);
+ * - `lawModel`: the law model itself, a foreign key's reverse lookup (engine.ts reverseRequests), its law the request's
+ *   justification.
+ */
+export type IndexAsker =
+	| {
+			readonly kind: "program"
+			readonly login: string
+			readonly program: string
+			readonly at: SourceLoc
+	  }
+	| { readonly kind: "routine"; readonly routine: string }
+	| { readonly kind: "lawModel" }
+
+/**
+ * A request with the askers it is planned for, one at least: what index planning takes (physical/indexes/engine.ts
+ * planIndexes), so no request reaches it, and no refusal of one is written, without the reads that asked for it.
+ */
+export interface AskedIndexRequest {
+	readonly request: IndexRequest
+	readonly askedBy: NonEmptyReadonlyArray<IndexAsker>
+}
+
+/** An asker as a refusal names it (IndexAsker): a program's statement at its Description's call site, a routine by
+ * its name, the law model. */
+export const askerText = (asker: IndexAsker): string => {
+	switch (asker.kind) {
+		case "program":
+			return `login ${asker.login}'s program ${asker.program} (${formatLoc(asker.at)})`
+		case "routine":
+			return `the installed routine ${asker.routine}`
+		case "lawModel":
+			return "the law model's reverse lookup"
+	}
+}
 
 type PhysicalState = "needed" | "created" | "building" | "validated" | "trusted"
 

@@ -18,10 +18,12 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { type Phases, phased } from "#compiler/core/phase.ts"
 import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
+import { programAt } from "#compiler/ir/desc.ts"
 import type { LibraryFn } from "#compiler/ir/physical.ts"
 import type {
 	AccessIndexRequest,
 	AccessPath,
+	AskedIndexRequest,
 	IndexRequest,
 	InstallationManifest
 } from "#compiler/ir/products.ts"
@@ -479,7 +481,7 @@ export const installationOfPlan = (
 		addSeals(b)
 		addSpanStorage(b, plan.spans)
 
-		const extensionRequests: Array<IndexRequest> = []
+		const extensionRequests: Array<AskedIndexRequest> = []
 		const programs: Array<ServedProgram> = []
 		for (const extension of new Set([
 			refinedConstantsExtension,
@@ -537,7 +539,12 @@ export const installationOfPlan = (
 		const routineAsks = [...routines].flatMap(([fn, bound]) => {
 			const by = rules.requesters.get(nameKey(fn.name))
 			const asked = planRequests(bound.plan)
-			return by === undefined ? asked : routineRequests(b, by, asked)
+			return (by === undefined ? asked : routineRequests(b, by, asked)).map(
+				(request): AskedIndexRequest => ({
+					request,
+					askedBy: [{ kind: "routine", routine: fn.name.name }]
+				})
+			)
 		})
 		/** Each served program's paths, every read its bound statements make (write/program/served.ts ServableWrite). */
 		const stored = new Set(b.indexedViews().map((v) => v.relation))
@@ -552,7 +559,12 @@ export const installationOfPlan = (
 			...reverseRequests(b),
 			...extensionRequests,
 			...routineAsks,
-			...programs.flatMap((p) => p.plans.flatMap(planRequests))
+			...programs.flatMap((p) =>
+				p.plans.flatMap(planRequests).map((request): AskedIndexRequest => ({
+					request,
+					askedBy: [{ kind: "program", login: p.login, program: p.program, at: programAt(p.desc) }]
+				}))
+			)
 		]
 		const {
 			indexes,

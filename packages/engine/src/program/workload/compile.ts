@@ -442,8 +442,15 @@ const servedWorldViews = (changes: ServedWorkloadPlan["changes"]): ReadonlyArray
  */
 const servedPrograms = (
 	login: string,
+	workloads: ReadonlyArray<unknown>,
 	plans: ReadonlyArray<readonly [string, ReadonlyArray<ReadPlan<AccessIndexRequest>>]>
 ): ReadonlyArray<ServedProgram> => {
+	/** Each program of the login's workloads by its name, with its Description (WorkloadProgram `desc`). */
+	const descs = new Map(
+		workloads.flatMap((w) =>
+			(workloadState(w)?.programs ?? []).map((p) => [p.name, p.desc] as const)
+		)
+	)
 	const byProgram = new Map<string, Array<ReadPlan<AccessIndexRequest>>>()
 	for (const [program, of] of plans) {
 		appendAll(
@@ -453,7 +460,12 @@ const servedPrograms = (
 	}
 	return [...byProgram]
 		.toSorted(([a], [b]) => compareStrings(a, b))
-		.map(([program, programPlans]): ServedProgram => ({ login, program, plans: programPlans }))
+		.map(([program, programPlans]): ServedProgram => ({
+			login,
+			program,
+			desc: defined(descs.get(program), `the program ${program} of login ${login}'s workloads`),
+			plans: programPlans
+		}))
 }
 
 /**
@@ -1075,7 +1087,10 @@ export const servedWorkload = <S extends ParamSource>(
 				compiledReads.set(login.name, reads.value)
 				appendAll(
 					programs,
-					servedPrograms(login.name, [...loginWrites(roles), ...readsPlans(reads.value)])
+					servedPrograms(login.name, login.workload, [
+						...loginWrites(roles),
+						...readsPlans(reads.value)
+					])
 				)
 			}
 			return Result.ok<ServedWorkloadPlan<S>>({
