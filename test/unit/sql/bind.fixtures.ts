@@ -147,7 +147,8 @@ const tTable: BindTable = {
 		]
 	]),
 	keys: [["a"]],
-	hashRow: { kind: "none" }
+	hashRow: { kind: "none" },
+	digests: new Map()
 }
 
 const sTable: BindTable = {
@@ -157,7 +158,8 @@ const sTable: BindTable = {
 		["w", { kind: "scalar", column: { kind: "field", field: "w" }, holds: "many" }]
 	]),
 	keys: [["k"]],
-	hashRow: { kind: "none" }
+	hashRow: { kind: "none" },
+	digests: new Map()
 }
 
 /**
@@ -175,7 +177,8 @@ const uTable: BindTable = {
 	hashRow: {
 		kind: "typed",
 		type: (columns) => namedType(installedTypes("app"), `u_${Arr.join(columns, "_")}`, [])
-	}
+	},
+	digests: new Map()
 }
 
 /** The alias T's whole view's body names T by, which PostgreSQL plans T under where it flattens the view. */

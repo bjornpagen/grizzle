@@ -84,6 +84,7 @@ import {
 	type ObjectName,
 	type ProbeBy,
 	type ProbeColumn,
+	type QualifiedFunctionRef,
 	returnsSet,
 	type SeekBinding,
 	type Select,
@@ -107,6 +108,7 @@ import {
 	keyedRead,
 	lit,
 	operandSelect,
+	qualifiedCall,
 	target,
 	targetAs,
 	types
@@ -183,14 +185,26 @@ const btreeColumn = (table: BindTable, column: string): BTreeColumn | undefined 
 
 /**
  * A stored table as the binding reads it: its relation, as the installation plans its indexes; each installed column an
- * index can serve, with its kind (BindColumn); and every unique key, each its installed columns, a read binding one
- * whole reaching one row.
+ * index can serve, with its kind (BindColumn); every unique key, each its installed columns, a read binding one
+ * whole reaching one row; and each text column whose digest column holds its SHA-256 (DigestColumn), by the text's
+ * installed name.
  */
 export interface BindTable {
 	readonly relation: string
 	readonly columns: ReadonlyMap<string, BindColumn>
 	readonly keys: ReadonlyArray<ReadonlyArray<string>>
 	readonly hashRow: HashRow
+	readonly digests: ReadonlyMap<string, DigestColumn>
+}
+
+/**
+ * The digest column of a text column, whose generation is the text's SHA-256 (ir/law.ts textDigestsOf): its installed
+ * name, and the function its generation computes the digest by (ir/physical.ts LibraryFn `textDigest`), so a value the
+ * text equals has the digest the column holds (`owedDigests`).
+ */
+export interface DigestColumn {
+	readonly column: string
+	readonly digest: QualifiedFunctionRef
 }
 
 /**
@@ -595,6 +609,37 @@ const bindingOf = (c: Expr, alias: string): Binding | undefined => {
 			: undefined
 	}
 	return undefined
+}
+
+/**
+ * The digest equalities `pool`, conjuncts of the level that reads `written`, owes for the texts it binds (BindTable
+ * `digests`): for each equality of a text column of `written` with a value, where the column's digest column holds its
+ * SHA-256, the digest column's equality with the value's digest, `<digest> = <its function>(<value>)`, unless a conjunct
+ * of the pool binds the digest column already. Each is implied by its text's equality, the digest a function of the
+ * text, so it changes no result; it binds the digest, a 32-byte key a B-tree holds, where the text is the residual check
+ * beside it (physical/indexes/engine.ts refusedUndigested). The one derivation of a digest's binding, whoever wrote the
+ * text's equality: a rule, a navigation, an upkeep matching a stored row back to its sources, a write's target.
+ */
+const owedDigests = (table: BindTable, written: string, pool: Array<Expr>): void => {
+	if (table.digests.size === 0) {
+		return
+	}
+	const bound = new Set(
+		pool.flatMap((c) => {
+			const b = bindingOf(c, written)
+			return b === undefined ? [] : [b.column]
+		})
+	)
+	const owed = pool.flatMap((c): ReadonlyArray<Expr> => {
+		const b = bindingOf(c, written)
+		const digest = b?.op === "=" ? table.digests.get(b.column) : undefined
+		if (b === undefined || digest === undefined || bound.has(digest.column)) {
+			return []
+		}
+		bound.add(digest.column)
+		return [eq(col(written, digest.column), qualifiedCall(digest.digest, [b.value]))]
+	})
+	appendAll(pool, owed)
 }
 
 /** Whether a set of bound columns holds a unique key of `table` whole, so its read reaches one row at most. */
@@ -2782,6 +2827,11 @@ class Binder {
 		const ons: Array<Expr> =
 			entry.join === "on" || entry.join === "left" ? [...conjunctsOf(entry.on)] : []
 		const pools: ReadonlyArray<Array<Expr>> = entry.join === "left" ? [ons] : [where, ons]
+		if (table !== undefined) {
+			for (const pool of pools) {
+				owedDigests(table, written, pool)
+			}
+		}
 		const earlier = (a: string) => {
 			const d = here.relations.get(a)
 			return d?.depth === here.depth && d.place < place
@@ -3495,6 +3545,9 @@ class Binder {
 				[]
 			)
 			return { alias, items: fromOf(bound), where: tidWhere, env: here }
+		}
+		if (catalogTable !== undefined) {
+			owedDigests(catalogTable, written, where)
 		}
 		const bindings =
 			catalogTable === undefined

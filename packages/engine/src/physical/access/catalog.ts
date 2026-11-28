@@ -22,6 +22,7 @@ import {
 	parseDeclaredName
 } from "#compiler/core/identity.ts"
 import { compareNumbers, compareStrings } from "#compiler/core/order.ts"
+import { textDigestsOf } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import {
 	baseOf,
@@ -131,7 +132,7 @@ const apartView: BindView = { kind: "apart" }
  * The installed names the binding's catalog reads (`catalogOf`): a table's and its columns', a whole view's, and the
  * level each relation is installed in, which holds the row type of a hash index over its byte strings.
  */
-type CatalogNames = Pick<PhysicalNames, "relation" | "column" | "vectorSchema"> & {
+type CatalogNames = Pick<PhysicalNames, "relation" | "column" | "vectorSchema" | "library"> & {
 	readonly wholeView: (relation: string) => ObjectName
 	readonly levelOf: (relation: string) => Identity<"schema">
 }
@@ -225,7 +226,18 @@ const catalogOf = (
 							)
 					}
 				: { kind: "none" }
-		const table: BindTable = { relation, columns, keys, hashRow }
+		/** Each text field whose digest field holds its SHA-256 (ir/law.ts textDigestsOf), both by installed name, its
+		 * digest computed by the library's textDigest, which its generation calls, so the installation installs it. */
+		const digests = new Map(
+			[...textDigestsOf(r.fields)].map(
+				([text, digest]) =>
+					[
+						names.column(relation, text),
+						{ column: names.column(relation, digest), digest: names.library("textDigest") }
+					] as const
+			)
+		)
+		const table: BindTable = { relation, columns, keys, hashRow, digests }
 		tables.set(nameKey(names.relation(relation)), table)
 		/** A relation whose whole view's name does not fit has none: a role that holds it whole is refused where it is
 		 * named (physical/ddl/names.ts namedRole), so no statement reads one. */
@@ -268,7 +280,8 @@ const ledgerHead = (schema: string): ReadonlyMap<NameKey, BindTable> =>
 					]
 				]),
 				keys: [["head"]],
-				hashRow: { kind: "none" }
+				hashRow: { kind: "none" },
+				digests: new Map()
 			}
 		]
 	])
@@ -298,7 +311,8 @@ const judgeLog = (statements: ReadonlyArray<SqlStatement>): ReadonlyMap<NameKey,
 								relation: s.table.name,
 								columns: new Map([scalar(judgeLogColumns.xact), scalar(judgeLogColumns.last)]),
 								keys: [[judgeLogColumns.xact]],
-								hashRow: { kind: "none" }
+								hashRow: { kind: "none" },
+								digests: new Map()
 							}
 						]
 					]
@@ -313,7 +327,8 @@ const judgeLog = (statements: ReadonlyArray<SqlStatement>): ReadonlyMap<NameKey,
 									...s.log.sides.map((side) => scalar(side.column))
 								]),
 								keys: [],
-								hashRow: { kind: "none" }
+								hashRow: { kind: "none" },
+								digests: new Map()
 							}
 						]
 					]
