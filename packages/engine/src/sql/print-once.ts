@@ -37,7 +37,8 @@ import {
  * Print once: a statement's text states a CTE only where PostgreSQL plans it as one.
  *
  * PostgreSQL inlines a CTE that its query reads exactly once, that is not MATERIALIZED, not recursive, writes nothing
- * and calls no VOLATILE function (subselect.c SS_process_ctes), and it inlines each such CTE by a walk of the whole
+ * and calls no VOLATILE function, and one marked NOT MATERIALIZED so at every reference however many read it
+ * (subselect.c SS_process_ctes, CTEMaterializeNever), and it inlines each such CTE by a walk of the whole
  * statement (inline_cte, inline_cte_walker): k inlined CTEs cost k walks, O(k * size), which in a megabyte statement of
  * hundreds of single-use CTEs was the larger part of its planning (lane PLANSIZE: 38-62% of a read's, 16-28% of a
  * write's). So the printer prints every such CTE in place, as the derived table PostgreSQL's inlining makes of it,
@@ -46,9 +47,12 @@ import {
  *
  * A lowering names a sub-result by a CTE where it reads it; whether that CTE is printed as one is decided here alone,
  * by the one fact that decides it, how many references the statement holds to it after every rewrite of the statement
- * (write/program/slot-carriers.ts). A CTE read by two references or more, a MATERIALIZED one, a recursive WITH's, a
- * data-modifying one and one whose query calls a VOLATILE function (sql/ast.ts QualifiedFunctionRef and
- * builtinFunctions volatility; a context source calls the refusal function) stays a CTE, as PostgreSQL keeps it.
+ * (write/program/slot-carriers.ts), and its marking. A CTE read by two references or more that is not marked NOT
+ * MATERIALIZED, a MATERIALIZED one, a recursive WITH's, a data-modifying one and one whose query calls a VOLATILE
+ * function (sql/ast.ts QualifiedFunctionRef and builtinFunctions volatility; a context source calls the refusal
+ * function) stays a CTE, as PostgreSQL keeps it. A NOT MATERIALIZED one read twice is printed at both references, each
+ * a derived table of its own, as PostgreSQL inlines it: printed as a CTE, the plan its binding carried named it a level
+ * PostgreSQL never plans (test/pg/lower-shapes/read-once's classifications, inlined at the two reads of the terms).
  *
  * A CTE PostgreSQL would inline that is still printed as one is an internal compiler error (assertPrintedOnce), the
  * invariant every statement is held to before it is printed (sql/print.ts printStatement).
@@ -61,8 +65,9 @@ export type ReferenceSite =
 
 /** Whether a CTE read by `references` references is printed in place (the module header). */
 const printableInPlace = (cte: Cte, references: number): boolean =>
-	references === 1 &&
-	cte.materialized !== "MATERIALIZED" &&
+	(cte.materialized === "NOT MATERIALIZED"
+		? references >= 1
+		: references === 1 && cte.materialized === undefined) &&
 	cte.query.kind === "select" &&
 	!callsVolatile(cte.query)
 
@@ -145,11 +150,15 @@ const inPlaceCtes = (holder: Holder, w: With): ReadonlyMap<string, Cte> => {
 }
 
 /**
- * The hooks that print each CTE of `chosen` at its one reference: the derived table of its query, the references that
- * query makes to others of `chosen` printed in place in it too, under the reference's alias, or its name where the
- * reference has none, and its columns.
+ * The hooks that print each CTE of `chosen` at each of its references: the derived table of its query, the references
+ * that query makes to others of `chosen` printed in place in it too, under the reference's alias, or its name where the
+ * reference has none, and its columns. A NOT MATERIALIZED CTE read twice is printed at its second reference as a copy
+ * of its own, as PostgreSQL's inlining copies it (subselect.c inline_cte), so each place is a read of its own that the
+ * binding binds apart, never one subtree printed twice (sql/scope.ts, Law 3).
  */
 const inPlaceHooks = (chosen: ReadonlyMap<string, Cte>): AstHooks => {
+	/** The CTEs printed in place at a reference so far, a later reference of each printed as a copy of its own. */
+	const printed = new Set<string>()
 	const hooks: AstHooks = {
 		...identityHooks,
 		replaceSource: (source: FromSource): FromSource | undefined => {
@@ -160,9 +169,11 @@ const inPlaceHooks = (chosen: ReadonlyMap<string, Cte>): AstHooks => {
 			if (cte?.query.kind !== "select") {
 				return undefined
 			}
+			const query = printed.has(cte.name) ? structuredClone(cte.query) : cte.query
+			printed.add(cte.name)
 			return {
 				kind: "derived",
-				query: transformQuery(cte.query, hooks),
+				query: transformQuery(query, hooks),
 				alias: source.alias ?? cte.name,
 				lateral: false
 			}
@@ -509,7 +520,7 @@ const assertBlockPrintedOnce = (block: PlBlock): void => {
 const refuseInlinable = (holder: Holder, w: With): void => {
 	for (const cte of inPlaceCtes(holder, w).values()) {
 		defect(
-			`print once: the CTE ${cte.name} is read once, is not MATERIALIZED, writes nothing and calls no VOLATILE function, so PostgreSQL would inline it by a walk of the whole statement; the printer prints it in place (sql/print-once.ts)`
+			`print once: the CTE ${cte.name} is read once and not MATERIALIZED, or marked NOT MATERIALIZED, and writes nothing and calls no VOLATILE function, so PostgreSQL would inline it by a walk of the whole statement; the printer prints it in place (sql/print-once.ts)`
 		)
 	}
 }

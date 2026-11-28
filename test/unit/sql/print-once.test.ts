@@ -1,8 +1,9 @@
 /**
  * Print once (sql/print-once.ts): a statement's text states a CTE only where PostgreSQL plans it as one. A CTE the
- * statement reads exactly once, that is not MATERIALIZED, not recursive's and calls no VOLATILE function, PostgreSQL
- * inlines by a walk of the whole statement per CTE; the printer prints it in place, as the derived table that inlining
- * makes, and every other CTE stays one. A statement holding such a CTE is refused as an internal compiler error.
+ * statement reads exactly once, that is not MATERIALIZED, not recursive's and calls no VOLATILE function, and one
+ * marked NOT MATERIALIZED at every reference however many read it, PostgreSQL inlines by a walk of the whole statement
+ * per CTE (subselect.c SS_process_ctes); the printer prints it in place, as the derived table that inlining makes, and
+ * every other CTE stays one. A statement holding such a CTE is refused as an internal compiler error.
  *
  * Each case draws one to four CTEs, each plain, MATERIALIZED, NOT MATERIALIZED or calling a VOLATILE function, each
  * read by none, one or two references of the body, the CTE after it reading it once or not, under a WITH that is
@@ -19,6 +20,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { assertPrintedOnce, printedOnce } from "#compiler/sql/print-once.ts"
 import { printStatement } from "#compiler/sql/print.ts"
+import { assertScoped } from "#compiler/sql/scope.ts"
 import {
 	featuresOf,
 	inPlace,
@@ -59,6 +61,7 @@ export const everyCteAStatementReadsOnceIsPrintedInPlaceExactlyWherePostgreSQLWo
 					`${Formatter.format(shape)}: refused exactly where it holds a CTE PostgreSQL would inline`
 				)
 				assertPrintedOnce(printedOnce(statement))
+				assertScoped(printedOnce(statement))
 			}),
 		oracle: {
 			kind: "second-implementation",
@@ -69,15 +72,28 @@ export const everyCteAStatementReadsOnceIsPrintedInPlaceExactlyWherePostgreSQLWo
 		kills: [
 			{
 				file: "packages/engine/src/sql/print-once.ts",
-				original: "\treferences === 1 &&\n",
-				replacement: "\treferences >= 1 &&\n",
+				original: "\t\t: references === 1 && cte.materialized === undefined) &&\n",
+				replacement: "\t\t: references >= 1 && cte.materialized === undefined) &&\n",
 				why: "A CTE read twice printed at each reference: the one derivation printed and planned twice."
 			},
 			{
 				file: "packages/engine/src/sql/print-once.ts",
-				original: '\tcte.materialized !== "MATERIALIZED" &&\n',
-				replacement: "",
+				original: "\t\t: references === 1 && cte.materialized === undefined) &&\n",
+				replacement: "\t\t: references === 1) &&\n",
 				why: "A MATERIALIZED CTE printed in place: a fence its lowering asked for, gone."
+			},
+			{
+				file: "packages/engine/src/sql/print-once.ts",
+				original:
+					"\t\t\tconst query = printed.has(cte.name) ? structuredClone(cte.query) : cte.query\n",
+				replacement: "\t\t\tconst query = cte.query\n",
+				why: "A NOT MATERIALIZED CTE read twice printed at both references as one subtree: the statement prints one read twice, every alias in it written twice (Law 3), an internal compiler error of the scope check, where each reference is a copy of its own that the binding binds apart."
+			},
+			{
+				file: "packages/engine/src/sql/print-once.ts",
+				original: "\t\t? references >= 1\n",
+				replacement: "\t\t? references === 1\n",
+				why: "A NOT MATERIALIZED CTE read twice kept a CTE: PostgreSQL inlines it at both references, and the plan its binding carried names it a level PostgreSQL never plans (test/pg/lower-shapes/read-once's classifications)."
 			},
 			{
 				file: "packages/engine/src/sql/print-once.ts",

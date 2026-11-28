@@ -73,14 +73,17 @@ const referencesOf = (shape: StatementShape, i: number): number => {
 	return (own?.bodyReads ?? 0) + (own?.readByNext === true && i + 1 < shape.ctes.length ? 1 : 0)
 }
 
-/** Whether PostgreSQL would inline CTE `i` of `shape`, so print once prints it in place. */
+/**
+ * Whether PostgreSQL would inline CTE `i` of `shape`, so print once prints it in place (subselect.c SS_process_ctes): a
+ * plain one read once, and a NOT MATERIALIZED one at every reference however many read it (CTEMaterializeNever).
+ */
 export const inPlace = (shape: StatementShape, i: number): boolean => {
 	const own = shape.ctes[i]
+	const refs = referencesOf(shape, i)
 	return (
 		own !== undefined &&
 		!shape.recursive &&
-		referencesOf(shape, i) === 1 &&
-		(own.kind === "plain" || own.kind === "notMaterialized")
+		(own.kind === "plain" ? refs === 1 : own.kind === "notMaterialized" && refs >= 1)
 	)
 }
 
@@ -158,6 +161,7 @@ export const printedByHand = (shape: StatementShape): Select =>
 export type PrintOnceFeature =
 	| "a CTE printed in place"
 	| "a CTE read twice kept"
+	| "a NOT MATERIALIZED CTE read twice printed at each reference"
 	| "a MATERIALIZED CTE kept"
 	| "a CTE calling a VOLATILE function kept"
 	| "a recursive WITH kept"
@@ -166,6 +170,7 @@ export type PrintOnceFeature =
 export const printOnceFeatures: ReadonlyArray<PrintOnceFeature> = [
 	"a CTE printed in place",
 	"a CTE read twice kept",
+	"a NOT MATERIALIZED CTE read twice printed at each reference",
 	"a MATERIALIZED CTE kept",
 	"a CTE calling a VOLATILE function kept",
 	"a recursive WITH kept",
@@ -183,8 +188,11 @@ export const featuresOf = (shape: StatementShape): ReadonlyArray<PrintOnceFeatur
 				features.add("a chain printed in place")
 			}
 		}
-		if (refs === 2) {
+		if (refs === 2 && c.kind !== "notMaterialized") {
 			features.add("a CTE read twice kept")
+		}
+		if (refs === 2 && c.kind === "notMaterialized" && !shape.recursive) {
+			features.add("a NOT MATERIALIZED CTE read twice printed at each reference")
 		}
 		if (refs === 1 && c.kind === "materialized") {
 			features.add("a MATERIALIZED CTE kept")
